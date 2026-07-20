@@ -1,7 +1,35 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ReactNode } from 'react';
-import { oracle, type AgentSummary, type AisResponse } from '../services/oracle';
-import type { Agent, ProtocolStats, TabId } from '../types';
+import { oracle, type AgentSummary, type AisResponse, type PrimitiveSetDto } from '../services/oracle';
+import type { Agent, ContractType, OwnedContract, ProtocolStats, TabId } from '../types';
+
+// The agent's real deployed contracts in this protocol ARE its primitive set
+// (resolved on-chain via XibalbaAgentRegistry, returned by getAgent().primitives).
+// Map each non-zero primitive address to an OwnedContract labeled by its type.
+// Financial fields (revenue/collateral) have no source and stay 0 — real address,
+// honest zeros, never fabricated.
+const PRIMITIVE_CONTRACTS: { key: keyof PrimitiveSetDto; type: ContractType }[] = [
+  { key: 'sovereign_agent', type: 'SovereignAgent' },
+  { key: 'state_anchor', type: 'StateAnchor' },
+  { key: 'reputation_registry', type: 'ReputationRegistry' },
+  { key: 'slasher', type: 'Slasher' },
+  { key: 'verifier_registry', type: 'VerifierRegistry' },
+  { key: 'compliance_gate', type: 'ComplianceGate' },
+  { key: 'agent_profile', type: 'AgentProfile' },
+];
+function primitivesToContracts(p: PrimitiveSetDto, deployedAt: string): OwnedContract[] {
+  return PRIMITIVE_CONTRACTS.filter((l) => p[l.key] && !/^0x0+$/i.test(p[l.key])).map((l) => ({
+    contract_address: p[l.key],
+    contract_type: l.type,
+    deployed_at: deployedAt,
+    chain: 'Base Sepolia',
+    revenue_generated: 0,
+    collateral_value: 0,
+    is_collateralized: false,
+    claim_type: 'deployed',
+    status: 'active',
+  }));
+}
 import { DashboardContext } from './useDashboard';
 import type { ToastMessage } from './useDashboard';
 import { auth, googleProvider } from '../firebase';
@@ -165,6 +193,25 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         }),
       );
 
+      // The selected agent's real deployed contracts = its on-chain primitive
+      // set (getAgent().primitives). Fetched only for the focused agent (like
+      // the old per-selected credit fetch) to avoid N registry round-trips.
+      const currentAddr = selectedAgentAddr || (allAgents.length > 0 ? allAgents[0].eth_address : null);
+      if (currentAddr) {
+        try {
+          const detail = await oracle.getAgent(currentAddr);
+          const idx = allAgents.findIndex((a) => a.eth_address === currentAddr);
+          if (detail.primitives && idx >= 0) {
+            allAgents[idx] = {
+              ...allAgents[idx],
+              owned_contracts: primitivesToContracts(detail.primitives, allAgents[idx].registered_at),
+            };
+          }
+        } catch {
+          /* primitives unresolved (agent not fully registered) — leave unset */
+        }
+      }
+
       setAgents(allAgents);
       setIsBackendOffline(false);
 
@@ -180,7 +227,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
         aggregate_ais,
         protocol_staked_itk: allAgents.reduce((sum, a) => sum + (a.staked_itk || 0), 0),
         active_disputes: 0,
-        total_contracts: 0,
+        // Each registered agent owns its 7 primitive contracts (real deployed
+        // clones); the protocol total is that count. Markets/other contracts
+        // would add to this once their count endpoint exists.
+        total_contracts: allAgents.length * PRIMITIVE_CONTRACTS.length,
         total_loans_volume: 0,
         total_marketplace_volume: 0,
         tvl: 0,

@@ -100,8 +100,11 @@ contract first). These need `ConnectWalletButton` + signed txs against `deployme
      (`stakeOf`/`lockedStakeOf` → total/locked/available) read from the agent's own Slasher clone.
      Wired into `DashboardProvider`: `staked_itk` per agent and `protocol_staked_itk` are now
      real (were 0). Oracle builds green, 72+8 lib tests pass; chain read only exercised live.
-   - `/v1/agent/{id}/contracts` is **not needed** — `GET /v1/agent/{id}` already returns the
-     agent's resolved 7 primitive addresses; wire the ContractsPage to `getAgent().primitives`.
+   - ✅ ContractsPage / owned contracts — wired to real `getAgent().primitives` (no new endpoint):
+     `DashboardProvider` populates the focused agent's `owned_contracts` from its resolved 7
+     primitive addresses (labeled by type via extended `ContractType`); `total_contracts` is now
+     real (agents × 7 primitive clones) instead of 0. Feeds the ContractsPage hero + CreditPanel
+     contract dropdown + FactoryPanel. Financial fields (revenue/collateral) stay 0 — no source.
    - ⬜ `/v1/agent/{id}/credit` (A2ACapitalPool — getter names differ from Slasher's, need to read
      the contract source), `/v1/stats` (agent/decision counts are DB; disputes/TVL need chain
      reads). Both remain.

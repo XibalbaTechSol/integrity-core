@@ -7,7 +7,16 @@ export type ContractType =
   | 'InsurancePool'
   | 'LoanAgreement'
   | 'DIDRegistry'
-  | 'Custom';
+  | 'Custom'
+  // Real per-agent protocol primitives (resolved from XibalbaAgentRegistry via
+  // the oracle) — an agent's genuinely-owned on-chain contracts in this system.
+  | 'SovereignAgent'
+  | 'StateAnchor'
+  | 'ReputationRegistry'
+  | 'Slasher'
+  | 'VerifierRegistry'
+  | 'ComplianceGate'
+  | 'AgentProfile';
 
 export type ClaimType = 'deployed' | 'auditor' | 'collaborator';
 export type LoanStatus = 'active' | 'repaid' | 'defaulted' | 'liquidated';
