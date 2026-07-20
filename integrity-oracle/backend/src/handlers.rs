@@ -1504,6 +1504,53 @@ pub async fn ingest_audit_log(
     Ok(Json(AuditLogIngestResponse { id }))
 }
 
+// ---------------------------------------------------------------------------------
+// Anchor-event ingest (docs/design/evidence-export.md, Lever 4). bcc_middleware
+// posts here after it successfully anchors an agent's Merkle sub-tree on-chain, so
+// each anchored ALLOW decision can be joined to its StateAnchor transaction at
+// export time. Written to its own `anchor_events` table (NOT back-filled onto the
+// audit_log row) specifically so it does not depend on the decision row having
+// been committed first -- see the migration header for the write-ordering race
+// that motivates the JOIN design. Same best-effort, single-operator-trust posture
+// as /v1/audit/ingest (see that handler's note + PRODUCTION_GAPS.md).
+// ---------------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct AnchorEventIngestRequest {
+    pub agent_id: String,
+    /// 0x-prefixed keccak256 Merkle leaves that were committed in this anchor tx.
+    pub leaves: Vec<String>,
+    /// 0x-prefixed per-agent sub-tree root anchored on-chain.
+    pub root: String,
+    /// On-chain StateAnchor.anchorRoot transaction hash.
+    pub tx_hash: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AnchorEventIngestResponse {
+    /// Rows inserted (leaves already recorded are skipped idempotently).
+    pub recorded: u64,
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/audit/anchor",
+    request_body = AnchorEventIngestRequest,
+    responses(
+        (status = 200, description = "Anchor events recorded", body = AnchorEventIngestResponse),
+    ),
+    tag = "audit",
+)]
+pub async fn ingest_anchor_events(
+    State(state): State<AppState>,
+    Json(req): Json<AnchorEventIngestRequest>,
+) -> Result<Json<AnchorEventIngestResponse>, AppError> {
+    let recorded =
+        db::insert_anchor_events(&state.pool, &req.agent_id, &req.leaves, &req.root, &req.tx_hash)
+            .await?;
+    Ok(Json(AnchorEventIngestResponse { recorded }))
+}
+
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct AuditLogEntryDto {
     pub id: String,
@@ -1514,6 +1561,18 @@ pub struct AuditLogEntryDto {
     pub reason_code: Option<String>,
     pub detail: Option<String>,
     pub created_at: String,
+    // Evidence-export linkage (docs/design/evidence-export.md): for an ALLOW
+    // decision whose Merkle leaf has been anchored on-chain, these carry the
+    // per-agent StateAnchor root + transaction that committed it (LEFT JOINed
+    // from `anchor_events` on `metadata->>'leaf'`). Absent for un-anchored or
+    // non-BCC rows. Omitted from JSON when null so existing consumers are
+    // unaffected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub anchor_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub anchor_tx_hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub anchored_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1571,6 +1630,9 @@ pub async fn get_audit_log(
             reason_code: r.reason_code,
             detail: r.detail,
             created_at: r.created_at.to_rfc3339(),
+            anchor_root: r.anchor_root,
+            anchor_tx_hash: r.anchor_tx_hash,
+            anchored_at: r.anchored_at.map(|t| t.to_rfc3339()),
         })
         .collect();
 
@@ -1588,6 +1650,9 @@ pub async fn get_audit_log(
                 e.nonce, e.performance_variance, e.hgi_raw, e.zk_verified
             )),
             created_at: e.created_at.to_rfc3339(),
+            anchor_root: None,
+            anchor_tx_hash: None,
+            anchored_at: None,
         }));
 
         // Third real source: OTel spans, flat (not trace-tree-grouped) --
@@ -1609,6 +1674,9 @@ pub async fn get_audit_log(
                 reason_code: s.parent_span_id,
                 detail: Some(format!("trace_id={} duration_ms={}", s.trace_id, duration_ms)),
                 created_at: s.created_at.to_rfc3339(),
+                anchor_root: None,
+                anchor_tx_hash: None,
+                anchored_at: None,
             }
         }));
     }

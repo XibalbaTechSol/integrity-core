@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ShieldAlert, CheckCircle, XCircle, CodeSquare, AlertCircle, Clock, MinusCircle } from 'lucide-react';
+import { ShieldAlert, CheckCircle, XCircle, CodeSquare, AlertCircle, Clock, MinusCircle, Eye } from 'lucide-react';
 import { useAgent } from '../../contexts/AgentContext';
 import { oracle, type AuditLogEntryDto } from '../../services/oracle';
 import { NotionDatabase } from '../NotionDatabase';
@@ -20,6 +20,10 @@ import type { ColumnDef } from '@tanstack/react-table';
 const DECISION_BADGE: Record<string, string> = {
   allow: 'badge-success',
   deny: 'badge-danger',
+  // Monitor-only rollout: bcc_middleware in shadow mode reports what enforcement
+  // WOULD have blocked (app/audit.py decision="shadow_deny"). It's not a real
+  // block, so it reads as a warning, not a danger.
+  shadow_deny: 'badge-warning',
   flagged: 'badge-warning',
   recorded: 'badge-info',
   STATUS_CODE_OK: 'badge-success',
@@ -30,11 +34,18 @@ const DECISION_BADGE: Record<string, string> = {
 const DECISION_ICON: Record<string, React.ReactElement> = {
   allow: <CheckCircle size={14} />,
   deny: <XCircle size={14} />,
+  shadow_deny: <Eye size={14} />,
   flagged: <AlertCircle size={14} />,
   recorded: <AlertCircle size={14} />,
   STATUS_CODE_OK: <CheckCircle size={14} />,
   STATUS_CODE_ERROR: <XCircle size={14} />,
   STATUS_CODE_UNSET: <MinusCircle size={14} />,
+};
+
+// Human-facing label overrides where the raw decision string reads badly
+// uppercased (e.g. "shadow_deny" -> "WOULD-BE BLOCK").
+const DECISION_LABEL: Record<string, string> = {
+  shadow_deny: 'Would-be block',
 };
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -99,7 +110,7 @@ const COLUMNS: ColumnDef<AuditLogEntryDto>[] = [
       return (
         <span className={`badge ${DECISION_BADGE[decision] ?? 'badge-warning'}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 12px', textTransform: 'uppercase' }}>
           {DECISION_ICON[decision] ?? <AlertCircle size={14} />}
-          {decision.replace('STATUS_CODE_', '')}
+          {DECISION_LABEL[decision] ?? decision.replace('STATUS_CODE_', '')}
         </span>
       );
     },
@@ -130,11 +141,16 @@ export const AuditLogsPanel = () => {
   const counts = useMemo(() => {
     const bySource: Record<string, number> = {};
     let denyCount = 0;
+    let shadowCount = 0;
     for (const l of logs) {
       bySource[l.source] = (bySource[l.source] ?? 0) + 1;
       if (l.decision === 'deny' || l.decision === 'STATUS_CODE_ERROR') denyCount += 1;
+      // Monitor-only "would-be blocks" are tracked separately from real,
+      // enforced denials — they signal what shadow-mode enforcement caught
+      // without actually blocking (see bcc_middleware shadow_mode).
+      if (l.decision === 'shadow_deny') shadowCount += 1;
     }
-    return { bySource, denyCount };
+    return { bySource, denyCount, shadowCount };
   }, [logs]);
 
   const filteredLogs = useMemo(
@@ -156,7 +172,7 @@ export const AuditLogsPanel = () => {
           <p style={{ margin: '8px 0 0 0', color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.5 }}>
             Every real BCC policy decision, SDK telemetry submission, and OTel span for {selectedAgent ? `${selectedAgent.name || selectedAgent.id}` : 'the network'}
             {' '}in one time-ordered feed ({logs.length} entries: {counts.bySource.bcc_middleware ?? 0} BCC decisions, {counts.bySource.sdk_telemetry ?? 0} telemetry,{' '}
-            {counts.bySource.otel_span ?? 0} spans, {counts.denyCount} denied/errored). No client-side simulation — every row is a live query against the oracle's real tables.
+            {counts.bySource.otel_span ?? 0} spans, {counts.denyCount} denied/errored{counts.shadowCount > 0 ? `, ${counts.shadowCount} would-be blocks (shadow)` : ''}). No client-side simulation — every row is a live query against the oracle's real tables.
           </p>
         </div>
       </div>

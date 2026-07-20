@@ -751,6 +751,12 @@ pub struct AuditLogRow {
     pub reason_code: Option<String>,
     pub detail: Option<String>,
     pub created_at: DateTime<Utc>,
+    // Evidence-export linkage (migration 0007): LEFT JOINed from `anchor_events`
+    // on `metadata->>'leaf'`. Populated only for ALLOW rows whose Merkle leaf has
+    // been anchored on-chain; None otherwise.
+    pub anchor_root: Option<String>,
+    pub anchor_tx_hash: Option<String>,
+    pub anchored_at: Option<DateTime<Utc>>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -791,14 +797,21 @@ pub async fn get_recent_audit_log(
     agent_id: Option<&str>,
     limit: i64,
 ) -> Result<Vec<AuditLogRow>, sqlx::Error> {
+    // LEFT JOIN anchor_events on the ALLOW row's Merkle leaf (audit_log.metadata
+    // ->>'leaf', written at decision time) so an anchored decision carries its
+    // on-chain StateAnchor root + tx. LEFT (not INNER) so un-anchored and non-BCC
+    // rows still appear with null anchor fields. anchor_events.leaf is UNIQUE, so
+    // the join never fans a row out.
     match agent_id {
         Some(aid) => {
             sqlx::query_as::<_, AuditLogRow>(
                 r#"
-                SELECT id, agent_id, source, event_type, decision, reason_code, detail, created_at
-                FROM audit_log
-                WHERE agent_id = $1
-                ORDER BY created_at DESC
+                SELECT a.id, a.agent_id, a.source, a.event_type, a.decision, a.reason_code, a.detail, a.created_at,
+                       ae.root AS anchor_root, ae.tx_hash AS anchor_tx_hash, ae.anchored_at
+                FROM audit_log a
+                LEFT JOIN anchor_events ae ON ae.leaf = a.metadata->>'leaf'
+                WHERE a.agent_id = $1
+                ORDER BY a.created_at DESC
                 LIMIT $2
                 "#,
             )
@@ -810,9 +823,11 @@ pub async fn get_recent_audit_log(
         None => {
             sqlx::query_as::<_, AuditLogRow>(
                 r#"
-                SELECT id, agent_id, source, event_type, decision, reason_code, detail, created_at
-                FROM audit_log
-                ORDER BY created_at DESC
+                SELECT a.id, a.agent_id, a.source, a.event_type, a.decision, a.reason_code, a.detail, a.created_at,
+                       ae.root AS anchor_root, ae.tx_hash AS anchor_tx_hash, ae.anchored_at
+                FROM audit_log a
+                LEFT JOIN anchor_events ae ON ae.leaf = a.metadata->>'leaf'
+                ORDER BY a.created_at DESC
                 LIMIT $1
                 "#,
             )
@@ -821,6 +836,36 @@ pub async fn get_recent_audit_log(
             .await
         }
     }
+}
+
+/// Records the anchor events for one agent's just-anchored Merkle sub-tree:
+/// every `leaf` committed in the on-chain `tx_hash` under `root`. Idempotent —
+/// a leaf already recorded (a retried anchor report) is skipped via the UNIQUE
+/// (leaf) constraint rather than duplicated. Returns the number of new rows.
+/// See migration 0007 for why this is a separate table joined at read time
+/// rather than a back-fill onto audit_log.
+pub async fn insert_anchor_events(
+    pool: &PgPool,
+    agent_id: &str,
+    leaves: &[String],
+    root: &str,
+    tx_hash: &str,
+) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query(
+        r#"
+        INSERT INTO anchor_events (agent_id, leaf, root, tx_hash)
+        SELECT $1, leaf, $3, $4
+        FROM unnest($2::text[]) AS leaf
+        ON CONFLICT (leaf) DO NOTHING
+        "#,
+    )
+    .bind(agent_id)
+    .bind(leaves)
+    .bind(root)
+    .bind(tx_hash)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
 }
 
 // ---------------------------------------------------------------------------------
