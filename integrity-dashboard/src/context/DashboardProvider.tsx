@@ -153,13 +153,15 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       const summaries = await oracle.listAgents();
       const allAgents: Agent[] = await Promise.all(
         summaries.map(async (s) => {
-          let ais: AisResponse | null = null;
-          try {
-            ais = await oracle.getAis(s.id);
-          } catch {
-            /* agent has no computed AIS yet — scores default to 0 in mapOracleAgent */
-          }
-          return mapOracleAgent(s, ais);
+          // Real AIS + real on-chain stake, in parallel. Either failing degrades
+          // only that field (scores 0 / stake 0), never the whole load.
+          const [ais, stake] = await Promise.all([
+            oracle.getAis(s.id).catch(() => null),
+            oracle.getStake(s.id).catch(() => null),
+          ]);
+          const agent = mapOracleAgent(s, ais);
+          if (stake) agent.staked_itk = Number(stake.total_stake) / 1e18;
+          return agent;
         }),
       );
 
@@ -176,7 +178,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       setStats({
         active_nodes: allAgents.length,
         aggregate_ais,
-        protocol_staked_itk: 0,
+        protocol_staked_itk: allAgents.reduce((sum, a) => sum + (a.staked_itk || 0), 0),
         active_disputes: 0,
         total_contracts: 0,
         total_loans_volume: 0,

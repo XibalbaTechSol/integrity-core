@@ -65,6 +65,18 @@ sol! {
 }
 
 sol! {
+    // Slasher's per-agent stake accounting is exposed via two public mappings
+    // (contracts/src/oracle/Slasher.sol): total staked and the portion locked by
+    // open disputes. Available = total - locked. Read-only, keyed on the staker
+    // (the agent's SovereignAgent address).
+    #[sol(rpc)]
+    interface ISlasher {
+        function stakeOf(address account) external view returns (uint256);
+        function lockedStakeOf(address account) external view returns (uint256);
+    }
+}
+
+sol! {
     #[sol(rpc)]
     interface IComplianceGate {
         function vertical() external view returns (uint8);
@@ -158,6 +170,15 @@ pub struct AgentRecord {
     pub controller: Address,
     pub domain_id: B256,
     pub registered_at: U256,
+}
+
+/// An agent's on-chain stake accounting from its `Slasher` clone (read via
+/// `ChainClient::read_stake`). `available = total - locked`.
+#[derive(Debug, Clone)]
+pub struct StakeInfo {
+    pub total: U256,
+    pub locked: U256,
+    pub available: U256,
 }
 
 /// Plain-Rust mirror of an `IntegrityMarket` clone's on-chain view state, as read live
@@ -390,6 +411,21 @@ impl ChainClient {
     pub async fn is_zk_boosted(&self, reputation_registry: Address, agent: Address) -> Result<bool, ChainError> {
         let contract = IReputationRegistry::new(reputation_registry, self.provider.clone());
         Ok(contract.isZkBoosted(agent).call().await?)
+    }
+
+    /// Reads an agent's real stake accounting from its own `Slasher` clone:
+    /// total staked and the portion locked by open disputes (available = total
+    /// - locked). `account` is the staker — the agent's SovereignAgent address.
+    /// Two `view` calls, no state change (this client only ever reads).
+    pub async fn read_stake(&self, slasher: Address, account: Address) -> Result<StakeInfo, ChainError> {
+        let contract = ISlasher::new(slasher, self.provider.clone());
+        let total = contract.stakeOf(account).call().await?;
+        let locked = contract.lockedStakeOf(account).call().await?;
+        Ok(StakeInfo {
+            total,
+            locked,
+            available: total.saturating_sub(locked),
+        })
     }
 
     /// 0 = `Vertical.None`, 1 = `Vertical.Healthcare` (see `ComplianceGate.sol`'s enum —

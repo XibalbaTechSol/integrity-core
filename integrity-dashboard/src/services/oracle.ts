@@ -207,6 +207,13 @@ export interface TraceTreeResponse {
     roots: SpanTreeNode[];
 }
 
+export interface StakeDto {
+    agent_id: string;
+    total_stake: string;
+    locked_stake: string;
+    available_stake: string;
+}
+
 export interface ProvenanceEntryDto {
     id: string;
     agent_id: string;
@@ -312,6 +319,11 @@ export const oracle = {
     // anchored it + the policy decision that produced it.
     getProvenance: (id: string) =>
         get<ProvenanceEntryDto[]>(`/v1/agent/${encodeURIComponent(id)}/provenance`),
+
+    // Real on-chain stake accounting from the agent's Slasher clone
+    // (backend::handlers::get_stake). Values are decimal-string wei of $ITK.
+    getStake: (id: string) =>
+        get<StakeDto>(`/v1/agent/${encodeURIComponent(id)}/stake`),
 
     // EventSource doesn't take fetch-style options, so callers construct their own
     // `new EventSource(oracle.streamUrl(id))` — see hooks/useOracleStream.ts.

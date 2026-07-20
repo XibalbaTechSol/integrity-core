@@ -96,11 +96,15 @@ contract first). These need `ConnectWalletButton` + signed txs against `deployme
      provenance chain: Merkle leaf = input hash, StateAnchor root = output hash, anchoring tx =
      proof). Oracle builds green, 72+8 lib tests pass; live-DB join exercised only in the opt-in
      e2e suite.
-   - ⬜ `/v1/stats` (protocol-wide: agent count + decision counts are DB; stake/disputes/TVL need
-     chain reads), `/v1/agent/{id}/stake` (ReputationRegistry/Slasher via alloy),
-     `/v1/agent/{id}/credit` (A2ACapitalPool via alloy), `/v1/agent/{id}/contracts` (resolve
-     PrimitiveSet via XibalbaAgentRegistry). These need on-chain reads (alloy), heavier than the
-     DB-only provenance endpoint.
+   - ✅ `GET /v1/agent/{id}/stake` — real on-chain stake via a new `ISlasher` alloy binding
+     (`stakeOf`/`lockedStakeOf` → total/locked/available) read from the agent's own Slasher clone.
+     Wired into `DashboardProvider`: `staked_itk` per agent and `protocol_staked_itk` are now
+     real (were 0). Oracle builds green, 72+8 lib tests pass; chain read only exercised live.
+   - `/v1/agent/{id}/contracts` is **not needed** — `GET /v1/agent/{id}` already returns the
+     agent's resolved 7 primitive addresses; wire the ContractsPage to `getAgent().primitives`.
+   - ⬜ `/v1/agent/{id}/credit` (A2ACapitalPool — getter names differ from Slasher's, need to read
+     the contract source), `/v1/stats` (agent/decision counts are DB; disputes/TVL need chain
+     reads). Both remain.
 5. **Class C on-chain writes** — wagmi/viem tx wiring for register/identity/market/credit.
    (Governance blocked on a contract that doesn't exist — flag, don't fake.)
 6. **Landing page** — update all copy/stats to the real protocol (Base Sepolia addresses, real

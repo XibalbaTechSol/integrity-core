@@ -1603,6 +1603,46 @@ pub async fn get_provenance(
     Ok(Json(entries))
 }
 
+// Real on-chain stake (Class B, docs/design/dashboard-wiring.md). Reads the
+// agent's own Slasher clone. U256 values are serialized as decimal strings (wei
+// of $ITK) -- same convention as the market DTOs -- since they can exceed a
+// JSON-safe integer.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct StakeDto {
+    pub agent_id: String,
+    pub total_stake: String,
+    pub locked_stake: String,
+    pub available_stake: String,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/agent/{id}/stake",
+    params(("id" = String, Path, description = "Agent DID")),
+    responses(
+        (status = 200, description = "The agent's on-chain stake accounting", body = StakeDto),
+    ),
+    tag = "agent",
+)]
+pub async fn get_stake(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<StakeDto>, AppError> {
+    // Resolve the agent's own Slasher clone + staker address live from the
+    // registry (never guessed), then read its real stake accounting.
+    let record = state.chain.resolve_primitives_by_did(&id).await?;
+    let stake = state
+        .chain
+        .read_stake(record.primitives.slasher, record.primitives.sovereign_agent)
+        .await?;
+    Ok(Json(StakeDto {
+        agent_id: id,
+        total_stake: stake.total.to_string(),
+        locked_stake: stake.locked.to_string(),
+        available_stake: stake.available.to_string(),
+    }))
+}
+
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct AuditLogEntryDto {
     pub id: String,
