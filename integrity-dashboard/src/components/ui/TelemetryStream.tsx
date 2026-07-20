@@ -4,13 +4,15 @@ import axios from 'axios';
 import { Activity, Radio, ChevronDown, ChevronUp, Shield, Lock, FileCode, CheckCircle, AlertTriangle, Cpu, Terminal } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useIsMobile } from '../../utils/useIsMobile';
-import { API_BASE } from '../../constants';
+import { useDashboard } from '../../context/useDashboard';
+import { oracle } from '../../services/oracle';
 
 // Xibalba Solutions: Live Telemetry Stream Visualizer (v2.0)
 // Real-time scrolling feed with interactive deep-dive capabilities for agent researchers.
 
 export const TelemetryStream = () => {
     const isMobile = useIsMobile();
+    const { agents } = useDashboard();
     const [stream, setStream] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -20,23 +22,60 @@ export const TelemetryStream = () => {
     const [selectedTypeFilter, setSelectedTypeFilter] = useState('All');
     const [showAlertsOnly, setShowAlertsOnly] = useState(false);
 
+    // Real network-wide telemetry feed: the oracle exposes telemetry per-agent
+    // (there is no global /telemetry/latest endpoint), so aggregate the real
+    // TelemetryEventDetailDto stream across the live agent set, newest-first.
+    // `flagged` is the real alert signal; performance_variance maps to the row's
+    // discrepancy_ratio so the existing "alerts only" filter stays meaningful.
     useEffect(() => {
+        let cancelled = false;
         const fetchTelemetry = async () => {
             try {
-                const res = await axios.get(`${API_BASE}/v1/telemetry/latest`);
-                setStream(Array.isArray(res.data) ? res.data : []);
+                const perAgent = await Promise.all(
+                    agents.map((a) =>
+                        oracle
+                            .getTelemetry(a.eth_address)
+                            .then((events) =>
+                                events.map((e) => ({
+                                    id: e.id,
+                                    agent: a.alias,
+                                    agent_id: e.agent_id,
+                                    type: e.flagged ? 'FLAGGED' : 'RECORDED',
+                                    flagged: e.flagged,
+                                    created_at: e.created_at,
+                                    metadata: {
+                                        discrepancy_ratio: e.performance_variance,
+                                        hgi_raw: e.hgi_raw,
+                                        gpu_hours_verified: e.gpu_hours_verified,
+                                        zk_verified: e.zk_verified,
+                                        nonce: e.nonce,
+                                        leaf_hash: e.leaf_hash,
+                                    },
+                                })),
+                            )
+                            .catch(() => []),
+                    ),
+                );
+                const merged = perAgent
+                    .flat()
+                    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+                    .slice(0, 50);
+                if (!cancelled) setStream(merged);
             } catch (e) {
-                console.error("Telemetry fetch error:", e);
-                setStream([]);
+                console.error('Telemetry fetch error:', e);
+                if (!cancelled) setStream([]);
             } finally {
-                setLoading(false);
+                if (!cancelled) setLoading(false);
             }
         };
 
         fetchTelemetry();
         const interval = setInterval(fetchTelemetry, 5000);
-        return () => clearInterval(interval);
-    }, []);
+        return () => {
+            cancelled = true;
+            clearInterval(interval);
+        };
+    }, [agents]);
 
     // Get unique list of agent names from the telemetry stream
     const uniqueAgents = ['All', ...new Set(stream.map(item => item.agent).filter(Boolean))];

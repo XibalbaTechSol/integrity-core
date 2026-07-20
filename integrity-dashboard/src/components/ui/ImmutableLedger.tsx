@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
-import axios from 'axios';
 import { Search, ShieldCheck, ShieldAlert, Download, Terminal, ExternalLink, X, Copy, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ITK_TOKEN_ADDRESS, RPC_URL, API_BASE } from '../../constants';
+import { ITK_TOKEN_ADDRESS, RPC_URL } from '../../constants';
 import { useIsMobile } from '../../utils/useIsMobile';
 import ITK_ABI from '../abi/IntegrityToken.json';
 import { useDashboard } from '../../context/useDashboard';
@@ -34,23 +33,13 @@ export const ImmutableLedger: React.FC<ImmutableLedgerProps> = ({ agentAddress }
 
     const fetchLogs = async () => {
         try {
-            let combinedLogs: any[] = [];
-            
-            // 1. Try to fetch from the off-chain API first (highly responsive and covers offline/local development)
-            try {
-                const response = await axios.get(`${API_BASE}/v1/ledger/history`);
-                if (response.data && response.data.logs) {
-                    combinedLogs = response.data.logs.map((log: any) => ({
-                        ...log,
-                        value: log.contract_value_intg,
-                        contract_value_intg: log.contract_value_intg.toLocaleString()
-                    }));
-                }
-            } catch (apiErr) {
-                console.error("Ledger off-chain API fetch error:", apiErr);
-            }
+            const combinedLogs: any[] = [];
 
-            // 2. Try to fetch from Base Sepolia on-chain events to merge or enrich
+            // The ledger is the REAL on-chain ITK token transfer history on Base
+            // Sepolia. The legacy off-chain /v1/ledger/history endpoint has no
+            // equivalent in the new oracle, and the audit-log is a different
+            // concept (policy decisions, not token movements) that would
+            // misrepresent a financial ledger -- so this reads purely on-chain.
             try {
                 const provider = new ethers.JsonRpcProvider(RPC_URL);
                 const itkContract = new ethers.Contract(ITK_TOKEN_ADDRESS, ITK_ABI.abi, provider);

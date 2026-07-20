@@ -1551,6 +1551,58 @@ pub async fn ingest_anchor_events(
     Ok(Json(AnchorEventIngestResponse { recorded }))
 }
 
+// Provenance: an agent's on-chain-anchored history (Class B, docs/design/
+// dashboard-wiring.md). Reuses anchor_events + audit_log -- no chain call.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ProvenanceEntryDto {
+    pub id: String,
+    pub agent_id: String,
+    /// The committed intent type (the "action"), when the anchored leaf joins to
+    /// an audit_log decision row.
+    pub intent_type: Option<String>,
+    /// 0x keccak Merkle leaf of the committed intent (the provenance input hash).
+    pub leaf: String,
+    /// 0x per-agent StateAnchor root the leaf was committed under.
+    pub root: String,
+    /// On-chain StateAnchor.anchorRoot transaction hash.
+    pub tx_hash: String,
+    /// The policy decision that produced the leaf (allow / shadow_deny / …), if joined.
+    pub decision: Option<String>,
+    pub anchored_at: String,
+    pub created_at: Option<String>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/agent/{id}/provenance",
+    params(("id" = String, Path, description = "Agent DID")),
+    responses(
+        (status = 200, description = "The agent's on-chain-anchored provenance chain", body = Vec<ProvenanceEntryDto>),
+    ),
+    tag = "audit",
+)]
+pub async fn get_provenance(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<ProvenanceEntryDto>>, AppError> {
+    let rows = db::get_agent_provenance(&state.pool, &id, 100).await?;
+    let entries = rows
+        .into_iter()
+        .map(|r| ProvenanceEntryDto {
+            id: r.id.to_string(),
+            agent_id: r.agent_id,
+            intent_type: r.intent_type,
+            leaf: r.leaf,
+            root: r.root,
+            tx_hash: r.tx_hash,
+            decision: r.decision,
+            anchored_at: r.anchored_at.to_rfc3339(),
+            created_at: r.created_at.map(|t| t.to_rfc3339()),
+        })
+        .collect();
+    Ok(Json(entries))
+}
+
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct AuditLogEntryDto {
     pub id: String,

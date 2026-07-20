@@ -14,6 +14,59 @@ import {
   XCircle
 } from 'lucide-react';
 import { Panel } from '../shared/Panel';
+import { useDashboard } from '../../context/useDashboard';
+import { oracle, type SpanTreeNode } from '../../services/oracle';
+
+// --- Map the oracle's real OTel span tree onto this panel's Span/Session shape.
+// The renderer is unchanged; only the data source is (mock -> real getTraceTree).
+function runTypeFromKind(kind: string, name: string): Span['run_type'] {
+  const n = name.toLowerCase();
+  if (n.includes('llm') || n.includes('completion') || n.includes('chat') || n.includes('generat')) return 'llm';
+  if (n.includes('tool') || kind === 'SPAN_KIND_CLIENT') return 'tool';
+  if (n.includes('retriev') || n.includes('search') || n.includes('embed')) return 'retriever';
+  return 'chain';
+}
+function statusFromCode(code: string): Span['status'] {
+  if (code === 'STATUS_CODE_ERROR') return 'error';
+  if (code === 'STATUS_CODE_OK') return 'success';
+  return 'pending';
+}
+function numAttr(attrs: Record<string, unknown>, keys: string[]): number | undefined {
+  for (const k of keys) {
+    const v = attrs[k];
+    if (typeof v === 'number') return v;
+    if (typeof v === 'string' && v.trim() !== '' && !Number.isNaN(Number(v))) return Number(v);
+  }
+  return undefined;
+}
+function mapSpan(node: SpanTreeNode, traceId: string, parentId: string | null): Span {
+  const a = node.attributes || {};
+  return {
+    span_id: node.span_id,
+    trace_id: traceId,
+    parent_id: parentId,
+    name: node.name,
+    run_type: runTypeFromKind(node.kind, node.name),
+    start_time: node.start_time,
+    end_time: node.end_time,
+    attributes: a,
+    status: statusFromCode(node.status_code),
+    duration: node.duration_ms / 1000,
+    prompt_tokens: numAttr(a, ['llm.prompt_tokens', 'gen_ai.usage.prompt_tokens', 'prompt_tokens']),
+    completion_tokens: numAttr(a, ['llm.completion_tokens', 'gen_ai.usage.completion_tokens', 'completion_tokens']),
+    total_tokens: numAttr(a, ['llm.total_tokens', 'gen_ai.usage.total_tokens', 'total_tokens']),
+    total_cost: numAttr(a, ['llm.cost', 'gen_ai.usage.cost', 'total_cost']),
+  };
+}
+function flattenSpans(nodes: SpanTreeNode[], traceId: string, parentId: string | null): Span[] {
+  const out: Span[] = [];
+  for (const n of nodes) {
+    out.push(mapSpan(n, traceId, parentId));
+    const children = (n as { children?: SpanTreeNode[] }).children;
+    if (children && children.length) out.push(...flattenSpans(children, traceId, n.span_id));
+  }
+  return out;
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -142,25 +195,46 @@ const TraceTreeNode = ({ node, depth = 0, onTimeTravel }: { node: TraceNode, dep
 };
 
 export function TraceAnalysisPanel() {
+  const { selectedAgent } = useDashboard();
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [isRewinding, setIsRewinding] = useState(false);
   const [rewindSpan, setRewindSpan] = useState<Span | null>(null);
 
-  // Mock data for demonstration
-  const mockSession: Session = {
-    session_id: "sess_v7_9921",
-    overall_risk_score: 0.45,
-    traces: [{
-      trace_id: "tr_root_1",
-      spans: [
-        { span_id: "s1", trace_id: "tr_root_1", parent_id: null, name: "ReflectiveAgent.run", run_type: "chain", start_time: "2026-07-05T10:00:00Z", end_time: "2026-07-05T10:00:05Z", attributes: { "integrity.input": "Task: Audit Wallet" }, status: "success", duration: 5.0, prompt_tokens: 100, completion_tokens: 50, total_tokens: 150, total_cost: 0.002, feedback_stats: {} },
-        { span_id: "s2", trace_id: "tr_root_1", parent_id: "s1", name: "ReflectiveAgent.reflect", run_type: "chain", start_time: "2026-07-05T10:00:01Z", end_time: "2026-07-05T10:00:03Z", attributes: { "integrity.output": "Hypothesis: Use AuditTool" }, status: "success", duration: 2.0, prompt_tokens: 50, completion_tokens: 100, total_tokens: 150, total_cost: 0.001, feedback_stats: {} },
-        { span_id: "s3", trace_id: "tr_root_1", parent_id: "s1", name: "AuditTool.execute", run_type: "tool", start_time: "2026-07-05T10:00:03Z", end_time: "2026-07-05T10:00:04Z", attributes: { "integrity.output": "Balance: 10 ETH" }, status: "success", duration: 1.0, prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, total_cost: 0, feedback_stats: {} },
-      ]
-    }]
-  };
-
-  useEffect(() => { setSelectedSession(mockSession); }, []);
+  // Real chain-of-thought: the selected agent's most recent OTel trace, fetched
+  // from the oracle (getRecentTraces -> getTraceTree) and flattened into this
+  // panel's Span/Session shape. overall_risk_score is derived from the real
+  // error-span ratio rather than a fixed number.
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedAgent) {
+      setSelectedSession(null);
+      return;
+    }
+    (async () => {
+      try {
+        const recent = await oracle.getRecentTraces(selectedAgent.eth_address, 1);
+        if (!recent.length) {
+          if (!cancelled) setSelectedSession(null);
+          return;
+        }
+        const tree = await oracle.getTraceTree(recent[0].trace_id);
+        const spans = flattenSpans(tree.roots, tree.trace_id, null);
+        const errorCount = spans.filter((s) => s.status === 'error').length;
+        if (!cancelled) {
+          setSelectedSession({
+            session_id: tree.trace_id,
+            overall_risk_score: spans.length ? errorCount / spans.length : 0,
+            traces: [{ trace_id: tree.trace_id, spans }],
+          });
+        }
+      } catch {
+        if (!cancelled) setSelectedSession(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAgent]);
 
   const handleTimeTravel = (span: Span) => {
     setRewindSpan(span);

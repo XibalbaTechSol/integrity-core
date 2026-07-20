@@ -3,6 +3,7 @@ import { Panel } from '../shared/Panel';
 import { Search, Hash, Code, Link, Terminal, AlertTriangle, Activity, Play } from 'lucide-react';
 import { useDashboard } from '../../context/useDashboard';
 import { api } from '../../services/api';
+import { oracle } from '../../services/oracle';
 import type { ProvenanceEntry, StabilityBenchmark } from '../../types';
 
 // Interactive input component
@@ -101,8 +102,21 @@ export function DiagnosticsPanel() {
       
       setLoading(true);
       try {
-        const data = await api.getProvenance(selectedAgent.eth_address);
+        // Real, on-chain-anchored provenance (oracle /v1/agent/{id}/provenance,
+        // built on anchor_events + audit_log). Mapped onto the panel's
+        // ProvenanceEntry shape: the Merkle leaf is the input hash, the anchored
+        // StateAnchor root the output hash, and the anchoring tx the proof.
+        const prov = await oracle.getProvenance(selectedAgent.eth_address);
         if (mounted) {
+          const data: ProvenanceEntry[] = prov.map((p) => ({
+            id: p.id,
+            agent_address: p.agent_id,
+            action: p.intent_type || p.decision || 'commitment',
+            input_hash: p.leaf,
+            output_hash: p.root,
+            model_used: p.tx_hash ? `tx:${p.tx_hash.slice(0, 10)}…` : (p.decision || '—'),
+            timestamp: p.anchored_at || p.created_at || '',
+          }));
           setLogs(data);
           const mockSyslogs = [
             `[INFO] [${selectedAgent.alias}] Initializing OTel SDK trace providers...`,

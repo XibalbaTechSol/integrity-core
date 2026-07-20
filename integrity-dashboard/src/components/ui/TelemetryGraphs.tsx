@@ -10,62 +10,73 @@ import {
   ResponsiveContainer,
   Legend
 } from 'recharts';
-import { API_BASE } from '../../constants';
 import { useIsMobile } from '../../utils/useIsMobile';
+import { useDashboard } from '../../context/useDashboard';
+import { oracle } from '../../services/oracle';
 import { Activity, Filter } from 'lucide-react';
 
 export const TelemetryGraphs = () => {
   const isMobile = useIsMobile();
+  const { agents } = useDashboard();
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedAgents, setSelectedAgents] = useState<string[]>([]);
-  
-  // Default to multiple selected metrics
-  const [selectedMetrics, setSelectedMetrics] = useState<string[]>(['latency', 'accuracy']);
 
+  // Default to the real telemetry metrics the oracle actually reports.
+  const [selectedMetrics, setSelectedMetrics] = useState<string[]>(['performance_variance', 'hgi_raw']);
+
+  // Real telemetry time-series: aggregate each live agent's real
+  // TelemetryEventDetailDto stream (getTelemetry) into per-event chart points.
+  // The legacy chart's latency/accuracy/cpu/memory have no oracle source; the
+  // real fields (performance_variance, hgi_raw, gpu_hours_verified) do -- so the
+  // chart plots those rather than fabricating the missing ones.
   useEffect(() => {
+    let cancelled = false;
     const fetchTelemetry = async () => {
       try {
-        const res = await axios.get(`${API_BASE}/v1/telemetry/latest`);
-        if (Array.isArray(res.data)) {
-          const sorted = [...res.data].sort(
-            (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-          );
+        const perAgent = await Promise.all(
+          agents.map((a) =>
+            oracle
+              .getTelemetry(a.eth_address)
+              .then((events) =>
+                events.map((e) => ({ e, agent: a.alias })),
+              )
+              .catch(() => [] as { e: any; agent: string }[]),
+          ),
+        );
+        const sorted = perAgent
+          .flat()
+          .sort((x, y) => new Date(x.e.created_at).getTime() - new Date(y.e.created_at).getTime());
 
-          const formatted = sorted.map((d) => {
-            const date = new Date(d.timestamp);
-            return {
-              time: `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`,
-              latency: d.latency,
-              accuracy: d.accuracy * 100,
-              deal_value: d.deal_value || 0,
-              discrepancy_ratio: d.metadata?.discrepancy_ratio || 0,
-              semantic_drift: d.metadata?.semantic_drift || 0,
-              transaction_velocity: d.metadata?.transaction_velocity || 0,
-              cpu_percent: d.metadata?.environment?.cpu_percent || d.provider_metadata?.environment?.cpu_percent || 0,
-              memory_percent: d.metadata?.environment?.memory_percent || d.provider_metadata?.environment?.memory_percent || 0,
-              agent: d.agent || d.agent_alias || 'Unknown',
-            };
-          });
-          setData(formatted);
-          
-          // Auto select unique agents on first load
-          const unique = new Set<string>();
-          formatted.forEach(d => unique.add(d.agent));
-          const list = Array.from(unique);
-          setSelectedAgents(prev => prev.length === 0 ? list : prev);
-        }
+        const formatted = sorted.map(({ e, agent }) => {
+          const date = new Date(e.created_at);
+          return {
+            time: `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`,
+            performance_variance: e.performance_variance,
+            hgi_raw: e.hgi_raw,
+            gpu_hours_verified: e.gpu_hours_verified,
+            agent,
+          };
+        });
+
+        if (cancelled) return;
+        setData(formatted);
+        const unique = Array.from(new Set(formatted.map((d) => d.agent)));
+        setSelectedAgents((prev) => (prev.length === 0 ? unique : prev));
       } catch (e) {
-        console.error("Telemetry fetch error:", e);
+        console.error('Telemetry fetch error:', e);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
     fetchTelemetry();
     const interval = setInterval(fetchTelemetry, 3000);
-    return () => clearInterval(interval);
-  }, []);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [agents]);
 
   const uniqueAgentsList = useMemo(() => {
     const unique = new Set<string>();
@@ -73,15 +84,11 @@ export const TelemetryGraphs = () => {
     return Array.from(unique);
   }, [data]);
 
+  // Real telemetry metrics reported by the oracle (TelemetryEventDetailDto).
   const METRICS = [
-    { id: 'latency', label: 'Latency (ms)', color: '#f43f5e' },
-    { id: 'accuracy', label: 'Accuracy (%)', color: '#10b981' },
-    { id: 'deal_value', label: 'Deal Value (ITK)', color: '#d4af37' },
-    { id: 'discrepancy_ratio', label: 'Discrepancy Ratio', color: '#8b5cf6' },
-    { id: 'semantic_drift', label: 'Semantic Drift', color: '#ec4899' },
-    { id: 'transaction_velocity', label: 'Tx Velocity (hz)', color: '#0ea5e9' },
-    { id: 'cpu_percent', label: 'CPU Utilization (%)', color: '#f59e0b' },
-    { id: 'memory_percent', label: 'Memory Usage (%)', color: '#3b82f6' }
+    { id: 'performance_variance', label: 'Performance Variance', color: '#f43f5e' },
+    { id: 'hgi_raw', label: 'Grounding Index (HGI)', color: '#10b981' },
+    { id: 'gpu_hours_verified', label: 'GPU Hours Verified', color: '#d4af37' }
   ];
 
   const toggleMetric = (id: string) => {

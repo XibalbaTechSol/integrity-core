@@ -30,6 +30,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/telemetry/ingest", post(handlers::ingest_telemetry))
         .route("/v1/audit/ingest", post(handlers::ingest_audit_log))
         .route("/v1/audit/anchor", post(handlers::ingest_anchor_events))
+        .route("/v1/agent/{id}/provenance", get(handlers::get_provenance))
         .route("/v1/audit-log", get(handlers::get_audit_log))
         .route("/v1/markets", get(handlers::list_markets))
         .route("/v1/markets/{id}", get(handlers::get_market))

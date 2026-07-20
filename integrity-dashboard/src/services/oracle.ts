@@ -207,6 +207,18 @@ export interface TraceTreeResponse {
     roots: SpanTreeNode[];
 }
 
+export interface ProvenanceEntryDto {
+    id: string;
+    agent_id: string;
+    intent_type: string | null;
+    leaf: string;
+    root: string;
+    tx_hash: string;
+    decision: string | null;
+    anchored_at: string;
+    created_at: string | null;
+}
+
 export interface AuditLogEntryDto {
     id: string;
     agent_id: string | null;
@@ -294,6 +306,12 @@ export const oracle = {
         const qs = params.toString();
         return get<AuditLogEntryDto[]>(`/v1/audit-log${qs ? `?${qs}` : ''}`);
     },
+
+    // The agent's real on-chain-anchored provenance chain (backend::handlers::
+    // get_provenance) — each committed Merkle leaf + the StateAnchor root/tx that
+    // anchored it + the policy decision that produced it.
+    getProvenance: (id: string) =>
+        get<ProvenanceEntryDto[]>(`/v1/agent/${encodeURIComponent(id)}/provenance`),
 
     // EventSource doesn't take fetch-style options, so callers construct their own
     // `new EventSource(oracle.streamUrl(id))` — see hooks/useOracleStream.ts.

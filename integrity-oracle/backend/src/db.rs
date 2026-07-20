@@ -868,6 +868,47 @@ pub async fn insert_anchor_events(
     Ok(result.rows_affected())
 }
 
+// Provenance: an agent's real, on-chain-anchored history -- each Merkle leaf it
+// committed, the StateAnchor root+tx that anchored it, and (via the same
+// metadata->>'leaf' join the audit-log uses) the policy decision that produced
+// it. Pure read over anchor_events + audit_log, no chain call. See
+// docs/design/evidence-export.md / dashboard-wiring.md (Class B).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ProvenanceRow {
+    pub id: Uuid,
+    pub agent_id: String,
+    pub leaf: String,
+    pub root: String,
+    pub tx_hash: String,
+    pub anchored_at: DateTime<Utc>,
+    pub decision: Option<String>,
+    pub reason_code: Option<String>,
+    pub intent_type: Option<String>,
+    pub created_at: Option<DateTime<Utc>>,
+}
+
+pub async fn get_agent_provenance(
+    pool: &PgPool,
+    agent_id: &str,
+    limit: i64,
+) -> Result<Vec<ProvenanceRow>, sqlx::Error> {
+    sqlx::query_as::<_, ProvenanceRow>(
+        r#"
+        SELECT ae.id, ae.agent_id, ae.leaf, ae.root, ae.tx_hash, ae.anchored_at,
+               a.decision, a.reason_code, a.intent_type, a.created_at
+        FROM anchor_events ae
+        LEFT JOIN audit_log a ON a.metadata->>'leaf' = ae.leaf
+        WHERE ae.agent_id = $1
+        ORDER BY ae.anchored_at DESC
+        LIMIT $2
+        "#,
+    )
+    .bind(agent_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
 // ---------------------------------------------------------------------------------
 // otel_spans (real OTLP receiver storage, see otlp.rs) + time-bucketed history
 // (PRODUCTION_GAPS.md §1 items 2-3) — see migration 0004's header comment for why
