@@ -108,7 +108,7 @@ export const FinancePage = () => {
         ))}
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0 24px 24px 24px' }}>
+      <div className="custom-scrollbar" style={{ flex: 1, overflowY: 'auto', padding: '0 24px 24px 24px' }}>
         
         {activeTab === 'wallet' && (
           <div style={{ maxWidth: '1000px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>

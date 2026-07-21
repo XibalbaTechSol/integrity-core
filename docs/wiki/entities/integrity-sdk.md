@@ -20,8 +20,10 @@ source_files:
   - integrity-sdk/integrity_sdk/telemetry/metrics.py
   - integrity-sdk/integrity_sdk/integrations/openai_integrity.py
   - integrity-sdk/integrity_sdk/integrations/langchain_callback.py
+  - integrity-sdk/integrity_sdk/integrations/auto_hook.py
   - integrity-sdk/integrity_sdk/security/redactor.py
 ---
+
 
 The agent-facing Python library. It gives an AI agent everything it needs to
 become a self-sovereign, on-chain, reputation-bearing participant.

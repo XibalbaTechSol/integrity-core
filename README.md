@@ -96,6 +96,18 @@ state changes route through `SovereignAgent.execute(...)`. See
 [`docs/INTERFACE_CONTRACT.md`](docs/INTERFACE_CONTRACT.md) §6 for the full
 convention and the one bootstrap exception.
 
+### Sovereign vs. Centralized Deployments
+
+When building and deploying applications on the protocol, developers must choose between two deployment topologies depending on whether the smart contract serves an individual agent or the entire platform:
+
+| Feature | Sovereign Mode (Agent-Owned Clones) | Centralized Mode (EOA-Owned Singletons) |
+|---|---|---|
+| **Architecture** | EIP-1167 minimal-proxy clones unique to each agent. | Monolithic global singleton contracts shared by all agents. |
+| **Ownership** | Admin/owner role is the agent's `SovereignAgent` contract address. | Admin/owner role is the platform operator's or DAO's EOA/multisig key. |
+| **Call Routing** | Admin actions must route through `SovereignAgent.execute()`. | Direct EOA interaction with the target contract. |
+| **Typical Use Cases** | `IntegrityMarket` (individual prediction clones), task/service escrows, custom A2A agreements. | `A2ACapitalPool` (global allocation venue), `XibalbaAgentRegistry`, regulatory portals (`CoveredEntityRegistry`). |
+| **Key Implications** | High gas efficiency (cloning), sandboxed liabilities (isolated stakes), and self-sovereign controller key rotation. | Unified liquidity, centralized verification guardrails, and platform-wide parameter standards. |
+
 ---
 
 ## Packages

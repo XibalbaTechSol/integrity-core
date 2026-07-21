@@ -2,7 +2,7 @@
 
 > Content catalog. Every page represents something that actually exists in
 > the codebase right now — see the schema's "no aspirational content" rule.
-> Last updated: 2026-07-15 | Total pages: 26 (18 concepts, 8 entities)
+> Last updated: 2026-07-20 | Total pages: 26 (18 concepts, 8 entities)
 
 ## Acronym glossary
 - [AIS](concepts/ais.md) — Agent Integrity Score

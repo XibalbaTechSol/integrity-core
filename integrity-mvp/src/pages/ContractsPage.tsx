@@ -115,6 +115,7 @@ export const ContractsPage = () => {
   const [agentAis, setAgentAis] = useState<any | null>(null);
   const [isLoadingAgent, setIsLoadingAgent] = useState(false);
 
+  const [deploymentMode, setDeploymentMode] = useState<'sovereign' | 'centralized'>('sovereign');
   const [openTabs, setOpenTabs] = useState<string[]>([]);
   const [deployedContracts, setDeployedContracts] = useState<{name: string, address: string}[]>([]);
   const [rightPanelTab, setRightPanelTab] = useState<'agent' | 'deployed'>('agent');
@@ -197,14 +198,34 @@ export const ContractsPage = () => {
 
   const handleDeploy = () => {
     if (!activeContract) return;
-    appendLog(`[deploy] Deploying ${activeContract.name} to Base Sepolia...`);
-    setTimeout(() => appendLog(`[system] Awaiting confirmation...`), 800);
-    setTimeout(() => {
-      const mockAddress = '0x' + Math.random().toString(16).substring(2, 42).padEnd(40, '0');
-      appendLog(`[success] ${activeContract.name} deployed at ${mockAddress}`);
-      setDeployedContracts(prev => [...prev, { name: activeContract.name, address: mockAddress }]);
-      setRightPanelTab('deployed');
-    }, 2000);
+    
+    appendLog(`[deploy] Initiating deployment for ${activeContract.name}...`);
+    
+    if (deploymentMode === 'sovereign') {
+      if (!activeAgent) {
+        appendLog(`[error] Sovereign deployment requires a connected agent. Please select an agent from the workspace first.`);
+        return;
+      }
+      appendLog(`[deploy] Deploying ${activeContract.name} in SOVEREIGN mode (Ownership will be assigned to agent ${activeAgent.id.substring(0, 8)}...)`);
+      setTimeout(() => appendLog(`[system] Constructing deployment payload...`), 400);
+      setTimeout(() => appendLog(`[system] Routing deployment call through SovereignAgent.execute() at ${agentPrimitives?.sovereign_agent || '0x...'}`), 800);
+      setTimeout(() => appendLog(`[system] Generating EIP-1167 minimal-proxy clone...`), 1200);
+      setTimeout(() => {
+        const mockAddress = '0x' + Math.random().toString(16).substring(2, 42).padEnd(40, '0');
+        appendLog(`[success] Sovereign clone of ${activeContract.name} successfully registered at ${mockAddress}`);
+        setDeployedContracts(prev => [...prev, { name: `${activeContract.name} (Sovereign Proxy)`, address: mockAddress }]);
+        setRightPanelTab('deployed');
+      }, 2000);
+    } else {
+      appendLog(`[deploy] Deploying ${activeContract.name} in CENTRALIZED mode (Ownership will be assigned directly to your EOA wallet)`);
+      setTimeout(() => appendLog(`[system] Broadcasting raw deployment transaction...`), 600);
+      setTimeout(() => {
+        const mockAddress = '0x' + Math.random().toString(16).substring(2, 42).padEnd(40, '0');
+        appendLog(`[success] Centralized contract ${activeContract.name} deployed directly at ${mockAddress}`);
+        setDeployedContracts(prev => [...prev, { name: `${activeContract.name} (Centralized)`, address: mockAddress }]);
+        setRightPanelTab('deployed');
+      }, 2000);
+    }
   };
 
   const getContractCode = (name: string) => {
@@ -257,14 +278,73 @@ export const ContractsPage = () => {
           <SeededDataBadge label="Build/Deploy/calls below are simulated — no compiler or deploy route exists" />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {/* Deployment Mode Selector */}
+          <div style={{ display: 'flex', alignItems: 'center', backgroundColor: 'var(--bg-main)', padding: '2px', borderRadius: '6px', border: '1px solid var(--border-color)', gap: '2px' }}>
+            <button 
+              onClick={() => {
+                setDeploymentMode('sovereign');
+                appendLog('[system] Switched target to SOVEREIGN mode (EIP-1167 proxy owned by SovereignAgent).');
+              }}
+              style={{
+                padding: '4px 10px',
+                fontSize: '11px',
+                fontWeight: 600,
+                borderRadius: '4px',
+                border: 'none',
+                cursor: 'pointer',
+                backgroundColor: deploymentMode === 'sovereign' ? 'var(--accent-primary)' : 'transparent',
+                color: deploymentMode === 'sovereign' ? 'var(--bg-main)' : 'var(--text-muted)',
+                transition: 'all 0.15s ease'
+              }}
+              title="Deploys as an EIP-1167 minimal-proxy clone. Admin/owner role is assigned to the agent's SovereignAgent contract."
+            >
+              Sovereign (Agent)
+            </button>
+            <button 
+              onClick={() => {
+                setDeploymentMode('centralized');
+                appendLog('[system] Switched target to CENTRALIZED mode (Direct EOA-owned singleton).');
+              }}
+              style={{
+                padding: '4px 10px',
+                fontSize: '11px',
+                fontWeight: 600,
+                borderRadius: '4px',
+                border: 'none',
+                cursor: 'pointer',
+                backgroundColor: deploymentMode === 'centralized' ? 'var(--gold)' : 'transparent',
+                color: deploymentMode === 'centralized' ? 'black' : 'var(--text-muted)',
+                transition: 'all 0.15s ease'
+              }}
+              title="Deploys directly to the chain. Admin/owner role is assigned directly to your active EOA key."
+            >
+              Centralized (EOA)
+            </button>
+          </div>
+
           <button className="btn btn-secondary" style={{ padding: '6px 14px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => appendLog('State saved locally.')}>
             <Save size={14} /> Save
           </button>
           <button className="btn btn-primary" style={{ padding: '6px 14px', fontSize: '13px', background: 'var(--accent-primary)', color: 'var(--bg-main)', border: 'none', display: 'flex', alignItems: 'center', gap: '6px' }} onClick={handleBuild}>
             <Cpu size={14} /> Build
           </button>
-          <button className="btn btn-primary" style={{ padding: '6px 14px', fontSize: '13px', background: 'var(--gold)', color: 'black', border: 'none', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 'bold' }} onClick={handleDeploy}>
-            <ShieldCheck size={14} /> Deploy
+          <button 
+            className="btn btn-primary" 
+            style={{ 
+              padding: '6px 14px', 
+              fontSize: '13px', 
+              background: deploymentMode === 'sovereign' ? 'var(--accent-primary)' : 'var(--gold)', 
+              color: deploymentMode === 'sovereign' ? 'var(--bg-main)' : 'black', 
+              border: 'none', 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '6px', 
+              fontWeight: 'bold',
+              transition: 'all 0.2s ease'
+            }} 
+            onClick={handleDeploy}
+          >
+            <ShieldCheck size={14} /> Deploy {deploymentMode === 'sovereign' ? '(Sovereign)' : '(Centralized)'}
           </button>
         </div>
       </div>
@@ -277,7 +357,7 @@ export const ContractsPage = () => {
           <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border-color)', fontWeight: 'bold', fontSize: '13px', textTransform: 'uppercase' }}>
             <Folder size={14} style={{ display: 'inline', marginRight: '6px' }} /> Workspace
           </div>
-          <div style={{ flex: 1, overflowY: 'auto' }}>
+          <div className="custom-scrollbar" style={{ flex: 1, overflowY: 'auto' }}>
             
             {/* Smart Contracts Folder */}
             <div 
@@ -438,7 +518,7 @@ export const ContractsPage = () => {
           <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
             {rightPanelTab === 'agent' ? (
               activeAgent ? (
-                <div style={{ padding: '24px', overflowY: 'auto', height: '100%', fontFamily: 'var(--font-mono)', fontSize: '13px', color: '#d4d4d4', backgroundColor: '#1e1e1e' }}>
+                <div className="custom-scrollbar" style={{ padding: '24px', overflowY: 'auto', height: '100%', fontFamily: 'var(--font-mono)', fontSize: '13px', color: '#d4d4d4', backgroundColor: '#1e1e1e' }}>
                 <div style={{ marginBottom: '16px', color: '#569cd6' }}>
                   <ShieldCheck style={{ display: 'inline', verticalAlign: 'middle', marginRight: '8px' }} size={16} />
                   // AgentPrimitivesFactory: 7 Primitive Contract Statuses
@@ -499,7 +579,7 @@ export const ContractsPage = () => {
               </div>
             )
           ) : (
-              <div style={{ padding: '24px', overflowY: 'auto', height: '100%', fontFamily: 'var(--font-mono)', fontSize: '13px', color: '#d4d4d4', backgroundColor: '#1e1e1e' }}>
+              <div className="custom-scrollbar" style={{ padding: '24px', overflowY: 'auto', height: '100%', fontFamily: 'var(--font-mono)', fontSize: '13px', color: '#d4d4d4', backgroundColor: '#1e1e1e' }}>
                 <div style={{ marginBottom: '16px', color: '#569cd6' }}>
                   <Play style={{ display: 'inline', verticalAlign: 'middle', marginRight: '8px' }} size={16} />
                   // Deployed Contracts (Local Base Sepolia Fork)

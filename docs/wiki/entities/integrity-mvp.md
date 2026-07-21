@@ -1,7 +1,7 @@
 ---
 title: integrity-mvp
 created: 2026-07-07
-updated: 2026-07-16
+updated: 2026-07-18
 type: entity
 tags: [infrastructure, sdk]
 confidence: high
@@ -9,8 +9,10 @@ source_files:
   - integrity-mvp/src/App.tsx
   - integrity-mvp/src/config.ts
   - integrity-mvp/src/chain/wagmi.ts
+  - integrity-mvp/src/chain/bytecode.ts
   - integrity-mvp/src/chain/deployments.ts
   - integrity-mvp/src/chain/abis.ts
+  - integrity-mvp/src/components/RegisterAgentModal.tsx
   - integrity-mvp/src/hooks/useSovereignAgentWrite.ts
   - integrity-mvp/src/services/oracle.ts
   - integrity-mvp/src/services/userapi.ts
@@ -180,6 +182,13 @@ with real backend/chain wiring and a Notion-style drag-and-drop widget layout en
     - `IdentityPage`: Fundamentally refactored to replicate the core layout and aesthetics of the legacy `integrity-dashboard` codebase. Replaced giant glassmorphism panels with a compact Agent Status Strip (DID, AIS, Tier, TEE), a dedicated Hero Bar, and a sub-navigation tab interface sorting components into `Identity & DID`, `Enclave & Security`, `Economic Capacity`, and `Credentials`. 
     - `XNS`: Fully wired the `XNSSearchService` into the Identity page's UI layout.
     - `ContractsPage`: Expanded the IDE workstation with full features: multi-tab editor for files, interactive build/deploy panel, and a dynamic "Deployed Contracts" inspector that generates interactive ABI buttons via source code regex analysis.
+11. **On-chain primitives deployment and XNS registration (2026-07-18).**
+    - Decompiled and bundled compiled Foundry bytecodes for `SovereignAgent` and `StateAnchor` into `bytecode.ts`.
+    - Built the `RegisterAgentModal` step-by-step deployment wizard, implementing real, mock-free transactions to deploy core contracts, authorize the oracle signer via SovereignAgent proxy execution, deploy proxy clones via the `AgentPrimitivesFactory`, and sync indexing with the Oracle database.
+    - Upgraded the `IdentityPage` to support real on-chain reads for active primitive addresses, status indicators, and audit logging feeds.
+    - Fully integrated write routing using `SovereignAgent.execute` to delegate `register` calls to the `XibalbaNameService` contract.
+    - Re-implemented `XNSSearchService` to perform real read-only contract resolutions mapping handles to identities on-chain.
+    - Consolidated DID, XNS management, claim/registration actions, history logs, security credentials, and the 7 primitive contracts onto a single tabless page layout, displaying the primitives in a structured status table.
 
 ## `TriMetricWidget` fixed 2026-07-15 — was the most severe fake-data surface in the dashboard
 

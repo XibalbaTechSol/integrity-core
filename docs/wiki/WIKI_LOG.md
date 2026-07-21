@@ -3,7 +3,13 @@
 > Chronological record of wiki actions. Append-only — never edit past entries.
 > Actions: ingest, create, update, lint, query, archive
 
+## [2026-07-21] update | integrity-sdk auto_hook integration
+- Implemented `integrity_sdk.integrations.auto_hook` featuring `enable_auto_hooks()`.
+- Provides global zero-code instrumentation and framework auto-patching (including Antigravity MoE `Subagent.execute_task`) for continuous trace generation & Oracle telemetry ingestion.
+- Added `tests/unit/test_auto_hook.py` unit test suite; verified clean pass (`109 passed`).
+
 ## [2026-07-07] create | Wiki initialized for the from-scratch rewrite
+
 - Rebuilding the Integrity Protocol monorepo at `INTEGRITY-LATEST/` from
   scratch, after an audit of the old `INTEGRITY/` prototype found working
   code alongside protocol-critical pieces (ZK proving, TEE attestation, OPA
@@ -2349,3 +2355,33 @@ SESSION". (5) DevAutoLogin makes admin@xibalba.dev the default demo/test
 session via real POST /auth/login, env-gated and local-only. Full
 regression green: frontend build/lint, oracle 72+8, SDK 139, bcc 91. Full
 writeup: PRODUCTION_GAPS.md §18.
+
+## [2026-07-18] update | Deployed on-chain primitives and XNS registration wizard in the frontend
+
+- Created `RegisterAgentModal` step-by-step wizard using wagmi/viem to deploy `SovereignAgent` and `StateAnchor` contracts using compiled bytecodes (bundled in `bytecode.ts`).
+- Integrated `AgentPrimitivesFactory.registerPrimitives` call in the wizard to clone and register the remaining 5 primitives (ReputationRegistry, Slasher, VerifierRegistry, ComplianceGate, AgentProfile) on-chain.
+- Implemented real `POST /v1/agent/register` sync to index the newly registered primitives in the off-chain Xibalba Identity Oracle.
+- Upgraded `IdentityPage.tsx` with a compact status strip checking active primitive contract addresses on-chain, and displaying real audit feeds.
+- Integrated `SovereignAgent.execute` delegate call execution to support real on-chain handle registrations on the `XibalbaNameService` contract.
+- Reworked `XNSSearchService.tsx` to read the `XibalbaNameService` contract directly on-chain for name-to-address resolutions.
+- Consolidated all agent actions, DID, XNS management, telemetry history, security details, and credentials onto a single tabless page.
+- Created a high-density, structured On-chain Primitives status table detailing primitive names, addresses (with scanner links), deploy status, and architectural roles.
+- Verified all unit and E2E tests are green and production build compiles cleanly.
+
+## [2026-07-18] update | Visual audit corrections and Agents onboarding flow consolidation
+
+- Wired up "Register New Agent" form fields and Deploy button on `AgentsPage.tsx` to the real on-chain `RegisterAgentModal` deployment wizard, replacing the previous mock warning.
+- Dynamic input propagation: configured the onboarding modal to receive `initialAlias` and slugify/derive DID & IPFS profiles automatically on trigger.
+- Fixed layout clipping on the Protocol Sandbox: increased the default layout height of the sandbox widget to `h: 7` in `DashboardPage.tsx` and added defensive migration logic to upgrade legacy browser settings.
+- Styled Sandbox Console: added custom input range, number, select, and result-row styling in `index.css` to match the dashboard's navy & gold aesthetic.
+- Enhanced global scrollbars: implemented thin webkit-scrollbar overrides matching the theme, eliminating standard light browser scrollbars on scrollable containers.
+- Re-verified full-page layouts and compile success via clean build logs and Playwright screenshot audit.
+
+## [2026-07-20] update | Deployed Sovereign vs. Centralized contract deployment selector in IDE & updated documentation
+
+- Added an explicit deployment mode selector (Sovereign Mode vs. Centralized Mode) in the `ContractsPage.tsx` IDE toolbar.
+- Sovereign Mode routes deployment via `SovereignAgent.execute` to register the contract as an EIP-1167 proxy owned by the agent's identity contract.
+- Centralized Mode deploys the contract directly to the blockchain with the deployer's EOA wallet acting as the owner.
+- Dynamic Deploy button style updates to show mode state and prevent errors.
+- Documented Sovereign vs. Centralized deployment topologies and their architectural implications in the root `README.md` and the `agent-primitives.md` concept page in the wiki.
+- Re-verified frontend compilation builds cleanly.

@@ -55,7 +55,7 @@ const DEFAULT_LAYOUTS = {
     { i: 'leaderboard', x: 0, y: 7, w: 4, h: 3, minW: 3, minH: 3 },
     { i: 'nodes', x: 4, y: 7, w: 4, h: 3, minW: 4, minH: 2 },
     { i: 'events', x: 8, y: 7, w: 4, h: 3, minW: 4, minH: 2 },
-    { i: 'sandbox', x: 0, y: 10, w: 12, h: 3, minW: 6, minH: 3 }
+    { i: 'sandbox', x: 0, y: 10, w: 12, h: 7, minW: 6, minH: 3 }
   ],
   md: [
     { i: 'tri-metric', x: 0, y: 0, w: 10, h: 3, minW: 6, minH: 3 },
@@ -66,7 +66,7 @@ const DEFAULT_LAYOUTS = {
     { i: 'nodes', x: 5, y: 7, w: 5, h: 3, minW: 4, minH: 2 },
     { i: 'events', x: 0, y: 10, w: 5, h: 3, minW: 4, minH: 2 },
     { i: 'latency', x: 5, y: 10, w: 5, h: 3, minW: 3, minH: 2 },
-    { i: 'sandbox', x: 0, y: 13, w: 10, h: 3, minW: 6, minH: 3 }
+    { i: 'sandbox', x: 0, y: 13, w: 10, h: 7, minW: 6, minH: 3 }
   ]
 };
 
@@ -89,7 +89,17 @@ export const DashboardPage = () => {
     if (savedWidgets && savedLayouts) {
       try {
         setWidgets(JSON.parse(savedWidgets));
-        setLayouts(JSON.parse(savedLayouts));
+        const parsedLayouts = JSON.parse(savedLayouts);
+        // Defensively ensure sandbox has enough height
+        Object.keys(parsedLayouts).forEach(breakpoint => {
+          parsedLayouts[breakpoint] = parsedLayouts[breakpoint].map((l: any) => {
+            if (l.i === 'sandbox' && l.h < 7) {
+              return { ...l, h: 7 };
+            }
+            return l;
+          });
+        });
+        setLayouts(parsedLayouts);
       } catch {
         setWidgets(DEFAULT_WIDGETS);
         setLayouts(DEFAULT_LAYOUTS);
@@ -255,7 +265,7 @@ export const DashboardPage = () => {
         </button>
       </TopBar>
 
-      <div className="page-content" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', paddingBottom: '32px', position: 'relative' }}>
+      <div className="page-content custom-scrollbar" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', paddingBottom: '32px', position: 'relative' }}>
         
         {/* Animated Background Gradients */}
         <div style={{ position: 'absolute', top: '-10%', left: '-10%', width: '40vw', height: '40vw', background: 'radial-gradient(circle, rgba(59,130,246,0.1) 0%, transparent 60%)', filter: 'blur(80px)', pointerEvents: 'none', zIndex: 0 }} />

@@ -5,7 +5,7 @@ import { NotionDatabase } from '../components/NotionDatabase';
 import { createColumnHelper } from '@tanstack/react-table';
 import { oracle, type AgentSummary } from '../services/oracle';
 import { ClaimAgentModal } from '../components/ClaimAgentModal';
-import { SeededDataBadge } from '../shared/SeededDataBadge';
+import { RegisterAgentModal } from '../components/RegisterAgentModal';
 
 interface AgentRow extends AgentSummary {
   ais: number | null;
@@ -19,6 +19,9 @@ export const AgentsPage = () => {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [claimAddress, setClaimAddress] = useState('');
   const [isClaimModalOpen, setIsClaimModalOpen] = useState(false);
+  const [agentName, setAgentName] = useState('');
+  const [operatingEnclave, setOperatingEnclave] = useState('AWS Nitro Enclave');
+  const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
 
   const refetchAgents = async () => {
     try {
@@ -103,24 +106,41 @@ export const AgentsPage = () => {
             <div style={{ display: 'flex', gap: '16px' }}>
               <div style={{ flex: 1 }}>
                 <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Agent Name</label>
-                <input type="text" className="input-field" placeholder="e.g. Clinical Auditor v3" style={{ width: '100%', background: 'var(--bg-main)' }} />
+                <input
+                  type="text"
+                  className="input-field"
+                  placeholder="e.g. Clinical Auditor v3"
+                  value={agentName}
+                  onChange={e => setAgentName(e.target.value)}
+                  style={{ width: '100%', background: 'var(--bg-main)' }}
+                />
               </div>
               <div style={{ flex: 1 }}>
                 <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Operating Enclave</label>
-                <select className="input-field" style={{ width: '100%', background: 'var(--bg-main)', color: 'var(--text-primary)' }}>
-                  <option>AWS Nitro Enclave</option>
-                  <option>Azure Confidential VM</option>
-                  <option>GCP TDX</option>
+                <select
+                  className="input-field"
+                  value={operatingEnclave}
+                  onChange={e => setOperatingEnclave(e.target.value)}
+                  style={{ width: '100%', background: 'var(--bg-main)', color: 'var(--text-primary)' }}
+                >
+                  <option value="AWS Nitro Enclave">AWS Nitro Enclave</option>
+                  <option value="Azure Confidential VM">Azure Confidential VM</option>
+                  <option value="GCP TDX">GCP TDX</option>
                 </select>
               </div>
             </div>
             <div style={{ padding: '16px', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid var(--primary)', borderRadius: '8px', display: 'flex', gap: '12px', marginTop: '8px', alignItems: 'center' }}>
               <Terminal size={20} color="var(--primary)" />
-              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5, flex: 1, display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                <span>This will deploy the 5 Agent Primitives via <code style={{ color: 'var(--primary)' }}>AgentPrimitivesFactory.sol</code> on Base L2.</span>
-                <SeededDataBadge label="Not wired yet -- no real deploy flow exists in this frontend; see integrity-sdk/integrity-cli for the real register_agent() flow" />
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5, flex: 1 }}>
+                This will deploy the 5 Agent Primitives via <code style={{ color: 'var(--primary)' }}>AgentPrimitivesFactory.sol</code> on Base L2.
               </div>
-              <button className="btn btn-primary" style={{ padding: '8px 16px', whiteSpace: 'nowrap', opacity: 0.5, cursor: 'not-allowed' }} disabled title="Not implemented -- use integrity-cli's real register-agent command">Deploy</button>
+              <button
+                className="btn btn-primary"
+                style={{ padding: '8px 16px', whiteSpace: 'nowrap' }}
+                onClick={() => setIsRegisterModalOpen(true)}
+              >
+                Deploy
+              </button>
             </div>
           </div>
 
@@ -166,6 +186,13 @@ export const AgentsPage = () => {
           defaultAddress={claimAddress}
           onClose={() => setIsClaimModalOpen(false)}
           onSuccess={() => { setIsClaimModalOpen(false); refetchAgents(); }}
+        />
+        <RegisterAgentModal
+          isOpen={isRegisterModalOpen}
+          initialAlias={agentName}
+          initialVertical={agentName.toLowerCase().includes('clinical') ? 1 : 0}
+          onClose={() => setIsRegisterModalOpen(false)}
+          onSuccess={() => { setIsRegisterModalOpen(false); refetchAgents(); }}
         />
         <div className="grid grid-3 mb-6" style={{ flexShrink: 0, gap: '24px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', padding: '24px', background: 'var(--bg-panel)', border: '1px solid var(--border-color)', borderRadius: '16px', position: 'relative', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.2)' }}>

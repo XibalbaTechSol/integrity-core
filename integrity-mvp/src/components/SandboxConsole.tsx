@@ -62,7 +62,7 @@ export const SandboxConsole = () => {
     }, [calculateScores]);
 
     return (
-        <div className="enterprise-card" style={{ padding: '40px' }}>
+        <div className="enterprise-card custom-scrollbar" style={{ padding: '40px', height: '100%', overflowY: 'auto' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '32px' }}>
                 <Code className="text-gold" size={24} />
                 <h2 style={{ fontSize: '1.5rem', fontWeight: 800, margin: 0 }}>Protocol Sandbox</h2>
