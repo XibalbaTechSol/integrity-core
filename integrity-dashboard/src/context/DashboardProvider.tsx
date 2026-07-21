@@ -195,8 +195,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
 
   const fetchData = useCallback(async () => {
     try {
-      // Real agent list from the oracle (DID-keyed, mock-agent-* filtered out
-      // by oracle.listAgents itself). AIS is per-agent, so fetch each agent's
+      // Real agent list from the oracle (DID-keyed; mock/seeded agents are gated
+      // server-side by the mock_mode flag, not client-side). AIS is per-agent, so fetch each agent's
       // real score; a per-agent AIS failure degrades only that agent's scores
       // to 0 (it still lists) rather than failing the whole load.
       const summaries = await oracle.listAgents();

@@ -325,13 +325,9 @@ export const oracle = {
     getAgent: (id: string) => get<AgentResponse>(`/v1/agent/${encodeURIComponent(id)}`),
     // Records an agent in the oracle DB AFTER its primitives are registered on-chain.
     register: (req: RegisterAgentRequest) => post<RegisterAgentResponse>('/v1/agent/register', req),
-    listAgents: async () => {
-        const summaries = await get<AgentSummary[]>('/v1/agents');
-        const MOCK_MODE = import.meta.env.VITE_MOCK_MODE === 'true';
-        return MOCK_MODE 
-            ? summaries.filter(s => s.id.startsWith('mock-agent-'))
-            : summaries.filter(s => !s.id.startsWith('mock-agent-'));
-    },
+    // Every real agent the oracle knows about — no client-side mock filter. Mock/seeded
+    // agents are gated server-side via the /v1/protocol/settings mock_mode flag instead.
+    listAgents: () => get<AgentSummary[]>('/v1/agents'),
     getAis: (id: string) => get<AisResponse>(`/v1/agent/${encodeURIComponent(id)}/ais`),
     getCompliance: (id: string, coveredEntity?: string) =>
         get<ComplianceResponse>(
