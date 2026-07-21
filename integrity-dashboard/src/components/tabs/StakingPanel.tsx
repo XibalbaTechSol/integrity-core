@@ -1,11 +1,17 @@
 import { useState } from 'react';
 import { Panel } from '../shared/Panel';
-import { Lock, Coins, TrendingUp, AlertTriangle, Loader2 } from 'lucide-react';
+import { Lock, Coins, TrendingUp, AlertTriangle } from 'lucide-react';
 import { useDashboard } from '../../context/useDashboard';
-import { api } from '../../services/api';
+import { oracle } from '../../services/oracle';
 import { ethers } from 'ethers';
-import { ITK_TOKEN_ADDRESS, INTEGRITY_PROTOCOL_ADDRESS, IS_PRODUCTION } from '../../constants';
+import { ITK_TOKEN_ADDRESS } from '../../constants';
 import ITK_ABI from '../abi/IntegrityToken.json';
+
+// Staking in this protocol is per-agent: an agent bonds $ITK into its OWN Slasher
+// clone (Slasher.stake), never a monolithic "protocol" contract. The Slasher address
+// is resolved live from the agent's on-chain primitive set — never hardcoded. Minimal
+// ABI: just the write we call here (the read side is the /v1/agent/{id}/stake endpoint).
+const SLASHER_ABI = ['function stake(uint256 amount)'] as const;
 
 export function StakingPanel() {
   const { selectedAgent, stats, addToast, fetchData, walletAddress } = useDashboard();
@@ -14,39 +20,51 @@ export function StakingPanel() {
 
   const handleStake = async () => {
     if (!selectedAgent || !stakeAmount) return;
-    
+
+    const ethereum = (window as any).ethereum;
+    if (!ethereum || !walletAddress) {
+      addToast('error', 'Connect a Base Sepolia wallet to bond $ITK.');
+      return;
+    }
+
     setIsStaking(true);
     try {
-      // @ts-ignore
-      if (typeof window !== 'undefined' && (window as any).ethereum && ((window as any).IS_TEST_ENV || IS_PRODUCTION)) {
-        const provider = new ethers.BrowserProvider((window as any).ethereum);
-        const signer = await provider.getSigner();
-        const itkContract = new ethers.Contract(ITK_TOKEN_ADDRESS, ITK_ABI.abi, signer);
-        
-        // 1. Check Allowance
-        const amount = ethers.parseEther(stakeAmount);
-        const allowance = await itkContract.allowance(walletAddress, INTEGRITY_PROTOCOL_ADDRESS);
-        
-        if (allowance < amount) {
-          addToast('info', 'Approving ITK for Protocol...');
-          const approveTx = await itkContract.approve(INTEGRITY_PROTOCOL_ADDRESS, amount);
-          await approveTx.wait();
-          addToast('success', 'Allowance granted');
-        }
-
-        // 2. Perform Stake (via API or direct contract call if we have Protocol ABI)
-        // For now, we'll assume the API triggers the protocol event or we can call direct if we add Protocol ABI
-        // Let's use the API as a coordinator for now as it records the action in the Oracle too.
-        await api.stake(selectedAgent.eth_address, parseFloat(stakeAmount));
-      } else {
-        await api.stake(selectedAgent.eth_address, parseFloat(stakeAmount));
+      // Resolve the agent's own Slasher clone from its on-chain primitive set — the
+      // real stake target. If the agent isn't fully registered, there's nothing to
+      // stake into; say so rather than sending a tx to a zero/garbage address.
+      const detail = await oracle.getAgent(selectedAgent.eth_address);
+      const slasherAddr = detail.primitives?.slasher;
+      if (!slasherAddr || /^0x0+$/i.test(slasherAddr)) {
+        addToast('error', 'This agent has no deployed Slasher clone yet — register its primitives first.');
+        return;
       }
-      
-      addToast('success', `Successfully staked ${stakeAmount} ITK for ${selectedAgent.alias}`);
+
+      const provider = new ethers.BrowserProvider(ethereum);
+      const signer = await provider.getSigner();
+      const itkContract = new ethers.Contract(ITK_TOKEN_ADDRESS, ITK_ABI.abi, signer);
+      const amount = ethers.parseEther(stakeAmount);
+
+      // 1. Approve the Slasher to pull the bond (only if the existing allowance is short).
+      const allowance = await itkContract.allowance(walletAddress, slasherAddr);
+      if (allowance < amount) {
+        addToast('info', 'Approving $ITK for the agent Slasher…');
+        const approveTx = await itkContract.approve(slasherAddr, amount);
+        await approveTx.wait();
+        addToast('success', 'Allowance granted');
+      }
+
+      // 2. Bond into the agent's Slasher (real Base Sepolia tx).
+      const slasher = new ethers.Contract(slasherAddr, SLASHER_ABI, signer);
+      addToast('info', 'Broadcasting stake to Base Sepolia…');
+      const stakeTx = await slasher.stake(amount);
+      await stakeTx.wait();
+
+      addToast('success', `Bonded ${stakeAmount} $ITK for ${selectedAgent.alias}`);
       setStakeAmount('');
+      // Real on-chain stake now reflects via the /v1/agent/{id}/stake read on refresh.
       if (fetchData) await fetchData();
     } catch (err: any) {
-      addToast('error', `Staking failed: ${err.message}`);
+      addToast('error', `Staking failed: ${err.shortMessage || err.message}`);
     } finally {
       setIsStaking(false);
     }

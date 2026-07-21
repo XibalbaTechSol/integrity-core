@@ -128,7 +128,26 @@ contract first). These need `ConnectWalletButton` + signed txs against `deployme
 
    **Class B is complete** — every planned read endpoint is built and wired. What remains is
    Class C (on-chain writes) and the landing-page copy + live `make up` verification.
-5. **Class C on-chain writes** — wagmi/viem tx wiring for register/identity/market/credit.
+4a. **Stale-address correction (found while founding Class C)** ✅ — `src/constants.ts` carried
+   **legacy addresses from the old INTEGRITY repo** (e.g. `ITK_TOKEN_ADDRESS` was `0xcc3fa…`, not
+   the real `IntegrityToken 0x0E87D408…`). This was a live defect in *already-shipped Class A* work:
+   `ImmutableLedger` (committed ✅ "real on-chain ITK history") read Transfer events from the wrong
+   contract, so on Base Sepolia it rendered empty-but-real-looking; `TokenWallet` read/sent the wrong
+   token too. Fixed by sourcing addresses from a committed mirror of the repo-root
+   `deployments.baseSepolia.json` (`src/deployments.baseSepolia.json`, Vite-imported, provenance
+   header, no hand-copy) — `ImmutableLedger` + `TokenWallet` are repaired by the address change alone.
+   Per-agent addresses still resolve live from `getAgent().primitives`, never hardcoded.
+5. **Class C on-chain writes** — ethers v6 (the dashboard already ships ethers; ImmutableLedger reads
+   through it) — trust the code over this doc's earlier "wagmi/viem" note.
+   - ✅ **Staking** (`StakingPanel`) — real per-agent bond: resolve the agent's own `Slasher` clone
+     from its primitive set → `ITK.approve(slasher, amount)` (only if allowance short) →
+     `Slasher.stake(amount)`, a real Base Sepolia tx. Replaced the mock `api.stake` + the bogus
+     monolithic `INTEGRITY_PROTOCOL_ADDRESS` approve target. Closes the loop with the already-wired
+     `GET /v1/agent/{id}/stake` read. Guards: no-wallet and no-Slasher-clone are surfaced, not sent.
+     **Testnet-only**; code-complete + builds green — a funded-wallet stake tx is the closing confirm.
+   - ⬜ identity claim/challenge (SovereignAgent) · credit borrow/repay (A2ACapitalPool) ·
+     market create/bid/settle (IntegrityMarket) · factory deploy (`registerPrimitives`) ·
+     firebase→userapi auth swap.
    (Governance blocked on a contract that doesn't exist — flag, don't fake.)
 6. **Landing page** — update all copy/stats to the real protocol (Base Sepolia addresses, real
    AIS formula, live agent count via `/v1/stats`).
