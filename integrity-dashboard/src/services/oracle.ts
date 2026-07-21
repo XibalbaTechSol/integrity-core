@@ -212,6 +212,15 @@ export interface StakeDto {
     total_stake: string;
     locked_stake: string;
     available_stake: string;
+    open_disputes: number;
+}
+
+export interface StatsDto {
+    market_count: number;
+    total_marketplace_volume: string;
+    escrowed_credit: string;
+    released_credit: string;
+    allocation_count: number;
 }
 
 export interface CreditDto {
@@ -339,6 +348,12 @@ export const oracle = {
     // (backend::handlers::get_credit). Amounts are decimal-string wei of $ITK.
     getCredit: (id: string) =>
         get<CreditDto>(`/v1/agent/${encodeURIComponent(id)}/credit`),
+
+    // Protocol-wide singleton aggregates (backend::handlers::get_stats): marketplace
+    // volume + A2ACapitalPool totals. The minimal supplement to the fields the
+    // dashboard already derives from its per-agent loop — `tvl` is composed
+    // client-side (stake + escrowed + market volume) for a single source of truth.
+    getStats: () => get<StatsDto>('/v1/stats'),
 
     // EventSource doesn't take fetch-style options, so callers construct their own
     // `new EventSource(oracle.streamUrl(id))` — see hooks/useOracleStream.ts.

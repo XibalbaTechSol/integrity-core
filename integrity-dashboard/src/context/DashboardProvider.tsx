@@ -179,6 +179,11 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       // real score; a per-agent AIS failure degrades only that agent's scores
       // to 0 (it still lists) rather than failing the whole load.
       const summaries = await oracle.listAgents();
+      // Accumulate protocol-wide open disputes as we already iterate each agent's
+      // stake (Slashers are per-agent clones with no singleton dispute index, so
+      // summing StakeDto.open_disputes here is the zero-extra-fan-out way to a real
+      // `active_disputes` — see docs/design/dashboard-wiring.md).
+      let openDisputes = 0;
       const allAgents: Agent[] = await Promise.all(
         summaries.map(async (s) => {
           // Real AIS + real on-chain stake, in parallel. Either failing degrades
@@ -188,10 +193,18 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
             oracle.getStake(s.id).catch(() => null),
           ]);
           const agent = mapOracleAgent(s, ais);
-          if (stake) agent.staked_itk = Number(stake.total_stake) / 1e18;
+          if (stake) {
+            agent.staked_itk = Number(stake.total_stake) / 1e18;
+            openDisputes += stake.open_disputes || 0;
+          }
           return agent;
         }),
       );
+
+      // Protocol-wide singleton aggregates the per-agent loop can't derive
+      // (marketplace volume + capital-pool totals). Best-effort: a failure leaves
+      // these at 0 rather than failing the whole load.
+      const protocolStats = await oracle.getStats().catch(() => null);
 
       // The selected agent's real deployed contracts = its on-chain primitive
       // set (getAgent().primitives). Fetched only for the focused agent (like
@@ -234,25 +247,30 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       setAgents(allAgents);
       setIsBackendOffline(false);
 
-      // Protocol stats derivable from the real agent set. Fields with no oracle
-      // source yet (stake, disputes, contracts, loan/market volume, TVL) stay 0
-      // until their Class B read endpoints exist (docs/design/dashboard-wiring.md)
-      // -- shown as zero, never fabricated.
+      // Protocol stats: every field now real. The client-derivable ones
+      // (nodes/AIS/stake/contracts/disputes) come from the per-agent loop above; the
+      // singleton aggregates (market volume, capital pool) come from /v1/stats. TVL
+      // is composed here — protocol stake + escrowed credit + market volume — so
+      // stake has exactly one source of truth (docs/design/dashboard-wiring.md).
       const aggregate_ais = allAgents.length
         ? Math.round(allAgents.reduce((sum, a) => sum + a.current_ais, 0) / allAgents.length)
         : 0;
+      const protocol_staked_itk = allAgents.reduce((sum, a) => sum + (a.staked_itk || 0), 0);
+      const escrowed_credit = protocolStats ? Number(protocolStats.escrowed_credit) / 1e18 : 0;
+      const total_marketplace_volume = protocolStats ? Number(protocolStats.total_marketplace_volume) / 1e18 : 0;
+      const total_loans_volume = protocolStats ? Number(protocolStats.released_credit) / 1e18 : 0;
       setStats({
         active_nodes: allAgents.length,
         aggregate_ais,
-        protocol_staked_itk: allAgents.reduce((sum, a) => sum + (a.staked_itk || 0), 0),
-        active_disputes: 0,
+        protocol_staked_itk,
+        active_disputes: openDisputes,
         // Each registered agent owns its 7 primitive contracts (real deployed
         // clones); the protocol total is that count. Markets/other contracts
         // would add to this once their count endpoint exists.
         total_contracts: allAgents.length * PRIMITIVE_CONTRACTS.length,
-        total_loans_volume: 0,
-        total_marketplace_volume: 0,
-        tvl: 0,
+        total_loans_volume,
+        total_marketplace_volume,
+        tvl: protocol_staked_itk + escrowed_credit + total_marketplace_volume,
       });
 
       if (!selectedAgentAddr && allAgents.length > 0) {

@@ -73,6 +73,15 @@ sol! {
     interface ISlasher {
         function stakeOf(address account) external view returns (uint256);
         function lockedStakeOf(address account) external view returns (uint256);
+        function nextDisputeId() external view returns (uint256);
+        function disputes(uint256 id) external view returns (
+            address agent,
+            uint256 amount,
+            uint256 raisedAt,
+            bool resolved,
+            bool slashed,
+            string reason
+        );
     }
 }
 
@@ -199,6 +208,12 @@ pub struct StakeInfo {
     pub total: U256,
     pub locked: U256,
     pub available: U256,
+    /// Count of this agent's currently-open (unresolved) disputes in its own Slasher
+    /// clone. The dashboard sums this across the agent set it already iterates to get
+    /// a real protocol-wide `active_disputes` with zero extra fan-out — see
+    /// docs/design/dashboard-wiring.md; there is no singleton dispute index to read
+    /// protocol-wide in one call.
+    pub open_disputes: u64,
 }
 
 /// An agent's aggregated capital position in the A2ACapitalPool (read via
@@ -464,10 +479,23 @@ impl ChainClient {
         let contract = ISlasher::new(slasher, self.provider.clone());
         let total = contract.stakeOf(account).call().await?;
         let locked = contract.lockedStakeOf(account).call().await?;
+        // Open-dispute count: scan this clone's disputes and count the agent's
+        // unresolved ones. The Slasher is a per-agent clone, so `nextDisputeId` is
+        // bounded by just this agent's dispute history (cheap); the `d.agent ==
+        // account` filter is belt-and-suspenders against a shared/misconfigured clone.
+        let next_dispute_id = contract.nextDisputeId().call().await?.to::<u64>();
+        let mut open_disputes = 0u64;
+        for i in 0..next_dispute_id {
+            let d = contract.disputes(U256::from(i)).call().await?;
+            if !d.resolved && d.agent == account {
+                open_disputes += 1;
+            }
+        }
         Ok(StakeInfo {
             total,
             locked,
             available: total.saturating_sub(locked),
+            open_disputes,
         })
     }
 
@@ -482,14 +510,31 @@ impl ChainClient {
     /// 0..nextAllocationId -- O(N) view calls, acceptable at current scale; a
     /// per-agent index would replace this if the pool grows large.
     pub async fn read_credit(&self, pool: Address, agent: Address) -> Result<CreditInfo, ChainError> {
+        self.scan_allocations(pool, Some(agent)).await
+    }
+
+    /// Protocol-wide capital totals: the same allocation scan as `read_credit`, but
+    /// unfiltered (every allocation, all agents). Backs `GET /v1/stats`
+    /// (`total_loans_volume` = released, the escrowed slice of `tvl`) in a single pass
+    /// over the singleton pool — not an N-agent fan-out.
+    pub async fn read_pool_totals(&self, pool: Address) -> Result<CreditInfo, ChainError> {
+        self.scan_allocations(pool, None).await
+    }
+
+    /// Shared allocation scan. `agent = Some(a)` aggregates only `a`'s allocations
+    /// (per-agent credit view); `agent = None` aggregates every allocation
+    /// (protocol-wide totals). O(nextAllocationId) view calls either way.
+    async fn scan_allocations(&self, pool: Address, agent: Option<Address>) -> Result<CreditInfo, ChainError> {
         let contract = IA2ACapitalPool::new(pool, self.provider.clone());
         let count = contract.nextAllocationId().call().await?;
         let n = count.to::<u64>();
         let mut info = CreditInfo::default();
         for i in 0..n {
             let a = contract.allocations(U256::from(i)).call().await?;
-            if a.agent != agent {
-                continue;
+            if let Some(target) = agent {
+                if a.agent != target {
+                    continue;
+                }
             }
             info.allocation_count += 1;
             info.total_allocated += a.amount;

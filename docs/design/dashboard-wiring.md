@@ -111,7 +111,23 @@ contract first). These need `ConnectWalletButton` + signed txs against `deployme
      agent's SovereignAgent address (escrowed / released / clawed-back / breached). Wired into
      `DashboardProvider`: the focused agent's `credit_profile` (max_borrow_limit = escrowed,
      total_borrowed = released, total_repaid = clawed-back). Oracle builds green, 72+8 lib pass.
-   - ⬜ `/v1/stats` (agent/decision counts are DB; disputes/TVL need chain reads) — the last one.
+   - ✅ `GET /v1/stats` + `active_disputes`/`tvl` wiring — the **minimal supplement** to what
+     the dashboard already derives client-side (nodes/AIS/stake/contracts), not a duplicate
+     protocol-wide aggregator (avoids two disagreeing `protocol_staked_itk` numbers). `/v1/stats`
+     sources only the singleton reads the client can't cheaply derive: marketplace volume (sum of
+     cached market `total_staked`) + A2ACapitalPool totals (one **unfiltered** scan of the
+     singleton pool — `read_pool_totals`, not an N-agent fan-out) → `total_marketplace_volume` /
+     `total_loans_volume` (released) / `escrowed_credit`. `active_disputes` is summed from a new
+     `StakeDto.open_disputes` in the per-agent stake loop the dashboard already runs (Slashers are
+     per-agent clones with no singleton dispute index — zero extra fan-out, symmetric with how
+     `protocol_staked_itk` is summed). `tvl` is composed client-side (stake + escrowed + market
+     volume) so stake has one source of truth. **Every `ProtocolStats` field is now real** — the
+     last four hardcoded zeros (`active_disputes`, `total_loans_volume`, `total_marketplace_volume`,
+     `tvl`) are gone. Oracle builds green, 72+8 lib tests pass; chain aggregation exercised only
+     against a live stack.
+
+   **Class B is complete** — every planned read endpoint is built and wired. What remains is
+   Class C (on-chain writes) and the landing-page copy + live `make up` verification.
 5. **Class C on-chain writes** — wagmi/viem tx wiring for register/identity/market/credit.
    (Governance blocked on a contract that doesn't exist — flag, don't fake.)
 6. **Landing page** — update all copy/stats to the real protocol (Base Sepolia addresses, real

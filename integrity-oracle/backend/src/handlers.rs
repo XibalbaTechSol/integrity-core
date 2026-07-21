@@ -1613,6 +1613,11 @@ pub struct StakeDto {
     pub total_stake: String,
     pub locked_stake: String,
     pub available_stake: String,
+    /// Count of the agent's currently-open (unresolved) slashing disputes. The
+    /// dashboard sums this across its agent loop for a real protocol-wide
+    /// `active_disputes` with no extra fan-out (Slashers are per-agent clones with
+    /// no singleton dispute index) — see docs/design/dashboard-wiring.md.
+    pub open_disputes: u64,
 }
 
 #[utoipa::path(
@@ -1640,6 +1645,7 @@ pub async fn get_stake(
         total_stake: stake.total.to_string(),
         locked_stake: stake.locked.to_string(),
         available_stake: stake.available.to_string(),
+        open_disputes: stake.open_disputes,
     }))
 }
 
@@ -1687,6 +1693,64 @@ pub async fn get_credit(
         clawed_back: credit.clawed_back.to_string(),
         breached: credit.breached.to_string(),
         allocation_count: credit.allocation_count,
+    }))
+}
+
+// Protocol-wide aggregates (Class B, docs/design/dashboard-wiring.md). Deliberately
+// the *minimal supplement* to what the dashboard already derives client-side from its
+// per-agent loop (`active_nodes`, `aggregate_ais`, `protocol_staked_itk`,
+// `total_contracts`, and — summing StakeDto.open_disputes — `active_disputes`). This
+// endpoint only sources the fields that need a singleton read the dashboard can't cheaply
+// derive: marketplace volume (sum of cached market total_staked) and the A2ACapitalPool
+// totals (one unfiltered scan of the singleton pool). `tvl` is composed client-side as
+// protocol_staked_itk + escrowed_credit + total_marketplace_volume so there is exactly one
+// source of truth for stake. All amounts are decimal-string wei of $ITK.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct StatsDto {
+    /// Number of prediction markets in the cached index.
+    pub market_count: u64,
+    /// Sum of `total_staked` across every market (pari-mutuel volume).
+    pub total_marketplace_volume: String,
+    /// A2ACapitalPool: capital currently escrowed (live available lines) across all agents.
+    pub escrowed_credit: String,
+    /// A2ACapitalPool: capital disbursed ("borrowed") across all agents — the real
+    /// `total_loans_volume`.
+    pub released_credit: String,
+    /// A2ACapitalPool: number of allocations scanned.
+    pub allocation_count: u64,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/stats",
+    responses((status = 200, description = "Protocol-wide singleton aggregates (marketplace + capital pool)", body = StatsDto)),
+    tag = "ais",
+)]
+pub async fn get_stats(State(state): State<AppState>) -> Result<Json<StatsDto>, AppError> {
+    // Marketplace volume from the cached market index (refresh honoring the same
+    // staleness window the market/leaderboard reads use — no per-hit fan-out).
+    refresh_markets_index_if_stale(&state).await?;
+    let markets = db::list_market_cache(&state.pool).await?;
+    let market_count = markets.len() as u64;
+    let total_marketplace_volume: alloy::primitives::U256 = markets
+        .iter()
+        .map(|m| alloy::primitives::U256::from_str(&m.total_staked).unwrap_or_default())
+        .fold(alloy::primitives::U256::ZERO, |acc, v| acc + v);
+
+    // A2ACapitalPool totals: one unfiltered scan of the singleton pool (not an
+    // N-agent fan-out). If the market/capital layer isn't deployed on this network,
+    // the pool contributes zeros rather than failing the whole endpoint.
+    let pool_totals = match state.chain.a2a_capital_pool() {
+        Some(pool) => state.chain.read_pool_totals(pool).await?,
+        None => crate::chain::CreditInfo::default(),
+    };
+
+    Ok(Json(StatsDto {
+        market_count,
+        total_marketplace_volume: total_marketplace_volume.to_string(),
+        escrowed_credit: pool_totals.escrowed.to_string(),
+        released_credit: pool_totals.released.to_string(),
+        allocation_count: pool_totals.allocation_count,
     }))
 }
 
