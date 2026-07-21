@@ -77,6 +77,26 @@ sol! {
 }
 
 sol! {
+    // A2ACapitalPool (contracts/src/markets/A2ACapitalPool.sol) escrows ITK
+    // earmarked for an agent. There is no per-agent getter -- allocations are a
+    // flat id->struct mapping -- so an agent's capital view is aggregated by
+    // scanning allocations and filtering on the `agent` field. status: 0=Escrowed
+    // 1=Released 2=ClawedBack 3=Breached. Read-only.
+    #[sol(rpc)]
+    interface IA2ACapitalPool {
+        function nextAllocationId() external view returns (uint256);
+        function allocations(uint256 id) external view returns (
+            address allocator,
+            address agent,
+            uint256 amount,
+            uint256 minAisToMaintain,
+            uint8 status,
+            uint256 createdAt
+        );
+    }
+}
+
+sol! {
     #[sol(rpc)]
     interface IComplianceGate {
         function vertical() external view returns (uint8);
@@ -181,6 +201,20 @@ pub struct StakeInfo {
     pub available: U256,
 }
 
+/// An agent's aggregated capital position in the A2ACapitalPool (read via
+/// `ChainClient::read_credit`): totals by allocation status across every
+/// allocation earmarked for that agent. `escrowed` is capital currently held for
+/// the agent (its live available line); `released` has been disbursed.
+#[derive(Debug, Clone, Default)]
+pub struct CreditInfo {
+    pub total_allocated: U256,
+    pub escrowed: U256,
+    pub released: U256,
+    pub clawed_back: U256,
+    pub breached: U256,
+    pub allocation_count: u64,
+}
+
 /// Plain-Rust mirror of an `IntegrityMarket` clone's on-chain view state, as read live
 /// by `ChainClient::read_market` (§6.9). `outcome_staked[i]` is the pari-mutuel pool
 /// for outcome `i` (cheap, bounded by `outcome_count` public-getter reads) — real
@@ -263,6 +297,11 @@ struct Singletons {
     market_factory: Option<Address>,
     #[serde(rename = "IntegrityToken", default)]
     integrity_token: Option<Address>,
+    /// `Option` for the same incremental-deploy reason as `MarketFactory` — the
+    /// A2ACapitalPool singleton is added by `DeployMarkets.s.sol`; the credit
+    /// endpoint reports "capital pool not deployed" cleanly if it's absent.
+    #[serde(rename = "A2ACapitalPool", default)]
+    a2a_capital_pool: Option<Address>,
 }
 
 /// Read-only on-chain client. Holds a connected `alloy` provider and the resolved
@@ -282,6 +321,7 @@ pub struct ChainClient {
     registry_address: Address,
     market_factory_address: Option<Address>,
     integrity_token_address: Option<Address>,
+    a2a_capital_pool_address: Option<Address>,
 }
 
 impl ChainClient {
@@ -310,6 +350,7 @@ impl ChainClient {
             registry_address: parsed.singletons.xibalba_agent_registry,
             market_factory_address: parsed.singletons.market_factory,
             integrity_token_address: parsed.singletons.integrity_token,
+            a2a_capital_pool_address: parsed.singletons.a2a_capital_pool,
         })
     }
 
@@ -322,6 +363,7 @@ impl ChainClient {
             registry_address,
             market_factory_address: None,
             integrity_token_address: None,
+            a2a_capital_pool_address: None,
         }
     }
 
@@ -339,6 +381,7 @@ impl ChainClient {
             registry_address,
             market_factory_address: Some(market_factory_address),
             integrity_token_address: Some(integrity_token_address),
+            a2a_capital_pool_address: None,
         }
     }
 
@@ -426,6 +469,39 @@ impl ChainClient {
             locked,
             available: total.saturating_sub(locked),
         })
+    }
+
+    /// The A2ACapitalPool singleton address, if the market/capital layer is
+    /// deployed (see `DeployMarkets.s.sol`). `None` -> handler reports it cleanly.
+    pub fn a2a_capital_pool(&self) -> Option<Address> {
+        self.a2a_capital_pool_address
+    }
+
+    /// Aggregates an agent's real capital position across every allocation in the
+    /// pool earmarked for `agent` (its SovereignAgent address). Scans allocations
+    /// 0..nextAllocationId -- O(N) view calls, acceptable at current scale; a
+    /// per-agent index would replace this if the pool grows large.
+    pub async fn read_credit(&self, pool: Address, agent: Address) -> Result<CreditInfo, ChainError> {
+        let contract = IA2ACapitalPool::new(pool, self.provider.clone());
+        let count = contract.nextAllocationId().call().await?;
+        let n = count.to::<u64>();
+        let mut info = CreditInfo::default();
+        for i in 0..n {
+            let a = contract.allocations(U256::from(i)).call().await?;
+            if a.agent != agent {
+                continue;
+            }
+            info.allocation_count += 1;
+            info.total_allocated += a.amount;
+            match a.status {
+                0 => info.escrowed += a.amount,
+                1 => info.released += a.amount,
+                2 => info.clawed_back += a.amount,
+                3 => info.breached += a.amount,
+                _ => {}
+            }
+        }
+        Ok(info)
     }
 
     /// 0 = `Vertical.None`, 1 = `Vertical.Healthcare` (see `ComplianceGate.sol`'s enum —

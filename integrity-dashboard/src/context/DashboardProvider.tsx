@@ -199,16 +199,35 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       const currentAddr = selectedAgentAddr || (allAgents.length > 0 ? allAgents[0].eth_address : null);
       if (currentAddr) {
         try {
-          const detail = await oracle.getAgent(currentAddr);
+          const [detail, credit] = await Promise.all([
+            oracle.getAgent(currentAddr),
+            oracle.getCredit(currentAddr).catch(() => null),
+          ]);
           const idx = allAgents.findIndex((a) => a.eth_address === currentAddr);
-          if (detail.primitives && idx >= 0) {
-            allAgents[idx] = {
-              ...allAgents[idx],
-              owned_contracts: primitivesToContracts(detail.primitives, allAgents[idx].registered_at),
-            };
+          if (idx >= 0) {
+            const patch: Partial<Agent> = {};
+            if (detail.primitives) {
+              patch.owned_contracts = primitivesToContracts(detail.primitives, allAgents[idx].registered_at);
+            }
+            if (credit) {
+              // Map the real A2ACapitalPool position onto the panel's credit shape.
+              // Escrowed = the agent's live available capital line; released =
+              // disbursed ("borrowed"); clawed-back = returned ("repaid"). No real
+              // credit-score / per-loan detail exists in the aggregate, so those
+              // stay 0 / empty rather than fabricated.
+              patch.credit_profile = {
+                credit_score: 0,
+                max_borrow_limit: Number(credit.escrowed) / 1e18,
+                active_loans: [],
+                total_borrowed: Number(credit.released) / 1e18,
+                total_repaid: Number(credit.clawed_back) / 1e18,
+                default_count: 0,
+              };
+            }
+            allAgents[idx] = { ...allAgents[idx], ...patch };
           }
         } catch {
-          /* primitives unresolved (agent not fully registered) — leave unset */
+          /* agent detail unresolved (not fully registered) — leave enrichments unset */
         }
       }
 

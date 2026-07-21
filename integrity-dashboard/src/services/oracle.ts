@@ -214,6 +214,16 @@ export interface StakeDto {
     available_stake: string;
 }
 
+export interface CreditDto {
+    agent_id: string;
+    total_allocated: string;
+    escrowed: string;
+    released: string;
+    clawed_back: string;
+    breached: string;
+    allocation_count: number;
+}
+
 export interface ProvenanceEntryDto {
     id: string;
     agent_id: string;
@@ -324,6 +334,11 @@ export const oracle = {
     // (backend::handlers::get_stake). Values are decimal-string wei of $ITK.
     getStake: (id: string) =>
         get<StakeDto>(`/v1/agent/${encodeURIComponent(id)}/stake`),
+
+    // Real capital position aggregated from the A2ACapitalPool
+    // (backend::handlers::get_credit). Amounts are decimal-string wei of $ITK.
+    getCredit: (id: string) =>
+        get<CreditDto>(`/v1/agent/${encodeURIComponent(id)}/credit`),
 
     // EventSource doesn't take fetch-style options, so callers construct their own
     // `new EventSource(oracle.streamUrl(id))` — see hooks/useOracleStream.ts.

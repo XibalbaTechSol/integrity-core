@@ -105,9 +105,13 @@ contract first). These need `ConnectWalletButton` + signed txs against `deployme
      primitive addresses (labeled by type via extended `ContractType`); `total_contracts` is now
      real (agents × 7 primitive clones) instead of 0. Feeds the ContractsPage hero + CreditPanel
      contract dropdown + FactoryPanel. Financial fields (revenue/collateral) stay 0 — no source.
-   - ⬜ `/v1/agent/{id}/credit` (A2ACapitalPool — getter names differ from Slasher's, need to read
-     the contract source), `/v1/stats` (agent/decision counts are DB; disputes/TVL need chain
-     reads). Both remain.
+   - ✅ `GET /v1/agent/{id}/credit` — real capital position from the A2ACapitalPool singleton via
+     a new `IA2ACapitalPool` alloy binding. The pool has no per-agent getter (flat id→Allocation
+     mapping), so `ChainClient::read_credit` scans allocations and aggregates by status for the
+     agent's SovereignAgent address (escrowed / released / clawed-back / breached). Wired into
+     `DashboardProvider`: the focused agent's `credit_profile` (max_borrow_limit = escrowed,
+     total_borrowed = released, total_repaid = clawed-back). Oracle builds green, 72+8 lib pass.
+   - ⬜ `/v1/stats` (agent/decision counts are DB; disputes/TVL need chain reads) — the last one.
 5. **Class C on-chain writes** — wagmi/viem tx wiring for register/identity/market/credit.
    (Governance blocked on a contract that doesn't exist — flag, don't fake.)
 6. **Landing page** — update all copy/stats to the real protocol (Base Sepolia addresses, real

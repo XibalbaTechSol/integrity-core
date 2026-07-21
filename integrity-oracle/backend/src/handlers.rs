@@ -1643,6 +1643,53 @@ pub async fn get_stake(
     }))
 }
 
+// Real capital position (Class B) aggregated from the A2ACapitalPool for the
+// agent. U256 as decimal strings (wei of $ITK). `escrowed` is the agent's live
+// available capital line; `released` has been disbursed.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct CreditDto {
+    pub agent_id: String,
+    pub total_allocated: String,
+    pub escrowed: String,
+    pub released: String,
+    pub clawed_back: String,
+    pub breached: String,
+    pub allocation_count: u64,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/agent/{id}/credit",
+    params(("id" = String, Path, description = "Agent DID")),
+    responses(
+        (status = 200, description = "The agent's aggregated A2ACapitalPool position", body = CreditDto),
+    ),
+    tag = "agent",
+)]
+pub async fn get_credit(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<CreditDto>, AppError> {
+    let pool = state
+        .chain
+        .a2a_capital_pool()
+        .ok_or(crate::chain::ChainError::MissingSingleton("A2ACapitalPool"))?;
+    let record = state.chain.resolve_primitives_by_did(&id).await?;
+    let credit = state
+        .chain
+        .read_credit(pool, record.primitives.sovereign_agent)
+        .await?;
+    Ok(Json(CreditDto {
+        agent_id: id,
+        total_allocated: credit.total_allocated.to_string(),
+        escrowed: credit.escrowed.to_string(),
+        released: credit.released.to_string(),
+        clawed_back: credit.clawed_back.to_string(),
+        breached: credit.breached.to_string(),
+        allocation_count: credit.allocation_count,
+    }))
+}
+
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct AuditLogEntryDto {
     pub id: String,
