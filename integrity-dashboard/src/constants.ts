@@ -17,6 +17,13 @@ export const AGENT_PRIMITIVES_FACTORY_ADDRESS = S.AgentPrimitivesFactory;
 export const MARKET_FACTORY_ADDRESS = S.MarketFactory;
 export const A2A_CAPITAL_POOL_ADDRESS = S.A2ACapitalPool;
 
+// Protocol-held signer that every agent grants StateAnchor ANCHOR_ROLE to (and the
+// SovereignAgent `oracle_` constructor arg). Single-operator testnet setup.
+export const ORACLE_SIGNER_ADDRESS = deployments.protocolAddresses.oracleSigner;
+// domainId (bytes32) an agent registers its primitive set under. Both are Open-join
+// on Base Sepolia (DomainRegistry.JoinMode.Open) — any wallet can self-register.
+export const DOMAINS = deployments.domains;
+
 // Back-compat aliases for legacy import sites (old names, real addresses). Prefer the
 // canonical names above in new code.
 export const XIBALBA_AGENT_ADDRESS = XIBALBA_AGENT_REGISTRY_ADDRESS;

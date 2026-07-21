@@ -10,5 +10,12 @@
     "AgentPrimitivesFactory": "0xC19fc9cB2cB87297EfDF11DA7e211e44A6C1181D",
     "MarketFactory": "0xDB1cB3a45F4918e944254183bca8112e699AFB05",
     "A2ACapitalPool": "0x388D0180725E0F757C6Ef01ef0474E718faA3776"
+  },
+  "protocolAddresses": {
+    "oracleSigner": "0x67bA5D723E1F5517afF7eb980E2f73a9e17aD556"
+  },
+  "domains": {
+    "general.integrity": "0x595cceb222da8b2d14f13ddd254b38c4c99285925da5d4f854461514dad57e00",
+    "healthcare.integrity": "0x83064d690f7098fe67923a009c2f7ee6651571d8fbf9071c0c0a340c1ebf63a7"
   }
 }

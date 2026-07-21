@@ -154,8 +154,25 @@ contract first). These need `ConnectWalletButton` + signed txs against `deployme
      `getToken()` instead of `auth.currentUser.getIdToken()`. `src/firebase.ts` deleted — no
      firebase imports remain. Builds green; a present-but-invalid token clears the session
      rather than showing a stale signed-in state.
+   - ✅ **Factory deploy / agent registration** (`RegisterAgentModal`) — the most foundational
+     write: the full on-chain birth of an agent, ethers port of integrity-mvp's flow, run as a
+     resumable 4-tx wizard: (1) deploy the agent's own `SovereignAgent` (DID baked into the
+     constructor), (2) deploy its `StateAnchor` (admin = the SovereignAgent), (3) route
+     `SovereignAgent.execute` → `StateAnchor.grantRole(ANCHOR_ROLE, oracleSigner)` — ANCHOR_ROLE
+     read **live** from the deployed clone, fixing the mvp reference's garbage-constant bug, (4)
+     `AgentPrimitivesFactory.registerPrimitives` clones the other 5 primitives + registers all 7,
+     with the real clone addresses parsed from the `PrimitivesRegistered` receipt event; then
+     `oracle.register` records it (the oracle re-verifies the 7 addresses against the registry
+     on-chain). Replaces the mock `AgentOnboarding` (`Math.random()` address + legacy-API axios)
+     at IdentityPanel's register trigger. `general.integrity` confirmed `JoinMode.Open` so the
+     `canJoin` gate passes for any wallet. Deployments mirror extended with `protocolAddresses`
+     (oracleSigner) + `domains`; `bytecode.ts` copied from mvp with a provenance header; new
+     `oracle.register`. Builds green. **Testnet, code-complete — needs a funded-wallet live run
+     to confirm the 4-tx sequence end-to-end (the risk here is concentrated where static checks
+     can't reach, since the mvp reference was evidently never run through — its ANCHOR_ROLE bug
+     would have broken anchoring for every agent).**
    - ⬜ identity claim/challenge (SovereignAgent) · credit borrow/repay (A2ACapitalPool) ·
-     market create/bid/settle (IntegrityMarket) · factory deploy (`registerPrimitives`).
+     market create/bid/settle (IntegrityMarket).
    (Governance blocked on a contract that doesn't exist — flag, don't fake.)
 6. **Landing page** — update all copy/stats to the real protocol (Base Sepolia addresses, real
    AIS formula, live agent count via `/v1/stats`).

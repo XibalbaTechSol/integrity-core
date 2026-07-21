@@ -3,7 +3,7 @@ import { useDashboard } from '../../context/useDashboard';
 import { Panel } from '../shared/Panel';
 import { Key, Users, ShieldCheck, Search, Link as LinkIcon, Settings } from 'lucide-react';
 import { DIDExplorer } from '../ui/DIDExplorer';
-import { AgentOnboarding } from '../ui/AgentOnboarding';
+import { RegisterAgentModal } from '../ui/RegisterAgentModal';
 import { XNSSearchService } from '../ui/XNSSearchService';
 import { ClaimAgentModal } from './ClaimAgentModal';
 import axios from 'axios';
@@ -91,10 +91,10 @@ export function IdentityPanel() {
       </Panel>
       
       {isRegisterModalOpen && (
-         <AgentOnboarding 
-           isOpen={isRegisterModalOpen} 
-           onClose={() => setIsRegisterModalOpen(false)} 
-           onSuccess={() => { setIsRegisterModalOpen(false); if (fetchData) fetchData(); }} 
+         <RegisterAgentModal
+           isOpen={isRegisterModalOpen}
+           onClose={() => setIsRegisterModalOpen(false)}
+           onSuccess={() => { setIsRegisterModalOpen(false); if (fetchData) fetchData(); }}
          />
       )}
       {isClaimModalOpen && (

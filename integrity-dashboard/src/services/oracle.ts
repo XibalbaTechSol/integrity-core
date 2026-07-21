@@ -279,6 +279,40 @@ async function get<T>(path: string): Promise<T> {
     return res.json();
 }
 
+async function post<T>(path: string, body: unknown): Promise<T> {
+    const res = await fetch(`${ORACLE_URL}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+        // Surface the backend's message (e.g. the on-chain primitive-mismatch reason)
+        // so a failed registration explains itself rather than just a status code.
+        const detail = await res.text().catch(() => '');
+        throw new OracleError(res.status, detail || `Oracle request failed: ${res.status} ${path}`);
+    }
+    return res.json();
+}
+
+// POST /v1/agent/register — mirrors backend::handlers::RegisterAgentRequest. The
+// oracle independently re-verifies `primitives` against XibalbaAgentRegistry on-chain
+// and rejects a mismatch, so these MUST be the real addresses the factory registered.
+export interface RegisterAgentRequest {
+    did: string;
+    did_document: Record<string, unknown>;
+    primitives: PrimitiveSetDto;
+    ed25519_pubkey_hex?: string;
+    eth_address_hex?: string;
+}
+
+export interface RegisterAgentResponse {
+    id: string;
+    verification_tier: number;
+    primitives: PrimitiveSetDto;
+    controller: string;
+    domain_id: string;
+}
+
 function historyQuery(bucket?: HistoryBucket, since?: string): string {
     const params = new URLSearchParams();
     if (bucket) params.set('bucket', bucket);
@@ -289,6 +323,8 @@ function historyQuery(bucket?: HistoryBucket, since?: string): string {
 
 export const oracle = {
     getAgent: (id: string) => get<AgentResponse>(`/v1/agent/${encodeURIComponent(id)}`),
+    // Records an agent in the oracle DB AFTER its primitives are registered on-chain.
+    register: (req: RegisterAgentRequest) => post<RegisterAgentResponse>('/v1/agent/register', req),
     listAgents: async () => {
         const summaries = await get<AgentSummary[]>('/v1/agents');
         const MOCK_MODE = import.meta.env.VITE_MOCK_MODE === 'true';
