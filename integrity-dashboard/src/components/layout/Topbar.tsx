@@ -1,10 +1,12 @@
 import React from 'react';
 import { useDashboard } from '../../context/useDashboard';
-import { Shield, Wallet, Server, RefreshCw, AlertTriangle, Globe, Mail, LogIn, LogOut } from 'lucide-react';
+import { Wallet, Server, RefreshCw, AlertTriangle, LogIn, LogOut } from 'lucide-react';
+import { AuthModal } from '../ui/AuthModal';
 
 export function Topbar() {
-  const { walletAddress, connectWallet, fetchData, isBackendOffline, user, signInWithGoogle, signOut } = useDashboard();
+  const { walletAddress, connectWallet, fetchData, isBackendOffline, user, signOut } = useDashboard();
   const [isRefreshing, setIsRefreshing] = React.useState(false);
+  const [showAuth, setShowAuth] = React.useState(false);
 
   const [domain, setDomain] = React.useState('global');
 
@@ -55,10 +57,10 @@ export function Topbar() {
 
         {user ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,0.05)', padding: '4px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--glass-border)' }}>
-            <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--gold)', maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {user.displayName || user.email}
+            <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--gold)', maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {user.email}
             </span>
-            <button 
+            <button
               onClick={signOut}
               title="Sign Out"
               style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px' }}
@@ -67,12 +69,12 @@ export function Topbar() {
             </button>
           </div>
         ) : (
-          <button 
-            className="btn btn-ghost" 
-            onClick={signInWithGoogle}
+          <button
+            className="btn btn-ghost"
+            onClick={() => setShowAuth(true)}
             style={{ padding: '6px 12px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid rgba(255,255,255,0.1)' }}
           >
-            <Mail size={14} /> Google Sign In
+            <LogIn size={14} /> Sign In
           </button>
         )}
 
@@ -85,6 +87,8 @@ export function Topbar() {
           {walletAddress ? `${walletAddress.substring(0, 6)}...${walletAddress.substring(38)}` : 'Connect Wallet'}
         </button>
       </div>
+
+      {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { auth } from '../../firebase';
+import { getToken } from '../../services/userapi';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
     X, 
@@ -72,14 +72,8 @@ export const AgentOnboarding: React.FC<AgentOnboardingProps> = ({ isOpen, onClos
             setDeployedAddr(targetAddr);
 
             // 2. Register/Update in Backend
-            const user = auth.currentUser;
-            let token = '';
-            if (user) {
-                token = `Bearer ${await user.getIdToken()}`;
-            } else {
-                const mockToken = localStorage.getItem('integrity_mock_token');
-                token = mockToken ? (mockToken.startsWith('Bearer ') ? mockToken : `Bearer ${mockToken}`) : '';
-            }
+            const jwt = getToken();
+            const token = jwt ? `Bearer ${jwt}` : '';
 
             if (!token) {
                 throw new Error("Authentication token missing. Please log in again.");

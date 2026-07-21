@@ -2,14 +2,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ethers } from 'ethers';
 import axios from 'axios';
-import { auth } from '../../firebase';
-import { 
-    Coins, ArrowDownLeft, Loader2, 
+import { getToken } from '../../services/userapi';
+import {
+    Coins, ArrowDownLeft, Loader2,
     Copy, ShieldCheck, Landmark, X, ArrowUpRight, ArrowDownRight, Fingerprint
 } from 'lucide-react';
 import { ITK_TOKEN_ADDRESS, API_BASE } from '../../constants';
 import ITK_ABI from '../abi/IntegrityToken.json';
-import type { User } from 'firebase/auth';
 import { useDashboard } from '../../context/useDashboard';
 
 interface Transaction {
@@ -21,7 +20,7 @@ interface Transaction {
     status: string;
 }
 
-export const TokenWallet = ({ user: propUser }: { user?: User | null }) => {
+export const TokenWallet = () => {
     const { selectedAgent, agents } = useDashboard() as any;
     const [balance, setBalance] = useState<string>('0.0');
     const [profileBalance, setProfileBalance] = useState<number>(0);
@@ -37,15 +36,9 @@ export const TokenWallet = ({ user: propUser }: { user?: User | null }) => {
     const [activeModal, setActiveModal] = useState<'send' | 'receive' | 'loan' | 'stake' | null>(null);
 
     const fetchProfileData = useCallback(async () => {
-        const user = propUser || auth.currentUser;
-        let token: string;
-        if (user) {
-            token = await user.getIdToken();
-        } else {
-            const mockToken = localStorage.getItem('integrity_mock_token');
-            token = mockToken ? (mockToken.startsWith('Bearer ') ? mockToken : `Bearer ${mockToken}`) : '';
-        }
-        
+        // Real userapi JWT (replaces the old firebase getIdToken + mock-token fallback).
+        const token = getToken() || '';
+
         if (!token) {
             setIsProfileLoading(false);
             return;
@@ -53,7 +46,7 @@ export const TokenWallet = ({ user: propUser }: { user?: User | null }) => {
         
         try {
             const res = await axios.get(`${API_BASE}/v1/user/profile`, {
-                headers: { Authorization: token }
+                headers: { Authorization: `Bearer ${token}` }
             });
             setProfileBalance(res.data.balance || 0);
             setAppWalletAddress(res.data.app_wallet_address || null);
@@ -62,7 +55,7 @@ export const TokenWallet = ({ user: propUser }: { user?: User | null }) => {
         } finally {
             setIsProfileLoading(false);
         }
-    }, [propUser]);
+    }, []);
 
     const fetchWalletData = useCallback(async () => {
         setIsFetching(true);
@@ -158,9 +151,7 @@ export const TokenWallet = ({ user: propUser }: { user?: User | null }) => {
 
     useEffect(() => {
         let mounted = true;
-        const user = propUser || auth.currentUser;
-        const mockToken = localStorage.getItem('integrity_mock_token');
-        if (user || mockToken) {
+        if (getToken()) {
             const load = async () => {
                 if (mounted) await fetchProfileData();
             };
@@ -169,7 +160,7 @@ export const TokenWallet = ({ user: propUser }: { user?: User | null }) => {
             setIsProfileLoading(false);
         }
         return () => { mounted = false; };
-    }, [fetchProfileData, propUser]);
+    }, [fetchProfileData]);
 
     useEffect(() => {
         let mounted = true;
@@ -190,21 +181,14 @@ export const TokenWallet = ({ user: propUser }: { user?: User | null }) => {
 
         try {
             let signer;
-            const user = propUser || auth.currentUser;
             const ethereum = (window as Window & typeof globalThis & { ethereum?: any }).ethereum;
             if (ethereum) {
                 const provider = new ethers.BrowserProvider(ethereum);
                 signer = await provider.getSigner();
             } else if (appWalletAddress) {
-                let token = '';
-                if (user) {
-                    token = await user.getIdToken();
-                    token = `Bearer ${token}`;
-                } else {
-                    const mockToken = localStorage.getItem('integrity_mock_token');
-                    token = mockToken ? (mockToken.startsWith('Bearer ') ? mockToken : `Bearer ${mockToken}`) : '';
-                }
-                
+                const jwt = getToken();
+                const token = jwt ? `Bearer ${jwt}` : '';
+
                 await axios.post(`${API_BASE}/v1/user/transfer`, {
                     recipient_address: recipient,
                     amount: parseFloat(amount)

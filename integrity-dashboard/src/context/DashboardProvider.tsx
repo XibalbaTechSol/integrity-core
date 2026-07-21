@@ -32,8 +32,7 @@ function primitivesToContracts(p: PrimitiveSetDto, deployedAt: string): OwnedCon
 }
 import { DashboardContext } from './useDashboard';
 import type { ToastMessage } from './useDashboard';
-import { auth, googleProvider } from '../firebase';
-import { signInWithPopup, signOut as firebaseSignOut } from 'firebase/auth';
+import { userapi, getToken, type UserResponse } from '../services/userapi';
 
 // Maps the real oracle DTOs (DID-keyed AgentSummary + AisResponse) onto the
 // legacy dashboard `Agent` shape the UI renders. The new system has no agent
@@ -73,7 +72,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isBackendOffline, setIsBackendOffline] = useState(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<UserResponse | null>(null);
   
   const toastCounter = useRef(0);
   
@@ -140,22 +139,22 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     }
   }, [addToast]);
 
-  const signInWithGoogle = useCallback(async () => {
-    try {
-      await signInWithPopup(auth, googleProvider);
-      addToast('success', 'Authenticated with Google successfully');
-    } catch (err: any) {
-      addToast('error', `Authentication failed: ${err.message}`);
-    }
+  // Real userapi auth. login/register set a JWT in sessionStorage and fire
+  // 'integrity-auth-changed'; the effect below reacts by loading the account via
+  // /me. Errors surface to the caller (the auth modal) so it can keep the form open.
+  const signIn = useCallback(async (email: string, password: string) => {
+    await userapi.login(email, password);
+    addToast('success', 'Signed in');
   }, [addToast]);
 
-  const signOut = useCallback(async () => {
-    try {
-      await firebaseSignOut(auth);
-      addToast('info', 'Signed out from Google');
-    } catch (err: any) {
-      addToast('error', `Sign out failed: ${err.message}`);
-    }
+  const signUp = useCallback(async (email: string, password: string) => {
+    await userapi.register(email, password);
+    addToast('success', 'Account created');
+  }, [addToast]);
+
+  const signOut = useCallback(() => {
+    userapi.logout();
+    addToast('info', 'Signed out');
   }, [addToast]);
 
   useEffect(() => {
@@ -165,11 +164,33 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // Real userapi session: resolve the current account from the JWT on mount and
+  // whenever auth changes (login/register/logout fire 'integrity-auth-changed' in
+  // this tab; 'storage' covers other tabs). A present-but-invalid/expired token
+  // clears the session rather than showing a stale signed-in state.
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged((u) => {
-      setUser(u);
-    });
-    return () => unsubscribe();
+    let active = true;
+    const syncUser = async () => {
+      if (!getToken()) {
+        if (active) setUser(null);
+        return;
+      }
+      try {
+        const me = await userapi.me();
+        if (active) setUser(me);
+      } catch {
+        userapi.logout();
+        if (active) setUser(null);
+      }
+    };
+    syncUser();
+    window.addEventListener('integrity-auth-changed', syncUser);
+    window.addEventListener('storage', syncUser);
+    return () => {
+      active = false;
+      window.removeEventListener('integrity-auth-changed', syncUser);
+      window.removeEventListener('storage', syncUser);
+    };
   }, []);
 
   const fetchData = useCallback(async () => {
@@ -317,7 +338,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       selectAgent: setSelectedAgentAddr,
       setActiveTab,
       connectWallet,
-      signInWithGoogle,
+      signIn,
+      signUp,
       signOut,
       fetchData,
       addToast,

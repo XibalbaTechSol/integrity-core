@@ -145,9 +145,17 @@ contract first). These need `ConnectWalletButton` + signed txs against `deployme
      monolithic `INTEGRITY_PROTOCOL_ADDRESS` approve target. Closes the loop with the already-wired
      `GET /v1/agent/{id}/stake` read. Guards: no-wallet and no-Slasher-clone are surfaced, not sent.
      **Testnet-only**; code-complete + builds green — a funded-wallet stake tx is the closing confirm.
+   - ✅ **Auth swap** (firebase → userapi JWT) — the whole app's identity now comes from the
+     real `integrity-userapi` account service, not firebase. `DashboardProvider` resolves the
+     session from the userapi JWT via `/me` (reacting to the `integrity-auth-changed` +
+     `storage` events the client fires), a new `AuthModal` does real email/password
+     login/register (replacing the firebase Google popup), and the three token-getters
+     (`TokenWallet`, `GlobalSettings`, `AgentOnboarding`) now read the userapi JWT via
+     `getToken()` instead of `auth.currentUser.getIdToken()`. `src/firebase.ts` deleted — no
+     firebase imports remain. Builds green; a present-but-invalid token clears the session
+     rather than showing a stale signed-in state.
    - ⬜ identity claim/challenge (SovereignAgent) · credit borrow/repay (A2ACapitalPool) ·
-     market create/bid/settle (IntegrityMarket) · factory deploy (`registerPrimitives`) ·
-     firebase→userapi auth swap.
+     market create/bid/settle (IntegrityMarket) · factory deploy (`registerPrimitives`).
    (Governance blocked on a contract that doesn't exist — flag, don't fake.)
 6. **Landing page** — update all copy/stats to the real protocol (Base Sepolia addresses, real
    AIS formula, live agent count via `/v1/stats`).
