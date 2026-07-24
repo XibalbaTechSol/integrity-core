@@ -1738,6 +1738,62 @@ pub async fn get_agent_contracts(
     Ok(Json(dtos?))
 }
 
+#[derive(Debug, Serialize, ToSchema)]
+pub struct BaaDto {
+    pub address: String,
+    pub covered_entity: String,
+    pub business_associate: String,
+    pub agreement_hash: String,
+    /// Decimal string, uint256 wei of $ITK (SmartBAA.requiredCollateral).
+    pub required_collateral: String,
+    /// SmartBAA.Status: Proposed | Active | Disputed | Terminated.
+    pub status: String,
+}
+
+fn baa_status_str(s: u8) -> &'static str {
+    match s {
+        0 => "Proposed",
+        1 => "Active",
+        2 => "Disputed",
+        3 => "Terminated",
+        _ => "Unknown",
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/agent/{id}/baas",
+    params(("id" = String, Path, description = "Agent DID")),
+    responses((status = 200, description = "SmartBAA agreements where this agent is the business associate", body = Vec<BaaDto>)),
+    tag = "shield",
+)]
+pub async fn get_agent_baas(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<BaaDto>>, AppError> {
+    let factory = state
+        .chain
+        .smart_baa_factory()
+        .ok_or(crate::chain::ChainError::MissingSingleton("SmartBAAFactory"))?;
+    let record = state.chain.resolve_primitives_by_did(&id).await?;
+    let baas = state
+        .chain
+        .read_baas_for_agent(factory, record.primitives.sovereign_agent)
+        .await?;
+    let dtos = baas
+        .into_iter()
+        .map(|b| BaaDto {
+            address: format!("{:#x}", b.address),
+            covered_entity: format!("{:#x}", b.covered_entity),
+            business_associate: format!("{:#x}", b.business_associate),
+            agreement_hash: format!("{:#x}", b.agreement_hash),
+            required_collateral: b.required_collateral.to_string(),
+            status: baa_status_str(b.status).to_string(),
+        })
+        .collect();
+    Ok(Json(dtos))
+}
+
 // Protocol-wide aggregates (Class B, docs/design/dashboard-wiring.md). Deliberately
 // the *minimal supplement* to what the dashboard already derives client-side from its
 // per-agent loop (`active_nodes`, `aggregate_ais`, `protocol_staked_itk`,

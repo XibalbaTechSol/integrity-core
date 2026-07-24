@@ -113,6 +113,30 @@ sol! {
     }
 }
 
+sol! {
+    // Shield vertical. SmartBAAFactory (contracts/src/shield/SmartBAAFactory.sol) deploys
+    // one SmartBAA escrow per (coveredEntity, businessAssociate) pair and emits BAACreated;
+    // there is no reverse index from a business-associate agent to its BAAs, so the oracle
+    // enumerates them from the BAACreated event log and reads each SmartBAA's live status.
+    // SmartBAA.Status: 0=Proposed 1=Active 2=Disputed 3=Terminated.
+    #[sol(rpc)]
+    interface ISmartBAAFactory {
+        function baaOf(address coveredEntity, address businessAssociate) external view returns (address);
+        event BAACreated(address indexed coveredEntity, address indexed businessAssociate, address baa, bytes32 agreementHash);
+    }
+}
+
+sol! {
+    #[sol(rpc)]
+    interface ISmartBAA {
+        function coveredEntity() external view returns (address);
+        function businessAssociate() external view returns (address);
+        function agreementHash() external view returns (bytes32);
+        function requiredCollateral() external view returns (uint256);
+        function status() external view returns (uint8);
+    }
+}
+
 /// Hand-transcribed from `contracts/src/markets/MarketFactory.sol`. Note there is no
 /// `allMarkets()` full-array getter: `address[] public allMarkets` only auto-generates
 /// an indexed `allMarkets(uint256) returns (address)` getter, so enumerating every
@@ -230,6 +254,18 @@ pub struct CreditInfo {
     pub allocation_count: u64,
 }
 
+/// One SmartBAA escrow's on-chain state, as read via `ChainClient::read_baas_for_agent`.
+/// `status`: 0=Proposed 1=Active 2=Disputed 3=Terminated (SmartBAA.Status).
+#[derive(Debug, Clone)]
+pub struct BaaInfo {
+    pub address: Address,
+    pub covered_entity: Address,
+    pub business_associate: Address,
+    pub agreement_hash: B256,
+    pub required_collateral: U256,
+    pub status: u8,
+}
+
 /// Plain-Rust mirror of an `IntegrityMarket` clone's on-chain view state, as read live
 /// by `ChainClient::read_market` (§6.9). `outcome_staked[i]` is the pari-mutuel pool
 /// for outcome `i` (cheap, bounded by `outcome_count` public-getter reads) — real
@@ -317,6 +353,10 @@ struct Singletons {
     /// endpoint reports "capital pool not deployed" cleanly if it's absent.
     #[serde(rename = "A2ACapitalPool", default)]
     a2a_capital_pool: Option<Address>,
+    /// `Option` — the Shield vertical's SmartBAAFactory. Absent on non-Shield or
+    /// genesis-only deployments; shield read endpoints report it cleanly if missing.
+    #[serde(rename = "SmartBAAFactory", default)]
+    smart_baa_factory: Option<Address>,
 }
 
 /// Read-only on-chain client. Holds a connected `alloy` provider and the resolved
@@ -337,6 +377,7 @@ pub struct ChainClient {
     market_factory_address: Option<Address>,
     integrity_token_address: Option<Address>,
     a2a_capital_pool_address: Option<Address>,
+    smart_baa_factory_address: Option<Address>,
 }
 
 impl ChainClient {
@@ -366,6 +407,7 @@ impl ChainClient {
             market_factory_address: parsed.singletons.market_factory,
             integrity_token_address: parsed.singletons.integrity_token,
             a2a_capital_pool_address: parsed.singletons.a2a_capital_pool,
+            smart_baa_factory_address: parsed.singletons.smart_baa_factory,
         })
     }
 
@@ -379,6 +421,7 @@ impl ChainClient {
             market_factory_address: None,
             integrity_token_address: None,
             a2a_capital_pool_address: None,
+            smart_baa_factory_address: None,
         }
     }
 
@@ -397,6 +440,7 @@ impl ChainClient {
             market_factory_address: Some(market_factory_address),
             integrity_token_address: Some(integrity_token_address),
             a2a_capital_pool_address: None,
+            smart_baa_factory_address: None,
         }
     }
 
@@ -562,6 +606,47 @@ impl ChainClient {
     pub async fn is_healthcare_compliant(&self, compliance_gate: Address, covered_entity: Address) -> Result<bool, ChainError> {
         let contract = IComplianceGate::new(compliance_gate, self.provider.clone());
         Ok(contract.isHealthcareCompliant(covered_entity).call().await?)
+    }
+
+    /// The Shield SmartBAAFactory singleton, if deployed. `None` -> handler reports it cleanly.
+    pub fn smart_baa_factory(&self) -> Option<Address> {
+        self.smart_baa_factory_address
+    }
+
+    /// Enumerates every SmartBAA where `business_associate` (an agent's SovereignAgent) is
+    /// the BA, by scanning `SmartBAAFactory.BAACreated` logs and reading each escrow's live
+    /// status. There is no reverse index on-chain, so the event log is the only enumeration
+    /// path. Scans from genesis (`from_block(0)`); acceptable at testnet BAA volume — a very
+    /// large history would want a bounded from-block or a cached index.
+    pub async fn read_baas_for_agent(&self, factory: Address, business_associate: Address) -> Result<Vec<BaaInfo>, ChainError> {
+        use alloy::rpc::types::Filter;
+        use alloy::sol_types::SolEvent;
+
+        let filter = Filter::new()
+            .address(factory)
+            .event_signature(ISmartBAAFactory::BAACreated::SIGNATURE_HASH)
+            .from_block(0u64);
+        let logs = self.provider.get_logs(&filter).await?;
+
+        let mut out = Vec::new();
+        for log in logs {
+            let Ok(decoded) = ISmartBAAFactory::BAACreated::decode_log(&log.inner) else { continue };
+            if decoded.data.businessAssociate != business_associate {
+                continue;
+            }
+            let baa = ISmartBAA::new(decoded.data.baa, self.provider.clone());
+            let status = baa.status().call().await?;
+            let required_collateral = baa.requiredCollateral().call().await?;
+            out.push(BaaInfo {
+                address: decoded.data.baa,
+                covered_entity: decoded.data.coveredEntity,
+                business_associate: decoded.data.businessAssociate,
+                agreement_hash: decoded.data.agreementHash,
+                required_collateral,
+                status,
+            });
+        }
+        Ok(out)
     }
 
     pub fn market_factory_address(&self) -> Option<Address> {

@@ -223,6 +223,16 @@ export interface StatsDto {
     allocation_count: number;
 }
 
+// backend::handlers::BaaDto — one SmartBAA agreement's live on-chain state.
+export interface BaaDto {
+    address: string;
+    covered_entity: string;
+    business_associate: string;
+    agreement_hash: string;
+    required_collateral: string; // decimal-string wei of $ITK
+    status: 'Proposed' | 'Active' | 'Disputed' | 'Terminated' | 'Unknown';
+}
+
 export interface CreditDto {
     agent_id: string;
     total_allocated: string;
@@ -338,6 +348,9 @@ export const oracle = {
     // Real "contracts an agent owns": the IntegrityMarket clones it deployed via
     // MarketFactory, read live on-chain (backend::handlers::get_agent_contracts).
     getAgentContracts: (id: string) => get<MarketSummaryDto[]>(`/v1/agent/${encodeURIComponent(id)}/contracts`),
+    // Real SmartBAA agreements where this agent is the business associate, enumerated
+    // from SmartBAAFactory.BAACreated logs (backend::handlers::get_agent_baas).
+    getAgentBaas: (id: string) => get<BaaDto[]>(`/v1/agent/${encodeURIComponent(id)}/baas`),
     getMarket: (address: string, agent?: string) =>
         get<MarketDetailDto>(`/v1/markets/${address}${agent ? `?agent=${agent}` : ''}`),
     getLeaderboard: () => get<LeaderboardEntryDto[]>('/v1/leaderboard'),
