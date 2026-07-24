@@ -4,6 +4,7 @@ import { Shield, FileText, Activity, CheckCircle, AlertTriangle, Search, Clock, 
 import { useDashboard } from '../../context/useDashboard';
 import { StatusBadge } from '../shared/StatusBadge';
 import { api } from '../../services/api';
+import { oracle } from '../../services/oracle';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ethers } from 'ethers';
 import { IS_PRODUCTION, BASE_SEPOLIA_CHAIN_ID } from '../../constants';
@@ -227,17 +228,46 @@ export function ShieldPanel() {
   const [isProposeModalOpen, setIsProposeModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Real shield reads. BAAs come from the SmartBAAFactory event-query endpoint; the
+  // interaction log is the agent's real BCC/audit decisions; the review queue is the
+  // agent's BAAs currently in the on-chain Disputed state (awaiting arbitration). No
+  // mock api.getBAAs/getShieldInteractions/getComplianceReviewQueue.
   const fetchData = async () => {
+    if (!selectedAgent) { setBaas([]); setInteractions([]); setViolations([]); setIsLoading(false); return; }
     setIsLoading(true);
+    const did = selectedAgent.eth_address;
     try {
-      const [baaData, intData, violationData] = await Promise.all([
-        api.getBAAs(),
-        api.getShieldInteractions(),
-        api.getComplianceReviewQueue()
+      const [baaData, auditData] = await Promise.all([
+        oracle.getAgentBaas(did).catch(() => []),
+        oracle.getAuditLog(did, 50).catch(() => []),
       ]);
-      setBaas((baaData as BAA[]) || []);
-      setInteractions((intData as Interaction[]) || []);
-      setViolations((violationData as Violation[]) || []);
+      setBaas(baaData.map((b) => ({
+        id: b.address,
+        coveredEntity: b.covered_entity,
+        businessAssociate: b.business_associate,
+        status: b.status,
+        signedAt: '',
+        stakedITK: (Number(b.required_collateral) / 1e18).toLocaleString() + ' ITK',
+        documentHash: b.agreement_hash,
+      })));
+      setInteractions(auditData.map((a) => ({
+        id: a.id,
+        time: new Date(a.created_at).toLocaleString(),
+        action: a.event_type,
+        resource: a.detail || '—',
+        agent: a.agent_id || '—',
+        baaId: a.source,
+        status: (/pass|allow|permit/i.test(a.decision) ? 'PASSED' : 'BLOCKED') as 'PASSED' | 'BLOCKED',
+      })));
+      setViolations(baaData.filter((b) => b.status === 'Disputed').map((b) => ({
+        id: b.address,
+        time: '',
+        agent: b.business_associate,
+        baaId: b.address,
+        type: 'BAA Dispute',
+        detail: `Disputed SmartBAA with covered entity ${b.covered_entity.slice(0, 10)}… — awaiting on-chain arbitration.`,
+        status: 'Disputed',
+      })));
     } catch (err: any) {
       addToast('error', `Shield sync failed: ${err.message}`);
     } finally {
