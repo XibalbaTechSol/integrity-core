@@ -1,141 +1,98 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useDashboard } from '../../context/useDashboard';
 import { Panel } from '../shared/Panel';
-import { ShieldCheck, Cpu, RefreshCw } from 'lucide-react';
-import { api } from '../../services/api';
-import { TransactionStepper } from '../shared/TransactionStepper';
-import type { Step } from '../shared/TransactionStepper';
+import { ShieldCheck, Cpu, Terminal, RefreshCw } from 'lucide-react';
+import { oracle, type AisResponse } from '../../services/oracle';
 
-interface ZKProofResult {
-  proof_hash: string;
-  proof_data: string;
-}
+// Honest Class-D wiring. Real ZK proving is AGENT-SIDE by design: the agent runs the Noir
+// circuit + Barretenberg prover via integrity-sdk (nargo execute + bb prove) and submits the
+// proof itself to ReputationRegistry.submitZkAttestation (only msg.sender == agent, to block
+// cross-agent replay). A browser dashboard cannot produce a real proof without the Noir/bb
+// toolchain in-process, so the old panel faked it — random-hex proof, a simulated PLONK
+// pipeline, invented "14,582 gate checks". This panel instead does the honest thing: explain
+// where proving happens and VISUALIZE the real, on-chain result — whether a bb-verified boost
+// is currently live for the agent (from the oracle's AIS read, which reflects the chain).
+
+const PROOF_CMD = 'integrity prove --agent <did> --intent <intent.json>';
 
 export function ZKProverPanel() {
-  const { selectedAgent, addToast } = useDashboard();
-  const [proofType, setProofType] = useState('ais_threshold');
-  const [isProving, setIsProving] = useState(false);
-  const [proofResult, setProofResult] = useState<ZKProofResult | null>(null);
+  const { selectedAgent } = useDashboard();
+  const [ais, setAis] = useState<AisResponse | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  const [steps, setSteps] = useState<Step[]>([
-    { id: 'witness', label: 'Computing Private Witness...', status: 'pending' },
-    { id: 'compile', label: 'Compiling Noir Circuit...', status: 'pending' },
-    { id: 'prove', label: 'Generating PLONK Proof...', status: 'pending' },
-    { id: 'verify', label: 'Verifying with StateAnchor...', status: 'pending' },
-  ]);
+  useEffect(() => {
+    if (!selectedAgent) { setAis(null); return; }
+    let active = true;
+    setLoading(true);
+    oracle.getAis(selectedAgent.eth_address)
+      .then(r => { if (active) setAis(r); })
+      .catch(() => { if (active) setAis(null); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [selectedAgent]);
 
-  const updateStep = (id: string, status: Step['status']) => {
-    setSteps(prev => prev.map(s => s.id === id ? { ...s, status } : s));
-  };
-
-  const handleGenerate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedAgent) return;
-    
-    setIsProving(true);
-    setProofResult(null);
-    setSteps(steps.map(s => ({ ...s, status: 'pending' })));
-
-    const delay = (ms: number) => new Promise(r => setTimeout(r, import.meta.env.MODE === 'test' ? 0 : ms));
-
-    try {
-      updateStep('witness', 'loading');
-      await delay(1000);
-      updateStep('witness', 'completed');
-
-      updateStep('compile', 'loading');
-      await delay(1500);
-      updateStep('compile', 'completed');
-
-      updateStep('prove', 'loading');
-      const res = await api.generateZKProof(selectedAgent.eth_address, { type: proofType });
-      updateStep('prove', 'completed');
-
-      updateStep('verify', 'loading');
-      await delay(1200);
-      setProofResult(res);
-      updateStep('verify', 'completed');
-
-      addToast('success', 'Zero-knowledge proof generated successfully');
-    } catch {
-      console.warn('Backend offline. Falling back to local simulated proof.');
-      
-      updateStep('prove', 'completed');
-      updateStep('verify', 'loading');
-      await delay(1000);
-      updateStep('verify', 'completed');
-
-      setProofResult({
-        proof_hash: '0x' + Array.from({length: 64}, () => Math.floor(Math.random()*16).toString(16)).join(''),
-        proof_data: '{"pi_a":["0x1a...","0x2b..."],"pi_b":[["0x3c...","0x4d..."],["0x5e...","0x6f..."]],"pi_c":["0x7a...","0x8b..."]}'
-      });
-      addToast('success', 'Zero-knowledge proof generated locally (fallback)');
-    } finally {
-      setIsProving(false);
-    }
-  };
+  const boosted = !!ais?.zk_proof_verified && (ais?.zk_boost ?? 1) > 1;
 
   return (
     <div className="grid-cols-2">
-      <Panel title="Generate ZK Proof" icon={<Cpu size={18} />}>
-        <form onSubmit={handleGenerate} className="flex-col gap-4">
-          <div className="form-group">
-            <label className="form-label">Subject Agent</label>
-            <div className="input" style={{ opacity: 0.7 }}>
-              {selectedAgent ? `${selectedAgent.alias} (${selectedAgent.eth_address.substring(0,8)}...)` : 'Select an agent'}
+      <Panel title="Reputation-Boost Proof (Agent-Side)" icon={<Cpu size={18} />}>
+        <div className="flex-col gap-4">
+          <p className="text-muted" style={{ fontSize: '0.85rem', lineHeight: 1.55, margin: 0 }}>
+            ZK proofs in Integrity are generated by the <strong>agent itself</strong>, not this dashboard.
+            The agent runs the real Noir circuit through Barretenberg via the SDK/CLI, then submits the proof
+            on-chain to its own <span className="mono">ReputationRegistry.submitZkAttestation</span>, which
+            verifies it against an oracle-anchored Merkle root and grants a time-boxed reputation boost.
+          </p>
+          <div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Terminal size={13} /> Run agent-side (integrity-sdk / integrity-cli)
+            </div>
+            <div className="mono" style={{ background: 'var(--navy-deep)', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-sm)', padding: 'var(--space-3)', fontSize: '0.78rem', color: 'var(--gold)', wordBreak: 'break-all' }}>
+              {PROOF_CMD}
             </div>
           </div>
-          
-          <div className="form-group">
-            <label className="form-label" htmlFor="proof-type">Proof Type</label>
-            <select id="proof-type" className="select" value={proofType} onChange={e => setProofType(e.target.value)}>
-              <option value="ais_threshold">AIS Score Above Threshold</option>
-              <option value="accuracy_check">Historical Accuracy Valid</option>
-              <option value="contract_owner">Owns Specific Contract</option>
-            </select>
-          </div>
-
-          {isProving && (
-            <div className="animate-fade-in">
-              <TransactionStepper title="ZK Proving Pipeline" steps={steps} />
-            </div>
-          )}
-
-          <button type="submit" className="btn btn-primary" disabled={isProving || !selectedAgent}>
-            {isProving ? <RefreshCw className="spin" size={16} /> : 'Generate Proof'}
-          </button>
-        </form>
+          <p className="text-muted" style={{ fontSize: '0.72rem', margin: 0 }}>
+            The verified boost then appears in the panel at right, read from live chain state — no proof is
+            fabricated here.
+          </p>
+        </div>
       </Panel>
 
-      <Panel title="Verification Result" icon={<ShieldCheck size={18} />}>
-        {isProving ? (
-          <div className="skeleton" style={{ height: '200px' }} />
-        ) : proofResult ? (
+      <Panel title="On-Chain Boost Status" icon={<ShieldCheck size={18} />}>
+        {!selectedAgent ? (
+          <div className="text-muted" style={{ textAlign: 'center', padding: 'var(--space-6)' }}>Select an agent to view its live ZK boost.</div>
+        ) : loading ? (
+          <div className="flex items-center gap-2 text-muted" style={{ padding: 'var(--space-6)', justifyContent: 'center' }}>
+            <RefreshCw size={16} className="spin" /> Reading chain state…
+          </div>
+        ) : (
           <div className="flex-col gap-4">
-            <div className="flex items-center gap-2" style={{ color: 'var(--success)', fontWeight: 600 }}>
-              <ShieldCheck size={20} /> Cryptographic Proof Verified
-            </div>
-            <div style={{ background: 'var(--bg-secondary)', padding: 'var(--space-3)', borderRadius: 'var(--radius-sm)' }}>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Proof Ingestion Hash</div>
-              <div className="mono" style={{ fontSize: '0.85rem', wordBreak: 'break-all', color: 'var(--gold)' }}>{proofResult.proof_hash}</div>
+            <div className="flex items-center gap-2" style={{ color: boosted ? 'var(--success)' : 'var(--text-muted)', fontWeight: 600 }}>
+              <ShieldCheck size={20} /> {boosted ? 'Active bb-verified reputation boost' : 'No active ZK boost'}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
               <div style={{ background: 'var(--bg-secondary)', padding: 'var(--space-3)', borderRadius: 'var(--radius-sm)' }}>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Noir Constraints</div>
-                <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: '4px' }}>14,582 Gate Checks</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Boost Multiplier</div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 700, color: boosted ? 'var(--gold)' : 'var(--text-primary)', marginTop: '4px' }}>
+                  {(ais?.zk_boost ?? 1).toFixed(2)}×
+                </div>
               </div>
               <div style={{ background: 'var(--bg-secondary)', padding: 'var(--space-3)', borderRadius: 'var(--radius-sm)' }}>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>L2 Gas Cost</div>
-                <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--primary)', marginTop: '4px' }}>0.00012 ETH</div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Proof Verified</div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 700, color: ais?.zk_proof_verified ? 'var(--success)' : 'var(--text-muted)', marginTop: '4px' }}>
+                  {ais?.zk_proof_verified ? 'Yes' : 'No'}
+                </div>
               </div>
             </div>
             <div style={{ background: 'var(--bg-secondary)', padding: 'var(--space-3)', borderRadius: 'var(--radius-sm)' }}>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Verification Status</div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--success)', fontWeight: 600, marginTop: '4px' }}>Noir Plonk Verification Success (EVM Attested)</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Oracle ↔ Chain Consistency</div>
+              <div style={{ fontSize: '0.8rem', fontWeight: 600, marginTop: '4px', color: ais?.onchain_zk_boost_consistent === false ? 'var(--danger)' : ais?.onchain_zk_boost_consistent ? 'var(--success)' : 'var(--text-muted)' }}>
+                {ais?.onchain_zk_boost_consistent === null || ais?.onchain_zk_boost_consistent === undefined
+                  ? 'Not checked'
+                  : ais.onchain_zk_boost_consistent ? 'Consistent (oracle boost matches on-chain)' : 'Mismatch — oracle boost not confirmed on-chain'}
+              </div>
             </div>
           </div>
-        ) : (
-          <div className="text-muted" style={{ textAlign: 'center', padding: 'var(--space-6)' }}>Generate a proof to view verification stats.</div>
         )}
       </Panel>
     </div>
