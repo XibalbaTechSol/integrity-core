@@ -1696,6 +1696,48 @@ pub async fn get_credit(
     }))
 }
 
+/// `MarketDetail` (live chain read) -> `MarketSummaryDto`, mirroring
+/// `market_cache_row_to_dto`'s conventions (lowercase 0x-addresses, decimal-string
+/// uint256s, `winning_outcome` only when resolved) so a market looks identical whether
+/// it comes from the cache or a direct read.
+fn market_detail_to_dto(detail: MarketDetail) -> Result<MarketSummaryDto, AppError> {
+    let resolve_deadline = chrono::DateTime::<Utc>::from_timestamp(detail.resolve_deadline.to::<u64>() as i64, 0)
+        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("resolve_deadline out of range")))?;
+    Ok(MarketSummaryDto {
+        address: format!("{:#x}", detail.address),
+        creator: format!("{:#x}", detail.creator),
+        question: detail.question,
+        outcome_count: detail.outcome_count,
+        min_ais_to_enter: detail.min_ais_to_enter.to_string(),
+        resolve_deadline,
+        resolved: detail.resolved,
+        winning_outcome: if detail.resolved { Some(detail.winning_outcome) } else { None },
+        total_staked: detail.total_staked.to_string(),
+        outcome_staked: detail.outcome_staked.iter().map(|v| v.to_string()).collect(),
+    })
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/agent/{id}/contracts",
+    params(("id" = String, Path, description = "Agent DID")),
+    responses((status = 200, description = "IntegrityMarket contracts this agent deployed and owns", body = Vec<MarketSummaryDto>)),
+    tag = "markets",
+)]
+pub async fn get_agent_contracts(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<MarketSummaryDto>>, AppError> {
+    // Real "contracts an agent owns": the IntegrityMarket clones it deployed via
+    // MarketFactory (marketsByCreator, keyed on the agent's SovereignAgent). Read live —
+    // there's no per-agent cache table for this, and the set is small per agent.
+    let record = state.chain.resolve_primitives_by_did(&id).await?;
+    let addresses = state.chain.markets_by_creator(record.primitives.sovereign_agent).await?;
+    let details = state.chain.read_markets(&addresses).await;
+    let dtos: Result<Vec<_>, _> = details.into_iter().map(market_detail_to_dto).collect();
+    Ok(Json(dtos?))
+}
+
 // Protocol-wide aggregates (Class B, docs/design/dashboard-wiring.md). Deliberately
 // the *minimal supplement* to what the dashboard already derives client-side from its
 // per-agent loop (`active_nodes`, `aggregate_ais`, `protocol_staked_itk`,

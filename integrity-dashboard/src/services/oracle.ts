@@ -335,6 +335,9 @@ export const oracle = {
         ),
     getWallet: (id: string) => get<WalletResponse>(`/v1/agent/${encodeURIComponent(id)}/wallet`),
     listMarkets: () => get<MarketSummaryDto[]>('/v1/markets'),
+    // Real "contracts an agent owns": the IntegrityMarket clones it deployed via
+    // MarketFactory, read live on-chain (backend::handlers::get_agent_contracts).
+    getAgentContracts: (id: string) => get<MarketSummaryDto[]>(`/v1/agent/${encodeURIComponent(id)}/contracts`),
     getMarket: (address: string, agent?: string) =>
         get<MarketDetailDto>(`/v1/markets/${address}${agent ? `?agent=${agent}` : ''}`),
     getLeaderboard: () => get<LeaderboardEntryDto[]>('/v1/leaderboard'),
