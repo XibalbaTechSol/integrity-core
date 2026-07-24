@@ -1,693 +1,187 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { ethers } from 'ethers';
 import { Panel } from '../shared/Panel';
-import { 
-  LineChart, 
-  Handshake, 
-  Terminal, 
-  Zap, 
-  Plus, 
-  RefreshCw, 
-  BarChart2, 
-  Globe, 
-  ShieldCheck,
-  UserPlus,
-  Coins,
-  Lock,
-  Unlock,
-  X,
-  ArrowRight,
-  UserCheck
+import { StatusBadge } from '../shared/StatusBadge';
+import {
+  Zap, Plus, RefreshCw, BarChart2, Handshake, X, Terminal, Gavel, Trophy,
 } from 'lucide-react';
 import { useDashboard } from '../../context/useDashboard';
-import { StatusBadge } from '../shared/StatusBadge';
-import { api } from '../../services/api';
-import type { MarketTask } from '../../types';
+import { oracle, type MarketSummaryDto } from '../../services/oracle';
+import { MARKET_FACTORY_ADDRESS, ITK_TOKEN_ADDRESS } from '../../constants';
+import {
+  MARKET_FACTORY_ABI, INTEGRITY_MARKET_ABI, ERC20_ABI, executeAsAgent,
+} from '../../chain/markets';
 
-interface ExecutionLog {
-  id: number;
-  time: string;
-  message: string;
-}
+interface ExecutionLog { id: number; time: string; message: string; }
 
-interface Benchmark {
-  model_name: string;
-  provider_name: string;
-  simulated_ais: number;
-  stability_metric: number;
-  grounding_metric: number;
-}
+const fmt = (wei: string | bigint) => Number(ethers.formatEther(wei)).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
-interface A2AEscrow {
-  id: string;
-  hiredAgentAddress: string;
-  hiredAgentAlias: string;
-  taskTitle: string;
-  lockedITK: number;
-  condition: string;
-  status: 'Escrowed' | 'Released' | 'Refunded';
-  createdAt: string;
-}
-
+// Real application-layer markets (no mock task-bounty/hire/escrow/equity theater — all of
+// that was localStorage + setTimeout with no on-chain or oracle backing). This is the human
+// surface for the protocol thesis "agents deploy and own their own contracts": a registered
+// agent deploys+owns an IntegrityMarket via MarketFactory (routed through its SovereignAgent),
+// and any registered agent enters an AIS-gated, ITK-staked position. Every write routes through
+// SovereignAgent.execute; ITK for a position is pulled from the SovereignAgent itself.
 export function ActuarialHub({ mode }: { mode: 'markets' | 'stability' }) {
-  const { selectedAgent, agents, addToast } = useDashboard();
+  const { selectedAgent, addToast, walletAddress, connectWallet } = useDashboard();
 
-  // Markets States
-  const [tasks, setTasks] = useState<MarketTask[]>([]);
-  const [loadingTasks, setLoadingTasks] = useState(false);
-  const [title, setTitle] = useState('');
-  const [reward, setReward] = useState('100');
-  const [minAis, setMinAis] = useState('500');
-  const [useCredit, setUseCredit] = useState(false);
-  const [isCreating, setIsCreating] = useState(false);
+  const [markets, setMarkets] = useState<MarketSummaryDto[]>([]);
+  const [loading, setLoading] = useState(false);
   const [logs, setLogs] = useState<ExecutionLog[]>([]);
-  const [placedBids, setPlacedBids] = useState<Record<string, { bidder: string; amount: number }>>(() => {
-    const saved = localStorage.getItem('integrity_placed_bids');
-    return saved ? JSON.parse(saved) : {};
-  });
 
-  useEffect(() => {
-    localStorage.setItem('integrity_placed_bids', JSON.stringify(placedBids));
-  }, [placedBids]);
+  // Create-market form
+  const [question, setQuestion] = useState('');
+  const [outcomeCount, setOutcomeCount] = useState('2');
+  const [minAis, setMinAis] = useState('500');
+  const [durationHours, setDurationHours] = useState('72');
+  const [isCreating, setIsCreating] = useState(false);
 
-  // Stability States
-  const [benchmarks, setBenchmarks] = useState<Benchmark[]>([]);
-  const [loadingBenchmarks, setLoadingBenchmarks] = useState(false);
-  const [isAuditing, setIsAuditing] = useState(false);
+  // Enter-position modal
+  const [posMarket, setPosMarket] = useState<MarketSummaryDto | null>(null);
+  const [posOutcome, setPosOutcome] = useState('0');
+  const [posAmount, setPosAmount] = useState('100');
+  const [posBusy, setPosBusy] = useState(false);
+  const [actionBusy, setActionBusy] = useState<string | null>(null);
 
-  // A2A Escrow states
-  const [escrows, setEscrows] = useState<A2AEscrow[]>(() => {
-    const saved = localStorage.getItem('integrity_a2a_escrows');
-    return saved ? JSON.parse(saved) : [
-      { id: 'esc_sample_001', hiredAgentAddress: '0x917a0601923b6805648443a832AF721F17AF7C2d', hiredAgentAlias: 'HermesRisk', taskTitle: 'Audit historical ledger block 10452', lockedITK: 250, condition: 'AIS >= 900 & TEE Certified', status: 'Escrowed', createdAt: new Date(Date.now() - 3600000).toISOString() }
-    ];
-  });
-  const [selectedAgentForHire, setSelectedAgentForHire] = useState<any | null>(null);
-  const [hireTaskTitle, setHireTaskTitle] = useState('');
-  const [hireReward, setHireReward] = useState('500');
-  const [hireCondition, setHireCondition] = useState('AIS >= 900 & TEE Certified');
-  const [isHiring, setIsHiring] = useState(false);
+  const addLog = (message: string) => setLogs(prev => [...prev, { id: Date.now() + Math.random(), time: new Date().toLocaleTimeString(), message }]);
 
-  useEffect(() => {
-    localStorage.setItem('integrity_a2a_escrows', JSON.stringify(escrows));
-  }, [escrows]);
+  const fetchMarkets = useCallback(async () => {
+    setLoading(true);
+    try { setMarkets(await oracle.listMarkets()); }
+    catch { setMarkets([]); }
+    finally { setLoading(false); }
+  }, []);
 
-  const handleHireAgent = () => {
-    if (!selectedAgent || !selectedAgentForHire) return;
-    setIsHiring(true);
-    addLog(`[ESCROW] Initiating hire contract for ${selectedAgentForHire.alias}...`);
-    
-    setTimeout(() => {
-      const escrowId = 'esc_' + Math.random().toString(16).substring(2, 18);
-      const newEscrow: A2AEscrow = {
-        id: escrowId,
-        hiredAgentAddress: selectedAgentForHire.eth_address,
-        hiredAgentAlias: selectedAgentForHire.alias,
-        taskTitle: hireTaskTitle,
-        lockedITK: parseFloat(hireReward),
-        condition: hireCondition,
-        status: 'Escrowed',
-        createdAt: new Date().toISOString()
-      };
-      
-      setEscrows(prev => [newEscrow, ...prev]);
-      addLog(`[ESCROW SUCCESS] Locked ${hireReward} ITK in Escrow Contract (${escrowId.substring(0,8)}). Hired ${selectedAgentForHire.alias}.`);
-      addToast('success', `Agent ${selectedAgentForHire.alias} hired via escrow!`);
-      
-      setSelectedAgentForHire(null);
-      setHireTaskTitle('');
-      setIsHiring(false);
-    }, 1500);
+  useEffect(() => { if (mode === 'markets') fetchMarkets(); }, [mode, fetchMarkets]);
+
+  const getSigner = async () => {
+    const eth = (window as any).ethereum;
+    if (!eth) throw new Error('No Web3 wallet detected.');
+    return new ethers.BrowserProvider(eth).getSigner();
   };
 
-  const handleReleaseEscrow = (escrowId: string) => {
-    const esc = escrows.find(e => e.id === escrowId);
-    if (!esc) return;
-    addLog(`[ESCROW RELEASE] Verifying contract conditions for ${esc.id.substring(0,8)}...`);
-    addLog(`[ESCROW RELEASE] Oracle checked: Conditions met ("${esc.condition}").`);
-    
-    setEscrows(prev => prev.map(e => e.id === escrowId ? { ...e, status: 'Released' } : e));
-    addLog(`[ESCROW SUCCESS] Transferred locked ${esc.lockedITK} ITK to ${esc.hiredAgentAlias}.`);
-    addToast('success', 'Escrow funds released to agent!');
+  const requireAgentWallet = (): string | null => {
+    if (!selectedAgent) { addToast('error', 'Select an agent first.'); return null; }
+    if (!walletAddress) { addToast('error', 'Connect the agent controller wallet.'); return null; }
+    return selectedAgent.eth_address; // the agent's SovereignAgent address
   };
 
-  const handleRefundEscrow = (escrowId: string) => {
-    const esc = escrows.find(e => e.id === escrowId);
-    if (!esc) return;
-    addLog(`[ESCROW REFUND] Refunding escrow ${esc.id.substring(0,8)} to controller...`);
-    
-    setEscrows(prev => prev.map(e => e.id === escrowId ? { ...e, status: 'Refunded' } : e));
-    addLog(`[ESCROW SUCCESS] Refunded ${esc.lockedITK} ITK back to owner address.`);
-    addToast('info', 'Escrow refunded successfully');
-  };
-
-  const fetchTasks = async () => {
-    setLoadingTasks(true);
-    try {
-      const data = await api.getMarketTasks();
-      setTasks(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.error('Failed to fetch tasks:', err);
-      setTasks([]);
-    } finally {
-      setLoadingTasks(false);
-    }
-  };
-
-  const fetchBenchmarks = async () => {
-    setLoadingBenchmarks(true);
-    try {
-      const data = await api.getBenchmarks();
-      setBenchmarks(data as Benchmark[]);
-    } catch (err) {
-      console.error('Failed to fetch benchmarks:', err);
-    } finally {
-      setLoadingBenchmarks(false);
-    }
-  };
-
-  useEffect(() => {
-    if (mode === 'markets') {
-      fetchTasks();
-    } else {
-      fetchBenchmarks();
-    }
-  }, [mode]);
-
-  const addLog = (msg: string) => {
-    setLogs(prev => [...prev, { id: Date.now() + Math.random(), time: new Date().toLocaleTimeString(), message: msg }]);
-  };
-
-  const handleCreateTask = async () => {
-    if (!selectedAgent) return;
+  const handleCreateMarket = async () => {
+    const sa = requireAgentWallet();
+    if (!sa || !question.trim()) return;
     setIsCreating(true);
-    addLog(`Initiating task creation for "${title}"...`);
-    
+    addLog(`Deploying market: "${question}"…`);
     try {
-      let res;
-      if (useCredit) {
-        res = await api.fundTaskWithLoan({
-          creator_agent_id: selectedAgent.agent_id || "88d5ab08-156b-45cf-9b17-32e74a9f2690",
-          title,
-          reward_itk: parseFloat(reward),
-          min_ais_required: parseInt(minAis),
-          description: `Autonomous leveraged contract for ${title}`,
-          auction_duration_sec: 3600
-        });
-      } else {
-        res = await api.createMarketTask({
-          creator_agent_id: selectedAgent.agent_id || "88d5ab08-156b-45cf-9b17-32e74a9f2690",
-          title,
-          reward_itk: parseFloat(reward),
-          min_ais_required: parseInt(minAis),
-          description: `Autonomous contract for ${title}`,
-          auction_duration_sec: 3600
-        });
+      const signer = await getSigner();
+      const deadline = Math.floor(Date.now() / 1000) + Math.max(1, parseInt(durationHours) || 72) * 3600;
+      // Creator self-resolves the demo market (RESOLVER_ROLE = the SovereignAgent). Documented
+      // trust boundary — a production market would name a real oracle network as resolver.
+      const data = new ethers.Interface(MARKET_FACTORY_ABI as any).encodeFunctionData('deployMarket', [
+        question.trim(), Number(outcomeCount), BigInt(Math.round(Number(minAis) || 0)), BigInt(deadline), sa,
+      ]);
+      const receipt = await executeAsAgent(signer, sa, MARKET_FACTORY_ADDRESS, data);
+      let market = '';
+      const iface = new ethers.Interface(MARKET_FACTORY_ABI as any);
+      for (const log of receipt.logs) {
+        try { const p = iface.parseLog(log); if (p?.name === 'MarketDeployed') { market = p.args.market; break; } } catch { /* not ours */ }
       }
-      
-      addLog(`SUCCESS: Task created ${useCredit ? 'with leverage ' : ''}on-chain. ID: ${res.task_id}`);
-      addToast('success', 'Task created successfully');
-      setTitle('');
-      fetchTasks();
+      addLog(`SUCCESS: market deployed${market ? ` at ${market.slice(0, 10)}…` : ''}`);
+      addToast('success', 'Market deployed and owned by your agent.');
+      setQuestion('');
+      await fetchMarkets();
     } catch (err: any) {
-      addLog(`ERROR: ${err.message}`);
-      addToast('error', 'Failed to create task');
-    } finally {
-      setIsCreating(false);
-    }
+      addLog(`ERROR: ${err.shortMessage || err.reason || err.message}`);
+      addToast('error', `Deploy failed: ${err.shortMessage || err.reason || err.message}`);
+    } finally { setIsCreating(false); }
   };
 
-  const handleBid = async (taskId: string) => {
-    if (!selectedAgent) return;
-    addLog(`Placing bid on task ${taskId.substring(0,8)}...`);
-    
+  const handleEnterPosition = async () => {
+    const sa = requireAgentWallet();
+    if (!sa || !posMarket) return;
+    setPosBusy(true);
     try {
-      await api.bidOnTask({
-        task_id: taskId,
-        bidder_agent_address: selectedAgent.eth_address,
-        bid_amount_itk: 95.0 
-      });
-      setPlacedBids(prev => ({
-        ...prev,
-        [taskId]: { bidder: selectedAgent.alias, amount: 95.0 }
-      }));
-      addLog(`SUCCESS: Bid placed for ${selectedAgent.alias}`);
-      addToast('success', 'Bid placed successfully');
-      fetchTasks();
+      const signer = await getSigner();
+      const amt = ethers.parseEther(posAmount || '0');
+      if (amt <= 0n) throw new Error('Enter an amount greater than zero.');
+      const itk = new ethers.Contract(ITK_TOKEN_ADDRESS, ERC20_ABI as any, signer);
+
+      // 1. Fund-SA step: enterPosition pulls ITK from the SovereignAgent (msg.sender), so the
+      //    SA must hold enough. Top it up from the controller wallet if short.
+      const saBal: bigint = await itk.balanceOf(sa);
+      if (saBal < amt) {
+        const need = amt - saBal;
+        addToast('info', `Funding your agent with ${fmt(need)} $ITK…`);
+        await (await itk.transfer(sa, need)).wait();
+      }
+      // 2. Approve the market to pull from the SA (via execute), only if allowance is short.
+      const allowance: bigint = await itk.allowance(sa, posMarket.address);
+      if (allowance < amt) {
+        addToast('info', 'Approving $ITK for the market…');
+        const approveData = new ethers.Interface(ERC20_ABI as any).encodeFunctionData('approve', [posMarket.address, amt]);
+        await executeAsAgent(signer, sa, ITK_TOKEN_ADDRESS, approveData);
+      }
+      // 3. Enter the position through the SovereignAgent. bccCommitmentHash is left zero here —
+      //    the dashboard does not yet run the off-chain BCC pre-commitment flow (SDK-side);
+      //    the stake/AIS-gate/payout are fully real, only the intent-binding is unset.
+      addToast('info', 'Entering position…');
+      const enterData = new ethers.Interface(INTEGRITY_MARKET_ABI as any).encodeFunctionData('enterPosition', [Number(posOutcome), amt, ethers.ZeroHash]);
+      await executeAsAgent(signer, sa, posMarket.address, enterData);
+      addLog(`SUCCESS: position on outcome #${posOutcome} for ${posAmount} ITK`);
+      addToast('success', 'Position entered.');
+      setPosMarket(null);
+      await fetchMarkets();
     } catch (err: any) {
-      addLog(`ERROR: ${err.message}`);
-      addToast('error', 'Bidding failed');
-    }
+      addToast('error', `Position failed: ${err.shortMessage || err.reason || err.message}`);
+    } finally { setPosBusy(false); }
   };
 
-  const handleStartAudit = async () => {
-    if (!selectedAgent) {
-      addToast('info', 'Please select an agent first');
-      return;
-    }
-    
-    setIsAuditing(true);
+  const handleResolve = async (m: MarketSummaryDto, outcome: number) => {
+    const sa = requireAgentWallet();
+    if (!sa) return;
+    setActionBusy(m.address);
     try {
-      await api.requestAudit(selectedAgent.eth_address, 'AUTOMATED');
-      addToast('success', 'Institutional certification audit initialized');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      addToast('error', `Audit request failed: ${msg}`);
-    } finally {
-      setIsAuditing(false);
-    }
+      const signer = await getSigner();
+      const data = new ethers.Interface(INTEGRITY_MARKET_ABI as any).encodeFunctionData('resolve', [outcome]);
+      await executeAsAgent(signer, sa, m.address, data);
+      addToast('success', `Market resolved to outcome #${outcome}.`);
+      await fetchMarkets();
+    } catch (err: any) {
+      addToast('error', `Resolve failed: ${err.shortMessage || err.reason || err.message}`);
+    } finally { setActionBusy(null); }
   };
 
-  const getStatus = (stability: number, grounding: number) => {
-    if (stability >= 0.95 && grounding >= 0.95) return 'certified';
-    if (stability >= 0.90 && grounding >= 0.90) return 'pending';
-    return 'warning';
+  const handleClaim = async (m: MarketSummaryDto) => {
+    const sa = requireAgentWallet();
+    if (!sa) return;
+    setActionBusy(m.address);
+    try {
+      const signer = await getSigner();
+      const data = new ethers.Interface(INTEGRITY_MARKET_ABI as any).encodeFunctionData('claimPayout', []);
+      await executeAsAgent(signer, sa, m.address, data);
+      addToast('success', 'Payout claimed.');
+      await fetchMarkets();
+    } catch (err: any) {
+      addToast('error', `Claim failed: ${err.shortMessage || err.reason || err.message}`);
+    } finally { setActionBusy(null); }
   };
 
-  if (mode === 'markets') {
+  if (mode === 'stability') {
+    // The provider-stability benchmark leaderboard needs a real oracle endpoint that does not
+    // exist yet (tracked as the benchmarks endpoint). Rather than fabricate provider rows /
+    // regional-latency heatmaps / invented "8,421 verifiers online" counts (all of which the
+    // old panel simply hardcoded), this is an honest gap until that endpoint lands.
     return (
       <div className="flex-col gap-6">
-        <Panel title="A2A Market Operations" icon={<Zap size={18} />}>
-          <div className="grid-cols-2" style={{ gap: 'var(--space-6)' }}>
-            {/* Create Task Side */}
-            <div className="flex-col gap-4">
-              <div style={{ padding: 'var(--space-3)', background: 'var(--primary-dim)', border: '1px solid var(--primary)', borderRadius: 'var(--radius-sm)' }}>
-                <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--primary)', marginBottom: '4px' }}>
-                  Create Autonomous Task
-                </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-primary)' }}>
-                  Post a contract to the decentralized marketplace for other agents to fulfill.
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label" htmlFor="task-title">Task Title</label>
-                <input 
-                  id="task-title"
-                  className="input" 
-                  placeholder="e.g. Data Inference SLA" 
-                  value={title}
-                  onChange={e => setTitle(e.target.value)}
-                />
-              </div>
-
-              <div className="grid-cols-2" style={{ gap: 'var(--space-4)' }}>
-                <div className="form-group">
-                  <label className="form-label" htmlFor="task-reward">Reward (ITK)</label>
-                  <input 
-                    id="task-reward"
-                    type="number" 
-                    className="input" 
-                    value={reward}
-                    onChange={e => setReward(e.target.value)}
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label" htmlFor="task-min-ais">Min. AIS Required</label>
-                  <input 
-                    id="task-min-ais"
-                    type="number" 
-                    className="input" 
-                    value={minAis}
-                    onChange={e => setMinAis(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2" style={{ marginBottom: 'var(--space-2)' }}>
-                <input 
-                  type="checkbox" 
-                  id="useCredit" 
-                  checked={useCredit}
-                  onChange={e => setUseCredit(e.target.checked)}
-                />
-                <label htmlFor="useCredit" style={{ fontSize: '0.75rem', cursor: 'pointer' }}>
-                  Fund via Institutional Credit (No upfront cost)
-                </label>
-              </div>
-
-              <button 
-                className="btn btn-primary" 
-                onClick={handleCreateTask} 
-                disabled={isCreating || !selectedAgent || !title}
-              >
-                {isCreating ? 'Broadcasting to Mesh...' : 'Create A2A Task'}
-                <Plus size={16} style={{ marginLeft: '8px' }} />
-              </button>
-            </div>
-
-            {/* Console / Logs Side */}
-            <div className="flex-col gap-4">
-              <div data-testid="protocol-logs" style={{ background: 'var(--navy-deep)', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-sm)', height: '240px', padding: 'var(--space-3)', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <div className="flex items-center justify-between" style={{ borderBottom: '1px solid var(--glass-border)', paddingBottom: '4px', marginBottom: '4px' }}>
-                  <div className="flex items-center gap-2" style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-                    <Terminal size={14} /> Protocol Logs
-                  </div>
-                  <button onClick={() => setLogs([])} className="text-muted" style={{ fontSize: '0.65rem', background: 'none', border: 'none', cursor: 'pointer' }}>Clear</button>
-                </div>
-                {logs.length === 0 ? (
-                  <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', fontStyle: 'italic', marginTop: 'var(--space-2)' }}>
-                    Awaiting market activity...
-                  </div>
-                ) : (
-                  logs.map(log => (
-                    <div key={log.id} className="mono" style={{ fontSize: '0.75rem', color: log.message.includes('SUCCESS') ? 'var(--success)' : log.message.includes('ERROR') ? 'var(--error)' : 'var(--text-primary)' }}>
-                      <span style={{ color: 'var(--text-muted)' }}>[{log.time}]</span> {log.message}
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
+        <Panel title="Stability Leaderboard" icon={<BarChart2 size={18} />}>
+          <div style={{ padding: 'var(--space-6)', textAlign: 'center', color: 'var(--text-muted)' }}>
+            <BarChart2 size={28} style={{ opacity: 0.5, marginBottom: 8 }} />
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>Provider benchmark endpoint pending</div>
+            <p style={{ fontSize: '0.8rem', margin: '0 auto', maxWidth: 460 }}>
+              Model/provider stability rankings will be served from a real oracle benchmarks endpoint
+              (aggregating telemetry variance + grounding). Not yet wired — shown here rather than
+              fabricated so the dashboard never displays invented metrics.
+            </p>
           </div>
-        </Panel>
-
-        <Panel 
-          title="Open Marketplace Tasks" 
-          icon={<Handshake size={18} />}
-          action={
-            <button className="btn btn-icon" onClick={fetchTasks} disabled={loadingTasks}>
-              <RefreshCw size={14} className={loadingTasks ? 'spin' : ''} />
-            </button>
-          }
-        >
-          {(() => {
-            const [expandedTaskIds, setExpandedTaskIds] = useState<Record<string, boolean>>({});
-            const toggleExpand = (taskId: string) => {
-              setExpandedTaskIds(prev => ({ ...prev, [taskId]: !prev[taskId] }));
-            };
-
-            return (
-              <div className="table-container">
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th style={{ width: '40px' }}></th>
-                      <th>Task ID</th>
-                      <th>Title / Reward</th>
-                      <th>Min AIS</th>
-                      <th>Status</th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {loadingTasks ? (
-                      <tr><td colSpan={6} style={{ textAlign: 'center', padding: '2rem' }}>Fetching live marketplace data...</td></tr>
-                    ) : tasks.length === 0 ? (
-                      <tr><td colSpan={6} style={{ textAlign: 'center', padding: '2rem' }}>No open tasks found in the network.</td></tr>
-                    ) : (
-                      tasks.flatMap((t) => {
-                        const isExpanded = !!expandedTaskIds[t.task_id];
-                        return [
-                          <tr key={t.task_id} style={{ cursor: 'pointer' }} onClick={() => toggleExpand(t.task_id)}>
-                            <td style={{ color: 'var(--text-muted)', fontSize: '0.75rem', textAlign: 'center' }}>
-                              {isExpanded ? '▼' : '▶'}
-                            </td>
-                            <td className="mono" title={t.task_id}>{t.task_id.substring(0, 13)}...</td>
-                            <td>
-                              <div style={{ fontWeight: 500 }}>{t.title}</div>
-                              <div style={{ fontSize: '0.75rem', color: 'var(--success)' }}>{t.reward_itk} ITK</div>
-                            </td>
-                            <td>{t.min_ais_required}</td>
-                            <td><StatusBadge status={t.status.toLowerCase()} /></td>
-                            <td onClick={(e) => e.stopPropagation()}>
-                              <button 
-                                className="btn" 
-                                style={{ padding: '4px 8px', fontSize: '0.75rem' }}
-                                onClick={() => handleBid(t.task_id)}
-                                disabled={!selectedAgent || (selectedAgent.current_ais ?? 0) < t.min_ais_required}
-                              >
-                                Place Bid
-                              </button>
-                            </td>
-                          </tr>,
-                          isExpanded && (
-                            <tr key={`${t.task_id}-expanded`} style={{ background: 'var(--bg-primary)' }}>
-                              <td colSpan={6} style={{ padding: 'var(--space-4) var(--space-6)' }}>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', fontSize: '0.85rem' }}>
-                                  <div>
-                                    <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Creator Agent ID: </span>
-                                    <span className="mono">{t.creator_agent_id || 'N/A'}</span>
-                                  </div>
-                                  <div>
-                                    <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Created At: </span>
-                                    <span>{t.created_at ? new Date(t.created_at).toLocaleString() : 'N/A'}</span>
-                                  </div>
-                                  <div style={{ marginTop: '4px', borderTop: '1px solid var(--glass-border)', paddingTop: '8px' }}>
-                                    <span style={{ color: 'var(--text-muted)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Task Description:</span>
-                                    <p style={{ margin: 0, color: 'var(--text-primary)', lineHeight: 1.5 }}>{t.description || 'No description provided.'}</p>
-                                  </div>
-                                  <div style={{ marginTop: '8px', borderTop: '1px solid var(--glass-border)', paddingTop: '8px' }}>
-                                    <span style={{ color: 'var(--text-muted)', fontWeight: 600, display: 'block', marginBottom: '4px' }}>Active Bids:</span>
-                                    {placedBids[t.task_id] ? (
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', background: 'rgba(255,255,255,0.02)', padding: '6px 12px', borderRadius: '4px', border: '1px solid var(--glass-border)', maxWidth: '300px' }}>
-                                        <span className="mono" style={{ color: 'var(--primary)' }}>{placedBids[t.task_id].bidder}</span>
-                                        <span className="mono" style={{ color: 'var(--success)' }}>{placedBids[t.task_id].amount} ITK</span>
-                                      </div>
-                                    ) : (
-                                      <span style={{ fontStyle: 'italic', fontSize: '0.75rem', color: 'var(--text-muted)' }}>No bids placed yet.</span>
-                                    )}
-                                  </div>
-                                </div>
-                              </td>
-                            </tr>
-                          )
-                        ].filter(Boolean);
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            );
-          })()}
-        </Panel>
-
-        <Panel title="Mesh Agents Directory (Real-Time Trade & Hire)" icon={<UserCheck size={18} />}>
-          <div className="table-container">
-            <table className="table" style={{ fontSize: '0.8rem' }}>
-              <thead>
-                <tr>
-                  <th>Agent Alias</th>
-                  <th>DID / Address</th>
-                  <th>AIS</th>
-                  <th>Specialty / Capability</th>
-                  <th>Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {agents.length === 0 ? (
-                  <tr><td colSpan={6} style={{ textAlign: 'center', padding: '2rem' }}>Awaiting peer agent signals...</td></tr>
-                ) : (
-                  agents.map((a: any) => (
-                    <tr key={a.agent_id}>
-                      <td style={{ fontWeight: 600 }}>{a.alias}</td>
-                      <td className="mono" title={a.eth_address}>{a.eth_address.substring(0, 12)}...</td>
-                      <td style={{ color: 'var(--primary)', fontWeight: 600 }}>{a.current_ais}</td>
-                      <td>{a.description || 'General Computing & Execution'}</td>
-                      <td>
-                        <span style={{ 
-                          fontSize: '0.65rem', padding: '2px 6px', borderRadius: '4px',
-                          background: 'rgba(16, 185, 129, 0.1)', color: 'var(--success)',
-                          border: '1px solid rgba(16, 185, 129, 0.2)', fontWeight: 700
-                        }}>
-                          ONLINE
-                        </span>
-                      </td>
-                      <td>
-                        <button 
-                          className="btn btn-primary btn-xs" 
-                          style={{ padding: '2px 8px', fontSize: '0.7rem' }}
-                          onClick={() => setSelectedAgentForHire(a)}
-                          disabled={selectedAgent?.agent_id === a.agent_id}
-                        >
-                          Hire (Escrow)
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </Panel>
-
-        <Panel title="Active A2A Escrow Contracts (Parametric Escrows)" icon={<Lock size={18} />}>
-          <div className="table-container">
-            <table className="table" style={{ fontSize: '0.8rem' }}>
-              <thead>
-                <tr>
-                  <th>Escrow ID</th>
-                  <th>Hired Agent</th>
-                  <th>Specialized Task</th>
-                  <th>Locked Amount</th>
-                  <th>Release Condition</th>
-                  <th>Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {escrows.length === 0 ? (
-                  <tr><td colSpan={7} style={{ textAlign: 'center', padding: '2rem' }}>No active escrow locks found.</td></tr>
-                ) : (
-                  escrows.map((esc) => (
-                    <tr key={esc.id}>
-                      <td className="mono font-semibold">{esc.id.substring(0, 10)}...</td>
-                      <td>
-                        <div style={{ fontWeight: 500 }}>{esc.hiredAgentAlias}</div>
-                        <div className="mono text-muted" style={{ fontSize: '0.7rem' }}>{esc.hiredAgentAddress.substring(0, 10)}...</div>
-                      </td>
-                      <td>{esc.taskTitle}</td>
-                      <td className="mono" style={{ color: 'var(--gold)', fontWeight: 600 }}>{esc.lockedITK} ITK</td>
-                      <td className="text-muted">{esc.condition}</td>
-                      <td>
-                        <span style={{
-                          fontSize: '0.65rem', padding: '2px 6px', borderRadius: '4px',
-                          background: esc.status === 'Escrowed' ? 'rgba(245, 158, 11, 0.1)' : esc.status === 'Released' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
-                          color: esc.status === 'Escrowed' ? 'var(--warning)' : esc.status === 'Released' ? 'var(--success)' : 'var(--danger)',
-                          border: `1px solid ${esc.status === 'Escrowed' ? 'rgba(245, 158, 11, 0.2)' : esc.status === 'Released' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`,
-                          fontWeight: 700
-                        }}>
-                          {esc.status.toUpperCase()}
-                        </span>
-                      </td>
-                      <td>
-                        {esc.status === 'Escrowed' ? (
-                          <div style={{ display: 'flex', gap: '4px' }}>
-                            <button 
-                              className="btn btn-success btn-xs" 
-                              onClick={() => handleReleaseEscrow(esc.id)}
-                            >
-                              Release
-                            </button>
-                            <button 
-                              className="btn btn-danger btn-xs" 
-                              onClick={() => handleRefundEscrow(esc.id)}
-                            >
-                              Refund
-                            </button>
-                          </div>
-                        ) : (
-                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Settled</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </Panel>
-
-        {/* Hire Agent Escrow Modal */}
-        {selectedAgentForHire && (
-          <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
-            <div 
-              onClick={() => setSelectedAgentForHire(null)}
-              style={{ position: 'absolute', inset: 0, background: 'var(--navy-deep)', opacity: 0.85, backdropFilter: 'blur(8px)' }} 
-            />
-            
-            <div style={{ 
-              position: 'relative', 
-              width: '100%', 
-              maxWidth: '500px', 
-              background: 'var(--bg-card)', 
-              border: '1px solid var(--primary)', 
-              borderRadius: 'var(--radius-lg)', 
-              overflow: 'hidden',
-              boxShadow: '0 20px 50px rgba(0,0,0,0.6)',
-              display: 'flex',
-              flexDirection: 'column'
-            }}>
-              {/* Header */}
-              <div style={{ padding: 'var(--space-6)', borderBottom: '1px solid var(--glass-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--navy-light)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <UserCheck size={20} color="var(--primary)" />
-                  <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'white' }}>Hire {selectedAgentForHire.alias}</h3>
-                </div>
-                <button onClick={() => setSelectedAgentForHire(null)} className="btn btn-icon" style={{ border: 'none', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer' }}><X size={20} /></button>
-              </div>
-
-              {/* Form */}
-              <div style={{ padding: 'var(--space-6)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                <div className="form-group">
-                  <label className="form-label">Specialized Task Title</label>
-                  <input 
-                    type="text" 
-                    className="input" 
-                    placeholder="e.g. Audit historical ledger block 10452"
-                    value={hireTaskTitle}
-                    onChange={e => setHireTaskTitle(e.target.value)}
-                  />
-                </div>
-
-                <div className="grid-cols-2" style={{ gap: '12px' }}>
-                  <div className="form-group">
-                    <label className="form-label">Escrow Collateral (ITK)</label>
-                    <input 
-                      type="number" 
-                      className="input" 
-                      value={hireReward}
-                      onChange={e => setHireReward(e.target.value)}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Release Condition</label>
-                    <select 
-                      className="select"
-                      value={hireCondition}
-                      onChange={e => setHireCondition(e.target.value)}
-                      style={{ fontSize: '0.75rem' }}
-                    >
-                      <option value="AIS >= 900 & TEE Certified">{"AIS >= 900 & TEE Certified"}</option>
-                      <option value="AIS >= 950">{"AIS >= 950 (High Integrity Only)"}</option>
-                      <option value="TEE Certified">TEE Certified Enclave Execution</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div style={{ padding: '12px', background: 'var(--primary-dim)', border: '1px solid var(--primary)', borderRadius: 'var(--radius-md)', display: 'flex', gap: '10px' }}>
-                  <Lock size={20} color="var(--primary)" style={{ flexShrink: 0 }} />
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-primary)', lineHeight: 1.4 }}>
-                    <strong>Conditional Escrow Lock:</strong> Funds are locked in the autonomous escrow contract and will only be released to <strong>{selectedAgentForHire.alias}</strong> once the Integrity Oracle certifies compliance.
-                  </div>
-                </div>
-
-                <button 
-                  className="btn btn-primary" 
-                  onClick={handleHireAgent}
-                  disabled={isHiring || !hireTaskTitle || !hireReward}
-                  style={{ marginTop: '8px' }}
-                >
-                  {isHiring ? 'Deploying Escrow...' : 'Deploy Hire Contract & Lock Funds'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        <Panel title="Agent Equity Holdings" icon={<LineChart size={18} />}>
-          {!selectedAgent ? (
-            <div className="text-muted" style={{ textAlign: 'center', padding: 'var(--space-6)' }}>
-              Select an agent to view equity holdings.
-            </div>
-          ) : (
-            <div className="table-container">
-              <table className="table">
-                <thead><tr><th>Target Agent</th><th>Shares Owned</th><th>Ownership %</th><th>Dividends Earned</th></tr></thead>
-                <tbody>
-                  {selectedAgent.equity?.map((e, i) => (
-                    <tr key={i}>
-                      <td className="mono">{e.agent_address.substring(0, 10)}...</td>
-                      <td>{e.shares.toLocaleString()} / {e.total_shares.toLocaleString()}</td>
-                      <td style={{ color: 'var(--primary)', fontWeight: 600 }}>{e.percentage}%</td>
-                      <td style={{ color: 'var(--success)' }}>{e.dividends_earned.toLocaleString()} ITK</td>
-                    </tr>
-                  )) || (
-                    <tr><td colSpan={4} style={{ textAlign: 'center', padding: '2rem' }}>No equity positions held.</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
         </Panel>
       </div>
     );
@@ -695,125 +189,147 @@ export function ActuarialHub({ mode }: { mode: 'markets' | 'stability' }) {
 
   return (
     <div className="flex-col gap-6">
-      <Panel 
-        title="Stability Leaderboard" 
-        icon={<BarChart2 size={18} />}
-        action={
-          <button className="btn btn-icon" onClick={fetchBenchmarks} disabled={loadingBenchmarks}>
-            <RefreshCw size={14} className={loadingBenchmarks ? 'spin' : ''} />
-          </button>
-        }
-      >
-        <div className="flex-col gap-4">
-          <div className="text-muted" style={{ fontSize: '0.875rem' }}>
-            Public ranking of LLM providers by performance variance (Entropy) and grounding fidelity.
-            Certified providers maintain <span style={{ color: 'var(--primary)', fontWeight: 600 }}>95%+ stability</span> over 30 days.
+      <Panel title="Deploy a Market" icon={<Zap size={18} />}>
+        <div className="grid-cols-2" style={{ gap: 'var(--space-6)' }}>
+          <div className="flex-col gap-4">
+            <div style={{ padding: 'var(--space-3)', background: 'var(--primary-dim)', border: '1px solid var(--primary)', borderRadius: 'var(--radius-sm)' }}>
+              <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--primary)', marginBottom: '4px' }}>Your agent deploys & owns the market</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-primary)' }}>
+                An AIS-gated, ITK-staked outcome market — deployed via MarketFactory through your SovereignAgent. You are its creator and resolver.
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="form-label" htmlFor="mkt-q">Question</label>
+              <input id="mkt-q" className="input" placeholder="e.g. Will BTC close above $100k by Friday?" value={question} onChange={e => setQuestion(e.target.value)} />
+            </div>
+            <div className="grid-cols-2" style={{ gap: 'var(--space-4)' }}>
+              <div className="form-group">
+                <label className="form-label" htmlFor="mkt-outcomes">Outcomes</label>
+                <input id="mkt-outcomes" type="number" min={2} max={8} className="input" value={outcomeCount} onChange={e => setOutcomeCount(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label className="form-label" htmlFor="mkt-minais">Min AIS to Enter</label>
+                <input id="mkt-minais" type="number" className="input" value={minAis} onChange={e => setMinAis(e.target.value)} />
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="form-label" htmlFor="mkt-dur">Resolve Deadline (hours from now)</label>
+              <input id="mkt-dur" type="number" className="input" value={durationHours} onChange={e => setDurationHours(e.target.value)} />
+            </div>
+            {!walletAddress ? (
+              <button className="btn btn-primary" onClick={connectWallet}>Connect Wallet</button>
+            ) : (
+              <button className="btn btn-primary" onClick={handleCreateMarket} disabled={isCreating || !selectedAgent || !question.trim()}>
+                {isCreating ? 'Deploying…' : <>Deploy Market <Plus size={16} style={{ marginLeft: 8 }} /></>}
+              </button>
+            )}
           </div>
 
-          <div className="table-container">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Model / Provider</th>
-                  <th>Simulated AIS</th>
-                  <th>Stability (1-E)</th>
-                  <th>Grounding</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {loadingBenchmarks ? (
-                  <tr><td colSpan={5} style={{ textAlign: 'center', padding: '2rem' }}>Fetching live stability metrics...</td></tr>
-                ) : benchmarks.length === 0 ? (
-                  <tr><td colSpan={5} style={{ textAlign: 'center', padding: '2rem' }}>No benchmark data available. Oracle is accumulating telemetry.</td></tr>
-                ) : (
-                  benchmarks.map((p, i) => {
-                    const stabilityPct = (p.stability_metric * 100).toFixed(1);
-                    const groundingPct = (p.grounding_metric * 100).toFixed(1);
-                    return (
-                      <tr key={i}>
-                        <td>
-                          <div style={{ fontWeight: 600 }}>{p.model_name}</div>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{p.provider_name}</div>
-                        </td>
-                        <td className="mono" style={{ color: 'var(--primary)', fontWeight: 600 }}>{p.simulated_ais}</td>
-                        <td>
-                          <div className="flex items-center gap-2">
-                            <div style={{ width: '60px', height: '4px', background: 'var(--bg-secondary)', borderRadius: '2px', overflow: 'hidden' }}>
-                              <div style={{ width: `${stabilityPct}%`, height: '100%', background: 'var(--success)' }}></div>
-                            </div>
-                            <span className="mono" style={{ fontSize: '0.75rem' }}>{stabilityPct}%</span>
-                          </div>
-                        </td>
-                        <td className="mono" style={{ fontSize: '0.875rem' }}>{groundingPct}%</td>
-                        <td><StatusBadge status={getStatus(p.stability_metric, p.grounding_metric)} /></td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+          <div className="flex-col gap-4">
+            <div data-testid="protocol-logs" style={{ background: 'var(--navy-deep)', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-sm)', height: '260px', padding: 'var(--space-3)', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div className="flex items-center justify-between" style={{ borderBottom: '1px solid var(--glass-border)', paddingBottom: '4px', marginBottom: '4px' }}>
+                <div className="flex items-center gap-2" style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}><Terminal size={14} /> Protocol Logs</div>
+                <button onClick={() => setLogs([])} className="text-muted" style={{ fontSize: '0.65rem', background: 'none', border: 'none', cursor: 'pointer' }}>Clear</button>
+              </div>
+              {logs.length === 0 ? (
+                <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', fontStyle: 'italic', marginTop: 'var(--space-2)' }}>Awaiting market activity…</div>
+              ) : logs.map(log => (
+                <div key={log.id} className="mono" style={{ fontSize: '0.75rem', color: log.message.includes('SUCCESS') ? 'var(--success)' : log.message.includes('ERROR') ? 'var(--error)' : 'var(--text-primary)' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>[{log.time}]</span> {log.message}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </Panel>
 
-      <div className="grid-cols-2">
-        <Panel title="Regional Performance" icon={<Globe size={18} />}>
-          <div className="flex-col gap-4">
-            <div className="flex justify-between items-center" style={{ fontSize: '0.875rem' }}>
-              <span>US-East (N. Virginia)</span>
-              <span style={{ color: 'var(--success)', fontWeight: 600 }}>12ms avg.</span>
+      <Panel title="Live Markets" icon={<Handshake size={18} />}
+        action={<button className="btn btn-icon" onClick={fetchMarkets} disabled={loading}><RefreshCw size={14} className={loading ? 'spin' : ''} /></button>}>
+        <div className="table-container">
+          <table className="table">
+            <thead>
+              <tr><th>Question</th><th>Outcomes</th><th>Min AIS</th><th>Total Staked</th><th>Deadline</th><th>Status</th><th>Action</th></tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={7} style={{ textAlign: 'center', padding: '2rem' }}>Loading real markets…</td></tr>
+              ) : markets.length === 0 ? (
+                <tr><td colSpan={7} style={{ textAlign: 'center', padding: '2rem' }}>No markets deployed yet.</td></tr>
+              ) : markets.map(m => {
+                const deadline = Number(m.resolve_deadline) * 1000;
+                const past = Date.now() >= deadline;
+                const isCreator = selectedAgent?.eth_address?.toLowerCase() === m.creator.toLowerCase();
+                return (
+                  <tr key={m.address}>
+                    <td style={{ maxWidth: 260 }}>
+                      <div style={{ fontWeight: 500 }}>{m.question}</div>
+                      <div className="mono" style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{m.address.slice(0, 12)}…</div>
+                    </td>
+                    <td>{m.outcome_count}{m.outcome_staked?.length ? ` (${m.outcome_staked.map(s => fmt(s)).join(' / ')})` : ''}</td>
+                    <td>{m.min_ais_to_enter}</td>
+                    <td className="mono" style={{ color: 'var(--gold)' }}>{fmt(m.total_staked)} ITK</td>
+                    <td style={{ fontSize: '0.75rem' }}>{new Date(deadline).toLocaleString()}</td>
+                    <td><StatusBadge status={m.resolved ? 'resolved' : past ? 'pending' : 'active'} /></td>
+                    <td>
+                      {m.resolved ? (
+                        <button className="btn btn-ghost" style={{ padding: '4px 8px', fontSize: '0.72rem', color: 'var(--success)' }}
+                          disabled={actionBusy === m.address} onClick={() => handleClaim(m)}>
+                          <Trophy size={12} style={{ marginRight: 4 }} /> Claim
+                        </button>
+                      ) : isCreator && past ? (
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                          {Array.from({ length: m.outcome_count }).map((_, i) => (
+                            <button key={i} className="btn btn-ghost" style={{ padding: '3px 7px', fontSize: '0.68rem', color: 'var(--primary)' }}
+                              disabled={actionBusy === m.address} onClick={() => handleResolve(m, i)}>
+                              <Gavel size={10} style={{ marginRight: 2 }} /> #{i}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <button className="btn" style={{ padding: '4px 8px', fontSize: '0.72rem' }}
+                          disabled={!selectedAgent || past} onClick={() => { setPosMarket(m); setPosOutcome('0'); }}>
+                          Enter Position
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+
+      {posMarket && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
+          <div onClick={() => !posBusy && setPosMarket(null)} style={{ position: 'absolute', inset: 0, background: 'var(--navy-deep)', opacity: 0.85, backdropFilter: 'blur(8px)' }} />
+          <div style={{ position: 'relative', width: '100%', maxWidth: 460, background: 'var(--bg-secondary)', border: '1px solid var(--primary)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+            <div style={{ padding: 'var(--space-5)', borderBottom: '1px solid var(--glass-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>Enter Position</h3>
+              <button onClick={() => !posBusy && setPosMarket(null)} className="btn btn-icon" aria-label="Close"><X size={18} /></button>
             </div>
-            <div className="flex justify-between items-center" style={{ fontSize: '0.875rem' }}>
-              <span>EU-Central (Frankfurt)</span>
-              <span style={{ color: 'var(--success)', fontWeight: 600 }}>18ms avg.</span>
-            </div>
-            <div className="flex justify-between items-center" style={{ fontSize: '0.875rem' }}>
-              <span>AP-Northeast (Tokyo)</span>
-              <span style={{ color: 'var(--warning)', fontWeight: 600 }}>45ms avg.</span>
-            </div>
-            
-            <div style={{ height: '120px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px dashed var(--glass-border)' }}>
-              <div className="text-muted" style={{ fontSize: '0.75rem', textAlign: 'center' }}>
-                <Globe size={24} style={{ marginBottom: '8px', opacity: 0.5 }} />
-                <br />
-                Latency Heatmap Visualization
+            <div style={{ padding: 'var(--space-5)', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ fontSize: '0.85rem' }}>{posMarket.question}</div>
+              <div className="form-group">
+                <label className="form-label" htmlFor="pos-outcome">Outcome</label>
+                <select id="pos-outcome" className="select" value={posOutcome} onChange={e => setPosOutcome(e.target.value)}>
+                  {Array.from({ length: posMarket.outcome_count }).map((_, i) => <option key={i} value={i}>Outcome #{i}</option>)}
+                </select>
               </div>
+              <div className="form-group">
+                <label className="form-label" htmlFor="pos-amount">Stake (ITK)</label>
+                <input id="pos-amount" type="number" className="input" value={posAmount} onChange={e => setPosAmount(e.target.value)} />
+              </div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                Pulled from your agent's SovereignAgent (topped up from your wallet if short), AIS-gated on entry.
+              </div>
+              <button className="btn btn-primary" onClick={handleEnterPosition} disabled={posBusy}>
+                {posBusy ? 'Submitting…' : 'Stake Position'}
+              </button>
             </div>
           </div>
-        </Panel>
-
-        <Panel title="Certification Pipeline" icon={<ShieldCheck size={18} />}>
-          <div className="flex-col gap-4">
-            <div style={{ padding: 'var(--space-3)', background: 'var(--primary-dim)', border: '1px solid var(--primary)', borderRadius: 'var(--radius-sm)' }}>
-              <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--primary)' }}>
-                Apply for Institutional Certification
-              </div>
-              <div style={{ fontSize: '0.75rem', marginTop: '4px' }}>
-                Requires 1M+ tokens processed via Xibalba Integrity Sockets and zero consensus violations.
-              </div>
-            </div>
-
-            <div className="flex justify-between items-center">
-              <span style={{ fontSize: '0.875rem' }}>Active Audits</span>
-              <span className="mono" style={{ fontWeight: 600 }}>12</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span style={{ fontSize: '0.875rem' }}>ZK-Verifiers Online</span>
-              <span className="mono" style={{ fontWeight: 600 }}>8,421</span>
-            </div>
-
-            <button 
-              className="btn btn-primary" 
-              style={{ marginTop: 'auto' }}
-              onClick={handleStartAudit}
-              disabled={isAuditing || !selectedAgent}
-            >
-              {isAuditing ? <RefreshCw className="animate-spin" size={16} /> : 'Start Certification Audit'}
-            </button>
-          </div>
-        </Panel>
-      </div>
+        </div>
+      )}
     </div>
   );
 }
