@@ -333,6 +333,15 @@ function historyQuery(bucket?: HistoryBucket, since?: string): string {
 
 export const oracle = {
     getAgent: (id: string) => get<AgentResponse>(`/v1/agent/${encodeURIComponent(id)}`),
+    // Resolve an agent's real on-chain SovereignAgent contract address from its DID. The
+    // dashboard keys agents by DID (Agent.eth_address actually holds the DID), so any on-chain
+    // write that needs the real address must resolve it here rather than using that field.
+    resolveSovereignAgent: async (id: string): Promise<string> => {
+        const detail = await get<AgentResponse>(`/v1/agent/${encodeURIComponent(id)}`);
+        const sa = detail.primitives?.sovereign_agent;
+        if (!sa || /^0x0+$/i.test(sa)) throw new Error('Agent has no on-chain SovereignAgent yet (not fully registered).');
+        return sa;
+    },
     // Records an agent in the oracle DB AFTER its primitives are registered on-chain.
     register: (req: RegisterAgentRequest) => post<RegisterAgentResponse>('/v1/agent/register', req),
     // Every real agent the oracle knows about — no client-side mock filter. Mock/seeded

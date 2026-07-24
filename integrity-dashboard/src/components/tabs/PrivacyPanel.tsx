@@ -64,7 +64,9 @@ export function PrivacyPanel() {
     try {
       const detail = await oracle.getAgent(selectedAgent.eth_address);
       const profileAddr = detail.primitives?.agent_profile;
+      const sovereignAgent = detail.primitives?.sovereign_agent;
       if (!profileAddr || /^0x0+$/i.test(profileAddr)) throw new Error('Agent has no deployed AgentProfile clone.');
+      if (!sovereignAgent || /^0x0+$/i.test(sovereignAgent)) throw new Error('Agent has no on-chain SovereignAgent.');
 
       const eth = (window as any).ethereum;
       const signer = await new ethers.BrowserProvider(eth).getSigner();
@@ -77,7 +79,8 @@ export function PrivacyPanel() {
       const data = new ethers.Interface(AGENT_PROFILE_ABI as any).encodeFunctionData('setProfile', [primaryDomain, profileURI]);
 
       addToast('info', 'Writing profile to chain…');
-      await executeAsAgent(signer, selectedAgent.eth_address, profileAddr, data);
+      // Route through the real SovereignAgent (admin of the AgentProfile), NOT the DID.
+      await executeAsAgent(signer, sovereignAgent, profileAddr, data);
       addToast('success', 'Privacy configurations written on-chain.');
     } catch (err: any) {
       addToast('error', `Failed to update profile: ${err.shortMessage || err.reason || err.message}`);

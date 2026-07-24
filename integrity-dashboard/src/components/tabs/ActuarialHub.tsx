@@ -28,6 +28,9 @@ export function ActuarialHub({ mode }: { mode: 'markets' | 'stability' }) {
   const [markets, setMarkets] = useState<MarketSummaryDto[]>([]);
   const [loading, setLoading] = useState(false);
   const [logs, setLogs] = useState<ExecutionLog[]>([]);
+  // Agent.eth_address holds the DID; the real on-chain SovereignAgent address (needed to
+  // route every write via execute, and to tell if this agent created a market) is resolved.
+  const [saAddr, setSaAddr] = useState<string | null>(null);
 
   // Create-market form
   const [question, setQuestion] = useState('');
@@ -54,6 +57,14 @@ export function ActuarialHub({ mode }: { mode: 'markets' | 'stability' }) {
 
   useEffect(() => { if (mode === 'markets') fetchMarkets(); }, [mode, fetchMarkets]);
 
+  useEffect(() => {
+    const did = selectedAgent?.eth_address;
+    if (!did) { setSaAddr(null); return; }
+    let active = true;
+    oracle.resolveSovereignAgent(did).then(a => { if (active) setSaAddr(a); }).catch(() => { if (active) setSaAddr(null); });
+    return () => { active = false; };
+  }, [selectedAgent]);
+
   const getSigner = async () => {
     const eth = (window as any).ethereum;
     if (!eth) throw new Error('No Web3 wallet detected.');
@@ -63,7 +74,8 @@ export function ActuarialHub({ mode }: { mode: 'markets' | 'stability' }) {
   const requireAgentWallet = (): string | null => {
     if (!selectedAgent) { addToast('error', 'Select an agent first.'); return null; }
     if (!walletAddress) { addToast('error', 'Connect the agent controller wallet.'); return null; }
-    return selectedAgent.eth_address; // the agent's SovereignAgent address
+    if (!saAddr) { addToast('error', 'This agent has no on-chain SovereignAgent yet.'); return null; }
+    return saAddr; // the agent's real on-chain SovereignAgent address
   };
 
   const handleCreateMarket = async () => {
@@ -258,7 +270,7 @@ export function ActuarialHub({ mode }: { mode: 'markets' | 'stability' }) {
               ) : markets.map(m => {
                 const deadline = Number(m.resolve_deadline) * 1000;
                 const past = Date.now() >= deadline;
-                const isCreator = selectedAgent?.eth_address?.toLowerCase() === m.creator.toLowerCase();
+                const isCreator = !!saAddr && saAddr.toLowerCase() === m.creator.toLowerCase();
                 return (
                   <tr key={m.address}>
                     <td style={{ maxWidth: 260 }}>

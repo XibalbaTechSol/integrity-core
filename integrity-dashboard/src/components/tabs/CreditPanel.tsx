@@ -45,16 +45,22 @@ export function CreditPanel() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [myAllocations, setMyAllocations] = useState<MyAllocation[]>([]);
   const [loadingAllocs, setLoadingAllocs] = useState(false);
+  const [saAddr, setSaAddr] = useState<string | null>(null);
 
-  const agentAddr = selectedAgent?.eth_address;
+  // Agent.eth_address is actually the DID (the read key); the real on-chain SovereignAgent
+  // address — needed as allocate()'s `agent` arg and the Allocated event filter — is resolved
+  // separately.
+  const agentDid = selectedAgent?.eth_address;
 
-  // Real per-agent aggregate straight from the A2ACapitalPool read endpoint.
+  // Real per-agent aggregate straight from the A2ACapitalPool read endpoint (keyed by DID),
+  // plus the resolved SovereignAgent address for the on-chain calls.
   useEffect(() => {
-    if (!agentAddr) { setCredit(null); return; }
+    if (!agentDid) { setCredit(null); setSaAddr(null); return; }
     let active = true;
-    oracle.getCredit(agentAddr).then(c => { if (active) setCredit(c); }).catch(() => { if (active) setCredit(null); });
+    oracle.getCredit(agentDid).then(c => { if (active) setCredit(c); }).catch(() => { if (active) setCredit(null); });
+    oracle.resolveSovereignAgent(agentDid).then(a => { if (active) setSaAddr(a); }).catch(() => { if (active) setSaAddr(null); });
     return () => { active = false; };
-  }, [agentAddr]);
+  }, [agentDid]);
 
   // The connected wallet's OWN allocations to this agent, read live from Allocated
   // events (allocationId + allocator + agent are all indexed, so this filters exactly)
@@ -62,12 +68,12 @@ export function CreditPanel() {
   // for still-escrowed entries.
   const loadMyAllocations = useCallback(async () => {
     const eth = (window as any).ethereum;
-    if (!eth || !walletAddress || !agentAddr) { setMyAllocations([]); return; }
+    if (!eth || !walletAddress || !saAddr) { setMyAllocations([]); return; }
     setLoadingAllocs(true);
     try {
       const provider = new ethers.BrowserProvider(eth);
       const pool = new ethers.Contract(A2A_CAPITAL_POOL_ADDRESS, POOL_ABI, provider);
-      const events = await pool.queryFilter(pool.filters.Allocated(null, walletAddress, agentAddr));
+      const events = await pool.queryFilter(pool.filters.Allocated(null, walletAddress, saAddr));
       const rows = await Promise.all(events.map(async (ev: any) => {
         const id = ev.args.allocationId as bigint;
         const a = await pool.allocations(id);
@@ -80,12 +86,12 @@ export function CreditPanel() {
     } finally {
       setLoadingAllocs(false);
     }
-  }, [walletAddress, agentAddr]);
+  }, [walletAddress, saAddr]);
 
   useEffect(() => { loadMyAllocations(); }, [loadMyAllocations]);
 
   const refresh = async () => {
-    if (agentAddr) oracle.getCredit(agentAddr).then(setCredit).catch(() => {});
+    if (agentDid) oracle.getCredit(agentDid).then(setCredit).catch(() => {});
     await loadMyAllocations();
     if (fetchData) await fetchData();
   };
@@ -98,7 +104,8 @@ export function CreditPanel() {
 
   const handleAllocate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedAgent || !agentAddr) return;
+    if (!selectedAgent) return;
+    if (!saAddr) { addToast('error', 'This agent has no on-chain SovereignAgent yet — cannot allocate.'); return; }
     if (!walletAddress) { addToast('error', 'Connect a Base Sepolia wallet to allocate capital.'); return; }
     const amt = ethers.parseEther(amount || '0');
     if (amt <= 0n) { addToast('error', 'Enter an amount greater than zero.'); return; }
@@ -118,7 +125,7 @@ export function CreditPanel() {
       // 2. Escrow the capital, gated on the agent's live AIS at allocation time.
       const pool = new ethers.Contract(A2A_CAPITAL_POOL_ADDRESS, POOL_ABI, signer);
       addToast('info', 'Escrowing capital to the agent…');
-      const tx = await pool.allocate(agentAddr, amt, threshold);
+      const tx = await pool.allocate(saAddr, amt, threshold);
       await tx.wait();
       addToast('success', `Allocated ${amount} $ITK to ${selectedAgent.alias}`);
       await refresh();
