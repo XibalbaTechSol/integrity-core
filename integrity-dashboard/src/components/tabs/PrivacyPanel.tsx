@@ -1,42 +1,86 @@
 import { useState, useEffect } from 'react';
+import { ethers } from 'ethers';
 import { Panel } from '../shared/Panel';
-import { Shield, Eye, EyeOff, Save, Loader2 } from 'lucide-react';
+import { Shield, Save, Loader2 } from 'lucide-react';
 import { useDashboard } from '../../context/useDashboard';
-import { api } from '../../services/api';
+import { oracle } from '../../services/oracle';
+import { RPC_URL } from '../../constants';
+import { AGENT_PROFILE_ABI, executeAsAgent } from '../../chain/markets';
+
+// Real AgentProfile wiring (no mock api.updateAgentMetadata). AgentProfile only affords
+// setProfile(primaryDomain, profileURI) — there is no on-chain field for arbitrary privacy
+// flags. So the panel's preferences are serialized into the agent's on-chain profileURI as a
+// data: JSON document (a legitimate profile-document pointer that happens to be inline), while
+// the agent's existing primaryDomain is preserved. setProfile is admin-gated to the
+// SovereignAgent, so the write routes through SovereignAgent.execute (executeAsAgent). The
+// current prefs are read straight back from the on-chain profileURI on load.
+const DEFAULT_PREFS = { privacy_mode: 'public' as const, publish_telemetry: true, publish_transactions: true, publish_staking: true };
+
+function parseProfileURI(uri: string): typeof DEFAULT_PREFS {
+  try {
+    if (uri?.startsWith('data:')) {
+      const json = decodeURIComponent(uri.slice(uri.indexOf(',') + 1));
+      return { ...DEFAULT_PREFS, ...JSON.parse(json) };
+    }
+  } catch { /* not our JSON document */ }
+  return DEFAULT_PREFS;
+}
 
 export function PrivacyPanel() {
-  const { selectedAgent, addToast, fetchData } = useDashboard();
+  const { selectedAgent, addToast, walletAddress, connectWallet } = useDashboard();
   const [privacyMode, setPrivacyMode] = useState<'public' | 'pseudonymous' | 'zero_knowledge'>('public');
   const [publishTelemetry, setPublishTelemetry] = useState(true);
   const [publishTransactions, setPublishTransactions] = useState(true);
   const [publishStaking, setPublishStaking] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Initialize values when selectedAgent changes
+  // Load the real prefs from the agent's on-chain AgentProfile.profileURI.
   useEffect(() => {
-    if (selectedAgent) {
-      const meta = (selectedAgent as any).metadata || {};
-      setPrivacyMode(meta.privacy_mode || 'public');
-      setPublishTelemetry(meta.publish_telemetry !== false);
-      setPublishTransactions(meta.publish_transactions !== false);
-      setPublishStaking(meta.publish_staking !== false);
-    }
+    if (!selectedAgent) return;
+    let active = true;
+    (async () => {
+      try {
+        const detail = await oracle.getAgent(selectedAgent.eth_address);
+        const profileAddr = detail.primitives?.agent_profile;
+        if (!profileAddr || /^0x0+$/i.test(profileAddr)) return;
+        const provider = new ethers.JsonRpcProvider(RPC_URL);
+        const profile = new ethers.Contract(profileAddr, AGENT_PROFILE_ABI, provider);
+        const uri: string = await profile.profileURI();
+        if (!active) return;
+        const p = parseProfileURI(uri);
+        setPrivacyMode(p.privacy_mode);
+        setPublishTelemetry(p.publish_telemetry);
+        setPublishTransactions(p.publish_transactions);
+        setPublishStaking(p.publish_staking);
+      } catch { /* leave defaults */ }
+    })();
+    return () => { active = false; };
   }, [selectedAgent]);
 
   const handleSave = async () => {
     if (!selectedAgent) return;
+    if (!walletAddress) { addToast('error', 'Connect the agent controller wallet to save on-chain.'); return; }
     setIsSaving(true);
     try {
-      await api.updateAgentMetadata(selectedAgent.eth_address, {
-        privacy_mode: privacyMode,
-        publish_telemetry: publishTelemetry,
-        publish_transactions: publishTransactions,
-        publish_staking: publishStaking
-      });
-      addToast('success', 'Privacy configurations updated successfully.');
-      await fetchData();
+      const detail = await oracle.getAgent(selectedAgent.eth_address);
+      const profileAddr = detail.primitives?.agent_profile;
+      if (!profileAddr || /^0x0+$/i.test(profileAddr)) throw new Error('Agent has no deployed AgentProfile clone.');
+
+      const eth = (window as any).ethereum;
+      const signer = await new ethers.BrowserProvider(eth).getSigner();
+      // Preserve the agent's existing primaryDomain; only the profileURI changes.
+      const readProfile = new ethers.Contract(profileAddr, AGENT_PROFILE_ABI, signer);
+      const primaryDomain: string = await readProfile.primaryDomain();
+
+      const prefs = { privacy_mode: privacyMode, publish_telemetry: publishTelemetry, publish_transactions: publishTransactions, publish_staking: publishStaking };
+      const profileURI = 'data:application/json,' + encodeURIComponent(JSON.stringify(prefs));
+      const data = new ethers.Interface(AGENT_PROFILE_ABI as any).encodeFunctionData('setProfile', [primaryDomain, profileURI]);
+
+      addToast('info', 'Writing profile to chain…');
+      await executeAsAgent(signer, selectedAgent.eth_address, profileAddr, data);
+      addToast('success', 'Privacy configurations written on-chain.');
     } catch (err: any) {
-      addToast('error', `Failed to update privacy settings: ${err.message}`);
+      addToast('error', `Failed to update profile: ${err.shortMessage || err.reason || err.message}`);
     } finally {
       setIsSaving(false);
     }
