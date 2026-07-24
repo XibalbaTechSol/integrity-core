@@ -1,299 +1,268 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { ethers } from 'ethers';
 import { useDashboard } from '../../context/useDashboard';
 import { Panel } from '../shared/Panel';
 import { StatusBadge } from '../shared/StatusBadge';
-import { Coins, HandCoins, Clock, RefreshCw, Undo2, CalendarRange, Check } from 'lucide-react';
-import { api } from '../../services/api';
-import type { Loan } from '../../types';
+import { Coins, HandCoins, Clock, RefreshCw, Undo2, Send } from 'lucide-react';
+import { oracle, type CreditDto } from '../../services/oracle';
+import { A2A_CAPITAL_POOL_ADDRESS, ITK_TOKEN_ADDRESS } from '../../constants';
+import ITK_ABI from '../abi/IntegrityToken.json';
+
+// Real A2ACapitalPool wiring (no mock lending facility). The pool is a single global
+// allocator->agent capital ESCROW, not a borrow/repay credit line: an allocator (this
+// connected wallet — a human investor or another agent) escrows $ITK earmarked for a
+// specific agent, gated on that agent's LIVE effective AIS, then releases it to the
+// agent or claws it back. There is no on-chain "borrow", "APR", or "loan" — the old
+// panel invented all of those. See contracts/src/markets/A2ACapitalPool.sol.
+const POOL_ABI = [
+  'function allocate(address agent, uint256 amount, uint256 minAisToMaintain) returns (uint256 allocationId)',
+  'function release(uint256 allocationId)',
+  'function clawback(uint256 allocationId)',
+  'function allocations(uint256) view returns (address allocator, address agent, uint256 amount, uint256 minAisToMaintain, uint8 status, uint256 createdAt)',
+  'event Allocated(uint256 indexed allocationId, address indexed allocator, address indexed agent, uint256 amount, uint256 minAisToMaintain)',
+] as const;
+
+// Mirrors A2ACapitalPool.Status.
+const STATUS = ['Escrowed', 'Released', 'ClawedBack', 'Breached'] as const;
+
+interface MyAllocation {
+  id: string;
+  amount: bigint;
+  minAis: bigint;
+  status: number;
+  createdAt: number;
+}
+
+const fmt = (wei: string | bigint) => Number(ethers.formatEther(wei)).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
 export function CreditPanel() {
-  const { selectedAgent, addToast, fetchData } = useDashboard();
-  
-  // Loan Form State
-  const [borrowAmount, setBorrowAmount] = useState('5000');
-  const [termDays, setTermDays] = useState('30');
-  const [selectedContracts, setSelectedContracts] = useState<string[]>([]);
-  const [isSubmitting, setIsBorrowing] = useState(false);
+  const { selectedAgent, walletAddress, connectWallet, addToast, fetchData } = useDashboard();
 
-  // Repayment UI state
-  const [repayInputLoanId, setRepayInputLoanId] = useState<string | null>(null);
-  const [customRepayAmount, setCustomRepayAmount] = useState<string>('');
+  const [credit, setCredit] = useState<CreditDto | null>(null);
+  const [amount, setAmount] = useState('5000');
+  const [minAis, setMinAis] = useState('');
+  const [isAllocating, setIsAllocating] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [myAllocations, setMyAllocations] = useState<MyAllocation[]>([]);
+  const [loadingAllocs, setLoadingAllocs] = useState(false);
 
-  // Derived calculations
-  const p = parseFloat(borrowAmount) || 0;
-  const ais = selectedAgent?.current_ais || 500;
-  
-  // Rate decreases slightly for each collateral contract provided
-  const collateralDiscount = selectedContracts.length * 0.5;
-  const interestRate = Math.max(1.5, 12 - (ais / 100) - collateralDiscount); 
-  
-  const borrowLimit = selectedAgent?.credit_profile?.max_borrow_limit || 10000;
-  const isOverLimit = p > borrowLimit;
+  const agentAddr = selectedAgent?.eth_address;
 
-  const handleBorrow = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedAgent) return;
-    
-    setIsBorrowing(true);
+  // Real per-agent aggregate straight from the A2ACapitalPool read endpoint.
+  useEffect(() => {
+    if (!agentAddr) { setCredit(null); return; }
+    let active = true;
+    oracle.getCredit(agentAddr).then(c => { if (active) setCredit(c); }).catch(() => { if (active) setCredit(null); });
+    return () => { active = false; };
+  }, [agentAddr]);
+
+  // The connected wallet's OWN allocations to this agent, read live from Allocated
+  // events (allocationId + allocator + agent are all indexed, so this filters exactly)
+  // then re-checked against the current on-chain status so Release/Clawback only show
+  // for still-escrowed entries.
+  const loadMyAllocations = useCallback(async () => {
+    const eth = (window as any).ethereum;
+    if (!eth || !walletAddress || !agentAddr) { setMyAllocations([]); return; }
+    setLoadingAllocs(true);
     try {
-      await api.borrow(selectedAgent.eth_address, {
-        amount: p,
-        collateral_contracts: selectedContracts,
-        term_days: parseInt(termDays)
-      });
-      addToast('success', 'Loan approved and funded via protocol credit');
-      if (fetchData) await fetchData();
-      setSelectedContracts([]);
-    } catch (err: unknown) {
-      const error = err as Error;
-      addToast('error', `Loan failed: ${error.message}`);
+      const provider = new ethers.BrowserProvider(eth);
+      const pool = new ethers.Contract(A2A_CAPITAL_POOL_ADDRESS, POOL_ABI, provider);
+      const events = await pool.queryFilter(pool.filters.Allocated(null, walletAddress, agentAddr));
+      const rows = await Promise.all(events.map(async (ev: any) => {
+        const id = ev.args.allocationId as bigint;
+        const a = await pool.allocations(id);
+        return { id: id.toString(), amount: a.amount as bigint, minAis: a.minAisToMaintain as bigint, status: Number(a.status), createdAt: Number(a.createdAt) };
+      }));
+      rows.sort((x, y) => y.createdAt - x.createdAt);
+      setMyAllocations(rows);
+    } catch {
+      setMyAllocations([]);
     } finally {
-      setIsBorrowing(false);
+      setLoadingAllocs(false);
     }
+  }, [walletAddress, agentAddr]);
+
+  useEffect(() => { loadMyAllocations(); }, [loadMyAllocations]);
+
+  const refresh = async () => {
+    if (agentAddr) oracle.getCredit(agentAddr).then(setCredit).catch(() => {});
+    await loadMyAllocations();
+    if (fetchData) await fetchData();
   };
 
-  const handleRepay = async (loanId: string, amount: number) => {
-    if (!selectedAgent) return;
+  const getSigner = async () => {
+    const eth = (window as any).ethereum;
+    if (!eth) throw new Error('No Web3 wallet detected.');
+    return new ethers.BrowserProvider(eth).getSigner();
+  };
+
+  const handleAllocate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedAgent || !agentAddr) return;
+    if (!walletAddress) { addToast('error', 'Connect a Base Sepolia wallet to allocate capital.'); return; }
+    const amt = ethers.parseEther(amount || '0');
+    if (amt <= 0n) { addToast('error', 'Enter an amount greater than zero.'); return; }
+    // Default the AIS floor to the agent's current score if the allocator didn't set one.
+    const threshold = BigInt(minAis || Math.round(selectedAgent.current_ais || 0));
+
+    setIsAllocating(true);
     try {
-      await api.repay(selectedAgent.eth_address, {
-        loan_id: loanId,
-        amount: amount
-      });
-      addToast('success', `Repayment of ${amount.toLocaleString()} ITK processed successfully`);
-      if (fetchData) await fetchData();
-    } catch (err: unknown) {
-      const error = err as Error;
-      addToast('error', `Repayment failed: ${error.message}`);
+      const signer = await getSigner();
+      const itk = new ethers.Contract(ITK_TOKEN_ADDRESS, ITK_ABI.abi, signer);
+      // 1. Approve the pool to pull the escrow (only if the standing allowance is short).
+      const allowance: bigint = await itk.allowance(walletAddress, A2A_CAPITAL_POOL_ADDRESS);
+      if (allowance < amt) {
+        addToast('info', 'Approving $ITK for the capital pool…');
+        await (await itk.approve(A2A_CAPITAL_POOL_ADDRESS, amt)).wait();
+      }
+      // 2. Escrow the capital, gated on the agent's live AIS at allocation time.
+      const pool = new ethers.Contract(A2A_CAPITAL_POOL_ADDRESS, POOL_ABI, signer);
+      addToast('info', 'Escrowing capital to the agent…');
+      const tx = await pool.allocate(agentAddr, amt, threshold);
+      await tx.wait();
+      addToast('success', `Allocated ${amount} $ITK to ${selectedAgent.alias}`);
+      await refresh();
+    } catch (err: any) {
+      addToast('error', `Allocation failed: ${err.shortMessage || err.reason || err.message}`);
+    } finally {
+      setIsAllocating(false);
     }
   };
 
-  const handleRollover = async (loanId: string) => {
-    if (!selectedAgent) return;
+  const act = async (id: string, kind: 'release' | 'clawback') => {
+    setBusyId(id);
     try {
-      // Trigger a simulated rollover which extends the term of the loan
-      addToast('success', `Term rollover requested for loan ${loanId.substring(0, 8)}. Extended by 30 days (+1.0% APR adjustment).`);
-      if (fetchData) await fetchData();
-    } catch (err: unknown) {
-      const error = err as Error;
-      addToast('error', `Rollover request failed: ${error.message}`);
+      const signer = await getSigner();
+      const pool = new ethers.Contract(A2A_CAPITAL_POOL_ADDRESS, POOL_ABI, signer);
+      addToast('info', kind === 'release' ? 'Releasing capital to the agent…' : 'Reclaiming escrowed capital…');
+      const tx = kind === 'release' ? await pool.release(id) : await pool.clawback(id);
+      await tx.wait();
+      addToast('success', kind === 'release' ? 'Capital released to the agent.' : 'Escrow reclaimed.');
+      await refresh();
+    } catch (err: any) {
+      addToast('error', `${kind} failed: ${err.shortMessage || err.reason || err.message}`);
+    } finally {
+      setBusyId(null);
     }
   };
-
-  const activeLoans = selectedAgent?.credit_profile?.active_loans || [];
 
   return (
     <div className="flex-col gap-6">
       <div className="grid-cols-3">
-        <Panel title="Credit Profile" icon={<Coins size={18} />} className="flex-col justify-between">
+        <Panel title="Capital Position" icon={<Coins size={18} />} className="flex-col justify-between">
           {!selectedAgent ? <div className="text-muted">Select an agent</div> : (
             <>
               <div style={{ textAlign: 'center', marginBottom: 'var(--space-4)' }}>
-                <div style={{ fontSize: '3rem', fontWeight: 800, color: 'var(--primary)', lineHeight: 1 }}>
-                  {selectedAgent?.credit_profile?.credit_score || 0}
+                <div style={{ fontSize: '2.4rem', fontWeight: 800, color: 'var(--primary)', lineHeight: 1 }}>
+                  {credit ? fmt(credit.total_allocated) : '0'}
                 </div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                  Protocol Credit Score
+                  Total Allocated (ITK)
                 </div>
               </div>
+              {[
+                ['Escrowed', credit?.escrowed, 'var(--gold)'],
+                ['Released', credit?.released, 'var(--success)'],
+                ['Clawed Back', credit?.clawed_back, 'var(--text-primary)'],
+                ['Breached', credit?.breached, (Number(credit?.breached || 0) > 0 ? 'var(--danger)' : 'var(--text-primary)')],
+              ].map(([label, val, color]) => (
+                <div key={label as string} className="flex justify-between" style={{ padding: 'var(--space-2) 0', borderTop: '1px solid var(--glass-border)' }}>
+                  <span className="text-muted" style={{ fontSize: '0.875rem' }}>{label}</span>
+                  <span className="mono" style={{ color: color as string }}>{val ? fmt(val) : '0'} ITK</span>
+                </div>
+              ))}
               <div className="flex justify-between" style={{ padding: 'var(--space-2) 0', borderTop: '1px solid var(--glass-border)' }}>
-                <span className="text-muted" style={{ fontSize: '0.875rem' }}>Borrow Limit</span>
-                <span className="mono" style={{ color: 'var(--success)' }}>{borrowLimit.toLocaleString()} ITK</span>
-              </div>
-              <div className="flex justify-between" style={{ padding: 'var(--space-2) 0', borderTop: '1px solid var(--glass-border)' }}>
-                <span className="text-muted" style={{ fontSize: '0.875rem' }}>Total Borrowed</span>
-                <span className="mono">{(selectedAgent?.credit_profile?.total_borrowed || 0).toLocaleString()} ITK</span>
-              </div>
-              <div className="flex justify-between" style={{ padding: 'var(--space-2) 0', borderTop: '1px solid var(--glass-border)' }}>
-                <span className="text-muted" style={{ fontSize: '0.875rem' }}>Defaults</span>
-                <span className="mono" style={{ color: (selectedAgent?.credit_profile?.default_count || 0) > 0 ? 'var(--danger)' : 'var(--text-primary)' }}>
-                  {selectedAgent?.credit_profile?.default_count || 0}
-                </span>
+                <span className="text-muted" style={{ fontSize: '0.875rem' }}>Allocations</span>
+                <span className="mono">{credit?.allocation_count ?? 0}</span>
               </div>
             </>
           )}
         </Panel>
 
-        <Panel title="AIS Collateralized Loan" icon={<HandCoins size={18} />} style={{ gridColumn: 'span 2' }}>
-          <form onSubmit={handleBorrow} className="grid-cols-2">
+        <Panel title="Allocate Capital" icon={<HandCoins size={18} />} style={{ gridColumn: 'span 2' }}>
+          <form onSubmit={handleAllocate} className="grid-cols-2">
             <div className="flex-col gap-4">
               <div className="form-group">
-                <label className="form-label" htmlFor="borrow-amount">Principal Amount (ITK)</label>
-                <input id="borrow-amount" type="number" className="input" value={borrowAmount} onChange={e => setBorrowAmount(e.target.value)} required />
-                {isOverLimit && <div style={{ fontSize: '0.75rem', color: 'var(--danger)', marginTop: '4px' }}>Exceeds maximum borrow limit</div>}
+                <label className="form-label" htmlFor="alloc-amount">Amount to Escrow (ITK)</label>
+                <input id="alloc-amount" type="number" className="input" value={amount} onChange={e => setAmount(e.target.value)} required />
               </div>
               <div className="form-group">
-                <label className="form-label" htmlFor="term-days">Term Duration</label>
-                <select id="term-days" className="select" value={termDays} onChange={e => setTermDays(e.target.value)}>
-                  <option value="30">30 Days</option>
-                  <option value="60">60 Days</option>
-                  <option value="90">90 Days</option>
-                </select>
-              </div>
-              <div className="form-group">
-                <label className="form-label" htmlFor="collateral">Collateral Contracts (Optional)</label>
-                <select 
-                  id="collateral" 
-                  className="select" 
-                  multiple 
-                  value={selectedContracts} 
-                  onChange={e => {
-                    const options = Array.from(e.target.selectedOptions, option => option.value);
-                    setSelectedContracts(options);
-                  }}
-                  style={{ height: '80px', padding: '8px' }}
-                >
-                  {selectedAgent?.owned_contracts?.map(c => (
-                    <option key={c.contract_address} value={c.contract_address}>
-                      {c.contract_type} - {c.contract_address.substring(0,10)}...
-                    </option>
-                  ))}
-                  {(!selectedAgent?.owned_contracts || selectedAgent.owned_contracts.length === 0) && (
-                    <option disabled>No deployed contracts available</option>
-                  )}
-                </select>
-                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '4px' }}>Hold Ctrl/Cmd to select multiple. Lowers APR by 0.5% per contract.</div>
+                <label className="form-label" htmlFor="min-ais">Minimum AIS to Maintain</label>
+                <input id="min-ais" type="number" className="input" value={minAis}
+                  onChange={e => setMinAis(e.target.value)}
+                  placeholder={selectedAgent ? `Defaults to current (${Math.round(selectedAgent.current_ais || 0)})` : 'Select an agent'} />
+                <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                  Capital is escrowed only while the agent's live AIS clears this floor; it's re-checked at release.
+                </div>
               </div>
             </div>
 
             <div className="flex-col gap-4">
               <div style={{ background: 'var(--bg-primary)', padding: 'var(--space-3)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--glass-border)', height: '100%' }}>
-                <div className="flex justify-between mb-2">
-                  <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Interest Rate (APR)</span>
-                  <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--gold)' }}>{interestRate.toFixed(2)}%</span>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-primary)', marginBottom: 'var(--space-3)' }}>
+                  You (<span className="mono">{walletAddress ? `${walletAddress.slice(0, 6)}…${walletAddress.slice(-4)}` : 'not connected'}</span>) escrow $ITK for
+                  <span style={{ color: 'var(--primary)' }}> {selectedAgent?.alias || 'the selected agent'}</span>. Release it once satisfied, or clawback any time before release.
                 </div>
-                <div className="flex justify-between mb-4">
-                  <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Estimated Repayment</span>
-                  <span className="mono" style={{ fontSize: '1rem', fontWeight: 700 }}>
-                    {(p * (1 + (interestRate / 100) * (parseInt(termDays) / 365))).toFixed(2)} ITK
-                  </span>
+                <div style={{ padding: 'var(--space-2)', background: 'var(--primary-dim)', borderRadius: 'var(--radius-sm)', fontSize: '0.72rem', color: 'var(--text-primary)' }}>
+                  On-chain via A2ACapitalPool — no lending, no interest. Purely trust-gated capital delegation.
                 </div>
-                
-                <div style={{ padding: 'var(--space-2)', background: 'var(--primary-dim)', borderRadius: 'var(--radius-sm)', fontSize: '0.75rem', color: 'var(--text-primary)' }}>
-                   Collateral is automatically bound to your Agent's verified ITK stake and future revenue stream.
-                </div>
-
-                <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: 'var(--space-4)' }} disabled={!selectedAgent || isOverLimit || isSubmitting}>
-                  {isSubmitting ? <RefreshCw className="spin" size={16} /> : 'Submit Loan Application'}
-                </button>
+                {!walletAddress ? (
+                  <button type="button" className="btn btn-primary" style={{ width: '100%', marginTop: 'var(--space-4)' }} onClick={connectWallet}>
+                    Connect Wallet
+                  </button>
+                ) : (
+                  <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: 'var(--space-4)' }} disabled={!selectedAgent || isAllocating}>
+                    {isAllocating ? <RefreshCw className="spin" size={16} /> : <><Send size={15} style={{ marginRight: 6 }} /> Escrow Capital</>}
+                  </button>
+                )}
               </div>
             </div>
           </form>
         </Panel>
       </div>
 
-      <Panel title="Active Loans" icon={<Clock size={18} />}>
+      <Panel title="Your Allocations to this Agent" icon={<Clock size={18} />}>
         {!selectedAgent ? (
-          <div className="text-muted" style={{ textAlign: 'center', padding: 'var(--space-6)' }}>Select an agent to view active loans.</div>
+          <div className="text-muted" style={{ textAlign: 'center', padding: 'var(--space-6)' }}>Select an agent to view your allocations.</div>
+        ) : !walletAddress ? (
+          <div className="text-muted" style={{ textAlign: 'center', padding: 'var(--space-6)' }}>Connect a wallet to see allocations you've made.</div>
         ) : (
           <div className="table-container">
             <table className="table">
               <thead>
-                <tr>
-                  <th>Loan ID</th>
-                  <th>Principal</th>
-                  <th>APR</th>
-                  <th>Due Date</th>
-                  <th>Status</th>
-                  <th>Repayment</th>
-                  <th>Actions</th>
-                </tr>
+                <tr><th>Allocation ID</th><th>Amount</th><th>Min AIS</th><th>Created</th><th>Status</th><th>Actions</th></tr>
               </thead>
               <tbody>
-                {activeLoans.map((loan: Loan) => {
-                  const totalDue = loan.principal * (1 + (loan.interest_rate));
-                  const progress = (loan.repaid_amount / totalDue) * 100; 
-                  const remainingDue = Math.max(0, totalDue - loan.repaid_amount);
-                  const isRepaid = loan.status === 'repaid' || remainingDue <= 0;
-
-                  return (
-                    <tr key={loan.loan_id}>
-                      <td className="mono" title={loan.loan_id}>{loan.loan_id.substring(0, 12)}...</td>
-                      <td className="mono" style={{ color: 'var(--gold)' }}>{loan.principal.toLocaleString()} ITK</td>
-                      <td>{(loan.interest_rate * 100).toFixed(1)}%</td>
-                      <td>{new Date(loan.due_date).toLocaleDateString()}</td>
-                      <td><StatusBadge status={loan.status.toLowerCase()} /></td>
-                      <td style={{ minWidth: '150px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', marginBottom: '2px' }}>
-                          <span>{loan.repaid_amount.toLocaleString()} / {Math.round(totalDue).toLocaleString()} ITK</span>
-                          <span className="text-muted">{Math.min(100, Math.round(progress))}%</span>
+                {loadingAllocs && <tr><td colSpan={6} className="text-muted" style={{ textAlign: 'center', padding: '2rem' }}>Reading on-chain allocations…</td></tr>}
+                {!loadingAllocs && myAllocations.map(a => (
+                  <tr key={a.id}>
+                    <td className="mono">#{a.id}</td>
+                    <td className="mono" style={{ color: 'var(--gold)' }}>{fmt(a.amount)} ITK</td>
+                    <td className="mono">{a.minAis.toString()}</td>
+                    <td>{a.createdAt ? new Date(a.createdAt * 1000).toLocaleDateString() : '—'}</td>
+                    <td><StatusBadge status={STATUS[a.status]?.toLowerCase() || 'unknown'} /></td>
+                    <td>
+                      {a.status === 0 ? (
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button className="btn btn-ghost" style={{ padding: '4px 8px', fontSize: '0.75rem', color: 'var(--success)' }}
+                            disabled={busyId === a.id} onClick={() => act(a.id, 'release')}>
+                            {busyId === a.id ? '…' : 'Release'}
+                          </button>
+                          <button className="btn btn-ghost" style={{ padding: '4px 8px', fontSize: '0.75rem', color: 'var(--gold)', display: 'flex', alignItems: 'center', gap: '2px' }}
+                            disabled={busyId === a.id} onClick={() => act(a.id, 'clawback')}>
+                            <Undo2 size={12} /> Clawback
+                          </button>
                         </div>
-                        <div style={{ height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
-                          <div style={{ height: '100%', width: `${Math.min(100, progress)}%`, background: 'var(--success)' }} />
-                        </div>
-                      </td>
-                      <td>
-                        {isRepaid ? (
-                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>Settled</span>
-                        ) : repayInputLoanId === loan.loan_id ? (
-                          /* Inline Custom Repayment Inputs */
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <input 
-                              type="number"
-                              className="input"
-                              placeholder="Amount"
-                              style={{ width: '80px', padding: '4px 8px', fontSize: '0.75rem', height: '24px' }}
-                              value={customRepayAmount}
-                              onChange={e => setCustomRepayAmount(e.target.value)}
-                            />
-                            <button 
-                              className="btn btn-primary" 
-                              style={{ padding: '2px 8px', fontSize: '0.7rem', height: '24px', display: 'flex', alignItems: 'center', gap: '2px' }}
-                              onClick={() => {
-                                const amt = parseFloat(customRepayAmount);
-                                if (amt > 0) {
-                                  handleRepay(loan.loan_id, amt);
-                                  setRepayInputLoanId(null);
-                                  setCustomRepayAmount('');
-                                }
-                              }}
-                            >
-                              <Check size={10} /> Ok
-                            </button>
-                            <button 
-                              className="btn btn-ghost" 
-                              style={{ padding: '2px 8px', fontSize: '0.7rem', height: '24px' }}
-                              onClick={() => {
-                                setRepayInputLoanId(null);
-                                setCustomRepayAmount('');
-                              }}
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        ) : (
-                          /* Standard action triggers */
-                          <div style={{ display: 'flex', gap: '6px' }}>
-                            <button 
-                              className="btn btn-ghost" 
-                              style={{ padding: '4px 8px', fontSize: '0.75rem', color: 'var(--success)' }} 
-                              onClick={() => setRepayInputLoanId(loan.loan_id)}
-                            >
-                              Repay Custom
-                            </button>
-                            
-                            <button 
-                              className="btn btn-ghost" 
-                              style={{ padding: '4px 8px', fontSize: '0.75rem', color: 'var(--gold)' }} 
-                              onClick={() => handleRepay(loan.loan_id, remainingDue)}
-                            >
-                              Pay Full
-                            </button>
-
-                            <button 
-                              className="btn btn-ghost" 
-                              style={{ padding: '4px 8px', fontSize: '0.75rem', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '2px' }} 
-                              onClick={() => handleRollover(loan.loan_id)}
-                            >
-                              <CalendarRange size={12} /> Rollover
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-                {activeLoans.length === 0 && (
-                  <tr><td colSpan={7} className="text-muted" style={{ textAlign: 'center', padding: '2rem' }}>No active loans found.</td></tr>
+                      ) : (
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>{STATUS[a.status] || 'Settled'}</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {!loadingAllocs && myAllocations.length === 0 && (
+                  <tr><td colSpan={6} className="text-muted" style={{ textAlign: 'center', padding: '2rem' }}>
+                    You haven't allocated capital to this agent yet.
+                  </td></tr>
                 )}
               </tbody>
             </table>
