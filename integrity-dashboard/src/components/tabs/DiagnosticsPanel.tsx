@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo } from 'react';
 import { Panel } from '../shared/Panel';
 import { Search, Hash, Code, Link, Terminal, AlertTriangle, Activity, Play } from 'lucide-react';
 import { useDashboard } from '../../context/useDashboard';
-import { api } from '../../services/api';
 import { oracle } from '../../services/oracle';
 import type { ProvenanceEntry, StabilityBenchmark } from '../../types';
 
@@ -118,27 +117,17 @@ export function DiagnosticsPanel() {
             timestamp: p.anchored_at || p.created_at || '',
           }));
           setLogs(data);
-          const mockSyslogs = [
-            `[INFO] [${selectedAgent.alias}] Initializing OTel SDK trace providers...`,
-            `[DEBUG] [${selectedAgent.alias}] Bound to local SQLite database at /home/xibalba/.integrity/`,
-            `[INFO] [${selectedAgent.alias}] Scanning agent logic paths; reputational gates nominal (AIS: ${selectedAgent.current_ais})`,
-            `[WARN] [${selectedAgent.alias}] Local prover pipeline utilizing hardware acceleration fallback`,
-            `[SUCCESS] [${selectedAgent.alias}] Attestation payload anchored via BCC Middleware`
-          ];
-          setSyslogs(mockSyslogs);
+          // Real syslog view derived from the actual anchored provenance entries — not a
+          // hardcoded script. One line per real anchored commitment.
+          setSyslogs(data.slice(0, 12).map((p) =>
+            `[ANCHOR] ${p.action} · leaf ${String(p.input_hash).slice(0, 10)}… → root ${String(p.output_hash).slice(0, 10)}… (${p.timestamp})`
+          ));
         }
       } catch (err) {
         console.error("Provenance fetch failed", err);
-      }
-      
-      try {
-        const benchData = await api.getBenchmarks();
-        if (mounted) {
-          setBenchmarks(benchData);
-        }
-      } catch (err) {
-        console.error("Benchmarks fetch failed", err);
       } finally {
+        // Benchmarks (SDK evaluation leaderboard) have no oracle endpoint yet — shown as an
+        // honest empty state rather than a mock api.getBenchmarks payload.
         if (mounted) {
           setLoading(false);
         }
@@ -254,7 +243,7 @@ export function DiagnosticsPanel() {
               <thead><tr><th>Model</th><th>Provider</th><th>Simulated AIS</th><th>Stability Metric</th><th>Grounding Metric</th></tr></thead>
               <tbody>
                 {benchmarks.length === 0 ? (
-                  <tr><td colSpan={5} className="text-muted" style={{ textAlign: 'center' }}>No benchmarks data found</td></tr>
+                  <tr><td colSpan={5} className="text-muted" style={{ textAlign: 'center' }}>SDK benchmark endpoint pending — shown empty rather than mocked.</td></tr>
                 ) : (
                   benchmarks.map((b, idx) => (
                     <tr key={idx}>

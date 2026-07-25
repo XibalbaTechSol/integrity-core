@@ -21,7 +21,6 @@ import {
 import { Panel } from '../components/shared/Panel';
 import { StatusBadge } from '../components/shared/StatusBadge';
 import { useDashboard } from '../context/useDashboard';
-import { api } from '../services/api';
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 
