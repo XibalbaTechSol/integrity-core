@@ -2,18 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
 import { Search, ShieldCheck, ShieldAlert, Download, Terminal, ExternalLink, X, Copy, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ITK_TOKEN_ADDRESS, RPC_URL } from '../../constants';
+import { ITK_TOKEN_ADDRESS, RPC_URL, ORACLE_SIGNER_ADDRESS } from '../../constants';
 import { useIsMobile } from '../../utils/useIsMobile';
 import ITK_ABI from '../abi/IntegrityToken.json';
 import { useDashboard } from '../../context/useDashboard';
-import { api } from '../../services/api';
+import { oracle } from '../../services/oracle';
 
 interface ImmutableLedgerProps {
     agentAddress?: string;
 }
 
 export const ImmutableLedger: React.FC<ImmutableLedgerProps> = ({ agentAddress }) => {
-    const { addToast, walletAddress } = useDashboard() as any;
+    const { addToast, walletAddress, selectedAgent } = useDashboard() as any;
     const [logs, setLogs] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
@@ -103,29 +103,41 @@ export const ImmutableLedger: React.FC<ImmutableLedgerProps> = ({ agentAddress }
         a.click();
     };
 
+    // Real Slasher.raiseDispute (no mock api.disputeTransaction). Slashing an agent's bond
+    // is DISPUTER_ROLE-gated (the protocol's oracle/dispute signer) — an arbitrary wallet
+    // can't raise one, so this is refused unless the connected wallet is the disputer. It
+    // raises a real dispute against the SELECTED agent's own Slasher clone (resolved from the
+    // registry), locking `amount` of that agent's stake pending resolution.
     const handleRaiseDispute = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!selectedTx) return;
+        if (!selectedAgent) { addToast('error', 'Select the agent to dispute first.'); return; }
+        if (!walletAddress || walletAddress.toLowerCase() !== ORACLE_SIGNER_ADDRESS.toLowerCase()) {
+            addToast('error', 'Slashing disputes are raised by the protocol dispute signer (DISPUTER_ROLE).');
+            return;
+        }
         setIsSubmittingDispute(true);
         try {
-            const initiator = walletAddress || '0x67bA5D723E1F5517afF7eb980E2f73a9e17aD556';
-            await api.disputeTransaction(
-                selectedTx.on_chain_tx_hash,
-                initiator,
-                disputeReason || 'Optimistic SLA performance validation failure.'
-            );
-            
-            // Update local states
+            const detail = await oracle.getAgent(selectedAgent.eth_address);
+            const slasher = detail.primitives?.slasher;
+            const sa = detail.primitives?.sovereign_agent;
+            if (!slasher || !sa || /^0x0+$/i.test(slasher)) throw new Error('Agent has no deployed Slasher clone.');
+
+            const signer = await new ethers.BrowserProvider((window as any).ethereum).getSigner();
+            const slasherC = new ethers.Contract(slasher, ['function raiseDispute(address agent, uint256 amount, string reason)'], signer);
+            addToast('info', 'Raising an on-chain slashing dispute…');
+            await (await slasherC.raiseDispute(sa, ethers.parseEther(disputeBond || '0'), disputeReason || 'SLA performance validation failure.')).wait();
+
             const updatedTx = { ...selectedTx, dispute_status: 'PENDING' };
             setSelectedTx(updatedTx);
             setLogs(prev => prev.map(log => log.on_chain_tx_hash === selectedTx.on_chain_tx_hash ? updatedTx : log));
-            
-            addToast('success', 'Dispute raised successfully. Status set to PENDING.');
+
+            addToast('success', 'On-chain dispute raised against the agent stake.');
             setIsDisputing(false);
             setDisputeReason('');
         } catch (err: any) {
             console.error(err);
-            addToast('error', `Failed to raise dispute: ${err.message || 'Unknown error'}`);
+            addToast('error', `Failed to raise dispute: ${err.shortMessage || err.reason || err.message || 'Unknown error'}`);
         } finally {
             setIsSubmittingDispute(false);
         }
