@@ -1,13 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ethers } from 'ethers';
-import axios from 'axios';
 import { getToken } from '../../services/userapi';
 import {
     Coins, ArrowDownLeft, Loader2,
     Copy, ShieldCheck, Landmark, X, ArrowUpRight, ArrowDownRight, Fingerprint
 } from 'lucide-react';
-import { ITK_TOKEN_ADDRESS, API_BASE } from '../../constants';
+import { ITK_TOKEN_ADDRESS } from '../../constants';
 import ITK_ABI from '../abi/IntegrityToken.json';
 import { useDashboard } from '../../context/useDashboard';
 
@@ -36,25 +35,10 @@ export const TokenWallet = () => {
     const [activeModal, setActiveModal] = useState<'send' | 'receive' | 'loan' | 'stake' | null>(null);
 
     const fetchProfileData = useCallback(async () => {
-        // Real userapi JWT (replaces the old firebase getIdToken + mock-token fallback).
-        const token = getToken() || '';
-
-        if (!token) {
-            setIsProfileLoading(false);
-            return;
-        }
-        
-        try {
-            const res = await axios.get(`${API_BASE}/v1/user/profile`, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            setProfileBalance(res.data.balance || 0);
-            setAppWalletAddress(res.data.app_wallet_address || null);
-        } catch (e: any) {
-            console.error("Profile fetch error:", e.message);
-        } finally {
-            setIsProfileLoading(false);
-        }
+        // The app-managed-wallet profile (custodial ITK balance + app wallet address) is a
+        // userapi feature with no oracle route; it isn't wired here, so this is an honest gap
+        // rather than a mock /v1/user/profile call. The real balance below is read on-chain.
+        setIsProfileLoading(false);
     }, []);
 
     const fetchWalletData = useCallback(async () => {
@@ -88,61 +72,36 @@ export const TokenWallet = () => {
             setAddress(activeAddr);
             
             if (activeProvider && activeAddr) {
-                const isMetaMask = ethereum && activeAddr !== appWalletAddress && activeAddr !== selectedAgent?.eth_address;
-                if (!isMetaMask) {
+                // Real on-chain ITK balance + Transfer history for whichever address is active
+                // (connected wallet, app wallet, or the selected agent). No mock /v1/wallet
+                // balance, no /v1/ledger/history, no hardcoded 10000 fallback.
+                try {
+                    const itkContract = new ethers.Contract(ITK_TOKEN_ADDRESS, ITK_ABI.abi, activeProvider);
+                    const bal = await itkContract.balanceOf(activeAddr);
+                    setBalance(ethers.formatEther(bal));
+
                     try {
-                        const res = await axios.get(`${API_BASE}/v1/wallet/${activeAddr}/balance`);
-                        setBalance(String(res.data.balance_itk || 10000.0));
-                    } catch (e) {
-                        setBalance("10000.0");
-                    }
-                    
-                    // Fetch transaction history from mock backend directly
-                    try {
-                        const res = await axios.get(`${API_BASE}/v1/ledger/history`);
-                        const mockHistory = (res.data || [])
-                            .filter((t: any) => t.from.toLowerCase() === activeAddr.toLowerCase() || t.to.toLowerCase() === activeAddr.toLowerCase())
-                            .map((t: any) => ({
-                                hash: t.on_chain_tx_hash || t.transaction_id,
-                                from: t.from,
-                                to: t.to,
-                                value: String(t.contract_value_intg),
-                                isOut: t.from.toLowerCase() === activeAddr.toLowerCase(),
-                                status: t.dispute_status || 'FINALIZED'
+                        const outFilter = await itkContract.filters.Transfer(activeAddr, null);
+                        const outEvents = await itkContract.queryFilter(outFilter, -5000);
+                        const inFilter = await itkContract.filters.Transfer(null, activeAddr);
+                        const inEvents = await itkContract.queryFilter(inFilter, -5000);
+
+                        const allEvents = [...(outEvents as any[]), ...(inEvents as any[])]
+                            .sort((a: any, b: any) => b.blockNumber - a.blockNumber)
+                            .slice(0, 10)
+                            .map((event: any) => ({
+                                hash: event.transactionHash,
+                                from: event.args[0],
+                                to: event.args[1],
+                                value: ethers.formatEther(event.args[2]),
+                                isOut: event.args[0].toLowerCase() === activeAddr.toLowerCase(),
+                                status: 'FINALIZED'
                             }));
-                        setTxHistory(mockHistory);
-                    } catch {
-                        setTxHistory([]);
-                    }
-                } else {
-                    try {
-                        const itkContract = new ethers.Contract(ITK_TOKEN_ADDRESS, ITK_ABI.abi, activeProvider);
-                        const bal = await itkContract.balanceOf(activeAddr);
-                        setBalance(ethers.formatEther(bal));
-
-                        try {
-                            const outFilter = await itkContract.filters.Transfer(activeAddr, null);
-                            const outEvents = await itkContract.queryFilter(outFilter, -5000);
-                            const inFilter = await itkContract.filters.Transfer(null, activeAddr);
-                            const inEvents = await itkContract.queryFilter(inFilter, -5000);
-
-                            const allEvents = [...(outEvents as any[]), ...(inEvents as any[])]
-                                .sort((a: any, b: any) => b.blockNumber - a.blockNumber)
-                                .slice(0, 10)
-                                .map((event: any) => ({
-                                    hash: event.transactionHash,
-                                    from: event.args[0],
-                                    to: event.args[1],
-                                    value: ethers.formatEther(event.args[2]),
-                                    isOut: event.args[0].toLowerCase() === activeAddr.toLowerCase(),
-                                    status: 'FINALIZED'
-                                }));
-                            setTxHistory(allEvents);
-                        } catch { setTxHistory([]); }
-                    } catch (e) {
-                        setBalance("0.0");
-                        setTxHistory([]);
-                    }
+                        setTxHistory(allEvents);
+                    } catch { setTxHistory([]); }
+                } catch (e) {
+                    setBalance("0.0");
+                    setTxHistory([]);
                 }
             }
         } catch (e) { console.error("Wallet fetch error:", e); }
@@ -186,15 +145,10 @@ export const TokenWallet = () => {
                 const provider = new ethers.BrowserProvider(ethereum);
                 signer = await provider.getSigner();
             } else if (appWalletAddress) {
-                const jwt = getToken();
-                const token = jwt ? `Bearer ${jwt}` : '';
-
-                await axios.post(`${API_BASE}/v1/user/transfer`, {
-                    recipient_address: recipient,
-                    amount: parseFloat(amount)
-                }, { headers: { Authorization: token }});
-                setActiveModal(null);
-                fetchProfileData();
+                // App-managed-wallet transfers go through userapi (custodial), which isn't
+                // wired here — honest gap rather than a mock /v1/user/transfer. Real transfers
+                // are wallet-signed on-chain (the connected-wallet branch above).
+                alert('App-wallet transfers require the userapi custodial service (not wired here). Connect a wallet to send $ITK on-chain.');
                 setIsLoading(false);
                 return;
             }
