@@ -1,48 +1,29 @@
 // @ts-nocheck
-import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import React from 'react';
 import { ShieldCheck, Activity, BarChart3, Database, Layers } from 'lucide-react';
 import { useIsMobile } from '../../utils/useIsMobile';
-import { API_BASE } from '../../constants';
+import { useDashboard } from '../../context/useDashboard';
 
 export const ProtocolStats: React.FC = () => {
     const isMobile = useIsMobile();
-    const [loading, setLoading] = useState(true);
-    const [stats, setStats] = useState({
-        totalNodes: 0,
-        networkIntegrity: 0.98,
-        aggregateAis: 842.5,
-        protocolStakedItk: 0
-    });
-
-    useEffect(() => {
-        const fetchStats = async () => {
-            try {
-                const res = await axios.get(`${API_BASE}/v1/protocol/stats`);
-                setStats({
-                    totalNodes: res.data.active_nodes || 0,
-                    networkIntegrity: res.data.network_integrity || 0.98,
-                    aggregateAis: res.data.aggregate_ais || 842.5,
-                    protocolStakedItk: res.data.protocol_staked_itk || 0
-                });
-            } catch (e) {
-                console.error("Error fetching protocol stats:", e);
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        fetchStats();
-        const interval = setInterval(fetchStats, 10000);
-        return () => clearInterval(interval);
-    }, []);
+    // Real protocol-wide values from the context (DashboardProvider derives these from live
+    // oracle reads across the agent set) — not the legacy /v1/protocol/stats mock. Network
+    // "integrity" is the aggregate AIS as a fraction of the 1000-point scale.
+    const { stats } = useDashboard();
+    const loading = !stats;
+    const s = {
+        totalNodes: stats?.active_nodes ?? 0,
+        networkIntegrity: stats ? Math.min((stats.aggregate_ais || 0) / 1000, 1) : 0,
+        aggregateAis: stats?.aggregate_ais ?? 0,
+        protocolStakedItk: stats?.protocol_staked_itk ?? 0,
+    };
 
     return (
         <div style={{ marginBottom: 'var(--space-8)' }}>
             <div className="dash-grid-4" style={{ gap: 'var(--space-4)' }}>
                 <StatCard 
                     label="Network AIS" 
-                    value={stats.aggregateAis.toFixed(1)} 
+                    value={s.aggregateAis.toFixed(1)} 
                     icon={BarChart3} 
                     color="var(--gold)" 
                     trend="+4.2% WK"
@@ -51,7 +32,7 @@ export const ProtocolStats: React.FC = () => {
                 />
                 <StatCard 
                     label="Staked ITK" 
-                    value={`${(stats.protocolStakedItk / 1000).toFixed(1)}k`} 
+                    value={`${(s.protocolStakedItk / 1000).toFixed(1)}k`} 
                     icon={Layers} 
                     color="white" 
                     subLabel="ON-CHAIN RESERVE"
@@ -60,7 +41,7 @@ export const ProtocolStats: React.FC = () => {
                 />
                 <StatCard 
                     label="Integrity" 
-                    value={`${(stats.networkIntegrity * 100).toFixed(1)}%`} 
+                    value={`${(s.networkIntegrity * 100).toFixed(1)}%`} 
                     icon={ShieldCheck} 
                     color="var(--emerald)" 
                     subLabel="CONSENSUS"
@@ -69,7 +50,7 @@ export const ProtocolStats: React.FC = () => {
                 />
                 <StatCard 
                     label="Active Nodes" 
-                    value={stats.totalNodes} 
+                    value={s.totalNodes} 
                     icon={Database} 
                     color="var(--gold)" 
                     trend="↑ 12%"

@@ -1,10 +1,9 @@
 // @ts-nocheck
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { motion } from 'framer-motion';
 import { useIsMobile } from '../../utils/useIsMobile';
-import { API_BASE } from '../../constants';
+import { oracle } from '../../services/oracle';
 
 interface HistoryData {
     timestamp: string;
@@ -24,10 +23,15 @@ export const ReputationHistoryChart: React.FC<{ agentAddress?: string }> = ({ ag
             if (!agentAddress) return;
             setIsLoading(true);
             try {
-                const res = await axios.get(`${API_BASE}/v1/agent/${agentAddress}/history`);
-                setData(res.data.map((d: any) => ({
-                    ...d,
-                    timestamp: new Date(d.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                // Real AIS history from the oracle (per-bucket component scores). agentAddress
+                // is the DID (the roster key). Map bucket points onto the chart's shape.
+                const points = await oracle.getAisHistory(agentAddress);
+                setData(points.map((p) => ({
+                    timestamp: new Date(p.bucket_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                    ais_score: p.ais,
+                    entropy_score: p.entropy,
+                    grounding_score: p.grounding,
+                    sacrifice_score: p.sacrifice,
                 })));
             } catch (error) {
                 console.error("Failed to fetch history:", error);
