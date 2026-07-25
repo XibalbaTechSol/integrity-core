@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { BarChart3, AlertTriangle, CheckCircle, Clock, TrendingDown, Layers, Activity } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { API_BASE } from '../../constants';
+import { oracle } from '../../services/oracle';
+import { useDashboard } from '../../context/useDashboard';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -277,47 +278,30 @@ function DepthChart({ data }: { data: EvalSummary['depthDistribution'] }) {
 // ─── EvalsPanel ──────────────────────────────────────────────────────────────
 
 export function EvalsPanel() {
+  const { selectedAgent } = useDashboard();
   const [steps, setSteps] = useState<EvalStep[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     const fetchData = async () => {
+      if (!selectedAgent) { setSteps([]); setLoading(false); return; }
       try {
-        const res = await fetch(`${API_BASE}/v1/telemetry/latest`);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!Array.isArray(data) || cancelled) return;
-
-        const allSteps: EvalStep[] = [];
-        for (const item of data) {
-          const pm = item.provider_metadata || {};
-          if (pm.agent_traces && Array.isArray(pm.agent_traces)) {
-            allSteps.push(...pm.agent_traces);
-          } else if (item.metadata?.agent_traces && Array.isArray(item.metadata.agent_traces)) {
-            allSteps.push(...item.metadata.agent_traces);
-          } else if (item.telemetry_id || item.event_type) {
-            const entropy = item.entropy !== undefined ? item.entropy : 0.15;
-            const grounding = item.grounding_score !== undefined ? item.grounding_score : 0.95;
-            
-            let stepType = 'thought';
-            if (item.action_type === 'tool' || item.action_type === 'tool_call' || item.action_type?.includes('tool') || item.action_type?.includes('swap') || item.action_type?.includes('deploy')) {
-              stepType = 'tool';
-            }
-            
-            allSteps.push({
-              id: item.telemetry_id || String(item.timestamp),
-              type: stepType,
-              confidence: 1 - entropy,
-              grounding_delta: Math.max(0, 1 - grounding),
-              duration_ms: item.metadata?.latency_ms || 250,
-              depth: item.metadata?.step_index || 0,
-              timestamp: Math.round(item.timestamp / 1000),
-              time: new Date(item.timestamp).toLocaleTimeString(),
-              name: item.model_name || 'Llama 3'
-            });
-          }
-        }
+        // Real LLM-as-judge evaluations for the selected agent (oracle.getTraces returns
+        // the judge_evaluations rows), mapped onto the panel's EvalStep shape.
+        const evals = await oracle.getTraces(selectedAgent.eth_address);
+        if (cancelled) return;
+        const allSteps: EvalStep[] = evals.map((ev) => ({
+          id: ev.id,
+          type: ev.verdict === 'PASS' ? 'thought' : 'error',
+          event_type: ev.verdict,
+          confidence: ev.score ?? undefined,
+          message: ev.rationale_summary ?? undefined,
+          name: ev.judge_model,
+          recoverable: ev.verdict === 'PASS',
+          time: new Date(ev.created_at).toLocaleTimeString(),
+          timestamp: Math.round(new Date(ev.created_at).getTime() / 1000),
+        }));
         if (!cancelled) setSteps(allSteps);
       } catch {
         // silently ignore fetch errors
@@ -332,7 +316,7 @@ export function EvalsPanel() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, []);
+  }, [selectedAgent]);
 
   const summary = useMemo(() => computeEvalSummary(steps), [steps]);
 
