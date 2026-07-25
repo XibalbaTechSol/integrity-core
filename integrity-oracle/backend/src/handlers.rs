@@ -1759,6 +1759,63 @@ pub struct BaaDto {
     pub status: String,
 }
 
+/// Network-wide model/provider stability benchmark (aggregated telemetry per model).
+#[derive(Debug, Serialize, ToSchema)]
+pub struct BenchmarkDto {
+    pub model_name: String,
+    pub provider_name: String,
+    /// Simulated AIS on the 0-1000 scale from this model's stability + grounding.
+    pub simulated_ais: i64,
+    /// Behavioral stability in [0,1] = exp(-1.5 * avg_variance^2) (mirrors the entropy score).
+    pub stability_metric: f64,
+    /// Average grounding (HGI) in [0,1].
+    pub grounding_metric: f64,
+    pub sample_count: i64,
+}
+
+fn provider_for(model: &str) -> &'static str {
+    let m = model.to_lowercase();
+    if m.contains("claude") || m.contains("opus") || m.contains("sonnet") || m.contains("haiku") || m.contains("fable") {
+        "Anthropic"
+    } else if m.contains("gpt") || m.starts_with("o1") || m.starts_with("o3") {
+        "OpenAI"
+    } else if m.contains("gemini") {
+        "Google"
+    } else if m.contains("llama") {
+        "Meta"
+    } else if m.contains("mistral") {
+        "Mistral"
+    } else {
+        "Unknown"
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/benchmarks",
+    responses((status = 200, description = "Model/provider stability benchmarks (network-wide telemetry aggregate)", body = Vec<BenchmarkDto>)),
+    tag = "ais",
+)]
+pub async fn get_benchmarks(State(state): State<AppState>) -> Result<Json<Vec<BenchmarkDto>>, AppError> {
+    let rows = db::benchmark_by_model(&state.pool).await?;
+    let dtos = rows
+        .into_iter()
+        .map(|(model, avg_var, avg_ground, n)| {
+            let stability = (-1.5 * avg_var * avg_var).exp().clamp(0.0, 1.0);
+            let grounding = avg_ground.clamp(0.0, 1.0);
+            BenchmarkDto {
+                provider_name: provider_for(&model).to_string(),
+                model_name: model,
+                simulated_ais: ((stability * 500.0) + (grounding * 500.0)) as i64,
+                stability_metric: stability,
+                grounding_metric: grounding,
+                sample_count: n,
+            }
+        })
+        .collect();
+    Ok(Json(dtos))
+}
+
 fn baa_status_str(s: u8) -> &'static str {
     match s {
         0 => "Proposed",

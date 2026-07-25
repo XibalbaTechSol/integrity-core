@@ -6,7 +6,7 @@ import {
   Zap, Plus, RefreshCw, BarChart2, Handshake, X, Terminal, Gavel, Trophy,
 } from 'lucide-react';
 import { useDashboard } from '../../context/useDashboard';
-import { oracle, type MarketSummaryDto } from '../../services/oracle';
+import { oracle, type MarketSummaryDto, type BenchmarkDto } from '../../services/oracle';
 import { MARKET_FACTORY_ADDRESS, ITK_TOKEN_ADDRESS } from '../../constants';
 import {
   MARKET_FACTORY_ABI, INTEGRITY_MARKET_ABI, ERC20_ABI, executeAsAgent,
@@ -56,6 +56,12 @@ export function ActuarialHub({ mode }: { mode: 'markets' | 'stability' }) {
   }, []);
 
   useEffect(() => { if (mode === 'markets') fetchMarkets(); }, [mode, fetchMarkets]);
+
+  const [benchmarks, setBenchmarks] = useState<BenchmarkDto[]>([]);
+  useEffect(() => {
+    if (mode !== 'stability') return;
+    oracle.getBenchmarks().then(setBenchmarks).catch(() => setBenchmarks([]));
+  }, [mode]);
 
   useEffect(() => {
     const did = selectedAgent?.eth_address;
@@ -178,21 +184,39 @@ export function ActuarialHub({ mode }: { mode: 'markets' | 'stability' }) {
   };
 
   if (mode === 'stability') {
-    // The provider-stability benchmark leaderboard needs a real oracle endpoint that does not
-    // exist yet (tracked as the benchmarks endpoint). Rather than fabricate provider rows /
-    // regional-latency heatmaps / invented "8,421 verifiers online" counts (all of which the
-    // old panel simply hardcoded), this is an honest gap until that endpoint lands.
+    // Real model/provider stability leaderboard, aggregated network-wide from telemetry by the
+    // oracle (GET /v1/benchmarks) — behavioral stability + grounding per underlying model.
     return (
       <div className="flex-col gap-6">
-        <Panel title="Stability Leaderboard" icon={<BarChart2 size={18} />}>
-          <div style={{ padding: 'var(--space-6)', textAlign: 'center', color: 'var(--text-muted)' }}>
-            <BarChart2 size={28} style={{ opacity: 0.5, marginBottom: 8 }} />
-            <div style={{ fontWeight: 600, marginBottom: 4 }}>Provider benchmark endpoint pending</div>
-            <p style={{ fontSize: '0.8rem', margin: '0 auto', maxWidth: 460 }}>
-              Model/provider stability rankings will be served from a real oracle benchmarks endpoint
-              (aggregating telemetry variance + grounding). Not yet wired — shown here rather than
-              fabricated so the dashboard never displays invented metrics.
-            </p>
+        <Panel title="Model Stability Leaderboard" icon={<BarChart2 size={18} />}>
+          <div className="text-muted" style={{ fontSize: '0.8rem', marginBottom: 'var(--space-3)' }}>
+            Underlying models ranked by real telemetry: behavioral stability (1 − variance) and grounding fidelity, aggregated across every agent using them.
+          </div>
+          <div className="table-container">
+            <table className="table" style={{ fontSize: '0.85rem' }}>
+              <thead><tr><th>Model</th><th>Provider</th><th>Sim. AIS</th><th>Stability</th><th>Grounding</th><th>Samples</th></tr></thead>
+              <tbody>
+                {benchmarks.length === 0 ? (
+                  <tr><td colSpan={6} style={{ textAlign: 'center', padding: '2rem' }} className="text-muted">No benchmark telemetry yet.</td></tr>
+                ) : benchmarks.map((b) => (
+                  <tr key={b.model_name}>
+                    <td style={{ fontWeight: 600 }}>{b.model_name}</td>
+                    <td className="text-muted">{b.provider_name}</td>
+                    <td className="mono" style={{ color: 'var(--primary)', fontWeight: 600 }}>{b.simulated_ais}</td>
+                    <td>
+                      <div className="flex items-center gap-2">
+                        <div style={{ width: 60, height: 4, background: 'var(--bg-secondary)', borderRadius: 2, overflow: 'hidden' }}>
+                          <div style={{ width: `${b.stability_metric * 100}%`, height: '100%', background: 'var(--success)' }} />
+                        </div>
+                        <span className="mono" style={{ fontSize: '0.75rem' }}>{(b.stability_metric * 100).toFixed(1)}%</span>
+                      </div>
+                    </td>
+                    <td className="mono">{(b.grounding_metric * 100).toFixed(1)}%</td>
+                    <td className="mono text-muted">{b.sample_count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </Panel>
       </div>

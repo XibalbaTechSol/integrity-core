@@ -125,9 +125,15 @@ export function DiagnosticsPanel() {
         }
       } catch (err) {
         console.error("Provenance fetch failed", err);
+      }
+
+      try {
+        // Real network-wide model/provider stability benchmarks (aggregated telemetry).
+        const bench = await oracle.getBenchmarks();
+        if (mounted) setBenchmarks(bench as any);
+      } catch (err) {
+        console.error("Benchmarks fetch failed", err);
       } finally {
-        // Benchmarks (SDK evaluation leaderboard) have no oracle endpoint yet — shown as an
-        // honest empty state rather than a mock api.getBenchmarks payload.
         if (mounted) {
           setLoading(false);
         }
@@ -243,7 +249,7 @@ export function DiagnosticsPanel() {
               <thead><tr><th>Model</th><th>Provider</th><th>Simulated AIS</th><th>Stability Metric</th><th>Grounding Metric</th></tr></thead>
               <tbody>
                 {benchmarks.length === 0 ? (
-                  <tr><td colSpan={5} className="text-muted" style={{ textAlign: 'center' }}>SDK benchmark endpoint pending — shown empty rather than mocked.</td></tr>
+                  <tr><td colSpan={5} className="text-muted" style={{ textAlign: 'center' }}>No benchmark telemetry available yet.</td></tr>
                 ) : (
                   benchmarks.map((b, idx) => (
                     <tr key={idx}>

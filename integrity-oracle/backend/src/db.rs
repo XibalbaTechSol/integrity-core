@@ -330,6 +330,29 @@ pub async fn aggregate_for_ais(
     })
 }
 
+/// Provider/model stability benchmarks: aggregate telemetry across ALL agents grouped by the
+/// `model` recorded in each event's payload. Backs `GET /v1/benchmarks` — a real network-wide
+/// view of how each underlying model performs (behavioral variance + grounding), independent of
+/// which agent used it. Returns (model, avg_variance, avg_grounding, sample_count).
+pub async fn benchmark_by_model(pool: &PgPool) -> Result<Vec<(String, f64, f64, i64)>, sqlx::Error> {
+    sqlx::query_as(
+        r#"
+        SELECT
+            payload->>'model' AS model,
+            COALESCE(AVG(performance_variance), 0.0)::double precision AS avg_variance,
+            COALESCE(AVG(hgi_raw), 0.0)::double precision AS avg_grounding,
+            COUNT(*) AS sample_count
+        FROM telemetry_events
+        WHERE payload->>'model' IS NOT NULL
+        GROUP BY payload->>'model'
+        HAVING COUNT(*) >= 3
+        ORDER BY AVG(hgi_raw) DESC
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+}
+
 /// Telemetry events not yet folded into any anchored Merkle root, oldest first.
 /// Ordering matters: it fixes the leaf order the tree gets built with, which
 /// must be reproducible later (from `leaf_index`) to regenerate inclusion proofs.

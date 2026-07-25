@@ -234,6 +234,16 @@ export interface BaaDto {
     status: 'Proposed' | 'Active' | 'Disputed' | 'Terminated' | 'Unknown';
 }
 
+// backend::handlers::BenchmarkDto — network-wide model/provider stability benchmark.
+export interface BenchmarkDto {
+    model_name: string;
+    provider_name: string;
+    simulated_ais: number;
+    stability_metric: number; // 0-1
+    grounding_metric: number; // 0-1
+    sample_count: number;
+}
+
 export interface CreditDto {
     agent_id: string;
     total_allocated: string;
@@ -412,6 +422,8 @@ export const oracle = {
     // dashboard already derives from its per-agent loop — `tvl` is composed
     // client-side (stake + escrowed + market volume) for a single source of truth.
     getStats: () => get<StatsDto>('/v1/stats'),
+    // Network-wide model/provider stability benchmarks (backend::handlers::get_benchmarks).
+    getBenchmarks: () => get<BenchmarkDto[]>('/v1/benchmarks'),
 
     // EventSource doesn't take fetch-style options, so callers construct their own
     // `new EventSource(oracle.streamUrl(id))` — see hooks/useOracleStream.ts.
