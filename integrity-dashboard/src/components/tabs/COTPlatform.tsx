@@ -1,10 +1,42 @@
 // @ts-nocheck
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import axios from 'axios';
 import { BrainCircuit, Wrench, FileEdit, AlertTriangle, ChevronDown, ChevronRight, Target, Terminal, Cpu, Users, XCircle, Search, Play, Pause, RefreshCw, BarChart2, ShieldAlert, CheckCircle, Activity, GitBranch, Zap, Globe } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { API_BASE } from '../../constants';
+import { oracle } from '../../services/oracle';
 import { useDashboard } from '../../context/useDashboard';
+
+// Map a real OTel span name to the panel's interaction taxonomy (the oracle doesn't store
+// an explicit interaction_type — it's derived from the span name/component).
+function deriveInteraction(name: string): SpanNode['interaction_type'] {
+  const n = (name || '').toLowerCase();
+  if (n.includes('tool')) return 'TOOL';
+  if (n.includes('mcp')) return 'MCP';
+  if (n.includes('a2a')) return 'A2A';
+  if (n.includes('bcc') || n.includes('mutation') || n.includes('anchor')) return 'MUTATION';
+  if (n.includes('policy') || n.includes('api') || n.includes('retrieve') || n.includes('telemetry')) return 'API';
+  return 'THOUGHT';
+}
+
+// Flatten the oracle's nested TraceTree (roots + children) into the flat SpanNode[] the panel
+// rebuilds its tree from, preserving parent links.
+function flattenTraceTree(nodes: any[], traceId: string, parent: string | null, out: SpanNode[] = []): SpanNode[] {
+  for (const nd of nodes || []) {
+    out.push({
+      span_id: nd.span_id,
+      trace_id: traceId,
+      parent_span_id: parent,
+      agent_id: nd.agent_id,
+      interaction_type: deriveInteraction(nd.name),
+      operation_name: nd.name,
+      name: nd.name,
+      start_time: nd.start_time,
+      end_time: nd.end_time,
+      duration_ms: nd.duration_ms,
+    });
+    if (nd.children?.length) flattenTraceTree(nd.children, traceId, nd.span_id, out);
+  }
+  return out;
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -237,20 +269,30 @@ export function COTPlatform() {
 
   useEffect(() => {
     const fetchTraces = async () => {
+      if (!selectedAgent) { setTraces([]); return; }
       try {
-        const res = await axios.get(`${API_BASE}/v1/traces`);
-        setTraces(Array.isArray(res.data) ? res.data : []);
+        // Real recent OTel traces for the selected agent (the oracle has no global
+        // /v1/traces; recent-traces is per-agent). Mapped onto the panel's Trace shape.
+        const recent = await oracle.getRecentTraces(selectedAgent.eth_address, 50);
+        setTraces(recent.map((t) => ({
+          trace_id: t.trace_id,
+          agent_id: selectedAgent.agent_id,
+          task_name: t.name,
+          status: 'SUCCESS' as const,
+          start_time: t.start_time,
+        })));
       } catch (err) { console.error("Failed to fetch traces", err); }
     };
     fetchTraces();
     const interval = setInterval(fetchTraces, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [selectedAgent]);
 
   useEffect(() => {
     if (activeTrace) {
-      axios.get(`${API_BASE}/v1/spans?trace_id=${activeTrace.trace_id}`)
-        .then(res => setSpans(res.data))
+      // Real span tree from the oracle, flattened into the panel's SpanNode[].
+      oracle.getTraceTree(activeTrace.trace_id)
+        .then((tree: any) => setSpans(flattenTraceTree(tree.roots || [], activeTrace.trace_id, null)))
         .catch(err => console.error("Failed to fetch spans", err));
     }
   }, [activeTrace]);
