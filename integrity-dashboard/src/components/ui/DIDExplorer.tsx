@@ -4,9 +4,8 @@ import {
     Fingerprint, ShieldCheck, FileText, ExternalLink, 
     Copy, Search, CheckCircle2, Key, Globe, Shield, Zap, Download
 } from 'lucide-react';
-import axios from 'axios';
 import { useIsMobile } from '../../utils/useIsMobile';
-import { API_BASE } from '../../constants';
+import { oracle } from '../../services/oracle';
 
 interface DIDExplorerProps {
     agent: any;
@@ -36,66 +35,16 @@ export const DIDExplorer: React.FC<DIDExplorerProps> = ({ agent }) => {
         const fetchIdentity = async () => {
             setIsLoading(true);
             try {
-                const [didRes, vcRes] = await Promise.all([
-                    axios.get(`${API_BASE}/v1/identity/did/${agent.eth_address}`),
-                    axios.get(`${API_BASE}/v1/identity/vc/${agent.eth_address}`)
-                ]);
-                setDidDoc(didRes.data);
-                setVc(vcRes.data);
+                // Real DID document from the oracle (agent.eth_address is the DID). Verifiable-
+                // credential issuance is agent-side/SDK and has no oracle endpoint yet, so the
+                // VC view is an honest gap rather than a fabricated credential.
+                const detail = await oracle.getAgent(agent.eth_address);
+                setDidDoc(detail.did_document || { id: agent.eth_address, note: 'No DID document on record for this agent.' });
+                setVc({ note: 'Verifiable Credential issuance is not yet exposed by the oracle (agent-side/SDK).' });
             } catch (e) {
-                console.error("Identity fetch error, using fallbacks:", e);
-                const fallbackAddress = agent.eth_address || "0x67bA5D723E1F5517afF7eb980E2f73a9e17aD556";
-                const fallbackDid = `did:xibalba:${fallbackAddress}`;
-                setDidDoc({
-                    "@context": [
-                        "https://www.w3.org/ns/did/v1",
-                        "https://w3id.org/security/suites/jws-2020/v1"
-                    ],
-                    "id": fallbackDid,
-                    "verificationMethod": [
-                        {
-                            "id": `${fallbackDid}#key-1`,
-                            "type": "JsonWebKey2020",
-                            "controller": fallbackDid,
-                            "blockchainLayer": "Base_Sepolia_L2",
-                            "publicKeyJwk": {
-                                "kty": "OKP",
-                                "crv": "Ed25519",
-                                "x": "O2a1Lr7...8e1F5517"
-                            }
-                        }
-                    ],
-                    "service": [
-                        {
-                            "id": `${fallbackDid}#oracle`,
-                            "type": "OracleRegistry",
-                            "serviceEndpoint": "protocol.xibalba.io/v1/agent",
-                            "resolver": "identity.xibalba.io/v1/vc"
-                        }
-                    ]
-                });
-                setVc({
-                    "@context": [
-                        "https://www.w3.org/2018/credentials/v1"
-                    ],
-                    "id": `urn:uuid:${fallbackAddress}-vc`,
-                    "type": ["VerifiableCredential", "ReputationCredential"],
-                    "issuer": "did:xibalba:issuer",
-                    "issuanceDate": new Date().toISOString(),
-                    "credentialSubject": {
-                        "id": fallbackDid,
-                        "ais_score": agent.current_ais || 95,
-                        "trust_level": "AAA",
-                        "verification_tier": agent.verification_tier || 1
-                    },
-                    "proof": {
-                        "type": "Ed25519Signature2020",
-                        "created": new Date().toISOString(),
-                        "verificationMethod": "did:xibalba:issuer#key-1",
-                        "proofPurpose": "assertionMethod",
-                        "jws": "eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsidW51c2VkIl19..zk_proof_auth_0x71c7"
-                    }
-                });
+                console.error("Identity fetch error:", e);
+                setDidDoc({ id: agent.eth_address, note: 'DID document unavailable (oracle unreachable).' });
+                setVc(null);
             } finally {
                 setIsLoading(false);
             }

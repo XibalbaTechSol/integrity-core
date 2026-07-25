@@ -2,9 +2,8 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Search, Globe, CheckCircle2, AlertTriangle, Fingerprint, Shield, ArrowRight, Loader2 } from 'lucide-react';
-import axios from 'axios';
 import { useIsMobile } from '../../utils/useIsMobile';
-import { API_BASE } from '../../constants';
+import { oracle } from '../../services/oracle';
 
 interface RegistryExplorerProps {
     isOpen: boolean;
@@ -25,35 +24,17 @@ export const RegistryExplorer: React.FC<RegistryExplorerProps> = ({ isOpen, onCl
         setResult(null);
 
         try {
-            let response;
-
-            if (query.startsWith('did:intg:')) {
-                // Resolve from DID string
-                response = await axios.get(`${API_BASE}/v1/identity/resolve`, {
-                    params: { did: query.trim() }
-                });
-            } else if (query.endsWith('.intg')) {
-                // Resolve from XNS handle
-                response = await axios.get(`${API_BASE}/v1/identity/resolve`, {
-                    params: { xns: query.trim() }
-                });
-            } else if (query.startsWith('0x')) {
-                // Direct address lookup (any 0x-prefixed string)
-                response = await axios.get(`${API_BASE}/v1/identity/agent/${query.trim()}`);
+            const q = query.trim();
+            // Real resolution via the oracle by DID (or a DID-shaped id). No on-chain name
+            // service (XNS) endpoint exists yet, so handle lookups are an honest gap.
+            if (q.startsWith('did:') || q.startsWith('0x')) {
+                const detail = await oracle.getAgent(q);
+                setResult(detail);
             } else {
-                // Try XNS handle without suffix
-                response = await axios.get(`${API_BASE}/v1/identity/resolve`, {
-                    params: { xns: query.trim() }
-                });
+                setError("XNS handle resolution isn't wired to an on-chain name service yet — resolve by a did:integrity:… identifier.");
             }
-
-            setResult(response.data);
         } catch (e: any) {
-            if (e.response?.status === 404) {
-                setError("Agent not found in the Integrity Registry. This address has not been registered.");
-            } else {
-                setError("Unable to connect to the Xibalba Identity Oracle. Please try again.");
-            }
+            setError("Agent not found in the Integrity Registry. Try its full did:integrity:… identifier.");
         } finally {
             setIsLoading(false);
         }

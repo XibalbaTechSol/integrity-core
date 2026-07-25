@@ -1,8 +1,7 @@
 // @ts-nocheck
 import React, { useState } from 'react';
 import { Search, Globe, Fingerprint, AlertTriangle, Loader2, ArrowRight } from 'lucide-react';
-import axios from 'axios';
-import { API_BASE } from '../../constants';
+import { oracle } from '../../services/oracle';
 
 export const XNSSearchService: React.FC = () => {
     const [query, setQuery] = useState('');
@@ -17,31 +16,18 @@ export const XNSSearchService: React.FC = () => {
         setResult(null);
 
         try {
-            let response;
-
-            if (query.startsWith('did:intg:')) {
-                response = await axios.get(`${API_BASE}/v1/identity/resolve`, {
-                    params: { did: query.trim() }
-                });
-            } else if (query.endsWith('.intg')) {
-                response = await axios.get(`${API_BASE}/v1/identity/resolve`, {
-                    params: { xns: query.trim() }
-                });
-            } else if (query.startsWith('0x')) {
-                response = await axios.get(`${API_BASE}/v1/identity/agent/${query.trim()}`);
+            const q = query.trim();
+            // Real resolution goes through the oracle by DID. There is no on-chain name
+            // service (XNS) endpoint yet, so handle lookups are an honest gap rather than a
+            // faked resolver response.
+            if (q.startsWith('did:') || q.startsWith('0x')) {
+                const detail = await oracle.getAgent(q);
+                setResult(detail);
             } else {
-                response = await axios.get(`${API_BASE}/v1/identity/resolve`, {
-                    params: { xns: query.trim() }
-                });
+                setError("XNS handle resolution isn't wired to an on-chain name service yet — search by a did:integrity:… identifier.");
             }
-
-            setResult(response.data);
         } catch (e: any) {
-            if (e.response?.status === 404) {
-                setError("Agent not found in the XNS Registry.");
-            } else {
-                setError("Unable to connect to the XNS Resolver.");
-            }
+            setError("Agent not found. Try its full did:integrity:… identifier.");
         } finally {
             setIsLoading(false);
         }
