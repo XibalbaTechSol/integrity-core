@@ -1,8 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
+import { ethers } from 'ethers';
 import { useDashboard } from '../../context/useDashboard';
 import { Panel } from '../shared/Panel';
 import { Hammer, Code, Play, RefreshCw, Folder, File, Terminal, Info, ChevronRight, Settings, Search, Copy, ExternalLink, X, FileText, Check } from 'lucide-react';
-import { api } from '../../services/api';
+import { oracle, type MarketSummaryDto } from '../../services/oracle';
+import { MARKET_FACTORY_ADDRESS, EXPLORER_URL } from '../../constants';
+import { MARKET_FACTORY_ABI, executeAsAgent } from '../../chain/markets';
 import { TransactionStepper } from '../shared/TransactionStepper';
 import type { Step } from '../shared/TransactionStepper';
 import { useIsMobile } from '../../utils/useIsMobile';
@@ -121,23 +124,32 @@ const TEMPLATES: Record<string, Record<string, { ext: string, code: string }>> =
 };
 
 export function FactoryPanel() {
-  const { selectedAgent, addToast } = useDashboard();
+  const { selectedAgent, addToast, walletAddress, connectWallet } = useDashboard();
   const isMobile = useIsMobile();
+
+  const loadOwned = async (did: string) => {
+    try { setOwned(await oracle.getAgentContracts(did)); } catch { setOwned([]); }
+  };
   
   const [contractType, setContractType] = useState('SLA');
   const [language, setLanguage] = useState<'Solidity' | 'Vyper' | 'Noir (ZK)'>('Solidity');
-  const [stakeAmount, setStakeAmount] = useState('1000');
-  const [importData, setImportData] = useState('');
-  
+
+  // Real protocol-native deploy: the only contract an agent can deploy AND OWN through this
+  // protocol is its own IntegrityMarket clone (via MarketFactory) — see MarketFactory's
+  // NatSpec, which names this very page. These are its params; the editor at left is a
+  // read-only source preview of the real contract, not an arbitrary-Solidity compiler.
+  const [mktQuestion, setMktQuestion] = useState('');
+  const [mktOutcomes, setMktOutcomes] = useState('2');
+  const [mktMinAis, setMktMinAis] = useState('0');
+  const [mktDeadlineHours, setMktDeadlineHours] = useState('168');
+  const [saAddr, setSaAddr] = useState<string | null>(null);
+  const [owned, setOwned] = useState<MarketSummaryDto[]>([]);
+
   const [isDeploying, setIsDeploying] = useState(false);
   const [isCompiling, setIsCompiling] = useState(false);
   
   const [receipt, setReceipt] = useState<{ contract_address: string; tx_hash: string; block: number; gas: number } | null>(null);
   const [validationLogs, setValidationLogs] = useState<string[]>([]);
-  const [testInput, setTestInput] = useState('450');
-  const [testSeverity, setTestSeverity] = useState('3');
-  const [testVictim, setTestVictim] = useState('0x70997970C51812dc3A010C7d01b50e0d17dc79C8');
-  const [isValidatingCall, setIsValidatingCall] = useState(false);
 
   const [terminalLogs, setTerminalLogs] = useState<string[]>([
     'System: Welcome to Xibalba IDE v1.5.0.',
@@ -159,6 +171,17 @@ export function FactoryPanel() {
     setReceipt(null);
     setValidationLogs([]);
   }, [language, contractType]);
+
+  // Resolve the agent's real SovereignAgent address (deploy is routed through it) and load
+  // the contracts it already owns (real, from the oracle) whenever the selected agent changes.
+  useEffect(() => {
+    const did = selectedAgent?.eth_address;
+    if (!did) { setSaAddr(null); setOwned([]); return; }
+    let active = true;
+    oracle.resolveSovereignAgent(did).then(a => { if (active) setSaAddr(a); }).catch(() => { if (active) setSaAddr(null); });
+    loadOwned(did);
+    return () => { active = false; };
+  }, [selectedAgent]);
 
   // Sync scroll
   const handleScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
@@ -205,149 +228,78 @@ export function FactoryPanel() {
   };
 
   const [steps, setSteps] = useState<Step[]>([
-    { id: 'compile', label: 'Compiling Source Code...', status: 'pending' },
-    { id: 'stake', label: 'Locking Staked ITK...', status: 'pending' },
-    { id: 'prove', label: 'Generating ZK-Integrity Proof...', status: 'pending' },
-    { id: 'import', label: 'Preloading & Importing state dataset...', status: 'pending' },
-    { id: 'broadcast', label: 'Broadcasting to Base L2...', status: 'pending' },
-    { id: 'finalize', label: 'Waiting for Oracle Finality...', status: 'pending' },
+    { id: 'resolve', label: 'Resolving your SovereignAgent...', status: 'pending' },
+    { id: 'broadcast', label: 'Deploying IntegrityMarket via MarketFactory...', status: 'pending' },
+    { id: 'confirm', label: 'Confirming on Base Sepolia...', status: 'pending' },
   ]);
 
   const updateStep = (id: string, status: Step['status']) => {
     setSteps(prev => prev.map(s => s.id === id ? { ...s, status } : s));
   };
 
+  // Real protocol-native deploy: deploy an IntegrityMarket clone the agent OWNS, via
+  // MarketFactory routed through its SovereignAgent (executeAsAgent). No compiler, no mock
+  // receipt — the real clone address is parsed from the MarketDeployed event and the owned-
+  // contracts list is refreshed from the oracle.
   const handleDeploy = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!selectedAgent) {
-      addTerminalLog('[DEPLOY ERROR] No agent wallet selected. Please connect your wallet.');
-      addToast('error', 'No agent wallet selected');
-      return;
-    }
+    if (!selectedAgent) { addToast('error', 'Select an agent first'); return; }
+    if (!walletAddress) { addToast('error', 'Connect the agent controller wallet.'); return; }
+    if (!saAddr) { addToast('error', 'This agent has no on-chain SovereignAgent yet.'); return; }
+    if (!mktQuestion.trim()) { addToast('error', 'Enter a market question to deploy.'); return; }
 
     setIsDeploying(true);
     setReceipt(null);
     setValidationLogs([]);
-    setSteps(steps.map(s => ({ ...s, status: 'pending' })));
-    addTerminalLog(`[DEPLOY] Initiating deployment of ${contractType} to Base Sepolia Testnet...`);
-
-    const delay = (ms: number) => new Promise(r => setTimeout(r, import.meta.env.MODE === 'test' ? 0 : ms));
+    setSteps(prev => prev.map(s => ({ ...s, status: 'pending' })));
+    addTerminalLog(`[DEPLOY] Deploying an IntegrityMarket your agent will own...`);
 
     try {
-      updateStep('compile', 'loading');
-      addTerminalLog('[DEPLOY] Compiling code... done.');
-      updateStep('compile', 'completed');
-      await delay(800);
-
-      updateStep('stake', 'loading');
-      addTerminalLog(`[DEPLOY] Locking ${stakeAmount} ITK collateral... completed.`);
-      updateStep('stake', 'completed');
-      await delay(800);
-
-      updateStep('prove', 'loading');
-      addTerminalLog('[DEPLOY] Invoking ZK-Integrity prover circuit... proof generated.');
-      updateStep('prove', 'completed');
-      await delay(1000);
-
-      updateStep('import', 'loading');
-      if (importData) {
-        addTerminalLog('[DEPLOY] Importing state parameters...');
-      }
-      updateStep('import', 'completed');
-      await delay(600);
+      updateStep('resolve', 'loading');
+      const signer = await new ethers.BrowserProvider((window as any).ethereum).getSigner();
+      updateStep('resolve', 'completed');
 
       updateStep('broadcast', 'loading');
-      addTerminalLog('[DEPLOY] Broadcasting transaction to Base L2...');
-      const res = await api.deployContract({
-        contract_type: contractType,
-        params: {
-          owner_address: selectedAgent.eth_address,
-          language,
-          code,
-          staked_itk: parseFloat(stakeAmount) || 0,
-          import_data: importData
-        }
-      });
+      const deadline = Math.floor(Date.now() / 1000) + Math.max(1, parseInt(mktDeadlineHours) || 168) * 3600;
+      const data = new ethers.Interface(MARKET_FACTORY_ABI as any).encodeFunctionData('deployMarket', [
+        mktQuestion.trim(), Number(mktOutcomes), BigInt(Math.round(Number(mktMinAis) || 0)), BigInt(deadline), saAddr,
+      ]);
+      addTerminalLog('[DEPLOY] Broadcasting MarketFactory.deployMarket via SovereignAgent.execute...');
+      const txReceipt = await executeAsAgent(signer, saAddr, MARKET_FACTORY_ADDRESS, data);
       updateStep('broadcast', 'completed');
 
-      updateStep('finalize', 'loading');
-      addTerminalLog(`[DEPLOY] Transaction confirmed: ${res.contract_address}`);
-      updateStep('finalize', 'completed');
-      await delay(600);
+      updateStep('confirm', 'loading');
+      let market = '';
+      const iface = new ethers.Interface(MARKET_FACTORY_ABI as any);
+      for (const log of txReceipt.logs) {
+        try { const p = iface.parseLog(log); if (p?.name === 'MarketDeployed') { market = p.args.market; break; } } catch { /* not ours */ }
+      }
+      updateStep('confirm', 'completed');
 
-      const generatedHash = '0x' + Array.from({length: 64}, () => Math.floor(Math.random()*16).toString(16)).join('');
       setReceipt({
-        contract_address: res.contract_address,
-        tx_hash: generatedHash,
-        block: 1045312 + Math.floor(Math.random() * 500),
-        gas: 148220 + Math.floor(Math.random() * 4000)
+        contract_address: market || saAddr,
+        tx_hash: txReceipt.hash,
+        block: txReceipt.blockNumber || 0,
+        gas: Number(txReceipt.gasUsed || 0),
       });
       setValidationLogs([
-        `System: Connected to deployed contract at ${res.contract_address}`,
-        `System: Ready to run mock verification calls.`
+        `System: IntegrityMarket deployed at ${market}`,
+        `System: Owned by your agent — enter/resolve positions from the Markets view.`,
       ]);
-
-      addTerminalLog(`[DEPLOY SUCCESS] Contract deployed at ${res.contract_address}`);
-      addToast('success', `Contract ${contractType} deployed to ${res.contract_address} with ${stakeAmount} ITK staked.`);
+      addTerminalLog(`[DEPLOY SUCCESS] IntegrityMarket deployed at ${market}`);
+      addToast('success', 'Market deployed and owned by your agent.');
+      setMktQuestion('');
+      loadOwned(selectedAgent.eth_address);
     } catch (err: any) {
       setSteps(prev => prev.map(s => s.status === 'loading' ? { ...s, status: 'error' } : s));
-      addTerminalLog(`[DEPLOY ERROR] Failed: ${err.message}`);
-      addToast('error', `Deployment failed: ${err.message}`);
+      addTerminalLog(`[DEPLOY ERROR] Failed: ${err.shortMessage || err.reason || err.message}`);
+      addToast('error', `Deployment failed: ${err.shortMessage || err.reason || err.message}`);
     } finally {
       setIsDeploying(false);
     }
   };
 
   const lineCount = code.split('\n').length;
-
-  // Mock validation simulation handlers
-  const handleValidateCall = async () => {
-    if (!receipt) return;
-    setIsValidatingCall(true);
-    const timestamp = new Date().toLocaleTimeString();
-    setValidationLogs(prev => [...prev, `[${timestamp}] [CALL] Simulating execution of validation transaction...`]);
-    await new Promise(r => setTimeout(r, 1200));
-
-    const updatedTime = new Date().toLocaleTimeString();
-    if (contractType === 'SLA') {
-      const ais = parseInt(testInput) || 0;
-      if (ais < 500) {
-        setValidationLogs(prev => [
-          ...prev,
-          `[${updatedTime}] [SUCCESS] Tx Hash: 0x${Math.random().toString(16).substring(2, 10)}...`,
-          `[${updatedTime}] [EVENT] CollateralSlashed(provider: ${selectedAgent?.eth_address || '0x...'}, amount: ${parseFloat(stakeAmount) * 0.1} ITK, reason: "AIS score below SLA threshold")`,
-          `[${updatedTime}] [VALIDATED] SLA check complete: Provider reputation was penalized. Slashed collateral transferred successfully.`
-        ]);
-        addToast('success', 'SLA validation complete: Collateral slashed!');
-      } else {
-        setValidationLogs(prev => [
-          ...prev,
-          `[${updatedTime}] [SUCCESS] Tx Hash: 0x${Math.random().toString(16).substring(2, 10)}...`,
-          `[${updatedTime}] [EVENT] PerformanceVerified(provider: ${selectedAgent?.eth_address || '0x...'}, currentAIS: ${ais})`,
-          `[${updatedTime}] [VALIDATED] SLA check complete: Provider reputation is compliant. No action taken.`
-        ]);
-        addToast('success', 'SLA validation complete: Performance verified!');
-      }
-    } else if (contractType === 'BAA') {
-      const severity = parseInt(testSeverity) || 0;
-      const penalty = (parseFloat(stakeAmount) * severity) / 10;
-      setValidationLogs(prev => [
-        ...prev,
-        `[${updatedTime}] [SUCCESS] Tx Hash: 0x${Math.random().toString(16).substring(2, 10)}...`,
-        `[${updatedTime}] [EVENT] BreachPenalized(amountSlashed: ${penalty} ITK, recipient: ${testVictim})`,
-        `[${updatedTime}] [VALIDATED] BAA breach audit validation complete: Penalty distributed to ${testVictim}.`
-      ]);
-      addToast('success', `BAA validation complete: Slashed ${penalty} ITK`);
-    } else {
-      setValidationLogs(prev => [
-        ...prev,
-        `[${updatedTime}] [SUCCESS] Simulated execution successful. Transaction receipt registered.`,
-        `[${updatedTime}] [VALIDATED] Validation check passed: Contract state remains consistent.`
-      ]);
-      addToast('success', 'Validation call executed successfully!');
-    }
-    setIsValidatingCall(false);
-  };
 
   return (
     <div className="flex-col gap-6">
@@ -729,151 +681,62 @@ export function FactoryPanel() {
             <Settings size={14} style={{ color: 'var(--primary)' }} /> Deploy &amp; Validate
           </div>
 
-          {/* Staking collateral parameters */}
+          {/* Real IntegrityMarket deploy params (the editor at left is a source preview). */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', background: 'rgba(0,0,0,0.15)', padding: '12px', borderRadius: '6px', border: '1px solid var(--glass-border)' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <label htmlFor="stake-amount" style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>Staked ITK Collateral</label>
-              <input 
-                id="stake-amount"
-                type="number"
-                className="input"
-                style={{ fontSize: '0.75rem', padding: '6px', background: '#101014', border: '1px solid var(--glass-border)' }}
-                value={stakeAmount}
-                onChange={e => setStakeAmount(e.target.value)}
-              />
+            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>
+              Deploy a real <strong>IntegrityMarket</strong> your agent owns (via MarketFactory, routed through its SovereignAgent).
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <label htmlFor="import-data" style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>Init State Data</label>
-              <textarea
-                id="import-data"
-                className="input"
-                style={{ fontSize: '0.7rem', padding: '6px', height: '50px', fontFamily: 'monospace', resize: 'none', background: '#101014', border: '1px solid var(--glass-border)' }}
-                value={importData}
-                onChange={e => setImportData(e.target.value)}
-                placeholder='e.g., {"min": 10}'
-              />
+              <label htmlFor="mkt-q" style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>Market Question</label>
+              <input id="mkt-q" className="input" style={{ fontSize: '0.75rem', padding: '6px', background: '#101014', border: '1px solid var(--glass-border)' }}
+                value={mktQuestion} onChange={e => setMktQuestion(e.target.value)} placeholder="Will X happen by Friday?" />
             </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>Outcomes</label>
+                <input type="number" min={2} max={8} className="input" style={{ fontSize: '0.75rem', padding: '6px', background: '#101014', border: '1px solid var(--glass-border)' }} value={mktOutcomes} onChange={e => setMktOutcomes(e.target.value)} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>Min AIS</label>
+                <input type="number" className="input" style={{ fontSize: '0.75rem', padding: '6px', background: '#101014', border: '1px solid var(--glass-border)' }} value={mktMinAis} onChange={e => setMktMinAis(e.target.value)} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>Resolve Deadline (hours)</label>
+              <input type="number" className="input" style={{ fontSize: '0.75rem', padding: '6px', background: '#101014', border: '1px solid var(--glass-border)' }} value={mktDeadlineHours} onChange={e => setMktDeadlineHours(e.target.value)} />
+            </div>
+            {!walletAddress && <button className="btn btn-primary" style={{ fontSize: '0.72rem', padding: '6px' }} onClick={connectWallet}>Connect Wallet</button>}
           </div>
 
-          {/* Validation Inspector */}
-          {receipt ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              {/* Receipt info */}
-              <div style={{ background: 'rgba(74, 222, 128, 0.04)', border: '1px solid var(--success)', padding: '12px', borderRadius: '6px' }}>
-                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--success)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Check size={14} /> DEPLOYMENT VALIDATED
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.7rem', fontFamily: 'monospace', color: 'var(--text-muted)' }}>
-                  <div>Addr: <span style={{ color: 'var(--primary)' }}>{receipt.contract_address.slice(0, 12)}...{receipt.contract_address.slice(-6)}</span></div>
-                  <div>Hash: <span style={{ color: '#38bdf8' }}>{receipt.tx_hash.slice(0, 12)}...{receipt.tx_hash.slice(-6)}</span></div>
-                  <div>Block: #{receipt.block}</div>
-                  <div>Gas used: {receipt.gas.toLocaleString()}</div>
-                </div>
+          {/* Real deploy receipt */}
+          {receipt && (
+            <div style={{ background: 'rgba(74, 222, 128, 0.04)', border: '1px solid var(--success)', padding: '12px', borderRadius: '6px' }}>
+              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--success)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Check size={14} /> DEPLOYED &amp; OWNED
               </div>
-
-              {/* Validation Checklist */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.725rem' }}>
-                <div style={{ fontWeight: 700, fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Verification Suite</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#4ade80' }}>
-                  <Check size={12} /> L2 Transaction Broadcasted
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#4ade80' }}>
-                  <Check size={12} /> Bytecode Match Verified
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#4ade80' }}>
-                  <Check size={12} /> ZK Proof Verified (Base L0)
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#4ade80' }}>
-                  <Check size={12} /> ITK Reputation locked
-                </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '0.7rem', fontFamily: 'monospace', color: 'var(--text-muted)' }}>
+                <div>Market: <span style={{ color: 'var(--primary)' }}>{receipt.contract_address.slice(0, 12)}...{receipt.contract_address.slice(-6)}</span></div>
+                <div>Block: #{receipt.block}</div>
+                <div>Gas used: {receipt.gas.toLocaleString()}</div>
               </div>
-
-              {/* ABI Call simulator */}
-              <div style={{ borderTop: '1px solid var(--glass-border)', paddingTop: '12px' }}>
-                <div style={{ fontSize: '0.725rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Contract call validator
-                </div>
-                
-                {contractType === 'SLA' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Function: <span style={{ fontFamily: 'monospace', color: 'var(--primary)', fontWeight: 600 }}>verifyPerformance(currentAIS)</span></div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>currentAIS</label>
-                      <input 
-                        type="number"
-                        className="input"
-                        style={{ fontSize: '0.7rem', padding: '4px 8px', background: '#101014', border: '1px solid var(--glass-border)' }}
-                        value={testInput}
-                        onChange={e => setTestInput(e.target.value)}
-                        placeholder="e.g. 450"
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {contractType === 'BAA' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Function: <span style={{ fontFamily: 'monospace', color: 'var(--primary)', fontWeight: 600 }}>reportViolation(victim, severity)</span></div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>victim (address)</label>
-                      <input 
-                        type="text"
-                        className="input"
-                        style={{ fontSize: '0.7rem', padding: '4px 8px', fontFamily: 'monospace', background: '#101014', border: '1px solid var(--glass-border)' }}
-                        value={testVictim}
-                        onChange={e => setTestVictim(e.target.value)}
-                      />
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                      <label style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>severity (1-10)</label>
-                      <input 
-                        type="number"
-                        className="input"
-                        style={{ fontSize: '0.7rem', padding: '4px 8px', background: '#101014', border: '1px solid var(--glass-border)' }}
-                        value={testSeverity}
-                        onChange={e => setTestSeverity(e.target.value)}
-                        placeholder="e.g. 3"
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {contractType !== 'SLA' && contractType !== 'BAA' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Function: <span style={{ fontFamily: 'monospace', color: 'var(--primary)', fontWeight: 600 }}>executeValidation()</span></div>
-                    <p style={{ margin: 0, fontSize: '0.65rem', color: 'var(--text-muted)' }}>Generic entry point check for validation state checks.</p>
-                  </div>
-                )}
-
-                <button
-                  onClick={handleValidateCall}
-                  disabled={isValidatingCall}
-                  className="btn btn-primary"
-                  style={{ width: '100%', marginTop: '10px', padding: '6px', fontSize: '0.7rem', fontWeight: 600 }}
-                >
-                  {isValidatingCall ? 'Validating...' : 'Run Validation Call'}
-                </button>
-              </div>
-
-              {/* Validation Logs Terminal */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px' }}>
-                <div style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Validation logs</div>
-                <div style={{ height: '90px', overflowY: 'auto', background: '#101014', border: '1px solid var(--glass-border)', padding: '6px', borderRadius: '4px', fontFamily: 'monospace', fontSize: '0.62rem', lineHeight: 1.3, color: '#90d090' }}>
-                  {validationLogs.map((vl, idx) => (
-                    <div key={idx}>{vl}</div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, padding: '24px', border: '1px dotted var(--glass-border)', borderRadius: '6px', textAlign: 'center' }}>
-              <Terminal size={24} style={{ color: 'var(--text-muted)', opacity: 0.5, marginBottom: '10px' }} />
-              <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>Validation Console Idle</div>
-              <p style={{ margin: 0, fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-                Select a contract, click Build Source, and Deploy to unlock the interactive verification suite.
-              </p>
+              <a href={`${EXPLORER_URL}/tx/${receipt.tx_hash}`} target="_blank" rel="noreferrer" style={{ fontSize: '0.7rem', color: 'var(--gold)', display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 6 }}>
+                View tx <ExternalLink size={11} />
+              </a>
             </div>
           )}
+
+          {/* Contracts the agent owns (real, from the oracle) */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ fontWeight: 700, fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Contracts Your Agent Owns</div>
+            {owned.length === 0 ? (
+              <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>None yet — deploy one above.</div>
+            ) : owned.map(m => (
+              <div key={m.address} style={{ background: '#101014', border: '1px solid var(--glass-border)', borderRadius: 4, padding: '6px 8px', fontSize: '0.68rem' }}>
+                <div style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{m.question}</div>
+                <div className="mono" style={{ color: 'var(--text-muted)' }}>{m.address.slice(0, 12)}… · {m.resolved ? 'resolved' : 'active'}</div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
