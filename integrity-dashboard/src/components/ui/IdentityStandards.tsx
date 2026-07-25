@@ -3,10 +3,8 @@ import React, { useState, useEffect } from 'react';
 import { Fingerprint, Shield, Globe, Lock, CheckCircle2, ExternalLink, Key, Search } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import axios from 'axios';
 import { RegistryExplorer } from './RegistryExplorer';
 import { useIsMobile } from '../../utils/useIsMobile';
-import { API_BASE } from '../../constants';
 
 const DEMO_AGENT = "0xTestAgentV8";
 
@@ -18,15 +16,10 @@ export const IdentityStandards = () => {
 
     useEffect(() => {
         const fetchIdentityData = async () => {
-            try {
-                const [didRes, vcRes] = await Promise.all([
-                    axios.get(`${API_BASE}/did/${DEMO_AGENT}`),
-                    axios.get(`${API_BASE}/vc/ais/${DEMO_AGENT}`)
-                ]);
-                setDidDoc(didRes.data);
-                setVc(vcRes.data);
-            } catch (e) {
-                // Fallback static data if backend is offline
+            {
+                // Illustrative W3C DID / Verifiable-Credential example — this component
+                // documents the identity STANDARD (format/shape), it is not live agent data.
+                // Real per-agent DID documents render on the Identity page (DIDExplorer).
                 setDidDoc({
                     "@context": ["https://www.w3.org/ns/did/v1", "https://w3id.org/security/suites/jws-2020/v1"],
                     "id": "did:intg:0xTestAgentV8",

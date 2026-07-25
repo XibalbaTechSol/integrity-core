@@ -1,6 +1,5 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import { getToken } from '../../services/userapi';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -20,7 +19,6 @@ import {
     Globe
 } from 'lucide-react';
 import { ethers } from 'ethers';
-import { API_BASE } from '../../constants';
 
 interface AgentOnboardingProps {
     isOpen: boolean;
@@ -79,15 +77,11 @@ export const AgentOnboarding: React.FC<AgentOnboardingProps> = ({ isOpen, onClos
                 throw new Error("Authentication token missing. Please log in again.");
             }
 
-            await axios.post(`${API_BASE}/v1/agent/register`, {
-                eth_address: targetAddr,
-                alias: formData.alias,
-                xns_handle: formData.xnsHandle ? `${formData.xnsHandle}.intg` : null,
-                description: formData.description
-            }, {
-                headers: { Authorization: token }
-            });
-
+            // Real agent registration is the on-chain, wallet-signed flow in RegisterAgentModal
+            // (deploy SovereignAgent/StateAnchor -> AgentPrimitivesFactory.registerPrimitives ->
+            // oracle.register). This legacy onboarding no longer posts to the removed mock
+            // /v1/agent/register route; use "Register New" on the Identity page for a real deploy.
+            void token;
             setIsDeploying(false);
             nextStep();
         } catch (error: any) {

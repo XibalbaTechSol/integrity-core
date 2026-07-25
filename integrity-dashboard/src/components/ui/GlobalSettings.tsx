@@ -1,11 +1,8 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import { getToken } from '../../services/userapi';
 import { Settings, Save, Shield, Cpu, Network, Database, Loader2, Info } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useIsMobile } from '../../utils/useIsMobile';
-import { API_BASE } from '../../constants';
 
 export const GlobalSettings = () => {
     const [settings, setSettings] = useState({
@@ -19,33 +16,17 @@ export const GlobalSettings = () => {
     const [isSaving, setIsSaving] = useState(false);
     const isMobile = useIsMobile();
 
-    const fetchSettings = async () => {
-        try {
-            const res = await axios.get(`${API_BASE}/v1/protocol/settings`);
-            setSettings(res.data);
-        } catch (e) {
-            console.error("Failed to fetch settings:", e);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
+    // The oracle has no /v1/protocol/settings endpoint (it was a legacy mock). Settings are
+    // shown from local defaults and edited in-session only — not fetched from or persisted to
+    // a backend, rather than faking it against a dead route.
     useEffect(() => {
-        fetchSettings();
+        setIsLoading(false);
     }, []);
 
     const handleSave = async () => {
         setIsSaving(true);
         try {
-            const token = getToken();
-            if (!token) { alert("Please sign in to update protocol settings."); return; }
-            await axios.post(`${API_BASE}/v1/protocol/settings`, settings, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            alert("Protocol configuration updated successfully.");
-        } catch (e) {
-            console.error("Save failed:", e);
-            alert("Failed to update settings.");
+            alert("Protocol settings persistence isn't wired to the oracle yet — changes apply for this session only.");
         } finally {
             setIsSaving(false);
         }

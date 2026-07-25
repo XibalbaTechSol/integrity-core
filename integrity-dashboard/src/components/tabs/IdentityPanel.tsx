@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useDashboard } from '../../context/useDashboard';
 import { Panel } from '../shared/Panel';
 import { Key, Users, ShieldCheck, Search, Link as LinkIcon, Settings } from 'lucide-react';
@@ -6,8 +6,6 @@ import { DIDExplorer } from '../ui/DIDExplorer';
 import { RegisterAgentModal } from '../ui/RegisterAgentModal';
 import { XNSSearchService } from '../ui/XNSSearchService';
 import { ClaimAgentModal } from './ClaimAgentModal';
-import axios from 'axios';
-import { API_BASE } from '../../constants';
 
 export function IdentityPanel() {
   const { selectedAgent, fetchData } = useDashboard();
@@ -15,27 +13,12 @@ export function IdentityPanel() {
   const [isClaimModalOpen, setIsClaimModalOpen] = useState(false);
   const [mockMode, setMockMode] = useState(false);
 
-  useEffect(() => {
-    const fetchSettings = async () => {
-      try {
-        const res = await axios.get(`${API_BASE}/v1/protocol/settings`);
-        setMockMode(!!res.data.mock_mode);
-      } catch (e) {
-        console.warn("Failed to fetch protocol settings", e);
-      }
-    };
-    fetchSettings();
-  }, []);
-
-  const toggleMockMode = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.checked;
-    setMockMode(val);
-    try {
-      await axios.post(`${API_BASE}/v1/protocol/settings`, { mock_mode: val });
-      if (fetchData) fetchData();
-    } catch (err) {
-      console.error("Failed to update mock mode setting", err);
-    }
+  // Mock-mode is a legacy toggle (the client-side mock-agent filter was removed; the oracle
+  // has no /v1/protocol/settings endpoint). Kept as a local UI toggle only — it no longer
+  // persists to or fetches from a backend, rather than pretending to via a mock route.
+  const toggleMockMode = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setMockMode(e.target.checked);
+    if (fetchData) fetchData();
   };
 
   return (
