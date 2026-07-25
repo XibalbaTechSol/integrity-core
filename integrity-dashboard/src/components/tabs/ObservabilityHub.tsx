@@ -1,9 +1,35 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Brain, Activity, Clock, Filter, GitCompare, Database, BarChart2, CheckCircle, XCircle, Search, Cpu, List, AlignLeft, SplitSquareHorizontal, Layers, ChevronRight, ChevronDown, Wrench, Zap, Globe, FileEdit, Plus, Trash2, Play, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import axios from 'axios';
-import { API_BASE } from '../../constants';
+import { oracle } from '../../services/oracle';
 import { useDashboard } from '../../context/useDashboard';
+
+// Real OTel span -> panel interaction taxonomy (derived from the span name; the oracle
+// stores no explicit interaction_type).
+function deriveInteraction(name: string): any {
+  const n = (name || '').toLowerCase();
+  if (n.includes('tool')) return 'TOOL';
+  if (n.includes('mcp')) return 'MCP';
+  if (n.includes('a2a')) return 'A2A';
+  if (n.includes('bcc') || n.includes('mutation') || n.includes('anchor')) return 'MUTATION';
+  if (n.includes('policy') || n.includes('api') || n.includes('retrieve') || n.includes('telemetry')) return 'API';
+  return 'THOUGHT';
+}
+function flattenTraceTree(nodes: any[], traceId: string, parent: string | null, out: any[] = []): any[] {
+  for (const nd of nodes || []) {
+    out.push({
+      span_id: nd.span_id, trace_id: traceId, parent_span_id: parent, agent_id: nd.agent_id,
+      interaction_type: deriveInteraction(nd.name), operation_name: nd.name, name: nd.name,
+      start_time: nd.start_time, end_time: nd.end_time, duration_ms: nd.duration_ms,
+    });
+    if (nd.children?.length) flattenTraceTree(nd.children, traceId, nd.span_id, out);
+  }
+  return out;
+}
+const loadTree = async (traceId: string) => {
+  const tree: any = await oracle.getTraceTree(traceId);
+  return flattenTraceTree(tree.roots || [], traceId, null);
+};
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -129,56 +155,38 @@ export function ObservabilityHub() {
   const [isRunningEval, setIsRunningEval] = useState(false);
   const [evalResults, setEvalResults] = useState<any | null>(null);
 
-  // Fetch traces
+  // Real recent OTel traces for the selected agent (no global /v1/traces; recent-traces is
+  // per-agent). No Math.random augmentation — token/latency fields the oracle doesn't track
+  // are simply left unset rather than fabricated.
   useEffect(() => {
     const fetchTraces = async () => {
+      if (!selectedAgent) { setTraces([]); return; }
       try {
-        const res = await axios.get(`${API_BASE}/v1/traces`);
-        if (res.data && Array.isArray(res.data)) {
-          // Augment with mock data if needed for richer display
-          const augmented = res.data.map(t => ({
-            ...t,
-            tokens_total: t.tokens_total || Math.floor(Math.random() * 5000) + 500,
-            total_latency_ms: t.total_latency_ms || Math.floor(Math.random() * 8000) + 200,
-          }));
-          setTraces(augmented);
-        }
+        const recent = await oracle.getRecentTraces(selectedAgent.eth_address, 50);
+        setTraces(recent.map((t) => ({
+          trace_id: t.trace_id, agent_id: selectedAgent.agent_id, task_name: t.name,
+          status: 'SUCCESS', start_time: t.start_time,
+        })));
       } catch (e) {}
     };
     fetchTraces();
     const interval = setInterval(fetchTraces, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [selectedAgent]);
 
-  // Fetch spans for active trace
+  // Span trees (real getTraceTree, flattened) for the active + comparison traces.
   useEffect(() => {
-    if (activeTrace) {
-      axios.get(`${API_BASE}/v1/spans?trace_id=${activeTrace.trace_id}`)
-        .then(res => setSpans(res.data || []))
-        .catch(() => {});
-    }
+    if (activeTrace) loadTree(activeTrace.trace_id).then(setSpans).catch(() => {});
   }, [activeTrace]);
 
-  // Fetch spans for comparison Trace A
   useEffect(() => {
-    if (compareTraceA) {
-      axios.get(`${API_BASE}/v1/spans?trace_id=${compareTraceA.trace_id}`)
-        .then(res => setCompareSpansA(res.data || []))
-        .catch(() => {});
-    } else {
-      setCompareSpansA([]);
-    }
+    if (compareTraceA) loadTree(compareTraceA.trace_id).then(setCompareSpansA).catch(() => {});
+    else setCompareSpansA([]);
   }, [compareTraceA]);
 
-  // Fetch spans for comparison Trace B
   useEffect(() => {
-    if (compareTraceB) {
-      axios.get(`${API_BASE}/v1/spans?trace_id=${compareTraceB.trace_id}`)
-        .then(res => setCompareSpansB(res.data || []))
-        .catch(() => {});
-    } else {
-      setCompareSpansB([]);
-    }
+    if (compareTraceB) loadTree(compareTraceB.trace_id).then(setCompareSpansB).catch(() => {});
+    else setCompareSpansB([]);
   }, [compareTraceB]);
 
   const filteredTraces = useMemo(() => {
