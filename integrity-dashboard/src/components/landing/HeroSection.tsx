@@ -39,37 +39,26 @@ export const HeroSection = ({ setContactType, setIsContactOpen, setIsRegistryOpe
                         }
                     </p>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', alignItems: 'center' }}>
-                        <button 
-                            onClick={() => { 
-                                alert("Google Sign-In flow initiated. 1,000,000 ITK reward pending.");
-                                navigate('/integrity');
-                            }} 
-                            className="btn" 
-                            style={{ 
-                                padding: isMobile ? '16px 24px' : '18px 40px', 
-                                fontSize: '1rem', 
-                                background: 'white', 
-                                color: 'black', 
-                                border: 'none', 
+                        <button
+                            onClick={() => navigate('/integrity')}
+                            className="btn"
+                            style={{
+                                padding: isMobile ? '16px 24px' : '18px 40px',
+                                fontSize: '1rem',
+                                background: 'white',
+                                color: 'black',
+                                border: 'none',
                                 borderRadius: '12px',
-                                display: 'flex', 
-                                alignItems: 'center', 
+                                display: 'flex',
+                                alignItems: 'center',
                                 gap: '12px',
                                 cursor: 'pointer',
                                 fontWeight: 600,
                                 boxShadow: '0 4px 15px rgba(255, 255, 255, 0.2)'
                             }}
                         >
-                            <img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google" style={{ width: '24px', height: '24px' }} />
-                            Sign in with Google 
-                            <span style={{ 
-                                background: 'rgba(212, 175, 55, 0.1)', 
-                                color: '#b8860b', 
-                                padding: '4px 10px', 
-                                borderRadius: '6px', 
-                                fontSize: '0.85rem',
-                                fontWeight: 800
-                            }}>+1,000,000 ITK</span>
+                            Launch the Protocol
+                            <ArrowRight size={20} />
                         </button>
                         <div style={{ display: 'flex', gap: '20px', justifyContent: 'center', flexDirection: isMobile ? 'column' : 'row', padding: isMobile ? '0 20px' : '0' }}>
                             <button 
