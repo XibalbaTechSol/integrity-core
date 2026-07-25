@@ -3,8 +3,6 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { ShieldCheck, Award, Activity, Download, Copy, FileText, AlertTriangle, Fingerprint } from 'lucide-react';
 import { useIsMobile } from '../../utils/useIsMobile';
-import axios from 'axios';
-import { API_BASE } from '../../constants';
 
 interface AgentCardProps {
     agent: any;

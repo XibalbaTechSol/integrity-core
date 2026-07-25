@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Panel } from '../shared/Panel';
 import { BrainCircuit, Wrench, FileEdit, AlertTriangle, ShieldCheck, Activity, ChevronDown, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { API_BASE } from '../../constants';
+import { oracle } from '../../services/oracle';
 import { useDashboard } from '../../context/useDashboard';
 
 const MOCK_TRAJECTORIES = [
@@ -248,55 +248,51 @@ export function TrajectoryPanel() {
   }, [selectedAgent, trajectories]);
 
   useEffect(() => {
+    // Real trajectories = the selected agent's OTel traces (getRecentTraces), each trace's
+    // span tree (getTraceTree) becoming its reasoning steps. The reasoning-content telemetry
+    // the old /v1/telemetry/latest expected doesn't exist on the oracle; spans are the real
+    // structural trajectory.
+    const mapStepType = (n: string) => {
+      const s = (n || '').toLowerCase();
+      if (s.includes('tool')) return 'tool';
+      if (s.includes('bcc') || s.includes('anchor') || s.includes('mutation')) return 'mutation';
+      if (s.includes('policy') || s.includes('api') || s.includes('retrieve')) return 'api';
+      return 'thought';
+    };
     const fetchTrajectories = async () => {
+      if (!selectedAgent) { setTrajectories([]); return; }
       try {
-        const res = await fetch(`${API_BASE}/v1/telemetry/latest`);
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data)) {
-            const mapped = data.map((item: any) => {
-               const pm = item.provider_metadata || {};
-               const cm = item.customer_metadata || {};
-               
-               const steps = [];
-               if (pm.reasoning_content) {
-                  steps.push({ id: 's1', type: 'thought', message: pm.reasoning_content, time: new Date(item.timestamp).toLocaleTimeString() });
-               }
-               if (pm.clean_text_output) {
-                  steps.push({ id: 's2', type: 'mutation', file: 'output.txt', diff: pm.clean_text_output, time: new Date(item.timestamp).toLocaleTimeString() });
-               } else if (pm.completion || pm.text_output) {
-                  steps.push({ id: 's2', type: 'mutation', file: 'output.txt', diff: pm.completion || pm.text_output, time: new Date(item.timestamp).toLocaleTimeString() });
-               }
-               
-               if (steps.length === 0) {
-                  steps.push({ id: 's1', type: 'alert', message: `Telemetry processed for ${pm.task || 'unknown task'}`, time: new Date(item.timestamp).toLocaleTimeString() });
-               }
-               
-               return {
-                  id: item.id.split('-')[0] + '-' + item.id.split('-')[4], // shortened id
-                  intent: pm.task || cm.task || `Transaction ${item.metadata?.tx_hash?.substring(0, 10)}`,
-                  status: item.metadata?.dispute_status === 'RESOLVED' ? 'Passed' : (item.metadata?.dispute_status || 'Validating'),
-                  score: Math.round((item.accuracy || 0.95) * 1000),
-                  agent_id: item.agent,
-                  agent_address: item.eth_address,
-                  steps: steps,
-                  issue: cm.issue || item.metadata?.issue || null,
-                  raw: item
-               };
-            });
-            if (mapped.length > 0) {
-              setTrajectories(mapped);
-            }
-          }
-        }
+        const recent = await oracle.getRecentTraces(selectedAgent.eth_address, 12);
+        const mapped = await Promise.all(recent.map(async (t) => {
+          let steps: any[] = [];
+          try {
+            const tree: any = await oracle.getTraceTree(t.trace_id);
+            const flat: any[] = [];
+            const walk = (nodes: any[]) => { for (const nd of nodes || []) { flat.push(nd); if (nd.children?.length) walk(nd.children); } };
+            walk(tree.roots || []);
+            steps = flat.map((s) => ({ id: s.span_id, type: mapStepType(s.name), message: s.name, time: new Date(s.start_time).toLocaleTimeString() }));
+          } catch { /* leave steps empty */ }
+          return {
+            id: t.trace_id.slice(0, 12),
+            intent: t.name,
+            status: 'Passed',
+            score: Math.round(selectedAgent.current_ais || 0),
+            agent_id: selectedAgent.agent_id,
+            agent_address: selectedAgent.eth_address,
+            steps,
+            issue: null,
+            raw: t,
+          };
+        }));
+        setTrajectories(mapped);
       } catch (err) {
         console.error("Failed to fetch live trajectories", err);
       }
     };
     fetchTrajectories();
-    const interval = setInterval(fetchTrajectories, 3000);
+    const interval = setInterval(fetchTrajectories, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [selectedAgent]);
 
   return (
     <div className="flex-col gap-6">

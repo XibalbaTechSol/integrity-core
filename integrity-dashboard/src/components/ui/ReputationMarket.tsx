@@ -5,8 +5,6 @@ import {
     Landmark, LandmarkIcon, Coins, TrendingDown, ShieldCheck, 
     ArrowUpRight, Info, Loader2, Wallet, Banknote
 } from 'lucide-react';
-import axios from 'axios';
-import { API_BASE } from '../../constants';
 
 export const ReputationMarket = ({ selectedAgent }: { selectedAgent: any }) => {
     const [isLoading, setIsLoading] = useState(false);
