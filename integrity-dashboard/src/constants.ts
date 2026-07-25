@@ -16,10 +16,14 @@ export const XIBALBA_AGENT_REGISTRY_ADDRESS = S.XibalbaAgentRegistry;
 export const AGENT_PRIMITIVES_FACTORY_ADDRESS = S.AgentPrimitivesFactory;
 export const MARKET_FACTORY_ADDRESS = S.MarketFactory;
 export const A2A_CAPITAL_POOL_ADDRESS = S.A2ACapitalPool;
+export const SMART_BAA_FACTORY_ADDRESS = S.SmartBAAFactory;
+export const COVERED_ENTITY_REGISTRY_ADDRESS = S.CoveredEntityRegistry;
 
 // Protocol-held signer that every agent grants StateAnchor ANCHOR_ROLE to (and the
 // SovereignAgent `oracle_` constructor arg). Single-operator testnet setup.
 export const ORACLE_SIGNER_ADDRESS = deployments.protocolAddresses.oracleSigner;
+// Neutral SmartBAA arbitrator (single-operator testnet; == the other protocol roles).
+export const ARBITRATOR_ADDRESS = deployments.protocolAddresses.arbitrator;
 // domainId (bytes32) an agent registers its primitive set under. Both are Open-join
 // on Base Sepolia (DomainRegistry.JoinMode.Open) — any wallet can self-register.
 export const DOMAINS = deployments.domains;

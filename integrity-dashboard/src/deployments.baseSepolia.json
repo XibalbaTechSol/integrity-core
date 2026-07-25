@@ -9,10 +9,13 @@
     "XibalbaAgentRegistry": "0x72e21e44AdD6d6e7CAa02eaedF078630afC40819",
     "AgentPrimitivesFactory": "0xC19fc9cB2cB87297EfDF11DA7e211e44A6C1181D",
     "MarketFactory": "0xDB1cB3a45F4918e944254183bca8112e699AFB05",
-    "A2ACapitalPool": "0x388D0180725E0F757C6Ef01ef0474E718faA3776"
+    "A2ACapitalPool": "0x388D0180725E0F757C6Ef01ef0474E718faA3776",
+    "SmartBAAFactory": "0xf791059A9E77734f3fd7dffC1ca35728547608eb",
+    "CoveredEntityRegistry": "0x3E42C072BA8Ca6EE6E86c8DB011eB4063b8aac07"
   },
   "protocolAddresses": {
-    "oracleSigner": "0x67bA5D723E1F5517afF7eb980E2f73a9e17aD556"
+    "oracleSigner": "0x67bA5D723E1F5517afF7eb980E2f73a9e17aD556",
+    "arbitrator": "0x67bA5D723E1F5517afF7eb980E2f73a9e17aD556"
   },
   "domains": {
     "general.integrity": "0x595cceb222da8b2d14f13ddd254b38c4c99285925da5d4f854461514dad57e00",
