@@ -3,8 +3,6 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Shield, Brain, Cpu, MessageSquare, CheckCircle, AlertTriangle, Play, Settings, Info, ArrowRight, Save, Lock } from 'lucide-react';
 import { useIsMobile } from '../../utils/useIsMobile';
-import axios from 'axios';
-import { API_BASE } from '../../constants';
 
 interface Proposal {
     proposal_id: string;
@@ -31,37 +29,20 @@ export const GuardianPilot = () => {
     const [proposals, setProposals] = useState<Proposal[]>([]);
     const [activeProposal, setActiveProposal] = useState<Proposal | null>(null);
 
+    // Honest gap: there is no Governance contract deployed (verified) and no oracle
+    // governance endpoint — so there are no real proposals to load. Shown empty rather than
+    // fabricated (consistent with GovernancePanel).
     useEffect(() => {
-        const fetchProposals = async () => {
-            try {
-                const res = await axios.get(`${API_BASE}/v1/governance/proposals`);
-                setProposals(res.data);
-                if (res.data.length > 0) setActiveProposal(res.data[0]);
-            } catch (e) {
-                console.error("Fetch proposals failed", e);
-            }
-        };
-        fetchProposals();
+        setProposals([]);
+        setActiveProposal(null);
     }, []);
 
     const runAnalysis = async () => {
         if (!activeProposal) return;
         setIsAnalyzing(true);
-        setAnalysisResult(null);
-        
-        try {
-            const res = await axios.post(`${API_BASE}/v1/governance/analyze`, {
-                proposal_id: activeProposal.proposal_id,
-                mode: config.mode,
-                aggression: config.aggression,
-                risk_tolerance: config.riskTolerance
-            });
-            setAnalysisResult(res.data);
-        } catch (e) {
-            console.error("Analysis failed", e);
-        } finally {
-            setIsAnalyzing(false);
-        }
+        // Honest gap: no Governance contract / analysis endpoint exists yet.
+        setAnalysisResult({ note: 'On-chain governance is not deployed yet (no Governance contract), so proposal analysis is unavailable.' });
+        setIsAnalyzing(false);
     };
 
     return (

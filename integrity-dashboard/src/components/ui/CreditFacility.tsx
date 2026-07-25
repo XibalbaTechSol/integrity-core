@@ -1,7 +1,5 @@
 // @ts-nocheck
 import React, { useState } from 'react';
-import axios from 'axios';
-import { API_BASE } from '../../constants';
 
 interface CreditFacilityProps {
     agentAddress: string;
@@ -13,16 +11,11 @@ export const CreditFacility: React.FC<CreditFacilityProps> = ({ agentAddress, cu
     const [status, setStatus] = useState('');
 
     const requestLoan = async () => {
-        try {
-            const token = localStorage.getItem('integrity_mock_token');
-            const res = await axios.post(`${API_BASE}/v1/loan/request`, 
-                { agent_address: agentAddress, amount: parseFloat(amount) },
-                { headers: { Authorization: token } }
-            );
-            setStatus(`Loan Approved! ID: ${res.data.loan_id}`);
-        } catch (e: any) {
-            setStatus(e.response?.data?.detail || 'Loan Request Failed');
-        }
+        // Honest gap: the protocol has no agent-requested "loan" primitive. Credit is
+        // provided as A2ACapitalPool allocations — an allocator escrows $ITK for an agent,
+        // gated on live AIS (see Finance → Credit / Allocate Capital), not a loan request.
+        void agentAddress; void amount;
+        setStatus('Agent-requested loans are not a protocol primitive. Credit is provided as A2ACapitalPool allocations (Finance → Credit), gated on live AIS.');
     };
 
     return (
