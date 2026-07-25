@@ -1086,7 +1086,7 @@ export function ContractsListAndDetails() {
                     border: isExpanded ? '1px solid var(--primary)' : '1px solid var(--glass-border)',
                     cursor: 'pointer',
                     transition: 'transform 0.15s, border-color 0.15s, box-shadow 0.15s',
-                    boxShadow: isExpanded ? 'var(--shadow-glow-primary)' : 'none'
+                    boxShadow: isExpanded ? 'none' : 'none'
                   }}
                   onMouseEnter={e => {
                     if (!isExpanded) e.currentTarget.style.borderColor = 'var(--primary)';

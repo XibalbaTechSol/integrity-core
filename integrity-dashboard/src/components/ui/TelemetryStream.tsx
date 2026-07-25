@@ -282,15 +282,6 @@ export const TelemetryStream = () => {
                                                     </div>
                                                 </div>
 
-                                                {/* Raw JSON Data Preview */}
-                                                <div style={{ marginTop: '16px', background: '#09090b', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)', padding: '12px' }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.65rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: '8px', fontWeight: 800 }}>
-                                                        <Terminal size={12} /> Ingestion Payload Log
-                                                    </div>
-                                                    <pre style={{ margin: 0, padding: 0, fontSize: '0.65rem', color: '#a78bfa', whiteSpace: 'pre-wrap', wordBreak: 'break-all', fontFamily: 'monospace' }}>
-                                                        {JSON.stringify(data, null, 2)}
-                                                    </pre>
-                                                </div>
                                             </motion.div>
                                         )}
                                     </AnimatePresence>

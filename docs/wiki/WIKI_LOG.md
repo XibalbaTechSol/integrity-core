@@ -3,6 +3,11 @@
 > Chronological record of wiki actions. Append-only — never edit past entries.
 > Actions: ingest, create, update, lint, query, archive
 
+## [2026-07-25] update | integrity-dashboard E2E routing & visual audit fixes
+- Fixed 404 path handling in `oracle_sidecar.py` to correctly decode URL-encoded DIDs (`%3A`) and match route actions (e.g. `telemetry`, `traces`, `credit`, `history`) on the last segment (`parts[-1]`).
+- Bound activeTab state to URL hash changes in `DashboardProvider.tsx` (`getInitialTab` and `hashchange` event listener) to ensure E2E visual audit and tab-specific page changes sync correctly.
+- Re-ran the Playwright E2E visual audit tests (`npx playwright test e2e/visual_audit.spec.ts`) across Desktop, Tablet, and Mobile viewports with a 100% green pass (42 tests passed).
+
 ## [2026-07-21] update | integrity-sdk auto_hook integration
 - Implemented `integrity_sdk.integrations.auto_hook` featuring `enable_auto_hooks()`.
 - Provides global zero-code instrumentation and framework auto-patching (including Antigravity MoE `Subagent.execute_task`) for continuous trace generation & Oracle telemetry ingestion.
@@ -2385,3 +2390,10 @@ writeup: PRODUCTION_GAPS.md §18.
 - Dynamic Deploy button style updates to show mode state and prevent errors.
 - Documented Sovereign vs. Centralized deployment topologies and their architectural implications in the root `README.md` and the `agent-primitives.md` concept page in the wiki.
 - Re-verified frontend compilation builds cleanly.
+## 2026-07-25: E2E Visual & Functional Audit - Dashboard
+
+- Established Playwright test suite `integrity-dashboard/e2e/ui-audit.spec.ts` capturing 6 full layout states, command palette flows, disconnected wallet state, detail pane transitions, and offline boundaries.
+- Cleaned up raw JSON structures from `TelemetryStream.tsx` to conform to UI standards.
+- Removed custom "glow" effects from `ReputationMetricsSection` and `FactoryPanel` per Xibalba's flat styling guidelines.
+- Integrated `oracle_sidecar.py` properly via `config.ts` without reliance on mock backend script.
+- Verified test suite executes entirely green locally with real backend connections.

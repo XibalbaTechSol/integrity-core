@@ -16,30 +16,15 @@ export default defineConfig({
     trace: 'on-first-retry',
     headless: true,
   },
-  webServer: [
-    {
-      command: 'npm run dev',
-      url: 'http://127.0.0.1:5173',
-      reuseExistingServer: !process.env.CI,
-    },
-    {
-      command: 'node /home/xibalba/Projects/INTEGRITY/integrity-oracle/mock-backend.js',
-      url: 'http://127.0.0.1:9000/v1/health',
-      reuseExistingServer: !process.env.CI,
-      },
-  ],
+  webServer: {
+    command: 'npm run dev',
+    url: 'http://127.0.0.1:5173',
+    reuseExistingServer: !process.env.CI,
+  },
   projects: [
     {
       name: 'desktop',
       use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
-    },
-    {
-      name: 'tablet',
-      use: { ...devices['Galaxy Tab S4'], viewport: { width: 768, height: 1024 } },
-    },
-    {
-      name: 'mobile',
-      use: { ...devices['Pixel 7'], viewport: { width: 375, height: 667 } },
-    },
+    }
   ]
 });

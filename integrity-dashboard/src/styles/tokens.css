@@ -41,8 +41,6 @@
   --radius-xl: 24px;
   
   /* Shadows */
-  --shadow-glow-primary: 0 0 20px rgba(201, 168, 76, 0.1);
-  --shadow-glow-gold: 0 0 20px rgba(245, 158, 11, 0.1);
   --shadow-glass: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
   
   /* Transitions */

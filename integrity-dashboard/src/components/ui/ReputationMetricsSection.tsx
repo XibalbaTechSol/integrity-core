@@ -74,12 +74,6 @@ export const ReputationMetricsSection = () => {
                                 overflow: 'hidden'
                             }}
                         >
-                            {/* Accent Glow */}
-                            <div style={{ 
-                                position: 'absolute', top: '-50px', right: '-50px', 
-                                width: '150px', height: '150px', 
-                                background: m.color, filter: 'blur(80px)', 
-                                opacity: 0.05, pointerEvents: 'none' 
                             }} />
 
                             <div style={{ color: m.color, marginBottom: isMobile ? '24px' : '32px' }}>{React.cloneElement(m.icon as React.ReactElement, { size: isMobile ? 24 : 32 })}</div>

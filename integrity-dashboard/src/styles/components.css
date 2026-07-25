@@ -59,7 +59,7 @@
 
 .btn-primary:hover:not(:disabled) {
   background: rgba(201, 168, 76, 0.25);
-  box-shadow: var(--shadow-glow-gold);
+  box-shadow: none;
 }
 
 .btn-success {
