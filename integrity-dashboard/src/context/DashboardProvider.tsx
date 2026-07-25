@@ -48,7 +48,7 @@ function mapOracleAgent(summary: AgentSummary, ais: AisResponse | null): Agent {
   return {
     agent_id: summary.id,
     eth_address: summary.id,
-    alias: `Agent ${summary.id.slice(-8)}`,
+    alias: summary.name || `Agent ${summary.id.slice(-8)}`,
     model_class: 'unknown',
     current_ais: ais?.ais ?? 0,
     verification_tier: summary.verification_tier,
@@ -76,13 +76,63 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   
   const toastCounter = useRef(0);
   
-  const [activeTab, setActiveTab] = useState<TabId>('telemetry');
+  // Resolve initial tab from URL hash (e.g. #/integrity#compliance)
+  const getInitialTab = (): TabId => {
+    const hash = window.location.hash;
+    const parts = hash.split('#');
+    const candidate = (parts[parts.length - 1] || '').replace(/^\//, '') as TabId;
+    const validTabs: TabId[] = [
+      'telemetry', 'identity', 'ledger', 'zk', 'factory', 
+      'compliance', 'credit', 'governance', 'markets', 
+      'staking', 'stability', 'wallet', 'advanced', 'apikeys'
+    ];
+    if (validTabs.includes(candidate)) {
+      return candidate;
+    }
+    return 'telemetry';
+  };
+
+  const [activeTab, setActiveTabInternal] = useState<TabId>(getInitialTab);
+
+  const setActiveTab = useCallback((tab: TabId) => {
+    setActiveTabInternal(tab);
+    // Update hash to keep E2E tests in sync
+    const currentHash = window.location.hash;
+    const parts = currentHash.split('#');
+    if (parts.length >= 2) {
+      // Retain the router path (e.g., /integrity) and append #tab
+      window.location.hash = `#${parts[1].split('?')[0]}#${tab}`;
+    } else {
+      window.location.hash = `#/integrity#${tab}`;
+    }
+  }, []);
 
   useEffect(() => {
     (window as any).__setActiveTab = (tab: any) => {
       setActiveTab(tab);
     };
+
+    const handleHashChange = () => {
+      const hash = window.location.hash;
+      const parts = hash.split('#');
+      const candidate = (parts[parts.length - 1] || '').replace(/^\//, '') as TabId;
+      const validTabs: TabId[] = [
+        'telemetry', 'identity', 'ledger', 'zk', 'factory', 
+        'compliance', 'credit', 'governance', 'markets', 
+        'staking', 'stability', 'wallet', 'advanced', 'apikeys'
+      ];
+      if (validTabs.includes(candidate)) {
+        setActiveTabInternal(candidate);
+      }
+    };
+
+
+    window.addEventListener('hashchange', handleHashChange);
+    return () => {
+      window.removeEventListener('hashchange', handleHashChange);
+    };
   }, [setActiveTab]);
+
 
   const removeToast = useCallback((id: string) => {
     setToasts(prev => prev.filter(t => t.id !== id));

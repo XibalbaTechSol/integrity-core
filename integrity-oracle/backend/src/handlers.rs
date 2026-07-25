@@ -332,6 +332,10 @@ fn row_to_dto(row: &db::AgentPrimitivesRow) -> Result<PrimitiveSetDto, AppError>
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AgentSummary {
     pub id: String,
+    /// Human-readable display name, if the agent's DID document carries an `alsoKnownAs`
+    /// entry (the dashboard otherwise derives a name from the DID). Optional — most agents
+    /// have none.
+    pub name: Option<String>,
     pub verification_tier: i32,
     pub created_at: chrono::DateTime<Utc>,
 }
@@ -347,6 +351,11 @@ pub async fn list_agents(State(state): State<AppState>) -> Result<Json<Vec<Agent
     Ok(Json(
         rows.into_iter()
             .map(|r| AgentSummary {
+                name: r.did_document.as_ref()
+                    .and_then(|d| d.get("alsoKnownAs"))
+                    .and_then(|a| a.get(0))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
                 id: r.id,
                 verification_tier: r.verification_tier,
                 created_at: r.created_at,

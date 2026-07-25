@@ -27,6 +27,7 @@ export interface AgentResponse {
 
 export interface AgentSummary {
     id: string;
+    name?: string | null;
     verification_tier: number;
     created_at: string;
 }
