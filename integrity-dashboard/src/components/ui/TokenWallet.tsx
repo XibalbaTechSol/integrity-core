@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ethers } from 'ethers';
-import { getToken } from '../../services/userapi';
+import { getToken, userapi } from '../../services/userapi';
 import {
     Coins, ArrowDownLeft, Loader2,
     Copy, ShieldCheck, Landmark, X, ArrowUpRight, ArrowDownRight, Fingerprint
@@ -35,10 +35,18 @@ export const TokenWallet = () => {
     const [activeModal, setActiveModal] = useState<'send' | 'receive' | 'loan' | 'stake' | null>(null);
 
     const fetchProfileData = useCallback(async () => {
-        // The app-managed-wallet profile (custodial ITK balance + app wallet address) is a
-        // userapi feature with no oracle route; it isn't wired here, so this is an honest gap
-        // rather than a mock /v1/user/profile call. The real balance below is read on-chain.
-        setIsProfileLoading(false);
+        // Real custodial app wallet from userapi (per-user internal $ITK ledger). Only when
+        // signed in; the self-custodial on-chain balance below is independent.
+        if (!getToken()) { setIsProfileLoading(false); return; }
+        try {
+            const w = await userapi.getWallet();
+            setProfileBalance(w.balance);
+            setAppWalletAddress(w.app_wallet_address);
+        } catch {
+            /* userapi unreachable — leave app-wallet unset */
+        } finally {
+            setIsProfileLoading(false);
+        }
     }, []);
 
     const fetchWalletData = useCallback(async () => {
@@ -145,10 +153,10 @@ export const TokenWallet = () => {
                 const provider = new ethers.BrowserProvider(ethereum);
                 signer = await provider.getSigner();
             } else if (appWalletAddress) {
-                // App-managed-wallet transfers go through userapi (custodial), which isn't
-                // wired here — honest gap rather than a mock /v1/user/transfer. Real transfers
-                // are wallet-signed on-chain (the connected-wallet branch above).
-                alert('App-wallet transfers require the userapi custodial service (not wired here). Connect a wallet to send $ITK on-chain.');
+                // Real custodial transfer through userapi's internal $ITK ledger.
+                await userapi.walletTransfer(recipient, parseFloat(amount));
+                setActiveModal(null);
+                fetchProfileData();
                 setIsLoading(false);
                 return;
             }

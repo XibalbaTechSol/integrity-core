@@ -106,6 +106,13 @@ export const userapi = {
             method: 'POST',
             body: JSON.stringify({ agent_did: agentDid }),
         }, true),
+    // Custodial app wallet (real internal $ITK ledger).
+    getWallet: () => request<{ app_wallet_address: string; balance: number }>('/me/wallet', {}, true),
+    walletTransfer: (recipient_address: string, amount: number) =>
+        request<{ status: string; new_balance: number }>('/me/wallet/transfer', {
+            method: 'POST',
+            body: JSON.stringify({ recipient_address, amount }),
+        }, true),
 };
 
 export { UserApiError };
