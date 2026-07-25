@@ -1759,6 +1759,21 @@ pub struct BaaDto {
     pub status: String,
 }
 
+/// Issues a signed W3C Verifiable Credential (AgentIntegrityCredential) for the agent's
+/// current AIS + verification tier. Real Ed25519 proof via the oracle's issuer key — see
+/// `crate::vc`. Returned as a raw JSON-LD credential (no fixed ToSchema, so no utoipa doc).
+pub async fn get_agent_vc(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let ais = compute_ais_for_agent(&state, &id).await?;
+    let tier = db::get_agent(&state.pool, &id)
+        .await?
+        .map(|a| a.verification_tier)
+        .unwrap_or(0);
+    Ok(Json(crate::vc::issue_vc(&id, ais.ais.round() as i64, tier)))
+}
+
 /// Network-wide model/provider stability benchmark (aggregated telemetry per model).
 #[derive(Debug, Serialize, ToSchema)]
 pub struct BenchmarkDto {

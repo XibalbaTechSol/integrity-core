@@ -371,6 +371,8 @@ export const oracle = {
     // Real SmartBAA agreements where this agent is the business associate, enumerated
     // from SmartBAAFactory.BAACreated logs (backend::handlers::get_agent_baas).
     getAgentBaas: (id: string) => get<BaaDto[]>(`/v1/agent/${encodeURIComponent(id)}/baas`),
+    // Real signed W3C AgentIntegrityCredential (backend::handlers::get_agent_vc).
+    getAgentVc: (id: string) => get<Record<string, unknown>>(`/v1/agent/${encodeURIComponent(id)}/vc`),
     getMarket: (address: string, agent?: string) =>
         get<MarketDetailDto>(`/v1/markets/${address}${agent ? `?agent=${agent}` : ''}`),
     getLeaderboard: () => get<LeaderboardEntryDto[]>('/v1/leaderboard'),

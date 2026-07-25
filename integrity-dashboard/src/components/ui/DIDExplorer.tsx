@@ -35,12 +35,15 @@ export const DIDExplorer: React.FC<DIDExplorerProps> = ({ agent }) => {
         const fetchIdentity = async () => {
             setIsLoading(true);
             try {
-                // Real DID document from the oracle (agent.eth_address is the DID). Verifiable-
-                // credential issuance is agent-side/SDK and has no oracle endpoint yet, so the
-                // VC view is an honest gap rather than a fabricated credential.
-                const detail = await oracle.getAgent(agent.eth_address);
+                // Real DID document + real signed Verifiable Credential, both from the oracle
+                // (agent.eth_address is the DID). The VC is an Ed25519-signed W3C
+                // AgentIntegrityCredential issued live by the oracle's issuer key.
+                const [detail, vcDoc] = await Promise.all([
+                    oracle.getAgent(agent.eth_address),
+                    oracle.getAgentVc(agent.eth_address).catch(() => null),
+                ]);
                 setDidDoc(detail.did_document || { id: agent.eth_address, note: 'No DID document on record for this agent.' });
-                setVc({ note: 'Verifiable Credential issuance is not yet exposed by the oracle (agent-side/SDK).' });
+                setVc(vcDoc || { note: 'Verifiable Credential unavailable.' });
             } catch (e) {
                 console.error("Identity fetch error:", e);
                 setDidDoc({ id: agent.eth_address, note: 'DID document unavailable (oracle unreachable).' });
