@@ -51,7 +51,10 @@ export const TelemetryGraphs = () => {
         const formatted = sorted.map(({ e, agent }) => {
           const date = new Date(e.created_at);
           return {
-            time: `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`,
+            // Absolute epoch ms — the real X coordinate. The previous HH:MM:SS *string*
+            // discarded the date, so identical clock times on different days collapsed
+            // onto the same categorical tick and the axis cycled instead of advancing.
+            ts: date.getTime(),
             performance_variance: e.performance_variance,
             hgi_raw: e.hgi_raw,
             gpu_hours_verified: e.gpu_hours_verified,
@@ -101,21 +104,37 @@ export const TelemetryGraphs = () => {
 
   const activeMetrics = METRICS.filter(m => selectedMetrics.includes(m.id));
 
-  // Transform data: group values aligned by timestamps
+  // Transform into correlated rows keyed on the ABSOLUTE timestamp, then sorted
+  // chronologically so the numeric time axis is monotonic. Each row carries every
+  // agent×metric value present at that instant; missing ones stay undefined and the
+  // series `connectNulls` across them (each agent is an independent event stream, so
+  // exact-ms coincidence between agents is rare and expected).
   const formattedChartData = useMemo(() => {
-    const timeGroups: Record<string, any> = {};
+    const timeGroups: Record<number, any> = {};
     data.forEach(d => {
-      const timeKey = d.time;
+      const timeKey = d.ts;
       if (!timeGroups[timeKey]) {
-        timeGroups[timeKey] = { time: timeKey };
+        timeGroups[timeKey] = { ts: timeKey };
       }
-      // Store agent-specific metric outputs
       METRICS.forEach(m => {
         timeGroups[timeKey][`${d.agent}_${m.id}`] = d[m.id];
       });
     });
-    return Object.values(timeGroups);
+    return Object.values(timeGroups).sort((a, b) => a.ts - b.ts);
   }, [data]);
+
+  // Readable HH:MM(:SS) label for a given epoch-ms tick. Seconds are shown only when the
+  // visible span is short enough that minute-resolution ticks would collide.
+  const fmtTime = (ts: number) => {
+    const d = new Date(ts);
+    const hh = d.getHours().toString().padStart(2, '0');
+    const mm = d.getMinutes().toString().padStart(2, '0');
+    return `${hh}:${mm}`;
+  };
+  const fmtTimeFull = (ts: number) => {
+    const d = new Date(ts);
+    return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  };
 
   // Generate distinct colors & lines for each selected agent & metric combination
   const activeSeries = useMemo(() => {
@@ -240,23 +259,34 @@ export const TelemetryGraphs = () => {
                   ))}
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                <XAxis dataKey="time" stroke="rgba(255,255,255,0.2)" fontSize={10} tickMargin={10} />
+                <XAxis
+                  dataKey="ts"
+                  type="number"
+                  scale="time"
+                  domain={['dataMin', 'dataMax']}
+                  tickFormatter={fmtTime}
+                  stroke="rgba(255,255,255,0.2)"
+                  fontSize={10}
+                  tickMargin={10}
+                />
                 <YAxis stroke="rgba(255,255,255,0.2)" fontSize={10} />
                 <Tooltip
+                  labelFormatter={(ts) => fmtTimeFull(ts as number)}
                   contentStyle={{ background: 'rgba(5, 13, 24, 0.9)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}
                   itemStyle={{ fontSize: '0.8rem', fontWeight: 600 }}
                   labelStyle={{ color: 'rgba(255,255,255,0.5)', marginBottom: '8px', fontSize: '0.7rem' }}
                 />
                 {activeSeries.map(s => (
-                  <Area 
+                  <Area
                     key={s.id}
-                    type="monotone" 
-                    dataKey={s.dataKey} 
-                    stroke={s.color} 
+                    type="monotone"
+                    dataKey={s.dataKey}
+                    stroke={s.color}
                     strokeWidth={2}
-                    fillOpacity={1} 
+                    fillOpacity={1}
                     fill={`url(#color-${s.id})`}
-                    name={s.label} 
+                    name={s.label}
+                    connectNulls
                     activeDot={{ r: 6, strokeWidth: 0, fill: s.color, style: { filter: `drop-shadow(0 0 8px ${s.color})` } }}
                   />
                 ))}
