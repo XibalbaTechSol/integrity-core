@@ -1877,7 +1877,7 @@ pub async fn get_agent_baas(
 
 // ---- XNS (XibalbaNameService) read endpoints -------------------------------------------
 // Handle→SovereignAgent and SovereignAgent→primary-handle resolution, read live from the
-// deployed XibalbaNameService singleton. Returns 503 (MissingSingleton) until the contract is
+// deployed XibalbaNameService singleton. Returns 400 (MissingSingleton) until the contract is
 // deployed and wired into deployments.*.json — an honest "not yet deployed", not a mock.
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
@@ -1961,7 +1961,7 @@ pub async fn get_agent_handle(
 }
 
 // ---- Governance read endpoint ----------------------------------------------------------
-// Live enumeration of IntegrityGovernance proposals. Returns 503 (MissingSingleton) until the
+// Live enumeration of IntegrityGovernance proposals. Returns 400 (MissingSingleton) until the
 // contract is deployed and wired into deployments.*.json — an honest "governance not live yet",
 // never a fabricated proposal list.
 

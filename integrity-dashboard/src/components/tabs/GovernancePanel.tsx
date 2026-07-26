@@ -57,6 +57,11 @@ export function GovernancePanel() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
       {deployed && proposals && (
         <Panel title="On-Chain Proposals (Live)" icon={<Scale size={18} />}>
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Info size={12} />
+            Read-only view. Proposing and casting votes are wallet-signed writes to
+            IntegrityGovernance — not yet wired into this UI; use the CLI/SDK to participate.
+          </div>
           {proposals.length === 0 ? (
             <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', padding: 'var(--space-3)' }}>
               The IntegrityGovernance contract is live on this network, but no proposals have been

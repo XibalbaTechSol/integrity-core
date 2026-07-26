@@ -42,10 +42,15 @@ export const XNSSearchService: React.FC = () => {
                 }
             }
         } catch (e: any) {
-            // The oracle returns 503 when the XibalbaNameService singleton isn't deployed yet —
-            // report that honestly instead of a generic "not found".
+            // resolveXns only errors (400/503 MissingSingleton) when the XibalbaNameService
+            // singleton isn't deployed on this network — unregistered handles resolve to a null
+            // address, not an error. So a resolver error here means "XNS not deployed", which we
+            // report honestly instead of a misleading "not found". Direct DID/0x lookups that
+            // 404 fall through to the generic message.
+            const status = e?.status as number | undefined;
             const msg = String(e?.message ?? '');
-            if (msg.includes('503') || msg.toLowerCase().includes('xibalbanameservice')) {
+            const wasHandleLookup = !query.trim().startsWith('did:') && !query.trim().startsWith('0x');
+            if (wasHandleLookup && (status === 400 || status === 503 || msg.includes('400') || msg.includes('503'))) {
                 setError('XNS name service is not deployed on this network yet — search by a did:integrity:… identifier for now.');
             } else {
                 setError('Agent not found. Try its full did:integrity:… identifier or a registered handle.');

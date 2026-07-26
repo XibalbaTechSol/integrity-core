@@ -455,14 +455,14 @@ export const oracle = {
     getBenchmarks: () => get<BenchmarkDto[]>('/v1/benchmarks'),
 
     // XNS handle→SovereignAgent resolution, read live from the XibalbaNameService singleton
-    // (backend::handlers::get_xns_resolve). Returns 503 until the contract is deployed.
+    // (backend::handlers::get_xns_resolve). Returns 400 (MissingSingleton) until the contract is deployed.
     resolveXns: (handle: string) =>
         get<XnsResolveDto>(`/v1/xns/resolve?handle=${encodeURIComponent(handle.replace(/^@/, ''))}`),
     // Reverse: the agent's primary XNS handle (backend::handlers::get_agent_handle).
     getAgentHandle: (id: string) => get<AgentHandleDto>(`/v1/agent/${encodeURIComponent(id)}/handle`),
 
     // Live IntegrityGovernance proposals, newest first (backend::handlers::
-    // get_governance_proposals). Returns 503 until the Governance contract is deployed —
+    // get_governance_proposals). Returns 400 (MissingSingleton) until the Governance contract is deployed —
     // callers degrade to the honest "not deployed yet" state rather than an empty live list.
     getGovernanceProposals: () => get<ProposalDto[]>('/v1/governance/proposals'),
 
