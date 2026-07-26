@@ -1,7 +1,7 @@
 ---
 title: integrity-userapi
 created: 2026-07-09
-updated: 2026-07-15
+updated: 2026-07-25
 type: entity
 tags: [infrastructure, identity]
 confidence: high
@@ -16,8 +16,9 @@ source_files:
   - integrity-userapi/app/config.py
   - integrity-userapi/migrations/0001_init.sql
   - integrity-userapi/migrations/0002_jwt_revocation.sql
+  - integrity-userapi/migrations/0003_user_wallets.sql
   - integrity-userapi/tests/conftest.py
-  - integrity-mvp/demo/src/integrity_demo/userapi_bridge.py
+  - integrity-dashboard/demo/src/integrity_demo/userapi_bridge.py
   - docker-compose.yml
 ---
 
@@ -48,6 +49,20 @@ agent state locally. `POST /demo/run` / `GET /demo/runs` — records that a
 run was *requested*, starting at `status='pending'`; this service never
 orchestrates a demo or fabricates a `'completed'` result (that's
 [integrity-mvp](integrity-mvp.md)'s `demo/` engine, a separate process).
+
+## Custodial app-wallet (added 2026-07-25)
+
+`GET /me/wallet` / `POST /me/wallet/transfer` back a per-user **custodial $ITK
+ledger** — the honest counterpart to the dashboard's self-custodial (MetaMask)
+path. `migrations/0003_user_wallets.sql` adds `user_wallets(user_id PK,
+app_wallet_address UNIQUE, itk_balance_wei NUMERIC(78,0) CHECK >= 0)` — a
+`NUMERIC(78,0)` covers the full uint256 range exactly (no f64 loss). `GET
+/me/wallet` is get-or-create (first call mints a deterministic app-wallet address
++ a dev faucet balance); `POST /me/wallet/transfer` is a real transactional
+debit/credit (`SELECT … FOR UPDATE`), not a mocked number — a genuine custodial
+account whose balance is an authoritative internal ledger. A production deployment
+would back the address with a real custodied keypair + on-chain settlement; the
+ledger semantics are already real. Consumed by the dashboard's `TokenWallet`.
 
 ## The oracle tri-state
 

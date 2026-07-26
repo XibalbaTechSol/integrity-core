@@ -2397,3 +2397,20 @@ writeup: PRODUCTION_GAPS.md §18.
 - Removed custom "glow" effects from `ReputationMetricsSection` and `FactoryPanel` per Xibalba's flat styling guidelines.
 - Integrated `oracle_sidecar.py` properly via `config.ts` without reliance on mock backend script.
 - Verified test suite executes entirely green locally with real backend connections.
+
+## [2026-07-25] update | Deprecating integrity-mvp and consolidating onto integrity-dashboard
+
+- Fully deleted `integrity-mvp/` from the repository.
+- Migrated the Python closed-loop scenario engine (`demo/`) into `integrity-dashboard/demo/`.
+- Copied novel files/utilities (`useOracleStream.ts`, `useSovereignAgentWrite.ts` hooks, `SeededDataBadge.tsx`, and `seed_mock_data.py` script) to `integrity-dashboard/`.
+- Updated all reference paths, build steps, configurations, and CI workflows (`ci.yml`, `auto-merge-jules.yml`, `docker-compose.yml`, `Makefile`, `README.md`, `CLAUDE.md`, `docs/TESTING.md`, and `docs/INTERFACE_CONTRACT.md`) to point directly to `integrity-dashboard/` and its `demo/` engine.
+- Renamed the wiki entity file `docs/wiki/entities/integrity-mvp.md` to `docs/wiki/entities/integrity-dashboard.md` and updated the index references in `docs/wiki/WIKI_INDEX.md` and `.agents/AGENTS.md`.
+
+## [2026-07-25] update | XNS resolution + IntegrityGovernance + 5 backend prereqs, wiki sync
+
+- Built `IntegrityGovernance.sol` (lock-to-vote, timelocked propose→vote→queue→execute; verbatim-stored action, `nonReentrant`, ETA+grace) with 26 forge tests; wired into genesis `Deploy.s.sol`. Total contracts suite now **198 tests** green.
+- Added oracle read endpoints: `/v1/governance/proposals` (`ChainClient::read_proposals`, index-loop enumeration), `/v1/xns/resolve` + `/v1/agent/{id}/handle` (`XibalbaNameService` live reads), plus the earlier prereqs' `/v1/agent/{id}/{contracts,baas,vc,handle}`, `/v1/benchmarks`, `/v1/stats`. New `backend/src/vc.rs` issues real Ed25519-signed W3C Verifiable Credentials.
+- Added userapi custodial $ITK app-wallet: `GET /me/wallet` + `POST /me/wallet/transfer`, `migrations/0003_user_wallets.sql` (NUMERIC(78,0) ledger, `SELECT … FOR UPDATE`).
+- Dashboard wiring: `XNSSearchService`/`DIDExplorer` (XNS + VC), `TokenWallet` (custodial), `GovernancePanel`/`GuardianPilot` (live proposals). All degrade honestly on `MissingSingleton` — **verified empirically as HTTP 400** against the live oracle (control `/v1/agents` still 200), correcting an earlier mistaken "503" claim in comments/PRODUCTION_GAPS.
+- Base Sepolia deploys of `XibalbaNameService` + `IntegrityGovernance` deferred ("build now, defer deploy"); `deployments.local.json` deliberately not regenerated (would remint addresses + break the seeded audit DB).
+- Wiki: new `concepts/governance.md`; updated `entities/{contracts,integrity-oracle,integrity-dashboard,integrity-userapi}.md`; `WIKI_INDEX.md` counts 26→27 (19 concepts). `PRODUCTION_GAPS.md` §4 updated for both partial-close deferrals + the read-only-UI note.

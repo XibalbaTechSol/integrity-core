@@ -1,33 +1,26 @@
 ---
-title: integrity-mvp
+title: integrity-dashboard
 created: 2026-07-07
-updated: 2026-07-18
+updated: 2026-07-25
 type: entity
 tags: [infrastructure, sdk]
 confidence: high
 source_files:
-  - integrity-mvp/src/App.tsx
-  - integrity-mvp/src/config.ts
-  - integrity-mvp/src/chain/wagmi.ts
-  - integrity-mvp/src/chain/bytecode.ts
-  - integrity-mvp/src/chain/deployments.ts
-  - integrity-mvp/src/chain/abis.ts
-  - integrity-mvp/src/components/RegisterAgentModal.tsx
-  - integrity-mvp/src/hooks/useSovereignAgentWrite.ts
-  - integrity-mvp/src/services/oracle.ts
-  - integrity-mvp/src/services/userapi.ts
-  - integrity-mvp/src/services/api.ts
-  - integrity-mvp/src/contexts/AgentContext.tsx
-  - integrity-mvp/src/components/ConnectWalletButton.tsx
-  - integrity-mvp/src/shared/SeededDataBadge.tsx
-  - integrity-mvp/src/pages/*.tsx
-  - integrity-mvp/src/components/widgets/TriMetricWidget.tsx
-  - integrity-mvp/src/components/widgets/WidgetRegistry.tsx
-  - integrity-mvp/demo/src/integrity_demo/main.py
-  - integrity-mvp/demo/src/integrity_demo/agent_loop.py
-  - integrity-mvp/demo/src/integrity_demo/userapi_bridge.py
-  - integrity-mvp/scripts/seed_mock_data.py
-  - integrity-mvp/.env.example
+  - integrity-dashboard/src/App.tsx
+  - integrity-dashboard/src/config.ts
+  - integrity-dashboard/src/chain/bytecode.ts
+  - integrity-dashboard/src/chain/deployments.ts
+  - integrity-dashboard/src/components/ui/RegisterAgentModal.tsx
+  - integrity-dashboard/src/hooks/useSovereignAgentWrite.ts
+  - integrity-dashboard/src/services/oracle.ts
+  - integrity-dashboard/src/services/userapi.ts
+  - integrity-dashboard/src/services/api.ts
+  - integrity-dashboard/src/components/shared/SeededDataBadge.tsx
+  - integrity-dashboard/demo/src/integrity_demo/main.py
+  - integrity-dashboard/demo/src/integrity_demo/agent_loop.py
+  - integrity-dashboard/demo/src/integrity_demo/userapi_bridge.py
+  - integrity-dashboard/scripts/seed_mock_data.py
+  - integrity-dashboard/.env.example
   - scripts/sync_abis.py
 ---
 
@@ -189,6 +182,35 @@ with real backend/chain wiring and a Notion-style drag-and-drop widget layout en
     - Fully integrated write routing using `SovereignAgent.execute` to delegate `register` calls to the `XibalbaNameService` contract.
     - Re-implemented `XNSSearchService` to perform real read-only contract resolutions mapping handles to identities on-chain.
     - Consolidated DID, XNS management, claim/registration actions, history logs, security credentials, and the 7 primitive contracts onto a single tabless page layout, displaying the primitives in a structured status table.
+
+## Prereq wiring: benchmarks, VCs, custodial wallet, XNS, governance (2026-07-25)
+
+Five backend prereqs were built + wired into the dashboard, each with an honest
+degradation path (never a mock):
+- **SDK benchmarks** — `oracle.getBenchmarks()` (`GET /v1/benchmarks`) drives the
+  model/provider stability panels from real network-wide telemetry aggregates.
+- **Verifiable Credentials** — `DIDExplorer` now shows a real Ed25519-signed W3C
+  `AgentIntegrityCredential` via `oracle.getAgentVc()` (`GET /v1/agent/{id}/vc`),
+  alongside the real DID document.
+- **Custodial app-wallet** — `TokenWallet` shows both the real on-chain balance/history
+  and the userapi custodial $ITK ledger (`userapi.getWallet()`/`walletTransfer()` — see
+  [integrity-userapi](integrity-userapi.md)); verified live (faucet 10000 → 9750 after a
+  250 transfer).
+- **XNS** — `XNSSearchService` resolves human handles on-chain via `oracle.resolveXns()`
+  (falling back to direct `did:`/`0x` lookups), and `DIDExplorer`'s `XNS_RESOLVE` field
+  reflects the real primary handle via `oracle.getAgentHandle()`. The register-handle
+  *write* flow is deliberately deferred (CLI/SDK).
+- **Governance** — `GovernancePanel` + `GuardianPilot` render live `IntegrityGovernance`
+  proposals via `oracle.getGovernanceProposals()` (`GET /v1/governance/proposals`). Both
+  degrade to their honest "Not Yet Live" state on the `MissingSingleton` (HTTP 400) the
+  endpoint returns until the contract is deployed — **never a live-but-empty list**. The
+  propose/vote *write* flow is deliberately deferred (CLI/SDK); an inline note says so.
+  See [Governance](../concepts/governance.md).
+
+The `MissingSingleton`→**400** contract was verified empirically against the live oracle
+(both XNS + governance endpoints returned 400 with a descriptive body; control route
+`/v1/agents` still 200). All frontend degradation branches key on that. Full build (tsc +
+vite) + 198 forge tests green.
 
 ## `TriMetricWidget` fixed 2026-07-15 — was the most severe fake-data surface in the dashboard
 

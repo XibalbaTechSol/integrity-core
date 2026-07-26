@@ -50,7 +50,7 @@ flowchart TB
     SDK["integrity-sdk / integrity-cli<br/>(self-deploy registration,<br/>BCC commitments, telemetry)"]
     BCC["bcc_middleware (FastAPI + OPA)<br/>(policy, HIPAA BAA check,<br/>ZK, Merkle anchoring)"]
     Oracle["integrity-oracle (Rust/Axum)<br/>(AIS scoring, telemetry ingest,<br/>on-chain reads)"]
-    MVP["integrity-mvp (React + Python)<br/>(the one dashboard/landing app +<br/>its demo scenario engine)"]
+    MVP["integrity-dashboard (React + Python)<br/>(the one dashboard/landing app +<br/>its demo scenario engine)"]
 
     Wallet -->|signs direct deploys| SA
     Wallet -->|signs direct deploys| StA
@@ -114,14 +114,14 @@ When building and deploying applications on the protocol, developers must choose
 
 | Package | Stack | Purpose | Status |
 |---|---|---|---|
-| [`contracts/`](contracts/) | Solidity + Foundry | The 7 primitives, factory, registries, XNS, $ITK, Shield stack, ZK verifier, cross-chain reputation bridge | ✅ 165 tests; deployed to Base Sepolia (XNS/CCIP bridge not yet broadcast — see below) |
+| [`contracts/`](contracts/) | Solidity + Foundry | The 7 primitives, factory, registries, XNS, `IntegrityGovernance`, $ITK, Shield stack, ZK verifier, cross-chain reputation bridge | ✅ 198 tests; deployed to Base Sepolia (XNS/governance/CCIP bridge not yet broadcast — see below) |
 | [`integrity-zkp/`](integrity-zkp/) | Noir + Barretenberg | The ZK circuit proving an action matches its committed intent | ✅ real `nargo`/`bb` pipeline |
 | [`integrity-oracle/`](integrity-oracle/) | Rust + Axum + Postgres | Telemetry ingestion, AIS computation, on-chain reads | ✅ 37 lib tests + real e2e |
 | [`integrity-sdk/`](integrity-sdk/) | Python | Agent library: DID/keys, EVM wallet, self-deploy registration, BCC, telemetry (OTel + MLflow) | ✅ 46 tests |
 | [`integrity-cli/`](integrity-cli/) | Python (Typer) | Developer CLI for identity, on-chain registration, BCC intercept | ✅ 49 tests |
 | [`bcc_middleware/`](bcc_middleware/) | Python (FastAPI) + OPA | Pre-execution policy gate, HIPAA BAA check, Merkle anchoring | ✅ 49 tests + 12 OPA |
 | [`integrity-userapi/`](integrity-userapi/) | Python (FastAPI) + Postgres | User accounts, auth, API keys, agent ownership — strictly non-chain | 🚧 in progress |
-| [`integrity-mvp/`](integrity-mvp/) | React + Vite + TS, plus `demo/` (Python) | The ONE investor/developer app — landing, markets, leaderboard, wallet, capital allocation, cognition, identity, Shield — plus its closed-loop demo scenario engine. Formerly two packages (`integrity-dashboard` + `integrity-demo`), merged so there's exactly one product surface. | 🚧 in progress |
+| [`integrity-dashboard/`](integrity-dashboard/) | React + Vite + TS, plus `demo/` (Python) | The ONE investor/developer app — landing, markets, leaderboard, wallet, capital allocation, cognition, identity, Shield — plus its closed-loop demo scenario engine. Formerly two packages (`integrity-dashboard` + `integrity-demo`), merged so there's exactly one product surface. | 🚧 in progress |
 
 ---
 
@@ -249,8 +249,16 @@ the end state:
    `IntegrityMarket.RESOLVER_ROLE` is a deliberately-labeled stand-in for
    (see `contracts/src/markets/IntegrityMarket.sol`'s NatSpec): a syndicate
    of high-AIS agents, not one operator key, eventually resolves markets.
-3. **Phase 3 — Protocol DAO (roadmap).** Full on-chain governance: `$ITK`
-   stakers and high-reputation agents vote on protocol parameter changes.
+3. **Phase 3 — Protocol DAO (contract built, deploy deferred).** On-chain
+   governance where `$ITK` holders vote on protocol parameter changes is now a
+   **real contract** — `IntegrityGovernance.sol` (lock-to-vote, timelocked
+   propose→vote→queue→execute; 26 tests), read by the oracle
+   (`GET /v1/governance/proposals`) and rendered live in the dashboard's
+   Governance panel. It is wired into genesis `Deploy.s.sol` but **not yet
+   broadcast to Base Sepolia** (a gas-costing operator action) — until then the
+   endpoint returns a clean `MissingSingleton` (HTTP 400) and the UI shows an
+   honest "not yet live" state. Participation writes (propose/vote) are done via
+   CLI/SDK for now. See `docs/wiki/concepts/governance.md`.
 4. **Cross-chain reputation (roadmap).** `CCIPReputationBridge.sol` exists
    in `contracts/` but is explicitly unwired (see its own NatSpec) —
    synchronizing AIS across Base/Arbitrum/Ethereum is a real future step,
