@@ -122,6 +122,26 @@ pub async fn get_agent(pool: &PgPool, id: &str) -> Result<Option<AgentRow>, sqlx
     .await
 }
 
+/// Reverse a SovereignAgent address to its owning agent DID via the cached primitive set.
+/// Case-insensitive on the hex address. Best-effort: returns None when the agent's primitives
+/// have never been resolved into the oracle DB.
+pub async fn did_by_sovereign_agent(
+    pool: &PgPool,
+    sovereign_agent: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    let row: Option<(String,)> = sqlx::query_as(
+        r#"
+        SELECT agent_id FROM agent_primitives
+        WHERE lower(sovereign_agent_address) = lower($1)
+        LIMIT 1
+        "#,
+    )
+    .bind(sovereign_agent)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|(id,)| id))
+}
+
 pub async fn list_agents(pool: &PgPool) -> Result<Vec<AgentRow>, sqlx::Error> {
     sqlx::query_as::<_, AgentRow>(
         r#"

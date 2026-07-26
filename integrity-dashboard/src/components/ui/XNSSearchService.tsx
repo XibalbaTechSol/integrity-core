@@ -17,17 +17,39 @@ export const XNSSearchService: React.FC = () => {
 
         try {
             const q = query.trim();
-            // Real resolution goes through the oracle by DID. There is no on-chain name
-            // service (XNS) endpoint yet, so handle lookups are an honest gap rather than a
-            // faked resolver response.
             if (q.startsWith('did:') || q.startsWith('0x')) {
+                // Direct DID/address lookup straight through the oracle.
                 const detail = await oracle.getAgent(q);
                 setResult(detail);
             } else {
-                setError("XNS handle resolution isn't wired to an on-chain name service yet — search by a did:integrity:… identifier.");
+                // Handle lookup: resolve the human-readable handle to a SovereignAgent via the
+                // on-chain XibalbaNameService (oracle /v1/xns/resolve). If the resolver knows
+                // the reverse DID, load the full agent detail so the same rich card renders;
+                // otherwise surface the raw on-chain resolution.
+                const res = await oracle.resolveXns(q);
+                if (!res.sovereign_agent) {
+                    setError(`Handle "${res.handle}" is not registered in the XibalbaNameService.`);
+                } else if (res.did) {
+                    const detail = await oracle.getAgent(res.did);
+                    setResult({ ...detail, xns_handle: res.handle.includes('.') ? res.handle : `${res.handle}.intg` });
+                } else {
+                    // Resolved on-chain but the oracle has no telemetry/DID for this agent yet.
+                    setResult({
+                        alias: `${res.handle}.intg`,
+                        eth_address: res.sovereign_agent,
+                        xns_handle: `${res.handle}.intg`,
+                    });
+                }
             }
         } catch (e: any) {
-            setError("Agent not found. Try its full did:integrity:… identifier.");
+            // The oracle returns 503 when the XibalbaNameService singleton isn't deployed yet —
+            // report that honestly instead of a generic "not found".
+            const msg = String(e?.message ?? '');
+            if (msg.includes('503') || msg.toLowerCase().includes('xibalbanameservice')) {
+                setError('XNS name service is not deployed on this network yet — search by a did:integrity:… identifier for now.');
+            } else {
+                setError('Agent not found. Try its full did:integrity:… identifier or a registered handle.');
+            }
         } finally {
             setIsLoading(false);
         }

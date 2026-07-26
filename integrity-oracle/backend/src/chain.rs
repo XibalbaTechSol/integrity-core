@@ -127,6 +127,18 @@ sol! {
 }
 
 sol! {
+    // XibalbaNameService (contracts/src/framework/XibalbaNameService.sol): a handle -> agent
+    // name service. resolve() returns the SovereignAgent a handle points at (address(0) if
+    // free); primaryHandle() returns an agent's chosen primary handle.
+    #[sol(rpc)]
+    interface IXibalbaNameService {
+        function resolve(string calldata handle) external view returns (address sovereignAgent);
+        function handleExists(string calldata handle) external view returns (bool);
+        function primaryHandle(address sovereignAgent) external view returns (string memory);
+    }
+}
+
+sol! {
     #[sol(rpc)]
     interface ISmartBAA {
         function coveredEntity() external view returns (address);
@@ -357,6 +369,10 @@ struct Singletons {
     /// genesis-only deployments; shield read endpoints report it cleanly if missing.
     #[serde(rename = "SmartBAAFactory", default)]
     smart_baa_factory: Option<Address>,
+    /// `Option` — XibalbaNameService (XNS). Absent until deployed; resolve endpoints report
+    /// it cleanly if missing.
+    #[serde(rename = "XibalbaNameService", default)]
+    xibalba_name_service: Option<Address>,
 }
 
 /// Read-only on-chain client. Holds a connected `alloy` provider and the resolved
@@ -378,6 +394,7 @@ pub struct ChainClient {
     integrity_token_address: Option<Address>,
     a2a_capital_pool_address: Option<Address>,
     smart_baa_factory_address: Option<Address>,
+    xibalba_name_service_address: Option<Address>,
 }
 
 impl ChainClient {
@@ -408,6 +425,7 @@ impl ChainClient {
             integrity_token_address: parsed.singletons.integrity_token,
             a2a_capital_pool_address: parsed.singletons.a2a_capital_pool,
             smart_baa_factory_address: parsed.singletons.smart_baa_factory,
+            xibalba_name_service_address: parsed.singletons.xibalba_name_service,
         })
     }
 
@@ -422,6 +440,7 @@ impl ChainClient {
             integrity_token_address: None,
             a2a_capital_pool_address: None,
             smart_baa_factory_address: None,
+            xibalba_name_service_address: None,
         }
     }
 
@@ -441,6 +460,7 @@ impl ChainClient {
             integrity_token_address: Some(integrity_token_address),
             a2a_capital_pool_address: None,
             smart_baa_factory_address: None,
+            xibalba_name_service_address: None,
         }
     }
 
@@ -611,6 +631,28 @@ impl ChainClient {
     /// The Shield SmartBAAFactory singleton, if deployed. `None` -> handler reports it cleanly.
     pub fn smart_baa_factory(&self) -> Option<Address> {
         self.smart_baa_factory_address
+    }
+
+    /// The XibalbaNameService (XNS) singleton, if deployed.
+    pub fn xibalba_name_service(&self) -> Option<Address> {
+        self.xibalba_name_service_address
+    }
+
+    /// Resolve an XNS handle to the SovereignAgent it points at (address(0) if unregistered).
+    /// `resolve()` reverts on an unclaimed handle, so gate on `handleExists` first and return
+    /// the zero address for "not registered" — a resolvable, non-error outcome for callers.
+    pub async fn resolve_handle(&self, xns: Address, handle: &str) -> Result<Address, ChainError> {
+        let c = IXibalbaNameService::new(xns, self.provider.clone());
+        if !c.handleExists(handle.to_string()).call().await? {
+            return Ok(Address::ZERO);
+        }
+        Ok(c.resolve(handle.to_string()).call().await?)
+    }
+
+    /// The agent's chosen primary handle ("" if none).
+    pub async fn primary_handle(&self, xns: Address, agent: Address) -> Result<String, ChainError> {
+        let c = IXibalbaNameService::new(xns, self.provider.clone());
+        Ok(c.primaryHandle(agent).call().await?)
     }
 
     /// Enumerates every SmartBAA where `business_associate` (an agent's SovereignAgent) is

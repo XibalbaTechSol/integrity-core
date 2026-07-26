@@ -326,11 +326,21 @@ removed. Every finding below is fixed and covered by a new regression test.
   Sepolia** — that's a real, gas-costing, operator-triggered action
   (`forge script script/DeployEHRGate.s.sol --rpc-url base_sepolia --broadcast --verify`
   with `FUNDER_PRIVATE_KEY` set) deliberately left for the account holder to run.
-* **Still open — `deployments.baseSepolia.json` is missing `XibalbaNameService`.**
-  Confirmed via a live read of the checked-in file: no such key exists. `DeployEHRGate.s.sol`
-  above is written to tolerate this (skips re-writing that key rather than reverting) but
-  does not fix it — recovering the real deployed XNS address (if one exists) or deploying
-  a fresh one is a separate, live-network decision out of scope for this pass.
+* **Partially closed — XNS resolution is built end-to-end; only the Base Sepolia deploy is
+  deferred.** `deployments.baseSepolia.json` still has no `XibalbaNameService` key (confirmed
+  via a live read of the checked-in file). What's now real: the `XibalbaNameService.sol`
+  contract (14 forge tests passing), the oracle's read path — `ChainClient::{resolve_handle,
+  primary_handle}` over a `sol!` `IXibalbaNameService` interface, exposed as
+  `GET /v1/xns/resolve?handle=…` and `GET /v1/agent/{id}/handle` — and the dashboard wiring
+  (`oracle.resolveXns` / `oracle.getAgentHandle`, consumed by `XNSSearchService` handle
+  lookups and `DIDExplorer`'s `XNS_RESOLVE` field). The oracle reads the singleton live where
+  it exists (`deployments.local.json` has it at the deterministic anvil address, deployed by
+  genesis `Deploy.s.sol`) and returns **503 MissingSingleton** — an honest "not deployed on
+  this network yet", never a fabricated handle — where it doesn't (Base Sepolia). The single
+  remaining step is the operator-run, gas-costing deploy of `XibalbaNameService` to Base
+  Sepolia + writing its address into `deployments.baseSepolia.json`; `DeployEHRGate.s.sol`
+  already tolerates the missing key via a `keyExistsJson` guard so no other singleton is
+  disturbed until then.
 * **CLOSED — `CCIPReputationBridge.bridgeReputation` had no refund for overpaid native
   fee.** `msg.value - fee` was permanently trapped (no `receive()`/`withdraw()`/sweep
   anywhere). Fixed: the excess is now refunded to `msg.sender` via a low-level call

@@ -244,6 +244,18 @@ export interface BenchmarkDto {
     sample_count: number;
 }
 
+// XNS (XibalbaNameService) resolution — backend::handlers::{get_xns_resolve,get_agent_handle}.
+export interface XnsResolveDto {
+    handle: string;
+    sovereign_agent: string | null;
+    did: string | null;
+}
+
+export interface AgentHandleDto {
+    did: string;
+    handle: string | null;
+}
+
 export interface CreditDto {
     agent_id: string;
     total_allocated: string;
@@ -426,6 +438,13 @@ export const oracle = {
     getStats: () => get<StatsDto>('/v1/stats'),
     // Network-wide model/provider stability benchmarks (backend::handlers::get_benchmarks).
     getBenchmarks: () => get<BenchmarkDto[]>('/v1/benchmarks'),
+
+    // XNS handle→SovereignAgent resolution, read live from the XibalbaNameService singleton
+    // (backend::handlers::get_xns_resolve). Returns 503 until the contract is deployed.
+    resolveXns: (handle: string) =>
+        get<XnsResolveDto>(`/v1/xns/resolve?handle=${encodeURIComponent(handle.replace(/^@/, ''))}`),
+    // Reverse: the agent's primary XNS handle (backend::handlers::get_agent_handle).
+    getAgentHandle: (id: string) => get<AgentHandleDto>(`/v1/agent/${encodeURIComponent(id)}/handle`),
 
     // EventSource doesn't take fetch-style options, so callers construct their own
     // `new EventSource(oracle.streamUrl(id))` — see hooks/useOracleStream.ts.

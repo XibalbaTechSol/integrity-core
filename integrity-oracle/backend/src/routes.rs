@@ -36,6 +36,8 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/agent/{id}/contracts", get(handlers::get_agent_contracts))
         .route("/v1/agent/{id}/baas", get(handlers::get_agent_baas))
         .route("/v1/agent/{id}/vc", get(handlers::get_agent_vc))
+        .route("/v1/agent/{id}/handle", get(handlers::get_agent_handle))
+        .route("/v1/xns/resolve", get(handlers::get_xns_resolve))
         .route("/v1/stats", get(handlers::get_stats))
         .route("/v1/benchmarks", get(handlers::get_benchmarks))
         .route("/v1/audit-log", get(handlers::get_audit_log))

@@ -15,6 +15,7 @@ export const DIDExplorer: React.FC<DIDExplorerProps> = ({ agent }) => {
     const isMobile = useIsMobile();
     const [didDoc, setDidDoc] = useState<any>(null);
     const [vc, setVc] = useState<any>(null);
+    const [handle, setHandle] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [activeView, setActiveView] = useState<'did' | 'vc' | 'raw'>('did');
 
@@ -38,12 +39,17 @@ export const DIDExplorer: React.FC<DIDExplorerProps> = ({ agent }) => {
                 // Real DID document + real signed Verifiable Credential, both from the oracle
                 // (agent.eth_address is the DID). The VC is an Ed25519-signed W3C
                 // AgentIntegrityCredential issued live by the oracle's issuer key.
-                const [detail, vcDoc] = await Promise.all([
+                // The XNS reverse-lookup reads the on-chain XibalbaNameService primary handle;
+                // it returns 503 until that singleton is deployed, so it degrades to null
+                // rather than faking a handle.
+                const [detail, vcDoc, handleDoc] = await Promise.all([
                     oracle.getAgent(agent.eth_address),
                     oracle.getAgentVc(agent.eth_address).catch(() => null),
+                    oracle.getAgentHandle(agent.eth_address).catch(() => null),
                 ]);
                 setDidDoc(detail.did_document || { id: agent.eth_address, note: 'No DID document on record for this agent.' });
                 setVc(vcDoc || { note: 'Verifiable Credential unavailable.' });
+                setHandle(handleDoc?.handle ?? null);
             } catch (e) {
                 console.error("Identity fetch error:", e);
                 setDidDoc({ id: agent.eth_address, note: 'DID document unavailable (oracle unreachable).' });
@@ -175,7 +181,7 @@ export const DIDExplorer: React.FC<DIDExplorerProps> = ({ agent }) => {
                                         
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', width: '100%' }}>
                                             {[
-                                                { label: 'XNS_RESOLVE', value: agent.xns_handle || "UNANCHORED", active: !!agent.xns_handle },
+                                                { label: 'XNS_RESOLVE', value: (handle ? `${handle.includes('.') ? handle : `${handle}.intg`}` : agent.xns_handle) || "UNANCHORED", active: !!(handle || agent.xns_handle) },
                                                 { label: 'PROTO_VER', value: 'INTG_V1.0', active: true },
                                                 { label: 'STATUS', value: 'ANCHORED', active: true },
                                             ].map((item, i) => (

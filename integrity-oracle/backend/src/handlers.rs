@@ -1875,6 +1875,91 @@ pub async fn get_agent_baas(
     Ok(Json(dtos))
 }
 
+// ---- XNS (XibalbaNameService) read endpoints -------------------------------------------
+// Handle→SovereignAgent and SovereignAgent→primary-handle resolution, read live from the
+// deployed XibalbaNameService singleton. Returns 503 (MissingSingleton) until the contract is
+// deployed and wired into deployments.*.json — an honest "not yet deployed", not a mock.
+
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct XnsResolveQuery {
+    /// Human-readable handle to resolve (without a leading @), e.g. "atlas".
+    pub handle: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct XnsResolveDto {
+    pub handle: String,
+    /// SovereignAgent address the handle points at, or null if unregistered.
+    pub sovereign_agent: Option<String>,
+    /// DID (did:integrity:<sovereign_agent>) when a reverse mapping exists in the oracle DB.
+    pub did: Option<String>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/xns/resolve",
+    params(XnsResolveQuery),
+    responses((status = 200, description = "Resolve an XNS handle to its SovereignAgent", body = XnsResolveDto)),
+    tag = "identity",
+)]
+pub async fn get_xns_resolve(
+    State(state): State<AppState>,
+    Query(q): Query<XnsResolveQuery>,
+) -> Result<Json<XnsResolveDto>, AppError> {
+    let xns = state
+        .chain
+        .xibalba_name_service()
+        .ok_or(crate::chain::ChainError::MissingSingleton("XibalbaNameService"))?;
+    let handle = q.handle.trim_start_matches('@').to_string();
+    let addr = state.chain.resolve_handle(xns, &handle).await?;
+    let sovereign_agent = if addr.is_zero() {
+        None
+    } else {
+        Some(format!("{addr:#x}"))
+    };
+    // Reverse the SovereignAgent to a known DID via the oracle DB (best-effort).
+    let did = match &sovereign_agent {
+        Some(sa) => db::did_by_sovereign_agent(&state.pool, sa).await?,
+        None => None,
+    };
+    Ok(Json(XnsResolveDto {
+        handle,
+        sovereign_agent,
+        did,
+    }))
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AgentHandleDto {
+    pub did: String,
+    /// Primary handle registered for this agent's SovereignAgent, or null if none.
+    pub handle: Option<String>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/agent/{id}/handle",
+    params(("id" = String, Path, description = "Agent DID")),
+    responses((status = 200, description = "Primary XNS handle for the agent", body = AgentHandleDto)),
+    tag = "identity",
+)]
+pub async fn get_agent_handle(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<AgentHandleDto>, AppError> {
+    let xns = state
+        .chain
+        .xibalba_name_service()
+        .ok_or(crate::chain::ChainError::MissingSingleton("XibalbaNameService"))?;
+    let record = state.chain.resolve_primitives_by_did(&id).await?;
+    let handle = state
+        .chain
+        .primary_handle(xns, record.primitives.sovereign_agent)
+        .await?;
+    let handle = if handle.is_empty() { None } else { Some(handle) };
+    Ok(Json(AgentHandleDto { did: id, handle }))
+}
+
 // Protocol-wide aggregates (Class B, docs/design/dashboard-wiring.md). Deliberately
 // the *minimal supplement* to what the dashboard already derives client-side from its
 // per-agent loop (`active_nodes`, `aggregate_ais`, `protocol_staked_itk`,
