@@ -4,12 +4,8 @@ import { Key, ShieldCheck, User, Globe, Code } from 'lucide-react';
 import { useDashboard } from '../context/useDashboard';
 import { Panel } from '../components/shared/Panel';
 import { IdentityPanel } from '../components/tabs/IdentityPanel';
-import { APIKeyPanel } from '../components/tabs/APIKeyPanel';
 import { PrivacyPanel } from '../components/tabs/PrivacyPanel';
 import { getTier } from '../types';
-
-// ─── Sub-nav tab IDs ──────────────────────────────────────────────────────────
-type IdentityTab = 'did' | 'apikeys';
 
 // ─── Tier badge colours ───────────────────────────────────────────────────────
 const TIER_COLORS: Record<string, string> = {
@@ -32,7 +28,10 @@ export function IdentityPage() {
   const { selectedAgent, activeTab, setActiveTab } = useDashboard();
 
   // ── Derived values ──────────────────────────────────────────────────────────
-  const did       = (selectedAgent as any)?.did_document?.id ?? (selectedAgent?.eth_address ? `did:xibalba:${selectedAgent.eth_address}` : null);
+  // eth_address actually holds the agent's DID (did:integrity:…), so never re-wrap a value
+  // that's already a DID — doing so produced a malformed `did:xibalba:did:integrity:…`.
+  const rawDid    = (selectedAgent as any)?.did_document?.id ?? selectedAgent?.eth_address ?? null;
+  const did       = rawDid ? (rawDid.startsWith('did:') ? rawDid : `did:xibalba:${rawDid}`) : null;
   const ais       = selectedAgent?.current_ais ?? null;
   const tier      = ais !== null ? getTier(ais) : null;
   const tierColor = tier ? TIER_COLORS[tier] : 'var(--text-muted)';
@@ -45,41 +44,12 @@ export function IdentityPage() {
       : did
     : null;
 
-  const TABS: { id: 'identity' | 'apikeys'; label: string; icon: React.ReactNode }[] = [
-    { id: 'identity', label: 'Identity & DID', icon: <User size={14} /> },
-    { id: 'apikeys',  label: 'API Keys',       icon: <Key size={14} /> },
-  ];
+
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)', minHeight: 0 }}>
 
-      {/* ── Hero bar ───────────────────────────────────────────────────────── */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3 }}
-        style={{
-          padding: 'var(--space-5) var(--space-6)',
-          background: 'var(--bg-secondary)',
-          borderRadius: 'var(--radius-lg)',
-          border: '1px solid var(--border-color)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 'var(--space-4)',
-        }}
-      >
-        <span style={{ color: 'var(--primary)' }}>
-          <User size={28} />
-        </span>
-        <div>
-          <h1 style={{ margin: 0, fontSize: '1.35rem', fontWeight: 700, letterSpacing: '-0.01em' }}>
-            Identity
-          </h1>
-          <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-            Decentralized identifiers, XNS handles &amp; API access
-          </p>
-        </div>
-      </motion.div>
+
 
       {/* ── Agent identity card strip ──────────────────────────────────────── */}
       {selectedAgent ? (
@@ -150,24 +120,21 @@ export function IdentityPage() {
                 </div>
               </div>
 
-              {/* TEE Status */}
+              {/* ZK proof status — sourced from the oracle's zk_proof_verified, a real bb-verified
+                  ZK-boost signal. NOT hardware TEE attestation (this protocol doesn't implement
+                  one); labeled honestly as ZK proof rather than a fabricated SGX/TEE state. */}
               <div style={statCardStyle}>
-                <div style={statLabelStyle}>TEE Status</div>
+                <div style={statLabelStyle}>ZK Proof Boost</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   {teeVerified ? (
                     <>
                       <ShieldCheck size={18} color="var(--gold, #f59e0b)" />
                       <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--gold, #f59e0b)' }}>
-                        Verified
+                        Verified (bb)
                       </span>
-                      {selectedAgent.tee_type && (
-                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                          ({selectedAgent.tee_type})
-                        </span>
-                      )}
                     </>
                   ) : (
-                    <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Not Attested</span>
+                    <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Not Boosted</span>
                   )}
                 </div>
               </div>
@@ -201,34 +168,6 @@ export function IdentityPage() {
       )}
 
       {/* ── Sub-navigation Tab Bar ───────────────────────────────────────── */}
-      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--glass-border)', paddingBottom: '8px', marginTop: 'var(--space-2)' }}>
-        {TABS.map(tab => {
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '6px 16px',
-                borderRadius: 'var(--radius-sm)',
-                fontSize: '0.75rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-                background: isActive ? 'var(--primary-dim)' : 'transparent',
-                border: '1px solid ' + (isActive ? 'var(--primary)' : 'var(--glass-border)'),
-                color: isActive ? 'var(--primary)' : 'var(--text-muted)',
-                transition: 'all 0.15s'
-              }}
-            >
-              {tab.icon}
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
 
       {/* ── Section content (Tabbed Component Mount) ────────────────────── */}
       <div style={{ marginTop: 'var(--space-2)' }}>
@@ -246,7 +185,6 @@ export function IdentityPage() {
                 <PrivacyPanel />
               </div>
             )}
-            {activeTab === 'apikeys' && <APIKeyPanel />}
           </motion.div>
         </AnimatePresence>
       </div>

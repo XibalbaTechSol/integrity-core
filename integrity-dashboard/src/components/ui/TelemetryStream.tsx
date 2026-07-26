@@ -85,7 +85,9 @@ export const TelemetryStream = () => {
         if (selectedAgentFilter !== 'All' && item.agent !== selectedAgentFilter) return false;
         if (selectedTypeFilter !== 'All' && item.type !== selectedTypeFilter) return false;
         if (showAlertsOnly) {
-            const isWarning = item.latency > 1000 || (item.accuracy !== undefined && item.accuracy !== null && item.accuracy < 0.5) || (item.metadata?.discrepancy_ratio !== undefined && item.metadata?.discrepancy_ratio !== null && item.metadata.discrepancy_ratio > 0.1);
+            // Real alert signal: the oracle's `flagged` boolean, or a high performance-variance
+            // (the real discrepancy_ratio). The oracle reports no latency/accuracy fields.
+            const isWarning = item.flagged || (item.metadata?.discrepancy_ratio != null && item.metadata.discrepancy_ratio > 0.1);
             if (!isWarning) return false;
         }
         return true;
@@ -151,8 +153,8 @@ export const TelemetryStream = () => {
                         style={{ background: '#0e0e12', border: '1px solid rgba(255,255,255,0.1)', color: 'white', fontSize: '0.7rem', padding: '4px 8px', borderRadius: '4px', outline: 'none' }}
                     >
                         <option value="All">All Types</option>
-                        <option value="INGEST">INGEST</option>
-                        <option value="VALIDATE">VALIDATE</option>
+                        <option value="RECORDED">RECORDED</option>
+                        <option value="FLAGGED">FLAGGED</option>
                     </select>
                 </div>
 
@@ -163,7 +165,7 @@ export const TelemetryStream = () => {
                         onChange={e => setShowAlertsOnly(e.target.checked)}
                         style={{ accentColor: 'var(--gold)', cursor: 'pointer' }}
                     />
-                    <span>Alerts Only (High Latency / Low Accuracy)</span>
+                    <span>Flagged Only</span>
                 </label>
             </div>
 
@@ -187,7 +189,7 @@ export const TelemetryStream = () => {
                 ) : (
                     <AnimatePresence initial={false}>
                         {filteredStream.map((data) => {
-                            const isWarning = data.latency > 1000 || (data.accuracy !== undefined && data.accuracy !== null && data.accuracy < 0.5);
+                            const isWarning = data.flagged || (data.metadata?.discrepancy_ratio != null && data.metadata.discrepancy_ratio > 0.1);
                             const isExpanded = expandedId === data.id;
                             
                             return (
@@ -217,23 +219,26 @@ export const TelemetryStream = () => {
                                         onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.015)'; }}
                                         onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
                                     >
-                                        <span style={{ opacity: 0.6, width: '70px', fontSize: '0.65rem' }}>
-                                            {new Date(data.timestamp).toLocaleTimeString()}
+                                        <span style={{ opacity: 0.6, width: '84px', fontSize: '0.65rem' }}>
+                                            {data.created_at ? new Date(data.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
                                         </span>
-                                        
-                                        <span style={{ width: '80px', fontWeight: 800, letterSpacing: '0.05em', color: data.type === 'INGEST' ? '#60a5fa' : data.type === 'VALIDATE' ? 'var(--gold)' : 'inherit' }}>
+
+                                        <span style={{ width: '80px', fontWeight: 800, letterSpacing: '0.05em', color: data.type === 'FLAGGED' ? '#f43f5e' : '#10b981' }}>
                                             {data.type}
                                         </span>
-                                        
+
                                         <span style={{ width: '120px', color: 'white', fontWeight: 700 }}>
                                             {data.agent}
                                         </span>
-                                        
+
+                                        {/* Real oracle-reported telemetry signals (TelemetryEventDetailDto): performance
+                                            variance, grounding index, verified GPU-hours. No latency/accuracy exists. */}
                                         <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'center' }}>
-                                            <span style={{ fontWeight: 700 }}>LATENCY: <span style={{ color: isWarning ? '#f43f5e' : 'white' }}>{data.latency}ms</span></span>
-                                            <span style={{ fontWeight: 700 }}>ACCURACY: <span style={{ color: isWarning ? '#f43f5e' : 'white' }}>{data.accuracy !== undefined && data.accuracy !== null ? data.accuracy.toFixed(2) : '0.00'}</span></span>
-                                            {data.metadata?.tee_attestation && (
-                                                <span style={{ color: '#10b981', fontWeight: 800, fontSize: '0.65rem', border: '1px solid rgba(16,185,129,0.3)', padding: '1px 6px', borderRadius: '4px', background: 'rgba(16,185,129,0.05)' }}>[TEE]</span>
+                                            <span style={{ fontWeight: 700 }}>VARIANCE: <span style={{ color: isWarning ? '#f43f5e' : 'white' }}>{data.metadata?.discrepancy_ratio != null ? Number(data.metadata.discrepancy_ratio).toFixed(3) : '—'}</span></span>
+                                            <span style={{ fontWeight: 700 }}>GROUNDING: <span style={{ color: 'white' }}>{data.metadata?.hgi_raw != null ? Number(data.metadata.hgi_raw).toFixed(3) : '—'}</span></span>
+                                            <span style={{ fontWeight: 700 }}>GPU-HRS: <span style={{ color: 'white' }}>{data.metadata?.gpu_hours_verified != null ? Number(data.metadata.gpu_hours_verified).toFixed(2) : '—'}</span></span>
+                                            {data.metadata?.zk_verified && (
+                                                <span style={{ color: '#10b981', fontWeight: 800, fontSize: '0.65rem', border: '1px solid rgba(16,185,129,0.3)', padding: '1px 6px', borderRadius: '4px', background: 'rgba(16,185,129,0.05)' }}>[ZK]</span>
                                             )}
                                         </div>
 
@@ -260,24 +265,28 @@ export const TelemetryStream = () => {
                                                     {/* Cryptographic Provenance */}
                                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.03)', borderRadius: '8px', padding: '12px' }}>
                                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.7rem', color: 'var(--gold)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                                            <Lock size={12} /> Cryptographic Proof Bounds
+                                                            <Lock size={12} /> Cryptographic Provenance
                                                         </div>
+                                                        {/* Real fields from the signed TelemetryEventDetailDto — the Merkle leaf that gets
+                                                            anchored on-chain via StateAnchor, its nonce, and the oracle's ZK-verify result. */}
                                                         <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.7)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                                            <div><span style={{ color: 'rgba(255,255,255,0.4)' }}>Transaction Hash: </span><span style={{ fontFamily: 'monospace', color: 'white' }}>{data.id}</span></div>
-                                                            <div><span style={{ color: 'rgba(255,255,255,0.4)' }}>Signature Verification: </span><span style={{ color: '#10b981', fontWeight: 800 }}>✓ ECDSA_BASE_L2_VERIFIED</span></div>
-                                                            <div><span style={{ color: 'rgba(255,255,255,0.4)' }}>TEE Boundary Check: </span><span>{data.metadata?.tee_attestation ? 'Hardware Attestation Active (Intel SGX Node)' : 'Software Interceptor Validation Mode'}</span></div>
+                                                            <div><span style={{ color: 'rgba(255,255,255,0.4)' }}>Event ID: </span><span style={{ fontFamily: 'monospace', color: 'white' }}>{data.id}</span></div>
+                                                            <div><span style={{ color: 'rgba(255,255,255,0.4)' }}>Merkle Leaf: </span><span style={{ fontFamily: 'monospace', color: 'white', wordBreak: 'break-all' }}>{data.metadata?.leaf_hash || '—'}</span></div>
+                                                            <div><span style={{ color: 'rgba(255,255,255,0.4)' }}>Nonce: </span><span style={{ fontFamily: 'monospace', color: 'white' }}>{data.metadata?.nonce ?? '—'}</span></div>
+                                                            <div><span style={{ color: 'rgba(255,255,255,0.4)' }}>ZK Verification: </span><span style={{ color: data.metadata?.zk_verified ? '#10b981' : 'rgba(255,255,255,0.5)', fontWeight: 800 }}>{data.metadata?.zk_verified ? '✓ bb-verified' : 'not ZK-boosted'}</span></div>
                                                         </div>
                                                     </div>
 
                                                     {/* Policy & Auditing State */}
                                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.03)', borderRadius: '8px', padding: '12px' }}>
                                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.7rem', color: '#60a5fa', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                                            <Shield size={12} /> Policy Audit Enforcement
+                                                            <Shield size={12} /> Scoring Signals
                                                         </div>
+                                                        {/* Real signals the oracle actually stores + scores for this event. */}
                                                         <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.7)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                                            <div><span style={{ color: 'rgba(255,255,255,0.4)' }}>Compliance Review: </span><span style={{ color: data.metadata?.discrepancy_ratio > 0 ? '#f43f5e' : '#10b981', fontWeight: 800 }}>{data.metadata?.discrepancy_ratio > 0 ? 'VIOLATION DETECTED' : 'COMPLIANCE CLEAR'}</span></div>
-                                                            <div><span style={{ color: 'rgba(255,255,255,0.4)' }}>OPA Regulation Match: </span><span>HIPAA_PRIVACY_SHIELD_V4.rego</span></div>
-                                                            <div><span style={{ color: 'rgba(255,255,255,0.4)' }}>Semantic Drift Margin: </span><span>{(data.metadata?.semantic_drift || 0.0).toFixed(4)} (Threshold &lt; 0.15)</span></div>
+                                                            <div><span style={{ color: 'rgba(255,255,255,0.4)' }}>Flag Status: </span><span style={{ color: data.flagged ? '#f43f5e' : '#10b981', fontWeight: 800 }}>{data.flagged ? 'FLAGGED' : 'CLEAR'}</span></div>
+                                                            <div><span style={{ color: 'rgba(255,255,255,0.4)' }}>Performance Variance: </span><span>{data.metadata?.discrepancy_ratio != null ? Number(data.metadata.discrepancy_ratio).toFixed(4) : '—'}</span></div>
+                                                            <div><span style={{ color: 'rgba(255,255,255,0.4)' }}>Grounding Index (HGI): </span><span>{data.metadata?.hgi_raw != null ? Number(data.metadata.hgi_raw).toFixed(4) : '—'}</span></div>
                                                         </div>
                                                     </div>
                                                 </div>

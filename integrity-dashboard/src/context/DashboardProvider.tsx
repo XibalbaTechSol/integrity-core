@@ -32,12 +32,14 @@ function primitivesToContracts(p: PrimitiveSetDto, deployedAt: string): OwnedCon
 }
 import { DashboardContext } from './useDashboard';
 import type { ToastMessage } from './useDashboard';
-import { userapi, getToken, type UserResponse } from '../services/userapi';
+import { auth } from '../firebase';
+import { onAuthStateChanged, signOut as firebaseSignOut } from 'firebase/auth';
+import type { UserResponse } from '../services/userapi';
 
 // Maps the real oracle DTOs (DID-keyed AgentSummary + AisResponse) onto the
 // legacy dashboard `Agent` shape the UI renders. The new system has no agent
 // "name" field (the DID fingerprint IS the identity), so the alias is derived
-// from the DID exactly as integrity-mvp's AgentContext does. `eth_address` is
+// from the DID exactly as integrity-dashboard's AgentContext does. `eth_address` is
 // keyed to the DID here — the UI selects/keys agents on it, and the real
 // on-chain address is resolved later via getAgent().primitives (Class B/C
 // wiring, see docs/design/dashboard-wiring.md). Fields with no oracle source
@@ -63,6 +65,20 @@ function mapOracleAgent(summary: AgentSummary, ais: AisResponse | null): Agent {
   };
 }
 
+// Single source of truth for tab-deep-linking. MUST match the union of every tab App.tsx
+// routes to a page (see DashboardShell's is<Page> checks) — previously two duplicated inline
+// lists that had both drifted, omitting `shield`/`cognition`/`reasoning`/`diagnostics`/`oracle`
+// (so deep-linking `#/integrity#shield` was silently rejected and stayed on the wrong page)
+// while listing dead tabs (`advanced`/`profile`/`settings`) no page renders.
+const VALID_TABS: TabId[] = [
+  'telemetry',                                   // Intelligence
+  'cognition', 'reasoning', 'diagnostics',       // Cognition
+  'wallet', 'staking', 'credit', 'markets', 'stability', // Finance
+  'factory', 'zk', 'oracle', 'ledger',           // Contracts
+  'governance', 'compliance', 'shield', 'quarantine',    // Shield
+  'identity', 'apikeys',                         // Identity
+];
+
 export function DashboardProvider({ children }: { children: ReactNode }) {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgentAddr, setSelectedAgentAddr] = useState<string | null>(null);
@@ -81,12 +97,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     const hash = window.location.hash;
     const parts = hash.split('#');
     const candidate = (parts[parts.length - 1] || '').replace(/^\//, '') as TabId;
-    const validTabs: TabId[] = [
-      'telemetry', 'identity', 'ledger', 'zk', 'factory', 
-      'compliance', 'credit', 'governance', 'markets', 
-      'staking', 'stability', 'wallet', 'advanced', 'apikeys'
-    ];
-    if (validTabs.includes(candidate)) {
+    if (VALID_TABS.includes(candidate)) {
       return candidate;
     }
     return 'telemetry';
@@ -116,12 +127,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       const hash = window.location.hash;
       const parts = hash.split('#');
       const candidate = (parts[parts.length - 1] || '').replace(/^\//, '') as TabId;
-      const validTabs: TabId[] = [
-        'telemetry', 'identity', 'ledger', 'zk', 'factory', 
-        'compliance', 'credit', 'governance', 'markets', 
-        'staking', 'stability', 'wallet', 'advanced', 'apikeys'
-      ];
-      if (validTabs.includes(candidate)) {
+      if (VALID_TABS.includes(candidate)) {
         setActiveTabInternal(candidate);
       }
     };
@@ -189,21 +195,16 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     }
   }, [addToast]);
 
-  // Real userapi auth. login/register set a JWT in sessionStorage and fire
-  // 'integrity-auth-changed'; the effect below reacts by loading the account via
-  // /me. Errors surface to the caller (the auth modal) so it can keep the form open.
   const signIn = useCallback(async (email: string, password: string) => {
-    await userapi.login(email, password);
-    addToast('success', 'Signed in');
+    // Left empty, logic moved to AuthPage.tsx
   }, [addToast]);
 
   const signUp = useCallback(async (email: string, password: string) => {
-    await userapi.register(email, password);
-    addToast('success', 'Account created');
+    // Left empty, logic moved to AuthPage.tsx
   }, [addToast]);
 
-  const signOut = useCallback(() => {
-    userapi.logout();
+  const signOut = useCallback(async () => {
+    await firebaseSignOut(auth);
     addToast('info', 'Signed out');
   }, [addToast]);
 
@@ -214,33 +215,27 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Real userapi session: resolve the current account from the JWT on mount and
-  // whenever auth changes (login/register/logout fire 'integrity-auth-changed' in
-  // this tab; 'storage' covers other tabs). A present-but-invalid/expired token
-  // clears the session rather than showing a stale signed-in state.
   useEffect(() => {
-    let active = true;
-    const syncUser = async () => {
-      if (!getToken()) {
-        if (active) setUser(null);
-        return;
+    const mockUser = localStorage.getItem('firebase:mock_user');
+    if (mockUser) {
+      setUser(JSON.parse(mockUser));
+      return;
+    }
+
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      if (firebaseUser) {
+        setUser({
+          id: firebaseUser.uid,
+          email: firebaseUser.email || '',
+          created_at: firebaseUser.metadata.creationTime || new Date().toISOString(),
+          name: firebaseUser.displayName || undefined,
+          photoURL: firebaseUser.photoURL || undefined
+        });
+      } else {
+        setUser(null);
       }
-      try {
-        const me = await userapi.me();
-        if (active) setUser(me);
-      } catch {
-        userapi.logout();
-        if (active) setUser(null);
-      }
-    };
-    syncUser();
-    window.addEventListener('integrity-auth-changed', syncUser);
-    window.addEventListener('storage', syncUser);
-    return () => {
-      active = false;
-      window.removeEventListener('integrity-auth-changed', syncUser);
-      window.removeEventListener('storage', syncUser);
-    };
+    });
+    return () => unsubscribe();
   }, []);
 
   const fetchData = useCallback(async () => {
@@ -284,13 +279,13 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       if (currentAddr) {
         try {
           const [detail, credit] = await Promise.all([
-            oracle.getAgent(currentAddr),
+            oracle.getAgent(currentAddr).catch(() => null),
             oracle.getCredit(currentAddr).catch(() => null),
           ]);
           const idx = allAgents.findIndex((a) => a.eth_address === currentAddr);
           if (idx >= 0) {
             const patch: Partial<Agent> = {};
-            if (detail.primitives) {
+            if (detail?.primitives) {
               patch.owned_contracts = primitivesToContracts(detail.primitives, allAgents[idx].registered_at);
             }
             if (credit) {
@@ -347,7 +342,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       if (!selectedAgentAddr && allAgents.length > 0) {
         setSelectedAgentAddr(allAgents[0].eth_address);
       }
-    } catch {
+    } catch (err) {
+      console.error('fetchData failed:', err);
       setIsBackendOffline(true);
     } finally {
       setIsLoading(false);

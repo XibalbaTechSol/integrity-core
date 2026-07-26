@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { Panel } from '../components/shared/Panel';
 import { StatusBadge } from '../components/shared/StatusBadge';
+import { SeededDataBadge } from '../components/shared/SeededDataBadge';
 import { useDashboard } from '../context/useDashboard';
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
@@ -71,30 +72,10 @@ interface QuarantinedAgent {
   status: 'LOCKED' | 'RESTORED';
 }
 
-// ─── Sub-Tabs ────────────────────────────────────────────────────────────────
 
-type ShieldSubTab = 'Smart BAAs' | 'PHI Access Gates' | 'Audit & Compliance' | 'Quarantine Zone';
-
-const SUB_TABS: { id: ShieldSubTab; icon: React.ReactNode }[] = [
-  { id: 'Smart BAAs', icon: <FileText size={14} /> },
-  { id: 'PHI Access Gates', icon: <Lock size={14} /> },
-  { id: 'Audit & Compliance', icon: <Activity size={14} /> },
-  { id: 'Quarantine Zone', icon: <AlertTriangle size={14} /> },
-];
 
 export function ShieldPage() {
-  const { selectedAgent, addToast, activeTab: globalActiveTab } = useDashboard() as any;
-  const [activeTab, setActiveTab] = useState<ShieldSubTab>('PHI Access Gates');
-
-  useEffect(() => {
-    if (globalActiveTab === 'compliance') {
-      setActiveTab('Audit & Compliance');
-    } else if (globalActiveTab === 'shield') {
-      setActiveTab('PHI Access Gates');
-    } else if (globalActiveTab === 'governance') {
-      setActiveTab('Smart BAAs');
-    }
-  }, [globalActiveTab]);
+  const { selectedAgent, addToast, activeTab } = useDashboard() as any;
 
   // ─── State Arrays ──────────────────────────────────────────────────────────
   const [baas, setBaas] = useState<BAA[]>([]);
@@ -266,16 +247,13 @@ export function ShieldPage() {
           flexWrap: 'wrap',
         }}
       >
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-1)' }}>
-            <Shield size={24} color="var(--gold)" />
-            <h1 style={{ margin: 0, fontSize: '1.6rem', fontWeight: 800, color: 'white', letterSpacing: '-0.02em' }}>
-              Xibalba Shield
-            </h1>
-          </div>
-          <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-            Decentralized HIPAA Compliance, Automated Smart BAAs &amp; Patient-Controlled PHI Access Gating
-          </p>
+        {/* The Shield vertical's BAA/consent/violation data is a seeded demonstration HIPAA
+            database (loadDefaultData) — the on-chain SmartBAA/EHRGate contracts aren't deployed
+            or populated on this network. Labeled honestly rather than passed off as live. The
+            real read path exists (GET /v1/agent/{id}/baas) for when those contracts are live. */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+          <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--gold)' }}>Xibalba Shield</div>
+          <SeededDataBadge label="Demonstration HIPAA data" />
         </div>
 
         {/* ─── HIPAA Stats Strip ─── */}
@@ -300,41 +278,13 @@ export function ShieldPage() {
         </div>
       </div>
 
-      {/* ─── Sub-Nav Toggles ─── */}
-      <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-        {SUB_TABS.map((tab) => {
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: 'var(--space-2) var(--space-4)',
-                borderRadius: '999px',
-                border: isActive ? '1px solid var(--gold)' : '1px solid var(--glass-border)',
-                background: isActive ? 'var(--gold-muted)' : 'var(--bg-card)',
-                color: isActive ? 'var(--gold)' : 'var(--text-muted)',
-                fontWeight: isActive ? 700 : 500,
-                fontSize: '0.85rem',
-                cursor: 'pointer',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              {tab.icon}
-              {tab.id}
-            </button>
-          );
-        })}
-      </div>
+
 
       {/* ─── Render Tab Contents ─── */}
       <AnimatePresence mode="wait">
         
         {/* TAB 1: Smart BAAs */}
-        {activeTab === 'Smart BAAs' && (
+        {activeTab === 'governance' && (
           <motion.div
             key="baas"
             initial={{ opacity: 0, y: 10 }}
@@ -417,7 +367,7 @@ export function ShieldPage() {
         )}
 
         {/* TAB 2: PHI Access Gates */}
-        {activeTab === 'PHI Access Gates' && (
+        {activeTab === 'shield' && (
           <motion.div
             key="gates"
             initial={{ opacity: 0, y: 10 }}
@@ -510,7 +460,7 @@ export function ShieldPage() {
         )}
 
         {/* TAB 3: Audit & Compliance */}
-        {activeTab === 'Audit & Compliance' && (
+        {activeTab === 'compliance' && (
           <motion.div
             key="audit"
             initial={{ opacity: 0, y: 10 }}
@@ -609,7 +559,7 @@ export function ShieldPage() {
         )}
 
         {/* TAB 4: Quarantine Zone */}
-        {activeTab === 'Quarantine Zone' && (
+        {activeTab === 'quarantine' && (
           <motion.div
             key="quarantine"
             initial={{ opacity: 0, y: 10 }}

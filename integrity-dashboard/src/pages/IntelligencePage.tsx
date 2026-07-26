@@ -146,12 +146,18 @@ export function IntelligencePage() {
   const [isAddTelemetryOpen, setIsAddTelemetryOpen] = useState(false);
   const [newFieldName, setNewFieldName] = useState('');
   const [newFieldValue, setNewFieldValue] = useState('');
+  // User-defined annotations only. Previously seeded with two fabricated defaults
+  // ("Semantic Drift 0.8%", "Enclave Memory 412 MB") that had no oracle source and read as
+  // real system metrics next to the live ones — removed (no silent mocks).
   const [customFields, setCustomFields] = useState<any[]>(() => {
     const saved = localStorage.getItem('integrity_custom_telemetry');
-    return saved ? JSON.parse(saved) : [
-      { id: 'drift', label: 'Semantic Drift', value: '0.8%', active: true },
-      { id: 'memory', label: 'Enclave Memory', value: '412 MB', active: true }
-    ];
+    if (!saved) return [];
+    try {
+      // Drop the legacy fabricated defaults if an older build cached them.
+      return JSON.parse(saved).filter((f: any) => f?.id !== 'drift' && f?.id !== 'memory');
+    } catch {
+      return [];
+    }
   });
 
   useEffect(() => {
@@ -199,75 +205,7 @@ export function IntelligencePage() {
           minHeight: '100%',
         }}
       >
-        {/* ── Hero Bar ────────────────────────────────────────────── */}
-        <Panel>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              flexWrap: 'wrap',
-              gap: 'var(--space-4)',
-            }}
-          >
-            {/* Left: title + subtitle */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <div
-                  style={{
-                    width: '36px',
-                    height: '36px',
-                    borderRadius: 'var(--radius-md)',
-                    background: 'color-mix(in srgb, var(--primary) 18%, transparent)',
-                    border: '1px solid color-mix(in srgb, var(--primary) 40%, transparent)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'var(--primary)',
-                  }}
-                >
-                  <Zap size={18} />
-                </div>
-                <h1
-                  style={{
-                    margin: 0,
-                    fontSize: '1.5rem',
-                    fontWeight: 700,
-                    letterSpacing: '-0.02em',
-                    color: 'var(--text-primary)',
-                  }}
-                >
-                  Intelligence Command
-                </h1>
-                <LiveBadge />
-              </div>
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: '0.85rem',
-                  color: 'var(--text-muted)',
-                  paddingLeft: '48px',
-                }}
-              >
-                Real-time telemetry, reasoning traces &amp; trajectory analysis
-              </p>
-            </div>
 
-            {/* Right: system status */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                fontSize: '0.75rem',
-                color: 'var(--success)',
-              }}
-            >
-              <TrendingUp size={14} />
-              Oracle Engine v9.0.2 — Nominal
-            </div>
-          </div>
-        </Panel>
 
         {/* ── Intelligence Customization Console Toolbar ── */}
         <div 
@@ -409,12 +347,15 @@ export function IntelligencePage() {
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', padding: '6px 0', borderBottom: '1px solid var(--glass-border)' }}>
                     <span style={{ color: 'var(--text-muted)' }}>Agent Integrity Score (AIS)</span>
-                    <span style={{ fontWeight: 700, color: 'var(--gold)' }}>{selectedAgent.current_ais} / 1000</span>
+                    <span style={{ fontWeight: 700, color: 'var(--gold)' }}>{selectedAgent.current_ais.toFixed(1)} / 1000</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', padding: '6px 0', borderBottom: '1px solid var(--glass-border)' }}>
-                    <span style={{ color: 'var(--text-muted)' }}>TEE Protection Mode</span>
+                    {/* `tee_verified` is sourced from the oracle's zk_proof_verified — a real ZK-boost
+                        signal, NOT hardware TEE attestation (which this protocol does not implement).
+                        Label it as what it actually is. */}
+                    <span style={{ color: 'var(--text-muted)' }}>ZK Proof Boost</span>
                     <span style={{ color: selectedAgent.tee_verified ? 'var(--success)' : 'var(--text-muted)' }}>
-                      {selectedAgent.tee_verified ? `ACTIVE (${selectedAgent.tee_type || 'SGX'})` : 'INACTIVE'}
+                      {selectedAgent.tee_verified ? 'VERIFIED (bb)' : 'NOT BOOSTED'}
                     </span>
                   </div>
                 </div>

@@ -17,6 +17,10 @@ export const DIDExplorer: React.FC<DIDExplorerProps> = ({ agent }) => {
     const [vc, setVc] = useState<any>(null);
     const [handle, setHandle] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    // eth_address already holds the agent's DID, so never re-wrap an already-qualified DID
+    // (that produced a malformed did:xibalba:did:integrity:… string).
+    const canonicalDid = didDoc?.id
+        || (agent.eth_address?.startsWith('did:') ? agent.eth_address : `did:xibalba:${agent.eth_address}`);
     const [activeView, setActiveView] = useState<'did' | 'vc' | 'raw'>('did');
 
     const downloadDID = () => {
@@ -124,9 +128,9 @@ export const DIDExplorer: React.FC<DIDExplorerProps> = ({ agent }) => {
                                     <div style={{ marginBottom: 'var(--space-8)' }}>
                                         <div style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.2em', marginBottom: '8px' }}>Global DID Identifier</div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', background: 'rgba(0,0,0,0.3)', padding: '16px', borderRadius: 'var(--r-md)', border: '1px solid var(--border)' }}>
-                                            <span className="mono" style={{ fontSize: '0.85rem', color: 'var(--gold)', wordBreak: 'break-all', flex: 1 }}>{didDoc?.id || `did:xibalba:${agent.eth_address}`}</span>
+                                            <span className="mono" style={{ fontSize: '0.85rem', color: 'var(--gold)', wordBreak: 'break-all', flex: 1 }}>{canonicalDid}</span>
                                             <div style={{ display: 'flex', gap: '8px' }}>
-                                                <button onClick={() => navigator.clipboard.writeText(didDoc?.id || `did:xibalba:${agent.eth_address}`)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center' }} title="Copy to Clipboard"><Copy size={14} /></button>
+                                                <button onClick={() => navigator.clipboard.writeText(canonicalDid)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center' }} title="Copy to Clipboard"><Copy size={14} /></button>
                                                 <button onClick={downloadDID} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center' }} title="Download DID document (.json)" id="did-download-btn-did"><Download size={14} /></button>
                                             </div>
                                         </div>

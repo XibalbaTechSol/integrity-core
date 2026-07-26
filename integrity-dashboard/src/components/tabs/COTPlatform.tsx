@@ -347,7 +347,7 @@ export function COTPlatform() {
             >
               <div style={{ fontSize: '0.8rem', color: 'white', fontWeight: 500, marginBottom: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{trace.task_name}</div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.4)' }}>{new Date(trace.start_time).toLocaleTimeString()}</span>
+                <span style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.4)' }}>{new Date(trace.start_time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
                 <span style={{ fontSize: '0.6rem', padding: '2px 6px', borderRadius: '4px', background: trace.status === 'SUCCESS' ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)', color: trace.status === 'SUCCESS' ? '#10b981' : '#ef4444' }}>{trace.status}</span>
               </div>
             </div>
