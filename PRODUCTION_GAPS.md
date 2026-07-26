@@ -341,6 +341,24 @@ removed. Every finding below is fixed and covered by a new regression test.
   Sepolia + writing its address into `deployments.baseSepolia.json`; `DeployEHRGate.s.sol`
   already tolerates the missing key via a `keyExistsJson` guard so no other singleton is
   disturbed until then.
+* **Partially closed — on-chain governance is built end-to-end; only the Base Sepolia deploy
+  is deferred.** Previously a full gap (no Governance contract existed, and `GovernancePanel`/
+  `GuardianPilot` honestly showed a roadmap + "not live" notice). Now real: `IntegrityGovernance.sol`
+  — lock-to-vote (ITK locked to propose/vote; flash-loan/sybil resistant precisely because
+  IntegrityToken has no fee-on-transfer, so `transferFrom` credits exactly `amount`), a
+  hand-rolled but hard-constrained timelocked execute (action fixed at propose time and run
+  verbatim, `nonReentrant`, ETA + bounded grace window), with an index-based read surface
+  (`proposalCount` / `getProposal` / `state`) — plus 26 forge tests covering the full lifecycle
+  and adversarial paths. The oracle reads it via `ChainClient::read_proposals` over a `sol!`
+  `IIntegrityGovernance` interface, exposed as `GET /v1/governance/proposals`; the dashboard's
+  `oracle.getGovernanceProposals` feeds both `GovernancePanel` (live proposal cards) and
+  `GuardianPilot`. It is wired into genesis `Deploy.s.sol` (deploys + serializes the singleton),
+  so a fresh deploy includes it. The endpoint returns **503 MissingSingleton** — and both panels
+  stay in their honest "Not Yet Live" state, never a live-but-empty list — anywhere the singleton
+  is absent (Base Sepolia today; also the current `deployments.local.json`, deliberately NOT
+  regenerated because a fresh local deploy would remint every address and invalidate the seeded
+  audit DB's agent DIDs). Remaining: the operator-run, gas-costing Base Sepolia deploy +
+  `deployments.baseSepolia.json` entry.
 * **CLOSED — `CCIPReputationBridge.bridgeReputation` had no refund for overpaid native
   fee.** `msg.value - fee` was permanently trapped (no `receive()`/`withdraw()`/sweep
   anywhere). Fixed: the excess is now refunded to `msg.sender` via a low-level call

@@ -139,6 +139,35 @@ sol! {
 }
 
 sol! {
+    // IntegrityGovernance (contracts/src/oracle/IntegrityGovernance.sol): lock-to-vote,
+    // timelocked governance. Enumerated by index: proposalCount() then getProposal(i) +
+    // state(i) for i in 1..=count. ProposalState enum order matches the Solidity enum:
+    // 0=Active 1=Defeated 2=Succeeded 3=Queued 4=Executed 5=Expired 6=Canceled.
+    #[sol(rpc)]
+    interface IIntegrityGovernance {
+        struct Proposal {
+            address proposer;
+            address target;
+            uint256 value;
+            bytes callData;
+            uint64 startTime;
+            uint64 endTime;
+            uint64 eta;
+            uint256 forVotes;
+            uint256 againstVotes;
+            bool executed;
+            bool canceled;
+            string description;
+        }
+        function proposalCount() external view returns (uint256);
+        function getProposal(uint256 id) external view returns (Proposal memory);
+        function state(uint256 id) external view returns (uint8);
+        function quorumVotes() external view returns (uint256);
+        function votingPeriod() external view returns (uint256);
+    }
+}
+
+sol! {
     #[sol(rpc)]
     interface ISmartBAA {
         function coveredEntity() external view returns (address);
@@ -268,6 +297,24 @@ pub struct CreditInfo {
 
 /// One SmartBAA escrow's on-chain state, as read via `ChainClient::read_baas_for_agent`.
 /// `status`: 0=Proposed 1=Active 2=Disputed 3=Terminated (SmartBAA.Status).
+/// Plain-Rust mirror of one `IntegrityGovernance` proposal as read live by
+/// `ChainClient::read_proposals`. `state` is the contract's derived `ProposalState` (0=Active
+/// 1=Defeated 2=Succeeded 3=Queued 4=Executed 5=Expired 6=Canceled).
+#[derive(Debug, Clone)]
+pub struct ProposalInfo {
+    pub id: u64,
+    pub proposer: Address,
+    pub target: Address,
+    pub value: U256,
+    pub start_time: u64,
+    pub end_time: u64,
+    pub eta: u64,
+    pub for_votes: U256,
+    pub against_votes: U256,
+    pub state: u8,
+    pub description: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct BaaInfo {
     pub address: Address,
@@ -373,6 +420,10 @@ struct Singletons {
     /// it cleanly if missing.
     #[serde(rename = "XibalbaNameService", default)]
     xibalba_name_service: Option<Address>,
+    /// `Option` — IntegrityGovernance. Absent until deployed; the governance read endpoint
+    /// reports it cleanly (503) if missing.
+    #[serde(rename = "IntegrityGovernance", default)]
+    integrity_governance: Option<Address>,
 }
 
 /// Read-only on-chain client. Holds a connected `alloy` provider and the resolved
@@ -395,6 +446,7 @@ pub struct ChainClient {
     a2a_capital_pool_address: Option<Address>,
     smart_baa_factory_address: Option<Address>,
     xibalba_name_service_address: Option<Address>,
+    integrity_governance_address: Option<Address>,
 }
 
 impl ChainClient {
@@ -426,6 +478,7 @@ impl ChainClient {
             a2a_capital_pool_address: parsed.singletons.a2a_capital_pool,
             smart_baa_factory_address: parsed.singletons.smart_baa_factory,
             xibalba_name_service_address: parsed.singletons.xibalba_name_service,
+            integrity_governance_address: parsed.singletons.integrity_governance,
         })
     }
 
@@ -441,6 +494,7 @@ impl ChainClient {
             a2a_capital_pool_address: None,
             smart_baa_factory_address: None,
             xibalba_name_service_address: None,
+            integrity_governance_address: None,
         }
     }
 
@@ -461,6 +515,7 @@ impl ChainClient {
             a2a_capital_pool_address: None,
             smart_baa_factory_address: None,
             xibalba_name_service_address: None,
+            integrity_governance_address: None,
         }
     }
 
@@ -653,6 +708,42 @@ impl ChainClient {
     pub async fn primary_handle(&self, xns: Address, agent: Address) -> Result<String, ChainError> {
         let c = IXibalbaNameService::new(xns, self.provider.clone());
         Ok(c.primaryHandle(agent).call().await?)
+    }
+
+    /// The IntegrityGovernance singleton, if deployed.
+    pub fn integrity_governance(&self) -> Option<Address> {
+        self.integrity_governance_address
+    }
+
+    /// Enumerates every governance proposal by index (`proposalCount()` then `getProposal(i)` +
+    /// `state(i)` for i in 1..=count). Proposal ids are 1-based (see `propose`'s `++proposalCount`).
+    /// Newest-first. A per-proposal read error is skipped rather than failing the whole list.
+    pub async fn read_proposals(&self, gov: Address) -> Result<Vec<ProposalInfo>, ChainError> {
+        let c = IIntegrityGovernance::new(gov, self.provider.clone());
+        let count: U256 = c.proposalCount().call().await?;
+        let count = count.to::<u64>();
+        let mut out = Vec::new();
+        for id in (1..=count).rev() {
+            let p = match c.getProposal(U256::from(id)).call().await {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+            let state = c.state(U256::from(id)).call().await.unwrap_or(0u8);
+            out.push(ProposalInfo {
+                id,
+                proposer: p.proposer,
+                target: p.target,
+                value: p.value,
+                start_time: p.startTime,
+                end_time: p.endTime,
+                eta: p.eta,
+                for_votes: p.forVotes,
+                against_votes: p.againstVotes,
+                state,
+                description: p.description,
+            });
+        }
+        Ok(out)
     }
 
     /// Enumerates every SmartBAA where `business_associate` (an agent's SovereignAgent) is

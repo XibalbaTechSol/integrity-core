@@ -87,7 +87,7 @@ pub struct ApiDocCore;
 /// the 16-item limit goes here instead. See this module's doc comment.
 #[derive(OpenApi)]
 #[openapi(
-    paths(handlers::get_wallet, handlers::get_trace_tree, handlers::ingest_audit_log, handlers::ingest_anchor_events, handlers::get_provenance, handlers::get_stake, handlers::get_credit, handlers::get_agent_contracts, handlers::get_agent_baas, handlers::get_benchmarks, handlers::get_xns_resolve, handlers::get_agent_handle, handlers::get_stats, handlers::get_audit_log, handlers::get_recent_traces),
+    paths(handlers::get_wallet, handlers::get_trace_tree, handlers::ingest_audit_log, handlers::ingest_anchor_events, handlers::get_provenance, handlers::get_stake, handlers::get_credit, handlers::get_agent_contracts, handlers::get_agent_baas, handlers::get_benchmarks, handlers::get_xns_resolve, handlers::get_agent_handle, handlers::get_governance_proposals, handlers::get_stats, handlers::get_audit_log, handlers::get_recent_traces),
     components(schemas(
         handlers::WalletPositionDto,
         handlers::WalletResponse,
@@ -106,6 +106,7 @@ pub struct ApiDocCore;
         handlers::BenchmarkDto,
         handlers::XnsResolveDto,
         handlers::AgentHandleDto,
+        handlers::ProposalDto,
         handlers::StatsDto,
         handlers::AuditLogEntryDto,
         handlers::RecentTraceDto,

@@ -1,17 +1,100 @@
+import { useEffect, useState } from 'react';
 import { Panel } from '../shared/Panel';
-import { Shield, ArrowRight, Settings, Scale, FileText, Info } from 'lucide-react';
+import { Shield, ArrowRight, Settings, Scale, FileText, Info, CheckCircle } from 'lucide-react';
+import { oracle, type ProposalDto } from '../../services/oracle';
 
-// Honest gap — NOT a silent mock. There is no Governance/Proposal contract in contracts/
-// (verified), so on-chain proposals and voting genuinely do not exist yet. The old panel
-// fabricated all of it: hardcoded MOCK_PROPOSALS, localStorage persistence, Math.random()
-// vote tallies, and api.getProposals/voteProposal/createProposal with "offline mode"
-// fallbacks that faked success. Rather than simulate a DAO that isn't deployed, this panel
-// now shows the real design roadmap (descriptive, clearly future) plus an explicit
-// not-yet-on-chain notice. When a Governance contract ships, wire real reads/writes here.
+// The IntegrityGovernance contract (contracts/src/oracle/IntegrityGovernance.sol) is real and
+// tested, but its Base Sepolia deploy is deferred ("build now, defer deploy"). This panel reads
+// live proposals from the oracle's /v1/governance/proposals endpoint. Where the contract is NOT
+// deployed the oracle returns 503, and the panel stays in its honest "Not Yet Live" state — it
+// deliberately does NOT flip to a live-but-empty proposal list (which would read as "DAO is
+// live, nobody's proposed" rather than "not deployed"). No mocks, no fabricated tallies.
+
+const STATE_COLOR: Record<string, string> = {
+  Active: 'var(--primary)',
+  Succeeded: 'var(--success)',
+  Queued: 'var(--gold, #d4af37)',
+  Executed: 'var(--success)',
+  Defeated: '#f43f5e',
+  Expired: 'var(--text-muted)',
+  Canceled: 'var(--text-muted)',
+};
+
+const fmtItk = (wei: string): string => {
+  try {
+    const n = BigInt(wei) / 10n ** 18n;
+    return n.toLocaleString();
+  } catch {
+    return '0';
+  }
+};
 
 export function GovernancePanel() {
+  const [proposals, setProposals] = useState<ProposalDto[] | null>(null);
+  // null = not-yet-loaded/unknown, false = confirmed not deployed (503), true = live contract.
+  const [deployed, setDeployed] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    oracle
+      .getGovernanceProposals()
+      .then((rows) => {
+        if (cancelled) return;
+        setProposals(rows);
+        setDeployed(true);
+      })
+      .catch(() => {
+        // 503 (or unreachable) — the Governance contract isn't deployed on this network.
+        if (cancelled) return;
+        setDeployed(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+      {deployed && proposals && (
+        <Panel title="On-Chain Proposals (Live)" icon={<Scale size={18} />}>
+          {proposals.length === 0 ? (
+            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', padding: 'var(--space-3)' }}>
+              The IntegrityGovernance contract is live on this network, but no proposals have been
+              created yet.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {proposals.map((p) => {
+                const total = Number(fmtItk(p.for_votes).replace(/,/g, '')) + Number(fmtItk(p.against_votes).replace(/,/g, ''));
+                const forPct = total > 0 ? (Number(fmtItk(p.for_votes).replace(/,/g, '')) / total) * 100 : 0;
+                return (
+                  <div key={p.id} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-md)', padding: '14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '0.7rem', fontWeight: 900, color: 'var(--text-muted)' }}>#{p.id}</span>
+                        <span style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)' }}>{p.description || '(no description)'}</span>
+                      </div>
+                      <span style={{ fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.05em', color: STATE_COLOR[p.state] ?? 'var(--text-muted)' }}>
+                        {p.state === 'Executed' && <CheckCircle size={11} style={{ display: 'inline', marginRight: 4, verticalAlign: 'middle' }} />}
+                        {p.state}
+                      </span>
+                    </div>
+                    <div style={{ height: '6px', background: 'rgba(244,63,94,0.25)', borderRadius: '3px', overflow: 'hidden', margin: '8px 0 6px' }}>
+                      <div style={{ width: `${forPct}%`, height: '100%', background: 'var(--success)' }} />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                      <span>FOR {fmtItk(p.for_votes)} ITK</span>
+                      <span>AGAINST {fmtItk(p.against_votes)} ITK</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Panel>
+      )}
+
+      {deployed === false && (
       <Panel title="On-Chain Governance — Not Yet Live" icon={<Info size={18} />}>
         <div style={{ display: 'flex', gap: '14px', alignItems: 'flex-start', padding: 'var(--space-3)', background: 'var(--primary-dim)', border: '1px solid var(--primary)', borderRadius: 'var(--radius-md)' }}>
           <Shield size={22} style={{ color: 'var(--primary)', flexShrink: 0, marginTop: 2 }} />
@@ -26,6 +109,7 @@ export function GovernancePanel() {
           </div>
         </div>
       </Panel>
+      )}
 
       <Panel title="Blueprint for Decentralized Autonomy (Roadmap)" icon={<Shield size={18} />}>
         <div className="flex-col gap-4">

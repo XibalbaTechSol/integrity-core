@@ -5,6 +5,7 @@ import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 
 import {IntegrityToken} from "../src/oracle/IntegrityToken.sol";
+import {IntegrityGovernance} from "../src/oracle/IntegrityGovernance.sol";
 import {UltraPlonkVerifier} from "../src/oracle/UltraPlonkVerifier.sol";
 import {XibalbaAgentRegistry} from "../src/framework/XibalbaAgentRegistry.sol";
 import {XibalbaNameService} from "../src/framework/XibalbaNameService.sol";
@@ -41,6 +42,15 @@ contract Deploy is Script {
     // THRESHOLD constant. Mutable post-deploy via EHRGate.setThreshold, not frozen here.
     uint256 constant EHR_GATE_MIN_AIS_THRESHOLD = 800;
 
+    // IntegrityGovernance genesis parameters (testnet defaults). Voting window / timelock are
+    // short enough to exercise the full lifecycle on a testnet cadence; threshold + quorum are
+    // denominated in whole ITK. `governance` (the guardian) defaults to the deployer, same
+    // single-operator posture as every other protocol role here.
+    uint256 constant GOV_VOTING_PERIOD = 3 days;
+    uint256 constant GOV_TIMELOCK_DELAY = 2 days;
+    uint256 constant GOV_PROPOSAL_THRESHOLD = 1_000 ether;
+    uint256 constant GOV_QUORUM_VOTES = 10_000 ether;
+
     // Deployed/derived addresses, held as contract-level state purely so
     // `_writeDeploymentsFile` can read them after `run()`'s local variables are gone.
     address deployer;
@@ -51,6 +61,7 @@ contract Deploy is Script {
     address resolverSigner;
 
     IntegrityToken itk;
+    IntegrityGovernance gov;
     UltraPlonkVerifier verifier;
     XibalbaAgentRegistry registry;
     XibalbaNameService xns;
@@ -113,6 +124,11 @@ contract Deploy is Script {
         // wallet (or a faucet contract, in a later phase) as a separate, auditable
         // step rather than baking an arbitrary genesis balance into the deploy tx.
         itk = new IntegrityToken(deployer, 0);
+        // Governance over protocol parameters; guardian = `governance` role (deployer on
+        // testnet). Locks ITK to propose/vote, so it depends only on `itk` above.
+        gov = new IntegrityGovernance(
+            governance, itk, GOV_VOTING_PERIOD, GOV_TIMELOCK_DELAY, GOV_PROPOSAL_THRESHOLD, GOV_QUORUM_VOTES
+        );
         verifier = new UltraPlonkVerifier();
         registry = new XibalbaAgentRegistry(deployer);
         // Deployed right after `registry` since XNS's register() checks
@@ -205,6 +221,7 @@ contract Deploy is Script {
         console2.log("=== Integrity Protocol genesis deploy ===");
         console2.log("deployer:              ", deployer);
         console2.log("IntegrityToken:        ", address(itk));
+        console2.log("IntegrityGovernance:   ", address(gov));
         console2.log("UltraPlonkVerifier:    ", address(verifier));
         console2.log("XibalbaAgentRegistry:  ", address(registry));
         console2.log("XibalbaNameService:    ", address(xns));
@@ -231,6 +248,7 @@ contract Deploy is Script {
     function _writeDeploymentsFile() internal {
         string memory singletons = "singletons";
         vm.serializeAddress(singletons, "IntegrityToken", address(itk));
+        vm.serializeAddress(singletons, "IntegrityGovernance", address(gov));
         vm.serializeAddress(singletons, "UltraPlonkVerifier", address(verifier));
         vm.serializeAddress(singletons, "XibalbaAgentRegistry", address(registry));
         vm.serializeAddress(singletons, "XibalbaNameService", address(xns));

@@ -1960,6 +1960,77 @@ pub async fn get_agent_handle(
     Ok(Json(AgentHandleDto { did: id, handle }))
 }
 
+// ---- Governance read endpoint ----------------------------------------------------------
+// Live enumeration of IntegrityGovernance proposals. Returns 503 (MissingSingleton) until the
+// contract is deployed and wired into deployments.*.json — an honest "governance not live yet",
+// never a fabricated proposal list.
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ProposalDto {
+    pub id: u64,
+    pub proposer: String,
+    pub target: String,
+    /// Decimal string, uint256 wei of native value the action would send (usually "0").
+    pub value: String,
+    pub start_time: u64,
+    pub end_time: u64,
+    /// Timelock ETA (unix seconds); 0 until queued.
+    pub eta: u64,
+    /// Decimal string, wei of ITK locked FOR.
+    pub for_votes: String,
+    /// Decimal string, wei of ITK locked AGAINST.
+    pub against_votes: String,
+    /// Active | Defeated | Succeeded | Queued | Executed | Expired | Canceled.
+    pub state: String,
+    pub description: String,
+}
+
+fn proposal_state_str(s: u8) -> &'static str {
+    match s {
+        0 => "Active",
+        1 => "Defeated",
+        2 => "Succeeded",
+        3 => "Queued",
+        4 => "Executed",
+        5 => "Expired",
+        6 => "Canceled",
+        _ => "Unknown",
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/governance/proposals",
+    responses((status = 200, description = "IntegrityGovernance proposals (newest first)", body = Vec<ProposalDto>)),
+    tag = "governance",
+)]
+pub async fn get_governance_proposals(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<ProposalDto>>, AppError> {
+    let gov = state
+        .chain
+        .integrity_governance()
+        .ok_or(crate::chain::ChainError::MissingSingleton("IntegrityGovernance"))?;
+    let proposals = state.chain.read_proposals(gov).await?;
+    let dtos = proposals
+        .into_iter()
+        .map(|p| ProposalDto {
+            id: p.id,
+            proposer: format!("{:#x}", p.proposer),
+            target: format!("{:#x}", p.target),
+            value: p.value.to_string(),
+            start_time: p.start_time,
+            end_time: p.end_time,
+            eta: p.eta,
+            for_votes: p.for_votes.to_string(),
+            against_votes: p.against_votes.to_string(),
+            state: proposal_state_str(p.state).to_string(),
+            description: p.description,
+        })
+        .collect();
+    Ok(Json(dtos))
+}
+
 // Protocol-wide aggregates (Class B, docs/design/dashboard-wiring.md). Deliberately
 // the *minimal supplement* to what the dashboard already derives client-side from its
 // per-agent loop (`active_nodes`, `aggregate_ais`, `protocol_staked_itk`,

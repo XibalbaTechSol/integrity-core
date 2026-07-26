@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Shield, Brain, Cpu, MessageSquare, CheckCircle, AlertTriangle, Play, Settings, Info, ArrowRight, Save, Lock } from 'lucide-react';
 import { useIsMobile } from '../../utils/useIsMobile';
+import { oracle } from '../../services/oracle';
 
 interface Proposal {
     proposal_id: string;
@@ -29,19 +30,45 @@ export const GuardianPilot = () => {
     const [proposals, setProposals] = useState<Proposal[]>([]);
     const [activeProposal, setActiveProposal] = useState<Proposal | null>(null);
 
-    // Honest gap: there is no Governance contract deployed (verified) and no oracle
-    // governance endpoint — so there are no real proposals to load. Shown empty rather than
-    // fabricated (consistent with GovernancePanel).
+    // Loads real IntegrityGovernance proposals from the oracle. The contract is real+tested
+    // but its Base Sepolia deploy is deferred, so the endpoint returns 503 there — in which
+    // case we degrade to an empty list + the honest "not deployed" note rather than
+    // fabricating motions (consistent with GovernancePanel).
     useEffect(() => {
-        setProposals([]);
-        setActiveProposal(null);
+        let cancelled = false;
+        oracle
+            .getGovernanceProposals()
+            .then((rows) => {
+                if (cancelled) return;
+                const mapped: Proposal[] = rows.map((p) => ({
+                    proposal_id: String(p.id),
+                    title: p.description || `Proposal #${p.id}`,
+                    category: p.state,
+                    description: p.description,
+                    parameter: p.target,
+                    old_value: '—',
+                    new_value: '—',
+                    risk_level: p.state === 'Defeated' || p.state === 'Expired' ? 'HIGH' : p.state === 'Active' ? 'MEDIUM' : 'LOW',
+                }));
+                setProposals(mapped);
+                setActiveProposal(mapped[0] ?? null);
+            })
+            .catch(() => {
+                if (cancelled) return;
+                setProposals([]);
+                setActiveProposal(null);
+            });
+        return () => {
+            cancelled = true;
+        };
     }, []);
 
     const runAnalysis = async () => {
         if (!activeProposal) return;
         setIsAnalyzing(true);
-        // Honest gap: no Governance contract / analysis endpoint exists yet.
-        setAnalysisResult({ note: 'On-chain governance is not deployed yet (no Governance contract), so proposal analysis is unavailable.' });
+        // Honest gap: proposals are real (read from IntegrityGovernance), but there is no
+        // AI proposal-analysis backend — so we don't fabricate an assessment.
+        setAnalysisResult({ note: 'Automated proposal analysis is not available yet — no analysis backend exists. Proposal data shown is read live from the on-chain IntegrityGovernance contract.' });
         setIsAnalyzing(false);
     };
 
