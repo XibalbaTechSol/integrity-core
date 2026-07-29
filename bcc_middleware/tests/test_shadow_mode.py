@@ -108,6 +108,12 @@ def test_shadow_mode_reports_would_be_denials_as_shadow_deny(client, real_opa_se
 
     client.post("/v1/bcc/intercept", json=payload)
 
+    import time
+    for _ in range(100):
+        if reported:
+            break
+        time.sleep(0.01)
+
     assert reported, "a would-be denial must still be reported to the audit trail"
     decision = reported[-1]
     assert decision["decision"] == "shadow_deny"
