@@ -6,7 +6,10 @@ use std::sync::Arc;
 
 use backend::chain::ChainClient;
 use backend::config::Config;
-use backend::otlp::{MetricsServiceServer, OtlpMetricsService, OtlpTraceService, TraceServiceServer};
+use backend::otlp::{
+    LogsServiceServer, MetricsServiceServer, OtlpLogsService, OtlpMetricsService, OtlpTraceService,
+    TraceServiceServer,
+};
 use backend::stream::CHANNEL_CAPACITY;
 use backend::zk::ZkVerifier;
 use backend::{db, AppState};
@@ -59,7 +62,8 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(otlp_grpc_addr = %otlp_addr, "otlp grpc receiver listening");
     let otlp_server = tonic::transport::Server::builder()
         .add_service(TraceServiceServer::new(OtlpTraceService::new(state.clone())))
-        .add_service(MetricsServiceServer::new(OtlpMetricsService::new(state)))
+        .add_service(MetricsServiceServer::new(OtlpMetricsService::new(state.clone())))
+        .add_service(LogsServiceServer::new(OtlpLogsService::new(state)))
         .serve_with_shutdown(otlp_addr, shutdown_signal());
 
     tokio::try_join!(

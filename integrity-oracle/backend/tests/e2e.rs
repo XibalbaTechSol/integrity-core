@@ -1226,3 +1226,197 @@ async fn oracle_e2e_register_rejects_missing_genesis_memory_root() {
         "a rejected agent must not be persisted"
     );
 }
+
+/// The OTLP metrics + logs receivers persist real agent token/cost data.
+///
+/// Shaped as an actual Claude Code export (`claude_code.token.usage` with
+/// `type=cacheRead`, `claude_code.cost.usage` in USD, and a `claude_code.api_request` log
+/// record carrying per-call tokens and `cost_usd`), because that is the emitter this work
+/// exists to receive. Before this, `OtlpMetricsService::export` accepted and discarded, and
+/// no logs service was registered at all.
+///
+/// Asserts the rows land with `evidence_tier = 'unsigned_vendor'` — the OTLP port is
+/// unauthenticated, so this data must stay distinguishable from agent-signed telemetry.
+#[tokio::test]
+async fn oracle_e2e_otlp_metrics_and_logs_persist() {
+    if std::env::var("ORACLE_E2E").ok().as_deref() != Some("1") {
+        eprintln!("SKIP oracle_e2e_otlp_metrics_and_logs_persist (set ORACLE_E2E=1 with Postgres+Redis+anvil to run)");
+        return;
+    }
+    let _ = tracing_subscriber::fmt().with_max_level(tracing::Level::ERROR).try_init();
+
+    use opentelemetry_proto::tonic::collector::logs::v1::logs_service_server::LogsService;
+    use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
+    use opentelemetry_proto::tonic::collector::metrics::v1::metrics_service_server::MetricsService;
+    use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequest;
+    use opentelemetry_proto::tonic::common::v1::{any_value::Value as AnyValueKind, AnyValue, KeyValue};
+    use opentelemetry_proto::tonic::logs::v1::{LogRecord, ResourceLogs, ScopeLogs};
+    use opentelemetry_proto::tonic::metrics::v1::{
+        metric::Data as MetricData, number_data_point::Value as NumberValue, Metric, NumberDataPoint,
+        ResourceMetrics, ScopeMetrics, Sum,
+    };
+    use opentelemetry_proto::tonic::resource::v1::Resource;
+
+    let db_url = std::env::var("TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://integrity:integrity_dev_only@127.0.0.1:5434/integrity".to_string());
+    let redis_url = std::env::var("TEST_REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+    let anvil_port = free_port();
+    let rpc_url = format!("http://127.0.0.1:{anvil_port}");
+    let _anvil = start_anvil(anvil_port);
+    let deployments_file = repo_root().join("deployments.local.json");
+    let state = build_state(&rpc_url, &deployments_file, &db_url, &redis_url).await;
+
+    let agent_id = "did:integrity:otlp-metrics-logs-agent";
+    fn str_kv(key: &str, value: &str) -> KeyValue {
+        KeyValue {
+            key: key.to_string(),
+            value: Some(AnyValue { value: Some(AnyValueKind::StringValue(value.to_string())) }),
+            key_strindex: 0,
+        }
+    }
+    fn int_kv(key: &str, value: i64) -> KeyValue {
+        KeyValue {
+            key: key.to_string(),
+            value: Some(AnyValue { value: Some(AnyValueKind::IntValue(value)) }),
+            key_strindex: 0,
+        }
+    }
+    let resource = |id: &str| Some(Resource { attributes: vec![str_kv("integrity.agent.id", id)], dropped_attributes_count: 0, entity_refs: vec![] });
+
+    let now_nanos = 1_800_000_000_000_000_000u64;
+    let sum_metric = |name: &str, unit: &str, value: NumberValue, attrs: Vec<KeyValue>| Metric {
+        name: name.to_string(),
+        description: String::new(),
+        unit: unit.to_string(),
+        metadata: vec![],
+        data: Some(MetricData::Sum(Sum {
+            data_points: vec![NumberDataPoint {
+                attributes: attrs,
+                start_time_unix_nano: now_nanos,
+                time_unix_nano: now_nanos,
+                exemplars: vec![],
+                flags: 0,
+                value: Some(value),
+            }],
+            aggregation_temporality: 2,
+            is_monotonic: true,
+        })),
+    };
+
+    let metrics_req = ExportMetricsServiceRequest {
+        resource_metrics: vec![ResourceMetrics {
+            resource: resource(agent_id),
+            schema_url: String::new(),
+            scope_metrics: vec![ScopeMetrics {
+                scope: None,
+                schema_url: String::new(),
+                metrics: vec![
+                    sum_metric(
+                        "claude_code.token.usage",
+                        "tokens",
+                        NumberValue::AsInt(15_000),
+                        vec![str_kv("type", "cacheRead"), str_kv("model", "claude-opus-5")],
+                    ),
+                    sum_metric(
+                        "claude_code.cost.usage",
+                        "USD",
+                        NumberValue::AsDouble(0.42),
+                        vec![str_kv("model", "claude-opus-5"), str_kv("query_source", "main")],
+                    ),
+                ],
+            }],
+        }],
+    };
+
+    backend::otlp::OtlpMetricsService::new(state.clone())
+        .export(tonic::Request::new(metrics_req))
+        .await
+        .expect("metrics export must be accepted");
+
+    let logs_req = ExportLogsServiceRequest {
+        resource_logs: vec![ResourceLogs {
+            resource: resource(agent_id),
+            schema_url: String::new(),
+            scope_logs: vec![ScopeLogs {
+                scope: None,
+                schema_url: String::new(),
+                log_records: vec![LogRecord {
+                    time_unix_nano: now_nanos,
+                    observed_time_unix_nano: now_nanos,
+                    severity_number: 9,
+                    severity_text: "INFO".to_string(),
+                    body: None,
+                    attributes: vec![
+                        str_kv("event.name", "claude_code.api_request"),
+                        str_kv("model", "claude-opus-5"),
+                        int_kv("input_tokens", 1200),
+                        int_kv("output_tokens", 800),
+                        int_kv("cache_read_tokens", 15_000),
+                        int_kv("cache_creation_tokens", 300),
+                    ],
+                    dropped_attributes_count: 0,
+                    flags: 0,
+                    trace_id: vec![],
+                    span_id: vec![],
+                    event_name: String::new(),
+                }],
+            }],
+        }],
+    };
+
+    backend::otlp::OtlpLogsService::new(state.clone())
+        .export(tonic::Request::new(logs_req))
+        .await
+        .expect("logs export must be accepted");
+
+    // Metrics: the cacheRead token count must be queryable BY its data-point attributes —
+    // that is the whole point of storing them, since token type lives there, not in the name.
+    let (value, tier): (f64, String) = sqlx::query_as(
+        "SELECT value, evidence_tier FROM otel_metrics
+         WHERE agent_id = $1 AND name = 'claude_code.token.usage' AND attributes->>'type' = 'cacheRead'",
+    )
+    .bind(agent_id)
+    .fetch_one(&state.pool)
+    .await
+    .expect("cacheRead token metric must be persisted and queryable by attribute");
+    assert_eq!(value, 15_000.0);
+    assert_eq!(tier, "unsigned_vendor", "OTLP data is unauthenticated and must be tiered as such");
+
+    let (cost,): (f64,) = sqlx::query_as(
+        "SELECT value FROM otel_metrics WHERE agent_id = $1 AND name = 'claude_code.cost.usage'",
+    )
+    .bind(agent_id)
+    .fetch_one(&state.pool)
+    .await
+    .expect("cost metric must be persisted");
+    assert!((cost - 0.42).abs() < 1e-9, "real USD cost must survive the round trip, got {cost}");
+
+    // Logs: event identity resolved from the `event.name` attribute, and the per-call token
+    // breakdown preserved.
+    let (event_name, attrs, tier): (Option<String>, serde_json::Value, String) = sqlx::query_as(
+        "SELECT event_name, attributes, evidence_tier FROM otel_logs WHERE agent_id = $1",
+    )
+    .bind(agent_id)
+    .fetch_one(&state.pool)
+    .await
+    .expect("log record must be persisted");
+    assert_eq!(event_name.as_deref(), Some("claude_code.api_request"));
+    assert_eq!(attrs["cache_read_tokens"], serde_json::json!(15_000));
+    assert_eq!(attrs["output_tokens"], serde_json::json!(800));
+    assert_eq!(tier, "unsigned_vendor");
+
+    // A resource with no integrity.agent.id must be rejected, not stored unattributed —
+    // same posture as the trace receiver.
+    let orphan = ExportLogsServiceRequest {
+        resource_logs: vec![ResourceLogs {
+            resource: Some(Resource { attributes: vec![], dropped_attributes_count: 0, entity_refs: vec![] }),
+            schema_url: String::new(),
+            scope_logs: vec![],
+        }],
+    };
+    let err = backend::otlp::OtlpLogsService::new(state.clone())
+        .export(tonic::Request::new(orphan))
+        .await
+        .expect_err("a log export without integrity.agent.id must be rejected");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+}

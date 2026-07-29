@@ -1030,6 +1030,89 @@ pub async fn insert_otel_span(
     Ok(())
 }
 
+/// One OTLP metric data point. Written by `OtlpMetricsService::export`.
+///
+/// `evidence_tier` is passed explicitly rather than defaulted in SQL so every caller has to
+/// state what it is inserting: rows arriving over the unauthenticated OTLP port are vendor
+/// telemetry, not agent-signed evidence, and must never reach AIS (migration 0008's header).
+#[allow(clippy::too_many_arguments)]
+pub async fn insert_otel_metric(
+    pool: &PgPool,
+    id: Uuid,
+    agent_id: &str,
+    name: &str,
+    description: Option<&str>,
+    unit: Option<&str>,
+    data_type: &str,
+    value: f64,
+    attributes: &serde_json::Value,
+    start_time: Option<DateTime<Utc>>,
+    time: DateTime<Utc>,
+    evidence_tier: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        INSERT INTO otel_metrics
+            (id, agent_id, name, description, unit, data_type, value, attributes, start_time, time, evidence_tier)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        "#,
+    )
+    .bind(id)
+    .bind(agent_id)
+    .bind(name)
+    .bind(description)
+    .bind(unit)
+    .bind(data_type)
+    .bind(value)
+    .bind(attributes)
+    .bind(start_time)
+    .bind(time)
+    .bind(evidence_tier)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// One OTLP log record / structured event. Written by `OtlpLogsService::export`.
+/// Same evidence-tier caveat as `insert_otel_metric`.
+#[allow(clippy::too_many_arguments)]
+pub async fn insert_otel_log(
+    pool: &PgPool,
+    id: Uuid,
+    agent_id: &str,
+    event_name: Option<&str>,
+    severity_text: Option<&str>,
+    severity_number: Option<i32>,
+    body: Option<&str>,
+    attributes: &serde_json::Value,
+    trace_id: Option<&str>,
+    span_id: Option<&str>,
+    time: DateTime<Utc>,
+    evidence_tier: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        INSERT INTO otel_logs
+            (id, agent_id, event_name, severity_text, severity_number, body, attributes, trace_id, span_id, time, evidence_tier)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        "#,
+    )
+    .bind(id)
+    .bind(agent_id)
+    .bind(event_name)
+    .bind(severity_text)
+    .bind(severity_number)
+    .bind(body)
+    .bind(attributes)
+    .bind(trace_id)
+    .bind(span_id)
+    .bind(time)
+    .bind(evidence_tier)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct RecentTraceRow {
     pub trace_id: String,
