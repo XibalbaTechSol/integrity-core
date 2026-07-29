@@ -402,6 +402,13 @@ single-operator testnet, false for a third party registering their own agent, wh
 need a faucet service the liquidity agent runs. The funder EOA retains `MINTER_ROLE` as
 issuer of last resort. See [`PRODUCTION_GAPS.md`](PRODUCTION_GAPS.md) §20.
 
+**Before mainnet:** see [`docs/MAINNET_READINESS.md`](docs/MAINNET_READINESS.md) — the
+blocker list, ordered by consequence. The headline items: all six protocol roles are
+currently one EOA that also holds `MINTER_ROLE`; the ZK verifier is a placeholder that
+always reverts; and `SovereignAgent`/`StateAnchor` are deployed per-agent and non-
+upgradeable, so the upgrade-path decision must be made *before* the first mainnet agent
+exists.
+
 **Known non-conformance, stated plainly:** registration now enforces spec v0.3 §4.1/§7.1
 — an agent with no anchored genesis memory root is refused with `400
 MemoryNotInitialized`, and `integrity-sdk` anchors that root during registration. But

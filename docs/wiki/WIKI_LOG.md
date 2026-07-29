@@ -2554,3 +2554,19 @@ writeup: PRODUCTION_GAPS.md §18.
   before mainnet. Verified with a `--force-recreate` carrying no overrides. `make up-local`
   added as the anvil escape hatch. This also closes the footgun where a bare
   `docker compose up` silently repointed the oracle at a dead anvil.
+
+## [2026-07-29] update | Mainnet readiness outline
+
+- New `docs/MAINNET_READINESS.md`: 19 items ordered by consequence, each verified against
+  code or chain rather than assumed. P0 blockers: all six `protocolAddresses` roles are one
+  EOA that also holds `MINTER_ROLE` (single-key total compromise); `UltraPlonkVerifier` is a
+  placeholder that always reverts, so the ZK boost path cannot execute; the boost is a
+  period-wide `BOOL_OR` rather than bound to what it proves; two cross-language canonical-JSON
+  divergences (float shortest-repr, `ensure_ascii`) that can break signature agreement;
+  memory §7.2 enforcement absent and all 7 agents at `latestRoot == 0`; no minimum bonded
+  stake; client-supplied `covered_entity_address` in the HIPAA path.
+- Flagged the one irreversible decision: `SovereignAgent`/`StateAnchor` deploy per-agent and
+  non-upgradeable, so any bug in them is permanent for every agent registered before a fix —
+  already demonstrated by the §7.2 fix being unable to reach the existing 7. That choice must
+  be settled before the first mainnet agent, not after.
+- README links the readiness doc from the deployment section.

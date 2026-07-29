@@ -1194,6 +1194,7 @@ requires-dist = [
     { name = "eth-account", specifier = ">=0.13.0" },
     { name = "eth-utils", specifier = ">=5.1.0" },
     { name = "langchain-core", marker = "extra == 'langchain'", specifier = ">=0.3.0" },
+    { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.0.0" },
     { name = "mlflow-skinny", specifier = ">=3.0.0" },
     { name = "openai", marker = "extra == 'openai'", specifier = ">=1.0.0" },
     { name = "opentelemetry-api", specifier = ">=1.42.1" },
@@ -1206,10 +1207,11 @@ requires-dist = [
     { name = "requests", specifier = ">=2.31.0" },
     { name = "web3", specifier = ">=7.4.0" },
 ]
-provides-extras = ["autolog", "openai", "langchain"]
+provides-extras = ["autolog", "openai", "langchain", "mcp"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "mcp", specifier = ">=1.0.0" },
     { name = "pytest", specifier = ">=8.0.0" },
     { name = "pytest-cov", specifier = ">=5.0.0" },
 ]
