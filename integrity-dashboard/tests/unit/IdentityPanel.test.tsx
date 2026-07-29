@@ -12,13 +12,13 @@ vi.mock('../../src/components/ui/DIDExplorer', () => ({
   DIDExplorer: () => <div data-testid="did-explorer" />
 }));
 
-vi.mock('../../src/components/ui/AgentOnboarding', () => ({
-  AgentOnboarding: ({ isOpen, onClose, onSuccess }: any) => {
+vi.mock('../../src/components/ui/RegisterAgentModal', () => ({
+  RegisterAgentModal: ({ isOpen, onClose, onSuccess }: any) => {
     if (!isOpen) return null;
     return (
-      <div data-testid="agent-onboarding">
-        <button onClick={onClose}>Close Onboarding</button>
-        <button onClick={() => onSuccess('0x123')}>Success Onboarding</button>
+      <div data-testid="register-modal">
+        <button onClick={onClose}>Close Register</button>
+        <button onClick={() => onSuccess()}>Success Register</button>
       </div>
     );
   }
@@ -33,6 +33,13 @@ vi.mock('../../src/components/tabs/ClaimAgentModal', () => ({
         <button onClick={() => onSuccess()}>Success Claim</button>
       </div>
     );
+  }
+}));
+
+vi.mock('axios', () => ({
+  default: {
+    get: vi.fn().mockResolvedValue({ data: { mock_mode: false } }),
+    post: vi.fn().mockResolvedValue({}),
   }
 }));
 
@@ -72,16 +79,16 @@ describe('IdentityPanel', () => {
     
     // Open modal
     fireEvent.click(screen.getByText(/Register New/i));
-    expect(screen.getByTestId('agent-onboarding')).toBeInTheDocument();
+    expect(screen.getByTestId('register-modal')).toBeInTheDocument();
     
     // Close modal
-    fireEvent.click(screen.getByText('Close Onboarding'));
-    expect(screen.queryByTestId('agent-onboarding')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Close Register'));
+    expect(screen.queryByTestId('register-modal')).not.toBeInTheDocument();
 
     // Open again, trigger success
     fireEvent.click(screen.getByText(/Register New/i));
-    fireEvent.click(screen.getByText('Success Onboarding'));
-    expect(screen.queryByTestId('agent-onboarding')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Success Register'));
+    expect(screen.queryByTestId('register-modal')).not.toBeInTheDocument();
     expect(fetchDataMock).toHaveBeenCalled();
   });
 

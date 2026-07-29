@@ -3,29 +3,46 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ClaimAgentModal } from '../../src/components/tabs/ClaimAgentModal';
 import { useDashboard } from '../../src/context/useDashboard';
 import { mockDashboardContext } from './test-utils';
-import { api } from '../../src/services/api';
+import { ethers } from 'ethers';
 
 vi.mock('../../src/context/useDashboard', () => ({
   useDashboard: vi.fn(),
 }));
 
-vi.mock('../../src/services/api', () => ({
-  api: {
-    generateClaimChallenge: vi.fn(),
-    claimOwnership: vi.fn(),
-  }
+// Mock ethers — the component uses ethers.isAddress, BrowserProvider, Contract
+vi.mock('ethers', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...(actual as any),
+    ethers: {
+      ...(actual as any).ethers,
+      isAddress: vi.fn(),
+      BrowserProvider: vi.fn(),
+      Contract: vi.fn(),
+    },
+  };
+});
+
+vi.mock('../../src/services/oracle', () => ({
+  oracle: {
+    getAgent: vi.fn(),
+    register: vi.fn(),
+  },
 }));
 
 describe('ClaimAgentModal', () => {
   const mockOnClose = vi.fn();
   const mockOnSuccess = vi.fn();
   const mockAddToast = vi.fn();
+  const mockConnectWallet = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
     (useDashboard as any).mockReturnValue({
       ...mockDashboardContext,
       addToast: mockAddToast,
+      walletAddress: '0xowner123',
+      connectWallet: mockConnectWallet,
     });
     // Mock window.ethereum
     (window as any).ethereum = {
@@ -45,10 +62,12 @@ describe('ClaimAgentModal', () => {
       <ClaimAgentModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />
     );
     expect(screen.getByText('Claim Existing Agent')).toBeInTheDocument();
-    expect(screen.getByText('Agent Ethereum Address')).toBeInTheDocument();
+    expect(screen.getByText('SovereignAgent Address')).toBeInTheDocument();
   });
 
   it('validates ethereum address format', async () => {
+    (ethers.isAddress as any).mockReturnValue(false);
+
     render(
       <ClaimAgentModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />
     );
@@ -56,16 +75,22 @@ describe('ClaimAgentModal', () => {
     const input = screen.getByPlaceholderText('0x...');
     fireEvent.change(input, { target: { value: 'invalid-address' } });
     
-    const button = screen.getByText('Generate Ownership Challenge');
+    const button = screen.getByText('Verify Control On-Chain');
     fireEvent.click(button);
 
     expect(mockAddToast).toHaveBeenCalledWith('error', 'Please enter a valid Ethereum address');
-    expect(api.generateClaimChallenge).not.toHaveBeenCalled();
   });
 
-  it('generates challenge and moves to step 2 on valid address', async () => {
-    const mockChallenge = 'challenge-12345';
-    (api.generateClaimChallenge as any).mockResolvedValueOnce(mockChallenge);
+  it('verifies on-chain control and moves to step 2', async () => {
+    (ethers.isAddress as any).mockReturnValue(true);
+
+    const mockContract = {
+      agentDID: vi.fn().mockResolvedValue('did:integrity:test123'),
+      DEFAULT_ADMIN_ROLE: vi.fn().mockResolvedValue('0x00'),
+      hasRole: vi.fn().mockResolvedValue(true),
+    };
+    (ethers.BrowserProvider as any).mockImplementation(function() { return {}; });
+    (ethers.Contract as any).mockImplementation(function() { return mockContract; });
 
     render(
       <ClaimAgentModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />
@@ -74,68 +99,26 @@ describe('ClaimAgentModal', () => {
     const input = screen.getByPlaceholderText('0x...');
     fireEvent.change(input, { target: { value: '0x1234567890123456789012345678901234567890' } });
     
-    const button = screen.getByText('Generate Ownership Challenge');
+    const button = screen.getByText('Verify Control On-Chain');
     fireEvent.click(button);
 
-    expect(screen.getByText(/Generating/i)).toBeInTheDocument();
-
     await waitFor(() => {
-      expect(api.generateClaimChallenge).toHaveBeenCalledWith('0x1234567890123456789012345678901234567890', '');
-      expect(screen.getByText('OWNERSHIP CHALLENGE')).toBeInTheDocument();
-      expect(screen.getByText(mockChallenge)).toBeInTheDocument();
+      expect(screen.getByText('AGENT DID')).toBeInTheDocument();
+      expect(screen.getByText('did:integrity:test123')).toBeInTheDocument();
+      expect(screen.getByText(/Your wallet holds this agent's controller role/i)).toBeInTheDocument();
     });
   });
 
-  it('handles signature process via MetaMask', async () => {
-    const mockChallenge = 'challenge-12345';
-    const mockAccount = '0xowner';
-    const mockSignature = '0xsig';
+  it('shows not-controller message when wallet lacks admin role', async () => {
+    (ethers.isAddress as any).mockReturnValue(true);
 
-    (api.generateClaimChallenge as any).mockResolvedValueOnce(mockChallenge);
-    ((window as any).ethereum.request as any).mockImplementation(({ method }: any) => {
-      if (method === 'eth_requestAccounts') return Promise.resolve([mockAccount]);
-      if (method === 'personal_sign') return Promise.resolve(mockSignature);
-      if (method === 'eth_accounts') return Promise.resolve([mockAccount]);
-      return Promise.resolve();
-    });
-
-    render(
-      <ClaimAgentModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />
-    );
-    
-    // Step 1
-    const input = screen.getByPlaceholderText('0x...');
-    fireEvent.change(input, { target: { value: '0x1234567890123456789012345678901234567890' } });
-    fireEvent.click(screen.getByText('Generate Ownership Challenge'));
-
-    // Wait for step 2
-    await waitFor(() => {
-      expect(screen.getByText('OWNERSHIP CHALLENGE')).toBeInTheDocument();
-    });
-
-    // Step 2 - Sign
-    fireEvent.click(screen.getByText('Sign Challenge with MetaMask'));
-
-    await waitFor(() => {
-      expect(screen.getByText('Message Signed Successfully')).toBeInTheDocument();
-    });
-
-    // Step 2 - Claim
-    (api.claimOwnership as any).mockResolvedValueOnce({});
-    fireEvent.click(screen.getByText('Claim Agent Ownership'));
-
-    await waitFor(() => {
-      expect(api.claimOwnership).toHaveBeenCalledWith('0x1234567890123456789012345678901234567890', expect.objectContaining({
-        challenge: mockChallenge,
-        signature: mockSignature,
-      }));
-      expect(mockAddToast).toHaveBeenCalledWith('success', 'Agent successfully claimed and synchronized!');
-      expect(mockOnSuccess).toHaveBeenCalled();
-    });
-  });
-
-  it('handles errors during generation', async () => {
-    (api.generateClaimChallenge as any).mockRejectedValueOnce(new Error('API Error'));
+    const mockContract = {
+      agentDID: vi.fn().mockResolvedValue('did:integrity:test123'),
+      DEFAULT_ADMIN_ROLE: vi.fn().mockResolvedValue('0x00'),
+      hasRole: vi.fn().mockResolvedValue(false),
+    };
+    (ethers.BrowserProvider as any).mockImplementation(function() { return {}; });
+    (ethers.Contract as any).mockImplementation(function() { return mockContract; });
 
     render(
       <ClaimAgentModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />
@@ -144,10 +127,35 @@ describe('ClaimAgentModal', () => {
     const input = screen.getByPlaceholderText('0x...');
     fireEvent.change(input, { target: { value: '0x1234567890123456789012345678901234567890' } });
     
-    fireEvent.click(screen.getByText('Generate Ownership Challenge'));
+    fireEvent.click(screen.getByText('Verify Control On-Chain'));
 
     await waitFor(() => {
-      expect(mockAddToast).toHaveBeenCalledWith('error', 'Failed to generate challenge: API Error');
+      expect(screen.getByText(/Connected wallet is not the controller/i)).toBeInTheDocument();
+    });
+  });
+
+  it('handles errors during verification', async () => {
+    (ethers.isAddress as any).mockReturnValue(true);
+
+    const mockContract = {
+      agentDID: vi.fn().mockRejectedValue(new Error('execution reverted')),
+      DEFAULT_ADMIN_ROLE: vi.fn(),
+      hasRole: vi.fn(),
+    };
+    (ethers.BrowserProvider as any).mockImplementation(function() { return {}; });
+    (ethers.Contract as any).mockImplementation(function() { return mockContract; });
+
+    render(
+      <ClaimAgentModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />
+    );
+    
+    const input = screen.getByPlaceholderText('0x...');
+    fireEvent.change(input, { target: { value: '0x1234567890123456789012345678901234567890' } });
+    
+    fireEvent.click(screen.getByText('Verify Control On-Chain'));
+
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith('error', expect.stringContaining('Not a resolvable SovereignAgent'));
     });
   });
 });

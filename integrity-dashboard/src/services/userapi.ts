@@ -33,6 +33,8 @@ export interface UserResponse {
     id: string;
     email: string;
     created_at: string;
+    name?: string;
+    photoURL?: string;
 }
 
 export interface ApiKeyResponse {
@@ -96,7 +98,17 @@ export const userapi = {
         return token;
     },
     logout: () => clearToken(),
-    me: () => request<UserResponse>('/me', {}, true),
+    me: async () => {
+        const u = await request<UserResponse>('/me', {}, true);
+        const localName = localStorage.getItem(`integrity_name_${u.id}`);
+        if (localName) u.name = localName;
+        return u;
+    },
+    updateProfile: async (data: { name: string }) => {
+        const u = await request<UserResponse>('/me', {}, true);
+        localStorage.setItem(`integrity_name_${u.id}`, data.name);
+        return { ...u, name: data.name };
+    },
     listApiKeys: () => request<ApiKeyResponse[]>('/api-keys', {}, true),
     createApiKey: () => request<ApiKeyCreateResponse>('/api-keys', { method: 'POST' }, true),
     revokeApiKey: (id: string) => request<void>(`/api-keys/${id}`, { method: 'DELETE' }, true),
@@ -113,6 +125,7 @@ export const userapi = {
             method: 'POST',
             body: JSON.stringify({ recipient_address, amount }),
         }, true),
+    startDemoRun: () => request<any>('/demo/run', { method: 'POST' }, true),
 };
 
 export { UserApiError };

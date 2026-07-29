@@ -10,11 +10,11 @@
 
 ```
                     ┌─────────────────────────────┐
-                    │   Playwright E2E (browser)   │  integrity-mvp/e2e/
+                    │   Playwright E2E (browser)   │  integrity-dashboard/e2e/
                     │   real backends, real chain  │  make test-e2e
                     └─────────────────────────────┘
               ┌───────────────────────────────────────┐
-              │      Component tests (vitest+msw)      │  integrity-mvp/src/**/*.test.tsx
+              │      Component tests (vitest+msw)      │  integrity-dashboard/src/**/*.test.tsx
               │   real components, HTTP boundary mocked │  npm test
               └───────────────────────────────────────┘
    ┌──────────────────────────────────────────────────────────┐
@@ -43,15 +43,15 @@ suite is real, not smoke-tested against fixtures:
 | `integrity-cli/` | `uv run pytest` | Includes 1 real on-chain chain test, 49 total |
 | `bcc_middleware/` | `uv run pytest` + `opa test .` | Real OPA server calls, real per-agent chain resolution, 49 + 12 |
 | `integrity-userapi/` | `uv run pytest` | Real Postgres container (not sqlite/mocked), 33 tests |
-| `integrity-mvp/` | `npm test` (vitest) | Real React components, HTTP boundary mocked via `msw` — the ONE deliberate mock in this whole pyramid, and it's scoped to exactly the network seam, not business logic |
+| `integrity-dashboard/` | `npm test` (vitest) | Real React components, HTTP boundary mocked via `msw` — the ONE deliberate mock in this whole pyramid, and it's scoped to exactly the network seam, not business logic |
 
 This layer runs on every change. Fast (seconds to low minutes per package),
 no full-stack boot required.
 
-## Layer 2 — Playwright E2E (`integrity-mvp/e2e/`)
+## Layer 2 — Playwright E2E (`integrity-dashboard/e2e/`)
 
 The layer above component tests: a real Chromium browser driving the real
-`integrity-mvp` app, which talks to a real running backend stack — not
+`integrity-dashboard` app, which talks to a real running backend stack — not
 `msw`, not any mock. This is what proves the pieces work *together*
 through the actual UI, which no per-package suite (each testing its own
 package in isolation) or component test (mocking the network boundary)
@@ -77,18 +77,18 @@ can prove on its own.
 `e2e/global-teardown.ts` tears all of it back down after the run.
 
 **Local network only — never live Base Sepolia.** Base Sepolia stays the
-live investor/developer demo target (`integrity-mvp/demo/`, `make demo`);
+live investor/developer demo target (`integrity-dashboard/demo/`, `make demo`);
 spinning up a fresh chain per E2E run would be slow, cost real (if tiny)
 gas, and be non-deterministic across runs. Mirrors the convention
 `integrity-sdk`'s and `integrity-oracle`'s own test suites already use.
 
-**Run it**: `make test-e2e` from the repo root, or `cd integrity-mvp && npx
+**Run it**: `make test-e2e` from the repo root, or `cd integrity-dashboard && npx
 playwright test`. Requires `anvil`/`forge` on `PATH`, `cargo`, Docker, and
 the `integrity-sdk` `uv` venv already synced (`cd integrity-sdk && uv
 sync`) — same toolchain the rest of this repo already assumes, nothing
 E2E-specific to install beyond `npx playwright install chromium` once.
 
-**Convention for new specs**: as `integrity-mvp`'s dashboard pages get
+**Convention for new specs**: as `integrity-dashboard`'s dashboard pages get
 built out (task #21 — Markets, Leaderboard, Wallet, Capital Allocation,
 Cognition, Identity, Shield, Landing), each new page's Playwright spec
 ships in the *same pass* as the page, not as a follow-up. Cover real

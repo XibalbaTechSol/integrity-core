@@ -11,9 +11,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@noble/ed25519": "^2.3.0",
     "axios": "^1.17.0",
     "ethers": "^6.16.0",
-    "firebase": "^12.14.0",
+    "firebase": "^12.16.0",
     "framer-motion": "^12.40.0",
     "lucide-react": "^1.17.0",
     "puppeteer": "^25.1.0",

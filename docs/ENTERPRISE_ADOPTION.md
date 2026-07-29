@@ -57,8 +57,8 @@ never trips the circuit breaker:
 
 **Files.** `bcc_middleware/app/config.py` (flag), `app/schemas.py` (`enforced`,
 `shadow_would_deny`, health `mode`), `app/main.py` (`_deny` / `_record_violation` shadow-aware),
-`tests/test_shadow_mode.py` (5 tests), `.env.example`. **MVP surface:**
-`integrity-mvp/src/components/diagnostics/AuditLogsPanel.tsx` renders `shadow_deny` as an amber
+`tests/test_shadow_mode.py` (5 tests), `.env.example`. **Dashboard surface:**
+`integrity-dashboard/src/components/diagnostics/AuditLogsPanel.tsx` renders `shadow_deny` as an amber
 "Would-be block" row and counts them separately in the summary.
 
 **Status.** ✅ Shipped, tested (96/96 suite green). **Next step:** per-request shadow override
@@ -78,7 +78,7 @@ controls, out of the box") beats selling a policy engine.
 base policy — the clinical allowlist already proves the data-document pattern
 (`policies/bcc.rego`'s `data.clinical_allowlist.agents`). Each control maps to a stable ID so
 evidence export (Lever 6) can cite it. Longer term: a natural-language → Rego compiler and a
-compliance-officer UI in the MVP.
+compliance-officer UI in the Dashboard.
 
 **Status.** ⬜ Not started. **Next step:** extract the existing healthcare intent gating into a
 first `packs/hipaa/` bundle with control IDs, as the template for the rest.
@@ -135,7 +135,7 @@ same primitives to finance/legal.
 **Implementation surface.** The Shield vertical already exists on both sides:
 `contracts/src/shield/*` (ComplianceGate, CoveredEntityRegistry, EHRGate, SmartBAA(Factory),
 HIPAAGuardrailRegistry), the on-chain BAA gate in `bcc_middleware` (`app/baa.py` +
-`policies/bcc.rego` healthcare intent types), and `ShieldPage` in the MVP. The wedge work is
+`policies/bcc.rego` healthcare intent types), and `ShieldPage` in the Dashboard. The wedge work is
 GTM + the evidence export (Lever 4) and HIPAA pack (Lever 3) aimed at one named buyer persona.
 
 **Status.** 🔨 Primitives exist; productization not started. **Next step:** a HIPAA-specific

@@ -193,8 +193,8 @@ jobs:
       - run: uv run pytest
         working-directory: integrity-userapi
 
-  mvp:
-    name: integrity-mvp (npm test)
+  dashboard:
+    name: integrity-dashboard (npm test)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -202,9 +202,9 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: npm ci --legacy-peer-deps
-        working-directory: integrity-mvp
+        working-directory: integrity-dashboard
       - run: npm test
-        working-directory: integrity-mvp
+        working-directory: integrity-dashboard
 
   # Fires only when a required job above fails on `main` (not on PRs — a PR author's own
   # branch shouldn't get an autonomous Jules task filed against it without their say-so).
@@ -227,7 +227,7 @@ jobs:
     name: Trigger Jules on main-branch failure
     runs-on: ubuntu-latest
     if: failure() && github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: [contracts, zkp, oracle, sdk, cli, bcc_middleware, userapi, mvp]
+    needs: [contracts, zkp, oracle, sdk, cli, bcc_middleware, userapi, dashboard]
     steps:
       - name: Create a Jules session to investigate and fix the failing run
         env:

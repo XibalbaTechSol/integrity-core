@@ -65,6 +65,19 @@ sol! {
 }
 
 sol! {
+    // Per-agent StateAnchor (contracts/src/oracle/StateAnchor.sol). Only the two
+    // fields the registration memory gate needs: spec v0.3 §7.1 requires the oracle
+    // to independently read `latestRoot` and reject a zero root at registration.
+    // `latestEpoch` is read alongside it purely so the rejection message can say
+    // whether the vault was never initialized at all.
+    #[sol(rpc)]
+    interface IStateAnchor {
+        function latestRoot() external view returns (bytes32);
+        function latestEpoch() external view returns (uint256);
+    }
+}
+
+sol! {
     // Slasher's per-agent stake accounting is exposed via two public mappings
     // (contracts/src/oracle/Slasher.sol): total staked and the portion locked by
     // open disputes. Available = total - locked. Read-only, keyed on the staker
@@ -702,6 +715,20 @@ impl ChainClient {
             return Ok(Address::ZERO);
         }
         Ok(c.resolve(handle.to_string()).call().await?)
+    }
+
+    /// The agent's own memory state: `(latestRoot, latestEpoch)` from its `StateAnchor`.
+    ///
+    /// Spec v0.3 §4.1/§7.1: an agent's Trust Vault commitment is its persistent-memory
+    /// primitive, and registration requires `latestRoot != bytes32(0)`. Read directly from
+    /// chain, never from the client's claim or this oracle's DB — the same
+    /// independent-read posture as `resolve_primitives_by_did`, and for the same reason:
+    /// the chain is the source of truth, so the check has to ask the chain.
+    pub async fn memory_state(&self, state_anchor: Address) -> Result<(B256, U256), ChainError> {
+        let c = IStateAnchor::new(state_anchor, self.provider.clone());
+        let root = c.latestRoot().call().await?;
+        let epoch = c.latestEpoch().call().await?;
+        Ok((root, epoch))
     }
 
     /// The agent's chosen primary handle ("" if none).

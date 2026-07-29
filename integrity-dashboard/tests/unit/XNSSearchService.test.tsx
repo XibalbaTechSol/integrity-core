@@ -1,14 +1,28 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { XNSSearchService } from '../../src/components/ui/XNSSearchService';
-import axios from 'axios';
-import { API_BASE } from '../../src/constants';
+import { oracle } from '../../src/services/oracle';
 
-vi.mock('axios');
+// These tests previously mocked axios and asserted calls to `/v1/identity/resolve` on the
+// deleted `services/api.ts`. That surface no longer exists: the component resolves handles
+// through the real on-chain XibalbaNameService via `oracle.resolveXns`, and loads agents
+// via `oracle.getAgent` (a fetch client). Rewritten against the real surface.
+vi.mock('../../src/services/oracle', () => ({
+  oracle: { getAgent: vi.fn(), resolveXns: vi.fn() },
+}));
+
+const did = 'did:integrity:68fed1331613937555a59398223e8e87520a87dd0305aac4fd7ecdc32a14a861';
+const sovereignAgent = '0x360e2a56eb23e383b81e5bb42ee5c3966688558a';
+
+function search(value: string) {
+  const input = screen.getByPlaceholderText(/Search handle/i);
+  fireEvent.change(input, { target: { value } });
+  fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+}
 
 describe('XNSSearchService', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   it('renders search input and initial state', () => {
@@ -17,124 +31,103 @@ describe('XNSSearchService', () => {
     expect(screen.getByText(/Lookup any agent across the Integrity Network/i)).toBeInTheDocument();
   });
 
-  it('handles did:intg: prefix search', async () => {
-    (axios.get as any).mockResolvedValueOnce({
-      data: {
-        alias: 'Test Agent',
-        eth_address: '0x1234567890123456789012345678901234567890',
-        current_ais: 850,
-        verification_tier: 2,
-        trust_level: 'HIGH',
-      }
-    });
+  it('looks a did: identifier up directly, without touching the name service', async () => {
+    (oracle.getAgent as any).mockResolvedValue({ alias: 'Test Agent', eth_address: did, current_ais: 850 });
 
     render(<XNSSearchService />);
-    const input = screen.getByPlaceholderText(/Search handle/i);
-    fireEvent.change(input, { target: { value: 'did:intg:agent123 ' } }); // Note trailing space to test trim
-    
-    // Press enter
-    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+    search(`${did} `); // trailing space — the component must trim before querying
 
     await waitFor(() => {
-      expect(axios.get).toHaveBeenCalledWith(`${API_BASE}/v1/identity/resolve`, {
-        params: { did: 'did:intg:agent123' }
-      });
       expect(screen.getByText('Test Agent')).toBeInTheDocument();
-      expect(screen.getByText('850')).toBeInTheDocument();
     });
+    expect(oracle.getAgent).toHaveBeenCalledWith(did);
+    expect(oracle.resolveXns).not.toHaveBeenCalled();
   });
 
-  it('handles .intg suffix search', async () => {
-    (axios.get as any).mockResolvedValueOnce({
-      data: {
-        alias: 'XNS Agent',
-        current_ais: 900,
-        xns_handle: 'test.intg',
-      }
-    });
+  it('looks a 0x address up directly', async () => {
+    (oracle.getAgent as any).mockResolvedValue({ alias: 'Eth Agent', eth_address: sovereignAgent });
 
     render(<XNSSearchService />);
-    const input = screen.getByPlaceholderText(/Search handle/i);
-    fireEvent.change(input, { target: { value: 'test.intg' } });
-    
-    // Click button
-    const buttons = screen.getAllByRole('button');
-    fireEvent.click(buttons[0]); // The search button
+    search(sovereignAgent);
 
     await waitFor(() => {
-      expect(axios.get).toHaveBeenCalledWith(`${API_BASE}/v1/identity/resolve`, {
-        params: { xns: 'test.intg' }
-      });
-      expect(screen.getByText('XNS Agent')).toBeInTheDocument();
-      expect(screen.getByText('test.intg')).toBeInTheDocument();
-    });
-  });
-
-  it('handles 0x prefix search', async () => {
-    (axios.get as any).mockResolvedValueOnce({
-      data: {
-        alias: 'Eth Agent',
-        current_ais: 700,
-      }
-    });
-
-    render(<XNSSearchService />);
-    const input = screen.getByPlaceholderText(/Search handle/i);
-    fireEvent.change(input, { target: { value: '0xabc123' } });
-    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
-
-    await waitFor(() => {
-      expect(axios.get).toHaveBeenCalledWith(`${API_BASE}/v1/identity/agent/0xabc123`);
       expect(screen.getByText('Eth Agent')).toBeInTheDocument();
     });
+    expect(oracle.getAgent).toHaveBeenCalledWith(sovereignAgent);
   });
 
-  it('handles default search as xns resolve', async () => {
-    (axios.get as any).mockResolvedValueOnce({
-      data: {
-        alias: 'Default Agent',
-        current_ais: 800,
-      }
+  it('resolves a handle through XNS, then loads the agent behind it', async () => {
+    (oracle.resolveXns as any).mockResolvedValue({
+      handle: 'xibalba.integrity',
+      sovereign_agent: sovereignAgent,
+      did,
+    });
+    (oracle.getAgent as any).mockResolvedValue({ alias: 'xibalba.integrity', eth_address: did });
+
+    render(<XNSSearchService />);
+    search('xibalba.integrity');
+
+    await waitFor(() => {
+      // Rendered twice by design — as the agent's alias heading and as the handle badge.
+      expect(screen.getByRole('heading', { name: 'xibalba.integrity' })).toBeInTheDocument();
+    });
+    expect(oracle.resolveXns).toHaveBeenCalledWith('xibalba.integrity');
+    expect(oracle.getAgent).toHaveBeenCalledWith(did);
+  });
+
+  it('surfaces the raw on-chain resolution when the oracle has no DID for the handle', async () => {
+    (oracle.resolveXns as any).mockResolvedValue({
+      handle: 'newagent',
+      sovereign_agent: sovereignAgent,
+      did: null,
     });
 
     render(<XNSSearchService />);
-    const input = screen.getByPlaceholderText(/Search handle/i);
-    fireEvent.change(input, { target: { value: 'some_handle' } });
-    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+    search('newagent');
 
     await waitFor(() => {
-      expect(axios.get).toHaveBeenCalledWith(`${API_BASE}/v1/identity/resolve`, {
-        params: { xns: 'some_handle' }
-      });
-      expect(screen.getByText('Default Agent')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'newagent.intg' })).toBeInTheDocument();
+    });
+    expect(oracle.getAgent).not.toHaveBeenCalled();
+  });
+
+  it('reports an unregistered handle as unregistered, not as an error', async () => {
+    // An unclaimed handle resolves to the zero address — it is not an exception.
+    (oracle.resolveXns as any).mockResolvedValue({ handle: 'nobody', sovereign_agent: null, did: null });
+
+    render(<XNSSearchService />);
+    search('nobody');
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('Handle "nobody" is not registered in the XibalbaNameService.'),
+      ).toBeInTheDocument();
     });
   });
 
-  it('displays 404 error when agent is not found', async () => {
-    const mockError = { response: { status: 404 } };
-    (axios.get as any).mockRejectedValueOnce(mockError);
+  it('distinguishes "XNS not deployed" (400) from "agent not found"', async () => {
+    (oracle.resolveXns as any).mockRejectedValue(
+      Object.assign(new Error('Oracle request failed: 400 /v1/xns/resolve'), { status: 400 }),
+    );
 
     render(<XNSSearchService />);
-    const input = screen.getByPlaceholderText(/Search handle/i);
-    fireEvent.change(input, { target: { value: 'missing.intg' } });
-    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+    search('anyhandle');
 
     await waitFor(() => {
-      expect(screen.getByText('Agent not found in the XNS Registry.')).toBeInTheDocument();
+      expect(screen.getByText(/XNS name service is not deployed on this network yet/i)).toBeInTheDocument();
     });
   });
 
-  it('displays generic error on network failure', async () => {
-    const mockError = new Error('Network Error');
-    (axios.get as any).mockRejectedValueOnce(mockError);
+  it('falls back to the generic not-found message for a failed direct DID lookup', async () => {
+    (oracle.getAgent as any).mockRejectedValue(
+      Object.assign(new Error('Oracle request failed: 404'), { status: 404 }),
+    );
 
     render(<XNSSearchService />);
-    const input = screen.getByPlaceholderText(/Search handle/i);
-    fireEvent.change(input, { target: { value: 'error.intg' } });
-    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+    search('did:integrity:doesnotexist');
 
     await waitFor(() => {
-      expect(screen.getByText('Unable to connect to the XNS Resolver.')).toBeInTheDocument();
+      expect(screen.getByText(/Agent not found\. Try its full did:integrity/i)).toBeInTheDocument();
     });
   });
 });

@@ -14,9 +14,11 @@ from __future__ import annotations
 import secrets
 
 import asyncpg
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from uuid import UUID
+import subprocess
+import os
 
 from app import db, oracle_client
 from app.config import Settings, settings as default_settings
@@ -389,17 +391,21 @@ async def add_my_agent(
 # --- Demo runs ------------------------------------------------------------------
 
 
+def run_demo_script():
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+    try:
+        subprocess.run(["make", "demo"], cwd=project_root, check=True)
+    except Exception as e:
+        print(f"Failed to run demo script: {e}")
+
 @app.post(
     "/demo/run", response_model=DemoRunResponse, status_code=status.HTTP_201_CREATED
 )
 async def start_demo_run(
+    background_tasks: BackgroundTasks,
     user_id: str = Depends(get_current_user_id),
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> DemoRunResponse:
-    # This endpoint ONLY records that a run was requested, for history/audit.
-    # It does not orchestrate anything and never fabricates a "completed"
-    # result -- actual execution is integrity-demo's job (a separate
-    # package/process, not touched here).
     row = await pool.fetchrow(
         """
         INSERT INTO demo_runs (user_id, status) VALUES ($1, 'pending')
@@ -407,6 +413,7 @@ async def start_demo_run(
         """,
         UUID(user_id),
     )
+    background_tasks.add_task(run_demo_script)
     return DemoRunResponse(**dict(row))
 
 

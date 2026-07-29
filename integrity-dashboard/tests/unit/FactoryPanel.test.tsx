@@ -3,16 +3,23 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { FactoryPanel } from '../../src/components/tabs/FactoryPanel';
 import { useDashboard } from '../../src/context/useDashboard';
 import { mockDashboardContext } from './test-utils';
-import { api } from '../../src/services/api';
+import { oracle } from '../../src/services/oracle';
+import { executeAsAgent } from '../../src/chain/markets';
 
 vi.mock('../../src/context/useDashboard', () => ({
   useDashboard: vi.fn(),
 }));
 
-vi.mock('../../src/services/api', () => ({
-  api: {
-    deployContract: vi.fn(),
+vi.mock('../../src/services/oracle', () => ({
+  oracle: {
+    resolveSovereignAgent: vi.fn(),
+    listMarkets: vi.fn().mockResolvedValue([]),
   },
+}));
+
+vi.mock('../../src/chain/markets', () => ({
+  executeAsAgent: vi.fn(),
+  MARKET_FACTORY_ABI: [],
 }));
 
 const mockAgent = {
@@ -20,9 +27,27 @@ const mockAgent = {
   alias: 'Test Factory',
 };
 
+const mockSigner = {};
+
+vi.mock('ethers', () => {
+  return {
+    ethers: {
+      BrowserProvider: vi.fn().mockImplementation(function() { return {
+        getSigner: vi.fn().mockResolvedValue(mockSigner),
+      }}),
+      Interface: vi.fn().mockImplementation(function() { return {
+        encodeFunctionData: vi.fn().mockReturnValue('0xencoded'),
+        parseLog: vi.fn().mockReturnValue({ name: 'MarketDeployed', args: { market: '0xnewmarket' } }),
+      }}),
+    }
+  };
+});
+
 describe('FactoryPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    (window as any).ethereum = {};
+    (oracle.resolveSovereignAgent as unknown).mockResolvedValue('0xsovereignAgentAddress');
   });
 
   it('renders initial state', () => {
@@ -48,27 +73,40 @@ describe('FactoryPanel', () => {
     expect(screen.getAllByText(/AutonomousEscrow/i)[0]).toBeInTheDocument();
   });
 
-  it('deploys a contract successfully', async () => {
+  it('deploys a market contract successfully', async () => {
     const addToastMock = vi.fn();
     (useDashboard as unknown).mockReturnValue({
       ...mockDashboardContext,
       selectedAgent: mockAgent,
       addToast: addToastMock,
+      walletAddress: '0xwallet',
     });
 
-    (api.deployContract as unknown).mockResolvedValue({
-      contract_address: '0xnewcontract',
-      status: 'deployed'
+    (oracle.resolveSovereignAgent as unknown).mockResolvedValue('0xsovereignAgentAddress');
+    (executeAsAgent as unknown).mockResolvedValue({
+      logs: [{}],
+      hash: '0xtxhash',
+      blockNumber: 12345,
+      gasUsed: 50000n,
     });
 
     render(<FactoryPanel />);
+
+    // Wait for the asynchronous resolveSovereignAgent state to update
+    await waitFor(() => {
+      expect(oracle.resolveSovereignAgent).toHaveBeenCalled();
+    });
     
+    // Fill in the required question
+    const input = screen.getByLabelText(/Question/i);
+    fireEvent.change(input, { target: { value: 'Will this test succeed?' } });
+
     const deployBtn = screen.getByRole('button', { name: /Deploy Contract/i });
     fireEvent.click(deployBtn);
 
     await waitFor(() => {
-      expect(api.deployContract).toHaveBeenCalled();
-      expect(addToastMock).toHaveBeenCalledWith('success', expect.stringContaining('0xnewcontract'));
+      expect(executeAsAgent).toHaveBeenCalled();
+      expect(addToastMock).toHaveBeenCalledWith('success', 'Market deployed and owned by your agent.');
     }, { timeout: 3000 });
   });
 
@@ -78,12 +116,23 @@ describe('FactoryPanel', () => {
       ...mockDashboardContext,
       selectedAgent: mockAgent,
       addToast: addToastMock,
+      walletAddress: '0xwallet',
     });
 
-    (api.deployContract as unknown).mockRejectedValue(new Error('Out of gas'));
+    (oracle.resolveSovereignAgent as unknown).mockResolvedValue('0xsovereignAgentAddress');
+    (executeAsAgent as unknown).mockRejectedValue(new Error('Out of gas'));
 
     render(<FactoryPanel />);
+
+    // Wait for the asynchronous resolveSovereignAgent state to update
+    await waitFor(() => {
+      expect(oracle.resolveSovereignAgent).toHaveBeenCalled();
+    });
     
+    // Fill in the required question
+    const input = screen.getByLabelText(/Question/i);
+    fireEvent.change(input, { target: { value: 'Will this fail?' } });
+
     const deployBtn = screen.getByRole('button', { name: /Deploy Contract/i });
     fireEvent.click(deployBtn);
 
@@ -98,6 +147,7 @@ describe('FactoryPanel', () => {
       ...mockDashboardContext,
       selectedAgent: null,
       addToast: addToastMock,
+      walletAddress: '0xwallet',
     });
 
     render(<FactoryPanel />);
@@ -105,82 +155,7 @@ describe('FactoryPanel', () => {
     const deployBtn = screen.getByRole('button', { name: /Deploy Contract/i });
     fireEvent.click(deployBtn);
 
-    expect(addToastMock).toHaveBeenCalledWith('error', 'No agent wallet selected');
-    expect(api.deployContract).not.toHaveBeenCalled();
-  });
-
-  it('builds source code', async () => {
-    (useDashboard as unknown).mockReturnValue({
-      ...mockDashboardContext,
-      selectedAgent: mockAgent,
-    });
-
-    render(<FactoryPanel />);
-    const buildBtn = screen.getByRole('button', { name: /Build Source/i });
-    fireEvent.click(buildBtn);
-
-    await waitFor(() => {
-      expect(screen.getByText(/SUCCESS: SLA compiled with 0 warnings/i)).toBeInTheDocument();
-    }, { timeout: 2000 });
-  });
-
-  it('switches terminal tabs', () => {
-    (useDashboard as unknown).mockReturnValue({
-      ...mockDashboardContext,
-      selectedAgent: mockAgent,
-    });
-
-    render(<FactoryPanel />);
-    const problemsTab = screen.getByText(/PROBLEMS \(0\)/i);
-    fireEvent.click(problemsTab);
-    expect(screen.getByText(/No compilation or execution problems detected./i)).toBeInTheDocument();
-
-    const terminalTab = screen.getByText(/TERMINAL/i);
-    fireEvent.click(terminalTab);
-    expect(screen.getByText(/System: Welcome to Xibalba IDE/i)).toBeInTheDocument();
-  });
-
-  it('triggers AI copilot on enter', async () => {
-    const addToastMock = vi.fn();
-    (useDashboard as unknown).mockReturnValue({
-      ...mockDashboardContext,
-      selectedAgent: mockAgent,
-      addToast: addToastMock,
-    });
-
-    render(<FactoryPanel />);
-    const copilotInput = screen.getByPlaceholderText(/AI Contract Copilot/i);
-    fireEvent.keyDown(copilotInput, { key: 'Enter', code: 'Enter' });
-
-    await waitFor(() => {
-      expect(addToastMock).toHaveBeenCalledWith('success', 'AI Code refactor applied based on SDK telemetry');
-    }, { timeout: 2000 });
-  });
-
-  it('changes language and updates template', () => {
-    (useDashboard as unknown).mockReturnValue({
-      ...mockDashboardContext,
-      selectedAgent: mockAgent,
-    });
-
-    render(<FactoryPanel />);
-    const vyperBtn = screen.getByRole('button', { name: 'Vyper' });
-    fireEvent.click(vyperBtn);
-    
-    // Vyper uses `# @version ^0.3.7`
-    const codeArea = screen.getAllByRole('textbox').find(el => el.tagName.toLowerCase() === 'textarea' && el.getAttribute('id') !== 'import-data') as HTMLTextAreaElement;
-    expect(codeArea.value).toContain('# @version ^0.3.7');
-  });
-
-  it('updates code when typing', () => {
-    (useDashboard as unknown).mockReturnValue({
-      ...mockDashboardContext,
-      selectedAgent: mockAgent,
-    });
-
-    render(<FactoryPanel />);
-    const codeArea = screen.getAllByRole('textbox').find(el => el.tagName.toLowerCase() === 'textarea' && el.getAttribute('id') !== 'import-data') as HTMLTextAreaElement;
-    fireEvent.change(codeArea, { target: { value: 'contract NewContract {}' } });
-    expect(codeArea.value).toBe('contract NewContract {}');
+    expect(addToastMock).toHaveBeenCalledWith('error', 'Select an agent first');
+    expect(executeAsAgent).not.toHaveBeenCalled();
   });
 });

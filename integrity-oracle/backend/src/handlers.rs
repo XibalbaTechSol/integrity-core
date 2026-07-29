@@ -160,6 +160,23 @@ pub async fn register_agent(
         )));
     }
 
+    // Spec v0.3 §7.1 — the persistent-memory gate, checked immediately after the
+    // PrimitiveSet match and with the same posture: read the agent's own StateAnchor
+    // directly from chain rather than trusting anything the client sent. A zero
+    // `latestRoot` means no genesis memory root was ever anchored, so per §4.1/§6 the
+    // agent is not a continuing economic subject and registration is refused outright —
+    // "no half-registered agents". The agent fixes this by anchoring its genesis root
+    // (§7.2: controller or `SovereignAgent.execute`, at epoch 0) and retrying.
+    let (latest_root, latest_epoch) = state.chain.memory_state(record.primitives.state_anchor).await?;
+    if latest_root.is_zero() {
+        return Err(AppError::MemoryNotInitialized(format!(
+            "agent '{}' has no anchored genesis memory root — StateAnchor {:#x} reports \
+             latestRoot=0x0 at epoch {}. Anchor a genesis Trust Vault root through the \
+             agent's own controller (spec v0.3 §7.2) before registering.",
+            req.did, record.primitives.state_anchor, latest_epoch
+        )));
+    }
+
     let ed25519_pubkey = req
         .ed25519_pubkey_hex
         .as_deref()
@@ -332,9 +349,20 @@ fn row_to_dto(row: &db::AgentPrimitivesRow) -> Result<PrimitiveSetDto, AppError>
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AgentSummary {
     pub id: String,
-    /// Human-readable display name, if the agent's DID document carries an `alsoKnownAs`
-    /// entry (the dashboard otherwise derives a name from the DID). Optional — most agents
-    /// have none.
+    /// The agent's primary XNS handle (e.g. `"xibalba.integrity"`), read live from
+    /// `XibalbaNameService.primaryHandle(sovereignAgent)`. This is the protocol's own
+    /// naming authority — self-service and on-chain (see XibalbaNameService.sol's NatSpec
+    /// on why there is deliberately no privileged off-chain registrar) — so consumers
+    /// should prefer it over `name` when displaying an agent.
+    ///
+    /// `None` is a normal, expected outcome, never an error: the agent hasn't claimed a
+    /// handle, XNS isn't deployed on this chain, or the on-chain read failed. See
+    /// `list_agents` on why a chain hiccup must not take the whole fleet list down.
+    pub handle: Option<String>,
+    /// Legacy secondary display name, if the agent's DID document carries an `alsoKnownAs`
+    /// entry. Kept as a last-resort fallback below `handle` — most agents have none, and
+    /// nothing in this system can write it (`register_agent` is an insert with no update
+    /// path), so new naming should go through XNS.
     pub name: Option<String>,
     pub verification_tier: i32,
     pub created_at: chrono::DateTime<Utc>,
@@ -348,9 +376,12 @@ pub struct AgentSummary {
 )]
 pub async fn list_agents(State(state): State<AppState>) -> Result<Json<Vec<AgentSummary>>, AppError> {
     let rows = db::list_agents(&state.pool).await?;
+    let handles = resolve_primary_handles(&state, &rows).await;
     Ok(Json(
         rows.into_iter()
-            .map(|r| AgentSummary {
+            .enumerate()
+            .map(|(i, r)| AgentSummary {
+                handle: handles.get(i).cloned().flatten(),
                 name: r.did_document.as_ref()
                     .and_then(|d| d.get("alsoKnownAs"))
                     .and_then(|a| a.get(0))
@@ -362,6 +393,33 @@ pub async fn list_agents(State(state): State<AppState>) -> Result<Json<Vec<Agent
             })
             .collect(),
     ))
+}
+
+/// Best-effort XNS lookup for a whole agent list, returned positionally (one entry per
+/// input row, in the same order).
+///
+/// **Every failure degrades to `None` rather than propagating.** Unlike `get_agent_handle`
+/// — where the handle *is* the response, so a missing XNS singleton rightly surfaces as a
+/// 400 — here the handle is one cosmetic field on the route the entire dashboard fleet list
+/// depends on. Letting a `MissingSingleton` (any chain without XNS deployed, e.g. a local
+/// anvil genesis) or a transient RPC error bubble up would turn "no handles" into "no
+/// agents", which is a far worse failure than an unnamed agent. The reads run concurrently,
+/// same `join_all` pattern as `refresh_leaderboard_if_stale`.
+async fn resolve_primary_handles(state: &AppState, rows: &[db::AgentListRow]) -> Vec<Option<String>> {
+    let Some(xns) = state.chain.xibalba_name_service() else {
+        // XNS not deployed on this chain — skip the chain reads entirely, don't error.
+        return vec![None; rows.len()];
+    };
+    let reads = rows.iter().map(|row| async move {
+        let sovereign_agent = Address::from_str(row.sovereign_agent_address.as_deref()?).ok()?;
+        let handle = state.chain.primary_handle(xns, sovereign_agent).await.ok()?;
+        if handle.is_empty() {
+            None
+        } else {
+            Some(handle)
+        }
+    });
+    futures::future::join_all(reads).await
 }
 
 // ---------------------------------------------------------------------------------

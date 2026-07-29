@@ -1,8 +1,9 @@
 import { Suspense, lazy } from 'react';
 import { DashboardProvider } from './context/DashboardProvider';
+import { SettingsProvider } from './context/SettingsProvider';
 import { Sidebar } from './components/layout/Sidebar';
-import { Topbar } from './components/layout/Topbar';
 import { GlobalNav } from './components/layout/GlobalNav';
+import { SubNav } from './components/layout/SubNav';
 import { ToastManager } from './components/shared/Toast';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { LandingPage } from './pages/LandingPage';
@@ -25,6 +26,12 @@ const ShieldPage = lazy(() =>
 );
 const IdentityPage = lazy(() =>
   import('./pages/IdentityPage').then(m => ({ default: m.IdentityPage }))
+);
+const ProfilePage = lazy(() =>
+  import('./pages/ProfilePage').then(m => ({ default: m.ProfilePage }))
+);
+const SettingsPage = lazy(() =>
+  import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage }))
 );
 
 const LoadingFallback = () => (
@@ -64,14 +71,16 @@ function DashboardShell() {
   const isContracts = ['factory', 'zk', 'oracle', 'ledger'].includes(activeTab);
   const isShield = ['governance', 'compliance', 'shield'].includes(activeTab);
   const isIdentity = ['identity', 'apikeys'].includes(activeTab);
+  const isProfile = activeTab === 'profile';
+  const isSettings = activeTab === 'settings';
 
   return (
     <div className="app-shell">
       <Sidebar />
       <div className="main-area">
-        <Topbar />
         <GlobalNav />
-        <main className="content-area" style={activeTab === 'factory' ? { padding: 0, overflow: 'hidden' } : undefined}>
+        <SubNav />
+        <main className="content-area" style={activeTab === 'factory' ? { padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' } : undefined}>
           <Suspense fallback={<LoadingFallback />}>
             {isIntelligence && <IntelligencePage />}
             {isCognition && <CognitionPage />}
@@ -79,6 +88,8 @@ function DashboardShell() {
             {isContracts && <ContractsPage />}
             {isShield && <ShieldPage />}
             {isIdentity && <IdentityPage />}
+            {isProfile && <ProfilePage />}
+            {isSettings && <SettingsPage />}
           </Suspense>
         </main>
       </div>
@@ -88,16 +99,21 @@ function DashboardShell() {
   );
 }
 
+import AuthPage from './pages/AuthPage';
+
 export default function App() {
   return (
     <HashRouter>
       <Routes>
         <Route path="/" element={<LandingPage />} />
+        <Route path="/auth" element={<AuthPage />} />
         <Route
           path="/integrity/*"
           element={
             <DashboardProvider>
-              <DashboardShell />
+              <SettingsProvider>
+                <DashboardShell />
+              </SettingsProvider>
             </DashboardProvider>
           }
         />

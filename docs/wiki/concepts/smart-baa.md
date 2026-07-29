@@ -105,7 +105,7 @@ silently dropped, per the schema's `[PLANNED]` rule:
   an OPA-linked `baaId`, a "Compliance Officer Command Center" UI, or a
   `slashAndRevoke()` combined function. `arbitrate(true)` is the real
   slashing path; there is no dashboard UI for BAA proposal/review built yet
-  (see [integrity-mvp](../entities/integrity-mvp.md)'s "What's built").
+  (see [integrity-dashboard](../entities/integrity-dashboard.md)'s "What's built").
 
 Related: [ComplianceGate](compliance-gate.md), [BCC](bcc.md),
 [contracts](../entities/contracts.md).

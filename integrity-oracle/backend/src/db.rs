@@ -142,11 +142,29 @@ pub async fn did_by_sovereign_agent(
     Ok(row.map(|(id,)| id))
 }
 
-pub async fn list_agents(pool: &PgPool) -> Result<Vec<AgentRow>, sqlx::Error> {
-    sqlx::query_as::<_, AgentRow>(
+/// One row of the agent list, carrying the cached `SovereignAgent` address alongside the
+/// `agents` columns. The join is a `LEFT` one on purpose: an agent registered in this DB
+/// whose `agent_primitives` row hasn't been resolved yet (or that predates primitive
+/// caching) must still appear in the list with `sovereign_agent_address: None`, not vanish
+/// from the fleet. Callers that only need the DID (e.g. the leaderboard refresh) read `id`
+/// and ignore the rest.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct AgentListRow {
+    pub id: String,
+    pub verification_tier: i32,
+    pub created_at: DateTime<Utc>,
+    pub did_document: Option<serde_json::Value>,
+    pub sovereign_agent_address: Option<String>,
+}
+
+pub async fn list_agents(pool: &PgPool) -> Result<Vec<AgentListRow>, sqlx::Error> {
+    sqlx::query_as::<_, AgentListRow>(
         r#"
-        SELECT id, ed25519_pubkey, eth_address, verification_tier, last_nonce, created_at, did_document
-        FROM agents ORDER BY created_at DESC
+        SELECT a.id, a.verification_tier, a.created_at, a.did_document,
+               p.sovereign_agent_address
+        FROM agents a
+        LEFT JOIN agent_primitives p ON p.agent_id = a.id
+        ORDER BY a.created_at DESC
         "#,
     )
     .fetch_all(pool)

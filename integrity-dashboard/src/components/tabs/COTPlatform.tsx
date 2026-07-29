@@ -286,7 +286,11 @@ export function COTPlatform() {
     fetchTraces();
     const interval = setInterval(fetchTraces, 5000);
     return () => clearInterval(interval);
-  }, [selectedAgent]);
+      // Depend on the DID string, not the agent OBJECT: DashboardProvider re-polls every
+    // 15s and mapOracleAgent builds a fresh object each time, so an object dep re-runs
+    // this effect (and re-arms its interval) on every poll even when the agent is
+    // unchanged. Same fix as TokenWallet's.
+  }, [selectedAgent?.eth_address]);
 
   useEffect(() => {
     if (activeTrace) {

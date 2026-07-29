@@ -11,15 +11,6 @@ export function IdentityPanel() {
   const { selectedAgent, fetchData } = useDashboard();
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [isClaimModalOpen, setIsClaimModalOpen] = useState(false);
-  const [mockMode, setMockMode] = useState(false);
-
-  // Mock-mode is a legacy toggle (the client-side mock-agent filter was removed; the oracle
-  // has no /v1/protocol/settings endpoint). Kept as a local UI toggle only — it no longer
-  // persists to or fetches from a backend, rather than pretending to via a mock route.
-  const toggleMockMode = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setMockMode(e.target.checked);
-    if (fetchData) fetchData();
-  };
 
   return (
     <div className="flex-col gap-6">
@@ -53,25 +44,7 @@ export function IdentityPanel() {
         </div>
       </Panel>
 
-      <Panel title="Dashboard Configurations" icon={<Settings size={18} />}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-           <p className="text-muted" style={{ fontSize: '0.85rem', margin: 0 }}>
-             Configure dashboard state and data mode options.
-           </p>
-           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--space-3) 0', borderTop: '1px solid var(--glass-border)' }}>
-             <div>
-               <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>Enable Mock Mode</div>
-               <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Load seeded mock agents instead of only the local Xibalba agent.</div>
-             </div>
-             <input
-               type="checkbox"
-               checked={mockMode}
-               onChange={toggleMockMode}
-               style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-             />
-           </div>
-        </div>
-      </Panel>
+
       
       {isRegisterModalOpen && (
          <RegisterAgentModal

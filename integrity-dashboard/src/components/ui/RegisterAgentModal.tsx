@@ -14,13 +14,13 @@ import {
   STATE_ANCHOR_ABI, STATE_ANCHOR_BYTECODE,
 } from '../../chain/bytecode';
 
-// Real on-chain agent registration (Class C), the ethers port of integrity-mvp's
+// Real on-chain agent registration (Class C), the ethers port of integrity-dashboard's
 // RegisterAgentModal. Runs the exact sequence integrity-sdk's registration.py does:
 //   1. Deploy the agent's own SovereignAgent (account contract, DID baked in).
 //   2. Deploy its own StateAnchor (admin = the SovereignAgent).
 //   3. Route SovereignAgent.execute -> StateAnchor.grantRole(ANCHOR_ROLE, oracleSigner)
 //      so the oracle can anchor this agent's Merkle roots. ANCHOR_ROLE is read LIVE
-//      from the deployed clone — NOT a hardcoded constant (the mvp used a garbage hash).
+//      from the deployed clone — NOT a hardcoded constant (the dashboard used a garbage hash).
 //   4. AgentPrimitivesFactory.registerPrimitives clones the remaining 5 primitives and
 //      atomically registers all 7 into XibalbaAgentRegistry.
 //   5. Record the agent in the oracle DB (which independently re-verifies the 7

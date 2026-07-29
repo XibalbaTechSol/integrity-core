@@ -74,8 +74,6 @@ export const ReputationMetricsSection = () => {
                                 overflow: 'hidden'
                             }}
                         >
-                            }} />
-
                             <div style={{ color: m.color, marginBottom: isMobile ? '24px' : '32px' }}>{React.cloneElement(m.icon as React.ReactElement, { size: isMobile ? 24 : 32 })}</div>
                             
                             <div style={{ marginBottom: isMobile ? '24px' : '32px' }}>

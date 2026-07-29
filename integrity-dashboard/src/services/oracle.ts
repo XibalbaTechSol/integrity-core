@@ -27,6 +27,11 @@ export interface AgentResponse {
 
 export interface AgentSummary {
     id: string;
+    /** Primary XNS handle (e.g. "xibalba.integrity"), read on-chain by the oracle. Prefer
+     *  this over `name` for display — it's the protocol's own naming authority. `null` when
+     *  the agent hasn't claimed one or XNS isn't deployed on this chain. */
+    handle?: string | null;
+    /** Legacy `alsoKnownAs` fallback from the DID document; nothing can write it. */
     name?: string | null;
     verification_tier: number;
     created_at: string;

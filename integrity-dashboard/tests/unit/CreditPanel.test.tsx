@@ -1,241 +1,132 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { CreditPanel } from '../../src/components/tabs/CreditPanel';
 import { useDashboard } from '../../src/context/useDashboard';
 import { mockDashboardContext } from './test-utils';
-import { api } from '../../src/services/api';
+import { oracle } from '../../src/services/oracle';
 
 vi.mock('../../src/context/useDashboard', () => ({
   useDashboard: vi.fn(),
 }));
 
-vi.mock('../../src/services/api', () => ({
-  api: {
-    borrow: vi.fn(),
-    repay: vi.fn(),
+vi.mock('../../src/services/oracle', () => ({
+  oracle: {
+    getCredit: vi.fn(),
+    resolveSovereignAgent: vi.fn(),
   },
 }));
 
 const mockAgent = {
-  eth_address: '0x123',
+  agent_id: 'agent-123',
+  eth_address: 'did:integrity:0x123',
   alias: 'Test Agent',
-  current_ais: 800,
-  credit_profile: {
-    credit_score: 750,
-    max_borrow_limit: 10000,
-    total_borrowed: 2000,
-    default_count: 0,
-    active_loans: [
-      {
-        loan_id: 'loan-1',
-        principal: 2000,
-        interest_rate: 0.05,
-        due_date: '2026-12-31T00:00:00Z',
-        status: 'active',
-        repaid_amount: 500,
-      }
-    ]
-  }
 };
 
+const mockCredit = {
+  total_allocated: '10000000000000000000000', // 10,000 ITK
+  active_allocations_count: 2,
+};
+
+const mockWait = vi.fn();
+const mockApprove = vi.fn().mockResolvedValue({ wait: mockWait });
+const mockAllowance = vi.fn();
+const mockAllocate = vi.fn().mockResolvedValue({ wait: mockWait });
+
+vi.mock('ethers', () => {
+  return {
+    ethers: {
+      BrowserProvider: vi.fn().mockImplementation(function() { return {
+        getSigner: vi.fn().mockResolvedValue({}),
+        queryFilter: vi.fn().mockResolvedValue([]),
+      }}),
+      Contract: vi.fn().mockImplementation(function() {
+        // Return all methods to satisfy both ITK token and A2ACapitalPool contracts
+        return {
+          allowance: mockAllowance,
+          approve: mockApprove,
+          allocate: mockAllocate,
+          queryFilter: vi.fn().mockResolvedValue([]),
+          allocations: vi.fn().mockResolvedValue({
+            amount: 0n,
+            minAisToMaintain: 0n,
+            status: 0,
+            createdAt: 0n,
+          }),
+          filters: {
+            Allocated: vi.fn(),
+          }
+        };
+      }),
+      parseEther: vi.fn().mockImplementation((val) => BigInt(val) * 10n**18n),
+      formatEther: vi.fn().mockImplementation((val) => (Number(val) / 1e18).toString()),
+    }
+  };
+});
+
 describe('CreditPanel', () => {
-  it('renders "Select an agent" message when no agent is selected', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (window as any).ethereum = {};
+  });
+
+  it('renders select agent message when no agent selected', () => {
     (useDashboard as unknown).mockReturnValue({
       ...mockDashboardContext,
       selectedAgent: null,
     });
 
     render(<CreditPanel />);
-    // Check for the one in Credit Profile
     expect(screen.getAllByText(/Select an agent/i)[0]).toBeInTheDocument();
   });
 
-  it('renders credit profile metrics when an agent is selected', () => {
+  it('renders capital allocation layout when agent selected', async () => {
     (useDashboard as unknown).mockReturnValue({
       ...mockDashboardContext,
       selectedAgent: mockAgent,
+      walletAddress: '0xallocator',
     });
 
-    render(<CreditPanel />);
-    expect(screen.getByText('750')).toBeInTheDocument();
-    expect(screen.getByText('10,000 ITK')).toBeInTheDocument();
-    // Use getAllByText for '2,000 ITK' as it appears in profile and table
-    expect(screen.getAllByText('2,000 ITK').length).toBeGreaterThan(0);
-  });
-
-  it('shows error message when borrow amount exceeds limit', async () => {
-    (useDashboard as unknown).mockReturnValue({
-      ...mockDashboardContext,
-      selectedAgent: mockAgent,
-    });
+    (oracle.getCredit as unknown).mockResolvedValue(mockCredit);
+    (oracle.resolveSovereignAgent as unknown).mockResolvedValue('0xsovereignAgentAddress');
 
     render(<CreditPanel />);
-    const input = screen.getByLabelText(/Principal Amount/i);
-    fireEvent.change(input, { target: { value: '15000' } });
 
-    expect(screen.getByText(/Exceeds maximum borrow limit/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Submit Loan Application/i })).toBeDisabled();
-  });
-
-  it('submits loan application successfully', async () => {
-    const fetchDataMock = vi.fn();
-    const addToastMock = vi.fn();
-    (useDashboard as unknown).mockReturnValue({
-      ...mockDashboardContext,
-      selectedAgent: mockAgent,
-      fetchData: fetchDataMock,
-      addToast: addToastMock,
-    });
-
-    (api.borrow as unknown).mockResolvedValue({ status: 'success' });
-
-    render(<CreditPanel />);
-    const input = screen.getByLabelText(/Principal Amount/i);
-    fireEvent.change(input, { target: { value: '5000' } });
-
-    const submitBtn = screen.getByRole('button', { name: /Submit Loan Application/i });
-    fireEvent.click(submitBtn);
-
+    expect(screen.getByText('Allocate Capital')).toBeInTheDocument();
+    expect(screen.getByLabelText(/Amount to Escrow/i)).toBeInTheDocument();
+    
     await waitFor(() => {
-      expect(api.borrow).toHaveBeenCalledWith(mockAgent.eth_address, {
-        amount: 5000,
-        collateral_contracts: [],
-        term_days: 30,
-      });
-      expect(addToastMock).toHaveBeenCalledWith('success', expect.stringContaining('Loan approved'));
-      expect(fetchDataMock).toHaveBeenCalled();
+      expect(screen.getByText('10,000')).toBeInTheDocument();
     });
   });
 
-  it('handles loan application failure', async () => {
+  it('allocates successfully with window.ethereum and low allowance', async () => {
     const addToastMock = vi.fn();
     (useDashboard as unknown).mockReturnValue({
       ...mockDashboardContext,
       selectedAgent: mockAgent,
       addToast: addToastMock,
+      walletAddress: '0xallocator',
     });
 
-    (api.borrow as unknown).mockRejectedValue(new Error('Network Error'));
+    (oracle.getCredit as unknown).mockResolvedValue(mockCredit);
+    (oracle.resolveSovereignAgent as unknown).mockResolvedValue('0xsovereignAgentAddress');
+    mockAllowance.mockResolvedValue(BigInt(0));
 
     render(<CreditPanel />);
-    const input = screen.getByLabelText(/Principal Amount/i);
-    fireEvent.change(input, { target: { value: '5000' } });
 
-    const submitBtn = screen.getByRole('button', { name: /Submit Loan Application/i });
-    fireEvent.click(submitBtn);
+    // Wait for the asynchronous resolveSovereignAgent state to update
+    await waitFor(() => {
+      expect(oracle.resolveSovereignAgent).toHaveBeenCalled();
+    });
+
+    const allocBtn = screen.getByRole('button', { name: /Escrow Capital/i });
+    fireEvent.click(allocBtn);
 
     await waitFor(() => {
-      expect(addToastMock).toHaveBeenCalledWith('error', expect.stringContaining('Loan failed: Network Error'));
+      expect(mockAllowance).toHaveBeenCalled();
+      expect(mockApprove).toHaveBeenCalled();
+      expect(mockAllocate).toHaveBeenCalled();
+      expect(addToastMock).toHaveBeenCalledWith('success', expect.stringContaining('Allocated'));
     });
-  });
-
-  it('handles full repayment', async () => {
-    const addToastMock = vi.fn();
-    const fetchDataMock = vi.fn();
-    (useDashboard as unknown).mockReturnValue({
-      ...mockDashboardContext,
-      selectedAgent: mockAgent,
-      addToast: addToastMock,
-      fetchData: fetchDataMock,
-    });
-    (api.repay as unknown).mockResolvedValue({ status: 'success' });
-
-    render(<CreditPanel />);
-    const fullPayBtn = screen.getByRole('button', { name: /Pay Full/i });
-    fireEvent.click(fullPayBtn);
-
-    await waitFor(() => {
-      // remaining due is 2100 - 500 = 1600.
-      expect(api.repay).toHaveBeenCalledWith(mockAgent.eth_address, {
-        loan_id: 'loan-1',
-        amount: 1600
-      });
-      expect(addToastMock).toHaveBeenCalledWith('success', expect.stringContaining('Repayment of 1,600 ITK processed'));
-      expect(fetchDataMock).toHaveBeenCalled();
-    });
-  });
-
-  it('handles custom repayment flow', async () => {
-    const addToastMock = vi.fn();
-    const fetchDataMock = vi.fn();
-    (useDashboard as unknown).mockReturnValue({
-      ...mockDashboardContext,
-      selectedAgent: mockAgent,
-      addToast: addToastMock,
-      fetchData: fetchDataMock,
-    });
-    (api.repay as unknown).mockResolvedValue({ status: 'success' });
-
-    render(<CreditPanel />);
-    const customPayBtn = screen.getByRole('button', { name: /Repay Custom/i });
-    fireEvent.click(customPayBtn);
-
-    // After clicking, input should appear
-    const input = screen.getByPlaceholderText('Amount');
-    fireEvent.change(input, { target: { value: '100' } });
-
-    const okBtn = screen.getByRole('button', { name: /Ok/i });
-    fireEvent.click(okBtn);
-
-    await waitFor(() => {
-      expect(api.repay).toHaveBeenCalledWith(mockAgent.eth_address, {
-        loan_id: 'loan-1',
-        amount: 100
-      });
-      expect(addToastMock).toHaveBeenCalledWith('success', expect.stringContaining('100 ITK processed successfully'));
-      expect(fetchDataMock).toHaveBeenCalled();
-    });
-  });
-
-  it('cancels custom repayment flow', async () => {
-    (useDashboard as unknown).mockReturnValue({
-      ...mockDashboardContext,
-      selectedAgent: mockAgent,
-    });
-
-    render(<CreditPanel />);
-    const customPayBtn = screen.getByRole('button', { name: /Repay Custom/i });
-    fireEvent.click(customPayBtn);
-
-    const input = screen.getByPlaceholderText('Amount');
-    expect(input).toBeInTheDocument();
-
-    const cancelBtn = screen.getByRole('button', { name: /Cancel/i });
-    fireEvent.click(cancelBtn);
-
-    expect(screen.queryByPlaceholderText('Amount')).not.toBeInTheDocument();
-  });
-
-  it('handles loan rollover', async () => {
-    const addToastMock = vi.fn();
-    (useDashboard as unknown).mockReturnValue({
-      ...mockDashboardContext,
-      selectedAgent: mockAgent,
-      addToast: addToastMock,
-    });
-
-    render(<CreditPanel />);
-    const rolloverBtn = screen.getByRole('button', { name: /Rollover/i });
-    fireEvent.click(rolloverBtn);
-
-    await waitFor(() => {
-      expect(addToastMock).toHaveBeenCalledWith('success', expect.stringContaining('Term rollover requested'));
-    });
-  });
-
-  it('shows empty state when no active loans', () => {
-    (useDashboard as unknown).mockReturnValue({
-      ...mockDashboardContext,
-      selectedAgent: {
-        ...mockAgent,
-        credit_profile: {
-          ...mockAgent.credit_profile,
-          active_loans: []
-        }
-      },
-    });
-
-    render(<CreditPanel />);
-    expect(screen.getByText('No active loans found.')).toBeInTheDocument();
   });
 });

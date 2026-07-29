@@ -23,58 +23,7 @@ export function CognitionPage() {
         minHeight: '100%',
       }}
     >
-      <Panel>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: 'var(--space-4)',
-          }}
-        >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <div
-                style={{
-                  width: '36px',
-                  height: '36px',
-                  borderRadius: 'var(--radius-md)',
-                  background: 'color-mix(in srgb, var(--primary) 18%, transparent)',
-                  border: '1px solid color-mix(in srgb, var(--primary) 40%, transparent)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'var(--primary)',
-                }}
-              >
-                <Brain size={18} />
-              </div>
-              <h1
-                style={{
-                  margin: 0,
-                  fontSize: '1.5rem',
-                  fontWeight: 700,
-                  letterSpacing: '-0.02em',
-                  color: 'var(--text-primary)',
-                }}
-              >
-                Cognition &amp; Trace Diagnostics
-              </h1>
-            </div>
-            <p
-              style={{
-                margin: 0,
-                fontSize: '0.85rem',
-                color: 'var(--text-muted)',
-                paddingLeft: '48px',
-              }}
-            >
-              Dedicated environment for deeply analyzing agent chain-of-thought, structural reasoning hierarchies, and performance evals.
-            </p>
-          </div>
-        </div>
-      </Panel>
+
 
       <div 
         style={{ 

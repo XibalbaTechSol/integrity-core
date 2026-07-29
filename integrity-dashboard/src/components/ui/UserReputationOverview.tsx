@@ -121,22 +121,6 @@ export const UserReputationOverview: React.FC<UserReputationOverviewProps> = ({ 
                 }
             `}</style>
 
-            <div className={`flex-${isMobile ? 'column' : 'between'} mb-8`} style={{ alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '16px' : 0 }}>
-                <div>
-                    <h2 style={{ fontSize: isMobile ? '1.4rem' : '1.8rem', fontWeight: 800, margin: 0 }}>Tri-Metric Command Center</h2>
-                    <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: isMobile ? '0.75rem' : '0.9rem' }}>Deep reputation intelligence for <span style={{ color: 'var(--gold)' }}>{targetAgent.alias}</span></p>
-                </div>
-                <div style={{ textAlign: isMobile ? 'left' : 'right' }}>
-                    <div style={{ fontSize: '0.65rem', color: 'var(--gold)', fontWeight: 800, letterSpacing: '0.2em' }}>AGGREGATE TRUST INDEX</div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', justifyContent: isMobile ? 'flex-start' : 'flex-end' }}>
-                        <div style={{ fontSize: isMobile ? '1.2rem' : '1.8rem', fontWeight: 900, fontFamily: 'JetBrains Mono, monospace' }}>{Math.round(displayAIS)}</div>
-                        <div style={{ padding: '4px 8px', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.2)', borderRadius: '6px', fontSize: '0.65rem', color: '#10b981', fontWeight: 800 }}>
-                            {targetAgent.risk_tier || 'AAA'}
-                        </div>
-                    </div>
-                </div>
-            </div>
-
             {/* Staking Power / Trust Ceiling Indicator */}
             <div style={{ 
                 background: 'rgba(255,255,255,0.02)', 

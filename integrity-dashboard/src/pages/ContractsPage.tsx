@@ -116,64 +116,10 @@ export function ContractsPage() {
         flexDirection: 'column',
         gap: isFactory ? '0' : 'var(--space-6)',
         padding: isFactory ? '0' : 'var(--space-6)',
+        flex: isFactory ? 1 : undefined,
         minHeight: '100%',
       }}
     >
-      {/* ── Hero bar ── */}
-      {!isFactory && (
-        <motion.div
-          initial={{ opacity: 0, y: -12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, ease: 'easeOut' }}
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 'var(--space-1)',
-            paddingBottom: 'var(--space-4)',
-            borderBottom: '1px solid var(--glass-border)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-            <div
-              style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: 'var(--radius-sm)',
-                background: 'var(--primary-dim)',
-                border: '1px solid var(--primary)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'var(--primary)',
-              }}
-            >
-              <Code2 size={20} />
-            </div>
-            <h1
-              style={{
-                fontSize: '1.5rem',
-                fontWeight: 700,
-                color: 'var(--text-primary)',
-                margin: 0,
-                letterSpacing: '-0.01em',
-              }}
-            >
-              Contracts
-            </h1>
-          </div>
-          <p
-            style={{
-              fontSize: '0.875rem',
-              color: 'var(--text-muted)',
-              margin: 0,
-              paddingLeft: '48px',
-            }}
-          >
-            Deploy custom contracts, create markets, and execute trades on the testnet
-          </p>
-        </motion.div>
-      )}
-
       {/* ── 3-stat strip ── */}
       {!isFactory && (
         <motion.div
@@ -200,46 +146,10 @@ export function ContractsPage() {
         </motion.div>
       )}
 
-      {/* ── Sub-navigation Tab Bar ───────────────────────────────────────── */}
-      <div style={{
-        display: 'flex',
-        gap: '8px',
-        borderBottom: '1px solid var(--glass-border)',
-        paddingBottom: '8px',
-        marginTop: isFactory ? '12px' : 'var(--space-2)',
-        paddingLeft: isFactory ? '16px' : '0',
-        paddingRight: isFactory ? '16px' : '0',
-      }}>
-        {TABS.map(tab => {
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '6px 16px',
-                borderRadius: 'var(--radius-sm)',
-                fontSize: '0.75rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-                background: isActive ? 'var(--primary-dim)' : 'transparent',
-                border: '1px solid ' + (isActive ? 'var(--primary)' : 'var(--glass-border)'),
-                color: isActive ? 'var(--primary)' : 'var(--text-muted)',
-                transition: 'all 0.15s'
-              }}
-            >
-              {tab.icon}
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
+
 
       {/* ── Section Content (Tabbed) ── */}
-      <div style={{ marginTop: 'var(--space-2)' }}>
+      <div style={{ marginTop: isFactory ? 0 : 'var(--space-2)', flex: 1, display: 'flex', flexDirection: 'column' }}>
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}
@@ -247,6 +157,7 @@ export function ContractsPage() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.18 }}
+            style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
           >
             {activeTab === 'factory' && (
               <FactoryPanel />

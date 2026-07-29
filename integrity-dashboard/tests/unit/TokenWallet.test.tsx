@@ -3,14 +3,23 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { TokenWallet } from '../../src/components/ui/TokenWallet';
 import { useDashboard } from '../../src/context/useDashboard';
 import { mockDashboardContext } from './test-utils';
-import axios from 'axios';
+import { userapi } from '../../src/services/userapi';
 import { ethers } from 'ethers';
 
 vi.mock('../../src/context/useDashboard', () => ({
   useDashboard: vi.fn(),
 }));
 
-vi.mock('axios');
+// TokenWallet reads the custodial balance through `services/userapi` (a fetch client),
+// not axios — mocking axios asserted against a call the component never makes.
+vi.mock('../../src/services/userapi', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/services/userapi')>()),
+  // `fetchProfileData` short-circuits on `!getToken()` — the custodial app-wallet is only
+  // read when there is a real userapi session, so these tests must simulate one or the
+  // getWallet assertion below is asserting signed-out behavior.
+  getToken: vi.fn(() => 'test-jwt'),
+  userapi: { getWallet: vi.fn(), walletTransfer: vi.fn() },
+}));
 
 vi.mock('ethers', () => {
   return {
@@ -54,12 +63,9 @@ describe('TokenWallet', () => {
       selectedAgent: { eth_address: '0xagent123', alias: 'Agent 1' },
     });
     
-    // Mock axios get
-    (axios.get as any).mockResolvedValue({
-      data: {
-        balance: 50,
-        app_wallet_address: '0xappwallet',
-      }
+    (userapi.getWallet as any).mockResolvedValue({
+      balance: 50,
+      app_wallet_address: '0xappwallet',
     });
 
     (window as any).ethereum = undefined;
@@ -76,8 +82,7 @@ describe('TokenWallet', () => {
     expect(screen.getByText(/Agent Agent 1: 0xagent123\.\.\./i)).toBeInTheDocument();
 
     await waitFor(() => {
-      // Mock axios should be called to fetch profile
-      expect(axios.get).toHaveBeenCalled();
+      expect(userapi.getWallet).toHaveBeenCalled();
     });
   });
 
@@ -101,7 +106,7 @@ describe('TokenWallet', () => {
     
     // Wait for initial render to finish fetching
     await waitFor(() => {
-      expect(axios.get).toHaveBeenCalled();
+      expect(userapi.getWallet).toHaveBeenCalled();
     });
 
     const sendButton = screen.getByText('Send');

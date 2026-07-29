@@ -1,4 +1,4 @@
-.PHONY: setup chain up down test test-e2e sync-abis demo
+.PHONY: setup chain chain-reset up down test test-e2e sync-abis demo
 
 setup:
 	cd contracts && npm install
@@ -6,14 +6,37 @@ setup:
 	cd integrity-sdk && uv sync
 	cd integrity-cli && uv sync
 	cd bcc_middleware && uv sync
-	cd integrity-mvp && npm install
+	cd integrity-dashboard && npm install
 	cd integrity-userapi && uv sync
 
 chain:
 	touch deployments.local.json
-	cd contracts && anvil --host 0.0.0.0 &
-	sleep 2
-	cd contracts && FUNDER_PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 forge script script/Deploy.s.sol --rpc-url http://localhost:8545 --broadcast
+	@# Load existing state if present so registered agents survive restarts.
+	@# On first run .anvil-state.json doesn't exist — no --load-state flag.
+	@# On subsequent runs the saved state is restored and contracts are already
+	@# deployed at their original addresses, so the forge script is skipped.
+	@if [ -f .anvil-state.json ]; then \
+		echo "Restoring Anvil state from .anvil-state.json..."; \
+		cd contracts && anvil --host 0.0.0.0 \
+			--load-state ../.anvil-state.json \
+			--dump-state ../.anvil-state.json & \
+		sleep 2; \
+		echo "Chain restored — contracts and registered agents intact."; \
+	else \
+		echo "No saved state found — fresh chain + genesis deploy..."; \
+		cd contracts && anvil --host 0.0.0.0 \
+			--dump-state ../.anvil-state.json & \
+		sleep 2; \
+		cd contracts && FUNDER_PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
+			forge script script/Deploy.s.sol --rpc-url http://localhost:8545 --broadcast; \
+	fi
+
+# Wipe saved Anvil state and force a clean genesis deploy on the next `make chain`.
+# Use this when you've changed contracts and need fresh addresses.
+chain-reset:
+	@echo "Removing .anvil-state.json — next 'make chain' will do a full genesis deploy."
+	rm -f .anvil-state.json
+	rm -f deployments.local.json
 
 # Extracts {abi, bytecode} for the 3 contracts integrity-sdk's chain.py needs to deploy
 # directly (SovereignAgent, StateAnchor) or call (AgentPrimitivesFactory) out of forge's
@@ -38,18 +61,18 @@ test:
 	cd integrity-cli && uv run pytest
 	cd bcc_middleware && uv run pytest
 	cd integrity-userapi && uv run pytest
-	cd integrity-mvp && npm test
+	cd integrity-dashboard && npm test
 
 # Real browser (Playwright) end-to-end tests — a separate, slower layer from
 # `test` above, deliberately not folded into it. Boots its own real anvil +
 # genesis deploy + ephemeral Postgres/Redis + integrity-oracle + one real
-# seeded agent (see integrity-mvp/e2e/global-setup.ts), then drives a real
-# Chromium browser against the real running integrity-mvp app. See
+# seeded agent (see integrity-dashboard/e2e/global-setup.ts), then drives a real
+# chromium browser against the real running integrity-dashboard app. See
 # docs/TESTING.md for the full test-pyramid rationale and what's covered.
 test-e2e:
-	cd integrity-mvp && npx playwright test
+	cd integrity-dashboard && npx playwright test
 
-# Runs integrity-mvp/demo's real 4-persona scenario engine (agent
+# Runs integrity-dashboard/demo's real 4-persona scenario engine (agent
 # registration + a live LLM-driven capital-allocation tool-call loop) --
 # was previously referenced by README/CLAUDE.md/docs/TESTING.md with no
 # actual Makefile target to back it. Against LIVE Base Sepolia by default
@@ -63,5 +86,5 @@ test-e2e:
 # To run against a local anvil instead: `make chain` first, then
 # `RPC_URL=http://localhost:8545 CHAIN_ID=31337 DEPLOYMENTS_FILE=../../deployments.local.json make demo`.
 demo:
-	cd integrity-mvp/demo && uv sync && uv run integrity-demo
+	cd integrity-dashboard/demo && uv sync && uv run integrity-demo
 

@@ -272,6 +272,7 @@ export type TabId =
   | 'zk'
   | 'factory'
   | 'compliance'
+  | 'quarantine'
   | 'shield'
   | 'oracle'
   | 'credit'
@@ -283,4 +284,7 @@ export type TabId =
   | 'cognition'
   | 'reasoning'
   | 'diagnostics'
-  | 'apikeys';
+  | 'apikeys'
+  | 'advanced'
+  | 'profile'
+  | 'settings';

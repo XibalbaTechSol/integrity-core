@@ -25,15 +25,15 @@ source_files:
 ---
 
 **This page was rewritten from scratch on 2026-07-12.** The version of
-`integrity-mvp` it previously described (a mature app with `AgentListPage`/
+`integrity-dashboard` it previously described (a mature app with `AgentListPage`/
 `AgentDetailPage`/`MarketsPage`/`LeaderboardPage`/`WalletPage`/
 `CapitalAllocationPage`, real JWT auth, a Demo/Live data-mode toggle backed
 by MSW fixtures, `demo/` as a real Python scenario engine, 129 vitest +
-16 Playwright specs) **no longer exists on disk.** `integrity-mvp/src/`
+16 Playwright specs) **no longer exists on disk.** `integrity-dashboard/src/`
 was independently rewritten into a new 16-page shell (all file mtimes
 ~2026-07-12 00:00-00:20, well after this page's prior "2026-07-11" content)
 by a process outside this wiki's tracking, confirmed by the user as
-intentional ("the new mvp ui") rather than accidental data loss. None of
+intentional ("the new dashboard ui") rather than accidental data loss. None of
 the file paths this page previously cited under `source_files` exist
 anymore. Per this wiki's own "no aspirational content" rule, the old
 content has been replaced rather than patched — it described a build that
@@ -237,7 +237,7 @@ registered agent, not just a passing test suite.
 
 ## What is NOT done yet
 
-- `integrity-mvp/demo/` (the Python scenario-engine directory `make demo`
+- `integrity-dashboard/demo/` (the Python scenario-engine directory `make demo`
   references) **now exists on disk** (as of 2026-07-15), **and `make demo`
   itself now works** (as of 2026-07-16 — it was documented in three places
   but had no actual Makefile target until this pass). It's a real scenario

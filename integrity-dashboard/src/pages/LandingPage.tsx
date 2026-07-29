@@ -3,6 +3,9 @@ import { CinematicHeader } from '../components/landing/CinematicHeader';
 import { HeroSection } from '../components/landing/HeroSection';
 import { TrustGapSection, DevQuickstartSection, ProgrammableEscrowsSection, EconomicUseCasesSection, PrivacyArchitectureSection } from '../components/landing/CoreFeatures';
 import { EcosystemFeatures } from '../components/landing/EcosystemFeatures';
+import { FAQSection } from '../components/landing/FAQSection';
+import { ContactFormSection } from '../components/landing/ContactFormSection';
+import { Footer } from '../components/landing/Footer';
 import { ContactModal } from '../components/ui/ContactModal';
 import { RegistryExplorer } from '../components/ui/RegistryExplorer';
 
@@ -30,6 +33,10 @@ export const LandingPage = () => {
             </div>
 
             <EcosystemFeatures setIsContactOpen={setIsContactOpen} setContactType={setContactType} />
+            
+            <FAQSection />
+            <ContactFormSection />
+            <Footer />
             
             {/* Modals */}
             <ContactModal 

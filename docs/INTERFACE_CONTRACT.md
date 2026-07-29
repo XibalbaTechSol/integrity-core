@@ -58,7 +58,7 @@ against real policies. Don't write code you haven't run.
 | Integrity Oracle OTLP/gRPC receiver | 4317 | integrity-oracle |
 | Integrity User API (FastAPI) | 8090 | integrity-userapi |
 | Postgres (userapi) | 5435 | integrity-userapi |
-| Integrity MVP (Vite dev) | 5173 | integrity-dashboard |
+| Integrity Dashboard (Vite dev) | 5173 | integrity-dashboard |
 
 ## 3. Environment variables (shared names — use exactly these)
 
@@ -223,6 +223,35 @@ binding; no oracle-to-chain score push exists yet).
   (`keccak256(a < b ? a,b : b,a)`) — the standard OpenZeppelin `MerkleProof` convention.
   This avoids second-preimage ordering ambiguity and lets contracts use OZ's
   `MerkleProof.verify` directly instead of a custom verifier.
+
+### 4.4a Genesis memory root (spec v0.3 §4.1/§7.2) — cross-package constant
+
+Registration requires `StateAnchor.latestRoot != bytes32(0)` (§6), but an
+**empty-but-initialized Trust Vault is valid at birth** — and `anchorRoot` reverts on
+`bytes32(0)` (`EmptyRoot`). An agent registering with nothing yet in its vault therefore
+needs a defined, non-zero root meaning "initialized, empty":
+
+```
+GENESIS_VAULT_ROOT = keccak256("integrity.trust-vault.genesis.v1")
+                   = 0x… (computed identically in every package — never hardcode a literal)
+```
+
+Every package MUST derive it by hashing that exact ASCII string, not by copying a hex
+literal — the same discipline §4.4's hashing rules exist to enforce, and the reason this
+constant lives here rather than in `registration.py`. Defined in:
+`integrity_sdk/chain.py::GENESIS_VAULT_SEED`.
+
+It is a *sentinel*, not a commitment to any content: an agent whose vault already has
+entries at registration time should anchor its real vault root instead. The oracle's §7.1
+gate checks only that the root is non-zero — it deliberately does **not** require this
+specific value, so a genuinely non-empty vault at birth is equally valid.
+
+Authorization (§7.2): the genesis root (epoch 0→1) must be anchored by the agent itself —
+its controller via `SovereignAgent.execute`, which works because `StateAnchor`'s admin is
+the `SovereignAgent` contract and the constructor grants it `ANCHOR_ROLE`. No Solidity
+change is needed for this; **enforcement** that the protocol's `ANCHOR_ROLE` signer cannot
+anchor epoch 1 is still `[PLANNED]` (Appendix A gap 2), since `StateAnchor` is deployed
+per-agent and already-deployed anchors keep their current bytecode.
 
 ### 4.5 Trace tree view (`GET /v1/traces/{trace_id}`)
 LangSmith-style nested run-tree reconstruction over the real spans in `otel_spans`
@@ -681,7 +710,7 @@ script (§6.6):
   - ***Trust boundary, documented not hidden***: `resolve()` is gated to
     `RESOLVER_ROLE`, set by the market's creator at deploy time (itself, a
     delegate, or the protocol's demo/oracle signer). For the
-    investor/developer MVP this is a clearly-labeled demo resolver, not a
+    investor/developer Dashboard this is a clearly-labeled demo resolver, not a
     live price-feed oracle network (Chainlink/UMA) — staking, AIS-gating,
     BCC-commitment binding, and payout are all real; only ground-truth
     outcome resolution is a documented, swappable trust boundary. A
@@ -721,7 +750,7 @@ script (§6.6):
 
 ### 6.10 Backend responsibility split (two trust domains, not three peer services)
 
-As of the multi-vertical MVP, protocol-facing HTTP is split across two
+As of the multi-vertical Dashboard, protocol-facing HTTP is split across two
 **trust domains** — not three interchangeable peer services, a framing
 this section used to have and which undersold how tightly the first two
 pieces below are coupled — with one hard rule: **only `integrity-oracle`
@@ -851,7 +880,7 @@ that just restate the code, but do explain non-obvious cryptographic/protocol
 invariants, since this is exactly the kind of code where a subtle mistake
 (e.g. hash ordering, signature domain separation) is a real vulnerability.
 
-## 11. integrity-dashboard/demo/ (multi-vertical investor/developer closed-loop MVP)
+## 11. integrity-dashboard/demo/ (multi-vertical investor/developer closed-loop Dashboard)
 
 Lives at `integrity-dashboard/demo/` — a Python subdirectory of the one
 dashboard app package (§9), not a standalone top-level package (it was
@@ -910,7 +939,7 @@ run itself is entirely this package's job, not the user API's.
 ## 12. integrity-framework/ (reputation-derivatives — not yet built)
 
 Referenced in §1's scope list but not part of this rewrite's current
-phases (§6.8–§6.10, §11, §13 cover the multi-vertical MVP that now
+phases (§6.8–§6.10, §11, §13 cover the multi-vertical Dashboard that now
 supersedes what this package was originally scoped to explore). Concept
 carried over from the old repo: a marketplace/lending layer over agent
 reputation (e.g. AIS-collateralized credit, reputation derivatives). Any

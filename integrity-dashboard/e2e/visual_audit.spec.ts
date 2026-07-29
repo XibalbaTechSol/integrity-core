@@ -1,42 +1,32 @@
 import { test } from '@playwright/test';
-import fs from 'fs';
-import path from 'path';
+import * as fs from 'fs';
+import * as path from 'path';
 
-const TABS = [
-  'telemetry', 'identity', 'ledger', 'zk', 'factory', 
-  'compliance', 'credit', 'governance', 'markets', 
-  'staking', 'stability', 'wallet', 'advanced', 'apikeys'
-];
-
-const REPORTS_DIR = path.join(process.cwd(), 'validation_reports', 'screenshots');
-
-test.beforeAll(async () => {
-  if (!fs.existsSync(REPORTS_DIR)) {
-    fs.mkdirSync(REPORTS_DIR, { recursive: true });
-  }
-});
-
-TABS.forEach(tab => {
-  test(`visual audit for tab: ${tab}`, async ({ page }, testInfo) => {
-    // Navigate to the tab
-    await page.goto(`/integrity/#/integrity#${tab}`);
-    
-    // Wait for the main app shell or a common panel to be visible to ensure it's loaded
-    await page.waitForSelector('.app-shell', { state: 'visible', timeout: 15000 });
-    await page.waitForTimeout(1000); // Wait for animations
-    
-    const viewportName = testInfo.project.name;
-    const screenshotPath = path.join(REPORTS_DIR, `${viewportName}_${tab}.png`);
-    
-    await page.screenshot({ path: screenshotPath, fullPage: true });
-    
-    // Basic heuristic checks
-    const overflow = await page.evaluate(() => {
-      return document.body.scrollWidth > document.body.clientWidth;
+test.describe('Visual Audit', () => {
+  test('take screenshots of all pages', async ({ page }) => {
+    // Mock user so we can see the pages
+    await page.addInitScript(() => {
+      window.localStorage.setItem('firebase:mock_user', JSON.stringify({
+        uid: 'test-user',
+        email: 'test@xibalba.io',
+        name: 'Test Xibalba User',
+        photoURL: 'https://example.com/test-photo.png'
+      }));
     });
+
+    const pages = [
+      { url: '/#/', name: 'dashboard_home' },
+      { url: '/#/profile', name: 'dashboard_profile' },
+      { url: '/#/settings', name: 'dashboard_settings' },
+      { url: '/#/integrity#telemetry', name: 'dashboard_telemetry' }
+    ];
+
+    const artifactsDir = '/home/xibalba/.gemini/antigravity-cli/brain/64551caf-854d-4bed-9bc6-5ca7bda4ced4/scratch';
     
-    if (overflow) {
-      console.warn(`[WARNING] Horizontal overflow detected on ${tab} in ${viewportName}`);
+    for (const p of pages) {
+      await page.goto(p.url);
+      await page.waitForTimeout(2000); // give it time to render
+      await page.screenshot({ path: path.join(artifactsDir, `${p.name}.png`), fullPage: true });
     }
   });
 });

@@ -116,43 +116,7 @@ export function FinancePage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
 
-      {/* ── Hero bar ─────────────────────────────────────────────────────── */}
-      <div
-        style={{
-          background: 'var(--bg-secondary)',
-          border: '1px solid var(--glass-border)',
-          borderRadius: 'var(--radius-md)',
-          padding: 'var(--space-4)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 'var(--space-4)',
-        }}
-      >
-        <div
-          style={{
-            width: '44px',
-            height: '44px',
-            borderRadius: 'var(--radius-md)',
-            background: 'var(--primary-dim)',
-            border: '1px solid var(--primary)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'var(--primary)',
-            flexShrink: 0,
-          }}
-        >
-          <DollarSign size={22} />
-        </div>
-        <div>
-          <h1 style={{ margin: 0, fontSize: '1.375rem', fontWeight: 700, lineHeight: 1.2 }}>
-            Finance
-          </h1>
-          <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-            Staking, credit, markets &amp; protocol stability
-          </p>
-        </div>
-      </div>
+
 
       {/* ── 4-stat strip ─────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', gap: 'var(--space-4)', flexWrap: 'wrap' }}>
@@ -163,34 +127,6 @@ export function FinancePage() {
       </div>
 
       {/* ── Sub-navigation Tab Bar ───────────────────────────────────────── */}
-      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--glass-border)', paddingBottom: '8px', marginTop: 'var(--space-2)' }}>
-        {TABS.map(tab => {
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '6px 16px',
-                borderRadius: 'var(--radius-sm)',
-                fontSize: '0.75rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-                background: isActive ? 'var(--primary-dim)' : 'transparent',
-                border: '1px solid ' + (isActive ? 'var(--primary)' : 'var(--glass-border)'),
-                color: isActive ? 'var(--primary)' : 'var(--text-muted)',
-                transition: 'all 0.15s'
-              }}
-            >
-              {tab.icon}
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
 
       {/* ── Section content (Tabbed Component Mount) ────────────────────── */}
       <div style={{ marginTop: 'var(--space-2)' }}>

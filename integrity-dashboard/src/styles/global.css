@@ -1,5 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Inter:wght@300;400;500;600;700&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
+
 @import url('https://cdn.jsdelivr.net/npm/katex@0.16.0/dist/katex.min.css');
 
 :root {
@@ -76,6 +75,19 @@
   --r-xl: 32px;
 }
 
+.light-theme {
+  --navy-deep: #F8FAFC;
+  --glass-surface: rgba(255, 255, 255, 0.7);
+  --text-primary: #0F172A;
+  --text-secondary: rgba(15, 23, 42, 0.85);
+  --text-muted: rgba(15, 23, 42, 0.65);
+  --border: rgba(15, 23, 42, 0.12);
+  --border-strong: rgba(15, 23, 42, 0.25);
+  --glass-border: rgba(15, 23, 42, 0.15);
+  --bg-primary: #F8FAFC;
+  --navy: #FFFFFF;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -83,7 +95,7 @@
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-sans);
   background-color: var(--navy-deep);
   color: var(--text-primary);
   overflow-x: hidden;
@@ -93,7 +105,7 @@ body {
 }
 
 h1, h2, h3, h4, h5, h6 {
-  font-family: 'Playfair Display', serif;
+  font-family: var(--font-sans);
   color: white;
   line-height: 1.2;
 }
@@ -152,7 +164,7 @@ p {
   display: inline-flex;
   align-items: center;
   gap: 12px;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-sans);
   font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.2em;
@@ -252,7 +264,7 @@ p {
   padding: 16px 36px;
   border: none;
   border-radius: var(--r-sm);
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-sans);
   font-size: 0.78rem;
   font-weight: 800;
   letter-spacing: 0.15em;
@@ -353,20 +365,20 @@ p {
 }
 
 .heading-xl {
-  font-family: 'Playfair Display', serif;
+  font-family: var(--font-sans);
   font-size: clamp(2.5rem, 5vw, 4rem);
   font-weight: 700;
   letter-spacing: -0.02em;
 }
 
 .heading-lg {
-  font-family: 'Playfair Display', serif;
+  font-family: var(--font-sans);
   font-size: clamp(1.8rem, 3vw, 2.8rem);
   font-weight: 600;
 }
 
 .heading-md {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-sans);
   font-size: 1.1rem;
   font-weight: 800;
   text-transform: uppercase;
@@ -397,7 +409,7 @@ p {
 }
 
 .hero-title {
-  font-family: 'Playfair Display', serif;
+  font-family: var(--font-sans);
   font-size: clamp(3rem, 6vw, 4.8rem);
   font-weight: 600;
   color: var(--background);
@@ -454,7 +466,7 @@ p {
 }
 
 .trust-text h6 {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-sans);
   font-size: 0.95rem;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -518,7 +530,7 @@ p {
   font-size: 1.5rem;
   font-weight: 700;
   color: var(--navy);
-  font-family: 'Playfair Display', serif;
+  font-family: var(--font-sans);
   line-height: 1.1;
 }
 
@@ -704,7 +716,7 @@ p {
 
 /* Form inputs (if any) */
 input, select, textarea {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-sans);
 }
 
 /* Animations */
@@ -929,7 +941,7 @@ input, select, textarea {
   background: transparent;
   border: none;
   color: rgba(255, 255, 255, 0.35);
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-sans);
   position: relative;
 }
 

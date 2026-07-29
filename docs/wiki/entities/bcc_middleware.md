@@ -187,17 +187,17 @@ the real two-arg BAA call; `test_reputation.py`/`test_scoring_loop.py` cover the
 reputation-sync loop above, including real `updateScore`/`raiseDispute`
 transactions against `MockReputationRegistry.sol`/`MockSlasher.sol` fixtures.
 
-## Resolved gap (found stale during `integrity-mvp/demo` work, 2026-07-09)
+## Resolved gap (found stale during `integrity-dashboard/demo` work, 2026-07-09)
 
 This page previously said `app/chain.py::agent_id_to_address` derives the
 agent's EVM address with a placeholder `keccak256(pubkey)[-20:]`. Re-read
-against current source while building `integrity-mvp/demo` (2026-07-09): this
+against current source while building `integrity-dashboard/demo` (2026-07-09): this
 is no longer true — `agent_id_to_address` now resolves the real
 `SovereignAgent` contract address via `resolve_agent_primitives(oracle_url,
 agent_id)` (an oracle lookup), matching what `EHRGate.checkAccess`/
 `ComplianceGate` actually treat as `msg.sender`. Not independently re-verified
 end-to-end against a live current-schema oracle this session (see
-[integrity-mvp](integrity-mvp.md)'s demo section: no such oracle instance was
+[integrity-dashboard](integrity-dashboard.md)'s demo section: no such oracle instance was
 running), but the placeholder code path itself is confirmed gone from source.
 
 Related: [BCC](../concepts/bcc.md),

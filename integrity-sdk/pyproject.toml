@@ -59,11 +59,19 @@ dependencies = [
 autolog = ["pandas>=2.0.0"]
 openai = ["openai>=1.0.0", "pandas>=2.0.0"]
 langchain = ["langchain-core>=0.3.0", "pandas>=2.0.0"]
+# MCP server — exposes SDK tools to Claude Desktop, Cursor, Antigravity, etc.
+mcp = [
+    "mcp>=1.0.0",
+]
+
+[project.scripts]
+integrity-mcp-server = "integrity_sdk.mcp_server:main"
 
 [dependency-groups]
 dev = [
     "pytest>=8.0.0",
     "pytest-cov>=5.0.0",
+    "mcp>=1.0.0",
 ]
 
 [tool.setuptools.packages.find]

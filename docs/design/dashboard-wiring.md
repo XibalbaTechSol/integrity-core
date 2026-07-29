@@ -1,7 +1,7 @@
 # integrity-dashboard — Wiring Plan (make every widget real, no mocks)
 
 Copying the legacy `integrity-dashboard` UI into INTEGRITY-LATEST (as a **parallel** app
-alongside `integrity-mvp`) and wiring every widget to the **real** backend. Where the new oracle
+alongside `integrity-dashboard`) and wiring every widget to the **real** backend. Where the new oracle
 has no matching data source, the decision is to **build the real endpoint / on-chain call** —
 not to badge a gap. "Keep all visuals the same."
 
@@ -12,7 +12,7 @@ modules, all 7 pages), visuals intact on the legacy data layer.
 ## Data-layer strategy
 
 Do **not** hand-rewrite the legacy axios `src/services/api.ts` endpoint-by-endpoint. Port the
-UI onto `integrity-mvp`'s already-correct real clients — `integrity-mvp/src/services/oracle.ts`
+UI onto `integrity-dashboard`'s already-correct real clients — `integrity-dashboard/src/services/oracle.ts`
 (DID-keyed routes, SSE, audit-log) and `userapi.ts` (JWT auth in sessionStorage) — as the single
 source of truth. Replace the legacy `firebase` auth dependency with `userapi`. On-chain writes go
 through `wagmi`/`viem` against `deployments.baseSepolia.json`, mirroring how the protocol's
@@ -155,21 +155,21 @@ contract first). These need `ConnectWalletButton` + signed txs against `deployme
      firebase imports remain. Builds green; a present-but-invalid token clears the session
      rather than showing a stale signed-in state.
    - ✅ **Factory deploy / agent registration** (`RegisterAgentModal`) — the most foundational
-     write: the full on-chain birth of an agent, ethers port of integrity-mvp's flow, run as a
+     write: the full on-chain birth of an agent, ethers port of integrity-dashboard's flow, run as a
      resumable 4-tx wizard: (1) deploy the agent's own `SovereignAgent` (DID baked into the
      constructor), (2) deploy its `StateAnchor` (admin = the SovereignAgent), (3) route
      `SovereignAgent.execute` → `StateAnchor.grantRole(ANCHOR_ROLE, oracleSigner)` — ANCHOR_ROLE
-     read **live** from the deployed clone, fixing the mvp reference's garbage-constant bug, (4)
+     read **live** from the deployed clone, fixing the dashboard reference's garbage-constant bug, (4)
      `AgentPrimitivesFactory.registerPrimitives` clones the other 5 primitives + registers all 7,
      with the real clone addresses parsed from the `PrimitivesRegistered` receipt event; then
      `oracle.register` records it (the oracle re-verifies the 7 addresses against the registry
      on-chain). Replaces the mock `AgentOnboarding` (`Math.random()` address + legacy-API axios)
      at IdentityPanel's register trigger. `general.integrity` confirmed `JoinMode.Open` so the
      `canJoin` gate passes for any wallet. Deployments mirror extended with `protocolAddresses`
-     (oracleSigner) + `domains`; `bytecode.ts` copied from mvp with a provenance header; new
+     (oracleSigner) + `domains`; `bytecode.ts` copied from dashboard with a provenance header; new
      `oracle.register`. Builds green. **Testnet, code-complete — needs a funded-wallet live run
      to confirm the 4-tx sequence end-to-end (the risk here is concentrated where static checks
-     can't reach, since the mvp reference was evidently never run through — its ANCHOR_ROLE bug
+     can't reach, since the dashboard reference was evidently never run through — its ANCHOR_ROLE bug
      would have broken anchoring for every agent).**
    - ⬜ identity claim/challenge (SovereignAgent) · credit borrow/repay (A2ACapitalPool) ·
      market create/bid/settle (IntegrityMarket).

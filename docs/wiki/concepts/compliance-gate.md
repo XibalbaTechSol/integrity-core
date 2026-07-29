@@ -25,7 +25,7 @@ clone) that connects a single agent to that vertical.
 Each agent's `ComplianceGate` declares its regulated vertical
 (`None` | `Healthcare`) and exposes one live read the
 [oracle](../entities/integrity-oracle.md) and
-[dashboard](../entities/integrity-mvp.md) can call without knowing Shield's
+[dashboard](../entities/integrity-dashboard.md) can call without knowing Shield's
 internals:
 
 ```solidity

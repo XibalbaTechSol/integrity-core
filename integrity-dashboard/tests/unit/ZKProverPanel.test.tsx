@@ -1,17 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { ZKProverPanel } from '../../src/components/tabs/ZKProverPanel';
 import { useDashboard } from '../../src/context/useDashboard';
 import { mockDashboardContext } from './test-utils';
-import { api } from '../../src/services/api';
+import { oracle } from '../../src/services/oracle';
 
 vi.mock('../../src/context/useDashboard', () => ({
   useDashboard: vi.fn(),
 }));
 
-vi.mock('../../src/services/api', () => ({
-  api: {
-    generateZKProof: vi.fn(),
+vi.mock('../../src/services/oracle', () => ({
+  oracle: {
+    getAis: vi.fn(),
   },
 }));
 
@@ -25,56 +25,60 @@ describe('ZKProverPanel', () => {
     vi.clearAllMocks();
   });
 
-  it('renders initial state', () => {
+  it('renders select agent message when no agent selected', () => {
     (useDashboard as unknown).mockReturnValue({
       ...mockDashboardContext,
       selectedAgent: null,
     });
 
     render(<ZKProverPanel />);
-    expect(screen.getByText('Select an agent')).toBeInTheDocument();
-    expect(screen.getByText('Generate a proof to view verification stats.')).toBeInTheDocument();
+    expect(screen.getByText('Select an agent to view its live ZK boost.')).toBeInTheDocument();
   });
 
-  it('generates a ZK proof successfully', async () => {
+  it('renders loading state and then loads active boost status', async () => {
     (useDashboard as unknown).mockReturnValue({
       ...mockDashboardContext,
       selectedAgent: mockAgent,
-      addToast: vi.fn(),
     });
 
-    (api.generateZKProof as unknown).mockResolvedValue({
-      proof_hash: '0xproof123',
-      proof_data: '{"data": "mock"}'
+    (oracle.getAis as unknown).mockResolvedValue({
+      zk_proof_verified: true,
+      zk_boost: 1.15,
+      onchain_zk_boost_consistent: true,
     });
 
     render(<ZKProverPanel />);
     
-    const generateBtn = screen.getByRole('button', { name: /Generate Proof/i });
-    fireEvent.click(generateBtn);
+    // Check loading indicator first
+    expect(screen.getByText('Reading chain state…')).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(screen.getByText('Cryptographic Proof Verified')).toBeInTheDocument();
-      expect(screen.getByText('0xproof123')).toBeInTheDocument();
-    }, { timeout: 3000 });
+      expect(screen.getByText('Active bb-verified reputation boost')).toBeInTheDocument();
+      expect(screen.getByText('1.15×')).toBeInTheDocument();
+      expect(screen.getByText('Yes')).toBeInTheDocument();
+      expect(screen.getByText('Consistent (oracle boost matches on-chain)')).toBeInTheDocument();
+    });
   });
 
-  it('handles fallback when api fails', async () => {
+  it('renders no boost state when ZK proof not verified', async () => {
     (useDashboard as unknown).mockReturnValue({
       ...mockDashboardContext,
       selectedAgent: mockAgent,
-      addToast: vi.fn(),
     });
 
-    (api.generateZKProof as unknown).mockRejectedValue(new Error('Offline'));
+    (oracle.getAis as unknown).mockResolvedValue({
+      zk_proof_verified: false,
+      zk_boost: 1.0,
+      onchain_zk_boost_consistent: false,
+    });
 
     render(<ZKProverPanel />);
-    
-    const generateBtn = screen.getByRole('button', { name: /Generate Proof/i });
-    fireEvent.click(generateBtn);
 
     await waitFor(() => {
-      expect(screen.getByText('Cryptographic Proof Verified')).toBeInTheDocument();
-    }, { timeout: 3000 });
+      expect(screen.getByText('No active ZK boost')).toBeInTheDocument();
+      expect(screen.getByText('1.00×')).toBeInTheDocument();
+      expect(screen.getByText('No')).toBeInTheDocument();
+      expect(screen.getByText('Mismatch — oracle boost not confirmed on-chain')).toBeInTheDocument();
+    });
   });
 });

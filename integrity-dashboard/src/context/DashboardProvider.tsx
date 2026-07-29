@@ -37,9 +37,10 @@ import { onAuthStateChanged, signOut as firebaseSignOut } from 'firebase/auth';
 import type { UserResponse } from '../services/userapi';
 
 // Maps the real oracle DTOs (DID-keyed AgentSummary + AisResponse) onto the
-// legacy dashboard `Agent` shape the UI renders. The new system has no agent
-// "name" field (the DID fingerprint IS the identity), so the alias is derived
-// from the DID exactly as integrity-dashboard's AgentContext does. `eth_address` is
+// legacy dashboard `Agent` shape the UI renders. The DID fingerprint IS the identity
+// here — there is no writable "name" field — so the alias comes from the agent's own
+// on-chain XNS handle when it has claimed one, and falls back to the DID otherwise
+// (see `alias` below for the precedence). `eth_address` is
 // keyed to the DID here — the UI selects/keys agents on it, and the real
 // on-chain address is resolved later via getAgent().primitives (Class B/C
 // wiring, see docs/design/dashboard-wiring.md). Fields with no oracle source
@@ -50,7 +51,10 @@ function mapOracleAgent(summary: AgentSummary, ais: AisResponse | null): Agent {
   return {
     agent_id: summary.id,
     eth_address: summary.id,
-    alias: summary.name || `Agent ${summary.id.slice(-8)}`,
+    // XNS handle first (the protocol's on-chain naming authority), then the legacy
+    // DID-document `alsoKnownAs`, then the DID-derived fallback. An agent with no claimed
+    // handle keeps the honest `Agent <fingerprint>` label rather than inventing a name.
+    alias: summary.handle || summary.name || `Agent ${summary.id.slice(-8)}`,
     model_class: 'unknown',
     current_ais: ais?.ais ?? 0,
     verification_tier: summary.verification_tier,

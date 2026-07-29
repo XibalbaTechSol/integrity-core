@@ -16,6 +16,31 @@ identity. Nothing is registered *on behalf of* the agent by a privileged
 factory — the deployment transactions are signed by the agent's own key, so the
 chain itself is cryptographic proof of who controls what.
 
+### Persistent memory is a foundational primitive
+
+An agent that cannot carry state across sessions is not an economic actor — it is a
+stateless function invoked repeatedly. So **persistent memory sits alongside identity,
+commitment, stake, and observability as a foundational primitive of this protocol**, not as
+a convenience feature bolted on top of one.
+
+This is load-bearing, not aspirational: **an agent with no anchored memory cannot
+register.** Every agent must control a durable **Trust Vault** whose commitments are
+Merkle-anchored on its own `StateAnchor`, and must anchor a **genesis memory root** —
+signed by the agent's own controller, never by the protocol — before registration
+completes. The oracle independently re-reads `StateAnchor.latestRoot` from chain and
+refuses a zero root with `400 MemoryNotInitialized`. Content stays off-chain and
+agent-controlled; only commitments go on-chain, so memory is provable without being
+exposed.
+
+The consequences follow from that: reputation means something because the history it scores
+is one the agent itself can produce and cannot silently rewrite; copying another agent's
+vault transfers no identity, stake, or AIS, because roots are bound to the original
+`StateAnchor`. See
+[Persistent Memory, Genesis Root & Lineage](docs/wiki/concepts/agent-memory.md) for the
+full model, `docs/INTERFACE_CONTRACT.md` §4.4a for the wire-level constant, and
+[`PRODUCTION_GAPS.md`](PRODUCTION_GAPS.md) §19 for exactly what is enforced today versus
+what is still open.
+
 **Xibalba Shield** — the HIPAA/healthcare vertical — is the flagship proof that
 this works in the most heavily regulated industry there is. It's not a side
 feature; it's the demonstration that makes the rest of the protocol credible.
@@ -50,7 +75,7 @@ flowchart TB
     SDK["integrity-sdk / integrity-cli<br/>(self-deploy registration,<br/>BCC commitments, telemetry)"]
     BCC["bcc_middleware (FastAPI + OPA)<br/>(policy, HIPAA BAA check,<br/>ZK, Merkle anchoring)"]
     Oracle["integrity-oracle (Rust/Axum)<br/>(AIS scoring, telemetry ingest,<br/>on-chain reads)"]
-    MVP["integrity-dashboard (React + Python)<br/>(the one dashboard/landing app +<br/>its demo scenario engine)"]
+    Dashboard["integrity-dashboard (React + Python)<br/>(the one dashboard/landing app +<br/>its demo scenario engine)"]
 
     Wallet -->|signs direct deploys| SA
     Wallet -->|signs direct deploys| StA
@@ -64,7 +89,7 @@ flowchart TB
     SDK -->|pre-execution gate| BCC
     BCC -->|telemetry| Oracle
     Oracle -->|resolve + score| OnChain
-    Oracle --> MVP
+    Oracle --> Dashboard
 ```
 
 `bcc_middleware` and `integrity-oracle` together form one trust domain — the
@@ -165,7 +190,7 @@ and regulated actions to an autonomous agent mathematically safe: every claim
 an agent makes about its own behavior is either independently verified
 on-chain, or honestly labeled as unverified. Xibalba Shield (healthcare) is
 the flagship proof this holds in the most heavily regulated industry there
-is; the multi-vertical MVP (markets, capital allocation, wallet) proves the
+is; the multi-vertical Dashboard (markets, capital allocation, wallet) proves the
 same mechanism generalizes to any domain where trust has economic value.
 
 This section distinguishes, deliberately, **what is real and running today**
@@ -180,6 +205,7 @@ yet, and no code should ever claim otherwise.
 | Software-held secp256k1/Ed25519 keypairs (encrypted local keystore) | Hardware-bound identity: keys tethered to TEE/SGX enclaves or an HSM (AWS KMS, FIPS 140-2 Level 3), so a key can't be extracted even by whoever controls the host |
 | `did:integrity:<sha256(pubkey)>` DIDs, W3C DID Documents | Remote TEE attestation (AWS Nitro / Intel SGX) proving an agent's key is physically tethered to a verified Controller |
 | Agent self-registers all 7 primitives with its own signature as proof of control, and can self-service claim a human-readable XNS handle (`XibalbaNameService.sol`, first-come-first-served, no admin in the critical path) | Direct handle transfer between agents (today: release + separate re-claim by the new owner) and expiry/renewal semantics |
+| **Persistent memory** (spec v0.3 §4.1/§7): the agent anchors a genesis Trust Vault root on its own `StateAnchor` through its controller during registration, and the oracle independently re-reads `latestRoot`, refusing a zero root with `400 MemoryNotInitialized` | Contract-level enforcement that the protocol's `ANCHOR_ROLE` signer cannot anchor epoch 1 (§7.2), and lineage attestation for fork/migration/recovery with no automatic AIS or stake transfer (§7.4) — neither built |
 
 ### Verification ladder (roadmap — not yet gating anything)
 
@@ -237,7 +263,7 @@ architecture:
 ### Decentralization path
 
 Today, Xibalba Solutions LLC operates the oracle, the demo resolver, and
-policy defaults as a single operator — appropriate for a testnet MVP, not
+policy defaults as a single operator — appropriate for a testnet Dashboard, not
 the end state:
 
 1. **Phase 1 — Human-in-the-loop (current).** Xibalba Solutions manages OPA
@@ -245,7 +271,7 @@ the end state:
    directly.
 2. **Phase 2 — Hybrid council (roadmap).** Governance shared between human
    stakeholders and a council of Tier-3 Institutional agents that sustain a
-   950+ AIS over a sustained period — the same mechanism this MVP's
+   950+ AIS over a sustained period — the same mechanism this Dashboard's
    `IntegrityMarket.RESOLVER_ROLE` is a deliberately-labeled stand-in for
    (see `contracts/src/markets/IntegrityMarket.sol`'s NatSpec): a syndicate
    of high-AIS agents, not one operator key, eventually resolves markets.
@@ -269,7 +295,7 @@ the end state:
    today's direct-funding faucet model (`chain.fund_agent_wallet`) — not
    built yet.
 
-### Advanced primitives (roadmap, explicitly out of scope for the current MVP)
+### Advanced primitives (roadmap, explicitly out of scope for the current Dashboard)
 
 Named here so they're tracked, not forgotten, and so nothing in this repo
 should be mistaken for having built them:
@@ -356,6 +382,35 @@ The protocol genesis is deployed and verified on Base Sepolia. Full record in
 Per-agent primitive addresses are **not** in the static deployments file — they
 are resolved live from `XibalbaAgentRegistry` on-chain (and cached by the
 oracle). See [`docs/INTERFACE_CONTRACT.md`](docs/INTERFACE_CONTRACT.md) §6.
+
+### Testnet $ITK liquidity comes from an agent, not an operator
+
+`xibalba.integrity` is the protocol's **testnet ITK liquidity source**. Its
+`SovereignAgent` (`0x360E2a56…`) holds `MINTER_ROLE` on `IntegrityToken`, and mints are
+routed `SovereignAgent.execute → IntegrityToken.mint`, signed by the agent's own
+controller (`integrity_sdk.chain.mint_testnet_itk_from_treasury`). Every issued token is
+therefore attributable on-chain to a registered agent rather than to an operator key —
+the same self-sovereign routing used for anchoring and XNS claims. This is deliberately
+exercised on testnet first, so the flow's rough edges surface before any mainnet
+deployment.
+
+Registration draws from this agent when `INTEGRITY_LIQUIDITY_AGENT` names a locally
+available liquidity agent, falling back to a funder mint (with a warning) otherwise. The
+fallback is structural, not laziness: `SovereignAgent.execute` is controller-only, so
+minting through the agent requires its controller key on the machine — true for this
+single-operator testnet, false for a third party registering their own agent, which would
+need a faucet service the liquidity agent runs. The funder EOA retains `MINTER_ROLE` as
+issuer of last resort. See [`PRODUCTION_GAPS.md`](PRODUCTION_GAPS.md) §20.
+
+**Known non-conformance, stated plainly:** registration now enforces spec v0.3 §4.1/§7.1
+— an agent with no anchored genesis memory root is refused with `400
+MemoryNotInitialized`, and `integrity-sdk` anchors that root during registration. But
+`StateAnchor` is deployed **per agent**, and every agent registered before this change —
+all 7 currently live, including `xibalba.integrity` — still reports `latestRoot == 0`.
+They remain registered (the gate only runs at registration) and are therefore registered
+agents that do not satisfy the protocol's own persistent-memory primitive until a
+controller-signed `anchorRoot` is sent for each. Full detail, plus the six untouched
+Appendix A gaps, in [`PRODUCTION_GAPS.md`](PRODUCTION_GAPS.md) §19.
 
 ---
 

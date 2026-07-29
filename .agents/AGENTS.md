@@ -72,7 +72,7 @@ that, in the code AND in the wiki that describes it.
 | `integrity-cli/` | Python/Typer developer CLI | `entities/integrity-cli.md` |
 | `bcc_middleware/` | FastAPI + OPA pre-execution policy gating (part of the Oracle trust domain, see §6.10) | `entities/bcc_middleware.md` |
 | `integrity-userapi/` | FastAPI + Postgres user accounts/auth — strictly non-chain | `entities/integrity-userapi.md` |
-| `integrity-mvp/` | React/Vite/TS — the ONE dashboard/landing app, plus `demo/` (Python closed-loop scenario engine). Merged from the former `integrity-dashboard/` + `integrity-demo/` so there's exactly one product surface. | `entities/integrity-mvp.md` |
+| `integrity-dashboard/` | React/Vite/TS — the ONE dashboard/landing app, plus `demo/` (Python closed-loop scenario engine). | `entities/integrity-dashboard.md` |
 
 If this list diverges from what's actually in the repo, fix this table AND
 the wiki in the same pass — don't let them drift apart.
@@ -98,7 +98,7 @@ losing the parallel-subagent mechanism that made it actually scale):
 **Phase 1 — COVERAGE DISCOVERY**
 1. Run that package's real test runner (`forge test`, `nargo test`,
    `cargo test`, `pytest`, `npm test`/`vitest`) — not just typecheck. If the
-   change touches an `integrity-mvp` page, also run `make test-e2e`
+   change touches an `integrity-dashboard` page, also run `make test-e2e`
    (Playwright, real browser against a real backend stack — see
    `docs/TESTING.md`); it's a separate, slower layer from `npm test`'s
    component tests, not a substitute for it.

@@ -85,12 +85,12 @@ The DB is a convenience index; the on-chain `verifyLeaf` is the trust anchor.
 - A versioned `reason_code/intent_type → {framework, control_id, control_title}` map. v1 static
   (checked-in JSON); later sourced from the Lever 3 compliance packs so it's authoritative.
 
-### Phase C — export endpoint + report (`integrity-oracle` + `integrity-mvp`)
+### Phase C — export endpoint + report (`integrity-oracle` + `integrity-dashboard`)
 - `GET /v1/evidence?agent_id=&from=&to=&framework=` → structured JSON: each decision with its
   control, its leaf, and (if anchored) `{root, tx_hash, anchored_at}` + verify instructions;
   plus a summary (counts by control, % anchored, would-be-blocks if shadow).
 - Sign the report payload (oracle signer) so the export file itself is attributable.
-- MVP: an "Export evidence" action on `ShieldPage` / diagnostics that downloads JSON now,
+- Dashboard: an "Export evidence" action on `ShieldPage` / diagnostics that downloads JSON now,
   PDF later. Reuse `AuditLogsPanel`'s existing query plumbing.
 
 ## Files to touch
@@ -98,7 +98,7 @@ The DB is a convenience index; the on-chain `verifyLeaf` is the trust anchor.
   `tests/test_audit*.py` / a new `tests/test_evidence_linkage.py`.
 - `integrity-oracle/backend/src/handlers.rs`, `db.rs`, `openapi.rs` (Phase B/C) — plus backend
   tests; keep `spec/ais-api/v1/openapi.yaml` in sync.
-- `integrity-mvp/src/services/oracle.ts` (+ DTO), a new `EvidenceExport` component, wired into
+- `integrity-dashboard/src/services/oracle.ts` (+ DTO), a new `EvidenceExport` component, wired into
   `ShieldPage`.
 
 ## Test plan (real, no mocks)

@@ -6,9 +6,10 @@ import {
     Coins, ArrowDownLeft, Loader2,
     Copy, ShieldCheck, Landmark, X, ArrowUpRight, ArrowDownRight, Fingerprint
 } from 'lucide-react';
-import { ITK_TOKEN_ADDRESS } from '../../constants';
+import { ITK_TOKEN_ADDRESS, RPC_URL } from '../../constants';
 import ITK_ABI from '../abi/IntegrityToken.json';
 import { useDashboard } from '../../context/useDashboard';
+import { oracle } from '../../services/oracle';
 
 interface Transaction {
     hash: string;
@@ -56,7 +57,27 @@ export const TokenWallet = () => {
             let activeProvider: ethers.BrowserProvider | ethers.JsonRpcProvider | null = null;
             const ethereum = (window as Window & typeof globalThis & { ethereum?: any }).ethereum;
 
-            if (ethereum) {
+            // Agent treasury FIRST. This dashboard is agent-centric: the headline
+            // "ITK BALANCE (TESTNET)" is the selected agent's on-chain treasury, held by its
+            // SovereignAgent contract. Previously any connected browser wallet won this
+            // race, so the panel showed the operator EOA's balance (typically 0) while the
+            // agent's real ITK sat invisible.
+            //
+            // `eth_address` carries the agent's DID, NOT an EVM address (see
+            // DashboardProvider's mapOracleAgent), so it can never go to `balanceOf`
+            // directly — resolve the real SovereignAgent through the oracle, which reads
+            // `IntegrityToken.balanceOf(sovereignAgent)` on-chain itself.
+            if (selectedAgent?.eth_address) {
+                try {
+                    const wallet = await oracle.getWallet(selectedAgent.eth_address);
+                    activeAddr = wallet.sovereign_agent;
+                    activeProvider = new ethers.JsonRpcProvider(RPC_URL);
+                } catch (e) {
+                    console.error('Could not resolve the agent SovereignAgent address', e);
+                }
+            }
+
+            if (!activeAddr && ethereum) {
                 try {
                     const provider = new ethers.BrowserProvider(ethereum);
                     const accounts = await provider.listAccounts();
@@ -69,12 +90,7 @@ export const TokenWallet = () => {
 
             if (!activeAddr && appWalletAddress) {
                 activeAddr = appWalletAddress;
-                activeProvider = new ethers.JsonRpcProvider("https://sepolia.base.org");
-            }
-
-            if (!activeAddr && selectedAgent?.eth_address) {
-                activeAddr = selectedAgent.eth_address;
-                activeProvider = new ethers.JsonRpcProvider("https://sepolia.base.org");
+                activeProvider = new ethers.JsonRpcProvider(RPC_URL);
             }
 
             setAddress(activeAddr);

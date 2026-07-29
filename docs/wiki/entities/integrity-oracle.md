@@ -75,7 +75,7 @@ compliance → nonce replay → storage):
 
 ### `GET /v1/agent/{id}/telemetry`, `GET /v1/agent/{id}/traces`
 
-Real history queries returning lists of past telemetry events and judge traces respectively, queried directly from Postgres (`telemetry_events` and `judge_evaluations` tables) and returned as structured DTO arrays. Used by the MVP UI to render live feeds and historical execution logs.
+Real history queries returning lists of past telemetry events and judge traces respectively, queried directly from Postgres (`telemetry_events` and `judge_evaluations` tables) and returned as structured DTO arrays. Used by the Dashboard UI to render live feeds and historical execution logs.
 
 
 **The honesty crux:** `POST /v1/agent/register` independently calls

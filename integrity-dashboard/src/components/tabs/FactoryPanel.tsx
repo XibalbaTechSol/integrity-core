@@ -302,7 +302,7 @@ export function FactoryPanel() {
   const lineCount = code.split('\n').length;
 
   return (
-    <div className="flex-col gap-6">
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
       {/* Visual Assertions for Testing Compatibility */}
       <span style={{ display: 'none' }}>Contract Logic Template</span>
 
@@ -312,10 +312,7 @@ export function FactoryPanel() {
           display: 'grid', 
           gridTemplateColumns: isMobile ? '1fr' : '240px 1fr 340px', 
           background: '#141417', 
-          border: '1px solid var(--glass-border)', 
-          borderRadius: 'var(--radius-md)',
-          height: isMobile ? 'auto' : 'calc(100vh - 180px)',
-          minHeight: isMobile ? 'auto' : '650px',
+          flex: 1,
           overflow: 'hidden'
         }}
       >

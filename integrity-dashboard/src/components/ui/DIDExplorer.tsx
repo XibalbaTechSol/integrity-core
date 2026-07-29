@@ -19,8 +19,11 @@ export const DIDExplorer: React.FC<DIDExplorerProps> = ({ agent }) => {
     const [isLoading, setIsLoading] = useState(true);
     // eth_address already holds the agent's DID, so never re-wrap an already-qualified DID
     // (that produced a malformed did:xibalba:did:integrity:… string).
+    // Optional-chained on `agent` too: this runs on every render, including the one where
+    // `agent` is null, and the `if (!agent) return null` guard below is far too late to
+    // stop a bare `agent.eth_address` from throwing first.
     const canonicalDid = didDoc?.id
-        || (agent.eth_address?.startsWith('did:') ? agent.eth_address : `did:xibalba:${agent.eth_address}`);
+        || (agent?.eth_address?.startsWith('did:') ? agent.eth_address : `did:xibalba:${agent?.eth_address}`);
     const [activeView, setActiveView] = useState<'did' | 'vc' | 'raw'>('did');
 
     const downloadDID = () => {

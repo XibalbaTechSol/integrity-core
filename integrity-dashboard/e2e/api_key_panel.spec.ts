@@ -17,9 +17,10 @@ test.describe('APIKeyPanel Feature', () => {
           contentType: 'application/json',
           body: JSON.stringify([
             {
-              api_key: 'test_key_abc123def456ghi789jkl012',
+              id: 'test_key_abc123def456ghi789jkl012',
+              ais_trust_ceiling: 300,
+              revoked_at: null,
               created_at: new Date().toISOString(),
-              expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
             },
           ]),
         });
@@ -28,9 +29,11 @@ test.describe('APIKeyPanel Feature', () => {
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify({
-            api_key: 'new_test_key_9876543210zyxwvuts',
+            id: 'new_test_key_9876543210zyxwvuts',
+            raw_key: 'new_test_key_9876543210zyxwvuts',
+            ais_trust_ceiling: 300,
+            revoked_at: null,
             created_at: new Date().toISOString(),
-            expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
           }),
         });
       } else if (method === 'DELETE' && request.url().includes('keys')) {
@@ -44,10 +47,37 @@ test.describe('APIKeyPanel Feature', () => {
       }
     });
 
-    // Navigate to the page containing the APIKeyPanel
-    await page.goto('/integrity/#/integrity'); 
-    await page.getByRole('button', { name: 'Identity', exact: true }).click();
-    await page.getByRole('button', { name: 'API Keys', exact: true }).click();
+    // We mock localStorage so that the DashboardProvider initializes auth with our mock user
+    await page.addInitScript(() => {
+      window.localStorage.setItem('firebase:mock_user', JSON.stringify({
+        uid: 'test-user',
+        email: 'test@xibalba.io',
+        name: 'Test Xibalba User',
+        photoURL: 'https://example.com/test-photo.png'
+      }));
+      window.sessionStorage.setItem('integrity_userapi_jwt', 'mock-jwt-token-12345');
+    });
+
+    // Intercept user profile fetch
+    await page.route('**/api/v1/user/me', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          uid: 'test-user',
+          email: 'test@xibalba.io',
+          name: 'Test Xibalba User',
+          photoURL: 'https://example.com/test-photo.png'
+        })
+      });
+    });
+
+    // Navigate to the dashboard
+    await page.goto('/integrity/#/integrity');
+
+    // Click profile avatar to open menu, then click Settings
+    await page.locator('aside img[alt="Profile"]').first().click();
+    await page.getByRole('button', { name: 'Settings' }).click();
   });
 
   test('should render the APIKeyPanel correctly with initial state', async ({ page }) => {
@@ -71,9 +101,6 @@ test.describe('APIKeyPanel Feature', () => {
   });
 
   test('should generate a new API key and handle copying to clipboard', async ({ page }) => {
-    // Select expiration time
-    await page.locator('select').selectOption('90');
-    
     // Click generate button
     await page.getByRole('button', { name: 'Generate Key' }).click();
     
@@ -119,12 +146,9 @@ test.describe('APIKeyPanel Feature', () => {
     
     // Validate that inputs and buttons don't exceed screen width
     const generateButton = page.getByRole('button', { name: 'Generate Key' });
-    const select = page.locator('select');
     
     const btnBox = await generateButton.boundingBox();
-    const selectBox = await select.boundingBox();
     
     expect(btnBox?.width).toBeLessThanOrEqual(375);
-    expect(selectBox?.width).toBeLessThanOrEqual(375);
   });
 });

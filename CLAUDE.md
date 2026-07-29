@@ -35,7 +35,7 @@ enforcement mechanism (see `docs/TESTING.md`).
 | `integrity-cli/` | Python/Typer | Developer CLI — independent reimplementation of SDK's core flows, not a wrapper around it |
 | `bcc_middleware/` | Python/FastAPI + OPA | Pre-execution policy gate agents call before acting on an intent |
 | `integrity-userapi/` | Python/FastAPI + Postgres | User-account service, deliberately isolated trust domain from the oracle's DB |
-| `integrity-mvp/` | React/Vite/TS | Dashboard frontend — see "Known gaps" below, much of it is still mock data |
+| `integrity-dashboard/` | React/Vite/TS | Dashboard frontend — see "Known gaps" below, much of it is still mock data |
 | `docs/wiki/` | Markdown | Compiled long-term memory; governed by `.agents/AGENTS.md` |
 
 Read `.agents/AGENTS.md` before any session that materially changes code — it defines a
@@ -55,8 +55,8 @@ make chain      # start a local anvil chain + run contracts/script/Deploy.s.sol 
 make sync-abis  # forge build, then trim ABIs into scripts/sync_abis.py's output for Python callers
 make up         # docker-compose: postgres, redis, opa, oracle-backend, bcc-middleware, dashboard, userapi(+its own postgres)
 make test       # every package's real test suite (forge/nargo/cargo/pytest x4/npm)
-make test-e2e   # real-browser Playwright e2e against a freshly booted stack (integrity-mvp)
-make demo       # integrity-mvp/demo scenario engine against live Base Sepolia by default — needs FUNDER_PRIVATE_KEY + INTEGRITY_WALLET_PASSWORD
+make test-e2e   # real-browser Playwright e2e against a freshly booted stack (integrity-dashboard)
+make demo       # integrity-dashboard/demo scenario engine against live Base Sepolia by default — needs FUNDER_PRIVATE_KEY + INTEGRITY_WALLET_PASSWORD
 ```
 
 Per-package, when iterating on one piece:
@@ -84,10 +84,10 @@ cd <pkg> && uv venv .venv && uv pip install -e ".[dev]"
 cd <pkg> && .venv/bin/python -m pytest tests/          # sdk: 97 tests, cli: 49 tests, bcc_middleware: 49 tests
 cd bcc_middleware && opa test policies/ -v             # 12 OPA policy tests, separate from pytest
 
-# integrity-mvp/  (Vite/React 19/TS)
-cd integrity-mvp && npm run dev
-cd integrity-mvp && npm run build     # tsc -b && vite build
-cd integrity-mvp && npm run lint      # oxlint
+# integrity-dashboard/  (Vite/React 19/TS)
+cd integrity-dashboard && npm run dev
+cd integrity-dashboard && npm run build     # tsc -b && vite build
+cd integrity-dashboard && npm run lint      # oxlint
 ```
 
 To run a single test: `forge test --match-test <name>` / `forge test --match-contract <Contract>`;
@@ -116,6 +116,28 @@ bridge), `markets/` (agent-owned prediction markets + capital pool), `shield/` (
 `UltraPlonkVerifier.sol` is an explicit placeholder that reverts (fails *closed*) until replaced
 wholesale by `make generate-verifier`, which runs `integrity-zkp`'s `bb write_solidity_verifier`
 pipeline — comment in the file says "WILL BE REPLACED WHOLESALE, NOT EDITED."
+
+### Persistent memory is a foundational primitive (spec v0.3 §4.1) — it gates registration
+
+Memory is not a convenience layer here; it ranks with identity, commitment, stake, and
+observability. **An agent with no anchored memory cannot register.** Every agent must
+anchor a *genesis memory root* on its own `StateAnchor` — signed by the agent's controller,
+never by the protocol — and the oracle independently re-reads `StateAnchor.latestRoot` on
+`POST /v1/agent/register`, refusing a zero root with `400 MemoryNotInitialized`
+(`ChainClient::memory_state` → `AppError::MemoryNotInitialized`). `integrity-sdk`'s
+`registration.py` does this as step 8b, *before* `registerPrimitives`, per the spec's
+required ordering.
+
+Note it needs no 8th contract — the PrimitiveSet stays 7 addresses, and memory rides on
+`StateAnchor` (primitive #2). Agent-authorized genesis works because `StateAnchor`'s admin
+*is* the `SovereignAgent`, which the constructor grants `ANCHOR_ROLE`. The empty-vault
+sentinel `keccak256("integrity.trust-vault.genesis.v1")` is pinned in
+`docs/INTERFACE_CONTRACT.md` §4.4a — derive it, never copy the hex.
+
+Two things remain open and are recorded in `PRODUCTION_GAPS.md` §19: contract-level
+enforcement that `ANCHOR_ROLE` cannot anchor epoch 1 (blocked because `StateAnchor` is
+deployed *per agent*, so a contract change reaches only future agents), and lineage
+attestation. All 7 agents registered before this change still report `latestRoot == 0`.
 
 ### ZK proof pipeline (the reputation boost)
 
@@ -182,13 +204,13 @@ change in one automatically applies to the other.
 
 ## Known gaps / things this doc's own exploration found stale — verify before relying on them
 
-- `integrity-mvp/package.json` has no `test` script, though root `Makefile`'s `test` target and
-  `docs/TESTING.md` both invoke `cd integrity-mvp && npm test`.
-- `integrity-mvp/demo/` (the Python scenario engine `make demo` depends on) does not exist yet on
+- `integrity-dashboard/package.json` has no `test` script, though root `Makefile`'s `test` target and
+  `docs/TESTING.md` both invoke `cd integrity-dashboard && npm test`.
+- `integrity-dashboard/demo/` (the Python scenario engine `make demo` depends on) does not exist yet on
   disk, despite being referenced by the root README, Makefile, `docs/TESTING.md`,
   `.agents/AGENTS.md`, and `docs/INTERFACE_CONTRACT.md` §11.
-- `integrity-mvp/src/services/api.ts` and `AgentContext.tsx` are currently hardcoded mock data,
-  not real calls to `integrity-oracle` — despite `docs/wiki/entities/integrity-mvp.md`
+- `integrity-dashboard/src/services/api.ts` and `AgentContext.tsx` are currently hardcoded mock data,
+  not real calls to `integrity-oracle` — despite `docs/wiki/entities/integrity-dashboard.md`
   describing a much more built-out frontend (real axios API clients, JWT auth, a Playwright
   `e2e/` suite) whose files don't currently exist in the tree. Trust the code over that wiki page
   until reconciled. No wagmi/viem/ethers wallet-connection library is present in the frontend at

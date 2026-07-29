@@ -1,5 +1,5 @@
 // SovereignAgent + StateAnchor deploy bytecode and ABIs, copied verbatim from the
-// forge build artifacts (integrity-mvp/src/chain/bytecode.ts is the sibling copy).
+// forge build artifacts (integrity-dashboard/src/chain/bytecode.ts is the sibling copy).
 // Used by RegisterAgentModal to deploy an agent's own account + anchor contracts before
 // AgentPrimitivesFactory.registerPrimitives clones the remaining 5 primitives.
 // Provenance: contracts/out/{SovereignAgent,StateAnchor}.sol/*.json (solc 0.8.28,

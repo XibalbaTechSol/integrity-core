@@ -3,8 +3,15 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { AgentOnboarding } from '../../src/components/ui/AgentOnboarding';
 import axios from 'axios';
 import { ethers } from 'ethers';
+import { getToken } from '../../src/services/userapi';
 
 vi.mock('axios');
+vi.mock('../../src/services/userapi', () => ({
+  getToken: vi.fn(() => 'mock_jwt_token'),
+  setToken: vi.fn(),
+  clearToken: vi.fn(),
+  userapi: { listApiKeys: vi.fn().mockResolvedValue([]), createApiKey: vi.fn(), revokeApiKey: vi.fn() },
+}));
 vi.mock('ethers', async (importOriginal) => {
   const actual = await importOriginal();
   return {
@@ -35,12 +42,12 @@ describe('AgentOnboarding', () => {
 
   beforeEach(() => {
     vi.resetAllMocks();
-    localStorage.setItem('integrity_mock_token', 'mock_token');
+    (getToken as any).mockReturnValue('mock_jwt_token');
     window.alert = vi.fn();
   });
 
   afterEach(() => {
-    localStorage.clear();
+    vi.restoreAllMocks();
   });
 
   it('renders nothing when isOpen is false', () => {

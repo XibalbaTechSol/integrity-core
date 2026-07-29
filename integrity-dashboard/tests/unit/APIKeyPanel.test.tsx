@@ -1,30 +1,33 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { APIKeyPanel } from '../../src/components/tabs/APIKeyPanel';
 import { useDashboard } from '../../src/context/useDashboard';
 import { mockDashboardContext } from './test-utils';
-import { api } from '../../src/services/api';
+import { userapi, getToken } from '../../src/services/userapi';
 
 vi.mock('../../src/context/useDashboard', () => ({
   useDashboard: vi.fn(),
 }));
 
-vi.mock('../../src/services/api', () => ({
-  api: {
-    getApiKeys: vi.fn(),
-    generateApiKey: vi.fn(),
-    deleteApiKey: vi.fn(),
+vi.mock('../../src/services/userapi', () => ({
+  getToken: vi.fn(),
+  userapi: {
+    listApiKeys: vi.fn(),
+    createApiKey: vi.fn(),
+    revokeApiKey: vi.fn(),
   },
 }));
 
 describe('APIKeyPanel', () => {
   const mockKeys = [
-    { api_key: 'sk-existing-123', created_at: new Date().toISOString(), expires_at: new Date().toISOString() }
+    { id: 'key-id-123456789012', created_at: new Date().toISOString(), ais_trust_ceiling: 300, revoked_at: null }
   ];
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (api.getApiKeys as unknown).mockResolvedValue(mockKeys);
+    // Mock as authenticated
+    (getToken as any).mockReturnValue('mock-jwt-token');
+    (userapi.listApiKeys as any).mockResolvedValue(mockKeys);
     // Mock clipboard
     Object.assign(navigator, {
       clipboard: {
@@ -39,7 +42,7 @@ describe('APIKeyPanel', () => {
     render(<APIKeyPanel />);
     
     await waitFor(() => {
-      expect(screen.getByText(/sk-existing/i)).toBeInTheDocument();
+      expect(screen.getByText(/key-id-12345/i)).toBeInTheDocument();
       expect(screen.getByText(/Generate Key/i)).toBeInTheDocument();
     });
   });
@@ -51,10 +54,12 @@ describe('APIKeyPanel', () => {
       addToast: addToastMock,
     });
 
-    (api.generateApiKey as unknown).mockResolvedValue({ 
-      api_key: 'sk-123456789', 
+    (userapi.createApiKey as any).mockResolvedValue({ 
+      id: 'new-key-id',
+      raw_key: 'itk_sk_123456789', 
       created_at: new Date().toISOString(),
-      expires_at: new Date().toISOString() 
+      ais_trust_ceiling: 300,
+      revoked_at: null,
     });
 
     render(<APIKeyPanel />);
@@ -64,18 +69,20 @@ describe('APIKeyPanel', () => {
     fireEvent.click(genBtn);
 
     await waitFor(() => {
-      expect(api.generateApiKey).toHaveBeenCalled();
-      expect(screen.getByDisplayValue('sk-123456789')).toBeInTheDocument();
+      expect(userapi.createApiKey).toHaveBeenCalled();
+      expect(screen.getByDisplayValue('itk_sk_123456789')).toBeInTheDocument();
       expect(addToastMock).toHaveBeenCalledWith('success', expect.stringContaining('generated'));
     });
   });
 
   it('copies key to clipboard', async () => {
     (useDashboard as unknown).mockReturnValue(mockDashboardContext);
-    (api.generateApiKey as unknown).mockResolvedValue({ 
-      api_key: 'sk-123456789',
+    (userapi.createApiKey as any).mockResolvedValue({ 
+      id: 'new-key-id',
+      raw_key: 'itk_sk_123456789',
       created_at: new Date().toISOString(),
-      expires_at: new Date().toISOString()
+      ais_trust_ceiling: 300,
+      revoked_at: null,
     });
 
     render(<APIKeyPanel />);
@@ -83,12 +90,12 @@ describe('APIKeyPanel', () => {
     await waitFor(() => screen.getByRole('button', { name: /Generate Key/i }));
     fireEvent.click(screen.getByRole('button', { name: /Generate Key/i }));
     
-    await waitFor(() => screen.getByDisplayValue('sk-123456789'));
+    await waitFor(() => screen.getByDisplayValue('itk_sk_123456789'));
 
     const copyBtn = screen.getAllByRole('button').find(b => b.textContent?.includes('Copy'));
     if (copyBtn) fireEvent.click(copyBtn);
 
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('sk-123456789');
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('itk_sk_123456789');
   });
 
   it('deletes a key successfully', async () => {
@@ -99,19 +106,20 @@ describe('APIKeyPanel', () => {
     });
     
     window.confirm = vi.fn().mockReturnValue(true);
-    (api.deleteApiKey as unknown).mockResolvedValue({ status: 'deleted' });
+    (userapi.revokeApiKey as any).mockResolvedValue({});
 
     render(<APIKeyPanel />);
     
-    await waitFor(() => screen.getByTitle('Delete Key'));
-    const deleteBtn = screen.getByTitle('Delete Key');
+    await waitFor(() => screen.getByTitle('Revoke Key'));
+    const deleteBtn = screen.getByTitle('Revoke Key');
     fireEvent.click(deleteBtn);
 
     await waitFor(() => {
-      expect(api.deleteApiKey).toHaveBeenCalledWith('sk-existing-123');
-      expect(addToastMock).toHaveBeenCalledWith('success', expect.stringContaining('deleted'));
+      expect(userapi.revokeApiKey).toHaveBeenCalledWith('key-id-123456789012');
+      expect(addToastMock).toHaveBeenCalledWith('success', expect.stringContaining('revoked'));
     });
   });
+
   it('handles error fetching keys', async () => {
     const addToastMock = vi.fn();
     (useDashboard as unknown).mockReturnValue({
@@ -119,7 +127,7 @@ describe('APIKeyPanel', () => {
       addToast: addToastMock,
     });
 
-    (api.getApiKeys as unknown).mockRejectedValue(new Error('Fetch failed'));
+    (userapi.listApiKeys as any).mockRejectedValue(new Error('Fetch failed'));
 
     render(<APIKeyPanel />);
     await waitFor(() => {
@@ -134,20 +142,17 @@ describe('APIKeyPanel', () => {
       addToast: addToastMock,
     });
 
-    (api.generateApiKey as unknown).mockRejectedValue(new Error('Generate failed'));
+    (userapi.createApiKey as any).mockRejectedValue(new Error('Generate failed'));
 
     render(<APIKeyPanel />);
     
     await waitFor(() => screen.getByRole('button', { name: /Generate Key/i }));
-    
-    const select = screen.getByRole('combobox');
-    fireEvent.change(select, { target: { value: '90' } });
 
     const genBtn = screen.getByRole('button', { name: /Generate Key/i });
     fireEvent.click(genBtn);
 
     await waitFor(() => {
-      expect(api.generateApiKey).toHaveBeenCalledWith(90);
+      expect(userapi.createApiKey).toHaveBeenCalled();
       expect(addToastMock).toHaveBeenCalledWith('error', 'Failed to generate API Key: Generate failed');
     });
   });
@@ -160,28 +165,28 @@ describe('APIKeyPanel', () => {
     });
     
     window.confirm = vi.fn().mockReturnValue(true);
-    (api.deleteApiKey as unknown).mockRejectedValue(new Error('Delete failed'));
+    (userapi.revokeApiKey as any).mockRejectedValue(new Error('Revoke failed'));
 
     render(<APIKeyPanel />);
     
-    await waitFor(() => screen.getByTitle('Delete Key'));
-    const deleteBtn = screen.getByTitle('Delete Key');
+    await waitFor(() => screen.getByTitle('Revoke Key'));
+    const deleteBtn = screen.getByTitle('Revoke Key');
     fireEvent.click(deleteBtn);
 
     await waitFor(() => {
-      expect(addToastMock).toHaveBeenCalledWith('error', 'Failed to delete API Key: Delete failed');
+      expect(addToastMock).toHaveBeenCalledWith('error', 'Failed to revoke API Key: Revoke failed');
     });
   });
 
-  it('copies existing key from the list', async () => {
+  it('copies existing key ID from the list', async () => {
     (useDashboard as unknown).mockReturnValue(mockDashboardContext);
     
     render(<APIKeyPanel />);
     
-    await waitFor(() => screen.getByTitle('Copy Key'));
-    const copyBtn = screen.getByTitle('Copy Key');
+    await waitFor(() => screen.getByTitle('Copy key ID'));
+    const copyBtn = screen.getByTitle('Copy key ID');
     fireEvent.click(copyBtn);
 
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('sk-existing-123');
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('key-id-123456789012');
   });
 });
