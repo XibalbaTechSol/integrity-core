@@ -1043,9 +1043,17 @@ pub async fn agent_token_usage(
 ) -> Result<Vec<(String, f64)>, sqlx::Error> {
     sqlx::query_as::<_, (String, f64)>(
         r#"
-        SELECT COALESCE(attributes->>'type', 'unspecified') AS token_type, SUM(value) AS total
-        FROM otel_metrics
-        WHERE agent_id = $1 AND unit = 'tokens' AND time >= $2
+        -- Per-series first, then across series. A cumulative counter reports its running
+        -- total every export, so summing its data points multiplies usage by the number of
+        -- exports; MAX is the correct reducer there (monotonic => max is the latest total).
+        -- Delta points are increments and must be summed. See migration 0009.
+        SELECT token_type, SUM(series_total) AS total FROM (
+            SELECT COALESCE(attributes->>'type', 'unspecified') AS token_type,
+                   CASE WHEN temporality = 'cumulative' THEN MAX(value) ELSE SUM(value) END AS series_total
+            FROM otel_metrics
+            WHERE agent_id = $1 AND unit = 'tokens' AND time >= $2
+            GROUP BY 1, attributes, temporality
+        ) per_series
         GROUP BY 1
         ORDER BY 1
         "#,
@@ -1065,9 +1073,14 @@ pub async fn agent_cost_usage(
 ) -> Result<Vec<(String, f64)>, sqlx::Error> {
     sqlx::query_as::<_, (String, f64)>(
         r#"
-        SELECT COALESCE(attributes->>'model', 'unspecified') AS model, SUM(value) AS total
-        FROM otel_metrics
-        WHERE agent_id = $1 AND unit = 'USD' AND time >= $2
+        -- Same cumulative-vs-delta reduction as agent_token_usage.
+        SELECT model, SUM(series_total) AS total FROM (
+            SELECT COALESCE(attributes->>'model', 'unspecified') AS model,
+                   CASE WHEN temporality = 'cumulative' THEN MAX(value) ELSE SUM(value) END AS series_total
+            FROM otel_metrics
+            WHERE agent_id = $1 AND unit = 'USD' AND time >= $2
+            GROUP BY 1, attributes, temporality
+        ) per_series
         GROUP BY 1
         ORDER BY 2 DESC
         "#,
@@ -1124,6 +1137,7 @@ pub async fn insert_otel_metric(
     description: Option<&str>,
     unit: Option<&str>,
     data_type: &str,
+    temporality: &str,
     value: f64,
     attributes: &serde_json::Value,
     start_time: Option<DateTime<Utc>>,
@@ -1133,8 +1147,8 @@ pub async fn insert_otel_metric(
     sqlx::query(
         r#"
         INSERT INTO otel_metrics
-            (id, agent_id, name, description, unit, data_type, value, attributes, start_time, time, evidence_tier)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            (id, agent_id, name, description, unit, data_type, temporality, value, attributes, start_time, time, evidence_tier)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         "#,
     )
     .bind(id)
@@ -1143,6 +1157,7 @@ pub async fn insert_otel_metric(
     .bind(description)
     .bind(unit)
     .bind(data_type)
+    .bind(temporality)
     .bind(value)
     .bind(attributes)
     .bind(start_time)

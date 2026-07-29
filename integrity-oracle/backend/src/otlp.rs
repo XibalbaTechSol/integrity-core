@@ -110,6 +110,10 @@ pub const EVIDENCE_TIER_UNSIGNED_VENDOR: &str = "unsigned_vendor";
 /// single shape `otel_metrics` stores.
 struct MetricPoint {
     data_type: &'static str,
+    /// OTel aggregation temporality. Load-bearing for correctness, not metadata: cumulative
+    /// points carry a running total (so a rollup must take the max per series), delta points
+    /// carry an increment (so a rollup must sum). See migration 0009.
+    temporality: &'static str,
     value: f64,
     attributes: serde_json::Value,
     start_time: Option<DateTime<Utc>>,
@@ -134,6 +138,14 @@ fn metric_points(metric: &opentelemetry_proto::tonic::metrics::v1::Metric) -> Ve
     fn start(nanos: u64) -> Option<DateTime<Utc>> {
         (nanos > 0).then(|| nanos_to_datetime(nanos))
     }
+    // AggregationTemporality: 1 = DELTA, 2 = CUMULATIVE (opentelemetry proto metrics/v1).
+    fn temporality_name(t: i32) -> &'static str {
+        match t {
+            1 => "delta",
+            2 => "cumulative",
+            _ => "unspecified",
+        }
+    }
 
     match &metric.data {
         Some(MetricData::Sum(sum)) => sum
@@ -141,6 +153,7 @@ fn metric_points(metric: &opentelemetry_proto::tonic::metrics::v1::Metric) -> Ve
             .iter()
             .map(|p| MetricPoint {
                 data_type: "sum",
+                temporality: temporality_name(sum.aggregation_temporality),
                 value: number_value(p),
                 attributes: kv_list_to_json(&p.attributes),
                 start_time: start(p.start_time_unix_nano),
@@ -152,6 +165,8 @@ fn metric_points(metric: &opentelemetry_proto::tonic::metrics::v1::Metric) -> Ve
             .iter()
             .map(|p| MetricPoint {
                 data_type: "gauge",
+                // A gauge is a point-in-time reading; neither delta nor cumulative applies.
+                temporality: "unspecified",
                 value: number_value(p),
                 attributes: kv_list_to_json(&p.attributes),
                 start_time: start(p.start_time_unix_nano),
@@ -170,6 +185,7 @@ fn metric_points(metric: &opentelemetry_proto::tonic::metrics::v1::Metric) -> Ve
                 }
                 MetricPoint {
                     data_type: "histogram",
+                    temporality: temporality_name(hist.aggregation_temporality),
                     value: p.sum.unwrap_or(0.0),
                     attributes,
                     start_time: start(p.start_time_unix_nano),
@@ -395,6 +411,7 @@ impl MetricsService for OtlpMetricsService {
                             description.as_deref(),
                             unit.as_deref(),
                             point.data_type,
+                            point.temporality,
                             point.value,
                             &point.attributes,
                             point.start_time,

@@ -2364,10 +2364,17 @@ pub async fn get_agent_usage(
     let cost_usd_by_model: std::collections::BTreeMap<String, f64> =
         db::agent_cost_usage(&state.pool, &id, since).await?.into_iter().collect();
 
+    // Normalize negative zero: summing an empty set can yield -0.0, which serializes as
+    // "-0.0" and renders as "-0.0000" in a cost field. `-0.0 == 0.0` is true, so this
+    // comparison catches it without special-casing the sign bit.
+    fn no_neg_zero(v: f64) -> f64 {
+        if v == 0.0 { 0.0 } else { v }
+    }
+
     Ok(Json(AgentUsageDto {
         agent_id: id,
-        total_tokens: tokens.values().sum(),
-        total_cost_usd: cost_usd_by_model.values().sum(),
+        total_tokens: no_neg_zero(tokens.values().sum()),
+        total_cost_usd: no_neg_zero(cost_usd_by_model.values().sum()),
         tokens,
         cost_usd_by_model,
         evidence_tier: crate::otlp::EVIDENCE_TIER_UNSIGNED_VENDOR.to_string(),

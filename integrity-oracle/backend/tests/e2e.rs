@@ -1332,10 +1332,16 @@ async fn oracle_e2e_otlp_metrics_and_logs_persist() {
         }],
     };
 
-    backend::otlp::OtlpMetricsService::new(state.clone())
-        .export(tonic::Request::new(metrics_req))
-        .await
-        .expect("metrics export must be accepted");
+    // Export the SAME cumulative payload TWICE. OTel counters are cumulative by default —
+    // each export carries the running total, not a delta — so a rollup that sums data points
+    // reports 2x after two exports. This caught a real bug: 612,400 cacheRead tokens read
+    // back as 1,224,800. The assertions below require the rollup to stay at the true total.
+    for _ in 0..2 {
+        backend::otlp::OtlpMetricsService::new(state.clone())
+            .export(tonic::Request::new(metrics_req.clone()))
+            .await
+            .expect("metrics export must be accepted");
+    }
 
     let logs_req = ExportLogsServiceRequest {
         resource_logs: vec![ResourceLogs {
@@ -1376,7 +1382,7 @@ async fn oracle_e2e_otlp_metrics_and_logs_persist() {
     // Metrics: the cacheRead token count must be queryable BY its data-point attributes —
     // that is the whole point of storing them, since token type lives there, not in the name.
     let (value, tier): (f64, String) = sqlx::query_as(
-        "SELECT value, evidence_tier FROM otel_metrics
+        "SELECT MAX(value), MIN(evidence_tier) FROM otel_metrics
          WHERE agent_id = $1 AND name = 'claude_code.token.usage' AND attributes->>'type' = 'cacheRead'",
     )
     .bind(agent_id)
@@ -1387,7 +1393,7 @@ async fn oracle_e2e_otlp_metrics_and_logs_persist() {
     assert_eq!(tier, "unsigned_vendor", "OTLP data is unauthenticated and must be tiered as such");
 
     let (cost,): (f64,) = sqlx::query_as(
-        "SELECT value FROM otel_metrics WHERE agent_id = $1 AND name = 'claude_code.cost.usage'",
+        "SELECT MAX(value) FROM otel_metrics WHERE agent_id = $1 AND name = 'claude_code.cost.usage'",
     )
     .bind(agent_id)
     .fetch_one(&state.pool)
@@ -1428,11 +1434,15 @@ async fn oracle_e2e_otlp_metrics_and_logs_persist() {
         .json()
         .await
         .unwrap();
-    assert_eq!(usage["tokens"]["cacheRead"], serde_json::json!(15000.0));
+    assert_eq!(
+        usage["tokens"]["cacheRead"],
+        serde_json::json!(15000.0),
+        "a cumulative counter exported twice must not double the rollup: {usage}"
+    );
     assert_eq!(usage["total_tokens"], serde_json::json!(15000.0));
     assert!(
         (usage["total_cost_usd"].as_f64().unwrap() - 0.42).abs() < 1e-9,
-        "reported USD must reach the API: {usage}"
+        "reported USD must reach the API un-doubled: {usage}"
     );
     assert_eq!(
         usage["evidence_tier"], "unsigned_vendor",

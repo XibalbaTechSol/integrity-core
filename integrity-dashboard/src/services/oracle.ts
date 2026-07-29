@@ -182,6 +182,34 @@ export interface OtelVolumeBucket {
     span_count: number;
 }
 
+/** Token + cost rollup from the oracle's OTLP metrics receiver (`otel_metrics`).
+ *  `tokens` is keyed by the emitter's token `type` attribute, so a Claude Code agent
+ *  yields input / output / cacheRead / cacheCreation — a breakdown the signed telemetry
+ *  path cannot supply, because providers report cache tokens only in their own usage
+ *  objects. */
+export interface AgentUsageDto {
+    agent_id: string;
+    tokens: Record<string, number>;
+    total_tokens: number;
+    cost_usd_by_model: Record<string, number>;
+    total_cost_usd: number;
+    /** Always "unsigned_vendor": this arrives over the unauthenticated OTLP port and is
+     *  NOT an AIS input. Render it, don't hide it. */
+    evidence_tier: string;
+    since: string;
+}
+
+export interface AgentEventDto {
+    event_name: string | null;
+    severity_text: string | null;
+    body: string | null;
+    attributes: Record<string, unknown>;
+    trace_id: string | null;
+    span_id: string | null;
+    time: string;
+    evidence_tier: string;
+}
+
 export interface RecentTraceDto {
     trace_id: string;
     name: string;
@@ -422,6 +450,13 @@ export const oracle = {
     // was invisible even though it's real, queryable data. See backend::handlers::get_recent_traces.
     getRecentTraces: (id: string, limit?: number) =>
         get<RecentTraceDto[]>(`/v1/agent/${encodeURIComponent(id)}/otel/traces${limit ? `?limit=${limit}` : ''}`),
+    // Vendor OTLP readback: token/cost rollup and structured events. Populated by any
+    // runtime exporting OTel to the oracle's :4317 receiver (e.g. Claude Code with
+    // CLAUDE_CODE_ENABLE_TELEMETRY=1). Unsigned by definition — see AgentUsageDto.
+    getUsage: (id: string, since?: string) =>
+        get<AgentUsageDto>(`/v1/agent/${encodeURIComponent(id)}/usage${since ? `?since=${encodeURIComponent(since)}` : ''}`),
+    getEvents: (id: string, limit?: number) =>
+        get<AgentEventDto[]>(`/v1/agent/${encodeURIComponent(id)}/events${limit ? `?limit=${limit}` : ''}`),
     getTraceTree: (traceId: string) => get<TraceTreeResponse>(`/v1/traces/${encodeURIComponent(traceId)}`),
 
     // Real, durable audit trail backed by bcc_middleware's ALLOW/DENY reporting
