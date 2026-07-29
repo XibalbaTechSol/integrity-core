@@ -230,10 +230,112 @@ and a documented default. Restricting later is then a profile change, not a migr
 2. **F4** (schema version) — must land *before* the payload shape widens.
 3. **F2, F3** (bounded queue, real background flush + `atexit`) — the reliability floor that
    volume will otherwise break.
-4. **F5** (Anthropic integration) + **L1** token taxonomy — the primary ask, and the two are
-   the same piece of work.
-5. **L2/L3** with the profile control plane and redaction-by-default.
-6. **F6–F9** (durability tiers, backoff, async, disk spool) as volume rises.
+4. **Oracle OTLP metrics + logs receivers** — see Part 5; this now outranks a hand-written
+   Anthropic integration, since Claude Code already emits the full token/cost/tool dataset.
+5. **F5** (Anthropic API integration) + **L1** token taxonomy — still needed for agents not
+   running under Claude Code, and for the signed (score-bearing) path.
+6. **L2/L3** with the profile control plane and redaction-by-default.
+7. **F6–F9** (durability tiers, backoff, async, disk spool) as volume rises.
 
 Each step should ship with tests that assert on real captured payloads, not shapes — the
 SDK's existing suite (140 tests) is a good base and should grow with the surface.
+
+---
+
+## Part 5 — Vendor-specific levers
+
+Wrapping every provider by hand is the expensive path. Several vendors already emit exactly
+the data this protocol wants; the work is receiving it, not producing it.
+
+### 5.1 Claude Code exports all of this natively — verified
+
+Claude Code has built-in OpenTelemetry export, and its schema covers precisely the gaps F5
+and F10 identify. Verified against the official documentation on 2026-07-29:
+
+```bash
+export CLAUDE_CODE_ENABLE_TELEMETRY=1
+export OTEL_METRICS_EXPORTER=otlp
+export OTEL_LOGS_EXPORTER=otlp
+export OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317      # the oracle's existing receiver
+export OTEL_RESOURCE_ATTRIBUTES="integrity.agent.id=did:integrity:68fed133…"
+```
+
+That last line is the important one: path B already **requires** the `integrity.agent.id`
+resource attribute, and `OTEL_RESOURCE_ATTRIBUTES` is exactly the hook for setting it. The
+vendor's exporter and our receiver already speak the same protocol.
+
+What arrives, with no SDK code at all:
+
+| Source | Field | Why it matters here |
+|---|---|---|
+| `claude_code.token.usage` metric | `type` = input / output / **cacheRead / cacheCreation**, plus `model`, `agent.name`, `mcp_server.name`, `mcp_tool.name` | The exact four-way token taxonomy F10 says is missing |
+| `claude_code.cost.usage` metric | real USD, by `model` and `query_source` (main/subagent/auxiliary) | `sacrifice` currently uses a token *proxy* because cost was unavailable — it is available |
+| `claude_code.api_request` event | `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens`, `cost_usd`, `duration_ms`, `model` | Per-call ground truth, provider-reported |
+| `claude_code.tool_decision` event | `tool_name`, `decision` (accept/reject), `source` (config, **hook**, user_permanent, user_abort…) | Directly comparable to our own BCC gate decisions — an independent check on the gate |
+| `claude_code.api_refusal` event | `stop_reason: refusal`, category | A real compliance signal, currently unobserved |
+| `claude_code.tool_result` event | `success`, `duration_ms`, `error_type`, sizes | L6 lifecycle data |
+| Correlation | `prompt.id` links every event from one prompt; `session.id`, `request_id` | Trace assembly without inventing our own IDs |
+
+**Blocked on two oracle-side gaps, both small and both currently honest-but-empty:**
+
+1. `OtlpMetricsService::export` (`backend/src/otlp.rs:260`) **accepts and discards** —
+   `_request` is ignored and an empty OK returned, documented as a deliberate gap. So
+   `claude_code.token.usage` and `claude_code.cost.usage` would be thrown away today.
+2. There is **no `LogsService`** at all — only `TraceServiceServer` and
+   `MetricsServiceServer` are registered. The `claude_code.api_request` events, which carry
+   the richest per-call token and cost data, have nowhere to land.
+
+Implementing those two receivers is a far smaller job than writing and maintaining an
+Anthropic wrapper, and it captures subagents, skills, and MCP tool usage that a
+library-level wrapper would never see.
+
+**Note:** Claude Code traces need `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1` +
+`OTEL_TRACES_EXPORTER=otlp`; metrics and events do not.
+
+### 5.2 The trust-tier caveat — this data cannot feed AIS as-is
+
+Vendor-native telemetry arrives over path B, which is **unauthenticated and unsigned**. It
+is emitted by the vendor's process, not signed by the agent's key, so it carries no proof of
+origin. Feeding it into AIS would silently break the property that makes this protocol
+meaningful: that scored evidence is cryptographically attributable to the agent.
+
+So vendor telemetry is a **second evidence tier**: excellent for observability, development,
+dashboards, and cross-checking — and explicitly *not* score-bearing. Where vendor data
+should influence a score, the agent's own signed path must assert it, and the vendor feed
+becomes the independent check that the agent's claim is consistent. That contrast is
+valuable in itself: a divergence between what an agent signs and what its provider reports
+is exactly the kind of evidence a dispute needs.
+
+This distinction should be explicit in the schema (an `evidence_tier` field) rather than
+implied by which port the data arrived on.
+
+### 5.3 Other vendors — the same idea, verify before relying
+
+Not verified in this pass; each needs checking against current provider documentation
+before implementation:
+
+- **Anthropic API** — `usage` carries `cache_creation_input_tokens` and
+  `cache_read_input_tokens` distinctly from `input_tokens`. Streaming splits usage across
+  `message_start` and `message_delta`, so a naive wrapper that only reads the final message
+  loses input-token counts.
+- **OpenAI** — `prompt_tokens_details.cached_tokens` and
+  `completion_tokens_details.reasoning_tokens`. Critically, **streaming responses omit
+  `usage` entirely unless `stream_options: {include_usage: true}` is set** — a silent
+  zero-token path that would look exactly like our current F1 under-count.
+- **Gemini** — `usageMetadata` with `cachedContentTokenCount` and `thoughtsTokenCount`.
+- **Bedrock / Vertex** — platform-side invocation logging captures full request/response
+  without touching application code, which is attractive for regulated deployments where
+  the app should not handle content at all.
+- **Gateways (LiteLLM, OpenRouter)** — a proxy that normalizes usage across many providers
+  turns N integrations into one. Worth evaluating seriously before writing per-vendor code.
+- **Existing OTel instrumentation** (OpenInference, OpenLLMetry) already implements
+  per-vendor patching under GenAI conventions we already follow. Adopting one is likely
+  cheaper than maintaining our own patches, at the cost of a dependency.
+
+### 5.4 Revised order for Part 4
+
+The vendor lever changes the sequencing: **oracle metrics + logs receivers** now outrank a
+hand-written Anthropic integration, because they capture the flagship agent's full token,
+cost, and tool-decision data for less work — and unlock every other OTel-emitting tool at
+the same time.
