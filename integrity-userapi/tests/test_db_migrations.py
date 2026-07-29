@@ -19,7 +19,7 @@ async def test_run_migrations_creates_real_tables(db_pool: asyncpg.Pool) -> None
     applied_filenames = {
         row["filename"] for row in await db_pool.fetch("SELECT filename FROM schema_migrations")
     }
-    assert applied_filenames == {"0001_init.sql", "0002_jwt_revocation.sql"}
+    assert applied_filenames == {"0001_init.sql", "0002_jwt_revocation.sql", "0003_user_wallets.sql"}
 
     tables = {
         row["table_name"]
