@@ -97,8 +97,8 @@ def test_shadow_mode_reports_would_be_denials_as_shadow_deny(client, real_opa_se
 
     reported: list[dict] = []
     monkeypatch.setattr(
-        main_module.audit_module,
-        "report_decision",
+        main_module,
+        "_report_decision_background",
         lambda settings, **kwargs: reported.append(kwargs),
     )
 
@@ -107,12 +107,6 @@ def test_shadow_mode_reports_would_be_denials_as_shadow_deny(client, real_opa_se
     payload["signature"] = "0x" + "00" * 64
 
     client.post("/v1/bcc/intercept", json=payload)
-
-    import time
-    for _ in range(100):
-        if reported:
-            break
-        time.sleep(0.01)
 
     assert reported, "a would-be denial must still be reported to the audit trail"
     decision = reported[-1]
