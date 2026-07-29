@@ -2534,3 +2534,23 @@ writeup: PRODUCTION_GAPS.md §18.
 - **Documented footgun:** `docker compose up` for `oracle-backend` without the Base Sepolia
   env overrides silently repoints the oracle at the root `.env`'s dead local anvil, which
   makes every chain read fail and XNS handles degrade to `null`.
+
+## [2026-07-29] update | Cognition freeze root-caused and fixed; Base Sepolia is now the default network
+
+- **Cognition freeze CLOSED.** The four Cognition panels depended on the `selectedAgent`
+  *object* while `DashboardProvider` re-polls every 15s creating a fresh object, so each
+  panel re-ran its effect and re-armed a 5s interval on every poll — compounding into a
+  timer storm that wedged the renderer on agent selection. Now keyed on
+  `selectedAgent?.eth_address`. An earlier entry recorded this fix as "tested and
+  disproved"; that retest ran in a tab loaded before HMR applied the change and was wrong.
+  Re-verified by bisecting with the page's own module toggles, then repeating the original
+  repro 4× with all panels mounted.
+- **Session spans confirmed in the UI**, not just at the API: Observability Hub's Trace
+  Explorer and the CoT Explorer both render `claude_session_start` (SUCCESS) for
+  `xibalba.integrity`.
+- **Base Sepolia is now the default target network.** Root `.env` repointed
+  (`CHAIN_ID=84532`, publicnode RPC, `deployments.baseSepolia.json`, plus `DOCKER_*`), so
+  the stack runs against the real deployed protocol and testnet inconsistencies surface
+  before mainnet. Verified with a `--force-recreate` carrying no overrides. `make up-local`
+  added as the anvil escape hatch. This also closes the footgun where a bare
+  `docker compose up` silently repointed the oracle at a dead anvil.

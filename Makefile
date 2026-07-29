@@ -47,7 +47,19 @@ sync-abis:
 	cd contracts && forge build
 	python3 scripts/sync_abis.py
 
+# Default target network is Base Sepolia (see root .env) — the stack runs against the real
+# deployed protocol so testnet inconsistencies surface before mainnet.
 up:
+	docker-compose up --build
+
+# Local-anvil escape hatch. Anvil is no longer the default: agents registered locally do
+# not exist on Base Sepolia, so XNS/governance/primitive reads fail against a local chain
+# and the dashboard degrades to unnamed agents. Run `make chain` first.
+up-local:
+	RPC_URL=http://localhost:8545 \
+	CHAIN_ID=31337 \
+	DOCKER_RPC_URL=http://host.docker.internal:8545 \
+	DOCKER_DEPLOYMENTS_FILE=/deployments.local.json \
 	docker-compose up --build
 
 down:
