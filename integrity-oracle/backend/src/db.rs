@@ -1030,6 +1030,86 @@ pub async fn insert_otel_span(
     Ok(())
 }
 
+/// Token totals for an agent, grouped by the emitter's token `type` attribute
+/// (input / output / cacheRead / cacheCreation for Claude Code).
+///
+/// Selects on **unit**, not metric name: `unit = 'tokens'` is emitter-neutral, so a runtime
+/// other than Claude Code that follows the same OTel convention rolls up here too, rather
+/// than the query being welded to one vendor's metric names.
+pub async fn agent_token_usage(
+    pool: &PgPool,
+    agent_id: &str,
+    since: DateTime<Utc>,
+) -> Result<Vec<(String, f64)>, sqlx::Error> {
+    sqlx::query_as::<_, (String, f64)>(
+        r#"
+        SELECT COALESCE(attributes->>'type', 'unspecified') AS token_type, SUM(value) AS total
+        FROM otel_metrics
+        WHERE agent_id = $1 AND unit = 'tokens' AND time >= $2
+        GROUP BY 1
+        ORDER BY 1
+        "#,
+    )
+    .bind(agent_id)
+    .bind(since)
+    .fetch_all(pool)
+    .await
+}
+
+/// Reported cost for an agent over the window, grouped by model. `unit = 'USD'` for the
+/// same emitter-neutral reason as `agent_token_usage`.
+pub async fn agent_cost_usage(
+    pool: &PgPool,
+    agent_id: &str,
+    since: DateTime<Utc>,
+) -> Result<Vec<(String, f64)>, sqlx::Error> {
+    sqlx::query_as::<_, (String, f64)>(
+        r#"
+        SELECT COALESCE(attributes->>'model', 'unspecified') AS model, SUM(value) AS total
+        FROM otel_metrics
+        WHERE agent_id = $1 AND unit = 'USD' AND time >= $2
+        GROUP BY 1
+        ORDER BY 2 DESC
+        "#,
+    )
+    .bind(agent_id)
+    .bind(since)
+    .fetch_all(pool)
+    .await
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct OtelLogRow {
+    pub event_name: Option<String>,
+    pub severity_text: Option<String>,
+    pub body: Option<String>,
+    pub attributes: serde_json::Value,
+    pub trace_id: Option<String>,
+    pub span_id: Option<String>,
+    pub time: DateTime<Utc>,
+}
+
+/// Most recent structured events for an agent, newest first.
+pub async fn recent_otel_logs(
+    pool: &PgPool,
+    agent_id: &str,
+    limit: i64,
+) -> Result<Vec<OtelLogRow>, sqlx::Error> {
+    sqlx::query_as::<_, OtelLogRow>(
+        r#"
+        SELECT event_name, severity_text, body, attributes, trace_id, span_id, time
+        FROM otel_logs
+        WHERE agent_id = $1
+        ORDER BY time DESC
+        LIMIT $2
+        "#,
+    )
+    .bind(agent_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
 /// One OTLP metric data point. Written by `OtlpMetricsService::export`.
 ///
 /// `evidence_tier` is passed explicitly rather than defaulted in SQL so every caller has to

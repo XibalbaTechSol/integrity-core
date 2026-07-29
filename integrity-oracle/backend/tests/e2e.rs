@@ -120,7 +120,11 @@ async fn build_state(rpc_url: &str, deployments_file: &PathBuf, db_url: &str, re
     // `CREATE EXTENSION timescaledb` to succeed — a real environment requirement, not
     // something `cargo test --workspace --lib` needs (that path never touches a live DB).
     sqlx::query(
-        "DROP TABLE IF EXISTS telemetry_events, agent_primitives, merkle_roots, agents, markets_cache, markets_index_sync, judge_evaluations, otel_spans, _sqlx_migrations CASCADE",
+        // Every table any migration creates must be listed here. Omitting one leaves it
+        // behind while `_sqlx_migrations` is dropped, so the next test's re-migrate fails
+        // with "relation already exists" — which shows up as the whole suite failing after
+        // the first test while each test still passes in isolation.
+        "DROP TABLE IF EXISTS telemetry_events, agent_primitives, merkle_roots, agents, markets_cache, markets_index_sync, judge_evaluations, otel_spans, otel_metrics, otel_logs, _sqlx_migrations CASCADE",
     )
     .execute(&pool)
     .await
@@ -1404,6 +1408,48 @@ async fn oracle_e2e_otlp_metrics_and_logs_persist() {
     assert_eq!(attrs["cache_read_tokens"], serde_json::json!(15_000));
     assert_eq!(attrs["output_tokens"], serde_json::json!(800));
     assert_eq!(tier, "unsigned_vendor");
+
+    // Read path: the rollup endpoint must surface what the receivers stored, keyed by the
+    // emitter's token type — that keying is the whole point, since cacheRead/cacheCreation
+    // exist only as data-point attributes, not as separate metric names.
+    let app = backend::build_router(state.clone());
+    let server_port = free_port();
+    let addr: SocketAddr = format!("127.0.0.1:{server_port}").parse().unwrap();
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let http = reqwest::Client::new();
+    let base = format!("http://127.0.0.1:{server_port}");
+
+    let usage: serde_json::Value = http
+        .get(format!("{base}/v1/agent/{agent_id}/usage"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(usage["tokens"]["cacheRead"], serde_json::json!(15000.0));
+    assert_eq!(usage["total_tokens"], serde_json::json!(15000.0));
+    assert!(
+        (usage["total_cost_usd"].as_f64().unwrap() - 0.42).abs() < 1e-9,
+        "reported USD must reach the API: {usage}"
+    );
+    assert_eq!(
+        usage["evidence_tier"], "unsigned_vendor",
+        "the API must state the tier so a consumer cannot mistake vendor data for signed evidence"
+    );
+
+    let events: Vec<serde_json::Value> = http
+        .get(format!("{base}/v1/agent/{agent_id}/events"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(events.len(), 1, "the api_request event must be readable back");
+    assert_eq!(events[0]["event_name"], "claude_code.api_request");
+    assert_eq!(events[0]["attributes"]["cache_read_tokens"], serde_json::json!(15000));
 
     // A resource with no integrity.agent.id must be rejected, not stored unattributed —
     // same posture as the trace receiver.

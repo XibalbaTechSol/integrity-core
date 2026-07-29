@@ -2317,6 +2317,115 @@ fn parse_bucket_interval(raw: Option<&str>) -> Result<&'static str, AppError> {
 /// `compute_ais_for_agent`'s 30-day (`AIS_REPORTING_PERIOD_DAYS`) scoring window — the
 /// two are read for different purposes (a chart's default view vs. the score itself)
 /// and don't need to share a constant.
+// ---------------------------------------------------------------------------------
+// GET /v1/agent/{id}/usage  +  /v1/agent/{id}/events  — vendor OTLP telemetry readback
+// ---------------------------------------------------------------------------------
+
+/// Token and cost rollup for an agent, from the OTLP metrics receiver (`otel_metrics`).
+///
+/// `tokens` is keyed by the emitter's token `type` attribute, so Claude Code yields
+/// `input` / `output` / `cacheRead` / `cacheCreation` — the breakdown the signed telemetry
+/// path cannot supply, since providers report cache and reasoning tokens only in their own
+/// usage objects.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AgentUsageDto {
+    pub agent_id: String,
+    /// token type -> summed count over the window.
+    pub tokens: std::collections::BTreeMap<String, f64>,
+    pub total_tokens: f64,
+    /// model -> summed reported cost in USD.
+    pub cost_usd_by_model: std::collections::BTreeMap<String, f64>,
+    pub total_cost_usd: f64,
+    /// Always `"unsigned_vendor"`. This data arrives over the UNAUTHENTICATED OTLP port and
+    /// carries no agent signature, so it is deliberately NOT an AIS input — it is reported
+    /// here for observability and for cross-checking what an agent signs against what its
+    /// runtime reports. Surfaced in the response so a consumer cannot mistake it for
+    /// agent-attested evidence.
+    pub evidence_tier: String,
+    pub since: chrono::DateTime<Utc>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/agent/{id}/usage",
+    params(("id" = String, Path, description = "Agent DID")),
+    responses((status = 200, description = "Token/cost rollup from vendor OTLP metrics", body = AgentUsageDto)),
+    tag = "telemetry",
+)]
+pub async fn get_agent_usage(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<HistoryQuery>,
+) -> Result<Json<AgentUsageDto>, AppError> {
+    let since = query.since.unwrap_or_else(default_history_since);
+
+    let tokens: std::collections::BTreeMap<String, f64> =
+        db::agent_token_usage(&state.pool, &id, since).await?.into_iter().collect();
+    let cost_usd_by_model: std::collections::BTreeMap<String, f64> =
+        db::agent_cost_usage(&state.pool, &id, since).await?.into_iter().collect();
+
+    Ok(Json(AgentUsageDto {
+        agent_id: id,
+        total_tokens: tokens.values().sum(),
+        total_cost_usd: cost_usd_by_model.values().sum(),
+        tokens,
+        cost_usd_by_model,
+        evidence_tier: crate::otlp::EVIDENCE_TIER_UNSIGNED_VENDOR.to_string(),
+        since,
+    }))
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AgentEventDto {
+    pub event_name: Option<String>,
+    pub severity_text: Option<String>,
+    pub body: Option<String>,
+    pub attributes: serde_json::Value,
+    pub trace_id: Option<String>,
+    pub span_id: Option<String>,
+    pub time: chrono::DateTime<Utc>,
+    pub evidence_tier: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema, utoipa::IntoParams)]
+pub struct EventsQuery {
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/agent/{id}/events",
+    params(("id" = String, Path, description = "Agent DID")),
+    responses((status = 200, description = "Recent structured events from vendor OTLP logs", body = Vec<AgentEventDto>)),
+    tag = "telemetry",
+)]
+pub async fn get_agent_events(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<EventsQuery>,
+) -> Result<Json<Vec<AgentEventDto>>, AppError> {
+    // Clamped, not merely defaulted: an unbounded `limit` on a hypertable scan is a trivial
+    // way to make this endpoint expensive from outside.
+    let limit = query.limit.unwrap_or(100).clamp(1, 500);
+
+    let rows = db::recent_otel_logs(&state.pool, &id, limit).await?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| AgentEventDto {
+                event_name: r.event_name,
+                severity_text: r.severity_text,
+                body: r.body,
+                attributes: r.attributes,
+                trace_id: r.trace_id,
+                span_id: r.span_id,
+                time: r.time,
+                evidence_tier: crate::otlp::EVIDENCE_TIER_UNSIGNED_VENDOR.to_string(),
+            })
+            .collect(),
+    ))
+}
+
 fn default_history_since() -> chrono::DateTime<Utc> {
     Utc::now() - chrono::Duration::days(7)
 }
