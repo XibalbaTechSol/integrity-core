@@ -122,11 +122,49 @@ pub async fn get_agent(pool: &PgPool, id: &str) -> Result<Option<AgentRow>, sqlx
     .await
 }
 
-pub async fn list_agents(pool: &PgPool) -> Result<Vec<AgentRow>, sqlx::Error> {
-    sqlx::query_as::<_, AgentRow>(
+/// Reverse a SovereignAgent address to its owning agent DID via the cached primitive set.
+/// Case-insensitive on the hex address. Best-effort: returns None when the agent's primitives
+/// have never been resolved into the oracle DB.
+pub async fn did_by_sovereign_agent(
+    pool: &PgPool,
+    sovereign_agent: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    let row: Option<(String,)> = sqlx::query_as(
         r#"
-        SELECT id, ed25519_pubkey, eth_address, verification_tier, last_nonce, created_at, did_document
-        FROM agents ORDER BY created_at DESC
+        SELECT agent_id FROM agent_primitives
+        WHERE lower(sovereign_agent_address) = lower($1)
+        LIMIT 1
+        "#,
+    )
+    .bind(sovereign_agent)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|(id,)| id))
+}
+
+/// One row of the agent list, carrying the cached `SovereignAgent` address alongside the
+/// `agents` columns. The join is a `LEFT` one on purpose: an agent registered in this DB
+/// whose `agent_primitives` row hasn't been resolved yet (or that predates primitive
+/// caching) must still appear in the list with `sovereign_agent_address: None`, not vanish
+/// from the fleet. Callers that only need the DID (e.g. the leaderboard refresh) read `id`
+/// and ignore the rest.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct AgentListRow {
+    pub id: String,
+    pub verification_tier: i32,
+    pub created_at: DateTime<Utc>,
+    pub did_document: Option<serde_json::Value>,
+    pub sovereign_agent_address: Option<String>,
+}
+
+pub async fn list_agents(pool: &PgPool) -> Result<Vec<AgentListRow>, sqlx::Error> {
+    sqlx::query_as::<_, AgentListRow>(
+        r#"
+        SELECT a.id, a.verification_tier, a.created_at, a.did_document,
+               p.sovereign_agent_address
+        FROM agents a
+        LEFT JOIN agent_primitives p ON p.agent_id = a.id
+        ORDER BY a.created_at DESC
         "#,
     )
     .fetch_all(pool)
@@ -328,6 +366,29 @@ pub async fn aggregate_for_ais(
         zk_verified_this_period: row.4,
         event_count: row.5,
     })
+}
+
+/// Provider/model stability benchmarks: aggregate telemetry across ALL agents grouped by the
+/// `model` recorded in each event's payload. Backs `GET /v1/benchmarks` — a real network-wide
+/// view of how each underlying model performs (behavioral variance + grounding), independent of
+/// which agent used it. Returns (model, avg_variance, avg_grounding, sample_count).
+pub async fn benchmark_by_model(pool: &PgPool) -> Result<Vec<(String, f64, f64, i64)>, sqlx::Error> {
+    sqlx::query_as(
+        r#"
+        SELECT
+            payload->>'model' AS model,
+            COALESCE(AVG(performance_variance), 0.0)::double precision AS avg_variance,
+            COALESCE(AVG(hgi_raw), 0.0)::double precision AS avg_grounding,
+            COUNT(*) AS sample_count
+        FROM telemetry_events
+        WHERE payload->>'model' IS NOT NULL
+        GROUP BY payload->>'model'
+        HAVING COUNT(*) >= 3
+        ORDER BY AVG(hgi_raw) DESC
+        "#,
+    )
+    .fetch_all(pool)
+    .await
 }
 
 /// Telemetry events not yet folded into any anchored Merkle root, oldest first.
@@ -751,6 +812,12 @@ pub struct AuditLogRow {
     pub reason_code: Option<String>,
     pub detail: Option<String>,
     pub created_at: DateTime<Utc>,
+    // Evidence-export linkage (migration 0007): LEFT JOINed from `anchor_events`
+    // on `metadata->>'leaf'`. Populated only for ALLOW rows whose Merkle leaf has
+    // been anchored on-chain; None otherwise.
+    pub anchor_root: Option<String>,
+    pub anchor_tx_hash: Option<String>,
+    pub anchored_at: Option<DateTime<Utc>>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -791,14 +858,21 @@ pub async fn get_recent_audit_log(
     agent_id: Option<&str>,
     limit: i64,
 ) -> Result<Vec<AuditLogRow>, sqlx::Error> {
+    // LEFT JOIN anchor_events on the ALLOW row's Merkle leaf (audit_log.metadata
+    // ->>'leaf', written at decision time) so an anchored decision carries its
+    // on-chain StateAnchor root + tx. LEFT (not INNER) so un-anchored and non-BCC
+    // rows still appear with null anchor fields. anchor_events.leaf is UNIQUE, so
+    // the join never fans a row out.
     match agent_id {
         Some(aid) => {
             sqlx::query_as::<_, AuditLogRow>(
                 r#"
-                SELECT id, agent_id, source, event_type, decision, reason_code, detail, created_at
-                FROM audit_log
-                WHERE agent_id = $1
-                ORDER BY created_at DESC
+                SELECT a.id, a.agent_id, a.source, a.event_type, a.decision, a.reason_code, a.detail, a.created_at,
+                       ae.root AS anchor_root, ae.tx_hash AS anchor_tx_hash, ae.anchored_at
+                FROM audit_log a
+                LEFT JOIN anchor_events ae ON ae.leaf = a.metadata->>'leaf'
+                WHERE a.agent_id = $1
+                ORDER BY a.created_at DESC
                 LIMIT $2
                 "#,
             )
@@ -810,9 +884,11 @@ pub async fn get_recent_audit_log(
         None => {
             sqlx::query_as::<_, AuditLogRow>(
                 r#"
-                SELECT id, agent_id, source, event_type, decision, reason_code, detail, created_at
-                FROM audit_log
-                ORDER BY created_at DESC
+                SELECT a.id, a.agent_id, a.source, a.event_type, a.decision, a.reason_code, a.detail, a.created_at,
+                       ae.root AS anchor_root, ae.tx_hash AS anchor_tx_hash, ae.anchored_at
+                FROM audit_log a
+                LEFT JOIN anchor_events ae ON ae.leaf = a.metadata->>'leaf'
+                ORDER BY a.created_at DESC
                 LIMIT $1
                 "#,
             )
@@ -821,6 +897,77 @@ pub async fn get_recent_audit_log(
             .await
         }
     }
+}
+
+/// Records the anchor events for one agent's just-anchored Merkle sub-tree:
+/// every `leaf` committed in the on-chain `tx_hash` under `root`. Idempotent —
+/// a leaf already recorded (a retried anchor report) is skipped via the UNIQUE
+/// (leaf) constraint rather than duplicated. Returns the number of new rows.
+/// See migration 0007 for why this is a separate table joined at read time
+/// rather than a back-fill onto audit_log.
+pub async fn insert_anchor_events(
+    pool: &PgPool,
+    agent_id: &str,
+    leaves: &[String],
+    root: &str,
+    tx_hash: &str,
+) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query(
+        r#"
+        INSERT INTO anchor_events (agent_id, leaf, root, tx_hash)
+        SELECT $1, leaf, $3, $4
+        FROM unnest($2::text[]) AS leaf
+        ON CONFLICT (leaf) DO NOTHING
+        "#,
+    )
+    .bind(agent_id)
+    .bind(leaves)
+    .bind(root)
+    .bind(tx_hash)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+// Provenance: an agent's real, on-chain-anchored history -- each Merkle leaf it
+// committed, the StateAnchor root+tx that anchored it, and (via the same
+// metadata->>'leaf' join the audit-log uses) the policy decision that produced
+// it. Pure read over anchor_events + audit_log, no chain call. See
+// docs/design/evidence-export.md / dashboard-wiring.md (Class B).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ProvenanceRow {
+    pub id: Uuid,
+    pub agent_id: String,
+    pub leaf: String,
+    pub root: String,
+    pub tx_hash: String,
+    pub anchored_at: DateTime<Utc>,
+    pub decision: Option<String>,
+    pub reason_code: Option<String>,
+    pub intent_type: Option<String>,
+    pub created_at: Option<DateTime<Utc>>,
+}
+
+pub async fn get_agent_provenance(
+    pool: &PgPool,
+    agent_id: &str,
+    limit: i64,
+) -> Result<Vec<ProvenanceRow>, sqlx::Error> {
+    sqlx::query_as::<_, ProvenanceRow>(
+        r#"
+        SELECT ae.id, ae.agent_id, ae.leaf, ae.root, ae.tx_hash, ae.anchored_at,
+               a.decision, a.reason_code, a.intent_type, a.created_at
+        FROM anchor_events ae
+        LEFT JOIN audit_log a ON a.metadata->>'leaf' = ae.leaf
+        WHERE ae.agent_id = $1
+        ORDER BY ae.anchored_at DESC
+        LIMIT $2
+        "#,
+    )
+    .bind(agent_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
 }
 
 // ---------------------------------------------------------------------------------

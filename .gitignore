@@ -49,3 +49,4 @@ Verifier.toml
 # Personal/machine-local Claude Code settings (absolute paths, per-machine permission
 # grants) — not meant to be shared, same convention as .env.local.
 .claude/settings.local.json
+.anvil-state.json

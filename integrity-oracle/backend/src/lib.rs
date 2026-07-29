@@ -13,6 +13,7 @@ pub mod error;
 pub mod handlers;
 pub mod merkle;
 pub mod openapi;
+pub mod vc;
 pub mod otlp;
 pub mod phi;
 pub mod routes;

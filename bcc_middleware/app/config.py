@@ -57,6 +57,20 @@ class Settings:
     # stays valid.
     max_commitment_age_ms: int = field(default_factory=lambda: int(os.getenv("BCC_MAX_AGE_MS", "60000")))
 
+    # --- Shadow (monitor-only) mode ---------------------------------------
+    # The enterprise-adoption on-ramp: when true, run_intercept still runs the
+    # full authorization gauntlet (signature, replay, freshness, OPA, BAA) and
+    # still records every would-be decision to the audit trail, but it NEVER
+    # blocks -- a commitment that would be denied under enforcement returns
+    # `authorized=True, enforced=False, shadow_would_deny=True` with the reason
+    # it *would* have been denied for. This lets an operator deploy the gate in
+    # front of real agent traffic with zero production risk, watch the
+    # "would-have-blocked" report accumulate, and only then flip to enforcement.
+    # In shadow mode the circuit breaker is never tripped (observing, not
+    # enforcing -- locking out a well-behaved agent for a violation we didn't
+    # act on would be wrong). Default false: enforce, matching prior behavior.
+    shadow_mode: bool = field(default_factory=lambda: _bool_env("BCC_SHADOW_MODE", False))
+
     # --- Circuit breaker ---
     circuit_breaker_violation_threshold: int = field(
         default_factory=lambda: int(os.getenv("BCC_CB_VIOLATION_THRESHOLD", "3"))

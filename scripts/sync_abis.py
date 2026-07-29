@@ -49,6 +49,7 @@ MVP_CONTRACT_NAMES = {
     "SmartBAA",
     "XibalbaAgentRegistry",
     "XibalbaNameService",
+    "AgentPrimitivesFactory",
 }
 
 # (contract name, source file stem) — Foundry nests artifacts as

@@ -105,6 +105,16 @@ class BCCCommitment(BaseModel):
 class BCCInterceptResponse(BaseModel):
     authorized: bool
     reason: str | None = None
+    # --- Shadow (monitor-only) mode signalling (see app/config.py) ---------
+    # `enforced` is False whenever this response was produced in shadow mode --
+    # i.e. `authorized` reflects "what the caller should do" (always True in
+    # shadow) but the decision was NOT gated. `shadow_would_deny` is True when
+    # enforcement WOULD have denied this commitment; `reason` then carries the
+    # would-be denial code/detail even though `authorized` is True. In normal
+    # enforce mode both fields keep their defaults (enforced=True, would_deny
+    # meaningless) and callers that predate shadow mode are unaffected.
+    enforced: bool = True
+    shadow_would_deny: bool = False
     # Only present when authorized=True: an HMAC-keyed, persisted token
     # (see app/verification_token.py) proving THIS middleware evaluated and
     # approved this exact commitment -- checkable via
@@ -138,3 +148,7 @@ class HealthResponse(BaseModel):
     opa_reachable: bool
     chain_reachable: bool
     pending_batch_size: int
+    # "enforce" (denies actually block) or "shadow" (monitor-only; nothing is
+    # blocked, would-be denials are recorded). Lets operators/the dashboard
+    # see at a glance which posture the gate is deployed in.
+    mode: str = "enforce"

@@ -39,6 +39,13 @@ pub enum AppError {
     Redis(#[from] redis::RedisError),
     #[error("on-chain claim mismatch: {0}")]
     ChainMismatch(String),
+    /// Spec v0.3 §7.1: registration requires the agent's own `StateAnchor.latestRoot` to be
+    /// non-zero — an agent with no anchored genesis memory root is not a continuing
+    /// economic subject (§4.1), so it is not registerable. A client-fixable precondition
+    /// (anchor a genesis root, then retry), hence 400 — the same class as `ChainMismatch`
+    /// and `MissingSingleton`, not a server or chain failure.
+    #[error("memory not initialized: {0}")]
+    MemoryNotInitialized(String),
     #[error(transparent)]
     Chain(#[from] crate::chain::ChainError),
     /// Defense-in-depth PHI/PII/secret backstop rejection on `POST /v1/telemetry/ingest`
@@ -66,6 +73,7 @@ impl IntoResponse for AppError {
             AppError::Verify(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             AppError::Zk(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             AppError::ChainMismatch(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            AppError::MemoryNotInitialized(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             AppError::PhiDetected(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             // An on-chain lookup that legitimately found nothing (unregistered DID/address)
             // is a 404, not a 502 — the chain answered fine, there's just no record.

@@ -60,7 +60,7 @@ services:
     ports: ["8000:8000"]
 
   dashboard:
-    build: ./integrity-mvp
+    build: ./integrity-dashboard
     depends_on: [oracle-backend, bcc-middleware]
     environment:
       VITE_ORACLE_URL: http://localhost:8080

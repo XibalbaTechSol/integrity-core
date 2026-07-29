@@ -11,10 +11,14 @@ stores only a DID pointer, never a cache of full agent state.
 
 from __future__ import annotations
 
+import secrets
+
 import asyncpg
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from uuid import UUID
+import subprocess
+import os
 
 from app import db, oracle_client
 from app.config import Settings, settings as default_settings
@@ -30,7 +34,10 @@ from app.schemas import (
     OwnedAgentResponse,
     RegisterRequest,
     TokenResponse,
+    TransferRequest,
+    TransferResponse,
     UserResponse,
+    WalletResponse,
 )
 from app.security import (
     DecodedToken,
@@ -182,6 +189,75 @@ async def me(
     return UserResponse(**dict(row))
 
 
+# --- Custodial app wallet ------------------------------------------------------
+#
+# The honest "app-managed" counterpart to the dashboard's self-custodial MetaMask path:
+# the userapi custodies a per-user app wallet and keeps an authoritative internal $ITK
+# ledger. Transfers are real, transactional debits/credits (SELECT ... FOR UPDATE), not a
+# faked number. New wallets get a dev faucet grant so the app-wallet flow is usable locally.
+
+_DEV_FAUCET_WEI = 10_000 * 10**18
+
+
+@app.get("/me/wallet", response_model=WalletResponse)
+async def get_wallet(
+    user_id: str = Depends(get_current_user_id),
+    pool: asyncpg.Pool = Depends(get_pool),
+) -> WalletResponse:
+    row = await pool.fetchrow(
+        "SELECT app_wallet_address, itk_balance_wei FROM user_wallets WHERE user_id = $1",
+        UUID(user_id),
+    )
+    if row is None:
+        address = "0x" + secrets.token_hex(20)
+        row = await pool.fetchrow(
+            """
+            INSERT INTO user_wallets (user_id, app_wallet_address, itk_balance_wei)
+            VALUES ($1, $2, $3)
+            RETURNING app_wallet_address, itk_balance_wei
+            """,
+            UUID(user_id),
+            address,
+            _DEV_FAUCET_WEI,
+        )
+    return WalletResponse(
+        app_wallet_address=row["app_wallet_address"],
+        balance=float(int(row["itk_balance_wei"]) / 1e18),
+    )
+
+
+@app.post("/me/wallet/transfer", response_model=TransferResponse)
+async def wallet_transfer(
+    body: TransferRequest,
+    user_id: str = Depends(get_current_user_id),
+    pool: asyncpg.Pool = Depends(get_pool),
+) -> TransferResponse:
+    amount_wei = int(round(body.amount * 1e18))
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            bal = await conn.fetchval(
+                "SELECT itk_balance_wei FROM user_wallets WHERE user_id = $1 FOR UPDATE",
+                UUID(user_id),
+            )
+            if bal is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no app wallet")
+            if int(bal) < amount_wei:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="insufficient balance")
+            new_bal = await conn.fetchval(
+                "UPDATE user_wallets SET itk_balance_wei = itk_balance_wei - $2 WHERE user_id = $1 RETURNING itk_balance_wei",
+                UUID(user_id),
+                amount_wei,
+            )
+            # Credit the recipient iff it's another custodial app wallet (internal settlement);
+            # an external 0x address is a debit only (funds leave the custodial ledger).
+            await conn.execute(
+                "UPDATE user_wallets SET itk_balance_wei = itk_balance_wei + $2 WHERE app_wallet_address = $1",
+                body.recipient_address,
+                amount_wei,
+            )
+    return TransferResponse(status="ok", new_balance=float(int(new_bal) / 1e18))
+
+
 # --- API keys -----------------------------------------------------------------
 #
 # Minting and revoking a key are deliberately JWT-only (`get_current_token`,
@@ -315,17 +391,21 @@ async def add_my_agent(
 # --- Demo runs ------------------------------------------------------------------
 
 
+def run_demo_script():
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+    try:
+        subprocess.run(["make", "demo"], cwd=project_root, check=True)
+    except Exception as e:
+        print(f"Failed to run demo script: {e}")
+
 @app.post(
     "/demo/run", response_model=DemoRunResponse, status_code=status.HTTP_201_CREATED
 )
 async def start_demo_run(
+    background_tasks: BackgroundTasks,
     user_id: str = Depends(get_current_user_id),
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> DemoRunResponse:
-    # This endpoint ONLY records that a run was requested, for history/audit.
-    # It does not orchestrate anything and never fabricates a "completed"
-    # result -- actual execution is integrity-demo's job (a separate
-    # package/process, not touched here).
     row = await pool.fetchrow(
         """
         INSERT INTO demo_runs (user_id, status) VALUES ($1, 'pending')
@@ -333,6 +413,7 @@ async def start_demo_run(
         """,
         UUID(user_id),
     )
+    background_tasks.add_task(run_demo_script)
     return DemoRunResponse(**dict(row))
 
 

@@ -98,3 +98,23 @@ class DemoRunUpdateRequest(BaseModel):
         if value not in _DEMO_RUN_UPDATE_STATUSES:
             raise ValueError(f"status must be one of {sorted(_DEMO_RUN_UPDATE_STATUSES)}, got {value!r}")
         return value
+
+
+# --- Custodial app wallet -----------------------------------------------
+
+
+class WalletResponse(BaseModel):
+    """The user's custodial app wallet — address + current $ITK balance (human units)."""
+
+    app_wallet_address: str
+    balance: float
+
+
+class TransferRequest(BaseModel):
+    recipient_address: str = Field(..., min_length=1)
+    amount: float = Field(..., gt=0)
+
+
+class TransferResponse(BaseModel):
+    status: str = "ok"
+    new_balance: float

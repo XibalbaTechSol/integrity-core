@@ -8,7 +8,7 @@ this doc over any assumption from the old codebase.
 
 Scope: this rewrite covers **six core packages**:
 `contracts/`, `integrity-zkp/`, `integrity-oracle/`, `integrity-sdk/`,
-`integrity-cli/`, `bcc_middleware/` — plus `integrity-mvp/`, the ONE
+`integrity-cli/`, `bcc_middleware/` — plus `integrity-dashboard/`, the ONE
 dashboard/landing app (its `demo/` subdirectory is the multi-vertical
 investor/developer closed-loop scenario engine, see §11 — merged from the
 former separate `integrity-dashboard/` + `integrity-demo/` packages on
@@ -38,7 +38,7 @@ and in that package's README — don't fake the check silently.
 | `nargo` (Noir) | 1.0.0-beta.22 | integrity-zkp, integrity-oracle circuits |
 | `bb` (Barretenberg) | 5.0.0-nightly | integrity-zkp, integrity-oracle (proof gen/verify) |
 | `opa` | 1.18.2 | bcc_middleware, integrity-sdk |
-| `node` / `npm` | 22.x / 10.x | integrity-mvp, contracts (npm-based deps) |
+| `node` / `npm` | 22.x / 10.x | integrity-dashboard, contracts (npm-based deps) |
 | `python` / `uv` | 3.12 / 0.11 | integrity-sdk, integrity-cli, bcc_middleware |
 
 All of these are on `PATH` (added to `~/.bashrc`). Use them for real — compile
@@ -58,7 +58,7 @@ against real policies. Don't write code you haven't run.
 | Integrity Oracle OTLP/gRPC receiver | 4317 | integrity-oracle |
 | Integrity User API (FastAPI) | 8090 | integrity-userapi |
 | Postgres (userapi) | 5435 | integrity-userapi |
-| Integrity MVP (Vite dev) | 5173 | integrity-mvp |
+| Integrity Dashboard (Vite dev) | 5173 | integrity-dashboard |
 
 ## 3. Environment variables (shared names — use exactly these)
 
@@ -223,6 +223,35 @@ binding; no oracle-to-chain score push exists yet).
   (`keccak256(a < b ? a,b : b,a)`) — the standard OpenZeppelin `MerkleProof` convention.
   This avoids second-preimage ordering ambiguity and lets contracts use OZ's
   `MerkleProof.verify` directly instead of a custom verifier.
+
+### 4.4a Genesis memory root (spec v0.3 §4.1/§7.2) — cross-package constant
+
+Registration requires `StateAnchor.latestRoot != bytes32(0)` (§6), but an
+**empty-but-initialized Trust Vault is valid at birth** — and `anchorRoot` reverts on
+`bytes32(0)` (`EmptyRoot`). An agent registering with nothing yet in its vault therefore
+needs a defined, non-zero root meaning "initialized, empty":
+
+```
+GENESIS_VAULT_ROOT = keccak256("integrity.trust-vault.genesis.v1")
+                   = 0x… (computed identically in every package — never hardcode a literal)
+```
+
+Every package MUST derive it by hashing that exact ASCII string, not by copying a hex
+literal — the same discipline §4.4's hashing rules exist to enforce, and the reason this
+constant lives here rather than in `registration.py`. Defined in:
+`integrity_sdk/chain.py::GENESIS_VAULT_SEED`.
+
+It is a *sentinel*, not a commitment to any content: an agent whose vault already has
+entries at registration time should anchor its real vault root instead. The oracle's §7.1
+gate checks only that the root is non-zero — it deliberately does **not** require this
+specific value, so a genuinely non-empty vault at birth is equally valid.
+
+Authorization (§7.2): the genesis root (epoch 0→1) must be anchored by the agent itself —
+its controller via `SovereignAgent.execute`, which works because `StateAnchor`'s admin is
+the `SovereignAgent` contract and the constructor grants it `ANCHOR_ROLE`. No Solidity
+change is needed for this; **enforcement** that the protocol's `ANCHOR_ROLE` signer cannot
+anchor epoch 1 is still `[PLANNED]` (Appendix A gap 2), since `StateAnchor` is deployed
+per-agent and already-deployed anchors keep their current bytecode.
 
 ### 4.5 Trace tree view (`GET /v1/traces/{trace_id}`)
 LangSmith-style nested run-tree reconstruction over the real spans in `otel_spans`
@@ -490,8 +519,10 @@ singletons:
   "chainId": 31337,
   "singletons": {
     "IntegrityToken": "0x...",
+    "IntegrityGovernance": "0x...",
     "UltraPlonkVerifier": "0x...",
     "XibalbaAgentRegistry": "0x...",
+    "XibalbaNameService": "0x...",
     "DomainRegistry": "0x...",
     "AgentPrimitivesFactory": "0x...",
     "CoveredEntityRegistry": "0x...",
@@ -513,6 +544,15 @@ singletons:
   }
 }
 ```
+
+**`XibalbaNameService` + `IntegrityGovernance` (optional singletons)**: both are
+deployed by genesis `Deploy.s.sol` but their Base Sepolia broadcast is deferred, so
+`deployments.baseSepolia.json` may legitimately omit either key. The oracle parses them
+as `Option<Address>`; endpoints that need an absent one (`/v1/xns/resolve`,
+`/v1/agent/{id}/handle`, `/v1/governance/proposals`) return `ChainError::MissingSingleton`
+→ **HTTP 400** (a deployment-shape fact, not a transient failure — same mapping as the
+market/shield singletons) rather than fabricating a result. Dashboard consumers degrade to
+an honest "not deployed" state on that 400.
 
 **Market/application layer additions (§6.9)**: `singletons.MarketFactory` and
 `singletons.A2ACapitalPool` (protocol-level, deployed once), plus
@@ -560,7 +600,7 @@ needing an agent's primitive addresses should call the oracle's HTTP API
 does) rather than querying `XibalbaAgentRegistry` directly — the oracle is
 the one place that owns turning a DID into live on-chain primitive state.
 
-`integrity-oracle`, `integrity-sdk`, `integrity-cli`, and `integrity-mvp`
+`integrity-oracle`, `integrity-sdk`, `integrity-cli`, and `integrity-dashboard`
 read the *singleton and template* addresses from this file rather than
 hardcoding them; per-agent addresses are always resolved live (or, once
 built, via the oracle's cache) rather than read from any static file.
@@ -588,7 +628,7 @@ confused with each other:
   own independent live checks (patient consent, BAA, AIS threshold — §6.4)
   at access time. `ComplianceGate` is a read-optimized compliance summary
   for callers like integrity-oracle's `S_compliance` AIS component or
-  integrity-mvp's Shield page, not a second enforcement point.
+  integrity-dashboard's Shield page, not a second enforcement point.
 - **Self-declared compliance** — `hipaaEligible`, `zdrEnabled`,
   `externalWebAccessDeclared`, `dataResidencyRegion`, set via
   `setSelfDeclaredCompliance` (routed through `SovereignAgent.execute`,
@@ -645,7 +685,7 @@ genuinely the agent's own on-chain footprint — not a row in a platform
 database the agent has no control over. Any future application layer
 (lending, insurance, whatever comes after `integrity-framework`, §12)
 should extend this same two-mode pattern rather than introducing a third,
-platform-owned model. `integrity-mvp`'s Contracts/Factory-IDE page
+platform-owned model. `integrity-dashboard`'s Contracts/Factory-IDE page
 (§9) is expected to expose BOTH modes to a human operator/developer: a
 "deploy from template" path calling a factory, and a "deploy custom" path
 where the agent's own wallet broadcasts a contract the developer authored
@@ -670,7 +710,7 @@ script (§6.6):
   - ***Trust boundary, documented not hidden***: `resolve()` is gated to
     `RESOLVER_ROLE`, set by the market's creator at deploy time (itself, a
     delegate, or the protocol's demo/oracle signer). For the
-    investor/developer MVP this is a clearly-labeled demo resolver, not a
+    investor/developer Dashboard this is a clearly-labeled demo resolver, not a
     live price-feed oracle network (Chainlink/UMA) — staking, AIS-gating,
     BCC-commitment binding, and payout are all real; only ground-truth
     outcome resolution is a documented, swappable trust boundary. A
@@ -710,7 +750,7 @@ script (§6.6):
 
 ### 6.10 Backend responsibility split (two trust domains, not three peer services)
 
-As of the multi-vertical MVP, protocol-facing HTTP is split across two
+As of the multi-vertical Dashboard, protocol-facing HTTP is split across two
 **trust domains** — not three interchangeable peer services, a framing
 this section used to have and which undersold how tightly the first two
 pieces below are coupled — with one hard rule: **only `integrity-oracle`
@@ -747,7 +787,7 @@ contract directly.
   ownership) out of a service whose whole job is being a trustworthy
   on-chain-state verifier.
 
-`integrity-mvp` (the one dashboard/landing app, §9) is the only client
+`integrity-dashboard` (the one dashboard/landing app, §9) is the only client
 expected to talk to both the Oracle trust domain and `integrity-userapi`
 directly.
 
@@ -814,7 +854,7 @@ INTEGRITY-LATEST/
   integrity-cli/
   bcc_middleware/
   integrity-userapi/
-  integrity-mvp/            <- the ONE dashboard/landing app
+  integrity-dashboard/            <- the ONE dashboard/landing app
     src/                     (React/Vite/TS — every product page)
     demo/                    (Python closed-loop scenario engine, §11 — a
                                script this package runs, not a second app)
@@ -822,10 +862,10 @@ INTEGRITY-LATEST/
 
 `integrity-dashboard/` and `integrity-demo/` (below in §11's prose, and
 anywhere else in this doc) were two separate packages until 2026-07-09,
-when they were merged into `integrity-mvp/` — one deployed app, per the
+when they were merged into `integrity-dashboard/` — one deployed app, per the
 "exactly one user-facing product surface" rule. Any reference elsewhere in
 this document to either old name means the corresponding piece of
-`integrity-mvp/`.
+`integrity-dashboard/`.
 
 Each package keeps its own README, its own `.env.example`, its own test
 suite, and its own CI-runnable `make test` / `make build` targets, wired into
@@ -840,13 +880,13 @@ that just restate the code, but do explain non-obvious cryptographic/protocol
 invariants, since this is exactly the kind of code where a subtle mistake
 (e.g. hash ordering, signature domain separation) is a real vulnerability.
 
-## 11. integrity-mvp/demo/ (multi-vertical investor/developer closed-loop MVP)
+## 11. integrity-dashboard/demo/ (multi-vertical investor/developer closed-loop Dashboard)
 
-Lives at `integrity-mvp/demo/` — a Python subdirectory of the one
+Lives at `integrity-dashboard/demo/` — a Python subdirectory of the one
 dashboard app package (§9), not a standalone top-level package (it was
 `integrity-demo/` until the 2026-07-09 merge). It has no UI of its own: a
 runnable script/CLI entrypoint (`make demo` from the repo root) that
-drives real on-chain activity for `integrity-mvp`'s dashboard pages to
+drives real on-chain activity for `integrity-dashboard`'s dashboard pages to
 display — the dashboard reads the results back out via `integrity-oracle`
 (live chain reads) and `integrity-userapi` (`GET /demo/runs`), it does not
 embed or launch this script itself.
@@ -899,7 +939,7 @@ run itself is entirely this package's job, not the user API's.
 ## 12. integrity-framework/ (reputation-derivatives — not yet built)
 
 Referenced in §1's scope list but not part of this rewrite's current
-phases (§6.8–§6.10, §11, §13 cover the multi-vertical MVP that now
+phases (§6.8–§6.10, §11, §13 cover the multi-vertical Dashboard that now
 supersedes what this package was originally scoped to explore). Concept
 carried over from the old repo: a marketplace/lending layer over agent
 reputation (e.g. AIS-collateralized credit, reputation derivatives). Any
@@ -923,7 +963,7 @@ authoritative shape): `users` (email, hashed password), `api_keys`
 developer-key convention of capping dev-issued agents at a fixed AIS
 ceiling), `user_agents` (a user_id ↔ agent DID ownership POINTER only —
 never a cache of full agent state, which always comes live from
-`integrity-oracle`), `demo_runs` (status/history of `integrity-mvp/demo/`
+`integrity-oracle`), `demo_runs` (status/history of `integrity-dashboard/demo/`
 invocations a user requested).
 
 Core endpoints: `POST /auth/register`, `POST /auth/login`, `GET /me`,
@@ -959,9 +999,9 @@ The `GET /me/agents` tri-state (live data / not found / oracle
 unreachable) is tested against a real local HTTP server standing in for
 `integrity-oracle`, never a mock of `app/oracle_client.py`'s internals.
 
-**CORS (added 2026-07-09, real gap found wiring `integrity-mvp`'s auth
+**CORS (added 2026-07-09, real gap found wiring `integrity-dashboard`'s auth
 swap):** this service had no CORS policy at all before — every request
-from a browser-hosted `integrity-mvp` (served by Vite on its own port,
+from a browser-hosted `integrity-dashboard` (served by Vite on its own port,
 never the same origin as this API) would be blocked outright. Fixed with
 `fastapi.middleware.cors.CORSMiddleware` in `app/main.py`
 (`allow_origins=["*"]`, `allow_credentials=False` — every authenticated
@@ -970,13 +1010,13 @@ cookie, so a wildcard origin is safe; combining a wildcard origin with
 `allow_credentials=True` is invalid per the CORS spec anyway). Verified:
 `integrity-userapi`'s 33 pytest tests still pass unchanged after the
 addition (CORS is a browser-enforced concern, invisible to a server-side
-test client), and a real cross-origin browser call from `integrity-mvp`
+test client), and a real cross-origin browser call from `integrity-dashboard`
 (Playwright, `e2e/auth.spec.ts`) now succeeds end-to-end.
 
-## 14. integrity-mvp's real integration with integrity-userapi (auth swap, 2026-07-09)
+## 14. integrity-dashboard's real integration with integrity-userapi (auth swap, 2026-07-09)
 
 Per §13's "one unified app" rule and the previously-pending item this
-section resolves: `integrity-mvp`'s dashboard now authenticates against
+section resolves: `integrity-dashboard`'s dashboard now authenticates against
 this service for real (`src/lib/api/userapi.ts`, `src/auth/AuthContext.tsx`)
 — the Firebase-based `AuthContext`/`AuthGate`/`firebase.ts` from the
 original scaffold are gone, not left running alongside a second auth
@@ -986,7 +1026,7 @@ request interceptor (`src/lib/api/client.ts`). Only account-scoped routes
 (`/account` — API keys, owned-agent pointers, demo-run history) sit behind
 a real session check; Landing, the agent list/detail, markets,
 leaderboard, and wallet stay public — real protocol data doesn't require
-an account to read, matching investor/developer intent. `integrity-mvp/e2e/global-setup.ts`
+an account to read, matching investor/developer intent. `integrity-dashboard/e2e/global-setup.ts`
 now boots a real `integrity-userapi` instance (its own ephemeral Postgres
 database on the same E2E container, real `uvicorn` process) alongside the
 oracle, so `e2e/auth.spec.ts` exercises real registration, real login, and
@@ -995,10 +1035,10 @@ a real 401 on bad credentials against this actual service — not a mock.
 ### Real oracle wire-shape corrections found while wiring this (integrity-oracle untouched, worked around client-side)
 
 Running the pre-existing Playwright suite for the first time (before this
-pass's fixes) surfaced that `integrity-mvp`'s `lib/api/types.ts` had
+pass's fixes) surfaced that `integrity-dashboard`'s `lib/api/types.ts` had
 drifted from what `integrity-oracle/backend/src/handlers.rs` actually
 serializes — 4 of 5 specs failed. Documented here because it's a
-cross-package contract fact, not just an `integrity-mvp`-internal detail:
+cross-package contract fact, not just an `integrity-dashboard`-internal detail:
 
 - `GET /v1/agents` returns `{id, verification_tier, created_at}`
   (`AgentSummary`) — no `ais`/`alias`/`zk_proof_verified`/`registered_at`/
@@ -1007,14 +1047,14 @@ cross-package contract fact, not just an `integrity-mvp`-internal detail:
 - `GET /v1/agent/{id}` (`AgentResponse`) never returns a `did_document` —
   `POST /v1/agent/register`'s `RegisterAgentRequest.did_document` is
   accepted on the way in but never persisted or returned by any GET. A
-  real, confirmed gap (not fixed here — out of `integrity-mvp`'s scope to
+  real, confirmed gap (not fixed here — out of `integrity-dashboard`'s scope to
   fix the oracle).
 - `PrimitiveSetDto`'s own doc comment in `handlers.rs` claims its fields
   match the dashboard "field-for-field (camelCase)" — this is incorrect;
   the struct has no `#[serde(rename_all = "camelCase")]`, so it actually
   serializes snake_case (`sovereign_agent`, `state_anchor`, ...). Worth
   fixing the stale comment (or adding the attribute) in a future
-  `integrity-oracle` pass; `integrity-mvp` now assumes the real snake_case
+  `integrity-oracle` pass; `integrity-dashboard` now assumes the real snake_case
   shape.
 - `ComplianceResponse` fields are `is_compliant`/`covered_entity`
   (snake_case), not the `isCompliant`/`coveredEntity` the original
@@ -1030,5 +1070,5 @@ cross-package contract fact, not just an `integrity-mvp`-internal detail:
 `GET /v1/agent/{id}/wallet` now returns a `WalletResponse` containing not just balances, but also
 arrays for `transaction_history` and `allowances` to power the Finance UI.
 `integrity-oracle` exposes **no** `A2ACapitalPool` read endpoint at all
-(confirmed against `routes.rs`) — `integrity-mvp`'s Capital Allocation page
+(confirmed against `routes.rs`) — `integrity-dashboard`'s Capital Allocation page
 states this as a real, visible gap rather than fabricating live pool data.

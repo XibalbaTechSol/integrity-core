@@ -20,7 +20,7 @@ on Base (EVM). Eight packages, each with its own real test suite:
 | `integrity-cli/` | Python / uv | `uv run pytest` |
 | `bcc_middleware/` | Python / uv + OPA | `uv run pytest && opa test policies/ -v` |
 | `integrity-userapi/` | Python / uv + Postgres | `uv run pytest` (needs Postgres on 5435) |
-| `integrity-mvp/` | React / Vite / TypeScript | `npm test` |
+| `integrity-dashboard/` | React / Vite / TypeScript | `npm test` |
 
 CI runs all eight in parallel. See `.github/workflows/ci.yml`.
 

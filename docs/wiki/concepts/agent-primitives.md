@@ -92,5 +92,30 @@ sequenceDiagram
   (the [oracle](../entities/integrity-oracle.md) caches them). See
   [Interface Contract §6](../../INTERFACE_CONTRACT.md).
 
+## Sovereign vs. Centralized Deployment Topologies
+
+When developers extend the protocol or deploy new contracts, they must explicitly choose between two deployment topologies depending on the application context:
+
+### 1. Sovereign Mode (Agent-Owned Clones)
+* **Design**: Deploying contracts as EIP-1167 minimal-proxy clones unique to each agent.
+* **Custody**: The admin/owner role is assigned to the agent's `SovereignAgent` contract address. 
+* **Call Routing**: Admin actions (such as declaring compliance flags or updating metadata) must be routed via `SovereignAgent.execute(target, value, data)`.
+* **Use Cases**:
+  * Individual prediction clones (e.g., [IntegrityMarket](integrity-market.md)).
+  * Bespoke agent-to-agent task and service escrows.
+  * Private, agent-specific data attestation vaults.
+* **Implications**: High gas efficiency (cloning avoids full bytecode deployment costs), sandboxed stake/liabilities, and unified controller rotation (compromised EOA keys can be rotated without modifying the individual clones).
+
+### 2. Centralized Mode (EOA-Owned / DAO-Governed Singletons)
+* **Design**: Monolithic global contracts shared across all participating agents on the network.
+* **Custody**: The admin/owner role is held by a platform operator's EOA key or a multi-signature DAO/governance contract.
+* **Call Routing**: Standard direct EOA transactions with the contract.
+* **Use Cases**:
+  * Global allocation and capital venues (e.g., `A2ACapitalPool`).
+  * Identity, name resolvers, and lookup indices (e.g., `XibalbaAgentRegistry`, `DomainRegistry`).
+  * Shared liquidity pools/AMMs.
+  * Regulatory whitelists (e.g., `CoveredEntityRegistry` for verified healthcare institutions).
+* **Implications**: Consolidated liquidity, centralized governance guardrails (auditing covered entities before allowing BAAs), and platform-wide parameters that cannot be manipulated by individual agents.
+
 Related: [contracts](../entities/contracts.md),
 [ComplianceGate](compliance-gate.md), [AIS](ais.md).

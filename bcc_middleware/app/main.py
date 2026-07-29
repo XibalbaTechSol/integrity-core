@@ -39,7 +39,7 @@ from app.canonical import SignatureVerificationError, verify_commitment_signatur
 from app.chain import resolve_verification_tier
 from app.circuit_breaker import AgentCircuitBreaker
 from app.config import Settings, settings as default_settings
-from app.merkle import MerkleBatcher
+from app.merkle import MerkleBatcher, leaf_hash
 from app.nonce_store import NonceStore
 from app.opa_client import OPAUnavailableError, evaluate as opa_evaluate
 from app.schemas import BCCCommitment, BCCInterceptResponse, HealthResponse, VerifyTokenRequest, VerifyTokenResponse
@@ -109,7 +109,7 @@ batcher = MerkleBatcher(batch_size=default_settings.merkle_batch_size)
 _audit_report_tasks: set[asyncio.Task] = set()
 
 
-def _report_decision_background(settings: Settings, *, agent_id: str | None, decision: str, reason_code: str | None = None, detail: str | None = None, intent_type: str | None = None) -> None:
+def _report_decision_background(settings: Settings, *, agent_id: str | None, decision: str, reason_code: str | None = None, detail: str | None = None, intent_type: str | None = None, metadata: dict | None = None) -> None:
     task = asyncio.ensure_future(
         asyncio.to_thread(
             audit_module.report_decision,
@@ -119,10 +119,22 @@ def _report_decision_background(settings: Settings, *, agent_id: str | None, dec
             reason_code=reason_code,
             detail=detail,
             intent_type=intent_type,
+            metadata=metadata,
         )
     )
     _audit_report_tasks.add(task)
     task.add_done_callback(_audit_report_tasks.discard)
+
+
+def _record_violation(agent_id: str | None, settings: Settings) -> None:
+    """Trip the circuit breaker for an agent-attributable violation -- EXCEPT in
+    shadow mode, where we only observe. Locking out a well-behaved agent for a
+    violation we deliberately did not enforce would defeat the purpose of a
+    risk-free monitor-only rollout (see Settings.shadow_mode)."""
+    if settings.shadow_mode:
+        return
+    if agent_id is not None:
+        circuit_breaker.record_violation(agent_id)
 
 
 def _deny(reason: str, *, agent_id: str | None, settings: Settings, intent_type: str | None = None) -> BCCInterceptResponse:
@@ -130,8 +142,44 @@ def _deny(reason: str, *, agent_id: str | None, settings: Settings, intent_type:
     # never add latency to this response -- see audit.py's module docstring for
     # why this is best-effort, same asymmetry as anchor.py's on-chain anchoring.
     code, _, detail = reason.partition(": ")
+    if settings.shadow_mode:
+        # Monitor-only: record the would-be denial (decision="shadow_deny" so it
+        # is distinguishable from a real, enforced deny in the audit trail) but
+        # do NOT block -- surface what enforcement WOULD have done and let the
+        # caller proceed.
+        _report_decision_background(settings, agent_id=agent_id, decision="shadow_deny", reason_code=code, detail=detail or reason, intent_type=intent_type)
+        return BCCInterceptResponse(authorized=True, enforced=False, shadow_would_deny=True, reason=reason)
     _report_decision_background(settings, agent_id=agent_id, decision="deny", reason_code=code, detail=detail or reason, intent_type=intent_type)
     return BCCInterceptResponse(authorized=False, reason=reason)
+
+
+def _report_anchor_events(settings: Settings, leaves: list, results: dict) -> None:
+    """
+    After a batch anchors, report each agent's committed leaves + its on-chain
+    (root, tx_hash) to the oracle so anchored ALLOW decisions can be JOINed to
+    their StateAnchor transaction at export time (evidence export, Lever 4).
+
+    Groups the flushed leaves by agent the same way anchor_batch_per_agent does,
+    and reports only agents whose anchor actually landed on-chain
+    (result.submitted with a real root + tx). Best-effort throughout: this runs
+    off the event loop (called from within _flush_and_anchor's to_thread worker,
+    or force_flush) and never raises -- a missed report just leaves that decision
+    un-linked until re-anchored, never a gate.
+    """
+    by_agent: dict[str, list] = {}
+    for leaf in leaves:
+        by_agent.setdefault(leaf.commitment.agent_id, []).append(leaf)
+    for agent_id, agent_leaves in by_agent.items():
+        result = results.get(agent_id)
+        if result is None or not result.submitted or result.root is None or not result.tx_hash:
+            continue
+        audit_module.report_anchor_events(
+            settings,
+            agent_id=agent_id,
+            leaves=[f"0x{leaf.leaf_hash.hex()}" for leaf in agent_leaves],
+            root=f"0x{result.root.hex()}",
+            tx_hash=result.tx_hash,
+        )
 
 
 def _flush_and_anchor(settings: Settings) -> None:
@@ -148,7 +196,11 @@ def _flush_and_anchor(settings: Settings) -> None:
     _root, leaves = flushed
     # Anchor per-agent: each agent's leaves go to that agent's own StateAnchor
     # (StateAnchor is a per-agent primitive now — see anchor.anchor_batch_per_agent).
-    anchor_module.anchor_batch_per_agent(settings, leaves)
+    results = anchor_module.anchor_batch_per_agent(settings, leaves)
+    # Link the anchored leaves back to their decisions (evidence export). Runs
+    # here, off the event loop, since _flush_and_anchor is dispatched via
+    # asyncio.to_thread -- see run_intercept.
+    _report_anchor_events(settings, leaves, results)
 
 
 async def run_intercept(commitment: BCCCommitment, settings: Settings) -> BCCInterceptResponse:
@@ -172,23 +224,23 @@ async def run_intercept(commitment: BCCCommitment, settings: Settings) -> BCCInt
     try:
         verify_commitment_signature(commitment)
     except SignatureVerificationError as exc:
-        circuit_breaker.record_violation(agent_id)
+        _record_violation(agent_id, settings)
         return _deny(f"BCC_INVALID_SIGNATURE: {exc}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
 
     # --- 3. Replay protection ------------------------------------------------
     if not nonce_store.check_and_record(agent_id, commitment.nonce):
-        circuit_breaker.record_violation(agent_id)
+        _record_violation(agent_id, settings)
         return _deny(f"BCC_NONCE_REPLAY: nonce {commitment.nonce} is not greater than the last accepted nonce for this agent", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
 
     # --- 4. Freshness ----------------------------------------------------------
     age_ms = (time.time() * 1000) - commitment.timestamp
     if age_ms > settings.max_commitment_age_ms:
-        circuit_breaker.record_violation(agent_id)
+        _record_violation(agent_id, settings)
         return _deny(f"BCC_EXPIRED: commitment is {int(age_ms)}ms old, exceeds max age {settings.max_commitment_age_ms}ms", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
     if age_ms < -settings.max_commitment_age_ms:
         # Clock skew / a timestamp claiming to be from the future beyond our
         # tolerance is just as suspicious as a stale one.
-        circuit_breaker.record_violation(agent_id)
+        _record_violation(agent_id, settings)
         return _deny("BCC_EXPIRED: commitment timestamp is implausibly far in the future", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
 
     # --- 5. OPA policy evaluation (FAIL CLOSED) -------------------------------
@@ -216,7 +268,7 @@ async def run_intercept(commitment: BCCCommitment, settings: Settings) -> BCCInt
         return _deny(f"BCC_POLICY_ENGINE_UNAVAILABLE: {exc}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
 
     if not decision.allow:
-        circuit_breaker.record_violation(agent_id)
+        _record_violation(agent_id, settings)
         reasons = "; ".join(decision.violations) or "policy denied without a specific reason"
         return _deny(f"OPA_REJECTION: {reasons}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
 
@@ -232,12 +284,18 @@ async def run_intercept(commitment: BCCCommitment, settings: Settings) -> BCCInt
         if status is not BAAStatus.ACTIVE:
             # Both "definitively inactive" and "cannot verify" deny -- an
             # unverifiable BAA must never be treated as compliant.
-            circuit_breaker.record_violation(agent_id)
+            _record_violation(agent_id, settings)
             code = "BAA_INACTIVE" if status is BAAStatus.INACTIVE else "BAA_CANNOT_VERIFY"
             return _deny(f"{code}: {detail}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
 
     # --- 7. Approved: admit to the merkle batch, issue a verification token ---
     batch_index = batcher.add(commitment)
+    # The Merkle leaf for THIS commitment (same encoding the batcher/anchor use).
+    # Recorded on the audit row so the anchor event reported once this leaf lands
+    # on-chain can be JOINed back to this decision at export time (evidence
+    # export, docs/design/evidence-export.md). Computed before the flush so it's
+    # available regardless of whether this request triggers the flush.
+    leaf_hex = f"0x{leaf_hash(commitment).hex()}"
     await asyncio.to_thread(_flush_and_anchor, settings)
 
     token = verification_token_module.issue_token(
@@ -249,8 +307,12 @@ async def run_intercept(commitment: BCCCommitment, settings: Settings) -> BCCInt
         decision="allow",
         detail=f"admitted to merkle batch index {batch_index}",
         intent_type=commitment.intent_type,
+        metadata={"leaf": leaf_hex, "batch_index": batch_index, "verification_token": token},
     )
-    return BCCInterceptResponse(authorized=True, verification_token=token, batch_index=batch_index)
+    # `enforced` mirrors the deployment posture even on the allow path so a
+    # caller/dashboard can tell a genuinely-gated approval from a shadow-mode
+    # one without inspecting server config.
+    return BCCInterceptResponse(authorized=True, enforced=not settings.shadow_mode, verification_token=token, batch_index=batch_index)
 
 
 @app.post("/v1/bcc/intercept", response_model=BCCInterceptResponse)
@@ -315,6 +377,8 @@ async def force_flush() -> dict:
     # really got anchored, or attempted) is under `agents[agent_id].root`
     # instead (PRODUCTION_GAPS.md §5).
     results = anchor_module.anchor_batch_per_agent(default_settings, leaves)
+    # Same decision->anchor linkage the auto-flush path records (evidence export).
+    _report_anchor_events(default_settings, leaves, results)
     return {
         "flushed": True,
         "leaf_count": len(leaves),
@@ -344,4 +408,5 @@ async def health() -> HealthResponse:
         opa_reachable=opa_ok,
         chain_reachable=chain_ok,
         pending_batch_size=batcher.pending_count,
+        mode="shadow" if default_settings.shadow_mode else "enforce",
     )

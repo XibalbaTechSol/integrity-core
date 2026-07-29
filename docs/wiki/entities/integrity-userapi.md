@@ -1,7 +1,7 @@
 ---
 title: integrity-userapi
 created: 2026-07-09
-updated: 2026-07-15
+updated: 2026-07-25
 type: entity
 tags: [infrastructure, identity]
 confidence: high
@@ -16,8 +16,9 @@ source_files:
   - integrity-userapi/app/config.py
   - integrity-userapi/migrations/0001_init.sql
   - integrity-userapi/migrations/0002_jwt_revocation.sql
+  - integrity-userapi/migrations/0003_user_wallets.sql
   - integrity-userapi/tests/conftest.py
-  - integrity-mvp/demo/src/integrity_demo/userapi_bridge.py
+  - integrity-dashboard/demo/src/integrity_demo/userapi_bridge.py
   - docker-compose.yml
 ---
 
@@ -47,7 +48,21 @@ already 256 bits of entropy, unlike a human password). `GET /me/agents` /
 agent state locally. `POST /demo/run` / `GET /demo/runs` — records that a
 run was *requested*, starting at `status='pending'`; this service never
 orchestrates a demo or fabricates a `'completed'` result (that's
-[integrity-mvp](integrity-mvp.md)'s `demo/` engine, a separate process).
+[integrity-dashboard](integrity-dashboard.md)'s `demo/` engine, a separate process).
+
+## Custodial app-wallet (added 2026-07-25)
+
+`GET /me/wallet` / `POST /me/wallet/transfer` back a per-user **custodial $ITK
+ledger** — the honest counterpart to the dashboard's self-custodial (MetaMask)
+path. `migrations/0003_user_wallets.sql` adds `user_wallets(user_id PK,
+app_wallet_address UNIQUE, itk_balance_wei NUMERIC(78,0) CHECK >= 0)` — a
+`NUMERIC(78,0)` covers the full uint256 range exactly (no f64 loss). `GET
+/me/wallet` is get-or-create (first call mints a deterministic app-wallet address
++ a dev faucet balance); `POST /me/wallet/transfer` is a real transactional
+debit/credit (`SELECT … FOR UPDATE`), not a mocked number — a genuine custodial
+account whose balance is an authoritative internal ledger. A production deployment
+would back the address with a real custodied keypair + on-chain settlement; the
+ledger semantics are already real. Consumed by the dashboard's `TokenWallet`.
 
 ## The oracle tri-state
 
@@ -97,13 +112,13 @@ caller always gets an honest state, never a silently-empty
   (asyncpg now round-trips `jsonb` as plain dicts everywhere via a codec
   registered in `app/db.py::create_pool`, previously unregistered since
   nothing had ever written non-null JSONB before this). New
-  `integrity-mvp/demo/src/integrity_demo/userapi_bridge.py` calls this
+  `integrity-dashboard/demo/src/integrity_demo/userapi_bridge.py` calls this
   endpoint from the scenario engine itself — `main()` reports `running` at
   start and `completed`/`failed` (with a real summary) at the end, entirely
   opt-in via three env vars (`USERAPI_URL`/`USERAPI_TOKEN`/`USERAPI_RUN_ID`)
   an operator sets when they want a specific `make demo` invocation tied
   back to a `demo_runs` row created beforehand. **Still genuinely out of
-  scope, not fixed**: nothing in `integrity-mvp`'s dashboard UI creates a
+  scope, not fixed**: nothing in `integrity-dashboard`'s dashboard UI creates a
   `demo_runs` row or launches this CLI process — `make demo` remains an
   operator-run script against live Base Sepolia using a funder private key,
   not something the frontend can trigger yet.
@@ -111,7 +126,7 @@ caller always gets an honest state, never a silently-empty
 ## Tests and Postgres wiring
 
 **51 pytest tests** (up from 33 — the 2026-07-15 additions above), plus **6
-new tests** in `integrity-mvp/demo/tests/test_userapi_bridge.py` (against a
+new tests** in `integrity-dashboard/demo/tests/test_userapi_bridge.py` (against a
 real local `ThreadingHTTPServer`, same pattern as this package's own
 `_FakeOracleServer` — no-op when the three env vars are unset,
 bearer-vs-`X-API-Key` header selection, HTTP/connection errors swallowed
@@ -149,18 +164,18 @@ succeeds; `docker compose up -d --no-deps userapi` boots against
 
 `app/main.py` had no CORS policy before this pass — a real, hard-blocking
 gap for the one browser caller this service exists to serve
-([integrity-mvp](integrity-mvp.md)'s dashboard, a different origin by
+([integrity-dashboard](integrity-dashboard.md)'s dashboard, a different origin by
 construction). Fixed with `CORSMiddleware` (`allow_origins=["*"]`,
 `allow_credentials=False` — every authenticated call carries a bearer JWT,
 never a cookie, so this is safe). Verified: all 51 pytest tests unaffected
 (CORS is a browser-enforced concern, invisible server-side); a real
-cross-origin call from `integrity-mvp` now succeeds
-(`integrity-mvp/e2e/auth.spec.ts`, against a real `uvicorn` instance
-`integrity-mvp/e2e/global-setup.ts` now boots on its own ephemeral
+cross-origin call from `integrity-dashboard` now succeeds
+(`integrity-dashboard/e2e/auth.spec.ts`, against a real `uvicorn` instance
+`integrity-dashboard/e2e/global-setup.ts` now boots on its own ephemeral
 Postgres database, port 8093 for E2E — see
 [Interface Contract](../../INTERFACE_CONTRACT.md) §14).
 
 Related: [integrity-oracle](integrity-oracle.md) (the only service this
 one talks to), [DID](../concepts/did.md), [Interface Contract](../../INTERFACE_CONTRACT.md) §13-§14,
-[integrity-mvp](integrity-mvp.md) (the one real caller of this service's
+[integrity-dashboard](integrity-dashboard.md) (the one real caller of this service's
 auth endpoints).

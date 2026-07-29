@@ -1,7 +1,7 @@
 ---
 title: integrity-oracle
 created: 2026-07-07
-updated: 2026-07-16
+updated: 2026-07-25
 type: entity
 tags: [infrastructure, metrics, layer-2, tokenomics]
 confidence: high
@@ -13,6 +13,7 @@ source_files:
   - integrity-oracle/backend/src/chain.rs
   - integrity-oracle/backend/src/db.rs
   - integrity-oracle/backend/src/phi.rs
+  - integrity-oracle/backend/src/vc.rs
   - integrity-oracle/backend/src/crypto/mod.rs
   - integrity-oracle/backend/src/openapi.rs
   - integrity-oracle/backend/migrations/0001_init.sql
@@ -49,11 +50,19 @@ GET  /v1/agent/{id}/telemetry
 GET  /v1/agent/{id}/telemetry/volume
 GET  /v1/agent/{id}/otel/volume
 GET  /v1/agent/{id}/traces
+GET  /v1/agent/{id}/contracts
+GET  /v1/agent/{id}/baas
+GET  /v1/agent/{id}/vc
+GET  /v1/agent/{id}/handle
 GET  /v1/traces/{trace_id}
 POST /v1/telemetry/ingest
 GET  /v1/markets
 GET  /v1/markets/{id}
 GET  /v1/leaderboard
+GET  /v1/benchmarks
+GET  /v1/stats
+GET  /v1/xns/resolve?handle=<h>
+GET  /v1/governance/proposals
 GET  /v1/stream
 GET  /v1/agent/{id}/stream
 GET  /healthz
@@ -66,7 +75,7 @@ compliance → nonce replay → storage):
 
 ### `GET /v1/agent/{id}/telemetry`, `GET /v1/agent/{id}/traces`
 
-Real history queries returning lists of past telemetry events and judge traces respectively, queried directly from Postgres (`telemetry_events` and `judge_evaluations` tables) and returned as structured DTO arrays. Used by the MVP UI to render live feeds and historical execution logs.
+Real history queries returning lists of past telemetry events and judge traces respectively, queried directly from Postgres (`telemetry_events` and `judge_evaluations` tables) and returned as structured DTO arrays. Used by the Dashboard UI to render live feeds and historical execution logs.
 
 
 **The honesty crux:** `POST /v1/agent/register` independently calls
@@ -124,6 +133,56 @@ Ranks agents by real `ReputationRegistry.effectiveScore` (decimal string, same
 every market, out of scope for this pass. An honestly-incomplete ranking, not a silent
 mock. Only agents with a resolvable on-chain `PrimitiveSet` (cached, or live-resolved
 and cached on the fly) appear.
+
+### Contract-ownership + Shield reads: `GET /v1/agent/{id}/contracts`, `/baas`
+
+`/contracts` returns the `IntegrityMarket` clones an agent deployed and owns
+(`MarketFactory.getMarketsByCreator` on its `SovereignAgent`, then live per-market
+reads). `/baas` enumerates the `SmartBAA` escrows where the agent is the business
+associate, from `SmartBAAFactory.BAACreated` logs (no reverse index exists on-chain,
+so the event log is the only enumeration path) + each escrow's live status. Both are
+real on-chain reads; `/baas` returns a clean `MissingSingleton` (400) where the Shield
+`SmartBAAFactory` isn't deployed.
+
+### Verifiable Credentials: `GET /v1/agent/{id}/vc`
+
+Issues a signed **W3C Verifiable Credential** (`AgentIntegrityCredential`) for the
+agent's current AIS + verification tier — a real Ed25519 `Ed25519Signature2020` proof
+over the canonicalized credential, signed by the oracle's issuer key (`crate::vc`,
+`VC_ISSUER_SEED` env, `did:key` issuer). Not a mock: the returned JSON-LD credential is
+independently verifiable against the issuer's public key. Consumed by the dashboard's
+`DIDExplorer`.
+
+### Network benchmarks + protocol stats: `GET /v1/benchmarks`, `/v1/stats`
+
+`/benchmarks` aggregates network-wide telemetry per model (`db::benchmark_by_model`,
+`GROUP BY payload->>'model' HAVING COUNT >= 3`) into a per-model/provider stability +
+grounding benchmark (a simulated AIS from the same entropy/grounding math scoring-core
+uses). `/stats` is the minimal protocol-wide singleton supplement the dashboard can't
+cheaply derive from its per-agent loop: marketplace volume (sum of cached market
+`total_staked`) + `A2ACapitalPool` escrow/release totals; `tvl` is composed client-side
+for a single source of truth.
+
+### XNS resolution: `GET /v1/xns/resolve?handle=<h>`, `GET /v1/agent/{id}/handle`
+
+Live reads of the `XibalbaNameService` singleton. `/xns/resolve` maps a human handle →
+`SovereignAgent` (and, best-effort via `db::did_by_sovereign_agent`, the reverse DID);
+`resolve_handle` gates on `handleExists` first since the contract's `resolve()` reverts
+on an unclaimed handle, so an unregistered handle returns a null address, not an error.
+`/agent/{id}/handle` is the reverse: an agent's `primaryHandle`. Both return
+`MissingSingleton` (**HTTP 400**) until XNS is deployed on the target network — an honest
+"not deployed", never a fabricated handle. Consumed by `XNSSearchService` + `DIDExplorer`.
+
+### Governance: `GET /v1/governance/proposals`
+
+Live enumeration of `IntegrityGovernance` proposals by index (`ChainClient::read_proposals`:
+`proposalCount()` then `getProposal(i)` + `state(i)` for `i in 1..=count`, 1-based,
+newest-first — an index loop, deliberately not log-scanning). Each DTO carries proposer,
+target, FOR/AGAINST tallies (decimal-string wei of ITK), the timelock ETA, and the
+derived `state` (`Active`/`Defeated`/`Succeeded`/`Queued`/`Executed`/`Expired`/`Canceled`).
+Returns `MissingSingleton` (**HTTP 400**) until `IntegrityGovernance` is deployed; the
+dashboard's `GovernancePanel`/`GuardianPilot` degrade to their honest "Not Yet Live"
+state on that (never a live-but-empty proposal list). See [Governance](../concepts/governance.md).
 
 ### `GET /v1/agent/{id}/wallet`
 
@@ -199,13 +258,17 @@ scope (a Xibalba Solutions product decision not yet made).
 
 Read-only via `alloy` (stored as `DynProvider` so `sol!` bindings work): resolves
 an agent's `PrimitiveSet`, reads `ReputationRegistry.effectiveScore`/`isZkBoosted`,
-`ComplianceGate.vertical`/`isHealthcareCompliant`, and — new — `MarketFactory`
-enumeration, per-market `IntegrityMarket` view state, `getPosition`, and
-`IntegrityToken.balanceOf`. `MarketFactory`/`IntegrityToken` singleton addresses are
-`Option<Address>` in the deployments-file parse (`Singletons`), not required: a
-genesis-only deployments file that predates the market layer still parses, and
-handlers needing them return a clean `ChainError::MissingSingleton` (400) instead of
-this client failing to even connect.
+`ComplianceGate.vertical`/`isHealthcareCompliant`, `MarketFactory` enumeration,
+per-market `IntegrityMarket` view state, `getPosition`, `IntegrityToken.balanceOf`,
+`SmartBAAFactory`/`SmartBAA` (Shield), and — new — `XibalbaNameService`
+(`resolve_handle`/`primary_handle`) and `IntegrityGovernance` (`read_proposals`).
+Optional singleton addresses (`MarketFactory`, `IntegrityToken`, `A2ACapitalPool`,
+`SmartBAAFactory`, `XibalbaNameService`, `IntegrityGovernance`) are `Option<Address>`
+in the deployments-file parse (`Singletons`), not required: a deployments file that
+predates any of them still parses, and handlers needing an absent one return a clean
+`ChainError::MissingSingleton` — mapped to **HTTP 400** in `error.rs` (a deployment-shape
+fact, not a transient RPC failure), shared across the market/shield/XNS/governance
+endpoints — instead of this client failing to even connect.
 
 ## Anchoring
 

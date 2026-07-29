@@ -230,10 +230,53 @@ def register_agent(
     # an ERC20 insufficient-balance error despite the agent's wallet holding
     # plenty of ITK it can never spend through that call path.
     if testnet_itk_allocation_wei > 0:
-        try:
-            chain.mint_testnet_itk(w3, funder, itk_address, sovereign_agent, testnet_itk_allocation_wei, chain_id)
-        except Exception as exc:  # noqa: BLE001
-            raise RegistrationError(f"step 7 (mint_testnet_itk) failed: {exc}") from exc
+        # Preferred path: mint from the protocol's designated *liquidity agent* (e.g.
+        # `xibalba.integrity`), so testnet ITK is issued by a registered agent through its
+        # own `SovereignAgent.execute` and is attributable on-chain to that agent rather
+        # than to an operator EOA.
+        #
+        # This requires the liquidity agent's CONTROLLER key to be present locally, since
+        # only the controller may call `execute`. That is true for the current
+        # single-operator testnet setup and false in general — a third party registering
+        # its own agent obviously cannot sign as the liquidity agent. So this falls back to
+        # the funder mint rather than failing registration, and says so in the log. A
+        # multi-operator deployment would replace this with a request to a faucet service
+        # the liquidity agent runs, not with a shared key.
+        liquidity_agent_id = os.getenv("INTEGRITY_LIQUIDITY_AGENT")
+        minted_from_treasury = False
+        if liquidity_agent_id:
+            try:
+                liquidity_primitives = json.loads(
+                    (did.agent_dir(liquidity_agent_id) / "primitives.json").read_text()
+                )
+                liquidity_sa = liquidity_primitives["sovereign_agent"]
+                liquidity_controller = wallet.generate_or_load_evm_wallet(liquidity_agent_id)
+                chain.mint_testnet_itk_from_treasury(
+                    w3,
+                    liquidity_controller,
+                    itk_address,
+                    liquidity_sa,
+                    sovereign_agent,
+                    testnet_itk_allocation_wei,
+                    chain_id,
+                )
+                minted_from_treasury = True
+                logger.info(
+                    "step 7: minted %s wei ITK to %s via liquidity agent '%s' (%s)",
+                    testnet_itk_allocation_wei, sovereign_agent, liquidity_agent_id, liquidity_sa,
+                )
+            except Exception as exc:  # noqa: BLE001 — fall back, but never silently
+                logger.warning(
+                    "step 7: liquidity-agent mint via '%s' failed (%r) — falling back to the "
+                    "funder mint. The ITK will be issued by the operator EOA, not by the agent.",
+                    liquidity_agent_id, exc,
+                )
+
+        if not minted_from_treasury:
+            try:
+                chain.mint_testnet_itk(w3, funder, itk_address, sovereign_agent, testnet_itk_allocation_wei, chain_id)
+            except Exception as exc:  # noqa: BLE001
+                raise RegistrationError(f"step 7 (mint_testnet_itk) failed: {exc}") from exc
 
     # Step 8: route the ANCHOR_ROLE grant through the agent's own contract.
     try:
@@ -242,6 +285,25 @@ def register_agent(
         raise RegistrationError(
             f"step 8 (grant_anchor_role) failed — SovereignAgent {sovereign_agent} and "
             f"StateAnchor {state_anchor} were deployed but are not fully wired: {exc}"
+        ) from exc
+
+    # Step 8b: anchor the genesis memory root, BEFORE registerPrimitives.
+    #
+    # Spec v0.3 §6 fixes this ordering ("deploy SovereignAgent + StateAnchor →
+    # agent-authorize genesis memory root → registerPrimitives") and §7.1 makes it
+    # load-bearing: the oracle independently reads `StateAnchor.latestRoot` at
+    # `POST /v1/agent/register` and returns 400 MemoryNotInitialized on a zero root. An
+    # agent that skipped this step deploys fine on-chain and then cannot register with the
+    # oracle — hence doing it here, inside the atomic registration flow, rather than
+    # leaving it to callers. Idempotence: re-running registration short-circuits earlier
+    # (step 0's on-chain resolve_did), so this never double-anchors a live agent.
+    try:
+        chain.anchor_genesis_root(w3, evm_account, sovereign_agent, state_anchor, chain_id)
+    except Exception as exc:  # noqa: BLE001
+        raise RegistrationError(
+            f"step 8b (anchor_genesis_root) failed — SovereignAgent {sovereign_agent} and "
+            f"StateAnchor {state_anchor} exist on-chain but the agent has no genesis memory "
+            f"root, so the oracle will reject it with MemoryNotInitialized: {exc}"
         ) from exc
 
     # Step 9: clone + register the remaining 5.

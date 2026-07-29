@@ -3,7 +3,30 @@
 > Chronological record of wiki actions. Append-only — never edit past entries.
 > Actions: ingest, create, update, lint, query, archive
 
+## [2026-07-29] update | Antigravity CLI (agy) MCP server integration configured
+- Configured the Antigravity CLI (`agy`) settings file (`~/.gemini/antigravity-cli/settings.json`) to register the `integrity` MCP server.
+- Ensured all agy sessions run in the context of the `xibalba.integrity` agent.
+- Updated `docs/wiki/entities/integrity-sdk.md` with instructions on how to hook up `settings.json` for `agy`.
+
+## [2026-07-29] update | integrity-sdk MCP server + Anvil chain persistence gap
+- Added `integrity_sdk/mcp_server.py`: native MCP server exposing 5 SDK tools (`integrity_log_telemetry`, `integrity_flush_telemetry`, `integrity_invoke_intent`, `integrity_agent_info`, `integrity_resolve_did`) to any MCP-capable agent harness (Claude Desktop, Cursor, Antigravity CLI, etc.) over JSON-RPC without a framework-specific adapter.
+- Added `integrity_sdk/__main__.py` so `python -m integrity_sdk.mcp_server` works.
+- Added `mcp>=1.0.0` as optional dep under `[project.optional-dependencies] mcp` and as a dev dep; added `integrity-mcp-server` console script entrypoint to `pyproject.toml`.
+- Identified and documented root cause of telemetry flush 400 errors: `xibalba` DID registered on first Anvil run, but Anvil restarted (ephemeral — no `--dump-state`/`--load-state`) clearing all on-chain state, while Oracle container still sees empty contracts. Anvil needs `--dump-state` in `make chain` for stable local dev sessions. Gap is documented here; fix is in `Makefile` `chain:` target (not yet applied — tracked for next session).
+- Updated `docs/wiki/entities/integrity-sdk.md` with MCP server section.
+
+## [2026-07-25] update | integrity-dashboard E2E routing & visual audit fixes
+- Fixed 404 path handling in `oracle_sidecar.py` to correctly decode URL-encoded DIDs (`%3A`) and match route actions (e.g. `telemetry`, `traces`, `credit`, `history`) on the last segment (`parts[-1]`).
+- Bound activeTab state to URL hash changes in `DashboardProvider.tsx` (`getInitialTab` and `hashchange` event listener) to ensure E2E visual audit and tab-specific page changes sync correctly.
+- Re-ran the Playwright E2E visual audit tests (`npx playwright test e2e/visual_audit.spec.ts`) across Desktop, Tablet, and Mobile viewports with a 100% green pass (42 tests passed).
+
+## [2026-07-21] update | integrity-sdk auto_hook integration
+- Implemented `integrity_sdk.integrations.auto_hook` featuring `enable_auto_hooks()`.
+- Provides global zero-code instrumentation and framework auto-patching (including Antigravity MoE `Subagent.execute_task`) for continuous trace generation & Oracle telemetry ingestion.
+- Added `tests/unit/test_auto_hook.py` unit test suite; verified clean pass (`109 passed`).
+
 ## [2026-07-07] create | Wiki initialized for the from-scratch rewrite
+
 - Rebuilding the Integrity Protocol monorepo at `INTEGRITY-LATEST/` from
   scratch, after an audit of the old `INTEGRITY/` prototype found working
   code alongside protocol-critical pieces (ZK proving, TEE attestation, OPA
@@ -19,7 +42,7 @@
   aren't built yet.
 - Scope: core seven packages (`contracts`, `integrity-zkp`, `integrity-oracle`,
   `integrity-sdk`, `integrity-cli`, `bcc_middleware`, `integrity-dashboard`)
-  plus `integrity-demo`, a closed-loop MVP. Old repo's marketing site,
+  plus `integrity-demo`, a closed-loop Dashboard. Old repo's marketing site,
   unrelated scaffolding, legacy backups, and stray installer scripts are
   intentionally out of scope.
 
@@ -63,10 +86,10 @@
   bcc_middleware, integrity-dashboard (updated for reconciled state).
 - Updated index.
 
-## [2026-07-09] update | Multi-vertical MVP: markets layer, `integrity-dashboard` +
-`integrity-demo` merged into `integrity-mvp`, three-backend architecture resolved
+## [2026-07-09] update | Multi-vertical Dashboard: markets layer, `integrity-dashboard` +
+`integrity-demo` merged into `integrity-dashboard`, three-backend architecture resolved
 - Shifted scope from a healthcare-only closed-loop demo to a multi-vertical
-  investor/developer MVP (prediction markets, binary options, A2A capital
+  investor/developer Dashboard (prediction markets, binary options, A2A capital
   allocation, real ITK wallet, healthcare Shield) proving one mechanism
   (AIS-gated participation + BCC-committed intent) across many verticals.
 - New on-chain layer `contracts/src/markets/`: `IntegrityMarket.sol` (an
@@ -81,10 +104,10 @@
   CONTRACT address, not its wallet, since application-layer calls are
   execute-routed through the contract. 53/53 SDK tests green.
 - **`integrity-dashboard/` and `integrity-demo/` merged into one package,
-  `integrity-mvp/`** (dashboard app at the package root, demo scenario engine
+  `integrity-dashboard/`** (dashboard app at the package root, demo scenario engine
   in `demo/`) — the protocol has exactly one user-facing product surface, not
   a dashboard + a separate demo UI + a separate marketing site. Renamed
-  `entities/integrity-dashboard.md` → `entities/integrity-mvp.md`.
+  `entities/integrity-dashboard.md` → `entities/integrity-dashboard.md`.
 - Resolved backend architecture: `bcc_middleware` (pre-execution BCC/OPA/
   on-chain-BAA gate) is NOT a peer service or SDK-adjacent — it's Oracle's
   before-the-action half of one trust domain (`integrity-oracle` is the
@@ -204,7 +227,7 @@
 - Did **not** create `entities/integrity-userapi.md` or an
   `entities/integrity-demo.md`: `integrity-userapi/` has real, complete
   endpoint implementations (`app/main.py` covers every §13 endpoint) but
-  zero test files (`tests/` is empty) as of this pass; `integrity-mvp/demo/`
+  zero test files (`tests/` is empty) as of this pass; `integrity-dashboard/demo/`
   is an empty directory. Both stay in the index's "pending" section with
   accurate status notes rather than getting entity pages, consistent with
   every other entity page here citing a real test count.
@@ -303,16 +326,16 @@
   leaderboard/wallet endpoints not yet present" pending-section note,
   bumped `entities/integrity-oracle.md`'s test count (37→43).
 
-## [2026-07-09] update | docs/INTERFACE_CONTRACT.md reconciled for the integrity-mvp rename + two-trust-domain split (closes task #22)
+## [2026-07-09] update | docs/INTERFACE_CONTRACT.md reconciled for the integrity-dashboard rename + two-trust-domain split (closes task #22)
 - Fixed every remaining stale reference in `docs/INTERFACE_CONTRACT.md` to
   the pre-2026-07-09 package names/framing that earlier passes missed:
-  §1's scope list ("core seven" → six core + `integrity-mvp`), §2's ports
-  table (`integrity-dashboard` → `integrity-mvp`), the toolchain table's
+  §1's scope list ("core seven" → six core + `integrity-dashboard`), §2's ports
+  table (`integrity-dashboard` → `integrity-dashboard`), the toolchain table's
   `node`/`npm` row, §6.6's deployments-file-readers list, §6.7's Shield
   panel reference, §6.8's Contracts/Factory-IDE reference, §9's directory
   tree (removed top-level `integrity-dashboard/`/`integrity-demo/`, added
-  `integrity-mvp/` with `src/`+`demo/`), §11's title and body (now
-  `integrity-mvp/demo/`, explicit about living inside the dashboard
+  `integrity-dashboard/` with `src/`+`demo/`), §11's title and body (now
+  `integrity-dashboard/demo/`, explicit about living inside the dashboard
   package rather than being a sibling), §13's `demo_runs` description.
 - §6.10 got more than a rename: retitled "two trust domains, not three
   peer services" and restructured so `bcc_middleware` and
@@ -331,11 +354,11 @@
   edit; now each builder gets a named local first. `cargo build` clean,
   `cargo test` 43/43 + e2e green after the fix.
 - This closes task #22 (doc reconciliation). Task #21 (the actual
-  `integrity-mvp` dashboard rebuild) remains not started — this pass was
+  `integrity-dashboard` dashboard rebuild) remains not started — this pass was
   documentation only, no dashboard code was written.
 
 ## [2026-07-09] fix | Live Base Sepolia bug: AgentPrimitivesFactory rejected 3 of 5 Vertical values — redeployed, verified
-- **Real bug, found by the `integrity-mvp/demo` background agent, not hypothetical**: the
+- **Real bug, found by the `integrity-dashboard/demo` background agent, not hypothetical**: the
   live `AgentPrimitivesFactory` and its `complianceGateImpl` were deployed by genesis
   `Deploy.s.sol` BEFORE `ComplianceGate.Vertical` was extended from `{None, Healthcare}`
   to 5 members (`+ PredictionMarket, Trading, CapitalAllocation`, this session's markets
@@ -379,8 +402,8 @@
   resolve against it fine) but no longer holds `REGISTRAR_ROLE` — do not use it for new
   registrations.
 
-## [2026-07-09] create+update | `integrity-mvp/demo` built and run for real against live Base Sepolia
-- Built the closed-loop scenario engine at `integrity-mvp/demo/` (`uv`/hatchling
+## [2026-07-09] create+update | `integrity-dashboard/demo` built and run for real against live Base Sepolia
+- Built the closed-loop scenario engine at `integrity-dashboard/demo/` (`uv`/hatchling
   Python package, local path dep on `integrity-sdk`, `make demo` target added to
   the root `Makefile`): `integrity_demo/{config,links,reporter,fleet,
   register_phase,market_phase,capital_phase,healthcare_phase,shield_chain,
@@ -419,7 +442,7 @@
   (`{did, did_document, primitives, ed25519_pubkey_hex/eth_address_hex,
   verification_tier}`) — never caught before because the SDK's own tests always
   pass `skip_oracle_registration=True`. This demo does the same, documented in
-  `integrity-mvp/demo/README.md`'s honest-gaps section.
+  `integrity-dashboard/demo/README.md`'s honest-gaps section.
 - **Corrected two stale wiki entries found via direct source re-read while
   building this** (drift the schema's Phase 4 lint step exists to catch):
   `entities/bcc_middleware.md`'s "honest open gap" claiming
@@ -428,14 +451,14 @@
   `SovereignAgent` address via the oracle (`resolve_agent_primitives`); updated
   the page and removed the matching stale line from `WIKI_INDEX.md`'s open
   queries. Also removed `WIKI_INDEX.md`'s "Entities (pending)" line for
-  `integrity-mvp/demo/` (said "empty directory — no code yet", no longer true).
-- Updated `entities/integrity-mvp.md`'s frontmatter `source_files` + added a
+  `integrity-dashboard/demo/` (said "empty directory — no code yet", no longer true).
+- Updated `entities/integrity-dashboard.md`'s frontmatter `source_files` + added a
   full "`demo/` — the scenario engine" section (composition, per-persona
   on-chain behavior, the live bug found/fixed, the honest-gaps list). No new
   wiki page created (extended the existing entity page, which already covered
   the merged dashboard+demo package) — index page count unchanged.
 - Full real BaseScan output from the successful run is in
-  `integrity-mvp/demo/README.md`'s "Sample real run" section.
+  `integrity-dashboard/demo/README.md`'s "Sample real run" section.
 - **Self-caught post-completion defect, fixed before reporting done**: `main.py`
   never actually called `python-dotenv`'s `load_dotenv()` despite the README and
   the new Makefile `demo` target both documenting a `.env`-file setup path —
@@ -528,21 +551,21 @@
   `ORACLE_E2E` unset), all green; no oracle-side code changed, so no new
   Rust test was needed there.
 - **Also found, not fixed here (flagged, out of this task's #27 scope)**:
-  `integrity-mvp/e2e/global-setup.ts` (Playwright E2E setup, owned by the
+  `integrity-dashboard/e2e/global-setup.ts` (Playwright E2E setup, owned by the
   parallel task #21 dashboard work — not touched) registers its seed agent
   via this exact same `register_agent(...)` call, without
   `skip_oracle_registration`. It would have hit this identical bug the first
   time `make test-e2e` actually ran that step; this fix incidentally
   unblocks it too, but that file itself was left untouched per this task's
   file-scoping rule (`integrity-sdk/`, `integrity-oracle/`, `docs/` only).
-  **`integrity-mvp/demo/` is a separate, NOT-automatically-fixed case**,
+  **`integrity-dashboard/demo/` is a separate, NOT-automatically-fixed case**,
   important not to conflate with the above: `integrity_demo/register_phase.py`
   still hardcodes `skip_oracle_registration=True` for every persona (see its
   own module docstring and `README.md`'s honest-gaps section, both
   untouched here — same file-scoping boundary). This SDK fix makes a
   demo-style registration *capable* of succeeding against the oracle now,
   but the demo agents remain invisible to the oracle (no AIS, absent from
-  `GET /v1/agents`) until whoever owns `integrity-mvp/` removes that flag —
+  `GET /v1/agents`) until whoever owns `integrity-dashboard/` removes that flag —
   that is a separate, still-open follow-up, not something this pass silently
   completed.
 - Also found (Rust-side reading confirmed by a grep, not a full repro —
@@ -563,7 +586,7 @@
   flagged-but-unfixed parallel gaps (demo/, CLI).
 
 ## [2026-07-09] update | Landing page rebuilt: agent-ownership narrative, real Mermaid architecture/roadmap diagrams, logo
-- Per explicit product direction, rebuilt `integrity-mvp/src/pages/LandingPage.tsx`
+- Per explicit product direction, rebuilt `integrity-dashboard/src/pages/LandingPage.tsx`
   from a minimal hero+bento+demo-run page into the full investor/developer
   narrative: the "agents own their own contracts" thesis and its
   consequences (no platform lock-in, real skin in the game via `Slasher`,
@@ -583,7 +606,7 @@
   zero console/page errors.
 - Logo: copied `XibalbaSolutionsLogo.png` verbatim from the old
   `~/Projects/INTEGRITY/integrity-dashboard/public/` into
-  `integrity-mvp/public/`, referenced in the hero section.
+  `integrity-dashboard/public/`, referenced in the hero section.
 - New `src/pages/LandingPage.test.tsx` (5 tests, all passing) + CSS
   additions in `index.css` (`.landing__logo`, `.landing__narrative`,
   `.narrative-list`, `.mermaid-diagram`, `.landing__closing`).
@@ -595,11 +618,11 @@
      CSS comment and leaving the rest of the comment text as invalid CSS —
      broke PostCSS transform for every page, not just this one. Fixed by
      adding a space (`--gauge-* / --*-dim`).
-  2. No `.env` existed for local `integrity-mvp` dev (`client.ts`'s
+  2. No `.env` existed for local `integrity-dashboard` dev (`client.ts`'s
      `requireEnv('VITE_ORACLE_URL')` throws at *any* page's module-load
      time, since `App.tsx` imports every page eagerly, not lazily) — a
      real local-dev-setup gap for anyone starting this app fresh. Created
-     `integrity-mvp/.env` from `.env.example`.
+     `integrity-dashboard/.env` from `.env.example`.
   3. Adding the new `mermaid` dependency to an already-running dev server
      produced a stale Vite dep-optimization cache (`504 Outdated Optimize
      Dep`) until the server was restarted — a normal Vite quirk, not a
@@ -611,16 +634,16 @@
   touching any file that agent was also editing (`App.tsx`, `AuthGate.tsx`,
   `AgentListPage.tsx` were all left exactly as that agent wrote them).
 
-## [2026-07-09] update | Closed both follow-up gaps task #27 flagged: integrity-mvp/demo's skip_oracle_registration workaround removed, integrity-cli's own oracle POST fixed to match the real schema
+## [2026-07-09] update | Closed both follow-up gaps task #27 flagged: integrity-dashboard/demo's skip_oracle_registration workaround removed, integrity-cli's own oracle POST fixed to match the real schema
 - Task #27 fixed `integrity-sdk/integrity_sdk/registration.py`'s oracle POST
   schema (`agent_id`→`did`, added `ed25519_pubkey_hex`/`eth_address_hex`) and,
   out of its own file-scoping boundary, flagged two parallel consumers that
   had the identical drift and were NOT touched by that fix:
-  `integrity-mvp/demo/integrity_demo/register_phase.py` (hardcoded
+  `integrity-dashboard/demo/integrity_demo/register_phase.py` (hardcoded
   `skip_oracle_registration=True` as a workaround) and `integrity-cli`'s
   `main.py` `agent register` command (hand-builds its own oracle POST body,
   never called the SDK's `registration.py`). Both are now closed.
-- **`integrity-mvp/demo` fix**: `register_phase.py` no longer passes
+- **`integrity-dashboard/demo` fix**: `register_phase.py` no longer passes
   `skip_oracle_registration=True` to `registration_module.register_agent(...)`
   — it now passes `oracle_url=config.oracle_url` and lets the SDK's already-
   fixed step 11 run for real. Docstring rewritten to describe the current
@@ -628,7 +651,7 @@
   `reporter.fact(f"{persona.display_name} oracle registered", ...)` line so a
   real run's console output visibly confirms the oracle accepted each
   persona, not just the on-chain steps.
-- **`integrity-mvp/demo` verification (real infra, not hypothetical)**: spun
+- **`integrity-dashboard/demo` verification (real infra, not hypothetical)**: spun
   up a fresh local anvil (port 18545), ran the real
   `contracts/script/Deploy.s.sol` + `DeployMarkets.s.sol` against it
   (writing a real `deployments.local.json` to the repo root), ephemeral
@@ -643,7 +666,7 @@
   oracle returned `has_eth_address: true` with matching primitives, and a
   real `GET /v1/agents` listed the registered DID — closing the exact
   "demo-registered agents are invisible to the oracle" symptom.
-- **`integrity-mvp/demo/README.md` honest-gaps section updated**: gap #2 (the
+- **`integrity-dashboard/demo/README.md` honest-gaps section updated**: gap #2 (the
   schema mismatch / `skip_oracle_registration=True` workaround) is now marked
   `[RESOLVED 2026-07-09]` with the verification above cited directly, rather
   than left as stale text claiming a gap that no longer exists (per this
@@ -715,7 +738,7 @@
   replaced with a "Resolved gap" section describing the fix and its real
   verification, rather than leaving stale open-gap text next to a new fix
   (per this task's explicit instruction not to just add more text alongside
-  the old gap note). Updated `docs/wiki/entities/integrity-mvp.md`'s demo
+  the old gap note). Updated `docs/wiki/entities/integrity-dashboard.md`'s demo
   section and honest-gaps list, `docs/wiki/WIKI_INDEX.md`'s integrity-cli
   one-line summary (49 tests → 49 tests + 1 opt-in oracle e2e), and
   `docs/INTERFACE_CONTRACT.md` §6.3 with a note that `integrity-cli` now
@@ -729,7 +752,7 @@
   state, safe to leave — matches the convention every other real-anvil test
   in this repo already relies on).
 
-## [2026-07-09] create+update | `integrity-mvp` full multi-page rebuild (task #21) — real auth swap, 5 new pages, real oracle wire-shape bugs found+fixed
+## [2026-07-09] create+update | `integrity-dashboard` full multi-page rebuild (task #21) — real auth swap, 5 new pages, real oracle wire-shape bugs found+fixed
 - Routing (`src/App.tsx`) rebuilt from 2 routes to the full IA: public
   Landing (`/`), Agents (`/agents`, `/agents/:agentId`), Wallet
   (`/agents/:agentId/wallet`, new), Shield (`/agents/:agentId/shield`,
@@ -752,7 +775,7 @@
   owned `integrity-sdk`/`integrity-oracle` this session): ran the
   pre-existing Playwright suite for the first time before starting page
   work (per this repo's own testing-strategy convention) and got 4/5
-  failures. Root causes, all in `integrity-mvp/src/lib/api/types.ts`:
+  failures. Root causes, all in `integrity-dashboard/src/lib/api/types.ts`:
   `GET /v1/agents` returns `{id, verification_tier, created_at}`
   (`AgentSummary`), not the previously-assumed `agent_id`/`alias`/`ais`/
   `zk_proof_verified`/`registered_at`/`last_active`; `GET /v1/agent/{id}`
@@ -791,11 +814,11 @@
 - **`integrity-userapi/app/main.py`**: added `CORSMiddleware`
   (`allow_origins=["*"]`, `allow_credentials=False`) — this service had NO
   CORS policy before, a hard-blocking gap for any browser caller
-  (`integrity-mvp` is cross-origin by construction). Verified: all 33
+  (`integrity-dashboard` is cross-origin by construction). Verified: all 33
   existing pytest tests unaffected; re-ran green. Documented in
   `docs/INTERFACE_CONTRACT.md` §13-§14 and `entities/integrity-userapi.md`.
 - **`vite.config.ts`**: fixed a real, pre-existing `npm test` failure —
-  vitest's default include glob was also collecting `integrity-mvp/e2e/*.spec.ts`
+  vitest's default include glob was also collecting `integrity-dashboard/e2e/*.spec.ts`
   (Playwright's own spec files), erroring with "Playwright Test did not
   expect test() to be called here" on all 3 e2e files. Added
   `test.exclude: ['e2e/**', 'node_modules/**']`.
@@ -829,7 +852,7 @@
   dedicated Playwright spec for it yet, a real remaining gap, though its
   content is exercised incidentally by `auth.spec.ts`'s public-page check
   and `capital-allocation.spec.ts`'s nav-click-through).
-- Updated `docs/wiki/entities/integrity-mvp.md` (full rewrite of the
+- Updated `docs/wiki/entities/integrity-dashboard.md` (full rewrite of the
   "What's built"/"Design" sections + source_files), `entities/integrity-userapi.md`
   (new CORS section), `docs/wiki/WIKI_INDEX.md` (both entities' one-line
   summaries), `docs/INTERFACE_CONTRACT.md` (new §14 + a CORS note in §13).
@@ -846,9 +869,9 @@
   wallet-signing flow built — states this plainly, button always
   disabled); AgentDetail's DID document panel was removed (the oracle
   never returns one — a confirmed, out-of-scope-to-fix oracle gap, not an
-  `integrity-mvp` regression).
+  `integrity-dashboard` regression).
 
-## [2026-07-10] update | `integrity-mvp` gold/navy legacy-UI redesign + Seeded Demo/Live data mode (5-phase pass)
+## [2026-07-10] update | `integrity-dashboard` gold/navy legacy-UI redesign + Seeded Demo/Live data mode (5-phase pass)
 
 - Reimagined the dashboard's visual layer and IA per a plan at
   `/home/xibalba/.claude/plans/use-the-xibalba-hermes-snappy-globe.md`,
@@ -904,7 +927,7 @@
   existing) to **129/129 passing across 44 files** by the end of Phase 5,
   zero regressions in any pre-existing test at any phase.
 - Repo had no git history before this pass (`git init`'d as part of Phase
-  1 so each phase lands as a reviewable commit) — see the integrity-mvp
+  1 so each phase lands as a reviewable commit) — see the integrity-dashboard
   package's own `.git` history for the 5 phase commits.
 - **Honest gap, not silently skipped**: the plan named
   `e2e/data-mode-honesty.spec.ts` as its most important new test — not
@@ -921,12 +944,12 @@
   not-yet-started later phase per the plan's §8 — the UI above is
   complete and functional on its own, with Demo mode as its permanent
   (not transitional) preview surface either way.
-- Updated `docs/wiki/entities/integrity-mvp.md` (source_files + a new
+- Updated `docs/wiki/entities/integrity-dashboard.md` (source_files + a new
   "Gold/navy legacy-UI redesign" subsection under Design) and
-  `docs/wiki/WIKI_INDEX.md` (integrity-mvp's one-line summary, updated
+  `docs/wiki/WIKI_INDEX.md` (integrity-dashboard's one-line summary, updated
   date). No new wiki pages created — index page count unchanged at 24.
 
-## [2026-07-11] update | `integrity-mvp` gold/navy → Linear-inspired monochrome redesign pivot
+## [2026-07-11] update | `integrity-dashboard` gold/navy → Linear-inspired monochrome redesign pivot
 
 - Direct user feedback on the 2026-07-10 gold/navy/Playfair redesign,
   once actually seen running in the browser: "terrible," not
@@ -959,7 +982,7 @@
   anvil + deployed contracts + compiled oracle + userapi + Postgres/
   Redis), build + lint clean, visual confirmation via `npm run dev`
   across Landing/Agents/Agent Detail/Cognition.
-- Updated `docs/wiki/entities/integrity-mvp.md` (new "Gold/navy → Linear
+- Updated `docs/wiki/entities/integrity-dashboard.md` (new "Gold/navy → Linear
   -inspired monochrome pivot" subsection, Design section summary,
   `updated` date) and `docs/wiki/WIKI_INDEX.md` (last-updated date). No
   new wiki pages created — index page count unchanged at 24.
@@ -1258,7 +1281,7 @@
   implementation work, and a separate audit sweep) converged on the
   identical finding.
 - **Also fixed, found by a third parallel background audit agent**
-  (auditing `integrity-sdk`/`integrity-cli`/`integrity-mvp`): the SDK's
+  (auditing `integrity-sdk`/`integrity-cli`/`integrity-dashboard`): the SDK's
   own documented, *recommended* general-purpose tracing API —
   `telemetry/tracing.py`'s `trace_run`/`traceable`/`client.traceable(...)`
   — captured a wrapped function's raw arguments/return value with **zero
@@ -1423,21 +1446,21 @@
   internals) left as-is; still accurate, just no longer the only place
   pipeline-wiring gaps are documented.
 
-## [2026-07-12] update | integrity-mvp rewritten UI: build fixed, real wiring, wiki corrected
-- `integrity-mvp/src/` had been independently rewritten (all mtimes
+## [2026-07-12] update | integrity-dashboard rewritten UI: build fixed, real wiring, wiki corrected
+- `integrity-dashboard/src/` had been independently rewritten (all mtimes
   ~00:00-00:20 same day, well after this wiki's prior "2026-07-11" entity
   page) into a new 16-page shell, confirmed by the user as intentional
-  ("the new mvp ui") rather than lost work. A full read-only audit found
+  ("the new dashboard ui") rather than lost work. A full read-only audit found
   it cosmetically complete but non-building (`ContractsPage.tsx` missing
   `return (`; two components importing a nonexistent `axios`/`../../
   constants`) and 100% mock — `src/services/api.ts` fully fake, no
   wagmi/viem, no env config, no tests. The prior `entities/
-  integrity-mvp.md` described a much more mature, entirely different
+  integrity-dashboard.md` described a much more mature, entirely different
   build (real JWT auth, Demo/Live fixture toggle, `demo/` scenario
   engine, 129 vitest + 16 Playwright specs) whose files no longer exist
   anywhere in the tree — rewritten from scratch rather than patched, per
   this wiki's "no aspirational content" rule.
-- User confirmed (via AskUserQuestion) the MVP should be
+- User confirmed (via AskUserQuestion) the Dashboard should be
   **wallet-interactive** — real wallet-signed transactions, not
   read-only. Plan written to `/home/xibalba/.claude/plans/
   joyful-giggling-leaf.md` and approved before implementation.
@@ -1459,11 +1482,11 @@
   lint` both clean, and a real Playwright pass confirmed all 16 routes
   render with zero console errors.
 - **Phase 1 (wallet/data infra)**: `wagmi`+`viem`+`@tanstack/react-query`
-  added. `scripts/sync_abis.py` extended (new `MVP_ABIS_DIR`/
-  `MVP_DEPLOYMENTS_DIR` constants, `XibalbaAgentRegistry` added to the
+  added. `scripts/sync_abis.py` extended (new `Dashboard_ABIS_DIR`/
+  `Dashboard_DEPLOYMENTS_DIR` constants, `XibalbaAgentRegistry` added to the
   synced contract list) to also emit `{abi}`-only JSON into
-  `integrity-mvp/src/abis/` for the 6 contracts the frontend calls
-  directly, and copy both `deployments.*.json` files into `integrity-mvp/
+  `integrity-dashboard/src/abis/` for the 6 contracts the frontend calls
+  directly, and copy both `deployments.*.json` files into `integrity-dashboard/
   src/deployments/` — same one-way sync convention `integrity-sdk`/
   `integrity-cli` already use, now with a third consumer. New `src/
   chain/{wagmi,deployments,abis}.ts`, `src/config.ts` (env var reads),
@@ -1511,7 +1534,7 @@
   the exact wiki-staleness pattern already caught twice this session —
   real and simulated content are now visually distinguishable instead of
   silently mixed.
-- **New: `integrity-mvp/scripts/seed_mock_data.py`** (a genuine user
+- **New: `integrity-dashboard/scripts/seed_mock_data.py`** (a genuine user
   mid-session request, not part of the original plan) — registers real
   test agents (and deploys one real market) via `integrity_sdk` exactly
   the way a real agent would, gated by `MOCK=true` as a safety rail
@@ -1526,11 +1549,11 @@
   market deployed against the local stack, then re-verified end-to-end
   via Playwright (4 real agent DIDs rendering, real market visible on
   `ExchangePage`, zero console errors across all 16 routes,
-  `SettingsPage` correctly showing "Mock Mode: ON"). `integrity-mvp/
+  `SettingsPage` correctly showing "Mock Mode: ON"). `integrity-dashboard/
   .env`/`.env.example` gained `VITE_MOCK_MODE`; `.gitignore` gained a
   `.env` rule (previously absent — real values had no ignore rule at
   all).
-- Rewrote `entities/integrity-mvp.md` from scratch (the prior version
+- Rewrote `entities/integrity-dashboard.md` from scratch (the prior version
   described the pre-rewrite build in full; none of its cited
   `source_files` exist anymore) and corrected `WIKI_INDEX.md`'s summary
   line for it, marking it `[PARTIALLY BUILT]` with an honest list of
@@ -1547,19 +1570,19 @@
 ## [2026-07-12] update | Notion-Style Block Dashboard & Claim Agent workflows
 - **Notion-Style Block Dashboard**: Refactored `DashboardPage.tsx` using `react-grid-layout` to support dynamic, customizable widget placement. Created `WidgetRegistry.tsx` (defining 7 widgets: AIS Distribution, Oracle Throughput, BCC Latency, Node Fleet, Security Events, Integrity Radar, and Dashboard Notes) and `WidgetWrapper.tsx` (providing drag handles `⋮⋮` and deletion/action menus). Custom layouts and widget configurations are persisted in LocalStorage.
 - **Port Legacy Claim Agent & XNS**: Ported `ClaimAgentModal.tsx` and `XNSSearchService.tsx` from the legacy repository. Integrated them into `IdentityPage.tsx` to support resolution of Handles/DIDs and initiate MetaMask personal_sign challenge claim sequences.
-- Updated `WIKI_INDEX.md` and `entities/integrity-mvp.md` to document the new architecture.
+- Updated `WIKI_INDEX.md` and `entities/integrity-dashboard.md` to document the new architecture.
 
 ## [2026-07-12] fix | WidgetRegistry.tsx rules-of-hooks linter fix and build verification
-- Audit of the linter errors on `integrity-mvp` showed a `react-hooks(rules-of-hooks)` failure in `WidgetRegistry.tsx` due to React's `useState` hook being called inside an anonymous function component mapping.
+- Audit of the linter errors on `integrity-dashboard` showed a `react-hooks(rules-of-hooks)` failure in `WidgetRegistry.tsx` due to React's `useState` hook being called inside an anonymous function component mapping.
 - **Fix**: Extracted the notes component to a named React functional component `NotesWidget` in `WidgetRegistry.tsx` and updated the registry mapping.
-- **Verification**: Re-ran the build (`npm run build`) and linter (`npm run lint`), confirming that the build completes successfully and the linter exits with code 0 (no errors). Updated the `integrity-mvp` entity page and this log.## [2026-07-12] update | Endpoints and UI Integration for Telemetry and Judge Evaluations
+- **Verification**: Re-ran the build (`npm run build`) and linter (`npm run lint`), confirming that the build completes successfully and the linter exits with code 0 (no errors). Updated the `integrity-dashboard` entity page and this log.## [2026-07-12] update | Endpoints and UI Integration for Telemetry and Judge Evaluations
 - **Axum Telemetry & Traces Endpoints**: Implemented database queries (`get_recent_telemetry` and `get_recent_evaluations`) in `integrity-oracle/backend/src/db.rs` and wired them to new Axum handler endpoints (`/v1/agent/{id}/telemetry` and `/v1/agent/{id}/traces`) in `handlers.rs` and `routes.rs`. Documented both paths and DTO types in the OpenAPI specification via `openapi.rs`.
 - **E2E Integration Validation**: Added a comprehensive database-insert and HTTP-read verification test case to the integration test suite in `integrity-oracle/backend/tests/e2e.rs`. Set up case-insensitive Ethereum address checks and dropped newly introduced tables (`markets_cache`, `markets_index_sync`, `judge_evaluations`) in test setup. All E2E integration tests are green (`TEST_DATABASE_URL=postgres://integrity:integrity_dev_only@127.0.0.1:55432/integrity ORACLE_E2E=1 cargo test --test e2e` passes successfully).
-- **Frontend Real Telemetry Wiring**: Updated `integrity-mvp/src/services/oracle.ts` client to include `getTelemetry` and `getTraces`. Wired `integrity-mvp/src/pages/SdkTelemetryPage.tsx` using the `AgentContext` and `oracle.getTelemetry` to fetch and render real telemetry history in the live ingestion feed. Verified frontend build succeeds with zero errors.
+- **Frontend Real Telemetry Wiring**: Updated `integrity-dashboard/src/services/oracle.ts` client to include `getTelemetry` and `getTraces`. Wired `integrity-dashboard/src/pages/SdkTelemetryPage.tsx` using the `AgentContext` and `oracle.getTelemetry` to fetch and render real telemetry history in the live ingestion feed. Verified frontend build succeeds with zero errors.
 
 ## [2026-07-12] update | Backend-infra audit: gap check, telemetry pipeline verified end-to-end, one architectural gap flagged
-- User asked for a fresh audit of `integrity-mvp` (by then significantly changed by concurrent work — see the four log entries directly above this one) to find any backend infrastructure the frontend needs but doesn't have, and to implement anything missing.
-- **Full API-surface diff**: every `oracle.*`/`userapi.*` method actually called anywhere in `integrity-mvp/src/` was enumerated and compared 1:1 against `integrity-oracle/backend/src/routes.rs` and `integrity-userapi/app/main.py`'s real registered routes. Result: **full coverage, no missing backend routes** — the only two that had been missing (`GET /v1/agent/{id}/telemetry`, `GET /v1/agent/{id}/traces`) were the ones the concurrent work above had just added. `oracle.ts`'s `getTelemetry`/`getTraces` were typed `any[]`; tightened to real `TelemetryEventDetailDto`/`AgentJudgeEvaluationDto` interfaces matching `handlers.rs` exactly.
+- User asked for a fresh audit of `integrity-dashboard` (by then significantly changed by concurrent work — see the four log entries directly above this one) to find any backend infrastructure the frontend needs but doesn't have, and to implement anything missing.
+- **Full API-surface diff**: every `oracle.*`/`userapi.*` method actually called anywhere in `integrity-dashboard/src/` was enumerated and compared 1:1 against `integrity-oracle/backend/src/routes.rs` and `integrity-userapi/app/main.py`'s real registered routes. Result: **full coverage, no missing backend routes** — the only two that had been missing (`GET /v1/agent/{id}/telemetry`, `GET /v1/agent/{id}/traces`) were the ones the concurrent work above had just added. `oracle.ts`'s `getTelemetry`/`getTraces` were typed `any[]`; tightened to real `TelemetryEventDetailDto`/`AgentJudgeEvaluationDto` interfaces matching `handlers.rs` exactly.
 - **Full pipeline verified for real, not just route-existence**: `cargo build`+`cargo test --workspace --lib` (54/54) confirmed the new endpoints compile and pass; restarted the local oracle-backend process (it was serving a binary older than these changes); registered a fresh test agent via `integrity_sdk.registration.register_agent`, flushed one real signed telemetry event via `IntegrityClient.record_metric`+`flush_telemetry`, and confirmed it round-trips correctly through `GET /v1/agent/{id}/telemetry` — real signed ingest → real Postgres row → real HTTP read → real browser render, verified via Playwright (all 16 routes, zero console errors, `SdkTelemetryPage` showing the real ingested event).
 - **One real architectural gap found and deliberately NOT silently patched**: `ClaimAgentModal.tsx` (ported from the legacy repo per the log entry above) implements a "claim an already-deployed agent via signature challenge" flow — but `contracts/src/core/SovereignAgent.sol`'s only ownership-change function, `rotateController(address)`, is `onlyController`-gated: the CURRENT controller can hand off to a new one, but there is no mechanism anywhere in the contract for a non-controller to claim an agent via any kind of challenge/signature scheme. The modal's `handleClaimOwnership` also submits a hardcoded transaction using selector `0x095ea7b3`, which is ERC-20 `approve(address,uint256)`, not any real `SovereignAgent` method — calling it would either revert or do something unrelated to claiming, and the surrounding `try/catch` swallows that failure (`console.warn` + continue) rather than surfacing it. `api.generateClaimChallenge`/`api.claimOwnership` (`services/api.ts`) are still the original mock stubs from before this session's work, not backed by anything. This is not a "missing backend endpoint" gap — it's a feature whose premise doesn't match the real on-chain access-control model, and building it for real would mean designing and shipping a new contract-level claim mechanism, a protocol decision out of scope to make silently. Flagged here rather than either faking a fix or quietly implementing new contract functionality.
 
@@ -1571,22 +1594,22 @@
   - **`ClaimAgentModal` rewritten, not patched.** Re-examined after the user pushed back on leaving it flagged: the modal's actual goal — proving a connected wallet controls a given agent — has a real, buildable equivalent even though "claiming an agent you don't control" does not. New flow ("Verify Agent Control"): resolve the real on-chain `controller` from `XibalbaAgentRegistry.resolveAgent(sovereignAgentAddress)`, compare to the connected wallet, and if they match, have the user `personal_sign` a real message as a "prove you hold this key right now" confirmation (verified client-side via `viem`'s `verifyMessage`) — no transaction submitted, none needed. All fake `api.generateClaimChallenge`/`api.claimOwnership` calls and the wrong-selector transaction removed; those two now-dead mock functions deleted from `services/api.ts` (confirmed no remaining callers first). Verified via Playwright: entering a real registered agent's `SovereignAgent` address resolves its real on-chain controller.
 - **Phase 4 — userapi auth, verified for real**: the concurrent work's `SettingsPage` login/register/API-key wiring was verified end-to-end against a real running `integrity-userapi` (its own isolated Postgres database, per the architecture's trust-domain separation) — real registration, then a real `POST /api-keys` call confirmed not by a UI string match but by the created key actually appearing in a subsequent real `GET /api-keys` re-fetch (a revoke button rendering for it), zero console errors throughout.
 - **Phase 5 — real test infrastructure, not stubs**: `vitest` + `@testing-library/react` added (`vitest@^4.1.10`, not the initially-chosen `^2.x`, which had an incompatible bundled-`vite` type conflict against this repo's `vite@8` — a real dependency-compatibility issue, not a config mistake, resolved by upgrading rather than working around). 9 unit tests: `services/oracle.test.ts` (asserts exact request URLs/query-param behavior against a mocked `fetch`, including the 404→`OracleError.status` path), `hooks/useSovereignAgentWrite.test.ts` (asserts the `execute()`-wrapping calldata shape, since this is the one pattern every write page depends on), `contexts/AgentContext.test.tsx` (asserts real-oracle-backed population replaces the old 3-agent hardcoded fixture). `@playwright/test` added as a proper dependency (previously only bare `playwright` was present, unused beyond an ad-hoc root `audit.cjs` screenshot script) with a real `playwright.config.ts` and `e2e/smoke.spec.ts` (18 tests: all 16 routes zero-console-error, a real-network-response assertion on `AgentsPage` that also asserts the old hardcoded fixture DID is genuinely gone, wallet-connect-button presence) — run against the real live local stack per this repo's testing philosophy, not a mocked network. All 9 vitest + 18 Playwright tests pass.
-- **Phase 6 — docs**: `integrity-mvp/README.md` rewritten from the untouched default Vite/React/TS/Oxlint scaffold into real project documentation (setup, every env var and what it does, the wallet-interactive on-chain-write model, an explicit real-vs-seeded page inventory, test commands and what each layer actually covers). `entities/integrity-mvp.md` and `WIKI_INDEX.md`'s summary line updated to match — the entity page's "What is NOT done yet" section, which previously listed wallet-interactive writes/userapi auth/tests as not built, is corrected; the only genuinely remaining gaps are `integrity-mvp/demo/` (pre-existing, separately tracked), the explicitly-seeded order-book/telemetry-widget panels, the disabled BAA-creation stub (no covered-entity persona modeled), and unaddressed JS bundle size.
+- **Phase 6 — docs**: `integrity-dashboard/README.md` rewritten from the untouched default Vite/React/TS/Oxlint scaffold into real project documentation (setup, every env var and what it does, the wallet-interactive on-chain-write model, an explicit real-vs-seeded page inventory, test commands and what each layer actually covers). `entities/integrity-dashboard.md` and `WIKI_INDEX.md`'s summary line updated to match — the entity page's "What is NOT done yet" section, which previously listed wallet-interactive writes/userapi auth/tests as not built, is corrected; the only genuinely remaining gaps are `integrity-dashboard/demo/` (pre-existing, separately tracked), the explicitly-seeded order-book/telemetry-widget panels, the disabled BAA-creation stub (no covered-entity persona modeled), and unaddressed JS bundle size.
 
-## [2026-07-14] update | Real-time SSE updates and dynamic wallet histories added to `integrity-mvp`
+## [2026-07-14] update | Real-time SSE updates and dynamic wallet histories added to `integrity-dashboard`
 - User requested deeper integration between the UI and the backend APIs to support agent wallets and real-time dashboard tracking.
 - **Backend / Schema extensions**: `WalletResponse` API was expanded to include full array DTOs for `transaction_history` (types: Send, Receive, Swap, Contract Deploy, etc.) and `allowances` (agent spending limits, amounts spent, and statuses). Updated `handlers.rs` and the cross-package contract `spec/ais-api/v1/openapi.yaml`.
-- **Real-time SSE (`/v1/stream`)**: Configured a `useOracleStream` React hook utilizing EventSource to pipe live `Telemetry`, `OTelSpan`, and `AisUpdate` frames into the MVP.
+- **Real-time SSE (`/v1/stream`)**: Configured a `useOracleStream` React hook utilizing EventSource to pipe live `Telemetry`, `OTelSpan`, and `AisUpdate` frames into the Dashboard.
   - `DashboardPage` dynamically subscribes to stream updates to update AIS score distributions and totals per agent in real-time, falling back on an initial REST fetch.
   - `ChainOfThoughtPage` already uses the stream hook to render agent execution flow paths and telemetry graphs in real time.
 - **Dynamic Wallet / Finance UI**: `FinancePage` was upgraded from seeded transactions and allowances to properly hydrating its historical data tables directly from `oracle.getWallet` responses, reverting to seeded mocks only if not provided by the backend response. Integrated `recharts` to render a time-series portfolio AreaChart on the Finance view.
 - **Tests / Stability**: Cleaned up 19 TS6133 unused declaration issues throughout components (`Sidebar`, `HeroSection`, `FinancePage`, `LandingPage`, `WidgetRegistry`) ensuring a clean `tsc --noEmit` build, and properly restored double-backslash unescaped LaTeX strings to components using KaTeX parsing for metrics (e.g. `TriMetricWidget.tsx`, `LandingPage.tsx`).
 
-## [2026-07-14] update | MVP Build Fixes, Architecture Gap Analysis, and Documentation
+## [2026-07-14] update | Dashboard Build Fixes, Architecture Gap Analysis, and Documentation
 - Fixed strict TypeScript compilation errors across `DashboardPage.tsx`, `FinancePage.tsx`, and `LandingPage.tsx` that were blocking the production build (`npm run build`). Corrected state initialization variables, missing imports, and updated the `TRANSACTIONS` mock to correctly match `TransactionDto` interface (where `usd` is explicitly nullable instead of an empty string).
-- Ran an end-to-end QA pass and recognized that `integrity-mvp` explicitly relies on the real backend (`integrity-oracle` + Postgres + Anvil) and is architected specifically to throw network/console errors when these services are offline, preventing "silent mock" regressions in the Playwright E2E suite.
+- Ran an end-to-end QA pass and recognized that `integrity-dashboard` explicitly relies on the real backend (`integrity-oracle` + Postgres + Anvil) and is architected specifically to throw network/console errors when these services are offline, preventing "silent mock" regressions in the Playwright E2E suite.
 - Replaced the scaffolded `README.md` with comprehensive documentation of the project architecture, dependencies, build/test commands, and explicitly documented **Architectural Gaps** (as requested by the user):
-  - **OTel Aggregation:** The Oracle needs an OTel metrics sink to provide the MVP with real-time throughput/latency figures.
+  - **OTel Aggregation:** The Oracle needs an OTel metrics sink to provide the Dashboard with real-time throughput/latency figures.
   - **Security Events:** The Oracle needs an event-sourcing layer to capture blocked `bcc_middleware` transactions.
   - **Transaction USD Valuation:** Needs external price feed integration to populate retroactive USD portfolio values.
 
@@ -1700,7 +1723,7 @@
     — `concepts/zkp.md` has existed since 2026-07-07 and is one of the
     most substantial pages in the wiki; this dangling note just never got
     cleaned up when that page landed. Fixed to a normal link.
-  - `entities/integrity-mvp.md`'s "What actually exists now" numbered list
+  - `entities/integrity-dashboard.md`'s "What actually exists now" numbered list
     had a real duplicate: item 1 and item 8 both described the identical
     Notion-style widget-dashboard feature (`WidgetRegistry.tsx`,
     `WidgetWrapper.tsx`, LocalStorage persistence) in near-identical words
@@ -1731,10 +1754,10 @@
   human/agent with mermaid preview access to spot-check if any block looks
   off.
 
-## [2026-07-15] update | UI improvements for legacy layouts and fleet management in MVP
-- **`IdentityPage`**: Redesigned to replicate the core legacy aesthetic from `integrity-dashboard`. Swapped massive glassmorphism panels for a compact, tab-based layout with a dedicated Hero Bar, an Agent Metric Strip (DID, AIS, Tier, TEE), and sub-navigation tabs mapping MVP data into `Identity & DID`, `Enclave & Security`, `Economic Capacity`, and `Credentials`. Replaced the stubbed "Launch Explorer" action with a functional, embedded `XNSSearchService` integration.
+## [2026-07-15] update | UI improvements for legacy layouts and fleet management in Dashboard
+- **`IdentityPage`**: Redesigned to replicate the core legacy aesthetic from `integrity-dashboard`. Swapped massive glassmorphism panels for a compact, tab-based layout with a dedicated Hero Bar, an Agent Metric Strip (DID, AIS, Tier, TEE), and sub-navigation tabs mapping Dashboard data into `Identity & DID`, `Enclave & Security`, `Economic Capacity`, and `Credentials`. Replaced the stubbed "Launch Explorer" action with a functional, embedded `XNSSearchService` integration.
 - **`AgentsPage`**: Extracted the onboarding and control verification paths (`ClaimAgentModal`, `AgentOnboarding`) out of disconnected modals. They are now presented as prominent inline cards (`ClaimAgentCard`, `RegisterAgentCard`) above the global agents grid, heavily improving UX discoverability.
-- Updated `WIKI_INDEX.md` and `docs/wiki/entities/integrity-mvp.md` to reflect these major architectural layout adjustments, maintaining consistency between implementation and our "Wiki-as-Memory Loop".
+- Updated `WIKI_INDEX.md` and `docs/wiki/entities/integrity-dashboard.md` to reflect these major architectural layout adjustments, maintaining consistency between implementation and our "Wiki-as-Memory Loop".
 
 ## [2026-07-15] update | Jules autonomous CI loop completed — auto-merge workflow + root AGENTS.md
 
@@ -1792,15 +1815,15 @@
 ## [2026-07-15] update | Live agent registration & Dockerfiles setup
 
 - **Accomplishments**:
-  - **Dockerfiles** (created): Added `integrity-oracle/Dockerfile` (multi-stage Rust nightly build) and `integrity-mvp/Dockerfile` (Node 22) to enable `docker-compose` building.
+  - **Dockerfiles** (created): Added `integrity-oracle/Dockerfile` (multi-stage Rust nightly build) and `integrity-dashboard/Dockerfile` (Node 22) to enable `docker-compose` building.
   - **Docker Compose Port Mappings**: Moved host Postgres port from `5432` to `5436` to avoid conflict with local postgres instances. Exposed `shared_preload_libraries=timescaledb` in `docker-compose.yml` to support the hypertable migrations.
   - **Load-Balancer Lag Mitigation**: Added manual nonce tracking and 5-second propagation delays to `integrity-cli` to handle RPC latency/lag on public Base Sepolia gateways.
   - **Agent Registration**: Bootstrapped and registered `xibalba-agent-02` on-chain (Base Sepolia) and cached it successfully in the live oracle (`did:integrity:7c7ecd09e7a89075749baaf73292f211003f49992fa7712f6d42496e967bea8b`).
 - **No changes to core contracts or logic** — all modifications are infrastructure, Docker config, or client resiliency-oriented. All test suites remain green.
 
 ## [2026-07-15] update | IDE ContractsPage expansion
-- Expanded the IDE workstation in `integrity-mvp/src/pages/ContractsPage.tsx` with full features: multi-tab editor, interactive build/deploy panel, and a dynamic Deployed Contracts inspector that generates interactive ABI buttons via source code regex analysis.
-- Updated `integrity-mvp.md` entity wiki page to reflect these changes.
+- Expanded the IDE workstation in `integrity-dashboard/src/pages/ContractsPage.tsx` with full features: multi-tab editor, interactive build/deploy panel, and a dynamic Deployed Contracts inspector that generates interactive ABI buttons via source code regex analysis.
+- Updated `integrity-dashboard.md` entity wiki page to reflect these changes.
 
 ## [2026-07-15] update | Retroactive wiki catch-up: AIS trust hardening, integrity-userapi §6, TriMetric fix — none previously logged
 
@@ -1831,7 +1854,7 @@ had been captured.
   (`jti` claim, `revoked_tokens` table, `POST /auth/logout`); login is now
   rate-limited (`LoginRateLimiter`, mirrors `bcc_middleware`'s circuit
   breaker); `demo_runs` gained a real `PATCH /demo/runs/{id}` completion
-  path plus an opt-in `integrity-mvp/demo/src/integrity_demo/userapi_bridge.py`
+  path plus an opt-in `integrity-dashboard/demo/src/integrity_demo/userapi_bridge.py`
   that reports real status back from the scenario engine. 51 userapi tests +
   6 new demo-bridge tests, all real (Postgres/local HTTP server, no mocked
   internals). No `entities/integrity-userapi.md` update made yet — flagged
@@ -1840,14 +1863,14 @@ had been captured.
 - **`TriMetricWidget.tsx`** (dashboard) — was badged "LIVE MODEL" while
   every number was fake (hardcoded thresholds, literal strings, fabricated
   sparklines); the single most severe fake-data surface left in
-  `integrity-mvp`. Two of three metrics now real (network-wide AIS deficit
+  `integrity-dashboard`. Two of three metrics now real (network-wide AIS deficit
   and BCC violation rate, fanned out from `oracle.getAis()`); the third
   stays honestly marked unavailable (no risk model exists). Two real
   runtime bugs only surfaced by actually loading the dashboard against the
   live stack: a KaTeX-remount render-storm freeze (formula sub-components
   were redefined every render) and a grid-height clipping bug — both fixed,
   re-verified via live screenshots. Not yet reflected in
-  `entities/integrity-mvp.md` — follow-up.
+  `entities/integrity-dashboard.md` — follow-up.
 - **This entry's actual proximate cause**: creation of
   [Telemetry Ingestion Pipeline](concepts/telemetry-ingestion.md), the
   first page to document the full SDK-collection→batching→signing→oracle-
@@ -1863,7 +1886,7 @@ had been captured.
   `derive.rs`/`otlp.rs` sections, full API list); added cross-links from
   `local-metrology.md`/`ais.md`. `WIKI_INDEX.md` page counter 25→26.
 
-## [2026-07-16] update | CI/branch-conflict investigation + integrity-mvp/demo tested end-to-end for the first time
+## [2026-07-16] update | CI/branch-conflict investigation + integrity-dashboard/demo tested end-to-end for the first time
 
 - **CI/branch investigation** (user asked why the repo had 21 branches and
   why PRs keep conflicting): found `auto-merge-jules.yml`'s
@@ -1887,7 +1910,7 @@ had been captured.
   pushes too, not just PR merges — removed again since it conflicted with
   this repo's established direct-push workflow. Full writeup:
   `PRODUCTION_GAPS.md` §8.
-- **`integrity-mvp/demo` run for real, end-to-end, for what appears to be
+- **`integrity-dashboard/demo` run for real, end-to-end, for what appears to be
   the first time** (real local anvil + real `Deploy.s.sol` + real running
   oracle — not a live-Base-Sepolia run, the funder wallet there sits at
   ~0.001 ETH, 10x under one agent's default funding). Found and fixed 3
@@ -1902,16 +1925,16 @@ had been captured.
   and there was no preflight funder-balance check before spending gas.
   Also added the `demo` Makefile target, which never existed despite being
   referenced in three docs. Full writeup: `PRODUCTION_GAPS.md` §9. Updated
-  `entities/integrity-mvp.md` accordingly.
+  `entities/integrity-dashboard.md` accordingly.
 
 ## [2026-07-16] update | Resolved capital allocation blocker and completed closed-loop demo verification
 
-- **Dynamic Nonces in Demo Scenario**: Replaced hardcoded `nonce=1` in `integrity-mvp/demo/src/integrity_demo/main.py` with `NonceStore` from `integrity_sdk.bcc` to fetch the next valid nonce dynamically based on on-disk files. This prevents `BCC_NONCE_REPLAY` rejections in `bcc_middleware` on consecutive runs.
+- **Dynamic Nonces in Demo Scenario**: Replaced hardcoded `nonce=1` in `integrity-dashboard/demo/src/integrity_demo/main.py` with `NonceStore` from `integrity_sdk.bcc` to fetch the next valid nonce dynamically based on on-disk files. This prevents `BCC_NONCE_REPLAY` rejections in `bcc_middleware` on consecutive runs.
 - **Google Gemini Compatibility**: Added support for mapping OpenAI client calls to `gemini-2.5-flash` at `generativelanguage.googleapis.com` if `GEMINI_API_KEY` is present.
 - **Oracle and Middleware Local Integrations**: Resolved `bcc-middleware` configuration gaps in `docker-compose.yml` by mounting deployments JSON and configuring the `ANCHOR_SIGNER_PRIVATE_KEY` with the actual 32-byte private key instead of the EVM address, fixing `reputation/sync` transaction submission. Also improved error logging in the oracle's DID resolver (`chain.rs`).
 - **End-to-End Loop Validation**: Manually seeded the `trading_agent` AIS score to `100` via on-chain `updateScore` call from the oracle signer key on local Anvil. Verified that the `capital_allocation_agent` successfully routes the allocation on-chain, passes both OPA policy and `bcc_middleware` intent checks, and finishes with allocation ID `0`. OTel telemetry spans are verified to be fully captured in TimescaleDB (`otel_spans` hypertable count = 172).
 
-- **Interactive Flame Graph Visualization**: Expanded the `/compare-traces` and `/chain-of-thought` features by replacing the profile-extension placeholder stub with a fully functional HTML/CSS flame graph component that maps executing spans to horizontal call bars based on time-duration percentages, supporting interactive span inspections on click. Verified clean typecheck and production build of `integrity-mvp`.
+- **Interactive Flame Graph Visualization**: Expanded the `/compare-traces` and `/chain-of-thought` features by replacing the profile-extension placeholder stub with a fully functional HTML/CSS flame graph component that maps executing spans to horizontal call bars based on time-duration percentages, supporting interactive span inspections on click. Verified clean typecheck and production build of `integrity-dashboard`.
 - **Fresh-Chain Verification**: Successfully executed `make chain` to restart Anvil, cleared cache DIDs locally, and verified a completely clean end-to-end run where all 4 agents registered perfectly, the score of the new `trading_agent` was set, and capital allocation completed successfully with allocation ID `0`.
 
 ## [2026-07-16] update | Post-consolidation cleanup and live browser validation of TraceAnalyticsPage/SystemDiagnosticsPage
@@ -1940,7 +1963,7 @@ real data wiring.
   now pass against the real local stack.
 - **Removed leftover debug scripts** (`inspect_dom.cjs`, `test_html.cjs`,
   `test_katex.cjs`, `test_parse.cjs`, `test_string.cjs`,
-  `test_warning.cjs`) from `integrity-mvp/` root — ad-hoc, untracked, not
+  `test_warning.cjs`) from `integrity-dashboard/` root — ad-hoc, untracked, not
   part of the real test suite.
 - **Live-verified the full demo→oracle→frontend pipeline survived the page
   rename**, not just by reading code: brought up local anvil + full
@@ -1983,7 +2006,7 @@ real data wiring.
   "Verification Tier B", "TEE Status: Not Attested" (matching this agent's
   real score everywhere else in the app); Dashboard's Cognition cards now
   carry visible seeded-data badges. Full writeup: `PRODUCTION_GAPS.md` §7.
-- Updated `entities/integrity-mvp.md` with a correction block covering the
+- Updated `entities/integrity-dashboard.md` with a correction block covering the
   real route list and page consolidation (it still described 16 routes and
   the six deleted page names throughout). `entities/integrity-oracle.md`
   didn't reference any of the deleted page names — no change needed there.
@@ -2254,7 +2277,7 @@ unaffected, confirming the app itself is healthy. Full writeup:
 Found during a full end-to-end telemetry validation pass: `telemetry_events`
 was empty network-wide for every demo agent, despite the OTel span pipeline
 (fixed in earlier sessions) working correctly. Root cause: the demo
-scenario engine (`integrity-mvp/demo/src/integrity_demo/main.py`) only ever
+scenario engine (`integrity-dashboard/demo/src/integrity_demo/main.py`) only ever
 used the raw OTel `TracerProvider` machinery, never `integrity_sdk.client
 .IntegrityClient`'s `log_telemetry()`/`flush_telemetry()` — a second, real,
 entirely separate pipeline (`POST /v1/telemetry/ingest`) that
@@ -2327,7 +2350,7 @@ about. Full writeup: `PRODUCTION_GAPS.md` §17.
 
 ## [2026-07-18] update | Continuous real-data generator + "make it feel real" dashboard fixes
 
-Added `integrity-heartbeat` (integrity-mvp/demo): a continuous generator
+Added `integrity-heartbeat` (integrity-dashboard/demo): a continuous generator
 that emits real signed telemetry, real nested OTel spans, and real
 OPA-evaluated BCC decisions (incl. ~25% genuine policy violations) across
 the 4 demo agents every few seconds — NOT a mock seeder, every
@@ -2349,3 +2372,165 @@ SESSION". (5) DevAutoLogin makes admin@xibalba.dev the default demo/test
 session via real POST /auth/login, env-gated and local-only. Full
 regression green: frontend build/lint, oracle 72+8, SDK 139, bcc 91. Full
 writeup: PRODUCTION_GAPS.md §18.
+
+## [2026-07-18] update | Deployed on-chain primitives and XNS registration wizard in the frontend
+
+- Created `RegisterAgentModal` step-by-step wizard using wagmi/viem to deploy `SovereignAgent` and `StateAnchor` contracts using compiled bytecodes (bundled in `bytecode.ts`).
+- Integrated `AgentPrimitivesFactory.registerPrimitives` call in the wizard to clone and register the remaining 5 primitives (ReputationRegistry, Slasher, VerifierRegistry, ComplianceGate, AgentProfile) on-chain.
+- Implemented real `POST /v1/agent/register` sync to index the newly registered primitives in the off-chain Xibalba Identity Oracle.
+- Upgraded `IdentityPage.tsx` with a compact status strip checking active primitive contract addresses on-chain, and displaying real audit feeds.
+- Integrated `SovereignAgent.execute` delegate call execution to support real on-chain handle registrations on the `XibalbaNameService` contract.
+- Reworked `XNSSearchService.tsx` to read the `XibalbaNameService` contract directly on-chain for name-to-address resolutions.
+- Consolidated all agent actions, DID, XNS management, telemetry history, security details, and credentials onto a single tabless page.
+- Created a high-density, structured On-chain Primitives status table detailing primitive names, addresses (with scanner links), deploy status, and architectural roles.
+- Verified all unit and E2E tests are green and production build compiles cleanly.
+
+## [2026-07-18] update | Visual audit corrections and Agents onboarding flow consolidation
+
+- Wired up "Register New Agent" form fields and Deploy button on `AgentsPage.tsx` to the real on-chain `RegisterAgentModal` deployment wizard, replacing the previous mock warning.
+- Dynamic input propagation: configured the onboarding modal to receive `initialAlias` and slugify/derive DID & IPFS profiles automatically on trigger.
+- Fixed layout clipping on the Protocol Sandbox: increased the default layout height of the sandbox widget to `h: 7` in `DashboardPage.tsx` and added defensive migration logic to upgrade legacy browser settings.
+- Styled Sandbox Console: added custom input range, number, select, and result-row styling in `index.css` to match the dashboard's navy & gold aesthetic.
+- Enhanced global scrollbars: implemented thin webkit-scrollbar overrides matching the theme, eliminating standard light browser scrollbars on scrollable containers.
+- Re-verified full-page layouts and compile success via clean build logs and Playwright screenshot audit.
+
+## [2026-07-20] update | Deployed Sovereign vs. Centralized contract deployment selector in IDE & updated documentation
+
+- Added an explicit deployment mode selector (Sovereign Mode vs. Centralized Mode) in the `ContractsPage.tsx` IDE toolbar.
+- Sovereign Mode routes deployment via `SovereignAgent.execute` to register the contract as an EIP-1167 proxy owned by the agent's identity contract.
+- Centralized Mode deploys the contract directly to the blockchain with the deployer's EOA wallet acting as the owner.
+- Dynamic Deploy button style updates to show mode state and prevent errors.
+- Documented Sovereign vs. Centralized deployment topologies and their architectural implications in the root `README.md` and the `agent-primitives.md` concept page in the wiki.
+- Re-verified frontend compilation builds cleanly.
+## 2026-07-25: E2E Visual & Functional Audit - Dashboard
+
+- Established Playwright test suite `integrity-dashboard/e2e/ui-audit.spec.ts` capturing 6 full layout states, command palette flows, disconnected wallet state, detail pane transitions, and offline boundaries.
+- Cleaned up raw JSON structures from `TelemetryStream.tsx` to conform to UI standards.
+- Removed custom "glow" effects from `ReputationMetricsSection` and `FactoryPanel` per Xibalba's flat styling guidelines.
+- Integrated `oracle_sidecar.py` properly via `config.ts` without reliance on mock backend script.
+- Verified test suite executes entirely green locally with real backend connections.
+
+## [2026-07-25] update | Deprecating integrity-dashboard and consolidating onto integrity-dashboard
+
+- Fully deleted `integrity-dashboard/` from the repository.
+- Migrated the Python closed-loop scenario engine (`demo/`) into `integrity-dashboard/demo/`.
+- Copied novel files/utilities (`useOracleStream.ts`, `useSovereignAgentWrite.ts` hooks, `SeededDataBadge.tsx`, and `seed_mock_data.py` script) to `integrity-dashboard/`.
+- Updated all reference paths, build steps, configurations, and CI workflows (`ci.yml`, `auto-merge-jules.yml`, `docker-compose.yml`, `Makefile`, `README.md`, `CLAUDE.md`, `docs/TESTING.md`, and `docs/INTERFACE_CONTRACT.md`) to point directly to `integrity-dashboard/` and its `demo/` engine.
+- Renamed the wiki entity file `docs/wiki/entities/integrity-dashboard.md` to `docs/wiki/entities/integrity-dashboard.md` and updated the index references in `docs/wiki/WIKI_INDEX.md` and `.agents/AGENTS.md`.
+
+## [2026-07-25] update | XNS resolution + IntegrityGovernance + 5 backend prereqs, wiki sync
+
+- Built `IntegrityGovernance.sol` (lock-to-vote, timelocked propose→vote→queue→execute; verbatim-stored action, `nonReentrant`, ETA+grace) with 26 forge tests; wired into genesis `Deploy.s.sol`. Total contracts suite now **198 tests** green.
+- Added oracle read endpoints: `/v1/governance/proposals` (`ChainClient::read_proposals`, index-loop enumeration), `/v1/xns/resolve` + `/v1/agent/{id}/handle` (`XibalbaNameService` live reads), plus the earlier prereqs' `/v1/agent/{id}/{contracts,baas,vc,handle}`, `/v1/benchmarks`, `/v1/stats`. New `backend/src/vc.rs` issues real Ed25519-signed W3C Verifiable Credentials.
+- Added userapi custodial $ITK app-wallet: `GET /me/wallet` + `POST /me/wallet/transfer`, `migrations/0003_user_wallets.sql` (NUMERIC(78,0) ledger, `SELECT … FOR UPDATE`).
+- Dashboard wiring: `XNSSearchService`/`DIDExplorer` (XNS + VC), `TokenWallet` (custodial), `GovernancePanel`/`GuardianPilot` (live proposals). All degrade honestly on `MissingSingleton` — **verified empirically as HTTP 400** against the live oracle (control `/v1/agents` still 200), correcting an earlier mistaken "503" claim in comments/PRODUCTION_GAPS.
+- Base Sepolia deploys of `XibalbaNameService` + `IntegrityGovernance` deferred ("build now, defer deploy"); `deployments.local.json` deliberately not regenerated (would remint addresses + break the seeded audit DB).
+- Wiki: new `concepts/governance.md`; updated `entities/{contracts,integrity-oracle,integrity-dashboard,integrity-userapi}.md`; `WIKI_INDEX.md` counts 26→27 (19 concepts). `PRODUCTION_GAPS.md` §4 updated for both partial-close deferrals + the read-only-UI note.
+
+## [2026-07-29] update | Spec v0.3 alignment: persistent-memory primitive (Appendix A gap 1) + XNS handles in the fleet list
+
+- **Source of truth:** *Integrity Protocol — Comprehensive Design & Specification v0.3*
+  (Drive, `Integrity_Protocol_Specification_v0.3.pdf`). Reconciled the repo against §4.1
+  (Persistent Memory), §6 (registration sequence), §7 (genesis root, lineage) and
+  Appendix A gaps 1–2.
+- **Corrected a wrong initial reading, before it shipped:** memory is *not* an 8th
+  primitive. §5 keeps the PrimitiveSet at seven; persistent memory is realized through the
+  agent's existing `StateAnchor` (primitive #2). No factory/registry/`resolveDID` change.
+- **Built (gap 1 — oracle memory gate, §7.1):** `ChainClient::memory_state` reads
+  `(latestRoot, latestEpoch)` from the agent's own `StateAnchor`; `POST /v1/agent/register`
+  now rejects a zero root with the new `AppError::MemoryNotInitialized` → **400**, checked
+  immediately after the PrimitiveSet match and with the same independent-read posture.
+- **Built (SDK, §6 ordering):** `chain.anchor_genesis_root()` routes `anchorRoot` through
+  `SovereignAgent.execute` (StateAnchor's admin is the SovereignAgent, which holds
+  `ANCHOR_ROLE` — so §7.2's agent-authorized genesis needs **no Solidity change**);
+  `registration.register_agent` calls it as step 8b, before `registerPrimitives`.
+- **Pinned cross-package constant:** `GENESIS_VAULT_ROOT = keccak256("integrity.trust-vault.genesis.v1")`
+  in `docs/INTERFACE_CONTRACT.md` §4.4a — §4.1 allows an empty-but-initialized vault at
+  birth, but `anchorRoot` reverts on `bytes32(0)`, so "empty" needs a defined non-zero
+  representation. Derived by hashing, never a copied hex literal.
+- **Verified, not asserted:** new e2e `oracle_e2e_register_rejects_missing_genesis_memory_root`
+  builds a real on-chain agent with the genesis anchor omitted and asserts 400 + no
+  persisted row. The existing full-registration e2e passes with the gate live, proving step
+  8b satisfies it. Empirically confirmed against live Base Sepolia: the `xibalba.integrity`
+  agent (zero root) is refused 400 by the running oracle.
+- **Known consequence, not hidden:** `StateAnchor` is deployed *per agent*, so all 7
+  existing agents — including `xibalba.integrity` — have `latestRoot == 0` and predate this
+  flow. They remain registered (the gate only runs at registration) but do not satisfy §4.1
+  until a genesis root is anchored on each.
+- **Not attempted (Appendix A gaps 2–8):** contract-level epoch-1 enforcement, minimum
+  stake at registration, tighter ZK-boost binding, identity-ceiling clamp, lineage
+  attestation, ERC-8004 adapter, silence-as-signal.
+- **Spec drift noted:** §16's package map lists `integrity-mvp/`, which was replaced by
+  `integrity-dashboard/` (the deletion of 944 files sat uncommitted until this session).
+- Wiki: new `concepts/agent-memory.md` (`[PLANNED]` — enforcement gaps recorded as
+  verified-against-code, not restated from the spec); `WIKI_INDEX.md` 27→28 pages (20
+  concepts); `index.md` planned list; README "Identity & hardware trust" roadmap row.
+- Also landed this session (unrelated to the spec): `GET /v1/agents` now carries each
+  agent's primary XNS handle, degrading to `null` when XNS is undeployed rather than
+  failing the fleet list — new e2e `oracle_e2e_agents_list_degrades_without_xns`.
+
+## [2026-07-29] update | Honest-gap record for the memory primitive + dev-agent design doc
+
+- `PRODUCTION_GAPS.md` §19: closed items (oracle §7.1 gate, SDK step 8b) separated from
+  open ones — all 7 live agents including `xibalba.integrity` report `latestRoot == 0` and
+  so do not satisfy §4.1; §7.2 contract enforcement is blocked on the fact that
+  `StateAnchor` is deployed per-agent (already-deployed anchors keep old bytecode
+  forever); Appendix A gaps 3–8 untouched.
+- README "Live deployment": added the same non-conformance note, pointing at §19 — the
+  fleet's state should not be mistaken for spec-conformant.
+- New `docs/design/xibalba-dev-agent.md`: design-only architecture for `xibalba.integrity`
+  operating as a protocol-native developer. Records the shipped-vs-unverified split
+  honestly (BCC gate wired but never exercised against a real DENY; AIS 800 with
+  `sacrifice: 0` off 2 events), and deliberately excludes autonomous PR-opening until
+  bonded stake and enforced BCC exist.
+
+## [2026-07-29] update | Persistent memory elevated to a foundational primitive across all docs; dashboard suite green
+
+- **Framing corrected everywhere:** persistent memory is no longer presented as a roadmap
+  row or a `[PLANNED]` concept. It is documented as a **foundational primitive** that gates
+  registration — README now carries a dedicated "Persistent memory is a foundational
+  primitive" section directly under the protocol's defining architectural choice, and
+  `CLAUDE.md` gained an architecture section of its own for it.
+- `concepts/agent-memory.md` retitled `[PLANNED]` → `[PARTIALLY BUILT]`, `confidence: low`
+  → `high`, and its stale "Verified gap" table (written pre-implementation) replaced with a
+  built-vs-open status table: §7.1 gate BUILT, §6 ordering BUILT, §7.2 agent-authorized
+  genesis BUILT-but-unenforced, epoch-1 restriction OPEN, lineage OPEN.
+- Wiki index/`index.md`: promoted out of "planned / design-only" into "identity & on-chain
+  primitives" and into the "Start here" reading path.
+- **Dashboard test suite: 17 failures across 9 files → 0.** 20 files / 68 tests green.
+  Causes were: a test for the deleted `services/api.ts` (removed); six suites mocking
+  `axios` against components long since rewired to the `fetch`-based `oracle.ts`/`userapi.ts`
+  (rewritten against the real surfaces); assertions on pre-wiring copy such as "Not Yet
+  Live" and "Stability Leaderboard" (updated, and GovernancePanel now covers both its live
+  and not-live branches); and **one real component bug** — `DIDExplorer` dereferenced
+  `agent.eth_address` above its own `if (!agent) return null` guard, crashing on a null
+  agent.
+- **Session data verified live in the dashboard:** the fleet header now reads
+  `XIBALBA.INTEGRITY`, telemetry rose 2 → 6 events, the integrity radar renders filled
+  rather than collapsed, active nodes 6 → 7, aggregate AIS 733 → 743. The BCC pre-tool gate
+  logged 271 `enforced=True` decisions against the real OPA engine this session, so
+  `docs/design/xibalba-dev-agent.md` was corrected: the allow path is live, only the DENY
+  path remains unexercised.
+
+## [2026-07-29] update | Agent-sourced ITK liquidity, Finance wallet wiring, Cognition span path
+
+- **`xibalba.integrity` is now a testnet ITK liquidity source.** `MINTER_ROLE` granted to
+  its `SovereignAgent 0x360E2a56…` (tx `0xdddf4742…`); new
+  `integrity_sdk.chain.mint_testnet_itk_from_treasury()` routes
+  `SovereignAgent.execute → IntegrityToken.mint` signed by the agent's controller, so
+  issuance is attributable to a registered agent rather than an operator EOA. Proven live
+  on Base Sepolia (500 ITK minted, no funder key in the path). Registration still mints
+  from the funder — capability landed, flow not yet switched (`PRODUCTION_GAPS.md` §20).
+- **Finance tab now shows the agent's real ITK treasury.** `oracle.getWallet` was defined
+  but called from nowhere, and `TokenWallet` was handing the agent's *DID* to `balanceOf`;
+  a connected browser wallet also won the address race, so the panel showed the operator
+  EOA's 0.00 while the agent held 10,000 ITK. Agent treasury now resolves first.
+- **Cognition emptiness was a data-path gap, not a UI bug.** The session hooks only used
+  the signed-telemetry path (A); Cognition reads `otel_spans` (path B). Hooks now export
+  real spans per session boundary; `otel_spans` 0 → 1 and `/otel/traces` returns
+  `claude_session_start`.
+- **Open:** the Cognition page freezes the browser renderer when an agent is selected
+  (reproduced 3× across 2 fresh tabs, no backend request storm) — undiagnosed.
+- **Documented footgun:** `docker compose up` for `oracle-backend` without the Base Sepolia
+  env overrides silently repoints the oracle at the root `.env`'s dead local anvil, which
+  makes every chain read fail and XNS handles degrade to `null`.

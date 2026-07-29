@@ -8,13 +8,13 @@ confidence: high
 source_files:
   - docs/TESTING.md
   - Makefile
-  - integrity-mvp/playwright.config.ts
-  - integrity-mvp/e2e/global-setup.ts
-  - integrity-mvp/e2e/global-teardown.ts
-  - integrity-mvp/e2e/constants.ts
+  - integrity-dashboard/playwright.config.ts
+  - integrity-dashboard/e2e/global-setup.ts
+  - integrity-dashboard/e2e/global-teardown.ts
+  - integrity-dashboard/e2e/constants.ts
 ---
 
-The full picture — per-package unit/integration tests, `integrity-mvp`'s
+The full picture — per-package unit/integration tests, `integrity-dashboard`'s
 component tests, and the new real-browser E2E layer — lives in
 [`docs/TESTING.md`](../../TESTING.md); this page is the wiki's pointer into
 it plus the facts worth having in the knowledge graph directly.
@@ -34,11 +34,11 @@ flowchart TB
    test` (integrity-zkp), `cargo test` (integrity-oracle, 54 backend +
    scoring-core lib + real e2e), `pytest` (integrity-sdk 97, integrity-cli
    57, bcc_middleware 75+28 OPA, integrity-userapi 33 against a real
-   Postgres), `npm test`/vitest (integrity-mvp, real components +
+   Postgres), `npm test`/vitest (integrity-dashboard, real components +
    `msw`-mocked HTTP boundary).
 2. **Playwright E2E** (`make test-e2e`, new 2026-07-09): a real Chromium
-   browser against the real `integrity-mvp` app, talking to a real,
-   freshly-booted local stack (`integrity-mvp/e2e/global-setup.ts`: a
+   browser against the real `integrity-dashboard` app, talking to a real,
+   freshly-booted local stack (`integrity-dashboard/e2e/global-setup.ts`: a
    dedicated local anvil + real genesis/market deploy, ephemeral
    Postgres+Redis, a real `integrity-oracle` instance, one real seed agent
    registered through the real SDK flow). Local anvil only — never live
@@ -53,14 +53,14 @@ flowchart TB
 
 ## Ground rule
 
-No silent mocks, at every layer. `msw` in `integrity-mvp`'s vitest suite is
+No silent mocks, at every layer. `msw` in `integrity-dashboard`'s vitest suite is
 the one deliberate mock in the whole pyramid, scoped to exactly the HTTP
 boundary — the Playwright layer exists specifically to prove the real
 request/response actually works, which the mocked layer can't.
 
 ## Convention going forward
 
-As [integrity-mvp](../entities/integrity-mvp.md)'s dashboard pages get
+As [integrity-dashboard](../entities/integrity-dashboard.md)'s dashboard pages get
 built out (task #21 — Markets, Leaderboard, Wallet, Capital Allocation,
 Cognition, Identity, Shield, Landing), each page's Playwright spec ships in
 the same pass as the page, not backfilled later.

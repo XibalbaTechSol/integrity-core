@@ -1,7 +1,7 @@
 ---
 title: contracts
 created: 2026-07-07
-updated: 2026-07-11
+updated: 2026-07-25
 type: entity
 tags: [layer-2, identity, tokenomics, compliance]
 confidence: high
@@ -12,6 +12,7 @@ source_files:
   - contracts/src/core/SovereignAgent.sol
   - contracts/src/oracle/ReputationRegistry.sol
   - contracts/src/oracle/CCIPReputationBridge.sol
+  - contracts/src/oracle/IntegrityGovernance.sol
   - contracts/src/shield/ComplianceGate.sol
   - contracts/src/markets/IntegrityMarket.sol
   - contracts/script/Deploy.s.sol
@@ -33,7 +34,8 @@ factory that deploys them, the shared registries, the `$ITK` token, the
   not a constructor).
 - **Singletons:** `IntegrityToken` ($ITK), `UltraPlonkVerifier`,
   `XibalbaAgentRegistry`, `XibalbaNameService` (XNS, added 2026-07-11 — see
-  below), `DomainRegistry`, plus the Shield stack (`CoveredEntityRegistry`,
+  below), `IntegrityGovernance` (added 2026-07-25 — see [Governance](../concepts/governance.md)),
+  `DomainRegistry`, plus the Shield stack (`CoveredEntityRegistry`,
   `SmartBAAFactory`/`SmartBAA` — see [Smart BAA](../concepts/smart-baa.md) —
   `HIPAAGuardrailRegistry`, `EHRGate`).
 - **Factory:** `AgentPrimitivesFactory.registerPrimitives(...)` clones the 5 and
@@ -59,6 +61,17 @@ factory that deploys them, the shared registries, the `$ITK` token, the
   Was `[PLANNED]` (see the old `docs/wiki/concepts/xns.md`, now removed per
   that page's own "replace when a real contract lands" instruction) — no
   contract existed anywhere in this rewrite's `contracts/src/` until now.
+- **`IntegrityGovernance` (`contracts/src/oracle/IntegrityGovernance.sol`,
+  added 2026-07-25):** token-weighted, timelocked governance over protocol
+  parameters. **Lock-to-vote** (ITK is locked to propose/vote, not
+  checkpoint-counted) — the right fit because `$ITK` is a plain ERC20 with no
+  `ERC20Votes` surface and deliberately no fee-on-transfer, so locking real
+  ITK for the voting window is both exact and flash-loan/sybil resistant. The
+  execute leg is hand-rolled but hard-constrained: the `(target, value,
+  callData)` action is fixed at propose time and run verbatim (no
+  accept-actions-at-execute path → actions can't be mutated between vote and
+  execute), `nonReentrant`, gated on an ETA + a bounded `GRACE_PERIOD`. Full
+  design + lifecycle: [Governance](../concepts/governance.md).
 
 ## Key invariants
 
@@ -73,20 +86,27 @@ factory that deploys them, the shared registries, the `$ITK` token, the
 
 ## State
 
-- **165 tests** (`forge test`, confirmed via a real run — the root `README.md`'s
-  previously-stale "127" is now fixed to match), all green — including full
-  end-to-end coverage of the registration sequence in
+- **198 tests** (`forge test`, confirmed via a real run 2026-07-25), all green
+  — including full end-to-end coverage of the registration sequence in
   `test/AgentPrimitivesFactory.t.sol`, 21 market-layer tests, 14
-  `test/XibalbaNameService.t.sol` tests, and 3 new tests covering
-  `CCIPReputationBridge`'s per-agent-clone rework (see below).
+  `test/XibalbaNameService.t.sol` tests, 3 tests covering
+  `CCIPReputationBridge`'s per-agent-clone rework (see below), and **26 new
+  `test/IntegrityGovernance.t.sol` tests** (full lifecycle + adversarial:
+  double-vote, both-sides, withdraw-while-locked, quorum-unmet/tie/against-wins
+  → Defeated, execute-before-timelock, execute-after-grace, only-Succeeded-can-queue,
+  cancel authz, failing-action rollback).
 - **Deployed to Base Sepolia** (chainId 84532): `XibalbaAgentRegistry` at
   `0x72e21e44AdD6d6e7CAa02eaedF078630afC40819`, `AgentPrimitivesFactory` at
   `0x215f39C8a2Cea2F8c6976fA10bbf48479825aD6e`, plus the market-layer
   singletons (see [Integrity Market](../concepts/integrity-market.md)). Full
-  set in `deployments.baseSepolia.json`. **`XibalbaNameService` is wired into
-  `Deploy.s.sol` and verified end-to-end against a real local anvil deploy,
-  but not yet broadcast to Base Sepolia** — that's a live-contract action
-  needing explicit sign-off, not taken automatically.
+  set in `deployments.baseSepolia.json`. **`XibalbaNameService` and
+  `IntegrityGovernance` are both wired into `Deploy.s.sol` (genesis) and
+  verified against local anvil, but not yet broadcast to Base Sepolia** —
+  a live-contract, gas-costing action needing explicit sign-off, not taken
+  automatically. Until then, the oracle read endpoints for both return a clean
+  `MissingSingleton` (**HTTP 400**) and the dashboard degrades to an honest
+  "not deployed yet" state (never a fabricated result). See `PRODUCTION_GAPS.md`
+  §4.
 
 ## Honest gaps
 

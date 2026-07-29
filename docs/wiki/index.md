@@ -10,8 +10,9 @@ decisions live in `../INTERFACE_CONTRACT.md`; how this wiki gets kept in
 sync with the code is `../../.agents/AGENTS.md`.
 
 **Start here** if you're new: [Agent Primitives](concepts/agent-primitives.md)
-(the 7 per-agent contracts every other page assumes you understand), then
-[AIS](concepts/ais.md) (the trust score) and
+(the 7 per-agent contracts every other page assumes you understand) and
+[Persistent Memory](concepts/agent-memory.md) (the continuity primitive that
+gates registration), then [AIS](concepts/ais.md) (the trust score) and
 [Telemetry Ingestion Pipeline](concepts/telemetry-ingestion.md) (how
 agent behavior becomes that score).
 
@@ -37,7 +38,7 @@ flowchart TB
     SDK["integrity-sdk / integrity-cli"]
     BCC["bcc_middleware<br/>(FastAPI + OPA)"]
     Oracle["integrity-oracle<br/>(Rust/Axum)"]
-    MVP["integrity-mvp<br/>(React + Python)"]
+    Dashboard["integrity-dashboard<br/>(React + Python)"]
     UserAPI["integrity-userapi<br/>(FastAPI + Postgres)"]
 
     Wallet -->|signs direct deploys| SA
@@ -53,15 +54,16 @@ flowchart TB
     SDK -->|signed telemetry| Oracle
     BCC -->|reads AIS, pushes score on-chain| Oracle
     Oracle -->|resolve + score| OnChain
-    Oracle --> MVP
+    Oracle --> Dashboard
     UserAPI -->|read-only fan-out, never chain| Oracle
-    MVP --> UserAPI
+    Dashboard --> UserAPI
 ```
 
 ## Table of contents
 
 ### Concepts — identity & on-chain primitives
 - [Agent Primitives (Self-Sovereign Identity)](concepts/agent-primitives.md) — the 7 per-agent contracts; **start here**
+- [Persistent Memory, Genesis Root & Lineage](concepts/agent-memory.md) — **foundational primitive**: no agent registers without an anchored genesis memory root (`[PARTIALLY BUILT]`)
 - [Decentralized Identifier (DID)](concepts/did.md)
 - [Identity Ceiling & Verification Ladder](concepts/identity-ceiling.md) — `[PARTIALLY BUILT]`
 
@@ -98,7 +100,7 @@ flowchart TB
 - [integrity-cli](entities/integrity-cli.md) — developer CLI, independent reimplementation of the SDK's core flows
 - [bcc_middleware](entities/bcc_middleware.md) — FastAPI + OPA pre-execution policy gate + reputation-sync loop
 - [integrity-userapi](entities/integrity-userapi.md) — FastAPI + Postgres user accounts/auth, strictly non-chain
-- [integrity-mvp](entities/integrity-mvp.md) — the React/Vite dashboard + `demo/` scenario engine
+- [integrity-dashboard](entities/integrity-dashboard.md) — the React/Vite dashboard + `demo/` scenario engine
 - [integrity-zkp](entities/integrity-zkp.md) — the real Noir/Barretenberg circuit
 
 ### Guides

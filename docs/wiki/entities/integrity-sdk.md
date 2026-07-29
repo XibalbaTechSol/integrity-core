@@ -1,7 +1,7 @@
 ---
 title: integrity-sdk
 created: 2026-07-07
-updated: 2026-07-15
+updated: 2026-07-29
 type: entity
 tags: [sdk, identity, metrics]
 confidence: high
@@ -20,8 +20,11 @@ source_files:
   - integrity-sdk/integrity_sdk/telemetry/metrics.py
   - integrity-sdk/integrity_sdk/integrations/openai_integrity.py
   - integrity-sdk/integrity_sdk/integrations/langchain_callback.py
+  - integrity-sdk/integrity_sdk/integrations/auto_hook.py
   - integrity-sdk/integrity_sdk/security/redactor.py
+  - integrity-sdk/integrity_sdk/mcp_server.py
 ---
+
 
 The agent-facing Python library. It gives an AI agent everything it needs to
 become a self-sovereign, on-chain, reputation-bearing participant.
@@ -192,3 +195,62 @@ Related: [Telemetry Ingestion Pipeline](../concepts/telemetry-ingestion.md),
 [agent primitives](../concepts/agent-primitives.md),
 [BCC](../concepts/bcc.md), [AIS](../concepts/ais.md),
 [integrity-cli](integrity-cli.md), [AIS API — Versioned Wire Spec](../concepts/ais-api-spec.md).
+
+## MCP server (`mcp_server.py`, added 2026-07-29)
+
+`integrity_sdk.mcp_server` exposes the SDK's core capabilities as
+[Model Context Protocol](https://modelcontextprotocol.io) tools so any
+MCP-capable agent harness (Claude Desktop, Cursor, Antigravity CLI, custom
+harnesses) can discover and call them over JSON-RPC without a
+framework-specific adapter.
+
+Five tools registered:
+
+| Tool | Description |
+|---|---|
+| `integrity_log_telemetry` | Append one telemetry entry (CoT, tool call, tokens) to the in-memory batch |
+| `integrity_flush_telemetry` | Flush the batch to Oracle `/v1/telemetry/ingest` with Ed25519 signature |
+| `integrity_invoke_intent` | BCC-commit + OPA-gate an intent before execution |
+| `integrity_agent_info` | Read back canonical DID, nonce, keypair status, pending batch size |
+| `integrity_resolve_did` | Look up any DID's on-chain registration record via Oracle |
+| `integrity_register_agent` | [PLANNED partial] Full on-chain registration via `registration.register_agent` |
+
+The server loads the agent's Ed25519 keypair from the standard identity store
+(`~/.integrity-cli/identity/<agent-id>/`) so every flush and intent call is
+correctly signed. If no keypair is found, the server still starts and provides
+logging, but flushes will receive a 401 from the oracle (documented in
+`client.py`'s `flush_telemetry` docstring).
+
+Run standalone:
+
+```
+uv run --with mcp python -m integrity_sdk.mcp_server \
+    --agent-id xibalba \
+    --oracle-url http://localhost:8080
+```
+
+Or add to any MCP-capable harness config under `mcpServers.integrity`.
+
+For example, to configure the Antigravity CLI (`agy`) harness to run all sessions in the context of the `xibalba.integrity` agent, add the following to `~/.gemini/antigravity-cli/settings.json` (under `"mcpServers"`):
+
+```json
+    "integrity": {
+      "command": "/home/xibalba/.local/bin/uv",
+      "args": [
+        "run",
+        "--directory",
+        "/home/xibalba/Projects/INTEGRITY-LATEST/integrity-sdk",
+        "python",
+        "-m",
+        "integrity_sdk.mcp_server",
+        "--agent-id",
+        "xibalba.integrity",
+        "--oracle-url",
+        "http://localhost:8080"
+      ]
+    }
+```
+
+Requires `mcp>=1.0.0` (`pip install integrity-sdk[mcp]` — optional dep).
+
+

@@ -160,6 +160,23 @@ pub async fn register_agent(
         )));
     }
 
+    // Spec v0.3 §7.1 — the persistent-memory gate, checked immediately after the
+    // PrimitiveSet match and with the same posture: read the agent's own StateAnchor
+    // directly from chain rather than trusting anything the client sent. A zero
+    // `latestRoot` means no genesis memory root was ever anchored, so per §4.1/§6 the
+    // agent is not a continuing economic subject and registration is refused outright —
+    // "no half-registered agents". The agent fixes this by anchoring its genesis root
+    // (§7.2: controller or `SovereignAgent.execute`, at epoch 0) and retrying.
+    let (latest_root, latest_epoch) = state.chain.memory_state(record.primitives.state_anchor).await?;
+    if latest_root.is_zero() {
+        return Err(AppError::MemoryNotInitialized(format!(
+            "agent '{}' has no anchored genesis memory root — StateAnchor {:#x} reports \
+             latestRoot=0x0 at epoch {}. Anchor a genesis Trust Vault root through the \
+             agent's own controller (spec v0.3 §7.2) before registering.",
+            req.did, record.primitives.state_anchor, latest_epoch
+        )));
+    }
+
     let ed25519_pubkey = req
         .ed25519_pubkey_hex
         .as_deref()
@@ -332,6 +349,21 @@ fn row_to_dto(row: &db::AgentPrimitivesRow) -> Result<PrimitiveSetDto, AppError>
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AgentSummary {
     pub id: String,
+    /// The agent's primary XNS handle (e.g. `"xibalba.integrity"`), read live from
+    /// `XibalbaNameService.primaryHandle(sovereignAgent)`. This is the protocol's own
+    /// naming authority — self-service and on-chain (see XibalbaNameService.sol's NatSpec
+    /// on why there is deliberately no privileged off-chain registrar) — so consumers
+    /// should prefer it over `name` when displaying an agent.
+    ///
+    /// `None` is a normal, expected outcome, never an error: the agent hasn't claimed a
+    /// handle, XNS isn't deployed on this chain, or the on-chain read failed. See
+    /// `list_agents` on why a chain hiccup must not take the whole fleet list down.
+    pub handle: Option<String>,
+    /// Legacy secondary display name, if the agent's DID document carries an `alsoKnownAs`
+    /// entry. Kept as a last-resort fallback below `handle` — most agents have none, and
+    /// nothing in this system can write it (`register_agent` is an insert with no update
+    /// path), so new naming should go through XNS.
+    pub name: Option<String>,
     pub verification_tier: i32,
     pub created_at: chrono::DateTime<Utc>,
 }
@@ -344,15 +376,50 @@ pub struct AgentSummary {
 )]
 pub async fn list_agents(State(state): State<AppState>) -> Result<Json<Vec<AgentSummary>>, AppError> {
     let rows = db::list_agents(&state.pool).await?;
+    let handles = resolve_primary_handles(&state, &rows).await;
     Ok(Json(
         rows.into_iter()
-            .map(|r| AgentSummary {
+            .enumerate()
+            .map(|(i, r)| AgentSummary {
+                handle: handles.get(i).cloned().flatten(),
+                name: r.did_document.as_ref()
+                    .and_then(|d| d.get("alsoKnownAs"))
+                    .and_then(|a| a.get(0))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
                 id: r.id,
                 verification_tier: r.verification_tier,
                 created_at: r.created_at,
             })
             .collect(),
     ))
+}
+
+/// Best-effort XNS lookup for a whole agent list, returned positionally (one entry per
+/// input row, in the same order).
+///
+/// **Every failure degrades to `None` rather than propagating.** Unlike `get_agent_handle`
+/// — where the handle *is* the response, so a missing XNS singleton rightly surfaces as a
+/// 400 — here the handle is one cosmetic field on the route the entire dashboard fleet list
+/// depends on. Letting a `MissingSingleton` (any chain without XNS deployed, e.g. a local
+/// anvil genesis) or a transient RPC error bubble up would turn "no handles" into "no
+/// agents", which is a far worse failure than an unnamed agent. The reads run concurrently,
+/// same `join_all` pattern as `refresh_leaderboard_if_stale`.
+async fn resolve_primary_handles(state: &AppState, rows: &[db::AgentListRow]) -> Vec<Option<String>> {
+    let Some(xns) = state.chain.xibalba_name_service() else {
+        // XNS not deployed on this chain — skip the chain reads entirely, don't error.
+        return vec![None; rows.len()];
+    };
+    let reads = rows.iter().map(|row| async move {
+        let sovereign_agent = Address::from_str(row.sovereign_agent_address.as_deref()?).ok()?;
+        let handle = state.chain.primary_handle(xns, sovereign_agent).await.ok()?;
+        if handle.is_empty() {
+            None
+        } else {
+            Some(handle)
+        }
+    });
+    futures::future::join_all(reads).await
 }
 
 // ---------------------------------------------------------------------------------
@@ -1504,6 +1571,582 @@ pub async fn ingest_audit_log(
     Ok(Json(AuditLogIngestResponse { id }))
 }
 
+// ---------------------------------------------------------------------------------
+// Anchor-event ingest (docs/design/evidence-export.md, Lever 4). bcc_middleware
+// posts here after it successfully anchors an agent's Merkle sub-tree on-chain, so
+// each anchored ALLOW decision can be joined to its StateAnchor transaction at
+// export time. Written to its own `anchor_events` table (NOT back-filled onto the
+// audit_log row) specifically so it does not depend on the decision row having
+// been committed first -- see the migration header for the write-ordering race
+// that motivates the JOIN design. Same best-effort, single-operator-trust posture
+// as /v1/audit/ingest (see that handler's note + PRODUCTION_GAPS.md).
+// ---------------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct AnchorEventIngestRequest {
+    pub agent_id: String,
+    /// 0x-prefixed keccak256 Merkle leaves that were committed in this anchor tx.
+    pub leaves: Vec<String>,
+    /// 0x-prefixed per-agent sub-tree root anchored on-chain.
+    pub root: String,
+    /// On-chain StateAnchor.anchorRoot transaction hash.
+    pub tx_hash: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AnchorEventIngestResponse {
+    /// Rows inserted (leaves already recorded are skipped idempotently).
+    pub recorded: u64,
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/audit/anchor",
+    request_body = AnchorEventIngestRequest,
+    responses(
+        (status = 200, description = "Anchor events recorded", body = AnchorEventIngestResponse),
+    ),
+    tag = "audit",
+)]
+pub async fn ingest_anchor_events(
+    State(state): State<AppState>,
+    Json(req): Json<AnchorEventIngestRequest>,
+) -> Result<Json<AnchorEventIngestResponse>, AppError> {
+    let recorded =
+        db::insert_anchor_events(&state.pool, &req.agent_id, &req.leaves, &req.root, &req.tx_hash)
+            .await?;
+    Ok(Json(AnchorEventIngestResponse { recorded }))
+}
+
+// Provenance: an agent's on-chain-anchored history (Class B, docs/design/
+// dashboard-wiring.md). Reuses anchor_events + audit_log -- no chain call.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ProvenanceEntryDto {
+    pub id: String,
+    pub agent_id: String,
+    /// The committed intent type (the "action"), when the anchored leaf joins to
+    /// an audit_log decision row.
+    pub intent_type: Option<String>,
+    /// 0x keccak Merkle leaf of the committed intent (the provenance input hash).
+    pub leaf: String,
+    /// 0x per-agent StateAnchor root the leaf was committed under.
+    pub root: String,
+    /// On-chain StateAnchor.anchorRoot transaction hash.
+    pub tx_hash: String,
+    /// The policy decision that produced the leaf (allow / shadow_deny / …), if joined.
+    pub decision: Option<String>,
+    pub anchored_at: String,
+    pub created_at: Option<String>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/agent/{id}/provenance",
+    params(("id" = String, Path, description = "Agent DID")),
+    responses(
+        (status = 200, description = "The agent's on-chain-anchored provenance chain", body = Vec<ProvenanceEntryDto>),
+    ),
+    tag = "audit",
+)]
+pub async fn get_provenance(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<ProvenanceEntryDto>>, AppError> {
+    let rows = db::get_agent_provenance(&state.pool, &id, 100).await?;
+    let entries = rows
+        .into_iter()
+        .map(|r| ProvenanceEntryDto {
+            id: r.id.to_string(),
+            agent_id: r.agent_id,
+            intent_type: r.intent_type,
+            leaf: r.leaf,
+            root: r.root,
+            tx_hash: r.tx_hash,
+            decision: r.decision,
+            anchored_at: r.anchored_at.to_rfc3339(),
+            created_at: r.created_at.map(|t| t.to_rfc3339()),
+        })
+        .collect();
+    Ok(Json(entries))
+}
+
+// Real on-chain stake (Class B, docs/design/dashboard-wiring.md). Reads the
+// agent's own Slasher clone. U256 values are serialized as decimal strings (wei
+// of $ITK) -- same convention as the market DTOs -- since they can exceed a
+// JSON-safe integer.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct StakeDto {
+    pub agent_id: String,
+    pub total_stake: String,
+    pub locked_stake: String,
+    pub available_stake: String,
+    /// Count of the agent's currently-open (unresolved) slashing disputes. The
+    /// dashboard sums this across its agent loop for a real protocol-wide
+    /// `active_disputes` with no extra fan-out (Slashers are per-agent clones with
+    /// no singleton dispute index) — see docs/design/dashboard-wiring.md.
+    pub open_disputes: u64,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/agent/{id}/stake",
+    params(("id" = String, Path, description = "Agent DID")),
+    responses(
+        (status = 200, description = "The agent's on-chain stake accounting", body = StakeDto),
+    ),
+    tag = "agent",
+)]
+pub async fn get_stake(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<StakeDto>, AppError> {
+    // Resolve the agent's own Slasher clone + staker address live from the
+    // registry (never guessed), then read its real stake accounting.
+    let record = state.chain.resolve_primitives_by_did(&id).await?;
+    let stake = state
+        .chain
+        .read_stake(record.primitives.slasher, record.primitives.sovereign_agent)
+        .await?;
+    Ok(Json(StakeDto {
+        agent_id: id,
+        total_stake: stake.total.to_string(),
+        locked_stake: stake.locked.to_string(),
+        available_stake: stake.available.to_string(),
+        open_disputes: stake.open_disputes,
+    }))
+}
+
+// Real capital position (Class B) aggregated from the A2ACapitalPool for the
+// agent. U256 as decimal strings (wei of $ITK). `escrowed` is the agent's live
+// available capital line; `released` has been disbursed.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct CreditDto {
+    pub agent_id: String,
+    pub total_allocated: String,
+    pub escrowed: String,
+    pub released: String,
+    pub clawed_back: String,
+    pub breached: String,
+    pub allocation_count: u64,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/agent/{id}/credit",
+    params(("id" = String, Path, description = "Agent DID")),
+    responses(
+        (status = 200, description = "The agent's aggregated A2ACapitalPool position", body = CreditDto),
+    ),
+    tag = "agent",
+)]
+pub async fn get_credit(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<CreditDto>, AppError> {
+    let pool = state
+        .chain
+        .a2a_capital_pool()
+        .ok_or(crate::chain::ChainError::MissingSingleton("A2ACapitalPool"))?;
+    let record = state.chain.resolve_primitives_by_did(&id).await?;
+    let credit = state
+        .chain
+        .read_credit(pool, record.primitives.sovereign_agent)
+        .await?;
+    Ok(Json(CreditDto {
+        agent_id: id,
+        total_allocated: credit.total_allocated.to_string(),
+        escrowed: credit.escrowed.to_string(),
+        released: credit.released.to_string(),
+        clawed_back: credit.clawed_back.to_string(),
+        breached: credit.breached.to_string(),
+        allocation_count: credit.allocation_count,
+    }))
+}
+
+/// `MarketDetail` (live chain read) -> `MarketSummaryDto`, mirroring
+/// `market_cache_row_to_dto`'s conventions (lowercase 0x-addresses, decimal-string
+/// uint256s, `winning_outcome` only when resolved) so a market looks identical whether
+/// it comes from the cache or a direct read.
+fn market_detail_to_dto(detail: MarketDetail) -> Result<MarketSummaryDto, AppError> {
+    let resolve_deadline = chrono::DateTime::<Utc>::from_timestamp(detail.resolve_deadline.to::<u64>() as i64, 0)
+        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("resolve_deadline out of range")))?;
+    Ok(MarketSummaryDto {
+        address: format!("{:#x}", detail.address),
+        creator: format!("{:#x}", detail.creator),
+        question: detail.question,
+        outcome_count: detail.outcome_count,
+        min_ais_to_enter: detail.min_ais_to_enter.to_string(),
+        resolve_deadline,
+        resolved: detail.resolved,
+        winning_outcome: if detail.resolved { Some(detail.winning_outcome) } else { None },
+        total_staked: detail.total_staked.to_string(),
+        outcome_staked: detail.outcome_staked.iter().map(|v| v.to_string()).collect(),
+    })
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/agent/{id}/contracts",
+    params(("id" = String, Path, description = "Agent DID")),
+    responses((status = 200, description = "IntegrityMarket contracts this agent deployed and owns", body = Vec<MarketSummaryDto>)),
+    tag = "markets",
+)]
+pub async fn get_agent_contracts(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<MarketSummaryDto>>, AppError> {
+    // Real "contracts an agent owns": the IntegrityMarket clones it deployed via
+    // MarketFactory (marketsByCreator, keyed on the agent's SovereignAgent). Read live —
+    // there's no per-agent cache table for this, and the set is small per agent.
+    let record = state.chain.resolve_primitives_by_did(&id).await?;
+    let addresses = state.chain.markets_by_creator(record.primitives.sovereign_agent).await?;
+    let details = state.chain.read_markets(&addresses).await;
+    let dtos: Result<Vec<_>, _> = details.into_iter().map(market_detail_to_dto).collect();
+    Ok(Json(dtos?))
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct BaaDto {
+    pub address: String,
+    pub covered_entity: String,
+    pub business_associate: String,
+    pub agreement_hash: String,
+    /// Decimal string, uint256 wei of $ITK (SmartBAA.requiredCollateral).
+    pub required_collateral: String,
+    /// SmartBAA.Status: Proposed | Active | Disputed | Terminated.
+    pub status: String,
+}
+
+/// Issues a signed W3C Verifiable Credential (AgentIntegrityCredential) for the agent's
+/// current AIS + verification tier. Real Ed25519 proof via the oracle's issuer key — see
+/// `crate::vc`. Returned as a raw JSON-LD credential (no fixed ToSchema, so no utoipa doc).
+pub async fn get_agent_vc(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let ais = compute_ais_for_agent(&state, &id).await?;
+    let tier = db::get_agent(&state.pool, &id)
+        .await?
+        .map(|a| a.verification_tier)
+        .unwrap_or(0);
+    Ok(Json(crate::vc::issue_vc(&id, ais.ais.round() as i64, tier)))
+}
+
+/// Network-wide model/provider stability benchmark (aggregated telemetry per model).
+#[derive(Debug, Serialize, ToSchema)]
+pub struct BenchmarkDto {
+    pub model_name: String,
+    pub provider_name: String,
+    /// Simulated AIS on the 0-1000 scale from this model's stability + grounding.
+    pub simulated_ais: i64,
+    /// Behavioral stability in [0,1] = exp(-1.5 * avg_variance^2) (mirrors the entropy score).
+    pub stability_metric: f64,
+    /// Average grounding (HGI) in [0,1].
+    pub grounding_metric: f64,
+    pub sample_count: i64,
+}
+
+fn provider_for(model: &str) -> &'static str {
+    let m = model.to_lowercase();
+    if m.contains("claude") || m.contains("opus") || m.contains("sonnet") || m.contains("haiku") || m.contains("fable") {
+        "Anthropic"
+    } else if m.contains("gpt") || m.starts_with("o1") || m.starts_with("o3") {
+        "OpenAI"
+    } else if m.contains("gemini") {
+        "Google"
+    } else if m.contains("llama") {
+        "Meta"
+    } else if m.contains("mistral") {
+        "Mistral"
+    } else {
+        "Unknown"
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/benchmarks",
+    responses((status = 200, description = "Model/provider stability benchmarks (network-wide telemetry aggregate)", body = Vec<BenchmarkDto>)),
+    tag = "ais",
+)]
+pub async fn get_benchmarks(State(state): State<AppState>) -> Result<Json<Vec<BenchmarkDto>>, AppError> {
+    let rows = db::benchmark_by_model(&state.pool).await?;
+    let dtos = rows
+        .into_iter()
+        .map(|(model, avg_var, avg_ground, n)| {
+            let stability = (-1.5 * avg_var * avg_var).exp().clamp(0.0, 1.0);
+            let grounding = avg_ground.clamp(0.0, 1.0);
+            BenchmarkDto {
+                provider_name: provider_for(&model).to_string(),
+                model_name: model,
+                simulated_ais: ((stability * 500.0) + (grounding * 500.0)) as i64,
+                stability_metric: stability,
+                grounding_metric: grounding,
+                sample_count: n,
+            }
+        })
+        .collect();
+    Ok(Json(dtos))
+}
+
+fn baa_status_str(s: u8) -> &'static str {
+    match s {
+        0 => "Proposed",
+        1 => "Active",
+        2 => "Disputed",
+        3 => "Terminated",
+        _ => "Unknown",
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/agent/{id}/baas",
+    params(("id" = String, Path, description = "Agent DID")),
+    responses((status = 200, description = "SmartBAA agreements where this agent is the business associate", body = Vec<BaaDto>)),
+    tag = "shield",
+)]
+pub async fn get_agent_baas(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<BaaDto>>, AppError> {
+    let factory = state
+        .chain
+        .smart_baa_factory()
+        .ok_or(crate::chain::ChainError::MissingSingleton("SmartBAAFactory"))?;
+    let record = state.chain.resolve_primitives_by_did(&id).await?;
+    let baas = state
+        .chain
+        .read_baas_for_agent(factory, record.primitives.sovereign_agent)
+        .await?;
+    let dtos = baas
+        .into_iter()
+        .map(|b| BaaDto {
+            address: format!("{:#x}", b.address),
+            covered_entity: format!("{:#x}", b.covered_entity),
+            business_associate: format!("{:#x}", b.business_associate),
+            agreement_hash: format!("{:#x}", b.agreement_hash),
+            required_collateral: b.required_collateral.to_string(),
+            status: baa_status_str(b.status).to_string(),
+        })
+        .collect();
+    Ok(Json(dtos))
+}
+
+// ---- XNS (XibalbaNameService) read endpoints -------------------------------------------
+// Handle→SovereignAgent and SovereignAgent→primary-handle resolution, read live from the
+// deployed XibalbaNameService singleton. Returns 400 (MissingSingleton) until the contract is
+// deployed and wired into deployments.*.json — an honest "not yet deployed", not a mock.
+
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct XnsResolveQuery {
+    /// Human-readable handle to resolve (without a leading @), e.g. "atlas".
+    pub handle: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct XnsResolveDto {
+    pub handle: String,
+    /// SovereignAgent address the handle points at, or null if unregistered.
+    pub sovereign_agent: Option<String>,
+    /// DID (did:integrity:<sovereign_agent>) when a reverse mapping exists in the oracle DB.
+    pub did: Option<String>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/xns/resolve",
+    params(XnsResolveQuery),
+    responses((status = 200, description = "Resolve an XNS handle to its SovereignAgent", body = XnsResolveDto)),
+    tag = "identity",
+)]
+pub async fn get_xns_resolve(
+    State(state): State<AppState>,
+    Query(q): Query<XnsResolveQuery>,
+) -> Result<Json<XnsResolveDto>, AppError> {
+    let xns = state
+        .chain
+        .xibalba_name_service()
+        .ok_or(crate::chain::ChainError::MissingSingleton("XibalbaNameService"))?;
+    let handle = q.handle.trim_start_matches('@').to_string();
+    let addr = state.chain.resolve_handle(xns, &handle).await?;
+    let sovereign_agent = if addr.is_zero() {
+        None
+    } else {
+        Some(format!("{addr:#x}"))
+    };
+    // Reverse the SovereignAgent to a known DID via the oracle DB (best-effort).
+    let did = match &sovereign_agent {
+        Some(sa) => db::did_by_sovereign_agent(&state.pool, sa).await?,
+        None => None,
+    };
+    Ok(Json(XnsResolveDto {
+        handle,
+        sovereign_agent,
+        did,
+    }))
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AgentHandleDto {
+    pub did: String,
+    /// Primary handle registered for this agent's SovereignAgent, or null if none.
+    pub handle: Option<String>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/agent/{id}/handle",
+    params(("id" = String, Path, description = "Agent DID")),
+    responses((status = 200, description = "Primary XNS handle for the agent", body = AgentHandleDto)),
+    tag = "identity",
+)]
+pub async fn get_agent_handle(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<AgentHandleDto>, AppError> {
+    let xns = state
+        .chain
+        .xibalba_name_service()
+        .ok_or(crate::chain::ChainError::MissingSingleton("XibalbaNameService"))?;
+    let record = state.chain.resolve_primitives_by_did(&id).await?;
+    let handle = state
+        .chain
+        .primary_handle(xns, record.primitives.sovereign_agent)
+        .await?;
+    let handle = if handle.is_empty() { None } else { Some(handle) };
+    Ok(Json(AgentHandleDto { did: id, handle }))
+}
+
+// ---- Governance read endpoint ----------------------------------------------------------
+// Live enumeration of IntegrityGovernance proposals. Returns 400 (MissingSingleton) until the
+// contract is deployed and wired into deployments.*.json — an honest "governance not live yet",
+// never a fabricated proposal list.
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ProposalDto {
+    pub id: u64,
+    pub proposer: String,
+    pub target: String,
+    /// Decimal string, uint256 wei of native value the action would send (usually "0").
+    pub value: String,
+    pub start_time: u64,
+    pub end_time: u64,
+    /// Timelock ETA (unix seconds); 0 until queued.
+    pub eta: u64,
+    /// Decimal string, wei of ITK locked FOR.
+    pub for_votes: String,
+    /// Decimal string, wei of ITK locked AGAINST.
+    pub against_votes: String,
+    /// Active | Defeated | Succeeded | Queued | Executed | Expired | Canceled.
+    pub state: String,
+    pub description: String,
+}
+
+fn proposal_state_str(s: u8) -> &'static str {
+    match s {
+        0 => "Active",
+        1 => "Defeated",
+        2 => "Succeeded",
+        3 => "Queued",
+        4 => "Executed",
+        5 => "Expired",
+        6 => "Canceled",
+        _ => "Unknown",
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/governance/proposals",
+    responses((status = 200, description = "IntegrityGovernance proposals (newest first)", body = Vec<ProposalDto>)),
+    tag = "governance",
+)]
+pub async fn get_governance_proposals(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<ProposalDto>>, AppError> {
+    let gov = state
+        .chain
+        .integrity_governance()
+        .ok_or(crate::chain::ChainError::MissingSingleton("IntegrityGovernance"))?;
+    let proposals = state.chain.read_proposals(gov).await?;
+    let dtos = proposals
+        .into_iter()
+        .map(|p| ProposalDto {
+            id: p.id,
+            proposer: format!("{:#x}", p.proposer),
+            target: format!("{:#x}", p.target),
+            value: p.value.to_string(),
+            start_time: p.start_time,
+            end_time: p.end_time,
+            eta: p.eta,
+            for_votes: p.for_votes.to_string(),
+            against_votes: p.against_votes.to_string(),
+            state: proposal_state_str(p.state).to_string(),
+            description: p.description,
+        })
+        .collect();
+    Ok(Json(dtos))
+}
+
+// Protocol-wide aggregates (Class B, docs/design/dashboard-wiring.md). Deliberately
+// the *minimal supplement* to what the dashboard already derives client-side from its
+// per-agent loop (`active_nodes`, `aggregate_ais`, `protocol_staked_itk`,
+// `total_contracts`, and — summing StakeDto.open_disputes — `active_disputes`). This
+// endpoint only sources the fields that need a singleton read the dashboard can't cheaply
+// derive: marketplace volume (sum of cached market total_staked) and the A2ACapitalPool
+// totals (one unfiltered scan of the singleton pool). `tvl` is composed client-side as
+// protocol_staked_itk + escrowed_credit + total_marketplace_volume so there is exactly one
+// source of truth for stake. All amounts are decimal-string wei of $ITK.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct StatsDto {
+    /// Number of prediction markets in the cached index.
+    pub market_count: u64,
+    /// Sum of `total_staked` across every market (pari-mutuel volume).
+    pub total_marketplace_volume: String,
+    /// A2ACapitalPool: capital currently escrowed (live available lines) across all agents.
+    pub escrowed_credit: String,
+    /// A2ACapitalPool: capital disbursed ("borrowed") across all agents — the real
+    /// `total_loans_volume`.
+    pub released_credit: String,
+    /// A2ACapitalPool: number of allocations scanned.
+    pub allocation_count: u64,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/stats",
+    responses((status = 200, description = "Protocol-wide singleton aggregates (marketplace + capital pool)", body = StatsDto)),
+    tag = "ais",
+)]
+pub async fn get_stats(State(state): State<AppState>) -> Result<Json<StatsDto>, AppError> {
+    // Marketplace volume from the cached market index (refresh honoring the same
+    // staleness window the market/leaderboard reads use — no per-hit fan-out).
+    refresh_markets_index_if_stale(&state).await?;
+    let markets = db::list_market_cache(&state.pool).await?;
+    let market_count = markets.len() as u64;
+    let total_marketplace_volume: alloy::primitives::U256 = markets
+        .iter()
+        .map(|m| alloy::primitives::U256::from_str(&m.total_staked).unwrap_or_default())
+        .fold(alloy::primitives::U256::ZERO, |acc, v| acc + v);
+
+    // A2ACapitalPool totals: one unfiltered scan of the singleton pool (not an
+    // N-agent fan-out). If the market/capital layer isn't deployed on this network,
+    // the pool contributes zeros rather than failing the whole endpoint.
+    let pool_totals = match state.chain.a2a_capital_pool() {
+        Some(pool) => state.chain.read_pool_totals(pool).await?,
+        None => crate::chain::CreditInfo::default(),
+    };
+
+    Ok(Json(StatsDto {
+        market_count,
+        total_marketplace_volume: total_marketplace_volume.to_string(),
+        escrowed_credit: pool_totals.escrowed.to_string(),
+        released_credit: pool_totals.released.to_string(),
+        allocation_count: pool_totals.allocation_count,
+    }))
+}
+
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct AuditLogEntryDto {
     pub id: String,
@@ -1514,6 +2157,18 @@ pub struct AuditLogEntryDto {
     pub reason_code: Option<String>,
     pub detail: Option<String>,
     pub created_at: String,
+    // Evidence-export linkage (docs/design/evidence-export.md): for an ALLOW
+    // decision whose Merkle leaf has been anchored on-chain, these carry the
+    // per-agent StateAnchor root + transaction that committed it (LEFT JOINed
+    // from `anchor_events` on `metadata->>'leaf'`). Absent for un-anchored or
+    // non-BCC rows. Omitted from JSON when null so existing consumers are
+    // unaffected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub anchor_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub anchor_tx_hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub anchored_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1571,6 +2226,9 @@ pub async fn get_audit_log(
             reason_code: r.reason_code,
             detail: r.detail,
             created_at: r.created_at.to_rfc3339(),
+            anchor_root: r.anchor_root,
+            anchor_tx_hash: r.anchor_tx_hash,
+            anchored_at: r.anchored_at.map(|t| t.to_rfc3339()),
         })
         .collect();
 
@@ -1588,6 +2246,9 @@ pub async fn get_audit_log(
                 e.nonce, e.performance_variance, e.hgi_raw, e.zk_verified
             )),
             created_at: e.created_at.to_rfc3339(),
+            anchor_root: None,
+            anchor_tx_hash: None,
+            anchored_at: None,
         }));
 
         // Third real source: OTel spans, flat (not trace-tree-grouped) --
@@ -1609,6 +2270,9 @@ pub async fn get_audit_log(
                 reason_code: s.parent_span_id,
                 detail: Some(format!("trace_id={} duration_ms={}", s.trace_id, duration_ms)),
                 created_at: s.created_at.to_rfc3339(),
+                anchor_root: None,
+                anchor_tx_hash: None,
+                anchored_at: None,
             }
         }));
     }

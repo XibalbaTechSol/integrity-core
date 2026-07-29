@@ -19,7 +19,7 @@ name: Auto-merge Jules fix PRs
 #        - "Require status checks to pass before merging" must be ON.
 #        - Add each CI job as a required check:
 #            contracts, integrity-zkp, integrity-oracle, integrity-sdk,
-#            integrity-cli, bcc_middleware, integrity-userapi, integrity-mvp
+#            integrity-cli, bcc_middleware, integrity-userapi, integrity-dashboard
 #        This ensures GitHub enforces green CI before the auto-merge fires,
 #        even if this workflow runs first.
 
