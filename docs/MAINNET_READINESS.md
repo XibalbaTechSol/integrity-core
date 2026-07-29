@@ -87,7 +87,7 @@ MemoryNotInitialized`), but:
 the one that must be right *before* first mainnet deploy, because it cannot be patched
 afterwards), and no registered agent has a zero root.
 
-### 6. Upgradeability — DECIDED 2026-07-29, implementation pending
+### 6. Upgradeability — decided, then reopened the same day; see comparison before building
 
 `SovereignAgent` and `StateAnchor` are deployed **directly per agent**, not cloned from an
 upgradeable implementation. Every agent's copy is frozen at whatever bytecode shipped that
@@ -107,6 +107,13 @@ rationale, contract shape, and accepted consequences:
 Registry rotation was considered and rejected: stake, ITK balance, market positions, and
 `isRegisteredAgent` all key on the *address*, so rotation is a value migration plus a
 laundering vector, where a proxy simply keeps the address stable.
+
+**Reopened:** a third option — frozen contracts with swappable *policy* behind designed-in
+hooks (the pattern `VerifierRegistry` already uses) — was under-weighted. It fixes §7.2,
+avoids permanently adopting the storage-collision vulnerability class in the contracts
+holding agent funds, and bounds a compromised authority key to denial-of-service rather
+than theft. [`docs/design/upgradeability-comparison.md`](design/upgradeability-comparison.md)
+currently recommends switching to it. **Settle this before writing any proxy code.**
 
 **Done when:** beacons are deployed by `Deploy.s.sol`, the SDK deploys proxies rather than
 raw contracts, storage-layout discipline (reserved gaps, append-only) is in place on both

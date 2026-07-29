@@ -6,6 +6,14 @@ choice that cannot be revisited after the first agent registers.
 **Decision: beacon proxy with a per-agent pin, beacon owned by a multisig initially and
 transferred to `IntegrityGovernance` once ITK supply is constrained.**
 
+> **UNDER RECONSIDERATION (2026-07-29, same day).** A third option — keeping the contracts
+> frozen and swapping *policy* behind designed-in hooks, the pattern `VerifierRegistry`
+> already uses here — was under-weighted when this was decided. It fixes the concrete §7.2
+> bug, reuses a proven in-repo pattern, and crucially bounds the blast radius of a
+> compromised authority key to denial-of-service rather than theft. See
+> [`upgradeability-comparison.md`](upgradeability-comparison.md), which currently
+> recommends switching. Do not implement from this document until that is settled.
+
 ---
 
 ## The problem
