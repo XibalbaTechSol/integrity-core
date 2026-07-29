@@ -87,7 +87,7 @@ MemoryNotInitialized`), but:
 the one that must be right *before* first mainnet deploy, because it cannot be patched
 afterwards), and no registered agent has a zero root.
 
-### 6. Decide upgradeability before the first mainnet agent exists — this is irreversible
+### 6. Upgradeability — DECIDED 2026-07-29, implementation pending
 
 `SovereignAgent` and `StateAnchor` are deployed **directly per agent**, not cloned from an
 upgradeable implementation. Every agent's copy is frozen at whatever bytecode shipped that
@@ -98,10 +98,20 @@ On mainnet this means **any bug in those two contracts is permanent for every ag
 registered before the fix**, with no migration path short of re-registering under a new DID
 and losing the reputation history the protocol exists to preserve.
 
-**Done when:** there is an explicit, written decision — minimal proxy + upgrade authority,
-a versioned-registry migration path, or an accepted "frozen forever, audited accordingly"
-stance — and the choice is reflected in the deploy scripts. Do not discover this after
-launch.
+**Decision:** beacon proxy with a per-agent pin; beacon owned by a multisig at launch and
+transferred to `IntegrityGovernance` once ITK supply is constrained (governance votes are
+locked ITK, and ITK is mintable today, so the handover is meaningless until then). Full
+rationale, contract shape, and accepted consequences:
+[`docs/design/upgradeability-decision.md`](design/upgradeability-decision.md).
+
+Registry rotation was considered and rejected: stake, ITK balance, market positions, and
+`isRegisteredAgent` all key on the *address*, so rotation is a value migration plus a
+laundering vector, where a proxy simply keeps the address stable.
+
+**Done when:** beacons are deployed by `Deploy.s.sol`, the SDK deploys proxies rather than
+raw contracts, storage-layout discipline (reserved gaps, append-only) is in place on both
+implementations, and the oracle reports each agent's implementation address so pinned or
+stale agents are visible.
 
 ### 7. Bonded stake is not enforced at registration
 

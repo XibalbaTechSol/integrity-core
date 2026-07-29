@@ -2570,3 +2570,25 @@ writeup: PRODUCTION_GAPS.md §18.
   already demonstrated by the §7.2 fix being unable to reach the existing 7. That choice must
   be settled before the first mainnet agent, not after.
 - README links the readiness doc from the deployment section.
+
+## [2026-07-29] decision | Per-agent contract upgradeability: beacon + per-agent pin
+
+- New `docs/design/upgradeability-decision.md` resolves the one irreversible pre-mainnet
+  choice. **Beacon proxy with a per-agent pin**, beacon owned by a multisig at launch and
+  transferred to `IntegrityGovernance` once ITK supply is constrained.
+- **Registry rotation rejected on evidence:** stake (`Slasher.stakeOf`), the ITK balance,
+  market positions, and `isRegisteredAgent` (4 call sites) all key on the SovereignAgent
+  *address*, not the DID — so rotation is a value migration plus a laundering vector
+  (rotate away from a pending dispute), where a proxy just keeps the address stable.
+- **Governance is technically capable but not yet a real authority:** voting power is locked
+  ITK and ITK is mintable by `MINTER_ROLE`, so unlimited mint is unlimited votes. Handover is
+  sequenced behind a token supply policy; a multisig owns the beacon until then.
+- The per-agent pin is what keeps the self-sovereignty thesis honest — the fleet is fixable
+  atomically, but any agent may permanently opt out, and the 14-day timelock is what makes
+  opting out possible in time.
+- Constraints recorded: pin authority is the controller and never the protocol; storage
+  layout is append-only forever; `StateAnchor`'s anchored history is sacred (an upgrade may
+  add behavior, never rewrite or un-anchor a root).
+- Open before implementation: emergency-response path (timelock protects agents but delays
+  exploit response), ITK supply policy, and whether `pin` accepts any address or only
+  beacon-published implementations.
