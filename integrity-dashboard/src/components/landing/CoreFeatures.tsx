@@ -388,36 +388,45 @@ export const AisMathSection = () => {
                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: '24px' }}>
                     
                     {/* Fidelity */}
-                    <div style={{ padding: '32px', background: 'rgba(255,255,255,0.01)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                        <h4 style={{ color: 'white', fontSize: '1.2rem', fontWeight: 700, marginBottom: '16px' }}>1. Fidelity (S<sub>f</sub>)</h4>
-                        <div style={{ fontFamily: '"Computer Modern", serif', fontSize: '1.2rem', color: '#10b981', marginBottom: '20px', padding: '16px', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', textAlign: 'center' }}>
-                            S<sub>f</sub>(x) = [1 + e<sup>-k(x - x₀)</sup>]<sup>-1</sup>
+                    <div style={{ background: 'rgba(255,255,255,0.01)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)', overflow: 'hidden' }}>
+                        <div style={{ width: '100%', height: '200px', backgroundImage: 'url(/fidelity_graph.jpg)', backgroundSize: 'cover', backgroundPosition: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)' }} />
+                        <div style={{ padding: '32px' }}>
+                            <h4 style={{ color: 'white', fontSize: '1.2rem', fontWeight: 700, marginBottom: '16px' }}>1. Fidelity (S<sub>f</sub>)</h4>
+                            <div style={{ fontFamily: '"Computer Modern", serif', fontSize: '1.2rem', color: '#10b981', marginBottom: '20px', padding: '16px', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', textAlign: 'center' }}>
+                                S<sub>f</sub>(x) = [1 + e<sup>-k(x - x₀)</sup>]<sup>-1</sup>
+                            </div>
+                            <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.9rem', lineHeight: 1.6, margin: 0 }}>
+                                A logistic growth function modeling SLA success over time. Requires sustained positive feedback before unlocking higher limits (k = growth rate).
+                            </p>
                         </div>
-                        <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.9rem', lineHeight: 1.6 }}>
-                            A logistic growth function modeling SLA success over time. Requires sustained positive feedback before unlocking higher limits (k = growth rate).
-                        </p>
                     </div>
 
                     {/* Entropy */}
-                    <div style={{ padding: '32px', background: 'rgba(255,255,255,0.01)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                        <h4 style={{ color: 'white', fontSize: '1.2rem', fontWeight: 700, marginBottom: '16px' }}>2. Entropy (S<sub>e</sub>)</h4>
-                        <div style={{ fontFamily: '"Computer Modern", serif', fontSize: '1.2rem', color: '#3b82f6', marginBottom: '20px', padding: '16px', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', textAlign: 'center' }}>
-                            S<sub>e</sub>(H) = e<sup>-λH</sup>
+                    <div style={{ background: 'rgba(255,255,255,0.01)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)', overflow: 'hidden' }}>
+                        <div style={{ width: '100%', height: '200px', backgroundImage: 'url(/entropy_graph.jpg)', backgroundSize: 'cover', backgroundPosition: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)' }} />
+                        <div style={{ padding: '32px' }}>
+                            <h4 style={{ color: 'white', fontSize: '1.2rem', fontWeight: 700, marginBottom: '16px' }}>2. Entropy (S<sub>e</sub>)</h4>
+                            <div style={{ fontFamily: '"Computer Modern", serif', fontSize: '1.2rem', color: '#3b82f6', marginBottom: '20px', padding: '16px', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', textAlign: 'center' }}>
+                                S<sub>e</sub>(H) = e<sup>-λH</sup>
+                            </div>
+                            <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.9rem', lineHeight: 1.6, margin: 0 }}>
+                                An exponential decay curve where H is uncertainty/hallucination rate. Strictly penalizes unpredictable agents (λ = severity scalar).
+                            </p>
                         </div>
-                        <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.9rem', lineHeight: 1.6 }}>
-                            An exponential decay curve where H is uncertainty/hallucination rate. Strictly penalizes unpredictable agents (λ = severity scalar).
-                        </p>
                     </div>
 
                     {/* Solvency */}
-                    <div style={{ padding: '32px', background: 'rgba(255,255,255,0.01)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                        <h4 style={{ color: 'white', fontSize: '1.2rem', fontWeight: 700, marginBottom: '16px' }}>3. Solvency (S<sub>c</sub>)</h4>
-                        <div style={{ fontFamily: '"Computer Modern", serif', fontSize: '1.1rem', color: '#a855f7', marginBottom: '20px', padding: '16px', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', textAlign: 'center' }}>
-                            S<sub>c</sub>(t) = ∫<sub>0</sub><sup>t</sup> (T<sub>in</sub> - T<sub>out</sub>) dt / T<sub>stake</sub>
+                    <div style={{ background: 'rgba(255,255,255,0.01)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)', overflow: 'hidden' }}>
+                        <div style={{ width: '100%', height: '200px', backgroundImage: 'url(/solvency_graph.jpg)', backgroundSize: 'cover', backgroundPosition: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)' }} />
+                        <div style={{ padding: '32px' }}>
+                            <h4 style={{ color: 'white', fontSize: '1.2rem', fontWeight: 700, marginBottom: '16px' }}>3. Solvency (S<sub>c</sub>)</h4>
+                            <div style={{ fontFamily: '"Computer Modern", serif', fontSize: '1.1rem', color: '#a855f7', marginBottom: '20px', padding: '16px', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', textAlign: 'center' }}>
+                                S<sub>c</sub>(t) = ∫<sub>0</sub><sup>t</sup> (T<sub>in</sub> - T<sub>out</sub>) dt / T<sub>stake</sub>
+                            </div>
+                            <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.9rem', lineHeight: 1.6, margin: 0 }}>
+                                A calculus integral over time of the agent's net token inflows normalized by its staked reserves. Measures sustained economic viability.
+                            </p>
                         </div>
-                        <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.9rem', lineHeight: 1.6 }}>
-                            A calculus integral over time of the agent's net token inflows normalized by its staked reserves. Measures sustained economic viability.
-                        </p>
                     </div>
 
                 </div>

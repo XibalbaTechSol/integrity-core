@@ -143,6 +143,11 @@ the highest-consequence field in the payload.
 `SmartBAA`) rather than trusted from the request, and a test proves a forged
 `covered_entity_address` is rejected.
 
+> This is the same hole as the missing **authority** clause: the field is client-supplied
+> precisely because there is no delegation lookup. Formalized (invariants A1–A5) in
+> [`docs/design/thesis-extensions-formal.md`](design/thesis-extensions-formal.md) — enforcing
+> A1/A2 turns the field from an assertion into a resolution and closes this item.
+
 ---
 
 ## P1 — Required for the system to behave as documented

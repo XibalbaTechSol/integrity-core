@@ -73,6 +73,13 @@ All three are principles, not mechanisms. Passes.
 
 ## Where the logic is NOT closed
 
+> Each of the three below is now formalized — definitions, labelled invariants, and mechanism
+> mapping — in [`thesis-extensions-formal.md`](thesis-extensions-formal.md). Headline result:
+> **authority and symmetry are generalizations of mechanisms Shield already implements**
+> (`SmartBAA` is a delegation instrument; `covered_entity_address` is a counterparty field),
+> while termination is genuinely new and entangled with the registry-mutability question the
+> upgradeability decision also faces.
+
 Three clauses the thesis does not make, which a reader will nonetheless expect. Each is either
 a genuine hole or a deliberate scope boundary — and right now the spec says neither.
 
