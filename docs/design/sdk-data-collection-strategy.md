@@ -148,8 +148,24 @@ Zero references to `anthropic` anywhere in the SDK. Coverage is OpenAI, LangChai
 Claude — cannot have its tokens captured by any existing integration, which is the direct
 blocker on "collect all agent tokens by default."
 
-**Fix:** an Anthropic integration is the highest-value single addition, and it must capture
-the Claude-specific token classes (below) that the OpenAI shape has no field for.
+**FIXED 2026-07-29.** `integrations/anthropic_integrity.py` — `IntegrityAnthropic`, a
+drop-in wrapper mirroring `IntegrityOpenAI`, with `anthropic` as an optional extra so the base
+SDK stays importable without it.
+
+It captures all four Anthropic token classes (`input`, `output`, `cache_creation_input`,
+`cache_read_input`) into the telemetry **metadata**, not only span attributes — applying the
+F1 lesson up front rather than repeating it. It deliberately does **not** synthesize a
+`total_tokens` Anthropic never reported, so the reducer sums the classes itself instead of
+trusting our arithmetic.
+
+Streaming is handled explicitly via `merge_stream_usage`: Anthropic splits usage across
+`message_start` (input + cache) and `message_delta` (final output), so a wrapper reading only
+the terminal event would lose **every input token** — the streaming equivalent of OpenAI's
+silent zero-usage path when `stream_options.include_usage` is unset.
+
+Also records `stop_reason`, so a refusal is observable rather than indistinguishable from a
+normal completion. 11 tests, driven by fakes shaped like real Messages-API responses since
+`anthropic` is optional and absent from the venv.
 
 ### F6. Inconsistent durability inside one payload
 
@@ -195,6 +211,14 @@ id and version, host fingerprint, wall-clock and monotonic timestamps. Without t
 else is attributable, and attribution is the protocol's product.
 
 ### L1 — Token and cost accounting (default on — the primary ask)
+
+**Partially built 2026-07-29.** `telemetry/conventions.py` now defines
+`CACHE_READ_TOKENS`, `CACHE_CREATION_TOKENS`, `REASONING_TOKENS`, `COST_USD` and
+`STOP_REASON` as OTel-aligned attributes, and the Anthropic integration populates the cache
+classes end-to-end (F5 above). Still open: a `billed_cost` figure on the SDK path (the oracle
+already receives real USD from the vendor-OTLP path), reasoning-token capture for
+o-series/extended-thinking, and per-tool token attribution.
+
 Complete taxonomy per call, not a single number:
 
 ```
