@@ -2,7 +2,7 @@
 
 > Content catalog. Every page represents something that actually exists in
 > the codebase right now — see the schema's "no aspirational content" rule.
-> Last updated: 2026-07-30 | Total pages: 29 (20 concepts, 8 entities)
+> Last updated: 2026-07-30 | Total pages: 30 (21 concepts, 8 entities)
 
 ## Acronym glossary
 - [AIS](concepts/ais.md) — Agent Integrity Score
@@ -31,6 +31,7 @@
 - [A2A Negotiation Protocol](concepts/a2a-negotiation-spec.md) — `[PLANNED]`
 - [ZK-ML Model-Inference Verification](concepts/zk-ml-spec.md) — `[PLANNED]`
 - [Persistent Memory, Genesis Root & Lineage](concepts/agent-memory.md) — **foundational primitive** (spec v0.3 §4.1): Trust Vault anchored on the agent's existing `StateAnchor` (no 8th primitive), agent-authorized genesis root, `400 MemoryNotInitialized` registration gate. `[PARTIALLY BUILT]` — gate + SDK anchoring enforced; contract-level epoch-1 restriction and lineage open
+- [Persistent Memory Configuration Guide](concepts/persistent-memory.md) — how users/agents can config memory systems.
 - [Testing Strategy](concepts/testing-strategy.md) — the 3-layer test pyramid, incl. new Playwright E2E (built)
 - [AIS API — Versioned Wire Spec](concepts/ais-api-spec.md) — the generated, externally-supported `/v1/*` spec at `spec/ais-api/` (built)
 

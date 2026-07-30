@@ -4,40 +4,39 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useIsMobile } from '../../utils/useIsMobile';
 
-export const TrustGapSection = () => {
+export const AgentPrimitivesSection = () => {
     const isMobile = useIsMobile();
     return (
         <section style={{ padding: isMobile ? '60px 20px' : '120px 60px', background: 'var(--navy-deep)', position: 'relative', overflow: 'hidden' }}>
             <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
                 <div style={{ textAlign: 'center', marginBottom: isMobile ? '48px' : '80px' }}>
-                    <span style={{ color: 'var(--gold)', fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.25em', display: 'block', marginBottom: '16px' }}>The Trust Gap</span>
-                    <h2 style={{ fontSize: isMobile ? '2.2rem' : '3.5rem', fontWeight: 800, lineHeight: 1.1, marginBottom: '24px', color: 'white' }}>Agents can reason.<br /><span style={{ color: 'var(--gold)' }}>But can they transact?</span></h2>
+                    <span style={{ color: 'var(--gold)', fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.25em', display: 'block', marginBottom: '16px' }}>The 3 Fundamental Primitives</span>
+                    <h2 style={{ fontSize: isMobile ? '2.2rem' : '3.5rem', fontWeight: 800, lineHeight: 1.1, marginBottom: '24px', color: 'white' }}>Building the <span style={{ color: 'var(--gold)' }}>Agentic Web.</span></h2>
                     <p style={{ color: 'rgba(255,255,255,0.6)', maxWidth: '800px', margin: '0 auto', lineHeight: 1.7, fontSize: isMobile ? '0.95rem' : '1.1rem' }}>
-                        The agentic web is scaling rapidly, but autonomous code lacks verifiable accountability. 
-                        The Integrity Protocol bridges this gap using cryptographic middleware (BCC) and Base L2 settlement to establish immutable reputation.
+                        The Integrity Protocol provides the foundational layer for autonomous systems by establishing three fundamental on-chain primitives: cryptographic reputation, programmable contract ownership, and persistent verified memory.
                     </p>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: isMobile ? '20px' : '32px' }}>
                     <div style={{ padding: '40px', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '24px' }}>
                         <div style={{ color: 'var(--gold)', marginBottom: '20px' }}><Shield size={32} /></div>
-                        <h4 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '16px', color: 'white' }}>Pre-Execution Gating</h4>
+                        <h4 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '16px', color: 'white' }}>1. Immutable Reputation</h4>
                         <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.9rem', lineHeight: 1.6, margin: 0 }}>
-                            Smart contracts verify an agent's Integrity Score (AIS) before allowing a transaction to execute, preventing malicious or hallucinated actions.
+                            Real-time telemetry evaluates agent behavior to compute a globally accessible Agent Integrity Score (AIS). Base L2 smart contracts pre-verify this score before execution to ensure trustless accountability.
                         </p>
                     </div>
                     <div style={{ padding: '40px', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '24px' }}>
-                        <div style={{ color: '#60a5fa', marginBottom: '20px' }}><Activity size={32} /></div>
-                        <h4 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '16px', color: 'white' }}>Real-time Telemetry</h4>
+                        <div style={{ color: '#60a5fa', marginBottom: '20px' }}><Code size={32} /></div>
+                        <h4 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '16px', color: 'white' }}>2. Agent-Owned Contracts</h4>
                         <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.9rem', lineHeight: 1.6, margin: 0 }}>
-                            Agent decisions are continuously monitored via the Behavioral Commitment Chain (BCC), dynamically adjusting their reputation based on performance and entropy.
+                            Agents can programmatically deploy, fund, and manage their own smart contracts and SLAs (e.g. DeFi liquidity pools, task escrows) directly through the Sovereign Agent interface.
                         </p>
                     </div>
                     <div style={{ padding: '40px', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '24px' }}>
-                        <div style={{ color: '#a78bfa', marginBottom: '20px' }}><Lock size={32} /></div>
-                        <h4 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '16px', color: 'white' }}>Base L2 Settlement</h4>
+                        <div style={{ color: '#a78bfa', marginBottom: '20px' }}><Cpu size={32} /></div>
+                        <h4 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '16px', color: 'white' }}>3. Persistent Memory</h4>
                         <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.9rem', lineHeight: 1.6, margin: 0 }}>
-                            All reputation proofs and final SLA escrows are settled securely and cheaply on Base L2, ensuring permanent cryptographic accountability.
+                            Agents anchor their local semantic memories (RAG vectors, graphs) cryptographically to the blockchain via a State Anchor, ensuring knowledge untamperability and context continuity across sessions.
                         </p>
                     </div>
                 </div>
@@ -354,6 +353,74 @@ export const PrivacyArchitectureSection = () => {
                         </div>
                     </div>
                 </motion.div>
+            </div>
+        </section>
+    );
+};
+
+export const AisMathSection = () => {
+    const isMobile = useIsMobile();
+    return (
+        <section style={{ padding: isMobile ? '60px 20px' : '120px 60px', background: 'linear-gradient(to bottom, var(--navy-deep), #050d18)', position: 'relative' }}>
+            <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+                <div style={{ textAlign: 'center', marginBottom: '64px' }}>
+                    <span style={{ color: 'var(--gold)', fontSize: '0.7rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.25em' }}>Agent Integrity Score (AIS)</span>
+                    <h2 style={{ fontSize: isMobile ? '2rem' : '3rem', fontWeight: 800, marginTop: '16px', color: 'white' }}>
+                        The Mathematics of Trust
+                    </h2>
+                    <p style={{ color: 'rgba(255,255,255,0.6)', maxWidth: '700px', margin: '24px auto', fontSize: '1.1rem', lineHeight: 1.7 }}>
+                        Unlike arbitrary rating systems, the AIS acts as an absolute mathematical volume guaranteeing true "all-aroundness". A failure in one dimension collapses the entire score, providing a safety ceiling that professional underwriters demand.
+                    </p>
+                </div>
+
+                {/* Main Geometric Math Formula */}
+                <div style={{ padding: '40px', background: 'rgba(255,255,255,0.02)', borderRadius: '24px', border: '1px solid rgba(212,175,55,0.15)', marginBottom: '40px', textAlign: 'center', boxShadow: '0 20px 50px rgba(0,0,0,0.5)' }}>
+                    <h3 style={{ fontSize: '1.1rem', color: 'rgba(255,255,255,0.5)', fontWeight: 600, letterSpacing: '0.1em', marginBottom: '24px' }}>GEOMETRIC AGENT VOLUME</h3>
+                    <div style={{ fontFamily: '"Computer Modern", "Times New Roman", serif', fontSize: isMobile ? '1.8rem' : '2.5rem', color: 'var(--gold)', fontStyle: 'italic', padding: '24px', background: 'rgba(0,0,0,0.4)', borderRadius: '16px' }}>
+                        AIS = 1000 × (S<sub>f</sub>)<sup>0.4</sup> × (S<sub>e</sub>)<sup>0.3</sup> × (S<sub>c</sub>)<sup>0.3</sup>
+                    </div>
+                    <p style={{ fontSize: '0.95rem', color: 'rgba(255,255,255,0.5)', marginTop: '24px', fontStyle: 'italic' }}>
+                        Where S<sub>f</sub> is Fidelity, S<sub>e</sub> is Entropy, and S<sub>c</sub> is Economic Solvency. Any score nearing 0 forces the entire AIS to approach 0.
+                    </p>
+                </div>
+
+                {/* 3 Metric Columns with Math */}
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: '24px' }}>
+                    
+                    {/* Fidelity */}
+                    <div style={{ padding: '32px', background: 'rgba(255,255,255,0.01)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                        <h4 style={{ color: 'white', fontSize: '1.2rem', fontWeight: 700, marginBottom: '16px' }}>1. Fidelity (S<sub>f</sub>)</h4>
+                        <div style={{ fontFamily: '"Computer Modern", serif', fontSize: '1.2rem', color: '#10b981', marginBottom: '20px', padding: '16px', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', textAlign: 'center' }}>
+                            S<sub>f</sub>(x) = [1 + e<sup>-k(x - x₀)</sup>]<sup>-1</sup>
+                        </div>
+                        <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.9rem', lineHeight: 1.6 }}>
+                            A logistic growth function modeling SLA success over time. Requires sustained positive feedback before unlocking higher limits (k = growth rate).
+                        </p>
+                    </div>
+
+                    {/* Entropy */}
+                    <div style={{ padding: '32px', background: 'rgba(255,255,255,0.01)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                        <h4 style={{ color: 'white', fontSize: '1.2rem', fontWeight: 700, marginBottom: '16px' }}>2. Entropy (S<sub>e</sub>)</h4>
+                        <div style={{ fontFamily: '"Computer Modern", serif', fontSize: '1.2rem', color: '#3b82f6', marginBottom: '20px', padding: '16px', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', textAlign: 'center' }}>
+                            S<sub>e</sub>(H) = e<sup>-λH</sup>
+                        </div>
+                        <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.9rem', lineHeight: 1.6 }}>
+                            An exponential decay curve where H is uncertainty/hallucination rate. Strictly penalizes unpredictable agents (λ = severity scalar).
+                        </p>
+                    </div>
+
+                    {/* Solvency */}
+                    <div style={{ padding: '32px', background: 'rgba(255,255,255,0.01)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                        <h4 style={{ color: 'white', fontSize: '1.2rem', fontWeight: 700, marginBottom: '16px' }}>3. Solvency (S<sub>c</sub>)</h4>
+                        <div style={{ fontFamily: '"Computer Modern", serif', fontSize: '1.1rem', color: '#a855f7', marginBottom: '20px', padding: '16px', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', textAlign: 'center' }}>
+                            S<sub>c</sub>(t) = ∫<sub>0</sub><sup>t</sup> (T<sub>in</sub> - T<sub>out</sub>) dt / T<sub>stake</sub>
+                        </div>
+                        <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.9rem', lineHeight: 1.6 }}>
+                            A calculus integral over time of the agent's net token inflows normalized by its staked reserves. Measures sustained economic viability.
+                        </p>
+                    </div>
+
+                </div>
             </div>
         </section>
     );

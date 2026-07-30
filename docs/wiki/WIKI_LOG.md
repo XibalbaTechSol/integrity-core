@@ -3,6 +3,12 @@
 > Chronological record of wiki actions. Append-only — never edit past entries.
 > Actions: ingest, create, update, lint, query, archive
 
+## [2026-07-30] create+update | Persistent Memory Guide and Reimagined Dashboard Landing Page
+- Created `docs/wiki/concepts/persistent-memory.md` to document how developers and agents can configure `TrustVault`, `JSONLBackend`, `RAGBackend`, and `GraphBackend` for cryptographic state anchoring.
+- Updated `WIKI_INDEX.md` to index the new Persistent Memory Configuration Guide concept page.
+- Reimagined `integrity-dashboard/src/components/landing/CoreFeatures.tsx` and `LandingPage.tsx` to align with the new protocol capabilities. Replaced `TrustGapSection` with `AgentPrimitivesSection`, highlighting the three fundamental on-chain primitives: Immutable Reputation, Agent-Owned Contracts, and Persistent Memory.
+- Added a dedicated `AisMathSection` to visually and mathematically outline the geometric AIS functions (Agent Geometric Volume), mapping Fidelity (Logistic), Entropy (Exponential Decay), and Solvency (Calculus Integral).
+
 ## [2026-07-30] update | Persistent Memory Bridge and AIS Metrics Architecture
 - Implemented primitive-level Persistent Memory Bridge in `integrity_sdk/memory.py` utilizing the `StateAnchor` primitive and a `MemoryBackend` adapter pattern supporting arbitrary backends (RAG, JSONL, SQL).
 - Added `integrity_commit_memory` tool to `integrity_sdk.mcp_server` to allow agents to explicitly commit and cryptographically anchor their memory state on Base Sepolia.
@@ -2613,3 +2619,29 @@ writeup: PRODUCTION_GAPS.md §18.
 - Refactored `markets.py` to trace `claim_payout` and tag with `markets.trade_yield` and `itk.balance_delta`.
 - Refactored `bcc.py` with `submit_commitment` to emit `integrity.bcc.intercept` spans, logging `bcc.resolution_status`.
 - All changes passed the local `integrity-sdk` test suite.
+
+## [2026-07-30] proposal | Three foundational primitives; PHI backstop modes; SDK F1-F5, L1-L3
+
+- **New `docs/design/three-foundational-primitives.md`** — proposes consolidating spec v0.3's
+  six foundational primitives into three: Persistent Memory (continuity), Agent-Owned
+  Contracts (residual control **with consequence**, absorbing bonded stake), and Reputation
+  (non-forgeable standing, absorbing BCC as the before-acting half and observability as the
+  after-acting half). Cryptographic self-sovereignty moves from primitive to a property of the
+  medium alongside §3.3, since keys are the substrate all three are expressed in rather than a
+  peer of what they enable.
+  - Keeps the §2 tension explicit rather than papering it over: **AIS is a score** (derived,
+    replaceable), **reputation is the primitive** (the record AIS summarizes). Conflating them
+    is what makes reputation systems untrustworthy elsewhere.
+  - Flags that consolidation must not hide per-mechanism status (BCC built, minimum stake
+    `[PARTIAL]`, silence-as-signal `[PLANNED]`), and that adopting it promotes the ZK-boost
+    binding gap from a scoring detail to a hole in a foundational primitive.
+  - Marked as requiring a spec v0.4, not a wiki edit — the wiki must not describe three
+    primitives while the normative document says six.
+- **PHI backstop is now mode-driven** (`PHI_BACKSTOP_MODE = reject | flag | off`, default
+  reject) across all four ingestion paths, with `phi_flags` recorded on the row in `flag` mode
+  (migration 0010). This is what makes unredacted development collection work end-to-end,
+  given redaction is off by default in the SDK by operator decision.
+- **SDK gaps closed this session:** F1 (token double-count, pinned by shared cross-language
+  conformance vectors), F4 (signed envelope `schema_version`), F2/F3 (bounded queue with
+  visible drop reporting; clock-driven flush plus `atexit`), F5 (Anthropic integration), and
+  L1–L3 (cache/reasoning/cost conventions; collection profiles). sdk 140 → 185 tests.

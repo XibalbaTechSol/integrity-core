@@ -45,6 +45,11 @@ boost).
 
 ### 3. ZK boost is period-wide, not bound to what it proves
 
+> **Note:** if the three-primitive consolidation is adopted
+> ([`docs/design/three-foundational-primitives.md`](design/three-foundational-primitives.md)),
+> this stops being a scoring detail and becomes a hole in a *foundational* primitive —
+> reputation — and should move up this list accordingly.
+
 Spec v0.3 §9.4, confirmed in `scoring-core`: the boost is a `BOOL_OR` over the reporting
 window. One verified proof anywhere in ~30 days multiplies the entire period's score by
 1.15. The proof is real; the *binding* between proof and the behavior being scored is not.
