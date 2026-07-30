@@ -89,9 +89,13 @@ drained batch while new entries keep arriving. There is no maximum size, no drop
 no counter for what was lost. At today's volumes this is survivable; with "collect
 everything" it is a memory leak with a network trigger.
 
-**Fix:** bounded queue with an explicit drop policy (drop-oldest preserves recency, which is
-what scoring wants), plus a `dropped_count` reported in the next successful flush so loss is
-visible rather than silent.
+**FIXED 2026-07-29.** `TelemetryBatcher` takes `max_queue_size` (default 10,000 ≈ 200 full
+batches). Overflow drops **oldest-first** — recency is what scoring wants, and the newest
+events describe whatever is going wrong now. Every drop is counted and reported on the next
+flush as an `integrity.telemetry.dropped_entries` metric, which rides in the existing
+`custom_metrics` block, so the oracle learns data went missing **without an envelope schema
+bump**. A `max_queue_size` below one batch is rejected at construction rather than
+under-delivering forever.
 
 ### F3. The time-based flush never fires on its own
 
@@ -106,8 +110,13 @@ Consequences:
   is exactly why the Xibalba session hooks must call it manually, and why the OTel exporter
   needed a `force_flush` added by hand.
 
-**Fix:** a daemon flusher thread plus `atexit`/signal handling, both idempotent and
-best-effort.
+**FIXED 2026-07-29.** A daemon flusher thread polls at a quarter of the interval (so a due
+flush is not delayed by up to a full interval) and waits on an `Event` rather than sleeping, so
+`close()` returns promptly. Plus an `atexit` tail flush, and an explicit idempotent `close()`
+for callers that manage lifetime. The thread only starts when `auto_flush` is on, so a caller
+that opted out of implicit flushing does not silently get one anyway. Exceptions inside the
+loop are logged and swallowed — a dead flusher would mean silent loss for the rest of the
+process's life, which is worse than a retried failure.
 
 ### F4. No schema version in the signed envelope
 

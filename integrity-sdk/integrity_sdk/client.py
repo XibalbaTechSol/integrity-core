@@ -20,8 +20,10 @@ bcc_middleware's own fail-closed-vs-best-effort split.
 
 from __future__ import annotations
 
+import atexit
 import logging
 import os
+import threading
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
@@ -69,6 +71,8 @@ class IntegrityClient:
         auto_flush: bool = True,
         batch_size_limit: int = 50,
         flush_interval_sec: float = 5.0,
+        max_queue_size: int = 10_000,
+        background_flush: bool = True,
         keypair: Optional[Keypair] = None,
         bcc_nonce_store: Optional[Any] = None,
         otlp_endpoint: Optional[str] = None,
@@ -111,7 +115,11 @@ class IntegrityClient:
         if enable_otel_export:
             endpoint = otlp_endpoint or f"{urlparse(self.oracle_url).hostname or 'localhost'}:4317"
             telemetry_core.init_telemetry(agent_id=agent_id, endpoint=endpoint)
-        self._batcher = TelemetryBatcher(batch_size_limit=batch_size_limit, flush_interval_sec=flush_interval_sec)
+        self._batcher = TelemetryBatcher(
+            batch_size_limit=batch_size_limit,
+            flush_interval_sec=flush_interval_sec,
+            max_queue_size=max_queue_size,
+        )
         self._trace_runs: List[Dict[str, Any]] = []
         self._auto_flush = auto_flush
         # Monotonic per-flush nonce, so the oracle's replay protection (see
@@ -140,6 +148,73 @@ class IntegrityClient:
         # block an unrelated telemetry flush, or vice versa).
         self._keypair = keypair
         self._bcc_nonce_store = bcc_nonce_store
+
+        # --- F3: the interval flush has to be driven by a clock, not by the next event ---
+        #
+        # `flush_interval_sec` existed but nothing consulted it except `log_telemetry`, so the
+        # interval only elapsed *when another event arrived*. Two consequences, both bad for a
+        # collector: an agent that goes quiet never flushed its tail — the moment right before
+        # it stopped, which is exactly the interesting one — and a short-lived process lost
+        # everything unless it happened to call `flush_telemetry` by hand. That is why the
+        # Xibalba session hooks flush manually and why the OTel exporter needed an explicit
+        # force_flush bolted on.
+        self._stop_event = threading.Event()
+        self._flusher: Optional[threading.Thread] = None
+        # Tied to auto_flush so a caller that opted out of implicit flushing (every unit test,
+        # and any caller wanting deterministic batches) does not silently get a thread anyway.
+        if background_flush and auto_flush:
+            self._flusher = threading.Thread(
+                target=self._background_flush_loop,
+                name=f"integrity-flusher-{agent_id}",
+                daemon=True,  # never block interpreter exit; atexit below handles the tail
+            )
+            self._flusher.start()
+            atexit.register(self._flush_on_exit)
+
+    def _background_flush_loop(self) -> None:
+        """Wakes on a cadence and flushes when the batcher says it is due.
+
+        Polls at a fraction of the interval so a due flush is not delayed by up to a full
+        interval, and waits on an Event rather than sleeping so `close()` returns promptly
+        instead of blocking for the remainder of a tick.
+        """
+        poll = max(0.1, self._batcher.flush_interval_sec / 4)
+        while not self._stop_event.wait(poll):
+            try:
+                if self._batcher.should_flush():
+                    self.flush_telemetry()
+            except Exception as exc:  # noqa: BLE001
+                # Never let a telemetry failure kill the thread — a dead flusher would mean
+                # silent data loss for the rest of the process's life, which is worse than
+                # the failure being retried on the next tick.
+                logger.warning("background telemetry flush failed: %r", exc)
+
+    def _flush_on_exit(self) -> None:
+        """Best-effort tail flush at interpreter shutdown.
+
+        Registered via atexit, so a short-lived agent no longer loses its final batch. Errors
+        are swallowed deliberately: raising here would turn a telemetry hiccup into a nonzero
+        exit status for the host process, and telemetry is observability, not the agent's work.
+        """
+        self._stop_event.set()
+        try:
+            while self._batcher.queue_depth() > 0:
+                if not self.flush_telemetry():
+                    break  # unreachable oracle — stop rather than spin at shutdown
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("exit-time telemetry flush failed: %r", exc)
+
+    def close(self) -> None:
+        """Stop the background flusher and flush what remains.
+
+        Idempotent, and safe to call even when no flusher was started. Callers that manage
+        lifetime explicitly (a test, a worker that finishes) should prefer this over relying
+        on interpreter exit.
+        """
+        self._stop_event.set()
+        if self._flusher is not None and self._flusher.is_alive():
+            self._flusher.join(timeout=self._batcher.flush_interval_sec + 1.0)
+        self._flush_on_exit()
 
     def log_telemetry(
         self,
@@ -320,6 +395,21 @@ class IntegrityClient:
         Returns True if the oracle accepted the batch, False on any failure
         (logged + re-queued, never raised) — telemetry is best-effort.
         """
+        # F2: surface overflow loss instead of hiding it. Recorded as a real metric so it
+        # rides in `custom_metrics` through the existing envelope — no schema bump — and a
+        # shortened history is visibly explained rather than looking like an agent that simply
+        # did less work.
+        #
+        # Ordering matters: this must precede `self._metrics.drain()` below, or the value is
+        # recorded after the drain and misses this flush.
+        dropped = self._batcher.drain_dropped_count()
+        if dropped:
+            logger.warning(
+                "telemetry queue overflowed: %d oldest entries dropped (max_queue_size=%d)",
+                dropped, self._batcher.max_queue_size,
+            )
+            self._metrics.record("integrity.telemetry.dropped_entries", float(dropped))
+
         batch = self._batcher.get_batch_and_clear()
         trace_runs = self._trace_runs
         self._trace_runs = []
