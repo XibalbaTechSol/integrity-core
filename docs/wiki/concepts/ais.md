@@ -68,8 +68,9 @@ pushes each agent's recomputed AIS to `ReputationRegistry.updateScore` and raise
 consumer.
 
 `AIS_final = min(S_calculated, Tier_ceiling)` — an identity-verification
-ceiling clamp — is a **`[PLANNED]`** design, not implemented in
-`scoring-core` today; see [Identity Ceiling](identity-ceiling.md).
+ceiling clamp — is **`[BUILT]`** and enforced in `integrity-oracle/scoring-core`
+via `AisEngine::score_with_tier` (Tier 0: 300, Tier 1: 600, Tier 2: 850, Tier 3: 1000);
+see [Identity Ceiling](identity-ceiling.md).
 
 Related: [Telemetry Ingestion Pipeline](telemetry-ingestion.md) (the full
 collection→batching→signing→oracle-pipeline writeup; this page covers only
