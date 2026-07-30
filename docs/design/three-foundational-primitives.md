@@ -1,5 +1,12 @@
 # Three foundational primitives — a proposed consolidation
 
+> **The count is not the point.** See
+> [`primitive-set-coherence.md`](primitive-set-coherence.md), which tests the set for
+> completeness, independence and groundedness against the §1 thesis. The reason to collapse
+> six into three is that two of the six are **not independent** — not that three is tidier.
+> That audit also identifies three clauses the thesis does not make (authority, termination,
+> counterparty symmetry) which must be either adopted or explicitly ruled out of scope.
+
 **Status: proposal.** This reframes spec v0.3 §4 and would require a spec revision to adopt.
 It is written as a design note rather than applied to the wiki, because the spec is the
 normative document and this changes its shape.

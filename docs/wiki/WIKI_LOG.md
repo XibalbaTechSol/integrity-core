@@ -2645,3 +2645,26 @@ writeup: PRODUCTION_GAPS.md §18.
   conformance vectors), F4 (signed envelope `schema_version`), F2/F3 (bounded queue with
   visible drop reporting; clock-driven flush plus `atexit`), F5 (Anthropic integration), and
   L1–L3 (cache/reasoning/cost conventions; collection profiles). sdk 140 → 185 tests.
+
+## [2026-07-30] analysis | Primitive-set coherence audit
+
+- **New `docs/design/primitive-set-coherence.md`** — treats the primitives as an axiom set and
+  §1's Economic Sovereign definition as the theorem they must entail, testing completeness,
+  independence and groundedness rather than arguing about the count.
+- **Completeness: passes.** All six thesis clauses map to a primitive exactly once, and clause
+  ⑥ ("cannot rewrite after finality") correctly falls out as a *medium* property rather than
+  something an agent possesses — a consistency check passing, since it is the only clause
+  phrased as an inability.
+- **Independence: two genuine redundancies.** §4.3 self-sovereignty is the substrate ownership
+  is expressed through (belongs in §3 with attribution), and §4.5 stake is ownership with
+  consequence attached. Collapsing those is what yields three — the justification is
+  non-independence, not tidiness. §4.4/§4.6 are independent mechanisms grouped by shared
+  purpose, which is a judgment call rather than an error.
+- **Memory vs observability boundary made sharp:** same subject, opposite trust direction —
+  memory is the agent's own anchored record, observability is the counterparty-checkable one
+  the oracle re-derives and never trusts from the client.
+- **Three clauses the thesis does not make**, each needing an explicit ruling rather than
+  silence: **authority** (on whose behalf the agent acts — the largest gap, and exactly where
+  Shield's client-supplied `covered_entity_address` hole sits), **termination** (an agent can
+  currently be abandoned but not ended), and **counterparty symmetry** (reputation is
+  one-directional while A2A is a stated goal).
