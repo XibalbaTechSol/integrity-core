@@ -137,3 +137,79 @@ test_non_clinical_intent_is_unaffected_by_tier_0 if {
 	commitment := object.union(_base_commitment, {"verification_tier": 0})
 	bcc.allow with input as commitment
 }
+
+# ---------------------------------------------------------------------------
+# Agent-runtime tool intents (bcc.rego §3b)
+# ---------------------------------------------------------------------------
+# Regression guard for the measured failure these rules exist to fix: the Claude
+# Code hook set emitted a CONSTANT `claude_tool:<Tool>` label, which matched no
+# rule, so the gate authorized 715 commitments and denied 0. The first test below
+# pins that unclassified labels still pass (we did not make the shell unusable);
+# the rest pin that a classified one can actually be denied.
+
+test_unclassified_claude_tool_intent_is_allowed if {
+	commitment := object.union(_base_commitment, {"intent_type": "claude_tool:Bash"})
+	bcc.allow with input as commitment
+	# No risk class parsed out of a two-segment label.
+	not bcc.tool_risk_class with input as commitment
+}
+
+test_destructive_tool_class_is_parsed if {
+	commitment := object.union(_base_commitment, {"intent_type": "claude_tool:Bash:destructive"})
+	bcc.tool_risk_class == "destructive" with input as commitment
+}
+
+test_destructive_tool_intent_allowed_for_verified_agent if {
+	# Tier 1 = the oracle resolved and verified this DID. A registered agent is
+	# permitted to commit to destructive work; the value is the COMMITMENT, which
+	# PostToolUse can later be reconciled against.
+	commitment := object.union(_base_commitment, {"intent_type": "claude_tool:Bash:destructive"})
+	bcc.allow with input as commitment
+}
+
+test_destructive_tool_intent_denied_for_unverifiable_agent if {
+	commitment := object.union(_base_commitment, {
+		"intent_type": "claude_tool:Bash:destructive",
+		"verification_tier": 0,
+	})
+	not bcc.allow with input as commitment
+	some msg in bcc.violation with input as commitment
+	contains(msg, "TOOL_RISK_TIER_INSUFFICIENT")
+}
+
+test_credential_and_chain_write_classes_are_high_risk if {
+	cred := object.union(_base_commitment, {
+		"intent_type": "claude_tool:Bash:credential",
+		"verification_tier": 0,
+	})
+	chain := object.union(_base_commitment, {
+		"intent_type": "claude_tool:Bash:chain_write",
+		"verification_tier": 0,
+	})
+	not bcc.allow with input as cred
+	not bcc.allow with input as chain
+}
+
+test_low_risk_tool_class_is_not_tier_gated if {
+	# `network` is classified for audit visibility but is not in
+	# high_risk_tool_classes -- it must not be denied even at tier 0, or routine
+	# curl/git-push calls would brick the shell for any unresolvable agent.
+	commitment := object.union(_base_commitment, {
+		"intent_type": "claude_tool:Bash:network",
+		"verification_tier": 0,
+	})
+	bcc.allow with input as commitment
+}
+
+test_missing_tier_fails_closed_for_high_risk_tool_class if {
+	# Same fail-closed property the clinical rules have: an absent
+	# verification_tier must deny, not silently skip the comparison.
+	commitment := {
+		"agent_id": "did:integrity:some_generic_agent",
+		"intent_type": "claude_tool:Bash:destructive",
+		"intended_state_hash": "0x1111111111111111111111111111111111111111111111111111111111111",
+		"nonce": 1,
+		"timestamp": 1730000000000,
+	}
+	not bcc.allow with input as commitment
+}

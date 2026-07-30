@@ -184,9 +184,15 @@ Computed in exactly one place, `integrity-oracle/scoring-core` (deliberately dep
 besides `serde`, so `backend` depends on it and never the reverse):
 
 ```
-AIS = (S_entropy·wE + S_grounding·wG + S_sacrifice·wS + S_compliance·wC) · ZK_boost
+AIS = (S_entropy^wE · S_grounding^wG · S_sacrifice^wS · S_compliance^wC) · ZK_boost
 wE=0.30, wG=0.30, wS=0.20, wC=0.20, ZK_boost=1.15 if a real bb-verified proof is live, else 1.0
 ```
+
+A weighted **geometric** mean, not arithmetic — so **any single zero component
+zeroes the entire score**. This is the most common way to misread AIS: an agent
+whose telemetry omits one axis (e.g. reports no token usage, so `sacrifice`
+derives to 0) scores 0.0 even with the other three axes perfect. Absent and
+catastrophic are currently indistinguishable here; see `PRODUCTION_GAPS.md`.
 
 ### Oracle service
 

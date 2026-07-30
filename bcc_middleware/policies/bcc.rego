@@ -176,6 +176,64 @@ violation contains msg if {
 }
 
 # ---------------------------------------------------------------------------
+# 3b. Agent-runtime tool intents (`claude_tool:<Tool>[:<risk_class>]`)
+# ---------------------------------------------------------------------------
+# Measured motivation, not a hypothetical: across 792 logged decisions from the
+# Claude Code hook set, this policy authorized 715 and denied 0. Every rule above
+# keys on `intent_type`, and the hook emitted the CONSTANT label
+# `claude_tool:<ToolName>` -- which matches no rule, so `violation` was always
+# empty and `allow` always true. The engine was healthy the whole time
+# (`claude_tool_bypass` and `EMR_WRITE` deny correctly); it was simply never
+# reachable. A gate that cannot express an opinion is not a gate.
+#
+# The hook (~/.claude/xibalba/pretool_gate.py::classify_intent) now appends a
+# coarse risk class derived from the payload, while the payload itself still
+# crosses the wire only as `intended_state_hash`. That keeps §4.2's hash-only
+# property -- plaintext never leaves the agent -- while giving these rules a
+# bounded, enumerable value to match on.
+#
+# SCOPE, stated plainly: the classifier is a one-way lossy SIGNAL and is
+# trivially evadable by an adversarial agent (base64, indirection, aliasing).
+# These rules therefore encode "the agent committed to doing something
+# destructive" and gate on that assertion -- they are not, and must not be
+# described as, a sandbox. Real containment is the runtime's job.
+claude_tool_prefix := "claude_tool:"
+
+_is_claude_tool if {
+	startswith(input.intent_type, claude_tool_prefix)
+}
+
+# Risk classes that require an agent to be verifiable before it may commit to
+# them. Tier >= 1 means the oracle could resolve and verify the DID at all (see
+# the CEILING NOTE above); an agent it cannot resolve falls to 0 and is denied.
+high_risk_tool_classes := {
+	"destructive",
+	"credential",
+	"chain_write",
+	"privileged",
+}
+
+_tool_risk_class := class if {
+	_is_claude_tool
+	parts := split(input.intent_type, ":")
+	count(parts) >= 3
+	class := parts[2]
+}
+
+violation contains msg if {
+	_tool_risk_class in high_risk_tool_classes
+	_verification_tier < 1
+	msg := sprintf(
+		"TOOL_RISK_TIER_INSUFFICIENT: agent '%v' has tier %v; intent_type '%v' is class '%v' and requires tier >= 1",
+		[input.agent_id, _verification_tier, input.intent_type, _tool_risk_class],
+	)
+}
+
+# Surfaced for audit logging so an operator can see which commitments carried a
+# risk class at all, distinguishing "passed policy" from "matched no rule".
+tool_risk_class := _tool_risk_class
+
+# ---------------------------------------------------------------------------
 # 4. NOT implemented here, on purpose: READ_ONLY-vs-destructive intent drift
 # ---------------------------------------------------------------------------
 # The old prototype flagged a READ_ONLY commitment that later tried a
