@@ -213,6 +213,12 @@ D = (principal, agent_did, scope, not_before, not_after, revocation_ref, sig_P)
 An action `a` at time `t` is authorized iff `sig_P` is valid, `not_before ≤ t ≤ not_after`,
 `D` is unrevoked at `t`, and `a ⊑ D.scope`.
 
+**`scope` is not yet defined — a known hole, not an omission by oversight.** A2 and A5 both
+require containment, and containment is undecidable over an undefined value, so authority has
+no enforceable meaning today beyond what `SmartBAA` hard-codes. A typed capability algebra is
+proposed in [`docs/design/spec-open-definitions.md`](../docs/design/spec-open-definitions.md)
+§1 and must land before §12 is implementable.
+
 **Invariants.**
 
 - **A1 — Attribution.** Every trust-affecting action is attributable to exactly one delegation
@@ -678,6 +684,7 @@ the AIS endpoint in `agentURI`.
 | Document | Role |
 |---|---|
 | **This specification** | Foundational properties, primitives, AIS, memory, authority, interop |
+| [`docs/design/spec-open-definitions.md`](../docs/design/spec-open-definitions.md) | What this spec names but does not define — six gaps, ordered by what they block |
 | [`docs/INTERFACE_CONTRACT.md`](../docs/INTERFACE_CONTRACT.md) | Internal schemas, ports, sequences, env |
 | [`spec/*`](.) | External versioned wire surfaces |
 | [`PRODUCTION_GAPS.md`](../PRODUCTION_GAPS.md) | Honest open items |

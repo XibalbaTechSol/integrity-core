@@ -22,13 +22,17 @@ Ordered by whether they block work already approved.
 
 ### The problem
 
-§4.3 defines authorization as `a ⊑ D.scope`, and A5 requires `D'.scope ⊑ D.scope` for
-subdelegation. But §4.3 also says scope is "a domain-specific capability set … the protocol
-treats it as opaque and only enforces containment."
+Spec v0.4 §4.3 defines authorization as `a ⊑ D.scope` and A5 requires `D'.scope ⊑ D.scope`
+for subdelegation — **and never defines what a scope is.** It is a plain omission there.
 
-**Those two statements are inconsistent.** Containment over an opaque blob is undecidable —
-you cannot check `⊑` on something you refuse to interpret. As written, A2 cannot be
-implemented and A5 cannot be verified, so the authority primitive has no enforceable meaning.
+The design note behind it goes further and makes the omission an inconsistency:
+[`thesis-extensions-formal.md`](thesis-extensions-formal.md) §1.1 calls scope "a
+domain-specific capability set … the protocol treats it as opaque and only enforces
+containment." Containment over an opaque value is undecidable — you cannot check `⊑` on
+something you refuse to interpret.
+
+Either way the consequence is the same: A2 cannot be implemented and A5 cannot be verified, so
+authority has no enforceable meaning beyond what `SmartBAA` hard-codes.
 
 ### Proposal — typed capability tuples
 
