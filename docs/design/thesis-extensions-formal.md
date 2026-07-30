@@ -158,6 +158,74 @@ was doing the general thing all along and the protocol simply never lifted it.
 
 ---
 
+## Can authority *replace* reputation?
+
+Asked directly, and worth answering formally rather than by preference. Two primitives are
+interchangeable only if each entails the other. Test both directions with counterexamples.
+
+### Does authority entail reputation?
+
+**No.** Counterexample: agent `A` holds a valid, unrevoked delegation from principal `P` with
+scope `S`, and has performed every action within `S` incompetently — hallucinating, burning
+capital, failing every task. `A` is fully *authorized* and worth nothing to a counterparty.
+
+Authority is **permission**, granted ex ante by a principal. Reputation is **performance**,
+earned ex post through behavior. A delegation says an agent *may* act; it says nothing about
+whether it acts *well*. Two agents with identical delegations can have opposite track records,
+so no function from delegation to behavior exists.
+
+### Does reputation entail authority?
+
+**No**, symmetrically. Agent `B` has an impeccable anchored track record and no delegation
+from anyone. It is trustworthy and unauthorized — it may not act on your behalf, however well
+it has behaved before.
+
+### Therefore: orthogonal
+
+Neither is derivable from the other, so by the independence test both survive. They answer
+different questions:
+
+| | Question | Direction | Source |
+|---|---|---|---|
+| Authority | *May it act, and for whom?* | ex ante | granted by a principal |
+| Reputation | *How has it acted?* | ex post | earned through behavior |
+
+### The decisive argument: completeness
+
+Independence alone would permit dropping one if the thesis did not need it. It does.
+
+Reputation carries thesis clauses ③ (*can bind future behavior*) and ⑤ (*produces
+independently checkable evidence*). Authority carries **neither** — it is not currently a
+thesis clause at all. Replace reputation with authority and ③ and ⑤ become unentailed: the set
+stops being complete, which is the one property the audit established it has.
+
+### The partial overlap, quantified
+
+There is a real intersection, and it is worth being exact about its size rather than waving at
+it. Evidence that an agent stayed within its delegated scope *is* behavioral evidence — so
+authority does cover part of reputation's territory.
+
+Precisely: it covers **compliance**, one of AIS's four components (`wC = 0.20`). It says
+nothing about entropy, grounding, or sacrifice — the other 80%. Authority makes the compliance
+component *resolvable rather than claimed*, which is exactly the mainnet item-8 fix. It does
+not make the other three components exist.
+
+### Conclusion
+
+Authority is an **addition**, not a substitution. The natural ordering is a progression, and
+the count follows from it rather than being chosen:
+
+```
+memory      → continuity   (is there a subject?)
+ownership   → capability   (can it act, and lose?)
+authority   → permission   (may it act, for whom?)
+reputation  → performance  (how has it acted?)
+```
+
+Four, not three — and that is fine, because the count was never the criterion. The partition
+is still exact: memory ⊨ ②, ownership ⊨ ①+④, reputation ⊨ ③+⑤, authority ⊨ the new clause,
+⑥ remains a property of the medium.
+
 ## Summary of what adopting all three costs
 
 | | Thesis change | New mechanism | Reuses | Blocks/unblocks |
