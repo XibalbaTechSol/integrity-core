@@ -117,7 +117,7 @@ definition of an Economic Sovereign, which is the closure condition:
 | ④ holds material value at risk | Agent-Owned Contracts (stake) |
 | ⑤ produces checkable evidence | Reputation (after-acting) |
 | ⑥ cannot rewrite after finality | *medium property* (§3.1), not a primitive |
-| + acts under delegated authority | Authority *(clause to be added in v0.4)* |
+| ⑦ acts under delegated authority | Authority *(added in v0.4 §1)* |
 
 **Cryptographic self-sovereignty is not on this list**, and its absence is deliberate. Keys
 are the substrate all four are *expressed in* — memory roots are anchored by a
@@ -143,7 +143,7 @@ abandoned but not ended.
 
 ## Status of this page
 
-The four-primitive framing is **adopted in this repository's documentation** and requires a
-**spec v0.4** to become normative — spec v0.3 §4 still lists six. Where the two disagree, the
-spec is authoritative until revised; this page records the reasoning the revision should
-carry.
+The four-primitive framing is **normative as of spec v0.4**
+([`spec/integrity-protocol-v0.4.md`](../../../spec/integrity-protocol-v0.4.md) §4), which
+supersedes the v0.3 PDF's six-item list. This page is the wiki-side statement of it; the spec
+is authoritative and the derivation lives in `docs/design/`.

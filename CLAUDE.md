@@ -130,8 +130,8 @@ instrument — and generalizing it is what closes the client-supplied `covered_e
 hole. Termination (how an agent's standing ends) is formalized but deliberately unadopted: it
 needs registry mutability, the same question the upgradeability decision faces.
 
-See `docs/wiki/concepts/foundational-primitives.md` and `docs/design/primitive-set-coherence.md`
-for the derivation. Spec v0.3 still lists six; a v0.4 is required to make four normative.
+Normative in `spec/integrity-protocol-v0.4.md` §4 (supersedes the v0.3 PDF). Wiki statement:
+`docs/wiki/concepts/foundational-primitives.md`; derivation: `docs/design/primitive-set-coherence.md`.
 
 ### Persistent memory (primitive #1) — it gates registration
 

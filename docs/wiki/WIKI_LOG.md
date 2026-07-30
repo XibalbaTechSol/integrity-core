@@ -2696,3 +2696,23 @@ writeup: PRODUCTION_GAPS.md §18.
   upgradeability decision) and counterparty symmetry (a generalization of BCC's
   `covered_entity_address`, not a new primitive). Spec v0.3 §4 still lists six; **v0.4 is
   required** to make four normative, and the spec remains authoritative until then.
+
+## [2026-07-30] normative | Specification v0.4 authored in-repo
+
+- **`spec/integrity-protocol-v0.4.md`** supersedes `Integrity_Protocol_Specification_v0.3.pdf`.
+  Authored in markdown, in-repo, under version control — deliberately: a spec that cannot be
+  diffed, reviewed in a PR, or kept in step with the code by any mechanism other than someone
+  remembering is a coherence problem in a protocol whose premise is independently checkable
+  state.
+- **§1 gains thesis clause ⑦** (delegated authority) — the hole the coherence audit found.
+  **§4 becomes four primitives.** **§3.4** takes cryptographic self-sovereignty as a medium
+  property. **§7.6** rules termination explicitly out of scope rather than leaving silence to
+  imply it. **§12** is a new normative surface for authority. **§17** corrects
+  `integrity-mvp/` → `integrity-dashboard/`.
+- Also folds in what was built and verified since v0.3: token-accounting precedence (§8.4),
+  signed-envelope versioning (§9.5), PHI backstop modes (§9.6), and explicit evidence tiers
+  for the two telemetry paths (§10).
+- **Appendix A re-ranked** — ZK-boost binding rises to #1, because with reputation foundational
+  a period-wide `BOOL_OR` is a defect in a primitive rather than a scoring detail.
+- §19 records every change from v0.3 with its reason, so the delta is reviewable rather than
+  requiring a diff against a PDF.
