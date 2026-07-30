@@ -338,6 +338,41 @@ def genesis_vault_root() -> bytes:
     return keccak(text=GENESIS_VAULT_SEED)
 
 
+def anchor_vault_root(
+    w3: Web3,
+    agent: LocalAccount,
+    sovereign_agent_address: str,
+    state_anchor_address: str,
+    chain_id: int,
+    root: bytes,
+) -> str:
+    """
+    Anchors an arbitrary Trust Vault root, routed through `SovereignAgent.execute`.
+
+    The general form of `anchor_genesis_root` below: same call path and same reason for it
+    (StateAnchor's admin is the SovereignAgent contract, so a raw EOA calling `anchorRoot`
+    reverts), but for the per-session roots that follow genesis. See `integrity_sdk.vault`
+    for how those roots are computed.
+    """
+    state_anchor = _contract(w3, "StateAnchor", address=state_anchor_address)
+    anchor_calldata = state_anchor.functions.anchorRoot(root).build_transaction({"gas": 0})["data"]
+
+    sovereign_agent = _contract(w3, "SovereignAgent", address=sovereign_agent_address)
+    tx = sovereign_agent.functions.execute(
+        Web3.to_checksum_address(state_anchor_address), 0, anchor_calldata
+    ).build_transaction(
+        {
+            "from": agent.address,
+            "nonce": w3.eth.get_transaction_count(agent.address),
+            "chainId": chain_id,
+        }
+    )
+    signed = agent.sign_transaction(tx)
+    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+    _wait(w3, tx_hash, action="anchor_vault_root")
+    return tx_hash.hex()
+
+
 def anchor_genesis_root(
     w3: Web3,
     agent: LocalAccount,
@@ -360,24 +395,9 @@ def anchor_genesis_root(
     Defaults to the empty-vault sentinel; pass `root` to anchor a real vault root when the
     agent already has entries at birth.
     """
-    root = root or genesis_vault_root()
-    state_anchor = _contract(w3, "StateAnchor", address=state_anchor_address)
-    anchor_calldata = state_anchor.functions.anchorRoot(root).build_transaction({"gas": 0})["data"]
-
-    sovereign_agent = _contract(w3, "SovereignAgent", address=sovereign_agent_address)
-    tx = sovereign_agent.functions.execute(
-        Web3.to_checksum_address(state_anchor_address), 0, anchor_calldata
-    ).build_transaction(
-        {
-            "from": agent.address,
-            "nonce": w3.eth.get_transaction_count(agent.address),
-            "chainId": chain_id,
-        }
+    return anchor_vault_root(
+        w3, agent, sovereign_agent_address, state_anchor_address, chain_id, root or genesis_vault_root()
     )
-    signed = agent.sign_transaction(tx)
-    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-    _wait(w3, tx_hash, action="anchor_genesis_root")
-    return tx_hash.hex()
 
 
 @dataclass
