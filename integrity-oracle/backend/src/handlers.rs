@@ -493,9 +493,10 @@ pub(crate) async fn compute_ais_for_agent(state: &AppState, id: &str) -> Result<
         penalty_ratio: aggregate.penalty_ratio,
         zk_verified_this_period: aggregate.zk_verified_this_period,
     };
+    let agent = db::get_agent(&state.pool, id).await?.ok_or_else(|| AppError::AgentNotFound(id.to_string()))?;
 
     let engine = scoring_core::AisEngine::new(state.config.ais_weights).map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
-    let breakdown = engine.score(&inputs);
+    let breakdown = engine.score_with_tier(&inputs, agent.verification_tier);
 
     let onchain_zk_boost_consistent = match db::get_agent_primitives(&state.pool, id).await? {
         Some(row) => {
@@ -2514,9 +2515,8 @@ pub async fn get_ais_history(
     Path(id): Path<String>,
     Query(query): Query<HistoryQuery>,
 ) -> Result<Json<Vec<AisHistoryPoint>>, AppError> {
-    if db::get_agent(&state.pool, &id).await?.is_none() {
-        return Err(AppError::AgentNotFound(id));
-    }
+    let agent = db::get_agent(&state.pool, &id).await?.ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+    let tier = agent.verification_tier;
 
     let bucket = parse_bucket_interval(query.bucket.as_deref())?;
     let since = query.since.unwrap_or_else(default_history_since);
@@ -2534,7 +2534,7 @@ pub async fn get_ais_history(
                 penalty_ratio: b.penalty_ratio,
                 zk_verified_this_period: b.zk_verified_this_period,
             };
-            let breakdown = engine.score(&inputs);
+            let breakdown = engine.score_with_tier(&inputs, tier);
             AisHistoryPoint {
                 bucket_start: b.bucket_start,
                 ais: breakdown.ais,

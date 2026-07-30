@@ -2747,3 +2747,9 @@ writeup: PRODUCTION_GAPS.md §18.
 - **Graph Imagery & Asset Bundling**: Moved graph visual assets (`fidelity_graph.jpg`, `entropy_graph.jpg`, `solvency_graph.jpg`) to `src/assets/` and imported them in React to guarantee native Vite bundling.
 - **Layout & Sequence Refactor**: Resolved timeline dot alignment in `RoadmapSection`, removed duplicate footers in `EcosystemFeatures.tsx`, and upgraded `ContactFormSection` with glassmorphic cards and gold gradient CTA button (`var(--gold)`).
 - **Playwright Visual Verification**: Captured and verified full-page Playwright visual audit screenshots (`e2e/visual_audit.spec.ts`), confirming zero layout breaks or raw unrendered text. 68/68 unit/component tests green (`npm test`).
+
+## [2026-07-30] Verification Ladder | Identity Ceiling enforcement in scoring-core & oracle backend
+
+- **Verification Tier Score Ceilings**: Extended `scoring-core::AisEngine` with `ceiling_for_tier` and `score_with_tier`, capping AIS scores based on identity verification strength: Tier 0 (Dev API Key) $\rightarrow$ 300, Tier 1 (Sovereign Software Key) $\rightarrow$ 600, Tier 2 (Linked Attestation) $\rightarrow$ 850, Tier 3 (Institutional TEE/Audit) $\rightarrow$ 1000.
+- **Oracle Backend Enforcement**: Updated `handlers::compute_ais_for_agent` and `handlers::get_agent_ais_history` in `integrity-oracle` to look up `agent.verification_tier` and pass it to `score_with_tier`.
+- **Test Suite**: Added `verification_ladder_tier_ceilings_enforced` test to `scoring-core`. All 100 lib/e2e tests in `integrity-oracle` passing (`cargo test --workspace`).
