@@ -29,8 +29,11 @@ def sync_transcript():
         auto_flush=False,
     )
 
-    # 3. Read transcript
-    transcript_path = Path("/home/xibalba/.gemini/antigravity-cli/brain/e59ab782-fbaa-4c3f-b42a-4fa81552eecd/.system_generated/logs/transcript.jsonl")
+    import sys
+    if len(sys.argv) > 1:
+        transcript_path = Path(sys.argv[1])
+    else:
+        transcript_path = Path("/home/xibalba/.gemini/antigravity-cli/brain/e59ab782-fbaa-4c3f-b42a-4fa81552eecd/.system_generated/logs/transcript.jsonl")
     
     print(f"Reading transcript: {transcript_path}")
     

@@ -2,7 +2,7 @@
 
 > Content catalog. Every page represents something that actually exists in
 > the codebase right now — see the schema's "no aspirational content" rule.
-> Last updated: 2026-07-29 | Total pages: 28 (20 concepts, 8 entities)
+> Last updated: 2026-07-30 | Total pages: 29 (20 concepts, 8 entities)
 
 ## Acronym glossary
 - [AIS](concepts/ais.md) — Agent Integrity Score
@@ -58,3 +58,5 @@ prove insufficient)*
   the `judge_evaluations` ingestion schema is designed but the actual
   scoring rubric is an open product question, not an engineering one. See
   [Observability & PHI Safety](concepts/observability-vtl.md).
+
+- [Gas Tracking](queries/gas-tracking.md) — Automated SDK gas optimization loop

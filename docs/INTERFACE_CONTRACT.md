@@ -192,7 +192,7 @@ see `PRODUCTION_GAPS.md` for that gap if it ever needs to.)
 
 ### 4.3 Agent Integrity Score (AIS)
 Formula (from the product spec, keep as-is):
-`AIS = (S_entropy*wE + S_grounding*wG + S_sacrifice*wS + S_compliance*wC) * ZK_boost`
+`AIS = (S_entropy^wE * S_grounding^wG * S_sacrifice^wS * S_compliance^wC) * ZK_boost`
 
 Default weights (must sum to 1.0, make them configurable but ship this default):
 `wE = 0.30, wG = 0.30, wS = 0.20, wC = 0.20`. `ZK_boost` is `1.15` when a real

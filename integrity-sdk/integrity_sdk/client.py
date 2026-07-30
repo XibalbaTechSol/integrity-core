@@ -31,6 +31,7 @@ import requests
 
 from . import bcc
 from .batcher import TelemetryBatcher
+from .collection import CollectionConfig
 from .did import Keypair
 from .telemetry import core as telemetry_core, derive, intent as intent_module, metrics as metrics_module, tracing
 
@@ -73,6 +74,7 @@ class IntegrityClient:
         flush_interval_sec: float = 5.0,
         max_queue_size: int = 10_000,
         background_flush: bool = True,
+        collection: Optional[CollectionConfig] = None,
         keypair: Optional[Keypair] = None,
         bcc_nonce_store: Optional[Any] = None,
         otlp_endpoint: Optional[str] = None,
@@ -115,6 +117,10 @@ class IntegrityClient:
         if enable_otel_export:
             endpoint = otlp_endpoint or f"{urlparse(self.oracle_url).hostname or 'localhost'}:4317"
             telemetry_core.init_telemetry(agent_id=agent_id, endpoint=endpoint)
+        # Resolved from INTEGRITY_COLLECTION_PROFILE unless passed explicitly. Governs the
+        # content layer only (L3) — structural fields the protocol scores on are always
+        # collected, so narrowing the profile never silently weakens a score.
+        self._collection = collection or CollectionConfig.from_env()
         self._batcher = TelemetryBatcher(
             batch_size_limit=batch_size_limit,
             flush_interval_sec=flush_interval_sec,
@@ -228,7 +234,10 @@ class IntegrityClient:
         etc — see integrations/); `entropy`/`grounding` are optional
         pre-computed signals an integration may supply if it already had the
         completion text at hand (see derive.py's `_entry_entropy`)."""
-        entry: Dict[str, Any] = {"metadata": metadata}
+        # Applied here rather than at flush time: content the profile withholds must never
+        # enter the queue at all, or a crash between log and flush could still leak it from
+        # memory, and a queue dump would contain what the operator said not to collect.
+        entry: Dict[str, Any] = {"metadata": self._collection.apply(metadata)}
         if entropy is not None:
             entry["entropy"] = entropy
         if grounding is not None:
@@ -445,7 +454,9 @@ class IntegrityClient:
             "zk_proof": zk_proof,
         }
         if self._keypair is not None:
-            signature = "0x" + self._keypair.sign(bcc.canonical_json_bytes(signable)).hex()
+            c_bytes = bcc.canonical_json_bytes(signable)
+            print("CLIENT SIGNABLE BYTES:", c_bytes.decode('utf-8'))
+            signature = "0x" + self._keypair.sign(c_bytes).hex()
         else:
             signature = ""  # deserializes fine; the oracle will 401 it (see docstring point 2)
 

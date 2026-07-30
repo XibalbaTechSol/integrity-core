@@ -50,6 +50,14 @@ class IntegrityAttributes:
     COMPLIANCE_API_DOMAIN_PREFIX = "integrity.compliance.api_domain_prefix"
     COMPLIANCE_EKM_PROVIDER = "integrity.compliance.ekm_provider"
 
+class EconomicAttributes:
+    BCC_INTENT_HASH = "bcc.intent_hash"
+    BCC_RESOLUTION_STATUS = "bcc.resolution_status"
+    MARKETS_TRADE_YIELD = "markets.trade_yield"
+    ITK_BALANCE_DELTA = "itk.balance_delta"
+    SYNERGY_DELEGATION_TARGET = "synergy.delegation_target"
+    SYNERGY_DELEGATION_SUCCESS = "synergy.delegation_success"
+
 
 def get_gen_ai_span_name(system: str, model: str) -> str:
     return f"{system} {model} inference"

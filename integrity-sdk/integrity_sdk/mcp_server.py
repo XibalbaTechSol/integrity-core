@@ -137,6 +137,7 @@ def build_server(agent_id: str, oracle_url: str) -> Any:
 
     from .client import IntegrityClient
     from .did import Keypair
+    from .memory import TrustVault, JSONLBackend
 
     # Resolve canonical DID from stored document if available.
     doc = _load_doc_for(agent_id)
@@ -285,6 +286,36 @@ def build_server(agent_id: str, oracle_url: str) -> Any:
                 },
             },
         ),
+        types.Tool(
+            name="integrity_commit_memory",
+            description=(
+                "Commit a summary of facts to the agent's Trust Vault and anchor the state root. "
+                "Uses the configured memory backend (default: JSONL)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "facts": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "role": {"type": "string"},
+                                "content": {"type": "string"}
+                            },
+                            "required": ["role", "content"]
+                        },
+                        "description": "List of facts or observations from the session"
+                    },
+                    "platform": {
+                        "type": "string",
+                        "description": "The platform the session took place on (e.g. hermes)",
+                        "default": "mcp-session"
+                    }
+                },
+                "required": ["facts"]
+            }
+        ),
     ]
 
     # ------------------------------------------------------------------ #
@@ -402,6 +433,30 @@ def build_server(agent_id: str, oracle_url: str) -> Any:
                     )
             except Exception as exc:
                 return types.CallToolResult(content=_text({"status": "error", "error": str(exc)}))
+
+        # ---- integrity_commit_memory ---------------------------------- #
+        elif name == "integrity_commit_memory":
+            facts = arguments.get("facts", [])
+            platform = arguments.get("platform", "mcp-session")
+            
+            # Simple assumption that the vault lives in the agent's identity directory
+            bare = canonical_did.replace("did:integrity:", "")
+            vault_path = Path.home() / ".integrity-cli" / "identity" / bare / "memory_log.jsonl"
+            backend = JSONLBackend(vault_path)
+            vault = TrustVault(agent_did=canonical_did, backend=backend)
+            
+            try:
+                with vault.session(platform=platform) as session:
+                    for fact in facts:
+                        session.add_fact(fact["role"], fact["content"])
+                
+                return types.CallToolResult(
+                    content=_text({"status": "success", "message": f"Successfully committed {len(facts)} facts to the Trust Vault. State anchored."})
+                )
+            except Exception as exc:
+                return types.CallToolResult(
+                    content=_text({"status": "error", "error": str(exc)})
+                )
 
         else:
             return types.CallToolResult(

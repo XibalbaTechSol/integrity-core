@@ -2592,3 +2592,17 @@ writeup: PRODUCTION_GAPS.md §18.
 - Open before implementation: emergency-response path (timelock protects agents but delays
   exploit response), ITK supply policy, and whether `pin` accepts any address or only
   beacon-published implementations.
+
+## [2026-07-30] update | oracle float re-serialization fix
+- Fixed the Python-to-Rust float signature mismatch by parsing the payload raw JSON, removing signature, and signing the raw stringified values without rebuilding objects, and by enabling arbitrary_precision in serde_json.
+- Verified that dynamic telemetry from the current session successfully ingests without failing eip191 signature checks.
+
+## [2026-07-30] update | AIS geometric volume model
+- Refactored the core AIS calculation in integrity-oracle/scoring-core/src/lib.rs to use a Weighted Geometric Mean (Volume) model rather than an arithmetic sum, addressing critical vulnerability where high scores in one dimension could hide catastrophic failures (e.g. non-compliance) in another.
+- Updated concepts/ais.md and INTERFACE_CONTRACT.md to reflect the new mathematical model.
+
+## [2026-07-30] update | SDK Telemetry for Geometric AIS
+- Added `EconomicAttributes` (BCC, Markets, Synergy) to `telemetry/conventions.py`.
+- Refactored `markets.py` to trace `claim_payout` and tag with `markets.trade_yield` and `itk.balance_delta`.
+- Refactored `bcc.py` with `submit_commitment` to emit `integrity.bcc.intercept` spans, logging `bcc.resolution_status`.
+- All changes passed the local `integrity-sdk` test suite.

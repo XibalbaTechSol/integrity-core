@@ -87,10 +87,34 @@ def load_deployments(path: str) -> dict:
     return json.loads(p.read_text())
 
 
+import json
+from datetime import datetime
+
 def _wait(w3: Web3, tx_hash: bytes, *, action: str):
     receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
     if receipt.status != 1:
         raise RuntimeError(f"{action} transaction reverted (tx {tx_hash.hex()})")
+    
+    # Collect valuable gas data
+    try:
+        gas_used = receipt.gasUsed
+        gas_price = receipt.effectiveGasPrice
+        cost_wei = gas_used * gas_price
+        
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "action": action,
+            "tx_hash": tx_hash.hex(),
+            "gas_used": gas_used,
+            "gas_price": gas_price,
+            "cost_wei": cost_wei,
+            "status": "success"
+        }
+        with open("gas_usage.jsonl", "a") as f:
+            f.write(json.dumps(log_entry) + "\n")
+    except Exception as e:
+        print(f"Warning: failed to log gas usage: {e}")
+        
     return receipt
 
 

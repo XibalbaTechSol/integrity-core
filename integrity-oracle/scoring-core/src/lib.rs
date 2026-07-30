@@ -211,10 +211,11 @@ impl AisEngine {
             NO_ZK_BOOST_FACTOR
         };
 
-        let weighted = s_entropy * self.weights.w_entropy
-            + s_grounding * self.weights.w_grounding
-            + s_sacrifice * self.weights.w_sacrifice
-            + s_compliance * self.weights.w_compliance;
+        // Use the Weighted Geometric Mean (Volume formula) instead of Arithmetic Mean
+        let weighted = s_entropy.powf(self.weights.w_entropy)
+            * s_grounding.powf(self.weights.w_grounding)
+            * s_sacrifice.powf(self.weights.w_sacrifice)
+            * s_compliance.powf(self.weights.w_compliance);
 
         AisBreakdown {
             s_entropy,

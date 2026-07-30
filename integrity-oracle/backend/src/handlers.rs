@@ -726,8 +726,13 @@ async fn oracle_compliance(state: &AppState, req: &TelemetryIngestRequest) -> f6
 )]
 pub async fn ingest_telemetry(
     State(state): State<AppState>,
-    Json(req): Json<TelemetryIngestRequest>,
+    body: axum::body::Bytes,
 ) -> Result<Json<TelemetryIngestResponse>, AppError> {
+    let mut payload_value: serde_json::Value = serde_json::from_slice(&body)
+        .map_err(|e| AppError::BadRequest(format!("invalid JSON body: {}", e)))?;
+
+    let req: TelemetryIngestRequest = serde_json::from_value(payload_value.clone())
+        .map_err(|e| AppError::BadRequest(format!("malformed telemetry request: {}", e)))?;
     // Reject an envelope version this build cannot interpret, rather than parsing it under
     // the wrong rules and storing a misread payload as signed evidence. Runs before anything
     // else: if the shape is unknown, no other check on it means anything.
@@ -771,25 +776,15 @@ pub async fn ingest_telemetry(
 
     check_telemetry_rate_limit(&state, &req.agent_id).await?;
 
-    // Rebuild exactly the JSON object the client should have signed: every field of the
-    // request except `signature` itself. Re-serializing the typed struct with a
-    // `#[serde(skip_serializing)]`-free copy keeps this in one place rather than hand-
-    // building a parallel `serde_json::Map`.
-    let mut signable = serde_json::json!({
-        "agent_id": req.agent_id,
-        "nonce": req.nonce,
-        "otel_spans": req.otel_spans,
-        "derived_signals": req.derived_signals,
-        "zk_proof": req.zk_proof,
-    });
-    // Insert the key ONLY when the request carried it. `canonical_json_bytes` sorts keys, so
-    // position is irrelevant — presence is not: a pre-versioning client signed an object with
-    // no `schema_version` member at all, and adding one (even as `null`) would change the
-    // canonical bytes and reject its still-valid signature.
-    if let Some(version) = req.schema_version {
-        signable["schema_version"] = serde_json::json!(version);
+    // We verify the signature against the exact JSON structure sent by the client.
+    // Instead of rebuilding the signable object from the typed struct (which re-serializes
+    // floats and can subtly change byte representation), we simply remove the `signature`
+    // (and optional `judge_evaluation`) from the raw parsed JSON value.
+    if let serde_json::Value::Object(ref mut map) = payload_value {
+        map.remove("signature");
+        map.remove("judge_evaluation");
     }
-    let message = crypto::canonical_json_bytes(&signable);
+    let message = crypto::canonical_json_bytes(&payload_value);
 
     // `ed25519_pubkey` is stored as raw bytes (BYTEA), but the verification method needs a
     // hex string — hex-encode once here rather than changing the crypto module's signature

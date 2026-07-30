@@ -169,3 +169,34 @@ def verify_bcc_commitment(commitment: Dict[str, Any], pubkey_bytes: bytes) -> bo
 
     unsigned = {k: v for k, v in commitment.items() if k != "signature"}
     return verify_signature(pubkey_bytes, canonical_json_bytes(unsigned), signature_bytes)
+
+def submit_commitment(commitment: Dict[str, Any], bcc_middleware_url: str) -> Dict[str, Any]:
+    """
+    Submits a signed BCC commitment to bcc_middleware's pre-execution gate and
+    auto-tags the operation with OTel spans for the Fidelity vector (BCC resolution status).
+    """
+    import requests
+    from .telemetry.core import get_tracer
+    from .telemetry.conventions import EconomicAttributes
+
+    tracer = get_tracer("integrity_sdk.bcc")
+    with tracer.start_as_current_span("integrity.bcc.intercept") as span:
+        intent_hash = commitment.get("intended_state_hash", "")
+        if intent_hash:
+            span.set_attribute(EconomicAttributes.BCC_INTENT_HASH, intent_hash)
+            
+        try:
+            resp = requests.post(f"{bcc_middleware_url}/v1/bcc/intercept", json=commitment, timeout=10)
+            resp.raise_for_status()
+            result = resp.json()
+            
+            authorized = result.get("authorized", False)
+            status = "authorized" if authorized else "denied"
+            span.set_attribute(EconomicAttributes.BCC_RESOLUTION_STATUS, status)
+            if not authorized:
+                span.set_attribute("integrity.bcc.denial_reason", result.get("reason", "unknown"))
+            return result
+        except Exception as e:
+            span.set_attribute(EconomicAttributes.BCC_RESOLUTION_STATUS, "error")
+            span.record_exception(e)
+            raise

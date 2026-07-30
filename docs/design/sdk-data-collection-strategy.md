@@ -243,14 +243,32 @@ present; the gap is completeness and consistent nesting, not the approach.
 ### L3 — Content (default on in development, redacted, sampled, kill-switched)
 Prompts, completions, tool arguments and results, retrieved documents, system prompts.
 
-**Redaction must be default-on with explicit opt-out — the inverse of today's opt-in
-`redact_phi`.** The Shield vertical means content capture can touch PHI, and a
-development-time default that quietly persists into a regulated deployment is precisely the
-failure this repo's "no silent mocks" rule exists to prevent. Collect generously *and*
-redact by default; those are not in tension.
+**BUILT 2026-07-29 — `integrity_sdk/collection.py`.**
 
-Also needs: per-field size caps, sampling rate, and a single kill switch that disables the
-whole layer without touching L0–L2.
+**Redaction is OFF by default. Operator decision (2026-07-29), overriding this document's
+earlier recommendation.** An earlier draft argued for redaction-default-on; the operator
+chose otherwise for development velocity, and that is recorded here rather than quietly
+reverted, so the default is a decision on the record instead of an accident.
+
+What that means concretely: `development` and `standard` capture content as-is. Only
+`regulated` turns redaction on — and it disables content capture outright, because for a
+deployment that has declared its data regulated the safe setting is not collecting rather than
+redacting. Redaction stays on there for anything that slips past the capture gate.
+
+Implemented alongside it: per-field size caps, per-entry sampling (all-or-nothing, since a
+half-captured call is harder to reason about than a skipped one), and withheld content
+leaving a visible marker rather than vanishing — a missing field and a deliberately-withheld
+field must be distinguishable when reading an audit trail later.
+
+The policy is applied at **capture**, not at flush: content the profile withholds never enters
+the queue, so a crash between log and flush cannot expose it from memory and a queue dump
+cannot contain what the operator said not to collect.
+
+**Open, and it blocks end-to-end content capture:** `integrity-oracle` runs its own PHI
+backstop and **rejects** any payload tripping it (`AppError::PhiDetected` → 400,
+`handlers.rs:765`). Capturing unredacted content in the SDK does not make the oracle accept
+it. Making development capture work end-to-end requires a decision about that backstop —
+see the note at the end of this document.
 
 ### L4 — Behavioral signals
 The four AIS inputs, plus the raw evidence each was derived from, so the oracle's
@@ -273,9 +291,18 @@ connects directly to the memory primitive), errors, interrupts, and human interv
 INTEGRITY_COLLECTION_PROFILE = development | standard | regulated
 ```
 
-- `development` — L0–L6 on, content redacted, generous sampling, large caps.
-- `standard` — L0–L2, L4–L6 on; L3 sampled at a low rate.
-- `regulated` — L0–L2, L4–L6 on; L3 **off**; redaction non-negotiable.
+| profile | content | redaction | sample rate | cap |
+|---|---|---|---|---|
+| `development` (default) | captured | **off** | 1.0 | 16,384 chars |
+| `standard` | captured | **off** | 0.1 | 4,096 chars |
+| `regulated` | **not collected** | on | 0.0 | — |
+
+Per-axis overrides (`INTEGRITY_CAPTURE_CONTENT`, `INTEGRITY_REDACT_CONTENT`,
+`INTEGRITY_CONTENT_SAMPLE_RATE`, `INTEGRITY_MAX_CONTENT_CHARS`) let a deployment deviate on
+one dimension without inventing a profile. An unknown profile name falls back to
+`development` with a warning rather than raising — a typo in an env var should not take an
+agent down, and falling back to the profile that collects *most* makes the failure mode noisy
+data rather than silent loss.
 
 Plus, at every layer: cardinality caps on tag keys, byte caps per field and per payload,
 and a documented default. Restricting later is then a profile change, not a migration.
@@ -397,3 +424,27 @@ The vendor lever changes the sequencing: **oracle metrics + logs receivers** now
 hand-written Anthropic integration, because they capture the flagship agent's full token,
 cost, and tool-decision data for less work — and unlock every other OTel-emitting tool at
 the same time.
+
+
+---
+
+## Open decision — the oracle's PHI backstop
+
+The collection profiles govern what the **SDK** sends. They do not govern what the **oracle**
+accepts, and today the oracle rejects any payload whose content trips its PHI scanner
+(`AppError::PhiDetected` → 400, `handlers.rs:765`; the OTLP receivers do the same).
+
+So with redaction off by default, development content capture will hit that backstop and the
+payload will be refused — the SDK side alone does not deliver end-to-end content collection.
+Three options, none of which should be chosen silently:
+
+1. **Leave it rejecting (current).** Safest. Content capture then only works for content that
+   happens not to match a PHI pattern, which is not a useful guarantee.
+2. **Add a mode — `reject | flag | off` — defaulting to `reject`.** A development deployment
+   sets `flag`, which stores the payload *and* marks it as containing suspected PHI, so the
+   data is usable and the risk stays visible. Production keeps `reject`.
+3. **Disable it.** Fastest, and removes a HIPAA-relevant control from every deployment
+   including Shield.
+
+Recommendation: option 2. It gives development the data without removing the control or
+losing the signal that the data is sensitive.
