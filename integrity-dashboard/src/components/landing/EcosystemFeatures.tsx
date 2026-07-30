@@ -294,29 +294,57 @@ export const RoadmapSection = () => {
                         ].map((phase, i) => (
                             <div key={i} style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 80px 1fr', gap: '24px', alignItems: 'center' }}>
                                 {!isMobile && phase.side === 'right' && <div />}
+                                
+                                {phase.side === 'left' && (
+                                    <motion.div whileHover={{ scale: 1.02 }} style={{ padding: isMobile ? '28px' : '36px', background: 'rgba(255,255,255,0.02)', borderRadius: '24px', border: '1px solid rgba(255,255,255,0.06)', borderTop: `3px solid ${phase.statusColor}`, textAlign: 'left' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+                                            <div>
+                                                <div style={{ fontSize: '0.65rem', color: phase.statusColor, fontWeight: 900, letterSpacing: '0.2em', marginBottom: '4px' }}>{phase.phase}</div>
+                                                <div style={{ fontSize: '1.2rem', fontWeight: 800 }}>{phase.name}</div>
+                                            </div>
+                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
+                                                <span style={{ fontSize: '0.55rem', fontWeight: 900, color: phase.statusColor, background: `${phase.statusColor}18`, padding: '4px 10px', borderRadius: '6px', letterSpacing: '0.1em' }}>{phase.status}</span>
+                                                <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)', fontWeight: 700 }}>{phase.timeline}</span>
+                                            </div>
+                                        </div>
+                                        <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                            {phase.items.map((item, j) => (
+                                                <li key={j} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', fontSize: '0.85rem', color: 'rgba(255,255,255,0.5)', lineHeight: 1.5 }}>
+                                                    <CheckCircle2 size={14} style={{ color: phase.statusColor, flexShrink: 0, marginTop: '2px' }} />
+                                                    {item}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </motion.div>
+                                )}
+
                                 <div style={{ display: isMobile ? 'none' : 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '8px', position: 'relative', zIndex: 1 }}>
                                     <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: phase.statusColor === '#10b981' ? 'rgba(16,185,129,0.15)' : phase.statusColor === '#60a5fa' ? 'rgba(96,165,250,0.1)' : 'rgba(212,175,55,0.1)', border: `2px solid ${phase.statusColor}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 900, color: phase.statusColor }}>{i + 1}</div>
                                 </div>
-                                <motion.div whileHover={{ scale: 1.02 }} style={{ padding: isMobile ? '28px' : '36px', background: 'rgba(255,255,255,0.02)', borderRadius: '24px', border: '1px solid rgba(255,255,255,0.06)', borderTop: `3px solid ${phase.statusColor}`, textAlign: 'left', order: isMobile ? 0 : (phase.side === 'right' ? 0 : 2) }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
-                                        <div>
-                                            <div style={{ fontSize: '0.65rem', color: phase.statusColor, fontWeight: 900, letterSpacing: '0.2em', marginBottom: '4px' }}>{phase.phase}</div>
-                                            <div style={{ fontSize: '1.2rem', fontWeight: 800 }}>{phase.name}</div>
+
+                                {phase.side === 'right' && (
+                                    <motion.div whileHover={{ scale: 1.02 }} style={{ padding: isMobile ? '28px' : '36px', background: 'rgba(255,255,255,0.02)', borderRadius: '24px', border: '1px solid rgba(255,255,255,0.06)', borderTop: `3px solid ${phase.statusColor}`, textAlign: 'left' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+                                            <div>
+                                                <div style={{ fontSize: '0.65rem', color: phase.statusColor, fontWeight: 900, letterSpacing: '0.2em', marginBottom: '4px' }}>{phase.phase}</div>
+                                                <div style={{ fontSize: '1.2rem', fontWeight: 800 }}>{phase.name}</div>
+                                            </div>
+                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
+                                                <span style={{ fontSize: '0.55rem', fontWeight: 900, color: phase.statusColor, background: `${phase.statusColor}18`, padding: '4px 10px', borderRadius: '6px', letterSpacing: '0.1em' }}>{phase.status}</span>
+                                                <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)', fontWeight: 700 }}>{phase.timeline}</span>
+                                            </div>
                                         </div>
-                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
-                                            <span style={{ fontSize: '0.55rem', fontWeight: 900, color: phase.statusColor, background: `${phase.statusColor}18`, padding: '4px 10px', borderRadius: '6px', letterSpacing: '0.1em' }}>{phase.status}</span>
-                                            <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)', fontWeight: 700 }}>{phase.timeline}</span>
-                                        </div>
-                                    </div>
-                                    <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                        {phase.items.map((item, j) => (
-                                            <li key={j} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', fontSize: '0.85rem', color: 'rgba(255,255,255,0.5)', lineHeight: 1.5 }}>
-                                                <CheckCircle2 size={14} style={{ color: phase.statusColor, flexShrink: 0, marginTop: '2px' }} />
-                                                {item}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </motion.div>
+                                        <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                            {phase.items.map((item, j) => (
+                                                <li key={j} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', fontSize: '0.85rem', color: 'rgba(255,255,255,0.5)', lineHeight: 1.5 }}>
+                                                    <CheckCircle2 size={14} style={{ color: phase.statusColor, flexShrink: 0, marginTop: '2px' }} />
+                                                    {item}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </motion.div>
+                                )}
+
                                 {!isMobile && phase.side === 'left' && <div />}
                             </div>
                         ))}
@@ -393,7 +421,6 @@ export const FooterSection = ({ setIsContactOpen, setContactType }) => {
 export const EcosystemFeatures = ({ setIsContactOpen, setContactType }) => {
     return (
         <>
-            <SdkIntegrationSection />
             <TokenEconomySection />
             <DaoGovernanceSection />
             <CrossChainSection />

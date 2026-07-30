@@ -2740,3 +2740,10 @@ writeup: PRODUCTION_GAPS.md §18.
   `~/GEMINI.md`, and verified present in the injected session context rather than merely on
   disk.
 - Tests: contracts 200, sdk 207.
+
+## [2026-07-30] UI/UX Audit | KaTeX LaTeX math integration, UI layout fixes & Playwright visual audit
+
+- **Real KaTeX LaTeX Integration**: Replaced raw HTML/text formulas in `integrity-dashboard/src/components/landing/CoreFeatures.tsx` with `katex.renderToString` math typesetting for the geometric AIS formula, fidelity logistic growth curve, entropy decay curve, and solvency integral.
+- **Graph Imagery & Asset Bundling**: Moved graph visual assets (`fidelity_graph.jpg`, `entropy_graph.jpg`, `solvency_graph.jpg`) to `src/assets/` and imported them in React to guarantee native Vite bundling.
+- **Layout & Sequence Refactor**: Resolved timeline dot alignment in `RoadmapSection`, removed duplicate footers in `EcosystemFeatures.tsx`, and upgraded `ContactFormSection` with glassmorphic cards and gold gradient CTA button (`var(--gold)`).
+- **Playwright Visual Verification**: Captured and verified full-page Playwright visual audit screenshots (`e2e/visual_audit.spec.ts`), confirming zero layout breaks or raw unrendered text. 68/68 unit/component tests green (`npm test`).

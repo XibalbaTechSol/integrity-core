@@ -2,7 +2,17 @@ import React from 'react';
 import { Shield, Activity, Lock, Code, Zap, ShieldCheck, Cpu, Coins, Globe, ArrowRight, Eye } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
+import fidelityImg from '../../assets/fidelity_graph.jpg';
+import entropyImg from '../../assets/entropy_graph.jpg';
+import solvencyImg from '../../assets/solvency_graph.jpg';
 import { useIsMobile } from '../../utils/useIsMobile';
+
+const MathExpr = ({ math, displayMode = false }: { math: string, displayMode?: boolean }) => {
+    const html = katex.renderToString(math, { displayMode, throwOnError: false });
+    return <span dangerouslySetInnerHTML={{ __html: html }} />;
+};
 
 export const AgentPrimitivesSection = () => {
     const isMobile = useIsMobile();
@@ -18,27 +28,29 @@ export const AgentPrimitivesSection = () => {
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: isMobile ? '20px' : '32px' }}>
-                    <div style={{ padding: '40px', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '24px' }}>
-                        <div style={{ color: 'var(--gold)', marginBottom: '20px' }}><Shield size={32} /></div>
-                        <h4 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '16px', color: 'white' }}>1. Immutable Reputation</h4>
-                        <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.9rem', lineHeight: 1.6, margin: 0 }}>
+                    <motion.div whileHover={{ y: -8 }} style={{ padding: '40px', background: 'linear-gradient(145deg, rgba(212,175,55,0.04) 0%, rgba(15,23,42,0.6) 100%)', border: '1px solid rgba(212,175,55,0.2)', borderTop: '4px solid var(--gold)', borderRadius: '24px', boxShadow: '0 20px 40px rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)' }}>
+                        <div style={{ color: 'var(--gold)', marginBottom: '20px' }}><Shield size={36} /></div>
+                        <h4 style={{ fontSize: '1.3rem', fontWeight: 800, marginBottom: '16px', color: 'white' }}>1. Immutable Reputation</h4>
+                        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.95rem', lineHeight: 1.7, margin: 0 }}>
                             Real-time telemetry evaluates agent behavior to compute a globally accessible Agent Integrity Score (AIS). Base L2 smart contracts pre-verify this score before execution to ensure trustless accountability.
                         </p>
-                    </div>
-                    <div style={{ padding: '40px', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '24px' }}>
-                        <div style={{ color: '#60a5fa', marginBottom: '20px' }}><Code size={32} /></div>
-                        <h4 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '16px', color: 'white' }}>2. Agent-Owned Contracts</h4>
-                        <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.9rem', lineHeight: 1.6, margin: 0 }}>
+                    </motion.div>
+
+                    <motion.div whileHover={{ y: -8 }} style={{ padding: '40px', background: 'linear-gradient(145deg, rgba(96,165,250,0.04) 0%, rgba(15,23,42,0.6) 100%)', border: '1px solid rgba(96,165,250,0.2)', borderTop: '4px solid #60a5fa', borderRadius: '24px', boxShadow: '0 20px 40px rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)' }}>
+                        <div style={{ color: '#60a5fa', marginBottom: '20px' }}><Code size={36} /></div>
+                        <h4 style={{ fontSize: '1.3rem', fontWeight: 800, marginBottom: '16px', color: 'white' }}>2. Agent-Owned Contracts</h4>
+                        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.95rem', lineHeight: 1.7, margin: 0 }}>
                             Agents can programmatically deploy, fund, and manage their own smart contracts and SLAs (e.g. DeFi liquidity pools, task escrows) directly through the Sovereign Agent interface.
                         </p>
-                    </div>
-                    <div style={{ padding: '40px', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '24px' }}>
-                        <div style={{ color: '#a78bfa', marginBottom: '20px' }}><Cpu size={32} /></div>
-                        <h4 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '16px', color: 'white' }}>3. Persistent Memory</h4>
-                        <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.9rem', lineHeight: 1.6, margin: 0 }}>
+                    </motion.div>
+
+                    <motion.div whileHover={{ y: -8 }} style={{ padding: '40px', background: 'linear-gradient(145deg, rgba(167,139,250,0.04) 0%, rgba(15,23,42,0.6) 100%)', border: '1px solid rgba(167,139,250,0.2)', borderTop: '4px solid #a78bfa', borderRadius: '24px', boxShadow: '0 20px 40px rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)' }}>
+                        <div style={{ color: '#a78bfa', marginBottom: '20px' }}><Cpu size={36} /></div>
+                        <h4 style={{ fontSize: '1.3rem', fontWeight: 800, marginBottom: '16px', color: 'white' }}>3. Persistent Memory</h4>
+                        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.95rem', lineHeight: 1.7, margin: 0 }}>
                             Agents anchor their local semantic memories (RAG vectors, graphs) cryptographically to the blockchain via a State Anchor, ensuring knowledge untamperability and context continuity across sessions.
                         </p>
-                    </div>
+                    </motion.div>
                 </div>
             </div>
         </section>
@@ -376,58 +388,64 @@ export const AisMathSection = () => {
                 {/* Main Geometric Math Formula */}
                 <div style={{ padding: '40px', background: 'rgba(255,255,255,0.02)', borderRadius: '24px', border: '1px solid rgba(212,175,55,0.15)', marginBottom: '40px', textAlign: 'center', boxShadow: '0 20px 50px rgba(0,0,0,0.5)' }}>
                     <h3 style={{ fontSize: '1.1rem', color: 'rgba(255,255,255,0.5)', fontWeight: 600, letterSpacing: '0.1em', marginBottom: '24px' }}>GEOMETRIC AGENT VOLUME</h3>
-                    <div style={{ fontFamily: '"Computer Modern", "Times New Roman", serif', fontSize: isMobile ? '1.8rem' : '2.5rem', color: 'var(--gold)', fontStyle: 'italic', padding: '24px', background: 'rgba(0,0,0,0.4)', borderRadius: '16px' }}>
-                        AIS = 1000 × (S<sub>f</sub>)<sup>0.4</sup> × (S<sub>e</sub>)<sup>0.3</sup> × (S<sub>c</sub>)<sup>0.3</sup>
+                    <div style={{ fontSize: isMobile ? '1.5rem' : '2.2rem', color: 'var(--gold)', padding: '24px', background: 'rgba(0,0,0,0.4)', borderRadius: '16px' }}>
+                        <MathExpr displayMode math="\text{AIS} = 1000 \times (S_f)^{0.4} \times (S_e)^{0.3} \times (S_c)^{0.3}" />
                     </div>
                     <p style={{ fontSize: '0.95rem', color: 'rgba(255,255,255,0.5)', marginTop: '24px', fontStyle: 'italic' }}>
-                        Where S<sub>f</sub> is Fidelity, S<sub>e</sub> is Entropy, and S<sub>c</sub> is Economic Solvency. Any score nearing 0 forces the entire AIS to approach 0.
+                        Where <MathExpr math="S_f" /> is Fidelity, <MathExpr math="S_e" /> is Entropy, and <MathExpr math="S_c" /> is Economic Solvency. Any score nearing 0 forces the entire AIS to approach 0.
                     </p>
                 </div>
 
                 {/* 3 Metric Columns with Math */}
-                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: '24px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: '28px' }}>
                     
                     {/* Fidelity */}
-                    <div style={{ background: 'rgba(255,255,255,0.01)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)', overflow: 'hidden' }}>
-                        <div style={{ width: '100%', height: '200px', backgroundImage: 'url(/fidelity_graph.jpg)', backgroundSize: 'cover', backgroundPosition: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)' }} />
-                        <div style={{ padding: '32px' }}>
-                            <h4 style={{ color: 'white', fontSize: '1.2rem', fontWeight: 700, marginBottom: '16px' }}>1. Fidelity (S<sub>f</sub>)</h4>
-                            <div style={{ fontFamily: '"Computer Modern", serif', fontSize: '1.2rem', color: '#10b981', marginBottom: '20px', padding: '16px', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', textAlign: 'center' }}>
-                                S<sub>f</sub>(x) = [1 + e<sup>-k(x - x₀)</sup>]<sup>-1</sup>
+                    <motion.div whileHover={{ y: -6 }} style={{ background: 'linear-gradient(180deg, rgba(16,185,129,0.03) 0%, rgba(15,23,42,0.8) 100%)', borderRadius: '20px', border: '1px solid rgba(16,185,129,0.2)', overflow: 'hidden', boxShadow: '0 20px 40px rgba(0,0,0,0.4)' }}>
+                        <div style={{ width: '100%', height: '230px', backgroundImage: `url(${fidelityImg})`, backgroundSize: 'cover', backgroundPosition: 'center', borderBottom: '1px solid rgba(16,185,129,0.15)', position: 'relative' }}>
+                            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(15,23,42,0.9), transparent 60%)' }} />
+                        </div>
+                        <div style={{ padding: '32px', position: 'relative', marginTop: '-20px' }}>
+                            <h4 style={{ color: 'white', fontSize: '1.25rem', fontWeight: 800, marginBottom: '16px' }}>1. Fidelity (<MathExpr math="S_f" />)</h4>
+                            <div style={{ fontSize: '1.25rem', color: '#10b981', marginBottom: '20px', padding: '16px', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: '12px', textAlign: 'center', boxShadow: '0 0 20px rgba(16,185,129,0.1)' }}>
+                                <MathExpr displayMode math="S_f(x) = \frac{1}{1 + e^{-k(x - x_0)}}" />
                             </div>
                             <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.9rem', lineHeight: 1.6, margin: 0 }}>
                                 A logistic growth function modeling SLA success over time. Requires sustained positive feedback before unlocking higher limits (k = growth rate).
                             </p>
                         </div>
-                    </div>
+                    </motion.div>
 
                     {/* Entropy */}
-                    <div style={{ background: 'rgba(255,255,255,0.01)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)', overflow: 'hidden' }}>
-                        <div style={{ width: '100%', height: '200px', backgroundImage: 'url(/entropy_graph.jpg)', backgroundSize: 'cover', backgroundPosition: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)' }} />
-                        <div style={{ padding: '32px' }}>
-                            <h4 style={{ color: 'white', fontSize: '1.2rem', fontWeight: 700, marginBottom: '16px' }}>2. Entropy (S<sub>e</sub>)</h4>
-                            <div style={{ fontFamily: '"Computer Modern", serif', fontSize: '1.2rem', color: '#3b82f6', marginBottom: '20px', padding: '16px', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', textAlign: 'center' }}>
-                                S<sub>e</sub>(H) = e<sup>-λH</sup>
+                    <motion.div whileHover={{ y: -6 }} style={{ background: 'linear-gradient(180deg, rgba(59,130,246,0.03) 0%, rgba(15,23,42,0.8) 100%)', borderRadius: '20px', border: '1px solid rgba(59,130,246,0.2)', overflow: 'hidden', boxShadow: '0 20px 40px rgba(0,0,0,0.4)' }}>
+                        <div style={{ width: '100%', height: '230px', backgroundImage: `url(${entropyImg})`, backgroundSize: 'cover', backgroundPosition: 'center', borderBottom: '1px solid rgba(59,130,246,0.15)', position: 'relative' }}>
+                            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(15,23,42,0.9), transparent 60%)' }} />
+                        </div>
+                        <div style={{ padding: '32px', position: 'relative', marginTop: '-20px' }}>
+                            <h4 style={{ color: 'white', fontSize: '1.25rem', fontWeight: 800, marginBottom: '16px' }}>2. Entropy (<MathExpr math="S_e" />)</h4>
+                            <div style={{ fontSize: '1.25rem', color: '#3b82f6', marginBottom: '20px', padding: '16px', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: '12px', textAlign: 'center', boxShadow: '0 0 20px rgba(59,130,246,0.1)' }}>
+                                <MathExpr displayMode math="S_e(H) = e^{-\lambda H}" />
                             </div>
                             <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.9rem', lineHeight: 1.6, margin: 0 }}>
                                 An exponential decay curve where H is uncertainty/hallucination rate. Strictly penalizes unpredictable agents (λ = severity scalar).
                             </p>
                         </div>
-                    </div>
+                    </motion.div>
 
                     {/* Solvency */}
-                    <div style={{ background: 'rgba(255,255,255,0.01)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)', overflow: 'hidden' }}>
-                        <div style={{ width: '100%', height: '200px', backgroundImage: 'url(/solvency_graph.jpg)', backgroundSize: 'cover', backgroundPosition: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)' }} />
-                        <div style={{ padding: '32px' }}>
-                            <h4 style={{ color: 'white', fontSize: '1.2rem', fontWeight: 700, marginBottom: '16px' }}>3. Solvency (S<sub>c</sub>)</h4>
-                            <div style={{ fontFamily: '"Computer Modern", serif', fontSize: '1.1rem', color: '#a855f7', marginBottom: '20px', padding: '16px', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', textAlign: 'center' }}>
-                                S<sub>c</sub>(t) = ∫<sub>0</sub><sup>t</sup> (T<sub>in</sub> - T<sub>out</sub>) dt / T<sub>stake</sub>
+                    <motion.div whileHover={{ y: -6 }} style={{ background: 'linear-gradient(180deg, rgba(168,85,247,0.03) 0%, rgba(15,23,42,0.8) 100%)', borderRadius: '20px', border: '1px solid rgba(168,85,247,0.2)', overflow: 'hidden', boxShadow: '0 20px 40px rgba(0,0,0,0.4)' }}>
+                        <div style={{ width: '100%', height: '230px', backgroundImage: `url(${solvencyImg})`, backgroundSize: 'cover', backgroundPosition: 'center', borderBottom: '1px solid rgba(168,85,247,0.15)', position: 'relative' }}>
+                            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(15,23,42,0.9), transparent 60%)' }} />
+                        </div>
+                        <div style={{ padding: '32px', position: 'relative', marginTop: '-20px' }}>
+                            <h4 style={{ color: 'white', fontSize: '1.25rem', fontWeight: 800, marginBottom: '16px' }}>3. Solvency (<MathExpr math="S_c" />)</h4>
+                            <div style={{ fontSize: '1.15rem', color: '#a855f7', marginBottom: '20px', padding: '16px', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(168,85,247,0.3)', borderRadius: '12px', textAlign: 'center', boxShadow: '0 0 20px rgba(168,85,247,0.1)' }}>
+                                <MathExpr displayMode math="S_c(t) = \frac{\int_{0}^{t} (T_{\text{in}} - T_{\text{out}}) \, dt}{T_{\text{stake}}}" />
                             </div>
                             <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.9rem', lineHeight: 1.6, margin: 0 }}>
                                 A calculus integral over time of the agent's net token inflows normalized by its staked reserves. Measures sustained economic viability.
                             </p>
                         </div>
-                    </div>
+                    </motion.div>
 
                 </div>
             </div>
