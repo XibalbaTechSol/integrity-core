@@ -26,6 +26,7 @@ import json
 import subprocess
 import sys
 import time
+import pathlib
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -33,17 +34,38 @@ STATUS = REPO / ".integrity-test-status"
 
 
 def _tree_hash() -> str:
-    """Hash of the working tree's tracked content, so a status cannot outlive the code it ran
-    against. `git stash create` would be cleaner but has side effects; hashing the diff plus
-    HEAD is sufficient to detect that anything changed."""
+    """Fingerprint of the code that would actually run: HEAD, tracked modifications, AND
+    untracked files.
+
+    The untracked part is not incidental. A first version of this hashed only
+    `HEAD + git diff HEAD`, which omits untracked files entirely — so adding a brand-new
+    source file left the fingerprint unchanged and a stale test status kept validating. Caught
+    by testing the stale path rather than assuming it worked: editing an untracked script
+    produced no change at all.
+    """
+    import hashlib
+    import subprocess
+
+    def git(*args: str) -> str:
+        return subprocess.check_output(["git", "-C", str(REPO), *args], text=True)
+
     try:
-        head = subprocess.check_output(["git", "-C", str(REPO), "rev-parse", "HEAD"], text=True).strip()
-        diff = subprocess.check_output(["git", "-C", str(REPO), "diff", "HEAD"], text=True)
+        parts = [git("rev-parse", "HEAD").strip(), git("diff", "HEAD")]
+        for rel in git("ls-files", "--others", "--exclude-standard").split("\n"):
+            rel = rel.strip()
+            if not rel:
+                continue
+            p = REPO / rel
+            try:
+                parts.append(rel + ":" + hashlib.sha256(p.read_bytes()).hexdigest())
+            except OSError:
+                parts.append(rel + ":unreadable")
     except Exception:
         return "unknown"
+
     from eth_utils import keccak
 
-    return "0x" + keccak(text=head + "\n" + diff).hex()
+    return "0x" + keccak(text="\n".join(parts)).hex()
 
 
 def _load() -> dict:
