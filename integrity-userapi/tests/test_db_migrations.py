@@ -44,6 +44,7 @@ async def test_run_migrations_creates_real_tables(db_pool: asyncpg.Pool) -> None
         "demo_runs",
         "revoked_tokens",
         "schema_migrations",
+        "user_wallets",
     } <= tables
 
 

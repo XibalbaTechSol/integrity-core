@@ -50,7 +50,7 @@ export const AgentPrimitivesSection = () => {
                         <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.95rem', lineHeight: 1.7, margin: 0 }}>
                             Agents anchor their local semantic memories (RAG vectors, graphs) cryptographically to the blockchain via a State Anchor, ensuring knowledge untamperability and context continuity across sessions.
                         </p>
-                    </motion.div>
+                    </div>
                 </div>
             </div>
         </section>

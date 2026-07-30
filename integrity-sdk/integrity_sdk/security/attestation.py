@@ -153,7 +153,10 @@ def _verify_cert_signed_by(subject: x509.Certificate, issuer: x509.Certificate) 
 
 
 def _verify_cose_signature(
-    protected_bstr: bytes, payload_bstr: bytes, signature: bytes, leaf_cert: x509.Certificate
+    protected_bstr: bytes,
+    payload_bstr: bytes,
+    signature: bytes,
+    leaf_cert: x509.Certificate,
 ) -> bool:
     """Reconstruct the COSE Sig_structure and verify the signature against
     the leaf certificate's public key. See RFC 8152 §4.4:
@@ -241,10 +244,19 @@ def verify_nitro_attestation(
     except Exception as exc:
         raise AttestationError(f"Attestation payload is not valid CBOR: {exc}") from exc
 
-    required_fields = {"module_id", "digest", "timestamp", "pcrs", "certificate", "cabundle"}
+    required_fields = {
+        "module_id",
+        "digest",
+        "timestamp",
+        "pcrs",
+        "certificate",
+        "cabundle",
+    }
     missing = required_fields - set(payload.keys())
     if missing:
-        raise AttestationError(f"Attestation payload missing required fields: {missing}")
+        raise AttestationError(
+            f"Attestation payload missing required fields: {missing}"
+        )
 
     try:
         leaf_cert = x509.load_der_x509_certificate(payload["certificate"])
@@ -259,10 +271,9 @@ def verify_nitro_attestation(
 
     # 1. Root pinning: cabundle[0] must be byte-identical to AWS's published root.
     trusted_root = _load_trusted_root()
-    root_pinned = (
-        cabundle_certs[0].public_bytes(serialization.Encoding.DER)
-        == trusted_root.public_bytes(serialization.Encoding.DER)
-    )
+    root_pinned = cabundle_certs[0].public_bytes(
+        serialization.Encoding.DER
+    ) == trusted_root.public_bytes(serialization.Encoding.DER)
     if not root_pinned:
         errors.append("cabundle[0] does not match the pinned AWS Nitro root CA")
 
@@ -278,22 +289,29 @@ def verify_nitro_attestation(
         if not _verify_cert_signed_by(subject, issuer):
             chain_valid = False
             errors.append(
+                f"Chain signature invalid: cert[{i + 1}] not signed by cert[{i}]"
                 f"Chain signature invalid: cert[{i + 1}] "
                 f"({_safe_subject_name(subject)}) not signed by cert[{i}]"
             )
 
     # 3. COSE signature over the payload, checked against the LEAF cert's key
     #    (the thing that actually signed this specific attestation document).
-    signature_valid = _verify_cose_signature(protected_bstr, payload_bstr, signature, leaf_cert)
+    signature_valid = _verify_cose_signature(
+        protected_bstr, payload_bstr, signature, leaf_cert
+    )
     if not signature_valid:
-        errors.append("COSE_Sign1 signature does not verify against the leaf certificate")
+        errors.append(
+            "COSE_Sign1 signature does not verify against the leaf certificate"
+        )
 
     # 4. Validity period (optional — see docstring on why this can be disabled).
     validity_period_valid: Optional[bool] = None
     if enforce_validity_period:
         validity_period_valid = True
         for i, cert in enumerate(full_chain):
-            if not (cert.not_valid_before_utc <= reference_time <= cert.not_valid_after_utc):
+            if not (
+                cert.not_valid_before_utc <= reference_time <= cert.not_valid_after_utc
+            ):
                 validity_period_valid = False
                 errors.append(
                     f"cert[{i}] ({_safe_subject_name(cert)}) not valid at "

@@ -77,6 +77,8 @@ def test_validity_period_check_against_fixtures_real_window(real_document_bytes)
 
 
 def test_validity_period_check_passes_at_a_reference_time_inside_the_real_window(real_document_bytes):
+    # November 2022, per verify_nitro_attestation's own docstring on this fixture's age.
+    reference_time = datetime(2022, 11, 9, 23, 0, tzinfo=timezone.utc)
     # The fixture's leaf/intermediate certs are short-lived (~hours, not
     # months) -- per test_validity_period_check_against_fixtures_real_window's
     # own failure output, the tightest window is 2022-11-09T22:51:57Z to

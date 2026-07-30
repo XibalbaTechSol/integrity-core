@@ -174,7 +174,7 @@ jobs:
           POSTGRES_USER: integrity
           POSTGRES_PASSWORD: integrity_dev_only
         ports:
-          - 5435:5432
+          - "5435:5432"
         options: >-
           --health-cmd "pg_isready -U integrity -d integrity_userapi"
           --health-interval 10s

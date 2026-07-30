@@ -14,10 +14,19 @@ from __future__ import annotations
 import logging
 import secrets
 
+from pydantic import Field
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
+
+
+def _generate_jwt_secret() -> str:
+    logger.warning(
+        "JWT_SECRET environment variable not set. Generated a random temporary secret. "
+        "User sessions will not persist across app restarts!"
+    )
+    return secrets.token_urlsafe(32)
 
 
 class Settings(BaseSettings):
@@ -33,6 +42,7 @@ class Settings(BaseSettings):
     oracle_timeout_seconds: float = 5.0
 
     # --- JWT auth ---
+    jwt_secret: str = Field(default_factory=_generate_jwt_secret)
     jwt_secret: str = Field(default_factory=lambda: secrets.token_urlsafe(32))
     jwt_algorithm: str = "HS256"
     jwt_expiry_minutes: int = 60 * 24  # 24h
