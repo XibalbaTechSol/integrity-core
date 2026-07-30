@@ -48,6 +48,36 @@ from ..security.redactor import redact_text
 logger = logging.getLogger("integrity_sdk.integrations.openai")
 
 
+
+def _usage_to_dict(usage):
+    """Provider-reported token usage as a plain dict, copied VERBATIM.
+
+    Nothing is synthesized: a field the provider did not report is absent, not zero -- the
+    same discipline `spec/token-accounting/vectors.json` encodes on the reading side. The
+    nested `*_details` objects are carried through because they are informative (cached and
+    reasoning token counts), even though the reducer deliberately does NOT add them: both
+    are subsets of the halves they belong to, so adding them would double-count.
+    """
+    if usage is None:
+        return None
+    out = {}
+    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        value = getattr(usage, key, None)
+        if value is not None:
+            out[key] = value
+    for details_key in ("prompt_tokens_details", "completion_tokens_details"):
+        details = getattr(usage, details_key, None)
+        if details is None:
+            continue
+        # openai-python returns pydantic models here; fall back to __dict__ for plain objects.
+        as_dict = details.model_dump() if hasattr(details, "model_dump") else getattr(details, "__dict__", None)
+        if isinstance(as_dict, dict):
+            filtered = {k: v for k, v in as_dict.items() if v is not None}
+            if filtered:
+                out[details_key] = filtered
+    return out or None
+
+
 class IntegrityCompletionsWrapper:
     """Wraps the OpenAI completions interface to intercept inference calls
     with OTel spans and behavioral telemetry."""
@@ -143,6 +173,13 @@ class IntegrityCompletionsWrapper:
                         "service_tier": getattr(response, "service_tier", None),
                         "tool_calls": self._extract_tool_call_names(response.choices[0].message.tool_calls),
                         "conversation_length": conversation_length,
+                        # Token usage must reach the telemetry METADATA, not only the OTel
+                        # span attributes above. `derive.entry_token_total` reads
+                        # `metadata["token_usage"]`, so recording tokens on the span alone
+                        # meant a direct-OpenAI agent contributed ZERO to the sacrifice
+                        # signal while a LangChain agent contributed double. See
+                        # spec/token-accounting/vectors.json for how these are reduced.
+                        "token_usage": _usage_to_dict(usage),
                     },
                 )
             except Exception as e:

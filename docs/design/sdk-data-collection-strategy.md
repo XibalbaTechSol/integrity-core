@@ -66,9 +66,21 @@ representation that every integration populates, and conformance tests per provi
 `prompt`+`completion` alone (line 297) — never the all-three shape that OpenAI actually
 emits.
 
-**Fix:** prefer `total_tokens` when present; otherwise sum components. Never both. Apply to
-both `derive.py` and `derive.rs` in one change, with a shared conformance vector so they
-cannot drift again.
+**FIXED 2026-07-29.** Both `derive.py::entry_token_total` and `derive.rs::entry_token_total`
+rewritten to one precedence: provider `total_tokens` when present, else the sum of the halves
+— never both. Pinned by shared conformance vectors at `spec/token-accounting/vectors.json`
+that **both** test suites read, so the two implementations cannot drift apart again.
+
+The rewrite also settled a subtlety that would have re-introduced a double-count in the other
+direction: **Anthropic's cache tokens are additional to `input_tokens`, while OpenAI's
+`prompt_tokens_details.cached_tokens` is a subset of `prompt_tokens`.** Opposite semantics for
+the same concept, so the additive ones are added and the subset ones never are.
+`completion_tokens_details.reasoning_tokens` is likewise a subset.
+
+The second defect on this signal is fixed too: `openai_integrity.py` now routes provider usage
+into the telemetry **metadata** (via `_usage_to_dict`, copying verbatim and synthesizing
+nothing) rather than only onto OTel span attributes, so a direct-OpenAI agent no longer
+contributes zero tokens.
 
 ### F2. The queue is unbounded — an oracle outage becomes an OOM
 

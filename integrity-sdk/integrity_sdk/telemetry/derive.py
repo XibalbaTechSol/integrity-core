@@ -127,6 +127,73 @@ def derive_grounding(batch: List[Dict[str, Any]]) -> float:
 _SACRIFICE_TOKEN_CEILING = 200_000
 
 
+def _positive_int(source: Any, key: str) -> int:
+    """`source[key]` as a non-negative int, or 0. Rejects bools (a `True` would otherwise
+    count as 1 token), non-numerics, and negatives — a negative count is never legitimate
+    and must not be able to reduce a score input."""
+    if not isinstance(source, dict):
+        return 0
+    value = source.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0
+    return int(value) if value > 0 else 0
+
+
+def entry_token_total(entry: Dict[str, Any]) -> int:
+    """
+    Total tokens processed for one telemetry entry.
+
+    **Must stay byte-for-byte equivalent to integrity-oracle's
+    `backend/src/derive.rs::entry_token_total`.** Both are pinned by the shared conformance
+    vectors in `spec/token-accounting/vectors.json`, which both test suites read. That
+    mechanism exists because these two implementations previously drifted into the *same*
+    double-counting bug — summing `total_tokens` AND `prompt_tokens` AND `completion_tokens`,
+    so every OpenAI-shaped entry counted twice — and because both sides were wrong
+    identically, no reconciliation between them could reveal it.
+
+    Precedence:
+
+    1. Base is the provider-computed `total_tokens` when present, else the sum of the two
+       halves. Never both: `total_tokens` already equals prompt+completion wherever it is
+       reported.
+    2. Anthropic-style cache tokens are **additional** to `input_tokens`, so they are added.
+    3. OpenAI's `prompt_tokens_details.cached_tokens` and
+       `completion_tokens_details.reasoning_tokens` are **subsets** of the halves they belong
+       to, so they are never added. Getting rules 2 and 3 the same way round is the whole
+       difficulty here — the two providers use opposite semantics for cache accounting.
+    4. Flat top-level `input_tokens`/`output_tokens` are consulted only when `token_usage`
+       yielded nothing, so one call is never counted twice.
+    """
+    metadata = entry.get("metadata")
+    if not isinstance(metadata, dict):
+        return 0
+    usage = metadata.get("token_usage")
+    usage = usage if isinstance(usage, dict) else {}
+
+    total = _positive_int(usage, "total_tokens")
+    if total == 0:
+        total = (
+            _positive_int(usage, "prompt_tokens")
+            + _positive_int(usage, "completion_tokens")
+            + _positive_int(usage, "input_tokens")
+            + _positive_int(usage, "output_tokens")
+        )
+
+    # Rule 2 — additive cache classes, in both the raw Anthropic and flattened spellings.
+    total += (
+        _positive_int(usage, "cache_creation_input_tokens")
+        + _positive_int(usage, "cache_read_input_tokens")
+        + _positive_int(usage, "cache_creation_tokens")
+        + _positive_int(usage, "cache_read_tokens")
+    )
+
+    # Rule 4 — flat form only as a fallback.
+    if total == 0:
+        total = _positive_int(metadata, "input_tokens") + _positive_int(metadata, "output_tokens")
+
+    return total
+
+
 def derive_sacrifice(batch: List[Dict[str, Any]]) -> float:
     """
     Proxy for scoring-core's "costly, hard-to-fake evidence of real resource
@@ -143,18 +210,7 @@ def derive_sacrifice(batch: List[Dict[str, Any]]) -> float:
     the oracle's own ingestion handler decides how much weight to give a
     client-reported sacrifice signal versus its own server-side evidence.
     """
-    total_tokens = 0
-    for entry in batch:
-        metadata = entry.get("metadata", {})
-        usage = metadata.get("token_usage") or {}
-        if isinstance(usage, dict):
-            total_tokens += int(usage.get("total_tokens", 0) or 0)
-            total_tokens += int(usage.get("prompt_tokens", 0) or 0)
-            total_tokens += int(usage.get("completion_tokens", 0) or 0)
-        for key in ("input_tokens", "output_tokens"):
-            value = metadata.get(key)
-            if isinstance(value, (int, float)):
-                total_tokens += int(value)
+    total_tokens = sum(entry_token_total(entry) for entry in batch)
 
     if total_tokens <= 0:
         return 0.0
