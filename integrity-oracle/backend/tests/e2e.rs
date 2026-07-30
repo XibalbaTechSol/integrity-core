@@ -310,6 +310,8 @@ async fn oracle_e2e_register_verify_ais_compliance() {
         true, // zk_verified
         &leaf_hash,
         &payload,
+        None, // phi_flags — this fixture is clean, and None means "not flagged" (an empty
+              // array would falsely assert "scanned and found clean")
     )
     .await
     .unwrap();

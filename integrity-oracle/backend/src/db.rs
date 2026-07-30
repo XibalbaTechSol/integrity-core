@@ -284,6 +284,7 @@ pub async fn insert_telemetry_event(
     zk_verified: bool,
     leaf_hash: &[u8],
     payload: &serde_json::Value,
+    phi_flags: Option<&[String]>,
 ) -> Result<(), InsertTelemetryError> {
     let mut tx = pool.begin().await?;
 
@@ -302,8 +303,8 @@ pub async fn insert_telemetry_event(
     sqlx::query(
         r#"
         INSERT INTO telemetry_events
-            (id, agent_id, nonce, performance_variance, hgi_raw, gpu_hours_verified, flagged, zk_verified, leaf_hash, payload)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            (id, agent_id, nonce, performance_variance, hgi_raw, gpu_hours_verified, flagged, zk_verified, leaf_hash, payload, phi_flags)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         "#,
     )
     .bind(event_id)
@@ -316,6 +317,7 @@ pub async fn insert_telemetry_event(
     .bind(zk_verified)
     .bind(leaf_hash)
     .bind(payload)
+    .bind(phi_flags)
     .execute(&mut *tx)
     .await?;
 
@@ -1006,12 +1008,13 @@ pub async fn insert_otel_span(
     end_time: DateTime<Utc>,
     status_code: &str,
     attributes: &serde_json::Value,
+    phi_flags: Option<&[String]>,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         INSERT INTO otel_spans
-            (id, agent_id, trace_id, span_id, parent_span_id, name, kind, start_time, end_time, status_code, attributes)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            (id, agent_id, trace_id, span_id, parent_span_id, name, kind, start_time, end_time, status_code, attributes, phi_flags)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         "#,
     )
     .bind(id)
@@ -1025,6 +1028,7 @@ pub async fn insert_otel_span(
     .bind(end_time)
     .bind(status_code)
     .bind(attributes)
+    .bind(phi_flags)
     .execute(pool)
     .await?;
     Ok(())
@@ -1159,12 +1163,13 @@ pub async fn insert_otel_metric(
     start_time: Option<DateTime<Utc>>,
     time: DateTime<Utc>,
     evidence_tier: &str,
+    phi_flags: Option<&[String]>,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         INSERT INTO otel_metrics
-            (id, agent_id, name, description, unit, data_type, temporality, value, attributes, start_time, time, evidence_tier)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            (id, agent_id, name, description, unit, data_type, temporality, value, attributes, start_time, time, evidence_tier, phi_flags)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         "#,
     )
     .bind(id)
@@ -1179,6 +1184,7 @@ pub async fn insert_otel_metric(
     .bind(start_time)
     .bind(time)
     .bind(evidence_tier)
+    .bind(phi_flags)
     .execute(pool)
     .await?;
     Ok(())
@@ -1200,12 +1206,13 @@ pub async fn insert_otel_log(
     span_id: Option<&str>,
     time: DateTime<Utc>,
     evidence_tier: &str,
+    phi_flags: Option<&[String]>,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         INSERT INTO otel_logs
-            (id, agent_id, event_name, severity_text, severity_number, body, attributes, trace_id, span_id, time, evidence_tier)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            (id, agent_id, event_name, severity_text, severity_number, body, attributes, trace_id, span_id, time, evidence_tier, phi_flags)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         "#,
     )
     .bind(id)
@@ -1219,6 +1226,7 @@ pub async fn insert_otel_log(
     .bind(span_id)
     .bind(time)
     .bind(evidence_tier)
+    .bind(phi_flags)
     .execute(pool)
     .await?;
     Ok(())

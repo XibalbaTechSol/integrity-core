@@ -12,6 +12,7 @@ source_files:
   - integrity-cli/integrity_cli/chain.py
   - integrity-cli/integrity_cli/bcc.py
   - integrity-cli/integrity_cli/config.py
+  - integrity-cli/integrity_cli/vault.py
   - integrity-cli/tests/test_register_oracle_e2e.py
   - integrity-cli/tests/test_chain.py
 ---
@@ -31,6 +32,12 @@ Other commands: `identity keygen/show` (Ed25519 [DID](../concepts/did.md), full
 `sha256(pubkey)` fingerprint), `agent show/ais` (oracle lookups), and
 `agent intercept --covered-entity` (build a signed [BCC commitment](../concepts/bcc.md)
 and POST it to the policy gate; exit 1 on a policy rejection, so it's scriptable).
+
+**`vault` command group, added 2026-07-30** (`sync`), bridging the CLI with the
+Trust Vault primitive-level persistent memory architecture (mirrors `integrity_sdk/memory.py`).
+Allows local tools to directly parse session facts (e.g. from `transcript.jsonl`) into the
+`MemoryBackend` (default: `JSONLBackend`), calculate a new cryptographic state root, and
+anchor it on-chain to the agent's `StateAnchor` contract.
 
 **`xns` command group, added 2026-07-11** (`register`/`resolve`/`primary-handle`/
 `set-primary`/`release`), covering the new [XibalbaNameService](contracts.md)

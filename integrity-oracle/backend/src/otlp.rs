@@ -90,6 +90,24 @@ async fn check_otlp_rate_limit(state: &AppState, agent_id: &str) -> Result<(), T
 /// reject every real span the SDK sends while still compiling and unit-testing clean.
 pub const AGENT_ID_ATTRIBUTE_KEY: &str = "integrity.agent.id";
 
+/// Shared PHI-backstop policy for the OTLP receivers, mirroring `ingest_telemetry`'s.
+///
+/// `reject` (the default) refuses the export; `flag` returns the matched categories so the
+/// caller records them on the row; `off` skips. One helper rather than three copies — the
+/// previous hand-rolled blocks were already three near-identical bodies, which is exactly how
+/// a policy drifts apart.
+fn apply_backstop_or_reject(
+    state: &AppState,
+    hits: Vec<&'static str>,
+) -> Result<Option<Vec<String>>, TonicStatus> {
+    match phi::apply_backstop(state.config.phi_backstop_mode, hits) {
+        Ok(flags) => Ok(flags),
+        Err(categories) => Err(TonicStatus::invalid_argument(format!(
+            "payload rejected: possible unredacted PHI/PII/secret detected (categories: {categories:?})"
+        ))),
+    }
+}
+
 pub struct OtlpTraceService {
     state: AppState,
 }
@@ -310,13 +328,7 @@ impl TraceService for OtlpTraceService {
                     // authenticated-client guarantee wasn't already redacted client-side.
                     let mut hits: Vec<&'static str> = Vec::new();
                     phi::scan_json_value(&span_to_json(span), &mut hits);
-                    if !hits.is_empty() {
-                        hits.sort_unstable();
-                        hits.dedup();
-                        return Err(TonicStatus::invalid_argument(format!(
-                            "payload rejected: possible unredacted PHI/PII/secret detected (categories: {hits:?})"
-                        )));
-                    }
+                    let phi_flags = apply_backstop_or_reject(&self.state, hits)?;
 
                     let trace_id = hex::encode(&span.trace_id);
                     let span_id = hex::encode(&span.span_id);
@@ -337,6 +349,7 @@ impl TraceService for OtlpTraceService {
                         nanos_to_datetime(span.end_time_unix_nano),
                         span_status_name(span.status.as_ref()),
                         &attributes,
+                        phi_flags.as_deref(),
                     )
                     .await
                     .map_err(|e| TonicStatus::internal(e.to_string()))?;
@@ -395,13 +408,7 @@ impl MetricsService for OtlpMetricsService {
                         // guarantee they were redacted client-side.
                         let mut hits: Vec<&'static str> = Vec::new();
                         phi::scan_json_value(&serde_json::json!({"name": metric.name, "attributes": point.attributes}), &mut hits);
-                        if !hits.is_empty() {
-                            hits.sort_unstable();
-                            hits.dedup();
-                            return Err(TonicStatus::invalid_argument(format!(
-                                "payload rejected: possible unredacted PHI/PII/secret detected (categories: {hits:?})"
-                            )));
-                        }
+                        let phi_flags = apply_backstop_or_reject(&self.state, hits)?;
 
                         db::insert_otel_metric(
                             &self.state.pool,
@@ -417,6 +424,7 @@ impl MetricsService for OtlpMetricsService {
                             point.start_time,
                             point.time,
                             EVIDENCE_TIER_UNSIGNED_VENDOR,
+                            phi_flags.as_deref(),
                         )
                         .await
                         .map_err(|e| TonicStatus::internal(e.to_string()))?;
@@ -467,13 +475,7 @@ impl LogsService for OtlpLogsService {
                         &serde_json::json!({"body": body, "attributes": attributes}),
                         &mut hits,
                     );
-                    if !hits.is_empty() {
-                        hits.sort_unstable();
-                        hits.dedup();
-                        return Err(TonicStatus::invalid_argument(format!(
-                            "payload rejected: possible unredacted PHI/PII/secret detected (categories: {hits:?})"
-                        )));
-                    }
+                    let phi_flags = apply_backstop_or_reject(&self.state, hits)?;
 
                     // OTel moved structured event identity from an `event.name` attribute
                     // to a first-class `event_name` field; accept either so emitters on
@@ -508,6 +510,7 @@ impl LogsService for OtlpLogsService {
                         hex_id_or_none(&record.span_id).as_deref(),
                         time,
                         EVIDENCE_TIER_UNSIGNED_VENDOR,
+                        phi_flags.as_deref(),
                     )
                     .await
                     .map_err(|e| TonicStatus::internal(e.to_string()))?;

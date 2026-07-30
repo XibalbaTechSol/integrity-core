@@ -764,10 +764,19 @@ pub async fn ingest_telemetry(
             phi::scan_json_value(&judge_value, &mut phi_hits);
         }
     }
-    if !phi_hits.is_empty() {
-        phi_hits.sort_unstable();
-        phi_hits.dedup();
-        return Err(AppError::PhiDetected(phi_hits.into_iter().map(str::to_string).collect()));
+    // Mode-driven: `reject` (default) refuses the payload, `flag` stores it with the matched
+    // categories recorded on the row so the risk stays visible, `off` skips entirely. See
+    // `config::PhiBackstopMode` for why development needs anything other than reject.
+    let phi_flags = match phi::apply_backstop(state.config.phi_backstop_mode, phi_hits) {
+        Ok(flags) => flags,
+        Err(categories) => return Err(AppError::PhiDetected(categories)),
+    };
+    if let Some(categories) = &phi_flags {
+        tracing::warn!(
+            agent_id = %req.agent_id,
+            categories = ?categories,
+            "PHI backstop matched but mode=flag — storing payload with flags rather than rejecting"
+        );
     }
 
     let agent = db::get_agent(&state.pool, &req.agent_id)
@@ -876,6 +885,7 @@ pub async fn ingest_telemetry(
         zk_verified,
         &leaf_hash,
         &payload_json,
+        phi_flags.as_deref(),
     )
     .await
     .map_err(|e| match e {

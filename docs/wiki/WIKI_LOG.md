@@ -3,6 +3,13 @@
 > Chronological record of wiki actions. Append-only — never edit past entries.
 > Actions: ingest, create, update, lint, query, archive
 
+## [2026-07-30] update | Persistent Memory Bridge and AIS Metrics Architecture
+- Implemented primitive-level Persistent Memory Bridge in `integrity_sdk/memory.py` utilizing the `StateAnchor` primitive and a `MemoryBackend` adapter pattern supporting arbitrary backends (RAG, JSONL, SQL).
+- Added `integrity_commit_memory` tool to `integrity_sdk.mcp_server` to allow agents to explicitly commit and cryptographically anchor their memory state on Base Sepolia.
+- Validated TrustVault pre-flight checking using real integration tests to prevent action if local `state_root` drifts from on-chain `StateAnchor` root.
+- Created `ais_metrics_analysis.md` outlining logistic sigmoid models and geometric aggregation for the three core AIS dimensions: Fidelity, Economic Impact, and Entropy.
+- Updated `docs/wiki/entities/integrity-sdk.md` with memory system documentation.
+
 ## [2026-07-29] update | Antigravity CLI (agy) MCP server integration configured
 - Configured the Antigravity CLI (`agy`) settings file (`~/.gemini/antigravity-cli/settings.json`) to register the `integrity` MCP server.
 - Ensured all agy sessions run in the context of the `xibalba.integrity` agent.

@@ -428,23 +428,22 @@ the same time.
 
 ---
 
-## Open decision — the oracle's PHI backstop
+## Resolved — the oracle's PHI backstop is now mode-driven
 
-The collection profiles govern what the **SDK** sends. They do not govern what the **oracle**
-accepts, and today the oracle rejects any payload whose content trips its PHI scanner
-(`AppError::PhiDetected` → 400, `handlers.rs:765`; the OTLP receivers do the same).
+**Decided and built 2026-07-30: option 2.** `PHI_BACKSTOP_MODE = reject | flag | off`,
+defaulting to `reject`, applied identically across all four ingestion paths (signed telemetry
+and the three OTLP receivers) via one shared `phi::apply_backstop`.
 
-So with redaction off by default, development content capture will hit that backstop and the
-payload will be refused — the SDK side alone does not deliver end-to-end content collection.
-Three options, none of which should be chosen silently:
+- `reject` (default) — unchanged strict behaviour, so a deployment that never configures this
+  keeps it.
+- `flag` — stores the payload **and** records which categories matched, in a `phi_flags`
+  column on the row (migration 0010). Development gets usable data while the risk stays
+  visible in the data itself, not just in a log line.
+- `off` — skips the scan. Named honestly because pretending a disabled control is still a
+  control is worse than admitting it is off.
 
-1. **Leave it rejecting (current).** Safest. Content capture then only works for content that
-   happens not to match a PHI pattern, which is not a useful guarantee.
-2. **Add a mode — `reject | flag | off` — defaulting to `reject`.** A development deployment
-   sets `flag`, which stores the payload *and* marks it as containing suspected PHI, so the
-   data is usable and the risk stays visible. Production keeps `reject`.
-3. **Disable it.** Fastest, and removes a HIPAA-relevant control from every deployment
-   including Shield.
+`NULL` means "not flagged"; an empty array is never written, since that would falsely assert
+"scanned and found clean". Partial indexes make finding flagged rows an efficient audit query.
 
-Recommendation: option 2. It gives development the data without removing the control or
-losing the signal that the data is sensitive.
+To collect unredacted content end-to-end in development: set the SDK to the `development`
+profile (the default) **and** the oracle to `PHI_BACKSTOP_MODE=flag`.
