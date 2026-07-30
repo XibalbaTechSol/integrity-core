@@ -1476,3 +1476,106 @@ async fn oracle_e2e_otlp_metrics_and_logs_persist() {
         .expect_err("a log export without integrity.agent.id must be rejected");
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
 }
+
+/// The signed-telemetry envelope carries a `schema_version` that is INSIDE the signature,
+/// and the pre-versioning shape stays verifiable forever.
+///
+/// Four properties, because getting any one wrong is silently dangerous:
+///  1. an envelope with no `schema_version` is still accepted — signed payloads are evidence,
+///     and every historical signature must keep verifying
+///  2. a `schema_version: 1` envelope is accepted
+///  3. a version this build cannot interpret is REFUSED, not parsed on a guess
+///  4. a version added or altered in transit FAILS the signature — proving the field is
+///     covered by it and cannot be used to make the oracle reinterpret a payload
+#[tokio::test]
+async fn oracle_e2e_telemetry_schema_version_is_signed_and_backward_compatible() {
+    if std::env::var("ORACLE_E2E").ok().as_deref() != Some("1") {
+        eprintln!("SKIP oracle_e2e_telemetry_schema_version_is_signed_and_backward_compatible (set ORACLE_E2E=1)");
+        return;
+    }
+    let _ = tracing_subscriber::fmt().with_max_level(tracing::Level::ERROR).try_init();
+
+    let db_url = std::env::var("TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://integrity:integrity_dev_only@127.0.0.1:5434/integrity".to_string());
+    let redis_url = std::env::var("TEST_REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+    let anvil_port = free_port();
+    let rpc_url = format!("http://127.0.0.1:{anvil_port}");
+    let _anvil = start_anvil(anvil_port);
+    let deployments_file = repo_root().join("deployments.local.json");
+    let state = build_state(&rpc_url, &deployments_file, &db_url, &redis_url).await;
+
+    let sdk_python = repo_root().join("integrity-sdk/.venv/bin/python");
+    let keygen = Command::new(&sdk_python)
+        .args(["-c", "from eth_account import Account; a = Account.create(); print(a.address); print(a.key.hex())"])
+        .output()
+        .expect("integrity-sdk venv python must exist");
+    let keygen_out = String::from_utf8_lossy(&keygen.stdout);
+    let mut lines = keygen_out.lines();
+    let address = lines.next().unwrap().to_string();
+    let private_key = lines.next().unwrap().to_string();
+
+    let agent_id = "did:integrity:schema-version-e2e-agent";
+    sqlx::query("INSERT INTO agents (id, eth_address, verification_tier, last_nonce) VALUES ($1, $2, 1, 0)")
+        .bind(agent_id)
+        .bind(&address)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+    let app = backend::build_router(state.clone());
+    let server_port = free_port();
+    let addr: SocketAddr = format!("127.0.0.1:{server_port}").parse().unwrap();
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let base = format!("http://127.0.0.1:{server_port}");
+    let http = reqwest::Client::new();
+
+    // Signs with argv[9] when `version` is Some — omitted means the pre-versioning shape.
+    let sign = |nonce: i64, version: Option<i64>| {
+        let mut args: Vec<String> = vec![
+            repo_root().join("integrity-oracle/backend/tests/support/sign_telemetry.py").to_string_lossy().into(),
+            private_key.clone(),
+            agent_id.to_string(),
+            nonce.to_string(),
+            "0.2".into(), "0.8".into(), "5.0".into(), "0.0".into(),
+            "[]".into(),
+        ];
+        if let Some(v) = version {
+            args.push(v.to_string());
+        }
+        let out = Command::new(&sdk_python).args(&args).output().expect("signer runs");
+        assert!(out.status.success(), "signer failed: {}", String::from_utf8_lossy(&out.stderr));
+        serde_json::from_str::<serde_json::Value>(String::from_utf8_lossy(&out.stdout).trim())
+            .expect("signer prints JSON")
+    };
+
+    // 1. Pre-versioning envelope: no schema_version member at all.
+    let legacy = sign(1, None);
+    assert!(legacy.get("schema_version").is_none(), "this case must send no schema_version");
+    let resp = http.post(format!("{base}/v1/telemetry/ingest")).json(&legacy).send().await.unwrap();
+    assert_eq!(resp.status(), 200, "a pre-versioning signature must keep verifying: {}", resp.text().await.unwrap());
+
+    // 2. Versioned envelope.
+    let versioned = sign(2, Some(1));
+    assert_eq!(versioned["schema_version"], 1);
+    let resp = http.post(format!("{base}/v1/telemetry/ingest")).json(&versioned).send().await.unwrap();
+    assert_eq!(resp.status(), 200, "a v1 envelope must be accepted: {}", resp.text().await.unwrap());
+
+    // 3. A version this build cannot interpret is refused before anything else is trusted.
+    let future = sign(3, Some(9999));
+    let resp = http.post(format!("{base}/v1/telemetry/ingest")).json(&future).send().await.unwrap();
+    assert_eq!(resp.status(), 400, "an unknown envelope version must be refused, not guessed at");
+    let body = resp.text().await.unwrap();
+    assert!(body.contains("unsupported telemetry schema_version"), "rejection must name the cause: {body}");
+
+    // 4. Tamper: take a validly-signed pre-versioning envelope and inject a version. The
+    //    signature was computed over an object WITHOUT the key, so this must fail — which is
+    //    what proves the version cannot be flipped in transit to change interpretation.
+    let mut tampered = sign(4, None);
+    tampered["schema_version"] = serde_json::json!(1);
+    let resp = http.post(format!("{base}/v1/telemetry/ingest")).json(&tampered).send().await.unwrap();
+    assert_eq!(
+        resp.status(), 401,
+        "injecting schema_version into a signed envelope must fail verification, not be ignored"
+    );
+}

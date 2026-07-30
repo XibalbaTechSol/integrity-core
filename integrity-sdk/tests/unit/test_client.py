@@ -5,7 +5,7 @@ from typing import Any, Dict
 import pytest
 
 from integrity_sdk import bcc
-from integrity_sdk.client import IntegrityClient
+from integrity_sdk.client import IntegrityClient, TELEMETRY_SCHEMA_VERSION
 from integrity_sdk.did import Keypair, verify_signature
 
 
@@ -165,10 +165,16 @@ def test_flush_with_keypair_produces_a_real_verifiable_signature(captured_posts)
     sig_hex = payload["signature"]
     assert sig_hex.startswith("0x")
 
+    # The envelope version must be present AND inside the signature — outside it, it could be
+    # rewritten in transit to make the oracle reinterpret the payload (INTERFACE_CONTRACT
+    # §4.2a).
+    assert payload["schema_version"] == TELEMETRY_SCHEMA_VERSION
+
     # Independently re-derive exactly what the oracle's own ingest_telemetry
     # handler reconstructs (same field set, same canonical_json_bytes
     # convention) and confirm the signature verifies against it.
     signable = {
+        "schema_version": payload["schema_version"],
         "agent_id": payload["agent_id"],
         "nonce": payload["nonce"],
         "otel_spans": payload["otel_spans"],
@@ -180,6 +186,16 @@ def test_flush_with_keypair_produces_a_real_verifiable_signature(captured_posts)
         bcc.canonical_json_bytes(signable),
         bytes.fromhex(sig_hex[2:]),
     )
+
+    # And prove the version is actually covered: verifying against the object WITHOUT it must
+    # fail. Otherwise this test would still pass if the field were merely appended alongside
+    # the signature rather than signed.
+    unversioned = {k: v for k, v in signable.items() if k != "schema_version"}
+    assert not verify_signature(
+        keypair.public_bytes(),
+        bcc.canonical_json_bytes(unversioned),
+        bytes.fromhex(sig_hex[2:]),
+    ), "schema_version must be part of the signed bytes, not merely present in the payload"
 
 
 def test_flush_drains_custom_metrics_into_otel_spans(captured_posts):

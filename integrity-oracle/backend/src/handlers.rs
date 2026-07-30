@@ -598,8 +598,25 @@ pub struct JudgeEvaluationDto {
     pub rationale_summary: Option<String>,
 }
 
+/// Highest signed-telemetry envelope version this build can interpret. Must move in step
+/// with `integrity-sdk`'s `TELEMETRY_SCHEMA_VERSION`; pinned in
+/// `docs/INTERFACE_CONTRACT.md` §4.2a.
+///
+/// A payload above this is refused rather than parsed on a guess — misreading a future shape
+/// and then storing it as signed evidence is worse than rejecting it.
+pub const MAX_TELEMETRY_SCHEMA_VERSION: i64 = 1;
+
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct TelemetryIngestRequest {
+    /// Version of the signed envelope. Inside the signed object, so it cannot be rewritten
+    /// in transit to make this handler reinterpret a payload under different rules.
+    ///
+    /// `None` means the pre-versioning shape, which stays valid forever — signed payloads
+    /// are evidence and old evidence must remain verifiable. Critically, the signable bytes
+    /// are rebuilt WITHOUT the key when this is `None`: serializing it as `null` would
+    /// change the canonical JSON and break every historical signature.
+    #[serde(default)]
+    pub schema_version: Option<i64>,
     pub agent_id: String,
     pub nonce: i64,
     #[serde(default)]
@@ -711,6 +728,22 @@ pub async fn ingest_telemetry(
     State(state): State<AppState>,
     Json(req): Json<TelemetryIngestRequest>,
 ) -> Result<Json<TelemetryIngestResponse>, AppError> {
+    // Reject an envelope version this build cannot interpret, rather than parsing it under
+    // the wrong rules and storing a misread payload as signed evidence. Runs before anything
+    // else: if the shape is unknown, no other check on it means anything.
+    //
+    // `None` is accepted deliberately — it is the pre-versioning shape, and those signatures
+    // must keep verifying (see `TelemetryIngestRequest::schema_version`).
+    if let Some(version) = req.schema_version {
+        if version > MAX_TELEMETRY_SCHEMA_VERSION || version < 1 {
+            return Err(AppError::BadRequest(format!(
+                "unsupported telemetry schema_version {version}: this oracle understands \
+                 1..={MAX_TELEMETRY_SCHEMA_VERSION} (or an absent field, meaning the \
+                 pre-versioning envelope). Upgrade the oracle before sending this shape."
+            )));
+        }
+    }
+
     // Defense-in-depth PHI/PII/secret backstop (see crate::phi's doc comment): scan the
     // free-text-bearing parts of the payload for a raw pattern integrity-sdk's
     // client-side Redactor should already have masked. A hit here means that
@@ -742,13 +775,20 @@ pub async fn ingest_telemetry(
     // request except `signature` itself. Re-serializing the typed struct with a
     // `#[serde(skip_serializing)]`-free copy keeps this in one place rather than hand-
     // building a parallel `serde_json::Map`.
-    let signable = serde_json::json!({
+    let mut signable = serde_json::json!({
         "agent_id": req.agent_id,
         "nonce": req.nonce,
         "otel_spans": req.otel_spans,
         "derived_signals": req.derived_signals,
         "zk_proof": req.zk_proof,
     });
+    // Insert the key ONLY when the request carried it. `canonical_json_bytes` sorts keys, so
+    // position is irrelevant — presence is not: a pre-versioning client signed an object with
+    // no `schema_version` member at all, and adding one (even as `null`) would change the
+    // canonical bytes and reject its still-valid signature.
+    if let Some(version) = req.schema_version {
+        signable["schema_version"] = serde_json::json!(version);
+    }
     let message = crypto::canonical_json_bytes(&signable);
 
     // `ed25519_pubkey` is stored as raw bytes (BYTEA), but the verification method needs a

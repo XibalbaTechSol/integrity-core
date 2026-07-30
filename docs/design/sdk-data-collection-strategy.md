@@ -116,8 +116,21 @@ version field. Since the whole point of this work is to widen what is collected,
 needs to distinguish shapes to evolve safely, and old signed payloads must stay verifiable
 forever (they are evidence).
 
-**Fix:** add `schema_version` inside the signed object, pinned in
-`INTERFACE_CONTRACT.md`, before the collection surface expands.
+**FIXED 2026-07-29.** `schema_version` now sits **inside** the signed object (SDK
+`TELEMETRY_SCHEMA_VERSION`, oracle `MAX_TELEMETRY_SCHEMA_VERSION`, both pinned in
+`INTERFACE_CONTRACT.md` §4.2a). Three properties made it non-trivial:
+
+- Inside the signature, not beside it — otherwise it could be rewritten in transit to make
+  the oracle reinterpret a payload under different rules.
+- An **absent** version stays valid forever, and the oracle rebuilds the signable bytes
+  *without the key* in that case. Serializing it as `null` would change the canonical JSON
+  and reject every historical signature — old signed payloads are evidence.
+- An unknown version is refused (400), never parsed on a guess.
+
+Covered by `oracle_e2e_telemetry_schema_version_is_signed_and_backward_compatible` (legacy
+accepted, v1 accepted, unknown refused, injected version fails verification) and by an SDK
+test that also verifies against the object *without* the field to prove it is genuinely
+signed rather than merely present.
 
 ### F5. No Anthropic/Claude support at all
 

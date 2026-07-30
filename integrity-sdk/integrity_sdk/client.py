@@ -32,6 +32,20 @@ from .batcher import TelemetryBatcher
 from .did import Keypair
 from .telemetry import core as telemetry_core, derive, intent as intent_module, metrics as metrics_module, tracing
 
+#: Version of the signed telemetry envelope this client emits. Pinned in
+#: `docs/INTERFACE_CONTRACT.md` §4.2a.
+#:
+#: It lives INSIDE the signed object, so it is covered by the signature and cannot be
+#: rewritten in transit to make the oracle reinterpret a payload under different rules.
+#:
+#: An envelope with no `schema_version` at all is the pre-versioning shape and remains
+#: valid forever: signed payloads are evidence, and old evidence has to stay verifiable. The
+#: oracle therefore reconstructs the signable bytes WITHOUT the key when a request omits it
+#: — serializing it as `null` instead would change the canonical bytes and break every
+#: historical signature.
+TELEMETRY_SCHEMA_VERSION = 1
+
+
 logger = logging.getLogger("integrity_sdk.client")
 
 
@@ -333,6 +347,7 @@ class IntegrityClient:
         )
 
         signable = {
+            "schema_version": TELEMETRY_SCHEMA_VERSION,
             "agent_id": self.agent_id,
             "nonce": self._nonce,
             "otel_spans": otel_spans,
