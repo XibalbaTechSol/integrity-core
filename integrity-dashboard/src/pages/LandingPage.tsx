@@ -25,13 +25,7 @@ export const LandingPage = () => {
             <EconomicUseCasesSection />
             <PrivacyArchitectureSection />
             
-            <div style={{ padding: '80px 0', background: 'var(--navy-deep)' }}>
-                <div style={{ textAlign: 'center', marginBottom: '40px' }}>
-                    <h2 style={{ fontSize: '2.5rem', fontWeight: 800 }}>Start Building</h2>
-                    <p style={{ color: 'rgba(255,255,255,0.6)' }}>Integrate the Integrity Protocol into your stack.</p>
-                </div>
-                <DevQuickstartSection setContactType={setContactType} setIsContactOpen={setIsContactOpen} />
-            </div>
+            <DevQuickstartSection setContactType={setContactType} setIsContactOpen={setIsContactOpen} />
 
             <EcosystemFeatures setIsContactOpen={setIsContactOpen} setContactType={setContactType} />
             

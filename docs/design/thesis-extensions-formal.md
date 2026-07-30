@@ -1,5 +1,8 @@
 # Closing the logic — formal treatment of authority, termination, and symmetry
 
+> **Canonical statement:** [`docs/wiki/concepts/foundational-primitives.md`](../wiki/concepts/foundational-primitives.md).
+> This note is the derivation behind it, kept for the reasoning rather than as the reference.
+
 Follows [`primitive-set-coherence.md`](primitive-set-coherence.md), which found the primitive
 set complete with respect to §1's thesis but identified three clauses the thesis does not
 make. This formalizes each: definition, invariants, mechanism mapping, and what adopting it

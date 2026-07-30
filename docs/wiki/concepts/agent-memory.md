@@ -22,6 +22,9 @@ with no anchored genesis memory root cannot register. What is built and what is 
 open are separated precisely below; the "Verified status" table records what was
 actually checked against code, rather than restating the spec's own status claims.
 
+> **Primitive #1 of four.** See [The Four Foundational Primitives](foundational-primitives.md)
+> for how memory relates to ownership, authority and reputation.
+
 ## Persistent Memory is a foundational primitive — not an 8th contract
 
 The spec's first foundational primitive (§4.1) is **Persistent Memory**, on the

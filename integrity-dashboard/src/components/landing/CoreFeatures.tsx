@@ -52,7 +52,7 @@ export const DevQuickstartSection = ({ setContactType, setIsContactOpen }: { set
         <section style={{ padding: isMobile ? '60px 20px' : '120px 60px', background: 'radial-gradient(circle at top, rgba(212, 175, 55, 0.05) 0%, rgba(5,13,24,1) 80%)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
             <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1.2fr', gap: isMobile ? '60px' : '100px', alignItems: 'center' }}>
-                    <motion.div initial={{ opacity: 0, x: -30 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true }}>
+                    <div>
                         <span style={{ color: 'var(--gold)', fontSize: '0.7rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.25em', marginBottom: '16px', display: 'block' }}>Developer Experience</span>
                         <h2 style={{ fontSize: isMobile ? '2.5rem' : '3.5rem', fontWeight: 800, marginBottom: '24px', lineHeight: 1.1 }}>Start building instantly.<br />No hardware DID required.</h2>
                         <p style={{ fontSize: '1.15rem', color: 'rgba(255,255,255,0.85)', lineHeight: 1.8, marginBottom: '24px', fontWeight: 500 }}>
@@ -69,9 +69,9 @@ export const DevQuickstartSection = ({ setContactType, setIsContactOpen }: { set
                                 Read the Docs
                             </a>
                         </div>
-                    </motion.div>
+                    </div>
                     
-                    <motion.div initial={{ opacity: 0, x: 30 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true }} style={{ background: 'linear-gradient(145deg, rgba(15,23,42,0.9) 0%, rgba(5,13,24,0.9) 100%)', border: '1px solid rgba(212, 175, 55, 0.2)', borderRadius: '24px', position: 'relative', boxShadow: '0 30px 60px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1)', overflow: 'hidden' }}>
+                    <div style={{ background: 'linear-gradient(145deg, rgba(15,23,42,0.9) 0%, rgba(5,13,24,0.9) 100%)', border: '1px solid rgba(212, 175, 55, 0.2)', borderRadius: '24px', position: 'relative', boxShadow: '0 30px 60px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1)', overflow: 'hidden' }}>
                         {/* IDE Header */}
                         <div style={{ padding: '16px 24px', background: 'rgba(0,0,0,0.4)', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -104,7 +104,7 @@ export const DevQuickstartSection = ({ setContactType, setIsContactOpen }: { set
 {'}'}
                             </pre>
                         </div>
-                    </motion.div>
+                    </div>
                 </div>
             </div>
         </section>

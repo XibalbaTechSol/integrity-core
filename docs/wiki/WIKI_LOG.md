@@ -2668,3 +2668,31 @@ writeup: PRODUCTION_GAPS.md §18.
   Shield's client-supplied `covered_entity_address` hole sits), **termination** (an agent can
   currently be abandoned but not ended), and **counterparty symmetry** (reputation is
   one-directional while A2A is a stated goal).
+
+## [2026-07-30] adopted | The four foundational primitives, formalized across the documentation
+
+- **New canonical page `concepts/foundational-primitives.md`** — memory (continuity),
+  agent-owned contracts (capability with consequence), authority (delegated permission),
+  reputation (earned standing). One place to read; the three design notes under `docs/design/`
+  are now marked as the derivation behind it rather than competing references.
+- **Resolved a naming collision that would have made the docs contradict themselves.**
+  "Primitive" was used in two unrelated senses: the seven per-agent **contracts**
+  (`PrimitiveSet`) and the foundational **concepts**. Both pages now open with an explicit
+  disambiguation — they are not two views of one list, and only concept #2 is a contract at
+  all.
+- **Authority added, not substituted.** Tested whether it could replace reputation: it cannot.
+  They are orthogonal (a fully-authorized incompetent agent; an impeccable unauthorized one),
+  and decisively, reputation carries thesis clauses ③ and ⑤ while authority carries neither —
+  substituting would break completeness. The overlap is exactly one AIS component (compliance,
+  wC = 0.20), so authority makes that component resolvable rather than claimed.
+- **AIS/reputation distinction stated wherever the primitives appear:** reputation is the
+  record, AIS is a replaceable weighted score over it. Without this the §2 claim that "AIS is
+  downstream of primitives" contradicts reputation being one.
+- Stake folded into ownership and self-sovereignty demoted to a medium property, both on
+  **non-independence** grounds rather than tidiness.
+- README and CLAUDE.md carry the framing; `agent-primitives.md` and `agent-memory.md`
+  cross-link to it; index counts 28 → 29 pages (21 concepts).
+- **Still open by design:** termination (needs registry mutability — same question as the
+  upgradeability decision) and counterparty symmetry (a generalization of BCC's
+  `covered_entity_address`, not a new primitive). Spec v0.3 §4 still lists six; **v0.4 is
+  required** to make four normative, and the spec remains authoritative until then.

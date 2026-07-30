@@ -1,5 +1,8 @@
 # Three foundational primitives — a proposed consolidation
 
+> **Canonical statement:** [`docs/wiki/concepts/foundational-primitives.md`](../wiki/concepts/foundational-primitives.md).
+> This note is the derivation behind it, kept for the reasoning rather than as the reference.
+
 > **The count is not the point.** See
 > [`primitive-set-coherence.md`](primitive-set-coherence.md), which tests the set for
 > completeness, independence and groundedness against the §1 thesis. The reason to collapse

@@ -1,5 +1,8 @@
 # Is the primitive set closed? — a coherence audit
 
+> **Canonical statement:** [`docs/wiki/concepts/foundational-primitives.md`](../wiki/concepts/foundational-primitives.md).
+> This note is the derivation behind it, kept for the reasoning rather than as the reference.
+
 Companion to [`three-foundational-primitives.md`](three-foundational-primitives.md). That note
 argued for a *count*; this one asks the question that actually matters: **is the set coherent,
 non-redundant, and closed?**

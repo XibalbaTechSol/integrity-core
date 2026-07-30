@@ -16,7 +16,35 @@ identity. Nothing is registered *on behalf of* the agent by a privileged
 factory — the deployment transactions are signed by the agent's own key, so the
 chain itself is cryptographic proof of who controls what.
 
-### Persistent memory is a foundational primitive
+### The four foundational primitives
+
+The protocol rests on four concepts, each answering one question a counterparty must resolve
+before delegating anything of value. The order is a progression — each presupposes the one
+above it:
+
+| # | Primitive | Question |
+|---|---|---|
+| 1 | **Persistent Memory** | Is this the same agent over time? |
+| 2 | **Agent-Owned Contracts** | Can it act, and can it lose? |
+| 3 | **Authority** | *May* it act, and for whom? |
+| 4 | **Reputation** | *How* has it acted? |
+
+Two notes that prevent the usual confusions. **"Primitive" is used in two senses here:** these
+four are *concepts*; the [seven per-agent contracts](docs/wiki/concepts/agent-primitives.md)
+(`PrimitiveSet`) are *contracts*, and only #2 is a contract at all. And **AIS is not a
+primitive** — reputation is the record, AIS is a replaceable weighted score over it. Change
+the formula and the record stands; delete the record and no formula means anything.
+
+Bonded stake sits inside #2 rather than standing alone: you can only stake what you own, and
+ownership only means something when losing it hurts. Cryptographic self-sovereignty is
+deliberately absent — keys are the substrate all four are *expressed in*, so it belongs with
+the medium's properties, not as a peer of what it enables.
+
+Full derivation, including why the set is complete against the protocol's own definition of an
+Economic Sovereign:
+[The Four Foundational Primitives](docs/wiki/concepts/foundational-primitives.md).
+
+### 1. Persistent memory
 
 An agent that cannot carry state across sessions is not an economic actor — it is a
 stateless function invoked repeatedly. So **persistent memory sits alongside identity,

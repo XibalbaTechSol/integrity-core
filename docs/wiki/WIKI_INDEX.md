@@ -2,7 +2,7 @@
 
 > Content catalog. Every page represents something that actually exists in
 > the codebase right now — see the schema's "no aspirational content" rule.
-> Last updated: 2026-07-30 | Total pages: 30 (21 concepts, 8 entities)
+> Last updated: 2026-07-30 | Total pages: 30 (22 concepts, 8 entities)
 
 ## Acronym glossary
 - [AIS](concepts/ais.md) — Agent Integrity Score
@@ -13,7 +13,8 @@
 - [ZKP](concepts/zkp.md) — Zero-Knowledge Proof(ing pipeline)
 
 ## Concepts
-- [Agent Primitives (Self-Sovereign Identity)](concepts/agent-primitives.md) — the 7 per-agent contracts; **start here**
+- [The Four Foundational Primitives](concepts/foundational-primitives.md) — memory, agent-owned contracts, authority, reputation: the **concepts**; **start here**
+- [Agent Primitives (Self-Sovereign Identity)](concepts/agent-primitives.md) — the 7 per-agent **contracts** (`PrimitiveSet`) — a different sense of "primitive", see the note at the top of both pages
 - [ComplianceGate & Xibalba Shield](concepts/compliance-gate.md) — the HIPAA/healthcare vertical
 - [Agent Integrity Score](concepts/ais.md)
 - [Telemetry Ingestion Pipeline](concepts/telemetry-ingestion.md) — end-to-end: SDK collection, batching, signing, the oracle's 11-step ordered request pipeline, AIS scoring, the separate unauthenticated OTLP path (built)

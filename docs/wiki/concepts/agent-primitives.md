@@ -12,6 +12,12 @@ source_files:
   - docs/INTERFACE_CONTRACT.md
 ---
 
+> **Not to be confused with the four foundational primitives.** This page is about the seven
+> **contracts** an agent owns (the `PrimitiveSet`). The four *foundational* primitives —
+> memory, agent-owned contracts, authority, reputation — are **concepts**, documented in
+> [The Four Foundational Primitives](foundational-primitives.md). This page is one of them
+> (#2, Agent-Owned Contracts) expressed in Solidity; the other three are not contracts at all.
+
 The defining architecture of the Integrity Protocol: **an agent owns and
 deploys its own on-chain contracts.** There is no privileged factory that
 registers agents into shared global state on their behalf. On registration, an
