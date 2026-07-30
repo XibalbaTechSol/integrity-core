@@ -1,0 +1,84 @@
+#!/usr/bin/env python3
+"""
+Record the outcome of a test run so the next commit's Trust Vault leaf can attest to it.
+
+Without this, every anchored leaf commits to `test_result_hash = "unverified"` — an honest
+statement, but it means the anchored history records only that work *happened*, never that it
+was *sound*. That is the difference between a log and evidence.
+
+Writes `.integrity-test-status` at the repo root (gitignored — it describes a local run, not a
+property of the tree). `scripts/vault_commit_leaf.py` hashes the file's bytes into the leaf, so
+two different passing runs produce different leaves and the commitment is specific rather than
+a bare boolean.
+
+**The tree hash is what makes it non-transferable.** The status records the exact tree the
+suites ran against, so a stale status file from an earlier tree cannot silently vouch for new
+code — the leaf writer treats a tree mismatch as `unverified`, which is the whole point.
+
+Usage:
+    record_test_status.py <suite> <outcome> [detail]
+    record_test_status.py --finalize
+"""
+
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+STATUS = REPO / ".integrity-test-status"
+
+
+def _tree_hash() -> str:
+    """Hash of the working tree's tracked content, so a status cannot outlive the code it ran
+    against. `git stash create` would be cleaner but has side effects; hashing the diff plus
+    HEAD is sufficient to detect that anything changed."""
+    try:
+        head = subprocess.check_output(["git", "-C", str(REPO), "rev-parse", "HEAD"], text=True).strip()
+        diff = subprocess.check_output(["git", "-C", str(REPO), "diff", "HEAD"], text=True)
+    except Exception:
+        return "unknown"
+    from eth_utils import keccak
+
+    return "0x" + keccak(text=head + "\n" + diff).hex()
+
+
+def _load() -> dict:
+    if STATUS.exists():
+        try:
+            return json.loads(STATUS.read_text())
+        except Exception:
+            pass
+    return {"suites": {}, "tree_hash": _tree_hash(), "started_at": int(time.time())}
+
+
+def main() -> int:
+    if len(sys.argv) >= 2 and sys.argv[1] == "--finalize":
+        doc = _load()
+        # Re-stamp the tree hash at finalize time: if the tree changed mid-run, the recorded
+        # hash must reflect what actually ran last rather than what it looked like at the start.
+        doc["tree_hash"] = _tree_hash()
+        doc["finished_at"] = int(time.time())
+        outcomes = [s["outcome"] for s in doc["suites"].values()]
+        doc["overall"] = "pass" if outcomes and all(o == "pass" for o in outcomes) else "fail"
+        STATUS.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
+        print(f"[test-status] {doc['overall']} across {len(outcomes)} suites → {STATUS.name}")
+        return 0
+
+    if len(sys.argv) < 3:
+        print(__doc__, file=sys.stderr)
+        return 2
+
+    suite, outcome = sys.argv[1], sys.argv[2]
+    detail = sys.argv[3] if len(sys.argv) > 3 else ""
+    doc = _load()
+    doc["suites"][suite] = {"outcome": outcome, "detail": detail, "at": int(time.time())}
+    STATUS.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

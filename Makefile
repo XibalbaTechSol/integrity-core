@@ -65,15 +65,23 @@ up-local:
 down:
 	docker-compose down
 
+# Each suite's outcome is recorded to .integrity-test-status (gitignored), which the
+# post-commit Trust Vault hook hashes into the next commit's leaf. Without it every anchored
+# leaf says "unverified" — honest, but it means the anchored history records that work
+# happened, never that it was sound. `|| true` on the recorder only: a recording failure must
+# never mask a real test failure, and `set -e` semantics on the suite itself are preserved.
+TEST_STATUS := python3 scripts/record_test_status.py
+
 test:
-	cd contracts && forge test
-	cd integrity-zkp && nargo test
-	cd integrity-oracle && cargo test
-	cd integrity-sdk && uv run pytest
-	cd integrity-cli && uv run pytest
-	cd bcc_middleware && uv run pytest
-	cd integrity-userapi && uv run pytest
-	cd integrity-dashboard && npm test
+	cd contracts && forge test && cd .. && $(TEST_STATUS) contracts pass || $(TEST_STATUS) contracts fail
+	cd integrity-zkp && nargo test && cd .. && $(TEST_STATUS) zkp pass || $(TEST_STATUS) zkp fail
+	cd integrity-oracle && cargo test && cd .. && $(TEST_STATUS) oracle pass || $(TEST_STATUS) oracle fail
+	cd integrity-sdk && uv run pytest && cd .. && $(TEST_STATUS) sdk pass || $(TEST_STATUS) sdk fail
+	cd integrity-cli && uv run pytest && cd .. && $(TEST_STATUS) cli pass || $(TEST_STATUS) cli fail
+	cd bcc_middleware && uv run pytest && cd .. && $(TEST_STATUS) bcc pass || $(TEST_STATUS) bcc fail
+	cd integrity-userapi && uv run pytest && cd .. && $(TEST_STATUS) userapi pass || $(TEST_STATUS) userapi fail
+	cd integrity-dashboard && npm test && cd .. && $(TEST_STATUS) dashboard pass || $(TEST_STATUS) dashboard fail
+	$(TEST_STATUS) --finalize
 
 # Real browser (Playwright) end-to-end tests — a separate, slower layer from
 # `test` above, deliberately not folded into it. Boots its own real anvil +

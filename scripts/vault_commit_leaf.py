@@ -18,6 +18,7 @@ so every error path exits 0 with a message on stderr.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -35,17 +36,43 @@ def _git(*args: str) -> str:
     return subprocess.check_output(["git", "-C", str(REPO), *args], text=True).strip()
 
 
-def _test_result_hash() -> str:
-    """What is known about tests for this tree, never more.
+def _current_tree_hash() -> str:
+    """Same computation `scripts/record_test_status.py` uses, so the two can be compared."""
+    from eth_utils import keccak
 
-    The file, when present, holds a suite summary written by whatever ran the tests. Its
-    hash goes into the leaf so the claim is specific rather than a bare boolean — two
-    different passing runs produce different leaves, which is what makes the commitment
-    meaningful.
+    try:
+        head = _git("rev-parse", "HEAD")
+        diff = subprocess.check_output(["git", "-C", str(REPO), "diff", "HEAD"], text=True)
+    except Exception:  # noqa: BLE001
+        return "unknown"
+    return "0x" + keccak(text=head + "\n" + diff).hex()
+
+
+def _test_result_hash() -> str:
+    """What is known about tests for THIS tree, never more.
+
+    Three outcomes, and the distinctions are the point:
+
+      * `unverified`        — no run recorded at all
+      * `unverified:stale`  — a run exists but against a different tree, so it says nothing
+                              about this code. Accepting it would let a passing run vouch for
+                              changes made after it, which is precisely the unearned claim this
+                              refuses to anchor.
+      * `0x…`               — hash of the recorded status. Specific rather than a bare boolean,
+                              so two different passing runs produce different leaves.
     """
     if not TEST_STATUS_FILE.exists():
         return "unverified"
+
     from eth_utils import keccak
+
+    try:
+        recorded = json.loads(TEST_STATUS_FILE.read_text()).get("tree_hash")
+    except Exception:  # noqa: BLE001
+        return "unverified"
+
+    if recorded != _current_tree_hash():
+        return "unverified:stale"
 
     return "0x" + keccak(TEST_STATUS_FILE.read_bytes()).hex()
 
