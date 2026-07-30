@@ -1,0 +1,165 @@
+{
+  "_comment": [
+    "Cross-implementation vectors for the Trust Vault Merkle convention.",
+    "Produced by integrity_sdk.vault (Python); verified by contracts/test/VaultMerkle.t.sol",
+    "against the SAME StateAnchor.verifyLeaf the protocol uses on-chain.",
+    "Convention: keccak256 leaves, parents hashed with the pair sorted ascending, and an odd",
+    "node PROMOTED unchanged (never duplicated - duplicating admits a forged extra leaf).",
+    "If these two implementations ever disagree, roots would anchor successfully and then",
+    "fail every verification: silent, and expensive to discover later."
+  ],
+  "count": 15,
+  "vectors": [
+    {
+      "leaf_count": 1,
+      "index": 0,
+      "root": "0xc0ecbc17a8d1c499c26c288b4f525100b1d45cf1b2d8d7887698946edc215509",
+      "leaf": "0xc0ecbc17a8d1c499c26c288b4f525100b1d45cf1b2d8d7887698946edc215509",
+      "proof": []
+    },
+    {
+      "leaf_count": 2,
+      "index": 0,
+      "root": "0xbdde4766b8aa1822d0d56e533c00c6c83b9594e50c9db5951cd13e367a4cf687",
+      "leaf": "0xc0ecbc17a8d1c499c26c288b4f525100b1d45cf1b2d8d7887698946edc215509",
+      "proof": [
+        "0x077f97d1ad2b16cb0ed0bf0bb1e83c980098cbce66cb47b124be0112eb0135e5"
+      ]
+    },
+    {
+      "leaf_count": 2,
+      "index": 1,
+      "root": "0xbdde4766b8aa1822d0d56e533c00c6c83b9594e50c9db5951cd13e367a4cf687",
+      "leaf": "0x077f97d1ad2b16cb0ed0bf0bb1e83c980098cbce66cb47b124be0112eb0135e5",
+      "proof": [
+        "0xc0ecbc17a8d1c499c26c288b4f525100b1d45cf1b2d8d7887698946edc215509"
+      ]
+    },
+    {
+      "leaf_count": 3,
+      "index": 0,
+      "root": "0x417debe9320e7b52176d72adf6dc569d8e7a1c6cca6c0be17ba118dd2644e59e",
+      "leaf": "0xc0ecbc17a8d1c499c26c288b4f525100b1d45cf1b2d8d7887698946edc215509",
+      "proof": [
+        "0x077f97d1ad2b16cb0ed0bf0bb1e83c980098cbce66cb47b124be0112eb0135e5",
+        "0x35aed1a51d1fce1ccd40146a4546370aeb0876bd555e03bff0a5497c5876e7f5"
+      ]
+    },
+    {
+      "leaf_count": 3,
+      "index": 1,
+      "root": "0x417debe9320e7b52176d72adf6dc569d8e7a1c6cca6c0be17ba118dd2644e59e",
+      "leaf": "0x077f97d1ad2b16cb0ed0bf0bb1e83c980098cbce66cb47b124be0112eb0135e5",
+      "proof": [
+        "0xc0ecbc17a8d1c499c26c288b4f525100b1d45cf1b2d8d7887698946edc215509",
+        "0x35aed1a51d1fce1ccd40146a4546370aeb0876bd555e03bff0a5497c5876e7f5"
+      ]
+    },
+    {
+      "leaf_count": 3,
+      "index": 2,
+      "root": "0x417debe9320e7b52176d72adf6dc569d8e7a1c6cca6c0be17ba118dd2644e59e",
+      "leaf": "0x35aed1a51d1fce1ccd40146a4546370aeb0876bd555e03bff0a5497c5876e7f5",
+      "proof": [
+        "0xbdde4766b8aa1822d0d56e533c00c6c83b9594e50c9db5951cd13e367a4cf687"
+      ]
+    },
+    {
+      "leaf_count": 5,
+      "index": 0,
+      "root": "0x2f4dd259e98ae38bf0f6f3a9217ed49e5fa0bfd20c178309ea3722d6f1da60a9",
+      "leaf": "0xc0ecbc17a8d1c499c26c288b4f525100b1d45cf1b2d8d7887698946edc215509",
+      "proof": [
+        "0x077f97d1ad2b16cb0ed0bf0bb1e83c980098cbce66cb47b124be0112eb0135e5",
+        "0x1ba780772859e49d035d38500692c6d3e79b494cdf993535b705b8fdc4d9eecd",
+        "0x964c6f5623c761daa45b48ca80e3aafa4756073eb7346144a34124900ec8efc9"
+      ]
+    },
+    {
+      "leaf_count": 5,
+      "index": 2,
+      "root": "0x2f4dd259e98ae38bf0f6f3a9217ed49e5fa0bfd20c178309ea3722d6f1da60a9",
+      "leaf": "0x35aed1a51d1fce1ccd40146a4546370aeb0876bd555e03bff0a5497c5876e7f5",
+      "proof": [
+        "0xbb89442497e41ed8236c6bb565a539c755109dd61f6a2df949ba57197f8bdc09",
+        "0xbdde4766b8aa1822d0d56e533c00c6c83b9594e50c9db5951cd13e367a4cf687",
+        "0x964c6f5623c761daa45b48ca80e3aafa4756073eb7346144a34124900ec8efc9"
+      ]
+    },
+    {
+      "leaf_count": 5,
+      "index": 4,
+      "root": "0x2f4dd259e98ae38bf0f6f3a9217ed49e5fa0bfd20c178309ea3722d6f1da60a9",
+      "leaf": "0x964c6f5623c761daa45b48ca80e3aafa4756073eb7346144a34124900ec8efc9",
+      "proof": [
+        "0xb33b6907cbeac6169feb950d25eaeed1e1707f96eed4033139414ae6147ce082"
+      ]
+    },
+    {
+      "leaf_count": 8,
+      "index": 0,
+      "root": "0x5a4e328caaa2173873b67a0d0585cf0cb8ac043090e34aa14835b829b0a32b0b",
+      "leaf": "0xc0ecbc17a8d1c499c26c288b4f525100b1d45cf1b2d8d7887698946edc215509",
+      "proof": [
+        "0x077f97d1ad2b16cb0ed0bf0bb1e83c980098cbce66cb47b124be0112eb0135e5",
+        "0x1ba780772859e49d035d38500692c6d3e79b494cdf993535b705b8fdc4d9eecd",
+        "0xbd251d2e1546effb549086f08004368f60e33bd8e9438f53af636c5c7b2f1485"
+      ]
+    },
+    {
+      "leaf_count": 8,
+      "index": 4,
+      "root": "0x5a4e328caaa2173873b67a0d0585cf0cb8ac043090e34aa14835b829b0a32b0b",
+      "leaf": "0x964c6f5623c761daa45b48ca80e3aafa4756073eb7346144a34124900ec8efc9",
+      "proof": [
+        "0xe9b979a1c3527010e349f011ba14c50cdcef878dc9ec964ce3973c423260deb0",
+        "0xe1a5b2a9a1f9d1854f09fdbd2e20f74b677ab7e1273e8891be74e1be2a2c0421",
+        "0xb33b6907cbeac6169feb950d25eaeed1e1707f96eed4033139414ae6147ce082"
+      ]
+    },
+    {
+      "leaf_count": 8,
+      "index": 7,
+      "root": "0x5a4e328caaa2173873b67a0d0585cf0cb8ac043090e34aa14835b829b0a32b0b",
+      "leaf": "0x5c95b792b29c46a7a73239c7b3b4a93627ad47ae25748f573b9b2fe35225cbac",
+      "proof": [
+        "0xd7dd7cdaa13e929bb04ec90ee334bbea541fe2f7dd0a62dbf941a5c09eb4fbe5",
+        "0xb4f492e4dc9e0386b50e2d18d4fa20ac293eb16acc478329b669ee06b5c5877d",
+        "0xb33b6907cbeac6169feb950d25eaeed1e1707f96eed4033139414ae6147ce082"
+      ]
+    },
+    {
+      "leaf_count": 9,
+      "index": 0,
+      "root": "0xdc7a8e148697206e4371ec5b5b99c31d6d20db5e2dc9c67f5541c5242ac9e62a",
+      "leaf": "0xc0ecbc17a8d1c499c26c288b4f525100b1d45cf1b2d8d7887698946edc215509",
+      "proof": [
+        "0x077f97d1ad2b16cb0ed0bf0bb1e83c980098cbce66cb47b124be0112eb0135e5",
+        "0x1ba780772859e49d035d38500692c6d3e79b494cdf993535b705b8fdc4d9eecd",
+        "0xbd251d2e1546effb549086f08004368f60e33bd8e9438f53af636c5c7b2f1485",
+        "0x466518d2b1a7101d7ec753bccf2bcf673bfbe2b645e74a37d294a34ec57a4c91"
+      ]
+    },
+    {
+      "leaf_count": 9,
+      "index": 4,
+      "root": "0xdc7a8e148697206e4371ec5b5b99c31d6d20db5e2dc9c67f5541c5242ac9e62a",
+      "leaf": "0x964c6f5623c761daa45b48ca80e3aafa4756073eb7346144a34124900ec8efc9",
+      "proof": [
+        "0xe9b979a1c3527010e349f011ba14c50cdcef878dc9ec964ce3973c423260deb0",
+        "0xe1a5b2a9a1f9d1854f09fdbd2e20f74b677ab7e1273e8891be74e1be2a2c0421",
+        "0xb33b6907cbeac6169feb950d25eaeed1e1707f96eed4033139414ae6147ce082",
+        "0x466518d2b1a7101d7ec753bccf2bcf673bfbe2b645e74a37d294a34ec57a4c91"
+      ]
+    },
+    {
+      "leaf_count": 9,
+      "index": 8,
+      "root": "0xdc7a8e148697206e4371ec5b5b99c31d6d20db5e2dc9c67f5541c5242ac9e62a",
+      "leaf": "0x466518d2b1a7101d7ec753bccf2bcf673bfbe2b645e74a37d294a34ec57a4c91",
+      "proof": [
+        "0x5a4e328caaa2173873b67a0d0585cf0cb8ac043090e34aa14835b829b0a32b0b"
+      ]
+    }
+  ]
+}
