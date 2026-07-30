@@ -1043,17 +1043,26 @@ pub async fn agent_token_usage(
 ) -> Result<Vec<(String, f64)>, sqlx::Error> {
     sqlx::query_as::<_, (String, f64)>(
         r#"
-        -- Per-series first, then across series. A cumulative counter reports its running
-        -- total every export, so summing its data points multiplies usage by the number of
-        -- exports; MAX is the correct reducer there (monotonic => max is the latest total).
-        -- Delta points are increments and must be summed. See migration 0009.
-        SELECT token_type, SUM(series_total) AS total FROM (
-            SELECT COALESCE(attributes->>'type', 'unspecified') AS token_type,
-                   CASE WHEN temporality = 'cumulative' THEN MAX(value) ELSE SUM(value) END AS series_total
+        -- Reduce per series, then sum across series. Only DELTA points are increments that
+        -- may be summed; everything else (cumulative counters, gauges, and legacy rows
+        -- written before migration 0009 recorded temporality at all) must take the LATEST
+        -- reading for the series. Latest, not MAX: it is correct for a cumulative counter
+        -- (monotonic, so latest is the running total) AND for a gauge (a point-in-time
+        -- reading, where MAX would report a past peak). See migration 0009.
+        SELECT token_type, SUM(v) AS total FROM (
+            SELECT COALESCE(attributes->>'type', 'unspecified') AS token_type, SUM(value) AS v
             FROM otel_metrics
-            WHERE agent_id = $1 AND unit = 'tokens' AND time >= $2
-            GROUP BY 1, attributes, temporality
-        ) per_series
+            WHERE agent_id = $1 AND unit = 'tokens' AND time >= $2 AND temporality = 'delta'
+            GROUP BY 1, attributes
+            UNION ALL
+            SELECT token_type, v FROM (
+                SELECT DISTINCT ON (attributes)
+                       COALESCE(attributes->>'type', 'unspecified') AS token_type, value AS v
+                FROM otel_metrics
+                WHERE agent_id = $1 AND unit = 'tokens' AND time >= $2 AND temporality <> 'delta'
+                ORDER BY attributes, time DESC
+            ) latest_per_series
+        ) reduced
         GROUP BY 1
         ORDER BY 1
         "#,
@@ -1073,14 +1082,21 @@ pub async fn agent_cost_usage(
 ) -> Result<Vec<(String, f64)>, sqlx::Error> {
     sqlx::query_as::<_, (String, f64)>(
         r#"
-        -- Same cumulative-vs-delta reduction as agent_token_usage.
-        SELECT model, SUM(series_total) AS total FROM (
-            SELECT COALESCE(attributes->>'model', 'unspecified') AS model,
-                   CASE WHEN temporality = 'cumulative' THEN MAX(value) ELSE SUM(value) END AS series_total
+        -- Same delta-vs-latest reduction as agent_token_usage.
+        SELECT model, SUM(v) AS total FROM (
+            SELECT COALESCE(attributes->>'model', 'unspecified') AS model, SUM(value) AS v
             FROM otel_metrics
-            WHERE agent_id = $1 AND unit = 'USD' AND time >= $2
-            GROUP BY 1, attributes, temporality
-        ) per_series
+            WHERE agent_id = $1 AND unit = 'USD' AND time >= $2 AND temporality = 'delta'
+            GROUP BY 1, attributes
+            UNION ALL
+            SELECT model, v FROM (
+                SELECT DISTINCT ON (attributes)
+                       COALESCE(attributes->>'model', 'unspecified') AS model, value AS v
+                FROM otel_metrics
+                WHERE agent_id = $1 AND unit = 'USD' AND time >= $2 AND temporality <> 'delta'
+                ORDER BY attributes, time DESC
+            ) latest_per_series
+        ) reduced
         GROUP BY 1
         ORDER BY 2 DESC
         "#,
