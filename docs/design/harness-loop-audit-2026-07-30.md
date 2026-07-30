@@ -121,12 +121,17 @@ kind of finding it exists to produce.
 
 | | before | after |
 |---|---|---|
-| `ais` | **0.0** | **839.41** |
-| `entropy` | 1000 *(default)* | 699.88 *(real Shannon)* |
-| `grounding` | 1000 *(default)* | 973.61 |
-| `sacrifice` | **0.0** | **740.89** |
+| `ais` | **0.0** | **600.0** *(tier-1 ceiling; raw ≈770)* |
+| `entropy` | 1000 *(default)* | 528.86 *(real Shannon)* |
+| `grounding` | 1000 *(default)* | 964.66 |
+| `sacrifice` | **0.0** | **742.64** |
 | `compliance` | 1000 | 1000 |
-| `event_count` | 16 | 36 |
+| `event_count` | 16 | 58 |
+
+The components are now *measurements* that move with the work, rather than
+constants. `entropy` in particular fell from a defaulted 1000 to a real ~529,
+which is the point: the harness had been reporting a perfect score for an axis it
+had never measured.
 
 Two decisions worth surfacing rather than burying:
 
@@ -231,21 +236,28 @@ both runtimes' scores stay comparable.
 character count — a fabricated measurement is worse than an absent one, and
 `sacrifice` is a multiplicative factor in a geometric mean.
 
-### F10 — Deployed images are stale relative to source. *(high, open)*
+### F10 — Deployed images were stale relative to source. *(high, oracle fixed)*
 
 Two independent instances of the same class, both found by running the system
 rather than reading it:
 
-- **Oracle.** The `/ais` endpoint returned **839.41** for a tier-1 agent whose
-  ceiling is **600**. The handler *does* call `score_with_tier`. Cause: the image
-  was built at **03:18:46**; the ceiling commit (`1c6b4d8`) landed at **03:22:18**
-  — 3.5 minutes later. The Verification Ladder is documented, tested, committed,
-  and **not running**.
-- **Dashboard.** The container builds as `integrity-mvp@0.0.0` / Vite 8.1.4 while
-  the source tree is `integrity-dashboard@0.0.0` / Vite 8.0.16.
+- **Oracle — FIXED.** The `/ais` endpoint returned **839.41** for a tier-1 agent
+  whose ceiling is **600**. The handler *does* call `score_with_tier`. Cause: the
+  image was built at **03:18:46**; the ceiling commit (`1c6b4d8`) landed at
+  **03:22:18** — 3.5 minutes later. The Verification Ladder was documented,
+  tested, committed, and **not running**. Rebuilding and redeploying `oracle-backend`
+  closed it: AIS now reports exactly **600.0** (raw geometric ≈770, clipped to the
+  tier-1 ceiling). Both "new" AIS formulas — the weighted geometric mean *and* the
+  Verification Ladder ceiling — are live only as of this audit.
+- **Dashboard — OPEN.** The container builds as `integrity-mvp@0.0.0` / Vite 8.1.4
+  while the source tree is `integrity-dashboard@0.0.0` / Vite 8.0.16.
 
 A security-relevant control that exists in source and not in the running system is
 worse than one that doesn't exist, because the tests pass and the docs are true.
+**Nothing in the repo detects this.** Every other finding in this document was
+measured against a system that might not have been the one in the tree — which is
+why "what makes a build the deployed build?" is listed as an open architectural
+question rather than a chore.
 
 ### F11 — The dashboard was down from two unrelated faults. *(fixed)*
 
@@ -312,8 +324,8 @@ These are the choices to iterate on. Each is a genuine fork, not an oversight.
 
 | Priority | Action | Why |
 |---|---|---|
-| 1 | Rebuild + redeploy oracle and dashboard images; add a staleness check to `make up` | F10 — a live security control is currently not running |
-| 2 | Move vault anchoring off the SessionEnd critical path | F4 — 9 leaves pending; memory is primitive #1 and gates registration |
+| 1 | Add a build-staleness check to `make up` (compare image build time to `git log -1`) | F10 — the oracle is fixed, but nothing prevents recurrence, and the dashboard image is still stale |
+| 2 | Move vault anchoring off the SessionEnd critical path | F4 — 10 leaves pending; memory is primitive #1 and gates registration |
 | 3 | Gate Hermes tool calls through BCC | F8 — an entire ungated runtime |
 | 4 | Have the oracle group AIS by `runtime` | F8 — makes the discriminator useful rather than merely recorded |
 | 5 | Populate `test_result_hash` from real test runs | F5 — anchored evidence currently attests to nothing |
@@ -332,5 +344,7 @@ These are the choices to iterate on. Each is a genuine fork, not an oversight.
 | Token delta prevents double-count | **confirmed** — call 1 reports, calls 2–3 omit |
 | Intent classifier | 8/8 cases correct |
 | Live hook replay (Pre + Post) | both exit 0, telemetry flushed |
-| Live AIS | **0.0 → 839.41** |
+| Live AIS | **0.0 → 600.0** (tier ceiling now enforced) |
+| Tier ceiling live after oracle rebuild | **confirmed** — 839.41 → 600.0 |
+| Gate denies classified intents | **confirmed** — 3 of 7 `claude_tool:*` cases denied |
 | Dashboard | renders, no console errors |
