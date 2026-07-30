@@ -4,6 +4,8 @@ migrations/0001_init.sql -- not a faked/hand-written schema."""
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import asyncpg
 
 from app import db
@@ -19,7 +21,15 @@ async def test_run_migrations_creates_real_tables(db_pool: asyncpg.Pool) -> None
     applied_filenames = {
         row["filename"] for row in await db_pool.fetch("SELECT filename FROM schema_migrations")
     }
-    assert applied_filenames == {"0001_init.sql", "0002_jwt_revocation.sql", "0003_user_wallets.sql"}
+    # Compare against what is actually on disk rather than a hardcoded set. The previous
+    # literal set went stale the moment 0003_user_wallets.sql was added (commit e68343c)
+    # and failed on every run afterwards; the property worth asserting is "every migration
+    # file was applied", which stays true as migrations are added.
+    expected_filenames = {
+        path.name for path in (Path(db.__file__).parent.parent / "migrations").glob("*.sql")
+    }
+    assert expected_filenames, "no migration files found — the glob path is wrong"
+    assert applied_filenames == expected_filenames
 
     tables = {
         row["table_name"]

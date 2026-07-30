@@ -493,9 +493,10 @@ pub(crate) async fn compute_ais_for_agent(state: &AppState, id: &str) -> Result<
         penalty_ratio: aggregate.penalty_ratio,
         zk_verified_this_period: aggregate.zk_verified_this_period,
     };
+    let agent = db::get_agent(&state.pool, id).await?.ok_or_else(|| AppError::AgentNotFound(id.to_string()))?;
 
     let engine = scoring_core::AisEngine::new(state.config.ais_weights).map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
-    let breakdown = engine.score(&inputs);
+    let breakdown = engine.score_with_tier(&inputs, agent.verification_tier);
 
     let onchain_zk_boost_consistent = match db::get_agent_primitives(&state.pool, id).await? {
         Some(row) => {
@@ -598,8 +599,25 @@ pub struct JudgeEvaluationDto {
     pub rationale_summary: Option<String>,
 }
 
+/// Highest signed-telemetry envelope version this build can interpret. Must move in step
+/// with `integrity-sdk`'s `TELEMETRY_SCHEMA_VERSION`; pinned in
+/// `docs/INTERFACE_CONTRACT.md` §4.2a.
+///
+/// A payload above this is refused rather than parsed on a guess — misreading a future shape
+/// and then storing it as signed evidence is worse than rejecting it.
+pub const MAX_TELEMETRY_SCHEMA_VERSION: i64 = 1;
+
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct TelemetryIngestRequest {
+    /// Version of the signed envelope. Inside the signed object, so it cannot be rewritten
+    /// in transit to make this handler reinterpret a payload under different rules.
+    ///
+    /// `None` means the pre-versioning shape, which stays valid forever — signed payloads
+    /// are evidence and old evidence must remain verifiable. Critically, the signable bytes
+    /// are rebuilt WITHOUT the key when this is `None`: serializing it as `null` would
+    /// change the canonical JSON and break every historical signature.
+    #[serde(default)]
+    pub schema_version: Option<i64>,
     pub agent_id: String,
     pub nonce: i64,
     #[serde(default)]
@@ -709,8 +727,29 @@ async fn oracle_compliance(state: &AppState, req: &TelemetryIngestRequest) -> f6
 )]
 pub async fn ingest_telemetry(
     State(state): State<AppState>,
-    Json(req): Json<TelemetryIngestRequest>,
+    body: axum::body::Bytes,
 ) -> Result<Json<TelemetryIngestResponse>, AppError> {
+    let mut payload_value: serde_json::Value = serde_json::from_slice(&body)
+        .map_err(|e| AppError::BadRequest(format!("invalid JSON body: {}", e)))?;
+
+    let req: TelemetryIngestRequest = serde_json::from_value(payload_value.clone())
+        .map_err(|e| AppError::BadRequest(format!("malformed telemetry request: {}", e)))?;
+    // Reject an envelope version this build cannot interpret, rather than parsing it under
+    // the wrong rules and storing a misread payload as signed evidence. Runs before anything
+    // else: if the shape is unknown, no other check on it means anything.
+    //
+    // `None` is accepted deliberately — it is the pre-versioning shape, and those signatures
+    // must keep verifying (see `TelemetryIngestRequest::schema_version`).
+    if let Some(version) = req.schema_version {
+        if version > MAX_TELEMETRY_SCHEMA_VERSION || version < 1 {
+            return Err(AppError::BadRequest(format!(
+                "unsupported telemetry schema_version {version}: this oracle understands \
+                 1..={MAX_TELEMETRY_SCHEMA_VERSION} (or an absent field, meaning the \
+                 pre-versioning envelope). Upgrade the oracle before sending this shape."
+            )));
+        }
+    }
+
     // Defense-in-depth PHI/PII/secret backstop (see crate::phi's doc comment): scan the
     // free-text-bearing parts of the payload for a raw pattern integrity-sdk's
     // client-side Redactor should already have masked. A hit here means that
@@ -726,10 +765,19 @@ pub async fn ingest_telemetry(
             phi::scan_json_value(&judge_value, &mut phi_hits);
         }
     }
-    if !phi_hits.is_empty() {
-        phi_hits.sort_unstable();
-        phi_hits.dedup();
-        return Err(AppError::PhiDetected(phi_hits.into_iter().map(str::to_string).collect()));
+    // Mode-driven: `reject` (default) refuses the payload, `flag` stores it with the matched
+    // categories recorded on the row so the risk stays visible, `off` skips entirely. See
+    // `config::PhiBackstopMode` for why development needs anything other than reject.
+    let phi_flags = match phi::apply_backstop(state.config.phi_backstop_mode, phi_hits) {
+        Ok(flags) => flags,
+        Err(categories) => return Err(AppError::PhiDetected(categories)),
+    };
+    if let Some(categories) = &phi_flags {
+        tracing::warn!(
+            agent_id = %req.agent_id,
+            categories = ?categories,
+            "PHI backstop matched but mode=flag — storing payload with flags rather than rejecting"
+        );
     }
 
     let agent = db::get_agent(&state.pool, &req.agent_id)
@@ -738,18 +786,15 @@ pub async fn ingest_telemetry(
 
     check_telemetry_rate_limit(&state, &req.agent_id).await?;
 
-    // Rebuild exactly the JSON object the client should have signed: every field of the
-    // request except `signature` itself. Re-serializing the typed struct with a
-    // `#[serde(skip_serializing)]`-free copy keeps this in one place rather than hand-
-    // building a parallel `serde_json::Map`.
-    let signable = serde_json::json!({
-        "agent_id": req.agent_id,
-        "nonce": req.nonce,
-        "otel_spans": req.otel_spans,
-        "derived_signals": req.derived_signals,
-        "zk_proof": req.zk_proof,
-    });
-    let message = crypto::canonical_json_bytes(&signable);
+    // We verify the signature against the exact JSON structure sent by the client.
+    // Instead of rebuilding the signable object from the typed struct (which re-serializes
+    // floats and can subtly change byte representation), we simply remove the `signature`
+    // (and optional `judge_evaluation`) from the raw parsed JSON value.
+    if let serde_json::Value::Object(ref mut map) = payload_value {
+        map.remove("signature");
+        map.remove("judge_evaluation");
+    }
+    let message = crypto::canonical_json_bytes(&payload_value);
 
     // `ed25519_pubkey` is stored as raw bytes (BYTEA), but the verification method needs a
     // hex string — hex-encode once here rather than changing the crypto module's signature
@@ -841,6 +886,7 @@ pub async fn ingest_telemetry(
         zk_verified,
         &leaf_hash,
         &payload_json,
+        phi_flags.as_deref(),
     )
     .await
     .map_err(|e| match e {
@@ -2317,6 +2363,122 @@ fn parse_bucket_interval(raw: Option<&str>) -> Result<&'static str, AppError> {
 /// `compute_ais_for_agent`'s 30-day (`AIS_REPORTING_PERIOD_DAYS`) scoring window — the
 /// two are read for different purposes (a chart's default view vs. the score itself)
 /// and don't need to share a constant.
+// ---------------------------------------------------------------------------------
+// GET /v1/agent/{id}/usage  +  /v1/agent/{id}/events  — vendor OTLP telemetry readback
+// ---------------------------------------------------------------------------------
+
+/// Token and cost rollup for an agent, from the OTLP metrics receiver (`otel_metrics`).
+///
+/// `tokens` is keyed by the emitter's token `type` attribute, so Claude Code yields
+/// `input` / `output` / `cacheRead` / `cacheCreation` — the breakdown the signed telemetry
+/// path cannot supply, since providers report cache and reasoning tokens only in their own
+/// usage objects.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AgentUsageDto {
+    pub agent_id: String,
+    /// token type -> summed count over the window.
+    pub tokens: std::collections::BTreeMap<String, f64>,
+    pub total_tokens: f64,
+    /// model -> summed reported cost in USD.
+    pub cost_usd_by_model: std::collections::BTreeMap<String, f64>,
+    pub total_cost_usd: f64,
+    /// Always `"unsigned_vendor"`. This data arrives over the UNAUTHENTICATED OTLP port and
+    /// carries no agent signature, so it is deliberately NOT an AIS input — it is reported
+    /// here for observability and for cross-checking what an agent signs against what its
+    /// runtime reports. Surfaced in the response so a consumer cannot mistake it for
+    /// agent-attested evidence.
+    pub evidence_tier: String,
+    pub since: chrono::DateTime<Utc>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/agent/{id}/usage",
+    params(("id" = String, Path, description = "Agent DID")),
+    responses((status = 200, description = "Token/cost rollup from vendor OTLP metrics", body = AgentUsageDto)),
+    tag = "telemetry",
+)]
+pub async fn get_agent_usage(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<HistoryQuery>,
+) -> Result<Json<AgentUsageDto>, AppError> {
+    let since = query.since.unwrap_or_else(default_history_since);
+
+    let tokens: std::collections::BTreeMap<String, f64> =
+        db::agent_token_usage(&state.pool, &id, since).await?.into_iter().collect();
+    let cost_usd_by_model: std::collections::BTreeMap<String, f64> =
+        db::agent_cost_usage(&state.pool, &id, since).await?.into_iter().collect();
+
+    // Normalize negative zero: summing an empty set can yield -0.0, which serializes as
+    // "-0.0" and renders as "-0.0000" in a cost field. `-0.0 == 0.0` is true, so this
+    // comparison catches it without special-casing the sign bit.
+    fn no_neg_zero(v: f64) -> f64 {
+        if v == 0.0 { 0.0 } else { v }
+    }
+
+    Ok(Json(AgentUsageDto {
+        agent_id: id,
+        total_tokens: no_neg_zero(tokens.values().sum()),
+        total_cost_usd: no_neg_zero(cost_usd_by_model.values().sum()),
+        tokens,
+        cost_usd_by_model,
+        evidence_tier: crate::otlp::EVIDENCE_TIER_UNSIGNED_VENDOR.to_string(),
+        since,
+    }))
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AgentEventDto {
+    pub event_name: Option<String>,
+    pub severity_text: Option<String>,
+    pub body: Option<String>,
+    pub attributes: serde_json::Value,
+    pub trace_id: Option<String>,
+    pub span_id: Option<String>,
+    pub time: chrono::DateTime<Utc>,
+    pub evidence_tier: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema, utoipa::IntoParams)]
+pub struct EventsQuery {
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/agent/{id}/events",
+    params(("id" = String, Path, description = "Agent DID")),
+    responses((status = 200, description = "Recent structured events from vendor OTLP logs", body = Vec<AgentEventDto>)),
+    tag = "telemetry",
+)]
+pub async fn get_agent_events(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<EventsQuery>,
+) -> Result<Json<Vec<AgentEventDto>>, AppError> {
+    // Clamped, not merely defaulted: an unbounded `limit` on a hypertable scan is a trivial
+    // way to make this endpoint expensive from outside.
+    let limit = query.limit.unwrap_or(100).clamp(1, 500);
+
+    let rows = db::recent_otel_logs(&state.pool, &id, limit).await?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| AgentEventDto {
+                event_name: r.event_name,
+                severity_text: r.severity_text,
+                body: r.body,
+                attributes: r.attributes,
+                trace_id: r.trace_id,
+                span_id: r.span_id,
+                time: r.time,
+                evidence_tier: crate::otlp::EVIDENCE_TIER_UNSIGNED_VENDOR.to_string(),
+            })
+            .collect(),
+    ))
+}
+
 fn default_history_since() -> chrono::DateTime<Utc> {
     Utc::now() - chrono::Duration::days(7)
 }
@@ -2353,9 +2515,8 @@ pub async fn get_ais_history(
     Path(id): Path<String>,
     Query(query): Query<HistoryQuery>,
 ) -> Result<Json<Vec<AisHistoryPoint>>, AppError> {
-    if db::get_agent(&state.pool, &id).await?.is_none() {
-        return Err(AppError::AgentNotFound(id));
-    }
+    let agent = db::get_agent(&state.pool, &id).await?.ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+    let tier = agent.verification_tier;
 
     let bucket = parse_bucket_interval(query.bucket.as_deref())?;
     let since = query.since.unwrap_or_else(default_history_since);
@@ -2373,7 +2534,7 @@ pub async fn get_ais_history(
                 penalty_ratio: b.penalty_ratio,
                 zk_verified_this_period: b.zk_verified_this_period,
             };
-            let breakdown = engine.score(&inputs);
+            let breakdown = engine.score_with_tier(&inputs, tier);
             AisHistoryPoint {
                 bucket_start: b.bucket_start,
                 ais: breakdown.ais,

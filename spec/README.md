@@ -10,6 +10,20 @@ engineers (human or agent) building the packages in this repo. `docs/INTERFACE_C
 can and does change as internals get reworked; the specs here are the promises made to
 people outside this repo.
 
+## The design specification
+
+[`integrity-protocol-v0.4.md`](integrity-protocol-v0.4.md) is the **normative design
+specification** — foundational primitives, AIS, memory, authority, interop. It supersedes
+`Integrity_Protocol_Specification_v0.3.pdf`.
+
+It lives here, in markdown and under version control, deliberately: a specification that
+cannot be diffed, reviewed in a pull request, or kept in step with the code by any mechanism
+other than someone remembering is a coherence problem in a protocol whose premise is
+independently checkable state.
+
+Note it is a different kind of document from the wire surfaces below: the spec states what the
+protocol *is*; the surfaces are the interfaces third parties integrate against.
+
 ## Surfaces
 
 | Surface | Status | Directory |

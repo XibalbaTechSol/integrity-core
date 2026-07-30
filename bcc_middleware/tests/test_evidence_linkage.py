@@ -44,11 +44,7 @@ def test_allow_decision_records_leaf_metadata(client, real_opa_server, monkeypat
     main_module.nonce_store.reset()
 
     reported: list[dict] = []
-    monkeypatch.setattr(
-        main_module,
-        "_report_decision_background",
-        lambda settings, **kw: reported.append(kw),
-    )
+    monkeypatch.setattr(main_module.audit_module, "report_decision", lambda settings, **kw: reported.append(kw))
 
     agent_id, private_key = new_agent()
     payload = sign_commitment(private_key, agent_id=agent_id, intent_type="payment", nonce=1)

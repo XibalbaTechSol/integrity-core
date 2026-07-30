@@ -2,7 +2,7 @@
 
 > Content catalog. Every page represents something that actually exists in
 > the codebase right now — see the schema's "no aspirational content" rule.
-> Last updated: 2026-07-29 | Total pages: 28 (20 concepts, 8 entities)
+> Last updated: 2026-07-30 | Total pages: 30 (22 concepts, 8 entities)
 
 ## Acronym glossary
 - [AIS](concepts/ais.md) — Agent Integrity Score
@@ -13,7 +13,8 @@
 - [ZKP](concepts/zkp.md) — Zero-Knowledge Proof(ing pipeline)
 
 ## Concepts
-- [Agent Primitives (Self-Sovereign Identity)](concepts/agent-primitives.md) — the 7 per-agent contracts; **start here**
+- [The Four Foundational Primitives](concepts/foundational-primitives.md) — memory, agent-owned contracts, authority, reputation: the **concepts**; **start here**
+- [Agent Primitives (Self-Sovereign Identity)](concepts/agent-primitives.md) — the 7 per-agent **contracts** (`PrimitiveSet`) — a different sense of "primitive", see the note at the top of both pages
 - [ComplianceGate & Xibalba Shield](concepts/compliance-gate.md) — the HIPAA/healthcare vertical
 - [Agent Integrity Score](concepts/ais.md)
 - [Telemetry Ingestion Pipeline](concepts/telemetry-ingestion.md) — end-to-end: SDK collection, batching, signing, the oracle's 11-step ordered request pipeline, AIS scoring, the separate unauthenticated OTLP path (built)
@@ -31,6 +32,7 @@
 - [A2A Negotiation Protocol](concepts/a2a-negotiation-spec.md) — `[PLANNED]`
 - [ZK-ML Model-Inference Verification](concepts/zk-ml-spec.md) — `[PLANNED]`
 - [Persistent Memory, Genesis Root & Lineage](concepts/agent-memory.md) — **foundational primitive** (spec v0.3 §4.1): Trust Vault anchored on the agent's existing `StateAnchor` (no 8th primitive), agent-authorized genesis root, `400 MemoryNotInitialized` registration gate. `[PARTIALLY BUILT]` — gate + SDK anchoring enforced; contract-level epoch-1 restriction and lineage open
+- [Persistent Memory Configuration Guide](concepts/persistent-memory.md) — how users/agents can config memory systems.
 - [Testing Strategy](concepts/testing-strategy.md) — the 3-layer test pyramid, incl. new Playwright E2E (built)
 - [AIS API — Versioned Wire Spec](concepts/ais-api-spec.md) — the generated, externally-supported `/v1/*` spec at `spec/ais-api/` (built)
 
@@ -58,3 +60,5 @@ prove insufficient)*
   the `judge_evaluations` ingestion schema is designed but the actual
   scoring rubric is an open product question, not an engineering one. See
   [Observability & PHI Safety](concepts/observability-vtl.md).
+
+- [Gas Tracking](queries/gas-tracking.md) — Automated SDK gas optimization loop

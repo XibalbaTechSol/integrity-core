@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { CinematicHeader } from '../components/landing/CinematicHeader';
 import { HeroSection } from '../components/landing/HeroSection';
-import { TrustGapSection, DevQuickstartSection, ProgrammableEscrowsSection, EconomicUseCasesSection, PrivacyArchitectureSection } from '../components/landing/CoreFeatures';
+import { AgentPrimitivesSection, DevQuickstartSection, ProgrammableEscrowsSection, EconomicUseCasesSection, PrivacyArchitectureSection, AisMathSection } from '../components/landing/CoreFeatures';
 import { EcosystemFeatures } from '../components/landing/EcosystemFeatures';
 import { FAQSection } from '../components/landing/FAQSection';
 import { ContactFormSection } from '../components/landing/ContactFormSection';
@@ -19,18 +19,13 @@ export const LandingPage = () => {
             <CinematicHeader setIsContactOpen={setIsContactOpen} setContactType={setContactType} />
             <HeroSection setContactType={setContactType} setIsContactOpen={setIsContactOpen} setIsRegistryOpen={setIsRegistryOpen} />
             
-            <TrustGapSection />
+            <AgentPrimitivesSection />
+            <AisMathSection />
             <ProgrammableEscrowsSection />
             <EconomicUseCasesSection />
             <PrivacyArchitectureSection />
             
-            <div style={{ padding: '80px 0', background: 'var(--navy-deep)' }}>
-                <div style={{ textAlign: 'center', marginBottom: '40px' }}>
-                    <h2 style={{ fontSize: '2.5rem', fontWeight: 800 }}>Start Building</h2>
-                    <p style={{ color: 'rgba(255,255,255,0.6)' }}>Integrate the Integrity Protocol into your stack.</p>
-                </div>
-                <DevQuickstartSection setContactType={setContactType} setIsContactOpen={setIsContactOpen} />
-            </div>
+            <DevQuickstartSection setContactType={setContactType} setIsContactOpen={setIsContactOpen} />
 
             <EcosystemFeatures setIsContactOpen={setIsContactOpen} setContactType={setContactType} />
             

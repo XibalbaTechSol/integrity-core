@@ -192,7 +192,7 @@ see `PRODUCTION_GAPS.md` for that gap if it ever needs to.)
 
 ### 4.3 Agent Integrity Score (AIS)
 Formula (from the product spec, keep as-is):
-`AIS = (S_entropy*wE + S_grounding*wG + S_sacrifice*wS + S_compliance*wC) * ZK_boost`
+`AIS = (S_entropy^wE * S_grounding^wG * S_sacrifice^wS * S_compliance^wC) * ZK_boost`
 
 Default weights (must sum to 1.0, make them configurable but ship this default):
 `wE = 0.30, wG = 0.30, wS = 0.20, wC = 0.20`. `ZK_boost` is `1.15` when a real
@@ -214,6 +214,34 @@ vs. `payload.oracle_recomputed_signals`) — it does not feed the formula. See
 [`docs/wiki/concepts/ais.md`](wiki/concepts/ais.md) for the full data-flow diagram and
 `PRODUCTION_GAPS.md` §1a for what's still open (ZK-boost is a period-wide, not per-event,
 binding; no oracle-to-chain score push exists yet).
+
+### 4.2a Signed telemetry envelope version
+
+The signed object of `POST /v1/telemetry/ingest` carries `schema_version`, an integer
+**inside the signature**:
+
+```
+schema_version = 1          # integrity_sdk.client.TELEMETRY_SCHEMA_VERSION
+                            # backend::handlers::MAX_TELEMETRY_SCHEMA_VERSION
+```
+
+Both constants must move together. Rules, all load-bearing:
+
+- **Inside the signed object, not beside it.** A version outside the signature could be
+  rewritten in transit to make the oracle reinterpret a payload under different rules.
+- **An absent `schema_version` is the pre-versioning envelope and stays valid forever.**
+  Signed payloads are evidence; old evidence must remain verifiable. The oracle therefore
+  rebuilds the signable bytes **without the key** when a request omits it — serializing it as
+  `null` would change the canonical JSON and reject every historical signature.
+- **A version above `MAX_TELEMETRY_SCHEMA_VERSION` is refused (400), not parsed.** Misreading
+  a future shape and storing it as signed evidence is worse than rejecting it.
+- Bumping the version is therefore a coordinated change: raise the SDK constant, raise the
+  oracle's maximum, and deploy the oracle **first** so it can accept the new shape before any
+  agent emits it.
+
+Covered by `oracle_e2e_telemetry_schema_version_is_signed_and_backward_compatible`, which
+asserts all four: legacy accepted, v1 accepted, unknown refused, and an injected version
+failing verification.
 
 ### 4.4 Merkle tree convention (must match between integrity-oracle and contracts)
 - Hash function: `keccak256` (not SHA-256) — this tree's root gets verified on-chain in

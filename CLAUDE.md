@@ -117,10 +117,26 @@ bridge), `markets/` (agent-owned prediction markets + capital pool), `shield/` (
 wholesale by `make generate-verifier`, which runs `integrity-zkp`'s `bb write_solidity_verifier`
 pipeline — comment in the file says "WILL BE REPLACED WHOLESALE, NOT EDITED."
 
-### Persistent memory is a foundational primitive (spec v0.3 §4.1) — it gates registration
+### The four foundational primitives
 
-Memory is not a convenience layer here; it ranks with identity, commitment, stake, and
-observability. **An agent with no anchored memory cannot register.** Every agent must
+Concepts, not contracts: **memory** (continuity), **agent-owned contracts** (capability with
+consequence — stake lives here), **authority** (delegated permission the agent cannot
+self-grant), **reputation** (earned, non-forgeable standing). Beware the word: the *seven*
+per-agent contracts (`PrimitiveSet`) are a different sense, and only the second concept is a
+contract at all. AIS is a score over reputation, not a primitive.
+
+Authority is built only in the Shield vertical so far — `SmartBAA` is already a delegation
+instrument — and generalizing it is what closes the client-supplied `covered_entity_address`
+hole. Termination (how an agent's standing ends) is formalized but deliberately unadopted: it
+needs registry mutability, the same question the upgradeability decision faces.
+
+Normative in `spec/integrity-protocol-v0.4.md` §4 (supersedes the v0.3 PDF). Wiki statement:
+`docs/wiki/concepts/foundational-primitives.md`; derivation: `docs/design/primitive-set-coherence.md`.
+
+### Persistent memory (primitive #1) — it gates registration
+
+Memory is not a convenience layer here; it is the first of the four above, and the one the
+others presuppose. **An agent with no anchored memory cannot register.** Every agent must
 anchor a *genesis memory root* on its own `StateAnchor` — signed by the agent's controller,
 never by the protocol — and the oracle independently re-reads `StateAnchor.latestRoot` on
 `POST /v1/agent/register`, refusing a zero root with `400 MemoryNotInitialized`

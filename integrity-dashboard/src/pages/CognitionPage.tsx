@@ -6,12 +6,14 @@ import { COTPlatform } from '../components/tabs/COTPlatform';
 import { DiagnosticsPanel } from '../components/tabs/DiagnosticsPanel';
 import { EvalsPanel } from '../components/tabs/EvalsPanel';
 import { ObservabilityHub } from '../components/tabs/ObservabilityHub';
+import { TokenUsagePanel } from '../components/tabs/TokenUsagePanel';
 
 export function CognitionPage() {
   const [showReasoning, setShowReasoning] = useState(true);
   const [showDiagnostics, setShowDiagnostics] = useState(true);
   const [showEvals, setShowEvals] = useState(true);
   const [showObservability, setShowObservability] = useState(true);
+  const [showUsage, setShowUsage] = useState(true);
 
   return (
     <div
@@ -46,7 +48,8 @@ export function CognitionPage() {
             { id: 'observability', label: 'Observability Hub', state: showObservability, set: setShowObservability },
             { id: 'reasoning', label: 'Reasoning Traces', state: showReasoning, set: setShowReasoning },
             { id: 'diagnostics', label: 'Agent Diagnostics', state: showDiagnostics, set: setShowDiagnostics },
-            { id: 'evals', label: 'Mechanistic Evals', state: showEvals, set: setShowEvals }
+            { id: 'evals', label: 'Mechanistic Evals', state: showEvals, set: setShowEvals },
+            { id: 'usage', label: 'Token & Cost', state: showUsage, set: setShowUsage }
           ].map(module => (
             <button
               key={module.id}
@@ -96,6 +99,8 @@ export function CognitionPage() {
             <EvalsPanel />
           </Panel>
         )}
+
+        {showUsage && <TokenUsagePanel />}
 
         {showObservability && (
           <Panel title="Observability Hub (LangSmith-style)" icon={<Brain size={18} />}>

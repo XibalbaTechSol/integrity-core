@@ -16,7 +16,35 @@ identity. Nothing is registered *on behalf of* the agent by a privileged
 factory — the deployment transactions are signed by the agent's own key, so the
 chain itself is cryptographic proof of who controls what.
 
-### Persistent memory is a foundational primitive
+### The four foundational primitives
+
+The protocol rests on four concepts, each answering one question a counterparty must resolve
+before delegating anything of value. The order is a progression — each presupposes the one
+above it:
+
+| # | Primitive | Question |
+|---|---|---|
+| 1 | **Persistent Memory** | Is this the same agent over time? |
+| 2 | **Agent-Owned Contracts** | Can it act, and can it lose? |
+| 3 | **Authority** | *May* it act, and for whom? |
+| 4 | **Reputation** | *How* has it acted? |
+
+Two notes that prevent the usual confusions. **"Primitive" is used in two senses here:** these
+four are *concepts*; the [seven per-agent contracts](docs/wiki/concepts/agent-primitives.md)
+(`PrimitiveSet`) are *contracts*, and only #2 is a contract at all. And **AIS is not a
+primitive** — reputation is the record, AIS is a replaceable weighted score over it. Change
+the formula and the record stands; delete the record and no formula means anything.
+
+Bonded stake sits inside #2 rather than standing alone: you can only stake what you own, and
+ownership only means something when losing it hurts. Cryptographic self-sovereignty is
+deliberately absent — keys are the substrate all four are *expressed in*, so it belongs with
+the medium's properties, not as a peer of what it enables.
+
+Full derivation, including why the set is complete against the protocol's own definition of an
+Economic Sovereign:
+[The Four Foundational Primitives](docs/wiki/concepts/foundational-primitives.md).
+
+### 1. Persistent memory
 
 An agent that cannot carry state across sessions is not an economic actor — it is a
 stateless function invoked repeatedly. So **persistent memory sits alongside identity,
@@ -401,6 +429,13 @@ minting through the agent requires its controller key on the machine — true fo
 single-operator testnet, false for a third party registering their own agent, which would
 need a faucet service the liquidity agent runs. The funder EOA retains `MINTER_ROLE` as
 issuer of last resort. See [`PRODUCTION_GAPS.md`](PRODUCTION_GAPS.md) §20.
+
+**Before mainnet:** see [`docs/MAINNET_READINESS.md`](docs/MAINNET_READINESS.md) — the
+blocker list, ordered by consequence. The headline items: all six protocol roles are
+currently one EOA that also holds `MINTER_ROLE`; the ZK verifier is a placeholder that
+always reverts; and `SovereignAgent`/`StateAnchor` are deployed per-agent and non-
+upgradeable, so the upgrade-path decision must be made *before* the first mainnet agent
+exists.
 
 **Known non-conformance, stated plainly:** registration now enforces spec v0.3 §4.1/§7.1
 — an agent with no anchored genesis memory root is refused with `400

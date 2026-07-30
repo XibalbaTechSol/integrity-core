@@ -4,17 +4,14 @@ created: 2026-07-07
 updated: 2026-07-25
 type: entity
 tags: [infrastructure, sdk]
-confidence: high
+confidence: medium
 source_files:
   - integrity-dashboard/src/App.tsx
   - integrity-dashboard/src/config.ts
   - integrity-dashboard/src/chain/bytecode.ts
-  - integrity-dashboard/src/chain/deployments.ts
   - integrity-dashboard/src/components/ui/RegisterAgentModal.tsx
-  - integrity-dashboard/src/hooks/useSovereignAgentWrite.ts
   - integrity-dashboard/src/services/oracle.ts
   - integrity-dashboard/src/services/userapi.ts
-  - integrity-dashboard/src/services/api.ts
   - integrity-dashboard/src/components/shared/SeededDataBadge.tsx
   - integrity-dashboard/demo/src/integrity_demo/main.py
   - integrity-dashboard/demo/src/integrity_demo/agent_loop.py

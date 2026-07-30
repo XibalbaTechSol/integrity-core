@@ -9,7 +9,8 @@ one-line descriptions — the canonical index this page summarizes),
 decisions live in `../INTERFACE_CONTRACT.md`; how this wiki gets kept in
 sync with the code is `../../.agents/AGENTS.md`.
 
-**Start here** if you're new: [Agent Primitives](concepts/agent-primitives.md)
+**Start here** if you're new: [The Four Foundational Primitives](concepts/foundational-primitives.md)
+(the concepts), then [Agent Primitives](concepts/agent-primitives.md)
 (the 7 per-agent contracts every other page assumes you understand) and
 [Persistent Memory](concepts/agent-memory.md) (the continuity primitive that
 gates registration), then [AIS](concepts/ais.md) (the trust score) and
@@ -62,7 +63,8 @@ flowchart TB
 ## Table of contents
 
 ### Concepts — identity & on-chain primitives
-- [Agent Primitives (Self-Sovereign Identity)](concepts/agent-primitives.md) — the 7 per-agent contracts; **start here**
+- [The Four Foundational Primitives](concepts/foundational-primitives.md) — the concepts the protocol rests on; **start here**
+- [Agent Primitives (Self-Sovereign Identity)](concepts/agent-primitives.md) — the 7 per-agent *contracts* (a different sense of the word)
 - [Persistent Memory, Genesis Root & Lineage](concepts/agent-memory.md) — **foundational primitive**: no agent registers without an anchored genesis memory root (`[PARTIALLY BUILT]`)
 - [Decentralized Identifier (DID)](concepts/did.md)
 - [Identity Ceiling & Verification Ladder](concepts/identity-ceiling.md) — `[PARTIALLY BUILT]`

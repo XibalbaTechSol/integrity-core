@@ -50,3 +50,8 @@ Verifier.toml
 # grants) — not meant to be shared, same convention as .env.local.
 .claude/settings.local.json
 .anvil-state.json
+
+# Local test-run record consumed by the Trust Vault post-commit hook. Describes a run on THIS
+# machine against THIS tree, not a property of the repository — committing it would let one
+# developer's run vouch for everyone's commits.
+.integrity-test-status

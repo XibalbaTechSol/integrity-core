@@ -17,7 +17,11 @@ fs_permissions = [
   { access = "read-write", path = "/home/runner/work/integrity-latest/integrity-latest/deployments.local.json" },
   { access = "read-write", path = "../deployments.baseSepolia.json" },
   { access = "read", path = "./" },
-  { access = "read", path = "../contracts" }
+  { access = "read", path = "../contracts" },
+  # Shared cross-implementation vectors (spec/vault-merkle, spec/token-accounting). Read-only
+  # and scoped: VaultMerkle.t.sol verifies that the PYTHON SDK's Merkle output is accepted by
+  # StateAnchor on-chain, which means reading vectors the other implementation produced.
+  { access = "read", path = "../spec" }
 ]
 
 remappings = [

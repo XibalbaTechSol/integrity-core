@@ -211,10 +211,11 @@ impl AisEngine {
             NO_ZK_BOOST_FACTOR
         };
 
-        let weighted = s_entropy * self.weights.w_entropy
-            + s_grounding * self.weights.w_grounding
-            + s_sacrifice * self.weights.w_sacrifice
-            + s_compliance * self.weights.w_compliance;
+        // Use the Weighted Geometric Mean (Volume formula) instead of Arithmetic Mean
+        let weighted = s_entropy.powf(self.weights.w_entropy)
+            * s_grounding.powf(self.weights.w_grounding)
+            * s_sacrifice.powf(self.weights.w_sacrifice)
+            * s_compliance.powf(self.weights.w_compliance);
 
         AisBreakdown {
             s_entropy,
@@ -224,6 +225,30 @@ impl AisEngine {
             zk_boost,
             ais: weighted * zk_boost,
         }
+    }
+
+    /// Returns the maximum AIS ceiling allowed for a given verification tier:
+    /// Tier 0 (Developer API Key): 300.0
+    /// Tier 1 (Sovereign Software Key): 600.0
+    /// Tier 2 (Linked DNS/Social Attestation): 850.0
+    /// Tier 3 (Institutional TEE/Audit): 1000.0 (uncapped, ZK boost applies)
+    pub fn ceiling_for_tier(verification_tier: i32) -> f64 {
+        match verification_tier {
+            0 => 300.0,
+            1 => 600.0,
+            2 => 850.0,
+            _ => 1000.0,
+        }
+    }
+
+    /// Computes the AIS breakdown and applies the Verification Ladder score ceiling.
+    pub fn score_with_tier(&self, inputs: &AisComponentInputs, verification_tier: i32) -> AisBreakdown {
+        let mut breakdown = self.score(inputs);
+        let ceiling = Self::ceiling_for_tier(verification_tier);
+        if verification_tier < 3 {
+            breakdown.ais = breakdown.ais.min(ceiling);
+        }
+        breakdown
     }
 }
 
@@ -326,5 +351,33 @@ mod tests {
         assert!((at_ceiling - 1000.0).abs() < 1.0);
         assert!((past_ceiling - 1000.0).abs() < 1.0);
         assert!(engine.calculate_sacrifice_score(0.0) < at_ceiling);
+    }
+
+    #[test]
+    fn verification_ladder_tier_ceilings_enforced() {
+        let engine = AisEngine::default();
+        let perfect_inputs = AisComponentInputs {
+            performance_variance: 0.0,
+            hgi_raw: 1.0,
+            gpu_hours_verified: 1000.0,
+            penalty_ratio: 0.0,
+            zk_verified_this_period: false,
+        };
+
+        // Tier 0 (Dev Key): capped at 300
+        let score_t0 = engine.score_with_tier(&perfect_inputs, 0);
+        assert_eq!(score_t0.ais, 300.0);
+
+        // Tier 1 (Sovereign): capped at 600
+        let score_t1 = engine.score_with_tier(&perfect_inputs, 1);
+        assert_eq!(score_t1.ais, 600.0);
+
+        // Tier 2 (Linked): capped at 850
+        let score_t2 = engine.score_with_tier(&perfect_inputs, 2);
+        assert_eq!(score_t2.ais, 850.0);
+
+        // Tier 3 (Institutional): uncapped (1000)
+        let score_t3 = engine.score_with_tier(&perfect_inputs, 3);
+        assert!((score_t3.ais - 1000.0).abs() < 1e-6);
     }
 }

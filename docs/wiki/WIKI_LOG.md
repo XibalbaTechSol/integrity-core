@@ -3,6 +3,19 @@
 > Chronological record of wiki actions. Append-only — never edit past entries.
 > Actions: ingest, create, update, lint, query, archive
 
+## [2026-07-30] create+update | Persistent Memory Guide and Reimagined Dashboard Landing Page
+- Created `docs/wiki/concepts/persistent-memory.md` to document how developers and agents can configure `TrustVault`, `JSONLBackend`, `RAGBackend`, and `GraphBackend` for cryptographic state anchoring.
+- Updated `WIKI_INDEX.md` to index the new Persistent Memory Configuration Guide concept page.
+- Reimagined `integrity-dashboard/src/components/landing/CoreFeatures.tsx` and `LandingPage.tsx` to align with the new protocol capabilities. Replaced `TrustGapSection` with `AgentPrimitivesSection`, highlighting the three fundamental on-chain primitives: Immutable Reputation, Agent-Owned Contracts, and Persistent Memory.
+- Added a dedicated `AisMathSection` to visually and mathematically outline the geometric AIS functions (Agent Geometric Volume), mapping Fidelity (Logistic), Entropy (Exponential Decay), and Solvency (Calculus Integral).
+
+## [2026-07-30] update | Persistent Memory Bridge and AIS Metrics Architecture
+- Implemented primitive-level Persistent Memory Bridge in `integrity_sdk/memory.py` utilizing the `StateAnchor` primitive and a `MemoryBackend` adapter pattern supporting arbitrary backends (RAG, JSONL, SQL).
+- Added `integrity_commit_memory` tool to `integrity_sdk.mcp_server` to allow agents to explicitly commit and cryptographically anchor their memory state on Base Sepolia.
+- Validated TrustVault pre-flight checking using real integration tests to prevent action if local `state_root` drifts from on-chain `StateAnchor` root.
+- Created `ais_metrics_analysis.md` outlining logistic sigmoid models and geometric aggregation for the three core AIS dimensions: Fidelity, Economic Impact, and Entropy.
+- Updated `docs/wiki/entities/integrity-sdk.md` with memory system documentation.
+
 ## [2026-07-29] update | Antigravity CLI (agy) MCP server integration configured
 - Configured the Antigravity CLI (`agy`) settings file (`~/.gemini/antigravity-cli/settings.json`) to register the `integrity` MCP server.
 - Ensured all agy sessions run in the context of the `xibalba.integrity` agent.
@@ -2534,3 +2547,209 @@ writeup: PRODUCTION_GAPS.md §18.
 - **Documented footgun:** `docker compose up` for `oracle-backend` without the Base Sepolia
   env overrides silently repoints the oracle at the root `.env`'s dead local anvil, which
   makes every chain read fail and XNS handles degrade to `null`.
+
+## [2026-07-29] update | Cognition freeze root-caused and fixed; Base Sepolia is now the default network
+
+- **Cognition freeze CLOSED.** The four Cognition panels depended on the `selectedAgent`
+  *object* while `DashboardProvider` re-polls every 15s creating a fresh object, so each
+  panel re-ran its effect and re-armed a 5s interval on every poll — compounding into a
+  timer storm that wedged the renderer on agent selection. Now keyed on
+  `selectedAgent?.eth_address`. An earlier entry recorded this fix as "tested and
+  disproved"; that retest ran in a tab loaded before HMR applied the change and was wrong.
+  Re-verified by bisecting with the page's own module toggles, then repeating the original
+  repro 4× with all panels mounted.
+- **Session spans confirmed in the UI**, not just at the API: Observability Hub's Trace
+  Explorer and the CoT Explorer both render `claude_session_start` (SUCCESS) for
+  `xibalba.integrity`.
+- **Base Sepolia is now the default target network.** Root `.env` repointed
+  (`CHAIN_ID=84532`, publicnode RPC, `deployments.baseSepolia.json`, plus `DOCKER_*`), so
+  the stack runs against the real deployed protocol and testnet inconsistencies surface
+  before mainnet. Verified with a `--force-recreate` carrying no overrides. `make up-local`
+  added as the anvil escape hatch. This also closes the footgun where a bare
+  `docker compose up` silently repointed the oracle at a dead anvil.
+
+## [2026-07-29] update | Mainnet readiness outline
+
+- New `docs/MAINNET_READINESS.md`: 19 items ordered by consequence, each verified against
+  code or chain rather than assumed. P0 blockers: all six `protocolAddresses` roles are one
+  EOA that also holds `MINTER_ROLE` (single-key total compromise); `UltraPlonkVerifier` is a
+  placeholder that always reverts, so the ZK boost path cannot execute; the boost is a
+  period-wide `BOOL_OR` rather than bound to what it proves; two cross-language canonical-JSON
+  divergences (float shortest-repr, `ensure_ascii`) that can break signature agreement;
+  memory §7.2 enforcement absent and all 7 agents at `latestRoot == 0`; no minimum bonded
+  stake; client-supplied `covered_entity_address` in the HIPAA path.
+- Flagged the one irreversible decision: `SovereignAgent`/`StateAnchor` deploy per-agent and
+  non-upgradeable, so any bug in them is permanent for every agent registered before a fix —
+  already demonstrated by the §7.2 fix being unable to reach the existing 7. That choice must
+  be settled before the first mainnet agent, not after.
+- README links the readiness doc from the deployment section.
+
+## [2026-07-29] decision | Per-agent contract upgradeability: beacon + per-agent pin
+
+- New `docs/design/upgradeability-decision.md` resolves the one irreversible pre-mainnet
+  choice. **Beacon proxy with a per-agent pin**, beacon owned by a multisig at launch and
+  transferred to `IntegrityGovernance` once ITK supply is constrained.
+- **Registry rotation rejected on evidence:** stake (`Slasher.stakeOf`), the ITK balance,
+  market positions, and `isRegisteredAgent` (4 call sites) all key on the SovereignAgent
+  *address*, not the DID — so rotation is a value migration plus a laundering vector
+  (rotate away from a pending dispute), where a proxy just keeps the address stable.
+- **Governance is technically capable but not yet a real authority:** voting power is locked
+  ITK and ITK is mintable by `MINTER_ROLE`, so unlimited mint is unlimited votes. Handover is
+  sequenced behind a token supply policy; a multisig owns the beacon until then.
+- The per-agent pin is what keeps the self-sovereignty thesis honest — the fleet is fixable
+  atomically, but any agent may permanently opt out, and the 14-day timelock is what makes
+  opting out possible in time.
+- Constraints recorded: pin authority is the controller and never the protocol; storage
+  layout is append-only forever; `StateAnchor`'s anchored history is sacred (an upgrade may
+  add behavior, never rewrite or un-anchor a root).
+- Open before implementation: emergency-response path (timelock protects agents but delays
+  exploit response), ITK supply policy, and whether `pin` accepts any address or only
+  beacon-published implementations.
+
+## [2026-07-30] update | oracle float re-serialization fix
+- Fixed the Python-to-Rust float signature mismatch by parsing the payload raw JSON, removing signature, and signing the raw stringified values without rebuilding objects, and by enabling arbitrary_precision in serde_json.
+- Verified that dynamic telemetry from the current session successfully ingests without failing eip191 signature checks.
+
+## [2026-07-30] update | AIS geometric volume model
+- Refactored the core AIS calculation in integrity-oracle/scoring-core/src/lib.rs to use a Weighted Geometric Mean (Volume) model rather than an arithmetic sum, addressing critical vulnerability where high scores in one dimension could hide catastrophic failures (e.g. non-compliance) in another.
+- Updated concepts/ais.md and INTERFACE_CONTRACT.md to reflect the new mathematical model.
+
+## [2026-07-30] update | SDK Telemetry for Geometric AIS
+- Added `EconomicAttributes` (BCC, Markets, Synergy) to `telemetry/conventions.py`.
+- Refactored `markets.py` to trace `claim_payout` and tag with `markets.trade_yield` and `itk.balance_delta`.
+- Refactored `bcc.py` with `submit_commitment` to emit `integrity.bcc.intercept` spans, logging `bcc.resolution_status`.
+- All changes passed the local `integrity-sdk` test suite.
+
+## [2026-07-30] proposal | Three foundational primitives; PHI backstop modes; SDK F1-F5, L1-L3
+
+- **New `docs/design/three-foundational-primitives.md`** — proposes consolidating spec v0.3's
+  six foundational primitives into three: Persistent Memory (continuity), Agent-Owned
+  Contracts (residual control **with consequence**, absorbing bonded stake), and Reputation
+  (non-forgeable standing, absorbing BCC as the before-acting half and observability as the
+  after-acting half). Cryptographic self-sovereignty moves from primitive to a property of the
+  medium alongside §3.3, since keys are the substrate all three are expressed in rather than a
+  peer of what they enable.
+  - Keeps the §2 tension explicit rather than papering it over: **AIS is a score** (derived,
+    replaceable), **reputation is the primitive** (the record AIS summarizes). Conflating them
+    is what makes reputation systems untrustworthy elsewhere.
+  - Flags that consolidation must not hide per-mechanism status (BCC built, minimum stake
+    `[PARTIAL]`, silence-as-signal `[PLANNED]`), and that adopting it promotes the ZK-boost
+    binding gap from a scoring detail to a hole in a foundational primitive.
+  - Marked as requiring a spec v0.4, not a wiki edit — the wiki must not describe three
+    primitives while the normative document says six.
+- **PHI backstop is now mode-driven** (`PHI_BACKSTOP_MODE = reject | flag | off`, default
+  reject) across all four ingestion paths, with `phi_flags` recorded on the row in `flag` mode
+  (migration 0010). This is what makes unredacted development collection work end-to-end,
+  given redaction is off by default in the SDK by operator decision.
+- **SDK gaps closed this session:** F1 (token double-count, pinned by shared cross-language
+  conformance vectors), F4 (signed envelope `schema_version`), F2/F3 (bounded queue with
+  visible drop reporting; clock-driven flush plus `atexit`), F5 (Anthropic integration), and
+  L1–L3 (cache/reasoning/cost conventions; collection profiles). sdk 140 → 185 tests.
+
+## [2026-07-30] analysis | Primitive-set coherence audit
+
+- **New `docs/design/primitive-set-coherence.md`** — treats the primitives as an axiom set and
+  §1's Economic Sovereign definition as the theorem they must entail, testing completeness,
+  independence and groundedness rather than arguing about the count.
+- **Completeness: passes.** All six thesis clauses map to a primitive exactly once, and clause
+  ⑥ ("cannot rewrite after finality") correctly falls out as a *medium* property rather than
+  something an agent possesses — a consistency check passing, since it is the only clause
+  phrased as an inability.
+- **Independence: two genuine redundancies.** §4.3 self-sovereignty is the substrate ownership
+  is expressed through (belongs in §3 with attribution), and §4.5 stake is ownership with
+  consequence attached. Collapsing those is what yields three — the justification is
+  non-independence, not tidiness. §4.4/§4.6 are independent mechanisms grouped by shared
+  purpose, which is a judgment call rather than an error.
+- **Memory vs observability boundary made sharp:** same subject, opposite trust direction —
+  memory is the agent's own anchored record, observability is the counterparty-checkable one
+  the oracle re-derives and never trusts from the client.
+- **Three clauses the thesis does not make**, each needing an explicit ruling rather than
+  silence: **authority** (on whose behalf the agent acts — the largest gap, and exactly where
+  Shield's client-supplied `covered_entity_address` hole sits), **termination** (an agent can
+  currently be abandoned but not ended), and **counterparty symmetry** (reputation is
+  one-directional while A2A is a stated goal).
+
+## [2026-07-30] adopted | The four foundational primitives, formalized across the documentation
+
+- **New canonical page `concepts/foundational-primitives.md`** — memory (continuity),
+  agent-owned contracts (capability with consequence), authority (delegated permission),
+  reputation (earned standing). One place to read; the three design notes under `docs/design/`
+  are now marked as the derivation behind it rather than competing references.
+- **Resolved a naming collision that would have made the docs contradict themselves.**
+  "Primitive" was used in two unrelated senses: the seven per-agent **contracts**
+  (`PrimitiveSet`) and the foundational **concepts**. Both pages now open with an explicit
+  disambiguation — they are not two views of one list, and only concept #2 is a contract at
+  all.
+- **Authority added, not substituted.** Tested whether it could replace reputation: it cannot.
+  They are orthogonal (a fully-authorized incompetent agent; an impeccable unauthorized one),
+  and decisively, reputation carries thesis clauses ③ and ⑤ while authority carries neither —
+  substituting would break completeness. The overlap is exactly one AIS component (compliance,
+  wC = 0.20), so authority makes that component resolvable rather than claimed.
+- **AIS/reputation distinction stated wherever the primitives appear:** reputation is the
+  record, AIS is a replaceable weighted score over it. Without this the §2 claim that "AIS is
+  downstream of primitives" contradicts reputation being one.
+- Stake folded into ownership and self-sovereignty demoted to a medium property, both on
+  **non-independence** grounds rather than tidiness.
+- README and CLAUDE.md carry the framing; `agent-primitives.md` and `agent-memory.md`
+  cross-link to it; index counts 28 → 29 pages (21 concepts).
+- **Still open by design:** termination (needs registry mutability — same question as the
+  upgradeability decision) and counterparty symmetry (a generalization of BCC's
+  `covered_entity_address`, not a new primitive). Spec v0.3 §4 still lists six; **v0.4 is
+  required** to make four normative, and the spec remains authoritative until then.
+
+## [2026-07-30] normative | Specification v0.4 authored in-repo
+
+- **`spec/integrity-protocol-v0.4.md`** supersedes `Integrity_Protocol_Specification_v0.3.pdf`.
+  Authored in markdown, in-repo, under version control — deliberately: a spec that cannot be
+  diffed, reviewed in a PR, or kept in step with the code by any mechanism other than someone
+  remembering is a coherence problem in a protocol whose premise is independently checkable
+  state.
+- **§1 gains thesis clause ⑦** (delegated authority) — the hole the coherence audit found.
+  **§4 becomes four primitives.** **§3.4** takes cryptographic self-sovereignty as a medium
+  property. **§7.6** rules termination explicitly out of scope rather than leaving silence to
+  imply it. **§12** is a new normative surface for authority. **§17** corrects
+  `integrity-mvp/` → `integrity-dashboard/`.
+- Also folds in what was built and verified since v0.3: token-accounting precedence (§8.4),
+  signed-envelope versioning (§9.5), PHI backstop modes (§9.6), and explicit evidence tiers
+  for the two telemetry paths (§10).
+- **Appendix A re-ranked** — ZK-boost binding rises to #1, because with reputation foundational
+  a period-wide `BOOL_OR` is a defect in a primitive rather than a scoring detail.
+- §19 records every change from v0.3 with its reason, so the delta is reviewable rather than
+  requiring a diff against a PDF.
+
+## [2026-07-30] dogfooding | Genesis root anchored; two-level Trust Vault built
+
+- **`xibalba.integrity` now satisfies the memory primitive it enforces.** Genesis root anchored
+  on Base Sepolia (tx `0x4219a3ca…`, epoch 0 → 1, root
+  `keccak256("integrity.trust-vault.genesis.v1")`), signed by the agent's own controller per
+  spec v0.4 §7.2. Verified by behaviour change, not by assertion: the oracle now answers `409
+  already registered` where it previously answered `400 MemoryNotInitialized` — the memory gate
+  runs before the duplicate check, so reaching 409 proves it cleared.
+- **New `integrity_sdk/vault.py`** — the Trust Vault: append-only local leaf log, two-level
+  Merkle structure (per-commit leaves batched into a per-session subtree, anchored once per
+  session), and anchor bookkeeping that records a root only *after* the transaction confirms,
+  so a failed anchor cannot advance the window past leaves that never reached chain.
+- **Cross-implementation verification, not self-testing.** `spec/vault-merkle/vectors.json` is
+  generated by the Python vault and verified by `contracts/test/VaultMerkle.t.sol` against the
+  real `StateAnchor.verifyLeaf` — 15 vectors across tree sizes 1/2/3/5/8/9, odd counts included
+  because odd-node promotion is where an off-by-one hides. A convention mismatch would have
+  produced roots that anchor fine and fail every later verification.
+- Odd nodes are **promoted, never duplicated**: duplicating admits a proof for a forged extra
+  leaf equal to the last one. Asserted directly.
+- Dogfooding mandate recorded in `~/.hermes/SOUL.md`, `~/.hermes/memories/MEMORY.md` and
+  `~/GEMINI.md`, and verified present in the injected session context rather than merely on
+  disk.
+- Tests: contracts 200, sdk 207.
+
+## [2026-07-30] UI/UX Audit | KaTeX LaTeX math integration, UI layout fixes & Playwright visual audit
+
+- **Real KaTeX LaTeX Integration**: Replaced raw HTML/text formulas in `integrity-dashboard/src/components/landing/CoreFeatures.tsx` with `katex.renderToString` math typesetting for the geometric AIS formula, fidelity logistic growth curve, entropy decay curve, and solvency integral.
+- **Graph Imagery & Asset Bundling**: Moved graph visual assets (`fidelity_graph.jpg`, `entropy_graph.jpg`, `solvency_graph.jpg`) to `src/assets/` and imported them in React to guarantee native Vite bundling.
+- **Layout & Sequence Refactor**: Resolved timeline dot alignment in `RoadmapSection`, removed duplicate footers in `EcosystemFeatures.tsx`, and upgraded `ContactFormSection` with glassmorphic cards and gold gradient CTA button (`var(--gold)`).
+- **Playwright Visual Verification**: Captured and verified full-page Playwright visual audit screenshots (`e2e/visual_audit.spec.ts`), confirming zero layout breaks or raw unrendered text. 68/68 unit/component tests green (`npm test`).
+
+## [2026-07-30] Verification Ladder | Identity Ceiling enforcement in scoring-core & oracle backend
+
+- **Verification Tier Score Ceilings**: Extended `scoring-core::AisEngine` with `ceiling_for_tier` and `score_with_tier`, capping AIS scores based on identity verification strength: Tier 0 (Dev API Key) $\rightarrow$ 300, Tier 1 (Sovereign Software Key) $\rightarrow$ 600, Tier 2 (Linked Attestation) $\rightarrow$ 850, Tier 3 (Institutional TEE/Audit) $\rightarrow$ 1000.
+- **Oracle Backend Enforcement**: Updated `handlers::compute_ais_for_agent` and `handlers::get_agent_ais_history` in `integrity-oracle` to look up `agent.verification_tier` and pass it to `score_with_tier`.
+- **Test Suite**: Added `verification_ladder_tier_ceilings_enforced` test to `scoring-core`. All 100 lib/e2e tests in `integrity-oracle` passing (`cargo test --workspace`).

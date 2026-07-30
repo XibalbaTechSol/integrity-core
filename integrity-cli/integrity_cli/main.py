@@ -34,7 +34,7 @@ from rich.console import Console
 from rich.table import Table
 from web3 import Web3
 
-from . import bcc, chain, config, identity, wallet
+from . import bcc, chain, config, identity, vault, wallet
 from .client import ApiError, BccClient, IntegrityClient
 from .config import get_auth_token, load_config, set_config_value
 
@@ -63,6 +63,9 @@ app.add_typer(auth_app, name="auth")
 
 xns_app = typer.Typer(help="XibalbaNameService (XNS): human-readable handles for registered agents")
 app.add_typer(xns_app, name="xns")
+
+vault_app = typer.Typer(help="Trust Vault (Persistent Memory) commands")
+app.add_typer(vault_app, name="vault")
 
 
 # --------------------------------------------------------------------------
@@ -374,6 +377,12 @@ def agent_register(
         with console.status("[bold blue]Granting oracle ANCHOR_ROLE..."):
             chain.grant_anchor_role(w3, evm_account, sovereign_agent, state_anchor, oracle_signer, chain_id, nonce=next_nonce)
         console.print("  [green]done[/green] granted ANCHOR_ROLE to oracle signer")
+        next_nonce += 1
+        time.sleep(3)
+
+        with console.status("[bold blue]Anchoring genesis memory root..."):
+            chain.anchor_root(w3, evm_account, sovereign_agent, state_anchor, chain_id, nonce=next_nonce)
+        console.print("  [green]done[/green] anchored genesis memory root")
         next_nonce += 1
         time.sleep(3)
 
@@ -779,6 +788,40 @@ def xns_release(
 
     console.print(f"[bold green]Released[/bold green] '{handle}'")
     console.print(f"[dim]tx: {receipt['transactionHash'].hex()}[/dim]")
+
+
+# --------------------------------------------------------------------------
+# vault
+# --------------------------------------------------------------------------
+
+@vault_app.command("sync")
+def vault_sync(
+    agent_name: str = typer.Argument(..., help="Agent name (e.g. xibalba)"),
+    transcript: str = typer.Option(..., "--transcript", help="Path to transcript.jsonl file"),
+    rpc_url: Optional[str] = _RPC_URL_OPTION,
+    deployments_file: Optional[str] = _DEPLOYMENTS_FILE_OPTION,
+):
+    """Sync a session transcript into the trust vault."""
+    import pathlib
+    transcript_path = pathlib.Path(transcript)
+    if not transcript_path.exists():
+        console.print(f"[bold red]Error:[/bold red] Transcript not found at {transcript}")
+        raise typer.Exit(1)
+        
+    rpc_url = rpc_url or os.getenv("RPC_URL", "http://localhost:8545")
+    deployments_file = deployments_file or os.getenv("DEPLOYMENTS_FILE", "../deployments.local.json")
+    
+    with console.status(f"[bold blue]Syncing vault for {agent_name}..."):
+        try:
+            result = vault.sync_vault(agent_name, transcript_path, rpc_url, deployments_file)
+        except Exception as e:
+            console.print(f"[bold red]Error syncing vault:[/bold red] {e}")
+            raise typer.Exit(1)
+            
+    console.print(f"[bold green]Vault synced successfully[/bold green] for {agent_name}")
+    console.print(f"Memory file: [cyan]{result['memory_file']}[/cyan]")
+    console.print(f"New state root: [cyan]{result['state_root']}[/cyan]")
+    console.print(f"Anchored on-chain: [cyan]{result.get('anchored_on_chain', False)}[/cyan]")
 
 
 if __name__ == "__main__":

@@ -148,21 +148,60 @@ pub fn derive_grounding(batch: &[Value]) -> f64 {
 /// not trivially gamed by one session.
 pub const TOKENS_PER_GPU_HOUR_PROXY: f64 = 50_000.0;
 
+/// `source[key]` as a non-negative i64, or 0. Rejects non-numerics and negatives — a
+/// negative count is never legitimate and must not be able to reduce a score input.
+fn positive_i64(source: Option<&Value>, key: &str) -> i64 {
+    source
+        .and_then(|s| s.get(key))
+        .and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|f| f as i64)))
+        .filter(|n| *n > 0)
+        .unwrap_or(0)
+}
+
+/// Total tokens processed for one telemetry entry.
+///
+/// **Must stay equivalent to integrity-sdk's
+/// `integrity_sdk/telemetry/derive.py::entry_token_total`.** Both are pinned by the shared
+/// conformance vectors in `spec/token-accounting/vectors.json`, which both test suites read.
+/// That mechanism exists because these two implementations previously drifted into the *same*
+/// double-counting bug — summing `total_tokens` AND `prompt_tokens` AND `completion_tokens`,
+/// so every OpenAI-shaped entry counted twice — and because both sides were wrong
+/// identically, no reconciliation between them could reveal it. This function is the
+/// authoritative one: the oracle computes AIS, the client's numbers are audit trail only.
+///
+/// Precedence:
+/// 1. Base is the provider-computed `total_tokens` when present, else the sum of the two
+///    halves. Never both: `total_tokens` already equals prompt+completion wherever reported.
+/// 2. Anthropic-style cache tokens are ADDITIONAL to `input_tokens`, so they are added.
+/// 3. OpenAI's `prompt_tokens_details.cached_tokens` and
+///    `completion_tokens_details.reasoning_tokens` are SUBSETS of the halves they belong to,
+///    so they are never added. Rules 2 and 3 use opposite semantics for cache accounting,
+///    which is the whole difficulty here.
+/// 4. Flat top-level `input_tokens`/`output_tokens` are consulted only when `token_usage`
+///    yielded nothing, so one call is never counted twice.
 fn entry_token_total(entry: &Value) -> i64 {
-    let mut total = 0i64;
-    if let Some(metadata) = entry.get("metadata") {
-        if let Some(usage) = metadata.get("token_usage") {
-            for key in ["total_tokens", "prompt_tokens", "completion_tokens"] {
-                if let Some(n) = usage.get(key).and_then(Value::as_i64) {
-                    total += n;
-                }
-            }
-        }
-        for key in ["input_tokens", "output_tokens"] {
-            if let Some(n) = metadata.get(key).and_then(Value::as_i64) {
-                total += n;
-            }
-        }
+    let Some(metadata) = entry.get("metadata") else {
+        return 0;
+    };
+    let usage = metadata.get("token_usage").filter(|v| v.is_object());
+
+    let mut total = positive_i64(usage, "total_tokens");
+    if total == 0 {
+        total = positive_i64(usage, "prompt_tokens")
+            + positive_i64(usage, "completion_tokens")
+            + positive_i64(usage, "input_tokens")
+            + positive_i64(usage, "output_tokens");
+    }
+
+    // Rule 2 — additive cache classes, raw Anthropic and flattened spellings.
+    total += positive_i64(usage, "cache_creation_input_tokens")
+        + positive_i64(usage, "cache_read_input_tokens")
+        + positive_i64(usage, "cache_creation_tokens")
+        + positive_i64(usage, "cache_read_tokens");
+
+    // Rule 4 — flat form only as a fallback.
+    if total == 0 {
+        total = positive_i64(Some(metadata), "input_tokens") + positive_i64(Some(metadata), "output_tokens");
     }
     total
 }
@@ -229,6 +268,40 @@ pub fn recompute(batch: &[Value]) -> RecomputedSignals {
 
 #[cfg(test)]
 mod tests {
+    /// Cross-language conformance: this function and integrity-sdk's
+    /// `telemetry/derive.py::entry_token_total` must agree on every vector in
+    /// `spec/token-accounting/vectors.json`. Both suites read that one file, so the two
+    /// implementations cannot drift apart silently — which is exactly how they previously
+    /// ended up sharing a double-counting bug that no reconciliation could reveal.
+    #[test]
+    fn token_accounting_matches_shared_conformance_vectors() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("spec/token-accounting/vectors.json");
+        let raw = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("shared conformance vectors must be readable at {path:?}: {e}"));
+        let doc: Value = serde_json::from_str(&raw).expect("vectors.json must be valid JSON");
+        let vectors = doc["vectors"].as_array().expect("vectors must be an array");
+        assert!(!vectors.is_empty(), "vector file must not be empty — a silently empty file would make this test vacuous");
+
+        for v in vectors {
+            let name = v["name"].as_str().unwrap_or("<unnamed>");
+            let expected = v["expected"].as_i64().expect("expected must be an integer");
+            let actual = entry_token_total(&v["entry"]);
+            assert_eq!(
+                actual, expected,
+                "vector '{}' disagrees ({}): expected {}, got {}",
+                name,
+                v["why"].as_str().unwrap_or(""),
+                expected,
+                actual
+            );
+        }
+    }
+
     use super::*;
     use serde_json::json;
 

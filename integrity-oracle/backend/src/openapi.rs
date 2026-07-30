@@ -117,6 +117,19 @@ pub struct ApiDocCore;
 )]
 pub struct ApiDocExtra;
 
+/// The second overflow half. `ApiDocCore` and `ApiDocExtra` are both at 16 `paths()`
+/// entries — utoipa 5.5.0 silently drops the last entry past that, so a new endpoint
+/// appended to either would vanish from the generated spec without any error (see this
+/// module's doc comment). New endpoints go here until this list reaches 16 too.
+#[derive(OpenApi)]
+#[openapi(
+    paths(handlers::get_agent_usage, handlers::get_agent_events),
+    components(schemas(handlers::AgentUsageDto, handlers::AgentEventDto)),
+)]
+pub struct ApiDocUsage;
+
 pub fn combined_openapi() -> utoipa::openapi::OpenApi {
-    ApiDocCore::openapi().merge_from(ApiDocExtra::openapi())
+    ApiDocCore::openapi()
+        .merge_from(ApiDocExtra::openapi())
+        .merge_from(ApiDocUsage::openapi())
 }

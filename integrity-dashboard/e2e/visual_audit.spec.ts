@@ -21,7 +21,7 @@ test.describe('Visual Audit', () => {
       { url: '/#/integrity#telemetry', name: 'dashboard_telemetry' }
     ];
 
-    const artifactsDir = '/home/xibalba/.gemini/antigravity-cli/brain/64551caf-854d-4bed-9bc6-5ca7bda4ced4/scratch';
+    const artifactsDir = '/home/xibalba/.gemini/antigravity-cli/brain/fd43b907-10e3-4eb2-a297-1e6f42e2a505/scratch';
     
     for (const p of pages) {
       await page.goto(p.url);

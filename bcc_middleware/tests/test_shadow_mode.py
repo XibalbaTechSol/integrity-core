@@ -97,8 +97,8 @@ def test_shadow_mode_reports_would_be_denials_as_shadow_deny(client, real_opa_se
 
     reported: list[dict] = []
     monkeypatch.setattr(
-        main_module,
-        "_report_decision_background",
+        main_module.audit_module,
+        "report_decision",
         lambda settings, **kwargs: reported.append(kwargs),
     )
 

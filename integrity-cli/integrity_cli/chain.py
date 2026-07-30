@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Optional
 
 from eth_account.signers.local import LocalAccount
+from eth_utils import keccak
 from web3 import Web3
 from web3.contract import Contract
 
@@ -242,6 +243,53 @@ def grant_anchor_role(
     signed = agent.sign_transaction(tx)
     tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
     _wait(w3, tx_hash, action="grant_anchor_role")
+    return tx_hash.hex()
+
+
+#: Canonical seed string for the genesis vault root. Pinned in docs/INTERFACE_CONTRACT.md
+#: §4.4a -- never copied as a hex literal. Every package that needs this value derives
+#: the same bytes from the same ASCII string.
+GENESIS_VAULT_SEED = "integrity.trust-vault.genesis.v1"
+
+
+def genesis_vault_root() -> bytes:
+    """`keccak256("integrity.trust-vault.genesis.v1")` -- the canonical non-zero root
+    meaning "vault initialized, nothing in it yet" (spec v0.3 §4.1: an
+    empty-but-initialized vault is valid at birth, but `anchorRoot` reverts on
+    `bytes32(0)`, so "empty" needs a defined non-zero representation)."""
+    return keccak(text=GENESIS_VAULT_SEED)
+
+
+def anchor_root(
+    w3: Web3,
+    agent: LocalAccount,
+    sovereign_agent_address: str,
+    state_anchor_address: str,
+    chain_id: int,
+    root: Optional[bytes] = None,
+    nonce: Optional[int] = None,
+) -> str:
+    """
+    Anchors the agent's memory root on its own StateAnchor.
+    """
+    root = root or genesis_vault_root()
+    state_anchor = _contract(w3, "StateAnchor", address=state_anchor_address)
+    anchor_calldata = state_anchor.functions.anchorRoot(root).build_transaction({"gas": 0})["data"]
+
+    sovereign_agent = _contract(w3, "SovereignAgent", address=sovereign_agent_address)
+    tx_nonce = nonce if nonce is not None else w3.eth.get_transaction_count(agent.address)
+    tx = sovereign_agent.functions.execute(
+        Web3.to_checksum_address(state_anchor_address), 0, anchor_calldata
+    ).build_transaction(
+        {
+            "from": agent.address,
+            "nonce": tx_nonce,
+            "chainId": chain_id,
+        }
+    )
+    signed = agent.sign_transaction(tx)
+    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+    _wait(w3, tx_hash, action="anchor_root")
     return tx_hash.hex()
 
 

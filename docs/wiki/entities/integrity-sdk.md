@@ -23,6 +23,7 @@ source_files:
   - integrity-sdk/integrity_sdk/integrations/auto_hook.py
   - integrity-sdk/integrity_sdk/security/redactor.py
   - integrity-sdk/integrity_sdk/mcp_server.py
+  - integrity-sdk/integrity_sdk/memory.py
 ---
 
 
@@ -214,6 +215,7 @@ Five tools registered:
 | `integrity_agent_info` | Read back canonical DID, nonce, keypair status, pending batch size |
 | `integrity_resolve_did` | Look up any DID's on-chain registration record via Oracle |
 | `integrity_register_agent` | [PLANNED partial] Full on-chain registration via `registration.register_agent` |
+| `integrity_commit_memory` | Commit session facts to the TrustVault backend (JSONL by default) and compute/anchor the cryptographic StateRoot |
 
 The server loads the agent's Ed25519 keypair from the standard identity store
 (`~/.integrity-cli/identity/<agent-id>/`) so every flush and intent call is
@@ -252,5 +254,18 @@ For example, to configure the Antigravity CLI (`agy`) harness to run all session
 ```
 
 Requires `mcp>=1.0.0` (`pip install integrity-sdk[mcp]` — optional dep).
+
+## Persistent Memory Bridge (`memory.py`, added 2026-07-30)
+
+`memory.py` introduces a primitive-level persistent memory architecture based on the `TrustVault` class and a `MemoryBackend` adapter pattern (strategy pattern).
+Instead of treating memory sync as an ad-hoc cron job, agents use the SDK to explicitly commit and cryptographically anchor their state to the `StateAnchor` primitive at the end of a session.
+
+**MemoryBackends**:
+- `JSONLBackend`: The default backend (append-only log).
+- `RAGBackend`: [Stub] For vector databases.
+- `GraphBackend`: [Stub] For relational graph memory.
+
+**Pre-Flight Verification**:
+When `vault.session(platform=...)` begins, the SDK invokes `verify_preflight()`. This queries the `integrity-oracle` for the agent's `StateAnchor` address, reads the `currentRoot()` directly from the EVM (via `web3.py`), and compares it against the local backend's derived `state_root`. If they mismatch, the session panics, protecting the agent from acting on tampered or out-of-sync local memory.
 
 

@@ -24,6 +24,8 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/agent/{id}/telemetry", get(handlers::get_telemetry_history))
         .route("/v1/agent/{id}/telemetry/volume", get(handlers::get_telemetry_volume))
         .route("/v1/agent/{id}/otel/volume", get(handlers::get_otel_volume))
+        .route("/v1/agent/{id}/usage", get(handlers::get_agent_usage))
+        .route("/v1/agent/{id}/events", get(handlers::get_agent_events))
         .route("/v1/agent/{id}/otel/traces", get(handlers::get_recent_traces))
         .route("/v1/agent/{id}/traces", get(handlers::get_traces))
         .route("/v1/traces/{trace_id}", get(handlers::get_trace_tree))

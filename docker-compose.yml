@@ -37,6 +37,11 @@ services:
       CHAIN_ID: ${CHAIN_ID:-31337}
       DEPLOYMENTS_FILE: ${DOCKER_DEPLOYMENTS_FILE:-/deployments.local.json}
       OTLP_GRPC_ADDR: 0.0.0.0:4317
+      # reject | flag | off. Defaults to `reject` in code; `flag` here so development
+      # collection (redaction off by operator decision) is STORED WITH the matched categories
+      # recorded on the row rather than refused at the boundary. Production must not inherit
+      # this — set it explicitly per deployment.
+      PHI_BACKSTOP_MODE: ${PHI_BACKSTOP_MODE:-flag}
     ports: ["8080:8080", "4317:4317"]
     volumes:
       - ./deployments.baseSepolia.json:/deployments.baseSepolia.json
