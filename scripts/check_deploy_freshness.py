@@ -25,6 +25,24 @@ Usage:
 
 Exit codes: 0 = all fresh (or --warn-only), 1 = at least one stale image,
 2 = could not determine (docker missing, not a git repo).
+
+Known limitation, stated rather than hidden
+-------------------------------------------
+Freshness is decided by comparing the image build time against the newest **file
+mtime** among that image's tracked sources. That is right for local development
+and wrong in one case: a fresh `git clone` (or a branch switch) sets every file's
+mtime to *now*, so a correctly-built image will report STALE until it is rebuilt.
+
+The alternatives are each worse in a more common case. Commit time flags the
+ordinary edit → build → test → commit ordering as stale on every single commit.
+A content-hash comparison is the genuinely correct answer — bake
+`git rev-parse HEAD:<path>` into each image as a LABEL at build time and compare
+that — but it needs a Dockerfile and build-arg change per service, which is a
+larger change than this script. Recorded in PRODUCTION_GAPS.md §22 as the real
+fix rather than quietly approximated here.
+
+Erring toward a false STALE on a fresh clone is also the safer direction: the
+failure mode is an unnecessary rebuild, not an undetected drift.
 """
 
 from __future__ import annotations
@@ -127,9 +145,36 @@ def image_built_at(service: str) -> datetime | None:
 
 
 def source_changed_at(paths: list[str]) -> datetime | None:
-    """Most recent commit touching any of the image's baked-in paths."""
-    raw = _run(["git", "log", "-1", "--format=%cI", "--", *paths], cwd=REPO)
-    return _parse_ts(raw) if raw else None
+    """When the image's baked-in source last actually CHANGED.
+
+    Uses file mtime, not commit time. Commit time is the obvious proxy and it is
+    wrong for the ordinary workflow: you edit, rebuild, test, *then* commit — so
+    the commit timestamp lands after the image was built even though the content
+    is identical, and every correct build reports STALE the moment it is
+    committed. A checker that fires on the normal workflow gets ignored, and an
+    ignored checker is how the drift it exists to catch survived in the first
+    place.
+
+    `git ls-files` scopes this to tracked files, which keeps build artifacts
+    (`target/`, `node_modules/`, `.venv/`) from dominating the maximum.
+    """
+    listing = _run(["git", "ls-files", "-z", "--", *paths], cwd=REPO)
+    if listing is None:
+        return None
+
+    newest = 0.0
+    for rel in listing.split("\0"):
+        rel = rel.strip()
+        if not rel:
+            continue
+        try:
+            newest = max(newest, (REPO / rel).stat().st_mtime)
+        except OSError:
+            continue  # deleted-but-tracked, or unreadable
+
+    if newest <= 0:
+        return None
+    return datetime.fromtimestamp(newest, tz=timezone.utc)
 
 
 def _self_test() -> int:
