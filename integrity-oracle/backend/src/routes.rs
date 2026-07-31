@@ -25,6 +25,10 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/agent/{id}/verify", get(handlers::get_verifications))
         .route("/v1/agent/{id}/verify/dns/challenge", post(handlers::request_dns_challenge))
         .route("/v1/agent/{id}/verify/dns", post(handlers::verify_dns))
+        // Same rung as DNS, against a namespace an agent can write to via API --
+        // which is what makes climbing the ladder automatable end to end.
+        .route("/v1/agent/{id}/verify/github/challenge", post(handlers::request_github_challenge))
+        .route("/v1/agent/{id}/verify/github", post(handlers::verify_github))
         .route("/v1/agent/{id}/ais/history", get(handlers::get_ais_history))
         .route("/v1/agent/{id}/compliance", get(handlers::get_compliance))
         .route("/v1/agent/{id}/wallet", get(handlers::get_wallet))

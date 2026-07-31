@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { CinematicHeader } from '../components/landing/CinematicHeader';
 import { HeroSection } from '../components/landing/HeroSection';
-import { AgentPrimitivesSection, DevQuickstartSection, ProgrammableEscrowsSection, EconomicUseCasesSection, PrivacyArchitectureSection, AisMathSection } from '../components/landing/CoreFeatures';
+import { AgentPrimitivesSection, DevQuickstartSection, ProgrammableEscrowsSection, EconomicUseCasesSection, PrivacyArchitectureSection, AisMathSection, ProtocolCompareSection, CircuitBreakerSection, ArchitectureDeepDiveSection } from '../components/landing/CoreFeatures';
 import { EcosystemFeatures } from '../components/landing/EcosystemFeatures';
 import { FAQSection } from '../components/landing/FAQSection';
 import { ContactFormSection } from '../components/landing/ContactFormSection';
@@ -20,7 +20,10 @@ export const LandingPage = () => {
             <HeroSection setContactType={setContactType} setIsContactOpen={setIsContactOpen} setIsRegistryOpen={setIsRegistryOpen} />
             
             <AgentPrimitivesSection />
+            <ProtocolCompareSection />
             <AisMathSection />
+            <CircuitBreakerSection />
+            <ArchitectureDeepDiveSection />
             <ProgrammableEscrowsSection />
             <EconomicUseCasesSection />
             <PrivacyArchitectureSection />

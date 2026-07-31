@@ -103,22 +103,21 @@ import AuthPage from './pages/AuthPage';
 
 export default function App() {
   return (
-    <HashRouter>
-      <Routes>
-        <Route path="/" element={<LandingPage />} />
-        <Route path="/auth" element={<AuthPage />} />
-        <Route
-          path="/integrity/*"
-          element={
-            <DashboardProvider>
-              <SettingsProvider>
-                <DashboardShell />
-              </SettingsProvider>
-            </DashboardProvider>
-          }
-        />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </HashRouter>
+    <SettingsProvider>
+      <DashboardProvider>
+        <HashRouter>
+          <Routes>
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/landing" element={<LandingPage />} />
+            <Route path="/auth" element={<AuthPage />} />
+            <Route
+              path="/integrity/*"
+              element={<DashboardShell />}
+            />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </HashRouter>
+      </DashboardProvider>
+    </SettingsProvider>
   );
 }

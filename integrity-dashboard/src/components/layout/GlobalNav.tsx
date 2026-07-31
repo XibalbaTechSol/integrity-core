@@ -17,6 +17,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Finance',      icon: <DollarSign size={16} />, activeTabs: ['wallet', 'staking', 'credit', 'markets', 'stability'], defaultTab: 'wallet' },
   { label: 'Xibalba Shield', icon: <Shield size={16} />,   activeTabs: ['governance', 'shield', 'compliance', 'quarantine'], defaultTab: 'shield' },
   { label: 'Identity',     icon: <Key size={16} />,        activeTabs: ['identity'], defaultTab: 'identity' },
+  { label: 'Settings',     icon: <Server size={16} />,     activeTabs: ['settings'], defaultTab: 'settings' },
 ];
 
 export function GlobalNav() {

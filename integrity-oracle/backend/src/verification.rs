@@ -474,3 +474,369 @@ mod tests {
         assert_eq!(effective_tier(2, &[0]), 2);
     }
 }
+
+// ---------------------------------------------------------------------------
+// Rung 2, automated variant: control of a GitHub identity
+// ---------------------------------------------------------------------------
+// Same claim as DNS TXT — "I control this namespace" — proved against a namespace
+// the agent can WRITE TO PROGRAMMATICALLY. That difference is the whole point:
+// publishing a DNS TXT record is a human editing a zone file, so the ladder could
+// never be climbed unattended. Creating a public gist is one authenticated API
+// call, so an agent can prove control of its own identity with no operator in the
+// loop.
+//
+// WHY NOT WHOIS (asked for, and deliberately not built):
+// WHOIS is a PUBLIC RECORD LOOKUP. Anyone can read the WHOIS of any domain, so
+// "the WHOIS record exists" is not evidence that *this agent* controls it — this
+// oracle could 'verify' google.com from a laptop. Verification requires the agent
+// to do something only the controller could do; reading public data never
+// qualifies, no matter how authoritative the source. WHOIS is also widely
+// redacted post-GDPR, so it often cannot even identify a registrant. It could at
+// best corroborate an already-proven claim, never establish one.
+//
+// The proof here is the same shape as DNS: the oracle issues a nonce, the agent
+// signs it, and the oracle independently reads the result from a place only the
+// account holder can write to. Ownership is established by GitHub's own API
+// reporting who owns the gist — not by anything the client tells us.
+
+/// Filename the signed challenge must be published under, so a gist listing can
+/// be scanned without fetching every gist body.
+pub const GITHUB_MARKER_FILENAME: &str = "integrity-verification.txt";
+
+/// Path inside a repository where the challenge is published. `.well-known/` is
+/// the established convention for machine-readable proofs (RFC 8615), and using
+/// it means a GitHub Pages repo serves the same artefact over HTTPS at a stable
+/// URL as a side effect.
+pub const GITHUB_REPO_MARKER_PATH: &str = ".well-known/integrity-verification.txt";
+
+/// Fetch the challenge from a file in a PUBLIC repository the claimed login owns.
+///
+/// Preferred over gists in practice: creating a gist needs a token scope that
+/// fine-grained PATs frequently cannot grant at all (observed here as
+/// `403 Resource not accessible by personal access token`), whereas writing a
+/// file to a repo the account already owns is the ordinary case. The proof is
+/// identical in strength — both are namespaces only the account holder can write
+/// to, and in both cases GitHub's API, not the client, is the authority on who
+/// owns the artefact.
+pub async fn fetch_github_repo_payload(
+    client: &reqwest::Client,
+    login: &str,
+    repo: &str,
+) -> Result<String, VerificationError> {
+    validate_github_login(login)?;
+    validate_github_login(repo_label(repo))?;
+
+    // Confirm the repo is public AND owned by the claimed login before reading
+    // anything out of it. Without the ownership re-check a client could name
+    // someone else's repo that happens to contain a marker file.
+    let meta_url = format!("https://api.github.com/repos/{login}/{repo}");
+    let meta = client
+        .get(&meta_url)
+        .header("accept", "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|e| VerificationError::Resolution(format!("github repo: {e}")))?;
+
+    if meta.status() == reqwest::StatusCode::NOT_FOUND {
+        return Err(VerificationError::RecordNotFound {
+            domain: format!("github {login}/{repo} (not found or not public)"),
+        });
+    }
+    if meta.status() == reqwest::StatusCode::FORBIDDEN {
+        return Err(VerificationError::Resolution(
+            "github API rate limit or access denied (unauthenticated limit is 60/hr)".to_string(),
+        ));
+    }
+    if !meta.status().is_success() {
+        return Err(VerificationError::Resolution(format!(
+            "github repo: HTTP {}",
+            meta.status()
+        )));
+    }
+
+    #[derive(Deserialize)]
+    struct RepoMeta {
+        private: bool,
+        owner: GistOwner,
+    }
+    let meta: RepoMeta = meta
+        .json()
+        .await
+        .map_err(|e| VerificationError::Resolution(format!("github repo: bad JSON: {e}")))?;
+
+    if meta.private {
+        // A private artefact cannot be re-checked by anyone else, which defeats
+        // the point of a claim third parties are meant to be able to audit.
+        return Err(VerificationError::MalformedRecord(format!(
+            "{login}/{repo} is private; the proof must be publicly verifiable"
+        )));
+    }
+    if meta.owner.login.to_lowercase() != login.to_lowercase() {
+        return Err(VerificationError::MalformedRecord(format!(
+            "{repo} is owned by {}, not {login}",
+            meta.owner.login
+        )));
+    }
+
+    let raw_url =
+        format!("https://raw.githubusercontent.com/{login}/{repo}/HEAD/{GITHUB_REPO_MARKER_PATH}");
+    let body = client
+        .get(&raw_url)
+        .send()
+        .await
+        .map_err(|e| VerificationError::Resolution(format!("github raw: {e}")))?;
+    if !body.status().is_success() {
+        return Err(VerificationError::RecordNotFound {
+            domain: format!("github {login}/{repo}:{GITHUB_REPO_MARKER_PATH}"),
+        });
+    }
+    body.text()
+        .await
+        .map(|t| t.trim().to_string())
+        .map_err(|e| VerificationError::Resolution(format!("github raw: {e}")))
+}
+
+/// Repo names allow `.` and `_` which logins do not, so strip the parts that a
+/// login validator would reject before reusing it as a cheap syntax guard.
+fn repo_label(repo: &str) -> &str {
+    repo.split(['.', '_']).next().unwrap_or(repo)
+}
+
+/// GitHub logins: alphanumeric and hyphens, max 39 chars, no leading/trailing or
+/// doubled hyphen. Validated before interpolation into an API path.
+pub fn validate_github_login(login: &str) -> Result<(), VerificationError> {
+    let l = login.trim();
+    if l.is_empty() || l.len() > 39 {
+        return Err(VerificationError::InvalidDomain(format!("github login {login:?}")));
+    }
+    let ok = l.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+        && !l.starts_with('-')
+        && !l.ends_with('-')
+        && !l.contains("--");
+    if !ok {
+        return Err(VerificationError::InvalidDomain(format!("github login {login:?}")));
+    }
+    Ok(())
+}
+
+/// The subject string a GitHub verification is recorded under, and the value bound
+/// into the signed message. Namespaced so a github login can never collide with a
+/// domain in the `identity_verifications` unique index.
+pub fn github_subject(login: &str) -> String {
+    format!("github:{}", login.to_lowercase())
+}
+
+#[derive(Debug, Deserialize)]
+struct GistListEntry {
+    id: String,
+    public: bool,
+    files: std::collections::HashMap<String, GistFile>,
+    owner: Option<GistOwner>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GistFile {
+    raw_url: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GistOwner {
+    login: String,
+}
+
+/// Fetch the signed challenge from the claimed account's PUBLIC gists.
+///
+/// Server-verified end to end: we ask GitHub for *that login's* gists rather than
+/// letting the client hand us a gist id, and we re-check `owner.login` on the
+/// entry we use. A client cannot point us at someone else's gist, and cannot
+/// claim a login it does not own — GitHub's API is the authority on who owns what.
+///
+/// Only PUBLIC gists count. A private one would make the proof unverifiable by
+/// anyone but us, which defeats the purpose of a claim others are meant to be
+/// able to re-check.
+pub async fn fetch_github_challenge_payloads(
+    client: &reqwest::Client,
+    login: &str,
+) -> Result<Vec<String>, VerificationError> {
+    validate_github_login(login)?;
+
+    let list_url = format!("https://api.github.com/users/{login}/gists?per_page=100");
+    let resp = client
+        .get(&list_url)
+        .header("accept", "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|e| VerificationError::Resolution(format!("github list: {e}")))?;
+
+    if resp.status() == reqwest::StatusCode::NOT_FOUND {
+        return Err(VerificationError::RecordNotFound {
+            domain: format!("github user {login}"),
+        });
+    }
+    if resp.status() == reqwest::StatusCode::FORBIDDEN {
+        // Unauthenticated GitHub API is 60 req/hr per IP. Say so plainly instead
+        // of surfacing a bare 403 that reads like a permissions problem.
+        return Err(VerificationError::Resolution(
+            "github API rate limit or access denied (unauthenticated limit is 60/hr) — retry later"
+                .to_string(),
+        ));
+    }
+    if !resp.status().is_success() {
+        return Err(VerificationError::Resolution(format!(
+            "github list: HTTP {}",
+            resp.status()
+        )));
+    }
+
+    let gists: Vec<GistListEntry> = resp
+        .json()
+        .await
+        .map_err(|e| VerificationError::Resolution(format!("github list: bad JSON: {e}")))?;
+
+    let want = login.to_lowercase();
+    let mut payloads = Vec::new();
+
+    for gist in gists {
+        if !gist.public {
+            continue;
+        }
+        // Re-check ownership on the entry itself rather than trusting that the
+        // listing endpoint only ever returns this user's gists.
+        match &gist.owner {
+            Some(o) if o.login.to_lowercase() == want => {}
+            _ => continue,
+        }
+        let Some(file) = gist.files.get(GITHUB_MARKER_FILENAME) else {
+            continue;
+        };
+        let Some(raw_url) = file.raw_url.as_deref() else {
+            continue;
+        };
+        // Only follow gist raw URLs on GitHub's own host — `raw_url` comes from an
+        // API response, and blindly fetching a URL from a response body is an SSRF
+        // primitive.
+        if !raw_url.starts_with("https://gist.githubusercontent.com/") {
+            continue;
+        }
+        if let Ok(body_resp) = client.get(raw_url).send().await {
+            if body_resp.status().is_success() {
+                if let Ok(text) = body_resp.text().await {
+                    payloads.push(text.trim().to_string());
+                }
+            }
+        }
+        let _ = &gist.id; // id is not trusted for anything; ownership is what matters
+    }
+
+    if payloads.is_empty() {
+        return Err(VerificationError::RecordNotFound {
+            domain: format!("github user {login} (no public gist named {GITHUB_MARKER_FILENAME})"),
+        });
+    }
+    Ok(payloads)
+}
+
+/// Verify one of the fetched payloads is a valid signature over the challenge.
+/// Payloads may carry the same `integrity-verification=` prefix as a TXT record
+/// (so the published artefact looks identical in both methods) or be a bare hex
+/// signature.
+pub fn verify_github_payloads(
+    payloads: &[String],
+    agent_pubkey: &[u8],
+    did: &str,
+    subject: &str,
+    nonce: &str,
+) -> Result<String, VerificationError> {
+    let records: HashSet<String> = payloads
+        .iter()
+        .map(|p| {
+            let t = p.trim();
+            if t.starts_with(TXT_PREFIX) {
+                t.to_string()
+            } else {
+                expected_txt_record(t)
+            }
+        })
+        .collect();
+    verify_txt_records(&records, agent_pubkey, did, subject, nonce)
+}
+
+#[cfg(test)]
+mod github_tests {
+    use super::*;
+    use ed25519_dalek::{Signer, SigningKey};
+
+    fn sk() -> SigningKey {
+        SigningKey::from_bytes(&[11u8; 32])
+    }
+
+    #[test]
+    fn accepts_a_correctly_signed_gist_payload() {
+        let k = sk();
+        let did = "did:integrity:abc";
+        let subject = github_subject("XibalbaTechSol");
+        let nonce = "n1";
+        let sig = k.sign(challenge_message(did, &subject, nonce).as_bytes());
+
+        // Bare hex, as an agent would write it into the gist.
+        let payloads = vec![hex::encode(sig.to_bytes())];
+        assert!(verify_github_payloads(&payloads, k.verifying_key().as_bytes(), did, &subject, nonce).is_ok());
+
+        // Prefixed form is accepted too, so the published artefact can look
+        // identical to the DNS TXT value.
+        let prefixed = vec![expected_txt_record(&hex::encode(sig.to_bytes()))];
+        assert!(verify_github_payloads(&prefixed, k.verifying_key().as_bytes(), did, &subject, nonce).is_ok());
+    }
+
+    #[test]
+    fn github_subject_is_namespaced_and_case_insensitive() {
+        assert_eq!(github_subject("XibalbaTechSol"), "github:xibalbatechsol");
+        // Namespacing is what stops a login colliding with a domain in the
+        // (agent, method, subject) unique index.
+        assert!(github_subject("example.com").starts_with("github:"));
+    }
+
+    #[test]
+    fn rejects_a_signature_bound_to_a_different_github_account() {
+        let k = sk();
+        let did = "did:integrity:abc";
+        let sig = k.sign(challenge_message(did, &github_subject("attacker"), "n").as_bytes());
+        let payloads = vec![hex::encode(sig.to_bytes())];
+        let got = verify_github_payloads(
+            &payloads,
+            k.verifying_key().as_bytes(),
+            did,
+            &github_subject("victim"),
+            "n",
+        );
+        assert!(matches!(got, Err(VerificationError::BadSignature { .. })));
+    }
+
+    #[test]
+    fn rejects_a_github_proof_replayed_from_a_domain_proof() {
+        // A signature proving control of `example.com` must not verify the
+        // GitHub account `example.com`-shaped subject, and vice versa.
+        let k = sk();
+        let did = "did:integrity:abc";
+        let sig = k.sign(challenge_message(did, "example.com", "n").as_bytes());
+        let payloads = vec![hex::encode(sig.to_bytes())];
+        let got = verify_github_payloads(
+            &payloads,
+            k.verifying_key().as_bytes(),
+            did,
+            &github_subject("example.com"),
+            "n",
+        );
+        assert!(matches!(got, Err(VerificationError::BadSignature { .. })));
+    }
+
+    #[test]
+    fn validates_github_logins() {
+        for bad in ["", "-lead", "trail-", "has--double", "has space", &"x".repeat(40)] {
+            assert!(validate_github_login(bad).is_err(), "should reject {bad:?}");
+        }
+        for good in ["XibalbaTechSol", "a", "my-org-1", "a1-b2"] {
+            assert!(validate_github_login(good).is_ok(), "should accept {good:?}");
+        }
+    }
+}

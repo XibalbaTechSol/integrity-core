@@ -2916,3 +2916,160 @@ pub async fn get_verifications(
         verifications,
     }))
 }
+
+#[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
+pub struct GithubVerifyRequest {
+    /// GitHub login the agent claims to control.
+    pub login: String,
+    /// Public repo holding `.well-known/integrity-verification.txt`.
+    /// Defaults to `<login>.github.io`. Ownership is re-checked server-side, so
+    /// naming a repo here cannot be used to claim someone else's namespace.
+    #[serde(default)]
+    pub repo: Option<String>,
+}
+
+/// Issue a challenge for GitHub-identity verification.
+///
+/// Same ladder rung as DNS (tier 2, "control of a namespace"), against a namespace
+/// the agent can write to via API — which is what makes the climb automatable with
+/// no operator editing a zone file by hand.
+pub async fn request_github_challenge(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<GithubVerifyRequest>,
+) -> Result<Json<DnsChallengeResponse>, AppError> {
+    use crate::verification as v;
+
+    let login = req.login.trim().to_lowercase();
+    v::validate_github_login(&login).map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    let agent = db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+    if agent.ed25519_pubkey.is_none() {
+        return Err(AppError::BadRequest(
+            "agent has no Ed25519 key registered".to_string(),
+        ));
+    }
+
+    let subject = v::github_subject(&login);
+    let nonce = uuid::Uuid::new_v4().simple().to_string();
+    // Challenges are keyed by (agent, subject); `github:<login>` cannot collide
+    // with a domain, so the same table serves both methods.
+    let expires_at =
+        db::issue_dns_challenge(&state.pool, &id, &subject, &nonce, v::CHALLENGE_TTL_MINUTES).await?;
+
+    Ok(Json(DnsChallengeResponse {
+        message_to_sign: v::challenge_message(&id, &subject, &nonce),
+        txt_record_name: format!("public gist file `{}`", v::GITHUB_MARKER_FILENAME),
+        txt_record_value_format: v::expected_txt_record("<hex-ed25519-signature>"),
+        domain: subject,
+        nonce,
+        expires_at,
+    }))
+}
+
+/// Verify control of a GitHub identity and grant tier 2.
+pub async fn verify_github(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<GithubVerifyRequest>,
+) -> Result<Json<VerificationResponse>, AppError> {
+    use crate::verification as v;
+
+    let login = req.login.trim().to_lowercase();
+    v::validate_github_login(&login).map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let subject = v::github_subject(&login);
+
+    let agent = db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+    let pubkey = agent
+        .ed25519_pubkey
+        .ok_or_else(|| AppError::BadRequest("agent has no Ed25519 key registered".to_string()))?;
+
+    let nonce = db::get_active_dns_challenge(&state.pool, &id, &subject)
+        .await?
+        .ok_or_else(|| {
+            AppError::BadRequest(
+                "no active challenge for this identity — request one first".to_string(),
+            )
+        })?;
+
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .user_agent("integrity-oracle/identity-verification")
+        .build()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("http client: {e}")))?;
+
+    // Try the repo file first, then gists. Repo-file publication is what a
+    // fine-grained PAT can actually do -- gist creation needs a scope such tokens
+    // frequently cannot grant (`403 Resource not accessible by personal access
+    // token`). Both are equally strong proofs; the fallback exists so an agent
+    // whose token *can* write gists is not forced to create a repo.
+    let repo = req.repo.clone().unwrap_or_else(|| format!("{login}.github.io"));
+    let mut payloads: Vec<String> = Vec::new();
+    let mut attempts: Vec<String> = Vec::new();
+
+    match v::fetch_github_repo_payload(&http, &login, &repo).await {
+        Ok(p) => payloads.push(p),
+        Err(e) => attempts.push(format!("repo {login}/{repo}: {e}")),
+    }
+    if payloads.is_empty() {
+        match v::fetch_github_challenge_payloads(&http, &login).await {
+            Ok(mut p) => payloads.append(&mut p),
+            Err(e) => attempts.push(format!("gists: {e}")),
+        }
+    }
+    if payloads.is_empty() {
+        return Err(AppError::BadRequest(format!(
+            "no signed challenge found -- {}",
+            attempts.join("; ")
+        )));
+    }
+
+    let signature = v::verify_github_payloads(&payloads, &pubkey, &id, &subject, &nonce)
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    // GitHub verifications expire like DNS ones: account control is a claim about
+    // the present, and accounts get transferred, renamed or compromised.
+    let expires_at = chrono::Utc::now() + chrono::Duration::days(v::DNS_VERIFICATION_TTL_DAYS);
+    let evidence = serde_json::json!({
+        "method": "github_gist",
+        "login": login,
+        "signature": signature,
+        "nonce": nonce,
+        "marker_file": v::GITHUB_MARKER_FILENAME,
+        "challenge_format": "integrity-domain-verification:v1:<did>:<subject>:<nonce>",
+    });
+
+    let row = db::record_identity_verification(
+        &state.pool,
+        &id,
+        // Same rung and same proof shape as DNS, but recorded under its own method
+        // name: an audit row claiming `dns_txt` for a proof read from GitHub's API
+        // misdescribes how it was obtained (see migration 0012).
+        "github",
+        v::TIER_DNS_VERIFIED,
+        &subject,
+        evidence,
+        Some(expires_at),
+    )
+    .await?;
+
+    db::consume_dns_challenge(&state.pool, &id, &subject).await?;
+
+    let effective =
+        db::effective_verification_tier(&state.pool, &id, agent.verification_tier).await?;
+
+    tracing::info!(agent_id = %id, %login, effective_tier = effective, "GitHub verification granted");
+
+    Ok(Json(VerificationResponse {
+        agent_id: id,
+        method: row.method,
+        subject: row.subject,
+        tier_granted: row.tier_granted,
+        effective_tier: effective,
+        expires_at: row.expires_at,
+    }))
+}

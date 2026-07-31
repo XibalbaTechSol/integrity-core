@@ -20,37 +20,187 @@ export const AgentPrimitivesSection = () => {
         <section style={{ padding: isMobile ? '60px 20px' : '120px 60px', background: 'var(--navy-deep)', position: 'relative', overflow: 'hidden' }}>
             <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
                 <div style={{ textAlign: 'center', marginBottom: isMobile ? '48px' : '80px' }}>
-                    <span style={{ color: 'var(--gold)', fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.25em', display: 'block', marginBottom: '16px' }}>The 3 Fundamental Primitives</span>
+                    <span style={{ color: 'var(--gold)', fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.25em', display: 'block', marginBottom: '16px' }}>The 4 Foundational Primitives</span>
                     <h2 style={{ fontSize: isMobile ? '2.2rem' : '3.5rem', fontWeight: 800, lineHeight: 1.1, marginBottom: '24px', color: 'white' }}>Building the <span style={{ color: 'var(--gold)' }}>Agentic Web.</span></h2>
-                    <p style={{ color: 'rgba(255,255,255,0.6)', maxWidth: '800px', margin: '0 auto', lineHeight: 1.7, fontSize: isMobile ? '0.95rem' : '1.1rem' }}>
-                        The Integrity Protocol provides the foundational layer for autonomous systems by establishing three fundamental on-chain primitives: cryptographic reputation, programmable contract ownership, and persistent verified memory.
+                    <p style={{ color: 'rgba(255,255,255,0.6)', maxWidth: '850px', margin: '0 auto', lineHeight: 1.7, fontSize: isMobile ? '0.95rem' : '1.1rem' }}>
+                        The Integrity Protocol provides the foundational layer for autonomous systems by establishing four fundamental on-chain primitives: cryptographic reputation, programmable contract ownership, persistent verified memory, and zero-knowledge execution proofs.
                     </p>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: isMobile ? '20px' : '32px' }}>
-                    <motion.div whileHover={{ y: -8 }} style={{ padding: '40px', background: 'linear-gradient(145deg, rgba(212,175,55,0.04) 0%, rgba(15,23,42,0.6) 100%)', border: '1px solid rgba(212,175,55,0.2)', borderTop: '4px solid var(--gold)', borderRadius: '24px', boxShadow: '0 20px 40px rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, 1fr)', gap: isMobile ? '20px' : '24px' }}>
+                    <motion.div whileHover={{ y: -8 }} style={{ padding: '32px 28px', background: 'linear-gradient(145deg, rgba(212,175,55,0.04) 0%, rgba(15,23,42,0.6) 100%)', border: '1px solid rgba(212,175,55,0.2)', borderTop: '4px solid var(--gold)', borderRadius: '24px', boxShadow: '0 20px 40px rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)' }}>
                         <div style={{ color: 'var(--gold)', marginBottom: '20px' }}><Shield size={36} /></div>
-                        <h4 style={{ fontSize: '1.3rem', fontWeight: 800, marginBottom: '16px', color: 'white' }}>1. Immutable Reputation</h4>
-                        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.95rem', lineHeight: 1.7, margin: 0 }}>
-                            Real-time telemetry evaluates agent behavior to compute a globally accessible Agent Integrity Score (AIS). Base L2 smart contracts pre-verify this score before execution to ensure trustless accountability.
+                        <h4 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '16px', color: 'white' }}>1. Immutable Reputation</h4>
+                        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.9rem', lineHeight: 1.7, margin: 0 }}>
+                            Real-time telemetry evaluates agent behavior to compute a globally accessible Agent Integrity Score (AIS). Base L2 smart contracts pre-verify this score before execution.
                         </p>
                     </motion.div>
 
-                    <motion.div whileHover={{ y: -8 }} style={{ padding: '40px', background: 'linear-gradient(145deg, rgba(96,165,250,0.04) 0%, rgba(15,23,42,0.6) 100%)', border: '1px solid rgba(96,165,250,0.2)', borderTop: '4px solid #60a5fa', borderRadius: '24px', boxShadow: '0 20px 40px rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)' }}>
+                    <motion.div whileHover={{ y: -8 }} style={{ padding: '32px 28px', background: 'linear-gradient(145deg, rgba(96,165,250,0.04) 0%, rgba(15,23,42,0.6) 100%)', border: '1px solid rgba(96,165,250,0.2)', borderTop: '4px solid #60a5fa', borderRadius: '24px', boxShadow: '0 20px 40px rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)' }}>
                         <div style={{ color: '#60a5fa', marginBottom: '20px' }}><Code size={36} /></div>
-                        <h4 style={{ fontSize: '1.3rem', fontWeight: 800, marginBottom: '16px', color: 'white' }}>2. Agent-Owned Contracts</h4>
-                        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.95rem', lineHeight: 1.7, margin: 0 }}>
-                            Agents can programmatically deploy, fund, and manage their own smart contracts and SLAs (e.g. DeFi liquidity pools, task escrows) directly through the Sovereign Agent interface.
+                        <h4 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '16px', color: 'white' }}>2. Agent-Owned Contracts</h4>
+                        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.9rem', lineHeight: 1.7, margin: 0 }}>
+                            Agents can programmatically deploy, fund, and manage their own smart contracts and SLAs (e.g. DeFi liquidity pools, task escrows) directly through the Sovereign interface.
                         </p>
                     </motion.div>
 
-                    <motion.div whileHover={{ y: -8 }} style={{ padding: '40px', background: 'linear-gradient(145deg, rgba(167,139,250,0.04) 0%, rgba(15,23,42,0.6) 100%)', border: '1px solid rgba(167,139,250,0.2)', borderTop: '4px solid #a78bfa', borderRadius: '24px', boxShadow: '0 20px 40px rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)' }}>
+                    <motion.div whileHover={{ y: -8 }} style={{ padding: '32px 28px', background: 'linear-gradient(145deg, rgba(167,139,250,0.04) 0%, rgba(15,23,42,0.6) 100%)', border: '1px solid rgba(167,139,250,0.2)', borderTop: '4px solid #a78bfa', borderRadius: '24px', boxShadow: '0 20px 40px rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)' }}>
                         <div style={{ color: '#a78bfa', marginBottom: '20px' }}><Cpu size={36} /></div>
-                        <h4 style={{ fontSize: '1.3rem', fontWeight: 800, marginBottom: '16px', color: 'white' }}>3. Persistent Memory</h4>
-                        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.95rem', lineHeight: 1.7, margin: 0 }}>
-                            Agents anchor their local semantic memories (RAG vectors, graphs) cryptographically to the blockchain via a State Anchor, ensuring knowledge untamperability and context continuity across sessions.
+                        <h4 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '16px', color: 'white' }}>3. Persistent Memory</h4>
+                        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.9rem', lineHeight: 1.7, margin: 0 }}>
+                            Agents anchor their local semantic memories (RAG vectors, graphs) cryptographically to the blockchain via a State Anchor, ensuring knowledge untamperability across sessions.
                         </p>
                     </motion.div>
+
+                    <motion.div whileHover={{ y: -8 }} style={{ padding: '32px 28px', background: 'linear-gradient(145deg, rgba(52,211,153,0.04) 0%, rgba(15,23,42,0.6) 100%)', border: '1px solid rgba(52,211,153,0.2)', borderTop: '4px solid #34d399', borderRadius: '24px', boxShadow: '0 20px 40px rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)' }}>
+                        <div style={{ color: '#34d399', marginBottom: '20px' }}><Lock size={36} /></div>
+                        <h4 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '16px', color: 'white' }}>4. ZK Execution Proofs</h4>
+                        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.9rem', lineHeight: 1.7, margin: 0 }}>
+                            Aztec Noir UltraPlonk circuits generate zero-knowledge attestations that prove reasoning compliance without exposing proprietary model weights or private parameters.
+                        </p>
+                    </motion.div>
+                </div>
+            </div>
+        </section>
+    );
+};
+
+export const ProtocolCompareSection = () => {
+    const isMobile = useIsMobile();
+    return (
+        <section style={{ padding: isMobile ? '60px 20px' : '100px 60px', background: 'var(--navy-deep)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+            <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+                <div style={{ textAlign: 'center', marginBottom: '60px' }}>
+                    <span style={{ color: 'var(--gold)', fontSize: '0.7rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.25em', marginBottom: '12px', display: 'block' }}>Market Positioning</span>
+                    <h2 style={{ fontSize: isMobile ? '2rem' : '3rem', fontWeight: 800, color: 'white' }}>How Xibalba Compares</h2>
+                </div>
+
+                <div style={{ overflowX: 'auto', background: 'rgba(15,23,42,0.6)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', padding: '24px' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', color: 'white', textAlign: 'left' }}>
+                        <thead>
+                            <tr style={{ borderBottom: '2px solid rgba(255,255,255,0.15)' }}>
+                                <th style={{ padding: '16px' }}>Feature</th>
+                                <th style={{ padding: '16px', color: '#94A3B8' }}>Ritual</th>
+                                <th style={{ padding: '16px', color: '#94A3B8' }}>Autonolas / Olas</th>
+                                <th style={{ padding: '16px', color: '#94A3B8' }}>Fetch.ai</th>
+                                <th style={{ padding: '16px', color: 'var(--gold)', fontWeight: 800 }}>Xibalba</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                                <td style={{ padding: '16px', fontWeight: 600 }}>Pre-execution Intent Gating</td>
+                                <td style={{ padding: '16px', color: '#f87171' }}>✗</td>
+                                <td style={{ padding: '16px', color: '#f87171' }}>✗</td>
+                                <td style={{ padding: '16px', color: '#fbbf24' }}>Partial</td>
+                                <td style={{ padding: '16px', color: '#34d399', fontWeight: 800 }}>✓</td>
+                            </tr>
+                            <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                                <td style={{ padding: '16px', fontWeight: 600 }}>Cryptographic Execution Proofs (ZK)</td>
+                                <td style={{ padding: '16px', color: '#34d399' }}>✓</td>
+                                <td style={{ padding: '16px', color: '#f87171' }}>✗</td>
+                                <td style={{ padding: '16px', color: '#f87171' }}>✗</td>
+                                <td style={{ padding: '16px', color: '#34d399', fontWeight: 800 }}>✓</td>
+                            </tr>
+                            <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                                <td style={{ padding: '16px', fontWeight: 600 }}>On-Chain Smart Contract Settlement</td>
+                                <td style={{ padding: '16px', color: '#fbbf24' }}>Partial</td>
+                                <td style={{ padding: '16px', color: '#34d399' }}>✓</td>
+                                <td style={{ padding: '16px', color: '#34d399' }}>✓</td>
+                                <td style={{ padding: '16px', color: '#34d399', fontWeight: 800 }}>✓</td>
+                            </tr>
+                            <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                                <td style={{ padding: '16px', fontWeight: 600 }}>Agent Reputation Scoring (AIS)</td>
+                                <td style={{ padding: '16px', color: '#f87171' }}>✗</td>
+                                <td style={{ padding: '16px', color: '#fbbf24' }}>Partial</td>
+                                <td style={{ padding: '16px', color: '#f87171' }}>✗</td>
+                                <td style={{ padding: '16px', color: '#34d399', fontWeight: 800 }}>✓</td>
+                            </tr>
+                            <tr>
+                                <td style={{ padding: '16px', fontWeight: 600 }}>Hardware-bound Identity (TEE/DID)</td>
+                                <td style={{ padding: '16px', color: '#f87171' }}>✗</td>
+                                <td style={{ padding: '16px', color: '#f87171' }}>✗</td>
+                                <td style={{ padding: '16px', color: '#f87171' }}>✗</td>
+                                <td style={{ padding: '16px', color: '#34d399', fontWeight: 800 }}>✓</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    );
+};
+
+
+export const CircuitBreakerSection = () => {
+    const isMobile = useIsMobile();
+    return (
+        <section style={{ padding: isMobile ? '60px 20px' : '100px 60px', background: 'rgba(15,23,42,0.8)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+            <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+                <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+                    <span style={{ color: '#f87171', fontSize: '0.7rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.25em', display: 'block', marginBottom: '12px' }}>Automated Safety</span>
+                    <h2 style={{ fontSize: isMobile ? '2rem' : '3rem', fontWeight: 800, color: 'white' }}>Contract Violation? Instant Circuit Breaking.</h2>
+                    <p style={{ color: 'rgba(255,255,255,0.6)', maxWidth: '800px', margin: '16px auto 0', lineHeight: 1.7 }}>
+                        When an agent attempts a transaction outside its authorized policy, the Behavior Commitment Chain (BCC) middleware kills the action in sub-15ms — before any state change occurs.
+                    </p>
+                </div>
+
+                <div style={{ background: 'rgba(15,23,42,0.9)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: '20px', padding: '32px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, 1fr)', gap: '16px', marginBottom: '32px' }}>
+                        <div style={{ background: 'rgba(255,255,255,0.03)', padding: '16px', borderRadius: '12px', borderLeft: '4px solid #60a5fa' }}>
+                            <div style={{ fontSize: '0.8rem', color: '#60a5fa', fontWeight: 700 }}>T+0ms</div>
+                            <div style={{ fontSize: '0.9rem', color: 'white', marginTop: '4px' }}>Agent submits signed transaction commitment</div>
+                        </div>
+                        <div style={{ background: 'rgba(255,255,255,0.03)', padding: '16px', borderRadius: '12px', borderLeft: '4px solid #60a5fa' }}>
+                            <div style={{ fontSize: '0.8rem', color: '#60a5fa', fontWeight: 700 }}>T+2ms</div>
+                            <div style={{ fontSize: '0.9rem', color: 'white', marginTop: '4px' }}>BCC middleware intercepts — TTL + AIS gates pass</div>
+                        </div>
+                        <div style={{ background: 'rgba(255,255,255,0.03)', padding: '16px', borderRadius: '12px', borderLeft: '4px solid #fbbf24' }}>
+                            <div style={{ fontSize: '0.8rem', color: '#fbbf24', fontWeight: 700 }}>T+5ms</div>
+                            <div style={{ fontSize: '0.9rem', color: 'white', marginTop: '4px' }}>Intent hash verification — Parameter drift detected</div>
+                        </div>
+                        <div style={{ background: 'rgba(248,113,113,0.1)', padding: '16px', borderRadius: '12px', borderLeft: '4px solid #f87171' }}>
+                            <div style={{ fontSize: '0.8rem', color: '#f87171', fontWeight: 700 }}>T+8ms (BLOCKED)</div>
+                            <div style={{ fontSize: '0.9rem', color: 'white', marginTop: '4px' }}>⛔ Circuit breaker fires — transaction killed</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    );
+};
+
+export const ArchitectureDeepDiveSection = () => {
+    const isMobile = useIsMobile();
+    return (
+        <section style={{ padding: isMobile ? '60px 20px' : '100px 60px', background: 'var(--navy-deep)', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+            <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+                <div style={{ textAlign: 'center', marginBottom: '60px' }}>
+                    <span style={{ color: 'var(--gold)', fontSize: '0.7rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.25em', marginBottom: '12px', display: 'block' }}>Under The Hood</span>
+                    <h2 style={{ fontSize: isMobile ? '2rem' : '3rem', fontWeight: 800, color: 'white' }}>Protocol Architecture</h2>
+                    <p style={{ color: 'rgba(255,255,255,0.6)', maxWidth: '750px', margin: '16px auto 0' }}>The Integrity Protocol is a 5-node validation lifecycle that bridges stochastic LLM reasoning with deterministic on-chain finality.</p>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                    {[
+                        { num: '01', title: 'On-Chain Settlement Layer', desc: 'Base L2 as primary settlement chain. Smart contracts (SovereignAgent.sol, ReputationRegistry.sol) manage identity, verification, and AIS anchoring.', tags: ['Base L2', 'Solidity', 'Foundry'] },
+                        { num: '02', title: 'Identity & Security Layer', desc: 'Hardware-bound agent identity via TEE (AWS Nitro / Intel SGX). W3C DIDs (did:intg:<address>) linked to on-chain keypairs.', tags: ['W3C DID', 'TEE', 'AWS KMS'] },
+                        { num: '03', title: 'Behavioral Commitment Chain (BCC)', desc: 'Pre-execution gating: agents commit to intended_state_hash. OPA policy evaluation, SHA-256 drift detection, and 60s TTL expiration.', tags: ['FastAPI', 'OPA', 'SHA-256'] },
+                        { num: '04', title: 'Zero-Knowledge Verification (ZK-ML)', desc: 'Aztec Noir circuits with UltraPlonk backend for zero-knowledge proofs of execution correctness without exposing model weights.', tags: ['Aztec Noir', 'UltraPlonk', 'WASM'] },
+                        { num: '05', title: 'Reputation & Compliance Observability', desc: 'Telemetry Engine ingests high-throughput execution traces via gRPC. Calculates domain-weighted AIS score anchored to Base L2.', tags: ['Rust', 'Axum', 'PostgreSQL'] }
+                    ].map((step) => (
+                        <div key={step.num} style={{ background: 'rgba(15,23,42,0.6)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', padding: '24px', display: 'flex', gap: '24px', alignItems: 'flex-start', flexDirection: isMobile ? 'column' : 'row' }}>
+                            <div style={{ fontSize: '1.8rem', fontWeight: 900, color: 'var(--gold)', minWidth: '50px' }}>{step.num}</div>
+                            <div style={{ flex: 1 }}>
+                                <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'white', marginBottom: '8px' }}>{step.title}</h3>
+                                <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.95rem', lineHeight: 1.6, margin: '0 0 12px' }}>{step.desc}</p>
+                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                    {step.tags.map(t => (
+                                        <span key={t} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', padding: '4px 10px', borderRadius: '6px', fontSize: '0.75rem', color: 'var(--gold)' }}>{t}</span>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    ))}
                 </div>
             </div>
         </section>
