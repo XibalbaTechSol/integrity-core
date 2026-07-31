@@ -1,1 +1,2 @@
 {"timestamp": "2026-07-30T19:00:55.046129", "action": "anchor_vault_root", "tx_hash": "9d83045af4de00564eced12a449c9d48ad4cd020a9d394762c48d7fb780fd6fc", "gas_used": 100170, "gas_price": 6000000, "cost_wei": 601020000000, "status": "success"}
+{"timestamp": "2026-07-30T19:03:34.135564", "action": "anchor_vault_root", "tx_hash": "f1ebfc909a0aa0898756d42f8c2e679fed89a2a58f256dfdbaa0507009c962a5", "gas_used": 100170, "gas_price": 9341361, "cost_wei": 935724131370, "status": "success"}

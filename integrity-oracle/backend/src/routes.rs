@@ -18,6 +18,13 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/agent/{id}", get(handlers::get_agent))
         .route("/v1/agents", get(handlers::list_agents))
         .route("/v1/agent/{id}/ais", get(handlers::get_ais))
+        // Verification Ladder (rungs 2/3). The challenge endpoint issues a
+        // server-generated nonce; the verify endpoint resolves DNS itself over DoH
+        // and checks the signature with the pubkey from registration -- nothing in
+        // the request body influences the verdict except which domain to inspect.
+        .route("/v1/agent/{id}/verify", get(handlers::get_verifications))
+        .route("/v1/agent/{id}/verify/dns/challenge", post(handlers::request_dns_challenge))
+        .route("/v1/agent/{id}/verify/dns", post(handlers::verify_dns))
         .route("/v1/agent/{id}/ais/history", get(handlers::get_ais_history))
         .route("/v1/agent/{id}/compliance", get(handlers::get_compliance))
         .route("/v1/agent/{id}/wallet", get(handlers::get_wallet))

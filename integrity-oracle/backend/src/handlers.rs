@@ -496,7 +496,14 @@ pub(crate) async fn compute_ais_for_agent(state: &AppState, id: &str) -> Result<
     let agent = db::get_agent(&state.pool, id).await?.ok_or_else(|| AppError::AgentNotFound(id.to_string()))?;
 
     let engine = scoring_core::AisEngine::new(state.config.ais_weights).map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
-    let breakdown = engine.score_with_tier(&inputs, agent.verification_tier);
+    // EFFECTIVE tier, not the registration column: `agents.verification_tier` is only
+    // the floor registration can establish (a hardcoded 1). Rungs 2/3 are evidence-backed
+    // rows in `identity_verifications`, and expiry is applied in that query, so a lapsed
+    // domain lowers the ceiling here automatically. Reading the raw column instead would
+    // permanently cap every agent at 600 no matter what it proved -- which is the bug
+    // this subsystem exists to fix.
+    let tier = db::effective_verification_tier(&state.pool, id, agent.verification_tier).await?;
+    let breakdown = engine.score_with_tier(&inputs, tier);
 
     let onchain_zk_boost_consistent = match db::get_agent_primitives(&state.pool, id).await? {
         Some(row) => {
@@ -2717,3 +2724,195 @@ pub async fn get_trace_tree(State(state): State<AppState>, Path(trace_id): Path<
     }))
 }
 
+
+// ---------------------------------------------------------------------------
+// Verification Ladder: rungs 2 (DNS) and 3 (KYC)
+// ---------------------------------------------------------------------------
+// `SERVER_VERIFIED_TIER` above is the REGISTRATION floor and stays a constant —
+// registration genuinely cannot establish more than tier 1. Rungs above it are
+// evidence-backed and live in `identity_verifications` (migration 0011), so the
+// tier an agent actually gets is the floor unioned with its active verifications.
+// Because that union is computed from live rows with expiry applied in SQL, a
+// lapsed domain lowers the tier on its own rather than needing a sweep job.
+
+#[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
+pub struct DnsChallengeRequest {
+    /// Domain the agent claims to control, e.g. "xibalbatechsol.com".
+    pub domain: String,
+}
+
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct DnsChallengeResponse {
+    pub domain: String,
+    pub nonce: String,
+    /// The exact string to sign with the agent's Ed25519 key.
+    pub message_to_sign: String,
+    /// Where to publish, and what the value must look like once signed.
+    pub txt_record_name: String,
+    pub txt_record_value_format: String,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Issue a DNS challenge. The nonce is generated SERVER-SIDE and stored; a client
+/// cannot choose it, which is what stops a TXT record published once from
+/// verifying forever.
+pub async fn request_dns_challenge(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<DnsChallengeRequest>,
+) -> Result<Json<DnsChallengeResponse>, AppError> {
+    use crate::verification as v;
+
+    let domain = req.domain.trim().to_lowercase();
+    v::validate_domain(&domain).map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    let agent = db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+    if agent.ed25519_pubkey.is_none() {
+        return Err(AppError::BadRequest(
+            "agent has no Ed25519 key registered; DNS verification signs with that key".to_string(),
+        ));
+    }
+
+    let nonce = uuid::Uuid::new_v4().simple().to_string();
+    let expires_at =
+        db::issue_dns_challenge(&state.pool, &id, &domain, &nonce, v::CHALLENGE_TTL_MINUTES).await?;
+
+    Ok(Json(DnsChallengeResponse {
+        message_to_sign: v::challenge_message(&id, &domain, &nonce),
+        txt_record_name: format!("_integrity.{domain}"),
+        txt_record_value_format: v::expected_txt_record("<hex-ed25519-signature>"),
+        domain,
+        nonce,
+        expires_at,
+    }))
+}
+
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct VerificationResponse {
+    pub agent_id: String,
+    pub method: String,
+    pub subject: String,
+    pub tier_granted: i32,
+    pub effective_tier: i32,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Verify a previously-issued DNS challenge and grant tier 2 on success.
+///
+/// Every input to the verdict is server-held: the nonce came from our DB, the
+/// public key came from registration, and the TXT record is resolved by us over
+/// DoH from two independent resolvers that must agree. The request body only says
+/// *which* domain to look at.
+pub async fn verify_dns(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<DnsChallengeRequest>,
+) -> Result<Json<VerificationResponse>, AppError> {
+    use crate::verification as v;
+
+    let domain = req.domain.trim().to_lowercase();
+    v::validate_domain(&domain).map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    let agent = db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+    let pubkey = agent
+        .ed25519_pubkey
+        .ok_or_else(|| AppError::BadRequest("agent has no Ed25519 key registered".to_string()))?;
+
+    let nonce = db::get_active_dns_challenge(&state.pool, &id, &domain)
+        .await?
+        .ok_or_else(|| {
+            AppError::BadRequest(
+                "no active challenge for this domain — POST /verify/dns/challenge first \
+                 (challenges expire, by design)"
+                    .to_string(),
+            )
+        })?;
+
+    // A dedicated client rather than a shared one on AppState: domain
+    // verification is a rare, human-initiated operation (not a hot path), and the
+    // timeouts it wants are stricter than a general-purpose client's — a DoH
+    // lookup that hangs must fail the verification quickly rather than occupy a
+    // request worker.
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .user_agent("integrity-oracle/domain-verification")
+        .build()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("http client: {e}")))?;
+
+    let records = v::resolve_verification_txt(&http, &domain)
+        .await
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    let signature = v::verify_txt_records(&records, &pubkey, &id, &domain, &nonce)
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    let expires_at = chrono::Utc::now() + chrono::Duration::days(v::DNS_VERIFICATION_TTL_DAYS);
+    let evidence = serde_json::to_value(v::dns_evidence(&domain, &signature, &nonce))
+        .unwrap_or_else(|_| serde_json::json!({"domain": domain}));
+
+    let row = db::record_identity_verification(
+        &state.pool,
+        &id,
+        "dns_txt",
+        v::TIER_DNS_VERIFIED,
+        &domain,
+        evidence,
+        Some(expires_at),
+    )
+    .await?;
+
+    // Consume only AFTER the verification is durably recorded. Consuming first
+    // would burn the nonce on a DB failure and force the operator to re-publish
+    // a new TXT record for a proof that actually succeeded.
+    db::consume_dns_challenge(&state.pool, &id, &domain).await?;
+
+    let effective =
+        db::effective_verification_tier(&state.pool, &id, agent.verification_tier).await?;
+
+    tracing::info!(agent_id = %id, %domain, effective_tier = effective, "DNS verification granted");
+
+    Ok(Json(VerificationResponse {
+        agent_id: id,
+        method: row.method,
+        subject: row.subject,
+        tier_granted: row.tier_granted,
+        effective_tier: effective,
+        expires_at: row.expires_at,
+    }))
+}
+
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct VerificationListResponse {
+    pub agent_id: String,
+    pub registration_tier: i32,
+    pub effective_tier: i32,
+    /// AIS ceiling implied by `effective_tier` — surfaced because the ceiling
+    /// silently binding is exactly how this whole subsystem's absence went
+    /// unnoticed (raw AIS 704 reported as 600, ZK boost worth nothing).
+    pub ais_ceiling: f64,
+    pub verifications: Vec<db::IdentityVerificationRow>,
+}
+
+pub async fn get_verifications(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<VerificationListResponse>, AppError> {
+    let agent = db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+    let verifications = db::list_identity_verifications(&state.pool, &id).await?;
+    let effective =
+        db::effective_verification_tier(&state.pool, &id, agent.verification_tier).await?;
+
+    Ok(Json(VerificationListResponse {
+        agent_id: id,
+        registration_tier: agent.verification_tier,
+        effective_tier: effective,
+        ais_ceiling: scoring_core::AisEngine::ceiling_for_tier(effective),
+        verifications,
+    }))
+}
