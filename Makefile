@@ -1,4 +1,4 @@
-.PHONY: setup chain chain-reset up down test test-e2e sync-abis demo
+.PHONY: setup chain chain-reset up down test test-e2e sync-abis demo check-deploy
 
 setup:
 	cd contracts && npm install
@@ -47,10 +47,20 @@ sync-abis:
 	cd contracts && forge build
 	python3 scripts/sync_abis.py
 
+# Is the running stack actually built from the code in this tree? On 2026-07-30 the
+# oracle image was three minutes older than the commit adding the Verification Ladder
+# ceiling, so a live security control was documented, tested, committed — and not
+# running, with every other signal saying it was. Never let that be invisible again.
+check-deploy:
+	python3 scripts/check_deploy_freshness.py
+
 # Default target network is Base Sepolia (see root .env) — the stack runs against the real
 # deployed protocol so testnet inconsistencies surface before mainnet.
+# `--build` makes drift impossible for services started here; the post-check catches
+# anything already running that this invocation did not rebuild.
 up:
 	docker-compose up --build
+	@python3 scripts/check_deploy_freshness.py --warn-only || true
 
 # Local-anvil escape hatch. Anvil is no longer the default: agents registered locally do
 # not exist on Base Sepolia, so XNS/governance/primitive reads fail against a local chain

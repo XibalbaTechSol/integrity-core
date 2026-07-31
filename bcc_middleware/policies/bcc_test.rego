@@ -213,3 +213,26 @@ test_missing_tier_fails_closed_for_high_risk_tool_class if {
 	}
 	not bcc.allow with input as commitment
 }
+
+test_hermes_tool_namespace_reaches_the_same_rules if {
+	# The Hermes runtime executed entirely ungated while Claude Code was gated,
+	# under the same DID. Both namespaces must hit one ruleset -- if this ever
+	# regresses to a claude-only prefix, Hermes silently goes unpoliced again.
+	commitment := object.union(_base_commitment, {
+		"intent_type": "hermes_tool:terminal:destructive",
+		"verification_tier": 0,
+	})
+	not bcc.allow with input as commitment
+	bcc.tool_risk_class == "destructive" with input as commitment
+	bcc.tool_runtime == "hermes_tool" with input as commitment
+}
+
+test_tool_runtime_is_surfaced_for_both_namespaces if {
+	claude := object.union(_base_commitment, {"intent_type": "claude_tool:Bash:network"})
+	hermes := object.union(_base_commitment, {"intent_type": "hermes_tool:terminal:network"})
+	bcc.tool_runtime == "claude_tool" with input as claude
+	bcc.tool_runtime == "hermes_tool" with input as hermes
+	# Both allowed: `network` is classified for visibility, not gated.
+	bcc.allow with input as claude
+	bcc.allow with input as hermes
+}

@@ -197,10 +197,23 @@ violation contains msg if {
 # These rules therefore encode "the agent committed to doing something
 # destructive" and gate on that assertion -- they are not, and must not be
 # described as, a sandbox. Real containment is the runtime's job.
-claude_tool_prefix := "claude_tool:"
+# One namespace per agent runtime, all reaching the SAME rules. The runtime is
+# encoded in the label rather than given its own ruleset, because the failure this
+# whole section exists to fix was two runtimes under one DID having two different
+# behavioral guarantees. Duplicated rules are how that drift happens; a shared
+# rule with a runtime-tagged label keeps them honest AND lets an auditor see which
+# runtime committed to what.
+agent_tool_prefixes := {"claude_tool", "hermes_tool"}
 
-_is_claude_tool if {
-	startswith(input.intent_type, claude_tool_prefix)
+_is_agent_tool if {
+	some prefix in agent_tool_prefixes
+	startswith(input.intent_type, sprintf("%v:", [prefix]))
+}
+
+# Surfaced for audit logging: which runtime made this commitment.
+tool_runtime := runtime if {
+	_is_agent_tool
+	runtime := split(input.intent_type, ":")[0]
 }
 
 # Risk classes that require an agent to be verifiable before it may commit to
@@ -214,7 +227,7 @@ high_risk_tool_classes := {
 }
 
 _tool_risk_class := class if {
-	_is_claude_tool
+	_is_agent_tool
 	parts := split(input.intent_type, ":")
 	count(parts) >= 3
 	class := parts[2]
