@@ -226,18 +226,24 @@ change in one automatically applies to the other.
 
 ## Known gaps / things this doc's own exploration found stale — verify before relying on them
 
-- `integrity-dashboard/package.json` has no `test` script, though root `Makefile`'s `test` target and
-  `docs/TESTING.md` both invoke `cd integrity-dashboard && npm test`.
-- `integrity-dashboard/demo/` (the Python scenario engine `make demo` depends on) does not exist yet on
-  disk, despite being referenced by the root README, Makefile, `docs/TESTING.md`,
-  `.agents/AGENTS.md`, and `docs/INTERFACE_CONTRACT.md` §11.
-- `integrity-dashboard/src/services/api.ts` and `AgentContext.tsx` are currently hardcoded mock data,
-  not real calls to `integrity-oracle` — despite `docs/wiki/entities/integrity-dashboard.md`
-  describing a much more built-out frontend (real axios API clients, JWT auth, a Playwright
-  `e2e/` suite) whose files don't currently exist in the tree. Trust the code over that wiki page
-  until reconciled. No wagmi/viem/ethers wallet-connection library is present in the frontend at
-  all yet.
+- **`integrity-dashboard/e2e/` does not exist**, though `integrity-dashboard/playwright.config.ts`
+  sets `testDir: './e2e'` and root `Makefile`'s `test-e2e` target names
+  `integrity-dashboard/e2e/global-setup.ts` as the thing that boots anvil + Postgres/Redis +
+  oracle + a seeded agent. So `make test-e2e` currently has no tests to run, and the
+  global-setup architecture the Makefile documents is not built. Either build the suite or
+  drop the target — a documented-but-absent test layer reads as coverage that isn't there.
+  Compounding it, `playwright.config.ts` sets `reuseExistingServer: !process.env.CI`, so a
+  leftover host dev server on `:5173` is silently adopted instead of flagged — the same
+  port-shadowing failure recorded as F11 in `docs/design/harness-loop-audit-2026-07-30.md`.
 - `contracts/.env` (populated, not just `.env.example`) exists on disk — don't commit it.
+
+Four gaps previously listed here were **verified stale on 2026-07-31** and removed rather than
+left to mislead: `integrity-dashboard/package.json` *does* define `"test": "vitest run"`;
+`integrity-dashboard/demo/` *does* exist (`demo/pyproject.toml`, entry point `integrity-demo`);
+`src/services/api.ts` no longer exists at all, so the "hardcoded mock data" warning pointed at a
+deleted file (confirm the dashboard's current data path before relying on either claim); and
+`ethers ^6.16.0` *is* a dashboard dependency, so "no wallet-connection library is present" no
+longer holds. Re-check this section against disk before trusting it — it drifted once.
 
 ## Live deployment
 

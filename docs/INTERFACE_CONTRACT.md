@@ -252,6 +252,23 @@ failing verification.
   This avoids second-preimage ordering ambiguity and lets contracts use OZ's
   `MerkleProof.verify` directly instead of a custom verifier.
 
+> **⚠ UNPINNED: odd-width levels.** The three rules above are everything this
+> section has ever specified. It says nothing about a level with an odd number of
+> nodes, and the three implementations filled that silence differently:
+> `integrity-oracle/backend/src/merkle.rs` and `bcc_middleware/app/merkle.py`
+> **duplicate** the odd node; `integrity_sdk/vault.py` **promotes** it unchanged.
+> All three are compliant with this section as written, and all three claim to
+> match the others "bit-for-bit" — an unfalsifiable claim until conformance
+> vectors exist. Nothing is broken today only because each component builds,
+> anchors and verifies within its own tree; the first cross-system verification
+> breaks. Duplication also makes `[A,B,C]` and `[A,B,C,C]` produce the identical
+> root, which contradicts `StateAnchor.sol`'s own NatSpec claim that the root is
+> "a true function of the *set* of leaves."
+> Recorded as E9 in [`docs/design/e2e-audit-2026-07-31.md`](design/e2e-audit-2026-07-31.md);
+> proposed amendment + migration in
+> [`docs/design/merkle-standardization.md`](design/merkle-standardization.md).
+> **Do not add a fourth implementation until this is resolved.**
+
 ### 4.4a Genesis memory root (spec v0.3 §4.1/§7.2) — cross-package constant
 
 Registration requires `StateAnchor.latestRoot != bytes32(0)` (§6), but an
@@ -280,6 +297,49 @@ the `SovereignAgent` contract and the constructor grants it `ANCHOR_ROLE`. No So
 change is needed for this; **enforcement** that the protocol's `ANCHOR_ROLE` signer cannot
 anchor epoch 1 is still `[PLANNED]` (Appendix A gap 2), since `StateAnchor` is deployed
 per-agent and already-deployed anchors keep their current bytecode.
+
+### 4.4b Memory DAG node schema (spec §7.4 lineage) — `[UNVERIFIED, NOT RUN]`
+
+Design: [`docs/design/memory-dag.md`](design/memory-dag.md). Implementation:
+`integrity_sdk/memory_dag.py`. **Written 2026-07-31 with no shell available, so it
+has never been executed** — §1's "don't write code you haven't run" is knowingly
+violated here and this section is not binding until `tests/test_memory_dag.py`
+passes.
+
+§4.4's tree commits to a flat *set* — its sorted-pair rule exists precisely to make
+leaf position meaningless, so it cannot express that one memory derives from
+another. Lineage needs a DAG, not a bigger tree.
+
+**Node preimage** (canonical JSON per §4.2's rule — `sort_keys=True`,
+`separators=(",",":")`, `ensure_ascii=True`; deliberately the same encoding, not a
+second one):
+
+```
+{ schema, agent_id, kind, content_hash, parents[], edge_type, timestamp, source }
+node_id = "0x" + keccak256(canonical(preimage))
+schema  = "integrity.memory.node.v1"
+```
+
+Three rules are load-bearing:
+
+- **`parents` is ordered and positional** — `parents[0]` is the superseded version.
+  It MUST NOT be sorted. Sorting it would erase lineage semantics exactly the way
+  §4.4's sorted pairs erase leaf position; the two layers have deliberately
+  opposite rules, and conflating them is the failure mode to guard against.
+- **`parents` may reference only already-stored nodes**, which are therefore always
+  older. This single rule makes the graph acyclic *by construction* — no cycle
+  detection exists or is needed.
+- **Semantic `[[links]]` are committed inside `content_hash`, never as `parents`.**
+  Wiki links may be cyclic and may dangle (naming a memory that does not exist yet
+  is explicitly allowed); both are fine as content and both would be fatal as hash
+  edges.
+
+**Anchoring.** A head node id is a 32-byte value, so `root_of_heads()` (a §4.4 tree
+over current ref heads) satisfies the existing §6 / §7.1 gate
+`StateAnchor.latestRoot != bytes32(0)` unchanged — **no contract change, no oracle
+change**, and §4.4a's `GENESIS_VAULT_ROOT` sentinel remains valid as the empty head.
+Because each node commits to its parents, anchoring one head transitively commits
+its whole reachable history.
 
 ### 4.5 Trace tree view (`GET /v1/traces/{trace_id}`)
 LangSmith-style nested run-tree reconstruction over the real spans in `otel_spans`

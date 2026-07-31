@@ -1063,3 +1063,146 @@ Found immediately after §21 fixed AIS reporting. While the score was pinned at 
 * **OPEN — is a hard clamp the right design at all?** The ladder currently makes reputation *unwinnable* above a floor set by an unimplemented attestation step, and silently discards a cryptographic proof the protocol spent real engineering on. A tier that scaled weight or capped the *boost* rather than hard-clipping the score would preserve the incentive to behave well while still ranking verified agents higher. Recorded as a design question, not patched.
 
 * **OPEN — the `entropy` axis rewards repetition.** `derive::lexical_stability_score` is `1 − normalized_Shannon_entropy` over word frequency, so maximally repetitive text scores 1.0 and varied text scores near 0.0 (empty text also scores a perfect 1.0 — see §21's F3). The `xibalba` agent measures ~390–530 largely because its output is linguistically varied. Optimising this number directly means writing *worse*. The metric looks mis-specified rather than the agent under-performing; flagged before anyone treats it as a target.
+
+## 24. The protocol silently failed to anchor its own development evidence for days (2026-07-31)
+
+Found while recovering from a two-day outage in which the root filesystem went
+`emergency_ro` and the previous session ran with **no shell at all** — it could write files
+but never execute one. That session's findings were browser-measured and partly wrong; this
+entry records what survived verification and what did not. Full detail:
+`docs/design/e2e-audit-2026-07-31.md` (resolution pass, findings E10–E16).
+
+* **The measured problem — `bcc-middleware` signed every transaction for chain 31337 while
+  connected to Base Sepolia (84532).** Every `anchorRoot` and `updateScore` it attempted was
+  rejected by the node. The anchor path logs the failure and returns — *"retained in logs
+  only"* — so **a protocol whose entire premise is anchored, non-forgeable evidence was
+  failing to anchor its own construction**, for days, while `make test` passed and `/healthz`
+  answered `ok`. This is the exact class of gap the dogfooding mandate exists to catch, and
+  nothing except reading container logs would have caught it.
+  * **Root cause was a missing env var, not the deployments file.** `app/config.py:37` reads
+    `CHAIN_ID` and defaults to `31337`. `oracle-backend` sets `CHAIN_ID` in
+    `docker-compose.yml`; **`bcc-middleware` never did** — it was the one service taking
+    `RPC_URL` from env without taking its chain id from the same place. After the 2026-07-29
+    switch to Base Sepolia it kept signing for anvil.
+  * A second, independent misconfiguration sat behind it: `DEPLOYMENTS_FILE` was hardcoded to
+    `/deployments.local.json` with only that file mounted, so even with the chain id fixed the
+    service would have used **anvil contract addresses on Sepolia**. Both are fixed; both were
+    required. Fixing either alone would have looked like progress and produced nothing.
+  * **CLOSED — proven by on-chain state change, not by absence of errors.** Container env now
+    reports `CHAIN_ID=84532 DEPLOY=/deployments.baseSepolia.json` and the chain-id error is
+    gone, but that alone would only show transactions were *submitted*. The evidence that they
+    **succeed**:
+    * **`anchorRoot` landed.** The agent's `StateAnchor.latestRoot` moved
+      `0xdecb860c63dae118…` → `0x946387f7fab3a87c…`, `isAnchoredRoot(0x946387f7…) == true`,
+      and `pending_batch_size` dropped to 0 on flush. The previous root still reports
+      `true`, confirming the append-only property held across the write.
+    * **`updateScore` landed.** `ReputationRegistry.scores(0x360e2a56…).lastUpdated` is a
+      timestamp from this session (`1785484478`), which only an accepted transaction sets.
+    * Nonce advancement (260 → 275) was *not* treated as proof — a reverting transaction
+      consumes its nonce too. It is corroborating, not load-bearing.
+  * Both roles were confirmed **before** wiring the key in, rather than discovered through a
+    failed transaction: `hasRole(ANCHOR_ROLE, 0x67bA5D72…) == true` on the agent's own
+    `StateAnchor`, and `hasRole(ORACLE_ROLE, …) == true` on its `ReputationRegistry` — these
+    are different contracts and different roles, and `updateScore` needs the second.
+  * `BCC_MERKLE_BATCH_SIZE` is now surfaced in `docker-compose.yml` (it was only reachable as
+    a `config.py` default). Setting it to 1 is what made the anchor path provable in one
+    commitment instead of eight — and the rarity of flushes is precisely why this defect
+    stayed invisible: **the failure only manifests on flush.**
+
+* **The test harness could record a pass and could not record a failure.** Every line of
+  `make test` read `cd pkg && pytest && cd .. && $(TEST_STATUS) pkg pass || $(TEST_STATUS) pkg fail`.
+  On failure `&&` short-circuits, so `cd ..` never runs and the `||` branch execs the recorder
+  *from inside the package directory*, where it does not exist — it crashes. **The mechanism
+  that feeds test outcomes into the anchored evidence chain could only ever write `pass`.**
+  That crash then aborted the whole target at the first failing package, so one
+  `bcc_middleware` failure silently skipped `integrity-userapi` and `integrity-dashboard`
+  entirely.
+  * An evidence system that can record success and cannot record failure does not have a
+    logging gap, it has a **bias** — and it is a direct contributing cause of §19/F5's
+    "every leaf says `unverified`".
+  * **The trap in fixing it:** repairing only the path makes `|| … fail` exit 0, so `make test`
+    would report **success on a red suite** — strictly worse than the crash. Fixed as
+    `|| { $(TEST_STATUS) pkg fail; false; }` with `$(CURDIR)` on the recorder: record the
+    outcome, then still fail.
+
+* **CONFIRMED — F5 is a design bug, not a discipline problem.** The previous session predicted
+  this but could not test it. Reading the real vault: **21/21 leaves carry `unverified`**, and
+  17 of those are specifically `unverified:stale` — the fingerprint-mismatch path, not an
+  absent status file. Not one leaf in the entire history has ever recorded a verified test
+  result. `vault_commit_leaf.py` fingerprints `HEAD ‖ git diff HEAD ‖ untracked`, which cannot
+  be equal pre- and post-commit under any ordering. The fix (key status to tree content —
+  `git write-tree` pre-commit equals `HEAD^{tree}` post-commit) is now unblocked, since the
+  recorder bug above was the other half of it. **Still OPEN.**
+
+* **CLOSED — the vault-leaf importer would have written a false lineage, caught before its
+  first real run.** `scripts/import_memory_dag.py` chained each leaf to its predecessor in
+  file order. Measured against the real 21-leaf vault, that assumption is *half* right: leaf
+  timestamps are strictly monotonic, so file order is chronological — but **chronological
+  order is not ancestry**. Of 20 consecutive pairs, 19 are true git ancestor pairs and one is
+  not: `6c0c9bf → d7e4deb` are *siblings* off merge-base `354c6b5` (one on
+  `docs/spec-open-definitions`, one on `main`) because the developer switched branches.
+  * In a recall system that is a harmless approximation. In an **evidence** system whose whole
+    claim is non-forgeable lineage, an edge that is merely plausible is worse than no edge — it
+    is a false statement that verifies. The importer now resolves each parent via a real
+    `git merge-base --is-ancestor` check and records a second root rather than inventing a
+    parent. Corrected import: `d7e4deb → 36e23d9b` (the true fork point), with `6c0c9bf` left
+    as what it actually is — an unmerged branch tip.
+  * Known limitation, recorded rather than hidden: `root_of_heads` folds only *named* refs, and
+    only `head` is named, so it commits to the main line and not to the full frontier.
+
+* **OPEN — the oracle serves stale anvil primitives as authoritative.** `GET /v1/agent/{did}`
+  for an agent that does not exist on the configured chain returns **200**, not 404, carrying
+  anvil-era addresses and `"blockchainAccountId": "eip155:31337:…"` from a Sepolia-configured
+  oracle. The chain read correctly reverts `UnknownDID()`; the handler then falls back to the
+  DB cache. The fallback itself is defensible — a transient RPC failure should not blank the
+  dashboard — but it is **chain-agnostic**, so it will serve addresses from a *different chain*
+  without saying so beyond `"primitives_source": "cache"`. For a system whose stated invariant
+  is "the chain is the source of truth", that is a false answer, not a degraded one. The cache
+  should record the chain id it was populated from and refuse to serve across a mismatch.
+  **Do not close this by deleting the five stale rows** — that silences the symptom and
+  destroys evidence.
+
+* **OPEN — audit reports are fire-and-forget and are dropped on shutdown.**
+  `main._report_decision_background` schedules the audit write as
+  `ensure_future(to_thread(report_decision, …))` and nothing ever awaits it. The
+  `_audit_report_tasks` set prevents garbage collection; it does not make anything *wait*. A
+  worker shutting down with reports in flight loses them silently. Surfaced because
+  `test_evidence_linkage.py` was accidentally reproducing exactly that: its bare
+  `TestClient(app)` tore down a fresh event loop per request and cancelled the pending task,
+  giving 1 pass / 3 fail across four consecutive runs with no code change. The test is fixed
+  (context-managed client); **the production drop is not.**
+
+* **OPEN — the nonce race survives its own documented lock.** After the chain-id fix,
+  `updateScore` still failed with `nonce too low: next nonce 261, tx nonce 260`, despite
+  `nonce_lock.py` holding a process-wide lock across the full read → sign → broadcast → receipt
+  sequence specifically to prevent it (§5). The lock being process-wide makes an in-process
+  race unlikely; the leading hypothesis is a **stale nonce read from the load-balanced public
+  RPC** — `contracts/.env` itself warns that `publicnode.com` rate-limits aggressively.
+  **Explicitly unconfirmed**: separating the two requires a dedicated endpoint.
+
+* **CLOSED — compose healthchecks now probe a data path, not liveness.** No service declared a
+  `healthcheck:` at all. Five now do; the oracle's hits **`/v1/agents` (which touches Postgres),
+  deliberately not `/healthz`** — a bare `-> "ok"` handler that answers 200 from a service that
+  cannot serve a single real request. Wiring a healthcheck to it would have reproduced the
+  original bug with more ceremony. Database `depends_on` were converted to
+  `{condition: service_healthy}` so the oracle waits for readiness rather than start.
+
+* **A correction to the record, kept deliberately.** The prior session's headline finding —
+  "every `/v1` route returns HTTP 500" — **did not reproduce**. All routes return 200 with real
+  data; the oracle's boot log is clean and contains zero sqlx errors across its whole history;
+  and both named suspects (Postgres/Redis, and the uncommitted `db.rs` query) were wrong — the
+  query is type-safe and demonstrably works. What the 500s actually were is **not established**,
+  because the container that served them was replaced before a shell existed to inspect it. The
+  honest statement is that the evidence was destroyed, not that the problem was solved. That is
+  itself the argument for the healthchecks above: `/healthz` returning `ok` preserved no
+  information that could distinguish "broken" from "briefly broken" after the fact.
+
+* **OPEN — the dashboard Docker image cannot be rebuilt.** `docker compose build dashboard`
+  fails at `npm install` with `Cannot read properties of null (reading 'edgesOut')` — an npm
+  arborist crash, not a dependency conflict. Consequence: the running dashboard image dates
+  from **2026-07-18** while its source is current, so `make check-deploy` reports it STALE and
+  *cannot be made fresh*. The dashboard's own suite passes on the host (`vitest run`, 20 files
+  / 68 tests), so this is a container-build problem, not broken code. Untouched by this
+  session's changes — `package.json`/`package-lock.json` are unmodified. Worth noting that the
+  freshness check (§22) is doing exactly its job here: it converted an invisible 13-day drift
+  into a visible, actionable failure.
