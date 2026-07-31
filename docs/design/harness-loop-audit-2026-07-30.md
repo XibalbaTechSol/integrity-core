@@ -160,7 +160,7 @@ prevent — the signature proves *who* sent it, never *whether the numbers mean
 anything*. Both adapters now send real text or omit the key; `work_metadata`
 omits rather than defaults, so an absent signal stays absent all the way through.
 
-### F4 — Vault anchoring silently stopped, and honest logging didn't catch it. *(high, partially fixed)*
+### F4 — Vault anchoring silently stopped, and honest logging didn't catch it. *(high, FIXED)*
 
 10 commit leaves exist. `anchors.jsonl` records one anchor at `leaves_through: 1`.
 **Nine leaves pending since 08:42Z.**
@@ -173,9 +173,18 @@ telemetry lines and then nothing at all.
 Reading the vault is not the bottleneck (`session_root()` measured at **0.035s**).
 The hook is being killed before or during the chain write, producing no record.
 **The honest-logging design was defeated by a path that produces no log line at
-all.** Mitigated by a breadcrumb logged *before* the attempt, so a truncated run
-shows as "entered, never finished". The real fix — moving the Base Sepolia write
-off the hook's critical path — is **not built**.
+all.** 
+
+**Fixed**, and the first hypothesis was wrong in an instructive way. I assumed a
+timeout on the chain write. Measured: anchoring all 11 backlogged leaves took
+**3.3s**. The hook dies *between* the telemetry flush and the anchor call, not
+during it. The write now runs in a detached process (`anchor_vault.py`,
+`start_new_session=True`) spawned from **both** session end and session start —
+the latter is what finally makes the retry the old code documented but could
+never reach, since the later session died at the same step and a backlog once
+formed only ever grew. SessionEnd now returns in **0.5s**; there is nothing left
+to kill. Backlog drained: 11 leaves anchored, tx `b189215d…`. Vault census now
+reads **13 leaves, anchored through 13, 0 pending**.
 
 ### F5 — All anchored evidence is empty. *(medium, open)*
 
@@ -205,7 +214,7 @@ Two new tests close this — one asserting the geometric result on deliberately
 unequal components (≈653.5 geometric vs 680.0 arithmetic), one pinning the
 single-zero annihilation property. **Both fail under the swap.** Suite 9 → 11.
 
-### F8 — Three runtimes, one DID, three incompatible partial loops. *(critical, architectural — partially addressed)*
+### F8 — Three runtimes, one DID, three incompatible partial loops. *(critical, architectural — largely closed)*
 
 | Runtime | Lifecycle | Pre-exec gate | Per-action telemetry | Anchors memory |
 |---|---|---|---|---|
@@ -220,9 +229,23 @@ outcomes it never committed to. All three flush to one umbrella DID, so
 conclusion drawn from it was uninterpretable.
 
 `identity.report_action()` now makes `runtime` a mandatory, always-recorded
-discriminator. But the oracle does not yet *group* by it, and **Hermes tool calls
-remain entirely ungated** under an identity whose whole purpose is verifiable
-behavior. That is the largest remaining hole in the system.
+discriminator, and **Hermes tool calls are now gated** (`hermes_gate.py`, a
+`pre_tool_call` shell hook). The policy logic is deliberately *not* duplicated —
+`pretool_gate.evaluate_tool_intent()` is the single implementation and the Hermes
+file is a wire adapter — because per-runtime duplication is exactly how the two
+diverged. Labels are namespaced (`hermes_tool:` / `claude_tool:`), `bcc.rego`
+matches the risk class positionally so both reach one ruleset, and `tool_runtime`
+is surfaced for audit.
+
+> **A bug review would not have caught.** The risk classifier keyed on
+> `tool_name == "Bash"`, so every Hermes `terminal` command classified as
+> risk-free *even when destructive* — the gate would have been installed and
+> still blind. Extraction is now keyed on the input **field**
+> (`command`/`path`/`content`…), which has no blind spot across tool
+> vocabularies. Found by running it, not reading it.
+
+Still open: the oracle does not yet *group* AIS by `runtime`, so the
+discriminator is recorded but not yet used.
 
 ### F9 — The Hermes adapter discarded the payload the oracle scores on. *(high, fixed)*
 
@@ -317,6 +340,17 @@ These are the choices to iterate on. Each is a genuine fork, not an oversight.
 5. **What makes a build the deployed build?** F10 is not a coding error — it is the
    absence of a rule that source and running system must agree. Everything else
    here is measured against a system that may not be the one in the repo.
+   *(`make check-deploy` now detects this; the policy question of whether a stale
+   deploy should be a hard failure in CI remains open.)*
+
+6. **Is reputation winnable?** The tier ceiling is now *binding*: raw AIS is 704
+   and the tier-1 cap is 600, so further good behavior cannot move the reported
+   score at all. The agent is limited by **identity tier, not conduct**, and per
+   `identity-ceiling.md` tier 2 has no built verification path — so 600 is this
+   agent's permanent maximum today. A reputation system whose score saturates on
+   an unimplemented attestation step is measuring the wrong thing. This was
+   invisible while AIS was 0.0 and only became visible once the loop reported
+   real work.
 
 ---
 
@@ -324,12 +358,13 @@ These are the choices to iterate on. Each is a genuine fork, not an oversight.
 
 | Priority | Action | Why |
 |---|---|---|
-| 1 | Add a build-staleness check to `make up` (compare image build time to `git log -1`) | F10 — the oracle is fixed, but nothing prevents recurrence, and the dashboard image is still stale |
-| 2 | Move vault anchoring off the SessionEnd critical path | F4 — 10 leaves pending; memory is primitive #1 and gates registration |
-| 3 | Gate Hermes tool calls through BCC | F8 — an entire ungated runtime |
-| 4 | Have the oracle group AIS by `runtime` | F8 — makes the discriminator useful rather than merely recorded |
-| 5 | Populate `test_result_hash` from real test runs | F5 — anchored evidence currently attests to nothing |
-| 6 | Decide the absent-vs-zero question and represent it | F2/F3 — the honest answer needs a protocol change |
+| ~~1~~ | ~~Build-staleness check~~ | **DONE** — `make check-deploy`; found 3 stale images on first run |
+| ~~2~~ | ~~Move vault anchoring off the critical path~~ | **DONE** — detached `anchor_vault.py`; 0 pending |
+| ~~3~~ | ~~Gate Hermes tool calls~~ | **DONE** — `hermes_gate.py`, shared policy path |
+| 1 | Populate `test_result_hash` from real test runs | F5 — all 13 anchored leaves still attest to nothing |
+| 2 | Have the oracle group AIS by `runtime` | F8 — the discriminator is recorded but unused |
+| 3 | Decide the absent-vs-zero question and represent it | F2/F3 — needs a protocol change, not a patch |
+| 4 | Build a tier-2 verification path | The ceiling is now *binding* — see below |
 
 ---
 
@@ -344,7 +379,11 @@ These are the choices to iterate on. Each is a genuine fork, not an oversight.
 | Token delta prevents double-count | **confirmed** — call 1 reports, calls 2–3 omit |
 | Intent classifier | 8/8 cases correct |
 | Live hook replay (Pre + Post) | both exit 0, telemetry flushed |
-| Live AIS | **0.0 → 600.0** (tier ceiling now enforced) |
+| Live AIS | **0.0 → 600.0** (tier ceiling now enforced; raw 704) |
+| Vault backlog | **11 pending → 0**, anchored through leaf 13 |
+| SessionEnd hook duration | blocking → **0.5s** |
+| Hermes gate installed + classifying | **confirmed** live |
+| `make check-deploy` | **all images fresh**; parser self-test 10/10 |
 | Tier ceiling live after oracle rebuild | **confirmed** — 839.41 → 600.0 |
 | Gate denies classified intents | **confirmed** — 3 of 7 `claude_tool:*` cases denied |
 | Dashboard | renders, no console errors |
