@@ -4,6 +4,7 @@
 //! plumbing shared between `main.rs` (real server) and `tests/` (in-process integration
 //! tests against a real Postgres + real anvil) — no business logic lives here.
 
+pub mod attestation;
 pub mod chain;
 pub mod config;
 pub mod crypto;

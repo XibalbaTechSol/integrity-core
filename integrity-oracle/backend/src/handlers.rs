@@ -3073,3 +3073,153 @@ pub async fn verify_github(
         expires_at: row.expires_at,
     }))
 }
+
+// ---------------------------------------------------------------------------
+// Verification Ladder rung 3: remote TEE attestation
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
+pub struct TeeVerifyRequest {
+    /// Base64-encoded raw CBOR attestation document, exactly as the Nitro
+    /// Security Module produced it. Not re-encoded or wrapped — the signature
+    /// covers specific bytes and any re-serialization risks changing them.
+    pub attestation_document_b64: String,
+}
+
+/// Issue a challenge nonce for TEE attestation.
+///
+/// The nonce is what binds an attestation to *this agent, now*. Nitro's NSM
+/// embeds a caller-supplied nonce in the signed document, so an attestation
+/// generated for someone else — or captured and replayed later — carries the
+/// wrong nonce and is refused. Without it, any valid Nitro document from any
+/// enclave anywhere would grant tier 3.
+pub async fn request_tee_challenge(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<DnsChallengeResponse>, AppError> {
+    use crate::verification as v;
+
+    db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+
+    let subject = "tee:nitro".to_string();
+    let nonce = uuid::Uuid::new_v4().simple().to_string();
+    let expires_at =
+        db::issue_dns_challenge(&state.pool, &id, &subject, &nonce, v::CHALLENGE_TTL_MINUTES).await?;
+
+    Ok(Json(DnsChallengeResponse {
+        message_to_sign: format!(
+            "supply this nonce to the NSM when generating the attestation document: {nonce}"
+        ),
+        txt_record_name: "AWS Nitro NSM GetAttestationDoc(nonce=...)".to_string(),
+        txt_record_value_format: "base64(raw CBOR attestation document)".to_string(),
+        domain: subject,
+        nonce,
+        expires_at,
+    }))
+}
+
+/// Verify a Nitro attestation document and grant tier 3.
+///
+/// Fails closed at every step. There is no path here that grants a tier without
+/// a cryptographically valid document chaining to AWS's pinned root — generating
+/// such a document requires real enclave hardware, which is the entire point of
+/// the rung.
+pub async fn verify_tee(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<TeeVerifyRequest>,
+) -> Result<Json<VerificationResponse>, AppError> {
+    use base64::Engine;
+
+    use crate::attestation as att;
+    use crate::verification as v;
+
+    let agent = db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+
+    let subject = "tee:nitro".to_string();
+    let nonce = db::get_active_dns_challenge(&state.pool, &id, &subject)
+        .await?
+        .ok_or_else(|| {
+            AppError::BadRequest(
+                "no active TEE challenge — request one first (challenges expire)".to_string(),
+            )
+        })?;
+
+    let document = base64::engine::general_purpose::STANDARD
+        .decode(req.attestation_document_b64.trim())
+        .map_err(|e| AppError::BadRequest(format!("attestation_document_b64 is not base64: {e}")))?;
+
+    // Vendored into this crate on purpose -- see backend/trust_roots/README.md:
+    // the Docker build context is ./integrity-oracle, and a trust anchor should be
+    // owned by the service that pins it, not reached for across packages.
+    let root_pem = include_str!("../trust_roots/aws_nitro_root_g1.pem");
+    let outcome = att::verify_nitro_attestation(&document, root_pem, true)
+        .map_err(|e| AppError::BadRequest(format!("attestation document rejected: {e}")))?;
+
+    if !outcome.valid {
+        return Err(AppError::BadRequest(format!(
+            "attestation did not verify: {}",
+            outcome.errors.join("; ")
+        )));
+    }
+
+    // Bind the document to THIS challenge. A valid attestation from an unrelated
+    // enclave proves that enclave exists; it says nothing about this agent.
+    let doc_nonce = outcome
+        .nonce
+        .as_ref()
+        .map(|n| String::from_utf8_lossy(n).to_string())
+        .unwrap_or_default();
+    if doc_nonce.trim() != nonce {
+        return Err(AppError::BadRequest(
+            "attestation document does not carry this challenge's nonce — \
+             generate a fresh document with the issued nonce"
+                .to_string(),
+        ));
+    }
+
+    // TEE attestations expire fast relative to namespace proofs: an enclave
+    // measurement is a statement about a running instance, and instances are
+    // replaced. 30 days, versus 90 for a domain.
+    let expires_at = chrono::Utc::now() + chrono::Duration::days(30);
+    let evidence = serde_json::json!({
+        "method": "tee_nitro",
+        "module_id": outcome.module_id,
+        "pcrs": outcome.pcrs,
+        "timestamp_ms": outcome.timestamp_ms,
+        "root_pinned_sha256": att::AWS_NITRO_ROOT_SHA256,
+        "nonce": nonce,
+    });
+
+    let row = db::record_identity_verification(
+        &state.pool,
+        &id,
+        "tee_nitro",
+        v::TIER_KYC_VERIFIED, // rung 3
+        &subject,
+        evidence,
+        Some(expires_at),
+    )
+    .await?;
+
+    db::consume_dns_challenge(&state.pool, &id, &subject).await?;
+
+    let effective =
+        db::effective_verification_tier(&state.pool, &id, agent.verification_tier).await?;
+
+    tracing::info!(agent_id = %id, module_id = ?outcome.module_id, effective_tier = effective,
+                   "TEE attestation verified");
+
+    Ok(Json(VerificationResponse {
+        agent_id: id,
+        method: row.method,
+        subject: row.subject,
+        tier_granted: row.tier_granted,
+        effective_tier: effective,
+        expires_at: row.expires_at,
+    }))
+}

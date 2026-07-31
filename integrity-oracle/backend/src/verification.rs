@@ -840,3 +840,163 @@ mod github_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod ladder_tests {
+    //! End-to-end validation of the WHOLE Verification Ladder, not one rung.
+    //!
+    //! The ladder's failure mode is not "a rung is broken" — it's "the rungs
+    //! don't compose". Before this suite existed the ceiling silently bound at
+    //! tier 1 for every agent, the ZK boost was entirely absorbed by the clamp,
+    //! and nothing in the test suite noticed any of it. These tests assert the
+    //! ladder's behaviour as a system: each rung's ceiling, how tiers combine,
+    //! and that losing a verification lowers the tier again.
+
+    use super::*;
+    use scoring_core::{AisComponentInputs, AisEngine, AisWeights};
+
+    const TIER_REGISTRATION: i32 = 1;
+
+    fn engine() -> AisEngine {
+        AisEngine::new(AisWeights::default()).unwrap()
+    }
+
+    /// A deliberately strong agent: every component near max, so the CEILING is
+    /// the only thing that can hold the score down. If a tier's cap is wrong,
+    /// this input is what exposes it.
+    fn excellent_agent() -> AisComponentInputs {
+        AisComponentInputs {
+            performance_variance: 0.0,
+            hgi_raw: 1.0,
+            gpu_hours_verified: 10_000.0,
+            penalty_ratio: 0.0,
+            zk_verified_this_period: false,
+        }
+    }
+
+    #[test]
+    fn every_tier_enforces_its_documented_ceiling() {
+        let e = engine();
+        let inputs = excellent_agent();
+        // identity-ceiling.md: 0 -> 300, 1 -> 600, 2 -> 850, 3 -> uncapped(1000).
+        for (tier, expected) in [(0, 300.0), (1, 600.0), (2, 850.0), (3, 1000.0)] {
+            let got = e.score_with_tier(&inputs, tier).ais;
+            assert!(
+                (got - expected).abs() < 1.0,
+                "tier {tier} should cap at {expected}, got {got}"
+            );
+        }
+    }
+
+    #[test]
+    fn climbing_a_rung_actually_raises_the_reported_score() {
+        // The bug this whole subsystem exists to fix: an agent whose raw score
+        // exceeds its ceiling gains NOTHING from behaving better, only from
+        // climbing. Each step must strictly increase the reported score.
+        let e = engine();
+        let inputs = excellent_agent();
+        let mut previous = 0.0;
+        for tier in 0..=3 {
+            let got = e.score_with_tier(&inputs, tier).ais;
+            assert!(
+                got > previous,
+                "tier {tier} ({got}) must score strictly higher than tier {} ({previous})",
+                tier - 1
+            );
+            previous = got;
+        }
+    }
+
+    #[test]
+    fn the_zk_boost_is_wasted_below_tier_3_for_a_strong_agent() {
+        // Documents a REAL, measured property rather than asserting it is fine:
+        // the boost is applied before the clamp, so for an agent already above
+        // its ceiling the boost buys literally nothing. This is why the xibalba
+        // agent's Barretenberg proof was worth 0 points at tier 1.
+        let e = engine();
+        let mut boosted = excellent_agent();
+        boosted.zk_verified_this_period = true;
+
+        for tier in [0, 1, 2] {
+            let plain = e.score_with_tier(&excellent_agent(), tier).ais;
+            let with_zk = e.score_with_tier(&boosted, tier).ais;
+            assert_eq!(
+                plain, with_zk,
+                "at tier {tier} a strong agent's ZK boost is absorbed by the ceiling — \
+                 if this ever changes, the ladder's incentive design changed with it"
+            );
+        }
+        // At tier 3 there is no clamp, so the boost is finally worth something.
+        let plain = e.score_with_tier(&excellent_agent(), 3).ais;
+        let with_zk = e.score_with_tier(&boosted, 3).ais;
+        assert!(with_zk > plain, "tier 3 must let the ZK boost through");
+    }
+
+    #[test]
+    fn a_weak_agent_is_limited_by_conduct_not_by_tier() {
+        // The ceiling must only ever be a CAP, never a floor. An agent behaving
+        // badly at tier 3 must not out-score a good agent at tier 1.
+        let e = engine();
+        let weak = AisComponentInputs {
+            performance_variance: 100.0,
+            hgi_raw: 0.05,
+            gpu_hours_verified: 0.1,
+            penalty_ratio: 0.9,
+            zk_verified_this_period: false,
+        };
+        let weak_at_3 = e.score_with_tier(&weak, 3).ais;
+        let strong_at_1 = e.score_with_tier(&excellent_agent(), 1).ais;
+        assert!(
+            weak_at_3 < strong_at_1,
+            "a badly-behaved tier-3 agent ({weak_at_3}) must not out-score a good tier-1 one ({strong_at_1})"
+        );
+    }
+
+    #[test]
+    fn effective_tier_composes_rungs_and_never_drops_below_registration() {
+        // Rung 2 can be reached by either namespace method; rung 3 by TEE.
+        assert_eq!(effective_tier(TIER_REGISTRATION, &[]), 1, "no proofs -> registration floor");
+        assert_eq!(effective_tier(TIER_REGISTRATION, &[TIER_DNS_VERIFIED]), 2, "DNS -> 2");
+        assert_eq!(effective_tier(TIER_REGISTRATION, &[TIER_KYC_VERIFIED]), 3, "TEE/KYC -> 3");
+        assert_eq!(
+            effective_tier(TIER_REGISTRATION, &[TIER_DNS_VERIFIED, TIER_KYC_VERIFIED]),
+            3,
+            "holding both -> the highest, not the sum"
+        );
+        // A weaker proof must never pull an agent DOWN.
+        assert_eq!(effective_tier(2, &[0]), 2);
+        assert_eq!(effective_tier(3, &[TIER_DNS_VERIFIED]), 3);
+    }
+
+    #[test]
+    fn losing_every_verification_returns_the_agent_to_the_registration_floor() {
+        // Expiry and revocation are applied by excluding rows from the tier list,
+        // so "all proofs gone" must collapse to the floor -- and the ceiling with
+        // it. A cached tier column could not do this.
+        let after_expiry = effective_tier(TIER_REGISTRATION, &[]);
+        assert_eq!(after_expiry, TIER_REGISTRATION);
+        assert!(
+            (AisEngine::ceiling_for_tier(after_expiry) - 600.0).abs() < f64::EPSILON,
+            "ceiling must fall back to 600 when proofs lapse"
+        );
+    }
+
+    #[test]
+    fn tier_ceilings_are_strictly_increasing() {
+        // A non-monotonic ladder would make climbing pointless or harmful.
+        let ceilings: Vec<f64> = (0..=3).map(AisEngine::ceiling_for_tier).collect();
+        for w in ceilings.windows(2) {
+            assert!(w[1] > w[0], "ceilings must strictly increase, got {ceilings:?}");
+        }
+    }
+
+    #[test]
+    fn an_unknown_tier_is_treated_as_the_top_not_as_a_bypass() {
+        // Defensive: `ceiling_for_tier` matches `_ => 1000.0`. Confirm a garbage
+        // tier cannot be used to exceed the documented maximum, and that
+        // effective_tier clamps rather than propagating nonsense.
+        assert_eq!(AisEngine::ceiling_for_tier(99), 1000.0);
+        assert_eq!(effective_tier(0, &[99]), 3, "out-of-range tiers clamp to 3");
+        assert_eq!(effective_tier(0, &[-5]), 0, "negative tiers cannot go below 0");
+    }
+}

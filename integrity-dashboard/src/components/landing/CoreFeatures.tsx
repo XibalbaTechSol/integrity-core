@@ -575,7 +575,7 @@ export const AisMathSection = () => {
                         <div style={{ color: '#10b981', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: '12px' }}>Weight: 0.30</div>
                         <h4 style={{ color: 'white', fontSize: '1.1rem', fontWeight: 800, marginBottom: '12px' }}>Entropy (Sₑ)</h4>
                         <div style={{ color: '#10b981', marginBottom: '16px', padding: '12px', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: '10px', textAlign: 'center' }}>
-                            <MathExpr math="S_e = e^{-\lambda H}" />
+                            <MathExpr displayMode math="S_e = e^{-\lambda H}" />
                         </div>
                         <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.85rem', lineHeight: 1.6, margin: 0 }}>
                             Exponential decay on hallucination/uncertainty rate H. Strictly penalizes unpredictable agents.
@@ -587,7 +587,7 @@ export const AisMathSection = () => {
                         <div style={{ color: '#3b82f6', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: '12px' }}>Weight: 0.30</div>
                         <h4 style={{ color: 'white', fontSize: '1.1rem', fontWeight: 800, marginBottom: '12px' }}>Grounding (Sᵍ)</h4>
                         <div style={{ color: '#3b82f6', marginBottom: '16px', padding: '12px', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(59,130,246,0.25)', borderRadius: '10px', textAlign: 'center' }}>
-                            <MathExpr math="S_g = \frac{1}{1+e^{-k(x-x_0)}}" />
+                            <MathExpr displayMode math="S_g = \frac{1}{1+e^{-k(x-x_0)}}" />
                         </div>
                         <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.85rem', lineHeight: 1.6, margin: 0 }}>
                             Logistic growth on citation-to-claim ratio. Rewards source-grounded reasoning; grows only with sustained fidelity.
@@ -599,7 +599,7 @@ export const AisMathSection = () => {
                         <div style={{ color: '#f59e0b', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: '12px' }}>Weight: 0.20</div>
                         <h4 style={{ color: 'white', fontSize: '1.1rem', fontWeight: 800, marginBottom: '12px' }}>Sacrifice (Sₛ)</h4>
                         <div style={{ color: '#f59e0b', marginBottom: '16px', padding: '12px', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: '10px', textAlign: 'center' }}>
-                            <MathExpr math="S_s = \frac{\text{stake\_slashed}}{\text{max\_possible\_slash}}" />
+                            <MathExpr displayMode math="S_s = \frac{\text{stake\_slashed}}{\text{max\_possible\_slash}}" />
                         </div>
                         <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.85rem', lineHeight: 1.6, margin: 0 }}>
                             Measures bonded $ITK at risk as a fraction of max slashable stake. Ownership without stake is control that costs nothing to abuse.
@@ -611,7 +611,7 @@ export const AisMathSection = () => {
                         <div style={{ color: '#a855f7', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: '12px' }}>Weight: 0.20</div>
                         <h4 style={{ color: 'white', fontSize: '1.1rem', fontWeight: 800, marginBottom: '12px' }}>Compliance (Sᶜ)</h4>
                         <div style={{ color: '#a855f7', marginBottom: '16px', padding: '12px', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(168,85,247,0.25)', borderRadius: '10px', textAlign: 'center' }}>
-                            <MathExpr math="S_c = \frac{\text{BCC\_approved}}{\text{BCC\_total}}" />
+                            <MathExpr displayMode math="S_c = \frac{\text{BCC\_approved}}{\text{BCC\_total}}" />
                         </div>
                         <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.85rem', lineHeight: 1.6, margin: 0 }}>
                             Ratio of BCC-approved actions to total attempted. OPA rego policies enforce per-domain minimums; clinical-intent types require Tier 2+.

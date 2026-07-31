@@ -71,3 +71,7 @@ tonic = "0.14"
 prost = "0.14"
 opentelemetry-proto = { version = "0.32.0", features = ["gen-tonic", "trace", "metrics"] }
 tokio-stream = { version = "0.1.18", features = ["sync"] }
+ciborium = "0.2.2"
+p384 = "0.14.0"
+p256 = "0.14.0"
+x509-cert = "0.3.0"

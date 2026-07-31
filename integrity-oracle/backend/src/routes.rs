@@ -29,6 +29,11 @@ pub fn router(state: AppState) -> Router {
         // which is what makes climbing the ladder automatable end to end.
         .route("/v1/agent/{id}/verify/github/challenge", post(handlers::request_github_challenge))
         .route("/v1/agent/{id}/verify/github", post(handlers::verify_github))
+        // Rung 3: remote TEE attestation. Categorically stronger than rungs 1-2 --
+        // proves the key lives in measured enclave hardware, not merely that an
+        // identifier is controlled.
+        .route("/v1/agent/{id}/verify/tee/challenge", post(handlers::request_tee_challenge))
+        .route("/v1/agent/{id}/verify/tee", post(handlers::verify_tee))
         .route("/v1/agent/{id}/ais/history", get(handlers::get_ais_history))
         .route("/v1/agent/{id}/compliance", get(handlers::get_compliance))
         .route("/v1/agent/{id}/wallet", get(handlers::get_wallet))
