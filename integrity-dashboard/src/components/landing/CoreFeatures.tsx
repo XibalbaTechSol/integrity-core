@@ -4,9 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
-import fidelityImg from '../../assets/fidelity_graph.jpg';
-import entropyImg from '../../assets/entropy_graph.jpg';
-import solvencyImg from '../../assets/solvency_graph.jpg';
+
 import { useIsMobile } from '../../utils/useIsMobile';
 
 const MathExpr = ({ math, displayMode = false }: { math: string, displayMode?: boolean }) => {
@@ -21,42 +19,50 @@ export const AgentPrimitivesSection = () => {
             <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
                 <div style={{ textAlign: 'center', marginBottom: isMobile ? '48px' : '80px' }}>
                     <span style={{ color: 'var(--gold)', fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.25em', display: 'block', marginBottom: '16px' }}>The 4 Foundational Primitives</span>
-                    <h2 style={{ fontSize: isMobile ? '2.2rem' : '3.5rem', fontWeight: 800, lineHeight: 1.1, marginBottom: '24px', color: 'white' }}>Building the <span style={{ color: 'var(--gold)' }}>Agentic Web.</span></h2>
+                    <h2 style={{ fontSize: isMobile ? '2.2rem' : '3.5rem', fontWeight: 800, lineHeight: 1.1, marginBottom: '24px', color: 'white' }}>Four questions every counterparty must answer before <span style={{ color: 'var(--gold)' }}>delegating anything of value.</span></h2>
                     <p style={{ color: 'rgba(255,255,255,0.6)', maxWidth: '850px', margin: '0 auto', lineHeight: 1.7, fontSize: isMobile ? '0.95rem' : '1.1rem' }}>
-                        The Integrity Protocol provides the foundational layer for autonomous systems by establishing four fundamental on-chain primitives: cryptographic reputation, programmable contract ownership, persistent verified memory, and zero-knowledge execution proofs.
+                        The Integrity Protocol rests on four foundational primitives — each answering one question a counterparty must resolve. The order is a progression: each presupposes the one above it.
                     </p>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, 1fr)', gap: isMobile ? '20px' : '24px' }}>
-                    <motion.div whileHover={{ y: -8 }} style={{ padding: '32px 28px', background: 'linear-gradient(145deg, rgba(212,175,55,0.04) 0%, rgba(15,23,42,0.6) 100%)', border: '1px solid rgba(212,175,55,0.2)', borderTop: '4px solid var(--gold)', borderRadius: '24px', boxShadow: '0 20px 40px rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)' }}>
-                        <div style={{ color: 'var(--gold)', marginBottom: '20px' }}><Shield size={36} /></div>
-                        <h4 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '16px', color: 'white' }}>1. Immutable Reputation</h4>
+                    <motion.div whileHover={{ y: -8 }} style={{ padding: '32px 28px', background: 'linear-gradient(145deg, rgba(167,139,250,0.04) 0%, rgba(15,23,42,0.6) 100%)', border: '1px solid rgba(167,139,250,0.2)', borderTop: '4px solid #a78bfa', borderRadius: '24px', boxShadow: '0 20px 40px rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)' }}>
+                        <div style={{ color: '#a78bfa', marginBottom: '16px', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.15em' }}>Continuity</div>
+                        <div style={{ color: '#a78bfa', marginBottom: '20px' }}><Cpu size={32} /></div>
+                        <h4 style={{ fontSize: '1.1rem', fontWeight: 800, marginBottom: '10px', color: 'white' }}>1. Persistent Memory</h4>
+                        <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.8rem', fontStyle: 'italic', marginBottom: '12px' }}>Is this the same agent over time?</p>
                         <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.9rem', lineHeight: 1.7, margin: 0 }}>
-                            Real-time telemetry evaluates agent behavior to compute a globally accessible Agent Integrity Score (AIS). Base L2 smart contracts pre-verify this score before execution.
+                            Every agent's Trust Vault is Merkle-anchored on its own <code style={{ color: '#a78bfa', fontSize: '0.8rem' }}>StateAnchor</code>. Without continuity there is no subject for anything else to attach to — a stateless function invoked repeatedly has no score it can itself produce.
                         </p>
                     </motion.div>
 
                     <motion.div whileHover={{ y: -8 }} style={{ padding: '32px 28px', background: 'linear-gradient(145deg, rgba(96,165,250,0.04) 0%, rgba(15,23,42,0.6) 100%)', border: '1px solid rgba(96,165,250,0.2)', borderTop: '4px solid #60a5fa', borderRadius: '24px', boxShadow: '0 20px 40px rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)' }}>
-                        <div style={{ color: '#60a5fa', marginBottom: '20px' }}><Code size={36} /></div>
-                        <h4 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '16px', color: 'white' }}>2. Agent-Owned Contracts</h4>
+                        <div style={{ color: '#60a5fa', marginBottom: '16px', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.15em' }}>Residual Control</div>
+                        <div style={{ color: '#60a5fa', marginBottom: '20px' }}><Code size={32} /></div>
+                        <h4 style={{ fontSize: '1.1rem', fontWeight: 800, marginBottom: '10px', color: 'white' }}>2. Agent-Owned Contracts</h4>
+                        <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.8rem', fontStyle: 'italic', marginBottom: '12px' }}>Can it act, and can it lose?</p>
                         <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.9rem', lineHeight: 1.7, margin: 0 }}>
-                            Agents can programmatically deploy, fund, and manage their own smart contracts and SLAs (e.g. DeFi liquidity pools, task escrows) directly through the Sovereign interface.
+                            The agent's own key deploys <code style={{ color: '#60a5fa', fontSize: '0.8rem' }}>SovereignAgent</code> + 7 primitive contracts. Ownership and bonded stake are the same primitive from two sides — control that costs nothing to abuse is no control at all.
                         </p>
                     </motion.div>
 
-                    <motion.div whileHover={{ y: -8 }} style={{ padding: '32px 28px', background: 'linear-gradient(145deg, rgba(167,139,250,0.04) 0%, rgba(15,23,42,0.6) 100%)', border: '1px solid rgba(167,139,250,0.2)', borderTop: '4px solid #a78bfa', borderRadius: '24px', boxShadow: '0 20px 40px rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)' }}>
-                        <div style={{ color: '#a78bfa', marginBottom: '20px' }}><Cpu size={36} /></div>
-                        <h4 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '16px', color: 'white' }}>3. Persistent Memory</h4>
+                    <motion.div whileHover={{ y: -8 }} style={{ padding: '32px 28px', background: 'linear-gradient(145deg, rgba(251,191,36,0.04) 0%, rgba(15,23,42,0.6) 100%)', border: '1px solid rgba(251,191,36,0.2)', borderTop: '4px solid #fbbf24', borderRadius: '24px', boxShadow: '0 20px 40px rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)' }}>
+                        <div style={{ color: '#fbbf24', marginBottom: '16px', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.15em' }}>Delegated Permission</div>
+                        <div style={{ color: '#fbbf24', marginBottom: '20px' }}><Shield size={32} /></div>
+                        <h4 style={{ fontSize: '1.1rem', fontWeight: 800, marginBottom: '10px', color: 'white' }}>3. Authority</h4>
+                        <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.8rem', fontStyle: 'italic', marginBottom: '12px' }}>May it act, and for whom?</p>
                         <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.9rem', lineHeight: 1.7, margin: 0 }}>
-                            Agents anchor their local semantic memories (RAG vectors, graphs) cryptographically to the blockchain via a State Anchor, ensuring knowledge untamperability across sessions.
+                            An agent acts under a signed delegation from a principal within a scope it cannot widen. Non-authorship is the defining property — an agent cannot mint its own delegation, just as it cannot write its own reputation score.
                         </p>
                     </motion.div>
 
-                    <motion.div whileHover={{ y: -8 }} style={{ padding: '32px 28px', background: 'linear-gradient(145deg, rgba(52,211,153,0.04) 0%, rgba(15,23,42,0.6) 100%)', border: '1px solid rgba(52,211,153,0.2)', borderTop: '4px solid #34d399', borderRadius: '24px', boxShadow: '0 20px 40px rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)' }}>
-                        <div style={{ color: '#34d399', marginBottom: '20px' }}><Lock size={36} /></div>
-                        <h4 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '16px', color: 'white' }}>4. ZK Execution Proofs</h4>
+                    <motion.div whileHover={{ y: -8 }} style={{ padding: '32px 28px', background: 'linear-gradient(145deg, rgba(212,175,55,0.04) 0%, rgba(15,23,42,0.6) 100%)', border: '1px solid rgba(212,175,55,0.2)', borderTop: '4px solid var(--gold)', borderRadius: '24px', boxShadow: '0 20px 40px rgba(0,0,0,0.3)', backdropFilter: 'blur(10px)' }}>
+                        <div style={{ color: 'var(--gold)', marginBottom: '16px', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.15em' }}>Non-Forgeable Standing</div>
+                        <div style={{ color: 'var(--gold)', marginBottom: '20px' }}><Lock size={32} /></div>
+                        <h4 style={{ fontSize: '1.1rem', fontWeight: 800, marginBottom: '10px', color: 'white' }}>4. Reputation</h4>
+                        <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.8rem', fontStyle: 'italic', marginBottom: '12px' }}>How has it acted?</p>
                         <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.9rem', lineHeight: 1.7, margin: 0 }}>
-                            Aztec Noir UltraPlonk circuits generate zero-knowledge attestations that prove reasoning compliance without exposing proprietary model weights or private parameters.
+                            BCC captures signed intent <em>before</em> acting; the Oracle re-derives all four AIS components from OTEL spans server-side <em>after</em>. The agent owns <code style={{ color: 'var(--gold)', fontSize: '0.8rem' }}>ReputationRegistry</code> but only <code style={{ color: 'var(--gold)', fontSize: '0.8rem' }}>ORACLE_ROLE</code> can write to it.
                         </p>
                     </motion.div>
                 </div>
@@ -116,7 +122,7 @@ export const ProtocolCompareSection = () => {
                                 <td style={{ padding: '16px', color: '#34d399', fontWeight: 800 }}>✓</td>
                             </tr>
                             <tr>
-                                <td style={{ padding: '16px', fontWeight: 600 }}>Hardware-bound Identity (TEE/DID)</td>
+                                <td style={{ padding: '16px', fontWeight: 600 }}>Verification Ladder + Score Ceiling</td>
                                 <td style={{ padding: '16px', color: '#f87171' }}>✗</td>
                                 <td style={{ padding: '16px', color: '#f87171' }}>✗</td>
                                 <td style={{ padding: '16px', color: '#f87171' }}>✗</td>
@@ -182,11 +188,11 @@ export const ArchitectureDeepDiveSection = () => {
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                     {[
-                        { num: '01', title: 'On-Chain Settlement Layer', desc: 'Base L2 primary settlement chain with smart contracts (SovereignAgent.sol, ReputationRegistry.sol) for cryptographic identity, verification, and state anchoring.', tags: ['Base L2', 'Solidity', 'Foundry'] },
-                        { num: '02', title: 'Verification Ladder & Identity Layer', desc: 'Ed25519/secp256k1 keypairs (did:intg:<pubkey>) mapped to progressive verification ceilings: Tier 1 (Sovereign, 600 AIS max), Tier 2 (DNS TXT verification, 850 AIS max), Tier 3 (Hardware TEE / Audit, 1000 AIS max).', tags: ['W3C DID', 'DNS TXT', 'TEE Enclave'] },
-                        { num: '03', title: 'Behavioral Commitment Chain (BCC)', desc: 'Pre-execution gating: intercepting agent actions in sub-15ms. Evaluates OPA rego policies against intent hashes, TTL expiration, and domain-gated permissions before state mutation.', tags: ['FastAPI', 'OPA Rego', 'SHA-256'] },
-                        { num: '04', title: 'Zero-Knowledge Verification (ZK-ML)', desc: 'Aztec Noir circuits with UltraPlonk & Barretenberg backend. Verifies ZK proofs of execution correctness to grant a 1.15x AIS score multiplier without exposing model weights.', tags: ['Aztec Noir', 'UltraPlonk', 'Barretenberg'] },
-                        { num: '05', title: 'Oracle Server-Side Telemetry & AIS Engine', desc: 'Integrity Oracle recomputes entropy, grounding, sacrifice, and compliance server-side from OTEL spans (overriding untrusted client claims) to compute geometric AIS: AIS = (S_e^0.30 · S_g^0.30 · S_s^0.20 · S_c^0.20) · ZK_boost.', tags: ['Rust / Axum', 'Scoring Core', 'PostgreSQL'] }
+                        { num: '01', title: 'On-Chain Settlement (Base L2)', desc: 'SovereignAgent.sol, StateAnchor.sol, ReputationRegistry.sol — 7 EIP-1167 primitive contracts per agent. Two are direct-deployed by the agent\'s own key, proving self-sovereign ownership on-chain. Five are cheap minimal proxies. All anchored to Base L2.', tags: ['Base L2', 'Solidity', 'EIP-1167'] },
+                        { num: '02', title: 'Verification Ladder (Live: Tier 1→2)', desc: 'Software keypairs (did:intg:<pubkey>) gate score ceilings. Tier 1 Sovereign: 600 AIS max. Tier 2 Linked (GitHub .well-known proof, unattended): 850 AIS max — proven live, effective AIS lifted 600→679 with ZK boost now worthwhile again. Tier 3 Institutional (TEE attestation): 1000 max.', tags: ['W3C DID', 'GitHub Proof', 'DNS TXT'] },
+                        { num: '03', title: 'Behavioral Commitment Chain (BCC)', desc: 'Pre-execution interceptor running sub-15ms. Agents commit an intent hash before acting; OPA rego policies evaluate TTL, SHA-256 drift detection, and domain-gated minimums. Clinical actions (EMR_WRITE, DISPENSE_MEDICATION) require Tier 2+ — enforced, not advisory.', tags: ['FastAPI', 'OPA Rego', 'SHA-256'] },
+                        { num: '04', title: 'ZK-ML Execution Proofs (Barretenberg)', desc: 'Aztec Noir circuits with UltraPlonk + Barretenberg backend. A verified real proof grants a 1.15× AIS multiplier (ZK_boost). Without Tier 2+, the boost is entirely absorbed by the score ceiling — now meaningful again post-ladder-climb.', tags: ['Aztec Noir', 'UltraPlonk', 'Barretenberg'] },
+                        { num: '05', title: 'Oracle: Server-Side AIS Engine', desc: 'The Oracle re-derives all four components from raw OTEL spans, overriding client-asserted values — a client cannot inflate its own score. Formula: AIS = (Sₑ^0.30 · Sᵍ^0.30 · Sₛ^0.20 · Sᶜ^0.20) · ZK_boost. AIS_final = min(computed, tier_ceiling). One canonical implementation in scoring-core; all other packages read it via GET /v1/agent/{id}/ais.', tags: ['Rust / Axum', 'Scoring Core', 'PostgreSQL'] }
                     ].map((step) => (
                         <div key={step.num} style={{ background: 'rgba(15,23,42,0.6)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '16px', padding: '24px', display: 'flex', gap: '24px', alignItems: 'flex-start', flexDirection: isMobile ? 'column' : 'row' }}>
                             <div style={{ fontSize: '1.8rem', fontWeight: 900, color: 'var(--gold)', minWidth: '50px' }}>{step.num}</div>
@@ -216,12 +222,12 @@ export const DevQuickstartSection = ({ setContactType, setIsContactOpen }: { set
                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1.2fr', gap: isMobile ? '60px' : '100px', alignItems: 'center' }}>
                     <div>
                         <span style={{ color: 'var(--gold)', fontSize: '0.7rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.25em', marginBottom: '16px', display: 'block' }}>Developer Experience</span>
-                        <h2 style={{ fontSize: isMobile ? '2.5rem' : '3.5rem', fontWeight: 800, marginBottom: '24px', lineHeight: 1.1 }}>Start building instantly.<br />No hardware DID required.</h2>
+                        <h2 style={{ fontSize: isMobile ? '2.5rem' : '3.5rem', fontWeight: 800, marginBottom: '24px', lineHeight: 1.1 }}>Start building instantly.<br />No mainnet credentials required.</h2>
                         <p style={{ fontSize: '1.15rem', color: 'rgba(255,255,255,0.85)', lineHeight: 1.8, marginBottom: '24px', fontWeight: 500 }}>
-                            Enter the agent economy today with our new <strong style={{ color: 'white' }}>Developer API Key</strong> testing mode. 
+                            Enter the agent economy today with a <strong style={{ color: 'white' }}>Developer API Key</strong> — provisioned in seconds, no blockchain wallet required.
                         </p>
                         <p style={{ fontSize: '1rem', color: 'rgba(255,255,255,0.4)', lineHeight: 1.8, marginBottom: '40px' }}>
-                            We know that provisioning hardware-backed DIDs can slow down development. That's why we've introduced Developer API Keys. Simply generate a key from the dashboard and immediately start routing telemetry to the BCC. For safety, agents using this bypass are mathematically capped at a Trust Level (AIS) of 300, allowing you to build and test safely before moving to mainnet production.
+                            Developer API Keys are Verification Ladder Tier 0 (testnet convenience tier, AIS ceiling 300). They route real telemetry to the BCC and score your agent against the live Oracle so you can build, measure, and iterate before climbing the Verification Ladder — GitHub .well-known proof (Tier 1→2, ceiling 850) or TEE attestation (Tier 3, ceiling 1000) — for production deployment.
                         </p>
                         <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
                             <button onClick={() => { setContactType('developer'); setIsContactOpen(true); }} className="btn btn-primary" style={{ padding: '16px 32px', fontSize: '1rem', boxShadow: '0 10px 30px rgba(212,175,55,0.2)' }}>
@@ -531,70 +537,85 @@ export const AisMathSection = () => {
                         The Mathematics of Trust
                     </h2>
                     <p style={{ color: 'rgba(255,255,255,0.6)', maxWidth: '700px', margin: '24px auto', fontSize: '1.1rem', lineHeight: 1.7 }}>
-                        Unlike arbitrary rating systems, the AIS acts as an absolute mathematical volume guaranteeing true "all-aroundness". A failure in one dimension collapses the entire score, providing a safety ceiling that professional underwriters demand.
+                        The Oracle re-derives all four AIS components server-side from raw OTEL spans — a client cannot inflate its own score. A failure in any single dimension collapses the entire geometric volume. Score ceilings are tier-enforced: Tier 1 ≤ 600, Tier 2 ≤ 850, Tier 3 ≤ 1000.
                     </p>
                 </div>
 
                 {/* Main Geometric Math Formula */}
                 <div style={{ padding: '40px', background: 'rgba(255,255,255,0.02)', borderRadius: '24px', border: '1px solid rgba(212,175,55,0.15)', marginBottom: '40px', textAlign: 'center', boxShadow: '0 20px 50px rgba(0,0,0,0.5)' }}>
-                    <h3 style={{ fontSize: '1.1rem', color: 'rgba(255,255,255,0.5)', fontWeight: 600, letterSpacing: '0.1em', marginBottom: '24px' }}>GEOMETRIC AGENT VOLUME</h3>
-                    <div style={{ fontSize: isMobile ? '1.5rem' : '2.2rem', color: 'var(--gold)', padding: '24px', background: 'rgba(0,0,0,0.4)', borderRadius: '16px' }}>
-                        <MathExpr displayMode math="\text{AIS} = 1000 \times (S_f)^{0.4} \times (S_e)^{0.3} \times (S_c)^{0.3}" />
+                    <h3 style={{ fontSize: '1.1rem', color: 'rgba(255,255,255,0.5)', fontWeight: 600, letterSpacing: '0.1em', marginBottom: '24px' }}>CANONICAL AIS FORMULA (scoring-core)</h3>
+                    <div style={{ fontSize: isMobile ? '1.3rem' : '1.8rem', color: 'var(--gold)', padding: '24px', background: 'rgba(0,0,0,0.4)', borderRadius: '16px' }}>
+                        <MathExpr displayMode math="\text{AIS} = (S_e^{0.30} \cdot S_g^{0.30} \cdot S_s^{0.20} \cdot S_c^{0.20}) \cdot \text{ZK\_boost}" />
                     </div>
-                    <p style={{ fontSize: '0.95rem', color: 'rgba(255,255,255,0.5)', marginTop: '24px', fontStyle: 'italic' }}>
-                        Where <MathExpr math="S_f" /> is Fidelity, <MathExpr math="S_e" /> is Entropy, and <MathExpr math="S_c" /> is Economic Solvency. Any score nearing 0 forces the entire AIS to approach 0.
+                    <div style={{ marginTop: '24px', display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'center' }}>
+                        {[
+                            { var: 'Sₑ', label: 'Entropy', weight: '×0.30', color: '#10b981' },
+                            { var: 'Sᵍ', label: 'Grounding', weight: '×0.30', color: '#3b82f6' },
+                            { var: 'Sₛ', label: 'Sacrifice', weight: '×0.20', color: '#f59e0b' },
+                            { var: 'Sᶜ', label: 'Compliance', weight: '×0.20', color: '#a855f7' },
+                            { var: 'ZK_boost', label: '1.15× if proof', weight: 'multiplier', color: '#34d399' },
+                        ].map(item => (
+                            <div key={item.var} style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.04)', border: `1px solid ${item.color}33`, borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ color: item.color, fontWeight: 800, fontFamily: 'monospace' }}>{item.var}</span>
+                                <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.8rem' }}>{item.label}</span>
+                                <span style={{ color: item.color, fontSize: '0.75rem', fontWeight: 700 }}>{item.weight}</span>
+                            </div>
+                        ))}
+                    </div>
+                    <p style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.35)', marginTop: '20px', fontStyle: 'italic' }}>
+                        AIS_final = min(computed, tier_ceiling) — enforced in <code style={{ color: 'rgba(255,255,255,0.5)' }}>AisEngine::score_with_tier</code>
                     </p>
                 </div>
 
-                {/* 3 Metric Columns with Math */}
-                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: '28px' }}>
+                {/* 4 Metric Columns */}
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, 1fr)', gap: '20px' }}>
                     
-                    {/* Fidelity */}
-                    <motion.div whileHover={{ y: -6 }} style={{ background: 'linear-gradient(180deg, rgba(16,185,129,0.03) 0%, rgba(15,23,42,0.8) 100%)', borderRadius: '20px', border: '1px solid rgba(16,185,129,0.2)', overflow: 'hidden', boxShadow: '0 20px 40px rgba(0,0,0,0.4)' }}>
-                        <div style={{ width: '100%', height: '230px', backgroundImage: `url(${fidelityImg})`, backgroundSize: 'cover', backgroundPosition: 'center', borderBottom: '1px solid rgba(16,185,129,0.15)', position: 'relative' }}>
-                            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(15,23,42,0.9), transparent 60%)' }} />
-                        </div>
-                        <div style={{ padding: '32px', position: 'relative', marginTop: '-20px' }}>
-                            <h4 style={{ color: 'white', fontSize: '1.25rem', fontWeight: 800, marginBottom: '16px' }}>1. Fidelity (<MathExpr math="S_f" />)</h4>
-                            <div style={{ fontSize: '1.25rem', color: '#10b981', marginBottom: '20px', padding: '16px', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: '12px', textAlign: 'center', boxShadow: '0 0 20px rgba(16,185,129,0.1)' }}>
-                                <MathExpr displayMode math="S_f(x) = \frac{1}{1 + e^{-k(x - x_0)}}" />
-                            </div>
-                            <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.9rem', lineHeight: 1.6, margin: 0 }}>
-                                A logistic growth function modeling SLA success over time. Requires sustained positive feedback before unlocking higher limits (k = growth rate).
-                            </p>
-                        </div>
-                    </motion.div>
-
                     {/* Entropy */}
-                    <motion.div whileHover={{ y: -6 }} style={{ background: 'linear-gradient(180deg, rgba(59,130,246,0.03) 0%, rgba(15,23,42,0.8) 100%)', borderRadius: '20px', border: '1px solid rgba(59,130,246,0.2)', overflow: 'hidden', boxShadow: '0 20px 40px rgba(0,0,0,0.4)' }}>
-                        <div style={{ width: '100%', height: '230px', backgroundImage: `url(${entropyImg})`, backgroundSize: 'cover', backgroundPosition: 'center', borderBottom: '1px solid rgba(59,130,246,0.15)', position: 'relative' }}>
-                            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(15,23,42,0.9), transparent 60%)' }} />
+                    <motion.div whileHover={{ y: -6 }} style={{ background: 'linear-gradient(180deg, rgba(16,185,129,0.04) 0%, rgba(15,23,42,0.8) 100%)', borderRadius: '20px', border: '1px solid rgba(16,185,129,0.2)', padding: '28px', boxShadow: '0 20px 40px rgba(0,0,0,0.4)' }}>
+                        <div style={{ color: '#10b981', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: '12px' }}>Weight: 0.30</div>
+                        <h4 style={{ color: 'white', fontSize: '1.1rem', fontWeight: 800, marginBottom: '12px' }}>Entropy (Sₑ)</h4>
+                        <div style={{ color: '#10b981', marginBottom: '16px', padding: '12px', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: '10px', textAlign: 'center' }}>
+                            <MathExpr math="S_e = e^{-\lambda H}" />
                         </div>
-                        <div style={{ padding: '32px', position: 'relative', marginTop: '-20px' }}>
-                            <h4 style={{ color: 'white', fontSize: '1.25rem', fontWeight: 800, marginBottom: '16px' }}>2. Entropy (<MathExpr math="S_e" />)</h4>
-                            <div style={{ fontSize: '1.25rem', color: '#3b82f6', marginBottom: '20px', padding: '16px', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: '12px', textAlign: 'center', boxShadow: '0 0 20px rgba(59,130,246,0.1)' }}>
-                                <MathExpr displayMode math="S_e(H) = e^{-\lambda H}" />
-                            </div>
-                            <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.9rem', lineHeight: 1.6, margin: 0 }}>
-                                An exponential decay curve where H is uncertainty/hallucination rate. Strictly penalizes unpredictable agents (λ = severity scalar).
-                            </p>
-                        </div>
+                        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.85rem', lineHeight: 1.6, margin: 0 }}>
+                            Exponential decay on hallucination/uncertainty rate H. Strictly penalizes unpredictable agents.
+                        </p>
                     </motion.div>
 
-                    {/* Solvency */}
-                    <motion.div whileHover={{ y: -6 }} style={{ background: 'linear-gradient(180deg, rgba(168,85,247,0.03) 0%, rgba(15,23,42,0.8) 100%)', borderRadius: '20px', border: '1px solid rgba(168,85,247,0.2)', overflow: 'hidden', boxShadow: '0 20px 40px rgba(0,0,0,0.4)' }}>
-                        <div style={{ width: '100%', height: '230px', backgroundImage: `url(${solvencyImg})`, backgroundSize: 'cover', backgroundPosition: 'center', borderBottom: '1px solid rgba(168,85,247,0.15)', position: 'relative' }}>
-                            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(15,23,42,0.9), transparent 60%)' }} />
+                    {/* Grounding */}
+                    <motion.div whileHover={{ y: -6 }} style={{ background: 'linear-gradient(180deg, rgba(59,130,246,0.04) 0%, rgba(15,23,42,0.8) 100%)', borderRadius: '20px', border: '1px solid rgba(59,130,246,0.2)', padding: '28px', boxShadow: '0 20px 40px rgba(0,0,0,0.4)' }}>
+                        <div style={{ color: '#3b82f6', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: '12px' }}>Weight: 0.30</div>
+                        <h4 style={{ color: 'white', fontSize: '1.1rem', fontWeight: 800, marginBottom: '12px' }}>Grounding (Sᵍ)</h4>
+                        <div style={{ color: '#3b82f6', marginBottom: '16px', padding: '12px', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(59,130,246,0.25)', borderRadius: '10px', textAlign: 'center' }}>
+                            <MathExpr math="S_g = \frac{1}{1+e^{-k(x-x_0)}}" />
                         </div>
-                        <div style={{ padding: '32px', position: 'relative', marginTop: '-20px' }}>
-                            <h4 style={{ color: 'white', fontSize: '1.25rem', fontWeight: 800, marginBottom: '16px' }}>3. Solvency (<MathExpr math="S_c" />)</h4>
-                            <div style={{ fontSize: '1.15rem', color: '#a855f7', marginBottom: '20px', padding: '16px', background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(168,85,247,0.3)', borderRadius: '12px', textAlign: 'center', boxShadow: '0 0 20px rgba(168,85,247,0.1)' }}>
-                                <MathExpr displayMode math="S_c(t) = \frac{\int_{0}^{t} (T_{\text{in}} - T_{\text{out}}) \, dt}{T_{\text{stake}}}" />
-                            </div>
-                            <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.9rem', lineHeight: 1.6, margin: 0 }}>
-                                A calculus integral over time of the agent's net token inflows normalized by its staked reserves. Measures sustained economic viability.
-                            </p>
+                        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.85rem', lineHeight: 1.6, margin: 0 }}>
+                            Logistic growth on citation-to-claim ratio. Rewards source-grounded reasoning; grows only with sustained fidelity.
+                        </p>
+                    </motion.div>
+
+                    {/* Sacrifice */}
+                    <motion.div whileHover={{ y: -6 }} style={{ background: 'linear-gradient(180deg, rgba(245,158,11,0.04) 0%, rgba(15,23,42,0.8) 100%)', borderRadius: '20px', border: '1px solid rgba(245,158,11,0.2)', padding: '28px', boxShadow: '0 20px 40px rgba(0,0,0,0.4)' }}>
+                        <div style={{ color: '#f59e0b', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: '12px' }}>Weight: 0.20</div>
+                        <h4 style={{ color: 'white', fontSize: '1.1rem', fontWeight: 800, marginBottom: '12px' }}>Sacrifice (Sₛ)</h4>
+                        <div style={{ color: '#f59e0b', marginBottom: '16px', padding: '12px', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: '10px', textAlign: 'center' }}>
+                            <MathExpr math="S_s = \frac{\text{stake\_slashed}}{\text{max\_possible\_slash}}" />
                         </div>
+                        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.85rem', lineHeight: 1.6, margin: 0 }}>
+                            Measures bonded $ITK at risk as a fraction of max slashable stake. Ownership without stake is control that costs nothing to abuse.
+                        </p>
+                    </motion.div>
+
+                    {/* Compliance */}
+                    <motion.div whileHover={{ y: -6 }} style={{ background: 'linear-gradient(180deg, rgba(168,85,247,0.04) 0%, rgba(15,23,42,0.8) 100%)', borderRadius: '20px', border: '1px solid rgba(168,85,247,0.2)', padding: '28px', boxShadow: '0 20px 40px rgba(0,0,0,0.4)' }}>
+                        <div style={{ color: '#a855f7', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: '12px' }}>Weight: 0.20</div>
+                        <h4 style={{ color: 'white', fontSize: '1.1rem', fontWeight: 800, marginBottom: '12px' }}>Compliance (Sᶜ)</h4>
+                        <div style={{ color: '#a855f7', marginBottom: '16px', padding: '12px', background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(168,85,247,0.25)', borderRadius: '10px', textAlign: 'center' }}>
+                            <MathExpr math="S_c = \frac{\text{BCC\_approved}}{\text{BCC\_total}}" />
+                        </div>
+                        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.85rem', lineHeight: 1.6, margin: 0 }}>
+                            Ratio of BCC-approved actions to total attempted. OPA rego policies enforce per-domain minimums; clinical-intent types require Tier 2+.
+                        </p>
                     </motion.div>
 
                 </div>
