@@ -78,19 +78,40 @@ down:
 # Each suite's outcome is recorded to .integrity-test-status (gitignored), which the
 # post-commit Trust Vault hook hashes into the next commit's leaf. Without it every anchored
 # leaf says "unverified" — honest, but it means the anchored history records that work
-# happened, never that it was sound. `|| true` on the recorder only: a recording failure must
-# never mask a real test failure, and `set -e` semantics on the suite itself are preserved.
-TEST_STATUS := python3 scripts/record_test_status.py
+# happened, never that it was sound.
+#
+# $(CURDIR), not a bare relative path — and `{ ...; false; }` on the failure branch.
+# Both are load-bearing; the previous form was
+#
+#     cd pkg && uv run pytest && cd .. && $(TEST_STATUS) pkg pass || $(TEST_STATUS) pkg fail
+#
+# which had two compounding bugs (found 2026-07-31 by actually running a failing suite):
+#
+#  1. When pytest failed, `&&` short-circuited so `cd ..` never ran, and the `||` branch
+#     tried to exec `scripts/record_test_status.py` from *inside* the package directory,
+#     where it does not exist. So a FAILURE WAS NEVER RECORDABLE — the mechanism that
+#     feeds test outcomes into the anchored evidence chain could only ever write `pass`.
+#     That is the worst possible failure direction for an evidence system, and it is a
+#     contributing cause of audit finding F5 (every leaf `unverified`).
+#  2. That crash then aborted `make test` at the first failing package, so the packages
+#     after it never ran at all — one bcc_middleware failure silently skipped userapi and
+#     dashboard entirely, while looking like a single ordinary failure.
+#
+# Note the trap in fixing only (1): with a working path, `|| $(TEST_STATUS) pkg fail`
+# exits 0, so `make test` would report SUCCESS on a red suite. `false` after the recorder
+# preserves "record the outcome, then still fail" — the recorder must never mask, nor
+# invent, a result.
+TEST_STATUS := python3 $(CURDIR)/scripts/record_test_status.py
 
 test:
-	cd contracts && forge test && cd .. && $(TEST_STATUS) contracts pass || $(TEST_STATUS) contracts fail
-	cd integrity-zkp && nargo test && cd .. && $(TEST_STATUS) zkp pass || $(TEST_STATUS) zkp fail
-	cd integrity-oracle && cargo test && cd .. && $(TEST_STATUS) oracle pass || $(TEST_STATUS) oracle fail
-	cd integrity-sdk && uv run pytest && cd .. && $(TEST_STATUS) sdk pass || $(TEST_STATUS) sdk fail
-	cd integrity-cli && uv run pytest && cd .. && $(TEST_STATUS) cli pass || $(TEST_STATUS) cli fail
-	cd bcc_middleware && uv run pytest && cd .. && $(TEST_STATUS) bcc pass || $(TEST_STATUS) bcc fail
-	cd integrity-userapi && uv run pytest && cd .. && $(TEST_STATUS) userapi pass || $(TEST_STATUS) userapi fail
-	cd integrity-dashboard && npm test && cd .. && $(TEST_STATUS) dashboard pass || $(TEST_STATUS) dashboard fail
+	cd contracts && forge test && $(TEST_STATUS) contracts pass || { $(TEST_STATUS) contracts fail; false; }
+	cd integrity-zkp && nargo test && $(TEST_STATUS) zkp pass || { $(TEST_STATUS) zkp fail; false; }
+	cd integrity-oracle && cargo test && $(TEST_STATUS) oracle pass || { $(TEST_STATUS) oracle fail; false; }
+	cd integrity-sdk && uv run pytest && $(TEST_STATUS) sdk pass || { $(TEST_STATUS) sdk fail; false; }
+	cd integrity-cli && uv run pytest && $(TEST_STATUS) cli pass || { $(TEST_STATUS) cli fail; false; }
+	cd bcc_middleware && uv run pytest && $(TEST_STATUS) bcc pass || { $(TEST_STATUS) bcc fail; false; }
+	cd integrity-userapi && uv run pytest && $(TEST_STATUS) userapi pass || { $(TEST_STATUS) userapi fail; false; }
+	cd integrity-dashboard && npm test && $(TEST_STATUS) dashboard pass || { $(TEST_STATUS) dashboard fail; false; }
 	$(TEST_STATUS) --finalize
 
 # Real browser (Playwright) end-to-end tests — a separate, slower layer from
