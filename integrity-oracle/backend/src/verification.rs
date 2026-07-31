@@ -1000,3 +1000,150 @@ mod ladder_tests {
         assert_eq!(effective_tier(0, &[-5]), 0, "negative tiers cannot go below 0");
     }
 }
+
+// ---------------------------------------------------------------------------
+// Development tier override
+// ---------------------------------------------------------------------------
+// An explicit, loud escape hatch for local development, where climbing rung 3
+// legitimately cannot be done: generating a Nitro attestation needs real enclave
+// hardware, and no amount of engineering removes that on a laptop.
+//
+// This is the single most dangerous thing in this module, so it is built to be
+// impossible to use by accident and impossible to mistake for a real proof:
+//
+//   1. **Opt-in twice.** It requires BOTH `INTEGRITY_ALLOW_DEV_TIER_OVERRIDE=1`
+//      and an explicit per-DID entry. Neither alone does anything.
+//   2. **Never persisted.** It is applied at READ time and never written to
+//      `identity_verifications`. A dev tier leaves no row that could later be
+//      mistaken for evidence, and removing the env var removes the tier
+//      instantly and completely.
+//   3. **Always disclosed.** Every response that carries an overridden tier also
+//      carries `tier_source: "dev_override"`, and the server logs a warning at
+//      startup and on every application. A tier that is asserted rather than
+//      proven must SAY so — a trust protocol that quietly fabricates its own
+//      trust level has no product left.
+//
+// The honest framing: this does not make the agent tier 3. It makes the agent
+// *behave as if* tier 3 in a development environment, which is a different
+// claim, and the API says which one it is.
+
+pub const DEV_OVERRIDE_ENABLE_VAR: &str = "INTEGRITY_ALLOW_DEV_TIER_OVERRIDE";
+pub const DEV_OVERRIDE_MAP_VAR: &str = "INTEGRITY_DEV_TIER_OVERRIDES";
+
+/// Where a reported tier came from. Surfaced in API responses so a consumer can
+/// distinguish an earned tier from an asserted one without reading the docs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TierSource {
+    /// Registration floor plus verified, unexpired evidence.
+    Verified,
+    /// Asserted by local configuration. NOT a proof.
+    DevOverride,
+}
+
+/// Parse `INTEGRITY_DEV_TIER_OVERRIDES` — `did=tier` pairs, comma separated.
+/// Malformed entries are skipped rather than defaulting to a tier: a typo must
+/// never silently grant something.
+pub fn parse_dev_overrides(raw: &str) -> Vec<(String, i32)> {
+    raw.split(',')
+        .filter_map(|entry| {
+            let (did, tier) = entry.trim().split_once('=')?;
+            let tier: i32 = tier.trim().parse().ok()?;
+            if !(0..=3).contains(&tier) {
+                return None;
+            }
+            Some((did.trim().to_string(), tier))
+        })
+        .collect()
+}
+
+/// Returns the overridden tier for this agent, if one is configured AND the
+/// master switch is on.
+pub fn dev_tier_override(agent_id: &str) -> Option<i32> {
+    if std::env::var(DEV_OVERRIDE_ENABLE_VAR).unwrap_or_default() != "1" {
+        return None;
+    }
+    let raw = std::env::var(DEV_OVERRIDE_MAP_VAR).unwrap_or_default();
+    parse_dev_overrides(&raw)
+        .into_iter()
+        .find(|(did, _)| did == agent_id)
+        .map(|(_, tier)| tier)
+}
+
+/// Apply the override on top of a verified tier, reporting which one won.
+///
+/// The override is a MAX, not a replacement: it can raise a tier for development
+/// but must never silently lower a genuinely earned one, or a stale env var could
+/// mask real verification state.
+pub fn apply_dev_override(agent_id: &str, verified_tier: i32) -> (i32, TierSource) {
+    match dev_tier_override(agent_id) {
+        Some(dev) if dev > verified_tier => {
+            tracing::warn!(
+                agent_id, verified_tier, dev_tier = dev,
+                "DEV TIER OVERRIDE APPLIED — this tier is asserted by configuration, \
+                 NOT proven. Never enable {} in production.",
+                DEV_OVERRIDE_ENABLE_VAR
+            );
+            (dev, TierSource::DevOverride)
+        }
+        _ => (verified_tier, TierSource::Verified),
+    }
+}
+
+/// Log configured overrides once at startup, so an operator cannot be unaware
+/// that their oracle is asserting tiers.
+pub fn warn_about_dev_overrides_at_startup() {
+    if std::env::var(DEV_OVERRIDE_ENABLE_VAR).unwrap_or_default() != "1" {
+        return;
+    }
+    let raw = std::env::var(DEV_OVERRIDE_MAP_VAR).unwrap_or_default();
+    let overrides = parse_dev_overrides(&raw);
+    if overrides.is_empty() {
+        tracing::warn!(
+            "{} is set but {} configures no agents — no overrides are active",
+            DEV_OVERRIDE_ENABLE_VAR, DEV_OVERRIDE_MAP_VAR
+        );
+        return;
+    }
+    tracing::warn!(
+        "DEV TIER OVERRIDES ACTIVE for {} agent(s): {:?}. Verification tiers for these \
+         agents are ASSERTED, not proven. This must never be enabled in production.",
+        overrides.len(),
+        overrides
+    );
+}
+
+#[cfg(test)]
+mod dev_override_tests {
+    use super::*;
+
+    #[test]
+    fn parses_well_formed_entries_and_skips_junk() {
+        let got = parse_dev_overrides("did:integrity:aaa=3, did:integrity:bbb=2");
+        assert_eq!(got, vec![
+            ("did:integrity:aaa".to_string(), 3),
+            ("did:integrity:bbb".to_string(), 2),
+        ]);
+        // A typo must never grant a tier by defaulting.
+        assert!(parse_dev_overrides("did:integrity:aaa").is_empty());
+        assert!(parse_dev_overrides("did:integrity:aaa=notanumber").is_empty());
+        assert!(parse_dev_overrides("did:integrity:aaa=9").is_empty(), "out of range");
+        assert!(parse_dev_overrides("did:integrity:aaa=-1").is_empty());
+        assert!(parse_dev_overrides("").is_empty());
+    }
+
+    #[test]
+    fn override_never_lowers_a_genuinely_earned_tier() {
+        // A stale env var must not mask real verification state.
+        let (tier, source) = apply_dev_override("did:integrity:nobody", 3);
+        assert_eq!(tier, 3);
+        assert_eq!(source, TierSource::Verified);
+    }
+
+    #[test]
+    fn an_unconfigured_agent_is_untouched() {
+        let (tier, source) = apply_dev_override("did:integrity:nobody", 1);
+        assert_eq!(tier, 1);
+        assert_eq!(source, TierSource::Verified, "must report Verified when no override applies");
+    }
+}

@@ -160,7 +160,23 @@ pub struct AgentListRow {
 pub async fn list_agents(pool: &PgPool) -> Result<Vec<AgentListRow>, sqlx::Error> {
     sqlx::query_as::<_, AgentListRow>(
         r#"
-        SELECT a.id, a.verification_tier, a.created_at, a.did_document,
+        -- EFFECTIVE tier, computed in one pass rather than N+1 round trips.
+        -- `a.verification_tier` is only the registration floor; rungs 2/3 live in
+        -- `identity_verifications`, and expiry/revocation are applied here so a
+        -- lapsed proof lowers the reported tier automatically. Returning the raw
+        -- column made the fleet list show every climbed agent at tier 1.
+        SELECT a.id,
+               GREATEST(
+                   a.verification_tier,
+                   COALESCE((
+                       SELECT MAX(v.tier_granted)
+                       FROM identity_verifications v
+                       WHERE v.agent_id = a.id
+                         AND v.revoked_at IS NULL
+                         AND (v.expires_at IS NULL OR v.expires_at > now())
+                   ), 0)
+               ) AS verification_tier,
+               a.created_at, a.did_document,
                p.sovereign_agent_address
         FROM agents a
         LEFT JOIN agent_primitives p ON p.agent_id = a.id
@@ -1590,6 +1606,21 @@ pub async fn effective_verification_tier(
     agent_id: &str,
     registration_tier: i32,
 ) -> Result<i32, sqlx::Error> {
+    Ok(effective_tier_with_source(pool, agent_id, registration_tier).await?.0)
+}
+
+/// Effective tier plus WHERE IT CAME FROM.
+///
+/// The source is not cosmetic: a development override produces a tier that is
+/// asserted rather than proven, and every surface that reports the tier must be
+/// able to say which it is. Returning them together makes it impossible to
+/// report the number without having the provenance in hand.
+pub async fn effective_tier_with_source(
+    pool: &PgPool,
+    agent_id: &str,
+    registration_tier: i32,
+) -> Result<(i32, crate::verification::TierSource), sqlx::Error> {
     let tiers = active_verification_tiers(pool, agent_id).await?;
-    Ok(crate::verification::effective_tier(registration_tier, &tiers))
+    let verified = crate::verification::effective_tier(registration_tier, &tiers);
+    Ok(crate::verification::apply_dev_override(agent_id, verified))
 }

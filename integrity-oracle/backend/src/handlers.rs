@@ -317,9 +317,22 @@ pub async fn get_agent(State(state): State<AppState>, Path(id): Path<String>) ->
         }
     };
 
+    // EFFECTIVE tier, not the registration column. `agents.verification_tier` is
+    // only the floor registration can establish (a hardcoded 1); rungs 2/3 live in
+    // `identity_verifications`. Reporting the raw column here made this endpoint
+    // lie about every agent that had climbed the ladder -- an agent verified to
+    // tier 2 still showed as tier 1 to the dashboard and to every other consumer,
+    // while its AIS was (correctly) computed against the tier-2 ceiling. A trust
+    // protocol whose own API misreports verification level is worse than one that
+    // has no levels.
+    let effective_tier =
+        db::effective_verification_tier(&state.pool, &agent_row.id, agent_row.verification_tier)
+            .await
+            .unwrap_or(agent_row.verification_tier);
+
     Ok(Json(AgentResponse {
         id: agent_row.id,
-        verification_tier: agent_row.verification_tier,
+        verification_tier: effective_tier,
         last_nonce: agent_row.last_nonce,
         created_at: agent_row.created_at,
         has_ed25519_key: agent_row.ed25519_pubkey.is_some(),
@@ -2890,6 +2903,10 @@ pub struct VerificationListResponse {
     pub agent_id: String,
     pub registration_tier: i32,
     pub effective_tier: i32,
+    /// `verified` = earned through registration + unexpired evidence.
+    /// `dev_override` = ASSERTED by local configuration and not proven. Always
+    /// present so a consumer never has to infer which kind of tier this is.
+    pub tier_source: crate::verification::TierSource,
     /// AIS ceiling implied by `effective_tier` — surfaced because the ceiling
     /// silently binding is exactly how this whole subsystem's absence went
     /// unnoticed (raw AIS 704 reported as 600, ZK boost worth nothing).
@@ -2905,13 +2922,14 @@ pub async fn get_verifications(
         .await?
         .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
     let verifications = db::list_identity_verifications(&state.pool, &id).await?;
-    let effective =
-        db::effective_verification_tier(&state.pool, &id, agent.verification_tier).await?;
+    let (effective, tier_source) =
+        db::effective_tier_with_source(&state.pool, &id, agent.verification_tier).await?;
 
     Ok(Json(VerificationListResponse {
         agent_id: id,
         registration_tier: agent.verification_tier,
         effective_tier: effective,
+        tier_source,
         ais_ceiling: scoring_core::AisEngine::ceiling_for_tier(effective),
         verifications,
     }))
