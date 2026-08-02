@@ -69,18 +69,29 @@ anvil addresses on Sepolia. **Both fixed; both were required.**
 
 **Verified by on-chain state change, not by absence of errors:**
 
-| Evidence | Before | After |
-|---|---|---|
-| `StateAnchor.latestRoot` | `0xdecb860c…` | **`0x946387f7…`** |
-| `isAnchoredRoot(new)` | — | **`true`** |
-| `isAnchoredRoot(old)` — append-only holds | `true` | **`true`** |
-| `scores(0x360e…).lastUpdated` | — | **`1785484478`** (this session) |
+| Evidence | Result |
+|---|---|
+| `anchor_events` rows for this DID | **4**, distinct root + tx_hash each |
+| newest `anchor_events.root` vs chain `latestRoot` | **identical** (`0x87bfba4278fd8c4a…`) |
+| `cast receipt <tx>` | **`status 1 (success)`** |
+| `isAnchoredRoot(old root)` — append-only holds | **`true`** |
+| `scores(0x360e…).lastUpdated` | **`1785484478`** (this session) |
 
-**The agent is anchoring its own evidence again.** Nonce advancement (260 → 275) is
-corroborating only — a reverting tx consumes its nonce too, so it proves nothing on its
-own. Both roles were confirmed before wiring the key in, on two different contracts:
+A root present in **both** the oracle's `anchor_events` table and the contract's
+`latestRoot`, backed by a receipt with `status 1`, means the whole path executed:
+commitment → batch → Merkle root → signed `anchorRoot` → mined → recorded. Nonce
+advancement (260 → 275) is corroborating only and deliberately not load-bearing — a
+reverting tx consumes its nonce too.
+
+Both roles were confirmed before wiring the key in, on **two different contracts**:
 `ANCHOR_ROLE` on `StateAnchor` (for `anchorRoot`) and `ORACLE_ROLE` on
 `ReputationRegistry` (for `updateScore`).
+
+**This session's own evidence is anchored.** The 5 commits below each fired the vault
+hook; `anchor_vault.py` was then run explicitly rather than trusting the SessionEnd spawn
+(its own docstring records leaves being stranded when a hook is torn down mid-receipt):
+`anchors.jsonl` advanced `leaves_through: 21 → 26`, root
+`0xb64a41aac24e20fa…`, `isAnchoredRoot == true`, receipt `status 1`.
 
 ### `make test` could record a pass but never a failure
 
@@ -139,8 +150,10 @@ OPA **37/37** · userapi **51 passed** · contracts **200** · zkp **4** · orac
 
 ## 5. Next, in order
 
-1. **Anchor the memory DAG.** It is built but its root has never been anchored. Use the
-   existing `anchor_vault.py` path — the importer deliberately does not sign.
+1. **Anchor the memory DAG.** The *vault* is anchored through leaf 26; the **DAG** is a
+   separate structure and its `root_of_heads` (`0xdc4d6644c6ef5884…`) has never been
+   anchored. Use the existing `anchor_vault.py` path — the importer deliberately does not
+   sign.
 2. **Fix F5 at the root** — `record_test_status.py` + `vault_commit_leaf.py:39` must change
    *together* (their comments already warn of this). Now unblocked.
 3. **Make audit reports survive shutdown** — `ensure_future(to_thread(...))` with nothing
@@ -153,7 +166,11 @@ OPA **37/37** · userapi **51 passed** · contracts **200** · zkp **4** · orac
    despite `nonce_lock.py`; cannot separate stale-read from real race on publicnode.
 6. Lower `resolveDID` not-found logging to `warn` (E12) — one line, and it manufactured an
    entire false audit.
-7. `sudo ctr -n moby` cleanup for the containerd blob.
+7. **Make the dashboard image buildable** — `npm install` dies inside Docker with
+   arborist's `Cannot read properties of null (reading 'edgesOut')`. This is why
+   `make check-deploy` **currently exits 1** (see below). The dashboard's own suite passes
+   on the host (20 files / 68 tests), so it is a container-build fault, not broken code.
+8. `sudo ctr -n moby` cleanup for the containerd blob.
 
 ## 6. Running the stack
 
@@ -167,9 +184,20 @@ docker compose up -d
 docker compose ps          # postgres/redis/userapi-postgres/oracle/bcc should read (healthy)
 ```
 
-`make test` needs `userapi-postgres` up (it is not started by the target — a fresh
-checkout running `make test` alone fails `ConnectionRefusedError` on :5435, which reads as
-a broken suite rather than a missing dependency).
+Two harness gotchas that will otherwise cost you an hour:
+
+- **`make test` needs `userapi-postgres` up.** The target does not start it, so a fresh
+  checkout running `make test` alone fails `ConnectionRefusedError` on :5435 — which reads
+  as a broken suite rather than a missing dependency.
+- **`make check-deploy` currently exits 1, and that is expected.** It correctly reports
+  the dashboard image STALE (2026-07-18 vs current source) and the image *cannot be
+  rebuilt* until item 7 above is fixed. `oracle-backend`, `bcc-middleware`, and `userapi`
+  all report **fresh**. Do not read the non-zero exit as new drift.
+- **Trust only the `MAKE_TEST_EXIT=` line, not a wrapper's reported exit code.** A
+  backgrounded `make test` was reported as "exit code 0" twice while the real exit was 2.
+- If a `test_chain.py` run appears to hang, check for an orphaned `anvil`/`forge script`
+  pair from a killed run (`pgrep -fa "forge script|anvil --port"`). It passes in ~3s
+  standalone; a stuck pair blocks it indefinitely at ~1% CPU, which looks like compiling.
 
 Architecture decision from last session stands: **two memory systems, deliberately
 separate** — the Integrity hash graph (evidence, anchored, never forgets) and
