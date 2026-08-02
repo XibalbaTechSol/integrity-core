@@ -42,12 +42,21 @@ from app.config import Settings, settings as default_settings
 from app.merkle import MerkleBatcher, leaf_hash
 from app.nonce_store import NonceStore
 from app.opa_client import OPAUnavailableError, evaluate as opa_evaluate
+from app.token_budget import TokenBudgetEnforcer, token_budget_enforcer
 from app.schemas import BCCCommitment, BCCInterceptResponse, HealthResponse, VerifyTokenRequest, VerifyTokenResponse
 from app import anchor as anchor_module
 from app import audit as audit_module
 from app import opa_client
 from app import scoring_loop as scoring_loop_module
 from app import verification_token as verification_token_module
+
+try:
+    from opentelemetry import trace as otel_trace
+    from opentelemetry.trace import Status as OtelStatus, StatusCode as OtelStatusCode
+    _otel_tracer = otel_trace.get_tracer("bcc_middleware")
+except ImportError:
+    otel_trace = None  # type: ignore[assignment]
+    _otel_tracer = None  # type: ignore[assignment]
 
 logger = logging.getLogger("bcc_middleware")
 
@@ -88,6 +97,38 @@ async def lifespan(app: FastAPI):
     yield
     if _score_sync_task is not None:
         _score_sync_task.cancel()
+    # Drain in-flight audit-report tasks before the ASGI shutdown event returns.
+    # Without this, a worker shutting down mid-request drops any
+    # `_report_decision_background` call that hadn't completed yet -- silently,
+    # since nothing ever awaited it in the first place. `_audit_report_tasks`
+    # already prevents garbage collection; this is what turns "kept alive" into
+    # "actually finishes" (audit E16, docs/design/e2e-audit-2026-07-31.md).
+    # Bounded rather than unbounded: a report stuck on a dead ORACLE_URL must not
+    # hang the shutdown signal forever. `report_decision`'s own HTTP calls time out
+    # at 3s (see audit.py), so 10s covers that plus thread-scheduling slack for a
+    # small burst of pending reports.
+    #
+    # KNOWN RESIDUAL LIMIT, not fixed by this: `asyncio.to_thread` runs on
+    # Python's default `ThreadPoolExecutor`, whose worker threads are non-daemon.
+    # If a report is still running past the 10s bound above, THIS coroutine moves
+    # on and logs it as dropped -- but the underlying OS thread keeps running, and
+    # `asyncio.run()`'s own cleanup (`loop.shutdown_default_executor()`) still
+    # joins it before the process can fully exit. Verified directly: an orphaned
+    # `to_thread` call delays `asyncio.run()`'s return even after the awaiting
+    # coroutine itself has long since given up on it. So this drain bounds what
+    # the ASGI shutdown EVENT reports and how long IT waits, not literal process
+    # exit time under a truly hung thread -- that residual is accepted rather than
+    # solved by swapping in a daemon-thread executor, which would trade "delayed
+    # exit" for "reports killed mid-write," a worse failure for an evidence path.
+    if _audit_report_tasks:
+        _done, pending = await asyncio.wait(list(_audit_report_tasks), timeout=10.0)
+        if pending:
+            logger.warning(
+                "shutdown: %d audit report(s) still in flight after 10s, giving up "
+                "on the ASGI shutdown wait (the underlying thread may still be "
+                "running and could still delay process exit)",
+                len(pending),
+            )
 
 
 app = FastAPI(title="BCC Middleware", version="3.0.0", lifespan=lifespan)
@@ -211,10 +252,51 @@ async def run_intercept(commitment: BCCCommitment, settings: Settings) -> BCCInt
     """
     agent_id = commitment.agent_id
 
+    # Wrap the entire intercept pipeline in a single OTel span so every step
+    # is traceable end-to-end. The span carries the agent's own trace_id/span_id
+    # as correlation attributes (not as W3C context — bcc_middleware is a
+    # standalone service, not part of the agent's distributed trace).
+    _span_ctx = None
+    if _otel_tracer is not None:
+        _span_ctx = _otel_tracer.start_span("bcc.intercept")
+        _span_ctx.set_attribute("agent.id", agent_id)
+        _span_ctx.set_attribute("bcc.intent_type", commitment.intent_type)
+        _span_ctx.set_attribute("bcc.nonce", commitment.nonce)
+        _span_ctx.set_attribute("bcc.agent_trace_id", commitment.trace_id or "")
+        _span_ctx.set_attribute("bcc.agent_span_id", commitment.span_id or "")
+        _span_ctx.set_attribute("bcc.agent_thought_length", len(commitment.agent_thought or ""))
+        _span_ctx.set_attribute("bcc.token_count", commitment.token_count or 0)
+
+    def _finalize_span(decision: str, reason: str | None = None) -> None:
+        if _span_ctx is None:
+            return
+        _span_ctx.set_attribute("bcc.decision", decision)
+        if decision == "deny" and reason:
+            _span_ctx.set_status(OtelStatus(OtelStatusCode.ERROR, reason))
+        else:
+            _span_ctx.set_status(OtelStatus(OtelStatusCode.OK))
+        _span_ctx.end()
+
+    try:
+        return await _run_intercept_inner(commitment, settings, agent_id, _finalize_span)
+    except Exception:
+        _finalize_span("error")
+        raise
+
+
+async def _run_intercept_inner(
+    commitment: BCCCommitment,
+    settings: Settings,
+    agent_id: str,
+    finalize_span,
+) -> BCCInterceptResponse:
+
     # --- 1. Circuit breaker -------------------------------------------------
     if circuit_breaker.is_locked_out(agent_id):
         remaining = int(circuit_breaker.lockout_remaining_seconds(agent_id))
-        return _deny(f"CIRCUIT_BREAKER_OPEN: agent is locked out for {remaining}s due to prior violations", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
+        resp = _deny(f"CIRCUIT_BREAKER_OPEN: agent is locked out for {remaining}s due to prior violations", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
+        finalize_span("deny", resp.reason)
+        return resp
 
     # --- 2. Signature verification ------------------------------------------
     # An invalid signature means we cannot trust `agent_id` authored this
@@ -225,23 +307,29 @@ async def run_intercept(commitment: BCCCommitment, settings: Settings) -> BCCInt
         verify_commitment_signature(commitment)
     except SignatureVerificationError as exc:
         _record_violation(agent_id, settings)
-        return _deny(f"BCC_INVALID_SIGNATURE: {exc}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
+        resp = _deny(f"BCC_INVALID_SIGNATURE: {exc}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
+        finalize_span("deny", resp.reason)
+        return resp
 
     # --- 3. Replay protection ------------------------------------------------
     if not nonce_store.check_and_record(agent_id, commitment.nonce):
         _record_violation(agent_id, settings)
-        return _deny(f"BCC_NONCE_REPLAY: nonce {commitment.nonce} is not greater than the last accepted nonce for this agent", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
+        resp = _deny(f"BCC_NONCE_REPLAY: nonce {commitment.nonce} is not greater than the last accepted nonce for this agent", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
+        finalize_span("deny", resp.reason)
+        return resp
 
     # --- 4. Freshness ----------------------------------------------------------
     age_ms = (time.time() * 1000) - commitment.timestamp
     if age_ms > settings.max_commitment_age_ms:
         _record_violation(agent_id, settings)
-        return _deny(f"BCC_EXPIRED: commitment is {int(age_ms)}ms old, exceeds max age {settings.max_commitment_age_ms}ms", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
+        resp = _deny(f"BCC_EXPIRED: commitment is {int(age_ms)}ms old, exceeds max age {settings.max_commitment_age_ms}ms", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
+        finalize_span("deny", resp.reason)
+        return resp
     if age_ms < -settings.max_commitment_age_ms:
-        # Clock skew / a timestamp claiming to be from the future beyond our
-        # tolerance is just as suspicious as a stale one.
         _record_violation(agent_id, settings)
-        return _deny("BCC_EXPIRED: commitment timestamp is implausibly far in the future", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
+        resp = _deny("BCC_EXPIRED: commitment timestamp is implausibly far in the future", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
+        finalize_span("deny", resp.reason)
+        return resp
 
     # --- 5. OPA policy evaluation (FAIL CLOSED) -------------------------------
     # verification_tier is resolved unconditionally (not just for intent_types the
@@ -257,6 +345,11 @@ async def run_intercept(commitment: BCCCommitment, settings: Settings) -> BCCInt
         "nonce": commitment.nonce,
         "timestamp": commitment.timestamp,
         "verification_tier": verification_tier,
+        "trace_id": commitment.trace_id,
+        "span_id": commitment.span_id,
+        "agent_thought": commitment.agent_thought,
+        "token_count": commitment.token_count or 0,
+        "daily_token_spend": token_budget_enforcer.get_daily_spend(agent_id),
     }
     try:
         decision = await opa_evaluate(settings, opa_input)
@@ -265,12 +358,29 @@ async def run_intercept(commitment: BCCCommitment, settings: Settings) -> BCCInt
         # breaker (see circuit_breaker.py docstring). Still deny: this is
         # the fail-closed behavior the interface contract requires.
         logger.error("OPA unavailable, failing closed: %s", exc)
-        return _deny(f"BCC_POLICY_ENGINE_UNAVAILABLE: {exc}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
+        resp = _deny(f"BCC_POLICY_ENGINE_UNAVAILABLE: {exc}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
+        finalize_span("deny", resp.reason)
+        return resp
 
     if not decision.allow:
         _record_violation(agent_id, settings)
         reasons = "; ".join(decision.violations) or "policy denied without a specific reason"
-        return _deny(f"OPA_REJECTION: {reasons}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
+        resp = _deny(f"OPA_REJECTION: {reasons}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
+        finalize_span("deny", resp.reason)
+        return resp
+
+    # --- 5b. Token budget check (Python-layer enforcement) -------------------
+    # OPA also has a declarative budget rule (for audit), but this layer is the
+    # authoritative enforcer because it tracks cumulative daily spend in-process.
+    if commitment.token_count is not None and commitment.token_count > 0:
+        budget_ok, budget_reason = token_budget_enforcer.check_and_record(
+            agent_id, verification_tier, commitment.token_count
+        )
+        if not budget_ok:
+            _record_violation(agent_id, settings)
+            resp = _deny(f"TOKEN_BUDGET_EXCEEDED: {budget_reason}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
+            finalize_span("deny", resp.reason)
+            return resp
 
     # --- 6. On-chain BAA check (FAIL CLOSED), only for healthcare-vertical intents ---
     # `commitment.covered_entity_address` (schemas.py) names WHICH covered
@@ -286,7 +396,9 @@ async def run_intercept(commitment: BCCCommitment, settings: Settings) -> BCCInt
             # unverifiable BAA must never be treated as compliant.
             _record_violation(agent_id, settings)
             code = "BAA_INACTIVE" if status is BAAStatus.INACTIVE else "BAA_CANNOT_VERIFY"
-            return _deny(f"{code}: {detail}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
+            resp = _deny(f"{code}: {detail}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
+            finalize_span("deny", resp.reason)
+            return resp
 
     # --- 7. Approved: admit to the merkle batch, issue a verification token ---
     batch_index = batcher.add(commitment)
@@ -312,6 +424,7 @@ async def run_intercept(commitment: BCCCommitment, settings: Settings) -> BCCInt
     # `enforced` mirrors the deployment posture even on the allow path so a
     # caller/dashboard can tell a genuinely-gated approval from a shadow-mode
     # one without inspecting server config.
+    finalize_span("allow")
     return BCCInterceptResponse(authorized=True, enforced=not settings.shadow_mode, verification_token=token, batch_index=batch_index)
 
 
