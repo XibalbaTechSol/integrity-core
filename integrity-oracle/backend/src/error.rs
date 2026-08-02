@@ -59,9 +59,6 @@ pub enum AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        // Always log the full error server-side, regardless of what's exposed.
-        tracing::error!(error = %self, "request failed");
-
         let (status, public_message) = match &self {
             AppError::AgentNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
             AppError::TraceNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
@@ -91,6 +88,17 @@ impl IntoResponse for AppError {
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal server error".to_string())
             }
         };
+
+        // Log at a severity that matches the status code: a 4xx is the client's
+        // fault (bad input, unknown DID, rate limit) and expected in normal
+        // operation, so ERROR is reserved for what the status itself already
+        // says is a server-side fault (5xx) — a routine 404 should not read
+        // like an outage in the logs (E12).
+        if status.is_server_error() {
+            tracing::error!(error = %self, "request failed");
+        } else {
+            tracing::warn!(error = %self, "request failed");
+        }
 
         (status, Json(json!({ "error": public_message }))).into_response()
     }
