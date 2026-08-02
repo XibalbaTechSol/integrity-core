@@ -150,10 +150,12 @@ OPA **37/37** · userapi **51 passed** · contracts **200** · zkp **4** · orac
 
 ## 5. Next, in order
 
-1. **Anchor the memory DAG.** The *vault* is anchored through leaf 26; the **DAG** is a
-   separate structure and its `root_of_heads` (`0xdc4d6644c6ef5884…`) has never been
-   anchored. Use the existing `anchor_vault.py` path — the importer deliberately does not
-   sign.
+1. ~~**Anchor the memory DAG.**~~ **DONE (2026-08-01).** New `scripts/anchor_memory_dag.py`
+   — a companion to `import_memory_dag.py`, not the same path as `anchor_vault.py` (that
+   script is hardcoded to the vault's own root). Verified on-chain: `isAnchoredRoot(DAG
+   root) == true`, receipt `status 1`, `latestRoot` now the DAG root, and the vault's own
+   root (`0x51451cc5…`) still independently anchored — append-only holds across both
+   trees. Idempotent by construction (checks `isAnchoredRoot` before submitting).
 2. **Fix F5 at the root** — `record_test_status.py` + `vault_commit_leaf.py:39` must change
    *together* (their comments already warn of this). Now unblocked.
 3. **Make audit reports survive shutdown** — `ensure_future(to_thread(...))` with nothing
