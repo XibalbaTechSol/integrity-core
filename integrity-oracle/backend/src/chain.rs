@@ -462,6 +462,18 @@ pub struct ChainClient {
     integrity_governance_address: Option<Address>,
 }
 
+/// True iff a failed contract `.call()` reverted with `UnknownDID()`
+/// (selector `0x4c2a24b3`, `cast sig "UnknownDID()"`) rather than some other failure
+/// (RPC unreachable, malformed response, an unrelated revert). Extracted as a pure
+/// function, separate from `resolve_primitives_by_did`'s tracing call, specifically so
+/// this classification is unit-testable without a live provider — see the test module
+/// at the end of this file.
+fn is_unknown_did_revert(err: &alloy::contract::Error) -> bool {
+    const UNKNOWN_DID_SELECTOR: [u8; 4] = [0x4c, 0x2a, 0x24, 0xb3];
+    err.as_revert_data()
+        .is_some_and(|data| data.get(..4) == Some(UNKNOWN_DID_SELECTOR.as_slice()))
+}
+
 impl ChainClient {
     /// Connects to `rpc_url` and reads `deployments_file` for the registry address.
     /// Per the interface contract (§6.6), only `singletons`/`cloneTemplates` addresses
@@ -547,7 +559,21 @@ impl ChainClient {
             .call()
             .await
             .map_err(|err| {
-                tracing::error!("resolveDID contract call failed for DID {}: {:?}", did, err);
+                // `UnknownDID()` (selector 0x4c2a24b3, `cast sig "UnknownDID()"`) is the
+                // registry's ordinary response to a DID that was never registered on
+                // THIS chain -- e.g. an anvil-era row queried against a Sepolia-configured
+                // oracle (PRODUCTION_GAPS.md §24, audit E11/E12). That is not an infra
+                // problem, so it does not belong at ERROR: hundreds of routine "not
+                // found" lookups logging at ERROR is exactly what made a fully healthy
+                // service read as a total outage during the 2026-07-31 incident -- the
+                // polling itself, not any real fault, is what filled the log. Anything
+                // else here (RPC unreachable, malformed response, an unexpected revert)
+                // still logs at ERROR, because that IS actionable.
+                if is_unknown_did_revert(&err) {
+                    tracing::warn!("resolveDID: DID {} not registered on this chain", did);
+                } else {
+                    tracing::error!("resolveDID contract call failed for DID {}: {:?}", did, err);
+                }
                 ChainError::UnknownDid(did.to_string())
             })?;
         if !record.exists {
@@ -930,5 +956,75 @@ impl ChainClient {
         let addr = self.integrity_token_address.ok_or(ChainError::MissingSingleton("IntegrityToken"))?;
         let contract = IERC20Balance::new(addr, self.provider.clone());
         Ok(contract.balanceOf(account).call().await?)
+    }
+}
+
+#[cfg(test)]
+mod resolve_did_error_classification_tests {
+    //! Unit tests for `is_unknown_did_revert`, the discriminator that decides whether a
+    //! failed `resolveDID` call logs at `warn` (an ordinary "not registered on this
+    //! chain" outcome) or `error` (something actually wrong). Constructed directly from
+    //! JSON-RPC error payloads rather than through a live provider, matching the shape
+    //! observed in real production logs (audit E12,
+    //! docs/design/e2e-audit-2026-07-31.md): `ErrorResp(ErrorPayload { code: 3, message:
+    //! "execution reverted", data: Some(RawValue("0x4c2a24b3")) })`.
+
+    use super::is_unknown_did_revert;
+    use alloy::transports::TransportError;
+    use alloy_json_rpc::ErrorPayload;
+
+    fn contract_error_from_revert_data_hex(hex: &str) -> alloy::contract::Error {
+        let json = format!(r#"{{"code":3,"message":"execution reverted","data":"{hex}"}}"#);
+        let payload: ErrorPayload = serde_json::from_str(&json).expect("valid ErrorPayload JSON");
+        TransportError::ErrorResp(payload).into()
+    }
+
+    #[test]
+    fn recognizes_the_real_unknown_did_selector() {
+        // 0x4c2a24b3 == cast sig "UnknownDID()", confirmed against the live registry
+        // this session (docs/design/e2e-audit-2026-07-31.md).
+        let err = contract_error_from_revert_data_hex("0x4c2a24b3");
+        assert!(is_unknown_did_revert(&err));
+    }
+
+    #[test]
+    fn does_not_match_a_different_four_byte_selector() {
+        // AlreadyRegistered() on the same registry -- a real selector, just not this one.
+        let err = contract_error_from_revert_data_hex("0x2ca69173");
+        assert!(!is_unknown_did_revert(&err));
+    }
+
+    #[test]
+    fn does_not_match_the_right_selector_with_extra_trailing_bytes_absent_wrong_prefix() {
+        // A selector that merely CONTAINS the same bytes elsewhere must not match --
+        // only a match at the start (the actual selector position) counts.
+        let err = contract_error_from_revert_data_hex("0xdeadbeef4c2a24b3");
+        assert!(!is_unknown_did_revert(&err));
+    }
+
+    #[test]
+    fn does_not_match_when_there_is_no_revert_data_at_all() {
+        let json = r#"{"code":-32000,"message":"connection refused"}"#;
+        let payload: ErrorPayload = serde_json::from_str(json).unwrap();
+        let err: alloy::contract::Error = TransportError::ErrorResp(payload).into();
+        assert!(!is_unknown_did_revert(&err));
+    }
+
+    #[test]
+    fn does_not_match_a_non_revert_transport_error() {
+        // A message that doesn't even mention "revert" -- ErrorPayload::as_revert_data
+        // itself refuses to interpret unrelated errors (e.g. rate limiting) as revert
+        // data, and this discriminator must not accidentally bypass that.
+        let err = contract_error_from_revert_data_hex_with_message(
+            "rate limited, try again in 4ms",
+            "0x4c2a24b3",
+        );
+        assert!(!is_unknown_did_revert(&err));
+    }
+
+    fn contract_error_from_revert_data_hex_with_message(message: &str, hex: &str) -> alloy::contract::Error {
+        let json = format!(r#"{{"code":-32005,"message":"{message}","data":"{hex}"}}"#);
+        let payload: ErrorPayload = serde_json::from_str(&json).expect("valid ErrorPayload JSON");
+        TransportError::ErrorResp(payload).into()
     }
 }
