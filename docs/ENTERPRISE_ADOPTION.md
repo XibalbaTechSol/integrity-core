@@ -143,15 +143,79 @@ evidence report + a compliance-officer view in `ShieldPage` that reads the real 
 
 ---
 
+## Lever 7 — Xibalba Shield as its own product (device & network security)
+
+**Problem.** "Xibalba Shield" currently names only the HIPAA/healthcare vertical inside this
+repo (`contracts/src/shield/*`). Device/network security research (2026-08-01, drawn from a
+Perplexity project session — full technical spec at
+[`spec/xibalba-shield-v1.md`](../spec/xibalba-shield-v1.md)) identified a real, undefended
+wedge: kernel-level agent discovery and enforcement on the endpoint, combined with
+Integrity-backed actuarial evidence, is a combination none of the current AI-agent-security
+vendors own — identity-governance players (Astrix, CyberArk) don't touch the endpoint;
+enterprise EDR/XDR (CrowdStrike, SentinelOne, Microsoft) don't produce cryptographically
+attributable decisions.
+
+**Decision.** Xibalba Shield splits into two things going forward, recorded normatively in
+[`spec/integrity-protocol-v0.4.md`](../spec/integrity-protocol-v0.4.md) §14.1:
+1. The existing HIPAA vertical, unchanged, still in this repo.
+2. A **new product in a new repository**, `XibalbaTechSol/xibalba-shield` — an endpoint agent
+   (kernel/OS sensor, local policy engine, LLM/agent guardrail hooks) that consumes
+   `integrity-sdk` exactly as any third-party agent runtime would, with zero dependency in the
+   other direction.
+
+**Implementation surface.** None of it lives in this repo by design (§14.1's whole point is
+architectural separation), so there is nothing to point at here. What *does* live here and is
+directly reusable: the egress-sidecar shape from Lever 1b is the same interception pattern
+Shield's endpoint agent needs; `run_intercept()`'s HTTP-handler-independent factoring
+(Lever 1) is the precedent for how Shield calls into the gate without duplicating its logic;
+the evidence-export path (Lever 4) is what Shield's compliance reporting reuses rather than
+building its own (Shield spec §11).
+
+**Status.** ⬜ Not started — no repository exists yet. **Next step:** create
+`XibalbaTechSol/xibalba-shield`, scaffold the layout in Shield spec §2, and build the Linux
+agent core + eBPF sensor first (Shield spec §14's build order), independent of everything else
+on this roadmap.
+
+---
+
+## Lever 8 — Agentic payment-protocol interop
+
+**Problem.** External agentic-commerce protocols (AP2, ACP, x402, MPP, Coral) standardize *how*
+an agent pays; none of them decide *whether it's allowed to*, under whose authority, or produce
+regulator-grade evidence that it did. That gap is structurally the same gap Integrity Protocol
+already closes for every other action type via Delegation (§4.3/§12) and BCC (§11) — full
+mapping and a financial `intent_type` taxonomy now live in
+[`spec/integrity-protocol-v0.4.md`](../spec/integrity-protocol-v0.4.md) §21.
+
+**Implementation surface.** The financial `intent_type` taxonomy (protocol spec §21.2,
+`docs/INTERFACE_CONTRACT.md` §15.1) requires **zero schema change** to start using — `BCC
+Commitment.intent_type` already accepts any string. What's genuinely new work: adapters that
+translate an AP2 Payment Mandate / ACP checkout session / x402 capability / Coral escrow
+condition into a BCC commitment before the underlying rail executes (protocol spec §21.3's
+interop table names each mapping). A first adapter (x402, the simplest — a single signed
+capability token per payment) is the natural pilot; it validates the pattern before building
+the other four.
+
+**Status.** ⬜ Not started. **Next step:** land the `intent_type` taxonomy as a policy-pack
+convention (reuses Lever 3's `packs/` layout) before writing any adapter code, so the vocabulary
+is stable before five external protocols start depending on it.
+
+---
+
 ## Sequencing
 
 1. ✅ **Shadow mode** (Lever 2) — done; the on-ramp everything else rides on.
 2. 🔨 **Evidence export** (Lever 4) + **HIPAA pack** (Lever 3) — turn the real audit trail into
-   an auditor-ready, control-mapped artifact for the Shield wedge (Lever 6).
+   an auditor-ready, control-mapped artifact for the Shield vertical wedge (Lever 6).
 3. ⬜ **Egress sidecar** (Lever 1b) — remove integration friction so shadow mode can sit in front
-   of real traffic with no agent changes.
+   of real traffic with no agent changes; also the direct precedent for Lever 7's endpoint agent.
 4. ⬜ **Sovereignty** (Lever 5) — anchor-backend abstraction + key separation for a regulated
    deployment.
+5. ⬜ **Xibalba Shield product** (Lever 7) — new repository, independent build track; start once
+   Lever 1b's interception pattern is proven, since Shield's endpoint agent needs the same shape.
+6. ⬜ **Payment-protocol interop** (Lever 8) — taxonomy first, one adapter (x402) to validate,
+   then the remaining four; lowest urgency of the numbered levers, highest optionality (costs
+   nothing to defer since the taxonomy alone requires no schema change).
 
 Each tranche is one focused PR with real tests, updated here and in `docs/wiki/` per
 `.agents/AGENTS.md`. No silent mocks — shipped rows are real and tested, everything else is an

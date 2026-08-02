@@ -1160,3 +1160,62 @@ arrays for `transaction_history` and `allowances` to power the Finance UI.
 `integrity-oracle` exposes **no** `A2ACapitalPool` read endpoint at all
 (confirmed against `routes.rs`) — `integrity-dashboard`'s Capital Allocation page
 states this as a real, visible gap rather than fabricating live pool data.
+
+## 15. Financial action, session integrity & Xibalba Shield wire-format additions (2026-08-01)
+
+Normative source: [`spec/integrity-protocol-v0.4.md`](../spec/integrity-protocol-v0.4.md) §21–§22
+and [`spec/xibalba-shield-v1.md`](../spec/xibalba-shield-v1.md). Everything in this section is
+`[PLANNED]` — no package implements any of it yet. Recorded here because these are exactly the
+kind of cross-package schema facts this document exists to pin *before* two packages drift into
+incompatible guesses about a shared shape, per this file's own purpose.
+
+### 15.1 `intent_type` namespace extensions (extends §4.2's BCC Commitment)
+
+`BCC Commitment.intent_type` already accepts any string — no schema change is required for
+either table below to become valid today. What's pinned here is the **vocabulary**, so
+`bcc_middleware`'s policy packs (`docs/ENTERPRISE_ADOPTION.md` Lever 3) and any future export
+tooling can pattern-match a stable enum instead of ad hoc strings per integrator.
+
+**Financial** (protocol spec §21.2): `payment_authorize`, `payment_capture`,
+`payment_transfer`, `payment_stablecoin`, `payment_escrow_lock`, `payment_escrow_release`,
+`payment_refund`, `payment_dispute`, `fx_convert`, `limit_reserve`, `limit_release`,
+`wallet_sign`.
+
+**Xibalba Shield security events** (Shield spec §5.6): `shadow_agent_detected`,
+`agent_contained`, `connection_blocked`, `guardrail_denied`, `phi_access_attempt`,
+`device_posture_change`.
+
+### 15.2 Action Receipt (formalized name for an existing pairing, not a new object)
+
+An **Action Receipt** is the existing join of a `bcc_middleware` policy decision to its
+`anchor_events` row by leaf hash (`docs/design/evidence-export.md` Phase A). No new field, no
+new table. The name exists so this pairing can be referenced by external audit-trail schemas
+(the AAT-shape research this addition is based on) without a package inventing a second,
+parallel concept for the same evidence.
+
+### 15.3 `session_integrity_v1` (optional, additive Action Receipt extension)
+
+```json
+{
+  "risk_threshold_profile_id": "session_term_v1",
+  "R_session": 0.0,
+  "action_ladder": "M|S|H|T|K",
+  "drift_score": 0.0,
+  "pin_hash": "0x...",
+  "hard_override": null
+}
+```
+
+Absence on any given commitment means "not yet implemented for this commitment," never "passed
+a session-integrity check that does not exist." See protocol spec §22.7 for the full definition
+and §22 for the risk model this field summarizes.
+
+### 15.4 Xibalba Shield event schemas — where they live
+
+`ProcessActivity` / `FileActivity` / `NetworkFlow` / `AgentEvent` / `PolicyDecision` are defined
+in full in [`spec/xibalba-shield-v1.md`](../spec/xibalba-shield-v1.md) §5 — **not duplicated
+here**, to avoid the exact two-copies-drift failure mode this document exists to prevent. A
+`PolicyDecision` becomes a BCC commitment via the §15.1 `intent_type`s above; the mapping is
+Shield spec §4.5, not a new oracle endpoint. `integrity-oracle` requires **no route changes** to
+receive Shield telemetry — it arrives through the existing `POST /v1/bcc/intercept` and
+telemetry-ingest paths (§2, §4.2 above) like any other agent's traffic.

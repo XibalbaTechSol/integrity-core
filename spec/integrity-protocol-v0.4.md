@@ -40,6 +40,8 @@ Normative intent for the protocol, with an implementation map. Package coordinat
 18. What This Protocol Is Not
 19. Changes from v0.3
 20. Document Relationship and Revision Policy
+21. Financial Action & Payment-Protocol Interop *(added 2026-08-01)*
+22. Session Integrity, Drift & Autonomous Termination *(added 2026-08-01)*
     - Appendix A — Priority Implementation Gaps
     - Appendix B — One-Sentence Summary
 
@@ -577,6 +579,72 @@ Note the direction of generalization: Shield's Smart BAA is the protocol's **aut
 primitive (§4.3) and its `covered_entity_address` is the protocol's **counterparty** field
 (§11). Shield was doing the general thing all along; v0.4 lifts both to the protocol level.
 
+### 14.1 Two products, one stack *(decision, 2026-08-01)*
+
+The name "Xibalba Shield" now names two things that must not be conflated:
+
+1. **The HIPAA/healthcare vertical above** — `contracts/src/shield/*`, the on-chain BAA gate,
+   healthcare `intent_type`s in `policies/bcc.rego`. Lives **in this repo**, always has.
+2. **A planned device/network security product** — an endpoint agent (kernel/OS sensor, policy
+   engine, LLM/agent guardrail hooks) that discovers and constrains AI agents on a machine, and
+   *produces* the telemetry Integrity Core scores. This does not exist yet in any repo.
+
+They compose vertically and must live in **separate repositories**:
+
+```
+┌──────────────────────────────────────────┐
+│  Integrity Protocol (this repo)           │  Trust, compliance, AIS, anchoring,
+│  contracts/ · integrity-oracle/ · zkp/    │  audit export. Vertical-agnostic.
+│  integrity-sdk/ · bcc_middleware/         │
+├──────────────────────────────────────────┤
+│  xibalba-shield (new repo)                │  Device/network enforcement.
+│  endpoint agent + kernel sensor           │  Imports integrity-sdk to emit
+│  + policy engine + guardrail hooks        │  signed evidence into Core.
+└──────────────────────────────────────────┘
+```
+
+**Why separate repos, not a monorepo package.** Integrity Core's job is defining primitives and
+computing AIS; a change to the Merkle convention or the AIS formula must never silently change
+because someone was iterating on kernel-sensor code in the same tree. The two also have
+genuinely different build/release cadences, threat models, and — per §14.2 — different
+compliance postures (Core never touches raw PHI or process telemetry; Shield's endpoint agent
+necessarily observes far more of a device than anything in this repo does today). This mirrors
+the healthcare vertical's own existing shape: `contracts/src/shield/*` already sits **above**
+`contracts/src/oracle/*`, consuming primitives rather than reimplementing them, and never the
+reverse.
+
+**What Shield consumes from Integrity Core, and how.** The endpoint agent imports
+`integrity-sdk` the same way any other agent runtime does — DID assignment, BCC signing, Merkle
+batching (§11) — with no privileged access and no new primitive. Its events are ordinary BCC
+commitments whose `intent_type` falls in the security-event taxonomy (§21.2); its evidence is
+ordinary reputation (§4.4); its audit export is the existing evidence-export path
+(`docs/design/evidence-export.md`), not a new mechanism. The `bcc_middleware` design already
+anticipated a kernel-telemetry hook point — see
+[`docs/ENTERPRISE_ADOPTION.md`](../docs/ENTERPRISE_ADOPTION.md) Lever 1's egress-sidecar form
+factor, which is the same shape Shield's endpoint agent needs.
+
+**What Shield must build that Core does not provide**, because it is a different class of
+concern entirely: kernel/OS sensors (eBPF on Linux; ETW/native APIs on Windows/macOS), a local
+policy engine capable of running offline, LLM/agent guardrail hooks at inference boundaries, and
+device-level enforcement (block, contain, isolate). None of this belongs in `bcc_middleware`,
+which authorizes and anchors — it has never enforced anything at the OS level and should not
+start.
+
+**Status:** `[PLANNED]`. No code exists for the endpoint agent, kernel sensor, or a
+`xibalba-shield` repository as of this writing. Full technical specification:
+[`spec/xibalba-shield-v1.md`](xibalba-shield-v1.md). Product/roadmap framing:
+[`docs/ENTERPRISE_ADOPTION.md`](../docs/ENTERPRISE_ADOPTION.md) Lever 7.
+
+### 14.2 Privacy posture, stated precisely
+
+Because this section previously described only the healthcare-vertical Shield, one fact is
+worth stating explicitly now that a device agent is planned: **Integrity Core's PHI backstop
+(§9.6) governs telemetry submitted to the oracle — it says nothing about what an endpoint agent
+is permitted to observe on a device.** That is Shield's own design obligation
+(`spec/xibalba-shield-v1.md` §6), not something this protocol enforces or can enforce from the
+oracle side. Conflating "the oracle rejects raw PHI in ingest payloads" with "the device agent
+never sees PHI" would be exactly the kind of silent-mock claim this repo's ground rule forbids.
+
 ---
 
 ## 15. Proprietary LLMs and Attribution
@@ -671,6 +739,13 @@ the AIS endpoint in `agentURI`.
 | 18 | Added the termination and symmetry exclusions | See §7.6, §11 |
 | A | Re-ranked | ZK-boost binding rises: it is now a defect in a foundational primitive |
 
+**Post-publication additions (2026-08-01).** §21 (Financial Action & Payment-Protocol Interop)
+and §22 (Session Integrity, Drift & Autonomous Termination) were added after v0.4's initial
+publication, under this section's own revision policy below: both are additive — no primitive
+is removed, weakened, or reinterpreted, and everything added is `[PLANNED]` — so they land as
+in-place amendments to v0.4 rather than a version bump. §14 was expanded (§14.1, §14.2) to
+record the Xibalba Shield repo-split decision; no other existing section changed.
+
 ---
 
 ## 20. Document Relationship and Revision Policy
@@ -678,16 +753,283 @@ the AIS endpoint in `agentURI`.
 | Document | Role |
 |---|---|
 | **This specification** | Foundational properties, primitives, AIS, memory, authority, interop |
+| [`spec/xibalba-shield-v1.md`](xibalba-shield-v1.md) | Xibalba Shield technical specification (§14) |
 | [`docs/INTERFACE_CONTRACT.md`](../docs/INTERFACE_CONTRACT.md) | Internal schemas, ports, sequences, env |
 | [`spec/*`](.) | External versioned wire surfaces |
 | [`PRODUCTION_GAPS.md`](../PRODUCTION_GAPS.md) | Honest open items |
 | [`docs/MAINNET_READINESS.md`](../docs/MAINNET_READINESS.md) | Pre-mainnet blockers, ordered by consequence |
+| [`docs/ENTERPRISE_ADOPTION.md`](../docs/ENTERPRISE_ADOPTION.md) | Adoption roadmap — strategic levers, incl. Shield-as-product and payment interop |
 | [`docs/wiki/`](../docs/wiki/) | Concept and entity pages |
 
 **Revision.** Additive clarification within 0.x is allowed. Removing or weakening a
 foundational primitive, or treating mutable off-chain state as equivalent to finalized anchors,
 requires a major version and a migration plan. Unimplemented norms stay marked `[PLANNED]` /
 `[PARTIAL]`.
+
+---
+
+## 21. Financial Action & Payment-Protocol Interop *(added 2026-08-01, all `[PLANNED]`)*
+
+### 21.1 What this section is and is not
+
+External research into agentic-commerce protocols (AP2, ACP, x402, MPP, Coral) and financial
+regulatory expectations (EU AI Act, SR 11-7, GDPR Art. 22, BSA/AML, DORA) converges on a
+structural gap: **these protocols standardize *how* an agent pays; none of them decides
+*whether it is allowed to*, under whose authority, or produces regulator-grade evidence that it
+did.** That gap is exactly what §4.3 (Authority) and §4.4 (Reputation) already exist to close —
+this section is a **mapping and taxonomy**, not a new primitive. Nothing here adds a fifth
+foundational primitive; nothing here is required for the protocol's own correctness. It exists
+so a financial `intent_type` has a stable vocabulary before ad hoc strings proliferate.
+
+**Vocabulary reconciliation, stated once so it is not restated per subsection:** what external
+literature calls a "Mandate" is this protocol's **Delegation** (§4.3, §12) composed with a
+**BCC commitment** (§11) whose `intended_state_hash` commits to the mandate's terms — not a new
+object. What external literature calls an "Action Receipt" is the **existing pairing** of a
+`bcc_middleware` policy decision and its resulting `anchor_events` row, already linked by leaf
+hash (`docs/design/evidence-export.md`) — formalized here as a named concept, not a new
+mechanism. Reusing existing primitives under new names would be the wrong move; naming what
+already exists so it interoperates with external schemas is the right one.
+
+### 21.2 Financial action taxonomy (extends `intent_type`, §11)
+
+`BCC Commitment.intent_type` is already a free-form string (§4.2 of
+[`docs/INTERFACE_CONTRACT.md`](../docs/INTERFACE_CONTRACT.md)); healthcare intent types
+(`EMR_WRITE`, `DISPENSE_MEDICATION`, …) are the existing precedent for a domain-specific
+subtaxonomy living in that one field rather than a new schema field. Financial actions follow
+the same pattern with a stable, versioned enum so audit exports (§21.4) and policy packs
+(`docs/ENTERPRISE_ADOPTION.md` Lever 3) can pattern-match reliably:
+
+| `intent_type` | Meaning |
+|---|---|
+| `payment_authorize` | Hold / auth only, no capture |
+| `payment_capture` | Capture a prior authorization |
+| `payment_transfer` | Push payment (ACH, wire, RTP, card) |
+| `payment_stablecoin` | On-chain stablecoin payment (x402-class) |
+| `payment_escrow_lock` | Escrow deposit (Coral-class) |
+| `payment_escrow_release` | Escrow release on condition |
+| `payment_refund` | Full/partial reversal |
+| `payment_dispute` | Chargeback / dispute-side event |
+| `fx_convert` | Currency conversion |
+| `limit_reserve` / `limit_release` | Internal spending-limit ledger movement |
+| `wallet_sign` | Raw signing without broadcast |
+
+`intended_state_hash` commits to the amount, asset, rail, and counterparty reference — the
+receiving system decodes and validates it against the claimed `intent_type`; the oracle does
+not parse payment semantics, matching its existing posture toward every other vertical.
+
+### 21.3 Interop table: protocols this composes with
+
+Integrity Protocol is not a settlement rail and does not compete with any row below. It is the
+authorization and evidence layer a settlement action passes through first — the same relation
+`ComplianceGate` already has to a healthcare action (§14).
+
+| Protocol | What it provides | How it composes with Integrity |
+|---|---|---|
+| **AP2** (Google, A2A/MCP extension) | Cryptographically signed Mandates (Intent/Cart/Payment) | An AP2 Payment Mandate references this protocol's Action Receipt ID; Integrity's Delegation (§12) is the authority layer underneath the mandate, not a replacement for it |
+| **ACP** (OpenAI/Stripe) | Merchant-controlled checkout orchestration | Checkout session creation is gated by a BCC commitment's policy decision before the session is created |
+| **x402** (Coinbase) | HTTP 402 stablecoin micropayments | A short-lived Integrity-authorized capability accompanies the 402 flow; `payment_stablecoin` is the corresponding `intent_type` |
+| **MPP** (Stripe/Tempo) | Pre-authorized spending sessions | Session spend ceilings are the same shape as Delegation's `scope` (§4.3) — a session is a bounded, revocable authorization |
+| **Coral** | On-chain escrow, DIDs, immutable ledger | Escrow release condition includes a valid Integrity decision, not only Coral's own task-completion signal — `payment_escrow_lock`/`_release` |
+
+### 21.4 Action Receipt (formalized, not new)
+
+An **Action Receipt** is the pairing already produced today: the `bcc_middleware` policy
+decision for a commitment, joined to its `anchor_events` row by leaf hash once that commitment
+is anchored. `docs/design/evidence-export.md` Phase A already builds exactly this linkage.
+Naming it here is what lets it map onto external audit-trail expectations (the IETF
+`draft-sharif-agent-audit-trail` shape, referenced by the source research) without inventing a
+parallel schema: `agent_id` → `session_id`/identity layer, `intent_type` → `action_type`,
+the BCC signature + policy decision → the AAT `outcome` and reasons, the anchor tx →
+non-repudiable settlement evidence. **No new field is required on the existing schemas** for
+this mapping to hold — it is already there, unnamed.
+
+### 21.5 Compliance-by-construction, mapped to what exists
+
+| Regulatory concern | Protocol mechanism already normative |
+|---|---|
+| Liability / accountability chain | Delegation §4.3 (A1 Attribution, A3 Non-authorship) |
+| Bounded agency / spending limits | Delegation `scope` (§4.3) — enforcement is `[PARTIAL]`, tracked in Appendix A.4 |
+| Non-repudiable authorization | BCC signature + canonical JSON (§11) |
+| Audit trail / traceability | Action Receipt (§21.4) via existing anchor + reputation pipeline |
+| Explainability (GDPR Art. 22) | `bcc_middleware`'s `reason` field on every deny (already ships; see its module docstring) |
+| KYC/AML surrogate for non-human actors | DID + continuous AIS (§8) as a behavioral baseline, not a one-time check |
+| Human-in-the-loop escalation | `[PLANNED]` — no step-up/escalation channel exists in `bcc_middleware` today; distinct from shadow mode (`docs/ENTERPRISE_ADOPTION.md` Lever 2), which observes but never escalates |
+
+**What this table is not claiming:** that the protocol is compliant with any named regime today.
+Every right-hand cell not marked `[PARTIAL]`/`[PLANNED]` is an existing mechanism that a
+regulated deployment's own compliance program would still need to map and attest to — this
+table is a starting inventory, not a certification.
+
+### 21.6 Status and non-goals
+
+`[PLANNED]` in full: no payment-protocol adapter exists in any package. The taxonomy (§21.2) can
+be adopted immediately since it costs nothing (`intent_type` already accepts any string); the
+interop adapters (§21.3) and human-in-the-loop escalation (§21.5) require real implementation
+work tracked in `docs/ENTERPRISE_ADOPTION.md`.
+
+**Explicit non-goal:** Integrity Protocol will not become a payment rail, hold funds, or
+custody keys on an agent's behalf (consistent with §18's existing "not a custodial key
+service"). Settlement always happens on one of the rails in §21.3, never inside this protocol.
+
+---
+
+## 22. Session Integrity, Drift & Autonomous Termination *(added 2026-08-01, all `[PLANNED]`)*
+
+### 22.1 Scope and relationship to existing gates
+
+This section specifies **runtime, within-session** risk monitoring for long-running agent
+sessions — a different timescale from everything else in this document:
+
+| Mechanism | Timescale | Answers |
+|---|---|---|
+| BCC (§11) | Per-action, pre-execution | Is *this specific action* authorized? |
+| AIS (§8) | Longitudinal (~30-day window) | Has this agent behaved well *over time*? |
+| **Session integrity (this section)** | Continuous, within one session | Is *this session, right now*, still the session that was authorized? |
+
+A session can pass every individual BCC check and still have drifted — its plan, tool
+selection, or peer coordination diverging from what was authorized — because BCC verifies each
+action in isolation and says nothing about the trajectory connecting them. This section closes
+that gap. It does **not** replace BCC or Delegation as the authority mechanism (§22.6
+Non-goals is explicit about this): a session with a perfect drift score but no valid Delegation
+is still unauthorized, and a terminated session's prior anchored evidence remains valid under
+§3.1's append-only rule.
+
+**Design principle, stated because it is easy to violate by accident:** the LLM context window
+and conversation trace are untrusted, lossy buffers. Authority for any trust-affecting action
+remains in the signed Delegation and BCC commitment — never in free-form context, and never
+reconstructed from a post-compaction summary.
+
+### 22.2 Definitions
+
+| Term | Definition |
+|---|---|
+| **Session** | A bound execution context: `session_id` + agent DID + active Delegation references + ephemeral scopes |
+| **Termination** | Server-side end of a session: revoke ephemeral credentials, deny further BCC commitments under that `session_id`, isolate any queued work |
+| **Semantic drift** | Progressive deviation of a session's goals, plan, tool use, or peer coordination from its frozen starting anchors |
+| **Context contamination** | Untrusted or compacted content that dilutes or overrides pinned governance constraints |
+| **`R_session`** | Calibrated composite session risk in `[0, 1]` |
+| **Constraint pin** | A governance block re-asserted every turn and after every context compaction, never passed through a lossy summarizer |
+
+### 22.3 Session risk score and action ladder
+
+Composite risk over calibrated component scores `s̃ᵢ ∈ [0, 1]`:
+
+```
+R_session = 1 − ∏ᵢ(1 − wᵢ·s̃ᵢ)          (noisy-OR form)
+```
+
+| Component | Default weight band |
+|---|---|
+| Semantic / drift (§22.4) | 0.25–0.35 |
+| Behavioral baseline break | 0.15–0.25 |
+| Economic / rate anomaly | 0.15–0.25 |
+| Auth/attestation posture | 0.10–0.15 |
+| Idle / absolute session age | 0.05–0.10 |
+| Policy severity (may force `R = 1.0`) | 0.20–0.40 |
+
+**Hard overrides** (force termination regardless of `R`): a forbidden action sequence, an
+explicit Delegation revocation (§4.3 A4), a missing constraint pin after compaction, or a
+detected mismatch between declared and actual tool/OS-level effect ("semantic–physical gap").
+
+**Action ladder**, gated on both risk `R` and a confidence score `C` so a low-confidence high-risk
+reading does not itself trigger the most disruptive response:
+
+| Code | Action | Trigger |
+|---|---|---|
+| M — Monitor | Log, raise sampling | `R ≥ τ_M` |
+| S — Step-up | Require re-authorization before any settlement action | `R ≥ τ_S` |
+| H — Throttle | Cut rate/notional; dry-run side effects | `R ≥ τ_H, C ≥ c_H` |
+| T — Terminate session | Revoke ephemeral scope; deny further commitments | `R ≥ τ_T, C ≥ c_min` |
+| K — Kill agent | T, plus identity/queue-level containment | `R ≥ τ_K, C ≥ c_min`, or hard override |
+
+Thresholds `τ_M < τ_S < τ_H < τ_T ≤ τ_K` are tenant-calibrated, not fixed protocol constants —
+a wire/on-chain/high-notional action lowers the effective terminate threshold; a read-only
+action raises it. Every threshold set used for a decision MUST be recorded (its id and content
+hash) on the resulting Action Receipt (§21.4) extension in §22.7, so a termination decision is
+itself auditable evidence, not an opaque runtime event.
+
+### 22.4 Semantic drift measurement
+
+**Frozen anchors**, versioned and never silently updated: the governing charter/policy, the
+session's `intent_hash` (from its BCC commitment), hard invariants, and — where available —
+golden reference traces for the task class.
+
+**Metric tiers**, cheapest-first (mirrors the existing `bcc_middleware` gauntlet's
+cheapest-and-most-certain-first ordering, §9.4 of `docs/INTERFACE_CONTRACT.md`):
+
+1. Embedding-distance to the frozen intent anchor (cosine); population-level distributional
+   drift via Sliced Wasserstein or an online/windowed MMD variant — never full quadratic MMD
+   against a full-day log, which does not scale.
+2. Structured checks: does the current plan still entail the original intent (NLI-style
+   adherence); has the tool-call graph diverged from what was declared.
+3. A composite **Agent Stability Index**, `ASI = 1 − R_drift`, over the same noisy-OR form as
+   §22.3, one term per drift dimension (intent, plan, tool use, memory, multi-agent
+   coordination, generation timing, semantic–physical gap).
+4. A judge/LLM pass, invoked **only** on a tier-1 alert to classify cause — never the sole
+   authority to terminate, consistent with §22.6.
+
+Drift crossing a warn threshold triggers Monitor; crossing a block threshold on a
+settlement-class action denies that specific tool call (`BLOCK_ACTION`) without necessarily
+terminating the session; sustained drift above the terminate threshold, with sufficient
+confidence, terminates.
+
+### 22.5 Context contamination mitigation
+
+Mandatory controls for any implementation of this section:
+
+1. **Constraint pinning** — governing policy, the session's `intent_hash`, and any kill flags
+   are re-concatenated into context every turn and after every compaction; a summarizer MUST
+   NOT be permitted to rewrite the pin. A missing pin post-compaction is a hard override to
+   Terminate (§22.3).
+2. **Typed trust labels** on every context span (`PINNED_TRUSTED`, `USER_TRUSTED`,
+   `RETRIEVED_QUARANTINE`, `TOOL_OBSERVATION`, `PEER_AGENT`, `UNTRUSTED_INGRESS`) so a
+   contaminated span cannot be silently treated as governance.
+3. **Execution-path independence** — settlement-affecting values (amounts, counterparties) are
+   read from the signed Delegation/BCC commitment, never re-derived from natural-language
+   context, however persuasive. This is the session-level restatement of A3 (§4.3):
+   authorization content the agent could talk itself into is authorization the agent
+   authored, and A3 already forbids that.
+
+### 22.6 Non-goals
+
+- **Does not replace** Delegation, BCC, or their cryptographic guarantees (§4.3, §11). A
+  perfect drift score never substitutes for a valid, unrevoked Delegation.
+- **Not a real-time full-precision statistical method in the hot path** — approximate,
+  windowed drift estimators are the normative expectation; exact per-token computation is
+  explicitly out of scope for production.
+- **An LLM judge is never the sole authority to terminate** — it classifies cause after a
+  deterministic tier has already alerted (§22.4 tier 4).
+- **Does not itself store raw untrusted tool payloads long-term** in the Action Receipt
+  extension (§22.7) — hashes and summaries only, matching §9.6's PHI-backstop posture toward
+  raw content generally.
+
+### 22.7 Action Receipt extension (normative, additive)
+
+An optional `session_integrity_v1` object MAY accompany an Action Receipt (§21.4):
+
+```json
+{
+  "risk_threshold_profile_id": "session_term_v1",
+  "R_session": 0.0,
+  "action_ladder": "M|S|H|T|K",
+  "drift_score": 0.0,
+  "pin_hash": "0x...",
+  "hard_override": null
+}
+```
+
+Additive per §20's revision policy: absent on every commitment today, and its absence MUST NOT
+be interpreted as a passing session-integrity check — only as "this control is not yet
+implemented for this commitment."
+
+### 22.8 Status
+
+`[PLANNED]` in full. No component described in this section exists in any package today. It is
+recorded now because the risk of documenting it later, after ad hoc implementations diverge, is
+exactly the coherence problem this specification exists to prevent (see the ground rule at the
+top of this document). Priority and sequencing belong in
+[`docs/ENTERPRISE_ADOPTION.md`](../docs/ENTERPRISE_ADOPTION.md), not here — this section fixes
+vocabulary and invariants, not a build order.
 
 ---
 
