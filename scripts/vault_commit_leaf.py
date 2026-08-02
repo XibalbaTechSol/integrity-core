@@ -27,6 +27,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 SDK = REPO / "integrity-sdk"
 sys.path.insert(0, str(SDK))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 #: Written by a test run (see `make test`-adjacent tooling); absent means "not verified".
 TEST_STATUS_FILE = REPO / ".integrity-test-status"
@@ -37,30 +38,12 @@ def _git(*args: str) -> str:
 
 
 def _current_tree_hash() -> str:
-    """Must match `scripts/record_test_status.py::_tree_hash` exactly, or every status looks
-    stale and every leaf says `unverified:stale`.
+    """Delegates to the shared `tree_hash.py` (F5) — imports the identical implementation
+    `record_test_status.py` uses, rather than a hand-copied one, so the two can no longer
+    silently drift out of agreement and turn every status stale."""
+    from tree_hash import tree_hash
 
-    Covers HEAD, tracked modifications, and UNTRACKED files. The last is easy to omit and was:
-    a first version hashed only HEAD + `git diff HEAD`, so adding a new source file left the
-    fingerprint unchanged and a stale status kept validating.
-    """
-    import hashlib
-
-    from eth_utils import keccak
-
-    try:
-        parts = [_git("rev-parse", "HEAD"), subprocess.check_output(["git", "-C", str(REPO), "diff", "HEAD"], text=True)]
-        for rel in _git("ls-files", "--others", "--exclude-standard").split("\n"):
-            rel = rel.strip()
-            if not rel:
-                continue
-            try:
-                parts.append(rel + ":" + hashlib.sha256((REPO / rel).read_bytes()).hexdigest())
-            except OSError:
-                parts.append(rel + ":unreadable")
-    except Exception:  # noqa: BLE001
-        return "unknown"
-    return "0x" + keccak(text="\n".join(parts)).hex()
+    return tree_hash(REPO)
 
 
 def _test_result_hash() -> str:

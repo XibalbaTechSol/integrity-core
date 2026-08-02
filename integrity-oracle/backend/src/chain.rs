@@ -453,6 +453,7 @@ struct Singletons {
 #[derive(Clone)]
 pub struct ChainClient {
     provider: DynProvider,
+    chain_id: u64,
     registry_address: Address,
     market_factory_address: Option<Address>,
     integrity_token_address: Option<Address>,
@@ -494,9 +495,14 @@ impl ChainClient {
             source: anyhow::anyhow!(e),
         })?;
         let provider = ProviderBuilder::new().connect_http(url);
+        // Read once at connect time rather than per-request: this process only ever
+        // talks to the one RPC named in config, so the chain id it reports cannot
+        // change mid-run.
+        let chain_id = provider.get_chain_id().await.map_err(ChainError::Transport)?;
 
         Ok(Self {
             provider: provider.erased(),
+            chain_id,
             registry_address: parsed.singletons.xibalba_agent_registry,
             market_factory_address: parsed.singletons.market_factory,
             integrity_token_address: parsed.singletons.integrity_token,
@@ -510,9 +516,14 @@ impl ChainClient {
     /// Constructs a client directly from an already-known registry address, bypassing the
     /// deployments file. Used by tests that deploy their own registry against a local
     /// anvil instance and don't want to round-trip through a JSON file on disk.
-    pub fn with_registry_address(provider: impl Provider + 'static, registry_address: Address) -> Self {
-        Self {
+    pub async fn with_registry_address(
+        provider: impl Provider + 'static,
+        registry_address: Address,
+    ) -> Result<Self, ChainError> {
+        let chain_id = provider.get_chain_id().await.map_err(ChainError::Transport)?;
+        Ok(Self {
             provider: provider.erased(),
+            chain_id,
             registry_address,
             market_factory_address: None,
             integrity_token_address: None,
@@ -520,20 +531,22 @@ impl ChainClient {
             smart_baa_factory_address: None,
             xibalba_name_service_address: None,
             integrity_governance_address: None,
-        }
+        })
     }
 
     /// Same as [`Self::with_registry_address`], but also wires the market/token
     /// singletons — used by tests that need `GET /v1/markets`-family endpoints against
     /// a locally-deployed `MarketFactory`/`IntegrityToken`.
-    pub fn with_market_layer(
+    pub async fn with_market_layer(
         provider: impl Provider + 'static,
         registry_address: Address,
         market_factory_address: Address,
         integrity_token_address: Address,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, ChainError> {
+        let chain_id = provider.get_chain_id().await.map_err(ChainError::Transport)?;
+        Ok(Self {
             provider: provider.erased(),
+            chain_id,
             registry_address,
             market_factory_address: Some(market_factory_address),
             integrity_token_address: Some(integrity_token_address),
@@ -541,7 +554,13 @@ impl ChainClient {
             smart_baa_factory_address: None,
             xibalba_name_service_address: None,
             integrity_governance_address: None,
-        }
+        })
+    }
+
+    /// The EVM chain id this client is connected to (E11) — an `agent_primitives` cache
+    /// row is only trustworthy if it was resolved against this same chain.
+    pub fn chain_id(&self) -> u64 {
+        self.chain_id
     }
 
     fn registry(&self) -> IXibalbaAgentRegistry::IXibalbaAgentRegistryInstance<DynProvider> {

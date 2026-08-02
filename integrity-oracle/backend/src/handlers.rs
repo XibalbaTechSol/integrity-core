@@ -210,6 +210,7 @@ pub async fn register_agent(
         &format!("{:#x}", claimed.agent_profile),
         &format!("{:#x}", record.controller),
         &record.domain_id.to_string(),
+        state.chain.chain_id() as i64,
     )
     .await?;
 
@@ -269,8 +270,15 @@ pub async fn get_agent(State(state): State<AppState>, Path(id): Path<String>) ->
     // chain on miss") and persist it so the next lookup is cheap again. This also covers
     // an agent that registered on-chain directly via integrity-sdk/cli without ever
     // calling this oracle's POST /v1/agent/register.
+    //
+    // E11: a cache row is only trusted if it was resolved against the chain this oracle
+    // is currently configured for. A row from a different chain id (or `NULL`, meaning
+    // "resolved before this column existed") is treated exactly like a cache miss —
+    // never served as-is — so an oracle repointed to a different network can't keep
+    // handing out addresses that belong to the old one.
     let cached = db::get_agent_primitives(&state.pool, &id).await?;
-    let (primitives, source) = match cached {
+    let current_chain_id = state.chain.chain_id() as i64;
+    let (primitives, source) = match cached.filter(|row| row.chain_id == Some(current_chain_id)) {
         Some(row) => (Some(row_to_dto(&row)?), "cache"),
         None => match state.chain.resolve_primitives_by_did(&id).await {
             Ok(record) => {
@@ -286,6 +294,7 @@ pub async fn get_agent(State(state): State<AppState>, Path(id): Path<String>) ->
                     &format!("{:#x}", record.primitives.agent_profile),
                     &format!("{:#x}", record.controller),
                     &record.domain_id.to_string(),
+                    current_chain_id,
                 )
                 .await?;
                 (Some(record.primitives.into()), "chain-backfill")
@@ -293,7 +302,10 @@ pub async fn get_agent(State(state): State<AppState>, Path(id): Path<String>) ->
             // No agents row AND nothing on-chain either: genuinely unknown DID.
             Err(_) if agent_row.is_none() => return Err(AppError::AgentNotFound(id)),
             // Chain lookup failed but we do have a local row — still return what we know
-            // rather than failing the whole request over an on-chain read hiccup.
+            // rather than failing the whole request over an on-chain read hiccup. Note
+            // this deliberately does NOT fall back to a stale-chain cache row (if one
+            // existed, it was already filtered out above) — serving wrong-chain
+            // addresses would be worse than serving none.
             Err(_) => (None, "unavailable"),
         },
     };
@@ -998,7 +1010,12 @@ pub async fn get_compliance(
     Path(id): Path<String>,
     Query(query): Query<ComplianceQuery>,
 ) -> Result<Json<ComplianceResponse>, AppError> {
-    let cached = db::get_agent_primitives(&state.pool, &id).await?;
+    // E11: same chain-id guard as `get_agent`/`resolve_primitives_row` — a cross-chain
+    // cache row must not be trusted for a live compliance-gate read either.
+    let current_chain_id = state.chain.chain_id() as i64;
+    let cached = db::get_agent_primitives(&state.pool, &id)
+        .await?
+        .filter(|row| row.chain_id == Some(current_chain_id));
     let compliance_gate_addr = match cached {
         Some(row) => Address::from_str(&row.compliance_gate_address)
             .map_err(|e| AppError::Internal(anyhow::anyhow!("cached compliance_gate_address is not a valid address: {e}")))?,
@@ -1254,7 +1271,13 @@ pub async fn get_market(
 /// than a hard error, since callers here (leaderboard) want to skip-and-continue, not
 /// fail the whole request over one agent's stale/unresolvable primitives.
 async fn resolve_primitives_row(state: &AppState, agent_id: &str) -> Result<Option<db::AgentPrimitivesRow>, AppError> {
-    if let Some(row) = db::get_agent_primitives(&state.pool, agent_id).await? {
+    // E11: only trust a cache row resolved against this oracle's own chain — see the
+    // matching comment in `get_agent` above for why.
+    let current_chain_id = state.chain.chain_id() as i64;
+    if let Some(row) = db::get_agent_primitives(&state.pool, agent_id)
+        .await?
+        .filter(|row| row.chain_id == Some(current_chain_id))
+    {
         return Ok(Some(row));
     }
     match state.chain.resolve_primitives_by_did(agent_id).await {
@@ -1271,6 +1294,7 @@ async fn resolve_primitives_row(state: &AppState, agent_id: &str) -> Result<Opti
                 &format!("{:#x}", record.primitives.agent_profile),
                 &format!("{:#x}", record.controller),
                 &record.domain_id.to_string(),
+                current_chain_id,
             )
             .await?;
             Ok(db::get_agent_primitives(&state.pool, agent_id).await?)

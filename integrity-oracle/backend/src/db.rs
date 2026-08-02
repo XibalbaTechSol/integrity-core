@@ -205,6 +205,10 @@ pub struct AgentPrimitivesRow {
     pub controller_address: String,
     pub domain_id: String,
     pub resolved_at: DateTime<Utc>,
+    /// EVM chain id this row was resolved against. `NULL` for rows written before this
+    /// column existed — the caller must treat that the same as a chain mismatch (E11),
+    /// never as "assume it's the current chain".
+    pub chain_id: Option<i64>,
 }
 
 /// Upserts the cached primitive resolution for an agent. Called after a fresh, successful
@@ -224,14 +228,15 @@ pub async fn upsert_agent_primitives(
     agent_profile_address: &str,
     controller_address: &str,
     domain_id: &str,
+    chain_id: i64,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         INSERT INTO agent_primitives
             (agent_id, sovereign_agent_address, state_anchor_address, reputation_registry_address,
              slasher_address, verifier_registry_address, compliance_gate_address, agent_profile_address,
-             controller_address, domain_id, resolved_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+             controller_address, domain_id, chain_id, resolved_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())
         ON CONFLICT (agent_id) DO UPDATE SET
             sovereign_agent_address = EXCLUDED.sovereign_agent_address,
             state_anchor_address = EXCLUDED.state_anchor_address,
@@ -242,6 +247,7 @@ pub async fn upsert_agent_primitives(
             agent_profile_address = EXCLUDED.agent_profile_address,
             controller_address = EXCLUDED.controller_address,
             domain_id = EXCLUDED.domain_id,
+            chain_id = EXCLUDED.chain_id,
             resolved_at = now()
         "#,
     )
@@ -255,6 +261,7 @@ pub async fn upsert_agent_primitives(
     .bind(agent_profile_address)
     .bind(controller_address)
     .bind(domain_id)
+    .bind(chain_id)
     .execute(pool)
     .await?;
     Ok(())
@@ -265,7 +272,7 @@ pub async fn get_agent_primitives(pool: &PgPool, agent_id: &str) -> Result<Optio
         r#"
         SELECT agent_id, sovereign_agent_address, state_anchor_address, reputation_registry_address,
                slasher_address, verifier_registry_address, compliance_gate_address, agent_profile_address,
-               controller_address, domain_id, resolved_at
+               controller_address, domain_id, resolved_at, chain_id
         FROM agent_primitives WHERE agent_id = $1
         "#,
     )
