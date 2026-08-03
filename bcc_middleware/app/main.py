@@ -10,6 +10,12 @@ why each step is where it is):
      `agent_id`, nothing downstream matters.
   3. Nonce replay check.
   4. Freshness (timestamp) check.
+  4b. Active quarantine check -- denies only if the agent has stake POSITIVELY
+      CONFIRMED locked under an unresolved Slasher dispute; fails OPEN (allows,
+      logs a warning) if that can't be checked, since unlike step 6 this runs
+      unconditionally for every request (app/quarantine.py). Closes
+      PRODUCTION_GAPS.md §5's "nothing reads on-chain dispute state back into
+      run_intercept" gap.
   5. OPA policy evaluation -- FAIL CLOSED if OPA is unreachable/erroring.
   6. On-chain BAA check, only if OPA flagged `requires_baa` -- FAIL CLOSED
      if we can't positively confirm an active BAA.
@@ -37,6 +43,7 @@ from fastapi import FastAPI
 from app.baa import BAAStatus, check_baa_status
 from app.canonical import SignatureVerificationError, verify_commitment_signature
 from app.chain import resolve_verification_tier
+from app.quarantine import QuarantineStatus, check_quarantine_status
 from app.circuit_breaker import AgentCircuitBreaker
 from app.config import Settings, settings as default_settings
 from app.merkle import MerkleBatcher, leaf_hash
@@ -330,6 +337,22 @@ async def _run_intercept_inner(
         resp = _deny("BCC_EXPIRED: commitment timestamp is implausibly far in the future", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
         finalize_span("deny", resp.reason)
         return resp
+
+    # --- 4b. Active quarantine check (fail-OPEN on CANNOT_VERIFY) -------------
+    # An agent with stake locked under an unresolved Slasher dispute must not keep
+    # transacting as if nothing happened — see app/quarantine.py's module docstring
+    # for why this reads Slasher.lockedStakeOf, and why (unlike the BAA check below)
+    # it fails OPEN rather than closed: this runs unconditionally for every request,
+    # so failing closed on an unverifiable check would let one infra hiccup deny all
+    # traffic from every agent. Only a positively confirmed QUARANTINED denies.
+    quarantine_status, quarantine_detail = await asyncio.to_thread(check_quarantine_status, settings, agent_id)
+    if quarantine_status is QuarantineStatus.QUARANTINED:
+        _record_violation(agent_id, settings)
+        resp = _deny(f"AGENT_QUARANTINED: {quarantine_detail}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
+        finalize_span("deny", resp.reason)
+        return resp
+    elif quarantine_status is QuarantineStatus.CANNOT_VERIFY:
+        logger.warning("quarantine check inconclusive for %s, allowing request to proceed: %s", agent_id, quarantine_detail)
 
     # --- 5. OPA policy evaluation (FAIL CLOSED) -------------------------------
     # verification_tier is resolved unconditionally (not just for intent_types the
