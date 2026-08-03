@@ -49,7 +49,7 @@ from app.security import (
 
 app = FastAPI(title="integrity-userapi", version="0.1.0")
 
-# integrity-mvp (the browser dashboard, task #21) is a cross-origin caller by
+# integrity-dashboard (the browser dashboard, task #21) is a cross-origin caller by
 # construction -- it's served by Vite on its own port (5173 dev / 5190 e2e),
 # never the same origin as this API. To ensure security, CORS origins are explicitly
 # restricted to trusted frontend domains instead of using a wildcard '*'.
@@ -440,7 +440,7 @@ async def update_demo_run(
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> DemoRunResponse:
     """The completion-callback side of the demo_runs bridge: an actual
-    executor (integrity-mvp/demo's scenario engine, see its `main.py`
+    executor (integrity-dashboard/demo's scenario engine, see its `main.py`
     module docstring) reports real status/result transitions back here.
     `finished_at` is stamped only on a terminal status (completed/failed);
     it stays null while transitioning through 'running'. Scoped to the

@@ -6,7 +6,7 @@ Was PRODUCTION_GAPS.md's own documented gap until this module existed: the ABIs
 existed (`scripts/sync_abis.py`'s CONTRACTS list already synced `ComplianceGate`,
 `CoveredEntityRegistry`, `SmartBAAFactory`, `SmartBAA` — added for exactly this module,
 per that script's own comment — plus `EHRGate`, added alongside this file) but zero
-Python wrapper functions called any of them; `integrity-mvp/demo`'s Clinician-Delta
+Python wrapper functions called any of them; `integrity-dashboard/demo`'s Clinician-Delta
 persona (docs/INTERFACE_CONTRACT.md §11) has nothing to build against without this.
 
 Mirrors `markets.py`'s two-tier style exactly: thin, one-real-transaction-each wrappers
