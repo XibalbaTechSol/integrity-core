@@ -39,11 +39,12 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
-      # Retried: npm's registry mirror occasionally serves a corrupted tarball
-      # (EINTEGRITY on @ethersproject/solidity has been observed), which is a transient
-      # CDN issue unrelated to this repo's own code -- don't let a red CI run be
-      # mistaken for a real regression.
-      - run: npm install || npm install || npm install
+      # Retried WITH a cache clean between attempts: EINTEGRITY on @ethersproject/solidity
+      # has been observed, and a bare retry doesn't help -- all 3 naive attempts failed on
+      # the byte-for-byte IDENTICAL wrong hash, which means npm's own local package cache
+      # on the runner was serving one bad cached tarball, not re-fetching from the registry
+      # at all after the first miss. `npm cache clean --force` forces that re-fetch.
+      - run: npm install || (npm cache clean --force && npm install) || (npm cache clean --force && npm install)
         working-directory: contracts
       - run: forge test -vvv
         working-directory: contracts
@@ -107,11 +108,12 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
-      # Retried: npm's registry mirror occasionally serves a corrupted tarball
-      # (EINTEGRITY on @ethersproject/solidity has been observed), which is a transient
-      # CDN issue unrelated to this repo's own code -- don't let a red CI run be
-      # mistaken for a real regression.
-      - run: npm install || npm install || npm install
+      # Retried WITH a cache clean between attempts: EINTEGRITY on @ethersproject/solidity
+      # has been observed, and a bare retry doesn't help -- all 3 naive attempts failed on
+      # the byte-for-byte IDENTICAL wrong hash, which means npm's own local package cache
+      # on the runner was serving one bad cached tarball, not re-fetching from the registry
+      # at all after the first miss. `npm cache clean --force` forces that re-fetch.
+      - run: npm install || (npm cache clean --force && npm install) || (npm cache clean --force && npm install)
         working-directory: contracts
       - run: uv sync
         working-directory: integrity-sdk
@@ -137,11 +139,12 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
-      # Retried: npm's registry mirror occasionally serves a corrupted tarball
-      # (EINTEGRITY on @ethersproject/solidity has been observed), which is a transient
-      # CDN issue unrelated to this repo's own code -- don't let a red CI run be
-      # mistaken for a real regression.
-      - run: npm install || npm install || npm install
+      # Retried WITH a cache clean between attempts: EINTEGRITY on @ethersproject/solidity
+      # has been observed, and a bare retry doesn't help -- all 3 naive attempts failed on
+      # the byte-for-byte IDENTICAL wrong hash, which means npm's own local package cache
+      # on the runner was serving one bad cached tarball, not re-fetching from the registry
+      # at all after the first miss. `npm cache clean --force` forces that re-fetch.
+      - run: npm install || (npm cache clean --force && npm install) || (npm cache clean --force && npm install)
         working-directory: contracts
       - run: uv sync
         working-directory: integrity-cli
