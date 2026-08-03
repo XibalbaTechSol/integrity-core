@@ -39,7 +39,11 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
-      - run: npm install
+      # Retried: npm's registry mirror occasionally serves a corrupted tarball
+      # (EINTEGRITY on @ethersproject/solidity has been observed), which is a transient
+      # CDN issue unrelated to this repo's own code -- don't let a red CI run be
+      # mistaken for a real regression.
+      - run: npm install || npm install || npm install
         working-directory: contracts
       - run: forge test -vvv
         working-directory: contracts
@@ -103,7 +107,11 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
-      - run: npm install
+      # Retried: npm's registry mirror occasionally serves a corrupted tarball
+      # (EINTEGRITY on @ethersproject/solidity has been observed), which is a transient
+      # CDN issue unrelated to this repo's own code -- don't let a red CI run be
+      # mistaken for a real regression.
+      - run: npm install || npm install || npm install
         working-directory: contracts
       - run: uv sync
         working-directory: integrity-sdk
@@ -129,7 +137,11 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
-      - run: npm install
+      # Retried: npm's registry mirror occasionally serves a corrupted tarball
+      # (EINTEGRITY on @ethersproject/solidity has been observed), which is a transient
+      # CDN issue unrelated to this repo's own code -- don't let a red CI run be
+      # mistaken for a real regression.
+      - run: npm install || npm install || npm install
         working-directory: contracts
       - run: uv sync
         working-directory: integrity-cli

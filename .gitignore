@@ -9,6 +9,10 @@ deployments.local.json
 # Real, public AWS Nitro root CA cert (not a secret) — attestation.py pins its SHA-256
 # fingerprint and needs the file present to verify real Nitro attestation documents.
 !integrity-sdk/integrity_sdk/security/trust_roots/aws_nitro_root_g1.pem
+# Same cert, vendored into the oracle so its Docker build context (./integrity-oracle) doesn't
+# need a ../../integrity-sdk include_str! path — attestation.rs's build fails without it (the
+# blanket *.pem rule above was silently excluding this one too, breaking CI on a fresh checkout).
+!integrity-oracle/backend/trust_roots/aws_nitro_root_g1.pem
 
 # --- node / dashboard ---
 node_modules/
