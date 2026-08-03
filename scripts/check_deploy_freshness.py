@@ -26,22 +26,28 @@ Usage:
 Exit codes: 0 = all fresh (or --warn-only), 1 = at least one stale image,
 2 = could not determine (docker missing, not a git repo).
 
-Known limitation, stated rather than hidden
--------------------------------------------
+Content-hash comparison (§22, fixed)
+-------------------------------------
+Every image now carries a `source.hash` LABEL, baked in at build time from
+`scripts/service_content_hash.py` via docker-compose.yml's `build.args` (see the `up` target
+in the root Makefile, which computes it fresh before every `--build`). That hash is a
+content-address (`git rev-parse HEAD:<path>`, keccak256'd), so it has none of the mtime
+approximation's failure modes: identical for any two checkouts of the same commit regardless
+of when the files were touched on disk, and an exact match/mismatch rather than a timing proxy.
+
+When a running image carries this label, this script trusts it exclusively and reports
+`fresh`/`STALE` from an exact hash comparison. The mtime comparison below is now only a
+fallback for images built before this label existed (reported as `STALE (approximate)` /
+`fresh (approximate)` so the distinction stays visible) — it is not the primary signal
+anymore.
+
+Known limitation of the fallback path, stated rather than hidden
+------------------------------------------------------------------
 Freshness is decided by comparing the image build time against the newest **file
 mtime** among that image's tracked sources. That is right for local development
 and wrong in one case: a fresh `git clone` (or a branch switch) sets every file's
 mtime to *now*, so a correctly-built image will report STALE until it is rebuilt.
-
-The alternatives are each worse in a more common case. Commit time flags the
-ordinary edit → build → test → commit ordering as stale on every single commit.
-A content-hash comparison is the genuinely correct answer — bake
-`git rev-parse HEAD:<path>` into each image as a LABEL at build time and compare
-that — but it needs a Dockerfile and build-arg change per service, which is a
-larger change than this script. Recorded in PRODUCTION_GAPS.md §22 as the real
-fix rather than quietly approximated here.
-
-Erring toward a false STALE on a fresh clone is also the safer direction: the
+Erring toward a false STALE on a fresh clone is also the safer direction there: the
 failure mode is an unnecessary rebuild, not an undetected drift.
 """
 
@@ -133,15 +139,31 @@ def _parse_ts(raw: str) -> datetime | None:
         return None
 
 
-def image_built_at(service: str) -> datetime | None:
+def _running_image_id(service: str) -> str | None:
     cid = _run(["docker", "compose", "ps", "-q", service], cwd=REPO)
     if not cid:
         return None
-    image = _run(["docker", "inspect", cid.splitlines()[0], "--format", "{{.Image}}"])
+    return _run(["docker", "inspect", cid.splitlines()[0], "--format", "{{.Image}}"])
+
+
+def image_built_at(service: str) -> datetime | None:
+    image = _running_image_id(service)
     if not image:
         return None
     created = _run(["docker", "inspect", image, "--format", "{{.Created}}"])
     return _parse_ts(created) if created else None
+
+
+def image_source_hash(service: str) -> str | None:
+    """The `source.hash` LABEL baked in at build time (scripts/service_content_hash.py),
+    or None if the image predates that label / isn't running."""
+    image = _running_image_id(service)
+    if not image:
+        return None
+    label = _run(["docker", "inspect", image, "--format", '{{index .Config.Labels "source.hash"}}'])
+    if not label or label == "unknown" or label == "<no value>":
+        return None
+    return label
 
 
 def source_changed_at(paths: list[str]) -> datetime | None:
@@ -224,24 +246,43 @@ def main() -> int:
         print("check-deploy: not a git repo; cannot determine source dates", file=sys.stderr)
         return 2
 
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from service_content_hash import content_hash_for
+
     rows, stale = [], []
     for service, srcs in SERVICES.items():
         built = image_built_at(service)
-        changed = source_changed_at(srcs)
+        image_hash = image_source_hash(service)
+        current_hash = content_hash_for(srcs)
+
         if built is None:
             status = "not running"
-        elif changed is None:
-            status = "unknown (no commits touch source)"
-        elif built < changed:
-            status = "STALE"
-            stale.append(service)
+        elif image_hash is not None and current_hash != "unknown":
+            # Exact comparison — no timing proxy, no fresh-clone false positive.
+            if image_hash == current_hash:
+                status = "fresh"
+            else:
+                status = "STALE"
+                stale.append(service)
         else:
-            status = "fresh"
+            # Fallback: image predates the source.hash LABEL, or the hash couldn't be
+            # computed. Approximate via mtime, and say so — this is not the same
+            # guarantee as the hash comparison above.
+            changed = source_changed_at(srcs)
+            if changed is None:
+                status = "unknown (no commits touch source)"
+            elif built < changed:
+                status = "STALE (approximate — image predates content-hash labeling)"
+                stale.append(service)
+            else:
+                status = "fresh (approximate — image predates content-hash labeling)"
+
         rows.append({
             "service": service,
             "source": ", ".join(srcs),
             "image_built": built.isoformat() if built else None,
-            "source_changed": changed.isoformat() if changed else None,
+            "image_source_hash": image_hash,
+            "current_source_hash": current_hash,
             "status": status,
         })
 
@@ -252,8 +293,12 @@ def main() -> int:
         print("Deployed-vs-source freshness:\n")
         for r in rows:
             built = r["image_built"][:19] if r["image_built"] else "—"
-            changed = r["source_changed"][:19] if r["source_changed"] else "—"
-            print(f"  {r['service']:<{width}}  image {built}  source {changed}  {r['status']}")
+            img_hash = (r["image_source_hash"] or "—")[:10]
+            cur_hash = (r["current_source_hash"] or "—")[:10]
+            print(
+                f"  {r['service']:<{width}}  image {built}  "
+                f"hash {img_hash} vs {cur_hash}  {r['status']}"
+            )
         if stale:
             print(f"\n  {len(stale)} STALE image(s): {', '.join(stale)}")
             print("  The running service is NOT the code in this tree. Rebuild with:")

@@ -39,7 +39,10 @@ services:
     ports: ["8181:8181"]
 
   oracle-backend:
-    build: ./integrity-oracle
+    build:
+      context: ./integrity-oracle
+      args:
+        SOURCE_HASH: ${ORACLE_SOURCE_HASH:-unknown}
     # Waits for Postgres/Redis to be READY, not merely started: migrations run at boot,
     # and a plain `depends_on` list only guarantees container start order.
     depends_on:
@@ -85,7 +88,10 @@ services:
       start_period: 60s
 
   bcc-middleware:
-    build: ./bcc_middleware
+    build:
+      context: ./bcc_middleware
+      args:
+        SOURCE_HASH: ${BCC_MIDDLEWARE_SOURCE_HASH:-unknown}
     depends_on: [opa, oracle-backend]
     environment:
       OPA_URL: http://opa:8181
@@ -128,7 +134,10 @@ services:
       start_period: 40s
 
   dashboard:
-    build: ./integrity-dashboard
+    build:
+      context: ./integrity-dashboard
+      args:
+        SOURCE_HASH: ${DASHBOARD_SOURCE_HASH:-unknown}
     depends_on: [oracle-backend, bcc-middleware]
     environment:
       VITE_ORACLE_URL: http://localhost:8080
@@ -160,7 +169,10 @@ services:
       start_period: 30s
 
   userapi:
-    build: ./integrity-userapi
+    build:
+      context: ./integrity-userapi
+      args:
+        SOURCE_HASH: ${USERAPI_SOURCE_HASH:-unknown}
     depends_on:
       userapi-postgres: {condition: service_healthy}
       oracle-backend: {condition: service_started}

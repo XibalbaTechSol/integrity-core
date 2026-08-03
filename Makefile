@@ -58,6 +58,15 @@ check-deploy:
 # deployed protocol so testnet inconsistencies surface before mainnet.
 # `--build` makes drift impossible for services started here; the post-check catches
 # anything already running that this invocation did not rebuild.
+# Content-hash args, one per service (scripts/service_content_hash.py, PRODUCTION_GAPS.md
+# §22) — baked into each image as a LABEL so check-deploy can compare exact source content
+# instead of an mtime approximation.
+ORACLE_SOURCE_HASH := $(shell python3 scripts/service_content_hash.py oracle-backend)
+BCC_MIDDLEWARE_SOURCE_HASH := $(shell python3 scripts/service_content_hash.py bcc-middleware)
+DASHBOARD_SOURCE_HASH := $(shell python3 scripts/service_content_hash.py dashboard)
+USERAPI_SOURCE_HASH := $(shell python3 scripts/service_content_hash.py userapi)
+export ORACLE_SOURCE_HASH BCC_MIDDLEWARE_SOURCE_HASH DASHBOARD_SOURCE_HASH USERAPI_SOURCE_HASH
+
 up:
 	docker-compose up --build
 	@python3 scripts/check_deploy_freshness.py --warn-only || true
