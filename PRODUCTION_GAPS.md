@@ -332,7 +332,9 @@ removed. Every finding below is fixed and covered by a new regression test.
   ("funder signs, agent owns": funder `0x67bA…D556` paid gas, the Xibalba agent
   `0xabfeEaCbA00F38810E697b2970399fE03080FBeB` holds `DEFAULT_ADMIN_ROLE`/`REGISTRAR_ROLE`).
   Verified live: `GET /v1/xns/resolve` now returns 200 (was 400 MissingSingleton). The
-  register-handle *write* flow in the dashboard remains a deliberate deferral (CLI/SDK for now).
+  register-handle *write* flow is now wired into the dashboard as of 2026-08-02 (see the
+  correction at the end of this entry) — the "deliberate deferral, CLI/SDK for now" framing
+  below is the original, now-superseded record.
   Historical note (pre-deploy): `deployments.baseSepolia.json` previously had no
   `XibalbaNameService` key. What's now real: the `XibalbaNameService.sol`
   contract (14 forge tests passing), the oracle's read path — `ChainClient::{resolve_handle,
@@ -346,10 +348,17 @@ removed. Every finding below is fixed and covered by a new regression test.
   remaining step is the operator-run, gas-costing deploy of `XibalbaNameService` to Base
   Sepolia + writing its address into `deployments.baseSepolia.json`; `DeployEHRGate.s.sol`
   already tolerates the missing key via a `keyExistsJson` guard so no other singleton is
-  disturbed until then. **Read-only in the UI by design:** handle *lookup* (resolve) is wired;
-  the *register-handle* write flow (`XibalbaNameService.register`, a wallet-signed tx) is
-  deliberately not in the dashboard yet — an explicit deferral, done via CLI/SDK, not a silent
-  omission.
+  disturbed until then. Originally recorded here as **read-only in the UI by design** (handle
+  lookup wired, register-handle deferred to CLI/SDK). **Correction (2026-08-02): the write is
+  now wired too.** New `chain/xns.ts` + `components/ui/XNSRegisterForm.tsx` (mounted in
+  `IdentityPanel`) call `XibalbaNameService.register(handle)` routed through the agent's own
+  `SovereignAgent.execute` — the same `executeAsAgent` convention every other on-chain write
+  in this dashboard already uses (`chain/markets.ts`), required because `register` checks
+  `agentRegistry.isRegisteredAgent(msg.sender)`, so a direct wallet-EOA call would always
+  revert. Also fixed in the same pass: `src/deployments.baseSepolia.json` (the dashboard's
+  own mirror of the root deployments file) was missing the `XibalbaNameService` **and**
+  `IntegrityGovernance` singleton entries entirely, despite both being live on Base Sepolia —
+  the write flow could not have been wired without that fix regardless of UI code.
 * **CLOSED (deployed 2026-07-26) — on-chain governance is live on Base Sepolia.**
   `IntegrityGovernance` is deployed at `0x62ef8A3B42b07FDee7498199696dae31AC2A9255` (chainId
   84532), guardian/owner = the Xibalba agent `0xabfeEaCbA00F38810E697b2970399fE03080FBeB`
@@ -357,8 +366,9 @@ removed. Every finding below is fixed and covered by a new regression test.
   threshold / 10,000 ITK quorum — verified via `quorumVotes()` on-chain). Deployed via the
   incremental `script/DeployXnsGovernance.s.sol` + written into `deployments.baseSepolia.json`.
   Verified live: `GET /v1/governance/proposals` now returns 200 `[]` (was 400 MissingSingleton);
-  `GovernancePanel`/`GuardianPilot` now render the live (currently empty) proposal set. The
-  propose/vote *write* flow in the dashboard remains a deliberate deferral (CLI/SDK for now).
+  `GovernancePanel`/`GuardianPilot` now render the live (currently empty) proposal set. Voting
+  is now wired into the dashboard as of 2026-08-02 (see the correction below); propose/queue/
+  execute remain a deliberate CLI/SDK-only deferral, for a narrower reason than voting was.
   Historical note (pre-deploy): originally a full gap (no Governance contract existed, and the
   panels honestly showed a roadmap + "not live" notice). Now real: `IntegrityGovernance.sol`
   — lock-to-vote (ITK locked to propose/vote; flash-loan/sybil resistant precisely because
@@ -375,10 +385,24 @@ removed. Every finding below is fixed and covered by a new regression test.
   is absent (Base Sepolia today; also the current `deployments.local.json`, deliberately NOT
   regenerated because a fresh local deploy would remint every address and invalidate the seeded
   audit DB's agent DIDs). Remaining: the operator-run, gas-costing Base Sepolia deploy +
-  `deployments.baseSepolia.json` entry. **Read-only in the UI by design:** the panels render
-  live proposals + tallies; the *write* half (propose / castVote / queue / execute — all
-  wallet-signed txs) is deliberately not wired into the dashboard yet (an inline note in
-  `GovernancePanel` says so), done via CLI/SDK for now — an explicit deferral, not a silent gap.
+  `deployments.baseSepolia.json` entry. Originally recorded here as **read-only in the UI by
+  design**, with the write half deferred "done via CLI/SDK for now" — that CLI/SDK claim was
+  never actually true: `integrity-cli/integrity_cli/main.py`'s own module docstring records
+  that a `governance` sub-app existed in the old prototype and was deliberately NOT rebuilt in
+  this rewrite ("Re-add it once/if a real backend contract for it exists" — one now does, but
+  the CLI was never updated). Nothing anywhere could vote until this pass.
+  **Correction (2026-08-02): `castVote` is now wired into the dashboard, `propose`/`queue`/
+  `execute` remain deferred, deliberately and for a different reason than before.** New
+  `chain/governance.ts` + `GovernancePanel`'s vote form call `IntegrityGovernance.castVote(id,
+  support, amount)`, routed through `executeAsAgent` exactly like the XNS write above, with the
+  same approve-then-act ITK flow `ActuarialHub`'s market-entry code already established
+  (top up the SovereignAgent's ITK balance if short, approve the Governance contract for the
+  vote amount, then cast). `propose`/`queue`/`execute` are excluded on purpose, not from time
+  pressure: `propose` accepts an arbitrary `(target, value, callData)` and `execute` runs it
+  verbatim after the timelock — exposing that through a generic UI without a security review
+  of what actions a proposal could carry is real governance/financial risk, not a UI gap. They
+  stay CLI/SDK-only until a real CLI/SDK governance path is built (see the correction above:
+  none exists yet either).
 * **CLOSED — `CCIPReputationBridge.bridgeReputation` had no refund for overpaid native
   fee.** `msg.value - fee` was permanently trapped (no `receive()`/`withdraw()`/sweep
   anywhere). Fixed: the excess is now refunded to `msg.sender` via a low-level call
@@ -459,11 +483,21 @@ items, all closed in the same pass:*
   a failed push is retried, never permanently skipped). Verified against real anvil: a second
   sync cycle with an identical score submits no transaction; a cycle with a genuinely
   different score does, confirmed by reading the new value back on-chain.
-* **Gap - Active Quarantine Enforcement (confirmed still open).** Nothing reads back
-  on-chain slash/dispute state to affect a future `run_intercept` decision — OPA
-  evaluation and the circuit breaker are still driven purely by this service's own request
-  history. `scoring_loop.py` can now *raise* a dispute but nothing closes the loop back
-  into policy enforcement.
+* **CLOSED — Active Quarantine Enforcement.** New `app/quarantine.py` + a new step 4b in
+  `run_intercept` (`app/main.py`): every commitment now reads `Slasher.lockedStakeOf(agent)`
+  on the agent's own Slasher clone before OPA evaluation, and denies (`AGENT_QUARANTINED`) if
+  it's nonzero — i.e. the agent has stake locked under an unresolved dispute
+  `scoring_loop.py::raise_dispute` raised. No separate un-quarantine step was needed:
+  `Slasher.resolveDispute` always decrements `lockedStakeOf` back to zero regardless of
+  outcome, so the gate clears itself the moment governance resolves the dispute.
+  **Deliberately fails OPEN, not closed, on an unverifiable check** — this is the one place
+  this service's stated fail-closed posture is inverted, and on purpose: unlike the BAA check
+  (scoped to a narrow healthcare intent class), this gate runs on *every* request, so failing
+  closed would mean one oracle/RPC hiccup denies all traffic from every agent. Only a
+  positively confirmed locked dispute denies; a check that can't be completed logs a warning
+  and lets the request continue to OPA. First implementation failed closed here too and broke
+  15 of the suite's pre-existing tests that don't stand up an oracle/anvil fixture — caught
+  by running the full suite, not by review, and corrected before landing.
 * **Merkle anchoring is still batch-size-triggered only (confirmed, see §1a)** — no
   periodic equivalent to the score-sync loop exists for it yet.
 * **In-memory `nonce_store`/`circuit_breaker` are safe today but block horizontal
@@ -1028,7 +1062,7 @@ Full regression after all of the above: frontend `npm run build`/`npm run lint` 
 * **Precision was the design constraint, not coverage.** Bind-mounted paths are deliberately excluded: `bcc_middleware/policies` is mounted read-only into the `opa` container, so a `.rego` edit takes effect on an `opa` restart with no rebuild, and listing it would fire a false positive on every policy change. `deployments.*.json` likewise. A checker that cries wolf gets ignored within a week, and an ignored checker is exactly how the original drift survived.
 * **First run found three genuinely stale images** (`oracle-backend`, `bcc-middleware` 13h behind an app change, `userapi`), which is the point.
 * **Two false positives were found and fixed by using the tool, not by reading it.** (1) Its timestamp parser trimmed fractional seconds by counting digit characters, which also counted the digits inside `-05:00` and silently dropped the offset — shifting local times 5 hours and reporting a freshly built image as STALE. Fixed and pinned with `--self-test`. (2) Comparing image build time against *commit* time flagged the ordinary edit → build → test → commit ordering as stale on every commit; it now compares against source file mtime.
-* **OPEN — mtime is still an approximation.** A fresh `git clone` or branch switch resets every mtime to now, so a correctly-built image reports STALE until rebuilt. The genuinely correct fix is a content comparison: bake `git rev-parse HEAD:<path>` into each image as a build-time LABEL and compare that, which needs a Dockerfile + build-arg change per service. Erring toward a false STALE is the safer direction — the cost is an unnecessary rebuild, not undetected drift — but this is an approximation and is not pretended otherwise.
+* **CLOSED — content-hash comparison replaces the mtime approximation as the primary signal.** `scripts/service_content_hash.py` hashes each service's tracked source (`git rev-parse HEAD:<path>` per path, keccak256'd — a real content address, not a timing proxy). Every Dockerfile now declares `ARG SOURCE_HASH` + `LABEL source.hash=$SOURCE_HASH`; `docker-compose.yml`'s `build.args` and the root `Makefile`'s `up` target compute and pass it fresh before every `--build`. `check_deploy_freshness.py` now compares the running image's label against a fresh recomputation and reports an exact match/mismatch. The mtime path is kept only as a fallback for images built before this label existed (labeled `(approximate — image predates content-hash labeling)` in the output, so the distinction stays visible rather than silently claiming the same guarantee).
 
 ## 23. The tier ceiling made good behavior unrewardable, and voided the ZK boost (2026-07-30)
 
