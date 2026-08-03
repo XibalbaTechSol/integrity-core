@@ -287,4 +287,5 @@ export type TabId =
   | 'apikeys'
   | 'advanced'
   | 'profile'
-  | 'settings';
+  | 'settings'
+  | 'map';

@@ -18,6 +18,8 @@ export const MARKET_FACTORY_ADDRESS = S.MarketFactory;
 export const A2A_CAPITAL_POOL_ADDRESS = S.A2ACapitalPool;
 export const SMART_BAA_FACTORY_ADDRESS = S.SmartBAAFactory;
 export const COVERED_ENTITY_REGISTRY_ADDRESS = S.CoveredEntityRegistry;
+export const XNS_ADDRESS = (S as Record<string, string>).XibalbaNameService;
+export const GOVERNANCE_ADDRESS = (S as Record<string, string>).IntegrityGovernance;
 
 // Protocol-held signer that every agent grants StateAnchor ANCHOR_ROLE to (and the
 // SovereignAgent `oracle_` constructor arg). Single-operator testnet setup.
