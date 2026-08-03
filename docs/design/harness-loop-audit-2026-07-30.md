@@ -361,7 +361,7 @@ These are the choices to iterate on. Each is a genuine fork, not an oversight.
 | ~~1~~ | ~~Build-staleness check~~ | **DONE** — `make check-deploy`; found 3 stale images on first run |
 | ~~2~~ | ~~Move vault anchoring off the critical path~~ | **DONE** — detached `anchor_vault.py`; 0 pending |
 | ~~3~~ | ~~Gate Hermes tool calls~~ | **DONE** — `hermes_gate.py`, shared policy path |
-| 1 | Populate `test_result_hash` from real test runs | F5 — all 13 anchored leaves still attest to nothing |
+| ~~1~~ | ~~Populate `test_result_hash` from real test runs~~ | **DONE (2026-08-03)** — `tree_hash()` was the actual blocker (commit-boundary formula bug, not a discipline gap); fixed in `scripts/tree_hash.py`, see `PRODUCTION_GAPS.md` §19/F5 |
 | 2 | Have the oracle group AIS by `runtime` | F8 — the discriminator is recorded but unused |
 | 3 | Decide the absent-vs-zero question and represent it | F2/F3 — needs a protocol change, not a patch |
 | 4 | Build a tier-2 verification path | The ceiling is now *binding* — see below |

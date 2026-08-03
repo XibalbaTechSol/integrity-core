@@ -156,8 +156,11 @@ OPA **37/37** · userapi **51 passed** · contracts **200** · zkp **4** · orac
    root) == true`, receipt `status 1`, `latestRoot` now the DAG root, and the vault's own
    root (`0x51451cc5…`) still independently anchored — append-only holds across both
    trees. Idempotent by construction (checks `isAnchoredRoot` before submitting).
-2. **Fix F5 at the root** — `record_test_status.py` + `vault_commit_leaf.py:39` must change
-   *together* (their comments already warn of this). Now unblocked.
+2. ~~**Fix F5 at the root**~~ **DONE (2026-08-03).** `scripts/tree_hash.py` now hashes
+   tracked-file content (`git ls-files`) instead of `HEAD ‖ diff HEAD`, so it's invariant
+   across the exact commit boundary that broke it. Verified with a `--self-test` harness
+   and live: commit `acdae8b` is the first leaf in the vault's history with a real
+   `test_result_hash` instead of `unverified`. See `PRODUCTION_GAPS.md` §19/F5.
 3. **Make audit reports survive shutdown** — `ensure_future(to_thread(...))` with nothing
    awaiting it drops in-flight reports on worker exit (audit E16). The test is fixed; the
    production drop is not.
