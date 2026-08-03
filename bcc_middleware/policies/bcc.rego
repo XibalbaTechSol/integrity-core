@@ -260,6 +260,68 @@ tool_risk_class := _tool_risk_class
 # resolve, rather than faked here with a rule that can never fire.
 
 # ---------------------------------------------------------------------------
+# 5. AOS Observability & Chain-of-Thought (CoT) Gating
+# ---------------------------------------------------------------------------
+_has_value(val) if {
+	not is_null(val)
+	val != ""
+}
+
+violation contains msg if {
+	_is_agent_tool
+	not _has_value(object.get(input, "trace_id", null))
+	msg := "AOS_VIOLATION: missing OpenTelemetry trace_id in execution context"
+}
+
+violation contains msg if {
+	_is_agent_tool
+	not _has_value(object.get(input, "span_id", null))
+	msg := "AOS_VIOLATION: missing OpenTelemetry span_id in execution context"
+}
+
+violation contains msg if {
+	_is_agent_tool
+	not _has_value(object.get(input, "agent_thought", null))
+	msg := "AOS_VIOLATION: agent tool execution requires a non-empty Chain-of-Thought (agent.thought)"
+}
+
+violation contains msg if {
+	_is_agent_tool
+	thought := object.get(input, "agent_thought", null)
+	_has_value(thought)
+	count(thought) < 15
+	msg := sprintf("AOS_VIOLATION: agent Chain-of-Thought is too brief (%v chars); requires >= 15 chars of latent reasoning", [count(thought)])
+}
+
+# ---------------------------------------------------------------------------
+# 6. Token Budget Policy (declarative audit check)
+# ---------------------------------------------------------------------------
+# Per-tier daily token budget (tokens/day). -1 = unlimited.
+# The Python-layer TokenBudgetEnforcer is the authoritative enforcer and
+# tracks cumulative spend. This OPA rule is a secondary declarative check
+# that fires when both token_count AND daily_token_spend are present in
+# the input -- useful for audit logging the budget state at decision time.
+# ---------------------------------------------------------------------------
+_token_budget_by_tier := {
+    0: 10000,
+    1: 100000,
+    2: 1000000
+}
+
+violation contains msg if {
+    tier := object.get(input, "verification_tier", 0)
+    budget := _token_budget_by_tier[tier]
+    token_count := object.get(input, "token_count", 0)
+    token_count > 0
+    daily_spend := object.get(input, "daily_token_spend", 0)
+    daily_spend + token_count > budget
+    msg := sprintf(
+        "TOKEN_BUDGET_OPA: tier %v daily budget (%v tokens) would be exceeded (spend=%v + this=%v = %v > %v)",
+        [tier, budget, daily_spend, token_count, daily_spend + token_count, budget]
+    )
+}
+
+# ---------------------------------------------------------------------------
 # Metadata rule: surfaced by bcc_middleware for audit logging (see
 # app/opa_client.py's OPADecision.violations).
 # ---------------------------------------------------------------------------

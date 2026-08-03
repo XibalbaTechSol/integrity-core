@@ -61,3 +61,34 @@ class EconomicAttributes:
 
 def get_gen_ai_span_name(system: str, model: str) -> str:
     return f"{system} {model} inference"
+
+
+class AOSAttributes:
+    """
+    Agent Observability Standard (AOS / OWASP AOS) semantic conventions.
+
+    These extend the OTel GenAI conventions with agent-specific attributes
+    that bind the agent's reasoning (agent.thought) to execution telemetry,
+    following the AOS spec at aos.owasp.org.
+    """
+    # The latent Chain-of-Thought monologue for the current action (AOS §1.2)
+    AGENT_THOUGHT = "agent.thought"
+    # sha256 hex of agent.thought — for tamper detection without exposing the full text
+    AGENT_THOUGHT_HASH = "agent.thought_hash"
+    # Unique identifier for the agent run (top-level session span)
+    RUN_ID = "agent.run_id"
+    # Current phase: "planning" | "execution" | "reflection"
+    PHASE = "agent.phase"
+    # The tool/API being invoked in an atomic action span
+    TOOL_NAME = "tool.name"
+    # The outcome of the tool call
+    TOOL_RESULT = "tool.result"
+    # Aggregated token count for this entire action (prompt + completion)
+    TOKEN_COUNT_TOTAL = "gen_ai.usage.token_count_total"
+    # The BCC intent_type this action is associated with
+    BCC_INTENT_TYPE = "bcc.intent_type"
+    # AOS compliance gate decision: "allow" | "deny"
+    BCC_DECISION = "bcc.decision"
+    # AOS violation reason code (e.g. "AOS_VIOLATION", "TOKEN_BUDGET_EXCEEDED")
+    BCC_VIOLATION_CODE = "bcc.violation_code"
+

@@ -1,7 +1,7 @@
 ---
 title: integrity-dashboard
 created: 2026-07-07
-updated: 2026-07-25
+updated: 2026-07-31
 type: entity
 tags: [infrastructure, sdk]
 confidence: medium
@@ -10,6 +10,7 @@ source_files:
   - integrity-dashboard/src/config.ts
   - integrity-dashboard/src/chain/bytecode.ts
   - integrity-dashboard/src/components/ui/RegisterAgentModal.tsx
+  - integrity-dashboard/src/components/ui/VisualTopologyMap.tsx
   - integrity-dashboard/src/services/oracle.ts
   - integrity-dashboard/src/services/userapi.ts
   - integrity-dashboard/src/components/shared/SeededDataBadge.tsx

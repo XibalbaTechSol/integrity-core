@@ -167,6 +167,22 @@ class IntegrityMessagesWrapper:
         entropy = lexical_stability_score(completion)
         grounding = keyword_grounding_score(completion)
 
+        if usage:
+            try:
+                from ..telemetry.llm_token_ledger import get_ledger
+
+                get_ledger().record_from_llm_response(
+                    agent_did=self.integrity_client.agent_id,
+                    model=actual_model,
+                    prompt_tokens=usage.get("input_tokens", 0) or 0,
+                    completion_tokens=usage.get("output_tokens", 0) or 0,
+                    cache_read_tokens=usage.get("cache_read_input_tokens", 0) or 0,
+                    cache_creation_tokens=usage.get("cache_creation_input_tokens", 0) or 0,
+                    finish_reason=stop_reason,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("token ledger record failed for a successful call: %r", exc)
+
         self.integrity_client.log_telemetry(
             metadata={
                 "provider": "anthropic",

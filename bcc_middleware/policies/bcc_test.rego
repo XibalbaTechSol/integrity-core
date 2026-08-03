@@ -15,6 +15,12 @@ _base_commitment := {
 	# min_tier_by_intent_type doc comment) -- the realistic default for a
 	# generic test fixture representing "a normal registered agent."
 	"verification_tier": 1,
+	"trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+	"span_id": "00f067aa0ba902b7",
+	"agent_thought": "Verifiable reasoning process validating agent compliance and intent.",
+	# Token budget defaults: 0 spend means no budget violation in existing tests.
+	"token_count": 0,
+	"daily_token_spend": 0,
 }
 
 test_ordinary_payment_is_allowed if {
@@ -236,3 +242,82 @@ test_tool_runtime_is_surfaced_for_both_namespaces if {
 	bcc.allow with input as claude
 	bcc.allow with input as hermes
 }
+
+test_aos_missing_trace_id_is_denied if {
+	commitment := {
+		"agent_id": "did:integrity:agent_scribe_01",
+		"intent_type": "claude_tool:Bash",
+		"intended_state_hash": "0x1111111111111111111111111111111111111111111111111111111111111",
+		"nonce": 1,
+		"timestamp": 1730000000000,
+		"verification_tier": 1,
+		"span_id": "00f067aa0ba902b7",
+		"agent_thought": "Reasoning monologue validation.",
+	}
+	not bcc.allow with input as commitment
+	some msg in bcc.violation with input as commitment
+	contains(msg, "AOS_VIOLATION")
+}
+
+test_aos_missing_thought_is_denied if {
+	commitment := {
+		"agent_id": "did:integrity:agent_scribe_01",
+		"intent_type": "claude_tool:Bash",
+		"intended_state_hash": "0x1111111111111111111111111111111111111111111111111111111111111",
+		"nonce": 1,
+		"timestamp": 1730000000000,
+		"verification_tier": 1,
+		"trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+		"span_id": "00f067aa0ba902b7",
+	}
+	not bcc.allow with input as commitment
+	some msg in bcc.violation with input as commitment
+	contains(msg, "AOS_VIOLATION")
+}
+
+# ---------------------------------------------------------------------------
+# Token Budget tests
+# ---------------------------------------------------------------------------
+
+test_token_budget_under_limit_is_allowed if {
+	commitment := object.union(_base_commitment, {
+		"token_count": 5000,
+		"daily_token_spend": 3000,
+		"verification_tier": 0,
+	})
+	# 3000 + 5000 = 8000 < 10000 (tier 0 budget) → allowed
+	bcc.allow with input as commitment
+}
+
+test_token_budget_at_limit_is_denied if {
+	commitment := object.union(_base_commitment, {
+		"token_count": 5000,
+		"daily_token_spend": 6000,
+		"verification_tier": 0,
+	})
+	# 6000 + 5000 = 11000 > 10000 (tier 0 budget) → denied
+	not bcc.allow with input as commitment
+	some msg in bcc.violation with input as commitment
+	contains(msg, "TOKEN_BUDGET_OPA")
+}
+
+test_token_budget_tier1_allows_large_spend if {
+	commitment := object.union(_base_commitment, {
+		"token_count": 50000,
+		"daily_token_spend": 40000,
+		"verification_tier": 1,
+	})
+	# 40000 + 50000 = 90000 < 100000 (tier 1 budget) → allowed
+	bcc.allow with input as commitment
+}
+
+test_token_budget_zero_count_is_not_checked if {
+	commitment := object.union(_base_commitment, {
+		"token_count": 0,
+		"daily_token_spend": 9999,
+		"verification_tier": 0,
+	})
+	# token_count=0 means no usage event → budget rule does not fire
+	bcc.allow with input as commitment
+}
+

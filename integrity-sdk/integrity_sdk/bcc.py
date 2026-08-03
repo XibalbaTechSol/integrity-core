@@ -100,6 +100,10 @@ def build_bcc_commitment(
     keypair: Keypair,
     timestamp_ms: Optional[int] = None,
     covered_entity_address: Optional[str] = None,
+    token_count: Optional[int] = None,
+    trace_id: Optional[str] = None,
+    span_id: Optional[str] = None,
+    agent_thought: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Construct and sign a BCC commitment (§4.2, plus the two reconciled
@@ -149,6 +153,20 @@ def build_bcc_commitment(
 
     commitment = dict(unsigned)
     commitment["signature"] = "0x" + signature_bytes.hex()
+
+    # --- AOS Observability fields (post-signing, not part of the signed payload) ---
+    # These are carried as metadata for bcc_middleware's OPA AOS gate and audit trail.
+    # Auto-inject from the active OTel span if the caller didn't supply them.
+    try:
+        from .telemetry.aos_span import get_current_aos_context
+        aos_ctx = get_current_aos_context()
+    except Exception:
+        aos_ctx = {}
+
+    commitment["trace_id"] = trace_id or aos_ctx.get("trace_id")
+    commitment["span_id"] = span_id or aos_ctx.get("span_id")
+    commitment["agent_thought"] = agent_thought or aos_ctx.get("agent_thought")
+    commitment["token_count"] = token_count
     return commitment
 
 
@@ -167,7 +185,11 @@ def verify_bcc_commitment(commitment: Dict[str, Any], pubkey_bytes: bytes) -> bo
     except ValueError:
         return False
 
-    unsigned = {k: v for k, v in commitment.items() if k != "signature"}
+    # The AOS post-signing fields (trace_id, span_id, agent_thought, token_count)
+    # are appended AFTER the signature is computed — they are NOT part of the
+    # signed payload. Strip them before re-deriving the canonical hash.
+    _POST_SIGNING_FIELDS = {"signature", "trace_id", "span_id", "agent_thought", "token_count"}
+    unsigned = {k: v for k, v in commitment.items() if k not in _POST_SIGNING_FIELDS}
     return verify_signature(pubkey_bytes, canonical_json_bytes(unsigned), signature_bytes)
 
 def submit_commitment(commitment: Dict[str, Any], bcc_middleware_url: str) -> Dict[str, Any]:

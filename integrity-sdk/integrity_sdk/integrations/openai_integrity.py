@@ -153,9 +153,30 @@ class IntegrityCompletionsWrapper:
                 span.set_attribute(GenAIAttributes.COMPLETION, completion_text)
 
                 usage = getattr(response, "usage", None)
+                usage_dict = _usage_to_dict(usage)
                 if usage:
                     span.set_attribute(GenAIAttributes.INPUT_TOKENS, usage.prompt_tokens)
                     span.set_attribute(GenAIAttributes.OUTPUT_TOKENS, usage.completion_tokens)
+
+                if usage_dict:
+                    try:
+                        from ..telemetry.llm_token_ledger import get_ledger
+
+                        get_ledger().record_from_llm_response(
+                            agent_did=getattr(self.integrity_client, "agent_id", "?"),
+                            model=actual_model,
+                            prompt_tokens=usage_dict.get("prompt_tokens", 0) or 0,
+                            completion_tokens=usage_dict.get("completion_tokens", 0) or 0,
+                            reasoning_tokens=usage_dict.get("completion_tokens_details", {}).get(
+                                "reasoning_tokens", 0
+                            ) or 0,
+                            cache_read_tokens=usage_dict.get("prompt_tokens_details", {}).get(
+                                "cached_tokens", 0
+                            ) or 0,
+                            finish_reason=getattr(response.choices[0], "finish_reason", None),
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("token ledger record failed for a successful call: %r", exc)
 
                 self._calculate_and_set_behavior_metrics(
                     span,

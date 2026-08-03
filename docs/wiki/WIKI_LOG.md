@@ -3,6 +3,20 @@
 > Chronological record of wiki actions. Append-only — never edit past entries.
 > Actions: ingest, create, update, lint, query, archive
 
+## [2026-07-31] update | AOS Observability Gating — Python pytest coverage completed
+
+- Added `test_intercept_aos_gating` to `bcc_middleware/tests/test_intercept.py` covering the full HTTP-layer round-trip for AOS-gated agent tool calls.
+- Fixed OPA null-safety bug in `bcc_middleware/policies/bcc.rego`: replaced `not input.<field>` with `object.get(input, "<field>", null)` + `_has_value()` helper so absent vs. `null` fields are handled uniformly.
+- AOS gating rules block `claude_tool:*` and `hermes_tool:*` calls missing `trace_id`, `span_id`, or `agent_thought` (≥15 chars) with `AOS_VIOLATION` reason codes.
+- Full suite green: **100/100 Python tests** (`uv run pytest`) + **39/39 OPA tests** (`opa test policies/`).
+
+## [2026-07-31] update | Visual Node-Graph and Interactive ZK Prover UI redesign
+
+- Overhauled `integrity-dashboard/src/pages/ContractsPage.tsx` to integrate a top-level tab switcher and a visual contract primitives connection map.
+- Created `integrity-dashboard/src/components/ui/VisualTopologyMap.tsx` rendering the 7 protocol smart contract primitives as a reactive, nodes-and-links SVG topology chart with side-panel variable inspections.
+- Refactored `integrity-dashboard/src/components/tabs/ZKProverPanel.tsx` into an interactive proves-and-verifies console matching Noir/UltraHonk execution steps.
+- Re-ran the dashboard vitest unit test suite with 100% pass (68/68 tests green).
+
 ## [2026-07-30] create+update | Persistent Memory Guide and Reimagined Dashboard Landing Page
 - Created `docs/wiki/concepts/persistent-memory.md` to document how developers and agents can configure `TrustVault`, `JSONLBackend`, `RAGBackend`, and `GraphBackend` for cryptographic state anchoring.
 - Updated `WIKI_INDEX.md` to index the new Persistent Memory Configuration Guide concept page.
