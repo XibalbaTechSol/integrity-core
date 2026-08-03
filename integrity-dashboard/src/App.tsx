@@ -68,7 +68,7 @@ function DashboardShell() {
   const isIntelligence = ['telemetry'].includes(activeTab);
   const isCognition = ['cognition', 'reasoning', 'diagnostics'].includes(activeTab);
   const isFinance = ['wallet', 'staking', 'credit', 'markets', 'stability'].includes(activeTab);
-  const isContracts = ['factory', 'zk', 'oracle', 'ledger'].includes(activeTab);
+  const isContracts = ['map', 'factory', 'zk', 'oracle', 'ledger'].includes(activeTab);
   const isShield = ['governance', 'compliance', 'shield'].includes(activeTab);
   const isIdentity = ['identity', 'apikeys'].includes(activeTab);
   const isProfile = activeTab === 'profile';

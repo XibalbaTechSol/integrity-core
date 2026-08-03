@@ -78,7 +78,7 @@ const VALID_TABS: TabId[] = [
   'telemetry',                                   // Intelligence
   'cognition', 'reasoning', 'diagnostics',       // Cognition
   'wallet', 'staking', 'credit', 'markets', 'stability', // Finance
-  'factory', 'zk', 'oracle', 'ledger',           // Contracts
+  'map', 'factory', 'zk', 'oracle', 'ledger',    // Contracts
   'governance', 'compliance', 'shield', 'quarantine',    // Shield
   'identity', 'apikeys',                         // Identity
 ];

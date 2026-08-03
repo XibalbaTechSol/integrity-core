@@ -6,6 +6,7 @@ import { FactoryPanel } from '../components/tabs/FactoryPanel';
 import { ZKProverPanel } from '../components/tabs/ZKProverPanel';
 import { OracleRegistryPanel } from '../components/tabs/OracleRegistryPanel';
 import { ImmutableLedger } from '../components/ui/ImmutableLedger';
+import { VisualTopologyMap } from '../components/ui/VisualTopologyMap';
 import {
   Code2,
   Shield,
@@ -13,11 +14,12 @@ import {
   Layers,
   FileCode,
   Activity,
+  Network
 } from 'lucide-react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type ProtocolTab = 'factory' | 'zk' | 'oracle' | 'ledger';
+type ProtocolTab = 'map' | 'factory' | 'zk' | 'oracle' | 'ledger';
 
 interface TabConfig {
   id: ProtocolTab;
@@ -92,6 +94,7 @@ const StatCard = ({
 
 // ─── Sub-nav tabs ─────────────────────────────────────────────────────────────
 const TABS: { id: ProtocolTab; label: string; icon: React.ReactNode }[] = [
+  { id: 'map',     label: 'Topology Map', icon: <Network size={14} /> },
   { id: 'factory', label: 'Factory', icon: <FileCode size={14} /> },
   { id: 'zk',      label: 'ZK Prover', icon: <Shield size={14} /> },
   { id: 'oracle',  label: 'Oracle', icon: <Database size={14} /> },
@@ -108,6 +111,9 @@ export function ContractsPage() {
   const activeDisputes = stats?.active_disputes ?? '—';
 
   const isFactory = activeTab === 'factory';
+  
+  // Set default tab if not set or invalid
+  const currentTab = TABS.some(t => t.id === activeTab) ? activeTab : 'map';
 
   return (
     <div
@@ -146,24 +152,54 @@ export function ContractsPage() {
         </motion.div>
       )}
 
-
+      {/* ── Tab Switcher for non-factory tab modes ── */}
+      {!isFactory && (
+        <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--glass-border)', paddingBottom: '8px' }}>
+          {TABS.map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '8px 16px',
+                background: currentTab === tab.id ? 'var(--primary-dim)' : 'transparent',
+                border: `1px solid ${currentTab === tab.id ? 'var(--primary)' : 'transparent'}`,
+                borderRadius: 'var(--radius-sm)',
+                color: currentTab === tab.id ? 'var(--primary)' : 'var(--text-muted)',
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+              }}
+            >
+              {tab.icon}
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* ── Section Content (Tabbed) ── */}
       <div style={{ marginTop: isFactory ? 0 : 'var(--space-2)', flex: 1, display: 'flex', flexDirection: 'column' }}>
         <AnimatePresence mode="wait">
           <motion.div
-            key={activeTab}
+            key={currentTab}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.18 }}
             style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
           >
-            {activeTab === 'factory' && (
+            {currentTab === 'map' && (
+              <VisualTopologyMap />
+            )}
+
+            {currentTab === 'factory' && (
               <FactoryPanel />
             )}
 
-            {activeTab === 'oracle' && (
+            {currentTab === 'oracle' && (
               <Panel
                 title="Oracle Registry"
                 icon={<Database size={18} />}
@@ -173,9 +209,9 @@ export function ContractsPage() {
               </Panel>
             )}
 
-            {activeTab === 'zk' && <ZKProverPanel />}
+            {currentTab === 'zk' && <ZKProverPanel />}
 
-            {activeTab === 'ledger' && (
+            {currentTab === 'ledger' && (
               <Panel title="Immutable Settlement Ledger" icon={<Layers size={18} />}>
                 <ImmutableLedger />
               </Panel>
