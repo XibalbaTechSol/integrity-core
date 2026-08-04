@@ -9,10 +9,10 @@ PHI/PII redaction (`redact_phi`) is OFF by default here. This wrapper is
 general-purpose (trading/prediction-market/capital-allocation agents have
 no PHI exposure at all), and defaulting to redaction everywhere both costs
 fidelity on the captured text and was judged not worth it project-wide.
-**Any Xibalba Shield / healthcare-vertical agent MUST pass
+**Any Integrity Health / healthcare-vertical agent MUST pass
 `redact_phi=True` explicitly** when constructing `IntegrityOpenAI` — this
 wrapper has no way to know an agent's `compliance_vertical` on its own
-(that's registered separately, via `registration.py`/`shield.py`), so
+(that's registered separately, via `registration.py`/`health.py`), so
 nothing here can safely default it to True only for healthcare agents.
 Getting this wrong for a healthcare deployment means raw, unredacted
 completion text (and prompts) leave the process — see `security/redactor.py`
@@ -95,7 +95,7 @@ class IntegrityCompletionsWrapper:
         if not redact_phi:
             logger.warning(
                 "IntegrityOpenAI(agent_id=%r): redact_phi=False -- prompt/completion text is captured "
-                "UNREDACTED. If this is a Xibalba Shield / healthcare-vertical agent, this is a real "
+                "UNREDACTED. If this is a Integrity Health / healthcare-vertical agent, this is a real "
                 "PHI exposure risk; reconstruct with redact_phi=True.",
                 getattr(integrity_client, "agent_id", "?"),
             )
@@ -320,7 +320,7 @@ class IntegrityCompletionsWrapper:
     @staticmethod
     def _extract_tool_call_names(tool_calls: Any) -> list:
         """Names only, deliberately -- `function.arguments` can carry
-        caller-supplied content (including, for a Shield/healthcare agent,
+        caller-supplied content (including, for an Integrity Health/healthcare agent,
         potentially sensitive parameter values) that hasn't been through
         `redact_text()`, so it's never captured here."""
         if not tool_calls:
@@ -368,7 +368,7 @@ class IntegrityOpenAI(OpenAI):
     """Drop-in OpenAI client wrapper with non-blocking telemetry.
 
     `redact_phi` defaults to False (see module docstring) — pass
-    `redact_phi=True` for any Xibalba Shield / healthcare-vertical agent.
+    `redact_phi=True` for any Integrity Health / healthcare-vertical agent.
     """
 
     def __init__(

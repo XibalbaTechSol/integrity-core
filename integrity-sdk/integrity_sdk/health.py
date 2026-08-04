@@ -1,5 +1,5 @@
 """
-Agent-side client for the Shield (HIPAA/healthcare) vertical: `CoveredEntityRegistry`,
+Agent-side client for the Integrity Health (HIPAA/healthcare) vertical: `CoveredEntityRegistry`,
 `SmartBAAFactory` + `SmartBAA`, `ComplianceGate`, and `EHRGate`.
 
 Was PRODUCTION_GAPS.md's own documented gap until this module existed: the ABIs
@@ -40,7 +40,7 @@ from web3 import Web3
 from . import chain
 from .markets import _execute_via_agent
 
-# CoveredEntityRegistry.EntityType enum values (contracts/src/shield/CoveredEntityRegistry.sol).
+# CoveredEntityRegistry.EntityType enum values (contracts/src/health/CoveredEntityRegistry.sol).
 ENTITY_TYPE_UNREGISTERED = 0
 ENTITY_TYPE_COVERED_ENTITY = 1
 ENTITY_TYPE_BUSINESS_ASSOCIATE = 2
