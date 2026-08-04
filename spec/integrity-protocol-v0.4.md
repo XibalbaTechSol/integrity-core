@@ -632,9 +632,21 @@ device-level enforcement (block, contain, isolate). None of this belongs in `bcc
 which authorizes and anchors — it has never enforced anything at the OS level and should not
 start.
 
-**Status:** `[PLANNED]`. No code exists for the endpoint agent, kernel sensor, or a
-`xibalba-shield` repository as of this writing. Full technical specification:
-[`spec/xibalba-shield-v1.md`](xibalba-shield-v1.md). Product/roadmap framing:
+**Status (updated 2026-08-04):** `XibalbaTechSol/xibalba-shield` exists and is no longer
+`[PLANNED]` in full. Real and tested: event schemas, policy rule schema, Policy Engine, Agent
+Core, all 6 guardrail hooks, the Integrity Exporter (live-verified against a real
+`bcc_middleware` — real signed BCC commitment, real Merkle-batch admission), the CLI
+(`shield run` is a real sensor-to-exporter entry point), and local policy/device config loading
+with hot-reload — 63 tests passing. Of the three planned Linux eBPF sensors, 2 of 3
+(process-exec, file-write) are live-verified on real kernel probes; the third (TCP-connect) is
+blocked on a confirmed BCC/kernel version-skew problem, not a code defect. Not yet built:
+Windows/macOS sensors, the network sensor (deferred past v1 by this product's own spec §9),
+PHI-tagging/content classification (§6), and compliance reporting (blocked upstream on this
+repo's own `docs/design/evidence-export.md`). Full technical specification:
+[`spec/xibalba-shield-v1.md`](xibalba-shield-v1.md) — that document's own top-of-file status
+banner still says `[PLANNED]`/"no code... exists in any repository," which is now stale; it
+predates this update and hasn't been revised to match. Current implementation status lives in
+`xibalba-shield`'s own `README.md`, not duplicated further here. Product/roadmap framing:
 [`docs/ENTERPRISE_ADOPTION.md`](../docs/ENTERPRISE_ADOPTION.md) Lever 7.
 
 ### 14.2 Privacy posture, stated precisely

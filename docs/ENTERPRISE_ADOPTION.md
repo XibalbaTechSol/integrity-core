@@ -172,10 +172,19 @@ Shield's endpoint agent needs; `run_intercept()`'s HTTP-handler-independent fact
 the evidence-export path (Lever 4) is what Shield's compliance reporting reuses rather than
 building its own (Shield spec §11).
 
-**Status.** ⬜ Not started — no repository exists yet. **Next step:** create
-`XibalbaTechSol/xibalba-shield`, scaffold the layout in Shield spec §2, and build the Linux
-agent core + eBPF sensor first (Shield spec §14's build order), independent of everything else
-on this roadmap.
+**Status (updated 2026-08-04).** 🔨 In progress — `XibalbaTechSol/xibalba-shield` exists and its
+core is real: event schemas, Policy Engine, Agent Core, all 6 guardrail hooks, the Integrity
+Exporter (live-verified against a real `bcc_middleware`), and the CLI, with 63 tests passing.
+2 of 3 planned Linux eBPF sensors (process-exec, file-write) are live-verified on real kernel
+probes; the third (TCP-connect) is blocked on a confirmed BCC/kernel version-skew issue, not a
+code defect. Not yet built: Windows/macOS sensors, the network sensor (deferred past v1 by that
+product's own spec), PHI-tagging/content classification, and compliance reporting (blocked
+upstream on this repo's `docs/design/evidence-export.md`, itself not fully built). Current
+implementation status lives in `xibalba-shield`'s own `README.md`; that repo's `SECURITY.md`
+also now states plainly what's actually enforced today vs. still `[PLANNED]`. **Next step:**
+unblock the TCP-connect sensor (needs a newer BCC release or a hand-verified kernel struct
+layout), then register the exporter's bootstrapped DID with the oracle so evidence export
+closes its one remaining gap.
 
 ---
 
@@ -212,8 +221,9 @@ is stable before five external protocols start depending on it.
    of real traffic with no agent changes; also the direct precedent for Lever 7's endpoint agent.
 4. ⬜ **Sovereignty** (Lever 5) — anchor-backend abstraction + key separation for a regulated
    deployment.
-5. ⬜ **Xibalba Shield product** (Lever 7) — new repository, independent build track; start once
-   Lever 1b's interception pattern is proven, since Shield's endpoint agent needs the same shape.
+5. 🔨 **Xibalba Shield product** (Lever 7) — independent build track; core, guardrail hooks, and
+   2 of 3 Linux eBPF sensors are real ahead of Lever 1b landing here, since Shield's endpoint
+   agent needed the same interception shape and building it directly was faster than waiting.
 6. ⬜ **Payment-protocol interop** (Lever 8) — taxonomy first, one adapter (x402) to validate,
    then the remaining four; lowest urgency of the numbered levers, highest optionality (costs
    nothing to defer since the taxonomy alone requires no schema change).
