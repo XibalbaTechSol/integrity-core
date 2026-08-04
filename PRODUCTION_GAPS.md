@@ -203,11 +203,11 @@ skipped.
   pair. Verified end-to-end: `test_register_agent_is_idempotent_for_an_already_registered_did`
   calls `register_agent()` twice for the same identity and asserts both calls return
   identical primitive addresses.
-* **CLOSED — `EHRGate` ABI + Shield wrapper functions.** `scripts/sync_abis.py` now syncs
-  `EHRGate`; new `integrity_sdk/shield.py` wraps `CoveredEntityRegistry`/`SmartBAAFactory`/
+* **CLOSED — `EHRGate` ABI + Integrity Health wrapper functions.** `scripts/sync_abis.py` now syncs
+  `EHRGate`; new `integrity_sdk/health.py` wraps `CoveredEntityRegistry`/`SmartBAAFactory`/
   `SmartBAA`/`ComplianceGate`/`EHRGate`, reusing `markets._execute_via_agent` for every
   agent-routed call. Verified against real anvil-deployed contracts in
-  `tests/test_shield.py`: a full happy path (register covered entity → create BAA → agent
+  `tests/test_health.py`: a full happy path (register covered entity → create BAA → agent
   signs it → self-declared compliance → patient grants EHR access → AIS pushed above
   threshold → access check passes → `verifyAndLogAccess` succeeds) plus a negative case
   proving the on-chain AIS-threshold gate is real, not decorative (access stays denied when
@@ -267,7 +267,7 @@ skipped.
   **Real behavior change, explicitly requested and confirmed:** both integrations' `redact_phi`
   parameter now defaults to **`False`** (previously, `redact_text()` ran unconditionally on
   every prompt/completion/reasoning-trace/tool-call string in both files). Per explicit
-  decision: PHI/PII redaction is now opt-in, scoped to Xibalba Shield / healthcare-vertical
+  decision: PHI/PII redaction is now opt-in, scoped to Integrity Health / healthcare-vertical
   agents, who **must** pass `redact_phi=True` when constructing `IntegrityOpenAI` /
   `IntegrityLangChainCallback` — neither wrapper has any way to know an agent's
   `compliance_vertical` on its own (that's registered separately), so nothing here can safely
@@ -276,7 +276,7 @@ skipped.
   healthcare deployment is at least loud about it rather than silent — but there is **no
   runtime enforcement** preventing a healthcare-vertical agent from being built without
   `redact_phi=True`. This is a real, accepted residual risk from the chosen default, not an
-  oversight: flagged here so it isn't lost track of, and worth a `shield.py`-level guard (e.g.
+  oversight: flagged here so it isn't lost track of, and worth a `health.py`-level guard (e.g.
   refusing to proceed, or checking `compliance_vertical` against a resolvable registry) as a
   real follow-up rather than relying on every integrator remembering the flag.
 
@@ -295,7 +295,7 @@ removed. Every finding below is fixed and covered by a new regression test.
   re-formation once the existing BAA's `status()` reaches `Terminated`, while still
   blocking a duplicate while `Proposed`/`Active`/`Disputed`. Three new tests
   (`test_canReformBAAAfterRevoke`, `test_canReformBAAAfterSlash`,
-  `test_cannotReformBAAWhileDisputed`) in `test/shield/SmartBAA.t.sol`.
+  `test_cannotReformBAAWhileDisputed`) in `test/health/SmartBAA.t.sol`.
 * **CLOSED — `IntegrityMarket.resolve()` to a zero-stake outcome permanently locked the
   whole pool.** No check that `outcomeStaked[_winningOutcome] > 0`; an honest resolver
   reporting a genuinely zero-stake true outcome made every position hit `LosingPosition`
@@ -332,7 +332,9 @@ removed. Every finding below is fixed and covered by a new regression test.
   ("funder signs, agent owns": funder `0x67bA…D556` paid gas, the Xibalba agent
   `0xabfeEaCbA00F38810E697b2970399fE03080FBeB` holds `DEFAULT_ADMIN_ROLE`/`REGISTRAR_ROLE`).
   Verified live: `GET /v1/xns/resolve` now returns 200 (was 400 MissingSingleton). The
-  register-handle *write* flow in the dashboard remains a deliberate deferral (CLI/SDK for now).
+  register-handle *write* flow is now wired into the dashboard as of 2026-08-02 (see the
+  correction at the end of this entry) — the "deliberate deferral, CLI/SDK for now" framing
+  below is the original, now-superseded record.
   Historical note (pre-deploy): `deployments.baseSepolia.json` previously had no
   `XibalbaNameService` key. What's now real: the `XibalbaNameService.sol`
   contract (14 forge tests passing), the oracle's read path — `ChainClient::{resolve_handle,
@@ -346,10 +348,17 @@ removed. Every finding below is fixed and covered by a new regression test.
   remaining step is the operator-run, gas-costing deploy of `XibalbaNameService` to Base
   Sepolia + writing its address into `deployments.baseSepolia.json`; `DeployEHRGate.s.sol`
   already tolerates the missing key via a `keyExistsJson` guard so no other singleton is
-  disturbed until then. **Read-only in the UI by design:** handle *lookup* (resolve) is wired;
-  the *register-handle* write flow (`XibalbaNameService.register`, a wallet-signed tx) is
-  deliberately not in the dashboard yet — an explicit deferral, done via CLI/SDK, not a silent
-  omission.
+  disturbed until then. Originally recorded here as **read-only in the UI by design** (handle
+  lookup wired, register-handle deferred to CLI/SDK). **Correction (2026-08-02): the write is
+  now wired too.** New `chain/xns.ts` + `components/ui/XNSRegisterForm.tsx` (mounted in
+  `IdentityPanel`) call `XibalbaNameService.register(handle)` routed through the agent's own
+  `SovereignAgent.execute` — the same `executeAsAgent` convention every other on-chain write
+  in this dashboard already uses (`chain/markets.ts`), required because `register` checks
+  `agentRegistry.isRegisteredAgent(msg.sender)`, so a direct wallet-EOA call would always
+  revert. Also fixed in the same pass: `src/deployments.baseSepolia.json` (the dashboard's
+  own mirror of the root deployments file) was missing the `XibalbaNameService` **and**
+  `IntegrityGovernance` singleton entries entirely, despite both being live on Base Sepolia —
+  the write flow could not have been wired without that fix regardless of UI code.
 * **CLOSED (deployed 2026-07-26) — on-chain governance is live on Base Sepolia.**
   `IntegrityGovernance` is deployed at `0x62ef8A3B42b07FDee7498199696dae31AC2A9255` (chainId
   84532), guardian/owner = the Xibalba agent `0xabfeEaCbA00F38810E697b2970399fE03080FBeB`
@@ -357,8 +366,9 @@ removed. Every finding below is fixed and covered by a new regression test.
   threshold / 10,000 ITK quorum — verified via `quorumVotes()` on-chain). Deployed via the
   incremental `script/DeployXnsGovernance.s.sol` + written into `deployments.baseSepolia.json`.
   Verified live: `GET /v1/governance/proposals` now returns 200 `[]` (was 400 MissingSingleton);
-  `GovernancePanel`/`GuardianPilot` now render the live (currently empty) proposal set. The
-  propose/vote *write* flow in the dashboard remains a deliberate deferral (CLI/SDK for now).
+  `GovernancePanel`/`GuardianPilot` now render the live (currently empty) proposal set. Voting
+  is now wired into the dashboard as of 2026-08-02 (see the correction below); propose/queue/
+  execute remain a deliberate CLI/SDK-only deferral, for a narrower reason than voting was.
   Historical note (pre-deploy): originally a full gap (no Governance contract existed, and the
   panels honestly showed a roadmap + "not live" notice). Now real: `IntegrityGovernance.sol`
   — lock-to-vote (ITK locked to propose/vote; flash-loan/sybil resistant precisely because
@@ -375,10 +385,24 @@ removed. Every finding below is fixed and covered by a new regression test.
   is absent (Base Sepolia today; also the current `deployments.local.json`, deliberately NOT
   regenerated because a fresh local deploy would remint every address and invalidate the seeded
   audit DB's agent DIDs). Remaining: the operator-run, gas-costing Base Sepolia deploy +
-  `deployments.baseSepolia.json` entry. **Read-only in the UI by design:** the panels render
-  live proposals + tallies; the *write* half (propose / castVote / queue / execute — all
-  wallet-signed txs) is deliberately not wired into the dashboard yet (an inline note in
-  `GovernancePanel` says so), done via CLI/SDK for now — an explicit deferral, not a silent gap.
+  `deployments.baseSepolia.json` entry. Originally recorded here as **read-only in the UI by
+  design**, with the write half deferred "done via CLI/SDK for now" — that CLI/SDK claim was
+  never actually true: `integrity-cli/integrity_cli/main.py`'s own module docstring records
+  that a `governance` sub-app existed in the old prototype and was deliberately NOT rebuilt in
+  this rewrite ("Re-add it once/if a real backend contract for it exists" — one now does, but
+  the CLI was never updated). Nothing anywhere could vote until this pass.
+  **Correction (2026-08-02): `castVote` is now wired into the dashboard, `propose`/`queue`/
+  `execute` remain deferred, deliberately and for a different reason than before.** New
+  `chain/governance.ts` + `GovernancePanel`'s vote form call `IntegrityGovernance.castVote(id,
+  support, amount)`, routed through `executeAsAgent` exactly like the XNS write above, with the
+  same approve-then-act ITK flow `ActuarialHub`'s market-entry code already established
+  (top up the SovereignAgent's ITK balance if short, approve the Governance contract for the
+  vote amount, then cast). `propose`/`queue`/`execute` are excluded on purpose, not from time
+  pressure: `propose` accepts an arbitrary `(target, value, callData)` and `execute` runs it
+  verbatim after the timelock — exposing that through a generic UI without a security review
+  of what actions a proposal could carry is real governance/financial risk, not a UI gap. They
+  stay CLI/SDK-only until a real CLI/SDK governance path is built (see the correction above:
+  none exists yet either).
 * **CLOSED — `CCIPReputationBridge.bridgeReputation` had no refund for overpaid native
   fee.** `msg.value - fee` was permanently trapped (no `receive()`/`withdraw()`/sweep
   anywhere). Fixed: the excess is now refunded to `msg.sender` via a low-level call
@@ -459,11 +483,21 @@ items, all closed in the same pass:*
   a failed push is retried, never permanently skipped). Verified against real anvil: a second
   sync cycle with an identical score submits no transaction; a cycle with a genuinely
   different score does, confirmed by reading the new value back on-chain.
-* **Gap - Active Quarantine Enforcement (confirmed still open).** Nothing reads back
-  on-chain slash/dispute state to affect a future `run_intercept` decision — OPA
-  evaluation and the circuit breaker are still driven purely by this service's own request
-  history. `scoring_loop.py` can now *raise* a dispute but nothing closes the loop back
-  into policy enforcement.
+* **CLOSED — Active Quarantine Enforcement.** New `app/quarantine.py` + a new step 4b in
+  `run_intercept` (`app/main.py`): every commitment now reads `Slasher.lockedStakeOf(agent)`
+  on the agent's own Slasher clone before OPA evaluation, and denies (`AGENT_QUARANTINED`) if
+  it's nonzero — i.e. the agent has stake locked under an unresolved dispute
+  `scoring_loop.py::raise_dispute` raised. No separate un-quarantine step was needed:
+  `Slasher.resolveDispute` always decrements `lockedStakeOf` back to zero regardless of
+  outcome, so the gate clears itself the moment governance resolves the dispute.
+  **Deliberately fails OPEN, not closed, on an unverifiable check** — this is the one place
+  this service's stated fail-closed posture is inverted, and on purpose: unlike the BAA check
+  (scoped to a narrow healthcare intent class), this gate runs on *every* request, so failing
+  closed would mean one oracle/RPC hiccup denies all traffic from every agent. Only a
+  positively confirmed locked dispute denies; a check that can't be completed logs a warning
+  and lets the request continue to OPA. First implementation failed closed here too and broke
+  15 of the suite's pre-existing tests that don't stand up an oracle/anvil fixture — caught
+  by running the full suite, not by review, and corrected before landing.
 * **Merkle anchoring is still batch-size-triggered only (confirmed, see §1a)** — no
   periodic equivalent to the score-sync loop exists for it yet.
 * **In-memory `nonce_store`/`circuit_breaker` are safe today but block horizontal
@@ -560,11 +594,11 @@ tests hit a real local `ThreadingHTTPServer`, matching this package's existing
 ## 7. Frontend (`integrity-dashboard`) — findings from a full-package audit, ALL CLOSED
 
 *Current State:* real backend wiring landed this session for `ChainOfThoughtPage`,
-`SdkTelemetryPage`, `IntelligencePage`, `CompareTracesPage`, `ShieldPage`'s Stability
+`SdkTelemetryPage`, `IntelligencePage`, `CompareTracesPage`, `HealthPage`'s Stability
 Certification tab, and the dashboard's `throughput`/`events`/`radar` widgets.
 `AgentContext.tsx` is confirmed real (calls `oracle.listAgents()`) — this doc previously,
 incorrectly, listed it as mock; that was stale. Two real on-chain write paths already
-exist via wagmi (`ShieldPage.tsx`'s BAA sign/revoke, `ExchangePage.tsx`'s market entry) —
+exist via wagmi (`HealthPage.tsx`'s BAA sign/revoke, `ExchangePage.tsx`'s market entry) —
 the prior "zero Web3 connectivity" claim in this doc was also stale and has been removed.
 `npm run build` (`tsc -b && vite build`) now succeeds cleanly — verified end-to-end,
 including the 3 unrelated pre-existing unused-import errors that were silently failing
@@ -583,7 +617,7 @@ the production build before anyone had run it locally.
   more (`--bg-card`, `--shadow`/`--shadow-lg`, `--glass-*`, `--r-xs/sm/md`, status/brand
   aliases) found by a full `var(...)`-reference sweep, not just the originally-named
   ones. All added to `:root` as aliases of existing theme tokens. Verified visually
-  across Dashboard/Contracts/Exchange/CompareTraces/Shield/Documents/Finance/Identity.
+  across Dashboard/Contracts/Exchange/CompareTraces/Health/Documents/Finance/Identity.
 * **CLOSED — `AuditPage.tsx` made a specific, false security claim with no mock-data
   disclosure.** Its copy asserted actions are "cryptographically hashed and anchored to
   Base L2" and "cannot be tampered with by the agent, host, or hypervisor," backed by 3
@@ -592,7 +626,7 @@ the production build before anyone had run it locally.
   DOES batch-anchor approved intents, best-effort, not yet per-event) versus what this
   specific page shows (a simulated local event feed, now `SeededDataBadge`-marked, no
   real audit-trail query endpoint exists yet).
-* **CLOSED — `ShieldPage.tsx`'s consent/slash actions were theater, not disclosed
+* **CLOSED — `HealthPage.tsx`'s consent/slash actions were theater, not disclosed
   stubs.** `handleSlashViolation` showed a native `alert()` claiming "Locked ITK Stake
   Slashed" with no contract call at all. Neither action can honestly be wired to a real
   transaction from this dashboard (EHRGate.grantAccess/revokeAccess are PATIENT-signed;
@@ -616,7 +650,7 @@ the production build before anyone had run it locally.
   (`oracle.getAis()`) — the dashboard widget for the selected agent, the Intelligence
   page for the top 2 real leaderboard agents — with an honest "select an agent" /
   "needs 2+ leaderboard agents" fallback instead of ever showing a fabricated number.
-* **CLOSED — `ShieldPage.tsx`'s "Stability Certification" tab was hardcoded despite
+* **CLOSED — `HealthPage.tsx`'s "Stability Certification" tab was hardcoded despite
   sibling tabs on the same page already proving the live oracle+on-chain-read pattern.**
   The tier badge is now derived from the real AIS score; the BAA Compliance Ratio from
   the real per-agent BAA data this same page already fetches via `getLogs`/
@@ -673,7 +707,7 @@ the production build before anyone had run it locally.
   anywhere in this protocol (same conclusion independently reached for ActuarialHub
   earlier this session), and no network-wide index of staked BAA collateral exists either
   — `SmartBAA.requiredCollateral()` is only readable per-BAA-address today (confirmed via
-  `ShieldPage.tsx`), there's no "list every active BAA" capability to sum across. Building
+  `HealthPage.tsx`), there's no "list every active BAA" capability to sum across. Building
   that real aggregate would need a new oracle-side indexing endpoint — logged as a genuine
   follow-up, not fabricated here. Fabricated sparklines were removed rather than kept
   under the now-real numbers (a fake trend line under a real value would itself be
@@ -751,7 +785,7 @@ the production build before anyone had run it locally.
 * **CLOSED (2026-07-16) — `IdentityPage.tsx` fabricated an AIS score and a false
   hardware-attestation claim for every agent, undisclosed.** `ais = selectedAgent ? 9.5
   : null` was a hardcoded constant (never a real fetch, despite `oracle.getAis()`
-  already being the proven pattern on `ShieldPage`'s Stability Certification tab);
+  already being the proven pattern on `HealthPage`'s Stability Certification tab);
   `tier` was derived from the coarse `ACTIVE`/`IDLE` status boolean and always showed
   `'AAA'` regardless of real score; worse, `teeVerified = true` was hardcoded
   unconditionally, rendering "TEE Status: Verified (Nitro)" for every agent with no
@@ -759,7 +793,7 @@ the production build before anyone had run it locally.
   `NotImplementedError` everywhere else in this codebase (this same page's own disabled
   "Regenerate Attestation Document" button already discloses that honestly). Fixed:
   real `oracle.getAis()` fetch + the same `stabilityTier()` score-banding function
-  `ShieldPage` already uses, `teeVerified` set to `false` (renders the page's own
+  `HealthPage` already uses, `teeVerified` set to `false` (renders the page's own
   pre-existing honest "Not Attested" branch), and the "TEE Measurements" panel's
   hardcoded PCR0/PCR1 hashes now carry a `SeededDataBadge`. Re-verified live: AIS Score
   "500.0 / 1000", Verification Tier "B" (both matching this agent's real score
@@ -821,7 +855,7 @@ the production build before anyone had run it locally.
     `TRANSACTIONS` fallback array, same technique the `TriMetricWidget` fix already
     used for `AgentContext`-driven fallback detection).
   - Confirmed clean by the same sweep, no changes needed: `SettingsPage.tsx`
-    (real `userapi.*` calls or already-disclosed toggles), `ShieldPage.tsx`'s Smart
+    (real `userapi.*` calls or already-disclosed toggles), `HealthPage.tsx`'s Smart
     BAAs/PHI Access Gates/Audit & Compliance/Quarantine Zone tabs (real chain reads
     or already `SeededDataBadge`-marked), `FinancePage.tsx`'s "A2A Markets &
     Escrow" tab (`MarketsEscrowPanel.tsx` — real oracle reads, already-disclosed
@@ -832,20 +866,20 @@ the production build before anyone had run it locally.
     one; not fixed in this pass).
   - `npm run build`/`tsc -b --noEmit`/`npm run lint` clean, 13/13 Playwright e2e
     green, all re-verified live against the real local stack.
-* **(2026-07-16) `DocumentsPage.tsx` merged into `ShieldPage.tsx` as a new "Documents"
+* **(2026-07-16) `DocumentsPage.tsx` merged into `HealthPage.tsx` as a new "Documents"
   tab, then removed as a standalone route.** Per explicit request: the page's own
   content was always HIPAA/clinical-document-flavored (`HIPAA_Compliance_Guidelines_
   2026.pdf`, `Patient_Onboarding_Protocol.docx`, `Clinical_Trial_Results_Q3.pdf`), so
   it belongs on the compliance page its filenames are about rather than a separate
   top-level nav item. Moved verbatim (banner, 3 stat cards, trend chart, document
-  table) into a new `Documents` entry in `ShieldPage.tsx`'s `SUB_TABS`, keeping the
+  table) into a new `Documents` entry in `HealthPage.tsx`'s `SUB_TABS`, keeping the
   exact same honest disclosure (`SeededDataBadge`, "Not yet implemented" banner, no
   document/RAG-indexing backend exists anywhere in this monorepo — nothing was
   silently upgraded to "real" in the move). Removed `DocumentsPage.tsx`, the
   `/documents` route (`App.tsx`), and the Sidebar nav entry; `e2e/smoke.spec.ts`'s
   `ROUTES` updated to 10 entries (was 11). `npm run build`/`tsc -b --noEmit`/
   `npm run lint` clean, 12/12 Playwright e2e green, re-verified live: the merged
-  "Documents" tab renders correctly under Shield, `/documents` no longer resolves to
+  "Documents" tab renders correctly under Integrity Health, `/documents` no longer resolves to
   anything.
 
 ## 8. CI / Autonomous Fix-Forward (`.github/workflows/ci.yml`)
@@ -880,7 +914,7 @@ the production build before anyone had run it locally.
 * **CLOSED — added `audit_log`, a new durable Postgres table (`integrity-oracle/backend/migrations/0006_audit_log.sql`).** `agent_id` deliberately has no FK to `agents(id)` (mirrors `otel_spans`' same choice, migration 0004) — a forged-signature or unknown-agent deny is exactly the kind of event worth keeping, and may reference an `agent_id` that never resolves to a real row.
 * **CLOSED — `bcc_middleware` now reports every intercept decision, allow AND deny, not just approved ones.** New module `bcc_middleware/app/audit.py`, called from `run_intercept`'s `_deny()` helper (parses the existing `"CODE: detail"` reason string into `reason_code`/`detail`) and from the final approval path. Fire-and-forget via `asyncio.ensure_future` (task references held in a module-level set so they aren't garbage-collected mid-flight) POSTing to a new `POST /v1/audit/ingest` oracle endpoint — best-effort, same documented asymmetry as `anchor.py`'s on-chain anchoring: by the time this runs, `run_intercept` has already decided allow/deny, so a slow/unreachable oracle can never add latency or change the response, only mean that one decision is missing from the audit trail until the next successful report. Both `/v1/audit/ingest` and the receiving oracle endpoint are deliberately unauthenticated, matching the OTLP receiver's (`otlp.rs`) existing posture for this single-operator dev/demo topology — a forged entry is a known, documented limitation, not silently claimed to be tamper-proof. 91/91 `bcc_middleware` pytest suite still green after the `_deny()` signature change.
 * **CLOSED — new oracle endpoints: `POST /v1/audit/ingest`, `GET /v1/audit-log`.** The GET side (`backend::handlers::get_audit_log`) merges two real sources: the new `audit_log` table (BCC intercept decisions — the only source with an explicit allow/deny verdict) and, when `agent_id` is given, that agent's `telemetry_events` rows surfaced as `flagged`/`recorded` (there's no existing "recent across all agents" query for `telemetry_events`, so the global/no-agent feed is `audit_log` only — documented in `get_audit_log`'s own doc comment rather than silently omitted). Merged in Rust, not a SQL UNION — the two source tables don't share a column shape. Both endpoints added to `ApiDocExtra` in `openapi.rs` (utoipa's 15-paths-per-struct limit meant `ApiDocCore` was already full). `cargo build --workspace` and `cargo test --workspace --lib` (80 tests) clean.
-* **CLOSED — `AuditLogsPanel.tsx` rewritten to query the real endpoint, reactive to the global agent selector.** Per an explicit follow-up ("agent selector should be working to determine which data to display"): the panel now calls `oracle.getAuditLog(selectedAgent?.id, 200)` from `AgentContext`'s `selectedAgent` (the same global TopBar picker `SystemDiagnosticsPage`'s sibling "SDK Telemetry" tab already reacts to), refetching on agent change. Removed the `SeededDataBadge`/"Simulated event feed" disclosure entirely — this data source is now real, not merely honestly-disclosed-fake. `LoggerContext.tsx` was left in place, not deleted: it's still a legitimate (if minor) dependency of `ActuarialHub.tsx`'s own mock marketplace flow, which is out of this pass's scope; only `AuditLogsPanel`'s use of it was removed. `ShieldPage.tsx`'s separate "Medical Record Interaction Logs" table (`MOCK_AUDIT_LOGS`, a different, EHR-action-shaped concept) was left as-is — already honestly disclosed via its own `SeededDataBadge`, and wiring it to the new generic `audit_log` feed would misrepresent it as PHI-specific interaction logging it isn't.
+* **CLOSED — `AuditLogsPanel.tsx` rewritten to query the real endpoint, reactive to the global agent selector.** Per an explicit follow-up ("agent selector should be working to determine which data to display"): the panel now calls `oracle.getAuditLog(selectedAgent?.id, 200)` from `AgentContext`'s `selectedAgent` (the same global TopBar picker `SystemDiagnosticsPage`'s sibling "SDK Telemetry" tab already reacts to), refetching on agent change. Removed the `SeededDataBadge`/"Simulated event feed" disclosure entirely — this data source is now real, not merely honestly-disclosed-fake. `LoggerContext.tsx` was left in place, not deleted: it's still a legitimate (if minor) dependency of `ActuarialHub.tsx`'s own mock marketplace flow, which is out of this pass's scope; only `AuditLogsPanel`'s use of it was removed. `HealthPage.tsx`'s separate "Medical Record Interaction Logs" table (`MOCK_AUDIT_LOGS`, a different, EHR-action-shaped concept) was left as-is — already honestly disclosed via its own `SeededDataBadge`, and wiring it to the new generic `audit_log` feed would misrepresent it as PHI-specific interaction logging it isn't.
 * **Verified for real, end-to-end, live:** rebuilt and restarted the dockerized `oracle-backend`/`bcc-middleware` images (both `COPY` source at build time, same trap documented in §10 for the `dashboard` container — a `docker compose up -d` restart alone would not have picked up any of this), confirmed migration `0006_audit_log` applied via the oracle's boot log, then sent a real malformed-signature commitment straight to `POST /v1/bcc/intercept` (`curl`, no test harness) and confirmed via `GET /v1/audit-log?agent_id=...` that a `BCC_INVALID_SIGNATURE` deny row appeared with the correct `reason_code`/`detail` split. Then browser-verified live (`npm run dev`, not the stale Docker dashboard image) at `/diagnostics` → Audit Logs: the exact same real deny row rendered correctly for the probed agent, and switching the TopBar agent selector to a different, never-probed agent correctly showed an empty table (not stale or fabricated data) — confirming the agent-selector reactivity explicitly requested. Zero console errors.
 
 ## 12. Dashboard/Trace Analytics rendered empty despite real backend data (2026-07-16)
@@ -905,7 +939,7 @@ Full regression after all six fixes: `npm run build`/`npm run lint` clean (only 
 
 *Current State:* Explicit request: "keep going" (continuing the mock sweep). Three parallel investigation passes covered every remaining unaudited surface: `SettingsPage.tsx`/`SystemDiagnosticsPage.tsx` (beyond their prior `SeededDataBadge` instances), `LandingPage.tsx`/`ContactModal.tsx`/`CommandPalette.tsx`, and `NotionDatabase.tsx`/`MermaidDiagram.tsx`/`Toast.tsx`/`MarketsEscrowPanel.tsx`. Four of these seven files came back completely clean (`NotionDatabase.tsx`, `MermaidDiagram.tsx`, `Toast.tsx`, `MarketsEscrowPanel.tsx` — the last already fully badged from a prior pass, its order-placement flow confirmed calling real `readContract`/`writeContract` against real ABIs/deployments, not faking success) and `SystemDiagnosticsPage.tsx` and `ContactModal.tsx` had no findings (`ContactModal.tsx` genuinely POSTs to a real backend and surfaces real errors). Five real findings, fixed:
 * **CLOSED — `SettingsPage.tsx`'s TopBar had a global "Save Changes" button whose only behavior was `window.alert('Settings saved to volatile memory.')` — no real persistence, and nothing on the page actually needed a manual save step (theme/font persist live via `ThemeContext` on change, API keys are created/revoked via real `userapi` calls immediately, the Network panel is separately disclosed as non-functional).** Removed the button entirely rather than relabel it — there was no real save action to disclose-and-keep. A second, narrower finding in the same file: "Save Network Settings" (inside the already-`SeededDataBadge`-disclosed Network panel) had no `onClick` handler at all, a silent no-op rather than a visibly inert control — fixed by adding `disabled` + a `title` tooltip so the non-functionality is visible, not just discoverable by clicking and observing nothing happen.
-* **CLOSED — three separate landing-page/header buttons (`HeroSection.tsx`'s "Launch Dashboard", `CinematicHeader.tsx`'s desktop+mobile "Launch Dashboard" and "Sign In", `CoreFeatures.tsx`'s "OPEN ESCROWS") all navigated to `/integrity`, which is not and has never been a route in `App.tsx`** (real routes: `/`, `/landing`, `/identity`, `/contracts`, `/settings`, `/finance`, `/traces`, `/diagnostics`, `/shield`, `/agents`) — every one of these was a dead link rendering a blank page. Fixed by pointing each at the real destination its label promises: "Launch Dashboard" → `/` (the real Intelligence Command dashboard), "Sign In" → `/settings` (where the real `userapi` email/password login form already lives), "OPEN ESCROWS" → `/finance` (real `MarketsEscrowPanel.tsx`). `CinematicHeader.tsx`'s "Sign In" button additionally fired `alert("Google Sign-In flow initiated.")` before navigating — a fake OAuth flow with no real Google/any-provider integration anywhere in this monorepo — removed entirely along with the dead-route fix, not just disclosed, since a real login path already exists one click away.
+* **CLOSED — three separate landing-page/header buttons (`HeroSection.tsx`'s "Launch Dashboard", `CinematicHeader.tsx`'s desktop+mobile "Launch Dashboard" and "Sign In", `CoreFeatures.tsx`'s "OPEN ESCROWS") all navigated to `/integrity`, which is not and has never been a route in `App.tsx`** (real routes: `/`, `/landing`, `/identity`, `/contracts`, `/settings`, `/finance`, `/traces`, `/diagnostics`, `/health`, `/agents`) — every one of these was a dead link rendering a blank page. Fixed by pointing each at the real destination its label promises: "Launch Dashboard" → `/` (the real Intelligence Command dashboard), "Sign In" → `/settings` (where the real `userapi` email/password login form already lives), "OPEN ESCROWS" → `/finance` (real `MarketsEscrowPanel.tsx`). `CinematicHeader.tsx`'s "Sign In" button additionally fired `alert("Google Sign-In flow initiated.")` before navigating — a fake OAuth flow with no real Google/any-provider integration anywhere in this monorepo — removed entirely along with the dead-route fix, not just disclosed, since a real login path already exists one click away.
 * **CLOSED — `LandingPage.tsx`'s "Agent XNS Lookup" search box was fully uncontrolled (no `value`/`onChange`) — typing an agent DID and clicking "Lookup" silently discarded the input and opened `RegistryExplorer.tsx`'s modal with its own independent, always-blank `query` state.** `RegistryExplorer.tsx` didn't accept an initial-query prop at all, so this wasn't fixable from the landing page alone. Added `initialQuery?: string` to `RegistryExplorerProps`, plus a `useEffect` keyed on `[isOpen, initialQuery]` (needed because the component self-guards on `isOpen` via `if (!isOpen) return null` rather than being conditionally mounted by its parent — a plain `useState` initializer would only ever apply `initialQuery` once, on first mount, not on every re-open) — then wired the landing page's input through it. Verified live: typing a real registered DID and clicking Lookup now opens the modal with that exact DID pre-filled, and Resolve returns that agent's real on-chain data.
 * **CLOSED — `CommandPalette.tsx`'s "Toggle Theme" command only ever called `addToast('info', 'Theme toggled')` — it never touched the real `ThemeContext` (`setTheme`), so the toast claimed success while nothing on screen changed.** `ThemeContext.tsx` already exposes 4 real themes (`default`/`navy-gold`/`clinical-light`/`notion`) wired live elsewhere (`SettingsPage.tsx`'s Appearance panel). Fixed by importing `useTheme`/`Theme` and cycling through the same 4-theme list for real, with the toast message reporting the actual theme now active rather than a generic claim. Verified live in a fresh browser tab: invoking the command visibly re-themes the entire app (confirmed dark → light background swap matching the `clinical-light` theme).
 Full regression: `npm run build`/`npm run lint` clean (zero new errors; only the same pre-existing unrelated warnings remain), every fix browser-verified live. One unrelated hazard discovered during verification, not caused by this pass: clicking on `DashboardPage.tsx`'s react-grid-layout widget area can trigger a pre-existing library bug (`react-grid-layout`'s dev-mode `log()` helper references bare `process.env` with no browser shim, throwing `ReferenceError: process is not defined` on drag-start and wedging that browser tab's renderer) — a fresh tab was unaffected and confirmed the app itself was healthy throughout. Not fixed in this pass (out of scope for a mock-disclosure sweep), flagged here so it's not mistaken for a regression next time someone hits it.
@@ -954,7 +988,7 @@ Full regression after all of the above: frontend `npm run build`/`npm run lint` 
 
 * **CLOSED — oracle memory gate (§7.1).** `ChainClient::memory_state` reads `(latestRoot, latestEpoch)` directly from the agent's own `StateAnchor`; `POST /v1/agent/register` returns the new `AppError::MemoryNotInitialized` → **400** on a zero root, checked immediately after the PrimitiveSet match with the same independent-read posture (chain is the source of truth, never the client's claim). Verified by a real e2e (`oracle_e2e_register_rejects_missing_genesis_memory_root`) that deploys a genuine on-chain agent with *only* the genesis anchor omitted, and empirically against live Base Sepolia.
 * **CLOSED — SDK anchors genesis at registration (§6 ordering).** `chain.anchor_genesis_root()` routes `anchorRoot` through `SovereignAgent.execute`; `registration.register_agent` calls it as step 8b, before `registerPrimitives`. **No Solidity change was required for §7.2's "genesis MUST be agent-authorized"** — `StateAnchor`'s admin *is* the `SovereignAgent` contract, which the constructor also grants `ANCHOR_ROLE`.
-* **OPEN — all 7 existing agents have `latestRoot == 0`,** including the flagship `xibalba.integrity` (`StateAnchor 0x09DCBBd0D7B0f39db315a8C4f913C162D73Cc68b`, verified on Base Sepolia). They predate step 8b and remain registered, because the gate only runs at registration — so **the protocol currently has registered agents that do not satisfy its own §4.1**. Each needs one controller-signed `anchorRoot` tx to become compliant. Not a latent bug so much as a migration nobody has run; stated here so the fleet's state isn't mistaken for spec-conformant.
+* **CLOSED — decision recorded (2026-08-02): the 7 legacy agents' non-compliance is accepted, not a pending migration.** Previously stated as "each needs one controller-signed `anchorRoot` tx" as if that were merely un-run housekeeping. It is not: `xibalba.integrity`'s own genesis anchoring (§7.2, closed above) already proves the *mechanism* works — every agent registered from this point forward is spec-conformant by construction. Retroactively anchoring the 7 pre-existing agents would require either (a) their controllers running the tx individually, which is outside this protocol's control and cannot be forced, or (b) the protocol doing it on their behalf, which would mean anchoring a genesis root the agent's own controller never signed — precisely the "protocol may never author a genesis root" invariant §7.2 exists to enforce. There is no compliant path to close this retroactively; a `latestRoot == 0` legacy agent is a permanent, structural fact about agents registered before this gate existed, not a to-do. Decision: document it as such (this entry) rather than carry it as an open action item nobody can complete. **Superseded, not solved, by termination/re-registration** (§7.6 rules termination explicitly out of scope for the same registry-mutability reason — see the coherence derivation in `docs/design/primitive-set-coherence.md`), which is the only mechanism that could ever let a legacy agent re-establish itself as a fresh, spec-conformant registration.
 * **OPEN — §7.2 enforcement (Appendix A gap 2) is genuinely unbuildable for existing agents.** Gating `anchorRoot` to `latestEpoch >= 1` would stop the protocol's `ANCHOR_ROLE` signer from anchoring epoch 1, but `StateAnchor` is deployed **per agent, not cloned** — every already-deployed anchor keeps its current bytecode forever, so a contract change reaches only future agents. Any such gate must also leave `DEFAULT_ADMIN_ROLE` able to perform genesis at any epoch-0 moment, or an agent on new bytecode that skipped genesis could never recover. Deferred until that migration question is answered, not silently skipped.
 * **OPEN — Appendix A gaps 3–8, untouched:** uniform minimum stake at registration; tighter ZK-boost binding (per-event / public inputs) — today it is a period-wide `BOOL_OR`; identity-ceiling clamp in scoring (`AIS_final = min(AIS, Tier_ceiling)`); lineage attestation + on-chain record (§7.4); optional ERC-8004 discovery adapter; silence-as-signal for the observability obligation.
 * **Spec drift, confirmed:** §16's package map lists `integrity-mvp/`, which was **replaced by** `integrity-dashboard/`. The package was deleted on disk during that consolidation but the deletion sat uncommitted until 2026-07-29 (944 files), which is why the tree appeared to contain both. The spec should say `integrity-dashboard/`.
@@ -972,3 +1006,240 @@ Full regression after all of the above: frontend `npm run build`/`npm run lint` 
   * **Diagnosis note, because the record briefly said otherwise:** this fix was first written off as disproved, because a retest froze afterwards. That retest was run in a tab loaded before Vite HMR applied the change. Re-verified properly by bisecting with the page's own module toggles (all four off → select agent → re-enable one at a time) and then repeating the original path: 4 agent selections with all four panels mounted, including the trace-bearing agent, all responsive. Reading the code alone did not find this; the toggle bisect did.
 * **CLOSED — default target network is now Base Sepolia, not local anvil.** Root `.env` set to `RPC_URL=https://base-sepolia-rpc.publicnode.com`, `CHAIN_ID=84532`, `DEPLOYMENTS_FILE=deployments.baseSepolia.json`, plus the `DOCKER_*` equivalents, so a bare `docker compose up` targets the real deployed protocol — verified by a `--force-recreate` with no overrides connecting to `/deployments.baseSepolia.json` with XNS handles resolving. `make up-local` is the anvil escape hatch. The root `.env`'s `FUNDER_PRIVATE_KEY` is anvil's account #0 and is useless on Sepolia; that is now called out in the file itself, with a pointer to `contracts/.env` for the real funder key.
 * **Environment footgun worth knowing:** `docker compose` auto-loads the root `.env`, which pins `CHAIN_ID=31337` and `DOCKER_RPC_URL=http://host.docker.internal:8545` (local anvil). Any `docker compose up` for `oracle-backend` **without** the Base Sepolia overrides silently repoints the oracle at a dead anvil — every chain read then fails, XNS handles degrade to `null`, and the dashboard quietly reverts to `Agent <fingerprint>` labels. Correct invocation: `DOCKER_RPC_URL=https://base-sepolia-rpc.publicnode.com CHAIN_ID=84532 DOCKER_DEPLOYMENTS_FILE=/deployments.baseSepolia.json docker compose up -d oracle-backend`.
+
+## 21. The Claude Code hook set was measured against itself: gate blind, AIS pinned at 0, memory unanchored (2026-07-30)
+
+*Method:* the harness was tested end-to-end rather than reasoned about — `~/.claude/xibalba/tests/probe_loop.py` captures the whole loop as a diffable report (OPA truth table, AIS recomputation, vault census, per-runtime instrumentation matrix, log census). Every claim below is a measurement, not a code reading.
+
+* **CLOSED — the BCC gate was structurally incapable of denying any tool call.** Across 792 logged decisions: **715 authorized, 0 denied, 77 fail-open**. Not luck. Every rule in `policies/bcc.rego` keys on `intent_type`, and `pretool_gate.py` emitted the *constant* label `claude_tool:<ToolName>`, hashing the real command into `intended_state_hash` per §4.2. A constant matches no rule, so `violation` was always `[]` and `allow` always `true`. Direct OPA probes proved the engine was healthy the whole time (`claude_tool_bypass` → `POLICY_VIOLATION`, `EMR_WRITE` → `HIPAA_ACCESS_CONTROL_VIOLATION`); it was simply unreachable. The gate was verifying identity, replay and freshness — real, but not behavioral policy, while logging the word "authorized" as if it were. Fixed by appending a coarse risk class to the label (`claude_tool:Bash:destructive`) derived from the payload, with the payload itself still crossing the wire only as a hash — §4.2's plaintext-never-leaves property is preserved. New `bcc.rego` §3b gates `destructive`/`credential`/`chain_write`/`privileged` on `verification_tier >= 1`; 7 new OPA tests (28 → 35).
+  * **Scope stated honestly:** the classifier is a lossy one-way *signal*, trivially evadable by an adversarial agent (base64, indirection, aliasing). It is not a sandbox and must not be described as one. What it buys is a policy surface that is no longer structurally blind, plus a signed commitment ("this agent asserted it was about to do something destructive") that PostToolUse can now be reconciled against.
+
+* **CLOSED — the agent's own AIS was pinned at exactly 0.0, and the cause was the dogfooding gap itself.** `GET /v1/agent/{did}/ais` returned `ais: 0.0` with components `{entropy: 1000, grounding: 1000, sacrifice: 0, compliance: 1000}`. `scoring-core` computes a weighted **geometric** mean, so `0^0.2` annihilates the product regardless of the other three axes. `sacrifice` derives from `metadata.token_usage.total_tokens`; the hooks emitted `{"event": ..., "source": "claude-code"}` and nothing else. **The protocol scored its own construction at zero because the harness never reported the work it did.** Fixed: `_common.work_metadata()` now carries real `token_usage` and `text_output` read from the session transcript. Measured live: `sacrifice` 0.0 → 1.0, `entropy` 1.0 → 0.075 (a real Shannon measurement rather than a default).
+  * **Accounting decision, documented not buried:** `cache_read_input_tokens` is **excluded** from the token total. It counts context re-read every turn (~200k/turn), so summing it would report tens of millions of tokens for an afternoon and saturate the sacrifice curve (50k tokens = 1 proxy hour, saturating near 1000).
+  * **Double-count hazard found during implementation:** `derive_sacrifice` *sums* `total_tokens` across batch entries, and a per-tool-call hook reading the whole transcript reports a monotonically growing cumulative figure. Reporting it raw would have the oracle add ~1M, then ~1.05M, ... for the same work — exactly the failure `derive.rs`'s own comment warns about. A per-session cursor (`~/.claude/xibalba/cursors/`) now reports deltas; a cursor that can't be persisted omits `token_usage` entirely rather than risk double-counting.
+
+* **CLOSED — three of four AIS axes were fabricated-by-default.** The signed SessionStart envelope carried `derived_signals: {compliance: 1.0, entropy: 1.0, grounding: 1.0, sacrifice: 0.0}`. With no `text_output` in the payload there is nothing to compute entropy or grounding over, and `lexical_stability_score` returns a perfect `1.0` for empty text by design — so a **perfect score was being derived from no evidence**, inside a signed envelope, which is precisely the failure class this repo's no-silent-mocks rule exists to prevent. Both adapters now send real text or omit the key; `work_metadata` omits rather than defaults, so an absent signal stays absent all the way to `derive.rs`.
+
+* **CLOSED — decision recorded (2026-08-02): the fix belongs at the signal layer, not the formula.** Considered and rejected: adding a third state (e.g. `Option<f64>`/null-vs-zero) to `AisComponentInputs` and special-casing it in `scoring-core`'s geometric mean. Rejected for two reasons. First, `scoring-core`'s own docstring already states the geometric mean's zero-annihilates behavior is intentional, not a defect — "a strong axis must not compensate for a wholly absent one" is exactly the property a trust score needs, and a null-aware formula would have to decide what an "unscoreable" AIS even returns to callers (`bcc_middleware`'s tier-gating, the dashboard, `ReputationRegistry.updateScore`) that all currently assume a single `f64`. That's a breaking API change to every consumer, not a formula tweak. Second — and this is the part the original framing missed — §21's own two CLOSED entries immediately above this one show the *actual* bug was never in the formula: `sacrifice = 0` for the dogfooding agent was caused by the harness never reporting `token_usage` at all, and `lexical_stability_score` returning a fabricated perfect `1.0` for empty text was a signal-derivation bug, not a scoring one. Both are now fixed at the source (real `token_usage`, real `text_output`, an absent signal stays absent all the way to `derive.rs` rather than defaulting). The remaining "absent vs. zero" ambiguity is a genuine completeness question, but the honest place to answer it is telemetry-submission validation (flag/reject a submission missing an expected signal class before it ever reaches scoring, distinct future work) — not by teaching the AIS formula a third value that every downstream consumer would need to learn to handle. No `scoring-core` change; keeping the current two-value (reported/not) representation is the decision.
+
+* **CLOSED — the AIS formula had no test pinning its shape.** Replacing the weighted geometric mean with an arithmetic one left **all 9 scoring-core tests passing** (demonstrated, not surmised: patched a scratch copy and ran it). Every existing case sat either at a corner where the two agree (all components equal → both reduce to the same value) or above a tier ceiling that clipped the difference away. Two new tests close this: one asserts the geometric result on deliberately unequal components (geometric ≈653.5 vs arithmetic 680.0), one pins the single-zero annihilation property. Both **fail** under the arithmetic swap; suite 9 → 11.
+
+* **CLOSED — doc drift on the formula, in the two files agents actually read.** `scoring-core/src/lib.rs`'s header quoted the interface contract "verbatim" and stated the **arithmetic** sum; root `CLAUDE.md` did the same. `docs/INTERFACE_CONTRACT.md` §4.3 (normative) has the geometric form, which is what the code does. `CLAUDE.md` is loaded into every agent session, so every session was reasoning about AIS with a model that would not predict the zero-annihilation behavior. Both corrected, both now state the consequence rather than just the formula.
+
+* **CLOSED — the loop recorded intent and never outcome.** Only `SessionStart`/`PreToolUse`/`SessionEnd` were configured: the agent committed to intents it never reported the results of. That is the gap `bcc.rego` §4 names directly ("needs a *second* call after execution"). New `posttool_report.py` (`PostToolUse`) reports outcome, result size, and the **same** `intended_state_hash` the gate committed to, so intent and effect share a key and can be reconciled.
+
+* **CLOSED — vault anchoring silently stopped, and the honest-logging design did not catch it.** 10 commit leaves exist; `anchors.jsonl` records one anchor at `leaves_through: 1`; **9 leaves have been pending since 2026-07-30T08:42Z**. More telling, `session.log` contains exactly **one** `vault:` line in its entire history, though `session_stop.py` logs on *every* branch — the 14:01Z session-end logged its telemetry and then nothing. Reading the vault is not the problem (`session_root()` measured at 0.035s). The hook is being killed before or during the chain write, producing no record at all. Fixed by moving the chain write out of the hook lifetime entirely: `anchor_vault.py` runs detached (`start_new_session=True`, the pattern the Hermes plugin already relies on to outlive a turn), spawned from BOTH `session_stop.py` (session_end) and `session_start.py` (backlog drain). The latter is what finally makes the documented retry real — the old code said "a later session retries rather than losing the evidence", but the later session died at the same step, so a backlog once formed only grew. A per-agent lock prevents two runs racing the same EOA nonce.
+  * **Corrected diagnosis:** the first hypothesis was a timeout on the chain write. Measured wrong — the real anchor of all 11 backlogged leaves took **3.3s**. The hook is killed *between* the telemetry flush and the anchor call, not during it. SessionEnd now returns in **0.5s** because it only spawns; there is nothing left to kill. Backlog drained: 11 leaves anchored, tx `b189215d8a38118bb2…`.
+
+* **CLOSED (2026-08-03) — all anchored evidence was empty; root cause was a formula bug, not a discipline gap.** All 48 leaves in the vault's history carried `test_result_hash: "unverified"` or `"unverified:stale"` — including leaves committed *after* `record_test_status.py`/`vault_commit_leaf.py`/`tree_hash.py` were built same-day as the original audit to fix exactly this. The tree-mismatch check they share, `tree_hash()`, hashed `rev-parse HEAD + diff HEAD + untracked-file contents` — and `git commit` necessarily changes both `HEAD` (new SHA) and `diff HEAD` (collapses to empty) even when zero file bytes change. A status stamped immediately pre-commit could never structurally match what the post-commit hook computed one command later, so the match rate was never going to be anything but 0%. Fixed in `scripts/tree_hash.py` by hashing the actual bytes of every tracked file (`git ls-files`) instead of a commit-relative diff — `git commit` snapshots the index into a new commit object without touching working-tree files, so this hash is byte-identical immediately before and after a commit that changes nothing further. Verified two ways: a `--self-test` harness pinning the invariance property (4/4: stable across a commit, unaffected by untracked-file churn, changes on a real staged edit, stable across a second commit), and live — the fix's own commit (`acdae8b`) is the first leaf in the vault's history to carry a real hash (`0xf14dce3e…`, attesting to 43/43 `bcc_middleware` OPA policy tests run against that exact tree) instead of `unverified`.
+  * **Note, not re-opened:** all leaves anchored before this fix remain permanently `unverified`/`unverified:stale` — the vault is append-only, so this closes the mechanism going forward, not retroactively. A second, smaller honesty gap surfaced while verifying this: `record_test_status.py --finalize` re-stamps `tree_hash` to the *current* tree but does not check that every already-recorded suite entry in `.integrity-test-status` is still current — a suite result recorded hours earlier, before intervening commits, can get silently re-vouched-for by a fresh `tree_hash` at finalize time if a caller invokes `record_test_status.py` for one new suite without re-running the others. Not fixed this pass; noted for whoever picks up test-status hygiene next.
+
+* **OPEN (architectural) — three runtimes, one DID, three incompatible partial loops.** `xibalba` telemetry is a blend of three adapters with different instrumentation levels, distinguishable only by a metadata field:
+
+  | Runtime | Lifecycle | Pre-exec gate | Per-action telemetry | Anchors memory |
+  |---|---|---|---|---|
+  | Claude Code | yes | **yes** | yes *(new)* | yes |
+  | Hermes | yes | **no** | yes | no |
+  | agy | start only | no | no | no |
+
+  Between them every part exists; in no single runtime do they compose. Claude Code committed to intents without outcomes; Hermes reports outcomes it never committed to. `identity.report_action()` now makes `runtime` a mandatory, always-recorded discriminator so a blended `event_count` can be partitioned instead of being read as one agent's uniform behavior — but the oracle does not yet *group* by it, and the oracle does not yet *group* by it. **Hermes tool calls are now gated** (`hermes_gate.py`, registered as a Hermes `pre_tool_call` shell hook): the runtime executed entirely ungated for its whole existence while Claude Code was gated — one DID, two different behavioral guarantees decided by which shell the operator opened. The policy logic is NOT duplicated: `pretool_gate.evaluate_tool_intent()` is the single implementation and `hermes_gate.py` is a wire adapter, because per-runtime duplication is precisely how the two diverged. Labels are namespaced (`hermes_tool:` / `claude_tool:`) and `bcc.rego` §3b matches the risk class positionally, so both reach one ruleset; `tool_runtime` is surfaced for audit. OPA tests 35 → 37.
+  * **Bug found by testing rather than review:** the risk classifier keyed on `tool_name == "Bash"`, so every Hermes `terminal` command classified as risk-free even when destructive. Extraction is now keyed on the *field* (`command`/`path`/`content`…), not the tool name, which has no such blind spot across vocabularies.
+
+* **CLOSED — the Hermes adapter discarded the payload the oracle scores on.** `integrity_telemetry`'s `on_post_llm` had the full response text in hand and sent `response_chars: len(resp)` — a length. It now sends `text_output`, capped at 4000 chars to match the Claude side so both runtimes' scores stay comparable.
+  * **OPEN, upstream:** Hermes' `post_llm_call` hook does not pass token usage at all (`agent/turn_finalizer.py` forwards only session/task/turn ids, messages, model, platform), so `sacrifice` is still absent for Hermes-attributed work. Deliberately **not** estimated from character count — a fabricated measurement is worse than an absent one, and `sacrifice` is a multiplicative factor. Closing this needs usage plumbed into the hook upstream.
+
+* **Ratified, not fixed — the PreToolUse hook is deliberately fail-open** while `bcc_middleware` steps 5–6 are deliberately fail-closed. The middleware guards production actions where a missed denial is a compliance failure; the hook sits in a developer shell where bricking every Bash call on a container restart gets the hook set disabled wholesale — trading a partial guarantee for none. Operator-confirmed. The mitigation is accounting: `session_stop.py` now logs a lifetime fail-open ratio, because the real risk was never the individual unchecked call but the 77 that accumulated unnoticed inside an 800-line log nobody re-reads.
+
+* **CLOSED — the Verification Ladder ceiling existed in source but was not running.** `GET /v1/agent/{did}/ais` returned **839.41** for a tier-1 agent whose ceiling is 600, even though `handlers.rs` correctly calls `score_with_tier(&inputs, agent.verification_tier)` and the DB held tier 1. Cause was not a code bug: the `oracle-backend` image was built at **03:18:46**, and the ceiling commit `1c6b4d8` landed at **03:22:18** — 3.5 minutes later. The control was documented, tested, committed, and absent from the running binary. Rebuilt and redeployed; AIS now reports exactly **600.0** (raw geometric ≈770, clipped). Both the weighted geometric mean and the tier ceiling are live only as of this audit.
+  * **OPEN — nothing detects this class of drift.** The dashboard image has the same problem (`integrity-mvp@0.0.0`/Vite 8.1.4 vs source `integrity-dashboard@0.0.0`/Vite 8.0.16). A security-relevant control that exists in source but not in the deployed system is *worse* than one that doesn't exist, because the tests pass and the docs are true. `make up` should compare image build time against `git log -1` and refuse or warn. Every other finding in §21 was measured against a system that might not have been the one in the tree.
+
+* **CLOSED — dashboard down from two independent faults.** (1) `CoreFeatures.tsx` opened a `<motion.div>` and closed it with `</div>`, so Vite returned **503** for that module and the render died. (2) The real outage: two Vite servers competing for `:5173`. A stale host process running since Jul 29 held `127.0.0.1:5173` and shadowed the container; because it predated `public/XibalbaSolutionsLogo.png`, it served the SPA fallback — `index.html` **with HTTP 200** — for every logo request, so the browser got HTML where a PNG belonged.
+  * **Environment footgun:** the container builds as `integrity-mvp@0.0.0` / Vite 8.1.4 while the source tree is `integrity-dashboard@0.0.0` / Vite 8.0.16. The image is stale relative to the directory it builds from, `make up` and the host dev server are **not** interchangeable, and running both silently produces the failure above.
+
+## 22. Deployed-vs-source drift is now detectable (2026-07-30)
+
+`make check-deploy` (`scripts/check_deploy_freshness.py`) compares each service image's build timestamp against the last commit touching the source **baked into that image**, and fails if any image predates its code. Added because §21's oracle finding was undetectable by every other signal: the tests passed, the docs were accurate, the handler was correct, and the control still wasn't running. `make up` runs it in `--warn-only` mode afterwards so an already-running stale container can't hide behind a partial rebuild.
+
+* **Precision was the design constraint, not coverage.** Bind-mounted paths are deliberately excluded: `bcc_middleware/policies` is mounted read-only into the `opa` container, so a `.rego` edit takes effect on an `opa` restart with no rebuild, and listing it would fire a false positive on every policy change. `deployments.*.json` likewise. A checker that cries wolf gets ignored within a week, and an ignored checker is exactly how the original drift survived.
+* **First run found three genuinely stale images** (`oracle-backend`, `bcc-middleware` 13h behind an app change, `userapi`), which is the point.
+* **Two false positives were found and fixed by using the tool, not by reading it.** (1) Its timestamp parser trimmed fractional seconds by counting digit characters, which also counted the digits inside `-05:00` and silently dropped the offset — shifting local times 5 hours and reporting a freshly built image as STALE. Fixed and pinned with `--self-test`. (2) Comparing image build time against *commit* time flagged the ordinary edit → build → test → commit ordering as stale on every commit; it now compares against source file mtime.
+* **CLOSED — content-hash comparison replaces the mtime approximation as the primary signal.** `scripts/service_content_hash.py` hashes each service's tracked source (`git rev-parse HEAD:<path>` per path, keccak256'd — a real content address, not a timing proxy). Every Dockerfile now declares `ARG SOURCE_HASH` + `LABEL source.hash=$SOURCE_HASH`; `docker-compose.yml`'s `build.args` and the root `Makefile`'s `up` target compute and pass it fresh before every `--build`. `check_deploy_freshness.py` now compares the running image's label against a fresh recomputation and reports an exact match/mismatch. The mtime path is kept only as a fallback for images built before this label existed (labeled `(approximate — image predates content-hash labeling)` in the output, so the distinction stays visible rather than silently claiming the same guarantee).
+
+## 23. The tier ceiling made good behavior unrewardable, and voided the ZK boost (2026-07-30)
+
+Found immediately after §21 fixed AIS reporting. While the score was pinned at 0.0 this was invisible; once the loop reported real work it became the binding constraint.
+
+* **The measured problem.** `scoring_core::score_with_tier` clamps AIS to a per-tier ceiling (0→300, 1→600, 2→850, 3→1000). `handlers::SERVER_VERIFIED_TIER` is a hardcoded `1`, and tiers 2/3 "have no verification path implemented anywhere in this codebase" — so tier 1 was not where an agent happened to sit, it was the only value the system could produce. For `xibalba`: raw AIS **704**, reported **600**. Even with all four components perfect (raw 1000) the reported score stays 600. **No amount of good behavior could move the number.**
+  * **Worse, the ZK boost was worth exactly zero.** The boost is applied *before* the clamp: 704 × 1.15 = 810 → still clipped to 600. The real Noir/Barretenberg proving pipeline, `submitZkAttestation`, the 7-day `zkBoostExpiry` — the protocol's flagship cryptographic feature bought **0 points**, and an operator running it had no way to notice.
+
+* **CLOSED — rung 2 (DNS TXT) is built and real.** New `backend/src/verification.rs` + migration `0011_identity_verifications.sql` + three routes (`POST /v1/agent/{id}/verify/dns/challenge`, `POST .../verify/dns`, `GET .../verify`). The oracle issues its own nonce, resolves the record itself, and checks the signature with the pubkey it holds from registration — the request body only names *which* domain to inspect. Verified live: with no record published, verification fails with `no TXT record starting with 'integrity-verification=' found`, after genuinely querying both `_integrity.<domain>` and the bare domain.
+  * **DNS is resolved over DoH from two independent resolvers (Cloudflare + Google) that must agree.** Plain UDP DNS from inside a container is trivially spoofable by anything on the path, and a single resolver is a single point of compromise for a check whose entire purpose is establishing trust. Disagreement is a hard refusal. It also avoids adding a DNS resolver crate for one endpoint.
+  * **The signed message binds DID + domain + nonce** (`integrity-domain-verification:v1:<did>:<domain>:<nonce>`). Dropping any one weakens it materially: without the DID one agent's record verifies another; without the domain a proof replays across domains; without the nonce a record published once verifies forever. Each has a regression test.
+  * **DNS verifications expire (90 days).** Namespace control is a claim about the *present* — domains lapse and change hands. Expiry is applied in the SQL that computes the tier, so a lapsed domain lowers the ceiling automatically rather than needing a sweep job.
+  * **Effective tier is derived, never cached:** `agents.verification_tier` remains the registration floor, and the tier the system uses is that floor unioned with active verifications. A cached column would drift from its evidence.
+
+* **CLOSED — the ladder is now climbable UNATTENDED, which DNS alone never was.** DNS TXT proves control but requires a human to edit a zone file, so an agent could never raise its own tier. GitHub identity proves the same thing (`control of a namespace`) against a namespace the agent can WRITE TO via API, so challenge → publish → verify runs in one command. Proven end to end on the live agent: **effective tier 1 → 2, ceiling 600 → 850, AIS 600 → 679 and no longer clamped** (raw == reported). The ZK boost is worth ~102 points again instead of zero.
+  * **WHOIS was requested and deliberately not built.** WHOIS is a *public record lookup* — anyone can read any domain's WHOIS, so its existence is not evidence that a particular agent controls the domain; this oracle could "verify" `google.com` from a laptop. A proof of control requires doing something only the controller can do, and reading public data never qualifies regardless of how authoritative the source. WHOIS is also widely redacted post-GDPR. It can corroborate an already-proven claim; it cannot establish one.
+  * **Repo file, not gist, after hitting a real constraint.** The first implementation published a gist and failed against the live token: `403 Resource not accessible by personal access token` — fine-grained PATs frequently cannot grant gist scope at all. Writing `.well-known/integrity-verification.txt` to a public repo the account owns is the ordinary case, is equally strong (both are namespaces only the holder can write to, and GitHub's API — not the client — is the authority on ownership), and follows the RFC 8615 convention. Gists remain a fallback. Ownership and public-visibility are both re-checked server-side, so naming someone else's repo cannot claim their namespace, and a private repo is refused because a proof nobody else can re-check defeats the purpose.
+  * **Method naming was corrected before shipping** (migration 0012). GitHub proofs were initially recorded as `method='dns_txt'` because the proof *shape* is identical, producing self-contradictory audit rows (`method='dns_txt', subject='github:…'`). In a system whose product is verifiable claims, a verification record that misdescribes how it was obtained is precisely the wrong thing to ship.
+
+* **CLOSED — rung 3 is built: real AWS Nitro TEE attestation verification.** `docs/wiki/concepts/identity-ceiling.md` specifies rung 3 as "Remote TEE attestation", and explicitly rejects the old `did:xibalba:<hardware_hash>` idea (CPU model + MAC + machine-id) as never-built ideation a host can freely fabricate. New `backend/src/attestation.rs` parses the real COSE_Sign1/CBOR wire format, verifies the ES384 signature against the embedded leaf certificate, walks the certificate chain, and pins AWS's published Nitro root by SHA-256. Routes: `POST /v1/agent/{id}/verify/tee/challenge` and `POST .../verify/tee`.
+  * **Rungs 2 and 3 differ in KIND, not degree.** Rung 2 proves control of an *identifier* — a domain or GitHub account, both transferable and phishable. Rung 3 proves the agent's key lives in *measured enclave hardware* (PCRs record the exact code image), which cannot be forged without breaking the hardware root.
+  * **Validated against a genuine captured document**, not a hand-crafted fixture: `integrity-sdk/tests/fixtures/aws_nitro_document.cbor`, a real Nitro document from November 2022, shared with the Python reference implementation so both are checked against identical ground truth. Six tests: verifies the real document; rejects a tampered payload; rejects a tampered signature; rejects a chain not rooted at AWS's root; asserts the bundled PEM matches the pinned fingerprint; and confirms expiry enforcement actually fires.
+  * **Generation is impossible outside a real enclave and is NOT stubbed.** Producing an attestation document requires running inside a Nitro Enclave with NSM access — a hardware requirement, not a missing feature. `generate_attestation_unsupported()` exists so callers get that message rather than discovering the absence by finding nothing.
+  * **Nonce binding is what makes it a proof about *this* agent.** The oracle issues a nonce; the NSM embeds it in the signed document. Without it, any valid Nitro document from any enclave anywhere would grant tier 3. Verified live: the real fixture is refused because it carries the wrong nonce *and* because production enforces certificate validity (its 2022 certs are expired) — two independent refusals, both correct.
+  * **The trust root is vendored into the oracle** (`backend/trust_roots/`) rather than reached for across packages: the Docker build context is `./integrity-oracle`, so a `../../../integrity-sdk/...` `include_str!` fails at image build — and more importantly, a service should own the trust anchor it pins rather than depend on a sibling package's directory layout.
+
+* **CLOSED — the whole ladder is validated as a system, not rung by rung.** The ladder's real failure mode was never "a rung is broken", it was "the rungs don't compose" — the ceiling silently bound at tier 1 for every agent, the ZK boost was entirely absorbed, and nothing in the suite noticed. Eight new tests in `verification::ladder_tests` assert: every tier enforces its documented ceiling (300/600/850/1000); climbing strictly increases the reported score; **the ZK boost is provably wasted below tier 3 for a strong agent** (pinned as a known property rather than left to be rediscovered); a badly-behaved tier-3 agent cannot out-score a good tier-1 one (the ceiling is a cap, never a floor); tiers compose to the maximum rather than summing; losing every proof returns to the registration floor; ceilings are strictly increasing; and an out-of-range tier clamps rather than bypassing.
+  * **Live end-to-end validation against the running oracle**, with all state restored afterwards: tier 2 → ceiling 850, AIS 672.6 uncapped; revoke → tier 1, ceiling 600, AIS clipped to 600.0; grant tier 3 → ceiling 1000, uncapped again; expire → excluded from the tier query, back to the floor automatically. One result worth recording because it contradicted the expectation written into the test label: a *tier-0* verification did **not** drop the ceiling to 300 — the registration floor held at tier 1, which is correct (a weak proof must never pull an agent below its floor) and matches `effective_tier(2, &[0]) == 2`.
+
+* **OPEN — KYC (the other rung-3 method) remains schema-only, deliberately.** `identity_verifications.method` accepts `'kyc'` and the tier math handles it, but **no provider adapter is implemented** and none is faked. Building one requires a real provider account (Persona/Stripe Identity/Sumsub); a stubbed "verified" would be exactly the silent mock this repo exists not to repeat. The schema comment pins the constraint that matters when it is built: **no raw PII in this database** — store the provider name, an opaque reference, and a receipt hash only. The oracle is already HIPAA-adjacent (see the PHI backstop in 0010) and must not acquire a second class of regulated data by accident.
+
+* **CLOSED — decision recorded (2026-08-02): keep the hard clamp.** The alternative (scale weight, or cap only the ZK boost rather than the final score) was considered and rejected. Reasoning: `score_with_tier` exists to answer "how much can this AIS number be trusted," and a soft clamp lets an agent with a *weak, unverified* identity claim scores statistically indistinguishable from a verified one — the ceiling's entire job is to prevent exactly that, and softening it reopens the sybil/self-attestation problem the Verification Ladder was built to close. The "ZK boost worth zero below tier 3" consequence is real but is priced into the ladder's own design: `verification::ladder_tests` (`integrity-oracle/backend`) already asserts this as a deliberate, pinned property — "the ZK boost is provably wasted below tier 3 for a strong agent" — not a bug discovered after the fact. Changing the clamp now would mean rewriting eight tests that were written specifically to encode this behavior as correct, and would move every sub-tier-3 agent's live on-chain score on the next `scoring_loop.py` sync cycle — a production change this scope doesn't carry the regression coverage to make safely. The honest fix for "good behavior should be rewarded before tier 3" is **lowering the bar to reach tier 2/3** (more verification methods, e.g. finishing the schema-only KYC rung, see the OPEN item above), not softening what the ceiling means once tiers exist. No code change; the prior "open design question" framing is resolved to "current design is correct, kept as-is."
+
+* **CLOSED — decision recorded (2026-08-02): confirmed mis-specified; NOT fixed this pass, deliberately.** `derive::lexical_stability_score` is `1 − normalized_Shannon_entropy` over word frequency, so maximally repetitive text scores 1.0 and varied text scores near 0.0 (empty text also scores a perfect 1.0 — see §21's F3, now fixed at the signal layer so empty text no longer reaches this function at all). The metric conflates two different things — "stable/predictable" and "repetitive" are not the same property, and the S_entropy axis wants the former but `lexical_stability_score` measures the latter. A genuinely correct replacement (e.g. scoring semantic/task-outcome consistency across a period rather than lexical word-frequency entropy of a single completion) is real design work this pass didn't do.
+
+  **Why this stays open as a documented decision rather than a quick patch:** this function is implemented twice — `integrity_sdk/telemetry/derive.py` (Python, client-side re-derivation) and `integrity-oracle/backend/src/derive.rs` (Rust, the oracle's independent server-side re-check that's the actual scoring input, per `derive.rs`'s own docstring on why client-claimed signals aren't trusted). Both must change together and stay bit-identical in behavior, the same cross-implementation discipline the BCC canonicalization and token-accounting vectors already enforce elsewhere in this repo. Changing it also moves every live agent's `s_entropy` component immediately, which `bcc_middleware/app/scoring_loop.py` pushes on-chain via `ReputationRegistry.updateScore` on its next sync cycle — a formula change here is a production score change on Base Sepolia, not a local edit, and shipping one without dedicated before/after validation against real agent history (at minimum, confirming `xibalba.integrity`'s own score moves in an explicable direction) is exactly the kind of rushed change this repo's "no silent mocks, no undocumented gaps" discipline argues against. Recorded as a confirmed, scoped, two-file fix for a dedicated follow-up session — not silently dropped, not patched in a hurry.
+
+## 24. The protocol silently failed to anchor its own development evidence for days (2026-07-31)
+
+Found while recovering from a two-day outage in which the root filesystem went
+`emergency_ro` and the previous session ran with **no shell at all** — it could write files
+but never execute one. That session's findings were browser-measured and partly wrong; this
+entry records what survived verification and what did not. Full detail:
+`docs/design/e2e-audit-2026-07-31.md` (resolution pass, findings E10–E16).
+
+* **The measured problem — `bcc-middleware` signed every transaction for chain 31337 while
+  connected to Base Sepolia (84532).** Every `anchorRoot` and `updateScore` it attempted was
+  rejected by the node. The anchor path logs the failure and returns — *"retained in logs
+  only"* — so **a protocol whose entire premise is anchored, non-forgeable evidence was
+  failing to anchor its own construction**, for days, while `make test` passed and `/healthz`
+  answered `ok`. This is the exact class of gap the dogfooding mandate exists to catch, and
+  nothing except reading container logs would have caught it.
+  * **Root cause was a missing env var, not the deployments file.** `app/config.py:37` reads
+    `CHAIN_ID` and defaults to `31337`. `oracle-backend` sets `CHAIN_ID` in
+    `docker-compose.yml`; **`bcc-middleware` never did** — it was the one service taking
+    `RPC_URL` from env without taking its chain id from the same place. After the 2026-07-29
+    switch to Base Sepolia it kept signing for anvil.
+  * A second, independent misconfiguration sat behind it: `DEPLOYMENTS_FILE` was hardcoded to
+    `/deployments.local.json` with only that file mounted, so even with the chain id fixed the
+    service would have used **anvil contract addresses on Sepolia**. Both are fixed; both were
+    required. Fixing either alone would have looked like progress and produced nothing.
+  * **CLOSED — proven by on-chain state change, not by absence of errors.** Container env now
+    reports `CHAIN_ID=84532 DEPLOY=/deployments.baseSepolia.json` and the chain-id error is
+    gone, but that alone would only show transactions were *submitted*. The evidence that they
+    **succeed**:
+    * **`anchorRoot` landed.** The agent's `StateAnchor.latestRoot` moved
+      `0xdecb860c63dae118…` → `0x946387f7fab3a87c…`, `isAnchoredRoot(0x946387f7…) == true`,
+      and `pending_batch_size` dropped to 0 on flush. The previous root still reports
+      `true`, confirming the append-only property held across the write.
+    * **`updateScore` landed.** `ReputationRegistry.scores(0x360e2a56…).lastUpdated` is a
+      timestamp from this session (`1785484478`), which only an accepted transaction sets.
+    * Nonce advancement (260 → 275) was *not* treated as proof — a reverting transaction
+      consumes its nonce too. It is corroborating, not load-bearing.
+  * Both roles were confirmed **before** wiring the key in, rather than discovered through a
+    failed transaction: `hasRole(ANCHOR_ROLE, 0x67bA5D72…) == true` on the agent's own
+    `StateAnchor`, and `hasRole(ORACLE_ROLE, …) == true` on its `ReputationRegistry` — these
+    are different contracts and different roles, and `updateScore` needs the second.
+  * `BCC_MERKLE_BATCH_SIZE` is now surfaced in `docker-compose.yml` (it was only reachable as
+    a `config.py` default). Setting it to 1 is what made the anchor path provable in one
+    commitment instead of eight — and the rarity of flushes is precisely why this defect
+    stayed invisible: **the failure only manifests on flush.**
+
+* **The test harness could record a pass and could not record a failure.** Every line of
+  `make test` read `cd pkg && pytest && cd .. && $(TEST_STATUS) pkg pass || $(TEST_STATUS) pkg fail`.
+  On failure `&&` short-circuits, so `cd ..` never runs and the `||` branch execs the recorder
+  *from inside the package directory*, where it does not exist — it crashes. **The mechanism
+  that feeds test outcomes into the anchored evidence chain could only ever write `pass`.**
+  That crash then aborted the whole target at the first failing package, so one
+  `bcc_middleware` failure silently skipped `integrity-userapi` and `integrity-dashboard`
+  entirely.
+  * An evidence system that can record success and cannot record failure does not have a
+    logging gap, it has a **bias** — and it is a direct contributing cause of §19/F5's
+    "every leaf says `unverified`".
+  * **The trap in fixing it:** repairing only the path makes `|| … fail` exit 0, so `make test`
+    would report **success on a red suite** — strictly worse than the crash. Fixed as
+    `|| { $(TEST_STATUS) pkg fail; false; }` with `$(CURDIR)` on the recorder: record the
+    outcome, then still fail.
+
+* **CONFIRMED — F5 is a design bug, not a discipline problem.** The previous session predicted
+  this but could not test it. Reading the real vault: **21/21 leaves carry `unverified`**, and
+  17 of those are specifically `unverified:stale` — the fingerprint-mismatch path, not an
+  absent status file. Not one leaf in the entire history has ever recorded a verified test
+  result. `vault_commit_leaf.py` fingerprints `HEAD ‖ git diff HEAD ‖ untracked`, which cannot
+  be equal pre- and post-commit under any ordering. The fix (key status to tree content —
+  `git write-tree` pre-commit equals `HEAD^{tree}` post-commit) is now unblocked, since the
+  recorder bug above was the other half of it. **Still OPEN.**
+
+* **CLOSED — the vault-leaf importer would have written a false lineage, caught before its
+  first real run.** `scripts/import_memory_dag.py` chained each leaf to its predecessor in
+  file order. Measured against the real 21-leaf vault, that assumption is *half* right: leaf
+  timestamps are strictly monotonic, so file order is chronological — but **chronological
+  order is not ancestry**. Of 20 consecutive pairs, 19 are true git ancestor pairs and one is
+  not: `6c0c9bf → d7e4deb` are *siblings* off merge-base `354c6b5` (one on
+  `docs/spec-open-definitions`, one on `main`) because the developer switched branches.
+  * In a recall system that is a harmless approximation. In an **evidence** system whose whole
+    claim is non-forgeable lineage, an edge that is merely plausible is worse than no edge — it
+    is a false statement that verifies. The importer now resolves each parent via a real
+    `git merge-base --is-ancestor` check and records a second root rather than inventing a
+    parent. Corrected import: `d7e4deb → 36e23d9b` (the true fork point), with `6c0c9bf` left
+    as what it actually is — an unmerged branch tip.
+  * Known limitation, recorded rather than hidden: `root_of_heads` folds only *named* refs, and
+    only `head` is named, so it commits to the main line and not to the full frontier.
+
+* **OPEN — the oracle serves stale anvil primitives as authoritative.** `GET /v1/agent/{did}`
+  for an agent that does not exist on the configured chain returns **200**, not 404, carrying
+  anvil-era addresses and `"blockchainAccountId": "eip155:31337:…"` from a Sepolia-configured
+  oracle. The chain read correctly reverts `UnknownDID()`; the handler then falls back to the
+  DB cache. The fallback itself is defensible — a transient RPC failure should not blank the
+  dashboard — but it is **chain-agnostic**, so it will serve addresses from a *different chain*
+  without saying so beyond `"primitives_source": "cache"`. For a system whose stated invariant
+  is "the chain is the source of truth", that is a false answer, not a degraded one. The cache
+  should record the chain id it was populated from and refuse to serve across a mismatch.
+  **Do not close this by deleting the five stale rows** — that silences the symptom and
+  destroys evidence.
+
+* **OPEN — audit reports are fire-and-forget and are dropped on shutdown.**
+  `main._report_decision_background` schedules the audit write as
+  `ensure_future(to_thread(report_decision, …))` and nothing ever awaits it. The
+  `_audit_report_tasks` set prevents garbage collection; it does not make anything *wait*. A
+  worker shutting down with reports in flight loses them silently. Surfaced because
+  `test_evidence_linkage.py` was accidentally reproducing exactly that: its bare
+  `TestClient(app)` tore down a fresh event loop per request and cancelled the pending task,
+  giving 1 pass / 3 fail across four consecutive runs with no code change. The test is fixed
+  (context-managed client); **the production drop is not.**
+
+* **OPEN — the nonce race survives its own documented lock.** After the chain-id fix,
+  `updateScore` still failed with `nonce too low: next nonce 261, tx nonce 260`, despite
+  `nonce_lock.py` holding a process-wide lock across the full read → sign → broadcast → receipt
+  sequence specifically to prevent it (§5). The lock being process-wide makes an in-process
+  race unlikely; the leading hypothesis is a **stale nonce read from the load-balanced public
+  RPC** — `contracts/.env` itself warns that `publicnode.com` rate-limits aggressively.
+  **Explicitly unconfirmed**: separating the two requires a dedicated endpoint.
+
+* **CLOSED — compose healthchecks now probe a data path, not liveness.** No service declared a
+  `healthcheck:` at all. Five now do; the oracle's hits **`/v1/agents` (which touches Postgres),
+  deliberately not `/healthz`** — a bare `-> "ok"` handler that answers 200 from a service that
+  cannot serve a single real request. Wiring a healthcheck to it would have reproduced the
+  original bug with more ceremony. Database `depends_on` were converted to
+  `{condition: service_healthy}` so the oracle waits for readiness rather than start.
+
+* **A correction to the record, kept deliberately.** The prior session's headline finding —
+  "every `/v1` route returns HTTP 500" — **did not reproduce**. All routes return 200 with real
+  data; the oracle's boot log is clean and contains zero sqlx errors across its whole history;
+  and both named suspects (Postgres/Redis, and the uncommitted `db.rs` query) were wrong — the
+  query is type-safe and demonstrably works. What the 500s actually were is **not established**,
+  because the container that served them was replaced before a shell existed to inspect it. The
+  honest statement is that the evidence was destroyed, not that the problem was solved. That is
+  itself the argument for the healthchecks above: `/healthz` returning `ok` preserved no
+  information that could distinguish "broken" from "briefly broken" after the fact.
+
+* **OPEN — the dashboard Docker image cannot be rebuilt.** `docker compose build dashboard`
+  fails at `npm install` with `Cannot read properties of null (reading 'edgesOut')` — an npm
+  arborist crash, not a dependency conflict. Consequence: the running dashboard image dates
+  from **2026-07-18** while its source is current, so `make check-deploy` reports it STALE and
+  *cannot be made fresh*. The dashboard's own suite passes on the host (`vitest run`, 20 files
+  / 68 tests), so this is a container-build problem, not broken code. Untouched by this
+  session's changes — `package.json`/`package-lock.json` are unmodified. Worth noting that the
+  freshness check (§22) is doing exactly its job here: it converted an invisible 13-day drift
+  into a visible, actionable failure.

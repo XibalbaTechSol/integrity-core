@@ -90,7 +90,7 @@ E2E-specific to install beyond `npx playwright install chromium` once.
 
 **Convention for new specs**: as `integrity-dashboard`'s dashboard pages get
 built out (task #21 — Markets, Leaderboard, Wallet, Capital Allocation,
-Cognition, Identity, Shield, Landing), each new page's Playwright spec
+Cognition, Identity, Health, Landing), each new page's Playwright spec
 ships in the *same pass* as the page, not as a follow-up. Cover real
 negative paths too, not just happy paths (a low-AIS agent's market-entry
 control is genuinely disabled by a real on-chain check, an unauthenticated

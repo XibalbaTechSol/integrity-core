@@ -18,6 +18,22 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/agent/{id}", get(handlers::get_agent))
         .route("/v1/agents", get(handlers::list_agents))
         .route("/v1/agent/{id}/ais", get(handlers::get_ais))
+        // Verification Ladder (rungs 2/3). The challenge endpoint issues a
+        // server-generated nonce; the verify endpoint resolves DNS itself over DoH
+        // and checks the signature with the pubkey from registration -- nothing in
+        // the request body influences the verdict except which domain to inspect.
+        .route("/v1/agent/{id}/verify", get(handlers::get_verifications))
+        .route("/v1/agent/{id}/verify/dns/challenge", post(handlers::request_dns_challenge))
+        .route("/v1/agent/{id}/verify/dns", post(handlers::verify_dns))
+        // Same rung as DNS, against a namespace an agent can write to via API --
+        // which is what makes climbing the ladder automatable end to end.
+        .route("/v1/agent/{id}/verify/github/challenge", post(handlers::request_github_challenge))
+        .route("/v1/agent/{id}/verify/github", post(handlers::verify_github))
+        // Rung 3: remote TEE attestation. Categorically stronger than rungs 1-2 --
+        // proves the key lives in measured enclave hardware, not merely that an
+        // identifier is controlled.
+        .route("/v1/agent/{id}/verify/tee/challenge", post(handlers::request_tee_challenge))
+        .route("/v1/agent/{id}/verify/tee", post(handlers::verify_tee))
         .route("/v1/agent/{id}/ais/history", get(handlers::get_ais_history))
         .route("/v1/agent/{id}/compliance", get(handlers::get_compliance))
         .route("/v1/agent/{id}/wallet", get(handlers::get_wallet))

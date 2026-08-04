@@ -210,6 +210,7 @@ pub async fn register_agent(
         &format!("{:#x}", claimed.agent_profile),
         &format!("{:#x}", record.controller),
         &record.domain_id.to_string(),
+        state.chain.chain_id() as i64,
     )
     .await?;
 
@@ -269,8 +270,15 @@ pub async fn get_agent(State(state): State<AppState>, Path(id): Path<String>) ->
     // chain on miss") and persist it so the next lookup is cheap again. This also covers
     // an agent that registered on-chain directly via integrity-sdk/cli without ever
     // calling this oracle's POST /v1/agent/register.
+    //
+    // E11: a cache row is only trusted if it was resolved against the chain this oracle
+    // is currently configured for. A row from a different chain id (or `NULL`, meaning
+    // "resolved before this column existed") is treated exactly like a cache miss —
+    // never served as-is — so an oracle repointed to a different network can't keep
+    // handing out addresses that belong to the old one.
     let cached = db::get_agent_primitives(&state.pool, &id).await?;
-    let (primitives, source) = match cached {
+    let current_chain_id = state.chain.chain_id() as i64;
+    let (primitives, source) = match cached.filter(|row| row.chain_id == Some(current_chain_id)) {
         Some(row) => (Some(row_to_dto(&row)?), "cache"),
         None => match state.chain.resolve_primitives_by_did(&id).await {
             Ok(record) => {
@@ -286,6 +294,7 @@ pub async fn get_agent(State(state): State<AppState>, Path(id): Path<String>) ->
                     &format!("{:#x}", record.primitives.agent_profile),
                     &format!("{:#x}", record.controller),
                     &record.domain_id.to_string(),
+                    current_chain_id,
                 )
                 .await?;
                 (Some(record.primitives.into()), "chain-backfill")
@@ -293,7 +302,10 @@ pub async fn get_agent(State(state): State<AppState>, Path(id): Path<String>) ->
             // No agents row AND nothing on-chain either: genuinely unknown DID.
             Err(_) if agent_row.is_none() => return Err(AppError::AgentNotFound(id)),
             // Chain lookup failed but we do have a local row — still return what we know
-            // rather than failing the whole request over an on-chain read hiccup.
+            // rather than failing the whole request over an on-chain read hiccup. Note
+            // this deliberately does NOT fall back to a stale-chain cache row (if one
+            // existed, it was already filtered out above) — serving wrong-chain
+            // addresses would be worse than serving none.
             Err(_) => (None, "unavailable"),
         },
     };
@@ -317,9 +329,22 @@ pub async fn get_agent(State(state): State<AppState>, Path(id): Path<String>) ->
         }
     };
 
+    // EFFECTIVE tier, not the registration column. `agents.verification_tier` is
+    // only the floor registration can establish (a hardcoded 1); rungs 2/3 live in
+    // `identity_verifications`. Reporting the raw column here made this endpoint
+    // lie about every agent that had climbed the ladder -- an agent verified to
+    // tier 2 still showed as tier 1 to the dashboard and to every other consumer,
+    // while its AIS was (correctly) computed against the tier-2 ceiling. A trust
+    // protocol whose own API misreports verification level is worse than one that
+    // has no levels.
+    let effective_tier =
+        db::effective_verification_tier(&state.pool, &agent_row.id, agent_row.verification_tier)
+            .await
+            .unwrap_or(agent_row.verification_tier);
+
     Ok(Json(AgentResponse {
         id: agent_row.id,
-        verification_tier: agent_row.verification_tier,
+        verification_tier: effective_tier,
         last_nonce: agent_row.last_nonce,
         created_at: agent_row.created_at,
         has_ed25519_key: agent_row.ed25519_pubkey.is_some(),
@@ -496,7 +521,14 @@ pub(crate) async fn compute_ais_for_agent(state: &AppState, id: &str) -> Result<
     let agent = db::get_agent(&state.pool, id).await?.ok_or_else(|| AppError::AgentNotFound(id.to_string()))?;
 
     let engine = scoring_core::AisEngine::new(state.config.ais_weights).map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
-    let breakdown = engine.score_with_tier(&inputs, agent.verification_tier);
+    // EFFECTIVE tier, not the registration column: `agents.verification_tier` is only
+    // the floor registration can establish (a hardcoded 1). Rungs 2/3 are evidence-backed
+    // rows in `identity_verifications`, and expiry is applied in that query, so a lapsed
+    // domain lowers the ceiling here automatically. Reading the raw column instead would
+    // permanently cap every agent at 600 no matter what it proved -- which is the bug
+    // this subsystem exists to fix.
+    let tier = db::effective_verification_tier(&state.pool, id, agent.verification_tier).await?;
+    let breakdown = engine.score_with_tier(&inputs, tier);
 
     let onchain_zk_boost_consistent = match db::get_agent_primitives(&state.pool, id).await? {
         Some(row) => {
@@ -978,7 +1010,12 @@ pub async fn get_compliance(
     Path(id): Path<String>,
     Query(query): Query<ComplianceQuery>,
 ) -> Result<Json<ComplianceResponse>, AppError> {
-    let cached = db::get_agent_primitives(&state.pool, &id).await?;
+    // E11: same chain-id guard as `get_agent`/`resolve_primitives_row` — a cross-chain
+    // cache row must not be trusted for a live compliance-gate read either.
+    let current_chain_id = state.chain.chain_id() as i64;
+    let cached = db::get_agent_primitives(&state.pool, &id)
+        .await?
+        .filter(|row| row.chain_id == Some(current_chain_id));
     let compliance_gate_addr = match cached {
         Some(row) => Address::from_str(&row.compliance_gate_address)
             .map_err(|e| AppError::Internal(anyhow::anyhow!("cached compliance_gate_address is not a valid address: {e}")))?,
@@ -1234,7 +1271,13 @@ pub async fn get_market(
 /// than a hard error, since callers here (leaderboard) want to skip-and-continue, not
 /// fail the whole request over one agent's stale/unresolvable primitives.
 async fn resolve_primitives_row(state: &AppState, agent_id: &str) -> Result<Option<db::AgentPrimitivesRow>, AppError> {
-    if let Some(row) = db::get_agent_primitives(&state.pool, agent_id).await? {
+    // E11: only trust a cache row resolved against this oracle's own chain — see the
+    // matching comment in `get_agent` above for why.
+    let current_chain_id = state.chain.chain_id() as i64;
+    if let Some(row) = db::get_agent_primitives(&state.pool, agent_id)
+        .await?
+        .filter(|row| row.chain_id == Some(current_chain_id))
+    {
         return Ok(Some(row));
     }
     match state.chain.resolve_primitives_by_did(agent_id).await {
@@ -1251,6 +1294,7 @@ async fn resolve_primitives_row(state: &AppState, agent_id: &str) -> Result<Opti
                 &format!("{:#x}", record.primitives.agent_profile),
                 &format!("{:#x}", record.controller),
                 &record.domain_id.to_string(),
+                current_chain_id,
             )
             .await?;
             Ok(db::get_agent_primitives(&state.pool, agent_id).await?)
@@ -1950,7 +1994,7 @@ fn baa_status_str(s: u8) -> &'static str {
     path = "/v1/agent/{id}/baas",
     params(("id" = String, Path, description = "Agent DID")),
     responses((status = 200, description = "SmartBAA agreements where this agent is the business associate", body = Vec<BaaDto>)),
-    tag = "shield",
+    tag = "health",
 )]
 pub async fn get_agent_baas(
     State(state): State<AppState>,
@@ -2717,3 +2761,507 @@ pub async fn get_trace_tree(State(state): State<AppState>, Path(trace_id): Path<
     }))
 }
 
+
+// ---------------------------------------------------------------------------
+// Verification Ladder: rungs 2 (DNS) and 3 (KYC)
+// ---------------------------------------------------------------------------
+// `SERVER_VERIFIED_TIER` above is the REGISTRATION floor and stays a constant —
+// registration genuinely cannot establish more than tier 1. Rungs above it are
+// evidence-backed and live in `identity_verifications` (migration 0011), so the
+// tier an agent actually gets is the floor unioned with its active verifications.
+// Because that union is computed from live rows with expiry applied in SQL, a
+// lapsed domain lowers the tier on its own rather than needing a sweep job.
+
+#[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
+pub struct DnsChallengeRequest {
+    /// Domain the agent claims to control, e.g. "xibalbatechsol.com".
+    pub domain: String,
+}
+
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct DnsChallengeResponse {
+    pub domain: String,
+    pub nonce: String,
+    /// The exact string to sign with the agent's Ed25519 key.
+    pub message_to_sign: String,
+    /// Where to publish, and what the value must look like once signed.
+    pub txt_record_name: String,
+    pub txt_record_value_format: String,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Issue a DNS challenge. The nonce is generated SERVER-SIDE and stored; a client
+/// cannot choose it, which is what stops a TXT record published once from
+/// verifying forever.
+pub async fn request_dns_challenge(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<DnsChallengeRequest>,
+) -> Result<Json<DnsChallengeResponse>, AppError> {
+    use crate::verification as v;
+
+    let domain = req.domain.trim().to_lowercase();
+    v::validate_domain(&domain).map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    let agent = db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+    if agent.ed25519_pubkey.is_none() {
+        return Err(AppError::BadRequest(
+            "agent has no Ed25519 key registered; DNS verification signs with that key".to_string(),
+        ));
+    }
+
+    let nonce = uuid::Uuid::new_v4().simple().to_string();
+    let expires_at =
+        db::issue_dns_challenge(&state.pool, &id, &domain, &nonce, v::CHALLENGE_TTL_MINUTES).await?;
+
+    Ok(Json(DnsChallengeResponse {
+        message_to_sign: v::challenge_message(&id, &domain, &nonce),
+        txt_record_name: format!("_integrity.{domain}"),
+        txt_record_value_format: v::expected_txt_record("<hex-ed25519-signature>"),
+        domain,
+        nonce,
+        expires_at,
+    }))
+}
+
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct VerificationResponse {
+    pub agent_id: String,
+    pub method: String,
+    pub subject: String,
+    pub tier_granted: i32,
+    pub effective_tier: i32,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Verify a previously-issued DNS challenge and grant tier 2 on success.
+///
+/// Every input to the verdict is server-held: the nonce came from our DB, the
+/// public key came from registration, and the TXT record is resolved by us over
+/// DoH from two independent resolvers that must agree. The request body only says
+/// *which* domain to look at.
+pub async fn verify_dns(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<DnsChallengeRequest>,
+) -> Result<Json<VerificationResponse>, AppError> {
+    use crate::verification as v;
+
+    let domain = req.domain.trim().to_lowercase();
+    v::validate_domain(&domain).map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    let agent = db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+    let pubkey = agent
+        .ed25519_pubkey
+        .ok_or_else(|| AppError::BadRequest("agent has no Ed25519 key registered".to_string()))?;
+
+    let nonce = db::get_active_dns_challenge(&state.pool, &id, &domain)
+        .await?
+        .ok_or_else(|| {
+            AppError::BadRequest(
+                "no active challenge for this domain — POST /verify/dns/challenge first \
+                 (challenges expire, by design)"
+                    .to_string(),
+            )
+        })?;
+
+    // A dedicated client rather than a shared one on AppState: domain
+    // verification is a rare, human-initiated operation (not a hot path), and the
+    // timeouts it wants are stricter than a general-purpose client's — a DoH
+    // lookup that hangs must fail the verification quickly rather than occupy a
+    // request worker.
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .user_agent("integrity-oracle/domain-verification")
+        .build()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("http client: {e}")))?;
+
+    let records = v::resolve_verification_txt(&http, &domain)
+        .await
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    let signature = v::verify_txt_records(&records, &pubkey, &id, &domain, &nonce)
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    let expires_at = chrono::Utc::now() + chrono::Duration::days(v::DNS_VERIFICATION_TTL_DAYS);
+    let evidence = serde_json::to_value(v::dns_evidence(&domain, &signature, &nonce))
+        .unwrap_or_else(|_| serde_json::json!({"domain": domain}));
+
+    let row = db::record_identity_verification(
+        &state.pool,
+        &id,
+        "dns_txt",
+        v::TIER_DNS_VERIFIED,
+        &domain,
+        evidence,
+        Some(expires_at),
+    )
+    .await?;
+
+    // Consume only AFTER the verification is durably recorded. Consuming first
+    // would burn the nonce on a DB failure and force the operator to re-publish
+    // a new TXT record for a proof that actually succeeded.
+    db::consume_dns_challenge(&state.pool, &id, &domain).await?;
+
+    let effective =
+        db::effective_verification_tier(&state.pool, &id, agent.verification_tier).await?;
+
+    tracing::info!(agent_id = %id, %domain, effective_tier = effective, "DNS verification granted");
+
+    Ok(Json(VerificationResponse {
+        agent_id: id,
+        method: row.method,
+        subject: row.subject,
+        tier_granted: row.tier_granted,
+        effective_tier: effective,
+        expires_at: row.expires_at,
+    }))
+}
+
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct VerificationListResponse {
+    pub agent_id: String,
+    pub registration_tier: i32,
+    pub effective_tier: i32,
+    /// `verified` = earned through registration + unexpired evidence.
+    /// `dev_override` = ASSERTED by local configuration and not proven. Always
+    /// present so a consumer never has to infer which kind of tier this is.
+    pub tier_source: crate::verification::TierSource,
+    /// AIS ceiling implied by `effective_tier` — surfaced because the ceiling
+    /// silently binding is exactly how this whole subsystem's absence went
+    /// unnoticed (raw AIS 704 reported as 600, ZK boost worth nothing).
+    pub ais_ceiling: f64,
+    pub verifications: Vec<db::IdentityVerificationRow>,
+}
+
+pub async fn get_verifications(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<VerificationListResponse>, AppError> {
+    let agent = db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+    let verifications = db::list_identity_verifications(&state.pool, &id).await?;
+    let (effective, tier_source) =
+        db::effective_tier_with_source(&state.pool, &id, agent.verification_tier).await?;
+
+    Ok(Json(VerificationListResponse {
+        agent_id: id,
+        registration_tier: agent.verification_tier,
+        effective_tier: effective,
+        tier_source,
+        ais_ceiling: scoring_core::AisEngine::ceiling_for_tier(effective),
+        verifications,
+    }))
+}
+
+#[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
+pub struct GithubVerifyRequest {
+    /// GitHub login the agent claims to control.
+    pub login: String,
+    /// Public repo holding `.well-known/integrity-verification.txt`.
+    /// Defaults to `<login>.github.io`. Ownership is re-checked server-side, so
+    /// naming a repo here cannot be used to claim someone else's namespace.
+    #[serde(default)]
+    pub repo: Option<String>,
+}
+
+/// Issue a challenge for GitHub-identity verification.
+///
+/// Same ladder rung as DNS (tier 2, "control of a namespace"), against a namespace
+/// the agent can write to via API — which is what makes the climb automatable with
+/// no operator editing a zone file by hand.
+pub async fn request_github_challenge(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<GithubVerifyRequest>,
+) -> Result<Json<DnsChallengeResponse>, AppError> {
+    use crate::verification as v;
+
+    let login = req.login.trim().to_lowercase();
+    v::validate_github_login(&login).map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    let agent = db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+    if agent.ed25519_pubkey.is_none() {
+        return Err(AppError::BadRequest(
+            "agent has no Ed25519 key registered".to_string(),
+        ));
+    }
+
+    let subject = v::github_subject(&login);
+    let nonce = uuid::Uuid::new_v4().simple().to_string();
+    // Challenges are keyed by (agent, subject); `github:<login>` cannot collide
+    // with a domain, so the same table serves both methods.
+    let expires_at =
+        db::issue_dns_challenge(&state.pool, &id, &subject, &nonce, v::CHALLENGE_TTL_MINUTES).await?;
+
+    Ok(Json(DnsChallengeResponse {
+        message_to_sign: v::challenge_message(&id, &subject, &nonce),
+        txt_record_name: format!("public gist file `{}`", v::GITHUB_MARKER_FILENAME),
+        txt_record_value_format: v::expected_txt_record("<hex-ed25519-signature>"),
+        domain: subject,
+        nonce,
+        expires_at,
+    }))
+}
+
+/// Verify control of a GitHub identity and grant tier 2.
+pub async fn verify_github(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<GithubVerifyRequest>,
+) -> Result<Json<VerificationResponse>, AppError> {
+    use crate::verification as v;
+
+    let login = req.login.trim().to_lowercase();
+    v::validate_github_login(&login).map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let subject = v::github_subject(&login);
+
+    let agent = db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+    let pubkey = agent
+        .ed25519_pubkey
+        .ok_or_else(|| AppError::BadRequest("agent has no Ed25519 key registered".to_string()))?;
+
+    let nonce = db::get_active_dns_challenge(&state.pool, &id, &subject)
+        .await?
+        .ok_or_else(|| {
+            AppError::BadRequest(
+                "no active challenge for this identity — request one first".to_string(),
+            )
+        })?;
+
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .user_agent("integrity-oracle/identity-verification")
+        .build()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("http client: {e}")))?;
+
+    // Try the repo file first, then gists. Repo-file publication is what a
+    // fine-grained PAT can actually do -- gist creation needs a scope such tokens
+    // frequently cannot grant (`403 Resource not accessible by personal access
+    // token`). Both are equally strong proofs; the fallback exists so an agent
+    // whose token *can* write gists is not forced to create a repo.
+    let repo = req.repo.clone().unwrap_or_else(|| format!("{login}.github.io"));
+    let mut payloads: Vec<String> = Vec::new();
+    let mut attempts: Vec<String> = Vec::new();
+
+    match v::fetch_github_repo_payload(&http, &login, &repo).await {
+        Ok(p) => payloads.push(p),
+        Err(e) => attempts.push(format!("repo {login}/{repo}: {e}")),
+    }
+    if payloads.is_empty() {
+        match v::fetch_github_challenge_payloads(&http, &login).await {
+            Ok(mut p) => payloads.append(&mut p),
+            Err(e) => attempts.push(format!("gists: {e}")),
+        }
+    }
+    if payloads.is_empty() {
+        return Err(AppError::BadRequest(format!(
+            "no signed challenge found -- {}",
+            attempts.join("; ")
+        )));
+    }
+
+    let signature = v::verify_github_payloads(&payloads, &pubkey, &id, &subject, &nonce)
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    // GitHub verifications expire like DNS ones: account control is a claim about
+    // the present, and accounts get transferred, renamed or compromised.
+    let expires_at = chrono::Utc::now() + chrono::Duration::days(v::DNS_VERIFICATION_TTL_DAYS);
+    let evidence = serde_json::json!({
+        "method": "github_gist",
+        "login": login,
+        "signature": signature,
+        "nonce": nonce,
+        "marker_file": v::GITHUB_MARKER_FILENAME,
+        "challenge_format": "integrity-domain-verification:v1:<did>:<subject>:<nonce>",
+    });
+
+    let row = db::record_identity_verification(
+        &state.pool,
+        &id,
+        // Same rung and same proof shape as DNS, but recorded under its own method
+        // name: an audit row claiming `dns_txt` for a proof read from GitHub's API
+        // misdescribes how it was obtained (see migration 0012).
+        "github",
+        v::TIER_DNS_VERIFIED,
+        &subject,
+        evidence,
+        Some(expires_at),
+    )
+    .await?;
+
+    db::consume_dns_challenge(&state.pool, &id, &subject).await?;
+
+    let effective =
+        db::effective_verification_tier(&state.pool, &id, agent.verification_tier).await?;
+
+    tracing::info!(agent_id = %id, %login, effective_tier = effective, "GitHub verification granted");
+
+    Ok(Json(VerificationResponse {
+        agent_id: id,
+        method: row.method,
+        subject: row.subject,
+        tier_granted: row.tier_granted,
+        effective_tier: effective,
+        expires_at: row.expires_at,
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// Verification Ladder rung 3: remote TEE attestation
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
+pub struct TeeVerifyRequest {
+    /// Base64-encoded raw CBOR attestation document, exactly as the Nitro
+    /// Security Module produced it. Not re-encoded or wrapped — the signature
+    /// covers specific bytes and any re-serialization risks changing them.
+    pub attestation_document_b64: String,
+}
+
+/// Issue a challenge nonce for TEE attestation.
+///
+/// The nonce is what binds an attestation to *this agent, now*. Nitro's NSM
+/// embeds a caller-supplied nonce in the signed document, so an attestation
+/// generated for someone else — or captured and replayed later — carries the
+/// wrong nonce and is refused. Without it, any valid Nitro document from any
+/// enclave anywhere would grant tier 3.
+pub async fn request_tee_challenge(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<DnsChallengeResponse>, AppError> {
+    use crate::verification as v;
+
+    db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+
+    let subject = "tee:nitro".to_string();
+    let nonce = uuid::Uuid::new_v4().simple().to_string();
+    let expires_at =
+        db::issue_dns_challenge(&state.pool, &id, &subject, &nonce, v::CHALLENGE_TTL_MINUTES).await?;
+
+    Ok(Json(DnsChallengeResponse {
+        message_to_sign: format!(
+            "supply this nonce to the NSM when generating the attestation document: {nonce}"
+        ),
+        txt_record_name: "AWS Nitro NSM GetAttestationDoc(nonce=...)".to_string(),
+        txt_record_value_format: "base64(raw CBOR attestation document)".to_string(),
+        domain: subject,
+        nonce,
+        expires_at,
+    }))
+}
+
+/// Verify a Nitro attestation document and grant tier 3.
+///
+/// Fails closed at every step. There is no path here that grants a tier without
+/// a cryptographically valid document chaining to AWS's pinned root — generating
+/// such a document requires real enclave hardware, which is the entire point of
+/// the rung.
+pub async fn verify_tee(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<TeeVerifyRequest>,
+) -> Result<Json<VerificationResponse>, AppError> {
+    use base64::Engine;
+
+    use crate::attestation as att;
+    use crate::verification as v;
+
+    let agent = db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+
+    let subject = "tee:nitro".to_string();
+    let nonce = db::get_active_dns_challenge(&state.pool, &id, &subject)
+        .await?
+        .ok_or_else(|| {
+            AppError::BadRequest(
+                "no active TEE challenge — request one first (challenges expire)".to_string(),
+            )
+        })?;
+
+    let document = base64::engine::general_purpose::STANDARD
+        .decode(req.attestation_document_b64.trim())
+        .map_err(|e| AppError::BadRequest(format!("attestation_document_b64 is not base64: {e}")))?;
+
+    // Vendored into this crate on purpose -- see backend/trust_roots/README.md:
+    // the Docker build context is ./integrity-oracle, and a trust anchor should be
+    // owned by the service that pins it, not reached for across packages.
+    let root_pem = include_str!("../trust_roots/aws_nitro_root_g1.pem");
+    let outcome = att::verify_nitro_attestation(&document, root_pem, true)
+        .map_err(|e| AppError::BadRequest(format!("attestation document rejected: {e}")))?;
+
+    if !outcome.valid {
+        return Err(AppError::BadRequest(format!(
+            "attestation did not verify: {}",
+            outcome.errors.join("; ")
+        )));
+    }
+
+    // Bind the document to THIS challenge. A valid attestation from an unrelated
+    // enclave proves that enclave exists; it says nothing about this agent.
+    let doc_nonce = outcome
+        .nonce
+        .as_ref()
+        .map(|n| String::from_utf8_lossy(n).to_string())
+        .unwrap_or_default();
+    if doc_nonce.trim() != nonce {
+        return Err(AppError::BadRequest(
+            "attestation document does not carry this challenge's nonce — \
+             generate a fresh document with the issued nonce"
+                .to_string(),
+        ));
+    }
+
+    // TEE attestations expire fast relative to namespace proofs: an enclave
+    // measurement is a statement about a running instance, and instances are
+    // replaced. 30 days, versus 90 for a domain.
+    let expires_at = chrono::Utc::now() + chrono::Duration::days(30);
+    let evidence = serde_json::json!({
+        "method": "tee_nitro",
+        "module_id": outcome.module_id,
+        "pcrs": outcome.pcrs,
+        "timestamp_ms": outcome.timestamp_ms,
+        "root_pinned_sha256": att::AWS_NITRO_ROOT_SHA256,
+        "nonce": nonce,
+    });
+
+    let row = db::record_identity_verification(
+        &state.pool,
+        &id,
+        "tee_nitro",
+        v::TIER_KYC_VERIFIED, // rung 3
+        &subject,
+        evidence,
+        Some(expires_at),
+    )
+    .await?;
+
+    db::consume_dns_challenge(&state.pool, &id, &subject).await?;
+
+    let effective =
+        db::effective_verification_tier(&state.pool, &id, agent.verification_tier).await?;
+
+    tracing::info!(agent_id = %id, module_id = ?outcome.module_id, effective_tier = effective,
+                   "TEE attestation verified");
+
+    Ok(Json(VerificationResponse {
+        agent_id: id,
+        method: row.method,
+        subject: row.subject,
+        tier_granted: row.tier_granted,
+        effective_tier: effective,
+        expires_at: row.expires_at,
+    }))
+}

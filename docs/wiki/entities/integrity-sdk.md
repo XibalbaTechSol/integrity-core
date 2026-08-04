@@ -146,7 +146,7 @@ phone numbers, credit cards, API keys/private keys, medical record
 numbers). `integrations/openai_integrity.py`/`langchain_callback.py` both
 call it before a span attribute/telemetry field is set, but **only when
 constructed with `redact_phi=True`** (default `False` as of 2026-07-15 —
-see above). Any Xibalba Shield / healthcare-vertical agent must pass that
+see above). Any Integrity Health / healthcare-vertical agent must pass that
 flag explicitly; neither wrapper can infer an agent's `compliance_vertical`
 on its own. `telemetry/tracing.py`'s `trace_run`/`traceable` API is
 unaffected by this flag and always redacts.
@@ -186,7 +186,7 @@ execute-routing. `registration.py`'s `_VERTICALS` extended with
 
 **135 tests, 1 skipped** (`pytest tests/`, confirmed via a real run — up
 from 97: the 2026-07-15 additions are `test_openai_integrity.py` (7),
-`test_langchain_callback.py` (6), plus attestation/shield/wallet-race
+`test_langchain_callback.py` (6), plus attestation/health/wallet-race
 coverage added earlier the same session): unit + real-anvil integration,
 always run. Plus **1 opt-in test** (`test_registration_oracle_e2e.py`,
 `ORACLE_E2E=1`) covering the real oracle-POST path skipped by every

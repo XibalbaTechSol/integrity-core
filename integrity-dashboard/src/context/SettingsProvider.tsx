@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 
-type Theme = 'dark' | 'light' | 'system';
+type Theme = 'dark' | 'light' | 'xibalba-sovereign' | 'system';
 type Font = 'Raleway' | 'Inter' | 'Outfit';
 
 interface SettingsContextType {
@@ -35,10 +35,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const root = document.documentElement;
     // Apply Theme
-    if (theme === 'light' || (theme === 'system' && !window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+    root.classList.remove('light-theme', 'xibalba-sovereign-theme');
+
+    if (theme === 'xibalba-sovereign') {
+      root.classList.add('xibalba-sovereign-theme');
+    } else if (theme === 'light' || (theme === 'system' && !window.matchMedia('(prefers-color-scheme: dark)').matches)) {
       root.classList.add('light-theme');
-    } else {
-      root.classList.remove('light-theme');
     }
     
     // Apply Font

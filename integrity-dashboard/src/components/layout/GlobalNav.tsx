@@ -13,10 +13,11 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { label: 'Intelligence', icon: <Activity size={16} />,   activeTabs: ['telemetry'], defaultTab: 'telemetry' },
   { label: 'Cognition',    icon: <Brain size={16} />,      activeTabs: ['cognition', 'reasoning', 'diagnostics'], defaultTab: 'reasoning' },
-  { label: 'Contracts',    icon: <Code2 size={16} />,      activeTabs: ['factory', 'zk', 'oracle', 'ledger'], defaultTab: 'factory' },
+  { label: 'Contracts',    icon: <Code2 size={16} />,      activeTabs: ['map', 'factory', 'zk', 'oracle', 'ledger'], defaultTab: 'map' },
   { label: 'Finance',      icon: <DollarSign size={16} />, activeTabs: ['wallet', 'staking', 'credit', 'markets', 'stability'], defaultTab: 'wallet' },
-  { label: 'Xibalba Shield', icon: <Shield size={16} />,   activeTabs: ['governance', 'shield', 'compliance', 'quarantine'], defaultTab: 'shield' },
+  { label: 'Integrity Health', icon: <Shield size={16} />, activeTabs: ['governance', 'health', 'compliance', 'quarantine'], defaultTab: 'health' },
   { label: 'Identity',     icon: <Key size={16} />,        activeTabs: ['identity'], defaultTab: 'identity' },
+  { label: 'Settings',     icon: <Server size={16} />,     activeTabs: ['settings'], defaultTab: 'settings' },
 ];
 
 export function GlobalNav() {

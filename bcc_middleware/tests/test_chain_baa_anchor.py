@@ -64,7 +64,7 @@ def _dummy_covered_entity() -> str:
     A fresh, real EVM address to stand in for "the hospital" in tests that
     only care about the mock registry's active/inactive flag, not about
     real CoveredEntityRegistry/SmartBAAFactory semantics (see
-    tests/test_baa_shield_integration.py for that). Generated fresh per
+    tests/test_baa_health_integration.py for that). Generated fresh per
     call so tests don't accidentally share state through a shared address.
     """
     return Account.create().address

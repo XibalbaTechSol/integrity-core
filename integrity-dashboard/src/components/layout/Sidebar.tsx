@@ -21,7 +21,7 @@ export function Sidebar() {
     <aside className={`sidebar ${isCollapsed ? 'collapsed' : ''}`}>
       <div className="sidebar-header" style={{ padding: isCollapsed ? 'var(--space-4) auto' : 'var(--space-6)', position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center', flexDirection: isCollapsed ? 'column' : 'row', gap: isCollapsed ? '12px' : '0' }}>
         <div 
-          onClick={() => window.location.hash = '#/'}
+          onClick={() => window.location.hash = '#/integrity/telemetry'}
           style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: 'pointer', width: '100%' }}
         >
           <img src={isCollapsed ? "/integrity/favicon.png" : "/integrity/xibalba_logo.png"} alt="Xibalba" style={{ height: '32px' }} />

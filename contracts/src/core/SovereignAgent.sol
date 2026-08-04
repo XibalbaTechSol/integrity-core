@@ -9,7 +9,7 @@ import {IAccount} from "./IAccount.sol";
 /// @dev One instance is deployed per agent by `AgentFactory`. It is intentionally a thin
 /// account: identity + a cached reputation score + a generic `execute`. Everything
 /// heavier (staking, slashing, cross-chain sync, HIPAA gating) lives in the shared
-/// oracle/framework/shield contracts and simply *reads* this contract's controller/DID,
+/// oracle/framework/health contracts and simply *reads* this contract's controller/DID,
 /// rather than being folded into it — that keeps a compromise of one agent's logic from
 /// being able to reach into protocol-wide state it has no business touching.
 contract SovereignAgent is AccessControl, IAccount {
@@ -61,7 +61,7 @@ contract SovereignAgent is AccessControl, IAccount {
         // Baseline score before the oracle has ever reported one. 0 rather than an
         // arbitrary "starting reputation" — a nonzero default would let a freshly
         // created, never-scored agent masquerade as one with an established track
-        // record in any downstream threshold check (e.g. shield/EHRGate.sol).
+        // record in any downstream threshold check (e.g. health/EHRGate.sol).
         ais = 0;
     }
 

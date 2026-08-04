@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Integrity Protocol — a trust/compliance layer for AI agents on Base L2. Agents deploy and own
 their own identity/reputation contracts (no privileged factory registers on their behalf); an
 oracle computes a reputation score (AIS) from off-chain telemetry, boostable via a real Noir/
-Barretenberg ZK proof; a policy middleware gates risky actions pre-execution. "Xibalba Shield"
+Barretenberg ZK proof; a policy middleware gates risky actions pre-execution. "Integrity Health"
 is the HIPAA/healthcare vertical built on top of the same primitives.
 
 This is a from-scratch rewrite of an earlier prototype. Ground rule, repeated in nearly every
@@ -28,7 +28,7 @@ enforcement mechanism (see `docs/TESTING.md`).
 
 | Package | Stack | Role |
 |---|---|---|
-| `contracts/` | Foundry/Solidity 0.8.28 | On-chain primitives, registries, markets, Shield (HIPAA) contracts |
+| `contracts/` | Foundry/Solidity 0.8.28 | On-chain primitives, registries, markets, Integrity Health (HIPAA) contracts |
 | `integrity-zkp/` | Noir + Barretenberg | The real ZK circuit backing on-chain reputation-boost proofs |
 | `integrity-oracle/` | Rust/Axum (Cargo workspace) | Reads chain state, computes AIS, serves telemetry/market/leaderboard API |
 | `integrity-sdk/` | Python | Agent-facing SDK: identity, wallet, BCC commitments, ZK proving, telemetry |
@@ -109,7 +109,7 @@ call and hits stack-too-deep otherwise.
 
 Contract groups: `core/` (`SovereignAgent`, `IAccount`), `framework/` (registry/factory/profile/
 domain/name-service), `oracle/` (reputation, slashing, ZK verifier plumbing, $ITK token, CCIP
-bridge), `markets/` (agent-owned prediction markets + capital pool), `shield/` (HIPAA vertical:
+bridge), `markets/` (agent-owned prediction markets + capital pool), `health/` (HIPAA vertical:
 `ComplianceGate`, `CoveredEntityRegistry`, `EHRGate`, `SmartBAA(Factory)`,
 `HIPAAGuardrailRegistry`).
 
@@ -125,7 +125,7 @@ self-grant), **reputation** (earned, non-forgeable standing). Beware the word: t
 per-agent contracts (`PrimitiveSet`) are a different sense, and only the second concept is a
 contract at all. AIS is a score over reputation, not a primitive.
 
-Authority is built only in the Shield vertical so far — `SmartBAA` is already a delegation
+Authority is built only in the Integrity Health vertical so far — `SmartBAA` is already a delegation
 instrument — and generalizing it is what closes the client-supplied `covered_entity_address`
 hole. Termination (how an agent's standing ends) is formalized but deliberately unadopted: it
 needs registry mutability, the same question the upgradeability decision faces.
@@ -184,9 +184,15 @@ Computed in exactly one place, `integrity-oracle/scoring-core` (deliberately dep
 besides `serde`, so `backend` depends on it and never the reverse):
 
 ```
-AIS = (S_entropy·wE + S_grounding·wG + S_sacrifice·wS + S_compliance·wC) · ZK_boost
+AIS = (S_entropy^wE · S_grounding^wG · S_sacrifice^wS · S_compliance^wC) · ZK_boost
 wE=0.30, wG=0.30, wS=0.20, wC=0.20, ZK_boost=1.15 if a real bb-verified proof is live, else 1.0
 ```
+
+A weighted **geometric** mean, not arithmetic — so **any single zero component
+zeroes the entire score**. This is the most common way to misread AIS: an agent
+whose telemetry omits one axis (e.g. reports no token usage, so `sacrifice`
+derives to 0) scores 0.0 even with the other three axes perfect. Absent and
+catastrophic are currently indistinguishable here; see `PRODUCTION_GAPS.md`.
 
 ### Oracle service
 
@@ -220,18 +226,24 @@ change in one automatically applies to the other.
 
 ## Known gaps / things this doc's own exploration found stale — verify before relying on them
 
-- `integrity-dashboard/package.json` has no `test` script, though root `Makefile`'s `test` target and
-  `docs/TESTING.md` both invoke `cd integrity-dashboard && npm test`.
-- `integrity-dashboard/demo/` (the Python scenario engine `make demo` depends on) does not exist yet on
-  disk, despite being referenced by the root README, Makefile, `docs/TESTING.md`,
-  `.agents/AGENTS.md`, and `docs/INTERFACE_CONTRACT.md` §11.
-- `integrity-dashboard/src/services/api.ts` and `AgentContext.tsx` are currently hardcoded mock data,
-  not real calls to `integrity-oracle` — despite `docs/wiki/entities/integrity-dashboard.md`
-  describing a much more built-out frontend (real axios API clients, JWT auth, a Playwright
-  `e2e/` suite) whose files don't currently exist in the tree. Trust the code over that wiki page
-  until reconciled. No wagmi/viem/ethers wallet-connection library is present in the frontend at
-  all yet.
+- **`integrity-dashboard/e2e/` does not exist**, though `integrity-dashboard/playwright.config.ts`
+  sets `testDir: './e2e'` and root `Makefile`'s `test-e2e` target names
+  `integrity-dashboard/e2e/global-setup.ts` as the thing that boots anvil + Postgres/Redis +
+  oracle + a seeded agent. So `make test-e2e` currently has no tests to run, and the
+  global-setup architecture the Makefile documents is not built. Either build the suite or
+  drop the target — a documented-but-absent test layer reads as coverage that isn't there.
+  Compounding it, `playwright.config.ts` sets `reuseExistingServer: !process.env.CI`, so a
+  leftover host dev server on `:5173` is silently adopted instead of flagged — the same
+  port-shadowing failure recorded as F11 in `docs/design/harness-loop-audit-2026-07-30.md`.
 - `contracts/.env` (populated, not just `.env.example`) exists on disk — don't commit it.
+
+Four gaps previously listed here were **verified stale on 2026-07-31** and removed rather than
+left to mislead: `integrity-dashboard/package.json` *does* define `"test": "vitest run"`;
+`integrity-dashboard/demo/` *does* exist (`demo/pyproject.toml`, entry point `integrity-demo`);
+`src/services/api.ts` no longer exists at all, so the "hardcoded mock data" warning pointed at a
+deleted file (confirm the dashboard's current data path before relying on either claim); and
+`ethers ^6.16.0` *is* a dashboard dependency, so "no wallet-connection library is present" no
+longer holds. Re-check this section against disk before trusting it — it drifted once.
 
 ## Live deployment
 

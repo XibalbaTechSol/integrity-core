@@ -223,7 +223,7 @@ export function TrajectoryPanel() {
     {
       id: `traj_${selectedAgent?.eth_address?.substring(0, 6) || 'sys'}_01`,
       intent: selectedAgent?.alias?.toLowerCase().includes('xibalba') 
-        ? 'Detect anomalies in Shield BAA compliance logs.' 
+        ? 'Detect anomalies in Integrity Health BAA compliance logs.'
         : 'Optimize gas usage for on-chain identity verification.',
       status: 'Passed',
       score: selectedAgent?.current_ais ? selectedAgent.current_ais + 2 : 952,

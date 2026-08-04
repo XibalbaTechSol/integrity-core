@@ -48,7 +48,7 @@ class BCCCommitment(BaseModel):
     # that module for why an unset covered entity is never treated as
     # "compliant"). Deliberately an address, not a DID -- unlike agents,
     # covered entities are registered directly by EVM address in
-    # `contracts/src/shield/CoveredEntityRegistry.sol`, there is no DID layer
+    # `contracts/src/health/CoveredEntityRegistry.sol`, there is no DID layer
     # for them.
     covered_entity_address: str | None = Field(
         default=None,
@@ -69,6 +69,39 @@ class BCCCommitment(BaseModel):
         ...,
         description="Agent's Ed25519 public key, multibase (z-base58btc, multicodec ed25519-pub) — must hash to agent_id's fingerprint",
     )
+
+    # --- AOS-Observability Gating attributes ---
+    trace_id: str | None = Field(
+        default=None,
+        description="W3C trace ID associated with this action's execution context",
+    )
+    span_id: str | None = Field(
+        default=None,
+        description="W3C parent span ID representing the planning/reasoning phase",
+    )
+    agent_thought: str | None = Field(
+        default=None,
+        description="The latent Chain-of-Thought / internal monologue explaining this action",
+    )
+    token_count: int | None = Field(
+        default=None,
+        ge=0,
+        description="Total LLM tokens consumed generating this action (prompt + completion); used for tier-based daily budget enforcement",
+    )
+
+    @field_validator("trace_id")
+    @classmethod
+    def _trace_id_shape(cls, v: str | None) -> str | None:
+        if v is not None and not re.match(r"^[0-9a-fA-F]{32}$", v):
+            raise ValueError("trace_id must be 32 hex characters")
+        return v
+
+    @field_validator("span_id")
+    @classmethod
+    def _span_id_shape(cls, v: str | None) -> str | None:
+        if v is not None and not re.match(r"^[0-9a-fA-F]{16}$", v):
+            raise ValueError("span_id must be 16 hex characters")
+        return v
 
     @field_validator("covered_entity_address")
     @classmethod
@@ -125,6 +158,9 @@ class BCCInterceptResponse(BaseModel):
     # look up the anchoring transaction once the batch flushes).
     verification_token: str | None = None
     batch_index: int | None = None
+    # Remaining daily token budget for this agent after this request (None if
+    # token_count was not provided or agent is unlimited-tier).
+    token_budget_remaining: int | None = None
 
 
 class VerifyTokenRequest(BaseModel):

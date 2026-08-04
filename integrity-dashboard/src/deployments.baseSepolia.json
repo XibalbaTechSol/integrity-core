@@ -11,7 +11,9 @@
     "MarketFactory": "0xDB1cB3a45F4918e944254183bca8112e699AFB05",
     "A2ACapitalPool": "0x388D0180725E0F757C6Ef01ef0474E718faA3776",
     "SmartBAAFactory": "0xf791059A9E77734f3fd7dffC1ca35728547608eb",
-    "CoveredEntityRegistry": "0x3E42C072BA8Ca6EE6E86c8DB011eB4063b8aac07"
+    "CoveredEntityRegistry": "0x3E42C072BA8Ca6EE6E86c8DB011eB4063b8aac07",
+    "XibalbaNameService": "0x71f42aC04781c41e007e7f03244235341ce15cc8",
+    "IntegrityGovernance": "0x62ef8A3B42b07FDee7498199696dae31AC2A9255"
   },
   "protocolAddresses": {
     "oracleSigner": "0x67bA5D723E1F5517afF7eb980E2f73a9e17aD556",

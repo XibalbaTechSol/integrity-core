@@ -230,7 +230,7 @@ def derive_compliance(
     access is available — **on-chain wins** when both are present, since a
     self-report alone is exactly the kind of unverified claim
     `ComplianceGate.sol`'s own NatSpec warns against trusting for a
-    regulated-vertical agent (see contracts/src/shield/ComplianceGate.sol).
+    regulated-vertical agent (see contracts/src/health/ComplianceGate.sol).
 
     Self-reported signal: fraction of batch entries NOT flagged as a policy
     violation (`metadata.get("policy_violation")` or `metadata.get("flagged")`

@@ -8,17 +8,19 @@
     "Slasher": "0xbA044396b6B347c9b484e5a96c83888e59f4dF7D",
     "VerifierRegistry": "0x09D034BE2D98A36a5B8637f282814F9D2c23a4Bf"
   },
+  "domains": {},
+  "network": "base-sepolia",
   "protocolAddresses": {
-    "arbitrator": "0x67bA5D723E1F5517afF7eb980E2f73a9e17aD556",
-    "disputer": "0x67bA5D723E1F5517afF7eb980E2f73a9e17aD556",
-    "funderWallet": "0x67bA5D723E1F5517afF7eb980E2f73a9e17aD556",
-    "governance": "0x67bA5D723E1F5517afF7eb980E2f73a9e17aD556",
-    "oracleSigner": "0x67bA5D723E1F5517afF7eb980E2f73a9e17aD556",
+    "arbitrator": "0x7530bd7Cb142C50d5cC742EdF02263f368e89E2f",
+    "disputer": "0x7530bd7Cb142C50d5cC742EdF02263f368e89E2f",
+    "funderWallet": "0x7530bd7Cb142C50d5cC742EdF02263f368e89E2f",
+    "governance": "0x7530bd7Cb142C50d5cC742EdF02263f368e89E2f",
+    "oracleSigner": "0x7530bd7Cb142C50d5cC742EdF02263f368e89E2f",
     "resolverSigner": "0x67bA5D723E1F5517afF7eb980E2f73a9e17aD556"
   },
   "singletons": {
     "A2ACapitalPool": "0x388D0180725E0F757C6Ef01ef0474E718faA3776",
-    "AgentPrimitivesFactory": "0xC19fc9cB2cB87297EfDF11DA7e211e44A6C1181D",
+    "AgentPrimitivesFactory": "0x219109961c1c9bB8e9f27a37757a5d426e1f91Ec",
     "CoveredEntityRegistry": "0x3E42C072BA8Ca6EE6E86c8DB011eB4063b8aac07",
     "DomainRegistry": "0xC1aee61b8826d79c21a335Fb1777cA372Bea1Ba0",
     "HIPAAGuardrailRegistry": "0x4436145db9EF05FA91cDEEF69b9bB5aa65e113ce",

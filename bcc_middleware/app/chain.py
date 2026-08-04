@@ -115,7 +115,7 @@ def agent_id_to_address(agent_id: str, *, oracle_url: str) -> str:
     NOT its EOA/wallet, and not a derivation from the DID pubkey. That's
     deliberate and load-bearing: `SmartBAAFactory.createBAA` records the
     business associate by the address that will actually request access, and
-    downstream Shield contracts (`EHRGate.checkAccess`, `ComplianceGate`) all
+    downstream Integrity Health contracts (`EHRGate.checkAccess`, `ComplianceGate`) all
     treat the SovereignAgent *contract* as the acting agent (it's their
     `msg.sender`). So a BAA is "active for" the SovereignAgent address, and
     that is the only address `isBAAActive(coveredEntity, businessAssociate)`

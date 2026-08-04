@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 
-import {EHRGate} from "../src/shield/EHRGate.sol";
+import {EHRGate} from "../src/health/EHRGate.sol";
 
 /// @title DeployEHRGate
 /// @notice Incremental deploy: adds `EHRGate` -- the actual PHI-access enforcement

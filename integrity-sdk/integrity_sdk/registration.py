@@ -49,7 +49,7 @@ from . import chain, did, wallet
 
 logger = logging.getLogger("integrity_sdk.registration")
 
-# ComplianceGate.Vertical enum values (contracts/src/shield/ComplianceGate.sol).
+# ComplianceGate.Vertical enum values (contracts/src/health/ComplianceGate.sol).
 # One vertical per agent -- ComplianceGate stores a single `Vertical public
 # vertical` field, not a list, so "multi-vertical" in the broader MVP sense
 # means many DIFFERENT agents each declaring a different vertical (a

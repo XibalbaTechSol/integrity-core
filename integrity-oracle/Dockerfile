@@ -21,6 +21,12 @@ RUN cargo build --release --bin oracle-backend
 # ── RUNTIME STAGE ───────────────────────────────────────────────────────────
 FROM debian:bookworm-slim
 
+# Baked-in content fingerprint of this service's tracked source — see
+# scripts/service_content_hash.py and PRODUCTION_GAPS.md §22. ARGs don't cross a `FROM`
+# boundary, so this must be redeclared in the stage that carries the LABEL.
+ARG SOURCE_HASH=unknown
+LABEL source.hash=$SOURCE_HASH
+
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     libssl3 \

@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react';
+import { ethers } from 'ethers';
 import { Panel } from '../shared/Panel';
-import { Shield, ArrowRight, Settings, Scale, FileText, Info, CheckCircle } from 'lucide-react';
+import { Shield, ArrowRight, Settings, Scale, FileText, Info, CheckCircle, Loader2 } from 'lucide-react';
 import { oracle, type ProposalDto } from '../../services/oracle';
+import { useDashboard } from '../../context/useDashboard';
+import { GOVERNANCE_ADDRESS, ITK_TOKEN_ADDRESS } from '../../constants';
+import { GOVERNANCE_ABI } from '../../chain/governance';
+import { ERC20_ABI, executeAsAgent } from '../../chain/markets';
 
 // The IntegrityGovernance contract (contracts/src/oracle/IntegrityGovernance.sol) is real and
 // tested, but its Base Sepolia deploy is deferred ("build now, defer deploy"). This panel reads
@@ -30,9 +35,23 @@ const fmtItk = (wei: string): string => {
 };
 
 export function GovernancePanel() {
+  const { selectedAgent, walletAddress, addToast } = useDashboard();
   const [proposals, setProposals] = useState<ProposalDto[] | null>(null);
   // null = not-yet-loaded/unknown, false = confirmed not deployed (503), true = live contract.
   const [deployed, setDeployed] = useState<boolean | null>(null);
+  const [saAddr, setSaAddr] = useState<string | null>(null);
+  const [voteAmounts, setVoteAmounts] = useState<Record<number, string>>({});
+  const [votingId, setVotingId] = useState<number | null>(null);
+
+  const refresh = () => {
+    oracle
+      .getGovernanceProposals()
+      .then((rows) => {
+        setProposals(rows);
+        setDeployed(true);
+      })
+      .catch(() => setDeployed(false));
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -53,14 +72,70 @@ export function GovernancePanel() {
     };
   }, []);
 
+  useEffect(() => {
+    const did = selectedAgent?.eth_address;
+    if (!did) { setSaAddr(null); return; }
+    let active = true;
+    oracle.resolveSovereignAgent(did).then((a) => { if (active) setSaAddr(a); }).catch(() => { if (active) setSaAddr(null); });
+    return () => { active = false; };
+  }, [selectedAgent]);
+
+  // castVote(id, support, amount) locks `amount` ITK as a vote — routed through the agent's
+  // SovereignAgent.execute like every other write here (IntegrityGovernance pulls ITK from
+  // msg.sender, so the SovereignAgent itself must hold + approve it). See chain/governance.ts
+  // for why propose/queue/execute stay CLI/SDK-only.
+  const handleVote = async (proposalId: number, support: boolean) => {
+    if (!selectedAgent) { addToast('error', 'Select an agent first.'); return; }
+    if (!walletAddress) { addToast('error', 'Connect the agent controller wallet.'); return; }
+    if (!saAddr) { addToast('error', 'This agent has no on-chain SovereignAgent yet.'); return; }
+    if (!GOVERNANCE_ADDRESS) { addToast('error', 'IntegrityGovernance is not deployed on this network.'); return; }
+
+    const raw = voteAmounts[proposalId];
+    const amt = ethers.parseEther(raw || '0');
+    if (amt <= 0n) { addToast('error', 'Enter an ITK amount greater than zero.'); return; }
+
+    setVotingId(proposalId);
+    try {
+      const eth = (window as any).ethereum;
+      if (!eth) throw new Error('No Web3 wallet detected.');
+      const signer = await new ethers.BrowserProvider(eth).getSigner();
+      const itk = new ethers.Contract(ITK_TOKEN_ADDRESS, ERC20_ABI as any, signer);
+
+      const saBal: bigint = await itk.balanceOf(saAddr);
+      if (saBal < amt) {
+        const need = amt - saBal;
+        addToast('info', `Funding your agent with ${ethers.formatEther(need)} $ITK…`);
+        await (await itk.transfer(saAddr, need)).wait();
+      }
+
+      const allowance: bigint = await itk.allowance(saAddr, GOVERNANCE_ADDRESS);
+      if (allowance < amt) {
+        addToast('info', 'Approving $ITK for governance…');
+        const approveData = new ethers.Interface(ERC20_ABI as any).encodeFunctionData('approve', [GOVERNANCE_ADDRESS, amt]);
+        await executeAsAgent(signer, saAddr, ITK_TOKEN_ADDRESS, approveData);
+      }
+
+      const voteData = new ethers.Interface(GOVERNANCE_ABI as any).encodeFunctionData('castVote', [proposalId, support, amt]);
+      await executeAsAgent(signer, saAddr, GOVERNANCE_ADDRESS, voteData);
+
+      addToast('success', `Voted ${support ? 'FOR' : 'AGAINST'} proposal #${proposalId}.`);
+      setVoteAmounts((prev) => ({ ...prev, [proposalId]: '' }));
+      refresh();
+    } catch (err: any) {
+      addToast('error', `Vote failed: ${err.shortMessage || err.reason || err.message}`);
+    } finally {
+      setVotingId(null);
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
       {deployed && proposals && (
         <Panel title="On-Chain Proposals (Live)" icon={<Scale size={18} />}>
           <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <Info size={12} />
-            Read-only view. Proposing and casting votes are wallet-signed writes to
-            IntegrityGovernance — not yet wired into this UI; use the CLI/SDK to participate.
+            Voting is wallet-signed (below, on Active proposals). Proposing/queuing/executing
+            remain CLI/SDK-only for now — see PRODUCTION_GAPS.md §4 for the scoping decision.
           </div>
           {proposals.length === 0 ? (
             <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', padding: 'var(--space-3)' }}>
@@ -91,6 +166,37 @@ export function GovernancePanel() {
                       <span>FOR {fmtItk(p.for_votes)} ITK</span>
                       <span>AGAINST {fmtItk(p.against_votes)} ITK</span>
                     </div>
+                    {p.state === 'Active' && (
+                      <div style={{ display: 'flex', gap: '6px', marginTop: '10px', alignItems: 'center' }}>
+                        <input
+                          type="text"
+                          value={voteAmounts[p.id] ?? ''}
+                          onChange={(e) => setVoteAmounts((prev) => ({ ...prev, [p.id]: e.target.value }))}
+                          placeholder="ITK amount"
+                          style={{
+                            flex: 1, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--glass-border)',
+                            borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', fontSize: '0.75rem',
+                            padding: '6px 10px', outline: 'none',
+                          }}
+                        />
+                        <button
+                          className="btn btn-sm"
+                          disabled={votingId === p.id}
+                          onClick={() => handleVote(p.id, true)}
+                          style={{ background: 'var(--success)', color: '#052e16', fontWeight: 700 }}
+                        >
+                          {votingId === p.id ? <Loader2 size={12} className="pulse" /> : 'Vote FOR'}
+                        </button>
+                        <button
+                          className="btn btn-sm"
+                          disabled={votingId === p.id}
+                          onClick={() => handleVote(p.id, false)}
+                          style={{ background: '#f43f5e', color: 'white', fontWeight: 700 }}
+                        >
+                          {votingId === p.id ? <Loader2 size={12} className="pulse" /> : 'Vote AGAINST'}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })}

@@ -66,8 +66,8 @@ test.describe('Master Specification Alignment Workflows', () => {
     await expect(selector).toHaveValue('quant');
   });
 
-  test('Xibalba Shield - Smart BAA & HIPAA Safeguards', async ({ page }) => {
-    await page.click('text=Xibalba Shield');
+  test('Integrity Health - Smart BAA & HIPAA Safeguards', async ({ page }) => {
+    await page.click('text=Integrity Health');
     
     // Switch to Smart BAAs sub-tab
     await page.getByRole('button', { name: 'Smart BAAs' }).click();

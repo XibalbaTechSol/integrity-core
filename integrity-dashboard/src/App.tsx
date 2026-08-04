@@ -21,8 +21,8 @@ const FinancePage = lazy(() =>
 const ContractsPage = lazy(() =>
   import('./pages/ContractsPage').then(m => ({ default: m.ContractsPage }))
 );
-const ShieldPage = lazy(() =>
-  import('./pages/ShieldPage').then(m => ({ default: m.ShieldPage }))
+const HealthPage = lazy(() =>
+  import('./pages/HealthPage').then(m => ({ default: m.HealthPage }))
 );
 const IdentityPage = lazy(() =>
   import('./pages/IdentityPage').then(m => ({ default: m.IdentityPage }))
@@ -68,8 +68,8 @@ function DashboardShell() {
   const isIntelligence = ['telemetry'].includes(activeTab);
   const isCognition = ['cognition', 'reasoning', 'diagnostics'].includes(activeTab);
   const isFinance = ['wallet', 'staking', 'credit', 'markets', 'stability'].includes(activeTab);
-  const isContracts = ['factory', 'zk', 'oracle', 'ledger'].includes(activeTab);
-  const isShield = ['governance', 'compliance', 'shield'].includes(activeTab);
+  const isContracts = ['map', 'factory', 'zk', 'oracle', 'ledger'].includes(activeTab);
+  const isHealth = ['governance', 'compliance', 'health'].includes(activeTab);
   const isIdentity = ['identity', 'apikeys'].includes(activeTab);
   const isProfile = activeTab === 'profile';
   const isSettings = activeTab === 'settings';
@@ -86,7 +86,7 @@ function DashboardShell() {
             {isCognition && <CognitionPage />}
             {isFinance && <FinancePage />}
             {isContracts && <ContractsPage />}
-            {isShield && <ShieldPage />}
+            {isHealth && <HealthPage />}
             {isIdentity && <IdentityPage />}
             {isProfile && <ProfilePage />}
             {isSettings && <SettingsPage />}
@@ -103,22 +103,21 @@ import AuthPage from './pages/AuthPage';
 
 export default function App() {
   return (
-    <HashRouter>
-      <Routes>
-        <Route path="/" element={<LandingPage />} />
-        <Route path="/auth" element={<AuthPage />} />
-        <Route
-          path="/integrity/*"
-          element={
-            <DashboardProvider>
-              <SettingsProvider>
-                <DashboardShell />
-              </SettingsProvider>
-            </DashboardProvider>
-          }
-        />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </HashRouter>
+    <SettingsProvider>
+      <DashboardProvider>
+        <HashRouter>
+          <Routes>
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/landing" element={<LandingPage />} />
+            <Route path="/auth" element={<AuthPage />} />
+            <Route
+              path="/integrity/*"
+              element={<DashboardShell />}
+            />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </HashRouter>
+      </DashboardProvider>
+    </SettingsProvider>
   );
 }

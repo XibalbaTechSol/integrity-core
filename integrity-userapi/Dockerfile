@@ -1,5 +1,10 @@
 FROM python:3.12-slim
 
+# Baked-in content fingerprint of this service's tracked source — see
+# scripts/service_content_hash.py and PRODUCTION_GAPS.md §22.
+ARG SOURCE_HASH=unknown
+LABEL source.hash=$SOURCE_HASH
+
 WORKDIR /app
 
 # uv gives us reproducible, lockfile-pinned installs -- matches the rest of

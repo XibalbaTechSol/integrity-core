@@ -160,7 +160,23 @@ pub struct AgentListRow {
 pub async fn list_agents(pool: &PgPool) -> Result<Vec<AgentListRow>, sqlx::Error> {
     sqlx::query_as::<_, AgentListRow>(
         r#"
-        SELECT a.id, a.verification_tier, a.created_at, a.did_document,
+        -- EFFECTIVE tier, computed in one pass rather than N+1 round trips.
+        -- `a.verification_tier` is only the registration floor; rungs 2/3 live in
+        -- `identity_verifications`, and expiry/revocation are applied here so a
+        -- lapsed proof lowers the reported tier automatically. Returning the raw
+        -- column made the fleet list show every climbed agent at tier 1.
+        SELECT a.id,
+               GREATEST(
+                   a.verification_tier,
+                   COALESCE((
+                       SELECT MAX(v.tier_granted)
+                       FROM identity_verifications v
+                       WHERE v.agent_id = a.id
+                         AND v.revoked_at IS NULL
+                         AND (v.expires_at IS NULL OR v.expires_at > now())
+                   ), 0)
+               ) AS verification_tier,
+               a.created_at, a.did_document,
                p.sovereign_agent_address
         FROM agents a
         LEFT JOIN agent_primitives p ON p.agent_id = a.id
@@ -189,6 +205,10 @@ pub struct AgentPrimitivesRow {
     pub controller_address: String,
     pub domain_id: String,
     pub resolved_at: DateTime<Utc>,
+    /// EVM chain id this row was resolved against. `NULL` for rows written before this
+    /// column existed — the caller must treat that the same as a chain mismatch (E11),
+    /// never as "assume it's the current chain".
+    pub chain_id: Option<i64>,
 }
 
 /// Upserts the cached primitive resolution for an agent. Called after a fresh, successful
@@ -208,14 +228,15 @@ pub async fn upsert_agent_primitives(
     agent_profile_address: &str,
     controller_address: &str,
     domain_id: &str,
+    chain_id: i64,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         INSERT INTO agent_primitives
             (agent_id, sovereign_agent_address, state_anchor_address, reputation_registry_address,
              slasher_address, verifier_registry_address, compliance_gate_address, agent_profile_address,
-             controller_address, domain_id, resolved_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+             controller_address, domain_id, chain_id, resolved_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())
         ON CONFLICT (agent_id) DO UPDATE SET
             sovereign_agent_address = EXCLUDED.sovereign_agent_address,
             state_anchor_address = EXCLUDED.state_anchor_address,
@@ -226,6 +247,7 @@ pub async fn upsert_agent_primitives(
             agent_profile_address = EXCLUDED.agent_profile_address,
             controller_address = EXCLUDED.controller_address,
             domain_id = EXCLUDED.domain_id,
+            chain_id = EXCLUDED.chain_id,
             resolved_at = now()
         "#,
     )
@@ -239,6 +261,7 @@ pub async fn upsert_agent_primitives(
     .bind(agent_profile_address)
     .bind(controller_address)
     .bind(domain_id)
+    .bind(chain_id)
     .execute(pool)
     .await?;
     Ok(())
@@ -249,7 +272,7 @@ pub async fn get_agent_primitives(pool: &PgPool, agent_id: &str) -> Result<Optio
         r#"
         SELECT agent_id, sovereign_agent_address, state_anchor_address, reputation_registry_address,
                slasher_address, verifier_registry_address, compliance_gate_address, agent_profile_address,
-               controller_address, domain_id, resolved_at
+               controller_address, domain_id, resolved_at, chain_id
         FROM agent_primitives WHERE agent_id = $1
         "#,
     )
@@ -1421,3 +1444,190 @@ pub async fn otel_volume_buckets(
     .await
 }
 
+
+// ---------------------------------------------------------------------------
+// Verification Ladder (rungs 2 and 3) — see verification.rs and migration 0011.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, serde::Serialize, sqlx::FromRow, utoipa::ToSchema)]
+pub struct IdentityVerificationRow {
+    pub id: i64,
+    pub agent_id: String,
+    pub method: String,
+    pub tier_granted: i32,
+    pub subject: String,
+    pub evidence: serde_json::Value,
+    pub verified_at: chrono::DateTime<chrono::Utc>,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Issue (or replace) a DNS challenge nonce for one (agent, domain).
+///
+/// Replacing rather than accumulating: an operator who asks twice should get a
+/// usable nonce, not a collision, and leaving old nonces valid would widen the
+/// replay window the nonce exists to close.
+pub async fn issue_dns_challenge(
+    pool: &PgPool,
+    agent_id: &str,
+    domain: &str,
+    nonce: &str,
+    ttl_minutes: i64,
+) -> Result<chrono::DateTime<chrono::Utc>, sqlx::Error> {
+    let expires_at = chrono::Utc::now() + chrono::Duration::minutes(ttl_minutes);
+    sqlx::query(
+        r#"
+        INSERT INTO dns_verification_challenges (agent_id, domain, nonce, expires_at)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (agent_id, domain) DO UPDATE
+          SET nonce = EXCLUDED.nonce,
+              issued_at = now(),
+              expires_at = EXCLUDED.expires_at,
+              consumed_at = NULL
+        "#,
+    )
+    .bind(agent_id)
+    .bind(domain)
+    .bind(nonce)
+    .bind(expires_at)
+    .execute(pool)
+    .await?;
+    Ok(expires_at)
+}
+
+/// Fetch an UNEXPIRED, UNCONSUMED challenge. Expiry is enforced in SQL rather than
+/// in the caller so there is no window where application code forgets to check it.
+pub async fn get_active_dns_challenge(
+    pool: &PgPool,
+    agent_id: &str,
+    domain: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar::<_, String>(
+        r#"
+        SELECT nonce FROM dns_verification_challenges
+        WHERE agent_id = $1 AND domain = $2
+          AND consumed_at IS NULL
+          AND expires_at > now()
+        "#,
+    )
+    .bind(agent_id)
+    .bind(domain)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn consume_dns_challenge(
+    pool: &PgPool,
+    agent_id: &str,
+    domain: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE dns_verification_challenges SET consumed_at = now() WHERE agent_id = $1 AND domain = $2",
+    )
+    .bind(agent_id)
+    .bind(domain)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Record a successful verification. Re-proving the same (agent, method, subject)
+/// refreshes it in place rather than adding a row, matching the partial unique
+/// index in migration 0011.
+pub async fn record_identity_verification(
+    pool: &PgPool,
+    agent_id: &str,
+    method: &str,
+    tier_granted: i32,
+    subject: &str,
+    evidence: serde_json::Value,
+    expires_at: Option<chrono::DateTime<chrono::Utc>>,
+) -> Result<IdentityVerificationRow, sqlx::Error> {
+    sqlx::query_as::<_, IdentityVerificationRow>(
+        r#"
+        INSERT INTO identity_verifications
+            (agent_id, method, tier_granted, subject, evidence, expires_at)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (agent_id, method, subject) WHERE revoked_at IS NULL
+        DO UPDATE SET tier_granted = EXCLUDED.tier_granted,
+                      evidence     = EXCLUDED.evidence,
+                      verified_at  = now(),
+                      expires_at   = EXCLUDED.expires_at
+        RETURNING id, agent_id, method, tier_granted, subject, evidence,
+                  verified_at, expires_at, revoked_at
+        "#,
+    )
+    .bind(agent_id)
+    .bind(method)
+    .bind(tier_granted)
+    .bind(subject)
+    .bind(evidence)
+    .bind(expires_at)
+    .fetch_one(pool)
+    .await
+}
+
+/// Tiers from verifications that are active RIGHT NOW — not revoked, not expired.
+///
+/// Expiry is applied here, in the query, which is what makes a lapsed domain
+/// automatically lower an agent's tier instead of requiring a sweep job. A cached
+/// `verification_tier` column could not do that without drifting from its evidence.
+pub async fn active_verification_tiers(
+    pool: &PgPool,
+    agent_id: &str,
+) -> Result<Vec<i32>, sqlx::Error> {
+    sqlx::query_scalar::<_, i32>(
+        r#"
+        SELECT tier_granted FROM identity_verifications
+        WHERE agent_id = $1
+          AND revoked_at IS NULL
+          AND (expires_at IS NULL OR expires_at > now())
+        "#,
+    )
+    .bind(agent_id)
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn list_identity_verifications(
+    pool: &PgPool,
+    agent_id: &str,
+) -> Result<Vec<IdentityVerificationRow>, sqlx::Error> {
+    sqlx::query_as::<_, IdentityVerificationRow>(
+        r#"
+        SELECT id, agent_id, method, tier_granted, subject, evidence,
+               verified_at, expires_at, revoked_at
+        FROM identity_verifications
+        WHERE agent_id = $1
+        ORDER BY verified_at DESC
+        "#,
+    )
+    .bind(agent_id)
+    .fetch_all(pool)
+    .await
+}
+
+/// The tier the rest of the system should use: registration floor ∪ active verifications.
+pub async fn effective_verification_tier(
+    pool: &PgPool,
+    agent_id: &str,
+    registration_tier: i32,
+) -> Result<i32, sqlx::Error> {
+    Ok(effective_tier_with_source(pool, agent_id, registration_tier).await?.0)
+}
+
+/// Effective tier plus WHERE IT CAME FROM.
+///
+/// The source is not cosmetic: a development override produces a tier that is
+/// asserted rather than proven, and every surface that reports the tier must be
+/// able to say which it is. Returning them together makes it impossible to
+/// report the number without having the provenance in hand.
+pub async fn effective_tier_with_source(
+    pool: &PgPool,
+    agent_id: &str,
+    registration_tier: i32,
+) -> Result<(i32, crate::verification::TierSource), sqlx::Error> {
+    let tiers = active_verification_tiers(pool, agent_id).await?;
+    let verified = crate::verification::effective_tier(registration_tier, &tiers);
+    Ok(crate::verification::apply_dev_override(agent_id, verified))
+}

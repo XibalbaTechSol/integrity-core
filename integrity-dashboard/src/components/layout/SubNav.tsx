@@ -30,9 +30,9 @@ const SUB_TABS_CONFIG: Record<string, SubTab[]> = {
   identity: [
     { id: 'identity', label: 'Identity & DID', icon: <User size={14} /> },
   ],
-  shield: [
+  health: [
     { id: 'governance', label: 'Smart BAAs', icon: <FileText size={14} /> },
-    { id: 'shield', label: 'PHI Access Gates', icon: <Lock size={14} /> },
+    { id: 'health', label: 'PHI Access Gates', icon: <Lock size={14} /> },
     { id: 'compliance', label: 'Audit & Compliance', icon: <Activity size={14} /> },
     { id: 'quarantine', label: 'Quarantine Zone', icon: <AlertTriangle size={14} /> },
   ]

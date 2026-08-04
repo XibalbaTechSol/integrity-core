@@ -71,7 +71,7 @@ redaction ran unconditionally). When `True`, `openai_integrity.py` calls
 non-streaming), and streamed chunks *before* any span attribute is set or
 [local-metrology](local-metrology.md) signals are derived from it;
 `langchain_callback.py` redacts `text_output` and `reasoning_content` the
-same way. **Any Xibalba Shield / healthcare-vertical agent MUST pass
+same way. **Any Integrity Health / healthcare-vertical agent MUST pass
 `redact_phi=True` explicitly** — neither wrapper can infer an agent's
 `compliance_vertical` on its own, so nothing auto-enables this for a
 healthcare deployment; leaving it at the default logs a `logger.warning`
@@ -172,7 +172,7 @@ layers).
 
 Mode 1 (transparent): full trace storage for non-regulated verticals,
 prioritizing developer debugging visibility. Mode 2 (Sovereign ZK-mode, for
-Shield/healthcare and any PHI-adjacent vertical): raw content never leaves
+Integrity Health/healthcare and any PHI-adjacent vertical): raw content never leaves
 local hardware at all — only a hash and a [ZK proof](zkp.md) of correct
 measurement leave the agent's process. Not built as a toggle; tracked in
 the root `README.md`'s "Vision & long-term roadmap" section.

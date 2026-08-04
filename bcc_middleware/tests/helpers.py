@@ -88,6 +88,7 @@ def mock_oracle_agent_resolution(
     sovereign_agent_address: str,
     *,
     state_anchor_address: str | None = None,
+    slasher_address: str | None = None,
     verification_tier: int = 1,
 ) -> None:
     """
@@ -98,8 +99,8 @@ def mock_oracle_agent_resolution(
     real anvil — a real integrity-oracle isn't part of that fixture set, so its
     one HTTP dependency is stubbed here rather than standing up the whole Rust
     service just to answer "what is this agent's SovereignAgent address" for a
-    test that isn't about the oracle itself (see test_baa_shield_integration.py
-    for the equivalent real-Shield-contracts integration, mirrored here for the
+    test that isn't about the oracle itself (see test_baa_health_integration.py
+    for the equivalent real-Integrity-Health-contracts integration, mirrored here for the
     oracle boundary).
 
     `resolve_agent_primitives` is `lru_cache`d per (oracle_url, agent_id); since
@@ -111,16 +112,20 @@ def mock_oracle_agent_resolution(
     the mocked response, since `app.chain.resolve_verification_tier` reads the
     same `GET /v1/agent/{id}` endpoint this helper stubs.
     """
+    primitives = {
+        "sovereign_agent": sovereign_agent_address,
+        "state_anchor": state_anchor_address or sovereign_agent_address,
+    }
+    if slasher_address is not None:
+        primitives["slasher"] = slasher_address
+
     respx_mock.get(f"{oracle_url.rstrip('/')}/v1/agent/{agent_id}").mock(
         return_value=Response(
             200,
             json={
                 "id": agent_id,
                 "verification_tier": verification_tier,
-                "primitives": {
-                    "sovereign_agent": sovereign_agent_address,
-                    "state_anchor": state_anchor_address or sovereign_agent_address,
-                },
+                "primitives": primitives,
             },
         )
     )

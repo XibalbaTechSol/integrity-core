@@ -4,6 +4,7 @@
 //! plumbing shared between `main.rs` (real server) and `tests/` (in-process integration
 //! tests against a real Postgres + real anvil) — no business logic lives here.
 
+pub mod attestation;
 pub mod chain;
 pub mod config;
 pub mod crypto;
@@ -19,6 +20,7 @@ pub mod phi;
 pub mod routes;
 pub mod stream;
 pub mod trace_tree;
+pub mod verification;
 pub mod zk;
 
 use std::sync::Arc;

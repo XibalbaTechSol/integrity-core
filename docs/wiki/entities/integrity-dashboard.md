@@ -1,7 +1,7 @@
 ---
 title: integrity-dashboard
 created: 2026-07-07
-updated: 2026-07-25
+updated: 2026-07-31
 type: entity
 tags: [infrastructure, sdk]
 confidence: medium
@@ -10,6 +10,7 @@ source_files:
   - integrity-dashboard/src/config.ts
   - integrity-dashboard/src/chain/bytecode.ts
   - integrity-dashboard/src/components/ui/RegisterAgentModal.tsx
+  - integrity-dashboard/src/components/ui/VisualTopologyMap.tsx
   - integrity-dashboard/src/services/oracle.ts
   - integrity-dashboard/src/services/userapi.ts
   - integrity-dashboard/src/components/shared/SeededDataBadge.tsx
@@ -41,7 +42,7 @@ anything in the current tree.
 ## Page consolidation (2026-07-16) — route count and names below are stale
 
 `App.tsx` now defines **11** routes, not 16: `/`, `/landing`, `/identity`,
-`/contracts`, `/settings`, `/finance`, `/traces`, `/diagnostics`, `/shield`,
+`/contracts`, `/settings`, `/finance`, `/traces`, `/diagnostics`, `/health`,
 `/agents`, `/documents`. Six pages named throughout the rest of this
 document no longer exist under those names — `AuditPage`,
 `ChainOfThoughtPage`, `CompareTracesPage`, `ExchangePage`,
@@ -124,7 +125,7 @@ with real backend/chain wiring and a Notion-style drag-and-drop widget layout en
 5. **Honest labeling for what's still simulated.** A new
    `src/shared/SeededDataBadge.tsx` marks every page with no real backing
    yet: `ChainOfThoughtPage`, `SdkTelemetryPage`, `CognitionPage`,
-   `CompareTracesPage`, `DocumentsPage`, `ShieldPage`, most of
+   `CompareTracesPage`, `DocumentsPage`, `HealthPage`, most of
    `ContractsPage` (the compile/deploy flow is a labeled sandbox, not a
    real compiler), parts of `ExchangePage` (the order-book UI —
    `IntegrityMarket` is a pari-mutuel pool, so there's no honest order
@@ -141,7 +142,7 @@ with real backend/chain wiring and a Notion-style drag-and-drop widget layout en
    - `ExchangePage`'s "Place Order" does a real two-transaction
      `approve` + `enterPosition` flow, gated on the connected wallet
      matching the agent's on-chain controller.
-   - `ShieldPage`'s Smart BAA registry reads real `SmartBAAFactory
+   - `HealthPage`'s Smart BAA registry reads real `SmartBAAFactory
      .BAACreated` event logs and wires real `sign()`/`revoke()` writes.
    - `ClaimAgentModal` was rewritten, not patched: the old "claim via
      signature challenge" premise had no on-chain support at all — it
@@ -271,7 +272,7 @@ registered agent, not just a passing test suite.
   `PRODUCTION_GAPS.md`). **`throughput` is no longer in this list** — it
   was wired to real `oracle.getTelemetryVolume`/`getOtelVolume` data
   earlier this session; the claim that it was still seeded was stale.
-- `ShieldPage`'s "Propose BAA Contract" (creating a new BAA) is a disabled
+- `HealthPage`'s "Propose BAA Contract" (creating a new BAA) is a disabled
   stub — it requires acting as the covered-entity persona, which this
   dashboard's single-connected-wallet model doesn't represent.
 - Bundle size: a single ~1.9MB JS chunk (KaTeX, Monaco, and the full wagmi/

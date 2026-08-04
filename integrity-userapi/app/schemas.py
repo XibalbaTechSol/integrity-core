@@ -84,7 +84,7 @@ _DEMO_RUN_UPDATE_STATUSES = {"running", "completed", "failed"}
 
 class DemoRunUpdateRequest(BaseModel):
     """The completion-callback shape a demo-run executor (e.g.
-    `integrity-mvp/demo`) reports back through -- see PATCH /demo/runs/{id}.
+    `integrity-dashboard/demo`) reports back through -- see PATCH /demo/runs/{id}.
     `status` is deliberately restricted to non-initial states: a run is
     always created as 'pending' by POST /demo/run itself, never set back to
     it here."""

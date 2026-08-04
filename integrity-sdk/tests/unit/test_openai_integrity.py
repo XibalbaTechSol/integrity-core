@@ -117,6 +117,27 @@ def test_tool_call_names_captured_without_raw_arguments(messages):
     assert '"secret": "value"' not in str(meta)
 
 
+def test_create_records_a_token_ledger_event(messages):
+    """The wrapper must feed the LLM token ledger, not only telemetry metadata — otherwise
+    a direct-OpenAI agent's token spend is invisible to the per-agent budget/BCC token_count
+    path (llm_token_ledger.py)."""
+    from integrity_sdk.telemetry.llm_token_ledger import get_ledger
+
+    get_ledger().reset()
+    client = _client()
+    completions = _FakeCompletions(response=_fake_response("ok"))
+    wrapper = IntegrityCompletionsWrapper(completions, client)
+
+    wrapper.create(model="gpt-4o", messages=messages)
+
+    events = get_ledger().events_for_agent(client.agent_id)
+    assert len(events) == 1
+    assert events[0].prompt_tokens == 10
+    assert events[0].completion_tokens == 5
+    assert events[0].model == "gpt-4o-2024-08-06"
+    get_ledger().reset()
+
+
 def test_failed_call_before_response_logs_error_taxonomy(messages):
     client = _client()
     completions = _FakeCompletions(error=ConnectionError("boom"))
