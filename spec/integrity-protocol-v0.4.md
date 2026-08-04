@@ -33,7 +33,7 @@ Normative intent for the protocol, with an implementation map. Package coordinat
 11. Behavioral Commitment (BCC)
 12. Authority and Delegation
 13. Verification Ladder
-14. Xibalba Shield
+14. Integrity Health
 15. Proprietary LLMs and Attribution
 16. On-Chain Reputation and ERC-8004
 17. Package Map and Status
@@ -70,7 +70,7 @@ cannot widen.**
 
 Clause ⑦ is new in v0.4. Its absence was a hole rather than a simplification: the protocol
 called agents sovereign while every real deployment has an agent acting *for* someone, and the
-one place that relationship was modelled — Xibalba Shield's Smart BAA — was treated as a
+one place that relationship was modelled — Integrity Health's Smart BAA — was treated as a
 vertical feature rather than as the general case it is.
 
 AIS (Agent Integrity Score) is the **credit-score layer**. The primitives in §4 are the
@@ -569,22 +569,24 @@ implemented (Appendix A.5), the ladder is descriptive and MUST NOT be presented 
 
 ---
 
-## 14. Xibalba Shield
+## 14. Integrity Health
 
 The HIPAA/healthcare flagship: Smart BAAs, `ComplianceGate`, `EHRGate`, redaction before
 egress, immutable audit roots. It proves the primitives under maximum regulatory pressure —
 not a side feature, but the credibility proof for the protocol.
 
-Note the direction of generalization: Shield's Smart BAA is the protocol's **authority**
+Note the direction of generalization: Integrity Health's Smart BAA is the protocol's **authority**
 primitive (§4.3) and its `covered_entity_address` is the protocol's **counterparty** field
-(§11). Shield was doing the general thing all along; v0.4 lifts both to the protocol level.
+(§11). Integrity Health was doing the general thing all along; v0.4 lifts both to the protocol level.
 
 ### 14.1 Two products, one stack *(decision, 2026-08-01)*
 
-The name "Xibalba Shield" now names two things that must not be conflated:
+As of 2026-08-01, the name "Xibalba Shield" named two things that could not be conflated;
+the split below was executed to resolve that:
 
-1. **The HIPAA/healthcare vertical above** — `contracts/src/shield/*`, the on-chain BAA gate,
-   healthcare `intent_type`s in `policies/bcc.rego`. Lives **in this repo**, always has.
+1. **The HIPAA/healthcare vertical above** — renamed **Integrity Health**
+   (`contracts/src/health/*`), the on-chain BAA gate, healthcare `intent_type`s in
+   `policies/bcc.rego`. Lives **in this repo**, always has.
 2. **A planned device/network security product** — an endpoint agent (kernel/OS sensor, policy
    engine, LLM/agent guardrail hooks) that discovers and constrains AI agents on a machine, and
    *produces* the telemetry Integrity Core scores. This does not exist yet in any repo.
@@ -609,7 +611,7 @@ because someone was iterating on kernel-sensor code in the same tree. The two al
 genuinely different build/release cadences, threat models, and — per §14.2 — different
 compliance postures (Core never touches raw PHI or process telemetry; Shield's endpoint agent
 necessarily observes far more of a device than anything in this repo does today). This mirrors
-the healthcare vertical's own existing shape: `contracts/src/shield/*` already sits **above**
+the healthcare vertical's own existing shape: `contracts/src/health/*` already sits **above**
 `contracts/src/oracle/*`, consuming primitives rather than reimplementing them, and never the
 reverse.
 
@@ -690,7 +692,7 @@ the AIS endpoint in `agentURI`.
 
 | Package | Role | Status |
 |---|---|---|
-| `contracts/` | 7 primitives, factory, Shield, token, verifiers | Mature; Base Sepolia |
+| `contracts/` | 7 primitives, factory, Integrity Health, token, verifiers | Mature; Base Sepolia |
 | `integrity-zkp/` | Noir + Barretenberg intent circuit | Real pipeline |
 | `integrity-oracle/` | Telemetry, AIS, chain reads, OTLP, SSE | Solid + e2e |
 | `integrity-sdk/` / `integrity-cli/` | DID, wallet, registration, BCC, telemetry | Solid |
@@ -722,7 +724,7 @@ the AIS endpoint in `agentURI`.
 
 | § | Change | Why |
 |---|---|---|
-| 1 | Added thesis clause ⑦ (delegated authority) | Every real deployment has an agent acting *for* someone; the relationship was modelled only inside Shield |
+| 1 | Added thesis clause ⑦ (delegated authority) | Every real deployment has an agent acting *for* someone; the relationship was modelled only inside Integrity Health |
 | 2 | Added the AIS-is-a-score / reputation-is-the-record distinction | Without it, "AIS is downstream of primitives" contradicts reputation being one |
 | 3.4 | Cryptographic self-sovereignty promoted from primitive (v0.3 §4.3) to medium property | Not independent — keys are the substrate all four primitives are expressed *in* |
 | 4 | Six primitives → four | Two of the six were not independent: stake is ownership with consequence; BCC + observability are the two halves of one record |

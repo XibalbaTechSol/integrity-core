@@ -78,7 +78,7 @@ All three are principles, not mechanisms. Passes.
 
 > Each of the three below is now formalized — definitions, labelled invariants, and mechanism
 > mapping — in [`thesis-extensions-formal.md`](thesis-extensions-formal.md). Headline result:
-> **authority and symmetry are generalizations of mechanisms Shield already implements**
+> **authority and symmetry are generalizations of mechanisms Integrity Health already implements**
 > (`SmartBAA` is a delegation instrument; `covered_entity_address` is a counterparty field),
 > while termination is genuinely new and entangled with the registry-mutability question the
 > upgradeability decision also faces.
@@ -93,7 +93,7 @@ operator, a company, a user. `SovereignAgent` has a `controller` and supports ro
 mechanism exists — but "who authorized this agent, with what scope, and how is that
 delegation revoked?" is not a thesis clause and not a primitive.
 
-This is the largest gap. Every regulated use case (Shield especially) needs it: a covered
+This is the largest gap. Every regulated use case (Integrity Health especially) needs it: a covered
 entity delegating to an agent is a *delegation*, and §8's client-supplied
 `covered_entity_address` is exactly the hole where that delegation should be proven rather
 than claimed.

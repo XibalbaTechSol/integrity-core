@@ -203,11 +203,11 @@ skipped.
   pair. Verified end-to-end: `test_register_agent_is_idempotent_for_an_already_registered_did`
   calls `register_agent()` twice for the same identity and asserts both calls return
   identical primitive addresses.
-* **CLOSED — `EHRGate` ABI + Shield wrapper functions.** `scripts/sync_abis.py` now syncs
-  `EHRGate`; new `integrity_sdk/shield.py` wraps `CoveredEntityRegistry`/`SmartBAAFactory`/
+* **CLOSED — `EHRGate` ABI + Integrity Health wrapper functions.** `scripts/sync_abis.py` now syncs
+  `EHRGate`; new `integrity_sdk/health.py` wraps `CoveredEntityRegistry`/`SmartBAAFactory`/
   `SmartBAA`/`ComplianceGate`/`EHRGate`, reusing `markets._execute_via_agent` for every
   agent-routed call. Verified against real anvil-deployed contracts in
-  `tests/test_shield.py`: a full happy path (register covered entity → create BAA → agent
+  `tests/test_health.py`: a full happy path (register covered entity → create BAA → agent
   signs it → self-declared compliance → patient grants EHR access → AIS pushed above
   threshold → access check passes → `verifyAndLogAccess` succeeds) plus a negative case
   proving the on-chain AIS-threshold gate is real, not decorative (access stays denied when
@@ -267,7 +267,7 @@ skipped.
   **Real behavior change, explicitly requested and confirmed:** both integrations' `redact_phi`
   parameter now defaults to **`False`** (previously, `redact_text()` ran unconditionally on
   every prompt/completion/reasoning-trace/tool-call string in both files). Per explicit
-  decision: PHI/PII redaction is now opt-in, scoped to Xibalba Shield / healthcare-vertical
+  decision: PHI/PII redaction is now opt-in, scoped to Integrity Health / healthcare-vertical
   agents, who **must** pass `redact_phi=True` when constructing `IntegrityOpenAI` /
   `IntegrityLangChainCallback` — neither wrapper has any way to know an agent's
   `compliance_vertical` on its own (that's registered separately), so nothing here can safely
@@ -276,7 +276,7 @@ skipped.
   healthcare deployment is at least loud about it rather than silent — but there is **no
   runtime enforcement** preventing a healthcare-vertical agent from being built without
   `redact_phi=True`. This is a real, accepted residual risk from the chosen default, not an
-  oversight: flagged here so it isn't lost track of, and worth a `shield.py`-level guard (e.g.
+  oversight: flagged here so it isn't lost track of, and worth a `health.py`-level guard (e.g.
   refusing to proceed, or checking `compliance_vertical` against a resolvable registry) as a
   real follow-up rather than relying on every integrator remembering the flag.
 
@@ -295,7 +295,7 @@ removed. Every finding below is fixed and covered by a new regression test.
   re-formation once the existing BAA's `status()` reaches `Terminated`, while still
   blocking a duplicate while `Proposed`/`Active`/`Disputed`. Three new tests
   (`test_canReformBAAAfterRevoke`, `test_canReformBAAAfterSlash`,
-  `test_cannotReformBAAWhileDisputed`) in `test/shield/SmartBAA.t.sol`.
+  `test_cannotReformBAAWhileDisputed`) in `test/health/SmartBAA.t.sol`.
 * **CLOSED — `IntegrityMarket.resolve()` to a zero-stake outcome permanently locked the
   whole pool.** No check that `outcomeStaked[_winningOutcome] > 0`; an honest resolver
   reporting a genuinely zero-stake true outcome made every position hit `LosingPosition`
@@ -594,11 +594,11 @@ tests hit a real local `ThreadingHTTPServer`, matching this package's existing
 ## 7. Frontend (`integrity-dashboard`) — findings from a full-package audit, ALL CLOSED
 
 *Current State:* real backend wiring landed this session for `ChainOfThoughtPage`,
-`SdkTelemetryPage`, `IntelligencePage`, `CompareTracesPage`, `ShieldPage`'s Stability
+`SdkTelemetryPage`, `IntelligencePage`, `CompareTracesPage`, `HealthPage`'s Stability
 Certification tab, and the dashboard's `throughput`/`events`/`radar` widgets.
 `AgentContext.tsx` is confirmed real (calls `oracle.listAgents()`) — this doc previously,
 incorrectly, listed it as mock; that was stale. Two real on-chain write paths already
-exist via wagmi (`ShieldPage.tsx`'s BAA sign/revoke, `ExchangePage.tsx`'s market entry) —
+exist via wagmi (`HealthPage.tsx`'s BAA sign/revoke, `ExchangePage.tsx`'s market entry) —
 the prior "zero Web3 connectivity" claim in this doc was also stale and has been removed.
 `npm run build` (`tsc -b && vite build`) now succeeds cleanly — verified end-to-end,
 including the 3 unrelated pre-existing unused-import errors that were silently failing
@@ -617,7 +617,7 @@ the production build before anyone had run it locally.
   more (`--bg-card`, `--shadow`/`--shadow-lg`, `--glass-*`, `--r-xs/sm/md`, status/brand
   aliases) found by a full `var(...)`-reference sweep, not just the originally-named
   ones. All added to `:root` as aliases of existing theme tokens. Verified visually
-  across Dashboard/Contracts/Exchange/CompareTraces/Shield/Documents/Finance/Identity.
+  across Dashboard/Contracts/Exchange/CompareTraces/Health/Documents/Finance/Identity.
 * **CLOSED — `AuditPage.tsx` made a specific, false security claim with no mock-data
   disclosure.** Its copy asserted actions are "cryptographically hashed and anchored to
   Base L2" and "cannot be tampered with by the agent, host, or hypervisor," backed by 3
@@ -626,7 +626,7 @@ the production build before anyone had run it locally.
   DOES batch-anchor approved intents, best-effort, not yet per-event) versus what this
   specific page shows (a simulated local event feed, now `SeededDataBadge`-marked, no
   real audit-trail query endpoint exists yet).
-* **CLOSED — `ShieldPage.tsx`'s consent/slash actions were theater, not disclosed
+* **CLOSED — `HealthPage.tsx`'s consent/slash actions were theater, not disclosed
   stubs.** `handleSlashViolation` showed a native `alert()` claiming "Locked ITK Stake
   Slashed" with no contract call at all. Neither action can honestly be wired to a real
   transaction from this dashboard (EHRGate.grantAccess/revokeAccess are PATIENT-signed;
@@ -650,7 +650,7 @@ the production build before anyone had run it locally.
   (`oracle.getAis()`) — the dashboard widget for the selected agent, the Intelligence
   page for the top 2 real leaderboard agents — with an honest "select an agent" /
   "needs 2+ leaderboard agents" fallback instead of ever showing a fabricated number.
-* **CLOSED — `ShieldPage.tsx`'s "Stability Certification" tab was hardcoded despite
+* **CLOSED — `HealthPage.tsx`'s "Stability Certification" tab was hardcoded despite
   sibling tabs on the same page already proving the live oracle+on-chain-read pattern.**
   The tier badge is now derived from the real AIS score; the BAA Compliance Ratio from
   the real per-agent BAA data this same page already fetches via `getLogs`/
@@ -707,7 +707,7 @@ the production build before anyone had run it locally.
   anywhere in this protocol (same conclusion independently reached for ActuarialHub
   earlier this session), and no network-wide index of staked BAA collateral exists either
   — `SmartBAA.requiredCollateral()` is only readable per-BAA-address today (confirmed via
-  `ShieldPage.tsx`), there's no "list every active BAA" capability to sum across. Building
+  `HealthPage.tsx`), there's no "list every active BAA" capability to sum across. Building
   that real aggregate would need a new oracle-side indexing endpoint — logged as a genuine
   follow-up, not fabricated here. Fabricated sparklines were removed rather than kept
   under the now-real numbers (a fake trend line under a real value would itself be
@@ -785,7 +785,7 @@ the production build before anyone had run it locally.
 * **CLOSED (2026-07-16) — `IdentityPage.tsx` fabricated an AIS score and a false
   hardware-attestation claim for every agent, undisclosed.** `ais = selectedAgent ? 9.5
   : null` was a hardcoded constant (never a real fetch, despite `oracle.getAis()`
-  already being the proven pattern on `ShieldPage`'s Stability Certification tab);
+  already being the proven pattern on `HealthPage`'s Stability Certification tab);
   `tier` was derived from the coarse `ACTIVE`/`IDLE` status boolean and always showed
   `'AAA'` regardless of real score; worse, `teeVerified = true` was hardcoded
   unconditionally, rendering "TEE Status: Verified (Nitro)" for every agent with no
@@ -793,7 +793,7 @@ the production build before anyone had run it locally.
   `NotImplementedError` everywhere else in this codebase (this same page's own disabled
   "Regenerate Attestation Document" button already discloses that honestly). Fixed:
   real `oracle.getAis()` fetch + the same `stabilityTier()` score-banding function
-  `ShieldPage` already uses, `teeVerified` set to `false` (renders the page's own
+  `HealthPage` already uses, `teeVerified` set to `false` (renders the page's own
   pre-existing honest "Not Attested" branch), and the "TEE Measurements" panel's
   hardcoded PCR0/PCR1 hashes now carry a `SeededDataBadge`. Re-verified live: AIS Score
   "500.0 / 1000", Verification Tier "B" (both matching this agent's real score
@@ -855,7 +855,7 @@ the production build before anyone had run it locally.
     `TRANSACTIONS` fallback array, same technique the `TriMetricWidget` fix already
     used for `AgentContext`-driven fallback detection).
   - Confirmed clean by the same sweep, no changes needed: `SettingsPage.tsx`
-    (real `userapi.*` calls or already-disclosed toggles), `ShieldPage.tsx`'s Smart
+    (real `userapi.*` calls or already-disclosed toggles), `HealthPage.tsx`'s Smart
     BAAs/PHI Access Gates/Audit & Compliance/Quarantine Zone tabs (real chain reads
     or already `SeededDataBadge`-marked), `FinancePage.tsx`'s "A2A Markets &
     Escrow" tab (`MarketsEscrowPanel.tsx` — real oracle reads, already-disclosed
@@ -866,20 +866,20 @@ the production build before anyone had run it locally.
     one; not fixed in this pass).
   - `npm run build`/`tsc -b --noEmit`/`npm run lint` clean, 13/13 Playwright e2e
     green, all re-verified live against the real local stack.
-* **(2026-07-16) `DocumentsPage.tsx` merged into `ShieldPage.tsx` as a new "Documents"
+* **(2026-07-16) `DocumentsPage.tsx` merged into `HealthPage.tsx` as a new "Documents"
   tab, then removed as a standalone route.** Per explicit request: the page's own
   content was always HIPAA/clinical-document-flavored (`HIPAA_Compliance_Guidelines_
   2026.pdf`, `Patient_Onboarding_Protocol.docx`, `Clinical_Trial_Results_Q3.pdf`), so
   it belongs on the compliance page its filenames are about rather than a separate
   top-level nav item. Moved verbatim (banner, 3 stat cards, trend chart, document
-  table) into a new `Documents` entry in `ShieldPage.tsx`'s `SUB_TABS`, keeping the
+  table) into a new `Documents` entry in `HealthPage.tsx`'s `SUB_TABS`, keeping the
   exact same honest disclosure (`SeededDataBadge`, "Not yet implemented" banner, no
   document/RAG-indexing backend exists anywhere in this monorepo — nothing was
   silently upgraded to "real" in the move). Removed `DocumentsPage.tsx`, the
   `/documents` route (`App.tsx`), and the Sidebar nav entry; `e2e/smoke.spec.ts`'s
   `ROUTES` updated to 10 entries (was 11). `npm run build`/`tsc -b --noEmit`/
   `npm run lint` clean, 12/12 Playwright e2e green, re-verified live: the merged
-  "Documents" tab renders correctly under Shield, `/documents` no longer resolves to
+  "Documents" tab renders correctly under Integrity Health, `/documents` no longer resolves to
   anything.
 
 ## 8. CI / Autonomous Fix-Forward (`.github/workflows/ci.yml`)
@@ -914,7 +914,7 @@ the production build before anyone had run it locally.
 * **CLOSED — added `audit_log`, a new durable Postgres table (`integrity-oracle/backend/migrations/0006_audit_log.sql`).** `agent_id` deliberately has no FK to `agents(id)` (mirrors `otel_spans`' same choice, migration 0004) — a forged-signature or unknown-agent deny is exactly the kind of event worth keeping, and may reference an `agent_id` that never resolves to a real row.
 * **CLOSED — `bcc_middleware` now reports every intercept decision, allow AND deny, not just approved ones.** New module `bcc_middleware/app/audit.py`, called from `run_intercept`'s `_deny()` helper (parses the existing `"CODE: detail"` reason string into `reason_code`/`detail`) and from the final approval path. Fire-and-forget via `asyncio.ensure_future` (task references held in a module-level set so they aren't garbage-collected mid-flight) POSTing to a new `POST /v1/audit/ingest` oracle endpoint — best-effort, same documented asymmetry as `anchor.py`'s on-chain anchoring: by the time this runs, `run_intercept` has already decided allow/deny, so a slow/unreachable oracle can never add latency or change the response, only mean that one decision is missing from the audit trail until the next successful report. Both `/v1/audit/ingest` and the receiving oracle endpoint are deliberately unauthenticated, matching the OTLP receiver's (`otlp.rs`) existing posture for this single-operator dev/demo topology — a forged entry is a known, documented limitation, not silently claimed to be tamper-proof. 91/91 `bcc_middleware` pytest suite still green after the `_deny()` signature change.
 * **CLOSED — new oracle endpoints: `POST /v1/audit/ingest`, `GET /v1/audit-log`.** The GET side (`backend::handlers::get_audit_log`) merges two real sources: the new `audit_log` table (BCC intercept decisions — the only source with an explicit allow/deny verdict) and, when `agent_id` is given, that agent's `telemetry_events` rows surfaced as `flagged`/`recorded` (there's no existing "recent across all agents" query for `telemetry_events`, so the global/no-agent feed is `audit_log` only — documented in `get_audit_log`'s own doc comment rather than silently omitted). Merged in Rust, not a SQL UNION — the two source tables don't share a column shape. Both endpoints added to `ApiDocExtra` in `openapi.rs` (utoipa's 15-paths-per-struct limit meant `ApiDocCore` was already full). `cargo build --workspace` and `cargo test --workspace --lib` (80 tests) clean.
-* **CLOSED — `AuditLogsPanel.tsx` rewritten to query the real endpoint, reactive to the global agent selector.** Per an explicit follow-up ("agent selector should be working to determine which data to display"): the panel now calls `oracle.getAuditLog(selectedAgent?.id, 200)` from `AgentContext`'s `selectedAgent` (the same global TopBar picker `SystemDiagnosticsPage`'s sibling "SDK Telemetry" tab already reacts to), refetching on agent change. Removed the `SeededDataBadge`/"Simulated event feed" disclosure entirely — this data source is now real, not merely honestly-disclosed-fake. `LoggerContext.tsx` was left in place, not deleted: it's still a legitimate (if minor) dependency of `ActuarialHub.tsx`'s own mock marketplace flow, which is out of this pass's scope; only `AuditLogsPanel`'s use of it was removed. `ShieldPage.tsx`'s separate "Medical Record Interaction Logs" table (`MOCK_AUDIT_LOGS`, a different, EHR-action-shaped concept) was left as-is — already honestly disclosed via its own `SeededDataBadge`, and wiring it to the new generic `audit_log` feed would misrepresent it as PHI-specific interaction logging it isn't.
+* **CLOSED — `AuditLogsPanel.tsx` rewritten to query the real endpoint, reactive to the global agent selector.** Per an explicit follow-up ("agent selector should be working to determine which data to display"): the panel now calls `oracle.getAuditLog(selectedAgent?.id, 200)` from `AgentContext`'s `selectedAgent` (the same global TopBar picker `SystemDiagnosticsPage`'s sibling "SDK Telemetry" tab already reacts to), refetching on agent change. Removed the `SeededDataBadge`/"Simulated event feed" disclosure entirely — this data source is now real, not merely honestly-disclosed-fake. `LoggerContext.tsx` was left in place, not deleted: it's still a legitimate (if minor) dependency of `ActuarialHub.tsx`'s own mock marketplace flow, which is out of this pass's scope; only `AuditLogsPanel`'s use of it was removed. `HealthPage.tsx`'s separate "Medical Record Interaction Logs" table (`MOCK_AUDIT_LOGS`, a different, EHR-action-shaped concept) was left as-is — already honestly disclosed via its own `SeededDataBadge`, and wiring it to the new generic `audit_log` feed would misrepresent it as PHI-specific interaction logging it isn't.
 * **Verified for real, end-to-end, live:** rebuilt and restarted the dockerized `oracle-backend`/`bcc-middleware` images (both `COPY` source at build time, same trap documented in §10 for the `dashboard` container — a `docker compose up -d` restart alone would not have picked up any of this), confirmed migration `0006_audit_log` applied via the oracle's boot log, then sent a real malformed-signature commitment straight to `POST /v1/bcc/intercept` (`curl`, no test harness) and confirmed via `GET /v1/audit-log?agent_id=...` that a `BCC_INVALID_SIGNATURE` deny row appeared with the correct `reason_code`/`detail` split. Then browser-verified live (`npm run dev`, not the stale Docker dashboard image) at `/diagnostics` → Audit Logs: the exact same real deny row rendered correctly for the probed agent, and switching the TopBar agent selector to a different, never-probed agent correctly showed an empty table (not stale or fabricated data) — confirming the agent-selector reactivity explicitly requested. Zero console errors.
 
 ## 12. Dashboard/Trace Analytics rendered empty despite real backend data (2026-07-16)
@@ -939,7 +939,7 @@ Full regression after all six fixes: `npm run build`/`npm run lint` clean (only 
 
 *Current State:* Explicit request: "keep going" (continuing the mock sweep). Three parallel investigation passes covered every remaining unaudited surface: `SettingsPage.tsx`/`SystemDiagnosticsPage.tsx` (beyond their prior `SeededDataBadge` instances), `LandingPage.tsx`/`ContactModal.tsx`/`CommandPalette.tsx`, and `NotionDatabase.tsx`/`MermaidDiagram.tsx`/`Toast.tsx`/`MarketsEscrowPanel.tsx`. Four of these seven files came back completely clean (`NotionDatabase.tsx`, `MermaidDiagram.tsx`, `Toast.tsx`, `MarketsEscrowPanel.tsx` — the last already fully badged from a prior pass, its order-placement flow confirmed calling real `readContract`/`writeContract` against real ABIs/deployments, not faking success) and `SystemDiagnosticsPage.tsx` and `ContactModal.tsx` had no findings (`ContactModal.tsx` genuinely POSTs to a real backend and surfaces real errors). Five real findings, fixed:
 * **CLOSED — `SettingsPage.tsx`'s TopBar had a global "Save Changes" button whose only behavior was `window.alert('Settings saved to volatile memory.')` — no real persistence, and nothing on the page actually needed a manual save step (theme/font persist live via `ThemeContext` on change, API keys are created/revoked via real `userapi` calls immediately, the Network panel is separately disclosed as non-functional).** Removed the button entirely rather than relabel it — there was no real save action to disclose-and-keep. A second, narrower finding in the same file: "Save Network Settings" (inside the already-`SeededDataBadge`-disclosed Network panel) had no `onClick` handler at all, a silent no-op rather than a visibly inert control — fixed by adding `disabled` + a `title` tooltip so the non-functionality is visible, not just discoverable by clicking and observing nothing happen.
-* **CLOSED — three separate landing-page/header buttons (`HeroSection.tsx`'s "Launch Dashboard", `CinematicHeader.tsx`'s desktop+mobile "Launch Dashboard" and "Sign In", `CoreFeatures.tsx`'s "OPEN ESCROWS") all navigated to `/integrity`, which is not and has never been a route in `App.tsx`** (real routes: `/`, `/landing`, `/identity`, `/contracts`, `/settings`, `/finance`, `/traces`, `/diagnostics`, `/shield`, `/agents`) — every one of these was a dead link rendering a blank page. Fixed by pointing each at the real destination its label promises: "Launch Dashboard" → `/` (the real Intelligence Command dashboard), "Sign In" → `/settings` (where the real `userapi` email/password login form already lives), "OPEN ESCROWS" → `/finance` (real `MarketsEscrowPanel.tsx`). `CinematicHeader.tsx`'s "Sign In" button additionally fired `alert("Google Sign-In flow initiated.")` before navigating — a fake OAuth flow with no real Google/any-provider integration anywhere in this monorepo — removed entirely along with the dead-route fix, not just disclosed, since a real login path already exists one click away.
+* **CLOSED — three separate landing-page/header buttons (`HeroSection.tsx`'s "Launch Dashboard", `CinematicHeader.tsx`'s desktop+mobile "Launch Dashboard" and "Sign In", `CoreFeatures.tsx`'s "OPEN ESCROWS") all navigated to `/integrity`, which is not and has never been a route in `App.tsx`** (real routes: `/`, `/landing`, `/identity`, `/contracts`, `/settings`, `/finance`, `/traces`, `/diagnostics`, `/health`, `/agents`) — every one of these was a dead link rendering a blank page. Fixed by pointing each at the real destination its label promises: "Launch Dashboard" → `/` (the real Intelligence Command dashboard), "Sign In" → `/settings` (where the real `userapi` email/password login form already lives), "OPEN ESCROWS" → `/finance` (real `MarketsEscrowPanel.tsx`). `CinematicHeader.tsx`'s "Sign In" button additionally fired `alert("Google Sign-In flow initiated.")` before navigating — a fake OAuth flow with no real Google/any-provider integration anywhere in this monorepo — removed entirely along with the dead-route fix, not just disclosed, since a real login path already exists one click away.
 * **CLOSED — `LandingPage.tsx`'s "Agent XNS Lookup" search box was fully uncontrolled (no `value`/`onChange`) — typing an agent DID and clicking "Lookup" silently discarded the input and opened `RegistryExplorer.tsx`'s modal with its own independent, always-blank `query` state.** `RegistryExplorer.tsx` didn't accept an initial-query prop at all, so this wasn't fixable from the landing page alone. Added `initialQuery?: string` to `RegistryExplorerProps`, plus a `useEffect` keyed on `[isOpen, initialQuery]` (needed because the component self-guards on `isOpen` via `if (!isOpen) return null` rather than being conditionally mounted by its parent — a plain `useState` initializer would only ever apply `initialQuery` once, on first mount, not on every re-open) — then wired the landing page's input through it. Verified live: typing a real registered DID and clicking Lookup now opens the modal with that exact DID pre-filled, and Resolve returns that agent's real on-chain data.
 * **CLOSED — `CommandPalette.tsx`'s "Toggle Theme" command only ever called `addToast('info', 'Theme toggled')` — it never touched the real `ThemeContext` (`setTheme`), so the toast claimed success while nothing on screen changed.** `ThemeContext.tsx` already exposes 4 real themes (`default`/`navy-gold`/`clinical-light`/`notion`) wired live elsewhere (`SettingsPage.tsx`'s Appearance panel). Fixed by importing `useTheme`/`Theme` and cycling through the same 4-theme list for real, with the toast message reporting the actual theme now active rather than a generic claim. Verified live in a fresh browser tab: invoking the command visibly re-themes the entire app (confirmed dark → light background swap matching the `clinical-light` theme).
 Full regression: `npm run build`/`npm run lint` clean (zero new errors; only the same pre-existing unrelated warnings remain), every fix browser-verified live. One unrelated hazard discovered during verification, not caused by this pass: clicking on `DashboardPage.tsx`'s react-grid-layout widget area can trigger a pre-existing library bug (`react-grid-layout`'s dev-mode `log()` helper references bare `process.env` with no browser shim, throwing `ReferenceError: process is not defined` on drag-start and wedging that browser tab's renderer) — a fresh tab was unaffected and confirmed the app itself was healthy throughout. Not fixed in this pass (out of scope for a mock-disclosure sweep), flagged here so it's not mistaken for a regression next time someone hits it.

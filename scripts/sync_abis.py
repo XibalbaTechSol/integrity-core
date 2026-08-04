@@ -62,7 +62,7 @@ CONTRACTS = [
     ("MarketFactory", "MarketFactory"),
     ("IntegrityMarket", "IntegrityMarket"),
     ("A2ACapitalPool", "A2ACapitalPool"),
-    # Healthcare/Shield vertical (added for integrity-dashboard/demo's Clinician-Delta
+    # Integrity Health vertical (added for integrity-dashboard/demo's Clinician-Delta
     # persona, which is the first consumer to call these from Python):
     # ComplianceGate.setSelfDeclaredCompliance/isHealthcareCompliant,
     # CoveredEntityRegistry.registerEntity (REGISTRAR_ROLE, held by the funder/

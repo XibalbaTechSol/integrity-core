@@ -68,7 +68,7 @@ deny rate over that many samples is not luck.
 
 Every rule in `policies/bcc.rego` keys on `intent_type`. The hook emitted the
 **constant** label `claude_tool:<ToolName>`, hashing the real command into
-`intended_state_hash` per §4.2 (so plaintext — and, in the Shield vertical, PHI —
+`intended_state_hash` per §4.2 (so plaintext — and, in the Integrity Health vertical, PHI —
 never leaves the agent). A constant matches no rule, so `violation` was always
 `[]` and `allow` always `true`.
 

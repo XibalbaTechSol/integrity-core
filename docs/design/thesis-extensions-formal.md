@@ -156,7 +156,7 @@ Generalizing it to `counterparty_did` (+ optionally `counterparty_commitment_has
 directly, and reuses the same generalization authority needs in §1.3.
 
 **Note the convergence:** authority and symmetry both resolve by generalizing a
-HIPAA-specific field into a domain-neutral one. That is a strong signal the Shield vertical
+HIPAA-specific field into a domain-neutral one. That is a strong signal the Integrity Health vertical
 was doing the general thing all along and the protocol simply never lifted it.
 
 ---
@@ -237,7 +237,7 @@ is still exact: memory ⊨ ②, ownership ⊨ ①+④, reputation ⊨ ③+⑤, a
 | Termination | +1 clause | registry lifecycle state + tombstone root | StateAnchor, dispute path | **Blocked on** the registry-mutability question the upgradeability decision also faces |
 | Symmetry | generalization only | `counterparty_did` on BCC | BCC, existing verifiability | Enables A2A honestly |
 
-Two of the three cost almost nothing structural — they lift an existing Shield mechanism to
+Two of the three cost almost nothing structural — they lift an existing Integrity Health mechanism to
 the protocol level. Termination is the genuinely new one, and it is entangled with a decision
 already open.
 

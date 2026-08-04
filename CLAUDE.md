@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Integrity Protocol — a trust/compliance layer for AI agents on Base L2. Agents deploy and own
 their own identity/reputation contracts (no privileged factory registers on their behalf); an
 oracle computes a reputation score (AIS) from off-chain telemetry, boostable via a real Noir/
-Barretenberg ZK proof; a policy middleware gates risky actions pre-execution. "Xibalba Shield"
+Barretenberg ZK proof; a policy middleware gates risky actions pre-execution. "Integrity Health"
 is the HIPAA/healthcare vertical built on top of the same primitives.
 
 This is a from-scratch rewrite of an earlier prototype. Ground rule, repeated in nearly every
@@ -28,7 +28,7 @@ enforcement mechanism (see `docs/TESTING.md`).
 
 | Package | Stack | Role |
 |---|---|---|
-| `contracts/` | Foundry/Solidity 0.8.28 | On-chain primitives, registries, markets, Shield (HIPAA) contracts |
+| `contracts/` | Foundry/Solidity 0.8.28 | On-chain primitives, registries, markets, Integrity Health (HIPAA) contracts |
 | `integrity-zkp/` | Noir + Barretenberg | The real ZK circuit backing on-chain reputation-boost proofs |
 | `integrity-oracle/` | Rust/Axum (Cargo workspace) | Reads chain state, computes AIS, serves telemetry/market/leaderboard API |
 | `integrity-sdk/` | Python | Agent-facing SDK: identity, wallet, BCC commitments, ZK proving, telemetry |
@@ -109,7 +109,7 @@ call and hits stack-too-deep otherwise.
 
 Contract groups: `core/` (`SovereignAgent`, `IAccount`), `framework/` (registry/factory/profile/
 domain/name-service), `oracle/` (reputation, slashing, ZK verifier plumbing, $ITK token, CCIP
-bridge), `markets/` (agent-owned prediction markets + capital pool), `shield/` (HIPAA vertical:
+bridge), `markets/` (agent-owned prediction markets + capital pool), `health/` (HIPAA vertical:
 `ComplianceGate`, `CoveredEntityRegistry`, `EHRGate`, `SmartBAA(Factory)`,
 `HIPAAGuardrailRegistry`).
 
@@ -125,7 +125,7 @@ self-grant), **reputation** (earned, non-forgeable standing). Beware the word: t
 per-agent contracts (`PrimitiveSet`) are a different sense, and only the second concept is a
 contract at all. AIS is a score over reputation, not a primitive.
 
-Authority is built only in the Shield vertical so far — `SmartBAA` is already a delegation
+Authority is built only in the Integrity Health vertical so far — `SmartBAA` is already a delegation
 instrument — and generalizing it is what closes the client-supplied `covered_entity_address`
 hole. Termination (how an agent's standing ends) is formalized but deliberately unadopted: it
 needs registry mutability, the same question the upgradeability decision faces.

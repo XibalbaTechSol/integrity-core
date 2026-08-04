@@ -69,7 +69,7 @@ full model, `docs/INTERFACE_CONTRACT.md` §4.4a for the wire-level constant, and
 [`PRODUCTION_GAPS.md`](PRODUCTION_GAPS.md) §19 for exactly what is enforced today versus
 what is still open.
 
-**Xibalba Shield** — the HIPAA/healthcare vertical — is the flagship proof that
+**Integrity Health** — the HIPAA/healthcare vertical — is the flagship proof that
 this works in the most heavily regulated industry there is. It's not a side
 feature; it's the demonstration that makes the rest of the protocol credible.
 
@@ -140,7 +140,7 @@ controlled by that agent).
 | 3 | `ReputationRegistry` | clone | Per-agent AIS ledger + ZK-boost bookkeeping |
 | 4 | `Slasher` | clone | Per-agent $ITK stake / dispute-gated slashing vault |
 | 5 | `VerifierRegistry` | clone | Per-agent versioned pointer to the ZK verifier it trusts |
-| 6 | `ComplianceGate` | clone | Per-agent regulated-industry declaration + live Shield/HIPAA check |
+| 6 | `ComplianceGate` | clone | Per-agent regulated-industry declaration + live Integrity Health/HIPAA check |
 | 7 | `AgentProfile` | clone | Per-agent domain-membership + metadata pointer |
 
 **Call-routing rule:** every clone's admin role is granted to the agent's own
@@ -167,14 +167,14 @@ When building and deploying applications on the protocol, developers must choose
 
 | Package | Stack | Purpose | Status |
 |---|---|---|---|
-| [`contracts/`](contracts/) | Solidity + Foundry | The 7 primitives, factory, registries, XNS, `IntegrityGovernance`, $ITK, Shield stack, ZK verifier, cross-chain reputation bridge | ✅ 198 tests; deployed to Base Sepolia (XNS/governance/CCIP bridge not yet broadcast — see below) |
+| [`contracts/`](contracts/) | Solidity + Foundry | The 7 primitives, factory, registries, XNS, `IntegrityGovernance`, $ITK, Integrity Health stack, ZK verifier, cross-chain reputation bridge | ✅ 198 tests; deployed to Base Sepolia (XNS/governance/CCIP bridge not yet broadcast — see below) |
 | [`integrity-zkp/`](integrity-zkp/) | Noir + Barretenberg | The ZK circuit proving an action matches its committed intent | ✅ real `nargo`/`bb` pipeline |
 | [`integrity-oracle/`](integrity-oracle/) | Rust + Axum + Postgres | Telemetry ingestion, AIS computation, on-chain reads | ✅ 37 lib tests + real e2e |
 | [`integrity-sdk/`](integrity-sdk/) | Python | Agent library: DID/keys, EVM wallet, self-deploy registration, BCC, telemetry (OTel + MLflow) | ✅ 46 tests |
 | [`integrity-cli/`](integrity-cli/) | Python (Typer) | Developer CLI for identity, on-chain registration, BCC intercept | ✅ 49 tests |
 | [`bcc_middleware/`](bcc_middleware/) | Python (FastAPI) + OPA | Pre-execution policy gate, HIPAA BAA check, Merkle anchoring | ✅ 49 tests + 12 OPA |
 | [`integrity-userapi/`](integrity-userapi/) | Python (FastAPI) + Postgres | User accounts, auth, API keys, agent ownership — strictly non-chain | 🚧 in progress |
-| [`integrity-dashboard/`](integrity-dashboard/) | React + Vite + TS, plus `demo/` (Python) | The ONE investor/developer app — landing, markets, leaderboard, wallet, capital allocation, cognition, identity, Shield — plus its closed-loop demo scenario engine. Formerly two packages (`integrity-dashboard` + `integrity-demo`), merged so there's exactly one product surface. | 🚧 in progress |
+| [`integrity-dashboard/`](integrity-dashboard/) | React + Vite + TS, plus `demo/` (Python) | The ONE investor/developer app — landing, markets, leaderboard, wallet, capital allocation, cognition, identity, Integrity Health — plus its closed-loop demo scenario engine. Formerly two packages (`integrity-dashboard` + `integrity-demo`), merged so there's exactly one product surface. | 🚧 in progress |
 
 ---
 
@@ -216,7 +216,7 @@ their own smart contracts, and act as accountable economic participants —
 account. Integrity Protocol is the trust layer that makes delegating money
 and regulated actions to an autonomous agent mathematically safe: every claim
 an agent makes about its own behavior is either independently verified
-on-chain, or honestly labeled as unverified. Xibalba Shield (healthcare) is
+on-chain, or honestly labeled as unverified. Integrity Health (healthcare) is
 the flagship proof this holds in the most heavily regulated industry there
 is; the multi-vertical Dashboard (markets, capital allocation, wallet) proves the
 same mechanism generalizes to any domain where trust has economic value.
@@ -269,7 +269,7 @@ architecture:
 - **Dual-mode storage** (roadmap, not yet built as a toggle): Mode 1
   (transparent) stores full traces for standard, non-regulated use —
   developer debugging visibility is the priority. Mode 2 (Sovereign
-  ZK-Mode, for Shield/healthcare and any PHI-adjacent vertical) never lets
+  ZK-Mode, for Integrity Health/healthcare and any PHI-adjacent vertical) never lets
   raw content leave local hardware at all — only a hash and a ZK proof of
   correct measurement leave the agent's process.
 - **Redaction gate is closed everywhere it needs to be.**
@@ -404,8 +404,8 @@ The protocol genesis is deployed and verified on Base Sepolia. Full record in
 | `AgentPrimitivesFactory` | [`0x215f39C8a2Cea2F8c6976fA10bbf48479825aD6e`](https://sepolia.basescan.org/address/0x215f39C8a2Cea2F8c6976fA10bbf48479825aD6e) |
 | `IntegrityToken` ($ITK) | [`0x0E87D408732BeC3d3997d9eCE2E20A6679C35655`](https://sepolia.basescan.org/address/0x0E87D408732BeC3d3997d9eCE2E20A6679C35655) |
 | `DomainRegistry` | [`0xC1aee61b8826d79c21a335Fb1777cA372Bea1Ba0`](https://sepolia.basescan.org/address/0xC1aee61b8826d79c21a335Fb1777cA372Bea1Ba0) |
-| `CoveredEntityRegistry` (Shield) | [`0x3E42C072BA8Ca6EE6E86c8DB011eB4063b8aac07`](https://sepolia.basescan.org/address/0x3E42C072BA8Ca6EE6E86c8DB011eB4063b8aac07) |
-| `SmartBAAFactory` (Shield) | [`0xf791059A9E77734f3fd7dffC1ca35728547608eb`](https://sepolia.basescan.org/address/0xf791059A9E77734f3fd7dffC1ca35728547608eb) |
+| `CoveredEntityRegistry` (Integrity Health) | [`0x3E42C072BA8Ca6EE6E86c8DB011eB4063b8aac07`](https://sepolia.basescan.org/address/0x3E42C072BA8Ca6EE6E86c8DB011eB4063b8aac07) |
+| `SmartBAAFactory` (Integrity Health) | [`0xf791059A9E77734f3fd7dffC1ca35728547608eb`](https://sepolia.basescan.org/address/0xf791059A9E77734f3fd7dffC1ca35728547608eb) |
 
 Per-agent primitive addresses are **not** in the static deployments file — they
 are resolved live from `XibalbaAgentRegistry` on-chain (and cached by the
