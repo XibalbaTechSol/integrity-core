@@ -48,7 +48,7 @@ class BCCCommitment(BaseModel):
     # that module for why an unset covered entity is never treated as
     # "compliant"). Deliberately an address, not a DID -- unlike agents,
     # covered entities are registered directly by EVM address in
-    # `contracts/src/shield/CoveredEntityRegistry.sol`, there is no DID layer
+    # `contracts/src/health/CoveredEntityRegistry.sol`, there is no DID layer
     # for them.
     covered_entity_address: str | None = Field(
         default=None,

@@ -8,7 +8,7 @@ has to be a real `eth_call` against a real contract, never a hardcoded
 allowlist (that was the old prototype's "STAGING MODE" bug this rewrite is
 explicitly told not to repeat).
 
-On-chain interface actually implemented by `contracts/src/shield/
+On-chain interface actually implemented by `contracts/src/health/
 SmartBAAFactory.sol` (confirmed against the real, already-built/tested
 Solidity, not assumed):
 
@@ -35,7 +35,7 @@ DID->address convention). `coveredEntity` comes directly from the
 commitment's `covered_entity_address` field (see schemas.py) -- it is NOT
 derived via `agent_id_to_address`, since a covered entity has no DID at all
 in this protocol (it's registered by raw EVM address in
-`contracts/src/shield/CoveredEntityRegistry.sol`).
+`contracts/src/health/CoveredEntityRegistry.sol`).
 
 Fail-closed policy: if we cannot positively confirm `isBAAActive == true`
 (no contract address configured yet, no covered_entity_address on the

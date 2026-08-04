@@ -99,8 +99,8 @@ def mock_oracle_agent_resolution(
     real anvil — a real integrity-oracle isn't part of that fixture set, so its
     one HTTP dependency is stubbed here rather than standing up the whole Rust
     service just to answer "what is this agent's SovereignAgent address" for a
-    test that isn't about the oracle itself (see test_baa_shield_integration.py
-    for the equivalent real-Shield-contracts integration, mirrored here for the
+    test that isn't about the oracle itself (see test_baa_health_integration.py
+    for the equivalent real-Integrity-Health-contracts integration, mirrored here for the
     oracle boundary).
 
     `resolve_agent_primitives` is `lru_cache`d per (oracle_url, agent_id); since

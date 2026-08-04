@@ -1,6 +1,6 @@
 """
 Real integration test for the on-chain BAA gate against the ACTUAL
-`contracts/` shield stack -- `CoveredEntityRegistry` + `SmartBAAFactory` +
+`contracts/` Integrity Health stack -- `CoveredEntityRegistry` + `SmartBAAFactory` +
 `SmartBAA` + `IntegrityToken` -- not the lightweight `MockBAARegistry`
 fixture that tests/test_chain_baa_anchor.py uses for its broader
 eth_call-plumbing coverage.
@@ -32,7 +32,7 @@ that exact address (the same address `check_baa_status` independently
 re-resolves and queries), this test uses anvil's
 `anvil_impersonateAccount`/`anvil_setBalance` cheat RPC methods -- the
 JSON-RPC equivalent of Foundry's `vm.prank`, which
-`contracts/test/shield/SmartBAA.t.sol` already uses for the identical
+`contracts/test/health/SmartBAA.t.sol` already uses for the identical
 purpose. This is a standard local-test-chain technique for driving a
 contract call as an address you don't hold a key for; it is not a mock of
 anything this test is actually verifying (the deployed contracts, the
@@ -80,7 +80,7 @@ CONTRACTS_OUT = CONTRACTS_DIR / "out"
 
 # CoveredEntityRegistry.EntityType enum ordinal (Unregistered=0,
 # CoveredEntity=1, BusinessAssociate=2) -- see
-# contracts/src/shield/CoveredEntityRegistry.sol.
+# contracts/src/health/CoveredEntityRegistry.sol.
 ENTITY_TYPE_COVERED_ENTITY = 1
 
 
@@ -89,7 +89,7 @@ def _load_artifact(contract_file: str, contract_name: str) -> dict:
     if not path.exists():
         pytest.skip(
             f"{path} not found -- run `forge build` in {CONTRACTS_DIR} first. "
-            "This is a genuine build prerequisite (real shield contracts), not a mock gap."
+            "This is a genuine build prerequisite (real Integrity Health contracts), not a mock gap."
         )
     with open(path) as f:
         return json.load(f)
@@ -127,7 +127,7 @@ def real_baa_stack(anvil_chain):
     # IntegrityToken(admin, initialMint) -- collateral asset SmartBAA.sign()
     # escrows. Individual tests below use requiredCollateral=0 (the escrow
     # mechanics themselves are already covered by
-    # contracts/test/shield/SmartBAA.t.sol; this file's job is proving the
+    # contracts/test/health/SmartBAA.t.sol; this file's job is proving the
     # isBAAActive gate specifically), so the initial mint amount here is
     # arbitrary -- it just needs to be a real, functioning ERC20 for
     # SmartBAA's constructor/safeTransferFrom(..., 0) calls to succeed against.
