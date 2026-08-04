@@ -86,7 +86,12 @@ def test_allow_decision_records_leaf_metadata(client, real_opa_server, monkeypat
     payload = sign_commitment(private_key, agent_id=agent_id, intent_type="payment", nonce=1)
     assert client.post("/v1/bcc/intercept", json=payload).json()["authorized"] is True
 
-    allow = [r for r in _await_reported(reported) if r["decision"] == "allow"]
+    import time
+    for _ in range(10):
+        allow = [r for r in reported if r["decision"] == "allow"]
+        if allow:
+            break
+        time.sleep(0.05)
     assert allow, "an allow decision must be reported"
     assert allow[-1]["metadata"]["leaf"] == _leaf_hex(payload)
     assert allow[-1]["metadata"]["verification_token"]
