@@ -2237,6 +2237,40 @@ pub async fn get_stats(State(state): State<AppState>) -> Result<Json<StatsDto>, 
     }))
 }
 
+/// Real "shadow AI" discovery (Shield vertical): DIDs the oracle has telemetry/policy
+/// evidence for (`otel_spans`, `audit_log`) but that never registered via
+/// `POST /v1/agent/register`. See `db::list_unregistered_agents`'s doc comment for why
+/// this is the correctly-scoped, zero-new-infra version of this feature rather than
+/// literal network/process scanning (out of scope for a web app regardless).
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct UnregisteredAgentDto {
+    pub agent_id: String,
+    /// "otel" | "audit_log" — which table this DID was first observed in.
+    pub source: String,
+    pub first_seen: String,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/shield/unregistered-agents",
+    responses(
+        (status = 200, description = "DIDs with telemetry/audit evidence but no agent registration", body = Vec<UnregisteredAgentDto>),
+    ),
+    tag = "audit",
+)]
+pub async fn get_unregistered_agents(State(state): State<AppState>) -> Result<Json<Vec<UnregisteredAgentDto>>, AppError> {
+    let rows = db::list_unregistered_agents(&state.pool).await?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| UnregisteredAgentDto {
+                agent_id: r.agent_id,
+                source: r.source,
+                first_seen: r.first_seen.to_rfc3339(),
+            })
+            .collect(),
+    ))
+}
+
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct AuditLogEntryDto {
     pub id: String,

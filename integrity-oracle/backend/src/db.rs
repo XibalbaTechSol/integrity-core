@@ -187,6 +187,40 @@ pub async fn list_agents(pool: &PgPool) -> Result<Vec<AgentListRow>, sqlx::Error
     .await
 }
 
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct UnregisteredAgentRow {
+    pub agent_id: String,
+    pub source: String,
+    pub first_seen: DateTime<Utc>,
+}
+
+/// Real "shadow AI" detection: `otel_spans` and `audit_log` both store `agent_id` as a
+/// bare TEXT column with no foreign key to `agents` (see each table's own migration) --
+/// the oracle already durably records telemetry/policy-decision evidence for DIDs that
+/// were never registered via `POST /v1/agent/register`. This surfaces exactly that set,
+/// using data that already exists rather than any new scanning infra (see
+/// bcc_middleware/spec/xibalba-shield-v1.md's [PLANNED] kernel-sensor design for the
+/// separate, out-of-scope-here vision this deliberately does not attempt).
+pub async fn list_unregistered_agents(pool: &PgPool) -> Result<Vec<UnregisteredAgentRow>, sqlx::Error> {
+    sqlx::query_as::<_, UnregisteredAgentRow>(
+        r#"
+        SELECT agent_id, 'otel' AS source, MIN(start_time) AS first_seen
+        FROM otel_spans
+        WHERE agent_id NOT IN (SELECT id FROM agents)
+        GROUP BY agent_id
+        UNION ALL
+        SELECT agent_id, 'audit_log' AS source, MIN(created_at) AS first_seen
+        FROM audit_log
+        WHERE agent_id IS NOT NULL
+          AND agent_id NOT IN (SELECT id FROM agents)
+        GROUP BY agent_id
+        ORDER BY first_seen ASC
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+}
+
 /// Cached on-chain `PrimitiveSet` (§6.1) for one agent, as last resolved from
 /// `XibalbaAgentRegistry`. Deliberately a separate table/row type from `AgentRow` (see
 /// migrations/0001_init.sql's header note) rather than extending it, since `register_agent`
