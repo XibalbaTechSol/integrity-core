@@ -12,7 +12,7 @@
 //! Interface fragments below are hand-transcribed from the real, compiled ABIs at
 //! `contracts/out/{XibalbaAgentRegistry,ReputationRegistry,ComplianceGate}.sol/*.json`
 //! (cross-checked field-for-field against `contracts/src/framework/XibalbaAgentRegistry.sol`,
-//! `contracts/src/oracle/ReputationRegistry.sol`, `contracts/src/shield/ComplianceGate.sol`)
+//! `contracts/src/oracle/ReputationRegistry.sol`, `contracts/src/health/ComplianceGate.sol`)
 //! rather than generated from the JSON artifact at build time: `sol!`'s `#[sol(rpc)]` over
 //! a hand-written interface produces the exact same ABI-encoding/decoding code as loading
 //! the JSON would, without making this crate's build depend on `contracts/` having been
@@ -127,7 +127,7 @@ sol! {
 }
 
 sol! {
-    // Shield vertical. SmartBAAFactory (contracts/src/shield/SmartBAAFactory.sol) deploys
+    // Integrity Health vertical. SmartBAAFactory (contracts/src/health/SmartBAAFactory.sol) deploys
     // one SmartBAA escrow per (coveredEntity, businessAssociate) pair and emits BAACreated;
     // there is no reverse index from a business-associate agent to its BAAs, so the oracle
     // enumerates them from the BAACreated event log and reads each SmartBAA's live status.
@@ -425,8 +425,8 @@ struct Singletons {
     /// endpoint reports "capital pool not deployed" cleanly if it's absent.
     #[serde(rename = "A2ACapitalPool", default)]
     a2a_capital_pool: Option<Address>,
-    /// `Option` — the Shield vertical's SmartBAAFactory. Absent on non-Shield or
-    /// genesis-only deployments; shield read endpoints report it cleanly if missing.
+    /// `Option` — the Integrity Health vertical's SmartBAAFactory. Absent on non-Integrity-Health or
+    /// genesis-only deployments; Integrity Health read endpoints report it cleanly if missing.
     #[serde(rename = "SmartBAAFactory", default)]
     smart_baa_factory: Option<Address>,
     /// `Option` — XibalbaNameService (XNS). Absent until deployed; resolve endpoints report
@@ -741,7 +741,7 @@ impl ChainClient {
         Ok(contract.isHealthcareCompliant(covered_entity).call().await?)
     }
 
-    /// The Shield SmartBAAFactory singleton, if deployed. `None` -> handler reports it cleanly.
+    /// The Integrity Health SmartBAAFactory singleton, if deployed. `None` -> handler reports it cleanly.
     pub fn smart_baa_factory(&self) -> Option<Address> {
         self.smart_baa_factory_address
     }

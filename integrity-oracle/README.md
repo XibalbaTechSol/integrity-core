@@ -42,7 +42,7 @@ performer can exceed 1000. See
 | `GET` | `/v1/agents` | List agents |
 | `GET` | `/v1/agent/{id}/ais` | Full AIS breakdown (components, weights, ZK boost) |
 | `POST` | `/v1/telemetry/ingest` | Ingest OTel spans + derived signals + optional ZK proof; nonce-replay-protected |
-| `GET` | `/v1/agent/{id}/compliance` | Live `ComplianceGate` read (Shield vertical status) |
+| `GET` | `/v1/agent/{id}/compliance` | Live `ComplianceGate` read (Integrity Health vertical status) |
 | `GET` | `/healthz` | Liveness |
 
 ### Why register re-verifies on-chain

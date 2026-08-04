@@ -1304,7 +1304,7 @@ tags:
 - name: telemetry
   description: Telemetry ingestion (feeds AIS computation)
 - name: compliance
-  description: HIPAA/Shield vertical compliance status
+  description: HIPAA/Integrity Health vertical compliance status
 - name: markets
   description: IntegrityMarket prediction-market reads
 - name: wallet

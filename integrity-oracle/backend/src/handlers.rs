@@ -1994,7 +1994,7 @@ fn baa_status_str(s: u8) -> &'static str {
     path = "/v1/agent/{id}/baas",
     params(("id" = String, Path, description = "Agent DID")),
     responses((status = 200, description = "SmartBAA agreements where this agent is the business associate", body = Vec<BaaDto>)),
-    tag = "shield",
+    tag = "health",
 )]
 pub async fn get_agent_baas(
     State(state): State<AppState>,

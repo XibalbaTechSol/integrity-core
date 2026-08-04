@@ -76,7 +76,7 @@ use crate::handlers;
         (name = "agents", description = "Agent identity, registration, and on-chain primitive resolution"),
         (name = "ais", description = "Agent Integrity Score and leaderboard"),
         (name = "telemetry", description = "Telemetry ingestion (feeds AIS computation)"),
-        (name = "compliance", description = "HIPAA/Shield vertical compliance status"),
+        (name = "compliance", description = "HIPAA/Integrity Health vertical compliance status"),
         (name = "markets", description = "IntegrityMarket prediction-market reads"),
         (name = "wallet", description = "$ITK balance and open market positions"),
     ),
