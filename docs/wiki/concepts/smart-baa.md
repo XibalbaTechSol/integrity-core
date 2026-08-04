@@ -7,15 +7,15 @@ type: concept
 tags: [compliance, tokenomics]
 confidence: high
 source_files:
-  - contracts/src/shield/SmartBAA.sol
-  - contracts/src/shield/SmartBAAFactory.sol
+  - contracts/src/health/SmartBAA.sol
+  - contracts/src/health/SmartBAAFactory.sol
 ---
 
 This page merges and corrects the old wiki's `hybrid-escrow.md` and
 `smart-baa-technical-guide.md` — both described the same subject
 (HIPAA Business Associate Agreements represented on-chain) with
 overlapping and, in places, aspirational detail. This page documents only
-what `contracts/src/shield/SmartBAA.sol` actually implements; the
+what `contracts/src/health/SmartBAA.sol` actually implements; the
 "what's not built" section at the bottom lists the old pages' extras
 explicitly so nothing here is silently dropped.
 

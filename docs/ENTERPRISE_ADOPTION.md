@@ -4,7 +4,7 @@ Integrity Protocol sits between an enterprise's **compliance obligations** and i
 actions**: agents commit to an intent, the gate authorizes or denies it against policy before
 execution, and every decision is cryptographically attested and audit-logged. The hard
 engine — policy gate, BCC-signed attestation, AIS reputation, ZK proofs, on-chain anchoring,
-the Shield HIPAA vertical — already exists. The adoption gap is almost entirely **packaging**:
+the Integrity Health HIPAA vertical — already exists. The adoption gap is almost entirely **packaging**:
 how the layer integrates, how policy is authored, how evidence is exported, and how it deploys
 in a regulated environment.
 
@@ -125,43 +125,44 @@ interface so "public chain" is one implementation, not the only one.
 
 ---
 
-## Lever 6 — Lead vertical, generalize later (Shield/HIPAA is the wedge)
+## Lever 6 — Lead vertical, generalize later (Integrity Health/HIPAA is the wedge)
 
 **Problem.** Enterprises adopt horizontal infra reluctantly but buy *vertical compliance
 solutions* eagerly. Don't sell "trust layer for the agentic economy" to a hospital — sell
 "HIPAA guardrails + audit evidence for your AI agents," win it undeniably, then generalize the
 same primitives to finance/legal.
 
-**Implementation surface.** The Shield vertical already exists on both sides:
-`contracts/src/shield/*` (ComplianceGate, CoveredEntityRegistry, EHRGate, SmartBAA(Factory),
+**Implementation surface.** The Integrity Health vertical already exists on both sides:
+`contracts/src/health/*` (ComplianceGate, CoveredEntityRegistry, EHRGate, SmartBAA(Factory),
 HIPAAGuardrailRegistry), the on-chain BAA gate in `bcc_middleware` (`app/baa.py` +
-`policies/bcc.rego` healthcare intent types), and `ShieldPage` in the Dashboard. The wedge work is
+`policies/bcc.rego` healthcare intent types), and `HealthPage` in the Dashboard. The wedge work is
 GTM + the evidence export (Lever 4) and HIPAA pack (Lever 3) aimed at one named buyer persona.
 
 **Status.** 🔨 Primitives exist; productization not started. **Next step:** a HIPAA-specific
-evidence report + a compliance-officer view in `ShieldPage` that reads the real audit trail.
+evidence report + a compliance-officer view in `HealthPage` that reads the real audit trail.
 
 ---
 
 ## Lever 7 — Xibalba Shield as its own product (device & network security)
 
-**Problem.** "Xibalba Shield" currently names only the HIPAA/healthcare vertical inside this
-repo (`contracts/src/shield/*`). Device/network security research (2026-08-01, drawn from a
-Perplexity project session — full technical spec at
-[`spec/xibalba-shield-v1.md`](../spec/xibalba-shield-v1.md)) identified a real, undefended
-wedge: kernel-level agent discovery and enforcement on the endpoint, combined with
-Integrity-backed actuarial evidence, is a combination none of the current AI-agent-security
-vendors own — identity-governance players (Astrix, CyberArk) don't touch the endpoint;
-enterprise EDR/XDR (CrowdStrike, SentinelOne, Microsoft) don't produce cryptographically
-attributable decisions.
+**Problem (as of 2026-08-01).** "Xibalba Shield" named both the HIPAA/healthcare vertical inside
+this repo (`contracts/src/shield/*`, at the time) *and* a separate opportunity that same day's
+device/network security research (drawn from a Perplexity project session — full technical spec
+at [`spec/xibalba-shield-v1.md`](../spec/xibalba-shield-v1.md)) had just identified: a real,
+undefended wedge combining kernel-level agent discovery and enforcement on the endpoint with
+Integrity-backed actuarial evidence — a combination none of the current AI-agent-security vendors
+own (identity-governance players like Astrix/CyberArk don't touch the endpoint; enterprise
+EDR/XDR like CrowdStrike/SentinelOne/Microsoft don't produce cryptographically attributable
+decisions). One name, two unrelated products, was a standing collision risk.
 
-**Decision.** Xibalba Shield splits into two things going forward, recorded normatively in
+**Decision (executed).** Xibalba Shield split into two things, recorded normatively in
 [`spec/integrity-protocol-v0.4.md`](../spec/integrity-protocol-v0.4.md) §14.1:
-1. The existing HIPAA vertical, unchanged, still in this repo.
+1. The existing HIPAA vertical — renamed **Integrity Health** throughout this repo (code and
+   docs) to remove the collision; unchanged in function, see Lever 6.
 2. A **new product in a new repository**, `XibalbaTechSol/xibalba-shield` — an endpoint agent
    (kernel/OS sensor, local policy engine, LLM/agent guardrail hooks) that consumes
    `integrity-sdk` exactly as any third-party agent runtime would, with zero dependency in the
-   other direction.
+   other direction. "Xibalba Shield" now names this product exclusively.
 
 **Implementation surface.** None of it lives in this repo by design (§14.1's whole point is
 architectural separation), so there is nothing to point at here. What *does* live here and is
@@ -206,7 +207,7 @@ is stable before five external protocols start depending on it.
 
 1. ✅ **Shadow mode** (Lever 2) — done; the on-ramp everything else rides on.
 2. 🔨 **Evidence export** (Lever 4) + **HIPAA pack** (Lever 3) — turn the real audit trail into
-   an auditor-ready, control-mapped artifact for the Shield vertical wedge (Lever 6).
+   an auditor-ready, control-mapped artifact for the Integrity Health vertical wedge (Lever 6).
 3. ⬜ **Egress sidecar** (Lever 1b) — remove integration friction so shadow mode can sit in front
    of real traffic with no agent changes; also the direct precedent for Lever 7's endpoint agent.
 4. ⬜ **Sovereignty** (Lever 5) — anchor-backend abstraction + key separation for a regulated

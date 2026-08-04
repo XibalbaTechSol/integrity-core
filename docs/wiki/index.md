@@ -81,7 +81,7 @@ flowchart TB
 - [Zero-Knowledge Proving Pipeline (ZKP)](concepts/zkp.md)
 
 ### Concepts — compliance & markets
-- [ComplianceGate & Xibalba Shield](concepts/compliance-gate.md) — the HIPAA/healthcare vertical
+- [ComplianceGate & Integrity Health](concepts/compliance-gate.md) — the HIPAA/healthcare vertical
 - [Smart BAA](concepts/smart-baa.md) — on-chain Business Associate Agreement escrow
 - [Integrity Market](concepts/integrity-market.md) — prediction markets, binary options, A2A capital allocation
 
@@ -96,7 +96,7 @@ flowchart TB
 - [ZK-ML Model-Inference Verification](concepts/zk-ml-spec.md) — `[PLANNED]`
 
 ### Entities — one page per real package
-- [contracts](entities/contracts.md) — Solidity/Foundry: the 7 primitives, factory, registries, XNS, Shield, market layer, $ITK
+- [contracts](entities/contracts.md) — Solidity/Foundry: the 7 primitives, factory, registries, XNS, Integrity Health, market layer, $ITK
 - [integrity-oracle](entities/integrity-oracle.md) — Rust/Axum: AIS scoring, server-side telemetry re-derivation, on-chain reads, markets/leaderboard
 - [integrity-sdk](entities/integrity-sdk.md) — Python agent library: identity, BCC, markets, telemetry, PHI redaction
 - [integrity-cli](entities/integrity-cli.md) — developer CLI, independent reimplementation of the SDK's core flows

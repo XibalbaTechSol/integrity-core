@@ -177,7 +177,7 @@ included in the signed payload, so neither can be swapped post-signature:
   MUST carry it, or the on-chain BAA check fails closed with
   `BAA_CANNOT_VERIFY` regardless of the agent's actual BAA status. Deliberately
   an address, not a DID: covered entities are registered directly by EVM
-  address in `contracts/src/shield/CoveredEntityRegistry.sol` and have no DID
+  address in `contracts/src/health/CoveredEntityRegistry.sol` and have no DID
   layer of their own.
 
 **Canonicalization, pinned:** the signature covers every field above except
@@ -407,7 +407,7 @@ contracts at registration time, and there is no longer a global
 | 3 | `ReputationRegistry` (`oracle/ReputationRegistry.sol`) | EIP-1167 clone | This agent's AIS ledger: oracle-pushed `baseScore` plus a self-earned `ZK_boost` from a verified Barretenberg proof (§4.3). |
 | 4 | `Slasher` (`oracle/Slasher.sol`) | EIP-1167 clone | Holds this agent's $ITK collateral; dispute-gated, arbiter-resolved slashing. |
 | 5 | `VerifierRegistry` (`oracle/VerifierRegistry.sol`) | EIP-1167 clone | This agent's versioned pointer to whichever `IZkVerifier` implementation it currently trusts, so a global circuit upgrade doesn't force every agent onto a new version simultaneously. |
-| 6 | `ComplianceGate` (`shield/ComplianceGate.sol`) | EIP-1167 clone | This agent's regulated-industry (Xibalba Shield) compliance declaration + a single live-verified `isHealthcareCompliant` read. |
+| 6 | `ComplianceGate` (`health/ComplianceGate.sol`) | EIP-1167 clone | This agent's regulated-industry (Integrity Health) compliance declaration + a single live-verified `isHealthcareCompliant` read. |
 | 7 | `AgentProfile` (`framework/AgentProfile.sol`) | EIP-1167 clone | Domain-membership pointer (`primaryDomain`) + off-chain metadata URI (`profileURI`). |
 
 Only #1 and #2 are fully, independently deployed (their own bytecode, their
@@ -564,7 +564,7 @@ because every test up to that point ran with `skip_oracle_registration=True`).
 
 ### 6.4 `EHRGate` reputation resolution (was: one immutable global registry)
 
-`shield/EHRGate.sol` used to hold one immutable global `ReputationRegistry`
+`health/EHRGate.sol` used to hold one immutable global `ReputationRegistry`
 address, read once at construction. Now that every agent owns its own
 `ReputationRegistry` clone, there is no single address to point at.
 `EHRGate` instead holds the shared `XibalbaAgentRegistry` and resolves
@@ -639,7 +639,7 @@ deployed by genesis `Deploy.s.sol` but their Base Sepolia broadcast is deferred,
 as `Option<Address>`; endpoints that need an absent one (`/v1/xns/resolve`,
 `/v1/agent/{id}/handle`, `/v1/governance/proposals`) return `ChainError::MissingSingleton`
 → **HTTP 400** (a deployment-shape fact, not a transient failure — same mapping as the
-market/shield singletons) rather than fabricating a result. Dashboard consumers degrade to
+market/health singletons) rather than fabricating a result. Dashboard consumers degrade to
 an honest "not deployed" state on that 400.
 
 **Market/application layer additions (§6.9)**: `singletons.MarketFactory` and
@@ -693,10 +693,10 @@ read the *singleton and template* addresses from this file rather than
 hardcoding them; per-agent addresses are always resolved live (or, once
 built, via the oracle's cache) rather than read from any static file.
 
-### 6.7 Xibalba Shield / regulated-industry compliance wiring
+### 6.7 Integrity Health / regulated-industry compliance wiring
 
-`shield/ComplianceGate.sol` (primitive #6, §6.1) is the concrete wire
-between the core protocol and the Xibalba Shield (HIPAA) vertical, and it
+`health/ComplianceGate.sol` (primitive #6, §6.1) is the concrete wire
+between the core protocol and the Integrity Health (HIPAA) vertical, and it
 is worth spelling out because it has two halves that must never be
 confused with each other:
 
@@ -710,13 +710,13 @@ confused with each other:
   into `ComplianceGate`'s implementation contract as constructor
   immutables (shared across every agent's clone, same pattern as
   `AgentProfile`'s `domainRegistry`), so every clone reads the same,
-  correct Shield registries without a per-agent storage write. This is a
+  correct Integrity Health registries without a per-agent storage write. This is a
   read path only — `ComplianceGate` does **not** replace `EHRGate` as the
   PHI-access enforcement boundary; `EHRGate.checkAccess` still performs its
   own independent live checks (patient consent, BAA, AIS threshold — §6.4)
   at access time. `ComplianceGate` is a read-optimized compliance summary
   for callers like integrity-oracle's `S_compliance` AIS component or
-  integrity-dashboard's Shield page, not a second enforcement point.
+  integrity-dashboard's Integrity Health page, not a second enforcement point.
 - **Self-declared compliance** — `hipaaEligible`, `zdrEnabled`,
   `externalWebAccessDeclared`, `dataResidencyRegion`, set via
   `setSelfDeclaredCompliance` (routed through `SovereignAgent.execute`,
@@ -992,7 +992,7 @@ against Base Sepolia), not narrated-but-faked.
 `integrity-sdk`'s `registration.register_agent`, real wallet, real minted
 ITK — see §6.3): an honest, well-grounded agent whose AIS climbs and wins
 real market calls; a reckless/overleveraged agent whose AIS decays; an
-agent exercising the real Xibalba Shield/healthcare vertical (`§6.7`, real
+agent exercising the real Integrity Health/healthcare vertical (`§6.7`, real
 `CoveredEntity` + `SmartBAA` + `EHRGate` access flow); and a scenario
 demonstrating what a BCC-commitment/on-chain-action mismatch would surface
 once oracle-side detection exists (honestly labeled if not yet automated —

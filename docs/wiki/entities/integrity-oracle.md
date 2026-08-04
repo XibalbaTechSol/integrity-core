@@ -134,14 +134,14 @@ every market, out of scope for this pass. An honestly-incomplete ranking, not a 
 mock. Only agents with a resolvable on-chain `PrimitiveSet` (cached, or live-resolved
 and cached on the fly) appear.
 
-### Contract-ownership + Shield reads: `GET /v1/agent/{id}/contracts`, `/baas`
+### Contract-ownership + Integrity Health reads: `GET /v1/agent/{id}/contracts`, `/baas`
 
 `/contracts` returns the `IntegrityMarket` clones an agent deployed and owns
 (`MarketFactory.getMarketsByCreator` on its `SovereignAgent`, then live per-market
 reads). `/baas` enumerates the `SmartBAA` escrows where the agent is the business
 associate, from `SmartBAAFactory.BAACreated` logs (no reverse index exists on-chain,
 so the event log is the only enumeration path) + each escrow's live status. Both are
-real on-chain reads; `/baas` returns a clean `MissingSingleton` (400) where the Shield
+real on-chain reads; `/baas` returns a clean `MissingSingleton` (400) where the Integrity Health
 `SmartBAAFactory` isn't deployed.
 
 ### Verifiable Credentials: `GET /v1/agent/{id}/vc`
@@ -260,14 +260,14 @@ Read-only via `alloy` (stored as `DynProvider` so `sol!` bindings work): resolve
 an agent's `PrimitiveSet`, reads `ReputationRegistry.effectiveScore`/`isZkBoosted`,
 `ComplianceGate.vertical`/`isHealthcareCompliant`, `MarketFactory` enumeration,
 per-market `IntegrityMarket` view state, `getPosition`, `IntegrityToken.balanceOf`,
-`SmartBAAFactory`/`SmartBAA` (Shield), and — new — `XibalbaNameService`
+`SmartBAAFactory`/`SmartBAA` (Integrity Health), and — new — `XibalbaNameService`
 (`resolve_handle`/`primary_handle`) and `IntegrityGovernance` (`read_proposals`).
 Optional singleton addresses (`MarketFactory`, `IntegrityToken`, `A2ACapitalPool`,
 `SmartBAAFactory`, `XibalbaNameService`, `IntegrityGovernance`) are `Option<Address>`
 in the deployments-file parse (`Singletons`), not required: a deployments file that
 predates any of them still parses, and handlers needing an absent one return a clean
 `ChainError::MissingSingleton` — mapped to **HTTP 400** in `error.rs` (a deployment-shape
-fact, not a transient RPC failure), shared across the market/shield/XNS/governance
+fact, not a transient RPC failure), shared across the market/health/XNS/governance
 endpoints — instead of this client failing to even connect.
 
 ## Anchoring
