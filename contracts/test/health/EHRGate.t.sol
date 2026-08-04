@@ -3,10 +3,10 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
-import {EHRGate} from "../../src/shield/EHRGate.sol";
-import {SmartBAAFactory} from "../../src/shield/SmartBAAFactory.sol";
-import {SmartBAA} from "../../src/shield/SmartBAA.sol";
-import {CoveredEntityRegistry} from "../../src/shield/CoveredEntityRegistry.sol";
+import {EHRGate} from "../../src/health/EHRGate.sol";
+import {SmartBAAFactory} from "../../src/health/SmartBAAFactory.sol";
+import {SmartBAA} from "../../src/health/SmartBAA.sol";
+import {CoveredEntityRegistry} from "../../src/health/CoveredEntityRegistry.sol";
 import {ReputationRegistry} from "../../src/oracle/ReputationRegistry.sol";
 import {StateAnchor} from "../../src/oracle/StateAnchor.sol";
 import {IntegrityToken} from "../../src/oracle/IntegrityToken.sol";

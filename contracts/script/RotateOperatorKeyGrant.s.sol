@@ -9,7 +9,7 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {AgentPrimitivesFactory} from "../src/framework/AgentPrimitivesFactory.sol";
 import {XibalbaAgentRegistry} from "../src/framework/XibalbaAgentRegistry.sol";
 import {DomainRegistry} from "../src/framework/DomainRegistry.sol";
-import {SmartBAAFactory} from "../src/shield/SmartBAAFactory.sol";
+import {SmartBAAFactory} from "../src/health/SmartBAAFactory.sol";
 import {Slasher} from "../src/oracle/Slasher.sol";
 
 /// @title RotateOperatorKeyGrant

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {HIPAAGuardrailRegistry} from "../../src/shield/HIPAAGuardrailRegistry.sol";
+import {HIPAAGuardrailRegistry} from "../../src/health/HIPAAGuardrailRegistry.sol";
 
 contract HIPAAGuardrailRegistryTest is Test {
     HIPAAGuardrailRegistry registry;

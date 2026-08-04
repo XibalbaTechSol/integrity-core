@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {CoveredEntityRegistry} from "../../src/shield/CoveredEntityRegistry.sol";
+import {CoveredEntityRegistry} from "../../src/health/CoveredEntityRegistry.sol";
 
 contract CoveredEntityRegistryTest is Test {
     CoveredEntityRegistry registry;

@@ -5,7 +5,7 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
 /// @title CoveredEntityRegistry
 /// @notice Registry of HIPAA "Covered Entities" and "Business Associates" (the two party
-/// types a Business Associate Agreement, see shield/SmartBAA.sol, is signed between).
+/// types a Business Associate Agreement, see health/SmartBAA.sol, is signed between).
 /// @dev Registration is admin/REGISTRAR_ROLE-gated rather than permissionless: unlike a
 /// generic domain (framework/DomainRegistry.sol), being listed here is a claim of actual
 /// legal HIPAA status, which isn't something a smart contract can verify on its own —

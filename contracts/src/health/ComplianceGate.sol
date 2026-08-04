@@ -9,8 +9,8 @@ import {SmartBAAFactory} from "./SmartBAAFactory.sol";
 /// @title ComplianceGate
 /// @notice Per-agent EIP-1167 clone declaring which regulated vertical (if any) an agent
 /// operates in, and exposing a single live read that other packages (integrity-oracle's
-/// S_compliance AIS component, integrity-dashboard's Shield panel) can call without
-/// needing to know Shield's internal multi-contract structure.
+/// S_compliance AIS component, integrity-dashboard's Integrity Health panel) can call without
+/// needing to know Integrity Health's internal multi-contract structure.
 /// @dev Never fakes compliance: `isHealthcareCompliant` returns false unless the agent
 /// declared `Vertical.Healthcare` AND a live on-chain read against the real,
 /// already-tested `CoveredEntityRegistry`/`SmartBAAFactory` stack passes. The
@@ -41,7 +41,7 @@ contract ComplianceGate is Initializable, AccessControlUpgradeable {
 
     /// @dev Shared across every clone: baked into the implementation contract's runtime
     /// bytecode at its own one-time deployment. EIP-1167 clones delegatecall into that
-    /// bytecode, so every agent's clone reads the SAME immutable Shield registry
+    /// bytecode, so every agent's clone reads the SAME immutable Integrity Health registry
     /// addresses — exactly the intent, since domain-level compliance infrastructure
     /// stays global while only the per-agent declaration/state is cloned.
     CoveredEntityRegistry public immutable coveredEntityRegistry;

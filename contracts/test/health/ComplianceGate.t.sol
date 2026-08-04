@@ -3,10 +3,10 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
-import {ComplianceGate} from "../../src/shield/ComplianceGate.sol";
-import {CoveredEntityRegistry} from "../../src/shield/CoveredEntityRegistry.sol";
-import {SmartBAAFactory} from "../../src/shield/SmartBAAFactory.sol";
-import {SmartBAA} from "../../src/shield/SmartBAA.sol";
+import {ComplianceGate} from "../../src/health/ComplianceGate.sol";
+import {CoveredEntityRegistry} from "../../src/health/CoveredEntityRegistry.sol";
+import {SmartBAAFactory} from "../../src/health/SmartBAAFactory.sol";
+import {SmartBAA} from "../../src/health/SmartBAA.sol";
 import {IntegrityToken} from "../../src/oracle/IntegrityToken.sol";
 
 /// @notice Proves ComplianceGate never fakes compliance: `isHealthcareCompliant` must

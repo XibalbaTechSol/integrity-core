@@ -2,14 +2,14 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {CoveredEntityRegistry} from "../../src/shield/CoveredEntityRegistry.sol";
-import {SmartBAAFactory} from "../../src/shield/SmartBAAFactory.sol";
-import {SmartBAA} from "../../src/shield/SmartBAA.sol";
+import {CoveredEntityRegistry} from "../../src/health/CoveredEntityRegistry.sol";
+import {SmartBAAFactory} from "../../src/health/SmartBAAFactory.sol";
+import {SmartBAA} from "../../src/health/SmartBAA.sol";
 import {IntegrityToken} from "../../src/oracle/IntegrityToken.sol";
 
 /// @notice Full lifecycle test across SmartBAAFactory + SmartBAA + CoveredEntityRegistry
 /// + IntegrityToken collateral — the escrow/dispute machinery that's the whole point of
-/// the shield HIPAA vertical.
+/// the Integrity Health HIPAA vertical.
 contract SmartBAATest is Test {
     CoveredEntityRegistry entityRegistry;
     SmartBAAFactory factory;

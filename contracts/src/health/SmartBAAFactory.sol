@@ -7,7 +7,7 @@ import {SmartBAA} from "./SmartBAA.sol";
 
 /// @title SmartBAAFactory
 /// @notice Deploys one SmartBAA escrow per (covered entity, business associate) pair,
-/// and is the canonical lookup other shield contracts (EHRGate, HIPAAGuardrailRegistry)
+/// and is the canonical lookup other Integrity Health contracts (EHRGate, HIPAAGuardrailRegistry)
 /// use to answer "is there an active BAA between this hospital and this agent".
 /// @dev Enforces the entity-registry check exactly once, here, rather than inside
 /// SmartBAA itself — SmartBAA has no idea CoveredEntityRegistry exists, which keeps it

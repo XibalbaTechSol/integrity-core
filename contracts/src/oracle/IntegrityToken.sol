@@ -7,7 +7,7 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
 /// @title IntegrityToken ($ITK)
 /// @notice The staking/collateral asset for the Integrity Protocol: agents stake it in
-/// `Slasher` to back their reputation, and lock it in `shield/SmartBAA` as HIPAA
+/// `Slasher` to back their reputation, and lock it in `health/SmartBAA` as HIPAA
 /// business-associate collateral.
 /// @dev Plain capped-supply ERC20 with role-gated minting — no transfer fee, no
 /// rebasing. The old prototype's ITK charged a fee-on-transfer (burn + treasury cut) on
