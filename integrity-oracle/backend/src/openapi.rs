@@ -123,8 +123,8 @@ pub struct ApiDocExtra;
 /// module's doc comment). New endpoints go here until this list reaches 16 too.
 #[derive(OpenApi)]
 #[openapi(
-    paths(handlers::get_agent_usage, handlers::get_agent_events),
-    components(schemas(handlers::AgentUsageDto, handlers::AgentEventDto)),
+    paths(handlers::get_agent_usage, handlers::get_agent_events, handlers::get_unregistered_agents),
+    components(schemas(handlers::AgentUsageDto, handlers::AgentEventDto, handlers::UnregisteredAgentDto)),
 )]
 pub struct ApiDocUsage;
 

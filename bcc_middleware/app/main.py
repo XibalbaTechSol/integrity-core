@@ -38,7 +38,8 @@ import logging
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+import httpx
+from fastapi import FastAPI, HTTPException
 
 from app.baa import BAAStatus, check_baa_status
 from app.canonical import SignatureVerificationError, verify_commitment_signature
@@ -50,7 +51,15 @@ from app.merkle import MerkleBatcher, leaf_hash
 from app.nonce_store import NonceStore
 from app.opa_client import OPAUnavailableError, evaluate as opa_evaluate
 from app.token_budget import TokenBudgetEnforcer, token_budget_enforcer
-from app.schemas import BCCCommitment, BCCInterceptResponse, HealthResponse, VerifyTokenRequest, VerifyTokenResponse
+from app.schemas import (
+    BCCCommitment,
+    BCCInterceptResponse,
+    ClinicalAllowlistRequest,
+    ClinicalAllowlistResponse,
+    HealthResponse,
+    VerifyTokenRequest,
+    VerifyTokenResponse,
+)
 from app import anchor as anchor_module
 from app import audit as audit_module
 from app import opa_client
@@ -528,6 +537,54 @@ async def force_flush() -> dict:
             for agent_id, r in results.items()
         },
     }
+
+
+@app.get("/v1/admin/clinical-allowlist", response_model=ClinicalAllowlistResponse)
+async def get_clinical_allowlist() -> ClinicalAllowlistResponse:
+    """
+    Reads the runtime clinical-agent allowlist OPA data document
+    (bcc.rego's `data.clinical_allowlist.agents` extension point, unioned into
+    `authorized_clinical_agents` alongside the static demo set -- see
+    policies/bcc.rego). This is the ONE part of policy behavior that can be
+    changed without an OPA container redeploy; everything else in bcc.rego/
+    general.rego requires editing the read-only-mounted .rego files and
+    restarting the opa service. Returns an empty list if nothing has been set
+    yet -- that's the real Rego default (`default _extra_clinical_agents :=
+    []`), not a fabricated placeholder.
+    """
+    url = f"{default_settings.opa_url.rstrip('/')}/v1/data/clinical_allowlist/agents"
+    try:
+        async with httpx.AsyncClient(timeout=default_settings.opa_timeout_seconds) as client:
+            resp = await client.get(url)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"OPA unreachable: {exc}") from exc
+    if resp.status_code == 404:
+        return ClinicalAllowlistResponse(agents=[])
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"OPA returned HTTP {resp.status_code}: {resp.text[:500]}")
+    agents = resp.json().get("result", [])
+    return ClinicalAllowlistResponse(agents=[str(a) for a in agents] if isinstance(agents, list) else [])
+
+
+@app.put("/v1/admin/clinical-allowlist", response_model=ClinicalAllowlistResponse)
+async def set_clinical_allowlist(request: ClinicalAllowlistRequest) -> ClinicalAllowlistResponse:
+    """
+    Full-replacement write to the same data document `get_clinical_allowlist`
+    reads, via OPA's own Data API. In-memory only on OPA's side -- lost on an
+    `opa` container restart, since nothing here persists it to a mounted
+    file. That's an accepted limitation of this being the narrow, real
+    extension point rather than general policy editing (which does require a
+    redeploy) -- not silently pretended to be durable.
+    """
+    url = f"{default_settings.opa_url.rstrip('/')}/v1/data/clinical_allowlist/agents"
+    try:
+        async with httpx.AsyncClient(timeout=default_settings.opa_timeout_seconds) as client:
+            resp = await client.put(url, json=request.agents)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"OPA unreachable: {exc}") from exc
+    if resp.status_code not in (200, 204):
+        raise HTTPException(status_code=502, detail=f"OPA returned HTTP {resp.status_code}: {resp.text[:500]}")
+    return ClinicalAllowlistResponse(agents=request.agents)
 
 
 @app.get("/health", response_model=HealthResponse)

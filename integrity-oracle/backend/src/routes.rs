@@ -58,6 +58,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/xns/resolve", get(handlers::get_xns_resolve))
         .route("/v1/governance/proposals", get(handlers::get_governance_proposals))
         .route("/v1/stats", get(handlers::get_stats))
+        .route("/v1/shield/unregistered-agents", get(handlers::get_unregistered_agents))
         .route("/v1/benchmarks", get(handlers::get_benchmarks))
         .route("/v1/audit-log", get(handlers::get_audit_log))
         .route("/v1/markets", get(handlers::list_markets))
