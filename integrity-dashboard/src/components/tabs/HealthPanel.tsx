@@ -7,7 +7,7 @@ import { oracle } from '../../services/oracle';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ethers } from 'ethers';
 import { SMART_BAA_FACTORY_ADDRESS, COVERED_ENTITY_REGISTRY_ADDRESS, ITK_TOKEN_ADDRESS, ARBITRATOR_ADDRESS } from '../../constants';
-import { SMART_BAA_FACTORY_ABI, SMART_BAA_ABI, COVERED_ENTITY_REGISTRY_ABI, ENTITY_TYPE_COVERED_ENTITY } from '../../chain/shield';
+import { SMART_BAA_FACTORY_ABI, SMART_BAA_ABI, COVERED_ENTITY_REGISTRY_ABI, ENTITY_TYPE_COVERED_ENTITY } from '../../chain/health';
 import { ERC20_ABI, executeAsAgent } from '../../chain/markets';
 
 interface BAA {
@@ -202,8 +202,8 @@ export function ProposeBAAModal({ isOpen, onClose, onSuccess }: ProposeBAAModalP
   );
 }
 
-// ─── ShieldPanel Component ───────────────────────────────────────────────────
-export function ShieldPanel() {
+// ─── HealthPanel Component ───────────────────────────────────────────────────
+export function HealthPanel() {
   const { selectedAgent, addToast, walletAddress } = useDashboard();
   const [baas, setBaas] = useState<BAA[]>([]);
   const [interactions, setInteractions] = useState<Interaction[]>([]);
@@ -257,10 +257,10 @@ export function ShieldPanel() {
     }
   };
 
-  // Real shield reads. BAAs come from the SmartBAAFactory event-query endpoint; the
+  // Real Integrity Health reads. BAAs come from the SmartBAAFactory event-query endpoint; the
   // interaction log is the agent's real BCC/audit decisions; the review queue is the
   // agent's BAAs currently in the on-chain Disputed state (awaiting arbitration). No
-  // mock api.getBAAs/getShieldInteractions/getComplianceReviewQueue.
+  // mock api.getBAAs/getHealthInteractions/getComplianceReviewQueue.
   const fetchData = async () => {
     if (!selectedAgent) { setBaas([]); setInteractions([]); setViolations([]); setIsLoading(false); return; }
     setIsLoading(true);
@@ -298,7 +298,7 @@ export function ShieldPanel() {
         status: 'Disputed',
       })));
     } catch (err: any) {
-      addToast('error', `Shield sync failed: ${err.message}`);
+      addToast('error', `Integrity Health sync failed: ${err.message}`);
     } finally {
       setIsLoading(false);
     }

@@ -74,7 +74,7 @@ interface QuarantinedAgent {
 
 
 
-export function ShieldPage() {
+export function HealthPage() {
   const { selectedAgent, addToast, activeTab } = useDashboard() as any;
 
   // ─── State Arrays ──────────────────────────────────────────────────────────
@@ -189,7 +189,7 @@ export function ShieldPage() {
       const publicKeyCredentialCreationOptions = {
           challenge: challenge,
           rp: {
-              name: "Xibalba Shield (EHR Gate)"
+              name: "Integrity Health (EHR Gate)"
           },
           user: {
               id: new Uint8Array(16),
@@ -247,12 +247,12 @@ export function ShieldPage() {
           flexWrap: 'wrap',
         }}
       >
-        {/* The Shield vertical's BAA/consent/violation data is a seeded demonstration HIPAA
+        {/* The Integrity Health vertical's BAA/consent/violation data is a seeded demonstration HIPAA
             database (loadDefaultData) — the on-chain SmartBAA/EHRGate contracts aren't deployed
             or populated on this network. Labeled honestly rather than passed off as live. The
             real read path exists (GET /v1/agent/{id}/baas) for when those contracts are live. */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-          <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--gold)' }}>Xibalba Shield</div>
+          <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--gold)' }}>Integrity Health</div>
           <SeededDataBadge label="Demonstration HIPAA data" />
         </div>
 
@@ -347,7 +347,7 @@ export function ShieldPage() {
               <Panel title="HIPAA Gateway Concept & Safeguards" icon={<ShieldCheck size={18} color="var(--gold)" />}>
                 <div className="flex-col gap-4" style={{ fontSize: '0.875rem', lineHeight: 1.6 }}>
                   <div style={{ padding: '16px', background: 'var(--primary-dim)', border: '1px solid var(--primary)', borderRadius: 'var(--radius-md)' }}>
-                    <strong>Parametric Enforcement:</strong> BAA contracts are no longer passive paper. Under Xibalba Shield, the contract acts as a cryptographic custodian of performance. If a validator enclave leaks PHI, the contract executes the slash automatically.
+                    <strong>Parametric Enforcement:</strong> BAA contracts are no longer passive paper. Under Integrity Health, the contract acts as a cryptographic custodian of performance. If a validator enclave leaks PHI, the contract executes the slash automatically.
                   </div>
                   
                   {[
@@ -367,7 +367,7 @@ export function ShieldPage() {
         )}
 
         {/* TAB 2: PHI Access Gates */}
-        {activeTab === 'shield' && (
+        {activeTab === 'health' && (
           <motion.div
             key="gates"
             initial={{ opacity: 0, y: 10 }}

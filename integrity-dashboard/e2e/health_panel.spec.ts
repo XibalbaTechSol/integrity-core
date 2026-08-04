@@ -1,16 +1,16 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('ShieldPanel', () => {
-  test('should display shield registries and modal interactions', async ({ page }) => {
+test.describe('HealthPanel', () => {
+  test('should display Integrity Health registries and modal interactions', async ({ page }) => {
     await page.goto('/integrity/');
-    
-    // Navigate to the Shield tab
+
+    // Navigate to the Integrity Health tab
     const accordionBtn = page.locator('.tab-nav-accordion > button');
     if (await accordionBtn.isVisible()) {
       await accordionBtn.click();
       await page.waitForSelector('.tab-nav-accordion > div', { state: 'visible' });
     }
-    await page.locator('button.tab-btn').filter({ hasText: 'Xibalba Shield' }).first().click();
+    await page.locator('button.tab-btn').filter({ hasText: 'Integrity Health' }).first().click();
     
     // Verify sections exist
     await expect(page.getByText('Smart BAA Registry', { exact: false })).toBeVisible();

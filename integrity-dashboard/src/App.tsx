@@ -21,8 +21,8 @@ const FinancePage = lazy(() =>
 const ContractsPage = lazy(() =>
   import('./pages/ContractsPage').then(m => ({ default: m.ContractsPage }))
 );
-const ShieldPage = lazy(() =>
-  import('./pages/ShieldPage').then(m => ({ default: m.ShieldPage }))
+const HealthPage = lazy(() =>
+  import('./pages/HealthPage').then(m => ({ default: m.HealthPage }))
 );
 const IdentityPage = lazy(() =>
   import('./pages/IdentityPage').then(m => ({ default: m.IdentityPage }))
@@ -69,7 +69,7 @@ function DashboardShell() {
   const isCognition = ['cognition', 'reasoning', 'diagnostics'].includes(activeTab);
   const isFinance = ['wallet', 'staking', 'credit', 'markets', 'stability'].includes(activeTab);
   const isContracts = ['map', 'factory', 'zk', 'oracle', 'ledger'].includes(activeTab);
-  const isShield = ['governance', 'compliance', 'shield'].includes(activeTab);
+  const isHealth = ['governance', 'compliance', 'health'].includes(activeTab);
   const isIdentity = ['identity', 'apikeys'].includes(activeTab);
   const isProfile = activeTab === 'profile';
   const isSettings = activeTab === 'settings';
@@ -86,7 +86,7 @@ function DashboardShell() {
             {isCognition && <CognitionPage />}
             {isFinance && <FinancePage />}
             {isContracts && <ContractsPage />}
-            {isShield && <ShieldPage />}
+            {isHealth && <HealthPage />}
             {isIdentity && <IdentityPage />}
             {isProfile && <ProfilePage />}
             {isSettings && <SettingsPage />}

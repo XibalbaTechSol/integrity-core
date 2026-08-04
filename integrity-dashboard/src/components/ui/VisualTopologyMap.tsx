@@ -63,7 +63,7 @@ export function VisualTopologyMap() {
       case 'verifier_registry':
         return { label: 'Submit ZK Attestation', action: () => setActiveTab('zk') };
       case 'compliance_gate':
-        return { label: 'Inspect Compliance Log', action: () => setActiveTab('shield') };
+        return { label: 'Inspect Compliance Log', action: () => setActiveTab('health') };
       default:
         return null;
     }

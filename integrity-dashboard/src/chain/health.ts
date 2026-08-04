@@ -1,5 +1,5 @@
-// Minimal ABIs for the Shield (HIPAA) vertical writes. Signatures from
-// contracts/src/shield/{SmartBAAFactory,SmartBAA,CoveredEntityRegistry}.sol.
+// Minimal ABIs for the Integrity Health (HIPAA) vertical writes. Signatures from
+// contracts/src/health/{SmartBAAFactory,SmartBAA,CoveredEntityRegistry}.sol.
 
 export const SMART_BAA_FACTORY_ABI = [
   'function createBAA(address businessAssociate, bytes32 agreementHash, uint256 requiredCollateral) returns (address baa)',
