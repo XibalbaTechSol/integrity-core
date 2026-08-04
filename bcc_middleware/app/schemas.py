@@ -179,6 +179,17 @@ class VerifyTokenResponse(BaseModel):
     valid: bool
 
 
+class ClinicalAllowlistRequest(BaseModel):
+    """Full replacement list for the runtime clinical-agent allowlist OPA data
+    document (bcc.rego's `data.clinical_allowlist.agents` extension point)."""
+
+    agents: list[str] = Field(default_factory=list)
+
+
+class ClinicalAllowlistResponse(BaseModel):
+    agents: list[str]
+
+
 class HealthResponse(BaseModel):
     status: str
     opa_reachable: bool
