@@ -121,7 +121,7 @@ Matches the root `docker-compose.yml`'s `bcc-middleware` service: port 8000,
 - **On-chain BAA check**: a real `eth_call` via `web3.py` (`app/baa.py`) to
   `isBAAActive(address coveredEntity, address businessAssociate) returns (bool)`
   — reconciled against the real, already-built
-  `contracts/src/shield/SmartBAAFactory.sol` (an earlier one-argument
+  `contracts/src/health/SmartBAAFactory.sol` (an earlier one-argument
   `isBAAActive(address agent)` assumption here was wrong; see `app/baa.py`'s
   module docstring for the full story of that bug and why nothing caught it
   sooner). Proven two ways: against a minimal `MockBAARegistry.sol` fixture
@@ -130,7 +130,7 @@ Matches the root `docker-compose.yml`'s `bcc-middleware` service: port 8000,
   `tests/test_chain_baa_anchor.py`), AND against the real
   `CoveredEntityRegistry` + `SmartBAAFactory` + `SmartBAA` + `IntegrityToken`
   contracts compiled by the sibling `contracts/` package's own `forge build`
-  (see `tests/test_baa_shield_integration.py`).
+  (see `tests/test_baa_health_integration.py`).
 - **Merkle anchoring**: a real `eth_sendTransaction` via `web3.py`
   (`app/anchor.py`) calling `anchorRoot(bytes32)`, signed and submitted
   against the same local anvil + a `MockStateAnchor.sol` fixture, with the
@@ -180,7 +180,7 @@ everywhere in code comments; summarized here:
    oracle's `GET /v1/agent/{id}` in `app/chain.py::resolve_agent_primitives`
    and `agent_id_to_address` — not the EOA/wallet, and not a derivation from
    the DID pubkey. This is deliberate and load-bearing: `SmartBAAFactory`
-   and downstream Shield contracts (`EHRGate.checkAccess`, `ComplianceGate`)
+   and downstream Integrity Health contracts (`EHRGate.checkAccess`, `ComplianceGate`)
    all treat the `SovereignAgent` contract as the acting agent (it's their
    `msg.sender`), so a BAA is "active for" the `SovereignAgent` address. This
    replaced an earlier `keccak256(pubkey_bytes)[-20:]` placeholder that
@@ -197,7 +197,7 @@ everywhere in code comments; summarized here:
 4. **On-chain function signatures this package expects `contracts/` to
    implement — RECONCILED against the real, already-built contracts:**
    ```solidity
-   // contracts/src/shield/SmartBAAFactory.sol (confirmed real signature)
+   // contracts/src/health/SmartBAAFactory.sol (confirmed real signature)
    function isBAAActive(address coveredEntity, address businessAssociate) external view returns (bool);
    // contracts/... StateAnchor (still an assumed/unconfirmed signature)
    function anchorRoot(bytes32 root) external;

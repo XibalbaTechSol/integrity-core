@@ -15,7 +15,7 @@
 ## Concepts
 - [The Four Foundational Primitives](concepts/foundational-primitives.md) — memory, agent-owned contracts, authority, reputation: the **concepts**; **start here**
 - [Agent Primitives (Self-Sovereign Identity)](concepts/agent-primitives.md) — the 7 per-agent **contracts** (`PrimitiveSet`) — a different sense of "primitive", see the note at the top of both pages
-- [ComplianceGate & Xibalba Shield](concepts/compliance-gate.md) — the HIPAA/healthcare vertical
+- [ComplianceGate & Integrity Health](concepts/compliance-gate.md) — the HIPAA/healthcare vertical
 - [Agent Integrity Score](concepts/ais.md)
 - [Telemetry Ingestion Pipeline](concepts/telemetry-ingestion.md) — end-to-end: SDK collection, batching, signing, the oracle's 11-step ordered request pipeline, AIS scoring, the separate unauthenticated OTLP path (built)
 - [Behavioral Commitment Chain](concepts/bcc.md)
@@ -37,7 +37,7 @@
 - [AIS API — Versioned Wire Spec](concepts/ais-api-spec.md) — the generated, externally-supported `/v1/*` spec at `spec/ais-api/` (built)
 
 ## Entities (built)
-- [contracts](entities/contracts.md) — Solidity/Foundry: the 7 primitives, factory, registries, XNS, IntegrityGovernance, Shield, market layer, $ITK, reworked CCIPReputationBridge (198 tests, live on Base Sepolia — XNS/governance/CCIP not yet broadcast)
+- [contracts](entities/contracts.md) — Solidity/Foundry: the 7 primitives, factory, registries, XNS, IntegrityGovernance, Integrity Health, market layer, $ITK, reworked CCIPReputationBridge (198 tests, live on Base Sepolia — XNS/governance/CCIP not yet broadcast)
 - [integrity-oracle](entities/integrity-oracle.md) — Rust/Axum AIS scoring (incl. server-side telemetry-signal re-derivation, `derive.rs`) + on-chain verification + markets/leaderboard/wallet/contracts/BAA/VC/benchmarks/XNS/governance reads + PHI-rejection backstop + unauthenticated OTLP/gRPC trace receiver, ASCII-escaping canonical-JSON fix (80 lib tests + 9 e2e)
 - [integrity-sdk](entities/integrity-sdk.md) — Python agent library: registration, BCC, markets, telemetry (widened OpenAI/LangChain integration metadata, opt-in `redact_phi`), PHI redaction, pre-execution intent-capture (`invoke_intent`), fixed telemetry-signing wire bug (135 tests, 1 skipped + 1 opt-in oracle e2e)
 - [integrity-cli](entities/integrity-cli.md) — developer CLI, real on-chain register incl. real oracle re-verification, new `xns` command group (57 tests, incl. 1 opt-in oracle e2e)

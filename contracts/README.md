@@ -1,7 +1,7 @@
 # contracts
 
 The on-chain heart of the Integrity Protocol: the 7 agent primitives, the factory
-that deploys them, the shared registries, the `$ITK` token, the Xibalba Shield
+that deploys them, the shared registries, the `$ITK` token, the Integrity Health
 (HIPAA) stack, and the ZK verifier. Solidity `0.8.28`, built and tested with
 Foundry.
 
@@ -29,7 +29,7 @@ is no privileged factory that registers agents into shared global state. Instead
 | 3 | `ReputationRegistry` | clone | `src/oracle/ReputationRegistry.sol` |
 | 4 | `Slasher` | clone | `src/oracle/Slasher.sol` |
 | 5 | `VerifierRegistry` | clone | `src/oracle/VerifierRegistry.sol` |
-| 6 | `ComplianceGate` | clone | `src/shield/ComplianceGate.sol` |
+| 6 | `ComplianceGate` | clone | `src/health/ComplianceGate.sol` |
 | 7 | `AgentProfile` | clone | `src/framework/AgentProfile.sol` |
 
 The 5 clone contracts are `Initializable` (OpenZeppelin upgradeable): their
@@ -54,10 +54,10 @@ can't be trusted to arbitrate its own slashing dispute.
 ## Singletons (deployed once, shared)
 
 `IntegrityToken` ($ITK), `UltraPlonkVerifier`, `XibalbaAgentRegistry`,
-`DomainRegistry`, plus the Shield stack (`CoveredEntityRegistry`,
+`DomainRegistry`, plus the Integrity Health stack (`CoveredEntityRegistry`,
 `SmartBAAFactory`, `HIPAAGuardrailRegistry`) and the 5 clone *implementations*.
 
-### Xibalba Shield (HIPAA vertical)
+### Integrity Health (HIPAA vertical)
 
 The flagship regulated-industry proof. `EHRGate` enforces all three of: patient
 consent **and** an active on-chain Business Associate Agreement (`SmartBAA`)
@@ -142,7 +142,7 @@ src/
   framework/   XibalbaAgentRegistry, AgentPrimitivesFactory, DomainRegistry, AgentProfile
   oracle/      ReputationRegistry, Slasher, StateAnchor, VerifierRegistry,
                IntegrityToken, UltraPlonkVerifier, CCIPReputationBridge
-  shield/      CoveredEntityRegistry, SmartBAAFactory, SmartBAA,
+  health/      CoveredEntityRegistry, SmartBAAFactory, SmartBAA,
                HIPAAGuardrailRegistry, EHRGate, ComplianceGate
 script/Deploy.s.sol
 test/          one *.t.sol per contract (165 tests)

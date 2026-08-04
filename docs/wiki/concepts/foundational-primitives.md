@@ -11,7 +11,7 @@ source_files:
   - docs/design/thesis-extensions-formal.md
   - contracts/src/oracle/StateAnchor.sol
   - contracts/src/oracle/ReputationRegistry.sol
-  - contracts/src/shield/SmartBAA.sol
+  - contracts/src/health/SmartBAA.sol
 ---
 
 > **Naming, before anything else.** This repo uses the word *primitive* in two unrelated

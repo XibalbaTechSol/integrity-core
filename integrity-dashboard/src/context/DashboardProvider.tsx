@@ -78,10 +78,19 @@ const VALID_TABS: TabId[] = [
   'telemetry',                                   // Intelligence
   'cognition', 'reasoning', 'diagnostics',       // Cognition
   'wallet', 'staking', 'credit', 'markets', 'stability', // Finance
-  'factory', 'zk', 'oracle', 'ledger',           // Contracts
-  'governance', 'compliance', 'shield', 'quarantine',    // Shield
+  'map', 'factory', 'zk', 'oracle', 'ledger',    // Contracts
+  'governance', 'compliance', 'health', 'quarantine',    // Integrity Health
   'identity', 'apikeys',                         // Identity
 ];
+
+// The `shield` tab id was renamed to `health` (the healthcare vertical's own rename to
+// "Integrity Health" -- disambiguating it from the unrelated device-security product also
+// once called "Xibalba Shield"). Any bookmarked/shared `#/integrity#shield` link must keep
+// working -- this is the exact deep-linking breakage the comment above already documents
+// happening once before, from a different cause (a stale whitelist). Resolve legacy ids
+// before the VALID_TABS check, both here and in handleHashChange below.
+const LEGACY_TAB_ALIASES: Partial<Record<string, TabId>> = { shield: 'health' };
+const resolveLegacyTab = (candidate: string): string => LEGACY_TAB_ALIASES[candidate] ?? candidate;
 
 export function DashboardProvider({ children }: { children: ReactNode }) {
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -100,7 +109,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const getInitialTab = (): TabId => {
     const hash = window.location.hash;
     const parts = hash.split('#');
-    const candidate = (parts[parts.length - 1] || '').replace(/^\//, '') as TabId;
+    const candidate = resolveLegacyTab((parts[parts.length - 1] || '').replace(/^\//, '')) as TabId;
     if (VALID_TABS.includes(candidate)) {
       return candidate;
     }
@@ -130,7 +139,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     const handleHashChange = () => {
       const hash = window.location.hash;
       const parts = hash.split('#');
-      const candidate = (parts[parts.length - 1] || '').replace(/^\//, '') as TabId;
+      const candidate = resolveLegacyTab((parts[parts.length - 1] || '').replace(/^\//, '')) as TabId;
       if (VALID_TABS.includes(candidate)) {
         setActiveTabInternal(candidate);
       }

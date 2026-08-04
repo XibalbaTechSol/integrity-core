@@ -206,3 +206,29 @@ def test_unwrapped_attributes_pass_through() -> None:
     client = _client()
     wrapper = IntegrityMessagesWrapper(_FakeMessages(_Response(content=[])), client)
     assert wrapper.unrelated_attribute == "passed through"
+
+
+def test_create_records_a_token_ledger_event(captured_posts) -> None:
+    """The wrapper must feed the LLM token ledger, not only span attributes/telemetry
+    metadata — otherwise a direct-Anthropic agent's token spend is invisible to the
+    per-agent budget/BCC token_count path (llm_token_ledger.py)."""
+    from integrity_sdk.telemetry.llm_token_ledger import get_ledger
+
+    get_ledger().reset()
+    client = _client()
+    response = _Response(
+        content=[_TextBlock("42")],
+        usage=_Usage(input_tokens=100, output_tokens=50, cache_read_input_tokens=10),
+        stop_reason="end_turn",
+    )
+    wrapper = IntegrityMessagesWrapper(_FakeMessages(response), client)
+
+    wrapper.create(model="claude-opus-5", messages=[{"role": "user", "content": "hi"}])
+
+    events = get_ledger().events_for_agent(client.agent_id)
+    assert len(events) == 1
+    assert events[0].prompt_tokens == 100
+    assert events[0].completion_tokens == 50
+    assert events[0].cache_read_tokens == 10
+    assert events[0].finish_reason == "end_turn"
+    get_ledger().reset()

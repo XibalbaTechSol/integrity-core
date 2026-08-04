@@ -34,7 +34,7 @@ from web3.exceptions import Web3Exception
 from app.chain import AgentResolutionError, get_w3, resolve_agent_primitives
 from app.config import Settings
 from app.merkle import BatchLeaf, merkle_root
-from app.nonce_lock import signer_lock
+from app.nonce_lock import send_with_managed_nonce, signer_lock
 
 logger = logging.getLogger("bcc_middleware.anchor")
 
@@ -90,16 +90,13 @@ def anchor_root(settings: Settings, root: bytes, *, contract_address: str | None
         # (e.g. just the nonce read) isn't enough to prevent a race with
         # app/reputation.py's chain writes when they share a signer key.
         with signer_lock(account.address):
-            tx = contract.functions.anchorRoot(root).build_transaction(
-                {
-                    "from": account.address,
-                    "nonce": w3.eth.get_transaction_count(account.address),
-                    "chainId": settings.chain_id,
-                }
+            tx_hash, receipt = send_with_managed_nonce(
+                w3,
+                account,
+                lambda nonce: contract.functions.anchorRoot(root).build_transaction(
+                    {"from": account.address, "nonce": nonce, "chainId": settings.chain_id}
+                ),
             )
-            signed = account.sign_transaction(tx)
-            tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=30)
     except (Web3Exception, ValueError) as exc:
         logger.warning("anchorRoot(0x%s) submission failed: %s", root.hex(), exc)
         return AnchorResult(submitted=False, detail=f"transaction submission failed: {exc}")

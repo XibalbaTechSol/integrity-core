@@ -2,18 +2,30 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { GovernancePanel } from '../../src/components/tabs/GovernancePanel';
 import { oracle } from '../../src/services/oracle';
+import { useDashboard } from '../../src/context/useDashboard';
 
 // `deployed` starts as null (unknown) and is only resolved once
 // `oracle.getGovernanceProposals()` settles, so neither branch is on screen during the
 // first render — the old version of this test asserted the not-live copy synchronously
 // against an unmocked real fetch, and could only ever fail.
 vi.mock('../../src/services/oracle', () => ({
-  oracle: { getGovernanceProposals: vi.fn() },
+  oracle: { getGovernanceProposals: vi.fn(), resolveSovereignAgent: vi.fn().mockRejectedValue(new Error('no agent')) },
+}));
+
+// GovernancePanel now reads useDashboard (selectedAgent/walletAddress/addToast) to drive the
+// castVote write flow, same pattern as ActuarialHub/IdentityPanel's tests.
+vi.mock('../../src/context/useDashboard', () => ({
+  useDashboard: vi.fn(),
 }));
 
 describe('GovernancePanel', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    (useDashboard as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
+      selectedAgent: null,
+      walletAddress: null,
+      addToast: vi.fn(),
+    });
   });
 
   it('shows the honest not-live state when no Governance contract is deployed', async () => {

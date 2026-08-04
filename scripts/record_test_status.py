@@ -34,38 +34,14 @@ STATUS = REPO / ".integrity-test-status"
 
 
 def _tree_hash() -> str:
-    """Fingerprint of the code that would actually run: HEAD, tracked modifications, AND
-    untracked files.
+    """Fingerprint of the code that would actually run — see `tree_hash.py` (F5): this
+    and `vault_commit_leaf.py` must compute the identical hash for a tree-mismatch check
+    to mean anything, so both import the one shared implementation rather than carrying
+    their own copies."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from tree_hash import tree_hash
 
-    The untracked part is not incidental. A first version of this hashed only
-    `HEAD + git diff HEAD`, which omits untracked files entirely — so adding a brand-new
-    source file left the fingerprint unchanged and a stale test status kept validating. Caught
-    by testing the stale path rather than assuming it worked: editing an untracked script
-    produced no change at all.
-    """
-    import hashlib
-    import subprocess
-
-    def git(*args: str) -> str:
-        return subprocess.check_output(["git", "-C", str(REPO), *args], text=True)
-
-    try:
-        parts = [git("rev-parse", "HEAD").strip(), git("diff", "HEAD")]
-        for rel in git("ls-files", "--others", "--exclude-standard").split("\n"):
-            rel = rel.strip()
-            if not rel:
-                continue
-            p = REPO / rel
-            try:
-                parts.append(rel + ":" + hashlib.sha256(p.read_bytes()).hexdigest())
-            except OSError:
-                parts.append(rel + ":unreadable")
-    except Exception:
-        return "unknown"
-
-    from eth_utils import keccak
-
-    return "0x" + keccak(text="\n".join(parts)).hex()
+    return tree_hash(REPO)
 
 
 def _load() -> dict:

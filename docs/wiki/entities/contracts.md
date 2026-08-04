@@ -13,7 +13,7 @@ source_files:
   - contracts/src/oracle/ReputationRegistry.sol
   - contracts/src/oracle/CCIPReputationBridge.sol
   - contracts/src/oracle/IntegrityGovernance.sol
-  - contracts/src/shield/ComplianceGate.sol
+  - contracts/src/health/ComplianceGate.sol
   - contracts/src/markets/IntegrityMarket.sol
   - contracts/script/Deploy.s.sol
   - contracts/script/DeployMarkets.s.sol
@@ -22,7 +22,7 @@ source_files:
 The Solidity/Foundry package (solc 0.8.28): the on-chain heart of the protocol.
 It implements the [7 agent primitives](../concepts/agent-primitives.md), the
 factory that deploys them, the shared registries, the `$ITK` token, the
-[Xibalba Shield](../concepts/compliance-gate.md) HIPAA stack, the
+[Integrity Health](../concepts/compliance-gate.md) HIPAA stack, the
 [market/application layer](../concepts/integrity-market.md), and the
 [ZK verifier](../concepts/zkp.md).
 
@@ -35,7 +35,7 @@ factory that deploys them, the shared registries, the `$ITK` token, the
 - **Singletons:** `IntegrityToken` ($ITK), `UltraPlonkVerifier`,
   `XibalbaAgentRegistry`, `XibalbaNameService` (XNS, added 2026-07-11 — see
   below), `IntegrityGovernance` (added 2026-07-25 — see [Governance](../concepts/governance.md)),
-  `DomainRegistry`, plus the Shield stack (`CoveredEntityRegistry`,
+  `DomainRegistry`, plus the Integrity Health stack (`CoveredEntityRegistry`,
   `SmartBAAFactory`/`SmartBAA` — see [Smart BAA](../concepts/smart-baa.md) —
   `HIPAAGuardrailRegistry`, `EHRGate`).
 - **Factory:** `AgentPrimitivesFactory.registerPrimitives(...)` clones the 5 and

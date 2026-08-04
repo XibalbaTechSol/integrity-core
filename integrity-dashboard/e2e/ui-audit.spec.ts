@@ -16,7 +16,7 @@ test.describe('E2E Visual and Functional Audit', () => {
     ];
     
     // We will click around and take screenshots
-    const navItems = ['Intelligence', 'Cognition', 'Contracts', 'Finance', 'Xibalba Shield', 'Identity'];
+    const navItems = ['Intelligence', 'Cognition', 'Contracts', 'Finance', 'Integrity Health', 'Identity'];
     
     for (const nav of navItems) {
       await page.click(`text=${nav}`);

@@ -1095,6 +1095,7 @@ async fn oracle_e2e_agents_list_degrades_without_xns() {
         &addr_of(1), &addr_of(2), &addr_of(3), &addr_of(4), &addr_of(5), &addr_of(6), &addr_of(7),
         &addr_of(8),
         "0",
+        31337,
     )
     .await
     .unwrap();

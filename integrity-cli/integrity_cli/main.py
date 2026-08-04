@@ -189,7 +189,7 @@ def identity_show(
 # agent
 # --------------------------------------------------------------------------
 
-# ComplianceGate.Vertical enum values (contracts/src/shield/ComplianceGate.sol),
+# ComplianceGate.Vertical enum values (contracts/src/health/ComplianceGate.sol),
 # same mapping integrity-sdk's registration.py uses.
 _VERTICALS = {"none": 0, "healthcare": 1}
 

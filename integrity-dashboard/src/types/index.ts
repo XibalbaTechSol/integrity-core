@@ -273,7 +273,7 @@ export type TabId =
   | 'factory'
   | 'compliance'
   | 'quarantine'
-  | 'shield'
+  | 'health'
   | 'oracle'
   | 'credit'
   | 'governance'
@@ -287,4 +287,5 @@ export type TabId =
   | 'apikeys'
   | 'advanced'
   | 'profile'
-  | 'settings';
+  | 'settings'
+  | 'map';

@@ -17,7 +17,7 @@ anchor linkage via the JOIN design); Phases B (control mapping) and C (export en
 Turn the real, existing audit trail into an **auditor-ready, control-mapped, verifiable evidence
 report** for a date range — the artifact a compliance officer hands an auditor to prove "every
 agent action was policy-checked, and here's cryptographic proof it wasn't tampered with after the
-fact." This is the enterprise buying trigger (Lever 6 / Shield wedge), built on primitives that
+fact." This is the enterprise buying trigger (Lever 6 / Integrity Health wedge), built on primitives that
 already exist rather than new crypto.
 
 **Non-goal (v1):** making the audit-log DB row itself tamper-proof. The code already documents
@@ -90,7 +90,7 @@ The DB is a convenience index; the on-chain `verifyLeaf` is the trust anchor.
   control, its leaf, and (if anchored) `{root, tx_hash, anchored_at}` + verify instructions;
   plus a summary (counts by control, % anchored, would-be-blocks if shadow).
 - Sign the report payload (oracle signer) so the export file itself is attributable.
-- Dashboard: an "Export evidence" action on `ShieldPage` / diagnostics that downloads JSON now,
+- Dashboard: an "Export evidence" action on `HealthPage` / diagnostics that downloads JSON now,
   PDF later. Reuse `AuditLogsPanel`'s existing query plumbing.
 
 ## Files to touch
@@ -99,7 +99,7 @@ The DB is a convenience index; the on-chain `verifyLeaf` is the trust anchor.
 - `integrity-oracle/backend/src/handlers.rs`, `db.rs`, `openapi.rs` (Phase B/C) — plus backend
   tests; keep `spec/ais-api/v1/openapi.yaml` in sync.
 - `integrity-dashboard/src/services/oracle.ts` (+ DTO), a new `EvidenceExport` component, wired into
-  `ShieldPage`.
+  `HealthPage`.
 
 ## Test plan (real, no mocks)
 - Middleware: an ALLOW decision persists `metadata.leaf` matching a recomputed keccak leaf; after
@@ -112,6 +112,6 @@ The DB is a convenience index; the on-chain `verifyLeaf` is the trust anchor.
 ## Open questions for sign-off
 1. **Anchor back-fill vs. export-time join** for decision→tx linkage (Phase A) — back-fill is
    simpler to query and render; join avoids a second write path. Lean back-fill.
-2. **v1 control map scope** — ship HIPAA-only (Shield wedge) first, or a thin multi-framework
+2. **v1 control map scope** — ship HIPAA-only (Integrity Health wedge) first, or a thin multi-framework
    stub? Lean HIPAA-only, real and deep.
 3. **Report signing** — oracle signer is fine for v1; revisit when key-separation lands (Lever 5).

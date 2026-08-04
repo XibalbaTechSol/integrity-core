@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useDashboard } from '../../context/useDashboard';
 import { Panel } from '../shared/Panel';
-import { Key, Users, ShieldCheck, Search, Link as LinkIcon, Settings } from 'lucide-react';
+import { Key, Users, ShieldCheck, Search, Link as LinkIcon, Settings, Globe } from 'lucide-react';
 import { DIDExplorer } from '../ui/DIDExplorer';
 import { RegisterAgentModal } from '../ui/RegisterAgentModal';
 import { XNSSearchService } from '../ui/XNSSearchService';
+import { XNSRegisterForm } from '../ui/XNSRegisterForm';
 import { ClaimAgentModal } from './ClaimAgentModal';
 
 export function IdentityPanel() {
@@ -26,6 +27,16 @@ export function IdentityPanel() {
 
       <Panel title="XNS Search Service" icon={<Search size={18} />}>
         <XNSSearchService />
+      </Panel>
+
+      <Panel title="Register a Handle" icon={<Globe size={18} />}>
+        {selectedAgent ? (
+          <XNSRegisterForm />
+        ) : (
+          <div className="text-muted" style={{ padding: 'var(--space-4)', textAlign: 'center' }}>
+            Select an agent to register a handle for it.
+          </div>
+        )}
       </Panel>
 
       <Panel title="Identity Management" icon={<Users size={18} />}>

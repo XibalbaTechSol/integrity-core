@@ -63,6 +63,9 @@ cheapest-and-most-certain-first:
 2. Ed25519 signature verification (app/canonical.py) -- untrusted agent_id -> hard deny
 3. nonce replay check (app/nonce_store.py)           -- monotonic per-agent nonce
 4. freshness / timestamp window check
+4b. active quarantine check (app/quarantine.py)      -- denies only on a POSITIVELY
+    CONFIRMED locked-stake dispute; fails OPEN (unlike step 6) since it runs on every
+    request, not just a narrow intent class -- see app/quarantine.py's docstring
 5. OPA policy evaluation (app/opa_client.py)         -- FAIL CLOSED if OPA unreachable
 6. on-chain BAA check, only if OPA says requires_baa -- FAIL CLOSED if can't verify
    (app/baa.py, real eth_call via web3.py)
@@ -86,9 +89,9 @@ best-effort.**
 
 Every deny path encodes its reason as `SOME_CODE: detail` in the response
 `reason` field (`BCC_INVALID_SIGNATURE`, `BCC_NONCE_REPLAY`, `BCC_EXPIRED`,
-`BCC_POLICY_ENGINE_UNAVAILABLE`, `OPA_REJECTION`, `BAA_INACTIVE`,
-`BAA_CANNOT_VERIFY`, `CIRCUIT_BREAKER_OPEN`) so callers/tests can pattern-match
-on failure category.
+`AGENT_QUARANTINED`, `BCC_POLICY_ENGINE_UNAVAILABLE`,
+`OPA_REJECTION`, `BAA_INACTIVE`, `BAA_CANNOT_VERIFY`, `CIRCUIT_BREAKER_OPEN`) so
+callers/tests can pattern-match on failure category.
 
 ### Reputation sync loop (`app/reputation.py`, `app/scoring_loop.py`)
 

@@ -39,7 +39,12 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
-      - run: npm install
+      # Retried WITH a cache clean between attempts: EINTEGRITY on @ethersproject/solidity
+      # has been observed, and a bare retry doesn't help -- all 3 naive attempts failed on
+      # the byte-for-byte IDENTICAL wrong hash, which means npm's own local package cache
+      # on the runner was serving one bad cached tarball, not re-fetching from the registry
+      # at all after the first miss. `npm cache clean --force` forces that re-fetch.
+      - run: npm install || (npm cache clean --force && npm install) || (npm cache clean --force && npm install)
         working-directory: contracts
       - run: forge test -vvv
         working-directory: contracts
@@ -103,7 +108,12 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
-      - run: npm install
+      # Retried WITH a cache clean between attempts: EINTEGRITY on @ethersproject/solidity
+      # has been observed, and a bare retry doesn't help -- all 3 naive attempts failed on
+      # the byte-for-byte IDENTICAL wrong hash, which means npm's own local package cache
+      # on the runner was serving one bad cached tarball, not re-fetching from the registry
+      # at all after the first miss. `npm cache clean --force` forces that re-fetch.
+      - run: npm install || (npm cache clean --force && npm install) || (npm cache clean --force && npm install)
         working-directory: contracts
       - run: uv sync
         working-directory: integrity-sdk
@@ -129,7 +139,12 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
-      - run: npm install
+      # Retried WITH a cache clean between attempts: EINTEGRITY on @ethersproject/solidity
+      # has been observed, and a bare retry doesn't help -- all 3 naive attempts failed on
+      # the byte-for-byte IDENTICAL wrong hash, which means npm's own local package cache
+      # on the runner was serving one bad cached tarball, not re-fetching from the registry
+      # at all after the first miss. `npm cache clean --force` forces that re-fetch.
+      - run: npm install || (npm cache clean --force && npm install) || (npm cache clean --force && npm install)
         working-directory: contracts
       - run: uv sync
         working-directory: integrity-cli

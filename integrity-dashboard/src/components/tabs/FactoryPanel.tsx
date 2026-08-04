@@ -747,7 +747,7 @@ export function FactoryPanel() {
 interface ContractDetail {
   name: string;
   address: string;
-  category: 'Core' | 'Identity' | 'Finance' | 'Shield';
+  category: 'Core' | 'Identity' | 'Finance' | 'Health';
   description: string;
   version: string;
   network: string;
@@ -938,9 +938,9 @@ const CONTRACTS_METADATA: ContractDetail[] = [
     ]
   },
   {
-    name: 'Xibalba Shield BAA Registry',
+    name: 'Integrity Health BAA Registry',
     address: '0x1A4cF6e8D2B78C3E5Da3',
-    category: 'Shield',
+    category: 'Health',
     description: 'Smart Business Associate Agreement (BAA) contract locking legal compliance terms into verifiable on-chain code.',
     version: 'v1.1.0',
     network: 'Base Sepolia',
@@ -961,9 +961,9 @@ const CONTRACTS_METADATA: ContractDetail[] = [
     ]
   },
   {
-    name: 'Audit Shield Gateway',
+    name: 'Audit Health Gateway',
     address: '0xb3eB37B0094De9A82983F5e8a09144e97F3ccC62',
-    category: 'Shield',
+    category: 'Health',
     description: 'HIPAA-compliant auditing gateway verifying data containment, access logging, and business associate compliance.',
     version: 'v1.0.5',
     network: 'Base Sepolia',
@@ -989,7 +989,7 @@ export function ContractsListAndDetails() {
   const [expandedAddress, setExpandedAddress] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'abi' | 'events' | 'transactions'>('overview');
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterCategory, setFilterCategory] = useState<'All' | 'Core' | 'Identity' | 'Finance' | 'Shield'>('All');
+  const [filterCategory, setFilterCategory] = useState<'All' | 'Core' | 'Identity' | 'Finance' | 'Health'>('All');
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
 
   const handleCopy = (address: string, e: React.MouseEvent) => {
@@ -1023,7 +1023,7 @@ export function ContractsListAndDetails() {
             border: '1px solid var(--glass-border)'
           }}>
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-              {(['All', 'Core', 'Identity', 'Finance', 'Shield'] as const).map(cat => (
+              {(['All', 'Core', 'Identity', 'Finance', 'Health'] as const).map(cat => (
                 <button
                   key={cat}
                   onClick={() => setFilterCategory(cat)}

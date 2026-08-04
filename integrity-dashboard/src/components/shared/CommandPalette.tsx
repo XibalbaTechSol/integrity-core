@@ -44,7 +44,7 @@ export function CommandPalette() {
     { id: 'nav-telemetry', title: 'Go to Telemetry', icon: <Activity size={16} />, category: 'Navigation', onSelect: () => { setActiveTab('telemetry'); setIsOpen(false); } },
     { id: 'nav-wallet', title: 'Go to Wallet', icon: <Wallet size={16} />, category: 'Navigation', onSelect: () => { setActiveTab('wallet'); setIsOpen(false); } },
     { id: 'nav-contracts', title: 'Go to Contracts Factory', icon: <FileCode size={16} />, category: 'Navigation', onSelect: () => { setActiveTab('factory'); setIsOpen(false); } },
-    { id: 'nav-shield', title: 'Go to Xibalba Shield', icon: <Shield size={16} />, category: 'Navigation', onSelect: () => { setActiveTab('shield'); setIsOpen(false); } },
+    { id: 'nav-health', title: 'Go to Integrity Health', icon: <Shield size={16} />, category: 'Navigation', onSelect: () => { setActiveTab('health'); setIsOpen(false); } },
     { id: 'nav-identity', title: 'Manage Identity (DIDs)', icon: <Fingerprint size={16} />, category: 'Navigation', onSelect: () => { setActiveTab('identity'); setIsOpen(false); } },
     { id: 'nav-ledger', title: 'View Decentralized Ledger', icon: <BookOpen size={16} />, category: 'Navigation', onSelect: () => { setActiveTab('ledger'); setIsOpen(false); } },
     { id: 'action-theme', title: 'Toggle Theme', icon: <Command size={16} />, category: 'Settings', onSelect: () => { addToast('info', 'Theme toggled'); setIsOpen(false); } },

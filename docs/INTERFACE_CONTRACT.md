@@ -177,7 +177,7 @@ included in the signed payload, so neither can be swapped post-signature:
   MUST carry it, or the on-chain BAA check fails closed with
   `BAA_CANNOT_VERIFY` regardless of the agent's actual BAA status. Deliberately
   an address, not a DID: covered entities are registered directly by EVM
-  address in `contracts/src/shield/CoveredEntityRegistry.sol` and have no DID
+  address in `contracts/src/health/CoveredEntityRegistry.sol` and have no DID
   layer of their own.
 
 **Canonicalization, pinned:** the signature covers every field above except
@@ -252,6 +252,23 @@ failing verification.
   This avoids second-preimage ordering ambiguity and lets contracts use OZ's
   `MerkleProof.verify` directly instead of a custom verifier.
 
+> **⚠ UNPINNED: odd-width levels.** The three rules above are everything this
+> section has ever specified. It says nothing about a level with an odd number of
+> nodes, and the three implementations filled that silence differently:
+> `integrity-oracle/backend/src/merkle.rs` and `bcc_middleware/app/merkle.py`
+> **duplicate** the odd node; `integrity_sdk/vault.py` **promotes** it unchanged.
+> All three are compliant with this section as written, and all three claim to
+> match the others "bit-for-bit" — an unfalsifiable claim until conformance
+> vectors exist. Nothing is broken today only because each component builds,
+> anchors and verifies within its own tree; the first cross-system verification
+> breaks. Duplication also makes `[A,B,C]` and `[A,B,C,C]` produce the identical
+> root, which contradicts `StateAnchor.sol`'s own NatSpec claim that the root is
+> "a true function of the *set* of leaves."
+> Recorded as E9 in [`docs/design/e2e-audit-2026-07-31.md`](design/e2e-audit-2026-07-31.md);
+> proposed amendment + migration in
+> [`docs/design/merkle-standardization.md`](design/merkle-standardization.md).
+> **Do not add a fourth implementation until this is resolved.**
+
 ### 4.4a Genesis memory root (spec v0.3 §4.1/§7.2) — cross-package constant
 
 Registration requires `StateAnchor.latestRoot != bytes32(0)` (§6), but an
@@ -280,6 +297,49 @@ the `SovereignAgent` contract and the constructor grants it `ANCHOR_ROLE`. No So
 change is needed for this; **enforcement** that the protocol's `ANCHOR_ROLE` signer cannot
 anchor epoch 1 is still `[PLANNED]` (Appendix A gap 2), since `StateAnchor` is deployed
 per-agent and already-deployed anchors keep their current bytecode.
+
+### 4.4b Memory DAG node schema (spec §7.4 lineage) — `[UNVERIFIED, NOT RUN]`
+
+Design: [`docs/design/memory-dag.md`](design/memory-dag.md). Implementation:
+`integrity_sdk/memory_dag.py`. **Written 2026-07-31 with no shell available, so it
+has never been executed** — §1's "don't write code you haven't run" is knowingly
+violated here and this section is not binding until `tests/test_memory_dag.py`
+passes.
+
+§4.4's tree commits to a flat *set* — its sorted-pair rule exists precisely to make
+leaf position meaningless, so it cannot express that one memory derives from
+another. Lineage needs a DAG, not a bigger tree.
+
+**Node preimage** (canonical JSON per §4.2's rule — `sort_keys=True`,
+`separators=(",",":")`, `ensure_ascii=True`; deliberately the same encoding, not a
+second one):
+
+```
+{ schema, agent_id, kind, content_hash, parents[], edge_type, timestamp, source }
+node_id = "0x" + keccak256(canonical(preimage))
+schema  = "integrity.memory.node.v1"
+```
+
+Three rules are load-bearing:
+
+- **`parents` is ordered and positional** — `parents[0]` is the superseded version.
+  It MUST NOT be sorted. Sorting it would erase lineage semantics exactly the way
+  §4.4's sorted pairs erase leaf position; the two layers have deliberately
+  opposite rules, and conflating them is the failure mode to guard against.
+- **`parents` may reference only already-stored nodes**, which are therefore always
+  older. This single rule makes the graph acyclic *by construction* — no cycle
+  detection exists or is needed.
+- **Semantic `[[links]]` are committed inside `content_hash`, never as `parents`.**
+  Wiki links may be cyclic and may dangle (naming a memory that does not exist yet
+  is explicitly allowed); both are fine as content and both would be fatal as hash
+  edges.
+
+**Anchoring.** A head node id is a 32-byte value, so `root_of_heads()` (a §4.4 tree
+over current ref heads) satisfies the existing §6 / §7.1 gate
+`StateAnchor.latestRoot != bytes32(0)` unchanged — **no contract change, no oracle
+change**, and §4.4a's `GENESIS_VAULT_ROOT` sentinel remains valid as the empty head.
+Because each node commits to its parents, anchoring one head transitively commits
+its whole reachable history.
 
 ### 4.5 Trace tree view (`GET /v1/traces/{trace_id}`)
 LangSmith-style nested run-tree reconstruction over the real spans in `otel_spans`
@@ -347,7 +407,7 @@ contracts at registration time, and there is no longer a global
 | 3 | `ReputationRegistry` (`oracle/ReputationRegistry.sol`) | EIP-1167 clone | This agent's AIS ledger: oracle-pushed `baseScore` plus a self-earned `ZK_boost` from a verified Barretenberg proof (§4.3). |
 | 4 | `Slasher` (`oracle/Slasher.sol`) | EIP-1167 clone | Holds this agent's $ITK collateral; dispute-gated, arbiter-resolved slashing. |
 | 5 | `VerifierRegistry` (`oracle/VerifierRegistry.sol`) | EIP-1167 clone | This agent's versioned pointer to whichever `IZkVerifier` implementation it currently trusts, so a global circuit upgrade doesn't force every agent onto a new version simultaneously. |
-| 6 | `ComplianceGate` (`shield/ComplianceGate.sol`) | EIP-1167 clone | This agent's regulated-industry (Xibalba Shield) compliance declaration + a single live-verified `isHealthcareCompliant` read. |
+| 6 | `ComplianceGate` (`health/ComplianceGate.sol`) | EIP-1167 clone | This agent's regulated-industry (Integrity Health) compliance declaration + a single live-verified `isHealthcareCompliant` read. |
 | 7 | `AgentProfile` (`framework/AgentProfile.sol`) | EIP-1167 clone | Domain-membership pointer (`primaryDomain`) + off-chain metadata URI (`profileURI`). |
 
 Only #1 and #2 are fully, independently deployed (their own bytecode, their
@@ -504,7 +564,7 @@ because every test up to that point ran with `skip_oracle_registration=True`).
 
 ### 6.4 `EHRGate` reputation resolution (was: one immutable global registry)
 
-`shield/EHRGate.sol` used to hold one immutable global `ReputationRegistry`
+`health/EHRGate.sol` used to hold one immutable global `ReputationRegistry`
 address, read once at construction. Now that every agent owns its own
 `ReputationRegistry` clone, there is no single address to point at.
 `EHRGate` instead holds the shared `XibalbaAgentRegistry` and resolves
@@ -579,7 +639,7 @@ deployed by genesis `Deploy.s.sol` but their Base Sepolia broadcast is deferred,
 as `Option<Address>`; endpoints that need an absent one (`/v1/xns/resolve`,
 `/v1/agent/{id}/handle`, `/v1/governance/proposals`) return `ChainError::MissingSingleton`
 → **HTTP 400** (a deployment-shape fact, not a transient failure — same mapping as the
-market/shield singletons) rather than fabricating a result. Dashboard consumers degrade to
+market/health singletons) rather than fabricating a result. Dashboard consumers degrade to
 an honest "not deployed" state on that 400.
 
 **Market/application layer additions (§6.9)**: `singletons.MarketFactory` and
@@ -633,10 +693,10 @@ read the *singleton and template* addresses from this file rather than
 hardcoding them; per-agent addresses are always resolved live (or, once
 built, via the oracle's cache) rather than read from any static file.
 
-### 6.7 Xibalba Shield / regulated-industry compliance wiring
+### 6.7 Integrity Health / regulated-industry compliance wiring
 
-`shield/ComplianceGate.sol` (primitive #6, §6.1) is the concrete wire
-between the core protocol and the Xibalba Shield (HIPAA) vertical, and it
+`health/ComplianceGate.sol` (primitive #6, §6.1) is the concrete wire
+between the core protocol and the Integrity Health (HIPAA) vertical, and it
 is worth spelling out because it has two halves that must never be
 confused with each other:
 
@@ -650,13 +710,13 @@ confused with each other:
   into `ComplianceGate`'s implementation contract as constructor
   immutables (shared across every agent's clone, same pattern as
   `AgentProfile`'s `domainRegistry`), so every clone reads the same,
-  correct Shield registries without a per-agent storage write. This is a
+  correct Integrity Health registries without a per-agent storage write. This is a
   read path only — `ComplianceGate` does **not** replace `EHRGate` as the
   PHI-access enforcement boundary; `EHRGate.checkAccess` still performs its
   own independent live checks (patient consent, BAA, AIS threshold — §6.4)
   at access time. `ComplianceGate` is a read-optimized compliance summary
   for callers like integrity-oracle's `S_compliance` AIS component or
-  integrity-dashboard's Shield page, not a second enforcement point.
+  integrity-dashboard's Integrity Health page, not a second enforcement point.
 - **Self-declared compliance** — `hipaaEligible`, `zdrEnabled`,
   `externalWebAccessDeclared`, `dataResidencyRegion`, set via
   `setSelfDeclaredCompliance` (routed through `SovereignAgent.execute`,
@@ -932,7 +992,7 @@ against Base Sepolia), not narrated-but-faked.
 `integrity-sdk`'s `registration.register_agent`, real wallet, real minted
 ITK — see §6.3): an honest, well-grounded agent whose AIS climbs and wins
 real market calls; a reckless/overleveraged agent whose AIS decays; an
-agent exercising the real Xibalba Shield/healthcare vertical (`§6.7`, real
+agent exercising the real Integrity Health/healthcare vertical (`§6.7`, real
 `CoveredEntity` + `SmartBAA` + `EHRGate` access flow); and a scenario
 demonstrating what a BCC-commitment/on-chain-action mismatch would surface
 once oracle-side detection exists (honestly labeled if not yet automated —
@@ -1100,3 +1160,62 @@ arrays for `transaction_history` and `allowances` to power the Finance UI.
 `integrity-oracle` exposes **no** `A2ACapitalPool` read endpoint at all
 (confirmed against `routes.rs`) — `integrity-dashboard`'s Capital Allocation page
 states this as a real, visible gap rather than fabricating live pool data.
+
+## 15. Financial action, session integrity & Xibalba Shield wire-format additions (2026-08-01)
+
+Normative source: [`spec/integrity-protocol-v0.4.md`](../spec/integrity-protocol-v0.4.md) §21–§22
+and [`spec/xibalba-shield-v1.md`](../spec/xibalba-shield-v1.md). Everything in this section is
+`[PLANNED]` — no package implements any of it yet. Recorded here because these are exactly the
+kind of cross-package schema facts this document exists to pin *before* two packages drift into
+incompatible guesses about a shared shape, per this file's own purpose.
+
+### 15.1 `intent_type` namespace extensions (extends §4.2's BCC Commitment)
+
+`BCC Commitment.intent_type` already accepts any string — no schema change is required for
+either table below to become valid today. What's pinned here is the **vocabulary**, so
+`bcc_middleware`'s policy packs (`docs/ENTERPRISE_ADOPTION.md` Lever 3) and any future export
+tooling can pattern-match a stable enum instead of ad hoc strings per integrator.
+
+**Financial** (protocol spec §21.2): `payment_authorize`, `payment_capture`,
+`payment_transfer`, `payment_stablecoin`, `payment_escrow_lock`, `payment_escrow_release`,
+`payment_refund`, `payment_dispute`, `fx_convert`, `limit_reserve`, `limit_release`,
+`wallet_sign`.
+
+**Xibalba Shield security events** (Shield spec §5.6): `shadow_agent_detected`,
+`agent_contained`, `connection_blocked`, `guardrail_denied`, `phi_access_attempt`,
+`device_posture_change`.
+
+### 15.2 Action Receipt (formalized name for an existing pairing, not a new object)
+
+An **Action Receipt** is the existing join of a `bcc_middleware` policy decision to its
+`anchor_events` row by leaf hash (`docs/design/evidence-export.md` Phase A). No new field, no
+new table. The name exists so this pairing can be referenced by external audit-trail schemas
+(the AAT-shape research this addition is based on) without a package inventing a second,
+parallel concept for the same evidence.
+
+### 15.3 `session_integrity_v1` (optional, additive Action Receipt extension)
+
+```json
+{
+  "risk_threshold_profile_id": "session_term_v1",
+  "R_session": 0.0,
+  "action_ladder": "M|S|H|T|K",
+  "drift_score": 0.0,
+  "pin_hash": "0x...",
+  "hard_override": null
+}
+```
+
+Absence on any given commitment means "not yet implemented for this commitment," never "passed
+a session-integrity check that does not exist." See protocol spec §22.7 for the full definition
+and §22 for the risk model this field summarizes.
+
+### 15.4 Xibalba Shield event schemas — where they live
+
+`ProcessActivity` / `FileActivity` / `NetworkFlow` / `AgentEvent` / `PolicyDecision` are defined
+in full in [`spec/xibalba-shield-v1.md`](../spec/xibalba-shield-v1.md) §5 — **not duplicated
+here**, to avoid the exact two-copies-drift failure mode this document exists to prevent. A
+`PolicyDecision` becomes a BCC commitment via the §15.1 `intent_type`s above; the mapping is
+Shield spec §4.5, not a new oracle endpoint. `integrity-oracle` requires **no route changes** to
+receive Shield telemetry — it arrives through the existing `POST /v1/bcc/intercept` and
+telemetry-ingest paths (§2, §4.2 above) like any other agent's traffic.

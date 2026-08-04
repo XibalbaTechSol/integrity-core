@@ -62,5 +62,5 @@ request/response actually works, which the mocked layer can't.
 
 As [integrity-dashboard](../entities/integrity-dashboard.md)'s dashboard pages get
 built out (task #21 — Markets, Leaderboard, Wallet, Capital Allocation,
-Cognition, Identity, Shield, Landing), each page's Playwright spec ships in
+Cognition, Identity, Health, Landing), each page's Playwright spec ships in
 the same pass as the page, not backfilled later.

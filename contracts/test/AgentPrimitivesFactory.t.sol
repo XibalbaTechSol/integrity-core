@@ -8,13 +8,13 @@ import {StateAnchor} from "../src/oracle/StateAnchor.sol";
 import {ReputationRegistry} from "../src/oracle/ReputationRegistry.sol";
 import {Slasher} from "../src/oracle/Slasher.sol";
 import {VerifierRegistry} from "../src/oracle/VerifierRegistry.sol";
-import {ComplianceGate} from "../src/shield/ComplianceGate.sol";
+import {ComplianceGate} from "../src/health/ComplianceGate.sol";
 import {AgentProfile} from "../src/framework/AgentProfile.sol";
 import {XibalbaAgentRegistry} from "../src/framework/XibalbaAgentRegistry.sol";
 import {DomainRegistry} from "../src/framework/DomainRegistry.sol";
 import {AgentPrimitivesFactory} from "../src/framework/AgentPrimitivesFactory.sol";
-import {CoveredEntityRegistry} from "../src/shield/CoveredEntityRegistry.sol";
-import {SmartBAAFactory} from "../src/shield/SmartBAAFactory.sol";
+import {CoveredEntityRegistry} from "../src/health/CoveredEntityRegistry.sol";
+import {SmartBAAFactory} from "../src/health/SmartBAAFactory.sol";
 import {IntegrityToken} from "../src/oracle/IntegrityToken.sol";
 
 /// @notice Mirrors the real self-sovereign registration sequence end-to-end:

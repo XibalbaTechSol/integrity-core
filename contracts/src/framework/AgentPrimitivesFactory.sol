@@ -8,7 +8,7 @@ import {DomainRegistry} from "./DomainRegistry.sol";
 import {ReputationRegistry} from "../oracle/ReputationRegistry.sol";
 import {Slasher} from "../oracle/Slasher.sol";
 import {VerifierRegistry} from "../oracle/VerifierRegistry.sol";
-import {ComplianceGate} from "../shield/ComplianceGate.sol";
+import {ComplianceGate} from "../health/ComplianceGate.sol";
 import {AgentProfile} from "./AgentProfile.sol";
 
 /// @title AgentPrimitivesFactory
@@ -107,7 +107,7 @@ contract AgentPrimitivesFactory {
     /// here and checked for uniqueness by the registry, same as the old AgentFactory.
     /// @param domainId The domain this agent is registering under.
     /// @param vertical The regulated-industry vertical this agent declares (None for
-    /// most agents; Healthcare for Shield-integrated ones).
+    /// most agents; Healthcare for Integrity Health-integrated ones).
     /// @param profileURI Off-chain metadata pointer for AgentProfile.
     function registerPrimitives(
         address sovereignAgent,

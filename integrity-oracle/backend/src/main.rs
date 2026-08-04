@@ -20,6 +20,8 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
 
+    backend::verification::warn_about_dev_overrides_at_startup();
+
     let config = Config::from_env().map_err(|e| anyhow::anyhow!(e))?;
     tracing::info!(bind_addr = %config.bind_addr, rpc_url = %config.rpc_url, "starting oracle-backend");
 

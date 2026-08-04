@@ -14,6 +14,8 @@ table regardless of decision-row timing.
 
 from __future__ import annotations
 
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -27,11 +29,45 @@ from tests.helpers import new_agent, sign_commitment
 
 @pytest.fixture()
 def client():
-    return TestClient(main_module.app)
+    # Context-managed deliberately. A bare `TestClient(app)` starts and tears down a
+    # fresh portal event loop around EACH request, so the fire-and-forget audit task
+    # `main._report_decision_background` schedules is cancelled at teardown before it
+    # can run -- the decision row is simply lost, and these tests then assert against
+    # an empty list. Entering the context keeps one loop alive across the whole test,
+    # which is also what a real uvicorn process does.
+    #
+    # Worth noting the production shape this exposes (not a test artifact): audit
+    # reporting is `ensure_future(to_thread(...))` that nothing ever awaits, so a
+    # worker shutting down with reports in flight drops them silently. See
+    # docs/design/e2e-audit-2026-07-31.md E15.
+    with TestClient(main_module.app) as c:
+        yield c
 
 
 def _leaf_hex(payload: dict) -> str:
     return "0x" + leaf_hash(BCCCommitment(**payload)).hex()
+
+
+def _await_reported(reported: list, *, timeout: float = 5.0) -> list:
+    """
+    Block until the fire-and-forget audit report lands, or `timeout` elapses.
+
+    `main._report_decision_background` dispatches `report_decision` via
+    `asyncio.ensure_future(asyncio.to_thread(...))` and does NOT await it, so the
+    HTTP response returns before the report is necessarily recorded. Asserting
+    directly on `reported` after `client.post(...)` is therefore a race against
+    thread scheduling, not a test of the linkage — it passes on an idle machine and
+    fails under load. Observed failing exactly that way on 2026-07-31 after passing
+    in the immediately preceding run, with no code change between them.
+
+    Returning on the first observation (rather than sleeping a fixed interval) keeps
+    the common case fast; the timeout is what turns a genuine regression back into a
+    failure instead of a hang.
+    """
+    deadline = time.monotonic() + timeout
+    while not reported and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return reported
 
 
 def test_allow_decision_records_leaf_metadata(client, real_opa_server, monkeypatch):

@@ -218,7 +218,7 @@ export function RegisterAgentModal({ onClose, onSuccess }: Props) {
                 <label className="form-label" htmlFor="ra-vertical">Vertical</label>
                 <select id="ra-vertical" className="input" value={vertical} onChange={(e) => setVertical(Number(e.target.value) as 0 | 1)}>
                   <option value={0}>General</option>
-                  <option value={1}>Healthcare (Shield)</option>
+                  <option value={1}>Healthcare (Integrity Health)</option>
                 </select>
               </div>
             </div>

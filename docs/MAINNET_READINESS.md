@@ -133,7 +133,7 @@ register (Appendix A gap 3), so an agent can hold a score while risking nothing.
 
 **Done when:** registration enforces a minimum bond, and tier elevation requires more.
 
-### 8. `covered_entity_address` is client-supplied (Shield / HIPAA)
+### 8. `covered_entity_address` is client-supplied (Integrity Health / HIPAA)
 
 Spec §9.4 names this as a spoof residual. In the healthcare vertical, the field asserting
 which covered entity an action falls under is taken from the caller. Under HIPAA this is
@@ -185,7 +185,7 @@ the highest-consequence field in the payload.
     somewhere regularly rather than never.
 17. **Monitoring and alerting** on: oracle liveness, RPC failure rate, anchor-submission
     failures, score-update failures, and BCC deny rate.
-18. **PHI handling review** for Shield: retention, backups, the redaction backstop's false-negative
+18. **PHI handling review** for Integrity Health: retention, backups, the redaction backstop's false-negative
     rate, and breach procedure. This is a legal obligation, not an engineering preference.
 19. **Key custody and rotation runbook** for every signer from item 1, including what
     happens when the oracle signer is compromised at 3am.

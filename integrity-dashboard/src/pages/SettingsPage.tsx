@@ -69,15 +69,20 @@ export function SettingsPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
             <div>
               <label className="text-sm font-bold mb-4" style={{ display: 'block' }}>Dashboard Theme</label>
-              <div style={{ display: 'flex', gap: '16px' }}>
-                {['dark', 'light', 'system'].map(t => (
+              <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                {[
+                  { id: 'dark', label: 'Navy & Gold (Default)' },
+                  { id: 'xibalba-sovereign', label: 'Xibalba Sovereign (Slate & Blue)' },
+                  { id: 'light', label: 'Light' },
+                  { id: 'system', label: 'System' }
+                ].map(t => (
                   <button
-                    key={t}
-                    className={`btn ${theme === t ? 'btn-primary' : 'btn-outline'}`}
-                    onClick={() => setTheme(t as any)}
-                    style={{ textTransform: 'capitalize', padding: '12px 24px' }}
+                    key={t.id}
+                    className={`btn ${theme === t.id ? 'btn-primary' : 'btn-outline'}`}
+                    onClick={() => setTheme(t.id as any)}
+                    style={{ padding: '12px 24px' }}
                   >
-                    {t}
+                    {t.label}
                   </button>
                 ))}
               </div>

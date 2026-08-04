@@ -50,11 +50,11 @@ contracts/
                  AgentProfile, XibalbaNameService
     oracle/      ReputationRegistry, Slasher, StateAnchor, VerifierRegistry,
                  IntegrityToken, UltraPlonkVerifier, CCIPReputationBridge
-    shield/      CoveredEntityRegistry, SmartBAAFactory, SmartBAA,
+    health/      CoveredEntityRegistry, SmartBAAFactory, SmartBAA,
                  HIPAAGuardrailRegistry, EHRGate, ComplianceGate
     markets/     IntegrityMarket, MarketFactory, A2ACapitalPool
   test/          one *.t.sol per contract (mirrors src/ subdirectory names,
-                 e.g. test/shield/, test/markets/)
+                 e.g. test/health/, test/markets/)
   script/        Deploy.s.sol, DeployMarkets.s.sol, FixComplianceGateFactory.s.sol
   foundry.toml
   remappings.txt

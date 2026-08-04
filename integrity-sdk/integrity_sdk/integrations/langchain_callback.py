@@ -9,7 +9,7 @@ PHI/PII redaction (`redact_phi`) is OFF by default here, same posture and
 same reasoning as `openai_integrity.py`'s module docstring — this callback
 is provider/vertical-agnostic (works with any LangChain-wrapped model, for
 any agent vertical), so it can't safely infer "this needs PHI redaction" on
-its own. **Any Xibalba Shield / healthcare-vertical agent MUST pass
+its own. **Any Integrity Health / healthcare-vertical agent MUST pass
 `redact_phi=True`** when constructing `IntegrityLangChainCallback`.
 """
 
@@ -41,7 +41,7 @@ class IntegrityLangChainCallback(BaseCallbackHandler):
         llm = ChatOpenAI(callbacks=[callback])
 
     `redact_phi` defaults to False (see module docstring) — pass
-    `redact_phi=True` for any Xibalba Shield / healthcare-vertical agent.
+    `redact_phi=True` for any Integrity Health / healthcare-vertical agent.
     """
 
     def __init__(self, integrity_client, redact_phi: bool = False):
@@ -55,7 +55,7 @@ class IntegrityLangChainCallback(BaseCallbackHandler):
         if not redact_phi:
             logger.warning(
                 "IntegrityLangChainCallback: redact_phi=False -- prompt/completion/reasoning text is "
-                "captured UNREDACTED. If this is a Xibalba Shield / healthcare-vertical agent, this is "
+                "captured UNREDACTED. If this is a Integrity Health / healthcare-vertical agent, this is "
                 "a real PHI exposure risk; reconstruct with redact_phi=True."
             )
 
@@ -100,7 +100,7 @@ class IntegrityLangChainCallback(BaseCallbackHandler):
                     if hasattr(gen, "message"):
                         # Names only, deliberately -- a tool call's `args` can
                         # carry caller-supplied content (potentially sensitive
-                        # for a Shield agent) that hasn't been through
+                        # for an Integrity Health agent) that hasn't been through
                         # `_maybe_redact()`, so it's never captured here. Same
                         # posture as openai_integrity.py's
                         # `_extract_tool_call_names`.

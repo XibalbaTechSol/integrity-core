@@ -40,7 +40,7 @@ const demoPlugin = (): Plugin => ({
 
 // https://vite.dev/config/
 export default defineConfig({
-  base: '/integrity/',
+  base: './',
   plugins: [react(), demoPlugin()],
   test: {
     globals: true,

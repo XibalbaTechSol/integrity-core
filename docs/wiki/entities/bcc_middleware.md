@@ -181,8 +181,8 @@ two follow-on gaps, both fixed in the same pass:
 
 **91 pytest + 28 OPA tests** (up from 75 pytest — the hardening pass
 above). Real coverage: a fail-closed test points at a dead
-OPA port; `test_baa_shield_integration.py` deploys the real
-[Shield contracts](../concepts/compliance-gate.md) on a local anvil and exercises
+OPA port; `test_baa_health_integration.py` deploys the real
+[Integrity Health contracts](../concepts/compliance-gate.md) on a local anvil and exercises
 the real two-arg BAA call; `test_reputation.py`/`test_scoring_loop.py` cover the
 reputation-sync loop above, including real `updateScore`/`raiseDispute`
 transactions against `MockReputationRegistry.sol`/`MockSlasher.sol` fixtures.
