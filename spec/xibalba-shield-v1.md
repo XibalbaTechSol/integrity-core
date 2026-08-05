@@ -8,10 +8,10 @@ is normative for Integrity Protocol; this document is normative for **Xibalba Sh
 separate product that consumes Integrity Protocol as its evidence and trust substrate (§14.1 of
 the protocol spec explains why they are separate repositories).
 
-> **Status of this entire document: `[PLANNED]`.** No code for any module described here exists
-> in any repository as of 2026-08-01. This is a specification to build against, not a record of
-> what has been built — every section says so explicitly rather than leaving it implied, per
-> Integrity Protocol's own ground rule: no silent mocks, no claims ahead of what is real.
+> **Specification status:** normative design. Implementation now lives in the separate
+> `XibalbaTechSol/xibalba-shield` repository; its README is the source of truth for which
+> modules are built, tested, partial, or planned. Status labels in this document describe the
+> v1 design baseline and may trail that implementation ledger.
 
 ---
 
@@ -65,18 +65,18 @@ see §12.
 ## 2. Repository and Package Strategy
 
 **Decision (2026-08-01), recorded in [`spec/integrity-protocol-v0.4.md`](integrity-protocol-v0.4.md) §14.1:**
-Xibalba Shield lives in a **new repository**, `XibalbaTechSol/xibalba-shield`, not as a package
-inside `integrity-latest`. This document assumes that repository exists once building begins;
-it does not exist as of this writing, and creating it is a separate, explicit action from
-writing this specification.
+Xibalba Shield lives in the separate `XibalbaTechSol/xibalba-shield` repository, not as a
+package inside `integrity-latest`. It is built on INTEGRITY-LATEST's public SDK and service
+interfaces, while remaining independently deployable.
 
 **Dependency direction is one-way.** `xibalba-shield` depends on `integrity-sdk` (imported the
 same way any third-party agent runtime would use it — no privileged API, no special-cased
-access). `integrity-latest` has and must have **zero** dependency on `xibalba-shield` in either
-direction; a change to kernel-sensor code must never be able to affect AIS computation or
+access). `integrity-latest` has and must have **zero** dependency on `xibalba-shield`; a change
+to kernel-sensor code must never be able to affect AIS computation or
 Merkle conventions, which is the entire reason the split exists.
 
-**Proposed internal layout** (not yet created):
+**Reference internal layout.** The implementation ledger and exact current paths live in the
+`xibalba-shield` README:
 
 ```
 xibalba-shield/
