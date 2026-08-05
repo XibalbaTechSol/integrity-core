@@ -37,17 +37,106 @@ test.beforeEach(async ({ page }) => {
   });
 
   // Global mocks to unlock UI
-  await page.route('**/v1/user/agents', async route => {
-    console.log('MOCK: Intercepting /v1/user/agents');
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([MOCK_AGENT]) });
+  await page.route('**/v1/agents', async route => {
+    console.log('MOCK: Intercepting /v1/agents');
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        {
+          id: MOCK_AGENT.agent_id,
+          handle: MOCK_AGENT.alias,
+          name: MOCK_AGENT.alias,
+          verification_tier: 2,
+          created_at: new Date().toISOString()
+        }
+      ])
+    });
   });
-  await page.route('**/v1/protocol/stats', async route => {
-    console.log('MOCK: Intercepting /v1/protocol/stats');
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ total_agents: 1, total_itk_staked: 1000000 }) });
+  await page.route('**/v1/agent/*/ais', async route => {
+    console.log('MOCK: Intercepting /v1/agent/*/ais');
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        agent_id: MOCK_AGENT.agent_id,
+        ais: MOCK_AGENT.current_ais,
+        components: {
+          entropy: 80,
+          grounding: 90,
+          sacrifice: 85,
+          compliance: 95
+        },
+        weights: {},
+        zk_boost: 0,
+        zk_proof_verified: true,
+        period_start: new Date().toISOString(),
+        period_end: new Date().toISOString(),
+        event_count: 0,
+        onchain_zk_boost_consistent: null
+      })
+    });
   });
-  await page.route('**/v1/agent/*/credit/profile', async route => {
-    console.log('MOCK: Intercepting /v1/agent/*/credit/profile');
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(MOCK_CREDIT) });
+  await page.route('**/v1/agent/*/stake', async route => {
+    console.log('MOCK: Intercepting /v1/agent/*/stake');
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        agent_id: MOCK_AGENT.agent_id,
+        total_stake: (MOCK_AGENT.staked_itk * 1e18).toString(),
+        locked_stake: '0',
+        available_stake: (MOCK_AGENT.staked_itk * 1e18).toString(),
+        open_disputes: 0
+      })
+    });
+  });
+  await page.route('**/v1/agent/*/credit', async route => {
+    console.log('MOCK: Intercepting /v1/agent/*/credit');
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        agent_id: MOCK_AGENT.agent_id,
+        total_allocated: '10000000000000000000000',
+        escrowed: '10000000000000000000000',
+        released: '0',
+        clawed_back: '0',
+        breached: '0',
+        allocation_count: 1
+      })
+    });
+  });
+  await page.route('**/v1/agent/*', async route => {
+    const url = route.request().url();
+    // Don't intercept subpaths like /ais or /stake or /credit
+    if (url.endsWith('/ais') || url.endsWith('/stake') || url.endsWith('/credit') || url.endsWith('/vc') || url.endsWith('/handle') || url.endsWith('/provenance')) {
+      return route.continue();
+    }
+    console.log('MOCK: Intercepting /v1/agent/*');
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: MOCK_AGENT.agent_id,
+        verification_tier: 2,
+        last_nonce: 0,
+        created_at: new Date().toISOString(),
+        has_ed25519_key: true,
+        has_eth_address: true,
+        primitives: {
+          sovereign_agent: MOCK_AGENT.eth_address,
+          state_anchor: MOCK_AGENT.eth_address,
+          reputation_registry: MOCK_AGENT.eth_address,
+          slasher: MOCK_AGENT.eth_address,
+          verifier_registry: MOCK_AGENT.eth_address,
+          compliance_gate: MOCK_AGENT.eth_address,
+          agent_profile: MOCK_AGENT.eth_address
+        },
+        primitives_source: 'onchain',
+        did_document: null
+      })
+    });
   });
   
   // Prevent logs/errors from missing endpoints
@@ -106,31 +195,28 @@ test.describe('Deep Visual Audit - Component Permutations', () => {
     });
 
     await setupTab(page, 'zk');
-    const btn = page.getByRole('button', { name: /Generate Proof/i });
+    const btn = page.getByRole('button', { name: /Generate ZK Proof/i });
     await expect(btn).toBeEnabled();
     await btn.click();
-    await page.waitForSelector('.animate-fade-in', { timeout: 10000 }); 
+    await page.waitForSelector('text=Pipeline Log', { timeout: 10000 }); 
     await page.screenshot({ path: path.join(REPORTS_DIR, `${testInfo.project.name}_zk_proving_pipeline.png`) });
   });
 
   test('Markets - Creating Task State', async ({ page }, testInfo) => {
-    await page.route('**/v1/market/tasks', async route => {
-        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
-    });
-    
     await setupTab(page, 'markets');
-    await page.fill('#task-title', 'Visual Test Task');
-    const btn = page.getByRole('button', { name: /Create A2A Task/i });
-    await expect(btn).toBeEnabled();
-    await btn.click();
+    await page.fill('#mkt-q', 'Visual Test Market');
+    const btn = page.locator('main').getByRole('button', { name: /Connect Wallet/i });
+    await expect(btn).toBeVisible();
     await page.screenshot({ path: path.join(REPORTS_DIR, `${testInfo.project.name}_markets_task_creation.png`) });
   });
 
-  test('Credit - Error and Overlimit State', async ({ page }, testInfo) => {
+  test('Credit - Capital Allocation Panel State', async ({ page }, testInfo) => {
     await setupTab(page, 'credit');
-    await page.fill('#borrow-amount', '9999999');
-    await expect(page.locator('text=Exceeds maximum borrow limit')).toBeVisible();
-    await page.screenshot({ path: path.join(REPORTS_DIR, `${testInfo.project.name}_credit_overlimit_error.png`) });
+    await page.fill('#alloc-amount', '1000');
+    await page.fill('#min-ais', '600');
+    const btn = page.locator('main').getByRole('button', { name: /Connect Wallet/i });
+    await expect(btn).toBeVisible();
+    await page.screenshot({ path: path.join(REPORTS_DIR, `${testInfo.project.name}_credit_allocation_form.png`) });
   });
 
   test('Stability - Mocked Comparison Data', async ({ page }, testInfo) => {
