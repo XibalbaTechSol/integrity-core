@@ -1,7 +1,7 @@
 ---
 title: integrity-oracle
 created: 2026-07-07
-updated: 2026-07-30
+updated: 2026-08-04
 type: entity
 tags: [infrastructure, metrics, layer-2, tokenomics]
 confidence: high
@@ -14,6 +14,9 @@ source_files:
   - integrity-oracle/backend/src/db.rs
   - integrity-oracle/backend/src/phi.rs
   - integrity-oracle/backend/src/vc.rs
+  - integrity-oracle/backend/src/verification.rs
+  - integrity-oracle/backend/src/attestation.rs
+  - integrity-oracle/backend/src/kyc.rs
   - integrity-oracle/backend/src/crypto/mod.rs
   - integrity-oracle/backend/src/openapi.rs
   - integrity-oracle/backend/migrations/0001_init.sql
@@ -54,6 +57,17 @@ GET  /v1/agent/{id}/contracts
 GET  /v1/agent/{id}/baas
 GET  /v1/agent/{id}/vc
 GET  /v1/agent/{id}/handle
+POST /v1/agent/{id}/verify/dns/challenge
+POST /v1/agent/{id}/verify/dns
+POST /v1/agent/{id}/verify/github/challenge
+POST /v1/agent/{id}/verify/github
+POST /v1/agent/{id}/verify/tee/challenge
+POST /v1/agent/{id}/verify/tee
+POST /v1/agent/{id}/verify/kyc/challenge
+POST /v1/agent/{id}/verify/kyc
+GET  /v1/agent/{id}/verify
+POST /v1/agent/{id}/verify/{verification_id}/revoke/challenge
+POST /v1/agent/{id}/verify/{verification_id}/revoke
 GET  /v1/traces/{trace_id}
 POST /v1/telemetry/ingest
 GET  /v1/markets

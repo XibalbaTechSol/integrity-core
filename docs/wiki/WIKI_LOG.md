@@ -2767,3 +2767,39 @@ writeup: PRODUCTION_GAPS.md §18.
 - **Verification Tier Score Ceilings**: Extended `scoring-core::AisEngine` with `ceiling_for_tier` and `score_with_tier`, capping AIS scores based on identity verification strength: Tier 0 (Dev API Key) $\rightarrow$ 300, Tier 1 (Sovereign Software Key) $\rightarrow$ 600, Tier 2 (Linked Attestation) $\rightarrow$ 850, Tier 3 (Institutional TEE/Audit) $\rightarrow$ 1000.
 - **Oracle Backend Enforcement**: Updated `handlers::compute_ais_for_agent` and `handlers::get_agent_ais_history` in `integrity-oracle` to look up `agent.verification_tier` and pass it to `score_with_tier`.
 - **Test Suite**: Added `verification_ladder_tier_ceilings_enforced` test to `scoring-core`. All 100 lib/e2e tests in `integrity-oracle` passing (`cargo test --workspace`).
+
+## [2026-08-04] fix | Geometric AIS made authoritative end-to-end
+
+- Corrected `spec/integrity-protocol-v0.4.md` and root `README.md`, which still carried the
+  superseded arithmetic dot product, to match `integrity-oracle/scoring-core`'s weighted
+  geometric mean and built identity-tier ceiling. The spec records this as a normative
+  coherence correction rather than silently rewriting its revision history.
+- Fixed `bcc_middleware/app/scoring_loop.py` so the on-chain signer no longer reconstructs
+  AIS arithmetically from `components`/`weights`. It now accepts the Oracle's geometric,
+  tier-capped `ais` as authoritative and removes only the reported ZK multiplier before
+  calling `ReputationRegistry.updateScore`, leaving the contract's independently earned
+  boost separate.
+- Added discriminating middleware tests with unequal components, ZK removal, and a tier-capped
+  response. These cases prevent equal-component fixtures from hiding an arithmetic regression.
+- Reconciled `docs/INTERFACE_CONTRACT.md`, the AIS and middleware wiki pages, package guidance,
+  `PRODUCTION_GAPS.md`, and the standalone AIS equation visual with the propagation rule.
+
+## [2026-08-04] feature | Agent-signed verification evidence revocation
+
+- Added challenge/submit routes that let an agent revoke one DNS, GitHub, or Nitro evidence
+  row using its registered Ed25519 key. The signed bytes bind DID, evidence ID, nonce, and
+  reason; the row is retained with revocation metadata and the effective tier drops immediately.
+- Reconciled the README, v0.4 spec, interface contract, Oracle entity page, identity-ceiling
+  concept page, and production-gap ledger with the already-built DNS/GitHub/Nitro ladder.
+- Kept KYC explicitly `[PLANNED]`: it needs a real provider and must never store raw PII.
+
+## [2026-08-04] feature | Provider-neutral open-source KYC receipt path
+
+- Added `backend/src/kyc.rs` and KYC challenge/verification routes. Receipts are bound to
+  the agent and a fresh nonce, signed by an Ed25519 key configured in
+  `KYC_PROVIDER_KEYS`, time-limited, and hashed for audit.
+- The `open_source_kyc_v1` profile requires document authenticity, biometric liveness,
+  and sanctions/PEP screening; incomplete or self-asserted results cannot grant Tier 3.
+- The Oracle stores no raw PII—only a provider id, opaque subject reference, explicit
+  checks, validity timestamps, and receipt hash. Commercial and self-hosted providers
+  share the same boundary without implying universal regulatory equivalence.

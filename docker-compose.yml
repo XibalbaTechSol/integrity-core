@@ -68,6 +68,7 @@ services:
       # recorded on the row rather than refused at the boundary. Production must not inherit
       # this — set it explicitly per deployment.
       PHI_BACKSTOP_MODE: ${PHI_BACKSTOP_MODE:-flag}
+      KYC_PROVIDER_KEYS: ${KYC_PROVIDER_KEYS:-}
     ports: ["8080:8080", "4317:4317"]
     volumes:
       - ./deployments.baseSepolia.json:/deployments.baseSepolia.json

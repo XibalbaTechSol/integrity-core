@@ -123,8 +123,26 @@ pub struct ApiDocExtra;
 /// module's doc comment). New endpoints go here until this list reaches 16 too.
 #[derive(OpenApi)]
 #[openapi(
-    paths(handlers::get_agent_usage, handlers::get_agent_events, handlers::get_unregistered_agents),
-    components(schemas(handlers::AgentUsageDto, handlers::AgentEventDto, handlers::UnregisteredAgentDto)),
+    paths(
+        handlers::get_agent_usage,
+        handlers::get_agent_events,
+        handlers::get_unregistered_agents,
+        handlers::request_kyc_challenge,
+        handlers::verify_kyc_receipt,
+    ),
+    components(schemas(
+        handlers::AgentUsageDto,
+        handlers::AgentEventDto,
+        handlers::UnregisteredAgentDto,
+        handlers::KycChallengeRequest,
+        handlers::KycChallengeResponse,
+        handlers::VerificationResponse,
+        crate::kyc::KycReceipt,
+        crate::kyc::KycChecks,
+    )),
+    tags(
+        (name = "verification", description = "Evidence-backed identity verification ladder"),
+    ),
 )]
 pub struct ApiDocUsage;
 

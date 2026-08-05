@@ -2,7 +2,7 @@
 
 > Content catalog. Every page represents something that actually exists in
 > the codebase right now — see the schema's "no aspirational content" rule.
-> Last updated: 2026-07-30 | Total pages: 30 (22 concepts, 8 entities)
+> Last updated: 2026-08-04 | Total pages: 31 (22 concepts, 8 entities, 1 query)
 
 ## Acronym glossary
 - [AIS](concepts/ais.md) — Agent Integrity Score
@@ -27,7 +27,7 @@
 - [On-Chain Governance](concepts/governance.md) — `IntegrityGovernance`: lock-to-vote, timelocked propose→vote→queue→execute (built + 26 tests; Base Sepolia deploy deferred)
 - [Local Metrology](concepts/local-metrology.md) — client-side AIS signal derivation in the SDK (built)
 - [Observability & PHI Safety](concepts/observability-vtl.md) — the `Redactor` (built) + LLM-as-judge design (`[PLANNED]`)
-- [Identity Ceiling & Verification Ladder](concepts/identity-ceiling.md) — `[PARTIALLY BUILT]`: tier is server-verified + consulted by bcc_middleware's OPA gate for clinical intents; the AIS ceiling clamp itself is still `[PLANNED]`
+- [Identity Ceiling & Verification Ladder](concepts/identity-ceiling.md) — `[BUILT]`: DNS/GitHub/Nitro evidence, signed revocation, clinical OPA gate, and AIS ceiling clamp
 - [Cross-Chain Reputation Sync](concepts/cross-chain-spec.md) — `[PLANNED]`
 - [A2A Negotiation Protocol](concepts/a2a-negotiation-spec.md) — `[PLANNED]`
 - [ZK-ML Model-Inference Verification](concepts/zk-ml-spec.md) — `[PLANNED]`

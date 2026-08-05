@@ -111,14 +111,10 @@ pub struct RegisterAgentResponse {
     pub domain_id: String,
 }
 
-/// The only verification tier `register_agent` can legitimately assign today. Per
-/// docs/wiki/concepts/identity-ceiling.md's ladder, Tier 1 ("Sovereign") requires only
-/// proof-of-possession of a software key — which is exactly what that handler's checks
-/// (a supplied key + an independently-confirmed on-chain primitive match) establish.
-/// Tiers 2 ("Linked" — DNS TXT/social attestation) and 3 ("Institutional" — real TEE
-/// attestation) have no verification path implemented anywhere in this codebase yet, so
-/// there is no legitimate way to assign them server-side. When that verification exists,
-/// this becomes a real tier computation instead of a constant.
+/// The registration floor. Tier 1 ("Sovereign") requires proof-of-possession of a
+/// software key plus an independently confirmed on-chain primitive match. Registration
+/// cannot establish a stronger claim, so DNS/GitHub and Nitro evidence raise the effective
+/// tier only through the post-registration verification routes below.
 const SERVER_VERIFIED_TIER: i32 = 1;
 
 /// Registers an agent, but only after independently confirming on-chain that the
@@ -230,13 +226,9 @@ pub async fn register_agent(
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AgentResponse {
     pub id: String,
-    /// RESERVED (partially enforced) — server-verified as of this version (`register_agent`
-    /// computes it independently; a client can no longer self-assert a value), but only
-    /// Tier 1 is currently achievable (no Tier 2/3 verification path is built), and only
-    /// `bcc_middleware`'s policy gate consults it, and only for a subset of intent_types —
-    /// see `spec/bcc/v1/README.md` once that surface exists. Most integrations should
-    /// still treat this as informational rather than build authorization logic on top of
-    /// it directly.
+    /// Effective server-verified tier: registration floor unioned with active, unexpired,
+    /// unrevoked DNS/GitHub/Nitro evidence. Scoring-core uses it as the identity ceiling,
+    /// and BCC policy additionally requires minimum tiers for sensitive intent types.
     pub verification_tier: i32,
     pub last_nonce: i64,
     pub created_at: chrono::DateTime<Utc>,
@@ -2797,7 +2789,7 @@ pub async fn get_trace_tree(State(state): State<AppState>, Path(trace_id): Path<
 
 
 // ---------------------------------------------------------------------------
-// Verification Ladder: rungs 2 (DNS) and 3 (KYC)
+// Verification Ladder: rung 2 (DNS/GitHub) and rung 3 (Nitro TEE)
 // ---------------------------------------------------------------------------
 // `SERVER_VERIFIED_TIER` above is the REGISTRATION floor and stays a constant —
 // registration genuinely cannot establish more than tier 1. Rungs above it are
@@ -2990,6 +2982,143 @@ pub async fn get_verifications(
         tier_source,
         ais_ceiling: scoring_core::AisEngine::ceiling_for_tier(effective),
         verifications,
+    }))
+}
+
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct VerificationRevocationChallengeResponse {
+    pub agent_id: String,
+    pub verification_id: i64,
+    pub nonce: String,
+    /// The reason is chosen when submitting the revocation and is encoded into
+    /// the signed message. This template pins the cross-client wire format.
+    pub message_format: String,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
+pub struct VerificationRevocationRequest {
+    /// Hex Ed25519 signature by the key registered for this DID.
+    pub signature: String,
+    /// Human-readable audit reason. It is part of the signed message and is
+    /// stored on the evidence row; raw credentials or PII do not belong here.
+    #[serde(default = "default_revocation_reason")]
+    pub reason: String,
+}
+
+fn default_revocation_reason() -> String {
+    "agent-requested".to_string()
+}
+
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct VerificationRevocationResponse {
+    pub agent_id: String,
+    pub verification_id: i64,
+    pub revoked_at: chrono::DateTime<chrono::Utc>,
+    pub revoked_reason: String,
+    pub effective_tier: i32,
+}
+
+/// Issue a fresh nonce for revoking one evidence row. Issuing a challenge is
+/// harmless without the agent's private key; the subsequent request is what
+/// authorizes the state change.
+pub async fn request_verification_revocation_challenge(
+    State(state): State<AppState>,
+    Path((id, verification_id)): Path<(String, i64)>,
+) -> Result<Json<VerificationRevocationChallengeResponse>, AppError> {
+    use crate::verification as v;
+
+    let agent = db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+    if agent.ed25519_pubkey.is_none() {
+        return Err(AppError::BadRequest(
+            "agent has no Ed25519 key registered; revocation requires its signature".to_string(),
+        ));
+    }
+    db::get_revocable_identity_verification(&state.pool, &id, verification_id)
+        .await?
+        .ok_or_else(|| AppError::BadRequest(
+            "verification does not exist for this agent or is already revoked".to_string(),
+        ))?;
+
+    let subject = format!("revoke:{verification_id}");
+    let nonce = uuid::Uuid::new_v4().simple().to_string();
+    let expires_at =
+        db::issue_dns_challenge(&state.pool, &id, &subject, &nonce, v::CHALLENGE_TTL_MINUTES).await?;
+
+    Ok(Json(VerificationRevocationChallengeResponse {
+        agent_id: id,
+        verification_id,
+        nonce,
+        message_format: "integrity-verification-revoke:v1:<did>:<verification_id>:<nonce>:<hex-utf8-reason>".to_string(),
+        expires_at,
+    }))
+}
+
+/// Revoke one verification with a fresh, agent-signed challenge. The evidence
+/// is retained, not deleted, and effective tier drops immediately because every
+/// tier read filters `revoked_at IS NULL`.
+pub async fn revoke_verification(
+    State(state): State<AppState>,
+    Path((id, verification_id)): Path<(String, i64)>,
+    Json(req): Json<VerificationRevocationRequest>,
+) -> Result<Json<VerificationRevocationResponse>, AppError> {
+    use crate::verification as v;
+
+    let reason = req.reason.trim();
+    if reason.is_empty() || reason.len() > 500 {
+        return Err(AppError::BadRequest(
+            "revocation reason must contain 1-500 UTF-8 bytes".to_string(),
+        ));
+    }
+    let agent = db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+    let pubkey = agent.ed25519_pubkey.as_deref().ok_or_else(|| {
+        AppError::BadRequest("agent has no Ed25519 key registered".to_string())
+    })?;
+    db::get_revocable_identity_verification(&state.pool, &id, verification_id)
+        .await?
+        .ok_or_else(|| AppError::BadRequest(
+            "verification does not exist for this agent or is already revoked".to_string(),
+        ))?;
+
+    let subject = format!("revoke:{verification_id}");
+    let nonce = db::get_active_dns_challenge(&state.pool, &id, &subject)
+        .await?
+        .ok_or_else(|| AppError::BadRequest(
+            "no active revocation challenge — request one first".to_string(),
+        ))?;
+    v::verify_revocation_signature(pubkey, &id, verification_id, &nonce, reason, &req.signature)
+        .map_err(|_| AppError::Unauthorized)?;
+
+    let row = db::revoke_identity_verification(
+        &state.pool,
+        &id,
+        verification_id,
+        reason,
+        &subject,
+    )
+    .await?
+    .ok_or_else(|| AppError::BadRequest(
+        "verification was already revoked or its challenge expired".to_string(),
+    ))?;
+    let effective =
+        db::effective_verification_tier(&state.pool, &id, agent.verification_tier).await?;
+
+    tracing::info!(agent_id = %id, verification_id, effective_tier = effective, %reason,
+                   "identity verification revoked by agent");
+    let revoked_at = row.revoked_at.ok_or_else(|| {
+        AppError::Internal(anyhow::anyhow!("revocation UPDATE returned no revoked_at"))
+    })?;
+
+    Ok(Json(VerificationRevocationResponse {
+        agent_id: id,
+        verification_id,
+        revoked_at,
+        revoked_reason: reason.to_string(),
+        effective_tier: effective,
     }))
 }
 
@@ -3289,6 +3418,159 @@ pub async fn verify_tee(
 
     tracing::info!(agent_id = %id, module_id = ?outcome.module_id, effective_tier = effective,
                    "TEE attestation verified");
+
+    Ok(Json(VerificationResponse {
+        agent_id: id,
+        method: row.method,
+        subject: row.subject,
+        tier_granted: row.tier_granted,
+        effective_tier: effective,
+        expires_at: row.expires_at,
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// Verification Ladder rung 3: provider-neutral signed KYC receipts
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
+pub struct KycChallengeRequest {
+    /// Lowercase provider id configured in `KYC_PROVIDER_KEYS`.
+    pub provider: String,
+}
+
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct KycChallengeResponse {
+    pub agent_id: String,
+    pub provider: String,
+    pub nonce: String,
+    pub assurance_profile: String,
+    pub message_format: String,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Issue a nonce for a trusted KYC verifier. The verifier may be a self-hosted
+/// open-source deployment; authority comes from its operator-configured signing key,
+/// not from a client claiming that checks ran.
+#[utoipa::path(
+    post,
+    path = "/v1/agent/{id}/verify/kyc/challenge",
+    request_body = KycChallengeRequest,
+    responses(
+        (status = 200, description = "KYC receipt challenge issued", body = KycChallengeResponse),
+        (status = 400, description = "Provider is not trusted"),
+        (status = 404, description = "Agent not found"),
+    ),
+    tag = "verification",
+)]
+pub async fn request_kyc_challenge(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<KycChallengeRequest>,
+) -> Result<Json<KycChallengeResponse>, AppError> {
+    use crate::verification as v;
+
+    db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+
+    let provider = req.provider.trim().to_ascii_lowercase();
+    if !state.config.kyc_provider_keys.contains_key(&provider) {
+        return Err(AppError::BadRequest(
+            "KYC provider is not configured as a trusted receipt issuer".to_string(),
+        ));
+    }
+
+    let subject = format!("kyc:{provider}");
+    let nonce = uuid::Uuid::new_v4().simple().to_string();
+    let expires_at =
+        db::issue_dns_challenge(&state.pool, &id, &subject, &nonce, v::CHALLENGE_TTL_MINUTES).await?;
+
+    Ok(Json(KycChallengeResponse {
+        agent_id: id,
+        provider,
+        nonce,
+        assurance_profile: crate::kyc::OPEN_SOURCE_ASSURANCE_PROFILE.to_string(),
+        message_format: "integrity-kyc-receipt:v1:<agent_did>:<provider>:<opaque_subject_reference>:<assurance_profile>:<document_authenticity_0_or_1>:<biometric_liveness_0_or_1>:<sanctions_pep_screening_0_or_1>:<verified_at_unix>:<expires_at_unix>:<nonce>".to_string(),
+        expires_at,
+    }))
+}
+
+/// Verify and persist a minimal KYC receipt. No raw identity attributes enter this
+/// handler: the provider-local opaque reference is the only subject identifier stored.
+#[utoipa::path(
+    post,
+    path = "/v1/agent/{id}/verify/kyc",
+    request_body = crate::kyc::KycReceipt,
+    responses(
+        (status = 200, description = "Trusted KYC receipt verified", body = VerificationResponse),
+        (status = 400, description = "Receipt rejected"),
+        (status = 404, description = "Agent not found"),
+    ),
+    tag = "verification",
+)]
+pub async fn verify_kyc_receipt(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(mut receipt): Json<crate::kyc::KycReceipt>,
+) -> Result<Json<VerificationResponse>, AppError> {
+    use crate::verification as v;
+
+    let agent = db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+    receipt.provider = receipt.provider.trim().to_ascii_lowercase();
+    let provider_key = state
+        .config
+        .kyc_provider_keys
+        .get(&receipt.provider)
+        .ok_or_else(|| {
+            AppError::BadRequest(
+                "KYC provider is not configured as a trusted receipt issuer".to_string(),
+            )
+        })?;
+    let challenge_subject = format!("kyc:{}", receipt.provider);
+    let nonce = db::get_active_dns_challenge(&state.pool, &id, &challenge_subject)
+        .await?
+        .ok_or_else(|| {
+            AppError::BadRequest(
+                "no active KYC challenge for this provider — request one first".to_string(),
+            )
+        })?;
+
+    let receipt_hash = crate::kyc::verify_receipt(
+        &receipt,
+        &id,
+        &nonce,
+        provider_key,
+        chrono::Utc::now(),
+    )
+    .map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    let evidence = serde_json::json!({
+        "provider": &receipt.provider,
+        "assurance_profile": &receipt.assurance_profile,
+        "checks": &receipt.checks,
+        "provider_verified_at": receipt.verified_at,
+        "receipt_sha256": receipt_hash,
+    });
+    let row = db::record_identity_verification(
+        &state.pool,
+        &id,
+        "kyc",
+        v::TIER_KYC_VERIFIED,
+        &receipt.opaque_subject_reference,
+        evidence,
+        Some(receipt.expires_at),
+    )
+    .await?;
+    db::consume_dns_challenge(&state.pool, &id, &challenge_subject).await?;
+
+    let effective =
+        db::effective_verification_tier(&state.pool, &id, agent.verification_tier).await?;
+    tracing::info!(agent_id = %id, provider = %receipt.provider,
+                   receipt_sha256 = %receipt_hash, effective_tier = effective,
+                   "trusted KYC receipt verified");
 
     Ok(Json(VerificationResponse {
         agent_id: id,

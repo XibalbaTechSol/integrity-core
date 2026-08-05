@@ -395,13 +395,17 @@ until silence-as-signal exists.
 ### 8.1 Formula
 
 ```
-AIS = (S_entropy·wE + S_grounding·wG + S_sacrifice·wS + S_compliance·wC) · ZK_boost
+AIS_raw = (S_entropy^wE · S_grounding^wG · S_sacrifice^wS · S_compliance^wC) · ZK_boost
+AIS_final = min(AIS_raw, Tier_ceiling)
 ```
 
 Default weights 0.30 / 0.30 / 0.20 / 0.20 (sum 1.0). `ZK_boost` = 1.15 if any verified
-Barretenberg proof exists in the period, else 1.0. Each `S_*` ∈ [0, 1000]. Final AIS is **not**
-clamped (boost may exceed 1000). Sole computer: `integrity-oracle/scoring-core`. All consumers
-read `GET /v1/agent/{id}/ais`.
+Barretenberg proof exists in the period, else 1.0. Each `S_*` ∈ [0, 1000]. This is a
+weighted **geometric** mean: any zero component makes `AIS_raw` zero, so strength on one
+axis cannot hide total failure on another. The effective identity tier caps the final score
+at 300 / 600 / 850 for Tiers 0 / 1 / 2; Tier 3 returns the raw score, which may exceed 1000
+after a ZK boost. Sole computer: `integrity-oracle/scoring-core`. All consumers read
+`GET /v1/agent/{id}/ais`; they do not reconstruct the formula from component fields.
 
 ### 8.2 Component intuition
 
@@ -417,8 +421,9 @@ read `GET /v1/agent/{id}/ais`.
 
 Signature proves **who**. The oracle **re-derives** entropy/grounding/sacrifice from signed
 span content; compliance mixes flags with a live `ComplianceGate` read. Client
-`derived_signals` are audit trail only. Identity ceiling `[PLANNED]`:
-`AIS_final = min(AIS, Tier_ceiling)`.
+`derived_signals` are audit trail only. The identity ceiling is built and enforced by
+`scoring-core::AisEngine::score_with_tier`; the backend resolves the agent's effective
+verification tier before computing `AIS_final`.
 
 ### 8.4 Token accounting
 
@@ -560,12 +565,19 @@ generalization does not.
 
 | Tier | Verification | AIS ceiling | Status |
 |---|---|---|---|
-| 1 — Sovereign | Software key | 600 | Default; ceiling **not enforced** |
-| 2 — Linked | DNS / social | 850 | Not built |
-| 3 — Institutional | TEE + audit | 1000 | Verifier exists; unwired |
+| 1 — Sovereign | Software key + on-chain primitive match | 600 | Registration floor; enforced |
+| 2 — Linked | DNS TXT or GitHub namespace proof | 850 | Built; expiring evidence |
+| 3 — Institutional | AWS Nitro remote attestation | No post-boost cap | Built; expiring evidence |
+| 3 — Institutional KYC | Provider-signed document + liveness + sanctions/PEP receipt | No post-boost cap | Built; expiring, provider-neutral evidence |
 
-A higher tier raises the ceiling; it does not replace primitives. Until the clamp is
-implemented (Appendix A.5), the ladder is descriptive and MUST NOT be presented as binding.
+A higher tier raises the ceiling; it does not replace primitives. Effective tier is
+derived from the registration floor plus active, unexpired, unrevoked evidence on every
+read. Agents MAY revoke evidence using a fresh Oracle nonce and a signature from their
+registered Ed25519 key; the evidence row remains as an audit record and the tier drops
+immediately. A KYC receipt grants Tier 3 only when it is nonce-bound, signed by an
+operator-configured Ed25519 provider key, uses the `open_source_kyc_v1` assurance profile,
+and affirms document authenticity, biometric liveness, and sanctions/PEP screening. The
+Oracle stores only opaque receipt evidence and MUST NOT receive or persist raw PII.
 
 ---
 
@@ -759,6 +771,13 @@ publication, under this section's own revision policy below: both are additive �
 is removed, weakened, or reinterpreted, and everything added is `[PLANNED]` — so they land as
 in-place amendments to v0.4 rather than a version bump. §14 was expanded (§14.1, §14.2) to
 record the Xibalba Shield repo-split decision; no other existing section changed.
+
+**Normative correction (2026-08-04).** §8.1's initial in-repo transcription retained
+the superseded arithmetic AIS expression even though `integrity-oracle/scoring-core`,
+`docs/INTERFACE_CONTRACT.md` §4.3, and the compiled AIS wiki had already moved to the
+weighted geometric volume model. §8.1 now names the executable geometric form and the
+built Verification Ladder ceiling. This is a coherence correction: it makes the spec
+describe the already-authoritative implementation and does not introduce a new scoring model.
 
 ---
 

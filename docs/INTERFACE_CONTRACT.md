@@ -71,6 +71,10 @@ against real policies. Don't write code you haven't run.
   (`integrity-oracle/backend/src/otlp.rs`), defaults to `0.0.0.0:4317` — the standard
   OTLP/gRPC port `integrity-sdk`'s `OTLPSpanExporter`/`OTLPMetricExporter` already
   target by default. A second listener, separate from the oracle's HTTP `BIND_ADDR`.
+- `KYC_PROVIDER_KEYS` — comma-separated trusted KYC receipt issuers in
+  `provider=hex-ed25519-public-key` form. Empty disables KYC receipt acceptance. Keys
+  belong to independently operated commercial or self-hosted open-source verification
+  stacks; clients never supply trust roots in requests.
 - `RPC_URL` — EVM RPC endpoint, defaults to `http://localhost:8545` (anvil) for local dev
 - `CHAIN_ID` — `31337` for local anvil
 - `OPA_URL` — `http://localhost:8181` (bcc_middleware, sdk)
@@ -542,9 +546,9 @@ JSON shape, pinned to the actual Rust struct:
   "ed25519_pubkey_hex": "0x...",   // optional, but the handler 400s if this
   "eth_address_hex": "0x...",      // AND eth_address_hex are both absent —
                                     // integrity-sdk always sends both
-  "verification_tier": 0           // optional i32, defaults to 0 — no
-                                    // verification-ladder semantics exist
-                                    // yet (see identity-ceiling.md, [PLANNED])
+  "verification_tier": 0           // accepted for wire compatibility but ignored;
+                                    // the server assigns the registration floor
+                                    // and evidence-backed checks raise effective tier
 }
 ```
 
@@ -561,6 +565,48 @@ now conform to this exact schema.
 all>}`, which 422'd on the missing `did` field and would then 400 on the
 missing pubkey/address fields even if `did` were fixed alone — never caught
 because every test up to that point ran with `skip_oracle_registration=True`).
+
+### 6.3a Verification ladder and evidence revocation
+
+Registration establishes only the tier-1 floor. The Oracle derives the effective tier
+from that floor plus active, unexpired, unrevoked evidence:
+
+- Tier 2: dual-resolver DNS TXT proof or a signed challenge read from a GitHub repository
+  that GitHub reports as owned by the claimed login. Evidence expires after 90 days.
+- Tier 3: a nonce-bound AWS Nitro COSE/CBOR attestation whose certificate chain reaches
+  AWS's Nitro root. Evidence expires after 30 days.
+- KYC: a nonce-bound receipt signed by a key in `KYC_PROVIDER_KEYS`. The
+  `open_source_kyc_v1` profile requires affirmative document-authenticity, biometric-
+  liveness, and sanctions/PEP checks. The Oracle stores only an opaque subject reference,
+  explicit check flags, validity timestamps, provider id, and receipt hash—never raw PII.
+
+The route pairs are `POST /v1/agent/{id}/verify/{dns|github|tee|kyc}/challenge` and
+`POST /v1/agent/{id}/verify/{dns|github|tee|kyc}`. Current evidence and the derived tier
+are returned by `GET /v1/agent/{id}/verify`.
+
+KYC uses `POST /v1/agent/{id}/verify/kyc/challenge` with `{"provider":"open-kyc"}`
+and `POST /v1/agent/{id}/verify/kyc` with a signed receipt. The exact signed bytes are:
+
+```text
+integrity-kyc-receipt:v1:<agent_did>:<provider>:<opaque_subject_reference>:<assurance_profile>:<document_authenticity_0_or_1>:<biometric_liveness_0_or_1>:<sanctions_pep_screening_0_or_1>:<verified_at_unix>:<expires_at_unix>:<nonce>
+```
+
+`opaque_subject_reference` is restricted to 8–200 URL-safe characters. Receipts must be
+currently valid, cannot begin more than five minutes in the future, and cannot last longer
+than 365 days. A configured issuer signature proves which verifier asserted the checks; it
+does not imply that every jurisdiction treats the profile as legally equivalent.
+
+Evidence revocation is agent-authorized and audit-preserving:
+
+1. `POST /v1/agent/{id}/verify/{verification_id}/revoke/challenge` returns a fresh
+   60-minute nonce.
+2. The client signs the UTF-8 bytes of
+   `integrity-verification-revoke:v1:<did>:<verification_id>:<nonce>:<hex-utf8-reason>`
+   with the Ed25519 key registered for the DID.
+3. `POST /v1/agent/{id}/verify/{verification_id}/revoke` accepts
+   `{"signature":"<hex>","reason":"<1-500 UTF-8 bytes>"}`. It sets `revoked_at`
+   and `revoked_reason`, consumes the nonce, and returns the newly derived
+   `effective_tier`; it never deletes the evidence row.
 
 ### 6.4 `EHRGate` reputation resolution (was: one immutable global registry)
 

@@ -1494,6 +1494,7 @@ pub struct IdentityVerificationRow {
     pub verified_at: chrono::DateTime<chrono::Utc>,
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
     pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub revoked_reason: Option<String>,
 }
 
 /// Issue (or replace) a DNS challenge nonce for one (agent, domain).
@@ -1588,7 +1589,7 @@ pub async fn record_identity_verification(
                       verified_at  = now(),
                       expires_at   = EXCLUDED.expires_at
         RETURNING id, agent_id, method, tier_granted, subject, evidence,
-                  verified_at, expires_at, revoked_at
+                  verified_at, expires_at, revoked_at, revoked_reason
         "#,
     )
     .bind(agent_id)
@@ -1630,7 +1631,7 @@ pub async fn list_identity_verifications(
     sqlx::query_as::<_, IdentityVerificationRow>(
         r#"
         SELECT id, agent_id, method, tier_granted, subject, evidence,
-               verified_at, expires_at, revoked_at
+               verified_at, expires_at, revoked_at, revoked_reason
         FROM identity_verifications
         WHERE agent_id = $1
         ORDER BY verified_at DESC
@@ -1639,6 +1640,79 @@ pub async fn list_identity_verifications(
     .bind(agent_id)
     .fetch_all(pool)
     .await
+}
+
+/// Return an unrevoked verification owned by this agent. Expired evidence is
+/// still revocable so its audit record can explicitly say the agent withdrew it.
+pub async fn get_revocable_identity_verification(
+    pool: &PgPool,
+    agent_id: &str,
+    verification_id: i64,
+) -> Result<Option<IdentityVerificationRow>, sqlx::Error> {
+    sqlx::query_as::<_, IdentityVerificationRow>(
+        r#"
+        SELECT id, agent_id, method, tier_granted, subject, evidence,
+               verified_at, expires_at, revoked_at, revoked_reason
+        FROM identity_verifications
+        WHERE id = $1 AND agent_id = $2 AND revoked_at IS NULL
+        "#,
+    )
+    .bind(verification_id)
+    .bind(agent_id)
+    .fetch_optional(pool)
+    .await
+}
+
+/// Revoke without deleting: tier derivation stops considering the row
+/// immediately, while the evidence and reason remain available for audit.
+pub async fn revoke_identity_verification(
+    pool: &PgPool,
+    agent_id: &str,
+    verification_id: i64,
+    reason: &str,
+    challenge_subject: &str,
+) -> Result<Option<IdentityVerificationRow>, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    let row = sqlx::query_as::<_, IdentityVerificationRow>(
+        r#"
+        UPDATE identity_verifications
+        SET revoked_at = now(), revoked_reason = $3
+        WHERE id = $1 AND agent_id = $2 AND revoked_at IS NULL
+        RETURNING id, agent_id, method, tier_granted, subject, evidence,
+                  verified_at, expires_at, revoked_at, revoked_reason
+        "#,
+    )
+    .bind(verification_id)
+    .bind(agent_id)
+    .bind(reason)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    if row.is_none() {
+        tx.rollback().await?;
+        return Ok(None);
+    }
+
+    let consumed = sqlx::query(
+        r#"
+        UPDATE dns_verification_challenges
+        SET consumed_at = now()
+        WHERE agent_id = $1 AND domain = $2
+          AND consumed_at IS NULL AND expires_at > now()
+        "#,
+    )
+    .bind(agent_id)
+    .bind(challenge_subject)
+    .execute(&mut *tx)
+    .await?;
+
+    if consumed.rows_affected() != 1 {
+        tx.rollback().await?;
+        return Ok(None);
+    }
+
+    tx.commit().await?;
+    Ok(row)
 }
 
 /// The tier the rest of the system should use: registration floor ∪ active verifications.

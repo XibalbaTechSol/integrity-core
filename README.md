@@ -185,12 +185,16 @@ The protocol's trust metric. Computed in exactly one place —
 HTTP API, never recomputed:
 
 ```
-AIS = (S_entropy·wE + S_grounding·wG + S_sacrifice·wS + S_compliance·wC) · ZK_boost
+AIS_raw = (S_entropy^wE · S_grounding^wG · S_sacrifice^wS · S_compliance^wC) · ZK_boost
+AIS_final = min(AIS_raw, verification_tier_ceiling)
 ```
 
 Default weights `wE=0.30, wG=0.30, wS=0.20, wC=0.20` (sum to 1.0); `ZK_boost`
 is `1.15` when a real Barretenberg proof was verified for the reporting period,
-else `1.0`. The four component scores come from an agent's telemetry — the SDK
+else `1.0`. This is a weighted geometric mean: a zero component makes the raw
+score zero rather than allowing strong dimensions to hide a catastrophic one.
+Tier ceilings are 300 / 600 / 850 for Tiers 0 / 1 / 2; Tier 3 returns the raw
+score. The four component scores come from an agent's telemetry — the SDK
 derives first-pass signals from OpenTelemetry/MLflow spans, but the **oracle
 independently recomputes entropy/grounding/sacrifice/compliance server-side**
 from the same signed telemetry rather than trusting the client's numbers (see
@@ -201,7 +205,7 @@ trail only. See [`docs/wiki/concepts/ais.md`](docs/wiki/concepts/ais.md).
 flowchart LR
     Agent["Agent (SDK/CLI)"] -->|"signed POST /v1/telemetry/ingest<br/>(otel_spans + derived_signals)"| Oracle["integrity-oracle"]
     Oracle -->|"re-derive from otel_spans<br/>(same posture as PHI backstop)"| Recompute["entropy / grounding /<br/>sacrifice / compliance<br/>(oracle-computed, authoritative)"]
-    Recompute --> Formula["AIS = ΣS·w · ZK_boost<br/>(scoring-core, sole formula owner)"]
+    Recompute --> Formula["AIS = Π(S^w) · ZK_boost<br/>then tier ceiling<br/>(scoring-core, sole formula owner)"]
     ZK["Real Barretenberg ZK proof<br/>(bb verify)"] -.->|"1.15× if verified<br/>this period"| Formula
     Formula --> API["GET /v1/agent/{id}/ais<br/>+ live SSE push"]
 ```
@@ -231,11 +235,11 @@ yet, and no code should ever claim otherwise.
 | Built today | Long-term roadmap |
 |---|---|
 | Software-held secp256k1/Ed25519 keypairs (encrypted local keystore) | Hardware-bound identity: keys tethered to TEE/SGX enclaves or an HSM (AWS KMS, FIPS 140-2 Level 3), so a key can't be extracted even by whoever controls the host |
-| `did:integrity:<sha256(pubkey)>` DIDs, W3C DID Documents | Remote TEE attestation (AWS Nitro / Intel SGX) proving an agent's key is physically tethered to a verified Controller |
+| `did:integrity:<sha256(pubkey)>` DIDs, W3C DID Documents, and server-verified DNS/GitHub/Nitro evidence | Additional hardware roots (Intel SGX/HSM) and legal-controller binding |
 | Agent self-registers all 7 primitives with its own signature as proof of control, and can self-service claim a human-readable XNS handle (`XibalbaNameService.sol`, first-come-first-served, no admin in the critical path) | Direct handle transfer between agents (today: release + separate re-claim by the new owner) and expiry/renewal semantics |
 | **Persistent memory** (spec v0.3 §4.1/§7): the agent anchors a genesis Trust Vault root on its own `StateAnchor` through its controller during registration, and the oracle independently re-reads `latestRoot`, refusing a zero root with `400 MemoryNotInitialized` | Contract-level enforcement that the protocol's `ANCHOR_ROLE` signer cannot anchor epoch 1 (§7.2), and lineage attestation for fork/migration/recovery with no automatic AIS or stake transfer (§7.4) — neither built |
 
-### Verification ladder (roadmap — not yet gating anything)
+### Verification ladder
 
 The long-term design ties an agent's AIS *ceiling* (not just its measured
 score) to how strongly its identity is verified, so a freshly-created,
@@ -243,10 +247,16 @@ unverified agent can never simply out-score a hardware-attested one:
 
 | Tier | Verification | AIS ceiling | Status |
 |---|---|---|---|
-| 1 — Sovereign | Proof-of-possession of a software key (what every agent has today) | 600 | Effectively where every agent sits now — **not yet enforced as a ceiling** |
-| 2 — Linked | DNS TXT record or social-account attestation | 850 | Not built |
-| 3 — Institutional | Remote TEE attestation + institutional audit | 1000 (uncapped credit) | Not built |
-| Developer API key (testnet convenience) | Issued by `integrity-userapi` | Capped at 300 | Planned in `integrity-userapi`'s API-key issuance |
+| 1 — Sovereign | Software-key possession plus on-chain primitive match | 600 | Assigned at registration; enforced |
+| 2 — Linked | Dual-resolver DNS TXT proof or GitHub repository proof | 850 | Built; 90-day evidence |
+| 3 — Institutional | Nonce-bound AWS Nitro remote attestation | No post-boost cap | Built; 30-day evidence |
+| 3 — Institutional KYC | Trusted provider-signed receipt: document authenticity + liveness + sanctions/PEP | No post-boost cap | Built; provider-neutral, raw PII excluded |
+| Developer API key (testnet convenience) | Issued by `integrity-userapi` | Capped at 300 | Enforced |
+
+Evidence is auditable, expiring, and revocable through an agent-signed challenge.
+KYC providers may be commercial or self-hosted open-source stacks, but receipts are
+accepted only from operator-configured Ed25519 trust roots. Clients cannot self-assert
+KYC, and the Oracle stores no documents, selfies, names, or government identifiers.
 
 ### Data, telemetry & PHI safety
 
