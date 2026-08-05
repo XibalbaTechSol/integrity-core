@@ -309,13 +309,13 @@ change is needed for this; **enforcement** that the protocol's `ANCHOR_ROLE` sig
 anchor epoch 1 is still `[PLANNED]` (Appendix A gap 2), since `StateAnchor` is deployed
 per-agent and already-deployed anchors keep their current bytecode.
 
-### 4.4b Memory DAG node schema (spec §7.4 lineage) — `[UNVERIFIED, NOT RUN]`
+### 4.4b Memory DAG node schema (spec §7.4 lineage) — `[VERIFIED 2026-08-05]`
 
 Design: [`docs/design/memory-dag.md`](design/memory-dag.md). Implementation:
-`integrity_sdk/memory_dag.py`. **Written 2026-07-31 with no shell available, so it
-has never been executed** — §1's "don't write code you haven't run" is knowingly
-violated here and this section is not binding until `tests/test_memory_dag.py`
-passes.
+`integrity_sdk/memory_dag.py`. Written 2026-07-31 with no shell available and left
+unexecuted; run and confirmed 2026-08-05 — `tests/test_memory_dag.py` passes
+21/21, including the cross-runtime provenance acceptance test (step 7 of the
+design doc's order-of-work). This section is now binding.
 
 §4.4's tree commits to a flat *set* — its sorted-pair rule exists precisely to make
 leaf position meaningless, so it cannot express that one memory derives from
