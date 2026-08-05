@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 _HEX32 = re.compile(r"^0x[0-9a-fA-F]{64}$")  # 32 bytes hex, e.g. a sha256 digest
 _HEX_SIG = re.compile(r"^0x[0-9a-fA-F]+$")
@@ -79,9 +79,13 @@ class BCCCommitment(BaseModel):
         default=None,
         description="W3C parent span ID representing the planning/reasoning phase",
     )
+    intent_rationale: str | None = Field(
+        default=None,
+        description="Public-safe intent rationale for this action; signed and preferred by policy",
+    )
     agent_thought: str | None = Field(
         default=None,
-        description="The latent Chain-of-Thought / internal monologue explaining this action",
+        description="Legacy alias for intent_rationale; retained for backward compatibility",
     )
     token_count: int | None = Field(
         default=None,
@@ -102,6 +106,16 @@ class BCCCommitment(BaseModel):
         if v is not None and not re.match(r"^[0-9a-fA-F]{16}$", v):
             raise ValueError("span_id must be 16 hex characters")
         return v
+
+    @model_validator(mode="after")
+    def _normalize_rationale(self):
+        if self.intent_rationale and self.agent_thought and self.intent_rationale != self.agent_thought:
+            raise ValueError("intent_rationale and agent_thought must match when both are provided")
+        if not self.intent_rationale and self.agent_thought:
+            self.intent_rationale = self.agent_thought
+        if not self.agent_thought and self.intent_rationale:
+            self.agent_thought = self.intent_rationale
+        return self
 
     @field_validator("covered_entity_address")
     @classmethod

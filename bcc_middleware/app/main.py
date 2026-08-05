@@ -280,7 +280,7 @@ async def run_intercept(commitment: BCCCommitment, settings: Settings) -> BCCInt
         _span_ctx.set_attribute("bcc.nonce", commitment.nonce)
         _span_ctx.set_attribute("bcc.agent_trace_id", commitment.trace_id or "")
         _span_ctx.set_attribute("bcc.agent_span_id", commitment.span_id or "")
-        _span_ctx.set_attribute("bcc.agent_thought_length", len(commitment.agent_thought or ""))
+        _span_ctx.set_attribute("bcc.intent_rationale_length", len(commitment.intent_rationale or commitment.agent_thought or ""))
         _span_ctx.set_attribute("bcc.token_count", commitment.token_count or 0)
 
     def _finalize_span(decision: str, reason: str | None = None) -> None:
@@ -379,6 +379,7 @@ async def _run_intercept_inner(
         "verification_tier": verification_tier,
         "trace_id": commitment.trace_id,
         "span_id": commitment.span_id,
+        "intent_rationale": commitment.intent_rationale,
         "agent_thought": commitment.agent_thought,
         "token_count": commitment.token_count or 0,
         "daily_token_spend": token_budget_enforcer.get_daily_spend(agent_id),

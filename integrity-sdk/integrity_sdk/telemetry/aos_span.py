@@ -46,8 +46,8 @@ _GEN_AI_OPERATION_KEY = "gen_ai.operation.name"
 _GEN_AI_SYSTEM_KEY = "gen_ai.system"
 _BCC_INTENT_TYPE_KEY = "bcc.intent_type"
 
-# Process-local store for the agent.thought set on the most recent plan span.
-# This lets get_current_aos_context() retrieve agent_thought without requiring
+# Process-local store for the public intent rationale set on the most recent plan span.
+# This lets get_current_aos_context() retrieve intent_rationale without requiring
 # callers to thread it through manually. Stored as a simple module-level var
 # (last-write-wins) since an agent's planning phase is inherently sequential
 # within a single thread/task. For multi-agent parallelism, use contextvars.
@@ -172,16 +172,19 @@ def get_current_aos_context() -> dict[str, str | None]:
         {
             "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",  # 32 hex chars
             "span_id":  "00f067aa0ba902b7",                   # 16 hex chars
-            "agent_thought": "the reasoning monologue...",
+            "intent_rationale": "the public intent rationale...",
+            "agent_thought": "the public intent rationale...",
         }
         or empty strings / None if no active span.
 
     Never raises — telemetry is always best-effort, never a gate.
     """
+    thought = _current_thought.get()
     result: dict[str, str | None] = {
         "trace_id": None,
         "span_id": None,
-        "agent_thought": _current_thought.get(),
+        "intent_rationale": thought,
+        "agent_thought": thought,
     }
     try:
         from opentelemetry import trace

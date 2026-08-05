@@ -150,6 +150,7 @@ Real Ed25519 only (via the `cryptography` library) — no HMAC pseudo-signature 
   "timestamp": "<unix ms>",
   "agent_public_key": "z<multibase base58btc, multicodec ed25519-pub || raw 32-byte pubkey>",
   "covered_entity_address": "0x<20-byte hex EVM address> | null",
+  "intent_rationale": "public-safe intent rationale, signed and preferred by policy",
   "signature": "0x<hex, Ed25519 sig over the above fields except signature itself, canonical JSON>"
 }
 ```
@@ -157,7 +158,7 @@ This exact shape is POSTed by `integrity-sdk` and `integrity-cli` to
 `bcc_middleware`'s `POST /v1/bcc/intercept`. Field names are load-bearing —
 don't rename them per-package.
 
-Two fields were added after this doc's original draft, both now **✅
+Three fields were added after this doc's original draft, all now **✅
 RECONCILED** and required by `bcc_middleware`'s real implementation
 (`app/schemas.py`, `app/canonical.py`) — not carried in isolation, but
 included in the signed payload, so neither can be swapped post-signature:
@@ -183,6 +184,12 @@ included in the signed payload, so neither can be swapped post-signature:
   an address, not a DID: covered entities are registered directly by EVM
   address in `contracts/src/health/CoveredEntityRegistry.sol` and have no DID
   layer of their own.
+
+- `intent_rationale` — **required for agent tool calls**. This is the public-safe,
+  signed intent explanation that `bcc_middleware`'s AOS policy gates on. The
+  legacy `agent_thought` field is still accepted as an alias for compatibility,
+  but new callers should populate `intent_rationale` and let `agent_thought`
+  mirror it only if they need backwards compatibility.
 
 **Canonicalization, pinned:** the signature covers every field above except
 `signature` itself, serialized as `json.dumps(fields, sort_keys=True,
@@ -217,7 +224,7 @@ is still stored, but purely as an audit trail (`telemetry_events.payload.derived
 vs. `payload.oracle_recomputed_signals`) — it does not feed the formula. See
 [`docs/wiki/concepts/ais.md`](wiki/concepts/ais.md) for the full data-flow diagram and
 `PRODUCTION_GAPS.md` §1a for what's still open (ZK-boost is a period-wide, not per-event,
-binding; no oracle-to-chain score push exists yet).
+binding). The oracle-to-chain score push is implemented by `bcc_middleware` §7a.
 
 ### 4.2a Signed telemetry envelope version
 
@@ -943,10 +950,12 @@ not just the pre-execution BCC policy gate §7 describes. A periodic background 
 also triggerable on-demand via `POST /v1/reputation/sync`) lists every agent the oracle
 knows about and, per agent:
 
-1. Recomputes the pre-boost weighted AIS from `GET /v1/agent/{id}/ais`'s
-   `components`/`weights` (NOT `ais / zk_boost` — see `scoring_loop._base_score_from_ais_response`'s
-   docstring for why that division is avoided) and signs+submits a real
-   `ReputationRegistry.updateScore(agent, baseScore)`.
+1. Treats `GET /v1/agent/{id}/ais`'s final `ais` as authoritative and removes only its
+   reported `zk_boost` (`baseScore = round(ais / zk_boost)`) before signing and submitting
+   `ReputationRegistry.updateScore(agent, baseScore)`. It MUST NOT recompute from
+   `components`/`weights`: doing so duplicates the canonical Rust formula and loses the
+   Oracle's already-applied effective identity-tier ceiling. The contract independently
+   earns and applies its own on-chain ZK boost.
 2. Reads `GET /v1/agent/{id}/telemetry/volume`'s flagged-event ratio over a lookback
    window (`DISPUTE_LOOKBACK_BUCKET`); if it crosses `DISPUTE_FLAGGED_RATIO_THRESHOLD`
    with at least `DISPUTE_MIN_EVENTS` samples, signs+submits a real

@@ -281,16 +281,17 @@ violation contains msg if {
 
 violation contains msg if {
 	_is_agent_tool
-	not _has_value(object.get(input, "agent_thought", null))
-	msg := "AOS_VIOLATION: agent tool execution requires a non-empty Chain-of-Thought (agent.thought)"
+	rationale := object.get(input, "intent_rationale", object.get(input, "agent_thought", null))
+	not _has_value(rationale)
+	msg := "AOS_VIOLATION: agent tool execution requires a non-empty intent_rationale (legacy agent_thought)"
 }
 
 violation contains msg if {
 	_is_agent_tool
-	thought := object.get(input, "agent_thought", null)
-	_has_value(thought)
-	count(thought) < 15
-	msg := sprintf("AOS_VIOLATION: agent Chain-of-Thought is too brief (%v chars); requires >= 15 chars of latent reasoning", [count(thought)])
+	rationale := object.get(input, "intent_rationale", object.get(input, "agent_thought", null))
+	_has_value(rationale)
+	count(rationale) < 15
+	msg := sprintf("AOS_VIOLATION: intent_rationale is too brief (%v chars); requires >= 15 chars of declared intent", [count(rationale)])
 }
 
 # ---------------------------------------------------------------------------

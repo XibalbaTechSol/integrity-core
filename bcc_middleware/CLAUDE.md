@@ -109,9 +109,10 @@ disputer, and this service's existing `ANCHOR_SIGNER_PRIVATE_KEY` are the
 same key — see `app/reputation.py`'s module docstring for the full
 reasoning, including why automated dispute-raising is safe (raising only
 *locks* stake; a separate arbiter role is required to actually resolve/burn).
-`base_score` pushed must be the **pre-boost** weighted sum, not the oracle's
-already-ZK-boosted `ais` field — see
-`scoring_loop.py::_base_score_from_ais_response`.
+`base_score` pushed must be the Oracle-authoritative, tier-capped AIS with only
+the response's reported ZK multiplier divided out. Never reconstruct it from
+`components`/`weights`: `integrity-oracle/scoring-core` is the sole geometric
+formula implementation — see `scoring_loop.py::_base_score_from_ais_response`.
 
 ### Config (`app/config.py`)
 

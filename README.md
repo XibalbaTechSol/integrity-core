@@ -1,5 +1,26 @@
 # Integrity Protocol
 
+## Ecosystem Relationship
+
+INTEGRITY-LATEST is the trust backend and protocol foundation for two separate application
+repositories:
+
+```text
+integrity-mvp (web UI)
+├── xibalba-shield (endpoint security and enforcement)
+│   └── INTEGRITY-LATEST (SDK, BCC, Oracle, user API, contracts)
+└── INTEGRITY-LATEST (direct protocol API and chain access)
+```
+
+[`xibalba-shield`](https://github.com/XibalbaTechSol/xibalba-shield) is built on top of this
+repository. It consumes `integrity-sdk` and submits signed endpoint-security evidence through
+the BCC and telemetry pipeline; this repository never imports or calls Shield.
+[`integrity-mvp`](https://github.com/XibalbaTechSol/integrity-mvp) is the presentation layer
+for both products: it consumes INTEGRITY-LATEST services directly and surfaces the Shield
+evidence stored by the protocol. See
+[`docs/architecture/ecosystem-dependencies.md`](docs/architecture/ecosystem-dependencies.md)
+for the canonical ownership and dependency boundaries.
+
 **A trust and compliance layer for the agentic economy.** Integrity Protocol
 uses smart contracts and immutable on-chain state to solve two problems no
 purely off-chain system can:

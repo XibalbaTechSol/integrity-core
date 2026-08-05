@@ -121,10 +121,16 @@ def test_intercept_token_budget_denied_when_over_tier0_limit(client, real_opa_se
     # First call: just under tier 0 limit (no prior spend, tier 0 from oracle)
     # Since oracle is not reachable in test, verification_tier defaults to 0.
     # Budget: 10k tokens. Send 9999 — should pass.
-    payload = sign_commitment(private_key, agent_id=agent_id, intent_type="payment", nonce=1)
+    payload = sign_commitment(
+        private_key,
+        agent_id=agent_id,
+        intent_type="payment",
+        nonce=1,
+        intent_rationale="Verifiable public intent rationale for this payment action.",
+    )
     payload["trace_id"] = "4bf92f3577b34da6a3ce929d0e0e4736"
     payload["span_id"] = "00f067aa0ba902b7"
-    payload["agent_thought"] = "Verifiable reasoning process for this payment action."
+    payload["agent_thought"] = payload["intent_rationale"]
     payload["token_count"] = 9_999
 
     resp = client.post("/v1/bcc/intercept", json=payload)
@@ -132,10 +138,16 @@ def test_intercept_token_budget_denied_when_over_tier0_limit(client, real_opa_se
     assert resp.json()["authorized"] is True
 
     # Second call: 5 more tokens — pushes over 10k limit
-    payload2 = sign_commitment(private_key, agent_id=agent_id, intent_type="payment", nonce=2)
+    payload2 = sign_commitment(
+        private_key,
+        agent_id=agent_id,
+        intent_type="payment",
+        nonce=2,
+        intent_rationale="Verifiable public intent rationale for this second payment action.",
+    )
     payload2["trace_id"] = "4bf92f3577b34da6a3ce929d0e0e4736"
     payload2["span_id"] = "00f067aa0ba902b7"
-    payload2["agent_thought"] = "Verifiable reasoning process for this second payment action."
+    payload2["agent_thought"] = payload2["intent_rationale"]
     payload2["token_count"] = 5
 
     resp2 = client.post("/v1/bcc/intercept", json=payload2)

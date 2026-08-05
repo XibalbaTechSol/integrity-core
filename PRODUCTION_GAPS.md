@@ -91,9 +91,9 @@ again) — both fixed at the `derive.rs` call site, no `scoring-core` changes ne
   introduced here.
 * **Oracle-to-chain score push — CLOSED.** `bcc_middleware/app/reputation.py` +
   `app/scoring_loop.py` now periodically (`SCORE_SYNC_INTERVAL_SECONDS`, default 300s)
-  list every agent the oracle knows about, recompute each one's pre-boost weighted AIS
-  from `GET /v1/agent/{id}/ais`'s `components`/`weights` (deliberately not
-  `ais / zk_boost`, to avoid float round-trip error), and sign+submit a real
+  list every agent the oracle knows about, accept each one's geometric, tier-capped
+  `ais` from `GET /v1/agent/{id}/ais` as authoritative, remove only the response's
+  reported ZK multiplier, and sign+submit a real
   `ReputationRegistry.updateScore(agent, baseScore)` transaction per agent. Also raises
   a real `Slasher.raiseDispute` when an agent's oracle-computed flagged-telemetry ratio
   (`GET /v1/agent/{id}/telemetry/volume`) crosses `DISPUTE_FLAGGED_RATIO_THRESHOLD`

@@ -2803,3 +2803,31 @@ writeup: PRODUCTION_GAPS.md §18.
 - The Oracle stores no raw PII—only a provider id, opaque subject reference, explicit
   checks, validity timestamps, and receipt hash. Commercial and self-hosted providers
   share the same boundary without implying universal regulatory equivalence.
+
+## [2026-08-04] update | Hermes BCC gate context bridge repaired
+
+- Added `~/.claude/xibalba/hermes_context_store.py`: an atomic per-session context cache that lets Hermes persist the latest tool-rationale text for the shell-hook gate without scraping transcripts.
+- Patched `~/.hermes/plugins/integrity_telemetry/__init__.py` to write `{session_id, turn_id, reasoning, assistant_response}` into that cache on `post_llm_call`.
+- Patched `~/.hermes/hermes-agent/agent/turn_finalizer.py` so `post_llm_call` hooks receive `last_reasoning` from the just-finished turn.
+- Patched `~/.claude/xibalba/hermes_gate.py` to bridge cached rationale into `AGENT_THOUGHT` for the shared `pretool_gate.evaluate_tool_intent(...)` path.
+- Patched `~/.hermes/hermes-agent/tools/code_execution_tool.py` so nested `execute_code` remote/local RPC tool calls forward `HERMES_SESSION_ID` into `handle_function_call(...)`, restoring the BCC gate's session-based trace/span recovery path for nested terminal calls.
+- Verification: new focused pytest coverage passed (`4 passed` for the gate/context-store bridge, `2 passed` for `execute_code` session propagation), modified files compiled cleanly with `python -m py_compile`, and a fresh temporary `bcc_middleware` instance allowed a synthetic Hermes `terminal` payload when rationale context existed while still denying the same payload without rationale with `AOS_VIOLATION`.
+- Important caveat: the current OPA contract still names the field `agent_thought`; Hermes is now feeding a persisted, public action rationale / turn reasoning bridge into that field. This restores fail-closed execution, but the protocol should still evolve toward a first-class signed `intent_rationale` field rather than implying access to private chain-of-thought.
+
+## [2026-08-04] update | Signed intent_rationale migration completed
+
+- Extended the BCC commitment schema so `intent_rationale` is now a first-class signed field, while `agent_thought` remains a normalized compatibility alias.
+- Updated `integrity-sdk` to sign `intent_rationale` inside `build_bcc_commitment(...)` and to preserve the legacy alias post-signing.
+- Updated `bcc_middleware` schema, canonicalization, OPA policy, and intercept response shaping to prefer `intent_rationale` while still accepting `agent_thought` for older callers.
+- Updated Hermes bridge plumbing so the shell hook propagates `INTENT_RATIONALE` end-to-end, with `AGENT_THOUGHT` retained only as a compatibility mirror.
+- Updated repo docs and wiki pages to describe the signed rationale contract and the legacy aliasing boundary.
+
+## [2026-08-04] docs | Ecosystem dependency boundaries documented
+
+- Added `docs/architecture/ecosystem-dependencies.md` as the canonical map across
+  INTEGRITY-LATEST, Xibalba Shield, and Integrity MVP.
+- Clarified that Integrity MVP presents both backend layers, Xibalba Shield is built on
+  INTEGRITY-LATEST's public SDK/BCC/Oracle trust substrate, and dependency direction never
+  flows back from INTEGRITY-LATEST into either application.
+- Reconciled the Shield specification's stale claim that its implementation repository did
+  not yet exist; implementation status remains owned by the Shield README.

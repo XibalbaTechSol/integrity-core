@@ -17,7 +17,7 @@ _base_commitment := {
 	"verification_tier": 1,
 	"trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
 	"span_id": "00f067aa0ba902b7",
-	"agent_thought": "Verifiable reasoning process validating agent compliance and intent.",
+	"intent_rationale": "Verifiable public intent rationale validating agent compliance and intent.",
 	# Token budget defaults: 0 spend means no budget violation in existing tests.
 	"token_count": 0,
 	"daily_token_spend": 0,
@@ -252,7 +252,7 @@ test_aos_missing_trace_id_is_denied if {
 		"timestamp": 1730000000000,
 		"verification_tier": 1,
 		"span_id": "00f067aa0ba902b7",
-		"agent_thought": "Reasoning monologue validation.",
+		"intent_rationale": "Reasoning monologue validation.",
 	}
 	not bcc.allow with input as commitment
 	some msg in bcc.violation with input as commitment
