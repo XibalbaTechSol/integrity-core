@@ -1,0 +1,15 @@
+{
+  "rules": [
+    {
+      "rule_id": "log-all-process-activity",
+      "name": "Log all observed process activity",
+      "version": "1.0.0",
+      "conditions": [
+        {"type": "process", "match": {"name": ["*"]}}
+      ],
+      "actions": [
+        {"type": "log_only", "message": "process activity observed", "log_decision": true}
+      ]
+    }
+  ]
+}
