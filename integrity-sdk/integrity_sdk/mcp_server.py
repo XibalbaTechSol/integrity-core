@@ -17,12 +17,25 @@ harness.
 
 ## Available tools
 
-  integrity_log_telemetry       — log one telemetry entry under agent_id
-  integrity_flush_telemetry     — flush accumulated batch to integrity-oracle
-  integrity_invoke_intent       — BCC-commit + OPA-gate an intent
+  integrity_log_telemetry       — log one telemetry entry under agent_id (local queue only)
   integrity_agent_info          — read back the SDK client's current state
-  integrity_register_agent      — run the full on-chain registration sequence
   integrity_resolve_did         — look up an agent's on-chain SovereignAgent
+
+## Disabled by default: signing and on-chain writes (2026-08-05)
+
+  integrity_flush_telemetry     — flush accumulated batch to integrity-oracle (signs)
+  integrity_invoke_intent       — BCC-commit + OPA-gate an intent (signs)
+  integrity_register_agent      — run the full on-chain registration sequence (signs + writes)
+  integrity_commit_memory       — write facts to the Trust Vault (writes)
+
+These four are advertised and callable only if `INTEGRITY_MCP_ALLOW_SIGNING_TOOLS=1` is set
+(supervised local experimentation only — never in a real agent session's config). An LLM's
+own tool-selection judgment is not an acceptable gate for a real signature or an irreversible
+on-chain write; that boundary must be a human running integrity-cli/the SDK directly. See
+`docs/design/mcp-signing-boundary.md` for the full reasoning and
+`xibalba-graph-memory/docs/session-log/2026-08-05-integrity-coupling-session.md` for how this
+was found (a Devil's Advocate review commissioned for a *different*, not-yet-built proposal
+discovered this module already shipped the exact gap it was reviewing).
 
 ## Running the server
 
@@ -72,6 +85,34 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("integrity_sdk.mcp_server")
+
+# Tools that sign, transmit a signed payload, or write to the vault/chain.
+#
+# Security decision, 2026-08-05: an MCP tool call is an LLM deciding to invoke a function
+# based on its own reasoning over context -- including context an attacker controls (a
+# poisoned memory, a malicious webpage, an adversarial tool result). That is not an
+# acceptable gate for a real Ed25519/secp256k1 signature or an irreversible on-chain write.
+# A Devil's Advocate review (full account: xibalba-graph-memory's
+# docs/session-log/2026-08-05-integrity-coupling-session.md) found this module already
+# exposed `integrity_register_agent` as a live, callable tool loading a real identity key
+# with no gate covering it -- not hypothetical, already shipped. Verified independently
+# before this fix: not currently wired into any running MCP client config on this
+# machine, but reachable the moment someone did wire it in.
+#
+# Remediation: these four tools are disabled by default, at BOTH tool discovery (so a
+# client never even sees them as callable) and dispatch (defense in depth, in case some
+# other code path calls the handler directly). Signing and on-chain writes stay exclusively
+# in integrity-sdk / integrity-cli, run directly by a human -- never behind a tool call an
+# agent's own judgment triggers. See docs/design/mcp-signing-boundary.md.
+_SIGNING_TOOLS = {
+    "integrity_flush_telemetry",
+    "integrity_invoke_intent",
+    "integrity_register_agent",
+    "integrity_commit_memory",
+}
+# Escape hatch for local, supervised experimentation only -- never set this in a config a
+# real agent session loads. Off by default on purpose.
+_SIGNING_TOOLS_ENABLED = os.environ.get("INTEGRITY_MCP_ALLOW_SIGNING_TOOLS") == "1"
 
 
 def _load_keypair_for(agent_id: str) -> Optional[Any]:
@@ -322,7 +363,12 @@ def build_server(agent_id: str, oracle_url: str) -> Any:
     # Handler: list_tools                                                  #
     # ------------------------------------------------------------------ #
     async def _on_list_tools(ctx: Any, params: Any) -> Any:
-        return types.ListToolsResult(tools=_TOOLS)
+        # Signing/writing tools are never advertised unless explicitly opted into -- a
+        # client shouldn't even discover them as callable. See _SIGNING_TOOLS above.
+        visible = _TOOLS if _SIGNING_TOOLS_ENABLED else [
+            t for t in _TOOLS if t.name not in _SIGNING_TOOLS
+        ]
+        return types.ListToolsResult(tools=visible)
 
     # ------------------------------------------------------------------ #
     # Handler: call_tool — dispatches by tool name                        #
@@ -333,6 +379,25 @@ def build_server(agent_id: str, oracle_url: str) -> Any:
 
         def _text(payload: Any) -> List[Any]:
             return [types.TextContent(type="text", text=json.dumps(payload))]
+
+        # Defense in depth: even if a caller reaches this handler directly, bypassing
+        # _on_list_tools' discovery-time filter, a disabled signing tool still refuses to
+        # execute. See _SIGNING_TOOLS above.
+        if name in _SIGNING_TOOLS and not _SIGNING_TOOLS_ENABLED:
+            return types.CallToolResult(
+                content=_text({
+                    "status": "disabled",
+                    "error": (
+                        f"{name} is disabled by default. Signing and on-chain writes must "
+                        "go through integrity-cli or the SDK directly, run by a human -- "
+                        "not an MCP tool call an agent's own judgment triggers. See "
+                        "docs/design/mcp-signing-boundary.md. (Set "
+                        "INTEGRITY_MCP_ALLOW_SIGNING_TOOLS=1 only for supervised local "
+                        "experimentation -- never in a real agent session's config.)"
+                    ),
+                }),
+                isError=True,
+            )
 
         # ---- integrity_log_telemetry ---------------------------------- #
         if name == "integrity_log_telemetry":

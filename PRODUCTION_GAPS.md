@@ -1247,3 +1247,57 @@ entry records what survived verification and what did not. Full detail:
   session's changes — `package.json`/`package-lock.json` are unmodified. Worth noting that the
   freshness check (§22) is doing exactly its job here: it converted an invisible 13-day drift
   into a visible, actionable failure.
+
+## 25. `integrity_sdk/mcp_server.py` exposed signing/on-chain-write tools with zero coverage from the one gate anyone trusted (2026-08-05)
+
+Found while reviewing a *proposed, not-yet-built* idea in a different project
+(`xibalba-graph-memory`) — an MCP server that would wrap the SDK's signing capabilities as
+agent-callable tools. A Devil's Advocate review commissioned to evaluate that proposal checked
+whether anything like it already existed before assessing the hypothetical, and found this
+module already shipped exactly the gap the review was there to prevent. Full narrative:
+`xibalba-graph-memory/docs/session-log/2026-08-05-integrity-coupling-session.md`. Design and
+fix: `docs/design/mcp-signing-boundary.md`.
+
+* **The measured problem — `integrity_register_agent` was a live, callable MCP tool that loaded
+  a real Ed25519 identity key and could run a full on-chain registration**, triggered by
+  whatever an LLM's own tool-selection reasoning decided, with no confirmation step and no
+  policy gate in the path. Three more tools in the same file — `integrity_flush_telemetry`,
+  `integrity_invoke_intent`, `integrity_commit_memory` — sign or write with the same lack of
+  gating.
+* **`~/.claude/xibalba/pretool_gate.py`'s `RISKY_TOOLS` set had zero MCP-tool-name coverage.**
+  It matches five fixed strings (`Bash`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`); any
+  `mcp__<server>__<tool>` call was never even evaluated, let alone gated. Confirmed by direct
+  inspection, not inferred — `RISKY_TOOLS` contains no `mcp__` pattern at all.
+  * Compounding factor: `pretool_gate.py`'s existing coverage is deliberately **fail-open** —
+    a considered, ratified tradeoff for the Bash/Write/Edit developer-shell class (documented at
+    length in its own module docstring), never intended to extend to a real signature.
+* **Verified independently before any fix, not taken on the review's word:** confirmed
+  `integrity_register_agent`'s handler directly (loads a PEM from
+  `~/.integrity-cli/identity/<agent>/`, calls `registration.register_agent`), confirmed
+  `pretool_gate.py`'s `RISKY_TOOLS` line and its fail-open comment directly, confirmed
+  `bcc_middleware/app/opa_client.py`'s fail-closed posture directly, confirmed MCP's
+  elicitation primitive is *not* a guaranteed human-in-the-loop block by reading its own
+  docstring ("might... automatically generat[e] a response"). Also confirmed the server was
+  **not currently wired into any running MCP client config on this machine** — a real,
+  reachable gap, not an active incident.
+* **CLOSED — fixed at two layers, not one.**
+  * `integrity_sdk/mcp_server.py`: the four signing/writing tools are disabled by default at
+    both discovery (`_on_list_tools` filters them out) and dispatch (`_on_call_tool` refuses to
+    execute them even if called directly) — defense in depth, not one control. Gated behind
+    `INTEGRITY_MCP_ALLOW_SIGNING_TOOLS=1` for supervised local experimentation only. Read-only
+    tools (`integrity_agent_info`, `integrity_resolve_did`) and the local-queue-only
+    `integrity_log_telemetry` remain enabled — they were never the problem.
+  * `pretool_gate.py`: added `MCP_SIGNING_TOOL_NAMES` (mirrors `mcp_server.py`'s
+    `_SIGNING_TOOLS`), matched by tool-name suffix so a renamed server alias doesn't evade it,
+    with a new `fail_closed` parameter on `evaluate_tool_intent()` — this new coverage denies on
+    every pre-verdict failure path instead of allowing, while the existing Bash/Write/Edit
+    class's fail-open behavior is completely untouched.
+  * New tests: `integrity-sdk/tests/test_mcp_server_signing_boundary.py` (7 tests — tools
+    undiscoverable and unexecutable by default, env-var opt-in works, safe tools still
+    advertised) and `~/.claude/xibalba/tests/test_pretool_gate.py` (4 tests — suffix matching,
+    fail-closed denial on identity-unavailable and middleware-unreachable). Full SDK suite (252
+    tests) and hooks suite (8 tests) both still pass — no regressions from either fix.
+  * **Explicitly not fixed by adding a confirmation dialog.** MCP elicitation was considered and
+    rejected as the mechanism — it's a structured-input request either side of the session can
+    answer, not a safety property. The actual fix removes the capability from the tool surface
+    entirely; a human runs `integrity-cli` directly for anything that signs.
