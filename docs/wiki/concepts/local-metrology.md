@@ -30,6 +30,15 @@ attestation state) rather than trust them blindly. All four signals are
 normalized to `[0.0, 1.0]` with a consistent polarity: **1.0 always means
 "best/most trustworthy."**
 
+## Table of contents
+
+- [deriveentropy — real Shannon entropy, not a type-token ratio](#deriveentropy-real-shannon-entropy-not-a-type-token-ratio)
+- [derivegrounding — a documented placeholder heuristic](#derivegrounding-a-documented-placeholder-heuristic)
+- [derivesacrifice — total tokens, log-scaled](#derivesacrifice-total-tokens-log-scaled)
+- [derivecompliance — self-report, but on-chain wins](#derivecompliance-self-report-but-on-chain-wins)
+- [Where it's consumed](#where-it-s-consumed)
+- [What this page does NOT claim (correcting the old wiki)](#what-this-page-does-not-claim-correcting-the-old-wiki)
+
 ## `derive_entropy` — real Shannon entropy, not a type-token ratio
 
 `lexical_stability_score(text)` computes real Shannon entropy over the

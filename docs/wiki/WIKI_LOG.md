@@ -3,6 +3,13 @@
 > Chronological record of wiki actions. Append-only — never edit past entries.
 > Actions: ingest, create, update, lint, query, archive
 
+## [2026-08-06] create | Cross-repository audit status ledger
+
+- Added `docs/audits/2026-08-06-cross-repository-status.md` as the current Integrity Protocol repository audit pointer.
+- Linked the consolidated four-repository implementation plan and status vocabulary from the wiki index.
+- Recorded verified default-branch test evidence and open findings for `integrity-latest`, `integrity-mvp`, `xibalba-shield`, and `xibalba-graph-memory`.
+- Preserved historical wiki entries and marked the audit as `AUDIT IN PROGRESS`; no production-readiness claim was promoted.
+
 ## [2026-08-06] update | Scoped Devil's Advocate and Red-Team Reviews
 
 - Limited mandatory adversarial review to architectural decisions, foundational security or identity-boundary changes, consequential deployments, and decisions with profound long-term implications.
@@ -2947,3 +2954,27 @@ writeup: PRODUCTION_GAPS.md §18.
 - Updated `spec/README.md` to document Shield specification ownership and protocol-facing boundaries.
 - Updated `spec/xibalba-shield-v1.md` to point implementation details to the Shield repo while retaining the Integrity-facing evidence boundary.
 - Updated the wiki concept page for the Integrity specification with the new conformance and Shield-boundary rules.
+
+## [2026-08-06] docs | Cross-repository implementation plans
+
+- Added root `IMPLEMENTATION_PLAN.md` files to INTEGRITY-LATEST, integrity-mvp, xibalba-shield, and xibalba-graph-memory.
+- Added `docs/wiki/architecture/repository-implementation-plans.md` as the canonical wiki rollup for closed/planned/blocked work across the four repositories.
+- Updated the wiki home page and WIKI_INDEX architecture section from one to two architecture pages.
+
+## [2026-08-06] docs | Audit evidence merged into implementation plans
+
+- Merged the permanent cross-repository audit ledger and repo-local audit status pages into the four root `IMPLEMENTATION_PLAN.md` files.
+- Updated `docs/wiki/architecture/repository-implementation-plans.md` with audit evidence boundaries, CI/deployment blockers, and non-duplicated repo task additions.
+- Kept clean-main evidence, active-branch evidence, and dirty-worktree evidence explicitly labeled rather than merging them into one production claim.
+
+## [2026-08-06] docs | Root specifications and archive cleanup
+
+- Added detailed root `SPECIFICATION.md` files for INTEGRITY-LATEST, integrity-mvp, and xibalba-graph-memory, and updated xibalba-shield `SPECIFICATION.md` with the current audit boundary.
+- Archived superseded historical planning/handoff files into dated `docs/archive/2026-08-06/` folders in integrity-mvp, xibalba-shield, and xibalba-graph-memory.
+- Updated `docs/wiki/architecture/repository-implementation-plans.md` so specifications, implementation plans, audit evidence, and archived historical records are represented without duplicate task entries.
+
+## [2026-08-06] cleanup | Repository generated-artifact cleanup
+
+- Removed reproducible generated artifacts and caches from INTEGRITY-LATEST, integrity-mvp, xibalba-shield, and xibalba-graph-memory.
+- Kept source files, audits, docs, `.env`, `.venv`, `node_modules`, local deployment state, and active worktree changes intact.
+- Archived superseded historical plan/handoff documents under dated `docs/archive/2026-08-06/` folders rather than deleting them.

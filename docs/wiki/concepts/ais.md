@@ -34,6 +34,10 @@ separately — see [Local Metrology](local-metrology.md), which also
 supersedes an old, inconsistent 3-component draft formula (no compliance
 term, weights not summing to 1.0) that never matched this one.
 
+## Table of contents
+
+- [Where the four inputs actually come from (trust model)](#where-the-four-inputs-actually-come-from-trust-model)
+
 ## Where the four inputs actually come from (trust model)
 
 A client's `POST /v1/telemetry/ingest` signature proves *who* sent a request, never

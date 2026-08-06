@@ -27,6 +27,17 @@ that pushes each agent's oracle-computed [AIS](../concepts/ais.md) on-chain and
 raises slashing disputes (see "Reconciled this cycle" below) — the only place
 in the monorepo that closes that loop.
 
+## Table of contents
+
+- [Pipeline](#pipeline)
+- [Hermes runtime gate bridge (2026-08-04)](#hermes-runtime-gate-bridge-2026-08-04)
+- [Reconciled this cycle (2026-07-14)](#reconciled-this-cycle-2026-07-14)
+- [Reconciled 2026-07-11](#reconciled-2026-07-11)
+- [Reconciled previous cycle](#reconciled-previous-cycle)
+- [Async hot-path + hardening fixes, 2026-07-15](#async-hot-path-hardening-fixes-2026-07-15)
+- [State](#state)
+- [Resolved gap (found stale during integrity-dashboard/demo work, 2026-07-09)](#resolved-gap-found-stale-during-integrity-dashboard-demo-work-2026-07-09)
+
 ## Pipeline
 
 Schema validation → circuit breaker → **signature verification** → nonce-replay

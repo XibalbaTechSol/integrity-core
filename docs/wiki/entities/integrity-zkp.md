@@ -11,6 +11,12 @@ source_files:
   - integrity-zkp/Makefile
 ---
 
+## Table of contents
+
+- [Overview](#overview)
+
+## Overview
+
 The zero-knowledge attestation circuit: proves an agent knows the secret
 behind its published identity commitment, and that it committed to a
 specific intent hash under a given nonce — without revealing the secret or

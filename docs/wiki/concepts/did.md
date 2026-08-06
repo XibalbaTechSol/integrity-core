@@ -11,6 +11,12 @@ source_files:
   - integrity-cli/integrity_cli/identity.py
 ---
 
+## Table of contents
+
+- [Overview](#overview)
+
+## Overview
+
 An agent's on-protocol identity: a real Ed25519 keypair (no HMAC
 pseudo-signature fallback — the old prototype had one, explicitly documented
 as fake, and it was removed in this rewrite) expressed as a `did:key`-style

@@ -7,6 +7,8 @@ Normative intent for the protocol, with an implementation map. Package coordinat
 [`docs/INTERFACE_CONTRACT.md`](../docs/INTERFACE_CONTRACT.md); external wire surfaces under
 [`spec/`](.).
 
+> **Audit status — 2026-08-06:** The implementation map is being reconciled against a clean default-branch audit in [`docs/audits/2026-08-06-cross-repository-status.md`](../docs/audits/2026-08-06-cross-repository-status.md). Test evidence currently supports a strong testnet prototype, not production readiness. Package claims marked `implemented`, `deployed`, `verified`, `[PARTIAL]`, or `[PLANNED]` remain scoped to the evidence cited in this document and the detailed gap register.
+
 > **Ground rule:** No silent mocks. Every claim is implemented and tested against a real
 > toolchain, or explicitly marked `[PLANNED]` / `[PARTIAL]`.
 

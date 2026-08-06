@@ -26,6 +26,13 @@ factory that deploys them, the shared registries, the `$ITK` token, the
 [market/application layer](../concepts/integrity-market.md), and the
 [ZK verifier](../concepts/zkp.md).
 
+## Table of contents
+
+- [Contents](#contents)
+- [Key invariants](#key-invariants)
+- [State](#state)
+- [Honest gaps](#honest-gaps)
+
 ## Contents
 
 - **Primitives (per-agent):** `SovereignAgent`, `StateAnchor` (direct-deploy);

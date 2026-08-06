@@ -20,6 +20,12 @@ protocol credible.
 `ComplianceGate` is the per-agent [primitive](agent-primitives.md) (an EIP-1167
 clone) that connects a single agent to that vertical.
 
+## Table of contents
+
+- [What it does](#what-it-does)
+- [The Integrity Health stack (shared singletons)](#the-integrity-health-stack-shared-singletons)
+- [The closed loop](#the-closed-loop)
+
 ## What it does
 
 Each agent's `ComplianceGate` declares its regulated vertical

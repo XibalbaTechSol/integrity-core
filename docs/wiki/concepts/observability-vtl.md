@@ -29,6 +29,15 @@ time-travel, a separate `integrity-observability-backend` service, a
 `ReputationLedger`) — **none of that exists in this repo**; see the note at
 the bottom.
 
+## Table of contents
+
+- [The real gap this design fixes](#the-real-gap-this-design-fixes)
+- [Redactor — targeted, not blanket masking (built, tested)](#redactor-targeted-not-blanket-masking-built-tested)
+- [LLM-as-judge evaluation — storage/ingestion plumbing built; rubric [PLANNED]](#llm-as-judge-evaluation-storage-ingestion-plumbing-built-rubric-planned)
+- [Oracle-side defense in depth — built](#oracle-side-defense-in-depth-built)
+- [Dual-mode storage — [PLANNED], bigger roadmap item](#dual-mode-storage-planned-bigger-roadmap-item)
+- [What this page does NOT claim (correcting the old wiki)](#what-this-page-does-not-claim-correcting-the-old-wiki)
+
 ## The real gap this design fixes
 
 `integrity_sdk/integrations/openai_integrity.py` used to set

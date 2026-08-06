@@ -17,6 +17,12 @@ source_files:
   - integrity-cli/tests/test_chain.py
 ---
 
+## Table of contents
+
+- [Overview](#overview)
+
+## Overview
+
 Developer CLI (Python/Typer) — the human-driven counterpart to
 [integrity-sdk](integrity-sdk.md), carrying its own copy of the identity/wallet/
 chain logic (no sibling-import) but kept wire-compatible byte-for-byte.

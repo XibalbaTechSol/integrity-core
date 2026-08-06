@@ -36,6 +36,17 @@ improvement over the old prototype (which failed *open* — a mock verifier
 that accepted any non-empty proof) but "real, not yet connected" is the
 accurate description, not "real end to end."
 
+## Table of contents
+
+- [1. What Noir/Barretenberg are (context, not the point)](#1-what-noir-barretenberg-are-context-not-the-point)
+- [2. What this repo's circuit actually proves](#2-what-this-repo-s-circuit-actually-proves)
+- [3. The real build/prove/verify pipeline, as it exists in integrity-zkp/](#3-the-real-build-prove-verify-pipeline-as-it-exists-in-integrity-zkp)
+- [4. How the pieces are (and are not yet) wired together](#4-how-the-pieces-are-and-are-not-yet-wired-together)
+- [5. Is the deployed UltraPlonkVerifier on Base Sepolia real or a placeholder?](#5-is-the-deployed-ultraplonkverifier-on-base-sepolia-real-or-a-placeholder)
+- [6. Regenerating the verifier when the circuit changes — a real gap](#6-regenerating-the-verifier-when-the-circuit-changes-a-real-gap)
+- [Pipeline, visually: what's real vs. what's a documented gap](#pipeline-visually-what-s-real-vs-what-s-a-documented-gap)
+- [Summary: pipeline stage → real or gap](#summary-pipeline-stage-real-or-gap)
+
 ## 1. What Noir/Barretenberg are (context, not the point)
 
 [Noir](https://noir-lang.org/) is a Rust-like DSL for writing zero-knowledge

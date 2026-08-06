@@ -20,6 +20,15 @@ implements the exact lifecycle the dashboard's `GovernancePanel` had long
 documented as roadmap: **propose → vote → queue → execute**, with voter funds
 reclaimable once a proposal is terminal.
 
+## Table of contents
+
+- [Lock-to-vote (not ERC20Votes)](#lock-to-vote-not-erc20votes)
+- [Lifecycle & states](#lifecycle-states)
+- [The execute leg (the dangerous surface, constrained hard)](#the-execute-leg-the-dangerous-surface-constrained-hard)
+- [Read surface (designed for the oracle)](#read-surface-designed-for-the-oracle)
+- [Genesis params & deploy status](#genesis-params-deploy-status)
+- [Deferred by design](#deferred-by-design)
+
 ## Lock-to-vote (not `ERC20Votes`)
 
 Vote weight is **locked ITK**, not checkpoint-counted balance. This is the

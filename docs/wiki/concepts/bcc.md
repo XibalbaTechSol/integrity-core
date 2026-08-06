@@ -13,6 +13,12 @@ source_files:
   - docs/INTERFACE_CONTRACT.md
 ---
 
+## Table of contents
+
+- [Overview](#overview)
+
+## Overview
+
 The intent-locking protocol: before an agent executes an action, it signs a
 commitment to that action's hash and submits it to
 [BCC Middleware](../entities/bcc_middleware.md) for pre-execution policy

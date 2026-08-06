@@ -1,5 +1,17 @@
 # Integrity Protocol
 
+## README Source of Truth
+
+This README is the repo-level source of truth for INTEGRITY-LATEST: what the protocol is, which packages it owns, what is built now, what remains planned, and where deeper operational contracts live. The normative implementation contracts are [SPECIFICATION.md](SPECIFICATION.md), [docs/INTERFACE_CONTRACT.md](docs/INTERFACE_CONTRACT.md), [spec/integrity-protocol-v0.4.md](spec/integrity-protocol-v0.4.md), [docs/MAINNET_READINESS.md](docs/MAINNET_READINESS.md), and the canonical wiki at [docs/wiki](docs/wiki).
+
+When this README, the interface contract, the wiki, and code disagree, resolve the disagreement in the same change. The rule is no silent mocks and no aspirational current-tense documentation.
+
+## 2026-08-06 audit status
+
+The current cross-repository audit is recorded in [`docs/audits/2026-08-06-cross-repository-status.md`](docs/audits/2026-08-06-cross-repository-status.md) and the consolidated implementation plan at `/home/xibalba/Documents/INTEGRITY — Cross-Repository Audit and Implementation Plan.md`. The clean default-branch audit verified Solidity (200 tests), Zero-Knowledge circuits (4), Oracle Rust tests (114 library + 13 e2e + 11 scoring-core), CLI (68 passed/1 skipped), middleware (119 passed), User API (51 passed against temporary PostgreSQL), and dashboard unit tests (68 passed). The SDK remains open with 242 passed, 2 failed, and 3 skipped. This repository is a strong testnet prototype, not production-ready.
+
+Status claims below must be reconciled against that audit page. Historical handoffs and wiki log entries remain historical evidence.
+
 ## Ecosystem Relationship
 
 INTEGRITY-LATEST is the trust backend and protocol foundation for two separate application
@@ -190,12 +202,12 @@ When building and deploying applications on the protocol, developers must choose
 |---|---|---|---|
 | [`contracts/`](contracts/) | Solidity + Foundry | The 7 primitives, factory, registries, XNS, `IntegrityGovernance`, $ITK, Integrity Health stack, ZK verifier, cross-chain reputation bridge | ✅ 198 tests; deployed to Base Sepolia (XNS/governance/CCIP bridge not yet broadcast — see below) |
 | [`integrity-zkp/`](integrity-zkp/) | Noir + Barretenberg | The ZK circuit proving an action matches its committed intent | ✅ real `nargo`/`bb` pipeline |
-| [`integrity-oracle/`](integrity-oracle/) | Rust + Axum + Postgres | Telemetry ingestion, AIS computation, on-chain reads | ✅ 37 lib tests + real e2e |
-| [`integrity-sdk/`](integrity-sdk/) | Python | Agent library: DID/keys, EVM wallet, self-deploy registration, BCC, telemetry (OTel + MLflow) | ✅ 46 tests |
-| [`integrity-cli/`](integrity-cli/) | Python (Typer) | Developer CLI for identity, on-chain registration, BCC intercept | ✅ 49 tests |
-| [`bcc_middleware/`](bcc_middleware/) | Python (FastAPI) + OPA | Pre-execution policy gate, HIPAA BAA check, Merkle anchoring | ✅ 49 tests + 12 OPA |
-| [`integrity-userapi/`](integrity-userapi/) | Python (FastAPI) + Postgres | User accounts, auth, API keys, agent ownership — strictly non-chain | 🚧 in progress |
-| [`integrity-dashboard/`](integrity-dashboard/) | React + Vite + TS, plus `demo/` (Python) | The ONE investor/developer app — landing, markets, leaderboard, wallet, capital allocation, cognition, identity, Integrity Health — plus its closed-loop demo scenario engine. Formerly two packages (`integrity-dashboard` + `integrity-demo`), merged so there's exactly one product surface. | 🚧 in progress |
+| [`integrity-oracle/`](integrity-oracle/) | Rust + Axum + Postgres | Telemetry ingestion, authoritative AIS computation, on-chain reads, markets/leaderboard/wallet/contracts/BAA/VC/benchmarks/XNS/governance reads, PHI rejection, OTLP/gRPC trace receiver | Current: 80 lib tests + 9 e2e; single-operator oracle, not decentralized |
+| [`integrity-sdk/`](integrity-sdk/) | Python | Agent library: DID/keys, EVM wallet, self-deploy registration, BCC, markets, telemetry, OpenAI/LangChain integrations, PHI redaction, memory anchoring | Current: 135 tests, 1 skipped + 1 opt-in oracle e2e |
+| [`integrity-cli/`](integrity-cli/) | Python (Typer) | Developer CLI for identity, wallet, on-chain registration with oracle re-verification, BCC, vault, XNS | Current: 57 tests, including 1 opt-in oracle e2e |
+| [`bcc_middleware/`](bcc_middleware/) | Python (FastAPI) + OPA | Pre-execution policy gate, HIPAA BAA check, verification-tier gate, signed intent-rationale commitments, reputation-sync/slashing signer loop, Merkle anchoring | Current: 91 pytest + 28 OPA tests |
+| [`integrity-userapi/`](integrity-userapi/) | Python (FastAPI) + Postgres | User accounts/auth, API keys, JWT revocation, login rate limiting, wallet ownership, demo-run bridge — strictly non-chain | Current: 51 tests with real Postgres and real CORS for dashboard |
+| [`integrity-dashboard/`](integrity-dashboard/) | React + Vite + TS, plus `demo/` Python engine | The original INTEGRITY-LATEST dashboard app and closed-loop demo engine. Separate from the standalone `integrity-mvp` repo, which is now the broader presentation layer. | Current: wired to real oracle/userapi reads and writes; 9 vitest + 20 Playwright e2e tests against live backend+chain |
 
 ---
 
@@ -485,10 +497,17 @@ Appendix A gaps, in [`PRODUCTION_GAPS.md`](PRODUCTION_GAPS.md) §19.
 - **[`docs/INTERFACE_CONTRACT.md`](docs/INTERFACE_CONTRACT.md)** — the single
   source of truth for cross-package schemas, ports, env vars, the 7-primitive
   architecture, the registration sequence, and the BCC/AIS/Merkle conventions.
-- **[`docs/wiki/`](docs/wiki/)** — the compiled knowledge base (entity pages per
-  package, concept pages for the protocols). Governed by a strict
+- **[`docs/wiki/`](docs/wiki/)** — the canonical source of truth for the
+  compiled knowledge base. Its entity and concept pages are published
+  one-way to both the GitHub Wiki and Integrity MVP's read-only `/wiki`
+  experience. Direct edits to either downstream mirror are not an authoring
+  path and may be overwritten by synchronization. Governed by a strict
   no-aspirational-content rule.
-- **[`docs/design/`](docs/design/)** — the dashboard design mockups.
+- **[`docs/architecture/ecosystem-dependencies.md`](docs/architecture/ecosystem-dependencies.md)** — cross-repository ownership and dependency direction for INTEGRITY-LATEST, Xibalba Shield, and Integrity MVP.
+- **[`docs/TESTING.md`](docs/TESTING.md)** — test pyramid, package-level runner conventions, and E2E scope.
+- **[`docs/MAINNET_READINESS.md`](docs/MAINNET_READINESS.md)** — deployment blockers and consequence-ordered readiness criteria.
+- **[`docs/design/`](docs/design/)** — design decisions, audits, and implementation notes.
+- **[`spec/`](spec/)** — normative protocol and Shield specifications plus versioned wire specs.
 
 ## License
 

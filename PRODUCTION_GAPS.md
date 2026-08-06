@@ -1,5 +1,7 @@
 # Production Architecture Gap Analysis & Codebase Audit
 
+> **Current audit pointer — 2026-08-06:** The cross-repository status page is [`docs/audits/2026-08-06-cross-repository-status.md`](docs/audits/2026-08-06-cross-repository-status.md). It records the clean default-branch commit, reproducible package test results, open SDK failures, deployment-verification scope, and the automatic-merge workflow contradiction. This document remains the detailed gap register; historical entries below are not silently rewritten.
+
 Following a deep audit of the `INTEGRITY-LATEST` codebase, the following outlines the specific, technical gaps required to connect the `integrity-dashboard` UI to the backend production systems.
 
 ## 1. Oracle (`integrity-oracle/backend`)

@@ -39,6 +39,14 @@ is simply gone. If you need it for historical reference, it's recoverable
 from this file's prior version in your editor's/tool's history, not from
 anything in the current tree.
 
+## Table of contents
+
+- [Page consolidation (2026-07-16) — route count and names below are stale](#page-consolidation-2026-07-16-route-count-and-names-below-are-stale)
+- [What actually exists now (as of 2026-07-12, this session's work — page](#what-actually-exists-now-as-of-2026-07-12-this-session-s-work-page)
+- [Prereq wiring: benchmarks, VCs, custodial wallet, XNS, governance (2026-07-25)](#prereq-wiring-benchmarks-vcs-custodial-wallet-xns-governance-2026-07-25)
+- [TriMetricWidget fixed 2026-07-15 — was the most severe fake-data surface in the dashboard](#trimetricwidget-fixed-2026-07-15-was-the-most-severe-fake-data-surface-in-the-dashboard)
+- [What is NOT done yet](#what-is-not-done-yet)
+
 ## Page consolidation (2026-07-16) — route count and names below are stale
 
 `App.tsx` now defines **11** routes, not 16: `/`, `/landing`, `/identity`,

@@ -34,6 +34,13 @@ scoring and sensitive BCC policy decisions.
    Tier 3 returns the raw post-boost score without an additional clamp.
    `handlers::compute_ais_for_agent` passes `agent.verification_tier` into `score_with_tier`.
 
+## Table of contents
+
+- [The design](#the-design)
+- [Evidence lifecycle](#evidence-lifecycle)
+- [Correcting the old wiki's mechanism](#correcting-the-old-wiki-s-mechanism)
+- [EIP-712 legal-controller binding ([PLANNED])](#eip-712-legal-controller-binding-planned)
+
 ## The design
 
 The idea: an agent's [AIS](ais.md) *ceiling* (not just its measured score)

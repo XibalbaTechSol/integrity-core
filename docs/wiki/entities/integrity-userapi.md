@@ -32,6 +32,15 @@ place this package talks to another service — a plain `httpx` HTTP client
 fanning out to [integrity-oracle](integrity-oracle.md), never a direct
 chain RPC.
 
+## Table of contents
+
+- [Endpoints](#endpoints)
+- [Custodial app-wallet (added 2026-07-25)](#custodial-app-wallet-added-2026-07-25)
+- [The oracle tri-state](#the-oracle-tri-state)
+- [Four gaps closed 2026-07-15 (all four of this package's PRODUCTIONGAPS.md §6 findings)](#four-gaps-closed-2026-07-15-all-four-of-this-package-s-productiongaps-md-6-findings)
+- [Tests and Postgres wiring](#tests-and-postgres-wiring)
+- [CORS (added 2026-07-09, real gap)](#cors-added-2026-07-09-real-gap)
+
 ## Endpoints
 
 `POST /auth/register`, `POST /auth/login`, `GET /me` — JWT bearer auth

@@ -30,6 +30,20 @@ source_files:
 The agent-facing Python library. It gives an AI agent everything it needs to
 become a self-sovereign, on-chain, reputation-bearing participant.
 
+## Table of contents
+
+- [Two keypairs](#two-keypairs)
+- [Self-sovereign registration](#self-sovereign-registration)
+- [Telemetry: OpenTelemetry + MLflow, unified](#telemetry-opentelemetry-mlflow-unified)
+- [Pre-execution intent capture (telemetry/intent.py, added 2026-07-11)](#pre-execution-intent-capture-telemetry-intent-py-added-2026-07-11)
+- [Two dangling-reference gaps, closed 2026-07-11](#two-dangling-reference-gaps-closed-2026-07-11)
+- [Telemetry integrations widened + redactphi opt-in default, 2026-07-15](#telemetry-integrations-widened-redactphi-opt-in-default-2026-07-15)
+- [PHI/PII redaction](#phi-pii-redaction)
+- [Markets](#markets)
+- [Also](#also)
+- [MCP server (mcpserver.py, added 2026-07-29)](#mcp-server-mcpserver-py-added-2026-07-29)
+- [Persistent Memory Bridge (memory.py, added 2026-07-30)](#persistent-memory-bridge-memory-py-added-2026-07-30)
+
 ## Two keypairs
 
 - **DID key** (`did.py`) — Ed25519, `did:integrity:<sha256(pubkey)>`, signs
@@ -267,5 +281,3 @@ Instead of treating memory sync as an ad-hoc cron job, agents use the SDK to exp
 
 **Pre-Flight Verification**:
 When `vault.session(platform=...)` begins, the SDK invokes `verify_preflight()`. This queries the `integrity-oracle` for the agent's `StateAnchor` address, reads the `currentRoot()` directly from the EVM (via `web3.py`), and compares it against the local backend's derived `state_root`. If they mismatch, the session panics, protecting the agent from acting on tampered or out-of-sync local memory.
-
-

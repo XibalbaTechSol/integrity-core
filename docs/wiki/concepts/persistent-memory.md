@@ -11,6 +11,16 @@ confidence: high
 
 The Persistent Memory Bridge allows agents to anchor their localized memory states cryptographically to the blockchain. Agents use this architecture to prove that their internal knowledge base (e.g. vector databases, key-value stores) remains untampered and mathematically verifiable.
 
+## Table of contents
+
+- [1. The TrustVault Primitive](#1-the-trustvault-primitive)
+- [2. Pluggable Memory Backends](#2-pluggable-memory-backends)
+  - [JSONLBackend (Default)](#jsonlbackend-default)
+  - [RAGBackend (Vector Databases)](#ragbackend-vector-databases)
+  - [GraphBackend (Relational/Knowledge Graphs)](#graphbackend-relational-knowledge-graphs)
+- [3. CLI Configuration](#3-cli-configuration)
+- [4. MCP Agent Integration](#4-mcp-agent-integration)
+
 ## 1. The `TrustVault` Primitive
 
 Agents manage memory states via the `TrustVault` context manager exposed in `integrity-sdk` and `integrity-cli`.

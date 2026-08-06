@@ -25,6 +25,16 @@ agent comes to own **7 primitive contracts** — and because the agent's own EVM
 wallet signs the deploy transactions for two of them, the chain itself is
 cryptographic proof of who controls the identity.
 
+## Table of contents
+
+- [The 7 primitives](#the-7-primitives)
+- [Call-routing convention (load-bearing)](#call-routing-convention-load-bearing)
+- [Registration sequence](#registration-sequence)
+- [Implications](#implications)
+- [Sovereign vs. Centralized Deployment Topologies](#sovereign-vs-centralized-deployment-topologies)
+  - [1. Sovereign Mode (Agent-Owned Clones)](#1-sovereign-mode-agent-owned-clones)
+  - [2. Centralized Mode (EOA-Owned / DAO-Governed Singletons)](#2-centralized-mode-eoa-owned-dao-governed-singletons)
+
 ## The 7 primitives
 
 | # | Primitive | Deploy | Role |

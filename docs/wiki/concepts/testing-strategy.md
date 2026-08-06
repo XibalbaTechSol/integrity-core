@@ -19,6 +19,12 @@ component tests, and the new real-browser E2E layer — lives in
 [`docs/TESTING.md`](../../TESTING.md); this page is the wiki's pointer into
 it plus the facts worth having in the knowledge graph directly.
 
+## Table of contents
+
+- [Three layers](#three-layers)
+- [Ground rule](#ground-rule)
+- [Convention going forward](#convention-going-forward)
+
 ## Three layers
 
 ```mermaid

@@ -31,6 +31,28 @@ independently verifies agents' on-chain state — including, as of this pass, th
 downstream has to trust an agent's own word. Per §6.10 of the interface contract,
 this is the **only** backend that ever reads on-chain state.
 
+## Table of contents
+
+- [Workspace](#workspace)
+- [HTTP API](#http-api)
+  - [GET /v1/agent/{id}/telemetry, GET /v1/agent/{id}/traces](#get-v1-agent-id-telemetry-get-v1-agent-id-traces)
+  - [GET /v1/markets, GET /v1/markets/{id} (§6.9)](#get-v1-markets-get-v1-markets-id-6-9)
+  - [GET /v1/leaderboard](#get-v1-leaderboard)
+  - [Contract-ownership + Integrity Health reads: GET /v1/agent/{id}/contracts, /baas](#contract-ownership-integrity-health-reads-get-v1-agent-id-contracts-baas)
+  - [Verifiable Credentials: GET /v1/agent/{id}/vc](#verifiable-credentials-get-v1-agent-id-vc)
+  - [Network benchmarks + protocol stats: GET /v1/benchmarks, /v1/stats](#network-benchmarks-protocol-stats-get-v1-benchmarks-v1-stats)
+  - [XNS resolution: GET /v1/xns/resolve?handle=, GET /v1/agent/{id}/handle](#xns-resolution-get-v1-xns-resolve-handle-get-v1-agent-id-handle)
+  - [Governance: GET /v1/governance/proposals](#governance-get-v1-governance-proposals)
+  - [GET /v1/agent/{id}/wallet](#get-v1-agent-id-wallet)
+  - [Server-side telemetry-signal re-derivation (derive.rs)](#server-side-telemetry-signal-re-derivation-derive-rs)
+  - [The OTLP/gRPC path (otlp.rs) — separate from telemetryevents, unauthenticated](#the-otlp-grpc-path-otlp-rs-separate-from-telemetryevents-unauthenticated)
+  - [PHI backstop on POST /v1/telemetry/ingest](#phi-backstop-on-post-v1-telemetry-ingest)
+  - [Judge evaluations (storage only — no judge implementation)](#judge-evaluations-storage-only-no-judge-implementation)
+- [On-chain client (chain.rs)](#on-chain-client-chain-rs)
+- [Anchoring](#anchoring)
+- [Canonical JSON signing — real cross-language bug fixed 2026-07-11](#canonical-json-signing-real-cross-language-bug-fixed-2026-07-11)
+- [State](#state)
+
 ## Workspace
 
 - **`scoring-core`** — dependency-free; the **one** place the AIS formula is
