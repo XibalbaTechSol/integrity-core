@@ -42,6 +42,7 @@ Normative intent for the protocol, with an implementation map. Package coordinat
 20. Document Relationship and Revision Policy
 21. Financial Action & Payment-Protocol Interop *(added 2026-08-01)*
 22. Session Integrity, Drift & Autonomous Termination *(added 2026-08-01)*
+23. Conformance Profiles And Claim Discipline *(added 2026-08-06)*
     - Appendix A — Priority Implementation Gaps
     - Appendix B — One-Sentence Summary
 
@@ -1066,6 +1067,63 @@ vocabulary and invariants, not a build order.
 
 ---
 
+## 23. Conformance Profiles And Claim Discipline *(added 2026-08-06)*
+
+This section defines how implementations make claims against this specification. It does not add a new primitive. It prevents a recurring failure mode: a README, dashboard, or product page describing a planned property as if the implementation already enforces it.
+
+### 23.1 Conformance profiles
+
+| Profile | Minimum claim | Required evidence |
+|---|---|---|
+| Design-only | The behavior is specified but no implementation exists. | Spec section plus explicit `[PLANNED]` label. |
+| Local implementation | The behavior works without external services. | Unit/integration tests against real local code paths. |
+| Wire implementation | The behavior is exposed through a public API or SDK surface. | Generated schema/openapi artifact plus test proving serialization shape. |
+| Live-stack implementation | The behavior reaches a running service stack. | Test or run log against real services, not mocks. |
+| Chain-anchored implementation | The behavior is reflected in finalized or testnet chain state. | Transaction/address/proof reference and readback check. |
+| Operational implementation | The behavior has runbook, alerting, rollback, and owner. | Docs plus validation command or incident drill evidence. |
+
+An implementation may claim only the highest profile it can prove. A higher-level artifact may summarize lower-level evidence, but it must not erase the lower profile boundary.
+
+### 23.2 Status vocabulary
+
+Use these words consistently across READMEs, wiki pages, dashboards, and product specs:
+
+- `VERIFIED`: exercised against the real dependency named in the claim.
+- `PARTIAL`: meaningful implementation exists, but one or more required behaviors are missing or unverified.
+- `PLANNED`: no implementation exists yet.
+- `BLOCKED`: implementation or verification is waiting on a specific external condition.
+- `DEPRECATED`: still present but no longer the recommended surface.
+- `REMOVED`: no longer present; consumers need a migration note.
+
+`PARTIAL`, `PLANNED`, and `BLOCKED` entries must include the reason. A status table that says only “in progress” is not precise enough for this protocol.
+
+### 23.3 Source-of-truth precedence
+
+When documents disagree, use this order:
+
+1. Deployed chain state for on-chain facts.
+2. Source code and generated wire schemas for implemented API behavior.
+3. docs/INTERFACE_CONTRACT.md for internal package coordination.
+4. spec/ for normative protocol and protocol-facing companion specs.
+5. Repository README files for implementation status and operational commands.
+6. docs/wiki/ for reader-facing memory and navigation.
+
+External repositories own their own implementation status. `xibalba-shield` owns Shield endpoint behavior through its README and SPECIFICATION.md; `integrity-mvp` owns presentation behavior. INTEGRITY-LATEST owns protocol primitives and public protocol surfaces.
+
+### 23.4 No silent capability transfer
+
+A capability built in one layer does not automatically exist in another. Examples:
+
+- Shield can emit security evidence, but AIS changes exist only when Integrity Oracle consumes that evidence.
+- A local JSONL log proves local observation only; it becomes cryptographic evidence only after accepted and anchored through the Integrity pipeline.
+- A dashboard panel can display a concept before the backend enforces it; the panel must label the backend status honestly.
+- A generated schema proves wire shape, not business correctness.
+
+### 23.5 Revision requirements
+
+Any future spec expansion must state whether it changes a primitive, a wire surface, an implementation plan, or only terminology. Breaking wire changes require a versioned surface. Breaking primitive changes require a major spec revision and migration plan. Additive terminology or conformance clarifications may remain within v0.4.
+
+---
 ## Appendix A — Priority implementation gaps
 
 Ordered by consequence. Cross-referenced with

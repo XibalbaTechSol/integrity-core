@@ -3,6 +3,21 @@
 > Chronological record of wiki actions. Append-only — never edit past entries.
 > Actions: ingest, create, update, lint, query, archive
 
+## [2026-08-06] update | Scoped Devil's Advocate and Red-Team Reviews
+
+- Limited mandatory adversarial review to architectural decisions, foundational security or identity-boundary changes, consequential deployments, and decisions with profound long-term implications.
+- Explicitly excluded routine implementation, maintenance, and low-risk reversible work.
+
+## [2026-08-06] update | Xibalba Agent Safety and Control Invariants
+
+- Expanded `/home/xibalba/.hermes/SOUL.md` and `concepts/xibalba-agent-operating-model.md` with authority ordering, untrusted-memory rules, risk-tiered Behavioral Commitment Chain approval requirements, postcondition verification, degraded-mode behavior, shadow-provider restrictions, identity-language distinctions, and draft-first external operations.
+- Marked cryptographic origin binding, replay checks, deterministic redaction, stale-claim recovery, dead-letter handling, restart reconciliation, and adversarial automation tests as `[PLANNED]` because they are not yet fully implemented and verified.
+
+## [2026-08-06] create | Xibalba Agent Operating Model
+
+- Added `concepts/xibalba-agent-operating-model.md` documenting the configured Xibalba identity, closed-loop task lifecycle, graph-memory posture, significance gate, user-interface design influences, and approval boundaries.
+- Recorded the significant-task wiki compilation worker as `[PLANNED]`; the existing Hermes observer currently captures source evidence into local graph memory, but automatic semantic compilation is not yet wired.
+
 ## [2026-07-31] update | AOS Observability Gating — Python pytest coverage completed
 
 - Added `test_intercept_aos_gating` to `bcc_middleware/tests/test_intercept.py` covering the full HTTP-layer round-trip for AOS-gated agent tool calls.
@@ -2831,3 +2846,104 @@ writeup: PRODUCTION_GAPS.md §18.
   flows back from INTEGRITY-LATEST into either application.
 - Reconciled the Shield specification's stale claim that its implementation repository did
   not yet exist; implementation status remains owned by the Shield README.
+
+## [2026-08-04] docs | Integrity specification published in the user-facing wiki
+
+- Added the Integrity Protocol Specification concept page and indexed it, increasing the
+  wiki catalog from 31 to 32 pages.
+- Identified the version-controlled Markdown specification v0.4 as the current normative
+  source and linked it to the protocol's foundational concepts.
+- Preserved the supplied comprehensive specification PDF as an explicitly archived v0.3
+  artifact for in-browser viewing and download without presenting it as current.
+
+## [2026-08-04] docs | Canonical wiki publication contract enforced
+
+- Declared `INTEGRITY-LATEST/docs/wiki/` as the sole authoring source of truth;
+  Integrity MVP and GitHub Wiki are downstream, read-only projections.
+- Extended the GitHub Wiki publisher to include architecture and query pages.
+- Made GitHub Wiki sidebar and footer generation deterministic from the canonical
+  page set, eliminating the remaining hand-maintained mirror-only content path.
+
+## [2026-08-04] docs | Canonical article tables of contents
+
+- Added deterministic TOC generation for every canonical concept, entity,
+  architecture, and query article.
+- Added publication-time drift validation so GitHub Wiki cannot publish after a
+  heading change until the canonical TOC is regenerated.
+- Kept the MVP's dynamic right rail derived from the same headings while rendering
+  the canonical nested TOC in the article body on both downstream surfaces.
+
+## [2026-08-04] fix | Functional master wiki contents
+
+- Replaced the MVP left rail's inert category labels and decorative chevrons with
+  accessible expand/collapse controls over the complete 32-article catalog.
+- Added article counts, active-page semantics, desktop/mobile selection behavior,
+  and automatic expansion of the selected article's category.
+- Changed the generated GitHub Wiki sidebar from one flat list to the same
+  canonical concept, entity, architecture, and open-query grouping.
+
+## [2026-08-04] fix | MVP wiki link integrity and update provenance
+
+- Added a visible Last updated timestamp sourced from the canonical snapshot's
+  Git commit time.
+- Resolved relative wiki links into stable `/wiki?page=...` navigation and
+  repository-document links into canonical GitHub source URLs.
+- Unified MVP and canonical heading slug rules after a full Playwright crawl
+  found one `<h>`-fragment mismatch in the Oracle XNS section.
+- Exhaustive browser validation covered all 32 master entries, 199 unique
+  rendered destinations, 153 inline anchors, and 156 right-rail TOC targets
+  with no remaining failures.
+
+## [2026-08-05] fix | Master TOC expanded into a true outline tree
+
+- Corrected the MVP left rail from a category/article index into a three-level
+  master outline: category → article → article section.
+- Added independent article-outline expand/collapse controls and section links
+  that open the correct article at the selected canonical heading.
+- Kept the active article and active section visibly synchronized across
+  desktop and mobile navigation.
+
+## [2026-08-05] fix | MVP wiki now opens on the canonical Wiki home
+
+- Added `docs/wiki/index.md` to the generated MVP snapshot as the `home` page
+  instead of skipping the same page GitHub Wiki uses as its landing view.
+- `/wiki` now defaults to the canonical Integrity Protocol Wiki overview,
+  system map, start-here guidance, and master table of contents; direct article
+  URLs remain unchanged.
+
+## [2026-08-05] feat | Mermaid charts render in the MVP browser wiki
+
+- Added lazy-loaded Mermaid rendering for canonical `mermaid` code fences so
+  system and protocol diagrams display as themed SVG charts in the MVP wiki.
+- Added responsive horizontal scrolling on narrow screens plus explicit loading
+  and source-preserving error fallbacks for invalid diagrams.
+
+## [2026-08-06] fix | MVP wiki professional rendering regressions repaired
+
+- Fixed the MVP wiki Markdown renderer so canonical pipe tables render as accessible HTML tables instead of being silently dropped.
+- Fixed the mobile wiki search trigger so it docks at the bottom of the viewport instead of overlapping the top header grid.
+- Added Playwright regression coverage for table rendering and mobile search placement.
+- Clarified the canonical contract-documentation policy: `entities/contracts.md` remains the default aggregate owner for the contract suite; per-contract pages are reserved for contracts that need standalone API documentation.
+- Regenerated the MVP wiki snapshot from `INTEGRITY-LATEST/docs/wiki/` after the canonical metadata update, and fixed the MVP sync path so canonical `docs/guides/*.md` pages appear under the Guides rail instead of falling out of navigation.
+
+## [2026-08-06] update | Cross-repo wiki coverage and MVP browser TOC
+
+- Added `docs/wiki/architecture/ecosystem-dependencies.md` so the canonical wiki exposes the verified dependency boundary across INTEGRITY-LATEST, Xibalba Shield, and Integrity MVP, instead of leaving it only in `docs/architecture/ecosystem-dependencies.md`.
+- Updated `WIKI_INDEX.md` and the wiki home page from 33 to 34 pages, adding one architecture page.
+- Recorded the Integrity MVP `/wiki` browser changes: the header uses the official Xibalba Solutions logo linked to `/`, and the left rail is now an ordered protocol TOC with functional article and section navigation.
+- Verification performed in `integrity-mvp`: focused Playwright wiki suite passed (4 tests), production build passed, whitespace check passed, and desktop/mobile screenshots were saved under `~/Pictures/`.
+
+## [2026-08-06] docs | Repository README source-of-truth pass
+
+- Updated the three top-level repository READMEs so each explicitly states its source-of-truth role, definitions, current status, ownership boundaries, plans, and documentation map.
+- Expanded `integrity-mvp/README.md` from a short project note into a full app source-of-truth document covering the three-repo stack, generated wiki, current UI surfaces, commands, testing, and roadmap.
+- Updated `INTEGRITY-LATEST/README.md` package-status language to align with the current wiki and added explicit README/interface/spec/wiki precedence.
+- Added source-of-truth and documentation-map sections to `xibalba-shield/README.md`, preserving its implementation-status dashboard as the Shield truth ledger.
+- Updated `docs/INTERFACE_CONTRACT.md` to describe current internal scope and explicitly keep `integrity-mvp` and `xibalba-shield` outside INTEGRITY-LATEST's dependency graph.
+
+## [2026-08-06] spec | Specification expansion and Shield spec ownership
+
+- Expanded `spec/integrity-protocol-v0.4.md` with §23 conformance profiles, status vocabulary, source-of-truth precedence, and no-silent-capability-transfer rules.
+- Updated `spec/README.md` to document Shield specification ownership and protocol-facing boundaries.
+- Updated `spec/xibalba-shield-v1.md` to point implementation details to the Shield repo while retaining the Integrity-facing evidence boundary.
+- Updated the wiki concept page for the Integrity specification with the new conformance and Shield-boundary rules.
