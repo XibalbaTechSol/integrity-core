@@ -1,0 +1,6 @@
+{
+  "device_id": "xibalba-shield-local-dev",
+  "tenant_id": "xibalba-solutions",
+  "device_role": "workstation",
+  "bcc_middleware_url": "http://bcc-middleware:8000"
+}

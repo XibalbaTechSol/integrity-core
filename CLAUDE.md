@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Integrity Protocol — a trust/compliance layer for AI agents on Base L2. Agents deploy and own
 their own identity/reputation contracts (no privileged factory registers on their behalf); an
 oracle computes a reputation score (AIS) from off-chain telemetry, boostable via a real Noir/
-Barretenberg ZK proof; a policy middleware gates risky actions pre-execution. "Xibalba Shield"
+Barretenberg ZK proof; a policy middleware gates risky actions pre-execution. "Integrity Health"
 is the HIPAA/healthcare vertical built on top of the same primitives.
 
 This is a from-scratch rewrite of an earlier prototype. Ground rule, repeated in nearly every
@@ -28,14 +28,14 @@ enforcement mechanism (see `docs/TESTING.md`).
 
 | Package | Stack | Role |
 |---|---|---|
-| `contracts/` | Foundry/Solidity 0.8.28 | On-chain primitives, registries, markets, Shield (HIPAA) contracts |
+| `contracts/` | Foundry/Solidity 0.8.28 | On-chain primitives, registries, markets, Integrity Health (HIPAA) contracts |
 | `integrity-zkp/` | Noir + Barretenberg | The real ZK circuit backing on-chain reputation-boost proofs |
 | `integrity-oracle/` | Rust/Axum (Cargo workspace) | Reads chain state, computes AIS, serves telemetry/market/leaderboard API |
 | `integrity-sdk/` | Python | Agent-facing SDK: identity, wallet, BCC commitments, ZK proving, telemetry |
 | `integrity-cli/` | Python/Typer | Developer CLI — independent reimplementation of SDK's core flows, not a wrapper around it |
 | `bcc_middleware/` | Python/FastAPI + OPA | Pre-execution policy gate agents call before acting on an intent |
 | `integrity-userapi/` | Python/FastAPI + Postgres | User-account service, deliberately isolated trust domain from the oracle's DB |
-| `integrity-mvp/` | React/Vite/TS | Dashboard frontend — see "Known gaps" below, much of it is still mock data |
+| `integrity-dashboard/` | React/Vite/TS | Dashboard frontend — see "Known gaps" below, much of it is still mock data |
 | `docs/wiki/` | Markdown | Compiled long-term memory; governed by `.agents/AGENTS.md` |
 
 Read `.agents/AGENTS.md` before any session that materially changes code — it defines a
@@ -55,8 +55,8 @@ make chain      # start a local anvil chain + run contracts/script/Deploy.s.sol 
 make sync-abis  # forge build, then trim ABIs into scripts/sync_abis.py's output for Python callers
 make up         # docker-compose: postgres, redis, opa, oracle-backend, bcc-middleware, dashboard, userapi(+its own postgres)
 make test       # every package's real test suite (forge/nargo/cargo/pytest x4/npm)
-make test-e2e   # real-browser Playwright e2e against a freshly booted stack (integrity-mvp)
-make demo       # integrity-mvp/demo scenario engine against live Base Sepolia by default — needs FUNDER_PRIVATE_KEY + INTEGRITY_WALLET_PASSWORD
+make test-e2e   # real-browser Playwright e2e against a freshly booted stack (integrity-dashboard)
+make demo       # integrity-dashboard/demo scenario engine against live Base Sepolia by default — needs FUNDER_PRIVATE_KEY + INTEGRITY_WALLET_PASSWORD
 ```
 
 Per-package, when iterating on one piece:
@@ -84,10 +84,10 @@ cd <pkg> && uv venv .venv && uv pip install -e ".[dev]"
 cd <pkg> && .venv/bin/python -m pytest tests/          # sdk: 97 tests, cli: 49 tests, bcc_middleware: 49 tests
 cd bcc_middleware && opa test policies/ -v             # 12 OPA policy tests, separate from pytest
 
-# integrity-mvp/  (Vite/React 19/TS)
-cd integrity-mvp && npm run dev
-cd integrity-mvp && npm run build     # tsc -b && vite build
-cd integrity-mvp && npm run lint      # oxlint
+# integrity-dashboard/  (Vite/React 19/TS)
+cd integrity-dashboard && npm run dev
+cd integrity-dashboard && npm run build     # tsc -b && vite build
+cd integrity-dashboard && npm run lint      # oxlint
 ```
 
 To run a single test: `forge test --match-test <name>` / `forge test --match-contract <Contract>`;
@@ -109,13 +109,51 @@ call and hits stack-too-deep otherwise.
 
 Contract groups: `core/` (`SovereignAgent`, `IAccount`), `framework/` (registry/factory/profile/
 domain/name-service), `oracle/` (reputation, slashing, ZK verifier plumbing, $ITK token, CCIP
-bridge), `markets/` (agent-owned prediction markets + capital pool), `shield/` (HIPAA vertical:
+bridge), `markets/` (agent-owned prediction markets + capital pool), `health/` (HIPAA vertical:
 `ComplianceGate`, `CoveredEntityRegistry`, `EHRGate`, `SmartBAA(Factory)`,
 `HIPAAGuardrailRegistry`).
 
 `UltraPlonkVerifier.sol` is an explicit placeholder that reverts (fails *closed*) until replaced
 wholesale by `make generate-verifier`, which runs `integrity-zkp`'s `bb write_solidity_verifier`
 pipeline — comment in the file says "WILL BE REPLACED WHOLESALE, NOT EDITED."
+
+### The four foundational primitives
+
+Concepts, not contracts: **memory** (continuity), **agent-owned contracts** (capability with
+consequence — stake lives here), **authority** (delegated permission the agent cannot
+self-grant), **reputation** (earned, non-forgeable standing). Beware the word: the *seven*
+per-agent contracts (`PrimitiveSet`) are a different sense, and only the second concept is a
+contract at all. AIS is a score over reputation, not a primitive.
+
+Authority is built only in the Integrity Health vertical so far — `SmartBAA` is already a delegation
+instrument — and generalizing it is what closes the client-supplied `covered_entity_address`
+hole. Termination (how an agent's standing ends) is formalized but deliberately unadopted: it
+needs registry mutability, the same question the upgradeability decision faces.
+
+Normative in `spec/integrity-protocol-v0.4.md` §4 (supersedes the v0.3 PDF). Wiki statement:
+`docs/wiki/concepts/foundational-primitives.md`; derivation: `docs/design/primitive-set-coherence.md`.
+
+### Persistent memory (primitive #1) — it gates registration
+
+Memory is not a convenience layer here; it is the first of the four above, and the one the
+others presuppose. **An agent with no anchored memory cannot register.** Every agent must
+anchor a *genesis memory root* on its own `StateAnchor` — signed by the agent's controller,
+never by the protocol — and the oracle independently re-reads `StateAnchor.latestRoot` on
+`POST /v1/agent/register`, refusing a zero root with `400 MemoryNotInitialized`
+(`ChainClient::memory_state` → `AppError::MemoryNotInitialized`). `integrity-sdk`'s
+`registration.py` does this as step 8b, *before* `registerPrimitives`, per the spec's
+required ordering.
+
+Note it needs no 8th contract — the PrimitiveSet stays 7 addresses, and memory rides on
+`StateAnchor` (primitive #2). Agent-authorized genesis works because `StateAnchor`'s admin
+*is* the `SovereignAgent`, which the constructor grants `ANCHOR_ROLE`. The empty-vault
+sentinel `keccak256("integrity.trust-vault.genesis.v1")` is pinned in
+`docs/INTERFACE_CONTRACT.md` §4.4a — derive it, never copy the hex.
+
+Two things remain open and are recorded in `PRODUCTION_GAPS.md` §19: contract-level
+enforcement that `ANCHOR_ROLE` cannot anchor epoch 1 (blocked because `StateAnchor` is
+deployed *per agent*, so a contract change reaches only future agents), and lineage
+attestation. All 7 agents registered before this change still report `latestRoot == 0`.
 
 ### ZK proof pipeline (the reputation boost)
 
@@ -146,9 +184,15 @@ Computed in exactly one place, `integrity-oracle/scoring-core` (deliberately dep
 besides `serde`, so `backend` depends on it and never the reverse):
 
 ```
-AIS = (S_entropy·wE + S_grounding·wG + S_sacrifice·wS + S_compliance·wC) · ZK_boost
+AIS = (S_entropy^wE · S_grounding^wG · S_sacrifice^wS · S_compliance^wC) · ZK_boost
 wE=0.30, wG=0.30, wS=0.20, wC=0.20, ZK_boost=1.15 if a real bb-verified proof is live, else 1.0
 ```
+
+A weighted **geometric** mean, not arithmetic — so **any single zero component
+zeroes the entire score**. This is the most common way to misread AIS: an agent
+whose telemetry omits one axis (e.g. reports no token usage, so `sacrifice`
+derives to 0) scores 0.0 even with the other three axes perfect. Absent and
+catastrophic are currently indistinguishable here; see `PRODUCTION_GAPS.md`.
 
 ### Oracle service
 
@@ -182,18 +226,24 @@ change in one automatically applies to the other.
 
 ## Known gaps / things this doc's own exploration found stale — verify before relying on them
 
-- `integrity-mvp/package.json` has no `test` script, though root `Makefile`'s `test` target and
-  `docs/TESTING.md` both invoke `cd integrity-mvp && npm test`.
-- `integrity-mvp/demo/` (the Python scenario engine `make demo` depends on) does not exist yet on
-  disk, despite being referenced by the root README, Makefile, `docs/TESTING.md`,
-  `.agents/AGENTS.md`, and `docs/INTERFACE_CONTRACT.md` §11.
-- `integrity-mvp/src/services/api.ts` and `AgentContext.tsx` are currently hardcoded mock data,
-  not real calls to `integrity-oracle` — despite `docs/wiki/entities/integrity-mvp.md`
-  describing a much more built-out frontend (real axios API clients, JWT auth, a Playwright
-  `e2e/` suite) whose files don't currently exist in the tree. Trust the code over that wiki page
-  until reconciled. No wagmi/viem/ethers wallet-connection library is present in the frontend at
-  all yet.
+- **`integrity-dashboard/e2e/` does not exist**, though `integrity-dashboard/playwright.config.ts`
+  sets `testDir: './e2e'` and root `Makefile`'s `test-e2e` target names
+  `integrity-dashboard/e2e/global-setup.ts` as the thing that boots anvil + Postgres/Redis +
+  oracle + a seeded agent. So `make test-e2e` currently has no tests to run, and the
+  global-setup architecture the Makefile documents is not built. Either build the suite or
+  drop the target — a documented-but-absent test layer reads as coverage that isn't there.
+  Compounding it, `playwright.config.ts` sets `reuseExistingServer: !process.env.CI`, so a
+  leftover host dev server on `:5173` is silently adopted instead of flagged — the same
+  port-shadowing failure recorded as F11 in `docs/design/harness-loop-audit-2026-07-30.md`.
 - `contracts/.env` (populated, not just `.env.example`) exists on disk — don't commit it.
+
+Four gaps previously listed here were **verified stale on 2026-07-31** and removed rather than
+left to mislead: `integrity-dashboard/package.json` *does* define `"test": "vitest run"`;
+`integrity-dashboard/demo/` *does* exist (`demo/pyproject.toml`, entry point `integrity-demo`);
+`src/services/api.ts` no longer exists at all, so the "hardcoded mock data" warning pointed at a
+deleted file (confirm the dashboard's current data path before relying on either claim); and
+`ethers ^6.16.0` *is* a dashboard dependency, so "no wallet-connection library is present" no
+longer holds. Re-check this section against disk before trusting it — it drifted once.
 
 ## Live deployment
 

@@ -1,0 +1,26 @@
+{
+  "_source": "Mirror of repo-root deployments.baseSepolia.json (singletons subset). Do NOT hand-edit addresses here — re-copy from the root file after a genesis/incremental deploy. Per-agent primitive addresses (Slasher, StateAnchor, etc.) are intentionally NOT here; they are resolved live from XibalbaAgentRegistry via oracle.getAgent().primitives.",
+  "chainId": 84532,
+  "network": "baseSepolia",
+  "rpcUrl": "https://sepolia.base.org",
+  "explorerUrl": "https://sepolia.basescan.org",
+  "singletons": {
+    "IntegrityToken": "0x0E87D408732BeC3d3997d9eCE2E20A6679C35655",
+    "XibalbaAgentRegistry": "0x72e21e44AdD6d6e7CAa02eaedF078630afC40819",
+    "AgentPrimitivesFactory": "0xC19fc9cB2cB87297EfDF11DA7e211e44A6C1181D",
+    "MarketFactory": "0xDB1cB3a45F4918e944254183bca8112e699AFB05",
+    "A2ACapitalPool": "0x388D0180725E0F757C6Ef01ef0474E718faA3776",
+    "SmartBAAFactory": "0xf791059A9E77734f3fd7dffC1ca35728547608eb",
+    "CoveredEntityRegistry": "0x3E42C072BA8Ca6EE6E86c8DB011eB4063b8aac07",
+    "XibalbaNameService": "0x71f42aC04781c41e007e7f03244235341ce15cc8",
+    "IntegrityGovernance": "0x62ef8A3B42b07FDee7498199696dae31AC2A9255"
+  },
+  "protocolAddresses": {
+    "oracleSigner": "0x67bA5D723E1F5517afF7eb980E2f73a9e17aD556",
+    "arbitrator": "0x67bA5D723E1F5517afF7eb980E2f73a9e17aD556"
+  },
+  "domains": {
+    "general.integrity": "0x595cceb222da8b2d14f13ddd254b38c4c99285925da5d4f854461514dad57e00",
+    "healthcare.integrity": "0x83064d690f7098fe67923a009c2f7ee6651571d8fbf9071c0c0a340c1ebf63a7"
+  }
+}

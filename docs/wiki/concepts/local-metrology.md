@@ -104,5 +104,7 @@ hardware-tethered identity is explicitly future roadmap (see
 figures/formulas for those seven risk indicators as never-built product
 ideation, not documentation of current code.
 
-Related: [AIS](ais.md), [observability & VTL](observability-vtl.md),
+Related: [Telemetry Ingestion Pipeline](telemetry-ingestion.md) (the full
+collection→batching→signing→oracle-pipeline writeup this page's formulas
+feed into), [AIS](ais.md), [observability & VTL](observability-vtl.md),
 [integrity-sdk](../entities/integrity-sdk.md).

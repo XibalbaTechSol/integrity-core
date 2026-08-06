@@ -7,15 +7,15 @@ type: concept
 tags: [compliance, tokenomics]
 confidence: high
 source_files:
-  - contracts/src/shield/SmartBAA.sol
-  - contracts/src/shield/SmartBAAFactory.sol
+  - contracts/src/health/SmartBAA.sol
+  - contracts/src/health/SmartBAAFactory.sol
 ---
 
 This page merges and corrects the old wiki's `hybrid-escrow.md` and
 `smart-baa-technical-guide.md` — both described the same subject
 (HIPAA Business Associate Agreements represented on-chain) with
 overlapping and, in places, aspirational detail. This page documents only
-what `contracts/src/shield/SmartBAA.sol` actually implements; the
+what `contracts/src/health/SmartBAA.sol` actually implements; the
 "what's not built" section at the bottom lists the old pages' extras
 explicitly so nothing here is silently dropped.
 
@@ -105,7 +105,7 @@ silently dropped, per the schema's `[PLANNED]` rule:
   an OPA-linked `baaId`, a "Compliance Officer Command Center" UI, or a
   `slashAndRevoke()` combined function. `arbitrate(true)` is the real
   slashing path; there is no dashboard UI for BAA proposal/review built yet
-  (see [integrity-mvp](../entities/integrity-mvp.md)'s "What's built").
+  (see [integrity-dashboard](../entities/integrity-dashboard.md)'s "What's built").
 
 Related: [ComplianceGate](compliance-gate.md), [BCC](bcc.md),
 [contracts](../entities/contracts.md).

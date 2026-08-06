@@ -8,6 +8,38 @@ use std::path::PathBuf;
 
 use scoring_core::AisWeights;
 
+/// What the PHI/PII backstop does when it finds a match.
+///
+/// The backstop is defense-in-depth: `integrity-sdk`'s collection profiles decide what an
+/// agent *sends*, and this decides what the oracle *accepts*. They are separate on purpose —
+/// the oracle has no way to know whether a client's redaction actually ran.
+///
+/// Default is `Reject`, so a deployment that never configures this keeps the strict behavior.
+/// A development deployment that wants unredacted content sets `Flag`, which stores the
+/// payload **and** records which categories matched, so the data is usable while the risk
+/// stays visible in the row itself. `Off` skips the scan entirely and is the only mode that
+/// loses the signal — it exists because pretending a disabled control is still a control is
+/// worse than naming it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PhiBackstopMode {
+    Reject,
+    Flag,
+    Off,
+}
+
+impl PhiBackstopMode {
+    fn parse(raw: &str) -> Result<Self, String> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "reject" => Ok(Self::Reject),
+            "flag" => Ok(Self::Flag),
+            "off" => Ok(Self::Off),
+            other => Err(format!(
+                "PHI_BACKSTOP_MODE must be one of reject|flag|off (got {other:?})"
+            )),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub database_url: String,
@@ -42,6 +74,7 @@ pub struct Config {
     /// vault — protects Postgres and the ZK verifier subprocess from a
     /// misbehaving/compromised agent hammering the ingestion endpoint.
     pub telemetry_rate_limit_per_minute: u32,
+    pub phi_backstop_mode: PhiBackstopMode,
 }
 
 impl Config {
@@ -69,6 +102,7 @@ impl Config {
         let reporting_period_days: i64 = env_or("AIS_REPORTING_PERIOD_DAYS", "30")
             .parse()
             .map_err(|_| "AIS_REPORTING_PERIOD_DAYS must be a valid integer".to_string())?;
+        let phi_backstop_mode = PhiBackstopMode::parse(&env_or("PHI_BACKSTOP_MODE", "reject"))?;
         let telemetry_rate_limit_per_minute: u32 = env_or("TELEMETRY_RATE_LIMIT_PER_MINUTE", "60")
             .parse()
             .map_err(|_| "TELEMETRY_RATE_LIMIT_PER_MINUTE must be a valid integer".to_string())?;
@@ -88,6 +122,7 @@ impl Config {
             ais_weights,
             reporting_period_days,
             telemetry_rate_limit_per_minute,
+            phi_backstop_mode,
         })
     }
 
@@ -111,6 +146,9 @@ impl Config {
             ais_weights: AisWeights::default(),
             reporting_period_days: 30,
             telemetry_rate_limit_per_minute: 60,
+            // Tests get the strict default; a test that needs Flag/Off sets it explicitly, so a
+            // relaxed backstop can never be inherited silently.
+            phi_backstop_mode: PhiBackstopMode::Reject,
         }
     }
 }

@@ -2,7 +2,7 @@
 title: Agent Integrity Score (AIS)
 acronyms: [AIS]
 created: 2026-07-07
-updated: 2026-07-13
+updated: 2026-07-30
 type: concept
 tags: [metrics]
 confidence: high
@@ -15,7 +15,7 @@ source_files:
 
 The composite trust score for an agent, computed by [Integrity Oracle](../entities/integrity-oracle.md):
 
-`AIS = (S_entropy*wE + S_grounding*wG + S_sacrifice*wS + S_compliance*wC) * ZK_boost`
+`AIS = (S_entropy^wE * S_grounding^wG * S_sacrifice^wS * S_compliance^wC) * ZK_boost`
 
 Default weights (sum to 1.0): `wE=0.30, wG=0.30, wS=0.20, wC=0.20`.
 `ZK_boost = 1.15` when a real Barretenberg proof (see [ZKP](zkp.md)) was
@@ -47,7 +47,7 @@ trail alongside the oracle's own recomputation — it does not feed the formula.
 flowchart LR
     Agent["Agent (SDK/CLI)"] -->|"signed POST /v1/telemetry/ingest<br/>(otel_spans + derived_signals)"| Oracle["integrity-oracle"]
     Oracle -->|"re-derive from otel_spans<br/>(same posture as the PHI backstop)"| Recompute["entropy / grounding / sacrifice /<br/>compliance (oracle-computed,<br/>authoritative — derived_signals<br/>becomes audit-trail only)"]
-    Recompute --> Formula["AIS = ΣS·w · ZK_boost<br/>(scoring-core, sole formula owner)"]
+    Recompute --> Formula["AIS = Π(S^w) · ZK_boost<br/>(scoring-core, geometric volume model)"]
     ZK["Real Barretenberg ZK proof<br/>(bb verify)"] -.->|"1.15× if verified<br/>this period"| Formula
     Formula --> API["GET /v1/agent/{id}/ais<br/>+ live SSE push (/v1/stream)"]
 ```
@@ -68,9 +68,13 @@ pushes each agent's recomputed AIS to `ReputationRegistry.updateScore` and raise
 consumer.
 
 `AIS_final = min(S_calculated, Tier_ceiling)` — an identity-verification
-ceiling clamp — is a **`[PLANNED]`** design, not implemented in
-`scoring-core` today; see [Identity Ceiling](identity-ceiling.md).
+ceiling clamp — is **`[BUILT]`** and enforced in `integrity-oracle/scoring-core`
+via `AisEngine::score_with_tier` (Tier 0: 300, Tier 1: 600, Tier 2: 850, Tier 3: 1000);
+see [Identity Ceiling](identity-ceiling.md).
 
-Related: [Behavioral Commitment Chain](bcc.md), [Integrity Oracle](../entities/integrity-oracle.md),
+Related: [Telemetry Ingestion Pipeline](telemetry-ingestion.md) (the full
+collection→batching→signing→oracle-pipeline writeup; this page covers only
+the formula + the server-side re-derivation trust model in depth),
+[Behavioral Commitment Chain](bcc.md), [Integrity Oracle](../entities/integrity-oracle.md),
 [Local Metrology](local-metrology.md), [AIS API — Versioned Wire Spec](ais-api-spec.md),
 [Identity Ceiling & Verification Ladder](identity-ceiling.md).

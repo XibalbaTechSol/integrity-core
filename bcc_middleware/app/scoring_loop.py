@@ -31,6 +31,15 @@ logger = logging.getLogger("bcc_middleware.scoring_loop")
 # app/nonce_store.py / app/circuit_breaker.py.
 _last_disputed_at: dict[str, float] = {}
 
+# In-memory per-agent last-successfully-pushed base score. PRODUCTION_GAPS.md
+# §5: without this, `push_score` submitted a real (gas-costing) transaction
+# every single cycle for every agent forever, even ones whose score hasn't
+# moved between cycles -- pure waste for an idle agent. Same process-local
+# scope-limitation posture as the dispute cooldown above (a restart just
+# means one extra redundant push, not a correctness problem: ReputationRegistry.
+# updateScore is idempotent for an unchanged value).
+_last_pushed_score: dict[str, int] = {}
+
 
 @dataclass
 class AgentSyncResult:
@@ -104,8 +113,18 @@ def sync_one_agent(settings: Settings, agent_id: str, *, now: float) -> AgentSyn
     if base_score is None:
         return AgentSyncResult(agent_id=agent_id, score_pushed=False, score_detail="AIS response missing components/weights")
 
-    push_result = push_score(settings, reputation_registry, sovereign_agent, base_score)
-    result = AgentSyncResult(agent_id=agent_id, score_pushed=push_result.submitted, score_detail=push_result.detail)
+    if _last_pushed_score.get(agent_id) == base_score:
+        result = AgentSyncResult(
+            agent_id=agent_id, score_pushed=False, score_detail=f"unchanged (base_score={base_score}), skipped"
+        )
+    else:
+        push_result = push_score(settings, reputation_registry, sovereign_agent, base_score)
+        result = AgentSyncResult(agent_id=agent_id, score_pushed=push_result.submitted, score_detail=push_result.detail)
+        if push_result.submitted:
+            # Only cache on a CONFIRMED submission -- a failed push must not
+            # be remembered as "unchanged", or a real pending update would be
+            # skipped forever on every subsequent cycle.
+            _last_pushed_score[agent_id] = base_score
 
     if not slasher or not settings.dispute_enabled:
         return result

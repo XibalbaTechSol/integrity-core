@@ -19,7 +19,7 @@ import {IntegrityMarket} from "./IntegrityMarket.sol";
 /// @dev Mirrors AgentPrimitivesFactory's clone-and-initialize pattern exactly (Clones of
 /// one shared, non-initializable implementation), but for an application contract
 /// instead of an identity primitive. Deliberately NOT restricted to a curator role --
-/// unlike SmartBAAFactory (where "who can create a BAA" is gated by the Shield vertical's
+/// unlike SmartBAAFactory (where "who can create a BAA" is gated by the Integrity Health vertical's
 /// entity-registry check), any agent that completed real self-sovereign registration
 /// (i.e. exists in XibalbaAgentRegistry) may deploy a market. Spam/quality is a
 /// dashboard/discovery-layer concern (e.g. surfacing markets by creator AIS), not an

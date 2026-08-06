@@ -1,0 +1,84 @@
+name: Close conflicting Jules PRs
+
+# Why this exists: auto-merge-jules.yml only re-evaluates a PR when IT is
+# opened/synchronize/reopened -- nothing re-checks it when main moves
+# forward past it. Several Jules PRs cut from a similar base end up racing:
+# whichever merges first is fine, but the others silently drift into a real
+# git conflict with the new main, and then just sit there forever (GitHub
+# won't auto-merge a conflicting PR no matter how long auto-merge stays
+# "enabled" on it).
+#
+# This repo has no GitHub Merge Queue available (confirmed via the API --
+# repo.rulesets rejects a merge_queue rule; likely a personal-account plan
+# restriction, org-owned repos get it, personal accounts don't) -- so
+# instead of re-testing/re-queuing automatically, this closes conflicting
+# Jules PRs outright. That's a deliberate, narrower choice: these are
+# narrow, mechanical, bot-generated fixes for a specific CI failure, not
+# hand-crafted work worth preserving through a rebase. If the underlying
+# problem is still real, the next CI failure on main re-triggers
+# notify-jules-on-failure (ci.yml) and Jules opens a fresh PR against
+# current main -- cheaper and safer than attempting an automatic conflict
+# resolution on a security/correctness-flavored fix.
+#
+# Identifying Jules PRs: NOT by author -- confirmed via the API that every
+# PR in this repo (including ones on jules-<id>-<hash> branches) is
+# attributed to user XibalbaTechSol (type: User), not a distinct bot
+# identity. This means auto-merge-jules.yml's own `github.actor ==
+# 'jules-google[bot]'` condition has likely never matched anything -- a
+# separate, pre-existing bug this workflow does NOT attempt to fix (not
+# this workflow's file to unilaterally rewrite). Instead this filters on
+# the branch name pattern Jules actually uses (`jules-<digits>-<hex>`,
+# confirmed against every currently-open Jules-style PR), which is the one
+# reliable signal available. Never touches PRs on any other branch naming
+# pattern -- if that under- or over-matches in practice, tighten the regex
+# below rather than fall back to the broken actor check.
+
+on:
+  schedule:
+    - cron: "0 * * * *" # hourly
+  workflow_dispatch: {}
+
+permissions:
+  pull-requests: write
+
+jobs:
+  close-conflicting:
+    name: Find and close conflicting Jules PRs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close any Jules PR in CONFLICTING state
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          repo="${{ github.repository }}"
+
+          numbers=$(gh pr list --repo "$repo" --state open \
+            --json number,headRefName \
+            --jq '.[] | select(.headRefName | test("^jules-[0-9]+-[0-9a-f]+$")) | .number')
+
+          if [ -z "$numbers" ]; then
+            echo "No open Jules PRs."
+            exit 0
+          fi
+
+          for n in $numbers; do
+            # GitHub computes `mergeable` lazily -- a PR nobody has recently
+            # viewed often comes back UNKNOWN on the first query (confirmed
+            # empirically: every PR read UNKNOWN on this workflow's first
+            # real run). Poll briefly; give up and skip (not close) rather
+            # than treat a still-UNKNOWN result as non-conflicting.
+            mergeable="UNKNOWN"
+            for _ in 1 2 3 4 5; do
+              mergeable=$(gh pr view "$n" --repo "$repo" --json mergeable --jq '.mergeable')
+              [ "$mergeable" != "UNKNOWN" ] && break
+              sleep 5
+            done
+            echo "PR #$n: mergeable=$mergeable"
+            if [ "$mergeable" = "CONFLICTING" ]; then
+              gh pr comment "$n" --repo "$repo" --body \
+                "Closing automatically: this PR now conflicts with \`main\` (it was opened against an earlier commit, and other PRs merged ahead of it). If the underlying CI failure this PR was fixing is still real, the next \`main\`-branch CI failure will have Jules open a fresh PR against the current \`main\` -- see \`.github/workflows/close-conflicting-jules-prs.yml\` for why this is closed rather than auto-rebased."
+              gh pr close "$n" --repo "$repo"
+              echo "Closed PR #$n (conflicting)."
+            fi
+          done

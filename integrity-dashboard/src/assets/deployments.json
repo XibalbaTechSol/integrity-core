@@ -1,0 +1,24 @@
+{
+  "chainId": 84532,
+  "network": "Base Sepolia",
+  "contracts": {
+    "IntegrityToken": "0xcc3fa26e4C792f253b72D7D4b885c1fa7116A99c",
+    "ReputationRegistry": "0x160481db97eb483d2Dd5Da060b8cCfEaeA7096cC",
+    "StateAnchor": "0x70Ba3Dca27D243a72886221a132711e99CF5da15",
+    "CCIPBridge": "0x6835A04fbd8d01Dd7A609FB23244B597c99ecb7a",
+    "AgentRegistry": "0x19BC52C42334EA6148D86EDd6d7163615Fa4d2FB",
+    "NameService": "0x486C5876b333794dCf92928130A845845bb4Cd36",
+    "IntegrityProtocol": "0xb6B9E48d6262957672fef367Bd7641159CD1e560",
+    "LendingPool": "0x8d963331524F349B69d58b59E26306602bF034dF",
+    "EnterpriseRegistry": "0xac38bc6022159fbc0E0012624c3188AC0c6EDF8c",
+    "DomainRegistry": "0xB09890AA740b01a50cA2C4EA17CD63612C85395e",
+    "AgentFactory": "0x6afe85f7B3EfA26D2848555fC657a6EC070DFD48",
+    "AuditHealth": "0xb3eB37B0094De9A82983F5e8a09144e97F3ccC62",
+    "AgentMarketplace": "0xB724e2B536bdE96e657529063d2Ae44474Dd245B",
+    "SmartBAA": "0xb78B63D1Ffb0c9e025DcA4dB4cb7feC584149f56",
+    "MedicalCreditLine": "0x6e0695f4a85FCE998e0095aa59AB86600817Ec8a",
+    "ClinicalTrialBond": "0xaB81577743c210B3540b2a22558ED4fe6E4d8182",
+    "ClaimsAdjudicator": "0xe6D6234610f8b9704197f779D42Ba531Ed50fDc2",
+    "Slasher": "0xDeE5dAb3ce8Ed1fF8196FEc61C5e5FE8aBBFc726"
+  }
+}

@@ -1,5 +1,12 @@
 FROM python:3.12-slim
 
+# Baked-in content fingerprint of this service's tracked source — see
+# scripts/service_content_hash.py and PRODUCTION_GAPS.md §22. Compared against a fresh
+# recomputation by `make check-deploy` to detect a running image built from stale source,
+# without the false-STALE-on-fresh-clone failure mode a file-mtime comparison has.
+ARG SOURCE_HASH=unknown
+LABEL source.hash=$SOURCE_HASH
+
 WORKDIR /app
 
 # uv gives us reproducible, lockfile-pinned installs -- matches the rest of

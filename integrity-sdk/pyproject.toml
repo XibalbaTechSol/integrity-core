@@ -58,12 +58,23 @@ dependencies = [
 # present and honestly reports the rest as skipped.
 autolog = ["pandas>=2.0.0"]
 openai = ["openai>=1.0.0", "pandas>=2.0.0"]
+# Anthropic wrapper (integrations/anthropic_integrity.py). Optional like the others: the
+# module imports cleanly without it, so an agent installs only the stack it actually uses.
+anthropic = ["anthropic>=0.40.0", "pandas>=2.0.0"]
 langchain = ["langchain-core>=0.3.0", "pandas>=2.0.0"]
+# MCP server — exposes SDK tools to Claude Desktop, Cursor, Antigravity, etc.
+mcp = [
+    "mcp>=1.0.0",
+]
+
+[project.scripts]
+integrity-mcp-server = "integrity_sdk.mcp_server:main"
 
 [dependency-groups]
 dev = [
     "pytest>=8.0.0",
     "pytest-cov>=5.0.0",
+    "mcp>=1.0.0",
 ]
 
 [tool.setuptools.packages.find]

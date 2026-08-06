@@ -5,7 +5,7 @@ import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 import {VmSafe} from "forge-std/Vm.sol";
 
-import {ComplianceGate} from "../src/shield/ComplianceGate.sol";
+import {ComplianceGate} from "../src/health/ComplianceGate.sol";
 import {AgentPrimitivesFactory} from "../src/framework/AgentPrimitivesFactory.sol";
 import {XibalbaAgentRegistry} from "../src/framework/XibalbaAgentRegistry.sol";
 import {DomainRegistry} from "../src/framework/DomainRegistry.sol";

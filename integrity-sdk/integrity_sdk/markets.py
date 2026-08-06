@@ -185,6 +185,9 @@ def resolve_market(w3: Web3, resolver: LocalAccount, market_address: str, winnin
     return tx_hash.hex()
 
 
+from .telemetry.core import get_tracer
+from .telemetry.conventions import EconomicAttributes
+
 def claim_payout(w3: Web3, controller: LocalAccount, sovereign_agent_address: str, market_address: str, chain_id: int) -> str:
     """
     Calls `IntegrityMarket.claimPayout`, execute-routed through
@@ -197,10 +200,20 @@ def claim_payout(w3: Web3, controller: LocalAccount, sovereign_agent_address: st
     resolved yet, the agent has no position, already claimed, or was on the
     losing outcome (see IntegrityMarket.sol).
     """
-    market = chain._contract(w3, "IntegrityMarket", address=market_address)
-    calldata = market.functions.claimPayout().build_transaction({"gas": 0})["data"]
-    receipt = _execute_via_agent(w3, controller, sovereign_agent_address, market_address, calldata, chain_id)
-    return receipt["transactionHash"].hex()
+    tracer = get_tracer("integrity_sdk.markets")
+    with tracer.start_as_current_span("integrity.markets.claim_payout") as span:
+        market = chain._contract(w3, "IntegrityMarket", address=market_address)
+        calldata = market.functions.claimPayout().build_transaction({"gas": 0})["data"]
+        receipt = _execute_via_agent(w3, controller, sovereign_agent_address, market_address, calldata, chain_id)
+        
+        market_logs = [log for log in receipt["logs"] if log["address"] == market.address]
+        events = market.events.PayoutClaimed().process_receipt({**receipt, "logs": market_logs})
+        if events:
+            payout = events[0]["args"]["amount"]
+            span.set_attribute(EconomicAttributes.MARKETS_TRADE_YIELD, payout)
+            span.set_attribute(EconomicAttributes.ITK_BALANCE_DELTA, payout)
+            
+        return receipt["transactionHash"].hex()
 
 
 def allocate_capital_onchain(
@@ -341,7 +354,7 @@ def _intercept(
 ) -> tuple[dict, str]:
     """
     Shared helper: builds+signs a BCC commitment for `intent_payload`, POSTs
-    it to bcc_middleware's pre-execution gate, and returns
+    it to bcc_middleware's pre-execution gate via bcc.submit_commitment, and returns
     (commitment, verification_token) on success. Raises MarketInterceptDenied
     on any denial -- the caller must never fall through to the on-chain
     action if this raises, since that would defeat the entire point of a
@@ -350,10 +363,11 @@ def _intercept(
     commitment = build_bcc_commitment(
         agent_id=agent_id, intent_type=intent_type, intent_payload=intent_payload, nonce=nonce, keypair=keypair
     )
+    
+    import requests
+    from .bcc import submit_commitment
     try:
-        resp = requests.post(f"{bcc_middleware_url}/v1/bcc/intercept", json=commitment, timeout=10)
-        resp.raise_for_status()
-        result = resp.json()
+        result = submit_commitment(commitment, bcc_middleware_url)
     except requests.RequestException as exc:
         raise MarketInterceptDenied(f"bcc_middleware at {bcc_middleware_url} unreachable: {exc}") from exc
 

@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 
-import {EHRGate} from "../src/shield/EHRGate.sol";
+import {EHRGate} from "../src/health/EHRGate.sol";
 
 /// @title DeployEHRGate
 /// @notice Incremental deploy: adds `EHRGate` -- the actual PHI-access enforcement
@@ -109,6 +109,9 @@ contract DeployEHRGate is Script {
         vm.serializeAddress(
             singletons, "A2ACapitalPool", vm.parseJsonAddress(existingJson, ".singletons.A2ACapitalPool")
         );
+        vm.serializeAddress(
+            singletons, "IntegrityGovernance", vm.parseJsonAddress(existingJson, ".singletons.IntegrityGovernance")
+        );
         string memory singletonsJson = vm.serializeAddress(singletons, "EHRGate", address(ehrGate));
 
         // cloneTemplates and protocolAddresses are untouched by this script -- neither
@@ -117,14 +120,38 @@ contract DeployEHRGate is Script {
         string memory cloneTemplatesJson = _rawSection(existingJson, "cloneTemplates");
         string memory protocolAddressesJson = _rawSection(existingJson, "protocolAddresses");
 
+        // network/domains are likewise untouched by this script but were silently
+        // dropped by an earlier version of this merge (it only re-serialized
+        // singletons/cloneTemplates/protocolAddresses/chainId) -- caught when the first
+        // real Base Sepolia run of this script erased IntegrityGovernance, network, and
+        // domains entirely. vm.writeJson replaces the whole file, so any field not
+        // explicitly re-parsed here is lost, not merged.
         string memory root = "root";
         vm.serializeString(root, "singletons", singletonsJson);
         vm.serializeString(root, "cloneTemplates", cloneTemplatesJson);
         vm.serializeString(root, "protocolAddresses", protocolAddressesJson);
+        vm.serializeString(root, "network", vm.parseJsonString(existingJson, ".network"));
+        vm.serializeString(root, "domains", _rawDomains(existingJson));
         string memory finalJson = vm.serializeUint(root, "chainId", block.chainid);
 
         vm.writeJson(finalJson, path);
         console2.log("Merged EHRGate into", path);
+    }
+
+    /// @dev domains has dynamic keys (bytes32-valued, one per registered domain name),
+    /// unlike every other section here which has a fixed known key set -- re-serialized
+    /// by walking vm.parseJsonKeys rather than a hardcoded field list.
+    function _rawDomains(string memory json) internal returns (string memory) {
+        string[] memory keys = vm.parseJsonKeys(json, ".domains");
+        if (keys.length == 0) {
+            return "{}";
+        }
+        string memory d = "domainsTmp";
+        string memory result;
+        for (uint256 i = 0; i < keys.length; i++) {
+            result = vm.serializeBytes32(d, keys[i], vm.parseJsonBytes32(json, string.concat(".domains.", keys[i])));
+        }
+        return result;
     }
 
     /// @dev forge-std has no "copy this JSON object verbatim" primitive, so

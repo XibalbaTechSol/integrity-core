@@ -5,18 +5,19 @@ import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 
 import {IntegrityToken} from "../src/oracle/IntegrityToken.sol";
+import {IntegrityGovernance} from "../src/oracle/IntegrityGovernance.sol";
 import {UltraPlonkVerifier} from "../src/oracle/UltraPlonkVerifier.sol";
 import {XibalbaAgentRegistry} from "../src/framework/XibalbaAgentRegistry.sol";
 import {XibalbaNameService} from "../src/framework/XibalbaNameService.sol";
 import {DomainRegistry} from "../src/framework/DomainRegistry.sol";
-import {CoveredEntityRegistry} from "../src/shield/CoveredEntityRegistry.sol";
-import {SmartBAAFactory} from "../src/shield/SmartBAAFactory.sol";
-import {HIPAAGuardrailRegistry} from "../src/shield/HIPAAGuardrailRegistry.sol";
-import {EHRGate} from "../src/shield/EHRGate.sol";
+import {CoveredEntityRegistry} from "../src/health/CoveredEntityRegistry.sol";
+import {SmartBAAFactory} from "../src/health/SmartBAAFactory.sol";
+import {HIPAAGuardrailRegistry} from "../src/health/HIPAAGuardrailRegistry.sol";
+import {EHRGate} from "../src/health/EHRGate.sol";
 import {ReputationRegistry} from "../src/oracle/ReputationRegistry.sol";
 import {Slasher} from "../src/oracle/Slasher.sol";
 import {VerifierRegistry} from "../src/oracle/VerifierRegistry.sol";
-import {ComplianceGate} from "../src/shield/ComplianceGate.sol";
+import {ComplianceGate} from "../src/health/ComplianceGate.sol";
 import {AgentProfile} from "../src/framework/AgentProfile.sol";
 import {AgentPrimitivesFactory} from "../src/framework/AgentPrimitivesFactory.sol";
 import {IntegrityMarket} from "../src/markets/IntegrityMarket.sol";
@@ -37,9 +38,18 @@ import {A2ACapitalPool} from "../src/markets/A2ACapitalPool.sol";
 contract Deploy is Script {
     // Minimum effective AIS (post ZK-boost) required to access PHI via EHRGate —
     // mirrors the README's verification-ladder "700+ institutional credit / 850+
-    // TEE-bound institutional trust" framing and test/shield/EHRGate.t.sol's own
+    // TEE-bound institutional trust" framing and test/health/EHRGate.t.sol's own
     // THRESHOLD constant. Mutable post-deploy via EHRGate.setThreshold, not frozen here.
     uint256 constant EHR_GATE_MIN_AIS_THRESHOLD = 800;
+
+    // IntegrityGovernance genesis parameters (testnet defaults). Voting window / timelock are
+    // short enough to exercise the full lifecycle on a testnet cadence; threshold + quorum are
+    // denominated in whole ITK. `governance` (the guardian) defaults to the deployer, same
+    // single-operator posture as every other protocol role here.
+    uint256 constant GOV_VOTING_PERIOD = 3 days;
+    uint256 constant GOV_TIMELOCK_DELAY = 2 days;
+    uint256 constant GOV_PROPOSAL_THRESHOLD = 1_000 ether;
+    uint256 constant GOV_QUORUM_VOTES = 10_000 ether;
 
     // Deployed/derived addresses, held as contract-level state purely so
     // `_writeDeploymentsFile` can read them after `run()`'s local variables are gone.
@@ -51,6 +61,7 @@ contract Deploy is Script {
     address resolverSigner;
 
     IntegrityToken itk;
+    IntegrityGovernance gov;
     UltraPlonkVerifier verifier;
     XibalbaAgentRegistry registry;
     XibalbaNameService xns;
@@ -113,6 +124,11 @@ contract Deploy is Script {
         // wallet (or a faucet contract, in a later phase) as a separate, auditable
         // step rather than baking an arbitrary genesis balance into the deploy tx.
         itk = new IntegrityToken(deployer, 0);
+        // Governance over protocol parameters; guardian = `governance` role (deployer on
+        // testnet). Locks ITK to propose/vote, so it depends only on `itk` above.
+        gov = new IntegrityGovernance(
+            governance, itk, GOV_VOTING_PERIOD, GOV_TIMELOCK_DELAY, GOV_PROPOSAL_THRESHOLD, GOV_QUORUM_VOTES
+        );
         verifier = new UltraPlonkVerifier();
         registry = new XibalbaAgentRegistry(deployer);
         // Deployed right after `registry` since XNS's register() checks
@@ -130,7 +146,7 @@ contract Deploy is Script {
         guardrailRegistry = new HIPAAGuardrailRegistry(deployer, oracleSigner);
         // Was previously deployed nowhere (PRODUCTION_GAPS.md §4) despite being the
         // actual PHI-access enforcement contract ComplianceGate's own NatSpec says it
-        // does NOT replace — the three-way consent+BAA+AIS gate the Shield vertical's
+        // does NOT replace — the three-way consent+BAA+AIS gate the Integrity Health vertical's
         // docs describe had no reachable contract to call on-chain until this line.
         ehrGate = new EHRGate(address(registry), address(baaFactory), EHR_GATE_MIN_AIS_THRESHOLD, deployer);
     }
@@ -205,6 +221,7 @@ contract Deploy is Script {
         console2.log("=== Integrity Protocol genesis deploy ===");
         console2.log("deployer:              ", deployer);
         console2.log("IntegrityToken:        ", address(itk));
+        console2.log("IntegrityGovernance:   ", address(gov));
         console2.log("UltraPlonkVerifier:    ", address(verifier));
         console2.log("XibalbaAgentRegistry:  ", address(registry));
         console2.log("XibalbaNameService:    ", address(xns));
@@ -231,6 +248,7 @@ contract Deploy is Script {
     function _writeDeploymentsFile() internal {
         string memory singletons = "singletons";
         vm.serializeAddress(singletons, "IntegrityToken", address(itk));
+        vm.serializeAddress(singletons, "IntegrityGovernance", address(gov));
         vm.serializeAddress(singletons, "UltraPlonkVerifier", address(verifier));
         vm.serializeAddress(singletons, "XibalbaAgentRegistry", address(registry));
         vm.serializeAddress(singletons, "XibalbaNameService", address(xns));

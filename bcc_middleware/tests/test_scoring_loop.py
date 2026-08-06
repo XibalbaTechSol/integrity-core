@@ -21,7 +21,7 @@ from httpx import Response
 from app.chain import resolve_agent_primitives
 from app.config import Settings
 from app.reputation import get_available_stake
-from app.scoring_loop import _base_score_from_ais_response, _last_disputed_at, run_sync_cycle, sync_one_agent
+from app.scoring_loop import _base_score_from_ais_response, _last_disputed_at, _last_pushed_score, run_sync_cycle, sync_one_agent
 from tests.helpers import new_agent
 
 _ORACLE_URL = "http://oracle.test"
@@ -295,3 +295,65 @@ def test_run_sync_cycle_records_error_when_oracle_unreachable():
     result = run_sync_cycle(settings, now=1_000_000.0)
     assert result.agents_seen == 0
     assert result.errors
+
+
+# --- unchanged-score push skipping (PRODUCTION_GAPS.md §5) ---------------------------
+
+
+def test_sync_one_agent_skips_the_real_push_when_score_is_unchanged(anvil_chain):
+    """Real regression test: a second cycle with the identical base_score
+    must NOT submit a second on-chain transaction -- confirmed by reading
+    back the ReputationRegistry's own tx-count-independent state (the
+    `score_pushed` flag plus a distinguishable 'unchanged' detail), not just
+    by asserting on in-memory bookkeeping."""
+    agent_id, _ = new_agent()
+    sovereign_agent = Account.create().address
+    settings = _settings(anvil_chain)
+    _last_pushed_score.pop(agent_id, None)
+
+    with respx.mock as respx_mock:
+        _mock_agent(
+            respx_mock, agent_id, sovereign_agent=sovereign_agent,
+            reputation_registry=anvil_chain["reputation_registry_address"],
+            ais=_ais_response(),
+        )
+        first = sync_one_agent(settings, agent_id, now=1_000_000.0)
+        second = sync_one_agent(settings, agent_id, now=1_000_100.0)
+
+    assert first.score_pushed
+    assert not second.score_pushed
+    assert "unchanged" in second.score_detail
+    _last_pushed_score.pop(agent_id, None)
+
+
+def test_sync_one_agent_pushes_again_when_score_changes(anvil_chain):
+    agent_id, _ = new_agent()
+    sovereign_agent = Account.create().address
+    settings = _settings(anvil_chain)
+    _last_pushed_score.pop(agent_id, None)
+
+    with respx.mock as respx_mock:
+        _mock_agent(
+            respx_mock, agent_id, sovereign_agent=sovereign_agent,
+            reputation_registry=anvil_chain["reputation_registry_address"],
+            ais=_ais_response(entropy=800.0),
+        )
+        first = sync_one_agent(settings, agent_id, now=1_000_000.0)
+
+    with respx.mock as respx_mock:
+        _mock_agent(
+            respx_mock, agent_id, sovereign_agent=sovereign_agent,
+            reputation_registry=anvil_chain["reputation_registry_address"],
+            ais=_ais_response(entropy=200.0),  # genuinely different base_score
+        )
+        second = sync_one_agent(settings, agent_id, now=1_000_100.0)
+
+    assert first.score_pushed
+    assert second.score_pushed
+    assert "unchanged" not in second.score_detail
+
+    w3 = anvil_chain["w3"]
+    contract = w3.eth.contract(address=anvil_chain["reputation_registry_address"], abi=anvil_chain["reputation_registry_abi"])
+    on_chain_score = contract.functions.baseScoreOf(sovereign_agent).call()
+    assert on_chain_score == round(200.0 * 0.30 + 700.0 * 0.30 + 600.0 * 0.20 + 1000.0 * 0.20)
+    _last_pushed_score.pop(agent_id, None)

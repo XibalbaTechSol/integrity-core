@@ -34,7 +34,7 @@ from rich.console import Console
 from rich.table import Table
 from web3 import Web3
 
-from . import bcc, chain, config, identity, wallet
+from . import bcc, chain, config, identity, vault, wallet
 from .client import ApiError, BccClient, IntegrityClient
 from .config import get_auth_token, load_config, set_config_value
 
@@ -63,6 +63,9 @@ app.add_typer(auth_app, name="auth")
 
 xns_app = typer.Typer(help="XibalbaNameService (XNS): human-readable handles for registered agents")
 app.add_typer(xns_app, name="xns")
+
+vault_app = typer.Typer(help="Trust Vault (Persistent Memory) commands")
+app.add_typer(vault_app, name="vault")
 
 
 # --------------------------------------------------------------------------
@@ -186,7 +189,7 @@ def identity_show(
 # agent
 # --------------------------------------------------------------------------
 
-# ComplianceGate.Vertical enum values (contracts/src/shield/ComplianceGate.sol),
+# ComplianceGate.Vertical enum values (contracts/src/health/ComplianceGate.sol),
 # same mapping integrity-sdk's registration.py uses.
 _VERTICALS = {"none": 0, "healthcare": 1}
 
@@ -321,17 +324,41 @@ def agent_register(
     console.print(f"  EVM wallet: [cyan]{evm_account.address}[/cyan]  (chain {chain_id} @ {rpc_url})")
 
     try:
-        with console.status("[bold blue]Funding agent wallet..."):
-            chain.fund_agent_wallet(w3, funder, evm_account.address, _DEFAULT_AGENT_FUND_WEI, chain_id)
-        console.print("  [green]done[/green] funded agent wallet")
+        _MIN_OPERATING_BALANCE_WEI = Web3.to_wei(0.001, "ether")
+        current_balance = w3.eth.get_balance(evm_account.address)
+        if current_balance < _MIN_OPERATING_BALANCE_WEI:
+            funder_balance = w3.eth.get_balance(funder.address)
+            # Leave 0.001 ETH for funder gas fee
+            fund_amount = min(_DEFAULT_AGENT_FUND_WEI, max(0, funder_balance - Web3.to_wei(0.001, "ether")))
+            if fund_amount < _MIN_OPERATING_BALANCE_WEI:
+                console.print(f"[bold red]Error:[/bold red] Funder wallet has insufficient balance: {Web3.from_wei(funder_balance, 'ether'):.4f} ETH")
+                raise typer.Exit(1)
+            with console.status("[bold blue]Funding agent wallet..."):
+                chain.fund_agent_wallet(w3, funder, evm_account.address, fund_amount, chain_id)
+            console.print(f"  [green]done[/green] funded agent wallet ({Web3.from_wei(fund_amount, 'ether'):.4f} ETH)")
+            import time
+            time.sleep(10)  # Wait for balance to sync across load-balanced nodes
+        else:
+            console.print(
+                f"  [dim]skip[/dim] agent wallet already funded "
+                f"({Web3.from_wei(current_balance, 'ether'):.4f} ETH)"
+            )
+
+        next_nonce = w3.eth.get_transaction_count(evm_account.address)
+
+        import time
 
         with console.status("[bold blue]Deploying SovereignAgent..."):
-            sovereign_agent = chain.deploy_sovereign_agent(w3, evm_account, agent_did, oracle_signer, chain_id)
+            sovereign_agent = chain.deploy_sovereign_agent(w3, evm_account, agent_did, oracle_signer, chain_id, nonce=next_nonce)
         console.print(f"  [green]done[/green] SovereignAgent deployed at [cyan]{sovereign_agent}[/cyan]")
+        next_nonce += 1
+        time.sleep(5)  # Wait for contract bytecode to propagate
 
         with console.status("[bold blue]Deploying StateAnchor..."):
-            state_anchor = chain.deploy_state_anchor(w3, evm_account, sovereign_agent, chain_id)
+            state_anchor = chain.deploy_state_anchor(w3, evm_account, sovereign_agent, chain_id, nonce=next_nonce)
         console.print(f"  [green]done[/green] StateAnchor deployed at [cyan]{state_anchor}[/cyan]")
+        next_nonce += 1
+        time.sleep(5)  # Wait for contract bytecode to propagate
 
         # Minted to the SovereignAgent CONTRACT, not the wallet, and only after that
         # contract exists (PRODUCTION_GAPS.md Sec3) -- IntegrityMarket/A2ACapitalPool pull
@@ -345,10 +372,19 @@ def agent_register(
                 w3, funder, itk_address, sovereign_agent, _DEFAULT_TESTNET_ITK_ALLOCATION_WEI, chain_id
             )
         console.print("  [green]done[/green] minted testnet ITK")
+        time.sleep(2)
 
         with console.status("[bold blue]Granting oracle ANCHOR_ROLE..."):
-            chain.grant_anchor_role(w3, evm_account, sovereign_agent, state_anchor, oracle_signer, chain_id)
+            chain.grant_anchor_role(w3, evm_account, sovereign_agent, state_anchor, oracle_signer, chain_id, nonce=next_nonce)
         console.print("  [green]done[/green] granted ANCHOR_ROLE to oracle signer")
+        next_nonce += 1
+        time.sleep(3)
+
+        with console.status("[bold blue]Anchoring genesis memory root..."):
+            chain.anchor_root(w3, evm_account, sovereign_agent, state_anchor, chain_id, nonce=next_nonce)
+        console.print("  [green]done[/green] anchored genesis memory root")
+        next_nonce += 1
+        time.sleep(3)
 
         domain_id = keccak(text=domain)
         with console.status("[bold blue]Registering primitives..."):
@@ -363,6 +399,7 @@ def agent_register(
                 _VERTICALS[vertical],
                 "",
                 chain_id,
+                nonce=next_nonce,
             )
         console.print("  [green]done[/green] registered 7 primitives")
     except typer.Exit:
@@ -751,6 +788,40 @@ def xns_release(
 
     console.print(f"[bold green]Released[/bold green] '{handle}'")
     console.print(f"[dim]tx: {receipt['transactionHash'].hex()}[/dim]")
+
+
+# --------------------------------------------------------------------------
+# vault
+# --------------------------------------------------------------------------
+
+@vault_app.command("sync")
+def vault_sync(
+    agent_name: str = typer.Argument(..., help="Agent name (e.g. xibalba)"),
+    transcript: str = typer.Option(..., "--transcript", help="Path to transcript.jsonl file"),
+    rpc_url: Optional[str] = _RPC_URL_OPTION,
+    deployments_file: Optional[str] = _DEPLOYMENTS_FILE_OPTION,
+):
+    """Sync a session transcript into the trust vault."""
+    import pathlib
+    transcript_path = pathlib.Path(transcript)
+    if not transcript_path.exists():
+        console.print(f"[bold red]Error:[/bold red] Transcript not found at {transcript}")
+        raise typer.Exit(1)
+        
+    rpc_url = rpc_url or os.getenv("RPC_URL", "http://localhost:8545")
+    deployments_file = deployments_file or os.getenv("DEPLOYMENTS_FILE", "../deployments.local.json")
+    
+    with console.status(f"[bold blue]Syncing vault for {agent_name}..."):
+        try:
+            result = vault.sync_vault(agent_name, transcript_path, rpc_url, deployments_file)
+        except Exception as e:
+            console.print(f"[bold red]Error syncing vault:[/bold red] {e}")
+            raise typer.Exit(1)
+            
+    console.print(f"[bold green]Vault synced successfully[/bold green] for {agent_name}")
+    console.print(f"Memory file: [cyan]{result['memory_file']}[/cyan]")
+    console.print(f"New state root: [cyan]{result['state_root']}[/cyan]")
+    console.print(f"Anchored on-chain: [cyan]{result.get('anchored_on_chain', False)}[/cyan]")
 
 
 if __name__ == "__main__":

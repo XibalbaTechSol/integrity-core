@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import jwt
@@ -44,6 +46,12 @@ def create_access_token(*, user_id: str, settings: Settings) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sub": user_id,
+        # Per-token identifier, independent of its content -- this is what
+        # makes revocation possible at all. Without a `jti`, a "revoke this
+        # token" operation would have nothing to key on short of storing the
+        # full JWT string (which would defeat the point of a stateless,
+        # signature-verified token in the first place).
+        "jti": str(uuid.uuid4()),
         "iat": int(now.timestamp()),
         "exp": now + timedelta(minutes=settings.jwt_expiry_minutes),
     }
@@ -54,16 +62,25 @@ class TokenError(Exception):
     pass
 
 
-def decode_access_token(token: str, settings: Settings) -> str:
-    """Returns the `sub` (user id) claim, or raises TokenError."""
+@dataclass(frozen=True)
+class DecodedToken:
+    user_id: str
+    jti: str
+    expires_at: datetime
+
+
+def decode_access_token(token: str, settings: Settings) -> DecodedToken:
+    """Returns the token's identity + revocation-check fields, or raises TokenError."""
     try:
         payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
     except jwt.PyJWTError as exc:
         raise TokenError(str(exc)) from exc
     sub = payload.get("sub")
-    if not sub:
-        raise TokenError("token missing 'sub' claim")
-    return sub
+    jti = payload.get("jti")
+    exp = payload.get("exp")
+    if not sub or not jti or not exp:
+        raise TokenError("token missing 'sub'/'jti'/'exp' claim")
+    return DecodedToken(user_id=sub, jti=jti, expires_at=datetime.fromtimestamp(exp, tz=timezone.utc))
 
 
 def generate_api_key() -> tuple[str, str]:

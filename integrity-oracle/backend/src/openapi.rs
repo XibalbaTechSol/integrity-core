@@ -76,7 +76,7 @@ use crate::handlers;
         (name = "agents", description = "Agent identity, registration, and on-chain primitive resolution"),
         (name = "ais", description = "Agent Integrity Score and leaderboard"),
         (name = "telemetry", description = "Telemetry ingestion (feeds AIS computation)"),
-        (name = "compliance", description = "HIPAA/Shield vertical compliance status"),
+        (name = "compliance", description = "HIPAA/Integrity Health vertical compliance status"),
         (name = "markets", description = "IntegrityMarket prediction-market reads"),
         (name = "wallet", description = "$ITK balance and open market positions"),
     ),
@@ -87,11 +87,49 @@ pub struct ApiDocCore;
 /// the 16-item limit goes here instead. See this module's doc comment.
 #[derive(OpenApi)]
 #[openapi(
-    paths(handlers::get_wallet, handlers::get_trace_tree),
-    components(schemas(handlers::WalletPositionDto, handlers::WalletResponse, handlers::TelemetryEventDetailDto, handlers::AgentJudgeEvaluationDto, handlers::TraceTreeResponse, crate::trace_tree::SpanTreeNode,)),
+    paths(handlers::get_wallet, handlers::get_trace_tree, handlers::ingest_audit_log, handlers::ingest_anchor_events, handlers::get_provenance, handlers::get_stake, handlers::get_credit, handlers::get_agent_contracts, handlers::get_agent_baas, handlers::get_benchmarks, handlers::get_xns_resolve, handlers::get_agent_handle, handlers::get_governance_proposals, handlers::get_stats, handlers::get_audit_log, handlers::get_recent_traces),
+    components(schemas(
+        handlers::WalletPositionDto,
+        handlers::WalletResponse,
+        handlers::TelemetryEventDetailDto,
+        handlers::AgentJudgeEvaluationDto,
+        handlers::TraceTreeResponse,
+        crate::trace_tree::SpanTreeNode,
+        handlers::AuditLogIngestRequest,
+        handlers::AuditLogIngestResponse,
+        handlers::AnchorEventIngestRequest,
+        handlers::AnchorEventIngestResponse,
+        handlers::ProvenanceEntryDto,
+        handlers::StakeDto,
+        handlers::CreditDto,
+        handlers::BaaDto,
+        handlers::BenchmarkDto,
+        handlers::XnsResolveDto,
+        handlers::AgentHandleDto,
+        handlers::ProposalDto,
+        handlers::StatsDto,
+        handlers::AuditLogEntryDto,
+        handlers::RecentTraceDto,
+    )),
+    tags(
+        (name = "audit", description = "Real, durable audit trail (BCC intercept decisions + flagged telemetry)"),
+    ),
 )]
 pub struct ApiDocExtra;
 
+/// The second overflow half. `ApiDocCore` and `ApiDocExtra` are both at 16 `paths()`
+/// entries — utoipa 5.5.0 silently drops the last entry past that, so a new endpoint
+/// appended to either would vanish from the generated spec without any error (see this
+/// module's doc comment). New endpoints go here until this list reaches 16 too.
+#[derive(OpenApi)]
+#[openapi(
+    paths(handlers::get_agent_usage, handlers::get_agent_events, handlers::get_unregistered_agents),
+    components(schemas(handlers::AgentUsageDto, handlers::AgentEventDto, handlers::UnregisteredAgentDto)),
+)]
+pub struct ApiDocUsage;
+
 pub fn combined_openapi() -> utoipa::openapi::OpenApi {
-    ApiDocCore::openapi().merge_from(ApiDocExtra::openapi())
+    ApiDocCore::openapi()
+        .merge_from(ApiDocExtra::openapi())
+        .merge_from(ApiDocUsage::openapi())
 }

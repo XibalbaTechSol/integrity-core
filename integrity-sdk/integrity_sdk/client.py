@@ -20,16 +20,34 @@ bcc_middleware's own fail-closed-vs-best-effort split.
 
 from __future__ import annotations
 
+import atexit
 import logging
 import os
+import threading
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 import requests
 
 from . import bcc
 from .batcher import TelemetryBatcher
+from .collection import CollectionConfig
 from .did import Keypair
-from .telemetry import derive, intent as intent_module, metrics as metrics_module, tracing
+from .telemetry import core as telemetry_core, derive, intent as intent_module, metrics as metrics_module, tracing
+
+#: Version of the signed telemetry envelope this client emits. Pinned in
+#: `docs/INTERFACE_CONTRACT.md` §4.2a.
+#:
+#: It lives INSIDE the signed object, so it is covered by the signature and cannot be
+#: rewritten in transit to make the oracle reinterpret a payload under different rules.
+#:
+#: An envelope with no `schema_version` at all is the pre-versioning shape and remains
+#: valid forever: signed payloads are evidence, and old evidence has to stay verifiable. The
+#: oracle therefore reconstructs the signable bytes WITHOUT the key when a request omits it
+#: — serializing it as `null` instead would change the canonical bytes and break every
+#: historical signature.
+TELEMETRY_SCHEMA_VERSION = 1
+
 
 logger = logging.getLogger("integrity_sdk.client")
 
@@ -54,12 +72,60 @@ class IntegrityClient:
         auto_flush: bool = True,
         batch_size_limit: int = 50,
         flush_interval_sec: float = 5.0,
+        max_queue_size: int = 10_000,
+        background_flush: bool = True,
+        collection: Optional[CollectionConfig] = None,
         keypair: Optional[Keypair] = None,
         bcc_nonce_store: Optional[Any] = None,
+        otlp_endpoint: Optional[str] = None,
+        enable_otel_export: bool = True,
     ):
         self.agent_id = agent_id
         self.oracle_url = (oracle_url or os.getenv("ORACLE_URL", "http://localhost:8080")).rstrip("/")
-        self._batcher = TelemetryBatcher(batch_size_limit=batch_size_limit, flush_interval_sec=flush_interval_sec)
+        # FIXED 2026-07-16 — `client.traceable(...)`/`trace_run(..., client=self)`
+        # is this SDK's own documented "recommended general-purpose tracing
+        # API" (see telemetry/tracing.py's module docstring), and it opens a
+        # REAL OTel span via `get_tracer(...).start_as_current_span(...)` on
+        # every call — but nothing ever installed a real TracerProvider/
+        # exporter before this fix. `get_tracer` silently returns OTel's
+        # default no-op tracer in that state, so every span this API ever
+        # produced was discarded before it ever reached the process boundary,
+        # let alone the oracle's `otel_spans` table — real nesting
+        # (`contextvars`-propagated parent/child), real PHI redaction, real
+        # attributes, all computed and then thrown away. Confirmed by
+        # actually tracing an agent run end-to-end and finding zero rows in
+        # the oracle's `otel_spans` table despite no errors anywhere.
+        # `telemetry/core.py::init_telemetry` is the one thing that installs
+        # a real exporter, but it was only ever called by
+        # `telemetry/mlflow_tracing.py`'s optional autolog path — never by
+        # this client, despite `agent_id` (everything `init_telemetry` needs
+        # besides an endpoint) being known right here at construction time.
+        # Safe to call unconditionally: `init_telemetry` is idempotent
+        # (module-level `_initialized` guard, first call wins) and, per its
+        # own docstring, a missing/unreachable OTLP collector fails the
+        # background export silently rather than raising — matches this
+        # class's own "telemetry is best-effort, never blocks the agent's
+        # real work" rule stated above. The OTLP gRPC collector is the same
+        # oracle-backend process that serves `oracle_url`'s HTTP API (see
+        # docker-compose.yml — one container, two ports), so deriving the
+        # OTLP host from `oracle_url` rather than requiring a second URL a
+        # caller has to remember to keep in sync is a real architectural
+        # fact of this deployment, not a guess. `enable_otel_export=False`
+        # opts out entirely (e.g. a test that wants to assert on the
+        # no-op-tracer state itself); `otlp_endpoint=` overrides the derived
+        # host:4317 default for a non-standard topology.
+        if enable_otel_export:
+            endpoint = otlp_endpoint or f"{urlparse(self.oracle_url).hostname or 'localhost'}:4317"
+            telemetry_core.init_telemetry(agent_id=agent_id, endpoint=endpoint)
+        # Resolved from INTEGRITY_COLLECTION_PROFILE unless passed explicitly. Governs the
+        # content layer only (L3) — structural fields the protocol scores on are always
+        # collected, so narrowing the profile never silently weakens a score.
+        self._collection = collection or CollectionConfig.from_env()
+        self._batcher = TelemetryBatcher(
+            batch_size_limit=batch_size_limit,
+            flush_interval_sec=flush_interval_sec,
+            max_queue_size=max_queue_size,
+        )
         self._trace_runs: List[Dict[str, Any]] = []
         self._auto_flush = auto_flush
         # Monotonic per-flush nonce, so the oracle's replay protection (see
@@ -89,6 +155,73 @@ class IntegrityClient:
         self._keypair = keypair
         self._bcc_nonce_store = bcc_nonce_store
 
+        # --- F3: the interval flush has to be driven by a clock, not by the next event ---
+        #
+        # `flush_interval_sec` existed but nothing consulted it except `log_telemetry`, so the
+        # interval only elapsed *when another event arrived*. Two consequences, both bad for a
+        # collector: an agent that goes quiet never flushed its tail — the moment right before
+        # it stopped, which is exactly the interesting one — and a short-lived process lost
+        # everything unless it happened to call `flush_telemetry` by hand. That is why the
+        # Xibalba session hooks flush manually and why the OTel exporter needed an explicit
+        # force_flush bolted on.
+        self._stop_event = threading.Event()
+        self._flusher: Optional[threading.Thread] = None
+        # Tied to auto_flush so a caller that opted out of implicit flushing (every unit test,
+        # and any caller wanting deterministic batches) does not silently get a thread anyway.
+        if background_flush and auto_flush:
+            self._flusher = threading.Thread(
+                target=self._background_flush_loop,
+                name=f"integrity-flusher-{agent_id}",
+                daemon=True,  # never block interpreter exit; atexit below handles the tail
+            )
+            self._flusher.start()
+            atexit.register(self._flush_on_exit)
+
+    def _background_flush_loop(self) -> None:
+        """Wakes on a cadence and flushes when the batcher says it is due.
+
+        Polls at a fraction of the interval so a due flush is not delayed by up to a full
+        interval, and waits on an Event rather than sleeping so `close()` returns promptly
+        instead of blocking for the remainder of a tick.
+        """
+        poll = max(0.1, self._batcher.flush_interval_sec / 4)
+        while not self._stop_event.wait(poll):
+            try:
+                if self._batcher.should_flush():
+                    self.flush_telemetry()
+            except Exception as exc:  # noqa: BLE001
+                # Never let a telemetry failure kill the thread — a dead flusher would mean
+                # silent data loss for the rest of the process's life, which is worse than
+                # the failure being retried on the next tick.
+                logger.warning("background telemetry flush failed: %r", exc)
+
+    def _flush_on_exit(self) -> None:
+        """Best-effort tail flush at interpreter shutdown.
+
+        Registered via atexit, so a short-lived agent no longer loses its final batch. Errors
+        are swallowed deliberately: raising here would turn a telemetry hiccup into a nonzero
+        exit status for the host process, and telemetry is observability, not the agent's work.
+        """
+        self._stop_event.set()
+        try:
+            while self._batcher.queue_depth() > 0:
+                if not self.flush_telemetry():
+                    break  # unreachable oracle — stop rather than spin at shutdown
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("exit-time telemetry flush failed: %r", exc)
+
+    def close(self) -> None:
+        """Stop the background flusher and flush what remains.
+
+        Idempotent, and safe to call even when no flusher was started. Callers that manage
+        lifetime explicitly (a test, a worker that finishes) should prefer this over relying
+        on interpreter exit.
+        """
+        self._stop_event.set()
+        if self._flusher is not None and self._flusher.is_alive():
+            self._flusher.join(timeout=self._batcher.flush_interval_sec + 1.0)
+        self._flush_on_exit()
+
     def log_telemetry(
         self,
         metadata: Dict[str, Any],
@@ -101,7 +234,10 @@ class IntegrityClient:
         etc — see integrations/); `entropy`/`grounding` are optional
         pre-computed signals an integration may supply if it already had the
         completion text at hand (see derive.py's `_entry_entropy`)."""
-        entry: Dict[str, Any] = {"metadata": metadata}
+        # Applied here rather than at flush time: content the profile withholds must never
+        # enter the queue at all, or a crash between log and flush could still leak it from
+        # memory, and a queue dump would contain what the operator said not to collect.
+        entry: Dict[str, Any] = {"metadata": self._collection.apply(metadata)}
         if entropy is not None:
             entry["entropy"] = entropy
         if grounding is not None:
@@ -268,6 +404,21 @@ class IntegrityClient:
         Returns True if the oracle accepted the batch, False on any failure
         (logged + re-queued, never raised) — telemetry is best-effort.
         """
+        # F2: surface overflow loss instead of hiding it. Recorded as a real metric so it
+        # rides in `custom_metrics` through the existing envelope — no schema bump — and a
+        # shortened history is visibly explained rather than looking like an agent that simply
+        # did less work.
+        #
+        # Ordering matters: this must precede `self._metrics.drain()` below, or the value is
+        # recorded after the drain and misses this flush.
+        dropped = self._batcher.drain_dropped_count()
+        if dropped:
+            logger.warning(
+                "telemetry queue overflowed: %d oldest entries dropped (max_queue_size=%d)",
+                dropped, self._batcher.max_queue_size,
+            )
+            self._metrics.record("integrity.telemetry.dropped_entries", float(dropped))
+
         batch = self._batcher.get_batch_and_clear()
         trace_runs = self._trace_runs
         self._trace_runs = []
@@ -295,6 +446,7 @@ class IntegrityClient:
         )
 
         signable = {
+            "schema_version": TELEMETRY_SCHEMA_VERSION,
             "agent_id": self.agent_id,
             "nonce": self._nonce,
             "otel_spans": otel_spans,
@@ -302,7 +454,9 @@ class IntegrityClient:
             "zk_proof": zk_proof,
         }
         if self._keypair is not None:
-            signature = "0x" + self._keypair.sign(bcc.canonical_json_bytes(signable)).hex()
+            c_bytes = bcc.canonical_json_bytes(signable)
+            print("CLIENT SIGNABLE BYTES:", c_bytes.decode('utf-8'))
+            signature = "0x" + self._keypair.sign(c_bytes).hex()
         else:
             signature = ""  # deserializes fine; the oracle will 401 it (see docstring point 2)
 

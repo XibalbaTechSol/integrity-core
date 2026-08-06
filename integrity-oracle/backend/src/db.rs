@@ -122,11 +122,99 @@ pub async fn get_agent(pool: &PgPool, id: &str) -> Result<Option<AgentRow>, sqlx
     .await
 }
 
-pub async fn list_agents(pool: &PgPool) -> Result<Vec<AgentRow>, sqlx::Error> {
-    sqlx::query_as::<_, AgentRow>(
+/// Reverse a SovereignAgent address to its owning agent DID via the cached primitive set.
+/// Case-insensitive on the hex address. Best-effort: returns None when the agent's primitives
+/// have never been resolved into the oracle DB.
+pub async fn did_by_sovereign_agent(
+    pool: &PgPool,
+    sovereign_agent: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    let row: Option<(String,)> = sqlx::query_as(
         r#"
-        SELECT id, ed25519_pubkey, eth_address, verification_tier, last_nonce, created_at, did_document
-        FROM agents ORDER BY created_at DESC
+        SELECT agent_id FROM agent_primitives
+        WHERE lower(sovereign_agent_address) = lower($1)
+        LIMIT 1
+        "#,
+    )
+    .bind(sovereign_agent)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|(id,)| id))
+}
+
+/// One row of the agent list, carrying the cached `SovereignAgent` address alongside the
+/// `agents` columns. The join is a `LEFT` one on purpose: an agent registered in this DB
+/// whose `agent_primitives` row hasn't been resolved yet (or that predates primitive
+/// caching) must still appear in the list with `sovereign_agent_address: None`, not vanish
+/// from the fleet. Callers that only need the DID (e.g. the leaderboard refresh) read `id`
+/// and ignore the rest.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct AgentListRow {
+    pub id: String,
+    pub verification_tier: i32,
+    pub created_at: DateTime<Utc>,
+    pub did_document: Option<serde_json::Value>,
+    pub sovereign_agent_address: Option<String>,
+}
+
+pub async fn list_agents(pool: &PgPool) -> Result<Vec<AgentListRow>, sqlx::Error> {
+    sqlx::query_as::<_, AgentListRow>(
+        r#"
+        -- EFFECTIVE tier, computed in one pass rather than N+1 round trips.
+        -- `a.verification_tier` is only the registration floor; rungs 2/3 live in
+        -- `identity_verifications`, and expiry/revocation are applied here so a
+        -- lapsed proof lowers the reported tier automatically. Returning the raw
+        -- column made the fleet list show every climbed agent at tier 1.
+        SELECT a.id,
+               GREATEST(
+                   a.verification_tier,
+                   COALESCE((
+                       SELECT MAX(v.tier_granted)
+                       FROM identity_verifications v
+                       WHERE v.agent_id = a.id
+                         AND v.revoked_at IS NULL
+                         AND (v.expires_at IS NULL OR v.expires_at > now())
+                   ), 0)
+               ) AS verification_tier,
+               a.created_at, a.did_document,
+               p.sovereign_agent_address
+        FROM agents a
+        LEFT JOIN agent_primitives p ON p.agent_id = a.id
+        ORDER BY a.created_at DESC
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct UnregisteredAgentRow {
+    pub agent_id: String,
+    pub source: String,
+    pub first_seen: DateTime<Utc>,
+}
+
+/// Real "shadow AI" detection: `otel_spans` and `audit_log` both store `agent_id` as a
+/// bare TEXT column with no foreign key to `agents` (see each table's own migration) --
+/// the oracle already durably records telemetry/policy-decision evidence for DIDs that
+/// were never registered via `POST /v1/agent/register`. This surfaces exactly that set,
+/// using data that already exists rather than any new scanning infra (see
+/// bcc_middleware/spec/xibalba-shield-v1.md's [PLANNED] kernel-sensor design for the
+/// separate, out-of-scope-here vision this deliberately does not attempt).
+pub async fn list_unregistered_agents(pool: &PgPool) -> Result<Vec<UnregisteredAgentRow>, sqlx::Error> {
+    sqlx::query_as::<_, UnregisteredAgentRow>(
+        r#"
+        SELECT agent_id, 'otel' AS source, MIN(start_time) AS first_seen
+        FROM otel_spans
+        WHERE agent_id NOT IN (SELECT id FROM agents)
+        GROUP BY agent_id
+        UNION ALL
+        SELECT agent_id, 'audit_log' AS source, MIN(created_at) AS first_seen
+        FROM audit_log
+        WHERE agent_id IS NOT NULL
+          AND agent_id NOT IN (SELECT id FROM agents)
+        GROUP BY agent_id
+        ORDER BY first_seen ASC
         "#,
     )
     .fetch_all(pool)
@@ -151,6 +239,10 @@ pub struct AgentPrimitivesRow {
     pub controller_address: String,
     pub domain_id: String,
     pub resolved_at: DateTime<Utc>,
+    /// EVM chain id this row was resolved against. `NULL` for rows written before this
+    /// column existed — the caller must treat that the same as a chain mismatch (E11),
+    /// never as "assume it's the current chain".
+    pub chain_id: Option<i64>,
 }
 
 /// Upserts the cached primitive resolution for an agent. Called after a fresh, successful
@@ -170,14 +262,15 @@ pub async fn upsert_agent_primitives(
     agent_profile_address: &str,
     controller_address: &str,
     domain_id: &str,
+    chain_id: i64,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         INSERT INTO agent_primitives
             (agent_id, sovereign_agent_address, state_anchor_address, reputation_registry_address,
              slasher_address, verifier_registry_address, compliance_gate_address, agent_profile_address,
-             controller_address, domain_id, resolved_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+             controller_address, domain_id, chain_id, resolved_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())
         ON CONFLICT (agent_id) DO UPDATE SET
             sovereign_agent_address = EXCLUDED.sovereign_agent_address,
             state_anchor_address = EXCLUDED.state_anchor_address,
@@ -188,6 +281,7 @@ pub async fn upsert_agent_primitives(
             agent_profile_address = EXCLUDED.agent_profile_address,
             controller_address = EXCLUDED.controller_address,
             domain_id = EXCLUDED.domain_id,
+            chain_id = EXCLUDED.chain_id,
             resolved_at = now()
         "#,
     )
@@ -201,6 +295,7 @@ pub async fn upsert_agent_primitives(
     .bind(agent_profile_address)
     .bind(controller_address)
     .bind(domain_id)
+    .bind(chain_id)
     .execute(pool)
     .await?;
     Ok(())
@@ -211,7 +306,7 @@ pub async fn get_agent_primitives(pool: &PgPool, agent_id: &str) -> Result<Optio
         r#"
         SELECT agent_id, sovereign_agent_address, state_anchor_address, reputation_registry_address,
                slasher_address, verifier_registry_address, compliance_gate_address, agent_profile_address,
-               controller_address, domain_id, resolved_at
+               controller_address, domain_id, resolved_at, chain_id
         FROM agent_primitives WHERE agent_id = $1
         "#,
     )
@@ -246,6 +341,7 @@ pub async fn insert_telemetry_event(
     zk_verified: bool,
     leaf_hash: &[u8],
     payload: &serde_json::Value,
+    phi_flags: Option<&[String]>,
 ) -> Result<(), InsertTelemetryError> {
     let mut tx = pool.begin().await?;
 
@@ -264,8 +360,8 @@ pub async fn insert_telemetry_event(
     sqlx::query(
         r#"
         INSERT INTO telemetry_events
-            (id, agent_id, nonce, performance_variance, hgi_raw, gpu_hours_verified, flagged, zk_verified, leaf_hash, payload)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            (id, agent_id, nonce, performance_variance, hgi_raw, gpu_hours_verified, flagged, zk_verified, leaf_hash, payload, phi_flags)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         "#,
     )
     .bind(event_id)
@@ -278,6 +374,7 @@ pub async fn insert_telemetry_event(
     .bind(zk_verified)
     .bind(leaf_hash)
     .bind(payload)
+    .bind(phi_flags)
     .execute(&mut *tx)
     .await?;
 
@@ -328,6 +425,29 @@ pub async fn aggregate_for_ais(
         zk_verified_this_period: row.4,
         event_count: row.5,
     })
+}
+
+/// Provider/model stability benchmarks: aggregate telemetry across ALL agents grouped by the
+/// `model` recorded in each event's payload. Backs `GET /v1/benchmarks` — a real network-wide
+/// view of how each underlying model performs (behavioral variance + grounding), independent of
+/// which agent used it. Returns (model, avg_variance, avg_grounding, sample_count).
+pub async fn benchmark_by_model(pool: &PgPool) -> Result<Vec<(String, f64, f64, i64)>, sqlx::Error> {
+    sqlx::query_as(
+        r#"
+        SELECT
+            payload->>'model' AS model,
+            COALESCE(AVG(performance_variance), 0.0)::double precision AS avg_variance,
+            COALESCE(AVG(hgi_raw), 0.0)::double precision AS avg_grounding,
+            COUNT(*) AS sample_count
+        FROM telemetry_events
+        WHERE payload->>'model' IS NOT NULL
+        GROUP BY payload->>'model'
+        HAVING COUNT(*) >= 3
+        ORDER BY AVG(hgi_raw) DESC
+        "#,
+    )
+    .fetch_all(pool)
+    .await
 }
 
 /// Telemetry events not yet folded into any anchored Merkle root, oldest first.
@@ -736,6 +856,180 @@ pub async fn get_recent_evaluations(
 }
 
 // ---------------------------------------------------------------------------------
+// audit_log (real durable BCC-middleware ALLOW/DENY decision trail, see migration
+// 0006's header comment for why this table exists — no other component had durable
+// storage for the protocol's most audit-worthy event type before this).
+// ---------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct AuditLogRow {
+    pub id: Uuid,
+    pub agent_id: Option<String>,
+    pub source: String,
+    pub event_type: String,
+    pub decision: String,
+    pub reason_code: Option<String>,
+    pub detail: Option<String>,
+    pub created_at: DateTime<Utc>,
+    // Evidence-export linkage (migration 0007): LEFT JOINed from `anchor_events`
+    // on `metadata->>'leaf'`. Populated only for ALLOW rows whose Merkle leaf has
+    // been anchored on-chain; None otherwise.
+    pub anchor_root: Option<String>,
+    pub anchor_tx_hash: Option<String>,
+    pub anchored_at: Option<DateTime<Utc>>,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn insert_audit_log(
+    pool: &PgPool,
+    agent_id: Option<&str>,
+    source: &str,
+    event_type: &str,
+    decision: &str,
+    reason_code: Option<&str>,
+    detail: Option<&str>,
+    intent_type: Option<&str>,
+    metadata: &serde_json::Value,
+) -> Result<Uuid, sqlx::Error> {
+    let id = Uuid::new_v4();
+    sqlx::query(
+        r#"
+        INSERT INTO audit_log (id, agent_id, source, event_type, decision, reason_code, detail, intent_type, metadata)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        "#,
+    )
+    .bind(id)
+    .bind(agent_id)
+    .bind(source)
+    .bind(event_type)
+    .bind(decision)
+    .bind(reason_code)
+    .bind(detail)
+    .bind(intent_type)
+    .bind(metadata)
+    .execute(pool)
+    .await?;
+    Ok(id)
+}
+
+pub async fn get_recent_audit_log(
+    pool: &PgPool,
+    agent_id: Option<&str>,
+    limit: i64,
+) -> Result<Vec<AuditLogRow>, sqlx::Error> {
+    // LEFT JOIN anchor_events on the ALLOW row's Merkle leaf (audit_log.metadata
+    // ->>'leaf', written at decision time) so an anchored decision carries its
+    // on-chain StateAnchor root + tx. LEFT (not INNER) so un-anchored and non-BCC
+    // rows still appear with null anchor fields. anchor_events.leaf is UNIQUE, so
+    // the join never fans a row out.
+    match agent_id {
+        Some(aid) => {
+            sqlx::query_as::<_, AuditLogRow>(
+                r#"
+                SELECT a.id, a.agent_id, a.source, a.event_type, a.decision, a.reason_code, a.detail, a.created_at,
+                       ae.root AS anchor_root, ae.tx_hash AS anchor_tx_hash, ae.anchored_at
+                FROM audit_log a
+                LEFT JOIN anchor_events ae ON ae.leaf = a.metadata->>'leaf'
+                WHERE a.agent_id = $1
+                ORDER BY a.created_at DESC
+                LIMIT $2
+                "#,
+            )
+            .bind(aid)
+            .bind(limit)
+            .fetch_all(pool)
+            .await
+        }
+        None => {
+            sqlx::query_as::<_, AuditLogRow>(
+                r#"
+                SELECT a.id, a.agent_id, a.source, a.event_type, a.decision, a.reason_code, a.detail, a.created_at,
+                       ae.root AS anchor_root, ae.tx_hash AS anchor_tx_hash, ae.anchored_at
+                FROM audit_log a
+                LEFT JOIN anchor_events ae ON ae.leaf = a.metadata->>'leaf'
+                ORDER BY a.created_at DESC
+                LIMIT $1
+                "#,
+            )
+            .bind(limit)
+            .fetch_all(pool)
+            .await
+        }
+    }
+}
+
+/// Records the anchor events for one agent's just-anchored Merkle sub-tree:
+/// every `leaf` committed in the on-chain `tx_hash` under `root`. Idempotent —
+/// a leaf already recorded (a retried anchor report) is skipped via the UNIQUE
+/// (leaf) constraint rather than duplicated. Returns the number of new rows.
+/// See migration 0007 for why this is a separate table joined at read time
+/// rather than a back-fill onto audit_log.
+pub async fn insert_anchor_events(
+    pool: &PgPool,
+    agent_id: &str,
+    leaves: &[String],
+    root: &str,
+    tx_hash: &str,
+) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query(
+        r#"
+        INSERT INTO anchor_events (agent_id, leaf, root, tx_hash)
+        SELECT $1, leaf, $3, $4
+        FROM unnest($2::text[]) AS leaf
+        ON CONFLICT (leaf) DO NOTHING
+        "#,
+    )
+    .bind(agent_id)
+    .bind(leaves)
+    .bind(root)
+    .bind(tx_hash)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+// Provenance: an agent's real, on-chain-anchored history -- each Merkle leaf it
+// committed, the StateAnchor root+tx that anchored it, and (via the same
+// metadata->>'leaf' join the audit-log uses) the policy decision that produced
+// it. Pure read over anchor_events + audit_log, no chain call. See
+// docs/design/evidence-export.md / dashboard-wiring.md (Class B).
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ProvenanceRow {
+    pub id: Uuid,
+    pub agent_id: String,
+    pub leaf: String,
+    pub root: String,
+    pub tx_hash: String,
+    pub anchored_at: DateTime<Utc>,
+    pub decision: Option<String>,
+    pub reason_code: Option<String>,
+    pub intent_type: Option<String>,
+    pub created_at: Option<DateTime<Utc>>,
+}
+
+pub async fn get_agent_provenance(
+    pool: &PgPool,
+    agent_id: &str,
+    limit: i64,
+) -> Result<Vec<ProvenanceRow>, sqlx::Error> {
+    sqlx::query_as::<_, ProvenanceRow>(
+        r#"
+        SELECT ae.id, ae.agent_id, ae.leaf, ae.root, ae.tx_hash, ae.anchored_at,
+               a.decision, a.reason_code, a.intent_type, a.created_at
+        FROM anchor_events ae
+        LEFT JOIN audit_log a ON a.metadata->>'leaf' = ae.leaf
+        WHERE ae.agent_id = $1
+        ORDER BY ae.anchored_at DESC
+        LIMIT $2
+        "#,
+    )
+    .bind(agent_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
+// ---------------------------------------------------------------------------------
 // otel_spans (real OTLP receiver storage, see otlp.rs) + time-bucketed history
 // (PRODUCTION_GAPS.md §1 items 2-3) — see migration 0004's header comment for why
 // this table exists separately from telemetry_events and is never an AIS input.
@@ -771,12 +1065,13 @@ pub async fn insert_otel_span(
     end_time: DateTime<Utc>,
     status_code: &str,
     attributes: &serde_json::Value,
+    phi_flags: Option<&[String]>,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         INSERT INTO otel_spans
-            (id, agent_id, trace_id, span_id, parent_span_id, name, kind, start_time, end_time, status_code, attributes)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            (id, agent_id, trace_id, span_id, parent_span_id, name, kind, start_time, end_time, status_code, attributes, phi_flags)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         "#,
     )
     .bind(id)
@@ -790,9 +1085,263 @@ pub async fn insert_otel_span(
     .bind(end_time)
     .bind(status_code)
     .bind(attributes)
+    .bind(phi_flags)
     .execute(pool)
     .await?;
     Ok(())
+}
+
+/// Token totals for an agent, grouped by the emitter's token `type` attribute
+/// (input / output / cacheRead / cacheCreation for Claude Code).
+///
+/// Selects on **unit**, not metric name: `unit = 'tokens'` is emitter-neutral, so a runtime
+/// other than Claude Code that follows the same OTel convention rolls up here too, rather
+/// than the query being welded to one vendor's metric names.
+pub async fn agent_token_usage(
+    pool: &PgPool,
+    agent_id: &str,
+    since: DateTime<Utc>,
+) -> Result<Vec<(String, f64)>, sqlx::Error> {
+    sqlx::query_as::<_, (String, f64)>(
+        r#"
+        -- Reduce per series, then sum across series. Only DELTA points are increments that
+        -- may be summed; everything else (cumulative counters, gauges, and legacy rows
+        -- written before migration 0009 recorded temporality at all) must take the LATEST
+        -- reading for the series. Latest, not MAX: it is correct for a cumulative counter
+        -- (monotonic, so latest is the running total) AND for a gauge (a point-in-time
+        -- reading, where MAX would report a past peak). See migration 0009.
+        SELECT token_type, SUM(v) AS total FROM (
+            SELECT COALESCE(attributes->>'type', 'unspecified') AS token_type, SUM(value) AS v
+            FROM otel_metrics
+            WHERE agent_id = $1 AND unit = 'tokens' AND time >= $2 AND temporality = 'delta'
+            GROUP BY 1, attributes
+            UNION ALL
+            SELECT token_type, v FROM (
+                SELECT DISTINCT ON (attributes)
+                       COALESCE(attributes->>'type', 'unspecified') AS token_type, value AS v
+                FROM otel_metrics
+                WHERE agent_id = $1 AND unit = 'tokens' AND time >= $2 AND temporality <> 'delta'
+                ORDER BY attributes, time DESC
+            ) latest_per_series
+        ) reduced
+        GROUP BY 1
+        ORDER BY 1
+        "#,
+    )
+    .bind(agent_id)
+    .bind(since)
+    .fetch_all(pool)
+    .await
+}
+
+/// Reported cost for an agent over the window, grouped by model. `unit = 'USD'` for the
+/// same emitter-neutral reason as `agent_token_usage`.
+pub async fn agent_cost_usage(
+    pool: &PgPool,
+    agent_id: &str,
+    since: DateTime<Utc>,
+) -> Result<Vec<(String, f64)>, sqlx::Error> {
+    sqlx::query_as::<_, (String, f64)>(
+        r#"
+        -- Same delta-vs-latest reduction as agent_token_usage.
+        SELECT model, SUM(v) AS total FROM (
+            SELECT COALESCE(attributes->>'model', 'unspecified') AS model, SUM(value) AS v
+            FROM otel_metrics
+            WHERE agent_id = $1 AND unit = 'USD' AND time >= $2 AND temporality = 'delta'
+            GROUP BY 1, attributes
+            UNION ALL
+            SELECT model, v FROM (
+                SELECT DISTINCT ON (attributes)
+                       COALESCE(attributes->>'model', 'unspecified') AS model, value AS v
+                FROM otel_metrics
+                WHERE agent_id = $1 AND unit = 'USD' AND time >= $2 AND temporality <> 'delta'
+                ORDER BY attributes, time DESC
+            ) latest_per_series
+        ) reduced
+        GROUP BY 1
+        ORDER BY 2 DESC
+        "#,
+    )
+    .bind(agent_id)
+    .bind(since)
+    .fetch_all(pool)
+    .await
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct OtelLogRow {
+    pub event_name: Option<String>,
+    pub severity_text: Option<String>,
+    pub body: Option<String>,
+    pub attributes: serde_json::Value,
+    pub trace_id: Option<String>,
+    pub span_id: Option<String>,
+    pub time: DateTime<Utc>,
+}
+
+/// Most recent structured events for an agent, newest first.
+pub async fn recent_otel_logs(
+    pool: &PgPool,
+    agent_id: &str,
+    limit: i64,
+) -> Result<Vec<OtelLogRow>, sqlx::Error> {
+    sqlx::query_as::<_, OtelLogRow>(
+        r#"
+        SELECT event_name, severity_text, body, attributes, trace_id, span_id, time
+        FROM otel_logs
+        WHERE agent_id = $1
+        ORDER BY time DESC
+        LIMIT $2
+        "#,
+    )
+    .bind(agent_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
+/// One OTLP metric data point. Written by `OtlpMetricsService::export`.
+///
+/// `evidence_tier` is passed explicitly rather than defaulted in SQL so every caller has to
+/// state what it is inserting: rows arriving over the unauthenticated OTLP port are vendor
+/// telemetry, not agent-signed evidence, and must never reach AIS (migration 0008's header).
+#[allow(clippy::too_many_arguments)]
+pub async fn insert_otel_metric(
+    pool: &PgPool,
+    id: Uuid,
+    agent_id: &str,
+    name: &str,
+    description: Option<&str>,
+    unit: Option<&str>,
+    data_type: &str,
+    temporality: &str,
+    value: f64,
+    attributes: &serde_json::Value,
+    start_time: Option<DateTime<Utc>>,
+    time: DateTime<Utc>,
+    evidence_tier: &str,
+    phi_flags: Option<&[String]>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        INSERT INTO otel_metrics
+            (id, agent_id, name, description, unit, data_type, temporality, value, attributes, start_time, time, evidence_tier, phi_flags)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        "#,
+    )
+    .bind(id)
+    .bind(agent_id)
+    .bind(name)
+    .bind(description)
+    .bind(unit)
+    .bind(data_type)
+    .bind(temporality)
+    .bind(value)
+    .bind(attributes)
+    .bind(start_time)
+    .bind(time)
+    .bind(evidence_tier)
+    .bind(phi_flags)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// One OTLP log record / structured event. Written by `OtlpLogsService::export`.
+/// Same evidence-tier caveat as `insert_otel_metric`.
+#[allow(clippy::too_many_arguments)]
+pub async fn insert_otel_log(
+    pool: &PgPool,
+    id: Uuid,
+    agent_id: &str,
+    event_name: Option<&str>,
+    severity_text: Option<&str>,
+    severity_number: Option<i32>,
+    body: Option<&str>,
+    attributes: &serde_json::Value,
+    trace_id: Option<&str>,
+    span_id: Option<&str>,
+    time: DateTime<Utc>,
+    evidence_tier: &str,
+    phi_flags: Option<&[String]>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        INSERT INTO otel_logs
+            (id, agent_id, event_name, severity_text, severity_number, body, attributes, trace_id, span_id, time, evidence_tier, phi_flags)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        "#,
+    )
+    .bind(id)
+    .bind(agent_id)
+    .bind(event_name)
+    .bind(severity_text)
+    .bind(severity_number)
+    .bind(body)
+    .bind(attributes)
+    .bind(trace_id)
+    .bind(span_id)
+    .bind(time)
+    .bind(evidence_tier)
+    .bind(phi_flags)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct RecentTraceRow {
+    pub trace_id: String,
+    pub name: String,
+    pub start_time: DateTime<Utc>,
+}
+
+/// One row per trace's root span (`parent_span_id IS NULL`), most recent
+/// first -- backs `GET /v1/agent/{id}/otel/traces`, the "list recent traces"
+/// endpoint that never existed until now (frontend previously could only
+/// discover trace_ids by watching the live SSE stream while a tab was open,
+/// so any trace generated before that tab was open was permanently
+/// invisible to `GET /v1/traces/{trace_id}` despite being real, queryable
+/// data). A trace with multiple genuine roots (see trace_tree.rs's handling
+/// of that case) surfaces once per root here, which is an acceptable
+/// simplification for a "recent traces" picker, not a correctness issue for
+/// `get_trace_tree` itself (which still reconstructs every root).
+pub async fn get_recent_root_spans(pool: &PgPool, agent_id: &str, limit: i64) -> Result<Vec<RecentTraceRow>, sqlx::Error> {
+    sqlx::query_as::<_, RecentTraceRow>(
+        r#"
+        SELECT trace_id, name, start_time
+        FROM otel_spans
+        WHERE agent_id = $1 AND parent_span_id IS NULL
+        ORDER BY start_time DESC
+        LIMIT $2
+        "#,
+    )
+    .bind(agent_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
+/// Every real span for one agent, most recent first, flat (not grouped into
+/// trace trees) -- backs the unified "everything logged" audit-log merge in
+/// `get_audit_log` (see that handler's doc comment). Deliberately not
+/// restricted to root spans like `get_recent_root_spans`: a manual-debugging
+/// log view needs the child spans (`tool_call.*`, `llm_call.*`) too, not
+/// just each trace's top-level name.
+pub async fn get_recent_spans_flat(pool: &PgPool, agent_id: &str, limit: i64) -> Result<Vec<OtelSpanRow>, sqlx::Error> {
+    sqlx::query_as::<_, OtelSpanRow>(
+        r#"
+        SELECT id, agent_id, trace_id, span_id, parent_span_id, name, kind, start_time, end_time, status_code, attributes, created_at
+        FROM otel_spans
+        WHERE agent_id = $1
+        ORDER BY start_time DESC
+        LIMIT $2
+        "#,
+    )
+    .bind(agent_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
 }
 
 /// Every span belonging to one trace, in start-time order — the shape
@@ -929,3 +1478,190 @@ pub async fn otel_volume_buckets(
     .await
 }
 
+
+// ---------------------------------------------------------------------------
+// Verification Ladder (rungs 2 and 3) — see verification.rs and migration 0011.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, serde::Serialize, sqlx::FromRow, utoipa::ToSchema)]
+pub struct IdentityVerificationRow {
+    pub id: i64,
+    pub agent_id: String,
+    pub method: String,
+    pub tier_granted: i32,
+    pub subject: String,
+    pub evidence: serde_json::Value,
+    pub verified_at: chrono::DateTime<chrono::Utc>,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Issue (or replace) a DNS challenge nonce for one (agent, domain).
+///
+/// Replacing rather than accumulating: an operator who asks twice should get a
+/// usable nonce, not a collision, and leaving old nonces valid would widen the
+/// replay window the nonce exists to close.
+pub async fn issue_dns_challenge(
+    pool: &PgPool,
+    agent_id: &str,
+    domain: &str,
+    nonce: &str,
+    ttl_minutes: i64,
+) -> Result<chrono::DateTime<chrono::Utc>, sqlx::Error> {
+    let expires_at = chrono::Utc::now() + chrono::Duration::minutes(ttl_minutes);
+    sqlx::query(
+        r#"
+        INSERT INTO dns_verification_challenges (agent_id, domain, nonce, expires_at)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (agent_id, domain) DO UPDATE
+          SET nonce = EXCLUDED.nonce,
+              issued_at = now(),
+              expires_at = EXCLUDED.expires_at,
+              consumed_at = NULL
+        "#,
+    )
+    .bind(agent_id)
+    .bind(domain)
+    .bind(nonce)
+    .bind(expires_at)
+    .execute(pool)
+    .await?;
+    Ok(expires_at)
+}
+
+/// Fetch an UNEXPIRED, UNCONSUMED challenge. Expiry is enforced in SQL rather than
+/// in the caller so there is no window where application code forgets to check it.
+pub async fn get_active_dns_challenge(
+    pool: &PgPool,
+    agent_id: &str,
+    domain: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar::<_, String>(
+        r#"
+        SELECT nonce FROM dns_verification_challenges
+        WHERE agent_id = $1 AND domain = $2
+          AND consumed_at IS NULL
+          AND expires_at > now()
+        "#,
+    )
+    .bind(agent_id)
+    .bind(domain)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn consume_dns_challenge(
+    pool: &PgPool,
+    agent_id: &str,
+    domain: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE dns_verification_challenges SET consumed_at = now() WHERE agent_id = $1 AND domain = $2",
+    )
+    .bind(agent_id)
+    .bind(domain)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Record a successful verification. Re-proving the same (agent, method, subject)
+/// refreshes it in place rather than adding a row, matching the partial unique
+/// index in migration 0011.
+pub async fn record_identity_verification(
+    pool: &PgPool,
+    agent_id: &str,
+    method: &str,
+    tier_granted: i32,
+    subject: &str,
+    evidence: serde_json::Value,
+    expires_at: Option<chrono::DateTime<chrono::Utc>>,
+) -> Result<IdentityVerificationRow, sqlx::Error> {
+    sqlx::query_as::<_, IdentityVerificationRow>(
+        r#"
+        INSERT INTO identity_verifications
+            (agent_id, method, tier_granted, subject, evidence, expires_at)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (agent_id, method, subject) WHERE revoked_at IS NULL
+        DO UPDATE SET tier_granted = EXCLUDED.tier_granted,
+                      evidence     = EXCLUDED.evidence,
+                      verified_at  = now(),
+                      expires_at   = EXCLUDED.expires_at
+        RETURNING id, agent_id, method, tier_granted, subject, evidence,
+                  verified_at, expires_at, revoked_at
+        "#,
+    )
+    .bind(agent_id)
+    .bind(method)
+    .bind(tier_granted)
+    .bind(subject)
+    .bind(evidence)
+    .bind(expires_at)
+    .fetch_one(pool)
+    .await
+}
+
+/// Tiers from verifications that are active RIGHT NOW — not revoked, not expired.
+///
+/// Expiry is applied here, in the query, which is what makes a lapsed domain
+/// automatically lower an agent's tier instead of requiring a sweep job. A cached
+/// `verification_tier` column could not do that without drifting from its evidence.
+pub async fn active_verification_tiers(
+    pool: &PgPool,
+    agent_id: &str,
+) -> Result<Vec<i32>, sqlx::Error> {
+    sqlx::query_scalar::<_, i32>(
+        r#"
+        SELECT tier_granted FROM identity_verifications
+        WHERE agent_id = $1
+          AND revoked_at IS NULL
+          AND (expires_at IS NULL OR expires_at > now())
+        "#,
+    )
+    .bind(agent_id)
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn list_identity_verifications(
+    pool: &PgPool,
+    agent_id: &str,
+) -> Result<Vec<IdentityVerificationRow>, sqlx::Error> {
+    sqlx::query_as::<_, IdentityVerificationRow>(
+        r#"
+        SELECT id, agent_id, method, tier_granted, subject, evidence,
+               verified_at, expires_at, revoked_at
+        FROM identity_verifications
+        WHERE agent_id = $1
+        ORDER BY verified_at DESC
+        "#,
+    )
+    .bind(agent_id)
+    .fetch_all(pool)
+    .await
+}
+
+/// The tier the rest of the system should use: registration floor ∪ active verifications.
+pub async fn effective_verification_tier(
+    pool: &PgPool,
+    agent_id: &str,
+    registration_tier: i32,
+) -> Result<i32, sqlx::Error> {
+    Ok(effective_tier_with_source(pool, agent_id, registration_tier).await?.0)
+}
+
+/// Effective tier plus WHERE IT CAME FROM.
+///
+/// The source is not cosmetic: a development override produces a tier that is
+/// asserted rather than proven, and every surface that reports the tier must be
+/// able to say which it is. Returning them together makes it impossible to
+/// report the number without having the provenance in hand.
+pub async fn effective_tier_with_source(
+    pool: &PgPool,
+    agent_id: &str,
+    registration_tier: i32,
+) -> Result<(i32, crate::verification::TierSource), sqlx::Error> {
+    let tiers = active_verification_tiers(pool, agent_id).await?;
+    let verified = crate::verification::effective_tier(registration_tier, &tiers);
+    Ok(crate::verification::apply_dev_override(agent_id, verified))
+}

@@ -1,18 +1,18 @@
 ---
-title: ComplianceGate & Xibalba Shield
+title: ComplianceGate & Integrity Health
 created: 2026-07-07
 updated: 2026-07-15
 type: concept
 tags: [compliance, layer-2]
 confidence: high
 source_files:
-  - contracts/src/shield/ComplianceGate.sol
-  - contracts/src/shield/EHRGate.sol
-  - contracts/src/shield/SmartBAAFactory.sol
-  - contracts/src/shield/CoveredEntityRegistry.sol
+  - contracts/src/health/ComplianceGate.sol
+  - contracts/src/health/EHRGate.sol
+  - contracts/src/health/SmartBAAFactory.sol
+  - contracts/src/health/CoveredEntityRegistry.sol
 ---
 
-**Xibalba Shield** is the HIPAA/healthcare vertical — the flagship proof that
+**Integrity Health** is the HIPAA/healthcare vertical — the flagship proof that
 the Integrity Protocol works in the most heavily regulated industry there is. It
 is not a side feature; it is the demonstration that makes the rest of the
 protocol credible.
@@ -25,7 +25,7 @@ clone) that connects a single agent to that vertical.
 Each agent's `ComplianceGate` declares its regulated vertical
 (`None` | `Healthcare`) and exposes one live read the
 [oracle](../entities/integrity-oracle.md) and
-[dashboard](../entities/integrity-mvp.md) can call without knowing Shield's
+[dashboard](../entities/integrity-dashboard.md) can call without knowing Integrity Health's
 internals:
 
 ```solidity
@@ -39,7 +39,7 @@ flags (mirroring the SDK's `integrity.compliance.*` telemetry attributes) are
 stored separately and are *never* consulted by this live-verified boolean — a
 dishonest agent cannot self-declare its way to compliance.
 
-## The Shield stack (shared singletons)
+## The Integrity Health stack (shared singletons)
 
 - `CoveredEntityRegistry` — registry of HIPAA covered entities and business
   associates (admin-vetted; being listed is a claim of real legal status).

@@ -7,9 +7,23 @@
 //! that indirection is the entire point of having an "oracle" instead of just
 //! letting every consumer compute its own opinion of an agent's trustworthiness.
 //!
-//! Formula (verbatim from the interface contract):
+//! Formula (verbatim from the interface contract, §4.3):
 //!
-//!   AIS = (S_entropy*wE + S_grounding*wG + S_sacrifice*wS + S_compliance*wC) * ZK_boost
+//!   AIS = (S_entropy^wE * S_grounding^wG * S_sacrifice^wS * S_compliance^wC) * ZK_boost
+//!
+//! This is a weighted GEOMETRIC mean (a "volume"), not an arithmetic one. The
+//! distinction is load-bearing and is the single most misunderstood thing about
+//! this crate — this docstring itself stated the arithmetic form for some time
+//! after the code had moved to the geometric one.
+//!
+//! The operational consequence: **any single zero component annihilates the whole
+//! score**, because x^w == 0 for x == 0. An agent with perfect entropy, grounding
+//! and compliance but zero reported `sacrifice` scores exactly 0.0, not 800. That
+//! is not a bug — a geometric mean deliberately refuses to let a strong axis
+//! compensate for a wholly absent one — but it means an agent that simply never
+//! *reports* one axis is indistinguishable from one that catastrophically failed
+//! it. See `any_single_zero_component_annihilates_ais` in the tests below, and
+//! `PRODUCTION_GAPS.md` for the absent-vs-zero question this raises.
 //!
 //! with default weights wE=0.30, wG=0.30, wS=0.20, wC=0.20 (sum to 1.0) and
 //! ZK_boost = 1.15 when a real Barretenberg proof was verified for the agent
@@ -211,10 +225,11 @@ impl AisEngine {
             NO_ZK_BOOST_FACTOR
         };
 
-        let weighted = s_entropy * self.weights.w_entropy
-            + s_grounding * self.weights.w_grounding
-            + s_sacrifice * self.weights.w_sacrifice
-            + s_compliance * self.weights.w_compliance;
+        // Use the Weighted Geometric Mean (Volume formula) instead of Arithmetic Mean
+        let weighted = s_entropy.powf(self.weights.w_entropy)
+            * s_grounding.powf(self.weights.w_grounding)
+            * s_sacrifice.powf(self.weights.w_sacrifice)
+            * s_compliance.powf(self.weights.w_compliance);
 
         AisBreakdown {
             s_entropy,
@@ -224,6 +239,30 @@ impl AisEngine {
             zk_boost,
             ais: weighted * zk_boost,
         }
+    }
+
+    /// Returns the maximum AIS ceiling allowed for a given verification tier:
+    /// Tier 0 (Developer API Key): 300.0
+    /// Tier 1 (Sovereign Software Key): 600.0
+    /// Tier 2 (Linked DNS/Social Attestation): 850.0
+    /// Tier 3 (Institutional TEE/Audit): 1000.0 (uncapped, ZK boost applies)
+    pub fn ceiling_for_tier(verification_tier: i32) -> f64 {
+        match verification_tier {
+            0 => 300.0,
+            1 => 600.0,
+            2 => 850.0,
+            _ => 1000.0,
+        }
+    }
+
+    /// Computes the AIS breakdown and applies the Verification Ladder score ceiling.
+    pub fn score_with_tier(&self, inputs: &AisComponentInputs, verification_tier: i32) -> AisBreakdown {
+        let mut breakdown = self.score(inputs);
+        let ceiling = Self::ceiling_for_tier(verification_tier);
+        if verification_tier < 3 {
+            breakdown.ais = breakdown.ais.min(ceiling);
+        }
+        breakdown
     }
 }
 
@@ -326,5 +365,142 @@ mod tests {
         assert!((at_ceiling - 1000.0).abs() < 1.0);
         assert!((past_ceiling - 1000.0).abs() < 1.0);
         assert!(engine.calculate_sacrifice_score(0.0) < at_ceiling);
+    }
+
+    #[test]
+    fn verification_ladder_tier_ceilings_enforced() {
+        let engine = AisEngine::default();
+        let perfect_inputs = AisComponentInputs {
+            performance_variance: 0.0,
+            hgi_raw: 1.0,
+            gpu_hours_verified: 1000.0,
+            penalty_ratio: 0.0,
+            zk_verified_this_period: false,
+        };
+
+        // Tier 0 (Dev Key): capped at 300
+        let score_t0 = engine.score_with_tier(&perfect_inputs, 0);
+        assert_eq!(score_t0.ais, 300.0);
+
+        // Tier 1 (Sovereign): capped at 600
+        let score_t1 = engine.score_with_tier(&perfect_inputs, 1);
+        assert_eq!(score_t1.ais, 600.0);
+
+        // Tier 2 (Linked): capped at 850
+        let score_t2 = engine.score_with_tier(&perfect_inputs, 2);
+        assert_eq!(score_t2.ais, 850.0);
+
+        // Tier 3 (Institutional): uncapped (1000)
+        let score_t3 = engine.score_with_tier(&perfect_inputs, 3);
+        assert!((score_t3.ais - 1000.0).abs() < 1e-6);
+    }
+
+    // -----------------------------------------------------------------------
+    // Formula-shape regression guards
+    // -----------------------------------------------------------------------
+    // These exist because of a measured gap: replacing the weighted GEOMETRIC
+    // mean in `score()` with a weighted ARITHMETIC mean left all 9 pre-existing
+    // tests passing. Every case above evaluates either at a corner where the two
+    // formulas agree (all components equal: w's sum to 1, so both reduce to that
+    // same value) or above a tier ceiling that clips the difference away. The
+    // single most load-bearing number in the protocol had no test pinning its
+    // actual shape. These two do.
+
+    #[test]
+    fn ais_uses_geometric_not_arithmetic_mean_on_unequal_components() {
+        let engine = AisEngine::new(AisWeights::default()).unwrap();
+
+        // Deliberately unequal, all non-zero, and chosen so the result sits well
+        // below the tier-3 ceiling — otherwise clipping would mask the difference.
+        // entropy 800, grounding 600, sacrifice 400, compliance 900:
+        //   geometric  = 800^.3 * 600^.3 * 400^.2 * 900^.2 ≈ 653.5
+        //   arithmetic = 800*.3 + 600*.3 + 400*.2 + 900*.2  = 680.0
+        // ~26 points apart: comfortably outside the tolerance below, so a swapped
+        // formula cannot slip through.
+        let w = AisWeights::default();
+        let geometric = 800f64.powf(w.w_entropy)
+            * 600f64.powf(w.w_grounding)
+            * 400f64.powf(w.w_sacrifice)
+            * 900f64.powf(w.w_compliance);
+        let arithmetic = 800.0 * w.w_entropy
+            + 600.0 * w.w_grounding
+            + 400.0 * w.w_sacrifice
+            + 900.0 * w.w_compliance;
+
+        // Sanity: the two formulas genuinely disagree on this input, so the
+        // assertion below is capable of failing if the shape is swapped.
+        assert!(
+            (geometric - arithmetic).abs() > 5.0,
+            "test input must discriminate the two formulas (geo {geometric}, arith {arithmetic})"
+        );
+
+        let scored = engine.score(&component_inputs_yielding(800.0, 600.0, 400.0, 900.0, &engine));
+        assert!(
+            (scored.ais - geometric).abs() < 1.0,
+            "AIS must be the weighted GEOMETRIC mean; got {} (geometric {geometric}, arithmetic {arithmetic})",
+            scored.ais
+        );
+    }
+
+    #[test]
+    fn any_single_zero_component_annihilates_ais() {
+        // The operational consequence of a geometric mean, and the reason the
+        // xibalba agent's live AIS read 0.0 for weeks: it reported no token
+        // usage, so `sacrifice` derived to 0, and 0^0.2 == 0 zeroes the product
+        // no matter how perfect the other three axes are. Anyone changing this
+        // formula must decide about this behavior deliberately.
+        let engine = AisEngine::new(AisWeights::default()).unwrap();
+        let inputs = AisComponentInputs {
+            performance_variance: 0.0,   // -> s_entropy    = 1000 (best)
+            hgi_raw: 1.0,                // -> s_grounding  = 1000 (best)
+            gpu_hours_verified: 0.0,     // -> s_sacrifice  = 0    (nothing reported)
+            penalty_ratio: 0.0,          // -> s_compliance = 1000 (best)
+            zk_verified_this_period: false,
+        };
+        let scored = engine.score(&inputs);
+        assert_eq!(scored.s_sacrifice, 0.0, "precondition: sacrifice must be 0");
+        assert!(scored.s_entropy > 999.0 && scored.s_grounding > 999.0 && scored.s_compliance > 999.0);
+        assert_eq!(
+            scored.ais, 0.0,
+            "a single zero component must annihilate AIS under a geometric mean"
+        );
+    }
+
+    /// Solve for the raw inputs that produce the given component scores, so the
+    /// test above can assert on the formula's *shape* rather than on the
+    /// per-component derivations (which are tested separately elsewhere).
+    fn component_inputs_yielding(
+        entropy: f64,
+        grounding: f64,
+        sacrifice: f64,
+        compliance: f64,
+        engine: &AisEngine,
+    ) -> AisComponentInputs {
+        // Invert each component's own curve.
+        let variance = {
+            // calculate_entropy_score is monotonically decreasing in variance;
+            // binary-search rather than hardcode its internal form.
+            let (mut lo, mut hi) = (0.0f64, 1e6f64);
+            for _ in 0..200 {
+                let mid = (lo + hi) / 2.0;
+                if engine.calculate_entropy_score(mid) > entropy { lo = mid } else { hi = mid }
+            }
+            (lo + hi) / 2.0
+        };
+        let hours = {
+            let (mut lo, mut hi) = (0.0f64, 1e6f64);
+            for _ in 0..200 {
+                let mid = (lo + hi) / 2.0;
+                if engine.calculate_sacrifice_score(mid) < sacrifice { lo = mid } else { hi = mid }
+            }
+            (lo + hi) / 2.0
+        };
+        AisComponentInputs {
+            performance_variance: variance,
+            hgi_raw: grounding / MAX_COMPONENT_SCORE,
+            gpu_hours_verified: hours,
+            penalty_ratio: 1.0 - (compliance / MAX_COMPONENT_SCORE),
+            zk_verified_this_period: false,
+        }
     }
 }

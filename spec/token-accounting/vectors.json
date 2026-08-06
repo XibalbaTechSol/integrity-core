@@ -1,0 +1,110 @@
+{
+  "$comment": [
+    "Cross-language conformance vectors for token accounting — the single source of truth",
+    "for how a telemetry entry's token total is computed. integrity-sdk's",
+    "telemetry/derive.py::entry_token_total and integrity-oracle's derive.rs::entry_token_total",
+    "BOTH read this file in their tests, so the two implementations cannot drift apart",
+    "silently. That mattered: they previously drifted into the same double-counting bug",
+    "(summing total_tokens AND prompt_tokens AND completion_tokens), and because both sides",
+    "were wrong in the same direction, no reconciliation could reveal it.",
+    "",
+    "RULES, in precedence order:",
+    "  1. Base = provider-computed total_tokens when present; otherwise the sum of the two",
+    "     halves (prompt+completion, or the input/output aliases). NEVER both — total_tokens",
+    "     already equals prompt+completion in every provider that reports it.",
+    "  2. Anthropic-style cache tokens (cache_creation_input_tokens / cache_read_input_tokens,",
+    "     and the flattened cache_creation_tokens / cache_read_tokens) are ADDITIONAL to",
+    "     input_tokens and are added.",
+    "  3. OpenAI-style prompt_tokens_details.cached_tokens and",
+    "     completion_tokens_details.reasoning_tokens are SUBSETS of prompt_tokens and",
+    "     completion_tokens respectively, and are NEVER added — doing so double-counts.",
+    "  4. Flat top-level metadata input_tokens/output_tokens are used only when token_usage",
+    "     contributed nothing, so a single call is never counted twice."
+  ],
+  "vectors": [
+    {
+      "name": "openai_all_three_keys",
+      "why": "The shape that caused the original bug: total_tokens present alongside its own components. Must equal total_tokens, not 2x it.",
+      "entry": { "metadata": { "token_usage": { "prompt_tokens": 1000, "completion_tokens": 500, "total_tokens": 1500 } } },
+      "expected": 1500
+    },
+    {
+      "name": "openai_components_only",
+      "why": "No provider total — sum the halves.",
+      "entry": { "metadata": { "token_usage": { "prompt_tokens": 1000, "completion_tokens": 500 } } },
+      "expected": 1500
+    },
+    {
+      "name": "anthropic_with_cache",
+      "why": "Anthropic reports no total_tokens, and cache tokens are ADDITIONAL to input_tokens.",
+      "entry": { "metadata": { "token_usage": { "input_tokens": 1200, "output_tokens": 800, "cache_creation_input_tokens": 300, "cache_read_input_tokens": 15000 } } },
+      "expected": 17300
+    },
+    {
+      "name": "openai_cached_tokens_is_a_subset",
+      "why": "prompt_tokens_details.cached_tokens is part of prompt_tokens; adding it would double-count the cached portion.",
+      "entry": { "metadata": { "token_usage": { "prompt_tokens": 1000, "completion_tokens": 500, "total_tokens": 1500, "prompt_tokens_details": { "cached_tokens": 800 } } } },
+      "expected": 1500
+    },
+    {
+      "name": "openai_reasoning_tokens_is_a_subset",
+      "why": "completion_tokens_details.reasoning_tokens is part of completion_tokens.",
+      "entry": { "metadata": { "token_usage": { "prompt_tokens": 100, "completion_tokens": 900, "total_tokens": 1000, "completion_tokens_details": { "reasoning_tokens": 700 } } } },
+      "expected": 1000
+    },
+    {
+      "name": "flat_metadata_form",
+      "why": "Integrations that put tokens at the top level rather than under token_usage.",
+      "entry": { "metadata": { "input_tokens": 2000, "output_tokens": 500 } },
+      "expected": 2500
+    },
+    {
+      "name": "flat_and_nested_not_double_counted",
+      "why": "When token_usage already contributed, the flat keys describe the same call and must be ignored.",
+      "entry": { "metadata": { "token_usage": { "total_tokens": 1500 }, "input_tokens": 1000, "output_tokens": 500 } },
+      "expected": 1500
+    },
+    {
+      "name": "flattened_cache_keys",
+      "why": "The shape Claude Code's OTLP events use (cache_read_tokens rather than cache_read_input_tokens).",
+      "entry": { "metadata": { "token_usage": { "input_tokens": 1200, "output_tokens": 800, "cache_read_tokens": 15000, "cache_creation_tokens": 300 } } },
+      "expected": 17300
+    },
+    {
+      "name": "empty_metadata",
+      "why": "An entry with no usage data contributes nothing rather than erroring.",
+      "entry": { "metadata": {} },
+      "expected": 0
+    },
+    {
+      "name": "no_metadata_key",
+      "why": "Malformed entries must not throw.",
+      "entry": {},
+      "expected": 0
+    },
+    {
+      "name": "null_token_usage",
+      "why": "LangChain emits token_usage: null when llm_output is absent.",
+      "entry": { "metadata": { "token_usage": null } },
+      "expected": 0
+    },
+    {
+      "name": "non_numeric_values_ignored",
+      "why": "Never coerce junk into a score input.",
+      "entry": { "metadata": { "token_usage": { "prompt_tokens": "lots", "completion_tokens": 500 } } },
+      "expected": 500
+    },
+    {
+      "name": "zero_total_falls_back_to_components",
+      "why": "Some providers emit total_tokens: 0 alongside real components (streaming partials).",
+      "entry": { "metadata": { "token_usage": { "total_tokens": 0, "prompt_tokens": 700, "completion_tokens": 300 } } },
+      "expected": 1000
+    },
+    {
+      "name": "negative_values_ignored",
+      "why": "A negative count is never legitimate and must not reduce the total.",
+      "entry": { "metadata": { "token_usage": { "prompt_tokens": -500, "completion_tokens": 300 } } },
+      "expected": 300
+    }
+  ]
+}

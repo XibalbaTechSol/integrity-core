@@ -1,16 +1,8 @@
 """
-Developer API key create -> list -> revoke round trip.
-
-Note on "a revoked key can't be reused": reading app/deps.py and app/main.py
-end to end, NOTHING in this package currently authenticates a request using
-a raw API key (`get_current_user_id` only ever decodes a JWT bearer token;
-`api_keys.key_hash` is written and read back for listing/revocation, but
-never looked up to gate a request). So there is no "revoked key still works"
-regression to test yet -- that would be testing a code path that doesn't
-exist. What IS tested here: revoking sets `revoked_at`, a second revoke of
-the same key 404s (can't double-revoke / revoke someone else's key), and the
-raw key is never persisted (only its hash, verified by reading straight from
-the DB).
+Developer API key create -> list -> revoke round trip, plus the API key as
+an actual authentication credential (`get_current_user_id` in app/deps.py
+now accepts an `X-API-Key` header as an alternative to a JWT bearer token,
+resolving to the key's owning user -- see that module's docstring).
 """
 
 from __future__ import annotations
@@ -127,3 +119,76 @@ async def test_cannot_revoke_another_users_key(client: httpx.AsyncClient) -> Non
     listed_a = await client.get("/api-keys", headers=headers_a)
     entry = next(item for item in listed_a.json() if item["id"] == key_id)
     assert entry["revoked_at"] is None
+
+
+async def test_api_key_authenticates_a_request(client: httpx.AsyncClient) -> None:
+    headers = await _auth_headers(client)
+    created = await client.post("/api-keys", headers=headers)
+    raw_key = created.json()["raw_key"]
+
+    resp = await client.get("/me", headers={"X-API-Key": raw_key})
+    assert resp.status_code == 200
+    assert resp.json()["email"] == EMAIL
+
+
+async def test_revoked_api_key_no_longer_authenticates(client: httpx.AsyncClient) -> None:
+    headers = await _auth_headers(client)
+    created = await client.post("/api-keys", headers=headers)
+    raw_key = created.json()["raw_key"]
+    key_id = created.json()["id"]
+
+    await client.delete(f"/api-keys/{key_id}", headers=headers)
+
+    resp = await client.get("/me", headers={"X-API-Key": raw_key})
+    assert resp.status_code == 401
+
+
+async def test_api_key_cannot_mint_further_api_keys(client: httpx.AsyncClient) -> None:
+    # Minting/revoking a key is JWT-only (see app/main.py's "API keys" section
+    # docstring) -- an API key that could mint further keys would let a single
+    # leaked long-lived credential perpetuate itself past its own revocation.
+    headers = await _auth_headers(client)
+    created = await client.post("/api-keys", headers=headers)
+    raw_key = created.json()["raw_key"]
+
+    resp = await client.post("/api-keys", headers={"X-API-Key": raw_key})
+    assert resp.status_code == 401
+
+
+async def test_api_key_cannot_revoke_api_keys(client: httpx.AsyncClient) -> None:
+    headers = await _auth_headers(client)
+    created = await client.post("/api-keys", headers=headers)
+    raw_key = created.json()["raw_key"]
+    key_id = created.json()["id"]
+
+    resp = await client.delete(f"/api-keys/{key_id}", headers={"X-API-Key": raw_key})
+    assert resp.status_code == 401
+
+    # Confirm it's genuinely untouched.
+    listed = await client.get("/api-keys", headers=headers)
+    entry = next(item for item in listed.json() if item["id"] == key_id)
+    assert entry["revoked_at"] is None
+
+
+async def test_unknown_api_key_401s(client: httpx.AsyncClient) -> None:
+    resp = await client.get("/me", headers={"X-API-Key": "uak_totally-not-a-real-key"})
+    assert resp.status_code == 401
+
+
+async def test_api_key_resolves_to_its_own_owner_not_another_users(client: httpx.AsyncClient) -> None:
+    headers_a = await _auth_headers(client)
+    created = await client.post("/api-keys", headers=headers_a)
+    raw_key = created.json()["raw_key"]
+
+    resp_b = await client.post("/auth/register", json={"email": "keyowner2@example.com", "password": PASSWORD})
+    headers_b = {"Authorization": f"Bearer {resp_b.json()['access_token']}"}
+
+    # Authenticating with A's api key must list A's keys, never B's -- even
+    # though this request is made "as" whichever user the key resolves to.
+    listed = await client.get("/api-keys", headers={"X-API-Key": raw_key})
+    assert listed.status_code == 200
+    ids = [item["id"] for item in listed.json()]
+    assert created.json()["id"] in ids
+
+    listed_b = await client.get("/api-keys", headers=headers_b)
+    assert listed_b.json() == []

@@ -153,8 +153,8 @@ indexed-getter limitation).
 `PositionEntered`/`MarketResolved`/`PayoutClaimed`), and wallet transaction
 history (needs indexing ERC-20 `Transfer` + the above). All three are
 documented gaps in the relevant response fields, not silently omitted. Don't
-assume `integrity-mvp` renders markets data — see
-[integrity-mvp](../entities/integrity-mvp.md), whose "What's built" section
+assume `integrity-dashboard` renders markets data — see
+[integrity-dashboard](../entities/integrity-dashboard.md), whose "What's built" section
 is limited to agent list/detail; no dashboard page consumes these new
 endpoints yet.
 

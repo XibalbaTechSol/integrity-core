@@ -39,7 +39,12 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
-      - run: npm install
+      # Retried WITH a cache clean between attempts: EINTEGRITY on @ethersproject/solidity
+      # has been observed, and a bare retry doesn't help -- all 3 naive attempts failed on
+      # the byte-for-byte IDENTICAL wrong hash, which means npm's own local package cache
+      # on the runner was serving one bad cached tarball, not re-fetching from the registry
+      # at all after the first miss. `npm cache clean --force` forces that re-fetch.
+      - run: npm install || (npm cache clean --force && npm install) || (npm cache clean --force && npm install)
         working-directory: contracts
       - run: forge test -vvv
         working-directory: contracts
@@ -103,7 +108,12 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
-      - run: npm install
+      # Retried WITH a cache clean between attempts: EINTEGRITY on @ethersproject/solidity
+      # has been observed, and a bare retry doesn't help -- all 3 naive attempts failed on
+      # the byte-for-byte IDENTICAL wrong hash, which means npm's own local package cache
+      # on the runner was serving one bad cached tarball, not re-fetching from the registry
+      # at all after the first miss. `npm cache clean --force` forces that re-fetch.
+      - run: npm install || (npm cache clean --force && npm install) || (npm cache clean --force && npm install)
         working-directory: contracts
       - run: uv sync
         working-directory: integrity-sdk
@@ -129,7 +139,12 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
-      - run: npm install
+      # Retried WITH a cache clean between attempts: EINTEGRITY on @ethersproject/solidity
+      # has been observed, and a bare retry doesn't help -- all 3 naive attempts failed on
+      # the byte-for-byte IDENTICAL wrong hash, which means npm's own local package cache
+      # on the runner was serving one bad cached tarball, not re-fetching from the registry
+      # at all after the first miss. `npm cache clean --force` forces that re-fetch.
+      - run: npm install || (npm cache clean --force && npm install) || (npm cache clean --force && npm install)
         working-directory: contracts
       - run: uv sync
         working-directory: integrity-cli
@@ -174,7 +189,7 @@ jobs:
           POSTGRES_USER: integrity
           POSTGRES_PASSWORD: integrity_dev_only
         ports:
-          - 5435:5432
+          - "5435:5432"
         options: >-
           --health-cmd "pg_isready -U integrity -d integrity_userapi"
           --health-interval 10s
@@ -193,8 +208,8 @@ jobs:
       - run: uv run pytest
         working-directory: integrity-userapi
 
-  mvp:
-    name: integrity-mvp (npm test)
+  dashboard:
+    name: integrity-dashboard (npm test)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -202,9 +217,9 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: npm ci --legacy-peer-deps
-        working-directory: integrity-mvp
+        working-directory: integrity-dashboard
       - run: npm test
-        working-directory: integrity-mvp
+        working-directory: integrity-dashboard
 
   # Fires only when a required job above fails on `main` (not on PRs — a PR author's own
   # branch shouldn't get an autonomous Jules task filed against it without their say-so).
@@ -227,7 +242,7 @@ jobs:
     name: Trigger Jules on main-branch failure
     runs-on: ubuntu-latest
     if: failure() && github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: [contracts, zkp, oracle, sdk, cli, bcc_middleware, userapi, mvp]
+    needs: [contracts, zkp, oracle, sdk, cli, bcc_middleware, userapi, dashboard]
     steps:
       - name: Create a Jules session to investigate and fix the failing run
         env:

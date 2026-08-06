@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 _VALID_AGGREGATIONS = {"last", "sum", "avg", "min", "max", "count"}

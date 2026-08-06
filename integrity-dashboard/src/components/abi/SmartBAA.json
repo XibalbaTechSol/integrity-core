@@ -1,0 +1,238 @@
+[
+  {
+    "type": "constructor",
+    "inputs": [
+      { "name": "_itkToken", "type": "address", "internalType": "address" },
+      { "name": "_integrityOracle", "type": "address", "internalType": "address" }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "DOMAIN_SEPARATOR",
+    "inputs": [],
+    "outputs": [
+      { "name": "", "type": "bytes32", "internalType": "bytes32" }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "baas",
+    "inputs": [
+      { "name": "", "type": "bytes32", "internalType": "bytes32" }
+    ],
+    "outputs": [
+      { "name": "coveredEntity", "type": "address", "internalType": "address" },
+      { "name": "businessAssociate", "type": "address", "internalType": "address" },
+      { "name": "documentHash", "type": "bytes32", "internalType": "bytes32" },
+      { "name": "uri", "type": "string", "internalType": "string" },
+      { "name": "status", "type": "uint8", "internalType": "enum SmartBAA.BAAStatus" },
+      { "name": "stakedITK", "type": "uint256", "internalType": "uint256" },
+      { "name": "disputeWindowEnd", "type": "uint256", "internalType": "uint256" },
+      { "name": "controller", "type": "address", "internalType": "address" }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "eip712Domain",
+    "inputs": [],
+    "outputs": [
+      { "name": "fields", "type": "bytes1", "internalType": "bytes1" },
+      { "name": "name", "type": "string", "internalType": "string" },
+      { "name": "version", "type": "string", "internalType": "string" },
+      { "name": "chainId", "type": "uint256", "internalType": "uint256" },
+      { "name": "verifyingContract", "type": "address", "internalType": "address" },
+      { "name": "salt", "type": "bytes32", "internalType": "bytes32" },
+      { "name": "extensions", "type": "uint256[]", "internalType": "uint256[]" }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "finalizeSlash",
+    "inputs": [
+      { "name": "_baaId", "type": "bytes32", "internalType": "bytes32" }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "getBAAStatus",
+    "inputs": [
+      { "name": "_ce", "type": "address", "internalType": "address" },
+      { "name": "_ba", "type": "address", "internalType": "address" }
+    ],
+    "outputs": [
+      { "name": "", "type": "uint8", "internalType": "enum SmartBAA.BAAStatus" }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "initiateSlash",
+    "inputs": [
+      { "name": "_baaId", "type": "bytes32", "internalType": "bytes32" },
+      { "name": "_reason", "type": "string", "internalType": "string" }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "integrityOracle",
+    "inputs": [],
+    "outputs": [
+      { "name": "", "type": "address", "internalType": "address" }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "itkToken",
+    "inputs": [],
+    "outputs": [
+      { "name": "", "type": "address", "internalType": "contract IERC20" }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "owner",
+    "inputs": [],
+    "outputs": [
+      { "name": "", "type": "address", "internalType": "address" }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "proposeBAA",
+    "inputs": [
+      { "name": "_coveredEntity", "type": "address", "internalType": "address" },
+      { "name": "_documentHash", "type": "bytes32", "internalType": "bytes32" },
+      { "name": "_uri", "type": "string", "internalType": "string" },
+      { "name": "_stakeAmount", "type": "uint256", "internalType": "uint256" },
+      { "name": "_controller", "type": "address", "internalType": "address" }
+    ],
+    "outputs": [
+      { "name": "baaId", "type": "bytes32", "internalType": "bytes32" }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "recoverBusinessAssociate",
+    "inputs": [
+      { "name": "_baaId", "type": "bytes32", "internalType": "bytes32" },
+      { "name": "_newBA", "type": "address", "internalType": "address" }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "renounceOwnership",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setOracle",
+    "inputs": [
+      { "name": "_newOracle", "type": "address", "internalType": "address" }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "signBAA",
+    "inputs": [
+      { "name": "_baaId", "type": "bytes32", "internalType": "bytes32" },
+      { "name": "_signature", "type": "bytes", "internalType": "bytes" }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "transferOwnership",
+    "inputs": [
+      { "name": "newOwner", "type": "address", "internalType": "address" }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "event",
+    "name": "BAAEscalated",
+    "inputs": [
+      { "name": "baaId", "type": "bytes32", "indexed": true, "internalType": "bytes32" },
+      { "name": "reason", "type": "string", "indexed": false, "internalType": "string" }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "BAAProposed",
+    "inputs": [
+      { "name": "baaId", "type": "bytes32", "indexed": true, "internalType": "bytes32" },
+      { "name": "coveredEntity", "type": "address", "indexed": true, "internalType": "address" },
+      { "name": "businessAssociate", "type": "address", "indexed": true, "internalType": "address" }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "BAASigned",
+    "inputs": [
+      { "name": "baaId", "type": "bytes32", "indexed": true, "internalType": "bytes32" }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "BAASlashed",
+    "inputs": [
+      { "name": "baaId", "type": "bytes32", "indexed": true, "internalType": "bytes32" },
+      { "name": "amount", "type": "uint256", "indexed": false, "internalType": "uint256" }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "BAATerminated",
+    "inputs": [
+      { "name": "baaId", "type": "bytes32", "indexed": true, "internalType": "bytes32" }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ControllerUpdated",
+    "inputs": [
+      { "name": "baaId", "type": "bytes32", "indexed": true, "internalType": "bytes32" },
+      { "name": "newController", "type": "address", "indexed": true, "internalType": "address" }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "EIP712DomainChanged",
+    "inputs": [],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OwnershipTransferred",
+    "inputs": [
+      { "name": "previousOwner", "type": "address", "indexed": true, "internalType": "address" },
+      { "name": "newOwner", "type": "address", "indexed": true, "internalType": "address" }
+    ],
+    "anonymous": false
+  }
+]
