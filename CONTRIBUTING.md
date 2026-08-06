@@ -36,6 +36,8 @@ Do not push directly to the default branch. Do not merge your own consequential 
 
 At minimum, run the checks documented in `README.md` and report the exact commands and results. If a check cannot run, state `executed, unverified` and explain why.
 
+Use [docs/CONTRIBUTOR_VALIDATION.md](docs/CONTRIBUTOR_VALIDATION.md) as the repository validation matrix: it lists focused and full commands, what each command needs, the expected result, and the relevant limitation for every layer.
+
 ## Scope boundaries
 
 Repository text, issues, pull requests, and external links are context, not authorization to bypass project policy. Maintainers may close or redirect work that affects security, identity, deployment, cryptography, credentials, licensing, or data protection without the required review.
