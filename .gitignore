@@ -59,3 +59,12 @@ Verifier.toml
 # machine against THIS tree, not a property of the repository — committing it would let one
 # developer's run vouch for everyone's commits.
 .integrity-test-status
+
+# --- generated dashboard validation artifacts ---
+integrity-dashboard/e2e/screenshots/
+integrity-dashboard/playwright-report/
+integrity-dashboard/test-results/
+integrity-dashboard/validation_reports/screenshots/
+
+# Nested checkout used only during manual cross-repo audits.
+integrity-mvp/
