@@ -117,7 +117,7 @@ flowchart TB
 - [integrity-zkp](entities/integrity-zkp.md) — the real Noir/Barretenberg circuit
 
 ### Architecture
-- [Ecosystem Dependencies](architecture/ecosystem-dependencies.md) — cross-repository ownership and dependency direction for INTEGRITY-LATEST, Xibalba Shield, and Integrity MVP.
+- [Ecosystem Dependencies](architecture/ecosystem-dependencies.md) — cross-repository ownership and dependency direction for INTEGRITY-LATEST, Xibalba Graph Memory, Xibalba Shield, and Integrity MVP.
 - [Repository Implementation Plans](architecture/repository-implementation-plans.md) — closed/planned/blocked implementation ledger for INTEGRITY-LATEST, Integrity MVP, Xibalba Shield, and Xibalba Graph Memory.
 
 ### Guides

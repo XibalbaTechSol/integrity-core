@@ -33,40 +33,69 @@ evidence stored by the protocol. [`xibalba-graph-memory`](https://github.com/Xib
 
 ### Ecosystem Closed Loop
 
-The four repositories form a complete, closed-loop trust ecosystem:
+The four repositories form a complete, closed-loop trust ecosystem. While the integration is operational, several components require refinement for production readiness:
+The latest local cross-repository verification is recorded in [`docs/audits/2026-08-07-cross-repository-closure.md`](docs/audits/2026-08-07-cross-repository-closure.md).
+
+**Areas Requiring Refinement (Not Fully Developed):**
+1. **ZK Verification:** The on-chain ZK verifier is currently a placeholder; while off-chain proving (Barretenberg) exists, true on-chain validation of agent intent proofs is pending.
+2. **BCC Middleware:** Policy and domain generalization remain partial. A versioned intent schema needs to be finalized for the wire surface.
+3. **Oracle Services:** Production security controls, rate limiting, and live deployment reviews are still open.
+4. **SDK & Tests:** Clean-main audits show test drift (242 pass, 2 fail, 3 skip) requiring reconciliation before general availability.
+
+**Ecosystem Integration Architecture (The Biological Analogy):**
+
+To help conceptualize the ecosystem, we map each repository to its functional analogy:
+- **The Brain & Intelligence Layer** (`xibalba-graph-memory`): The agent's local cognitive store, acting as its memory and thought processor.
+- **The Immune System** (`xibalba-shield`): The local endpoint enforcement and sandbox that protects the system from internal errors and external threats.
+- **The Unifying Backend** (`INTEGRITY-LATEST`): The protocol layer that ties the entire ecosystem together, providing trust, verification, and scoring.
+- **The Human Control Center** (`integrity-mvp`): The operator dashboard where humans monitor, audit, and direct the autonomous system.
 
 ```mermaid
-flowchart TB
-    subgraph AgentEnvironment["Agent Environment (Local)"]
+flowchart TD
+    subgraph AgentEnvironment["1. Agent Environment (Local Node)"]
+        direction TB
         Agent["Autonomous Agent<br/>(e.g., Hermes)"]
-        Memory["xibalba-graph-memory<br/>(Local Cognitive Store)"]
-        Shield["xibalba-shield<br/>(Endpoint Enforcement & Tier 2 SLM)"]
-        
-        Agent <-->|Reads/Writes Prompts & Context| Memory
-        Agent -->|Attempts System Calls| Shield
+        Memory["xibalba-graph-memory<br/>(The Brain & Intelligence Layer)"]
+        Shield["xibalba-shield<br/>(The Agent's Immune System)"]
+
+        Agent <-->|Context, Prompts, Memory Retrieval| Memory
+        Agent -->|Execution Requests & System Calls| Shield
+        Shield -->|Policy Evaluation & Sandboxing| Shield
     end
-    
-    subgraph ProtocolLayer["INTEGRITY-LATEST (Trust Backend)"]
+
+    subgraph ProtocolLayer["2. INTEGRITY-LATEST (The Unifying Backend)"]
+        direction TB
         BCC["BCC Middleware<br/>(Intent Gate & Merkle Anchoring)"]
         Oracle["Integrity Oracle<br/>(AIS Scoring & Telemetry Ingest)"]
         Chain["EVM Smart Contracts<br/>(StateAnchor, Registries)"]
-        
-        BCC -->|Validated Telemetry| Oracle
-        Oracle -->|Scores & Resolves| Chain
+        ZK["integrity-zkp<br/>(Off-chain proving)"]
+
+        BCC -->|Validated Telemetry & Evidence| Oracle
+        Oracle -->|Scores, Slashing, Reputation| Chain
+        BCC -->|ZK Intent Proofs| ZK
+        ZK -.->|Placeholder Verifier| Chain
         BCC -->|Anchors Session Roots| Chain
     end
-    
-    subgraph PresentationLayer["integrity-mvp (Command Center)"]
-        Dashboard["Operator Dashboard<br/>(React / Vite)"]
+
+    subgraph PresentationLayer["3. integrity-mvp (The Human Control Center)"]
+        MVP["Operator Dashboard"]
     end
-    
-    %% Closed Loop Connections
-    Memory -->|Anchors Session Roots| BCC
-    Shield -->|Submits Signed Telemetry<br/>& Enforcement Decisions| BCC
-    
-    Oracle -->|Live AIS, Events, & Shield Logs| Dashboard
-    Chain -->|Identity, Governance| Dashboard
-    Dashboard -.->|Audits & Verifies| AgentEnvironment
+
+    %% The Closed Loop Connections
+    Memory ==>|Cryptographic Anchor of Session Roots| BCC
+    Shield ==>|Signed Telemetry & Action Decisions| BCC
+
+    Oracle ==>|Live AIS Streams, Events, & Shield Logs| MVP
+    Chain ==>|Identity, Governance, Staking Data| MVP
+    MVP ==>|Operator Audits, Interventions & Policy Updates| Agent
+
+    classDef env fill:#1a202c,stroke:#4a5568,stroke-width:2px,color:#fff
+    classDef core fill:#2a4365,stroke:#3182ce,stroke-width:2px,color:#fff
+    classDef ui fill:#276749,stroke:#48bb78,stroke-width:2px,color:#fff
+
+    class AgentEnvironment env
+    class ProtocolLayer core
+    class PresentationLayer ui
 ```
 
 See

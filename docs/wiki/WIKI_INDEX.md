@@ -53,7 +53,7 @@
 - [Multi-Domain Guardrails Design](../guides/multi-domain-guardrails-design.md) — `[DESIGN, PARTIALLY BUILT]`: how `bcc_middleware`'s HIPAA-only OPA policy gate generalizes to pluggable, domain-scoped guardrail bundles (industry survey + concrete design against this repo's existing `bcc.rego`/`HIPAAGuardrailRegistry.sol` pattern). A real worked-example bundle (`bcc_middleware/policies/general.rego`, 12 passing OPA tests) is built as a stretch goal; the domain-aware `GuardrailRegistry.sol` and `bcc_middleware` wiring are still design-only.
 
 ## Architecture
-- [Ecosystem Dependencies](architecture/ecosystem-dependencies.md) — cross-repository ownership and dependency direction for INTEGRITY-LATEST, Xibalba Shield, and Integrity MVP.
+- [Ecosystem Dependencies](architecture/ecosystem-dependencies.md) — cross-repository ownership and dependency direction for INTEGRITY-LATEST, Xibalba Graph Memory, Xibalba Shield, and Integrity MVP.
 - [Repository Implementation Plans](architecture/repository-implementation-plans.md) — closed/planned/blocked implementation ledger for INTEGRITY-LATEST, Integrity MVP, Xibalba Shield, and Xibalba Graph Memory.
 
 ## Open queries
