@@ -2,7 +2,7 @@
 title: Agent Integrity Score (AIS)
 acronyms: [AIS]
 created: 2026-07-07
-updated: 2026-07-30
+updated: 2026-08-04
 type: concept
 tags: [metrics]
 confidence: high
@@ -21,15 +21,22 @@ Default weights (sum to 1.0): `wE=0.30, wG=0.30, wS=0.20, wC=0.20`.
 `ZK_boost = 1.15` when a real Barretenberg proof (see [ZKP](zkp.md)) was
 verified for the reporting period, else `1.0`.
 
-This formula is computed in exactly one place (`integrity-oracle/scoring-core`
-per the package's own README once built) — other packages read it via the
-oracle's `GET /v1/agent/{id}/ais` endpoint rather than recomputing it. See
+This formula is computed in exactly one place (`integrity-oracle/scoring-core`)
+— other packages read the final, tier-capped result via the oracle's
+`GET /v1/agent/{id}/ais` endpoint rather than recomputing it. The on-chain sync
+removes only the response's reported ZK multiplier before calling
+`ReputationRegistry.updateScore`; it does not reconstruct the mean from
+`components`/`weights`. See
 [Interface Contract §4.3](../../INTERFACE_CONTRACT.md#43-agent-integrity-score-ais)
 for the canonical definition. The four component *inputs* the SDK derives
 client-side before the oracle applies this formula are documented
 separately — see [Local Metrology](local-metrology.md), which also
 supersedes an old, inconsistent 3-component draft formula (no compliance
 term, weights not summing to 1.0) that never matched this one.
+
+## Table of contents
+
+- [Where the four inputs actually come from (trust model)](#where-the-four-inputs-actually-come-from-trust-model)
 
 ## Where the four inputs actually come from (trust model)
 

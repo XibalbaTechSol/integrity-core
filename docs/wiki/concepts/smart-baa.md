@@ -19,6 +19,12 @@ what `contracts/src/health/SmartBAA.sol` actually implements; the
 "what's not built" section at the bottom lists the old pages' extras
 explicitly so nothing here is silently dropped.
 
+## Table of contents
+
+- [The real mechanism](#the-real-mechanism)
+- [The closed loop with BCC/OPA](#the-closed-loop-with-bcc-opa)
+- [What's NOT built (correcting the old wiki's extras)](#what-s-not-built-correcting-the-old-wiki-s-extras)
+
 ## The real mechanism
 
 One `SmartBAA` instance per `(coveredEntity, businessAssociate)` pair,

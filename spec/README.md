@@ -30,6 +30,13 @@ protocol *is*; the surfaces are the interfaces third parties integrate against.
 |---|---|---|
 | AIS API (read-side: agent identity, AIS score, compliance, markets, wallet) | v1, frozen | [`ais-api/`](ais-api/) |
 | BCC intent schema (write-side: pre-execution intent commitments) | not yet started | `bcc/` (planned) |
+| Xibalba Shield protocol-facing boundary | v1 companion spec | [`xibalba-shield-v1.md`](xibalba-shield-v1.md) |
+
+## Specification ownership
+
+The Integrity Protocol spec owns protocol primitives, invariant rules, and externally-supported wire surfaces. Xibalba Shield is a separate endpoint-security product that consumes those primitives. Its comprehensive implementation specification lives in XibalbaTechSol/xibalba-shield as SPECIFICATION.md; this repo keeps spec/xibalba-shield-v1.md as the protocol-facing companion so the dependency boundary is reviewable with the protocol.
+
+A Shield implementation change that only affects endpoint behavior belongs in the Shield repo. A change that alters BCC, telemetry ingest, AIS computation, Merkle anchoring, delegation, or public wire shape belongs here and must update the relevant Integrity spec/interface docs.
 
 ## Versioning policy
 

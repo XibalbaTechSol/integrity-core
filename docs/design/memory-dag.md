@@ -1,7 +1,13 @@
 # Memory as a Merkle DAG
 
-**Status:** design — **not implemented, not tested.** No shell this session
-(see `e2e-audit-2026-07-31.md` "Method"). Nothing below has been run.
+**Status:** implemented and tested as of 2026-08-05. Written 2026-07-31 with no
+shell available (see `e2e-audit-2026-07-31.md` "Method"); run for the first time
+and confirmed 2026-08-05 — `tests/test_memory_dag.py` passes 21/21. See
+`docs/INTERFACE_CONTRACT.md` §4.4b. `import_memory_dag.py --dry-run` has been run
+against the real Trust Vault; the real (non-dry) import and on-chain anchoring via
+`anchor_memory_dag.py` remain separate, not-yet-taken steps — anchoring is an
+irreversible signed transaction against the live agent and needs its own explicit
+go-ahead.
 
 **Goal:** make the protocol's *evidence* a hierarchical, content-addressed graph
 whose relationships are cryptographically committed — so lineage and provenance are

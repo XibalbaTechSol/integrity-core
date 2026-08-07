@@ -7,11 +7,31 @@ test.describe('APIKeyPanel Feature', () => {
   test.beforeEach(async ({ page }) => {
     // Mock the backend API calls used by the APIKeyPanel
     // Adjust the URL pattern '**/api/**' to match the actual endpoints of the Integrity Dashboard
-    await page.route('**/v1/api-keys**', async (route) => {
+    // Mock oracle endpoints to avoid dependency on live state
+    await page.route('**/v1/agents', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([{ id: '88d5ab08-156b-45cf-9b17-32e74a9f2690', handle: 'Visual Audit Agent', verification_tier: 2, created_at: new Date().toISOString() }])
+      });
+    });
+    await page.route('**/v1/agent/*/ais', async route => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ score: 650, last_updated: new Date().toISOString() }) });
+    });
+    await page.route('**/v1/agent/*/stake', async route => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ total_stake: '5000000000000000000000', open_disputes: 0 }) });
+    });
+    await page.route('**/v1/stats', async route => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tvl: 5000000, total_loans_volume: 1200000, protocol_staked_itk: 800000, total_marketplace_volume: 450000 }) });
+    });
+    await page.route('**/v1/agent/*', async route => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ agent_id: '88d5ab08-156b-45cf-9b17-32e74a9f2690', alias: 'Visual Audit Agent', eth_address: '0x123', registered_at: new Date().toISOString() }) });
+    });
+    await page.route('**/api-keys**', async (route) => {
       const request = route.request();
       const method = request.method();
 
-      if (method === 'GET' && request.url().includes('keys')) {
+      if (method === 'GET') {
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -24,7 +44,7 @@ test.describe('APIKeyPanel Feature', () => {
             },
           ]),
         });
-      } else if (method === 'POST' && request.url().includes('keys')) {
+      } else if (method === 'POST') {
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -36,7 +56,7 @@ test.describe('APIKeyPanel Feature', () => {
             created_at: new Date().toISOString(),
           }),
         });
-      } else if (method === 'DELETE' && request.url().includes('keys')) {
+      } else if (method === 'DELETE') {
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -59,17 +79,22 @@ test.describe('APIKeyPanel Feature', () => {
     });
 
     // Intercept user profile fetch
-    await page.route('**/api/v1/user/me', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          uid: 'test-user',
-          email: 'test@xibalba.io',
-          name: 'Test Xibalba User',
-          photoURL: 'https://example.com/test-photo.png'
-        })
-      });
+    await page.route('**/me', async (route) => {
+      const url = route.request().url();
+      if (url.endsWith('/me')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            uid: 'test-user',
+            email: 'test@xibalba.io',
+            name: 'Test Xibalba User',
+            photoURL: 'https://example.com/test-photo.png'
+          })
+        });
+      } else {
+        await route.continue();
+      }
     });
 
     // Navigate to the dashboard
@@ -77,7 +102,7 @@ test.describe('APIKeyPanel Feature', () => {
 
     // Click profile avatar to open menu, then click Settings
     await page.locator('aside img[alt="Profile"]').first().click();
-    await page.getByRole('button', { name: 'Settings' }).click();
+    await page.locator('aside').getByRole('button', { name: 'Settings' }).click();
   });
 
   test('should render the APIKeyPanel correctly with initial state', async ({ page }) => {
@@ -125,14 +150,13 @@ test.describe('APIKeyPanel Feature', () => {
   test('should delete an active API key with confirmation dialog', async ({ page }) => {
     // Verify key exists before deletion
     await expect(page.getByText('test_key_abc...l012')).toBeVisible();
-    
     // Setup dialog listener to automatically confirm the native confirm() popup
     page.on('dialog', dialog => dialog.accept());
-    
-    // Click the delete button for the specific key row
-    const deleteButton = page.locator('button[title="Delete Key"]').first();
+
+    // Click the revoke button for the specific key row
+    const deleteButton = page.locator('button[title="Revoke Key"]').first();
     await deleteButton.click();
-    
+
     // Verify key is removed from the DOM
     await expect(page.getByText('test_key_abc...l012')).toBeHidden();
   });

@@ -1,5 +1,107 @@
 # Integrity Protocol
 
+## README Source of Truth
+
+This README is the repo-level source of truth for INTEGRITY-LATEST: what the protocol is, which packages it owns, what is built now, what remains planned, and where deeper operational contracts live. The normative implementation contracts are [SPECIFICATION.md](SPECIFICATION.md), [docs/INTERFACE_CONTRACT.md](docs/INTERFACE_CONTRACT.md), [spec/integrity-protocol-v0.4.md](spec/integrity-protocol-v0.4.md), [docs/MAINNET_READINESS.md](docs/MAINNET_READINESS.md), and the canonical wiki at [docs/wiki](docs/wiki).
+
+When this README, the interface contract, the wiki, and code disagree, resolve the disagreement in the same change. The rule is no silent mocks and no aspirational current-tense documentation.
+
+## 2026-08-06 audit status
+
+The current cross-repository audit is recorded in [`docs/audits/2026-08-06-cross-repository-status.md`](docs/audits/2026-08-06-cross-repository-status.md) and the consolidated implementation plan at `/home/xibalba/Documents/INTEGRITY — Cross-Repository Audit and Implementation Plan.md`. The clean default-branch audit verified Solidity (200 tests), Zero-Knowledge circuits (4), Oracle Rust tests (114 library + 13 e2e + 11 scoring-core), CLI (68 passed/1 skipped), middleware (119 passed), User API (51 passed against temporary PostgreSQL), and dashboard unit tests (68 passed). The SDK remains open with 242 passed, 2 failed, and 3 skipped. This repository is a strong testnet prototype, not production-ready.
+
+Status claims below must be reconciled against that audit page. Historical handoffs and wiki log entries remain historical evidence.
+
+## Ecosystem Relationship
+
+INTEGRITY-LATEST is the trust backend and protocol foundation for two separate application
+repositories:
+
+```text
+integrity-mvp (web UI)
+├── xibalba-shield (endpoint security and enforcement)
+│   └── INTEGRITY-LATEST (SDK, BCC, Oracle, user API, contracts)
+└── INTEGRITY-LATEST (direct protocol API and chain access)
+```
+
+[`xibalba-shield`](https://github.com/XibalbaTechSol/xibalba-shield) is built on top of this
+repository. It consumes `integrity-sdk` and submits signed endpoint-security evidence through
+the BCC and telemetry pipeline; this repository never imports or calls Shield.
+[`integrity-mvp`](https://github.com/XibalbaTechSol/integrity-mvp) is the presentation layer
+for both products: it consumes INTEGRITY-LATEST services directly and surfaces the Shield
+evidence stored by the protocol. [`xibalba-graph-memory`](https://github.com/XibalbaTechSol/xibalba-graph-memory) acts as the local cognitive store that anchors session roots into the protocol.
+
+### Ecosystem Closed Loop
+
+The four repositories form a complete, closed-loop trust ecosystem. While the integration is operational, several components require refinement for production readiness:
+The latest local cross-repository verification is recorded in [`docs/audits/2026-08-07-cross-repository-closure.md`](docs/audits/2026-08-07-cross-repository-closure.md).
+
+**Areas Requiring Refinement (Not Fully Developed):**
+1. **ZK Verification:** The on-chain ZK verifier is currently a placeholder; while off-chain proving (Barretenberg) exists, true on-chain validation of agent intent proofs is pending.
+2. **BCC Middleware:** Policy and domain generalization remain partial. A versioned intent schema needs to be finalized for the wire surface.
+3. **Oracle Services:** Production security controls, rate limiting, and live deployment reviews are still open.
+4. **SDK & Tests:** Clean-main audits show test drift (242 pass, 2 fail, 3 skip) requiring reconciliation before general availability.
+
+**Ecosystem Integration Architecture (The Biological Analogy):**
+
+To help conceptualize the ecosystem, we map each repository to its functional analogy:
+- **The Brain & Intelligence Layer** (`xibalba-graph-memory`): The agent's local cognitive store, acting as its memory and thought processor.
+- **The Immune System** (`xibalba-shield`): The local endpoint enforcement and sandbox that protects the system from internal errors and external threats.
+- **The Unifying Backend** (`INTEGRITY-LATEST`): The protocol layer that ties the entire ecosystem together, providing trust, verification, and scoring.
+- **The Human Control Center** (`integrity-mvp`): The operator dashboard where humans monitor, audit, and direct the autonomous system.
+
+```mermaid
+flowchart TD
+    subgraph AgentEnvironment["1. Agent Environment (Local Node)"]
+        direction TB
+        Agent["Autonomous Agent<br/>(e.g., Hermes)"]
+        Memory["xibalba-graph-memory<br/>(The Brain & Intelligence Layer)"]
+        Shield["xibalba-shield<br/>(The Agent's Immune System)"]
+
+        Agent <-->|Context, Prompts, Memory Retrieval| Memory
+        Agent -->|Execution Requests & System Calls| Shield
+        Shield -->|Policy Evaluation & Sandboxing| Shield
+    end
+
+    subgraph ProtocolLayer["2. INTEGRITY-LATEST (The Unifying Backend)"]
+        direction TB
+        BCC["BCC Middleware<br/>(Intent Gate & Merkle Anchoring)"]
+        Oracle["Integrity Oracle<br/>(AIS Scoring & Telemetry Ingest)"]
+        Chain["EVM Smart Contracts<br/>(StateAnchor, Registries)"]
+        ZK["integrity-zkp<br/>(Off-chain proving)"]
+
+        BCC -->|Validated Telemetry & Evidence| Oracle
+        Oracle -->|Scores, Slashing, Reputation| Chain
+        BCC -->|ZK Intent Proofs| ZK
+        ZK -.->|Placeholder Verifier| Chain
+        BCC -->|Anchors Session Roots| Chain
+    end
+
+    subgraph PresentationLayer["3. integrity-mvp (The Human Control Center)"]
+        MVP["Operator Dashboard"]
+    end
+
+    %% The Closed Loop Connections
+    Memory ==>|Cryptographic Anchor of Session Roots| BCC
+    Shield ==>|Signed Telemetry & Action Decisions| BCC
+
+    Oracle ==>|Live AIS Streams, Events, & Shield Logs| MVP
+    Chain ==>|Identity, Governance, Staking Data| MVP
+    MVP ==>|Operator Audits, Interventions & Policy Updates| Agent
+
+    classDef env fill:#1a202c,stroke:#4a5568,stroke-width:2px,color:#fff
+    classDef core fill:#2a4365,stroke:#3182ce,stroke-width:2px,color:#fff
+    classDef ui fill:#276749,stroke:#48bb78,stroke-width:2px,color:#fff
+
+    class AgentEnvironment env
+    class ProtocolLayer core
+    class PresentationLayer ui
+```
+
+See
+[`docs/architecture/ecosystem-dependencies.md`](docs/architecture/ecosystem-dependencies.md)
+for the canonical ownership and dependency boundaries.
+
 **A trust and compliance layer for the agentic economy.** Integrity Protocol
 uses smart contracts and immutable on-chain state to solve two problems no
 purely off-chain system can:
@@ -169,12 +271,12 @@ When building and deploying applications on the protocol, developers must choose
 |---|---|---|---|
 | [`contracts/`](contracts/) | Solidity + Foundry | The 7 primitives, factory, registries, XNS, `IntegrityGovernance`, $ITK, Integrity Health stack, ZK verifier, cross-chain reputation bridge | ✅ 198 tests; deployed to Base Sepolia (XNS/governance/CCIP bridge not yet broadcast — see below) |
 | [`integrity-zkp/`](integrity-zkp/) | Noir + Barretenberg | The ZK circuit proving an action matches its committed intent | ✅ real `nargo`/`bb` pipeline |
-| [`integrity-oracle/`](integrity-oracle/) | Rust + Axum + Postgres | Telemetry ingestion, AIS computation, on-chain reads | ✅ 37 lib tests + real e2e |
-| [`integrity-sdk/`](integrity-sdk/) | Python | Agent library: DID/keys, EVM wallet, self-deploy registration, BCC, telemetry (OTel + MLflow) | ✅ 46 tests |
-| [`integrity-cli/`](integrity-cli/) | Python (Typer) | Developer CLI for identity, on-chain registration, BCC intercept | ✅ 49 tests |
-| [`bcc_middleware/`](bcc_middleware/) | Python (FastAPI) + OPA | Pre-execution policy gate, HIPAA BAA check, Merkle anchoring | ✅ 49 tests + 12 OPA |
-| [`integrity-userapi/`](integrity-userapi/) | Python (FastAPI) + Postgres | User accounts, auth, API keys, agent ownership — strictly non-chain | 🚧 in progress |
-| [`integrity-dashboard/`](integrity-dashboard/) | React + Vite + TS, plus `demo/` (Python) | The ONE investor/developer app — landing, markets, leaderboard, wallet, capital allocation, cognition, identity, Integrity Health — plus its closed-loop demo scenario engine. Formerly two packages (`integrity-dashboard` + `integrity-demo`), merged so there's exactly one product surface. | 🚧 in progress |
+| [`integrity-oracle/`](integrity-oracle/) | Rust + Axum + Postgres | Telemetry ingestion, authoritative AIS computation, on-chain reads, markets/leaderboard/wallet/contracts/BAA/VC/benchmarks/XNS/governance reads, PHI rejection, OTLP/gRPC trace receiver | Current: 80 lib tests + 9 e2e; single-operator oracle, not decentralized |
+| [`integrity-sdk/`](integrity-sdk/) | Python | Agent library: DID/keys, EVM wallet, self-deploy registration, BCC, markets, telemetry, OpenAI/LangChain integrations, PHI redaction, memory anchoring | Current: 135 tests, 1 skipped + 1 opt-in oracle e2e |
+| [`integrity-cli/`](integrity-cli/) | Python (Typer) | Developer CLI for identity, wallet, on-chain registration with oracle re-verification, BCC, vault, XNS | Current: 57 tests, including 1 opt-in oracle e2e |
+| [`bcc_middleware/`](bcc_middleware/) | Python (FastAPI) + OPA | Pre-execution policy gate, HIPAA BAA check, verification-tier gate, signed intent-rationale commitments, reputation-sync/slashing signer loop, Merkle anchoring | Current: 91 pytest + 28 OPA tests |
+| [`integrity-userapi/`](integrity-userapi/) | Python (FastAPI) + Postgres | User accounts/auth, API keys, JWT revocation, login rate limiting, wallet ownership, demo-run bridge — strictly non-chain | Current: 51 tests with real Postgres and real CORS for dashboard |
+| [`integrity-dashboard/`](integrity-dashboard/) | React + Vite + TS, plus `demo/` Python engine | The original INTEGRITY-LATEST dashboard app and closed-loop demo engine. Separate from the standalone `integrity-mvp` repo, which is now the broader presentation layer. | Current: wired to real oracle/userapi reads and writes; 9 vitest + 20 Playwright e2e tests against live backend+chain |
 
 ---
 
@@ -185,12 +287,16 @@ The protocol's trust metric. Computed in exactly one place —
 HTTP API, never recomputed:
 
 ```
-AIS = (S_entropy·wE + S_grounding·wG + S_sacrifice·wS + S_compliance·wC) · ZK_boost
+AIS_raw = (S_entropy^wE · S_grounding^wG · S_sacrifice^wS · S_compliance^wC) · ZK_boost
+AIS_final = min(AIS_raw, verification_tier_ceiling)
 ```
 
 Default weights `wE=0.30, wG=0.30, wS=0.20, wC=0.20` (sum to 1.0); `ZK_boost`
 is `1.15` when a real Barretenberg proof was verified for the reporting period,
-else `1.0`. The four component scores come from an agent's telemetry — the SDK
+else `1.0`. This is a weighted geometric mean: a zero component makes the raw
+score zero rather than allowing strong dimensions to hide a catastrophic one.
+Tier ceilings are 300 / 600 / 850 for Tiers 0 / 1 / 2; Tier 3 returns the raw
+score. The four component scores come from an agent's telemetry — the SDK
 derives first-pass signals from OpenTelemetry/MLflow spans, but the **oracle
 independently recomputes entropy/grounding/sacrifice/compliance server-side**
 from the same signed telemetry rather than trusting the client's numbers (see
@@ -201,7 +307,7 @@ trail only. See [`docs/wiki/concepts/ais.md`](docs/wiki/concepts/ais.md).
 flowchart LR
     Agent["Agent (SDK/CLI)"] -->|"signed POST /v1/telemetry/ingest<br/>(otel_spans + derived_signals)"| Oracle["integrity-oracle"]
     Oracle -->|"re-derive from otel_spans<br/>(same posture as PHI backstop)"| Recompute["entropy / grounding /<br/>sacrifice / compliance<br/>(oracle-computed, authoritative)"]
-    Recompute --> Formula["AIS = ΣS·w · ZK_boost<br/>(scoring-core, sole formula owner)"]
+    Recompute --> Formula["AIS = Π(S^w) · ZK_boost<br/>then tier ceiling<br/>(scoring-core, sole formula owner)"]
     ZK["Real Barretenberg ZK proof<br/>(bb verify)"] -.->|"1.15× if verified<br/>this period"| Formula
     Formula --> API["GET /v1/agent/{id}/ais<br/>+ live SSE push"]
 ```
@@ -231,11 +337,11 @@ yet, and no code should ever claim otherwise.
 | Built today | Long-term roadmap |
 |---|---|
 | Software-held secp256k1/Ed25519 keypairs (encrypted local keystore) | Hardware-bound identity: keys tethered to TEE/SGX enclaves or an HSM (AWS KMS, FIPS 140-2 Level 3), so a key can't be extracted even by whoever controls the host |
-| `did:integrity:<sha256(pubkey)>` DIDs, W3C DID Documents | Remote TEE attestation (AWS Nitro / Intel SGX) proving an agent's key is physically tethered to a verified Controller |
+| `did:integrity:<sha256(pubkey)>` DIDs, W3C DID Documents, and server-verified DNS/GitHub/Nitro evidence | Additional hardware roots (Intel SGX/HSM) and legal-controller binding |
 | Agent self-registers all 7 primitives with its own signature as proof of control, and can self-service claim a human-readable XNS handle (`XibalbaNameService.sol`, first-come-first-served, no admin in the critical path) | Direct handle transfer between agents (today: release + separate re-claim by the new owner) and expiry/renewal semantics |
 | **Persistent memory** (spec v0.3 §4.1/§7): the agent anchors a genesis Trust Vault root on its own `StateAnchor` through its controller during registration, and the oracle independently re-reads `latestRoot`, refusing a zero root with `400 MemoryNotInitialized` | Contract-level enforcement that the protocol's `ANCHOR_ROLE` signer cannot anchor epoch 1 (§7.2), and lineage attestation for fork/migration/recovery with no automatic AIS or stake transfer (§7.4) — neither built |
 
-### Verification ladder (roadmap — not yet gating anything)
+### Verification ladder
 
 The long-term design ties an agent's AIS *ceiling* (not just its measured
 score) to how strongly its identity is verified, so a freshly-created,
@@ -243,10 +349,16 @@ unverified agent can never simply out-score a hardware-attested one:
 
 | Tier | Verification | AIS ceiling | Status |
 |---|---|---|---|
-| 1 — Sovereign | Proof-of-possession of a software key (what every agent has today) | 600 | Effectively where every agent sits now — **not yet enforced as a ceiling** |
-| 2 — Linked | DNS TXT record or social-account attestation | 850 | Not built |
-| 3 — Institutional | Remote TEE attestation + institutional audit | 1000 (uncapped credit) | Not built |
-| Developer API key (testnet convenience) | Issued by `integrity-userapi` | Capped at 300 | Planned in `integrity-userapi`'s API-key issuance |
+| 1 — Sovereign | Software-key possession plus on-chain primitive match | 600 | Assigned at registration; enforced |
+| 2 — Linked | Dual-resolver DNS TXT proof or GitHub repository proof | 850 | Built; 90-day evidence |
+| 3 — Institutional | Nonce-bound AWS Nitro remote attestation | No post-boost cap | Built; 30-day evidence |
+| 3 — Institutional KYC | Trusted provider-signed receipt: document authenticity + liveness + sanctions/PEP | No post-boost cap | Built; provider-neutral, raw PII excluded |
+| Developer API key (testnet convenience) | Issued by `integrity-userapi` | Capped at 300 | Enforced |
+
+Evidence is auditable, expiring, and revocable through an agent-signed challenge.
+KYC providers may be commercial or self-hosted open-source stacks, but receipts are
+accepted only from operator-configured Ed25519 trust roots. Clients cannot self-assert
+KYC, and the Oracle stores no documents, selfies, names, or government identifiers.
 
 ### Data, telemetry & PHI safety
 
@@ -454,10 +566,17 @@ Appendix A gaps, in [`PRODUCTION_GAPS.md`](PRODUCTION_GAPS.md) §19.
 - **[`docs/INTERFACE_CONTRACT.md`](docs/INTERFACE_CONTRACT.md)** — the single
   source of truth for cross-package schemas, ports, env vars, the 7-primitive
   architecture, the registration sequence, and the BCC/AIS/Merkle conventions.
-- **[`docs/wiki/`](docs/wiki/)** — the compiled knowledge base (entity pages per
-  package, concept pages for the protocols). Governed by a strict
+- **[`docs/wiki/`](docs/wiki/)** — the canonical source of truth for the
+  compiled knowledge base. Its entity and concept pages are published
+  one-way to both the GitHub Wiki and Integrity MVP's read-only `/wiki`
+  experience. Direct edits to either downstream mirror are not an authoring
+  path and may be overwritten by synchronization. Governed by a strict
   no-aspirational-content rule.
-- **[`docs/design/`](docs/design/)** — the dashboard design mockups.
+- **[`docs/architecture/ecosystem-dependencies.md`](docs/architecture/ecosystem-dependencies.md)** — cross-repository ownership and dependency direction for INTEGRITY-LATEST, Xibalba Shield, and Integrity MVP.
+- **[`docs/TESTING.md`](docs/TESTING.md)** — test pyramid, package-level runner conventions, and E2E scope.
+- **[`docs/MAINNET_READINESS.md`](docs/MAINNET_READINESS.md)** — deployment blockers and consequence-ordered readiness criteria.
+- **[`docs/design/`](docs/design/)** — design decisions, audits, and implementation notes.
+- **[`spec/`](spec/)** — normative protocol and Shield specifications plus versioned wire specs.
 
 ## License
 

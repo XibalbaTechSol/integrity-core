@@ -25,6 +25,14 @@ actually checked against code, rather than restating the spec's own status claim
 > **Primitive #1 of four.** See [The Four Foundational Primitives](foundational-primitives.md)
 > for how memory relates to ownership, authority and reputation.
 
+## Table of contents
+
+- [Persistent Memory is a foundational primitive — not an 8th contract](#persistent-memory-is-a-foundational-primitive-not-an-8th-contract)
+- [Genesis root](#genesis-root)
+- [Verified status (checked against code 2026-07-29, not inherited from the spec)](#verified-status-checked-against-code-2026-07-29-not-inherited-from-the-spec)
+- [Copying, lineage, and similarity](#copying-lineage-and-similarity)
+- [What memory does not change](#what-memory-does-not-change)
+
 ## Persistent Memory is a foundational primitive — not an 8th contract
 
 The spec's first foundational primitive (§4.1) is **Persistent Memory**, on the
@@ -76,7 +84,7 @@ non-zero, so an agent with a genuinely non-empty vault at birth is equally valid
 | §6 registration anchors a genesis root before `registerPrimitives` | **BUILT.** `chain.anchor_genesis_root()` + `registration.py` step 8b. The pre-existing full-registration e2e passes with the gate live, which is what proves the ordering satisfies it |
 | §7.2 genesis root is agent-authorized | **BUILT, unenforced.** It works today with no Solidity change — `StateAnchor`'s admin *is* the `SovereignAgent`, which the constructor grants `ANCHOR_ROLE`, so `SovereignAgent.execute → anchorRoot` at epoch 0 is a controller-signed genesis. What is missing is *preventing* the alternative (below) |
 | §7.2 `ANCHOR_ROLE` restricted to epoch ≥ 2 | **OPEN (Appendix A gap 2).** `anchorRoot` is `onlyRole(ANCHOR_ROLE)` at every epoch, and `registration.py` step 8 grants that role to the oracle signer — so the protocol *could* anchor an agent's genesis root instead of the agent. Blocked on migration, not on design: `StateAnchor` is deployed **per agent, not cloned**, so a contract change reaches only future agents |
-| §7.4 lineage attestation | **OPEN (Appendix A gap 6).** Not started |
+| §7.4 lineage attestation | **BUILT, not yet integrated (2026-08-05).** `integrity_sdk/memory_dag.py` implements the full design (`docs/design/memory-dag.md`); `tests/test_memory_dag.py` passes 21/21, verified 2026-08-05 after being written 2026-07-31 and left unrun. `import_memory_dag.py --dry-run` runs cleanly against the real Trust Vault. Not yet anchored on-chain (`anchor_memory_dag.py` untested, deliberately not run) and no downstream consumer (e.g. `xibalba-graph-memory`'s `integrity_links`) reads it yet — see `xibalba-graph-memory/docs/session-log/2026-08-05-integrity-coupling-session.md` for the full account, including why this line was stale for five days |
 
 **Existing agents are non-conformant.** All 7 agents registered before this flow —
 including `xibalba.integrity` (`StateAnchor 0x09DCBBd0…`) — report `latestRoot == 0`,

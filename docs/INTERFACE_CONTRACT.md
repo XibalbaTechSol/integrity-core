@@ -1,23 +1,19 @@
 # Integrity Protocol — Interface Contract (v1)
 
-This document is the single source of truth for how the seven packages in this
-monorepo talk to each other. Every package is being rebuilt from scratch in
-parallel by a different engineer (human or agent) — if something isn't pinned
-down here, packages will drift and stop interoperating. When in doubt, follow
-this doc over any assumption from the old codebase.
+This document is the single source of truth for how INTEGRITY-LATEST packages and internal services talk to each other. Every package is being rebuilt from scratch in parallel by a different engineer (human or agent) — if something isn't pinned down here, packages will drift and stop interoperating. When in doubt, follow this doc over any assumption from the old codebase.
 
-Scope: this rewrite covers **six core packages**:
+Repo documentation precedence is:
+
+1. `README.md` defines repo-level ownership, current package status, and source-of-truth pointers.
+2. This file defines internal schemas, ports, env vars, service boundaries, and cross-package call conventions inside INTEGRITY-LATEST.
+3. `spec/` defines externally-supported design and wire surfaces.
+4. `docs/wiki/` is the compiled long-term knowledge layer generated out to the GitHub Wiki and Integrity MVP browser wiki.
+
+Scope: this rewrite covers **six protocol core packages**:
 `contracts/`, `integrity-zkp/`, `integrity-oracle/`, `integrity-sdk/`,
-`integrity-cli/`, `bcc_middleware/` — plus `integrity-dashboard/`, the ONE
-dashboard/landing app (its `demo/` subdirectory is the multi-vertical
-investor/developer closed-loop scenario engine, see §11 — merged from the
-former separate `integrity-dashboard/` + `integrity-demo/` packages on
-2026-07-09), `integrity-userapi/`, a dedicated user-accounts/auth backend
-kept strictly separate from the oracle (see §13), and
-`integrity-framework/`, a reputation-derivatives package reviving the old
-repo's marketplace/lending concept (see §12, not yet built). Everything
-else from the old repo (marketing site, unrelated scaffolding, legacy
-backups, stray installer scripts) is intentionally left out.
+`integrity-cli/`, `bcc_middleware/` — plus `integrity-dashboard/`, the original INTEGRITY-LATEST dashboard/landing app (its `demo/` subdirectory is the multi-vertical investor/developer closed-loop scenario engine, see §11 — merged from the former separate `integrity-dashboard/` + `integrity-demo/` packages on 2026-07-09), `integrity-userapi/`, a dedicated user-accounts/auth backend kept strictly separate from the oracle (see §13), and `integrity-framework/`, a reputation-derivatives package reviving the old repo's marketplace/lending concept (see §12, not yet built). Everything else from the old repo (marketing site, unrelated scaffolding, legacy backups, stray installer scripts) is intentionally left out.
+
+External repositories are deliberately outside this interface contract. `integrity-mvp` is the standalone web presentation layer, and `xibalba-shield` is the endpoint-security evidence producer. They consume public INTEGRITY-LATEST interfaces; INTEGRITY-LATEST must not import, call, or require either external repo. The cross-repository dependency map is `docs/architecture/ecosystem-dependencies.md` and `docs/wiki/architecture/ecosystem-dependencies.md`.
 
 Ground rule for this rewrite: **no silent mocks**. Every previously-stubbed
 piece (ZK proving, TEE attestation, OPA policy evaluation, on-chain BAA
@@ -71,6 +67,10 @@ against real policies. Don't write code you haven't run.
   (`integrity-oracle/backend/src/otlp.rs`), defaults to `0.0.0.0:4317` — the standard
   OTLP/gRPC port `integrity-sdk`'s `OTLPSpanExporter`/`OTLPMetricExporter` already
   target by default. A second listener, separate from the oracle's HTTP `BIND_ADDR`.
+- `KYC_PROVIDER_KEYS` — comma-separated trusted KYC receipt issuers in
+  `provider=hex-ed25519-public-key` form. Empty disables KYC receipt acceptance. Keys
+  belong to independently operated commercial or self-hosted open-source verification
+  stacks; clients never supply trust roots in requests.
 - `RPC_URL` — EVM RPC endpoint, defaults to `http://localhost:8545` (anvil) for local dev
 - `CHAIN_ID` — `31337` for local anvil
 - `OPA_URL` — `http://localhost:8181` (bcc_middleware, sdk)
@@ -146,6 +146,7 @@ Real Ed25519 only (via the `cryptography` library) — no HMAC pseudo-signature 
   "timestamp": "<unix ms>",
   "agent_public_key": "z<multibase base58btc, multicodec ed25519-pub || raw 32-byte pubkey>",
   "covered_entity_address": "0x<20-byte hex EVM address> | null",
+  "intent_rationale": "public-safe intent rationale, signed and preferred by policy",
   "signature": "0x<hex, Ed25519 sig over the above fields except signature itself, canonical JSON>"
 }
 ```
@@ -153,7 +154,7 @@ This exact shape is POSTed by `integrity-sdk` and `integrity-cli` to
 `bcc_middleware`'s `POST /v1/bcc/intercept`. Field names are load-bearing —
 don't rename them per-package.
 
-Two fields were added after this doc's original draft, both now **✅
+Three fields were added after this doc's original draft, all now **✅
 RECONCILED** and required by `bcc_middleware`'s real implementation
 (`app/schemas.py`, `app/canonical.py`) — not carried in isolation, but
 included in the signed payload, so neither can be swapped post-signature:
@@ -179,6 +180,12 @@ included in the signed payload, so neither can be swapped post-signature:
   an address, not a DID: covered entities are registered directly by EVM
   address in `contracts/src/health/CoveredEntityRegistry.sol` and have no DID
   layer of their own.
+
+- `intent_rationale` — **required for agent tool calls**. This is the public-safe,
+  signed intent explanation that `bcc_middleware`'s AOS policy gates on. The
+  legacy `agent_thought` field is still accepted as an alias for compatibility,
+  but new callers should populate `intent_rationale` and let `agent_thought`
+  mirror it only if they need backwards compatibility.
 
 **Canonicalization, pinned:** the signature covers every field above except
 `signature` itself, serialized as `json.dumps(fields, sort_keys=True,
@@ -213,7 +220,7 @@ is still stored, but purely as an audit trail (`telemetry_events.payload.derived
 vs. `payload.oracle_recomputed_signals`) — it does not feed the formula. See
 [`docs/wiki/concepts/ais.md`](wiki/concepts/ais.md) for the full data-flow diagram and
 `PRODUCTION_GAPS.md` §1a for what's still open (ZK-boost is a period-wide, not per-event,
-binding; no oracle-to-chain score push exists yet).
+binding). The oracle-to-chain score push is implemented by `bcc_middleware` §7a.
 
 ### 4.2a Signed telemetry envelope version
 
@@ -298,13 +305,13 @@ change is needed for this; **enforcement** that the protocol's `ANCHOR_ROLE` sig
 anchor epoch 1 is still `[PLANNED]` (Appendix A gap 2), since `StateAnchor` is deployed
 per-agent and already-deployed anchors keep their current bytecode.
 
-### 4.4b Memory DAG node schema (spec §7.4 lineage) — `[UNVERIFIED, NOT RUN]`
+### 4.4b Memory DAG node schema (spec §7.4 lineage) — `[VERIFIED 2026-08-05]`
 
 Design: [`docs/design/memory-dag.md`](design/memory-dag.md). Implementation:
-`integrity_sdk/memory_dag.py`. **Written 2026-07-31 with no shell available, so it
-has never been executed** — §1's "don't write code you haven't run" is knowingly
-violated here and this section is not binding until `tests/test_memory_dag.py`
-passes.
+`integrity_sdk/memory_dag.py`. Written 2026-07-31 with no shell available and left
+unexecuted; run and confirmed 2026-08-05 — `tests/test_memory_dag.py` passes
+21/21, including the cross-runtime provenance acceptance test (step 7 of the
+design doc's order-of-work). This section is now binding.
 
 §4.4's tree commits to a flat *set* — its sorted-pair rule exists precisely to make
 leaf position meaningless, so it cannot express that one memory derives from
@@ -542,9 +549,9 @@ JSON shape, pinned to the actual Rust struct:
   "ed25519_pubkey_hex": "0x...",   // optional, but the handler 400s if this
   "eth_address_hex": "0x...",      // AND eth_address_hex are both absent —
                                     // integrity-sdk always sends both
-  "verification_tier": 0           // optional i32, defaults to 0 — no
-                                    // verification-ladder semantics exist
-                                    // yet (see identity-ceiling.md, [PLANNED])
+  "verification_tier": 0           // accepted for wire compatibility but ignored;
+                                    // the server assigns the registration floor
+                                    // and evidence-backed checks raise effective tier
 }
 ```
 
@@ -561,6 +568,48 @@ now conform to this exact schema.
 all>}`, which 422'd on the missing `did` field and would then 400 on the
 missing pubkey/address fields even if `did` were fixed alone — never caught
 because every test up to that point ran with `skip_oracle_registration=True`).
+
+### 6.3a Verification ladder and evidence revocation
+
+Registration establishes only the tier-1 floor. The Oracle derives the effective tier
+from that floor plus active, unexpired, unrevoked evidence:
+
+- Tier 2: dual-resolver DNS TXT proof or a signed challenge read from a GitHub repository
+  that GitHub reports as owned by the claimed login. Evidence expires after 90 days.
+- Tier 3: a nonce-bound AWS Nitro COSE/CBOR attestation whose certificate chain reaches
+  AWS's Nitro root. Evidence expires after 30 days.
+- KYC: a nonce-bound receipt signed by a key in `KYC_PROVIDER_KEYS`. The
+  `open_source_kyc_v1` profile requires affirmative document-authenticity, biometric-
+  liveness, and sanctions/PEP checks. The Oracle stores only an opaque subject reference,
+  explicit check flags, validity timestamps, provider id, and receipt hash—never raw PII.
+
+The route pairs are `POST /v1/agent/{id}/verify/{dns|github|tee|kyc}/challenge` and
+`POST /v1/agent/{id}/verify/{dns|github|tee|kyc}`. Current evidence and the derived tier
+are returned by `GET /v1/agent/{id}/verify`.
+
+KYC uses `POST /v1/agent/{id}/verify/kyc/challenge` with `{"provider":"open-kyc"}`
+and `POST /v1/agent/{id}/verify/kyc` with a signed receipt. The exact signed bytes are:
+
+```text
+integrity-kyc-receipt:v1:<agent_did>:<provider>:<opaque_subject_reference>:<assurance_profile>:<document_authenticity_0_or_1>:<biometric_liveness_0_or_1>:<sanctions_pep_screening_0_or_1>:<verified_at_unix>:<expires_at_unix>:<nonce>
+```
+
+`opaque_subject_reference` is restricted to 8–200 URL-safe characters. Receipts must be
+currently valid, cannot begin more than five minutes in the future, and cannot last longer
+than 365 days. A configured issuer signature proves which verifier asserted the checks; it
+does not imply that every jurisdiction treats the profile as legally equivalent.
+
+Evidence revocation is agent-authorized and audit-preserving:
+
+1. `POST /v1/agent/{id}/verify/{verification_id}/revoke/challenge` returns a fresh
+   60-minute nonce.
+2. The client signs the UTF-8 bytes of
+   `integrity-verification-revoke:v1:<did>:<verification_id>:<nonce>:<hex-utf8-reason>`
+   with the Ed25519 key registered for the DID.
+3. `POST /v1/agent/{id}/verify/{verification_id}/revoke` accepts
+   `{"signature":"<hex>","reason":"<1-500 UTF-8 bytes>"}`. It sets `revoked_at`
+   and `revoked_reason`, consumes the nonce, and returns the newly derived
+   `effective_tier`; it never deletes the evidence row.
 
 ### 6.4 `EHRGate` reputation resolution (was: one immutable global registry)
 
@@ -897,10 +946,12 @@ not just the pre-execution BCC policy gate §7 describes. A periodic background 
 also triggerable on-demand via `POST /v1/reputation/sync`) lists every agent the oracle
 knows about and, per agent:
 
-1. Recomputes the pre-boost weighted AIS from `GET /v1/agent/{id}/ais`'s
-   `components`/`weights` (NOT `ais / zk_boost` — see `scoring_loop._base_score_from_ais_response`'s
-   docstring for why that division is avoided) and signs+submits a real
-   `ReputationRegistry.updateScore(agent, baseScore)`.
+1. Treats `GET /v1/agent/{id}/ais`'s final `ais` as authoritative and removes only its
+   reported `zk_boost` (`baseScore = round(ais / zk_boost)`) before signing and submitting
+   `ReputationRegistry.updateScore(agent, baseScore)`. It MUST NOT recompute from
+   `components`/`weights`: doing so duplicates the canonical Rust formula and loses the
+   Oracle's already-applied effective identity-tier ceiling. The contract independently
+   earns and applies its own on-chain ZK boost.
 2. Reads `GET /v1/agent/{id}/telemetry/volume`'s flagged-event ratio over a lookback
    window (`DISPUTE_LOOKBACK_BUCKET`); if it crosses `DISPUTE_FLAGGED_RATIO_THRESHOLD`
    with at least `DISPUTE_MIN_EVENTS` samples, signs+submits a real

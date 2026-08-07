@@ -103,6 +103,7 @@ def build_bcc_commitment(
     token_count: Optional[int] = None,
     trace_id: Optional[str] = None,
     span_id: Optional[str] = None,
+    intent_rationale: Optional[str] = None,
     agent_thought: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
@@ -135,6 +136,7 @@ def build_bcc_commitment(
     """
     timestamp_ms = timestamp_ms if timestamp_ms is not None else int(time.time() * 1000)
     intended_state_hash = hash_intent_payload(intent_payload)
+    rationale = intent_rationale or agent_thought
 
     # The object that gets signed is the commitment MINUS the signature
     # field itself (you can't sign your own signature). Both sender and
@@ -148,6 +150,7 @@ def build_bcc_commitment(
         "timestamp": timestamp_ms,
         "covered_entity_address": covered_entity_address,
         "agent_public_key": public_key_multibase(keypair.public_bytes()),
+        "intent_rationale": rationale,
     }
     signature_bytes = keypair.sign(canonical_json_bytes(unsigned))
 
@@ -165,7 +168,7 @@ def build_bcc_commitment(
 
     commitment["trace_id"] = trace_id or aos_ctx.get("trace_id")
     commitment["span_id"] = span_id or aos_ctx.get("span_id")
-    commitment["agent_thought"] = agent_thought or aos_ctx.get("agent_thought")
+    commitment["agent_thought"] = rationale or aos_ctx.get("agent_thought") or aos_ctx.get("intent_rationale")
     commitment["token_count"] = token_count
     return commitment
 
@@ -187,7 +190,8 @@ def verify_bcc_commitment(commitment: Dict[str, Any], pubkey_bytes: bytes) -> bo
 
     # The AOS post-signing fields (trace_id, span_id, agent_thought, token_count)
     # are appended AFTER the signature is computed — they are NOT part of the
-    # signed payload. Strip them before re-deriving the canonical hash.
+    # signed payload. The public intent_rationale is now signed, while the legacy
+    # agent_thought alias remains post-signing for compatibility.
     _POST_SIGNING_FIELDS = {"signature", "trace_id", "span_id", "agent_thought", "token_count"}
     unsigned = {k: v for k, v in commitment.items() if k not in _POST_SIGNING_FIELDS}
     return verify_signature(pubkey_bytes, canonical_json_bytes(unsigned), signature_bytes)

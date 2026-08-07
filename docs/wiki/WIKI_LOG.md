@@ -3,6 +3,28 @@
 > Chronological record of wiki actions. Append-only — never edit past entries.
 > Actions: ingest, create, update, lint, query, archive
 
+## [2026-08-06] create | Cross-repository audit status ledger
+
+- Added `docs/audits/2026-08-06-cross-repository-status.md` as the current Integrity Protocol repository audit pointer.
+- Linked the consolidated four-repository implementation plan and status vocabulary from the wiki index.
+- Recorded verified default-branch test evidence and open findings for `integrity-latest`, `integrity-mvp`, `xibalba-shield`, and `xibalba-graph-memory`.
+- Preserved historical wiki entries and marked the audit as `AUDIT IN PROGRESS`; no production-readiness claim was promoted.
+
+## [2026-08-06] update | Scoped Devil's Advocate and Red-Team Reviews
+
+- Limited mandatory adversarial review to architectural decisions, foundational security or identity-boundary changes, consequential deployments, and decisions with profound long-term implications.
+- Explicitly excluded routine implementation, maintenance, and low-risk reversible work.
+
+## [2026-08-06] update | Xibalba Agent Safety and Control Invariants
+
+- Expanded `/home/xibalba/.hermes/SOUL.md` and `concepts/xibalba-agent-operating-model.md` with authority ordering, untrusted-memory rules, risk-tiered Behavioral Commitment Chain approval requirements, postcondition verification, degraded-mode behavior, shadow-provider restrictions, identity-language distinctions, and draft-first external operations.
+- Marked cryptographic origin binding, replay checks, deterministic redaction, stale-claim recovery, dead-letter handling, restart reconciliation, and adversarial automation tests as `[PLANNED]` because they are not yet fully implemented and verified.
+
+## [2026-08-06] create | Xibalba Agent Operating Model
+
+- Added `concepts/xibalba-agent-operating-model.md` documenting the configured Xibalba identity, closed-loop task lifecycle, graph-memory posture, significance gate, user-interface design influences, and approval boundaries.
+- Recorded the significant-task wiki compilation worker as `[PLANNED]`; the existing Hermes observer currently captures source evidence into local graph memory, but automatic semantic compilation is not yet wired.
+
 ## [2026-07-31] update | AOS Observability Gating — Python pytest coverage completed
 
 - Added `test_intercept_aos_gating` to `bcc_middleware/tests/test_intercept.py` covering the full HTTP-layer round-trip for AOS-gated agent tool calls.
@@ -2767,3 +2789,192 @@ writeup: PRODUCTION_GAPS.md §18.
 - **Verification Tier Score Ceilings**: Extended `scoring-core::AisEngine` with `ceiling_for_tier` and `score_with_tier`, capping AIS scores based on identity verification strength: Tier 0 (Dev API Key) $\rightarrow$ 300, Tier 1 (Sovereign Software Key) $\rightarrow$ 600, Tier 2 (Linked Attestation) $\rightarrow$ 850, Tier 3 (Institutional TEE/Audit) $\rightarrow$ 1000.
 - **Oracle Backend Enforcement**: Updated `handlers::compute_ais_for_agent` and `handlers::get_agent_ais_history` in `integrity-oracle` to look up `agent.verification_tier` and pass it to `score_with_tier`.
 - **Test Suite**: Added `verification_ladder_tier_ceilings_enforced` test to `scoring-core`. All 100 lib/e2e tests in `integrity-oracle` passing (`cargo test --workspace`).
+
+## [2026-08-04] fix | Geometric AIS made authoritative end-to-end
+
+- Corrected `spec/integrity-protocol-v0.4.md` and root `README.md`, which still carried the
+  superseded arithmetic dot product, to match `integrity-oracle/scoring-core`'s weighted
+  geometric mean and built identity-tier ceiling. The spec records this as a normative
+  coherence correction rather than silently rewriting its revision history.
+- Fixed `bcc_middleware/app/scoring_loop.py` so the on-chain signer no longer reconstructs
+  AIS arithmetically from `components`/`weights`. It now accepts the Oracle's geometric,
+  tier-capped `ais` as authoritative and removes only the reported ZK multiplier before
+  calling `ReputationRegistry.updateScore`, leaving the contract's independently earned
+  boost separate.
+- Added discriminating middleware tests with unequal components, ZK removal, and a tier-capped
+  response. These cases prevent equal-component fixtures from hiding an arithmetic regression.
+- Reconciled `docs/INTERFACE_CONTRACT.md`, the AIS and middleware wiki pages, package guidance,
+  `PRODUCTION_GAPS.md`, and the standalone AIS equation visual with the propagation rule.
+
+## [2026-08-04] feature | Agent-signed verification evidence revocation
+
+- Added challenge/submit routes that let an agent revoke one DNS, GitHub, or Nitro evidence
+  row using its registered Ed25519 key. The signed bytes bind DID, evidence ID, nonce, and
+  reason; the row is retained with revocation metadata and the effective tier drops immediately.
+- Reconciled the README, v0.4 spec, interface contract, Oracle entity page, identity-ceiling
+  concept page, and production-gap ledger with the already-built DNS/GitHub/Nitro ladder.
+- Kept KYC explicitly `[PLANNED]`: it needs a real provider and must never store raw PII.
+
+## [2026-08-04] feature | Provider-neutral open-source KYC receipt path
+
+- Added `backend/src/kyc.rs` and KYC challenge/verification routes. Receipts are bound to
+  the agent and a fresh nonce, signed by an Ed25519 key configured in
+  `KYC_PROVIDER_KEYS`, time-limited, and hashed for audit.
+- The `open_source_kyc_v1` profile requires document authenticity, biometric liveness,
+  and sanctions/PEP screening; incomplete or self-asserted results cannot grant Tier 3.
+- The Oracle stores no raw PII—only a provider id, opaque subject reference, explicit
+  checks, validity timestamps, and receipt hash. Commercial and self-hosted providers
+  share the same boundary without implying universal regulatory equivalence.
+
+## [2026-08-04] update | Hermes BCC gate context bridge repaired
+
+- Added `~/.claude/xibalba/hermes_context_store.py`: an atomic per-session context cache that lets Hermes persist the latest tool-rationale text for the shell-hook gate without scraping transcripts.
+- Patched `~/.hermes/plugins/integrity_telemetry/__init__.py` to write `{session_id, turn_id, reasoning, assistant_response}` into that cache on `post_llm_call`.
+- Patched `~/.hermes/hermes-agent/agent/turn_finalizer.py` so `post_llm_call` hooks receive `last_reasoning` from the just-finished turn.
+- Patched `~/.claude/xibalba/hermes_gate.py` to bridge cached rationale into `AGENT_THOUGHT` for the shared `pretool_gate.evaluate_tool_intent(...)` path.
+- Patched `~/.hermes/hermes-agent/tools/code_execution_tool.py` so nested `execute_code` remote/local RPC tool calls forward `HERMES_SESSION_ID` into `handle_function_call(...)`, restoring the BCC gate's session-based trace/span recovery path for nested terminal calls.
+- Verification: new focused pytest coverage passed (`4 passed` for the gate/context-store bridge, `2 passed` for `execute_code` session propagation), modified files compiled cleanly with `python -m py_compile`, and a fresh temporary `bcc_middleware` instance allowed a synthetic Hermes `terminal` payload when rationale context existed while still denying the same payload without rationale with `AOS_VIOLATION`.
+- Important caveat: the current OPA contract still names the field `agent_thought`; Hermes is now feeding a persisted, public action rationale / turn reasoning bridge into that field. This restores fail-closed execution, but the protocol should still evolve toward a first-class signed `intent_rationale` field rather than implying access to private chain-of-thought.
+
+## [2026-08-04] update | Signed intent_rationale migration completed
+
+- Extended the BCC commitment schema so `intent_rationale` is now a first-class signed field, while `agent_thought` remains a normalized compatibility alias.
+- Updated `integrity-sdk` to sign `intent_rationale` inside `build_bcc_commitment(...)` and to preserve the legacy alias post-signing.
+- Updated `bcc_middleware` schema, canonicalization, OPA policy, and intercept response shaping to prefer `intent_rationale` while still accepting `agent_thought` for older callers.
+- Updated Hermes bridge plumbing so the shell hook propagates `INTENT_RATIONALE` end-to-end, with `AGENT_THOUGHT` retained only as a compatibility mirror.
+- Updated repo docs and wiki pages to describe the signed rationale contract and the legacy aliasing boundary.
+
+## [2026-08-04] docs | Ecosystem dependency boundaries documented
+
+- Added `docs/architecture/ecosystem-dependencies.md` as the canonical map across
+  INTEGRITY-LATEST, Xibalba Shield, and Integrity MVP.
+- Clarified that Integrity MVP presents both backend layers, Xibalba Shield is built on
+  INTEGRITY-LATEST's public SDK/BCC/Oracle trust substrate, and dependency direction never
+  flows back from INTEGRITY-LATEST into either application.
+- Reconciled the Shield specification's stale claim that its implementation repository did
+  not yet exist; implementation status remains owned by the Shield README.
+
+## [2026-08-04] docs | Integrity specification published in the user-facing wiki
+
+- Added the Integrity Protocol Specification concept page and indexed it, increasing the
+  wiki catalog from 31 to 32 pages.
+- Identified the version-controlled Markdown specification v0.4 as the current normative
+  source and linked it to the protocol's foundational concepts.
+- Preserved the supplied comprehensive specification PDF as an explicitly archived v0.3
+  artifact for in-browser viewing and download without presenting it as current.
+
+## [2026-08-04] docs | Canonical wiki publication contract enforced
+
+- Declared `INTEGRITY-LATEST/docs/wiki/` as the sole authoring source of truth;
+  Integrity MVP and GitHub Wiki are downstream, read-only projections.
+- Extended the GitHub Wiki publisher to include architecture and query pages.
+- Made GitHub Wiki sidebar and footer generation deterministic from the canonical
+  page set, eliminating the remaining hand-maintained mirror-only content path.
+
+## [2026-08-04] docs | Canonical article tables of contents
+
+- Added deterministic TOC generation for every canonical concept, entity,
+  architecture, and query article.
+- Added publication-time drift validation so GitHub Wiki cannot publish after a
+  heading change until the canonical TOC is regenerated.
+- Kept the MVP's dynamic right rail derived from the same headings while rendering
+  the canonical nested TOC in the article body on both downstream surfaces.
+
+## [2026-08-04] fix | Functional master wiki contents
+
+- Replaced the MVP left rail's inert category labels and decorative chevrons with
+  accessible expand/collapse controls over the complete 32-article catalog.
+- Added article counts, active-page semantics, desktop/mobile selection behavior,
+  and automatic expansion of the selected article's category.
+- Changed the generated GitHub Wiki sidebar from one flat list to the same
+  canonical concept, entity, architecture, and open-query grouping.
+
+## [2026-08-04] fix | MVP wiki link integrity and update provenance
+
+- Added a visible Last updated timestamp sourced from the canonical snapshot's
+  Git commit time.
+- Resolved relative wiki links into stable `/wiki?page=...` navigation and
+  repository-document links into canonical GitHub source URLs.
+- Unified MVP and canonical heading slug rules after a full Playwright crawl
+  found one `<h>`-fragment mismatch in the Oracle XNS section.
+- Exhaustive browser validation covered all 32 master entries, 199 unique
+  rendered destinations, 153 inline anchors, and 156 right-rail TOC targets
+  with no remaining failures.
+
+## [2026-08-05] fix | Master TOC expanded into a true outline tree
+
+- Corrected the MVP left rail from a category/article index into a three-level
+  master outline: category → article → article section.
+- Added independent article-outline expand/collapse controls and section links
+  that open the correct article at the selected canonical heading.
+- Kept the active article and active section visibly synchronized across
+  desktop and mobile navigation.
+
+## [2026-08-05] fix | MVP wiki now opens on the canonical Wiki home
+
+- Added `docs/wiki/index.md` to the generated MVP snapshot as the `home` page
+  instead of skipping the same page GitHub Wiki uses as its landing view.
+- `/wiki` now defaults to the canonical Integrity Protocol Wiki overview,
+  system map, start-here guidance, and master table of contents; direct article
+  URLs remain unchanged.
+
+## [2026-08-05] feat | Mermaid charts render in the MVP browser wiki
+
+- Added lazy-loaded Mermaid rendering for canonical `mermaid` code fences so
+  system and protocol diagrams display as themed SVG charts in the MVP wiki.
+- Added responsive horizontal scrolling on narrow screens plus explicit loading
+  and source-preserving error fallbacks for invalid diagrams.
+
+## [2026-08-06] fix | MVP wiki professional rendering regressions repaired
+
+- Fixed the MVP wiki Markdown renderer so canonical pipe tables render as accessible HTML tables instead of being silently dropped.
+- Fixed the mobile wiki search trigger so it docks at the bottom of the viewport instead of overlapping the top header grid.
+- Added Playwright regression coverage for table rendering and mobile search placement.
+- Clarified the canonical contract-documentation policy: `entities/contracts.md` remains the default aggregate owner for the contract suite; per-contract pages are reserved for contracts that need standalone API documentation.
+- Regenerated the MVP wiki snapshot from `INTEGRITY-LATEST/docs/wiki/` after the canonical metadata update, and fixed the MVP sync path so canonical `docs/guides/*.md` pages appear under the Guides rail instead of falling out of navigation.
+
+## [2026-08-06] update | Cross-repo wiki coverage and MVP browser TOC
+
+- Added `docs/wiki/architecture/ecosystem-dependencies.md` so the canonical wiki exposes the verified dependency boundary across INTEGRITY-LATEST, Xibalba Shield, and Integrity MVP, instead of leaving it only in `docs/architecture/ecosystem-dependencies.md`.
+- Updated `WIKI_INDEX.md` and the wiki home page from 33 to 34 pages, adding one architecture page.
+- Recorded the Integrity MVP `/wiki` browser changes: the header uses the official Xibalba Solutions logo linked to `/`, and the left rail is now an ordered protocol TOC with functional article and section navigation.
+- Verification performed in `integrity-mvp`: focused Playwright wiki suite passed (4 tests), production build passed, whitespace check passed, and desktop/mobile screenshots were saved under `~/Pictures/`.
+
+## [2026-08-06] docs | Repository README source-of-truth pass
+
+- Updated the three top-level repository READMEs so each explicitly states its source-of-truth role, definitions, current status, ownership boundaries, plans, and documentation map.
+- Expanded `integrity-mvp/README.md` from a short project note into a full app source-of-truth document covering the three-repo stack, generated wiki, current UI surfaces, commands, testing, and roadmap.
+- Updated `INTEGRITY-LATEST/README.md` package-status language to align with the current wiki and added explicit README/interface/spec/wiki precedence.
+- Added source-of-truth and documentation-map sections to `xibalba-shield/README.md`, preserving its implementation-status dashboard as the Shield truth ledger.
+- Updated `docs/INTERFACE_CONTRACT.md` to describe current internal scope and explicitly keep `integrity-mvp` and `xibalba-shield` outside INTEGRITY-LATEST's dependency graph.
+
+## [2026-08-06] spec | Specification expansion and Shield spec ownership
+
+- Expanded `spec/integrity-protocol-v0.4.md` with §23 conformance profiles, status vocabulary, source-of-truth precedence, and no-silent-capability-transfer rules.
+- Updated `spec/README.md` to document Shield specification ownership and protocol-facing boundaries.
+- Updated `spec/xibalba-shield-v1.md` to point implementation details to the Shield repo while retaining the Integrity-facing evidence boundary.
+- Updated the wiki concept page for the Integrity specification with the new conformance and Shield-boundary rules.
+
+## [2026-08-06] docs | Cross-repository implementation plans
+
+- Added root `IMPLEMENTATION_PLAN.md` files to INTEGRITY-LATEST, integrity-mvp, xibalba-shield, and xibalba-graph-memory.
+- Added `docs/wiki/architecture/repository-implementation-plans.md` as the canonical wiki rollup for closed/planned/blocked work across the four repositories.
+- Updated the wiki home page and WIKI_INDEX architecture section from one to two architecture pages.
+
+## [2026-08-06] docs | Audit evidence merged into implementation plans
+
+- Merged the permanent cross-repository audit ledger and repo-local audit status pages into the four root `IMPLEMENTATION_PLAN.md` files.
+- Updated `docs/wiki/architecture/repository-implementation-plans.md` with audit evidence boundaries, CI/deployment blockers, and non-duplicated repo task additions.
+- Kept clean-main evidence, active-branch evidence, and dirty-worktree evidence explicitly labeled rather than merging them into one production claim.
+
+## [2026-08-06] docs | Root specifications and archive cleanup
+
+- Added detailed root `SPECIFICATION.md` files for INTEGRITY-LATEST, integrity-mvp, and xibalba-graph-memory, and updated xibalba-shield `SPECIFICATION.md` with the current audit boundary.
+- Archived superseded historical planning/handoff files into dated `docs/archive/2026-08-06/` folders in integrity-mvp, xibalba-shield, and xibalba-graph-memory.
+- Updated `docs/wiki/architecture/repository-implementation-plans.md` so specifications, implementation plans, audit evidence, and archived historical records are represented without duplicate task entries.
+
+## [2026-08-06] cleanup | Repository generated-artifact cleanup
+
+- Removed reproducible generated artifacts and caches from INTEGRITY-LATEST, integrity-mvp, xibalba-shield, and xibalba-graph-memory.
+- Kept source files, audits, docs, `.env`, `.venv`, `node_modules`, local deployment state, and active worktree changes intact.
+- Archived superseded historical plan/handoff documents under dated `docs/archive/2026-08-06/` folders rather than deleting them.

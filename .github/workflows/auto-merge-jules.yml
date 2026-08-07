@@ -1,95 +1,19 @@
-name: Auto-merge Jules fix PRs
+name: Jules auto-merge (disabled during canary)
 
-# When Jules opens or updates a PR (from notify-jules-on-failure in ci.yml),
-# and all required CI checks pass, this workflow approves and squash-merges it
-# automatically — completing the "self-healing main" loop with no human step.
-#
-# Safety constraints:
-#   - Only fires for PRs opened by the Jules GitHub App bot account.
-#   - Only auto-merges if *all* CI jobs on the PR are green (GitHub enforces
-#     this via the "required status checks" configured below — this workflow
-#     just enables auto-merge; GitHub blocks the actual merge until checks pass).
-#   - Uses squash merge so the fix lands as a single, attributable commit on main.
-#   - The GITHUB_TOKEN used here has the minimum required scopes (pull-requests:
-#     write, contents: write) — no extra permissions granted.
-#
-# One-time repo setup required (in addition to the Jules API key from ci.yml):
-#   1. Settings → General → "Allow auto-merge" must be enabled.
-#   2. Settings → Branches → Branch protection rule for `main`:
-#        - "Require status checks to pass before merging" must be ON.
-#        - Add each CI job as a required check:
-#            contracts, integrity-zkp, integrity-oracle, integrity-sdk,
-#            integrity-cli, bcc_middleware, integrity-userapi, integrity-dashboard
-#        This ensures GitHub enforces green CI before the auto-merge fires,
-#        even if this workflow runs first.
+# Automatic merging is intentionally disabled. Jules may create or update a
+# pull request, but a human maintainer must review and merge it after the
+# canary period and exact-branch verification are complete.
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
+  workflow_dispatch: {}
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
+  pull-requests: read
 
 jobs:
-  auto-merge:
-    name: Approve and enable auto-merge for Jules PRs
+  guard:
+    name: Confirm auto-merge remains disabled
     runs-on: ubuntu-latest
-
-    # Only act on PRs opened by the Jules bot — never touch human PRs.
-    if: github.actor == 'jules-google[bot]'
-
     steps:
-      - name: Approve the Jules PR
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const pr = context.payload.pull_request;
-
-            // Approve the PR on behalf of the Actions bot.
-            // Jules cannot approve its own PR (GitHub blocks self-review),
-            // so the Actions bot does it here.
-            await github.rest.pulls.createReview({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: pr.number,
-              event: 'APPROVE',
-              body: 'Auto-approved by the CI self-healing loop. ' +
-                    'All required status checks must pass before GitHub merges this.'
-            });
-
-            core.info(`Approved PR #${pr.number}: ${pr.title}`);
-
-      - name: Enable auto-merge (squash)
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const pr = context.payload.pull_request;
-
-            // enablePullRequestAutoMerge requires the GraphQL API.
-            // GitHub will only perform the actual merge once all required
-            // status checks defined in the branch protection rule are green.
-            const mutation = `
-              mutation EnableAutoMerge($pullRequestId: ID!) {
-                enablePullRequestAutoMerge(input: {
-                  pullRequestId: $pullRequestId,
-                  mergeMethod: SQUASH
-                }) {
-                  pullRequest {
-                    autoMergeRequest {
-                      mergeMethod
-                      enabledAt
-                    }
-                  }
-                }
-              }
-            `;
-
-            const result = await github.graphql(mutation, {
-              pullRequestId: pr.node_id
-            });
-
-            const autoMerge = result.enablePullRequestAutoMerge.pullRequest.autoMergeRequest;
-            core.info(`Auto-merge enabled for PR #${pr.number}: method=${autoMerge.mergeMethod}, enabledAt=${autoMerge.enabledAt}`);
+      - run: echo "Automatic merging is disabled while the Jules controller is in canary mode."

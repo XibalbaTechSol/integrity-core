@@ -8,10 +8,11 @@ is normative for Integrity Protocol; this document is normative for **Xibalba Sh
 separate product that consumes Integrity Protocol as its evidence and trust substrate (§14.1 of
 the protocol spec explains why they are separate repositories).
 
-> **Status of this entire document: `[PLANNED]`.** No code for any module described here exists
-> in any repository as of 2026-08-01. This is a specification to build against, not a record of
-> what has been built — every section says so explicitly rather than leaving it implied, per
-> Integrity Protocol's own ground rule: no silent mocks, no claims ahead of what is real.
+> **Specification status:** protocol-facing companion specification. The Shield repository now owns
+> the comprehensive product and implementation specification at SPECIFICATION.md; its README is
+> the source of truth for built/verified/blocked/planned status. This document records the
+> Integrity-facing boundary: what Shield consumes, what evidence it emits, and what it must not
+> duplicate from Integrity Protocol.
 
 ---
 
@@ -65,30 +66,31 @@ see §12.
 ## 2. Repository and Package Strategy
 
 **Decision (2026-08-01), recorded in [`spec/integrity-protocol-v0.4.md`](integrity-protocol-v0.4.md) §14.1:**
-Xibalba Shield lives in a **new repository**, `XibalbaTechSol/xibalba-shield`, not as a package
-inside `integrity-latest`. This document assumes that repository exists once building begins;
-it does not exist as of this writing, and creating it is a separate, explicit action from
-writing this specification.
+Xibalba Shield lives in the separate `XibalbaTechSol/xibalba-shield` repository, not as a
+package inside `integrity-latest`. It is built on INTEGRITY-LATEST's public SDK and service
+interfaces, while remaining independently deployable.
 
 **Dependency direction is one-way.** `xibalba-shield` depends on `integrity-sdk` (imported the
 same way any third-party agent runtime would use it — no privileged API, no special-cased
-access). `integrity-latest` has and must have **zero** dependency on `xibalba-shield` in either
-direction; a change to kernel-sensor code must never be able to affect AIS computation or
+access). `integrity-latest` has and must have **zero** dependency on `xibalba-shield`; a change
+to kernel-sensor code must never be able to affect AIS computation or
 Merkle conventions, which is the entire reason the split exists.
 
-**Proposed internal layout** (not yet created):
+**Reference implementation layout.** The implementation ledger and exact current paths live in
+the xibalba-shield README and SPECIFICATION.md:
 
 ```
 xibalba-shield/
-├── agent-core/          # user-space daemon: state, decisions, coordination
-├── sensors/
-│   ├── linux-ebpf/      # eBPF programs + ring-buffer consumer
-│   └── windows-macos/   # ETW/native API adapters
-├── policy-engine/       # table-driven rule evaluation (§7)
-├── guardrail-hooks/     # LLM/agent boundary interception (§4.4)
-├── integrity-exporter/  # wraps integrity-sdk; BCC signing + Merkle batching
-├── cli/                 # `shield status`, `shield events --recent`, diagnostics
-└── schemas/             # versioned event/policy JSON Schemas (§5, §7)
+├── shield/agent_core/          # DeviceContext, AgentRegistry, EventRouter, EventLog
+├── shield/sensors/
+│   ├── dev_generator.py        # synthetic dev/test event source
+│   └── ebpf/                   # process/file/TCP eBPF probes and loader
+├── shield/policy_engine/       # table-driven rule evaluation (§7)
+├── shield/guardrail_hooks/     # six semantic LLM/agent boundary gates (§4.4)
+├── shield/integrity_exporter/  # wraps integrity-sdk; BCC signing + telemetry
+├── shield/config/              # local config loader + hot reload
+├── shield/cli.py               # shield status/events/validate/run
+└── shield/schemas/             # event and policy dataclasses (§5, §7)
 ```
 
 ---
@@ -456,22 +458,18 @@ specification was drafted from for that material if it is needed later.
 
 ## 14. Status and Roadmap
 
-`[PLANNED]` in full. Suggested build order, matching the "solidify → integrate → validate →
-scale" sequencing already used for this kind of work in this project:
+Status is maintained in the Shield repository README. As of 2026-08-06, the pure-Python core is real and tested: schemas, policy engine, agent core, all six guardrail hooks, local configuration loading/hot reload, CLI, and Integrity exporter. Linux process-exec and file-write eBPF probes are live-verified; TCP-connect is blocked by a BCC/kernel compatibility issue, and DNS observation is not built. Windows/macOS sensors, tenant cloud policy distribution, safe code auto-update, and Shield-specific compliance report polish remain planned or blocked as documented in the Shield README.
 
-1. Linux agent core (§4.2) + eBPF sensor (§4.1) + local policy engine (§4.3), no cloud
-   dependency for enforcement.
-2. Integrity Exporter (§4.5) wired to a real `integrity-sdk` instance — first end-to-end signed
-   event, visible in an existing `integrity-oracle` deployment.
-3. Guardrail hooks (§4.4) for one LLM boundary (tool execution), before generalizing to all
-   five hook points.
-4. Pilot with 3–5 friendly SMBs; measure deployment friction and resource overhead against §3's
-   budget before adding scope.
-5. Windows/macOS sensors, network sensor (§9), compliance reporting polish (§11).
+Roadmap phases:
 
-Detailed roadmap sequencing and go-to-market strategy live in
-[`docs/ENTERPRISE_ADOPTION.md`](../docs/ENTERPRISE_ADOPTION.md) Lever 7, not here — this
-document specifies *what* to build; that document sequences *when*.
+1. Linux enforcement baseline: keep process/file probes verified, unblock TCP-connect, design DNS observation, and add sensitive-path filters.
+2. Integrity registration and evidence closure: register the exporter DID with Oracle, verify audit-log/readback visibility, and re-run resource measurements with a clean registered DID.
+3. Policy distribution and update safety: signed policy bundles, tenant policy client, and safe code-update design with rollback.
+4. Pilot readiness: managed service packaging, default policy packs, operator runbooks, rollback/uninstall, and resource burn-in.
+5. Platform expansion: Windows ETW, macOS sensor, optional network appliance/container sensor, and SIEM/SOAR integrations.
+
+Detailed Shield product behavior now lives in XibalbaTechSol/xibalba-shield SPECIFICATION.md. Detailed go-to-market strategy lives in [docs/ENTERPRISE_ADOPTION.md](../docs/ENTERPRISE_ADOPTION.md) Lever 7.
+
 
 ---
 

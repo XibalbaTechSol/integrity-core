@@ -20,6 +20,11 @@ step, not a current capability. This page replaces the old wiki's
 [agent primitives](agent-primitives.md)), so the old design doesn't apply
 as written.
 
+## Table of contents
+
+- [Current state: an honest, documented gap](#current-state-an-honest-documented-gap)
+- [What a real design would need to solve](#what-a-real-design-would-need-to-solve)
+
 ## Current state: an honest, documented gap
 
 `contracts/src/oracle/CCIPReputationBridge.sol` exists in the codebase but

@@ -3,25 +3,29 @@
 //!
 //! # Why this exists
 //!
-//! `handlers::SERVER_VERIFIED_TIER` was a hardcoded `1`, and tiers 2/3 had no
-//! verification path anywhere in the codebase. That was not a missing feature so
-//! much as a broken incentive: `scoring_core::score_with_tier` clamps AIS to
+//! Registration deliberately establishes only a tier-1 floor. Without stronger
+//! evidence, `scoring_core::score_with_tier` clamps AIS to
 //! 600 at tier 1, so once an agent's raw score passed 600 nothing it did could
 //! move its reported score — and the ZK boost (`x1.15`), the protocol's flagship
 //! cryptographic feature, was absorbed entirely by the clamp. Measured on the
 //! `xibalba` agent: raw 704, boosted 810, reported 600. See PRODUCTION_GAPS §23.
 //!
-//! # The two rungs are different KINDS of claim
+//! # The rungs establish different kinds of claim
 //!
 //! - **DNS TXT (tier 2, "Linked")** — proves *control of a namespace*. Anyone can
 //!   re-check it, it needs no third party, and it carries no PII. It is a claim
 //!   about the present, so it expires and must be re-proved.
-//! - **KYC (tier 3, "Institutional")** — proves *a legal person is accountable*.
-//!   Requires a provider, carries regulated PII, and is what a covered entity
-//!   actually wants before signing a BAA.
+//! - **GitHub (tier 2, "Linked")** — proves control of a public GitHub namespace
+//!   by checking a signed challenge in a repository owned by that login.
+//! - **AWS Nitro (tier 3, "Institutional")** — proves a live enclave produced a
+//!   nonce-bound attestation chaining to AWS's Nitro root. See `attestation.rs`.
+//! - **KYC (tier 3)** accepts only nonce-bound receipts signed by an operator-configured
+//!   provider trust root. The provider can be a self-hosted open-source stack; raw PII
+//!   never enters the Oracle. See `kyc.rs`.
 //!
-//! They are not competing implementations of one idea, which is why they sit at
-//! different rungs rather than being alternatives.
+//! Evidence expires or can be agent-revoked; the effective tier is derived from
+//! active rows on every read, so removing the strongest evidence immediately
+//! lowers the ceiling.
 //!
 //! # Trust posture
 //!
@@ -94,6 +98,8 @@ pub enum VerificationError {
     ChallengeExpired,
     #[error("domain is not a valid hostname: {0}")]
     InvalidDomain(String),
+    #[error("verification-revocation signature is malformed or does not match the registered agent key")]
+    BadRevocationSignature,
 }
 
 /// The exact bytes an agent signs. Binding all three fields matters:
@@ -105,6 +111,49 @@ pub enum VerificationError {
 /// format is pinned here and reproduced by `integrity-cli`.
 pub fn challenge_message(did: &str, domain: &str, nonce: &str) -> String {
     format!("integrity-domain-verification:v1:{did}:{domain}:{nonce}")
+}
+
+/// Exact bytes signed to revoke one evidence row. Hex-encoding the UTF-8 reason
+/// removes delimiter ambiguity while keeping the signed representation portable
+/// across SDK/CLI implementations.
+pub fn revocation_message(
+    did: &str,
+    verification_id: i64,
+    nonce: &str,
+    reason: &str,
+) -> String {
+    format!(
+        "integrity-verification-revoke:v1:{did}:{verification_id}:{nonce}:{}",
+        hex::encode(reason.as_bytes())
+    )
+}
+
+/// Verify an agent-authorized revocation against the Ed25519 key stored at
+/// registration. The key is never accepted from the request.
+pub fn verify_revocation_signature(
+    agent_pubkey: &[u8],
+    did: &str,
+    verification_id: i64,
+    nonce: &str,
+    reason: &str,
+    signature_hex: &str,
+) -> Result<(), VerificationError> {
+    let key_bytes: [u8; 32] = agent_pubkey
+        .try_into()
+        .map_err(|_| VerificationError::NoAgentKey)?;
+    let key = VerifyingKey::from_bytes(&key_bytes).map_err(|_| VerificationError::NoAgentKey)?;
+    let sig_bytes = hex::decode(signature_hex.trim_start_matches("0x"))
+        .map_err(|_| VerificationError::BadRevocationSignature)?;
+    let sig_arr: [u8; 64] = sig_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| VerificationError::BadRevocationSignature)?;
+    let signature = Signature::from_bytes(&sig_arr);
+    key.verify(
+        revocation_message(did, verification_id, nonce, reason).as_bytes(),
+        &signature,
+    )
+    .map_err(|_| VerificationError::BadRevocationSignature)
 }
 
 /// The full TXT record value an operator publishes.
@@ -384,6 +433,22 @@ mod tests {
         assert_ne!(a, challenge_message("did:integrity:bbb", "example.com", "n1"));
         assert_ne!(a, challenge_message("did:integrity:aaa", "other.com", "n1"));
         assert_ne!(a, challenge_message("did:integrity:aaa", "example.com", "n2"));
+    }
+
+    #[test]
+    fn revocation_signature_binds_agent_row_nonce_and_reason() {
+        let signing_key = key();
+        let did = "did:integrity:aaa";
+        let message = revocation_message(did, 42, "nonce-1", "key rotated");
+        let signature = signing_key.sign(message.as_bytes());
+        let signature_hex = hex::encode(signature.to_bytes());
+        let pubkey = signing_key.verifying_key().to_bytes();
+
+        verify_revocation_signature(&pubkey, did, 42, "nonce-1", "key rotated", &signature_hex)
+            .expect("valid revocation signature");
+        assert!(verify_revocation_signature(&pubkey, did, 43, "nonce-1", "key rotated", &signature_hex).is_err());
+        assert!(verify_revocation_signature(&pubkey, did, 42, "nonce-2", "key rotated", &signature_hex).is_err());
+        assert!(verify_revocation_signature(&pubkey, did, 42, "nonce-1", "different", &signature_hex).is_err());
     }
 
     #[test]

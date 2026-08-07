@@ -25,6 +25,18 @@ source_files:
 > contracts *and* the storage for one of the four concepts; `StateAnchor` likewise. The seven
 > are an implementation; the four are the argument.
 
+## Table of contents
+
+- [The four](#the-four)
+  - [1. Persistent Memory](#1-persistent-memory)
+  - [2. Agent-Owned Contracts](#2-agent-owned-contracts)
+  - [3. Authority](#3-authority)
+  - [4. Reputation](#4-reputation)
+- [AIS is not the fourth primitive](#ais-is-not-the-fourth-primitive)
+- [Why these four, and not others](#why-these-four-and-not-others)
+- [Open, and deliberately so](#open-and-deliberately-so)
+- [Status of this page](#status-of-this-page)
+
 ## The four
 
 Each answers one question a counterparty must resolve before delegating anything of value.

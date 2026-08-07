@@ -23,14 +23,15 @@ trivially auditable and testable in isolation:
 ## The AIS formula (`scoring-core`)
 
 ```
-AIS = (S_entropy·wE + S_grounding·wG + S_sacrifice·wS + S_compliance·wC) · ZK_boost
+AIS_raw = (S_entropy^wE · S_grounding^wG · S_sacrifice^wS · S_compliance^wC) · ZK_boost
+AIS_final = min(AIS_raw, verification_tier_ceiling)
 ```
 
 Default weights `wE=0.30, wG=0.30, wS=0.20, wC=0.20` (validated to sum to 1.0,
 configurable via `AIS_WEIGHTS`). Each `S_*` is normalized to `[0, 1000]`;
 `ZK_boost = 1.15` when a real Barretenberg proof was verified in the reporting
-period. The final score is intentionally **not** clamped — a fully-boosted top
-performer can exceed 1000. See
+period. This is a weighted geometric mean. Tiers 0/1/2 cap the result at
+300/600/850; Tier 3 has no post-boost cap. See
 [`../docs/wiki/concepts/ais.md`](../docs/wiki/concepts/ais.md).
 
 ## HTTP API
@@ -43,6 +44,8 @@ performer can exceed 1000. See
 | `GET` | `/v1/agent/{id}/ais` | Full AIS breakdown (components, weights, ZK boost) |
 | `POST` | `/v1/telemetry/ingest` | Ingest OTel spans + derived signals + optional ZK proof; nonce-replay-protected |
 | `GET` | `/v1/agent/{id}/compliance` | Live `ComplianceGate` read (Integrity Health vertical status) |
+| `POST` | `/v1/agent/{id}/verify/kyc/challenge` | Issue a nonce for a configured KYC receipt provider |
+| `POST` | `/v1/agent/{id}/verify/kyc` | Verify a provider-signed, PII-minimized KYC receipt |
 | `GET` | `/healthz` | Liveness |
 
 ### Why register re-verifies on-chain
@@ -85,6 +88,8 @@ export REDIS_URL=redis://127.0.0.1:6379
 export RPC_URL=http://127.0.0.1:8545
 export DEPLOYMENTS_FILE=../deployments.local.json
 export BIND_ADDR=0.0.0.0:8080
+# Optional: enable trusted KYC receipt issuers (empty means KYC is disabled)
+export KYC_PROVIDER_KEYS=open-kyc=<64-hex-character-ed25519-public-key>
 
 cargo run --bin oracle-backend
 ```
@@ -124,7 +129,8 @@ backend/src/
   main.rs / lib.rs           boot + router + AppState
   config.rs                  env config (+ from_env_for_test)
   chain.rs                   alloy read client
-  handlers.rs / routes.rs    the 6 endpoints
+  handlers.rs / routes.rs    HTTP endpoints
+  kyc.rs                     provider-neutral signed KYC receipt verification
   db.rs                      sqlx persistence
   merkle.rs / zk.rs          Merkle tree + bb-verify
   crypto/                    ed25519 + eip191 signature verification

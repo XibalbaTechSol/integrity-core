@@ -66,6 +66,9 @@ def canonical_commitment_bytes(commitment: BCCCommitment) -> bytes:
         # get an unrelated hospital's BAA status used to authorize access
         # against a hospital the agent never agreed to.
         "covered_entity_address": commitment.covered_entity_address,
+        # Public-safe rationale used by AOS policy; signed so the policy gate
+        # receives the same declared intent the signer committed to.
+        "intent_rationale": commitment.intent_rationale,
         # Also signed: the self-certifying public key (see schemas.py). Signing
         # it means an attacker can't swap in a different (but validly-hashing?
         # — no: sha256 makes that infeasible) key AND re-use the signature.

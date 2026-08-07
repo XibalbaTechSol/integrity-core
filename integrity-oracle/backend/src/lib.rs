@@ -12,6 +12,7 @@ pub mod db;
 pub mod derive;
 pub mod error;
 pub mod handlers;
+pub mod kyc;
 pub mod merkle;
 pub mod openapi;
 pub mod vc;

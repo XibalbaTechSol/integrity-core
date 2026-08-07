@@ -46,6 +46,8 @@ def sign_commitment(
     timestamp: int | None = None,
     intended_state_hash: str | None = None,
     covered_entity_address: str | None = None,
+    intent_rationale: str | None = None,
+    agent_thought: str | None = None,
 ) -> dict:
     """
     Builds a fully-formed, correctly-signed BCC Commitment dict ready to
@@ -58,6 +60,7 @@ def sign_commitment(
         intended_state_hash = "0x" + hashlib.sha256(f"{intent_type}:{nonce}".encode()).hexdigest()
 
     public_bytes = private_key.public_key().public_bytes_raw()
+    rationale = intent_rationale or agent_thought
     fields = {
         "agent_id": agent_id,
         "intent_type": intent_type,
@@ -70,6 +73,7 @@ def sign_commitment(
         # commitments that fail signature verification.
         "covered_entity_address": covered_entity_address,
         "agent_public_key": _public_key_multibase(public_bytes),
+        "intent_rationale": rationale,
     }
     message = json.dumps(fields, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     signature = private_key.sign(message)

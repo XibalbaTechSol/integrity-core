@@ -122,12 +122,12 @@ def push_score(settings: Settings, reputation_registry_address: str, agent_addre
     Signs and submits `updateScore(agent, baseScore)` against one agent's
     ReputationRegistry clone.
 
-    `base_score` MUST be the PRE-boost weighted sum (see
+    `base_score` MUST be the PRE-boost oracle-authoritative AIS (see
     ReputationRegistry.sol's own NatSpec: "oracle pushes baseScore... this
     contract independently earns the right to apply the 1.15x multiplier").
-    Callers must not pass the oracle's already-ZK-boosted `ais` field here
-    -- see app/scoring_loop.py's `_base_score_from_ais_response` for how the
-    real caller derives it.
+    Callers must not pass the oracle's already-ZK-boosted `ais` field here;
+    `app/scoring_loop.py::_base_score_from_ais_response` divides out only the
+    reported boost and never reimplements the geometric formula or tier cap.
     """
     signer_key = _signer_key(settings)
     if not signer_key:

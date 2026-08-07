@@ -34,6 +34,14 @@ pub fn router(state: AppState) -> Router {
         // identifier is controlled.
         .route("/v1/agent/{id}/verify/tee/challenge", post(handlers::request_tee_challenge))
         .route("/v1/agent/{id}/verify/tee", post(handlers::verify_tee))
+        // Provider-neutral KYC: the provider may be a self-hosted open-source stack,
+        // but its receipt must chain to an operator-configured Ed25519 trust root.
+        .route("/v1/agent/{id}/verify/kyc/challenge", post(handlers::request_kyc_challenge))
+        .route("/v1/agent/{id}/verify/kyc", post(handlers::verify_kyc_receipt))
+        // Any earned rung can be withdrawn immediately by the agent whose
+        // registered Ed25519 key signs a fresh server-issued challenge.
+        .route("/v1/agent/{id}/verify/{verification_id}/revoke/challenge", post(handlers::request_verification_revocation_challenge))
+        .route("/v1/agent/{id}/verify/{verification_id}/revoke", post(handlers::revoke_verification))
         .route("/v1/agent/{id}/ais/history", get(handlers::get_ais_history))
         .route("/v1/agent/{id}/compliance", get(handlers::get_compliance))
         .route("/v1/agent/{id}/wallet", get(handlers::get_wallet))

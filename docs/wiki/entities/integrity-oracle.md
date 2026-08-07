@@ -1,7 +1,7 @@
 ---
 title: integrity-oracle
 created: 2026-07-07
-updated: 2026-07-30
+updated: 2026-08-04
 type: entity
 tags: [infrastructure, metrics, layer-2, tokenomics]
 confidence: high
@@ -14,6 +14,9 @@ source_files:
   - integrity-oracle/backend/src/db.rs
   - integrity-oracle/backend/src/phi.rs
   - integrity-oracle/backend/src/vc.rs
+  - integrity-oracle/backend/src/verification.rs
+  - integrity-oracle/backend/src/attestation.rs
+  - integrity-oracle/backend/src/kyc.rs
   - integrity-oracle/backend/src/crypto/mod.rs
   - integrity-oracle/backend/src/openapi.rs
   - integrity-oracle/backend/migrations/0001_init.sql
@@ -27,6 +30,28 @@ independently verifies agents' on-chain state — including, as of this pass, th
 [market/application layer](../concepts/agent-primitives.md) (§6.9) — so nothing
 downstream has to trust an agent's own word. Per §6.10 of the interface contract,
 this is the **only** backend that ever reads on-chain state.
+
+## Table of contents
+
+- [Workspace](#workspace)
+- [HTTP API](#http-api)
+  - [GET /v1/agent/{id}/telemetry, GET /v1/agent/{id}/traces](#get-v1-agent-id-telemetry-get-v1-agent-id-traces)
+  - [GET /v1/markets, GET /v1/markets/{id} (§6.9)](#get-v1-markets-get-v1-markets-id-6-9)
+  - [GET /v1/leaderboard](#get-v1-leaderboard)
+  - [Contract-ownership + Integrity Health reads: GET /v1/agent/{id}/contracts, /baas](#contract-ownership-integrity-health-reads-get-v1-agent-id-contracts-baas)
+  - [Verifiable Credentials: GET /v1/agent/{id}/vc](#verifiable-credentials-get-v1-agent-id-vc)
+  - [Network benchmarks + protocol stats: GET /v1/benchmarks, /v1/stats](#network-benchmarks-protocol-stats-get-v1-benchmarks-v1-stats)
+  - [XNS resolution: GET /v1/xns/resolve?handle=, GET /v1/agent/{id}/handle](#xns-resolution-get-v1-xns-resolve-handle-get-v1-agent-id-handle)
+  - [Governance: GET /v1/governance/proposals](#governance-get-v1-governance-proposals)
+  - [GET /v1/agent/{id}/wallet](#get-v1-agent-id-wallet)
+  - [Server-side telemetry-signal re-derivation (derive.rs)](#server-side-telemetry-signal-re-derivation-derive-rs)
+  - [The OTLP/gRPC path (otlp.rs) — separate from telemetryevents, unauthenticated](#the-otlp-grpc-path-otlp-rs-separate-from-telemetryevents-unauthenticated)
+  - [PHI backstop on POST /v1/telemetry/ingest](#phi-backstop-on-post-v1-telemetry-ingest)
+  - [Judge evaluations (storage only — no judge implementation)](#judge-evaluations-storage-only-no-judge-implementation)
+- [On-chain client (chain.rs)](#on-chain-client-chain-rs)
+- [Anchoring](#anchoring)
+- [Canonical JSON signing — real cross-language bug fixed 2026-07-11](#canonical-json-signing-real-cross-language-bug-fixed-2026-07-11)
+- [State](#state)
 
 ## Workspace
 
@@ -54,6 +79,17 @@ GET  /v1/agent/{id}/contracts
 GET  /v1/agent/{id}/baas
 GET  /v1/agent/{id}/vc
 GET  /v1/agent/{id}/handle
+POST /v1/agent/{id}/verify/dns/challenge
+POST /v1/agent/{id}/verify/dns
+POST /v1/agent/{id}/verify/github/challenge
+POST /v1/agent/{id}/verify/github
+POST /v1/agent/{id}/verify/tee/challenge
+POST /v1/agent/{id}/verify/tee
+POST /v1/agent/{id}/verify/kyc/challenge
+POST /v1/agent/{id}/verify/kyc
+GET  /v1/agent/{id}/verify
+POST /v1/agent/{id}/verify/{verification_id}/revoke/challenge
+POST /v1/agent/{id}/verify/{verification_id}/revoke
 GET  /v1/traces/{trace_id}
 POST /v1/telemetry/ingest
 GET  /v1/markets

@@ -16,6 +16,11 @@ section names this explicitly: proving an agent's output came from a
 a dedicated Noir inference circuit plus a `ZKModelRegistry.sol` contract.
 Neither exists in this repo.
 
+## Table of contents
+
+- [Not the same thing as today's ZK layer](#not-the-same-thing-as-today-s-zk-layer)
+- [Why it's out of scope for now](#why-it-s-out-of-scope-for-now)
+
 ## Not the same thing as today's ZK layer
 
 Easy to conflate with the real, built [ZKP pipeline](zkp.md) — they prove

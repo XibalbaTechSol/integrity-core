@@ -1,5 +1,7 @@
 # Production Architecture Gap Analysis & Codebase Audit
 
+> **Current audit pointer — 2026-08-06:** The cross-repository status page is [`docs/audits/2026-08-06-cross-repository-status.md`](docs/audits/2026-08-06-cross-repository-status.md). It records the clean default-branch commit, reproducible package test results, open SDK failures, deployment-verification scope, and the automatic-merge workflow contradiction. This document remains the detailed gap register; historical entries below are not silently rewritten.
+
 Following a deep audit of the `INTEGRITY-LATEST` codebase, the following outlines the specific, technical gaps required to connect the `integrity-dashboard` UI to the backend production systems.
 
 ## 1. Oracle (`integrity-oracle/backend`)
@@ -91,9 +93,9 @@ again) — both fixed at the `derive.rs` call site, no `scoring-core` changes ne
   introduced here.
 * **Oracle-to-chain score push — CLOSED.** `bcc_middleware/app/reputation.py` +
   `app/scoring_loop.py` now periodically (`SCORE_SYNC_INTERVAL_SECONDS`, default 300s)
-  list every agent the oracle knows about, recompute each one's pre-boost weighted AIS
-  from `GET /v1/agent/{id}/ais`'s `components`/`weights` (deliberately not
-  `ais / zk_boost`, to avoid float round-trip error), and sign+submit a real
+  list every agent the oracle knows about, accept each one's geometric, tier-capped
+  `ais` from `GET /v1/agent/{id}/ais` as authoritative, remove only the response's
+  reported ZK multiplier, and sign+submit a real
   `ReputationRegistry.updateScore(agent, baseScore)` transaction per agent. Also raises
   a real `Slasher.raiseDispute` when an agent's oracle-computed flagged-telemetry ratio
   (`GET /v1/agent/{id}/telemetry/volume`) crosses `DISPUTE_FLAGGED_RATIO_THRESHOLD`
@@ -990,7 +992,7 @@ Full regression after all of the above: frontend `npm run build`/`npm run lint` 
 * **CLOSED — SDK anchors genesis at registration (§6 ordering).** `chain.anchor_genesis_root()` routes `anchorRoot` through `SovereignAgent.execute`; `registration.register_agent` calls it as step 8b, before `registerPrimitives`. **No Solidity change was required for §7.2's "genesis MUST be agent-authorized"** — `StateAnchor`'s admin *is* the `SovereignAgent` contract, which the constructor also grants `ANCHOR_ROLE`.
 * **CLOSED — decision recorded (2026-08-02): the 7 legacy agents' non-compliance is accepted, not a pending migration.** Previously stated as "each needs one controller-signed `anchorRoot` tx" as if that were merely un-run housekeeping. It is not: `xibalba.integrity`'s own genesis anchoring (§7.2, closed above) already proves the *mechanism* works — every agent registered from this point forward is spec-conformant by construction. Retroactively anchoring the 7 pre-existing agents would require either (a) their controllers running the tx individually, which is outside this protocol's control and cannot be forced, or (b) the protocol doing it on their behalf, which would mean anchoring a genesis root the agent's own controller never signed — precisely the "protocol may never author a genesis root" invariant §7.2 exists to enforce. There is no compliant path to close this retroactively; a `latestRoot == 0` legacy agent is a permanent, structural fact about agents registered before this gate existed, not a to-do. Decision: document it as such (this entry) rather than carry it as an open action item nobody can complete. **Superseded, not solved, by termination/re-registration** (§7.6 rules termination explicitly out of scope for the same registry-mutability reason — see the coherence derivation in `docs/design/primitive-set-coherence.md`), which is the only mechanism that could ever let a legacy agent re-establish itself as a fresh, spec-conformant registration.
 * **OPEN — §7.2 enforcement (Appendix A gap 2) is genuinely unbuildable for existing agents.** Gating `anchorRoot` to `latestEpoch >= 1` would stop the protocol's `ANCHOR_ROLE` signer from anchoring epoch 1, but `StateAnchor` is deployed **per agent, not cloned** — every already-deployed anchor keeps its current bytecode forever, so a contract change reaches only future agents. Any such gate must also leave `DEFAULT_ADMIN_ROLE` able to perform genesis at any epoch-0 moment, or an agent on new bytecode that skipped genesis could never recover. Deferred until that migration question is answered, not silently skipped.
-* **OPEN — Appendix A gaps 3–8, untouched:** uniform minimum stake at registration; tighter ZK-boost binding (per-event / public inputs) — today it is a period-wide `BOOL_OR`; identity-ceiling clamp in scoring (`AIS_final = min(AIS, Tier_ceiling)`); lineage attestation + on-chain record (§7.4); optional ERC-8004 discovery adapter; silence-as-signal for the observability obligation.
+* **OPEN — Appendix A gaps 3–8, status reconciled:** uniform minimum stake at registration; tighter ZK-boost binding (per-event / public inputs) — today it is a period-wide `BOOL_OR`; lineage attestation + on-chain record (§7.4); optional ERC-8004 discovery adapter; silence-as-signal for the observability obligation. The identity-ceiling clamp formerly listed here is now **CLOSED** (`AIS_final = min(AIS, Tier_ceiling)` in `score_with_tier`).
 * **Spec drift, confirmed:** §16's package map lists `integrity-mvp/`, which was **replaced by** `integrity-dashboard/`. The package was deleted on disk during that consolidation but the deletion sat uncommitted until 2026-07-29 (944 files), which is why the tree appeared to contain both. The spec should say `integrity-dashboard/`.
 
 ## 20. ITK testnet liquidity moved to the agent; Finance wallet + Cognition traces fixed (2026-07-29)
@@ -1094,6 +1096,10 @@ Found immediately after §21 fixed AIS reporting. While the score was pinned at 
   * **Live end-to-end validation against the running oracle**, with all state restored afterwards: tier 2 → ceiling 850, AIS 672.6 uncapped; revoke → tier 1, ceiling 600, AIS clipped to 600.0; grant tier 3 → ceiling 1000, uncapped again; expire → excluded from the tier query, back to the floor automatically. One result worth recording because it contradicted the expectation written into the test label: a *tier-0* verification did **not** drop the ceiling to 300 — the registration floor held at tier 1, which is correct (a weak proof must never pull an agent below its floor) and matches `effective_tier(2, &[0]) == 2`.
 
 * **OPEN — KYC (the other rung-3 method) remains schema-only, deliberately.** `identity_verifications.method` accepts `'kyc'` and the tier math handles it, but **no provider adapter is implemented** and none is faked. Building one requires a real provider account (Persona/Stripe Identity/Sumsub); a stubbed "verified" would be exactly the silent mock this repo exists not to repeat. The schema comment pins the constraint that matters when it is built: **no raw PII in this database** — store the provider name, an opaque reference, and a receipt hash only. The oracle is already HIPAA-adjacent (see the PHI backstop in 0010) and must not acquire a second class of regulated data by accident.
+
+* **CLOSED (2026-08-04) — evidence revocation lifecycle.** An agent can request a fresh 60-minute nonce for one owned evidence row, sign a message binding its DID, the row ID, nonce, and hex-encoded UTF-8 reason with its registered Ed25519 key, then revoke the row without deleting its audit history. Effective-tier queries already filter `revoked_at`, so the tier and AIS ceiling fall immediately. Signatures cannot be replayed across agents, evidence rows, nonces, or reasons.
+
+* **CLOSED (2026-08-04) — provider-neutral KYC receipt verification supersedes the schema-only gap above.** `backend/src/kyc.rs` verifies nonce-bound Ed25519 receipts against operator-configured `KYC_PROVIDER_KEYS`. The initial `open_source_kyc_v1` profile requires document authenticity, biometric liveness, and sanctions/PEP screening together; a partial result cannot grant Tier 3. The Oracle persists only an opaque subject reference, provider id, check flags, validity timestamps, and receipt hash. This permits a self-hosted open-source verifier without pretending its result has identical legal effect in every jurisdiction.
 
 * **CLOSED — decision recorded (2026-08-02): keep the hard clamp.** The alternative (scale weight, or cap only the ZK boost rather than the final score) was considered and rejected. Reasoning: `score_with_tier` exists to answer "how much can this AIS number be trusted," and a soft clamp lets an agent with a *weak, unverified* identity claim scores statistically indistinguishable from a verified one — the ceiling's entire job is to prevent exactly that, and softening it reopens the sybil/self-attestation problem the Verification Ladder was built to close. The "ZK boost worth zero below tier 3" consequence is real but is priced into the ladder's own design: `verification::ladder_tests` (`integrity-oracle/backend`) already asserts this as a deliberate, pinned property — "the ZK boost is provably wasted below tier 3 for a strong agent" — not a bug discovered after the fact. Changing the clamp now would mean rewriting eight tests that were written specifically to encode this behavior as correct, and would move every sub-tier-3 agent's live on-chain score on the next `scoring_loop.py` sync cycle — a production change this scope doesn't carry the regression coverage to make safely. The honest fix for "good behavior should be rewarded before tier 3" is **lowering the bar to reach tier 2/3** (more verification methods, e.g. finishing the schema-only KYC rung, see the OPEN item above), not softening what the ceiling means once tiers exist. No code change; the prior "open design question" framing is resolved to "current design is correct, kept as-is."
 
@@ -1243,3 +1249,57 @@ entry records what survived verification and what did not. Full detail:
   session's changes — `package.json`/`package-lock.json` are unmodified. Worth noting that the
   freshness check (§22) is doing exactly its job here: it converted an invisible 13-day drift
   into a visible, actionable failure.
+
+## 25. `integrity_sdk/mcp_server.py` exposed signing/on-chain-write tools with zero coverage from the one gate anyone trusted (2026-08-05)
+
+Found while reviewing a *proposed, not-yet-built* idea in a different project
+(`xibalba-graph-memory`) — an MCP server that would wrap the SDK's signing capabilities as
+agent-callable tools. A Devil's Advocate review commissioned to evaluate that proposal checked
+whether anything like it already existed before assessing the hypothetical, and found this
+module already shipped exactly the gap the review was there to prevent. Full narrative:
+`xibalba-graph-memory/docs/session-log/2026-08-05-integrity-coupling-session.md`. Design and
+fix: `docs/design/mcp-signing-boundary.md`.
+
+* **The measured problem — `integrity_register_agent` was a live, callable MCP tool that loaded
+  a real Ed25519 identity key and could run a full on-chain registration**, triggered by
+  whatever an LLM's own tool-selection reasoning decided, with no confirmation step and no
+  policy gate in the path. Three more tools in the same file — `integrity_flush_telemetry`,
+  `integrity_invoke_intent`, `integrity_commit_memory` — sign or write with the same lack of
+  gating.
+* **`~/.claude/xibalba/pretool_gate.py`'s `RISKY_TOOLS` set had zero MCP-tool-name coverage.**
+  It matches five fixed strings (`Bash`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`); any
+  `mcp__<server>__<tool>` call was never even evaluated, let alone gated. Confirmed by direct
+  inspection, not inferred — `RISKY_TOOLS` contains no `mcp__` pattern at all.
+  * Compounding factor: `pretool_gate.py`'s existing coverage is deliberately **fail-open** —
+    a considered, ratified tradeoff for the Bash/Write/Edit developer-shell class (documented at
+    length in its own module docstring), never intended to extend to a real signature.
+* **Verified independently before any fix, not taken on the review's word:** confirmed
+  `integrity_register_agent`'s handler directly (loads a PEM from
+  `~/.integrity-cli/identity/<agent>/`, calls `registration.register_agent`), confirmed
+  `pretool_gate.py`'s `RISKY_TOOLS` line and its fail-open comment directly, confirmed
+  `bcc_middleware/app/opa_client.py`'s fail-closed posture directly, confirmed MCP's
+  elicitation primitive is *not* a guaranteed human-in-the-loop block by reading its own
+  docstring ("might... automatically generat[e] a response"). Also confirmed the server was
+  **not currently wired into any running MCP client config on this machine** — a real,
+  reachable gap, not an active incident.
+* **CLOSED — fixed at two layers, not one.**
+  * `integrity_sdk/mcp_server.py`: the four signing/writing tools are disabled by default at
+    both discovery (`_on_list_tools` filters them out) and dispatch (`_on_call_tool` refuses to
+    execute them even if called directly) — defense in depth, not one control. Gated behind
+    `INTEGRITY_MCP_ALLOW_SIGNING_TOOLS=1` for supervised local experimentation only. Read-only
+    tools (`integrity_agent_info`, `integrity_resolve_did`) and the local-queue-only
+    `integrity_log_telemetry` remain enabled — they were never the problem.
+  * `pretool_gate.py`: added `MCP_SIGNING_TOOL_NAMES` (mirrors `mcp_server.py`'s
+    `_SIGNING_TOOLS`), matched by tool-name suffix so a renamed server alias doesn't evade it,
+    with a new `fail_closed` parameter on `evaluate_tool_intent()` — this new coverage denies on
+    every pre-verdict failure path instead of allowing, while the existing Bash/Write/Edit
+    class's fail-open behavior is completely untouched.
+  * New tests: `integrity-sdk/tests/test_mcp_server_signing_boundary.py` (7 tests — tools
+    undiscoverable and unexecutable by default, env-var opt-in works, safe tools still
+    advertised) and `~/.claude/xibalba/tests/test_pretool_gate.py` (4 tests — suffix matching,
+    fail-closed denial on identity-unavailable and middleware-unreachable). Full SDK suite (252
+    tests) and hooks suite (8 tests) both still pass — no regressions from either fix.
+  * **Explicitly not fixed by adding a confirmation dialog.** MCP elicitation was considered and
+    rejected as the mechanism — it's a structured-input request either side of the session can
+    answer, not a safety property. The actual fix removes the capability from the tool surface
+    entirely; a human runs `integrity-cli` directly for anything that signs.

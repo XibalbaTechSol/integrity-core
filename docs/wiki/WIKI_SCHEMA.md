@@ -6,8 +6,18 @@ agent identity/reputation, zero-knowledge attestation, behavioral policy
 gating, off-chain scoring, and the SDK/CLI/dashboard/demo that use them.
 
 ## Conventions
+- **Canonical source**: `INTEGRITY-LATEST/docs/wiki/` on the main branch is the
+  only authoring source of truth. The Integrity MVP `/wiki` route and the
+  repository's GitHub Wiki are generated, read-only projections of these files.
+  Do not author or reconcile content in a downstream mirror; the next sync may
+  overwrite it.
+- **Table of contents**: every canonical article contains a generated
+  `## Table of contents` block covering its level-two and level-three headings.
+  Run `python3 scripts/wiki_toc.py` after heading changes and
+  `python3 scripts/wiki_toc.py --check` in validation. Do not hand-edit the
+  generated block.
 - **Filenames**: lowercase, hyphenated, `.md` (e.g. `behavioral-commitment-chain.md`).
-- **Solidity contracts**: exact contract name + `.sol.md` (e.g. `SovereignAgent.sol.md`).
+- **Solidity contracts**: document the contract suite in `entities/contracts.md` by default. Create a dedicated `entities/<Contract>.sol.md` page only when a contract needs deep standalone API documentation that would make the aggregate page hard to navigate.
 - **Wikilinks**: use `[Title](relative/path.md)` to interlink entities/concepts/acronyms. Minimum 2 outbound links per page.
 - **Frontmatter**: required on every page (template below).
 - **Index sync**: every new page is added to `WIKI_INDEX.md` in the same pass it's created.
@@ -49,10 +59,22 @@ source_files:
 - `infrastructure` — oracle, middleware, deploy, CI
 
 ## Directory structure
-- `entities/` — packages, services, contracts (one page per real thing)
+- `entities/` — packages, services, and contract suites (aggregate pages are preferred when they keep one canonical owner for related contract facts)
 - `concepts/` — protocols, algorithms, cryptographic conventions shared across packages
 - `architecture/` — cross-cutting data-flow / sequence docs
 - `queries/` — open research questions, investigation notes (not conclusions)
+
+## Publication flow
+
+```text
+INTEGRITY-LATEST/docs/wiki
+        ├── scripts/sync_wiki.py ──> GitHub Wiki
+        └── integrity-mvp/scripts/sync-wiki.mjs ──> Integrity MVP /wiki
+```
+
+The GitHub Wiki mirror is flattened to satisfy GitHub Wiki routing, while the
+MVP stores a generated JSON snapshot for fast rendering. Those packaging
+differences do not create independent content ownership.
 
 ## Source binding rule
 Every entity page's `source_files` must list real files that exist right

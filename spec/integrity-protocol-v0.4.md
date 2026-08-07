@@ -7,6 +7,8 @@ Normative intent for the protocol, with an implementation map. Package coordinat
 [`docs/INTERFACE_CONTRACT.md`](../docs/INTERFACE_CONTRACT.md); external wire surfaces under
 [`spec/`](.).
 
+> **Audit status — 2026-08-06:** The implementation map is being reconciled against a clean default-branch audit in [`docs/audits/2026-08-06-cross-repository-status.md`](../docs/audits/2026-08-06-cross-repository-status.md). Test evidence currently supports a strong testnet prototype, not production readiness. Package claims marked `implemented`, `deployed`, `verified`, `[PARTIAL]`, or `[PLANNED]` remain scoped to the evidence cited in this document and the detailed gap register.
+
 > **Ground rule:** No silent mocks. Every claim is implemented and tested against a real
 > toolchain, or explicitly marked `[PLANNED]` / `[PARTIAL]`.
 
@@ -42,6 +44,7 @@ Normative intent for the protocol, with an implementation map. Package coordinat
 20. Document Relationship and Revision Policy
 21. Financial Action & Payment-Protocol Interop *(added 2026-08-01)*
 22. Session Integrity, Drift & Autonomous Termination *(added 2026-08-01)*
+23. Conformance Profiles And Claim Discipline *(added 2026-08-06)*
     - Appendix A — Priority Implementation Gaps
     - Appendix B — One-Sentence Summary
 
@@ -395,13 +398,17 @@ until silence-as-signal exists.
 ### 8.1 Formula
 
 ```
-AIS = (S_entropy·wE + S_grounding·wG + S_sacrifice·wS + S_compliance·wC) · ZK_boost
+AIS_raw = (S_entropy^wE · S_grounding^wG · S_sacrifice^wS · S_compliance^wC) · ZK_boost
+AIS_final = min(AIS_raw, Tier_ceiling)
 ```
 
 Default weights 0.30 / 0.30 / 0.20 / 0.20 (sum 1.0). `ZK_boost` = 1.15 if any verified
-Barretenberg proof exists in the period, else 1.0. Each `S_*` ∈ [0, 1000]. Final AIS is **not**
-clamped (boost may exceed 1000). Sole computer: `integrity-oracle/scoring-core`. All consumers
-read `GET /v1/agent/{id}/ais`.
+Barretenberg proof exists in the period, else 1.0. Each `S_*` ∈ [0, 1000]. This is a
+weighted **geometric** mean: any zero component makes `AIS_raw` zero, so strength on one
+axis cannot hide total failure on another. The effective identity tier caps the final score
+at 300 / 600 / 850 for Tiers 0 / 1 / 2; Tier 3 returns the raw score, which may exceed 1000
+after a ZK boost. Sole computer: `integrity-oracle/scoring-core`. All consumers read
+`GET /v1/agent/{id}/ais`; they do not reconstruct the formula from component fields.
 
 ### 8.2 Component intuition
 
@@ -417,8 +424,9 @@ read `GET /v1/agent/{id}/ais`.
 
 Signature proves **who**. The oracle **re-derives** entropy/grounding/sacrifice from signed
 span content; compliance mixes flags with a live `ComplianceGate` read. Client
-`derived_signals` are audit trail only. Identity ceiling `[PLANNED]`:
-`AIS_final = min(AIS, Tier_ceiling)`.
+`derived_signals` are audit trail only. The identity ceiling is built and enforced by
+`scoring-core::AisEngine::score_with_tier`; the backend resolves the agent's effective
+verification tier before computing `AIS_final`.
 
 ### 8.4 Token accounting
 
@@ -560,12 +568,19 @@ generalization does not.
 
 | Tier | Verification | AIS ceiling | Status |
 |---|---|---|---|
-| 1 — Sovereign | Software key | 600 | Default; ceiling **not enforced** |
-| 2 — Linked | DNS / social | 850 | Not built |
-| 3 — Institutional | TEE + audit | 1000 | Verifier exists; unwired |
+| 1 — Sovereign | Software key + on-chain primitive match | 600 | Registration floor; enforced |
+| 2 — Linked | DNS TXT or GitHub namespace proof | 850 | Built; expiring evidence |
+| 3 — Institutional | AWS Nitro remote attestation | No post-boost cap | Built; expiring evidence |
+| 3 — Institutional KYC | Provider-signed document + liveness + sanctions/PEP receipt | No post-boost cap | Built; expiring, provider-neutral evidence |
 
-A higher tier raises the ceiling; it does not replace primitives. Until the clamp is
-implemented (Appendix A.5), the ladder is descriptive and MUST NOT be presented as binding.
+A higher tier raises the ceiling; it does not replace primitives. Effective tier is
+derived from the registration floor plus active, unexpired, unrevoked evidence on every
+read. Agents MAY revoke evidence using a fresh Oracle nonce and a signature from their
+registered Ed25519 key; the evidence row remains as an audit record and the tier drops
+immediately. A KYC receipt grants Tier 3 only when it is nonce-bound, signed by an
+operator-configured Ed25519 provider key, uses the `open_source_kyc_v1` assurance profile,
+and affirms document authenticity, biometric liveness, and sanctions/PEP screening. The
+Oracle stores only opaque receipt evidence and MUST NOT receive or persist raw PII.
 
 ---
 
@@ -759,6 +774,13 @@ publication, under this section's own revision policy below: both are additive �
 is removed, weakened, or reinterpreted, and everything added is `[PLANNED]` — so they land as
 in-place amendments to v0.4 rather than a version bump. §14 was expanded (§14.1, §14.2) to
 record the Xibalba Shield repo-split decision; no other existing section changed.
+
+**Normative correction (2026-08-04).** §8.1's initial in-repo transcription retained
+the superseded arithmetic AIS expression even though `integrity-oracle/scoring-core`,
+`docs/INTERFACE_CONTRACT.md` §4.3, and the compiled AIS wiki had already moved to the
+weighted geometric volume model. §8.1 now names the executable geometric form and the
+built Verification Ladder ceiling. This is a coherence correction: it makes the spec
+describe the already-authoritative implementation and does not introduce a new scoring model.
 
 ---
 
@@ -1047,6 +1069,63 @@ vocabulary and invariants, not a build order.
 
 ---
 
+## 23. Conformance Profiles And Claim Discipline *(added 2026-08-06)*
+
+This section defines how implementations make claims against this specification. It does not add a new primitive. It prevents a recurring failure mode: a README, dashboard, or product page describing a planned property as if the implementation already enforces it.
+
+### 23.1 Conformance profiles
+
+| Profile | Minimum claim | Required evidence |
+|---|---|---|
+| Design-only | The behavior is specified but no implementation exists. | Spec section plus explicit `[PLANNED]` label. |
+| Local implementation | The behavior works without external services. | Unit/integration tests against real local code paths. |
+| Wire implementation | The behavior is exposed through a public API or SDK surface. | Generated schema/openapi artifact plus test proving serialization shape. |
+| Live-stack implementation | The behavior reaches a running service stack. | Test or run log against real services, not mocks. |
+| Chain-anchored implementation | The behavior is reflected in finalized or testnet chain state. | Transaction/address/proof reference and readback check. |
+| Operational implementation | The behavior has runbook, alerting, rollback, and owner. | Docs plus validation command or incident drill evidence. |
+
+An implementation may claim only the highest profile it can prove. A higher-level artifact may summarize lower-level evidence, but it must not erase the lower profile boundary.
+
+### 23.2 Status vocabulary
+
+Use these words consistently across READMEs, wiki pages, dashboards, and product specs:
+
+- `VERIFIED`: exercised against the real dependency named in the claim.
+- `PARTIAL`: meaningful implementation exists, but one or more required behaviors are missing or unverified.
+- `PLANNED`: no implementation exists yet.
+- `BLOCKED`: implementation or verification is waiting on a specific external condition.
+- `DEPRECATED`: still present but no longer the recommended surface.
+- `REMOVED`: no longer present; consumers need a migration note.
+
+`PARTIAL`, `PLANNED`, and `BLOCKED` entries must include the reason. A status table that says only “in progress” is not precise enough for this protocol.
+
+### 23.3 Source-of-truth precedence
+
+When documents disagree, use this order:
+
+1. Deployed chain state for on-chain facts.
+2. Source code and generated wire schemas for implemented API behavior.
+3. docs/INTERFACE_CONTRACT.md for internal package coordination.
+4. spec/ for normative protocol and protocol-facing companion specs.
+5. Repository README files for implementation status and operational commands.
+6. docs/wiki/ for reader-facing memory and navigation.
+
+External repositories own their own implementation status. `xibalba-shield` owns Shield endpoint behavior through its README and SPECIFICATION.md; `integrity-mvp` owns presentation behavior. INTEGRITY-LATEST owns protocol primitives and public protocol surfaces.
+
+### 23.4 No silent capability transfer
+
+A capability built in one layer does not automatically exist in another. Examples:
+
+- Shield can emit security evidence, but AIS changes exist only when Integrity Oracle consumes that evidence.
+- A local JSONL log proves local observation only; it becomes cryptographic evidence only after accepted and anchored through the Integrity pipeline.
+- A dashboard panel can display a concept before the backend enforces it; the panel must label the backend status honestly.
+- A generated schema proves wire shape, not business correctness.
+
+### 23.5 Revision requirements
+
+Any future spec expansion must state whether it changes a primitive, a wire surface, an implementation plan, or only terminology. Breaking wire changes require a versioned surface. Breaking primitive changes require a major spec revision and migration plan. Additive terminology or conformance clarifications may remain within v0.4.
+
+---
 ## Appendix A — Priority implementation gaps
 
 Ordered by consequence. Cross-referenced with

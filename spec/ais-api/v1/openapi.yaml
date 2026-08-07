@@ -113,6 +113,27 @@ paths:
           description: Unsupported bucket value
         '404':
           description: Agent not found
+  /v1/agent/{id}/baas:
+    get:
+      tags:
+      - health
+      operationId: get_agent_baas
+      parameters:
+      - name: id
+        in: path
+        description: Agent DID
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: SmartBAA agreements where this agent is the business associate
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BaaDto'
   /v1/agent/{id}/compliance:
     get:
       tags:
@@ -138,6 +159,114 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ComplianceResponse'
+  /v1/agent/{id}/contracts:
+    get:
+      tags:
+      - markets
+      operationId: get_agent_contracts
+      parameters:
+      - name: id
+        in: path
+        description: Agent DID
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: IntegrityMarket contracts this agent deployed and owns
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MarketSummaryDto'
+  /v1/agent/{id}/credit:
+    get:
+      tags:
+      - agent
+      operationId: get_credit
+      parameters:
+      - name: id
+        in: path
+        description: Agent DID
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: The agent's aggregated A2ACapitalPool position
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditDto'
+  /v1/agent/{id}/events:
+    get:
+      tags:
+      - telemetry
+      operationId: get_agent_events
+      parameters:
+      - name: id
+        in: path
+        description: Agent DID
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Recent structured events from vendor OTLP logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AgentEventDto'
+  /v1/agent/{id}/handle:
+    get:
+      tags:
+      - identity
+      operationId: get_agent_handle
+      parameters:
+      - name: id
+        in: path
+        description: Agent DID
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Primary XNS handle for the agent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentHandleDto'
+  /v1/agent/{id}/otel/traces:
+    get:
+      tags:
+      - telemetry
+      operationId: get_recent_traces
+      parameters:
+      - name: id
+        in: path
+        description: Agent DID
+        required: true
+        schema:
+          type: string
+      - name: limit
+        in: query
+        description: Max traces to return (default 20)
+        required: false
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: Recent trace_ids for this agent (one row per root span, most recent first) — the list-discovery endpoint `GET /v1/traces/{trace_id}` itself never provided.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RecentTraceDto'
   /v1/agent/{id}/otel/volume:
     get:
       tags:
@@ -171,6 +300,46 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/OtelVolumeBucket'
+  /v1/agent/{id}/provenance:
+    get:
+      tags:
+      - audit
+      operationId: get_provenance
+      parameters:
+      - name: id
+        in: path
+        description: Agent DID
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: The agent's on-chain-anchored provenance chain
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProvenanceEntryDto'
+  /v1/agent/{id}/stake:
+    get:
+      tags:
+      - agent
+      operationId: get_stake
+      parameters:
+      - name: id
+        in: path
+        description: Agent DID
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: The agent's on-chain stake accounting
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StakeDto'
   /v1/agent/{id}/telemetry:
     get:
       tags:
@@ -254,6 +423,76 @@ paths:
                   $ref: '#/components/schemas/AgentJudgeEvaluationDto'
         '404':
           description: Agent not found
+  /v1/agent/{id}/usage:
+    get:
+      tags:
+      - telemetry
+      operationId: get_agent_usage
+      parameters:
+      - name: id
+        in: path
+        description: Agent DID
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Token/cost rollup from vendor OTLP metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentUsageDto'
+  /v1/agent/{id}/verify/kyc:
+    post:
+      tags:
+      - verification
+      summary: |-
+        Verify and persist a minimal KYC receipt. No raw identity attributes enter this
+        handler: the provider-local opaque reference is the only subject identifier stored.
+      operationId: verify_kyc_receipt
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KycReceipt'
+        required: true
+      responses:
+        '200':
+          description: Trusted KYC receipt verified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerificationResponse'
+        '400':
+          description: Receipt rejected
+        '404':
+          description: Agent not found
+  /v1/agent/{id}/verify/kyc/challenge:
+    post:
+      tags:
+      - verification
+      summary: |-
+        Issue a nonce for a trusted KYC verifier. The verifier may be a self-hosted
+        open-source deployment; authority comes from its operator-configured signing key,
+        not from a client claiming that checks ran.
+      operationId: request_kyc_challenge
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KycChallengeRequest'
+        required: true
+      responses:
+        '200':
+          description: KYC receipt challenge issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KycChallengeResponse'
+        '400':
+          description: Provider is not trusted
+        '404':
+          description: Agent not found
   /v1/agent/{id}/wallet:
     get:
       tags:
@@ -289,6 +528,115 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/AgentSummary'
+  /v1/audit-log:
+    get:
+      tags:
+      - audit
+      summary: |-
+        Merges three real event streams into one time-ordered feed -- the genuine
+        "everything logged" table a manual-debugging view needs, not just policy
+        decisions: `audit_log` (BCC intercept decisions -- the only source with an
+        explicit allow/deny verdict), `telemetry_events` (SDK-submitted telemetry,
+        surfaced as "flagged"/"recorded" so a compliance operator sees
+        signature-verified-but-suspicious submissions alongside policy denials),
+        and `otel_spans` (every real span, flat, `decision` repurposed as the
+        span's own real status_code). Merged in Rust rather than a single SQL
+        UNION because the three source tables don't share a column shape and
+        coercing them into one query would obscure more than it saves — see each
+        table's own migration for why they're separate to begin with. The
+        telemetry_events and otel_spans sides only mix in when `agent_id` is
+        given: neither table has an existing "recent across all agents" query
+        (both underlying db:: functions are always agent-scoped), so the global
+        feed (no agent_id) is audit_log only rather than paying for a new
+        unscoped scan just for this one aggregate view.
+      operationId: get_audit_log
+      parameters:
+      - name: agent_id
+        in: query
+        description: Filter to one agent's DID; omit for the global feed
+        required: false
+        schema:
+          type: string
+      - name: limit
+        in: query
+        description: Max entries per source table before merging (default 100)
+        required: false
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: Real, time-ordered log merging BCC decisions, SDK telemetry, and OTel spans
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditLogEntryDto'
+  /v1/audit/anchor:
+    post:
+      tags:
+      - audit
+      operationId: ingest_anchor_events
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnchorEventIngestRequest'
+        required: true
+      responses:
+        '200':
+          description: Anchor events recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnchorEventIngestResponse'
+  /v1/audit/ingest:
+    post:
+      tags:
+      - audit
+      operationId: ingest_audit_log
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuditLogIngestRequest'
+        required: true
+      responses:
+        '200':
+          description: Audit event recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditLogIngestResponse'
+  /v1/benchmarks:
+    get:
+      tags:
+      - ais
+      operationId: get_benchmarks
+      responses:
+        '200':
+          description: Model/provider stability benchmarks (network-wide telemetry aggregate)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BenchmarkDto'
+  /v1/governance/proposals:
+    get:
+      tags:
+      - governance
+      operationId: get_governance_proposals
+      responses:
+        '200':
+          description: IntegrityGovernance proposals (newest first)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProposalDto'
   /v1/leaderboard:
     get:
       tags:
@@ -344,6 +692,32 @@ paths:
                 $ref: '#/components/schemas/MarketDetailDto'
         '400':
           description: Invalid address / no readable IntegrityMarket at that address
+  /v1/shield/unregistered-agents:
+    get:
+      tags:
+      - audit
+      operationId: get_unregistered_agents
+      responses:
+        '200':
+          description: DIDs with telemetry/audit evidence but no agent registration
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/UnregisteredAgentDto'
+  /v1/stats:
+    get:
+      tags:
+      - ais
+      operationId: get_stats
+      responses:
+        '200':
+          description: Protocol-wide singleton aggregates (marketplace + capital pool)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsDto'
   /v1/telemetry/ingest:
     post:
       tags:
@@ -393,8 +767,72 @@ paths:
                 $ref: '#/components/schemas/TraceTreeResponse'
         '404':
           description: No spans found for this trace_id — unauthenticated data source (see otlp.rs), so this just means nothing was ever ingested under that ID, not that access was denied
+  /v1/xns/resolve:
+    get:
+      tags:
+      - identity
+      operationId: get_xns_resolve
+      parameters:
+      - name: handle
+        in: path
+        description: Human-readable handle to resolve (without a leading @), e.g. "atlas".
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Resolve an XNS handle to its SovereignAgent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/XnsResolveDto'
 components:
   schemas:
+    AgentEventDto:
+      type: object
+      required:
+      - attributes
+      - time
+      - evidence_tier
+      properties:
+        attributes: {}
+        body:
+          type:
+          - string
+          - 'null'
+        event_name:
+          type:
+          - string
+          - 'null'
+        evidence_tier:
+          type: string
+        severity_text:
+          type:
+          - string
+          - 'null'
+        span_id:
+          type:
+          - string
+          - 'null'
+        time:
+          type: string
+          format: date-time
+        trace_id:
+          type:
+          - string
+          - 'null'
+    AgentHandleDto:
+      type: object
+      required:
+      - did
+      properties:
+        did:
+          type: string
+        handle:
+          type:
+          - string
+          - 'null'
+          description: Primary handle registered for this agent's SovereignAgent, or null if none.
     AgentJudgeEvaluationDto:
       type: object
       required:
@@ -474,13 +912,9 @@ components:
           type: integer
           format: int32
           description: |-
-            RESERVED (partially enforced) — server-verified as of this version (`register_agent`
-            computes it independently; a client can no longer self-assert a value), but only
-            Tier 1 is currently achievable (no Tier 2/3 verification path is built), and only
-            `bcc_middleware`'s policy gate consults it, and only for a subset of intent_types —
-            see `spec/bcc/v1/README.md` once that surface exists. Most integrations should
-            still treat this as informational rather than build authorization logic on top of
-            it directly.
+            Effective server-verified tier: registration floor unioned with active, unexpired,
+            unrevoked DNS/GitHub/Nitro evidence. Scoring-core uses it as the identity ceiling,
+            and BCC policy additionally requires minimum tiers for sensitive intent types.
     AgentSummary:
       type: object
       required:
@@ -491,11 +925,91 @@ components:
         created_at:
           type: string
           format: date-time
+        handle:
+          type:
+          - string
+          - 'null'
+          description: |-
+            The agent's primary XNS handle (e.g. `"xibalba.integrity"`), read live from
+            `XibalbaNameService.primaryHandle(sovereignAgent)`. This is the protocol's own
+            naming authority — self-service and on-chain (see XibalbaNameService.sol's NatSpec
+            on why there is deliberately no privileged off-chain registrar) — so consumers
+            should prefer it over `name` when displaying an agent.
+
+            `None` is a normal, expected outcome, never an error: the agent hasn't claimed a
+            handle, XNS isn't deployed on this chain, or the on-chain read failed. See
+            `list_agents` on why a chain hiccup must not take the whole fleet list down.
         id:
           type: string
+        name:
+          type:
+          - string
+          - 'null'
+          description: |-
+            Legacy secondary display name, if the agent's DID document carries an `alsoKnownAs`
+            entry. Kept as a last-resort fallback below `handle` — most agents have none, and
+            nothing in this system can write it (`register_agent` is an insert with no update
+            path), so new naming should go through XNS.
         verification_tier:
           type: integer
           format: int32
+    AgentUsageDto:
+      type: object
+      description: |-
+        Default lookback window when `since` isn't given: 7 days, distinct from
+        `compute_ais_for_agent`'s 30-day (`AIS_REPORTING_PERIOD_DAYS`) scoring window — the
+        two are read for different purposes (a chart's default view vs. the score itself)
+        and don't need to share a constant.
+        Token and cost rollup for an agent, from the OTLP metrics receiver (`otel_metrics`).
+
+        `tokens` is keyed by the emitter's token `type` attribute, so Claude Code yields
+        `input` / `output` / `cacheRead` / `cacheCreation` — the breakdown the signed telemetry
+        path cannot supply, since providers report cache and reasoning tokens only in their own
+        usage objects.
+      required:
+      - agent_id
+      - tokens
+      - total_tokens
+      - cost_usd_by_model
+      - total_cost_usd
+      - evidence_tier
+      - since
+      properties:
+        agent_id:
+          type: string
+        cost_usd_by_model:
+          type: object
+          description: model -> summed reported cost in USD.
+          additionalProperties:
+            type: number
+            format: double
+          propertyNames:
+            type: string
+        evidence_tier:
+          type: string
+          description: |-
+            Always `"unsigned_vendor"`. This data arrives over the UNAUTHENTICATED OTLP port and
+            carries no agent signature, so it is deliberately NOT an AIS input — it is reported
+            here for observability and for cross-checking what an agent signs against what its
+            runtime reports. Surfaced in the response so a consumer cannot mistake it for
+            agent-attested evidence.
+        since:
+          type: string
+          format: date-time
+        tokens:
+          type: object
+          description: token type -> summed count over the window.
+          additionalProperties:
+            type: number
+            format: double
+          propertyNames:
+            type: string
+        total_cost_usd:
+          type: number
+          format: double
+        total_tokens:
+          type: number
+          format: double
     AisComponents:
       type: object
       required:
@@ -628,6 +1142,189 @@ components:
         w_sacrifice:
           type: number
           format: double
+    AllowanceDto:
+      type: object
+      required:
+      - agent
+      - limit
+      - spent
+      - status
+      properties:
+        agent:
+          type: string
+        limit:
+          type: string
+        spent:
+          type: number
+          format: double
+        status:
+          type: string
+    AnchorEventIngestRequest:
+      type: object
+      required:
+      - agent_id
+      - leaves
+      - root
+      - tx_hash
+      properties:
+        agent_id:
+          type: string
+        leaves:
+          type: array
+          items:
+            type: string
+          description: 0x-prefixed keccak256 Merkle leaves that were committed in this anchor tx.
+        root:
+          type: string
+          description: 0x-prefixed per-agent sub-tree root anchored on-chain.
+        tx_hash:
+          type: string
+          description: On-chain StateAnchor.anchorRoot transaction hash.
+    AnchorEventIngestResponse:
+      type: object
+      required:
+      - recorded
+      properties:
+        recorded:
+          type: integer
+          format: int64
+          description: Rows inserted (leaves already recorded are skipped idempotently).
+          minimum: 0
+    AuditLogEntryDto:
+      type: object
+      required:
+      - id
+      - source
+      - event_type
+      - decision
+      - created_at
+      properties:
+        agent_id:
+          type:
+          - string
+          - 'null'
+        anchor_root:
+          type:
+          - string
+          - 'null'
+        anchor_tx_hash:
+          type:
+          - string
+          - 'null'
+        anchored_at:
+          type:
+          - string
+          - 'null'
+        created_at:
+          type: string
+        decision:
+          type: string
+        detail:
+          type:
+          - string
+          - 'null'
+        event_type:
+          type: string
+        id:
+          type: string
+        reason_code:
+          type:
+          - string
+          - 'null'
+        source:
+          type: string
+    AuditLogIngestRequest:
+      type: object
+      required:
+      - source
+      - event_type
+      - decision
+      properties:
+        agent_id:
+          type:
+          - string
+          - 'null'
+        decision:
+          type: string
+        detail:
+          type:
+          - string
+          - 'null'
+        event_type:
+          type: string
+        intent_type:
+          type:
+          - string
+          - 'null'
+        metadata: {}
+        reason_code:
+          type:
+          - string
+          - 'null'
+        source:
+          type: string
+    AuditLogIngestResponse:
+      type: object
+      required:
+      - id
+      properties:
+        id:
+          type: string
+          format: uuid
+    BaaDto:
+      type: object
+      required:
+      - address
+      - covered_entity
+      - business_associate
+      - agreement_hash
+      - required_collateral
+      - status
+      properties:
+        address:
+          type: string
+        agreement_hash:
+          type: string
+        business_associate:
+          type: string
+        covered_entity:
+          type: string
+        required_collateral:
+          type: string
+          description: Decimal string, uint256 wei of $ITK (SmartBAA.requiredCollateral).
+        status:
+          type: string
+          description: 'SmartBAA.Status: Proposed | Active | Disputed | Terminated.'
+    BenchmarkDto:
+      type: object
+      description: Network-wide model/provider stability benchmark (aggregated telemetry per model).
+      required:
+      - model_name
+      - provider_name
+      - simulated_ais
+      - stability_metric
+      - grounding_metric
+      - sample_count
+      properties:
+        grounding_metric:
+          type: number
+          format: double
+          description: Average grounding (HGI) in [0,1].
+        model_name:
+          type: string
+        provider_name:
+          type: string
+        sample_count:
+          type: integer
+          format: int64
+        simulated_ais:
+          type: integer
+          format: int64
+          description: Simulated AIS on the 0-1000 scale from this model's stability + grounding.
+        stability_metric:
+          type: number
+          format: double
+          description: Behavioral stability in [0,1] = exp(-1.5 * avg_variance^2) (mirrors the entropy score).
     ComplianceResponse:
       type: object
       required:
@@ -644,6 +1341,33 @@ components:
         is_compliant:
           type: boolean
         vertical:
+          type: string
+    CreditDto:
+      type: object
+      required:
+      - agent_id
+      - total_allocated
+      - escrowed
+      - released
+      - clawed_back
+      - breached
+      - allocation_count
+      properties:
+        agent_id:
+          type: string
+        allocation_count:
+          type: integer
+          format: int64
+          minimum: 0
+        breached:
+          type: string
+        clawed_back:
+          type: string
+        escrowed:
+          type: string
+        released:
+          type: string
+        total_allocated:
           type: string
     DerivedSignals:
       type: object
@@ -708,6 +1432,86 @@ components:
           format: double
         verdict:
           type: string
+    KycChallengeRequest:
+      type: object
+      required:
+      - provider
+      properties:
+        provider:
+          type: string
+          description: Lowercase provider id configured in `KYC_PROVIDER_KEYS`.
+    KycChallengeResponse:
+      type: object
+      required:
+      - agent_id
+      - provider
+      - nonce
+      - assurance_profile
+      - message_format
+      - expires_at
+      properties:
+        agent_id:
+          type: string
+        assurance_profile:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        message_format:
+          type: string
+        nonce:
+          type: string
+        provider:
+          type: string
+    KycChecks:
+      type: object
+      required:
+      - document_authenticity
+      - biometric_liveness
+      - sanctions_pep_screening
+      properties:
+        biometric_liveness:
+          type: boolean
+        document_authenticity:
+          type: boolean
+        sanctions_pep_screening:
+          type: boolean
+    KycReceipt:
+      type: object
+      required:
+      - provider
+      - opaque_subject_reference
+      - assurance_profile
+      - checks
+      - verified_at
+      - expires_at
+      - nonce
+      - signature
+      properties:
+        assurance_profile:
+          type: string
+        checks:
+          $ref: '#/components/schemas/KycChecks'
+        expires_at:
+          type: string
+          format: date-time
+        nonce:
+          type: string
+          description: Fresh nonce returned by the Oracle's KYC challenge endpoint.
+        opaque_subject_reference:
+          type: string
+          description: |-
+            Provider-local random reference. Must not contain a name, email, document number,
+            or other directly identifying value.
+        provider:
+          type: string
+          description: Identifier matching a key in `KYC_PROVIDER_KEYS`.
+        signature:
+          type: string
+          description: Hex Ed25519 signature over `receipt_message`.
+        verified_at:
+          type: string
+          format: date-time
     LeaderboardEntryDto:
       type: object
       required:
@@ -909,6 +1713,110 @@ components:
           type: string
         verifier_registry:
           type: string
+    ProposalDto:
+      type: object
+      required:
+      - id
+      - proposer
+      - target
+      - value
+      - start_time
+      - end_time
+      - eta
+      - for_votes
+      - against_votes
+      - state
+      - description
+      properties:
+        against_votes:
+          type: string
+          description: Decimal string, wei of ITK locked AGAINST.
+        description:
+          type: string
+        end_time:
+          type: integer
+          format: int64
+          minimum: 0
+        eta:
+          type: integer
+          format: int64
+          description: Timelock ETA (unix seconds); 0 until queued.
+          minimum: 0
+        for_votes:
+          type: string
+          description: Decimal string, wei of ITK locked FOR.
+        id:
+          type: integer
+          format: int64
+          minimum: 0
+        proposer:
+          type: string
+        start_time:
+          type: integer
+          format: int64
+          minimum: 0
+        state:
+          type: string
+          description: Active | Defeated | Succeeded | Queued | Executed | Expired | Canceled.
+        target:
+          type: string
+        value:
+          type: string
+          description: Decimal string, uint256 wei of native value the action would send (usually "0").
+    ProvenanceEntryDto:
+      type: object
+      required:
+      - id
+      - agent_id
+      - leaf
+      - root
+      - tx_hash
+      - anchored_at
+      properties:
+        agent_id:
+          type: string
+        anchored_at:
+          type: string
+        created_at:
+          type:
+          - string
+          - 'null'
+        decision:
+          type:
+          - string
+          - 'null'
+          description: The policy decision that produced the leaf (allow / shadow_deny / …), if joined.
+        id:
+          type: string
+        intent_type:
+          type:
+          - string
+          - 'null'
+          description: |-
+            The committed intent type (the "action"), when the anchored leaf joins to
+            an audit_log decision row.
+        leaf:
+          type: string
+          description: 0x keccak Merkle leaf of the committed intent (the provenance input hash).
+        root:
+          type: string
+          description: 0x per-agent StateAnchor root the leaf was committed under.
+        tx_hash:
+          type: string
+          description: On-chain StateAnchor.anchorRoot transaction hash.
+    RecentTraceDto:
+      type: object
+      required:
+      - trace_id
+      - name
+      - start_time
+      properties:
+        name:
+          type: string
+        start_time:
+          type: string
+        trace_id:
+          type: string
     RegisterAgentRequest:
       type: object
       required:
@@ -1026,6 +1934,62 @@ components:
           format: date-time
         status_code:
           type: string
+    StakeDto:
+      type: object
+      required:
+      - agent_id
+      - total_stake
+      - locked_stake
+      - available_stake
+      - open_disputes
+      properties:
+        agent_id:
+          type: string
+        available_stake:
+          type: string
+        locked_stake:
+          type: string
+        open_disputes:
+          type: integer
+          format: int64
+          description: |-
+            Count of the agent's currently-open (unresolved) slashing disputes. The
+            dashboard sums this across its agent loop for a real protocol-wide
+            `active_disputes` with no extra fan-out (Slashers are per-agent clones with
+            no singleton dispute index) — see docs/design/dashboard-wiring.md.
+          minimum: 0
+        total_stake:
+          type: string
+    StatsDto:
+      type: object
+      required:
+      - market_count
+      - total_marketplace_volume
+      - escrowed_credit
+      - released_credit
+      - allocation_count
+      properties:
+        allocation_count:
+          type: integer
+          format: int64
+          description: 'A2ACapitalPool: number of allocations scanned.'
+          minimum: 0
+        escrowed_credit:
+          type: string
+          description: 'A2ACapitalPool: capital currently escrowed (live available lines) across all agents.'
+        market_count:
+          type: integer
+          format: int64
+          description: Number of prediction markets in the cached index.
+          minimum: 0
+        released_credit:
+          type: string
+          description: |-
+            A2ACapitalPool: capital disbursed ("borrowed") across all agents — the real
+            `total_loans_volume`.
+        total_marketplace_volume:
+          type: string
+          description: Sum of `total_staked` across every market (pari-mutuel volume).
     TelemetryEventDetailDto:
       type: object
       required:
@@ -1063,11 +2027,16 @@ components:
           - integer
           - 'null'
           format: int32
+          description: Always `null` today — see `merkle_root_id`'s doc comment.
         merkle_root_id:
           type:
           - string
           - 'null'
           format: uuid
+          description: |-
+            Always `null` today — see `db::fetch_pending_leaves`'s doc comment. Real Merkle
+            anchoring for this event's leaf happens out-of-band, per-agent, in
+            `bcc_middleware/app/anchor.py`, not via a root assigned back onto this row.
         nonce:
           type: integer
           format: int64
@@ -1102,6 +2071,19 @@ components:
         otel_spans:
           type: array
           items: {}
+        schema_version:
+          type:
+          - integer
+          - 'null'
+          format: int64
+          description: |-
+            Version of the signed envelope. Inside the signed object, so it cannot be rewritten
+            in transit to make this handler reinterpret a payload under different rules.
+
+            `None` means the pre-versioning shape, which stays valid forever — signed payloads
+            are evidence and old evidence must remain verifiable. Critically, the signable bytes
+            are rebuilt WITHOUT the key when this is `None`: serializing it as `null` would
+            change the canonical JSON and break every historical signature.
         signature:
           type: string
           description: |-
@@ -1153,6 +2135,81 @@ components:
           description: |-
             True if the deepest branch was cut off (see `trace_tree::MAX_TREE_DEPTH`) —
             an honest signal that this isn't the complete tree, never silently dropped.
+    TransactionDto:
+      type: object
+      required:
+      - id
+      - type
+      - asset
+      - amount
+      - agent
+      - status
+      - time
+      properties:
+        agent:
+          type: string
+        amount:
+          type: string
+        asset:
+          type: string
+        id:
+          type: string
+        status:
+          type: string
+        time:
+          type: string
+        type:
+          type: string
+        usd:
+          type:
+          - string
+          - 'null'
+    UnregisteredAgentDto:
+      type: object
+      description: |-
+        Real "shadow AI" discovery (Shield vertical): DIDs the oracle has telemetry/policy
+        evidence for (`otel_spans`, `audit_log`) but that never registered via
+        `POST /v1/agent/register`. See `db::list_unregistered_agents`'s doc comment for why
+        this is the correctly-scoped, zero-new-infra version of this feature rather than
+        literal network/process scanning (out of scope for a web app regardless).
+      required:
+      - agent_id
+      - source
+      - first_seen
+      properties:
+        agent_id:
+          type: string
+        first_seen:
+          type: string
+        source:
+          type: string
+          description: '"otel" | "audit_log" — which table this DID was first observed in.'
+    VerificationResponse:
+      type: object
+      required:
+      - agent_id
+      - method
+      - subject
+      - tier_granted
+      - effective_tier
+      properties:
+        agent_id:
+          type: string
+        effective_tier:
+          type: integer
+          format: int32
+        expires_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        method:
+          type: string
+        subject:
+          type: string
+        tier_granted:
+          type: integer
+          format: int32
     VolumeBucket:
       type: object
       required:
@@ -1205,6 +2262,12 @@ components:
       properties:
         agent_id:
           type: string
+        allowances:
+          type:
+          - array
+          - 'null'
+          items:
+            $ref: '#/components/schemas/AllowanceDto'
         itk_balance:
           type: string
           description: Real `IntegrityToken.balanceOf(sovereignAgent)` read, decimal string.
@@ -1229,58 +2292,23 @@ components:
             Transfer/stake/payout history requires indexing on-chain events (`Transfer`,
             `PositionEntered`, `PayoutClaimed`, ...), which this pass does not build. `null`,
             never a fabricated transaction list. See `docs/wiki/entities/integrity-oracle.md`.
-        allowances:
-          type:
-          - array
-          - 'null'
-          items:
-            $ref: '#/components/schemas/AllowanceDto'
-    TransactionDto:
+    XnsResolveDto:
       type: object
       required:
-      - id
-      - type
-      - asset
-      - amount
-      - agent
-      - status
-      - time
+      - handle
       properties:
-        id:
-          type: string
-        type:
-          type: string
-        asset:
-          type: string
-        amount:
-          type: string
-        usd:
+        did:
           type:
           - string
           - 'null'
-        agent:
+          description: DID (did:integrity:<sovereign_agent>) when a reverse mapping exists in the oracle DB.
+        handle:
           type: string
-        status:
-          type: string
-        time:
-          type: string
-    AllowanceDto:
-      type: object
-      required:
-      - agent
-      - limit
-      - spent
-      - status
-      properties:
-        agent:
-          type: string
-        limit:
-          type: string
-        spent:
-          type: number
-          format: double
-        status:
-          type: string
+        sovereign_agent:
+          type:
+          - string
+          - 'null'
+          description: SovereignAgent address the handle points at, or null if unregistered.
     ZkProofDto:
       type: object
       required:
@@ -1309,3 +2337,7 @@ tags:
   description: IntegrityMarket prediction-market reads
 - name: wallet
   description: $ITK balance and open market positions
+- name: audit
+  description: Real, durable audit trail (BCC intercept decisions + flagged telemetry)
+- name: verification
+  description: Evidence-backed identity verification ladder

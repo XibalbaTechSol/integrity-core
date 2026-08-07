@@ -57,6 +57,19 @@ are unrelated — the field is the SDK's own batched `log_telemetry`/
 page. Metrics export on the OTLP path is accepted but not yet parsed or
 persisted (`OtlpMetricsService::export`'s own doc comment) — traces are.
 
+## Table of contents
+
+- [1. Collection surfaces (SDK side)](#1-collection-surfaces-sdk-side)
+- [2. Redaction gate (redactphi) — real behavior change, 2026-07-15](#2-redaction-gate-redactphi-real-behavior-change-2026-07-15)
+- [3. Signal derivation](#3-signal-derivation)
+- [4. Client-side batching (batcher.py)](#4-client-side-batching-batcher-py)
+- [5. Nonce lifecycle](#5-nonce-lifecycle)
+- [6. Signing & wire format](#6-signing-wire-format)
+- [7. Oracle ingestion pipeline (handlers::ingesttelemetry)](#7-oracle-ingestion-pipeline-handlers-ingesttelemetry)
+- [8. AIS computation](#8-ais-computation)
+- [9. Read-side API surface](#9-read-side-api-surface)
+- [10. Known gaps (honest, not silently assumed fine)](#10-known-gaps-honest-not-silently-assumed-fine)
+
 ## 1. Collection surfaces (SDK side)
 
 Every surface below ultimately calls `IntegrityClient.log_telemetry(metadata, *, entropy=None, grounding=None)`, which just appends `{"metadata": ..., "entropy": ..., "grounding": ...}` to an in-memory queue — no network call, no blocking of the agent's hot path.

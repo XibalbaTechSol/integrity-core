@@ -32,6 +32,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_WIKI = os.path.join(REPO_ROOT, "docs", "wiki")
 SRC_DOCS = os.path.join(REPO_ROOT, "docs")
 SRC_GUIDES = os.path.join(REPO_ROOT, "docs", "guides")
+WIKI_CATEGORIES = ("concepts", "entities", "architecture", "queries")
 
 
 def build_source_map() -> dict[str, str]:
@@ -39,8 +40,11 @@ def build_source_map() -> dict[str, str]:
     in the wiki repo. Asserts no basename collisions across categories."""
     sources: dict[str, str] = {}
 
-    for sub in ("concepts", "entities"):
-        for fname in os.listdir(os.path.join(SRC_WIKI, sub)):
+    for sub in WIKI_CATEGORIES:
+        directory = os.path.join(SRC_WIKI, sub)
+        if not os.path.isdir(directory):
+            continue
+        for fname in os.listdir(directory):
             if fname.endswith(".md"):
                 sources[f"wiki/{sub}/{fname}"] = fname
 
@@ -100,11 +104,11 @@ def main() -> None:
     sources = build_source_map()
     basename_registry = set(sources.values())
 
-    # Wipe every tracked .md file at the destination root (but not .git, and
-    # not _Sidebar.md/_Footer.md -- those are wiki-only navigation files
-    # with no docs/wiki/ source, hand-maintained directly in the wiki repo).
+    # Wipe the destination content. The GitHub Wiki is a generated mirror:
+    # even its platform-specific navigation is rebuilt below from canonical
+    # docs/wiki metadata, so direct edits cannot become a second source.
     for fname in os.listdir(dst):
-        if fname in (".git", "_Sidebar.md", "_Footer.md"):
+        if fname == ".git":
             continue
         path = os.path.join(dst, fname)
         if os.path.isdir(path):
@@ -112,8 +116,12 @@ def main() -> None:
         elif fname.endswith(".md"):
             os.remove(path)
 
-    for sub in ("concepts", "entities"):
-        for fname in os.listdir(os.path.join(SRC_WIKI, sub)):
+    published_pages: list[tuple[str, str, str]] = []
+    for sub in WIKI_CATEGORIES:
+        directory = os.path.join(SRC_WIKI, sub)
+        if not os.path.isdir(directory):
+            continue
+        for fname in os.listdir(directory):
             if not fname.endswith(".md"):
                 continue
             with open(os.path.join(SRC_WIKI, sub, fname), encoding="utf-8") as f:
@@ -121,6 +129,9 @@ def main() -> None:
             content = rewrite_links(content, f"wiki/{sub}/{fname}", basename_registry)
             with open(os.path.join(dst, fname), "w", encoding="utf-8") as f:
                 f.write(content)
+            title_match = re.search(r"^title:\s*(.+)$", content, re.MULTILINE)
+            title = title_match.group(1).strip() if title_match else fname.removesuffix(".md").replace("-", " ").title()
+            published_pages.append((sub, title, fname))
 
     for fname in ("WIKI_INDEX.md", "WIKI_LOG.md", "WIKI_SCHEMA.md"):
         with open(os.path.join(SRC_WIKI, fname), encoding="utf-8") as f:
@@ -143,6 +154,31 @@ def main() -> None:
         f.write(content)
     with open(os.path.join(dst, "index.md"), "w", encoding="utf-8") as f:
         f.write(content)
+
+    # GitHub-specific chrome is generated from the same canonical page set.
+    # It is deliberately not preserved from the destination wiki checkout.
+    sidebar = ["## Master contents", "", "[Home](Home.md)", ""]
+    category_labels = {
+        "concepts": "Concepts",
+        "entities": "Entities",
+        "architecture": "Architecture",
+        "queries": "Open queries",
+    }
+    for category in WIKI_CATEGORIES:
+        pages = sorted((title, fname) for page_category, title, fname in published_pages if page_category == category)
+        if not pages:
+            continue
+        sidebar.extend((f"### {category_labels[category]}", ""))
+        sidebar.extend(f"- [{title}]({fname})" for title, fname in pages)
+        sidebar.append("")
+    with open(os.path.join(dst, "_Sidebar.md"), "w", encoding="utf-8") as f:
+        f.write("\n".join(sidebar) + "\n")
+    with open(os.path.join(dst, "_Footer.md"), "w", encoding="utf-8") as f:
+        f.write(
+            "Generated from [INTEGRITY-LATEST/docs/wiki]"
+            "(https://github.com/XibalbaTechSol/integrity-latest/tree/main/docs/wiki). "
+            "Edit the canonical repository files, not this mirror.\n"
+        )
 
     with open(os.path.join(SRC_DOCS, "INTERFACE_CONTRACT.md"), encoding="utf-8") as f:
         content = f.read()

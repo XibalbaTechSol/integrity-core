@@ -10,6 +10,11 @@ confidence: high
 This document automatically tracks gas usage from the agent SDK transactions.
 **Total Agent Spend:** 66994636603782559 wei
 
+## Table of contents
+
+- [Averages by Action](#averages-by-action)
+- [Optimization Plan](#optimization-plan)
+
 ## Averages by Action
 | Action | Count | Avg Gas Used | Avg Cost (wei) |
 |---|---|---|---|

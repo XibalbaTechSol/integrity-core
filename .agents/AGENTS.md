@@ -65,7 +65,7 @@ that, in the code AND in the wiki that describes it.
 
 | Directory | Description | Wiki entity page |
 |---|---|---|
-| `contracts/` | Solidity/Foundry on-chain identity, reputation, staking, ZK verification | `entities/contracts.md` + one page per contract |
+| `contracts/` | Solidity/Foundry on-chain identity, reputation, staking, ZK verification | `entities/contracts.md` aggregate by default; split out `entities/<Contract>.sol.md` only for contracts needing standalone API docs |
 | `integrity-zkp/` | Noir/Barretenberg ZK attestation circuit | `entities/integrity-zkp.md` |
 | `integrity-oracle/` | Rust/Axum telemetry ingestion + AIS scoring + Merkle anchoring | `entities/integrity-oracle.md` |
 | `integrity-sdk/` | Python agent SDK: DID, BCC commitments, ZK proving, OPA check, attestation | `entities/integrity-sdk.md` |
