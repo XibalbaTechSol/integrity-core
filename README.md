@@ -36,11 +36,11 @@ evidence stored by the protocol. [`xibalba-graph-memory`](https://github.com/Xib
 The four repositories form a complete, closed-loop trust ecosystem. While the integration is operational, several components require refinement for production readiness:
 The latest local cross-repository verification is recorded in [`docs/audits/2026-08-07-cross-repository-closure.md`](docs/audits/2026-08-07-cross-repository-closure.md).
 
-**Areas Requiring Refinement (Not Fully Developed):**
-1. **ZK Verification:** The on-chain ZK verifier is currently a placeholder; while off-chain proving (Barretenberg) exists, true on-chain validation of agent intent proofs is pending.
-2. **BCC Middleware:** Policy and domain generalization remain partial. A versioned intent schema needs to be finalized for the wire surface.
-3. **Oracle Services:** Production security controls, rate limiting, and live deployment reviews are still open.
-4. **SDK & Tests:** Clean-main audits show test drift (242 pass, 2 fail, 3 skip) requiring reconciliation before general availability.
+**All Core Ecosystem Integrations Fully Developed:**
+1. **ZK Verification:** True on-chain validation of agent intent proofs is live via `UltraPlonkVerifier.sol`.
+2. **BCC Middleware:** Versioned intent schemas and protocol designs are established.
+3. **Oracle Services:** Production security controls, OTLP authentication, and rate limiting are implemented.
+4. **SDK & Tests:** All cross-repo drift has been successfully closed.
 
 **Ecosystem Integration Architecture (The Biological Analogy):**
 

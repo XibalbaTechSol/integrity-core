@@ -669,7 +669,7 @@ pub struct TelemetryIngestResponse {
     pub flagged: bool,
 }
 
-/// Fixed-window rate limiter over Redis: `INCR` a per-agent, per-minute counter (key
+/// Fixed-window Redis rate limiter over Redis: `INCR` a per-agent, per-minute counter (key
 /// includes the current unix-minute bucket, so an old counter can never leak into a new
 /// window) and set it to expire in 60s the first time it's created in that window. This
 /// is the "concrete, real use of Redis" `config.rs`'s doc comment on
@@ -678,6 +678,41 @@ pub struct TelemetryIngestResponse {
 /// bucket (a fixed window is simpler and sufficient for this purpose: the worst case is
 /// bursting up to 2x the limit at a window boundary, which is an acceptable trade for not
 /// needing a token-bucket's extra state).
+
+fn check_oracle_api_key(state: &AppState, headers: &axum::http::HeaderMap) -> Result<(), AppError> {
+    if let Some(expected_key) = &state.config.oracle_api_key {
+        let auth_header = headers.get("authorization").or_else(|| headers.get("Authorization"));
+        match auth_header {
+            Some(value) => {
+                let value_str = value.to_str().unwrap_or("");
+                if value_str != expected_key && value_str != format!("Bearer {}", expected_key) {
+                    return Err(AppError::Unauthorized);
+                }
+            }
+            None => return Err(AppError::Unauthorized),
+        }
+    }
+    Ok(())
+}
+
+async fn check_internal_api_rate_limit(state: &AppState) -> Result<(), AppError> {
+    use redis::AsyncCommands;
+    let window = Utc::now().timestamp() / 60;
+    let key = format!("ratelimit:internal_api:{window}");
+
+    let mut conn = state.redis.clone();
+    let count: i64 = conn.incr(&key, 1).await?;
+    if count == 1 {
+        let _: () = conn.expire(&key, 60).await?;
+    }
+
+    // A simple global limit for internal endpoints, scaled up
+    if count > (state.config.telemetry_rate_limit_per_minute as i64 * 10) {
+        return Err(AppError::RateLimited);
+    }
+    Ok(())
+}
+
 async fn check_telemetry_rate_limit(state: &AppState, agent_id: &str) -> Result<(), AppError> {
     use redis::AsyncCommands;
 
@@ -1635,8 +1670,12 @@ pub struct AuditLogIngestResponse {
 )]
 pub async fn ingest_audit_log(
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<AuditLogIngestRequest>,
 ) -> Result<Json<AuditLogIngestResponse>, AppError> {
+    check_internal_api_rate_limit(&state).await?;
+    check_oracle_api_key(&state, &headers)?;
+
     let metadata = req.metadata.unwrap_or_else(|| serde_json::json!({}));
     let id = db::insert_audit_log(
         &state.pool,
@@ -1692,8 +1731,12 @@ pub struct AnchorEventIngestResponse {
 )]
 pub async fn ingest_anchor_events(
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<AnchorEventIngestRequest>,
 ) -> Result<Json<AnchorEventIngestResponse>, AppError> {
+    check_internal_api_rate_limit(&state).await?;
+    check_oracle_api_key(&state, &headers)?;
+
     let recorded =
         db::insert_anchor_events(&state.pool, &req.agent_id, &req.leaves, &req.root, &req.tx_hash)
             .await?;

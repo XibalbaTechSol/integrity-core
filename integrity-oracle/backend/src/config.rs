@@ -80,6 +80,10 @@ pub struct Config {
     /// authoritative only when signed by one of these independently configured roots.
     /// Parsed from `KYC_PROVIDER_KEYS` as `provider=hex-public-key,...`.
     pub kyc_provider_keys: HashMap<String, [u8; 32]>,
+    
+    /// Optional shared API key to authenticate internal-only endpoints 
+    /// (e.g. /v1/audit/ingest, /v1/audit/anchor, and OTLP receivers).
+    pub oracle_api_key: Option<String>,
 }
 
 impl Config {
@@ -130,6 +134,7 @@ impl Config {
             telemetry_rate_limit_per_minute,
             phi_backstop_mode,
             kyc_provider_keys,
+            oracle_api_key: std::env::var("ORACLE_API_KEY").ok(),
         })
     }
 
@@ -157,6 +162,7 @@ impl Config {
             // relaxed backstop can never be inherited silently.
             phi_backstop_mode: PhiBackstopMode::Reject,
             kyc_provider_keys: HashMap::new(),
+            oracle_api_key: None,
         }
     }
 }

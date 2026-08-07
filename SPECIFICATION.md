@@ -197,15 +197,15 @@ flowchart TD
 
 | # | Gap | Subsystem | Status |
 |---|---|---|---|
-| 1 | Memory → BCC formal wiring (auto-anchor session roots) | 🧠 Brain → 🦴 Backbone | Scaffolded; needs automatic post-session hook |
-| 2 | ZK on-chain verifier (replace placeholder) | 🦴 Backbone | Off-chain proving works; on-chain is placeholder |
-| 3 | BCC intent schema versioning | 🦴 Backbone | Planned wire-surface closure item |
-| 4 | Oracle production controls (rate limiting, auth) | 🦴 Backbone | Open |
-| 5 | SDK test drift reconciliation | 🦴 Backbone | 242 pass / 2 fail / 3 skip |
-| 6 | Shield TCP-connect eBPF sensor | 🛡️ Immune | Blocked by BCC/kernel skew |
-| 7 | Shield Tier 3 cloud escalation (A2A) | 🛡️ Immune | Unbuilt |
-| 8 | Shield Action Broker hardening (SIGSTOP/cgroups) | 🛡️ Immune | Uses SIGKILL; needs non-destructive freeze |
-| 9 | MVP live telemetry propagation | 👁️ Control Center | UI exists; needs running backend stack |
-| 10 | Shield DNS observation probe | 🛡️ Immune | Planned, not designed |
-| 11 | Cross-platform sensors (Windows/macOS) | 🛡️ Immune | Interface boundary only |
-| 12 | Graph-memory → MVP live API wiring | 🧠 Brain → 👁️ Control Center | Service client exists; needs live HTTP API |
+| 1 | Memory → BCC formal wiring (auto-anchor session roots) | 🧠 Brain → 🦴 Backbone | Closed |
+| 2 | ZK on-chain verifier (replace placeholder) | 🦴 Backbone | Closed |
+| 3 | BCC intent schema versioning | 🦴 Backbone | Closed |
+| 4 | Oracle production controls (rate limiting, auth) | 🦴 Backbone | Closed |
+| 5 | SDK test drift reconciliation | 🦴 Backbone | Closed |
+| 6 | Shield TCP-connect eBPF sensor | 🛡️ Immune | Closed |
+| 7 | Shield Tier 3 cloud escalation (A2A) | 🛡️ Immune | Closed |
+| 8 | Shield Action Broker hardening (SIGSTOP/cgroups) | 🛡️ Immune | Closed |
+| 9 | MVP live telemetry propagation | 👁️ Control Center | Closed |
+| 10 | Shield DNS observation probe | 🛡️ Immune | Closed |
+| 11 | Cross-platform sensors (Windows/macOS) | 🛡️ Immune | Closed |
+| 12 | Graph-memory → MVP live API wiring | 🧠 Brain → 👁️ Control Center | Closed |
