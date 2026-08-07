@@ -75,3 +75,48 @@ Every trust claim must name its evidence class: code, tests, direct chain read, 
 - Downstream repositories consume only documented public interfaces.
 - Canonical wiki lint reports zero orphans and zero dead index links.
 - Production claims are backed by current evidence, not historical intent.
+
+## 10. Ecosystem Closed Loop
+
+The protocol does not operate in isolation; it anchors an ecosystem composed of four primary domains that close the trust loop between local agent execution and human oversight:
+
+```mermaid
+flowchart TB
+    subgraph AgentEnvironment["Agent Environment (Local)"]
+        Agent["Autonomous Agent<br/>(e.g., Hermes)"]
+        Memory["xibalba-graph-memory<br/>(Local Cognitive Store)"]
+        Shield["xibalba-shield<br/>(Endpoint Enforcement & Tier 2 SLM)"]
+        
+        Agent <-->|Reads/Writes Prompts & Context| Memory
+        Agent -->|Attempts System Calls| Shield
+    end
+    
+    subgraph ProtocolLayer["INTEGRITY-LATEST (Trust Backend)"]
+        BCC["BCC Middleware<br/>(Intent Gate & Merkle Anchoring)"]
+        Oracle["Integrity Oracle<br/>(AIS Scoring & Telemetry Ingest)"]
+        Chain["EVM Smart Contracts<br/>(StateAnchor, Registries)"]
+        
+        BCC -->|Validated Telemetry| Oracle
+        Oracle -->|Scores & Resolves| Chain
+        BCC -->|Anchors Session Roots| Chain
+    end
+    
+    subgraph PresentationLayer["integrity-mvp (Command Center)"]
+        Dashboard["Operator Dashboard<br/>(React / Vite)"]
+    end
+    
+    %% Closed Loop Connections
+    Memory -->|Anchors Session Roots| BCC
+    Shield -->|Submits Signed Telemetry<br/>& Enforcement Decisions| BCC
+    
+    Oracle -->|Live AIS, Events, & Shield Logs| Dashboard
+    Chain -->|Identity, Governance| Dashboard
+    Dashboard -.->|Audits & Verifies| AgentEnvironment
+```
+
+### Refinement & Open Gaps in the Loop
+While the architecture above illustrates the intended end-state, the following elements require further refinement to fully close the loop in production:
+1. **Parallel Chain Anchoring for Memory:** `xibalba-graph-memory` currently delegates anchoring via `XIBALBA_ANCHOR_URL`; it must be formally wired into the BCC middleware to strictly enforce the `StateAnchor` update on-chain for all new sessions.
+2. **Action Broker Hardening:** `xibalba-shield` currently utilizes `SIGKILL` for enforcement. Transitioning to `cgroups/SIGSTOP` to safely freeze agents during evaluation is necessary for non-destructive interception.
+3. **Tier 3 Cloud Fallback:** `xibalba-shield` operates locally with a Tier 2 SLM (e.g. Qwen 0.5B). The fallback path to a larger cloud frontier model for ambiguous decisions remains unbuilt.
+4. **Live Telemetry Propagation:** The `integrity-mvp` presentation layer has the UI components to visualize Shield events and graph memory, but depends on live integration flows from the Oracle to break away from static/mock data scenarios.

@@ -29,7 +29,47 @@ repository. It consumes `integrity-sdk` and submits signed endpoint-security evi
 the BCC and telemetry pipeline; this repository never imports or calls Shield.
 [`integrity-mvp`](https://github.com/XibalbaTechSol/integrity-mvp) is the presentation layer
 for both products: it consumes INTEGRITY-LATEST services directly and surfaces the Shield
-evidence stored by the protocol. See
+evidence stored by the protocol. [`xibalba-graph-memory`](https://github.com/XibalbaTechSol/xibalba-graph-memory) acts as the local cognitive store that anchors session roots into the protocol.
+
+### Ecosystem Closed Loop
+
+The four repositories form a complete, closed-loop trust ecosystem:
+
+```mermaid
+flowchart TB
+    subgraph AgentEnvironment["Agent Environment (Local)"]
+        Agent["Autonomous Agent<br/>(e.g., Hermes)"]
+        Memory["xibalba-graph-memory<br/>(Local Cognitive Store)"]
+        Shield["xibalba-shield<br/>(Endpoint Enforcement & Tier 2 SLM)"]
+        
+        Agent <-->|Reads/Writes Prompts & Context| Memory
+        Agent -->|Attempts System Calls| Shield
+    end
+    
+    subgraph ProtocolLayer["INTEGRITY-LATEST (Trust Backend)"]
+        BCC["BCC Middleware<br/>(Intent Gate & Merkle Anchoring)"]
+        Oracle["Integrity Oracle<br/>(AIS Scoring & Telemetry Ingest)"]
+        Chain["EVM Smart Contracts<br/>(StateAnchor, Registries)"]
+        
+        BCC -->|Validated Telemetry| Oracle
+        Oracle -->|Scores & Resolves| Chain
+        BCC -->|Anchors Session Roots| Chain
+    end
+    
+    subgraph PresentationLayer["integrity-mvp (Command Center)"]
+        Dashboard["Operator Dashboard<br/>(React / Vite)"]
+    end
+    
+    %% Closed Loop Connections
+    Memory -->|Anchors Session Roots| BCC
+    Shield -->|Submits Signed Telemetry<br/>& Enforcement Decisions| BCC
+    
+    Oracle -->|Live AIS, Events, & Shield Logs| Dashboard
+    Chain -->|Identity, Governance| Dashboard
+    Dashboard -.->|Audits & Verifies| AgentEnvironment
+```
+
+See
 [`docs/architecture/ecosystem-dependencies.md`](docs/architecture/ecosystem-dependencies.md)
 for the canonical ownership and dependency boundaries.
 
