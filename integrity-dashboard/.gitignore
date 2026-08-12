@@ -36,3 +36,6 @@ dist-ssr
 .venv/
 **/__pycache__/
 *.pyc
+
+# ad-hoc debug screenshots, not real assets
+/shield_*.png
