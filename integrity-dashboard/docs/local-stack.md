@@ -9,7 +9,7 @@ viewer API. From this repository, start the stack with:
 
 The script starts `xibalba-cortex` on `http://localhost:8420`, then runs
 the `oracle-backend` and `bcc-middleware` services from the sibling
-`INTEGRITY-LATEST/docker-compose.yml`. Docker Compose starts their Postgres,
+`integrity-core/docker-compose.yml`. Docker Compose starts their Postgres,
 Redis, and OPA dependencies as needed. In a second terminal, run the MVP:
 
 ```bash
@@ -23,7 +23,7 @@ when graph-memory is stopped. The header connectivity indicators probe Oracle
 Useful overrides:
 
 ```bash
-INTEGRITY_ROOT=/path/to/INTEGRITY-LATEST \
+INTEGRITY_ROOT=/path/to/integrity-core \
 XIBALBA_GRAPH_HOME=/path/to/graph-home \
 ./scripts/dev-stack.sh
 ```

@@ -24,7 +24,7 @@ jobs:
       - name: Check out canonical Integrity wiki
         uses: actions/checkout@v4
         with:
-          repository: XibalbaTechSol/integrity-latest
+          repository: XibalbaTechSol/integrity-core
           path: .wiki-source
 
       - name: Set up Node

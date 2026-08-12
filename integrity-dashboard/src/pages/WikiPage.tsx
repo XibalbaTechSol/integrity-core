@@ -99,7 +99,7 @@ function resolveWikiLink(currentPage: WikiPageRecord, href: string) {
     if (page) return { href: `/wiki?page=${encodeURIComponent(page.id)}${resolved.hash}`, page, heading: resolved.hash.slice(1) || undefined };
   }
   const repositoryPath = resolved.pathname.replace(/^\//, '');
-  return { href: `https://github.com/XibalbaTechSol/integrity-latest/blob/main/${repositoryPath}${resolved.hash}` };
+  return { href: `https://github.com/XibalbaTechSol/integrity-core/blob/main/${repositoryPath}${resolved.hash}` };
 }
 
 function inlineMarkup(value: string, currentPage: WikiPageRecord, onNavigate: WikiNavigate) {
@@ -386,10 +386,10 @@ export default function WikiPage() {
         </nav>
         <div className="wiki-provenance">
           <p className="wiki-rail-label">Source provenance</p>
-          <a href={wikiData.source} target="_blank" rel="noreferrer"><GitBranch size={17} /> integrity-latest/docs/wiki <ExternalLink size={13} /></a>
+          <a href={wikiData.source} target="_blank" rel="noreferrer"><GitBranch size={17} /> integrity-core/docs/wiki <ExternalLink size={13} /></a>
           <label>Git commit</label><button className="wiki-commit" onClick={() => navigator.clipboard?.writeText(wikiData.commit)}><code>{wikiData.commit}</code><Copy size={14} /></button>
           <label>Snapshot generated</label><time>{new Date(wikiData.generatedAt).toLocaleString()}</time>
-          <div className="wiki-verified"><ShieldCheck size={20} /><div><strong>Canonical mirror</strong><span>Read-only snapshot of INTEGRITY-LATEST/docs/wiki—the same files published to GitHub Wiki.</span></div></div>
+          <div className="wiki-verified"><ShieldCheck size={20} /><div><strong>Canonical mirror</strong><span>Read-only snapshot of integrity-core/docs/wiki—the same files published to GitHub Wiki.</span></div></div>
         </div>
       </aside>
     </div>

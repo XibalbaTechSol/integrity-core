@@ -255,7 +255,7 @@ For example, to configure the Antigravity CLI (`agy`) harness to run all session
       "args": [
         "run",
         "--directory",
-        "/home/xibalba/Projects/INTEGRITY-LATEST/integrity-sdk",
+        "/home/xibalba/Projects/integrity-core/integrity-sdk",
         "python",
         "-m",
         "integrity_sdk.mcp_server",

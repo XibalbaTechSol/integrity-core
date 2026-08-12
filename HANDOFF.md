@@ -21,7 +21,7 @@ One piece of collateral damage remains, and it is **not blocking**: containerd's
 store lost a blob (`sha256:dc009236…`), so `docker images` and `docker system df` fail.
 All four project images inspect fine, `docker compose` works normally, and the stack
 builds and runs. Full repair needs `sudo ctr -n moby …`, which this session could not run
-non-interactively. **Do not `docker system prune -a`** — `integrity-latest_pgdata` holds
+non-interactively. **Do not `docker system prune -a`** — `integrity-core_pgdata` holds
 the oracle's telemetry, i.e. the dogfooding record.
 
 ## 1. The previous handoff's headline finding was wrong
@@ -182,7 +182,7 @@ OPA **37/37** · userapi **51 passed** · contracts **200** · zkp **4** · orac
 `bcc-middleware` needs a funded signer for Sepolia. The key is **not** committed:
 
 ```bash
-cd ~/Projects/INTEGRITY-LATEST
+cd ~/Projects/integrity-core
 set -a; . ./contracts/.env; set +a
 export ORACLE_SIGNER_PRIVATE_KEY="$FUNDER_PRIVATE_KEY"
 docker compose up -d

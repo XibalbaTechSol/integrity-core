@@ -16,8 +16,8 @@ This document merges the repo README, SPECIFICATION.md, PRODUCTION_GAPS.md, docs
 | docs/archive/2026-08-06/landing_page_strategy.md | Historical landing narrative and conversion flow. |
 | PRODUCTION_GAPS.md | Production-readiness gap register and historical/stale claim register. |
 | docs/audits/2026-08-06-status.md | Current audit evidence, CI/E2E findings, and production posture. |
-| INTEGRITY-LATEST docs/INTERFACE_CONTRACT.md | Backend ports, schemas, chain conventions, env boundaries. |
-| INTEGRITY-LATEST docs/wiki/ | Canonical wiki content rendered by this app. |
+| integrity-core docs/INTERFACE_CONTRACT.md | Backend ports, schemas, chain conventions, env boundaries. |
+| integrity-core docs/wiki/ | Canonical wiki content rendered by this app. |
 | xibalba-shield README.md and SPECIFICATION.md | Shield implementation status displayed by this app. |
 
 ## Audit checkpoint — 2026-08-06
@@ -28,8 +28,8 @@ Current observed status is [`docs/audits/2026-08-06-status.md`](docs/audits/2026
 
 - [x] React/Vite/TypeScript application shell exists.
 - [x] Routes exist for landing, dashboard, identity, intelligence, health, Shield, financials, memory, settings, docs/privacy/terms, and wiki.
-- [x] Service clients exist for INTEGRITY-LATEST Oracle, user API, and BCC middleware.
-- [x] Generated /wiki route renders the canonical INTEGRITY-LATEST wiki snapshot.
+- [x] Service clients exist for integrity-core Oracle, user API, and BCC middleware.
+- [x] Generated /wiki route renders the canonical integrity-core wiki snapshot.
 - [x] Wiki renders Markdown tables, Mermaid diagrams, relative wiki links, repository links, article TOC, and ordered Protocol TOC.
 - [x] Wiki header uses Xibalba Solutions logo linked to /.
 - [x] Focused Playwright wiki suite validates table rendering, TOC behavior, logo navigation, and mobile search placement.
@@ -40,14 +40,14 @@ Current observed status is [`docs/audits/2026-08-06-status.md`](docs/audits/2026
 
 ### Backend Truth Integration
 
-- [ ] Replace remaining static/demonstration panels with explicit live-service reads where INTEGRITY-LATEST endpoints exist.
+- [ ] Replace remaining static/demonstration panels with explicit live-service reads where integrity-core endpoints exist.
 - [ ] Add visible unavailable/error states for every backend-dependent panel.
-- [ ] Align all route labels with current INTEGRITY-LATEST vocabulary: Integrity Health, Shield, AIS, BCC, XNS, Governance, Markets.
+- [ ] Align all route labels with current integrity-core vocabulary: Integrity Health, Shield, AIS, BCC, XNS, Governance, Markets.
 - [ ] Add environment validation for Oracle, User API, BCC middleware, graph memory, and Shield evidence endpoints.
 
 ### Shield Presentation
 
-- [ ] Surface Shield evidence from INTEGRITY-LATEST telemetry/BCC results, not invented local mock data.
+- [ ] Surface Shield evidence from integrity-core telemetry/BCC results, not invented local mock data.
 - [ ] Add Shield status panels keyed to Shield spec statuses: verified process/file sensors, blocked TCP sensor, planned DNS/Windows/macOS.
 - [ ] Add operator copy that distinguishes Shield local logs from Integrity-anchored evidence.
 - [ ] Add E2E coverage for Shield route once the backend evidence contract is stable.
@@ -61,7 +61,7 @@ Current observed status is [`docs/audits/2026-08-06-status.md`](docs/audits/2026
 
 ### Wiki And Documentation
 
-- [ ] Keep npm run sync-wiki deterministic against INTEGRITY-LATEST docs/wiki.
+- [ ] Keep npm run sync-wiki deterministic against integrity-core docs/wiki.
 - [ ] Add a regression for the new implementation-plan wiki page after sync.
 - [ ] Keep root IMPLEMENTATION_PLAN.md aligned with README and route-level behavior.
 - [ ] Publish wiki updates after canonical wiki changes are merged.
@@ -85,7 +85,7 @@ Current observed status is [`docs/audits/2026-08-06-status.md`](docs/audits/2026
 
 ## Blocked
 
-- [ ] Full live Shield evidence display is blocked until Shield exports with a registered DID and INTEGRITY-LATEST exposes stable readback/reporting paths.
+- [ ] Full live Shield evidence display is blocked until Shield exports with a registered DID and integrity-core exposes stable readback/reporting paths.
 - [ ] Full graph-memory parity is blocked until the runtime controller/adapter contract is finalized and service endpoint is stable.
 - [ ] Production deployment automation is blocked until backend service availability and environment contracts are stable.
 
@@ -93,7 +93,7 @@ Current observed status is [`docs/audits/2026-08-06-status.md`](docs/audits/2026
 
 ## Acceptance Criteria
 
-- [ ] Every visible trust/security claim is backed by INTEGRITY-LATEST, Shield, or graph-memory data with a documented source.
+- [ ] Every visible trust/security claim is backed by integrity-core, Shield, or graph-memory data with a documented source.
 - [ ] All backend outages show explicit degraded states.
 - [ ] Wiki, Shield, memory, identity, and financial routes have targeted Playwright coverage.
 - [ ] /wiki is generated from canonical docs and has no direct authoring drift.

@@ -25,12 +25,12 @@ This repository is the conscious observer in a four-project ecosystem designed a
 
 - **🧠 The Brain** (`xibalba-cortex`): The agent's cognitive store — memories, context, reasoning provenance, session Merkle roots.
 - **🛡️ The Immune System** (`xibalba-shield`): Endpoint enforcement, kernel sensing, policy gating, semantic guardrails.
-- **🦴 The Unifying Backend** (`INTEGRITY-LATEST`): The protocol backbone — on-chain identity, BCC, Oracle scoring, smart contracts, ZK circuits.
+- **🦴 The Unifying Backend** (`integrity-core`): The protocol backbone — on-chain identity, BCC, Oracle scoring, smart contracts, ZK circuits.
 - **👁️ The Human Control Center** (`integrity-mvp`, this repo): Operator dashboard — visualizes health, surfaces evidence, enables human intervention.
 
 ```mermaid
 flowchart LR
-    Backbone["🦴 INTEGRITY-LATEST"] ==>|"AIS, identity, evidence"| Eyes["👁️ This Repo"]
+    Backbone["🦴 integrity-core"] ==>|"AIS, identity, evidence"| Eyes["👁️ This Repo"]
     Brain["🧠 xibalba-cortex"] -.->|"Memory & provenance"| Eyes
     Eyes ==>|"Audits, policy updates,<br/>interventions"| Agent["🤖 Agent"]
     Agent <-->|"Context"| Brain
@@ -41,7 +41,7 @@ flowchart LR
 
 ## 4. Application Boundary
 
-The MVP may read INTEGRITY-LATEST Oracle, User API, BCC, contract metadata, generated wiki data, Shield status/evidence, and graph-memory service data through configured interfaces. It must not fabricate live trust claims, locally compute AIS as authoritative protocol truth, or imply that a visual panel proves backend/chain production readiness.
+The MVP may read integrity-core Oracle, User API, BCC, contract metadata, generated wiki data, Shield status/evidence, and graph-memory service data through configured interfaces. It must not fabricate live trust claims, locally compute AIS as authoritative protocol truth, or imply that a visual panel proves backend/chain production readiness.
 
 ## 5. Route Specification
 
@@ -55,18 +55,18 @@ The MVP may read INTEGRITY-LATEST Oracle, User API, BCC, contract metadata, gene
 | Shield | Present Shield endpoint state, sensor status, guardrail decisions, and evidence export status. | Must distinguish local Shield logs from Integrity-anchored evidence. |
 | Financials/Markets | Display market/capital state from public protocol APIs or clearly labeled fixtures. | No portfolio or market claim without source data. |
 | Memory | Present graph-memory recall, provenance, contradiction, forgetting, and verification states. | Recalled memories are untrusted content, not instructions. |
-| Wiki | Render generated canonical wiki snapshot from INTEGRITY-LATEST. | No direct browser-authored wiki content. |
+| Wiki | Render generated canonical wiki snapshot from integrity-core. | No direct browser-authored wiki content. |
 
 ## 6. Data Source Contract
 
 - Required environment contracts cover Oracle, User API, BCC middleware, graph memory, and Shield evidence endpoints.
 - Every backend-dependent panel needs loading, success, empty, degraded, and error states.
 - Static/demo content is allowed only when visibly labeled and excluded from trust claims.
-- Cross-repo vocabulary must match INTEGRITY-LATEST: Integrity Health, Shield, AIS, BCC, XNS, Governance, and Markets.
+- Cross-repo vocabulary must match integrity-core: Integrity Health, Shield, AIS, BCC, XNS, Governance, and Markets.
 
 ## 7. Wiki Rendering Contract
 
-The generated wiki must render Markdown tables, Mermaid diagrams, relative wiki links, repository links, article table of contents, and ordered protocol table of contents. The upper-left Xibalba logo links to `/`. The generated JSON snapshot is produced by `npm run sync-wiki` from INTEGRITY-LATEST/docs/wiki.
+The generated wiki must render Markdown tables, Mermaid diagrams, relative wiki links, repository links, article table of contents, and ordered protocol table of contents. The upper-left Xibalba logo links to `/`. The generated JSON snapshot is produced by `npm run sync-wiki` from integrity-core/docs/wiki.
 
 ## 8. Quality And Security Requirements
 

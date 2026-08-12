@@ -147,7 +147,7 @@ services:
       VITE_CHAIN_ID: "84532"
     ports: ["5173:5173"]
 
-  # Sibling repo, not nested under INTEGRITY-LATEST -- see /home/xibalba/CLAUDE.md.
+  # Sibling repo, not nested under integrity-core -- see /home/xibalba/CLAUDE.md.
   mvp:
     build:
       context: ../integrity-mvp

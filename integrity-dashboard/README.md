@@ -3,11 +3,11 @@
 For the full local Oracle, BCC middleware, and graph-memory workflow, see
 [`docs/local-stack.md`](docs/local-stack.md) and run `./scripts/dev-stack.sh`.
 
-Integrity MVP is the React/Vite presentation and operator-workflow layer for the Integrity Protocol product stack. It is not a standalone trust backend. It renders protocol state from INTEGRITY-LATEST, surfaces Xibalba Shield endpoint-security evidence, and publishes the canonical Integrity wiki as a generated read-only browser experience.
+Integrity MVP is the React/Vite presentation and operator-workflow layer for the Integrity Protocol product stack. It is not a standalone trust backend. It renders protocol state from integrity-core, surfaces Xibalba Shield endpoint-security evidence, and publishes the canonical Integrity wiki as a generated read-only browser experience.
 
 ## Source-of-truth contract
 
-This README is the repo-level source of truth for what this application is, what it owns, what it consumes, and what is currently built. Deeper product intent lives in [SPECIFICATION.md](SPECIFICATION.md), [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md), and archived historical plans under [docs/archive/2026-08-06](docs/archive/2026-08-06). Protocol schemas, ports, contracts, and backend behavior remain owned by INTEGRITY-LATEST, especially [docs/INTERFACE_CONTRACT.md](https://github.com/XibalbaTechSol/integrity-latest/blob/main/docs/INTERFACE_CONTRACT.md) and the canonical wiki under [INTEGRITY-LATEST/docs/wiki](https://github.com/XibalbaTechSol/integrity-latest/tree/main/docs/wiki).
+This README is the repo-level source of truth for what this application is, what it owns, what it consumes, and what is currently built. Deeper product intent lives in [SPECIFICATION.md](SPECIFICATION.md), [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md), and archived historical plans under [docs/archive/2026-08-06](docs/archive/2026-08-06). Protocol schemas, ports, contracts, and backend behavior remain owned by integrity-core, especially [docs/INTERFACE_CONTRACT.md](https://github.com/XibalbaTechSol/integrity-core/blob/main/docs/INTERFACE_CONTRACT.md) and the canonical wiki under [integrity-core/docs/wiki](https://github.com/XibalbaTechSol/integrity-core/tree/main/docs/wiki).
 
 If this README conflicts with code, fix the README or the code in the same change. Do not document mock behavior as production behavior.
 
@@ -23,7 +23,7 @@ This repository is the **conscious observer** in a four-project ecosystem design
 |---|---|---|
 | `xibalba-cortex` | 🧠 The Brain | Local cognitive store — memories, context, reasoning provenance, session Merkle roots |
 | `xibalba-shield` | 🛡️ The Immune System | Endpoint enforcement, kernel sensing, policy gating, semantic guardrails |
-| `INTEGRITY-LATEST` | 🦴 The Unifying Backend | Protocol backbone — on-chain identity, BCC, Oracle scoring, smart contracts |
+| `integrity-core` | 🦴 The Unifying Backend | Protocol backbone — on-chain identity, BCC, Oracle scoring, smart contracts |
 | **`integrity-mvp`** | **👁️ The Human Control Center** | Operator dashboard — visualizes health, surfaces evidence, enables human intervention |
 
 **How the Control Center connects:**
@@ -33,7 +33,7 @@ This repository is the **conscious observer** in a four-project ecosystem design
 
 ```mermaid
 flowchart LR
-    Backbone["🦴 INTEGRITY-LATEST<br/>(Oracle + Chain)"] ==>|"AIS, identity,<br/>governance, evidence"| Eyes["👁️ integrity-mvp<br/>(This repo)"]
+    Backbone["🦴 integrity-core<br/>(Oracle + Chain)"] ==>|"AIS, identity,<br/>governance, evidence"| Eyes["👁️ integrity-mvp<br/>(This repo)"]
     Brain["🧠 xibalba-cortex"] -.->|"Memory graph<br/>& provenance"| Eyes
     Immune["🛡️ xibalba-shield"] -->|"Signed telemetry"| Backbone
     Brain -->|"Session Merkle roots"| Backbone
@@ -42,37 +42,37 @@ flowchart LR
     Agent -->|"System calls"| Immune
 ```
 
-See [`INTEGRITY-LATEST/docs/architecture/ecosystem-dependencies.md`](https://github.com/XibalbaTechSol/integrity-latest/blob/main/docs/architecture/ecosystem-dependencies.md) for the canonical ownership boundaries.
+See [`integrity-core/docs/architecture/ecosystem-dependencies.md`](https://github.com/XibalbaTechSol/integrity-core/blob/main/docs/architecture/ecosystem-dependencies.md) for the canonical ownership boundaries.
 
 ## System relationship
 
 `integrity-mvp` sits at the top of a four-project operator stack:
 
-`integrity-mvp -> xibalba-cortex -> INTEGRITY-LATEST`
+`integrity-mvp -> xibalba-cortex -> integrity-core`
 
-`integrity-mvp -> xibalba-shield -> INTEGRITY-LATEST`
+`integrity-mvp -> xibalba-shield -> integrity-core`
 
-It also consumes INTEGRITY-LATEST APIs and contracts directly.
+It also consumes integrity-core APIs and contracts directly.
 
 | Project | Role | Boundary |
 |---|---|---|
-| `INTEGRITY-LATEST` | Protocol trust backend: SDK, BCC middleware, Oracle/AIS, user API, contracts, canonical wiki | MVP must not own protocol scoring, anchoring, Merkle conventions, or chain schemas |
+| `integrity-core` | Protocol trust backend: SDK, BCC middleware, Oracle/AIS, user API, contracts, canonical wiki | MVP must not own protocol scoring, anchoring, Merkle conventions, or chain schemas |
 | `xibalba-cortex` | Local cognitive store: memories, provenance, session roots, graph traversal | MVP may surface memory workflows and evidence; recalled memory remains untrusted content, not protocol truth |
 | `xibalba-shield` | Endpoint sensor/enforcer and signed security-evidence producer | MVP may surface Shield workflows and evidence; Shield remains its own repo/product |
 | `integrity-mvp` | Web presentation, operator workflows, generated wiki browser | No independent trust backend; no direct wiki authoring database |
 
-The cross-repository dependency boundary is documented in the generated wiki page **Ecosystem Dependencies** and in INTEGRITY-LATEST's [docs/architecture/ecosystem-dependencies.md](https://github.com/XibalbaTechSol/integrity-latest/blob/main/docs/architecture/ecosystem-dependencies.md).
+The cross-repository dependency boundary is documented in the generated wiki page **Ecosystem Dependencies** and in integrity-core's [docs/architecture/ecosystem-dependencies.md](https://github.com/XibalbaTechSol/integrity-core/blob/main/docs/architecture/ecosystem-dependencies.md).
 
 ## Definitions
 
 | Term | Meaning in this repo |
 |---|---|
-| AIS | Agent Integrity Score, computed by INTEGRITY-LATEST's Oracle/scoring core and rendered here |
-| BCC | Behavioral Commitment Chain pre-execution policy and signed-intent gate exposed through INTEGRITY-LATEST middleware |
+| AIS | Agent Integrity Score, computed by integrity-core's Oracle/scoring core and rendered here |
+| BCC | Behavioral Commitment Chain pre-execution policy and signed-intent gate exposed through integrity-core middleware |
 | XNS | Xibalba Name Service, the human-readable agent-domain surface rendered by identity flows |
-| Integrity Health | HIPAA/healthcare vertical in INTEGRITY-LATEST; not the same product as Xibalba Shield |
+| Integrity Health | HIPAA/healthcare vertical in integrity-core; not the same product as Xibalba Shield |
 | Xibalba Shield | Separate endpoint-security product whose evidence can be displayed by this app |
-| Canonical wiki | `INTEGRITY-LATEST/docs/wiki`; this app only renders a generated snapshot |
+| Canonical wiki | `integrity-core/docs/wiki`; this app only renders a generated snapshot |
 | Protocol TOC | Ordered left-rail wiki navigation implemented in `src/pages/WikiPage.tsx` |
 
 ## Current status
@@ -80,7 +80,7 @@ The cross-repository dependency boundary is documented in the generated wiki pag
 Built and verified in this repo:
 
 - React/Vite/TypeScript application shell with landing, dashboard, identity, intelligence, health, Shield, financials, developer/docs, memory, settings, privacy, terms, and wiki routes.
-- Real service clients for INTEGRITY-LATEST Oracle, user API, and BCC middleware in `src/services/`.
+- Real service clients for integrity-core Oracle, user API, and BCC middleware in `src/services/`.
 - Generated wiki browser at `/wiki` backed by `src/generated/wiki-data.json`.
 - Wiki renderer support for canonical Markdown tables, Mermaid diagrams, relative wiki navigation, repository-source links, right-rail article TOC, and ordered left-rail Protocol TOC.
 - Xibalba Solutions logo in the wiki header linked to `/`.
@@ -88,7 +88,7 @@ Built and verified in this repo:
 
 Still dependent on running backend services:
 
-- Live agent fleet, AIS, markets, wallet, XNS, BAA, governance, and Shield evidence depend on INTEGRITY-LATEST services/contracts and, for Shield-specific telemetry, a running xibalba-shield deployment exporting evidence into that stack.
+- Live agent fleet, AIS, markets, wallet, XNS, BAA, governance, and Shield evidence depend on integrity-core services/contracts and, for Shield-specific telemetry, a running xibalba-shield deployment exporting evidence into that stack.
 - When those services are not running, the frontend must fail visibly and safely rather than inventing live data.
 
 ## Application surface
@@ -101,14 +101,14 @@ Still dependent on running backend services:
 | Identity/XNS | `src/pages/IdentityPage.tsx`, `src/chain/xns.ts`, `src/components/ui/*XNS*` | Built UI/service integration surface |
 | Intelligence/telemetry | `src/pages/IntelligencePage.tsx`, `src/components/observability/*`, `src/components/ui/Telemetry*` | Built UI surface |
 | Memory graph | `src/pages/MemoryPage.tsx`, `src/components/GraphMemoryView.tsx`, `src/services/graphMemory.ts` | Built UI/service surface |
-| Integrity Health | `src/pages/HealthPage.tsx` | Built presentation surface; protocol truth lives in INTEGRITY-LATEST |
+| Integrity Health | `src/pages/HealthPage.tsx` | Built presentation surface; protocol truth lives in integrity-core |
 | Xibalba Shield | `src/pages/ShieldPage.tsx`, `src/chain/shield.ts` | Built presentation surface; Shield truth lives in xibalba-shield README/spec |
 | Financials/markets | `src/pages/FinancialsPage.tsx`, `src/chain/markets.ts` | Built UI/service surface |
 | Wiki | `src/pages/WikiPage.tsx`, `src/pages/WikiPage.css`, `scripts/sync-wiki.mjs`, `src/generated/wiki-data.json` | Built and regression-tested |
 
 ## Wiki synchronization
 
-`INTEGRITY-LATEST/docs/wiki/` is the sole authoring source of truth. The MVP `/wiki` route is a read-only generated projection, and the GitHub Wiki is another downstream mirror. Direct edits to either rendered surface are not reconciled upstream and may be overwritten.
+`integrity-core/docs/wiki/` is the sole authoring source of truth. The MVP `/wiki` route is a read-only generated projection, and the GitHub Wiki is another downstream mirror. Direct edits to either rendered surface are not reconciled upstream and may be overwritten.
 
 Run:
 
@@ -127,7 +127,7 @@ npm run build
 npm run test-e2e -- e2e/wiki.spec.ts
 ```
 
-The dev server defaults to Vite. Backend URLs are configured through `src/config.ts` and environment variables documented by INTEGRITY-LATEST. A complete local stack requires the INTEGRITY-LATEST Oracle, user API, BCC middleware, database/Redis/OPA dependencies, and optionally xibalba-shield for endpoint-security evidence.
+The dev server defaults to Vite. Backend URLs are configured through `src/config.ts` and environment variables documented by integrity-core. A complete local stack requires the integrity-core Oracle, user API, BCC middleware, database/Redis/OPA dependencies, and optionally xibalba-shield for endpoint-security evidence.
 
 ## Testing and validation
 
@@ -144,7 +144,7 @@ Known build warning: Vite reports large chunks because the app includes Mermaid,
 
 Near-term:
 
-- Keep `/wiki` synchronized with canonical INTEGRITY-LATEST Markdown and regression-tested on desktop/mobile.
+- Keep `/wiki` synchronized with canonical integrity-core Markdown and regression-tested on desktop/mobile.
 - Keep UI labels and product boundaries aligned with the three-repo dependency map.
 - Continue replacing static demonstration panels with explicit real-service reads where backend endpoints are available.
 - Add broader E2E coverage for Shield, identity, memory, and financial workflows as their backend contracts stabilize.
@@ -162,6 +162,6 @@ Longer-term:
 | [README.md](README.md) | This repo | Current application truth, status, commands, boundaries |
 | [SPECIFICATION.md](SPECIFICATION.md) | This repo | Current UI/product behavior specification |
 | [docs/archive/2026-08-06/landing_page_strategy.md](docs/archive/2026-08-06/landing_page_strategy.md) | This repo | Historical landing narrative |
-| [INTEGRITY-LATEST docs/INTERFACE_CONTRACT.md](https://github.com/XibalbaTechSol/integrity-latest/blob/main/docs/INTERFACE_CONTRACT.md) | INTEGRITY-LATEST | Backend schemas, ports, env vars, chain conventions |
-| [INTEGRITY-LATEST docs/wiki](https://github.com/XibalbaTechSol/integrity-latest/tree/main/docs/wiki) | INTEGRITY-LATEST | Canonical compiled protocol knowledge |
+| [integrity-core docs/INTERFACE_CONTRACT.md](https://github.com/XibalbaTechSol/integrity-core/blob/main/docs/INTERFACE_CONTRACT.md) | integrity-core | Backend schemas, ports, env vars, chain conventions |
+| [integrity-core docs/wiki](https://github.com/XibalbaTechSol/integrity-core/tree/main/docs/wiki) | integrity-core | Canonical compiled protocol knowledge |
 | [xibalba-shield README.md](https://github.com/XibalbaTechSol/xibalba-shield/blob/main/README.md) | xibalba-shield | Shield implementation status and plan |

@@ -18,7 +18,7 @@ this rewrite's entire point is not repeating that.
 
 ## Repository structure
 
-A single git repo at the root (`github.com/XibalbaTechSol/integrity-latest`), but still a
+A single git repo at the root (`github.com/XibalbaTechSol/integrity-core`), but still a
 Makefile-orchestrated set of independently versioned packages, each with its own dependency
 lockfile (`.venv`/`uv.lock`, `node_modules`, `Cargo.lock`) — there's no root-level package
 manifest tying them together, only the `Makefile`. `contracts/lib/forge-std` is a real git

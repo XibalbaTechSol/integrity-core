@@ -3,7 +3,7 @@ set -euo pipefail
 
 MVP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECTS_ROOT="$(cd "$MVP_ROOT/.." && pwd)"
-INTEGRITY_ROOT="${INTEGRITY_ROOT:-$PROJECTS_ROOT/INTEGRITY-LATEST}"
+INTEGRITY_ROOT="${INTEGRITY_ROOT:-$PROJECTS_ROOT/integrity-core}"
 GRAPH_ROOT="${GRAPH_ROOT:-$PROJECTS_ROOT/xibalba-graph-memory}"
 SHIELD_ROOT="${SHIELD_ROOT:-$PROJECTS_ROOT/xibalba-shield}"
 GRAPH_HOME="${XIBALBA_GRAPH_HOME:-$HOME/.hermes/xibalba-graph-memory}"

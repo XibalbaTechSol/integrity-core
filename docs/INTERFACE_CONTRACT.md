@@ -1,19 +1,19 @@
 # Integrity Protocol — Interface Contract (v1)
 
-This document is the single source of truth for how INTEGRITY-LATEST packages and internal services talk to each other. Every package is being rebuilt from scratch in parallel by a different engineer (human or agent) — if something isn't pinned down here, packages will drift and stop interoperating. When in doubt, follow this doc over any assumption from the old codebase.
+This document is the single source of truth for how integrity-core packages and internal services talk to each other. Every package is being rebuilt from scratch in parallel by a different engineer (human or agent) — if something isn't pinned down here, packages will drift and stop interoperating. When in doubt, follow this doc over any assumption from the old codebase.
 
 Repo documentation precedence is:
 
 1. `README.md` defines repo-level ownership, current package status, and source-of-truth pointers.
-2. This file defines internal schemas, ports, env vars, service boundaries, and cross-package call conventions inside INTEGRITY-LATEST.
+2. This file defines internal schemas, ports, env vars, service boundaries, and cross-package call conventions inside integrity-core.
 3. `spec/` defines externally-supported design and wire surfaces.
 4. `docs/wiki/` is the compiled long-term knowledge layer generated out to the GitHub Wiki and Integrity MVP browser wiki.
 
 Scope: this rewrite covers **six protocol core packages**:
 `contracts/`, `integrity-zkp/`, `integrity-oracle/`, `integrity-sdk/`,
-`integrity-cli/`, `bcc_middleware/` — plus `integrity-dashboard/`, the original INTEGRITY-LATEST dashboard/landing app (its `demo/` subdirectory is the multi-vertical investor/developer closed-loop scenario engine, see §11 — merged from the former separate `integrity-dashboard/` + `integrity-demo/` packages on 2026-07-09), `integrity-userapi/`, a dedicated user-accounts/auth backend kept strictly separate from the oracle (see §13), and `integrity-framework/`, a reputation-derivatives package reviving the old repo's marketplace/lending concept (see §12, not yet built). Everything else from the old repo (marketing site, unrelated scaffolding, legacy backups, stray installer scripts) is intentionally left out.
+`integrity-cli/`, `bcc_middleware/` — plus `integrity-dashboard/`, the original integrity-core dashboard/landing app (its `demo/` subdirectory is the multi-vertical investor/developer closed-loop scenario engine, see §11 — merged from the former separate `integrity-dashboard/` + `integrity-demo/` packages on 2026-07-09), `integrity-userapi/`, a dedicated user-accounts/auth backend kept strictly separate from the oracle (see §13), and `integrity-framework/`, a reputation-derivatives package reviving the old repo's marketplace/lending concept (see §12, not yet built). Everything else from the old repo (marketing site, unrelated scaffolding, legacy backups, stray installer scripts) is intentionally left out.
 
-External repositories are deliberately outside this interface contract. `integrity-mvp` is the standalone web presentation layer, and `xibalba-shield` is the endpoint-security evidence producer. They consume public INTEGRITY-LATEST interfaces; INTEGRITY-LATEST must not import, call, or require either external repo. The cross-repository dependency map is `docs/architecture/ecosystem-dependencies.md` and `docs/wiki/architecture/ecosystem-dependencies.md`.
+External repositories are deliberately outside this interface contract. `integrity-mvp` is the standalone web presentation layer, and `xibalba-shield` is the endpoint-security evidence producer. They consume public integrity-core interfaces; integrity-core must not import, call, or require either external repo. The cross-repository dependency map is `docs/architecture/ecosystem-dependencies.md` and `docs/wiki/architecture/ecosystem-dependencies.md`.
 
 Ground rule for this rewrite: **no silent mocks**. Every previously-stubbed
 piece (ZK proving, TEE attestation, OPA policy evaluation, on-chain BAA
@@ -980,7 +980,7 @@ Do not leave literal placeholder strings like the old `"MRENCLAVE_STUB"`.
 ## 9. Directory layout (top level)
 
 ```
-INTEGRITY-LATEST/
+integrity-core/
   docs/INTERFACE_CONTRACT.md   <- this file
   docker-compose.yml
   Makefile

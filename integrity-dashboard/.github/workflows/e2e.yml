@@ -2,17 +2,17 @@ name: e2e
 
 # Runs the real Playwright suite (e2e/) against a real, fully local backend stack --
 # no route mocking, no Base Sepolia dependency. integrity-mvp is deliberately a
-# separate repo from the core protocol (INTEGRITY-LATEST) -- public demo vs. core repo,
-# see PRODUCTION_GAPS.md -- so this workflow checks out INTEGRITY-LATEST as a sibling
+# separate repo from the core protocol (integrity-core) -- public demo vs. core repo,
+# see PRODUCTION_GAPS.md -- so this workflow checks out integrity-core as a sibling
 # to get its docker-compose.yml/Makefile/contracts, spins up a throwaway local anvil
 # chain + genesis deploy (the well-known anvil default test key baked into
-# INTEGRITY-LATEST's own Makefile, never a real secret), and points this repo's dev
+# integrity-core's own Makefile, never a real secret), and points this repo's dev
 # server at that stack's oracle/bcc_middleware over plain HTTP.
 #
-# Requires one repo secret this workflow cannot provision itself: INTEGRITY_LATEST_PAT,
+# Requires one repo secret this workflow cannot provision itself: INTEGRITY_CORE_PAT,
 # a fine-grained GitHub PAT with read-only "Contents" access to
-# XibalbaTechSol/integrity-latest (that repo is private). See this file's own
-# checkout-integrity-latest step for exactly what it's used for.
+# XibalbaTechSol/integrity-core (that repo is private). See this file's own
+# checkout-integrity-core step for exactly what it's used for.
 
 on:
   push:
@@ -28,18 +28,18 @@ jobs:
       - name: Checkout integrity-mvp
         uses: actions/checkout@v4
 
-      - name: Checkout integrity-latest (private sibling repo — needs INTEGRITY_LATEST_PAT)
+      - name: Checkout integrity-core (private sibling repo — needs INTEGRITY_CORE_PAT)
         uses: actions/checkout@v4
         with:
-          repository: XibalbaTechSol/integrity-latest
-          token: ${{ secrets.INTEGRITY_LATEST_PAT }}
-          path: integrity-latest
+          repository: XibalbaTechSol/integrity-core
+          token: ${{ secrets.INTEGRITY_CORE_PAT }}
+          path: integrity-core
 
       - name: Install Foundry (forge/anvil)
         uses: foundry-rs/foundry-toolchain@v1
 
       - name: Boot local anvil chain + genesis deploy (make chain)
-        working-directory: integrity-latest
+        working-directory: integrity-core
         run: |
           make chain
           # `make chain` backgrounds anvil and returns once the genesis deploy tx has
@@ -54,7 +54,7 @@ jobs:
           cast block-number --rpc-url http://localhost:8545
 
       - name: Boot oracle + bcc_middleware stack against the local chain
-        working-directory: integrity-latest
+        working-directory: integrity-core
         env:
           RPC_URL: http://localhost:8545
           CHAIN_ID: "31337"
@@ -93,5 +93,5 @@ jobs:
 
       - name: Dump stack logs on failure
         if: failure()
-        working-directory: integrity-latest
+        working-directory: integrity-core
         run: docker compose logs --tail=200 oracle-backend bcc-middleware opa postgres redis

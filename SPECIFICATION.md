@@ -1,11 +1,11 @@
-# INTEGRITY-LATEST Repository Specification
+# integrity-core Repository Specification
 
 **Updated:** 2026-08-06
 **Status:** Strong testnet protocol prototype; not production-ready.
 
 ## 1. Purpose
 
-INTEGRITY-LATEST is the protocol trust backend for the Integrity Protocol. It owns the on-chain primitives, off-chain scoring services, Behavioral Commitment Chain middleware, SDK/CLI surfaces, user API, dashboard package, ZKP package, canonical wiki, and versioned protocol specifications.
+integrity-core is the protocol trust backend for the Integrity Protocol. It owns the on-chain primitives, off-chain scoring services, Behavioral Commitment Chain middleware, SDK/CLI surfaces, user API, dashboard package, ZKP package, canonical wiki, and versioned protocol specifications.
 
 The repository defines how AI agents establish identity, commit to behavior before execution, submit signed telemetry, receive Agent Integrity Scores, interact with compliance and market primitives, and expose evidence that downstream applications can present without inventing trust claims.
 
@@ -24,10 +24,10 @@ The repository defines how AI agents establish identity, commit to behavior befo
 
 ## 3. Ecosystem Integration & Closed Loop
 
-The INTEGRITY-LATEST repository serves as the backbone for a 4-project ecosystem, designed conceptually as a living organism:
+The integrity-core repository serves as the backbone for a 4-project ecosystem, designed conceptually as a living organism:
 1. **`xibalba-cortex` (The Brain & Intelligence Layer)**: The agent's local cognitive store, managing memories and contextual thought.
 2. **`xibalba-shield` (The Immune System)**: The local endpoint enforcement sandbox that intercepts and neutralizes harmful actions.
-3. **`INTEGRITY-LATEST` (The Unifying Backend)**: The core protocol that securely ties everything together via cryptographic truth and scoring.
+3. **`integrity-core` (The Unifying Backend)**: The core protocol that securely ties everything together via cryptographic truth and scoring.
 4. **`integrity-mvp` (The Human Control Center)**: The central operator dashboard for human oversight and governance.
 
 ### Comprehensive Loop
@@ -45,7 +45,7 @@ flowchart TD
         Shield -->|Policy Evaluation & Sandboxing| Shield
     end
 
-    subgraph ProtocolLayer["2. INTEGRITY-LATEST (The Unifying Backend)"]
+    subgraph ProtocolLayer["2. integrity-core (The Unifying Backend)"]
         direction TB
         BCC["BCC Middleware<br/>(Intent Gate & Merkle Anchoring)"]
         Oracle["Integrity Oracle<br/>(AIS Scoring & Telemetry Ingest)"]
@@ -82,7 +82,7 @@ flowchart TD
 
 ## 4. Ownership Boundary
 
-INTEGRITY-LATEST owns protocol primitives and public protocol interfaces. It must not import or depend on integrity-mvp, xibalba-shield, or xibalba-cortex. Those repositories consume public Integrity interfaces and own their own presentation, endpoint, or local-memory implementation details.
+integrity-core owns protocol primitives and public protocol interfaces. It must not import or depend on integrity-mvp, xibalba-shield, or xibalba-cortex. Those repositories consume public Integrity interfaces and own their own presentation, endpoint, or local-memory implementation details.
 
 ## 5. Components
 
@@ -140,7 +140,7 @@ The protocol does not operate in isolation; it anchors an ecosystem conceptualiz
 
 - **🧠 The Brain & Intelligence Layer** (`xibalba-cortex`): The agent's cognitive store — memories, context, reasoning provenance, session Merkle roots.
 - **🛡️ The Immune System** (`xibalba-shield`): Endpoint enforcement, kernel sensing, policy gating, semantic guardrails. Detects threats and produces verifiable evidence.
-- **🦴 The Unifying Backend** (`INTEGRITY-LATEST`): The protocol backbone — on-chain identity, BCC commitment gate, Oracle scoring, smart contracts, ZK circuits.
+- **🦴 The Unifying Backend** (`integrity-core`): The protocol backbone — on-chain identity, BCC commitment gate, Oracle scoring, smart contracts, ZK circuits.
 - **👁️ The Human Control Center** (`integrity-mvp`): Operator dashboard — visualizes health, surfaces evidence, enables human intervention.
 
 ```mermaid
@@ -164,7 +164,7 @@ flowchart TD
         PolicyEng --> ShieldExporter
     end
 
-    subgraph Backbone["🦴 THE BACKBONE — INTEGRITY-LATEST"]
+    subgraph Backbone["🦴 THE BACKBONE — integrity-core"]
         direction TB
         BCC["BCC Middleware<br/>(Intent Gate & Merkle Anchoring)"]
         Oracle["Integrity Oracle<br/>(AIS Scoring & Telemetry)"]

@@ -47,4 +47,4 @@ This section exists to prevent silent capability transfer: a dashboard display d
 
 ## Shield specification boundary
 
-Xibalba Shield is a separate endpoint-security product. The Shield repository owns its detailed product and implementation specification in `SPECIFICATION.md`; INTEGRITY-LATEST retains `spec/xibalba-shield-v1.md` as the protocol-facing companion boundary. Integrity Protocol owns DID, BCC, telemetry, Merkle anchoring, AIS, delegation, and externally-supported wire surfaces. Shield consumes those surfaces without becoming a second scoring or anchoring backend.
+Xibalba Shield is a separate endpoint-security product. The Shield repository owns its detailed product and implementation specification in `SPECIFICATION.md`; integrity-core retains `spec/xibalba-shield-v1.md` as the protocol-facing companion boundary. Integrity Protocol owns DID, BCC, telemetry, Merkle anchoring, AIS, delegation, and externally-supported wire surfaces. Shield consumes those surfaces without becoming a second scoring or anchoring backend.

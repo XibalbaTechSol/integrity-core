@@ -1110,7 +1110,7 @@ When documents disagree, use this order:
 5. Repository README files for implementation status and operational commands.
 6. docs/wiki/ for reader-facing memory and navigation.
 
-External repositories own their own implementation status. `xibalba-shield` owns Shield endpoint behavior through its README and SPECIFICATION.md; `integrity-mvp` owns presentation behavior. INTEGRITY-LATEST owns protocol primitives and public protocol surfaces.
+External repositories own their own implementation status. `xibalba-shield` owns Shield endpoint behavior through its README and SPECIFICATION.md; `integrity-mvp` owns presentation behavior. integrity-core owns protocol primitives and public protocol surfaces.
 
 ### 23.4 No silent capability transfer
 

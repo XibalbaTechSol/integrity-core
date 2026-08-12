@@ -6,7 +6,7 @@ agent identity/reputation, zero-knowledge attestation, behavioral policy
 gating, off-chain scoring, and the SDK/CLI/dashboard/demo that use them.
 
 ## Conventions
-- **Canonical source**: `INTEGRITY-LATEST/docs/wiki/` on the main branch is the
+- **Canonical source**: `integrity-core/docs/wiki/` on the main branch is the
   only authoring source of truth. The Integrity MVP `/wiki` route and the
   repository's GitHub Wiki are generated, read-only projections of these files.
   Do not author or reconcile content in a downstream mirror; the next sync may
@@ -67,7 +67,7 @@ source_files:
 ## Publication flow
 
 ```text
-INTEGRITY-LATEST/docs/wiki
+integrity-core/docs/wiki
         ├── scripts/sync_wiki.py ──> GitHub Wiki
         └── integrity-mvp/scripts/sync-wiki.mjs ──> Integrity MVP /wiki
 ```

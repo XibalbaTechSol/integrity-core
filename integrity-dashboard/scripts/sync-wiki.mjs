@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const defaultSource = path.resolve(projectRoot, '..', 'INTEGRITY-LATEST', 'docs', 'wiki');
+const defaultSource = path.resolve(projectRoot, '..', 'integrity-core', 'docs', 'wiki');
 const sourceRoot = path.resolve(process.env.INTEGRITY_WIKI_SOURCE || defaultSource);
 const outputFile = path.join(projectRoot, 'src', 'generated', 'wiki-data.json');
 const categories = ['concepts', 'entities', 'architecture', 'guides', 'queries'];
@@ -121,7 +121,7 @@ const pages = await collectPages();
 await mkdir(path.dirname(outputFile), { recursive: true });
 await writeFile(outputFile, `${JSON.stringify({
   generatedAt,
-  source: 'https://github.com/XibalbaTechSol/integrity-latest/tree/main/docs/wiki',
+  source: 'https://github.com/XibalbaTechSol/integrity-core/tree/main/docs/wiki',
   commit,
   pages,
 }, null, 2)}\n`);

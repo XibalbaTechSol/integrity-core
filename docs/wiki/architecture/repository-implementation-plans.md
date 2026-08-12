@@ -20,7 +20,7 @@ source_files:
 
 This page is the cross-repository implementation and specification ledger for the Integrity Protocol product stack. It summarizes the root `IMPLEMENTATION_PLAN.md` and `SPECIFICATION.md` files that now exist in each project root:
 
-- `INTEGRITY-LATEST/IMPLEMENTATION_PLAN.md` and `INTEGRITY-LATEST/SPECIFICATION.md`
+- `integrity-core/IMPLEMENTATION_PLAN.md` and `integrity-core/SPECIFICATION.md`
 - `integrity-mvp/IMPLEMENTATION_PLAN.md` and `integrity-mvp/SPECIFICATION.md`
 - `xibalba-shield/IMPLEMENTATION_PLAN.md` and `xibalba-shield/SPECIFICATION.md`
 - `xibalba-cortex/IMPLEMENTATION_PLAN.md` and `xibalba-cortex/SPECIFICATION.md`
@@ -31,7 +31,7 @@ The root implementation plans and root specifications are the repo-local impleme
 
 - [Dependency order](#dependency-order)
 - [Audit evidence boundary](#audit-evidence-boundary)
-- [INTEGRITY-LATEST](#integrity-latest)
+- [integrity-core](#integrity-core)
 - [Integrity MVP](#integrity-mvp)
 - [Xibalba Shield](#xibalba-shield)
 - [Xibalba Cortex](#xibalba-cortex)
@@ -42,7 +42,7 @@ The root implementation plans and root specifications are the repo-local impleme
 
 ```mermaid
 flowchart LR
-    Latest["INTEGRITY-LATEST<br/>protocol backend, contracts, APIs, canonical wiki"]
+    Latest["integrity-core<br/>protocol backend, contracts, APIs, canonical wiki"]
     Shield["xibalba-shield<br/>endpoint evidence producer"]
     Graph["xibalba-cortex<br/>local provenance memory service"]
     MVP["integrity-mvp<br/>presentation and operator workflows"]
@@ -54,7 +54,7 @@ flowchart LR
     Graph -.->|future one-way citation boundary| Latest
 ```
 
-INTEGRITY-LATEST remains the protocol authority. Shield and graph memory do not become dependencies of INTEGRITY-LATEST unless a public interface explicitly adds that boundary. The MVP is a consumer and presentation layer.
+integrity-core remains the protocol authority. Shield and graph memory do not become dependencies of integrity-core unless a public interface explicitly adds that boundary. The MVP is a consumer and presentation layer.
 
 ## Audit evidence boundary
 
@@ -65,7 +65,7 @@ INTEGRITY-LATEST remains the protocol authority. Shield and graph memory do not 
 - `UNVERIFIED` and `REQUIRES REVIEW` claims must not be promoted to production status.
 - Dirty worktree evidence and clean default-branch evidence stay labeled separately until reviewed.
 
-## INTEGRITY-LATEST
+## integrity-core
 
 **Role:** Protocol trust backend: contracts, SDK, CLI, BCC middleware, Oracle/AIS, user API, dashboard, ZKP, canonical wiki, and protocol specs.
 
@@ -106,7 +106,7 @@ INTEGRITY-LATEST remains the protocol authority. Shield and graph memory do not 
 
 **Role:** React/Vite presentation and operator-workflow layer for the Integrity Protocol product stack.
 
-**Specification authority:** `README.md`, `SPECIFICATION.md`, `PRODUCTION_GAPS.md`, `docs/audits/2026-08-06-status.md`, archived historical plans under `docs/archive/2026-08-06/`, INTEGRITY-LATEST interface/wiki docs, and Shield README/spec status.
+**Specification authority:** `README.md`, `SPECIFICATION.md`, `PRODUCTION_GAPS.md`, `docs/audits/2026-08-06-status.md`, archived historical plans under `docs/archive/2026-08-06/`, integrity-core interface/wiki docs, and Shield README/spec status.
 
 **Audit checkpoint:** Clean-main production build passed, but `npm audit` reports 4 vulnerabilities, the documented ESLint command is broken, and hosted main E2E fails before tests when the private sibling checkout token is missing.
 
@@ -114,7 +114,7 @@ INTEGRITY-LATEST remains the protocol authority. Shield and graph memory do not 
 
 - [x] React/Vite/TypeScript shell exists with routes for landing, dashboard, identity, intelligence, health, Shield, financials, memory, settings, legal docs, and wiki.
 - [x] Service clients exist for Oracle, user API, and BCC middleware.
-- [x] Generated `/wiki` renders the canonical INTEGRITY-LATEST wiki snapshot.
+- [x] Generated `/wiki` renders the canonical integrity-core wiki snapshot.
 - [x] Wiki renders Markdown tables, Mermaid diagrams, relative links, repo links, article TOC, and ordered protocol TOC.
 - [x] Wiki header uses the Xibalba Solutions logo linked to `/`.
 - [x] Focused Playwright wiki suite validates current wiki behavior.
@@ -142,7 +142,7 @@ INTEGRITY-LATEST remains the protocol authority. Shield and graph memory do not 
 
 **Role:** Endpoint security agent for AI-agent discovery, local policy enforcement, guardrail hooks, and Integrity-backed evidence export.
 
-**Specification authority:** `SPECIFICATION.md`, `README.md`, `SECURITY.md`, `docs/audits/2026-08-06-status.md`, `shield/sensors/ebpf/README.md`, and INTEGRITY-LATEST protocol specs.
+**Specification authority:** `SPECIFICATION.md`, `README.md`, `SECURITY.md`, `docs/audits/2026-08-06-status.md`, `shield/sensors/ebpf/README.md`, and integrity-core protocol specs.
 
 **Audit checkpoint:** Root-free tests pass at 62 passed and 7 skipped. Process-exec and file-write eBPF verification are historical documented evidence; the audit did not reproduce live eBPF/exporter verification. TCP-connect remains blocked.
 
@@ -216,8 +216,8 @@ INTEGRITY-LATEST remains the protocol authority. Shield and graph memory do not 
 
 ## Cross-repository task list
 
-- [x] Add root `IMPLEMENTATION_PLAN.md` to INTEGRITY-LATEST.
-- [x] Add root `SPECIFICATION.md` to INTEGRITY-LATEST.
+- [x] Add root `IMPLEMENTATION_PLAN.md` to integrity-core.
+- [x] Add root `SPECIFICATION.md` to integrity-core.
 - [x] Add root `IMPLEMENTATION_PLAN.md` to integrity-mvp.
 - [x] Add root `SPECIFICATION.md` to integrity-mvp.
 - [x] Add root `IMPLEMENTATION_PLAN.md` to xibalba-shield.

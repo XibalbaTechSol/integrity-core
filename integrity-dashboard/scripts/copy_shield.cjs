@@ -1,7 +1,7 @@
 const fs = require('fs');
 
 const srcPath = '/home/xibalba/Projects/INTEGRITY/xibalba-shield/src/app/page.tsx';
-const destPath = '/home/xibalba/Projects/INTEGRITY-LATEST/integrity-dashboard/src/pages/ShieldPage.tsx';
+const destPath = '/home/xibalba/Projects/integrity-core/integrity-dashboard/src/pages/ShieldPage.tsx';
 
 let content = fs.readFileSync(srcPath, 'utf8');
 

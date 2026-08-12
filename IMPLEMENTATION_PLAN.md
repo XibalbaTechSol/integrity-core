@@ -1,7 +1,7 @@
-# INTEGRITY-LATEST Implementation Plan
+# integrity-core Implementation Plan
 
 **Updated:** 2026-08-06
-**Repository:** INTEGRITY-LATEST
+**Repository:** integrity-core
 **Role:** Protocol trust backend: contracts, SDK, CLI, BCC middleware, Oracle/AIS, user API, dashboard, ZKP, canonical wiki, and protocol specs.
 
 This plan merges README.md, SPECIFICATION.md, PRODUCTION_GAPS.md, docs/INTERFACE_CONTRACT.md, spec/README.md, spec/integrity-protocol-v0.4.md, spec/xibalba-shield-v1.md, docs/MAINNET_READINESS.md, docs/ENTERPRISE_ADOPTION.md, docs/audits/2026-08-06-cross-repository-status.md, package READMEs, and the canonical wiki into one implementation task ledger.
@@ -22,7 +22,7 @@ This plan merges README.md, SPECIFICATION.md, PRODUCTION_GAPS.md, docs/INTERFACE
 
 ## Audit checkpoint — 2026-08-06
 
-Current observed status is [`docs/audits/2026-08-06-cross-repository-status.md`](docs/audits/2026-08-06-cross-repository-status.md). The clean default-branch audit confirms broad tested prototype capability, but main CI is red on SDK test/implementation drift ([run 31087969036](https://github.com/XibalbaTechSol/integrity-latest/actions/runs/31087969036)); PR #48 is green but unmerged. Deployment, identity, role, bytecode, production-control, and automatic-merge claims remain open review items. This plan's `[x]` entries mean the artifact exists or the scoped behavior was locally verified; they do not mean production readiness.
+Current observed status is [`docs/audits/2026-08-06-cross-repository-status.md`](docs/audits/2026-08-06-cross-repository-status.md). The clean default-branch audit confirms broad tested prototype capability, but main CI is red on SDK test/implementation drift ([run 31087969036](https://github.com/XibalbaTechSol/integrity-core/actions/runs/31087969036)); PR #48 is green but unmerged. Deployment, identity, role, bytecode, production-control, and automatic-merge claims remain open review items. This plan's `[x]` entries mean the artifact exists or the scoped behavior was locally verified; they do not mean production readiness.
 
 ## Closed
 
@@ -81,7 +81,7 @@ Current observed status is [`docs/audits/2026-08-06-cross-repository-status.md`]
 ### Shield And MVP Boundaries
 
 - [ ] Keep spec/xibalba-shield-v1.md as protocol-facing boundary only.
-- [ ] Do not import or depend on xibalba-shield or integrity-mvp from INTEGRITY-LATEST.
+- [ ] Do not import or depend on xibalba-shield or integrity-mvp from integrity-core.
 - [ ] Expose only public SDK/API/contract surfaces consumed by those repos.
 - [ ] Keep ecosystem-dependencies wiki page aligned with repo READMEs.
 

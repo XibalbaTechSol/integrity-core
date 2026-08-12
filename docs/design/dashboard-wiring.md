@@ -1,6 +1,6 @@
 # integrity-dashboard — Wiring Plan (make every widget real, no mocks)
 
-Copying the legacy `integrity-dashboard` UI into INTEGRITY-LATEST (as a **parallel** app
+Copying the legacy `integrity-dashboard` UI into integrity-core (as a **parallel** app
 alongside `integrity-dashboard`) and wiring every widget to the **real** backend. Where the new oracle
 has no matching data source, the decision is to **build the real endpoint / on-chain call** —
 not to badge a gap. "Keep all visuals the same."

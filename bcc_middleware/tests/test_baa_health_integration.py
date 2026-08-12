@@ -71,7 +71,7 @@ def _new_agent_with_resolved_address(respx_mock: respx.MockRouter) -> tuple[str,
     return agent_id, agent_address
 
 # Monorepo layout per docs/INTERFACE_CONTRACT.md §9: bcc_middleware/ and
-# contracts/ are sibling packages under INTEGRITY-LATEST/. `forge build`
+# contracts/ are sibling packages under integrity-core/. `forge build`
 # must have already run in contracts/ (it has, as of this test being
 # written -- out/ is checked for at collection time below rather than
 # assumed, so a missing build fails loudly instead of silently skipping).
