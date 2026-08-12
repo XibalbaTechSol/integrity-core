@@ -70,7 +70,7 @@ Current observed status is [`docs/audits/2026-08-06-status.md`](docs/audits/2026
 
 - [ ] Add or declare ESLint, or remove the broken `lint` script so the documented lint command is truthful.
 - [ ] Triage the 4 reported npm vulnerabilities without blindly applying forced major upgrades.
-- [ ] Fix private sibling checkout handling for `INTEGRITY_LATEST_PAT` and ensure the E2E failure handler tolerates a missing checkout directory.
+- [ ] Fix private sibling checkout handling for `INTEGRITY_CORE_PAT` and ensure the E2E failure handler tolerates a missing checkout directory.
 - [ ] Complete and archive the real Playwright suite against a booted local stack.
 - [ ] Verify frontend hosting/release path; the current Dockerfile starts a Vite development server, not a production bundle server.
 - [ ] Mark Zero-Knowledge, Trusted Execution Environment, healthcare interoperability, financial-market, and Shield claims with direct evidence or `[PLANNED]`/`[UNVERIFIED]`.

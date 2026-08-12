@@ -4,9 +4,9 @@ set -euo pipefail
 MVP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECTS_ROOT="$(cd "$MVP_ROOT/.." && pwd)"
 INTEGRITY_ROOT="${INTEGRITY_ROOT:-$PROJECTS_ROOT/integrity-core}"
-GRAPH_ROOT="${GRAPH_ROOT:-$PROJECTS_ROOT/xibalba-graph-memory}"
+GRAPH_ROOT="${GRAPH_ROOT:-$PROJECTS_ROOT/xibalba-cortex}"
 SHIELD_ROOT="${SHIELD_ROOT:-$PROJECTS_ROOT/xibalba-shield}"
-GRAPH_HOME="${XIBALBA_GRAPH_HOME:-$HOME/.hermes/xibalba-graph-memory}"
+GRAPH_HOME="${XIBALBA_CORTEX_HOME:-$HOME/.hermes/xibalba-cortex}"
 GRAPH_PORT="${GRAPH_PORT:-8420}"
 SHIELD_PORT="${SHIELD_PORT:-8765}"
 SHIELD_TOKEN="${SHIELD_BACKEND_TOKEN:-dev-shield-admin}"
@@ -29,13 +29,13 @@ trap cleanup EXIT INT TERM
 # --- 🧠 Graph Memory Local API ---
 if ! curl --silent --fail "http://localhost:${GRAPH_PORT}/api/status" >/dev/null 2>&1; then
   if [[ ! -x "$GRAPH_ROOT/.venv/bin/python" ]]; then
-    printf 'Missing graph-memory virtualenv: %s\n' "$GRAPH_ROOT/.venv/bin/python" >&2
+    printf 'Missing xibalba-cortex virtualenv: %s\n' "$GRAPH_ROOT/.venv/bin/python" >&2
     exit 1
   fi
-  printf '🧠 Starting xibalba-graph-memory on port %s\n' "$GRAPH_PORT"
+  printf '🧠 Starting xibalba-cortex on port %s\n' "$GRAPH_PORT"
   (
     cd "$GRAPH_ROOT"
-    exec .venv/bin/python -m xibalba_graph.local_api \
+    exec .venv/bin/python -m xibalba_cortex.local_api \
       --home "$GRAPH_HOME" \
       --host localhost \
       --port "$GRAPH_PORT" \
@@ -43,7 +43,7 @@ if ! curl --silent --fail "http://localhost:${GRAPH_PORT}/api/status" >/dev/null
   ) &
   GRAPH_PID=$!
 else
-  printf '🧠 Using existing xibalba-graph-memory on port %s\n' "$GRAPH_PORT"
+  printf '🧠 Using existing xibalba-cortex on port %s\n' "$GRAPH_PORT"
 fi
 
 # --- 🛡️ Shield Backend ---

@@ -1,3 +1,159 @@
+# Handoff — 2026-08-12 (ecosystem stabilization + dual rename: xibalba-graph-memory → xibalba-cortex, INTEGRITY-LATEST → integrity-core)
+
+Cross-repo session covering `integrity-core` (this repo), `xibalba-shield`, and `xibalba-cortex`.
+All three repos are clean, tested, fully committed, and fully pushed as of this writing. Nothing
+below is inferred — every claim was verified directly (test suites run, files read, git history
+checked) during the session.
+
+## 0. If you take away nothing else
+
+- Old names are gone. `INTEGRITY-LATEST` and `xibalba-graph-memory` no longer exist as
+  directories or GitHub repos — they are `integrity-core` and `xibalba-cortex` now (old GitHub
+  URLs redirect). Don't reintroduce the old names anywhere.
+- **Shield currently has NO path to a signed BCC commitment.** The `shield/integrity_exporter`
+  module (real signing + submission to `bcc_middleware`) was removed and replaced with plain
+  OTel spans that nothing on the `bcc_middleware` side ingests. Tracked in
+  `xibalba-shield/IMPLEMENTATION_PLAN.md`'s "Known gap — 2026-08-12" section. This is a real
+  regression from previously-working behavior, not a planned-but-unbuilt gap — treat it as
+  higher priority than most open items below.
+- **The real ZK verifier is live but untested.** `contracts/src/oracle/UltraPlonkVerifier.sol`
+  is the actual `bb`-generated verifier now, not the placeholder — `forge build`/`forge test`
+  both pass clean (195/195). But there is zero test coverage exercising it with a real proof.
+  Tracked in `PRODUCTION_GAPS.md` #26.
+- **This repo's own `CLAUDE.md` is stale on that exact point** — its "ZK proof pipeline"
+  section still says `UltraPlonkVerifier.sol` "is an explicit placeholder that reverts... until
+  replaced wholesale by `make generate-verifier`." That's no longer true. Not fixed this
+  session (out of scope of the rename work); fix it before trusting that section again.
+
+## 1. What actually happened, in order
+
+1. **Full audit** of `xibalba-shield`, `xibalba-cortex` (then `xibalba-graph-memory`), and this
+   repo (then `INTEGRITY-LATEST`) — git state, uncommitted work, dependency direction, what's
+   real vs. documented-only.
+2. **Stabilized all three repos' pre-existing uncommitted work** rather than renaming a broken
+   tree:
+   - `bcc_middleware/app/opa_client.py` had been accidentally deleted (unstaged) while
+     `main.py` still imported it — `bcc_middleware` genuinely could not import. Restored
+     byte-identical from git history.
+   - `contracts/src/oracle/UltraPlonkVerifier.sol`'s dropped `IZkVerifier` conformance and the
+     deleted `contracts/test/UltraPlonkVerifier.t.sol` / one test in
+     `ReputationRegistry.t.sol` were initially suspected as damage — verified they're actually
+     the correct, necessary consequence of swapping in the real `bb`-generated verifier (adding
+     back `is IZkVerifier` reproduces a genuine Solidity diamond-conflict compile error;
+     confirmed by reproducing then reverting). The removed tests only asserted placeholder-only
+     behavior and are correctly gone, not restorable. See §0 for the resulting gap.
+   - `xibalba-cortex`'s `store.py` had drifted its event-schema constant from
+     `"xibalba.memory.event.v1"` to `"xibalba.memory_event.v1"` in the same uncommitted diff
+     that delegated hashing to `integrity_sdk.crypto.merkle.compute_node_hash`. Since
+     `verify_chain()` recomputes every stored event's hash using the *current* schema constant,
+     this would have made all 366 real memories in the live
+     `~/.hermes/xibalba-cortex/graph-memory.sqlite3` fail chain verification with a false
+     "corrupted" result. Reverted just the schema string; verified all sampled chains valid
+     against the real store afterward.
+   - `xibalba-shield`'s uncommitted `integrity_exporter` → OTel + in-process rules → real-OPA
+     refactor was mostly done but left stray references to the deleted module in scripts,
+     dead test scaffolding (`_RecordingExporter` classes, unused after a `fix_tests.py` scratch
+     script had already run once), and zero test coverage for the new span-based telemetry path
+     in `agent_core/router.py`. Cleaned up; added 2 new tests (success + tracer-failure paths).
+   - **Found a real structural bug in this repo**: `integrity-dashboard/` had its own separate,
+     live `.git` (a real, unregistered clone of `integrity-mvp`, not a submodule), while this
+     outer repo separately tracked a *stale, directly-committed snapshot* of the same path from
+     2026-08-04 — silently diverged for over a week. Confirmed with the user this was leftover
+     from the `integrity-mvp`-into-`integrity-core` migration, not the intended state. Removed
+     the nested `.git`, reconciled the outer repo to `integrity-mvp`'s actual current state
+     (249 files: old single-page panel UI → new routed multi-page app with real
+     `shieldBackend.ts`/`graphMemory.ts`/`bccMiddleware.ts` integration clients). One file
+     (`gas_usage.jsonl`, an append-only ledger) had disappeared with no successor in that
+     diff — restored from its last known state rather than silently dropped.
+   - Removed `integrity-dashboard/demo/src/integrity_demo/framework/` (19MB, ~788 files) — an
+     unreferenced directory closely mirroring `~/.hermes/hermes-agent`'s own
+     skills/hermes_cli/acp_registry layout, sitting unused in a **public** repo
+     (`integrity-mvp`) since before this session. Confirmed zero imports from it anywhere in
+     the demo package before removing.
+3. **Renamed `xibalba-graph-memory` → `xibalba-cortex`** end-to-end: GitHub repo, local folder,
+   Python package (`xibalba_graph` → `xibalba_cortex`), env vars (`XIBALBA_GRAPH_MEMORY_*` →
+   `XIBALBA_CORTEX_*`), console scripts, MCP server registration name, default state-directory
+   paths, the live `~/.hermes/xibalba-graph-memory` state dir → `~/.hermes/xibalba-cortex`
+   (366 real memories moved intact, verified), `~/.hermes/config.yaml`, the Hermes plugin
+   directory + hardcoded bridge paths, `~/.hermes/cron/jobs.json`, `~/.claude.json`'s
+   project/mcpServers/githubRepoPaths entries (backed up first — see `~/.claude.json.bak-*`).
+4. **Renamed `INTEGRITY-LATEST` → `integrity-core`** end-to-end, same pattern: GitHub repo
+   (`integrity-protocol` was considered and rejected — collides with an existing archived
+   private repo in the org), local folder, `contracts/foundry.toml`'s CI-runner path,
+   `integrity-dashboard/scripts/copy_shield.cjs`, CI workflows (`e2e.yml`/`wiki-sync.yml` —
+   including renaming the required PAT secret `INTEGRITY_LATEST_PAT` → `INTEGRITY_CORE_PAT`,
+   **which does not exist yet** — user is handling secret creation separately),
+   `wiki-data.json` regenerated via its own sync script (not hand-edited), both sibling repos'
+   (`xibalba-shield`, `xibalba-cortex`) dependency paths, `~/.hermes/config.yaml`'s
+   `pre_tool_call` hook path, `~/.claude.json` entries, workspace-level
+   `/home/xibalba/Projects/CLAUDE.md`.
+5. Discovered mid-rename that the branch being worked on (`audit/harness-loop-2026-07-30`) had
+   **already been merged into `main` via PR #50 on 2026-08-07** — local `main` was just stale
+   (87 commits behind), not genuinely diverged. All new work this session is additional commits
+   on top of that already-merged branch, pushed to its own remote ref, **not yet landed into
+   `main` via a fresh PR/fast-forward**.
+
+## 2. Verification performed (all passing except where noted)
+
+| Package | Result |
+|---|---|
+| `contracts` | `forge build` clean, `forge test`: 195/195 |
+| `integrity-sdk` | 262 passed, 2 skipped |
+| `integrity-cli` | 68 passed, 1 skipped |
+| `bcc_middleware` | 121 passed |
+| `integrity-oracle` (Rust) | 130 passed (119 backend + 11 scoring-core) |
+| `integrity-userapi` | **not verified** — needs local Postgres on `:5435`, not running in this environment |
+| `integrity-dashboard` | `tsc -b && vite build` clean; `eslint .` 0 errors (54 pre-existing unused-var warnings untouched); `playwright test` (`test-e2e`) 20/26 — the 6 failures are `health.spec.ts`/`shield.spec.ts` tests needing a live oracle/bcc_middleware stack that wasn't running, not code bugs |
+| `xibalba-shield` | 99 passed, 6 skipped |
+| `xibalba-cortex` | 108 passed, 1 skipped |
+
+## 3. Open items, in rough priority order
+
+1. **Shield's BCC-signing gap (§0)** — needs a real design decision: does Shield call
+   `integrity_sdk.bcc.build_bcc_commitment` directly again, or does `bcc_middleware` grow a
+   real OTLP ingestion endpoint that converts incoming spans to signed commitments? Not started.
+2. **Create `INTEGRITY_CORE_PAT`** GitHub secret on `integrity-mvp`'s repo settings (fine-grained
+   PAT, read-only Contents access to `XibalbaTechSol/integrity-core`) — user is handling this.
+3. **Land `audit/harness-loop-2026-07-30` into `main`** — it's pushed to its own remote ref but
+   not yet merged/fast-forwarded into `main` via a fresh PR.
+4. **Write real ZK verifier tests** (§0) — feed `UltraPlonkVerifier.sol` an actual proof from
+   `integrity-zkp`'s pipeline, confirm valid proofs verify and invalid ones don't.
+5. **Fix this repo's own stale `CLAUDE.md`** (§0's third bullet) and do a broader documentation
+   accuracy pass — requested by the user at session end, scoped to README/SPECIFICATION/
+   IMPLEMENTATION_PLAN/`docs/INTERFACE_CONTRACT.md`/`PRODUCTION_GAPS.md` plus the full
+   `docs/wiki/` tree across all three repos, explicitly **not** yet started (survey agents were
+   launched, one early finding was `docs/wiki/WIKI_LOG.md` is 6 days stale, then stopped
+   without applying fixes so the session could wrap cleanly). Pick this up fresh.
+6. **Phase 3 verification from the original plan, not done**: confirm Shield's DID registration
+   actually round-trips against `integrity-core`'s oracle for real (not just that scripts
+   import); confirm whether `xibalba-cortex`'s `anchor_session_root()` has a live receiver
+   configured anywhere on the `integrity-core` side — as of this session, confirmed **no**' —
+   `XIBALBA_ANCHOR_URL` is documented as something the operator must configure themselves
+   (`xibalba-cortex` commit `572f581`), not something this repo currently serves.
+7. **Phase 4 cleanup, not done**: `/home/xibalba/Projects/INTEGRITY/xibalba-shield` (a stale,
+   unrelated Next.js prototype from the legacy `INTEGRITY` tree) still exists; `/home/xibalba/
+   Projects/integrity-mvp/integrity-mvp_ARCHIVED/` is still in that confusing nested-folder
+   shape (it's the live standalone `integrity-mvp` repo, not actually archived).
+8. **Consider purging `demo/framework/`'s git history** if its prior public exposure on GitHub
+   matters — removed from the working tree this session, but old commits (back to `94e226a`)
+   still contain it in history/GitHub's cache unless separately purged. Not done, not requested.
+
+## 4. Do not
+
+- Don't restart the `hermes mcp serve` processes forcibly. They are children of *running Claude
+  Code sessions* (confirmed via process ancestry — parent is a `claude` process), not a
+  standalone daemon; killing one breaks that session's live tool access with no warning to
+  whoever's using it. Each session picks up the renamed MCP config naturally on its own next
+  restart.
+- Don't assume `integrity-dashboard/` is a git submodule — it deliberately isn't (see §1.2); it's
+  a plain tracked directory in this repo now, matching the intended
+  `integrity-mvp`-migrated-into-`integrity-core` architecture.
+- Don't treat GitHub's Dependabot warning (94 vulnerabilities: 2 critical, 53 high, 36 moderate,
+  3 low, surfaced on every push this session) as something this session addressed — it wasn't
+  investigated at all, just observed.
+
+---
+
 # Handoff — 2026-07-31 (recovery session; shell restored, stack green)
 
 Supersedes the previous handoff of the same date, which was written with **no shell**

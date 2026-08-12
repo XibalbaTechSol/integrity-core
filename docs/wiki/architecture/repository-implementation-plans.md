@@ -129,7 +129,7 @@ integrity-core remains the protocol authority. Shield and graph memory do not be
 - [ ] Add broader Playwright coverage for identity, Shield, memory, and financial workflows.
 - [ ] Add or declare ESLint, or remove the broken `lint` script.
 - [ ] Triage npm vulnerabilities without forced major upgrades.
-- [ ] Fix private sibling checkout handling for `INTEGRITY_LATEST_PAT` and archive a real local-stack Playwright run.
+- [ ] Fix private sibling checkout handling for `INTEGRITY_CORE_PAT` and archive a real local-stack Playwright run.
 - [ ] Verify frontend hosting/release path instead of treating the Vite dev-server Dockerfile as production hosting.
 
 **Blocked:**
@@ -144,19 +144,22 @@ integrity-core remains the protocol authority. Shield and graph memory do not be
 
 **Specification authority:** `SPECIFICATION.md`, `README.md`, `SECURITY.md`, `docs/audits/2026-08-06-status.md`, `shield/sensors/ebpf/README.md`, and integrity-core protocol specs.
 
-**Audit checkpoint:** Root-free tests pass at 62 passed and 7 skipped. Process-exec and file-write eBPF verification are historical documented evidence; the audit did not reproduce live eBPF/exporter verification. TCP-connect remains blocked.
+**Audit checkpoint:** Root-free tests pass at 103 passed and 7 skipped. Process-exec and file-write eBPF verification are historical documented evidence; the audit did not reproduce live eBPF/exporter verification. TCP-connect remains blocked.
 
 **Closed:**
 
 - [x] Event and policy schemas exist.
 - [x] Policy engine is table-driven, local/offline, first-match, and tested.
 - [x] Agent Core exists: DeviceContext, AgentRegistry, EventRouter, EventLog.
-- [x] Integrity Exporter uses real `integrity-sdk` BCC signing and telemetry submission.
+- [~] Integrity Exporter uses real `integrity-sdk` BCC signing and telemetry submission.
+  **Regressed 2026-08-07 (uncommitted) — replaced with unconditional OTel spans that
+  `bcc_middleware` doesn't ingest; not currently true. See xibalba-shield's
+  `IMPLEMENTATION_PLAN.md` "Known gap — 2026-08-12".**
 - [x] Exporter has historically documented live-stack proof against `bcc_middleware`; current audit did not reproduce the live exporter path.
 - [x] Six guardrail hooks exist and are tested.
 - [x] CLI supports status, events, validate, and run commands.
 - [x] Process-exec and file-write Linux eBPF sensors are live-verified.
-- [x] Root-free test suite passes: 62 passed, 7 skipped.
+- [x] Root-free test suite passes: 103 passed, 7 skipped.
 
 **Planned / todo:**
 
@@ -181,7 +184,7 @@ integrity-core remains the protocol authority. Shield and graph memory do not be
 
 **Role:** Local, provenance-aware graph memory MCP server and runtime-controller substrate for Xibalba agent memory.
 
-**Specification authority:** `SPECIFICATION.md`, `spec/xibalba-cortex-v1.md`, `README.md`, `docs/audits/2026-08-06-status.md`, archived historical plans under `docs/archive/2026-08-06/`, `docs/architecture/runtime-controller-contract.md`, `docs/architecture/event-hash-chain.md`, and `docs/integrity/xibalba-graph-crypto-profile-v1.md`.
+**Specification authority:** `SPECIFICATION.md`, `spec/xibalba-cortex-v1.md`, `README.md`, `docs/audits/2026-08-06-status.md`, archived historical plans under `docs/archive/2026-08-06/`, `docs/architecture/runtime-controller-contract.md`, `docs/architecture/event-hash-chain.md`, and `docs/integrity/xibalba-cortex-crypto-profile-v1.md`.
 
 **Audit checkpoint:** The suite passes with `uv sync --extra drive && uv run pytest -q`; plain default test collection fails because Drive tests import optional Google dependencies without the Drive extra. Runtime adapters, controller/session synchronization, tests, and viewer changes are present in the dirty worktree and require separate review.
 

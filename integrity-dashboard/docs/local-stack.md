@@ -24,7 +24,7 @@ Useful overrides:
 
 ```bash
 INTEGRITY_ROOT=/path/to/integrity-core \
-XIBALBA_GRAPH_HOME=/path/to/graph-home \
+XIBALBA_CORTEX_HOME=/path/to/graph-home \
 ./scripts/dev-stack.sh
 ```
 

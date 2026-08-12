@@ -64,7 +64,7 @@ Per-package, when iterating on one piece:
 ```bash
 # contracts/  (Foundry, solc 0.8.28, via_ir=true)
 cd contracts && forge build
-cd contracts && forge test                      # 165 tests
+cd contracts && forge test                      # 195 tests
 forge script script/Deploy.s.sol --rpc-url base_sepolia --broadcast --verify       # genesis deploy
 forge script script/DeployMarkets.s.sol --rpc-url base_sepolia --broadcast --verify # incremental app-layer deploy
 
@@ -76,12 +76,12 @@ cd integrity-zkp && make build             # test + prove + verify + solidity-ve
 # integrity-oracle/  (Cargo workspace: scoring-core + backend)
 cd integrity-oracle && cargo build
 cd integrity-oracle && cargo run --bin oracle-backend   # needs DATABASE_URL, REDIS_URL env vars minimum
-cd integrity-oracle && cargo test --workspace --lib     # 37 tests (29 backend + 8 scoring-core)
+cd integrity-oracle && cargo test --workspace --lib     # 130 tests (119 backend + 11 scoring-core)
 ORACLE_E2E=1 cargo test --test e2e                      # opt-in, needs a real TEST_DATABASE_URL/TEST_REDIS_URL
 
 # integrity-sdk/, integrity-cli/, bcc_middleware/, integrity-userapi/  (uv-managed Python)
 cd <pkg> && uv venv .venv && uv pip install -e ".[dev]"
-cd <pkg> && .venv/bin/python -m pytest tests/          # sdk: 97 tests, cli: 49 tests, bcc_middleware: 49 tests
+cd <pkg> && .venv/bin/python -m pytest tests/          # sdk: 262 passed/2 skipped, cli: 68 passed/1 skipped, bcc_middleware: 121 tests
 cd bcc_middleware && opa test policies/ -v             # 12 OPA policy tests, separate from pytest
 
 # integrity-dashboard/  (Vite/React 19/TS)
@@ -113,9 +113,15 @@ bridge), `markets/` (agent-owned prediction markets + capital pool), `health/` (
 `ComplianceGate`, `CoveredEntityRegistry`, `EHRGate`, `SmartBAA(Factory)`,
 `HIPAAGuardrailRegistry`).
 
-`UltraPlonkVerifier.sol` is an explicit placeholder that reverts (fails *closed*) until replaced
-wholesale by `make generate-verifier`, which runs `integrity-zkp`'s `bb write_solidity_verifier`
-pipeline — comment in the file says "WILL BE REPLACED WHOLESALE, NOT EDITED."
+`UltraPlonkVerifier.sol` is now the real `bb`-generated verifier (as of 2026-08-12), not the
+placeholder — `make generate-verifier` already ran, via `integrity-zkp`'s
+`bb write_solidity_verifier` pipeline, and `forge build` compiles it clean. It deliberately does
+not formally inherit `IZkVerifier` (the generated file already carries Barretenberg's own
+`IVerifier`, and adding `IZkVerifier` too causes a diamond-conflict compile error) — it's
+satisfied via ABI-compatible low-level dispatch in `VerifierRegistry.sol` instead, which is
+exactly what let the swap from placeholder to real verifier happen without touching any calling
+contract. **Zero test coverage exists yet exercising it with a real proof** — see
+`PRODUCTION_GAPS.md` §26 for the full record and what's still open.
 
 ### The four foundational primitives
 
