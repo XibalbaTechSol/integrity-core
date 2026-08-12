@@ -1,9 +1,17 @@
-# Integrity MVP
+# Integrity Dashboard
+
+**Corrected 2026-08-12:** this component was previously developed as a separate `integrity-mvp`
+repository. That standalone repository is now stale/superseded (still references this repo's
+pre-rename name, `INTEGRITY-LATEST`, and hasn't been touched since 2026-08-07) — this
+`integrity-dashboard/` directory, inside `integrity-core`, is the actively developed presentation
+layer going forward. Historical references to "Integrity MVP" below describe that superseded
+repository's identity and are left as recorded history where they document completed work, not
+current architecture.
 
 For the full local Oracle, BCC middleware, and graph-memory workflow, see
 [`docs/local-stack.md`](docs/local-stack.md) and run `./scripts/dev-stack.sh`.
 
-Integrity MVP is the React/Vite presentation and operator-workflow layer for the Integrity Protocol product stack. It is not a standalone trust backend. It renders protocol state from integrity-core, surfaces Xibalba Shield endpoint-security evidence, and publishes the canonical Integrity wiki as a generated read-only browser experience.
+Integrity Dashboard is the React/Vite presentation and operator-workflow layer for the Integrity Protocol product stack. It is not a standalone trust backend. It renders protocol state from integrity-core, surfaces Xibalba Shield endpoint-security evidence, and publishes the canonical Integrity wiki as a generated read-only browser experience.
 
 ## Source-of-truth contract
 
@@ -17,14 +25,13 @@ See [`docs/audits/2026-08-06-status.md`](docs/audits/2026-08-06-status.md), the 
 
 ## Ecosystem Role: 👁️ The Human Control Center
 
-This repository is the **conscious observer** in a four-project ecosystem designed as a living organism:
+This component is the **conscious observer** in a three-repository ecosystem designed as a living organism (this directory is a component of `integrity-core`, not a fourth repository):
 
 | Repository | Analogy | Role |
 |---|---|---|
 | `xibalba-cortex` | 🧠 The Brain | Local cognitive store — memories, context, reasoning provenance, session Merkle roots |
 | `xibalba-shield` | 🛡️ The Immune System | Endpoint enforcement, kernel sensing, policy gating, semantic guardrails |
-| `integrity-core` | 🦴 The Unifying Backend | Protocol backbone — on-chain identity, BCC, Oracle scoring, smart contracts |
-| **`integrity-mvp`** | **👁️ The Human Control Center** | Operator dashboard — visualizes health, surfaces evidence, enables human intervention |
+| `integrity-core` | 🦴 The Unifying Backend + 👁️ The Human Control Center | Protocol backbone — on-chain identity, BCC, Oracle scoring, smart contracts — plus this `integrity-dashboard/` component: operator dashboard, visualizes health, surfaces evidence, enables human intervention |
 
 **How the Control Center connects:**
 - **Inbound (from Backbone):** Reads Oracle APIs for live AIS scores, telemetry, Shield event logs, and audit trails. Reads on-chain state for identity, governance, staking, BAA/compliance, and market data.
@@ -33,7 +40,7 @@ This repository is the **conscious observer** in a four-project ecosystem design
 
 ```mermaid
 flowchart LR
-    Backbone["🦴 integrity-core<br/>(Oracle + Chain)"] ==>|"AIS, identity,<br/>governance, evidence"| Eyes["👁️ integrity-mvp<br/>(This repo)"]
+    Backbone["🦴 integrity-core<br/>(Oracle + Chain)"] ==>|"AIS, identity,<br/>governance, evidence"| Eyes["👁️ integrity-dashboard<br/>(This directory)"]
     Brain["🧠 xibalba-cortex"] -.->|"Memory graph<br/>& provenance"| Eyes
     Immune["🛡️ xibalba-shield"] -->|"Signed telemetry"| Backbone
     Brain -->|"Session Merkle roots"| Backbone
@@ -42,26 +49,26 @@ flowchart LR
     Agent -->|"System calls"| Immune
 ```
 
-See [`integrity-core/docs/architecture/ecosystem-dependencies.md`](https://github.com/XibalbaTechSol/integrity-core/blob/main/docs/architecture/ecosystem-dependencies.md) for the canonical ownership boundaries.
+See [`../docs/architecture/ecosystem-dependencies.md`](../docs/architecture/ecosystem-dependencies.md) for the canonical ownership boundaries.
 
 ## System relationship
 
-`integrity-mvp` sits at the top of a four-project operator stack:
+`integrity-dashboard/` sits at the top of a three-repository operator stack:
 
-`integrity-mvp -> xibalba-cortex -> integrity-core`
+`integrity-core/integrity-dashboard -> xibalba-cortex -> integrity-core`
 
-`integrity-mvp -> xibalba-shield -> integrity-core`
+`integrity-core/integrity-dashboard -> xibalba-shield -> integrity-core`
 
-It also consumes integrity-core APIs and contracts directly.
+It also consumes integrity-core's own APIs and contracts directly.
 
 | Project | Role | Boundary |
 |---|---|---|
-| `integrity-core` | Protocol trust backend: SDK, BCC middleware, Oracle/AIS, user API, contracts, canonical wiki | MVP must not own protocol scoring, anchoring, Merkle conventions, or chain schemas |
-| `xibalba-cortex` | Local cognitive store: memories, provenance, session roots, graph traversal | MVP may surface memory workflows and evidence; recalled memory remains untrusted content, not protocol truth |
-| `xibalba-shield` | Endpoint sensor/enforcer and signed security-evidence producer | MVP may surface Shield workflows and evidence; Shield remains its own repo/product |
-| `integrity-mvp` | Web presentation, operator workflows, generated wiki browser | No independent trust backend; no direct wiki authoring database |
+| `integrity-core` | Protocol trust backend: SDK, BCC middleware, Oracle/AIS, user API, contracts, canonical wiki | This dashboard component must not own protocol scoring, anchoring, Merkle conventions, or chain schemas |
+| `xibalba-cortex` | Local cognitive store: memories, provenance, session roots, graph traversal | May be surfaced as memory workflows and evidence; recalled memory remains untrusted content, not protocol truth |
+| `xibalba-shield` | Endpoint sensor/enforcer and signed security-evidence producer | May be surfaced as Shield workflows and evidence; Shield remains its own repo/product |
+| `integrity-dashboard/` (this directory) | Web presentation, operator workflows, generated wiki browser | No independent trust backend; no direct wiki authoring database; no privilege over any other integrity-core consumer |
 
-The cross-repository dependency boundary is documented in the generated wiki page **Ecosystem Dependencies** and in integrity-core's [docs/architecture/ecosystem-dependencies.md](https://github.com/XibalbaTechSol/integrity-core/blob/main/docs/architecture/ecosystem-dependencies.md).
+The cross-repository dependency boundary is documented in the generated wiki page **Ecosystem Dependencies** and in [`../docs/architecture/ecosystem-dependencies.md`](../docs/architecture/ecosystem-dependencies.md).
 
 ## Definitions
 

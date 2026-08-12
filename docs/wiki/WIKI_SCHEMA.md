@@ -7,10 +7,10 @@ gating, off-chain scoring, and the SDK/CLI/dashboard/demo that use them.
 
 ## Conventions
 - **Canonical source**: `integrity-core/docs/wiki/` on the main branch is the
-  only authoring source of truth. The Integrity MVP `/wiki` route and the
-  repository's GitHub Wiki are generated, read-only projections of these files.
-  Do not author or reconcile content in a downstream mirror; the next sync may
-  overwrite it.
+  only authoring source of truth. `integrity-dashboard/`'s `/wiki` route (a
+  component of this repository) and the repository's GitHub Wiki are generated,
+  read-only projections of these files. Do not author or reconcile content in a
+  downstream mirror; the next sync may overwrite it.
 - **Table of contents**: every canonical article contains a generated
   `## Table of contents` block covering its level-two and level-three headings.
   Run `python3 scripts/wiki_toc.py` after heading changes and
@@ -69,12 +69,13 @@ source_files:
 ```text
 integrity-core/docs/wiki
         ├── scripts/sync_wiki.py ──> GitHub Wiki
-        └── integrity-mvp/scripts/sync-wiki.mjs ──> Integrity MVP /wiki
+        └── integrity-dashboard/scripts/sync-wiki.mjs ──> integrity-dashboard/'s /wiki route
 ```
 
-The GitHub Wiki mirror is flattened to satisfy GitHub Wiki routing, while the
-MVP stores a generated JSON snapshot for fast rendering. Those packaging
-differences do not create independent content ownership.
+The GitHub Wiki mirror is flattened to satisfy GitHub Wiki routing, while
+`integrity-dashboard/` stores a generated JSON snapshot for fast rendering. Those packaging
+differences do not create independent content ownership — both consumers read the same
+canonical `docs/wiki/` source in this repository.
 
 ## Source binding rule
 Every entity page's `source_files` must list real files that exist right

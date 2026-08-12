@@ -18,10 +18,16 @@ source_files:
 
 # Repository Implementation Plans
 
+**Corrected 2026-08-12:** the "Integrity MVP" section below documents the standalone
+`integrity-mvp` repository's implementation history, from when it was the active presentation
+layer. That repository is now stale/superseded — `integrity-dashboard/` (inside `integrity-core`)
+is the actively developed presentation layer today. The section is left as recorded history, not
+rewritten; treat any status claim in it as historical, not current.
+
 This page is the cross-repository implementation and specification ledger for the Integrity Protocol product stack. It summarizes the root `IMPLEMENTATION_PLAN.md` and `SPECIFICATION.md` files that now exist in each project root:
 
 - `integrity-core/IMPLEMENTATION_PLAN.md` and `integrity-core/SPECIFICATION.md`
-- `integrity-mvp/IMPLEMENTATION_PLAN.md` and `integrity-mvp/SPECIFICATION.md`
+- `integrity-core/integrity-dashboard/IMPLEMENTATION_PLAN.md` and `integrity-core/integrity-dashboard/SPECIFICATION.md` (formerly tracked in the now-superseded standalone `integrity-mvp` repository, see note above)
 - `xibalba-shield/IMPLEMENTATION_PLAN.md` and `xibalba-shield/SPECIFICATION.md`
 - `xibalba-cortex/IMPLEMENTATION_PLAN.md` and `xibalba-cortex/SPECIFICATION.md`
 
@@ -45,7 +51,7 @@ flowchart LR
     Latest["integrity-core<br/>protocol backend, contracts, APIs, canonical wiki"]
     Shield["xibalba-shield<br/>endpoint evidence producer"]
     Graph["xibalba-cortex<br/>local provenance memory service"]
-    MVP["integrity-mvp<br/>presentation and operator workflows"]
+    MVP["integrity-core/integrity-dashboard<br/>presentation and operator workflows"]
 
     Shield -->|DID, BCC, telemetry, evidence export| Latest
     MVP -->|reads public API/SDK/wiki surfaces| Latest

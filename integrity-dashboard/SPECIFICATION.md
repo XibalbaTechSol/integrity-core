@@ -1,11 +1,16 @@
-# Integrity MVP Repository Specification
+# Integrity Dashboard Specification
 
-**Updated:** 2026-08-06
+**Updated:** 2026-08-12
 **Status:** Presentation and operator-workflow proof of concept; not standalone production.
+
+**Corrected 2026-08-12:** this component was previously developed as a separate `integrity-mvp`
+repository (that standalone repo is now stale/superseded, not deleted). It is a component of
+`integrity-core`, not a separate repository — "this repo" below refers to `integrity-core`, this
+document to the `integrity-dashboard/` component specifically.
 
 ## 1. Purpose
 
-integrity-mvp is the React/Vite presentation layer for the Integrity Protocol product stack. It turns protocol, Shield, and graph-memory data into operator workflows without becoming a trust backend, scoring engine, endpoint agent, or memory authority.
+`integrity-dashboard/` is the React/Vite presentation layer for the Integrity Protocol product stack. It turns protocol, Shield, and Cortex data into operator workflows without becoming a trust backend, scoring engine, endpoint agent, or memory authority.
 
 ## 2. Authority
 
@@ -21,16 +26,15 @@ integrity-mvp is the React/Vite presentation layer for the Integrity Protocol pr
 
 ## 3. Ecosystem Role: 👁️ The Human Control Center
 
-This repository is the conscious observer in a four-project ecosystem designed as a living organism:
+This component is the conscious observer in a three-repository ecosystem designed as a living organism (this directory is a component of `integrity-core`, not a fourth repository):
 
 - **🧠 The Brain** (`xibalba-cortex`): The agent's cognitive store — memories, context, reasoning provenance, session Merkle roots.
 - **🛡️ The Immune System** (`xibalba-shield`): Endpoint enforcement, kernel sensing, policy gating, semantic guardrails.
-- **🦴 The Unifying Backend** (`integrity-core`): The protocol backbone — on-chain identity, BCC, Oracle scoring, smart contracts, ZK circuits.
-- **👁️ The Human Control Center** (`integrity-mvp`, this repo): Operator dashboard — visualizes health, surfaces evidence, enables human intervention.
+- **🦴 The Unifying Backend + 👁️ The Human Control Center** (`integrity-core`): The protocol backbone — on-chain identity, BCC, Oracle scoring, smart contracts, ZK circuits — plus this `integrity-dashboard/` component: operator dashboard, visualizes health, surfaces evidence, enables human intervention.
 
 ```mermaid
 flowchart LR
-    Backbone["🦴 integrity-core"] ==>|"AIS, identity, evidence"| Eyes["👁️ This Repo"]
+    Backbone["🦴 integrity-core"] ==>|"AIS, identity, evidence"| Eyes["👁️ integrity-dashboard<br/>(this directory)"]
     Brain["🧠 xibalba-cortex"] -.->|"Memory & provenance"| Eyes
     Eyes ==>|"Audits, policy updates,<br/>interventions"| Agent["🤖 Agent"]
     Agent <-->|"Context"| Brain

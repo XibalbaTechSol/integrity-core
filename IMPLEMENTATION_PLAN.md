@@ -78,18 +78,20 @@ Current observed status is [`docs/audits/2026-08-06-cross-repository-status.md`]
 - [ ] Verify CI workflow action pins, permissions, secrets, and recent run outcomes.
 - [ ] Label clean-main, active-branch, and dirty-worktree evidence separately in README, PRODUCTION_GAPS, specs, and wiki.
 
-### Shield And MVP Boundaries
+### Shield And Dashboard Boundaries
 
 - [ ] Keep spec/xibalba-shield-v1.md as protocol-facing boundary only.
-- [ ] Do not import or depend on xibalba-shield or integrity-mvp from integrity-core.
-- [ ] Expose only public SDK/API/contract surfaces consumed by those repos.
-- [ ] Keep ecosystem-dependencies wiki page aligned with repo READMEs.
+- [ ] Do not import or depend on xibalba-shield from integrity-core's protocol packages.
+- [ ] Expose only public SDK/API/contract surfaces consumed by xibalba-shield and `integrity-dashboard/`.
+- [ ] Keep ecosystem-dependencies wiki page aligned with repo READMEs (corrected 2026-08-12 to a
+  three-repository model — `integrity-dashboard/` is this repo's component, not a separate
+  `integrity-mvp` repository).
 
 ### Wiki And Documentation
 
 - [ ] Keep WIKI_INDEX counts and categories current.
 - [ ] Run wiki lint/TOC tooling after canonical wiki page changes.
-- [ ] Sync canonical wiki into integrity-mvp and GitHub Wiki after documentation changes.
+- [ ] Sync canonical wiki into `integrity-dashboard/`'s `/wiki` route and GitHub Wiki after documentation changes.
 - [ ] Keep package READMEs aligned with interface contract and spec status.
 
 ## Blocked

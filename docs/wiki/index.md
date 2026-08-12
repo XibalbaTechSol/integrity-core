@@ -19,6 +19,11 @@ agent behavior becomes that score).
 
 ## Current cross-repository audit — 2026-08-06
 
+**Note, 2026-08-12:** the ecosystem is a three-repository model now — `integrity-mvp` (linked
+below as a dated historical pointer) has been superseded by `integrity-dashboard/` inside this
+repository; see [Ecosystem Dependencies](architecture/ecosystem-dependencies.md) for the current
+correction. The list below is left as-recorded from the 2026-08-06 audit, not rewritten.
+
 The four-repository implementation plan and audit ledger are maintained outside the generated wiki at `/home/xibalba/Documents/INTEGRITY — Cross-Repository Audit and Implementation Plan.md`. Repository-local status pages are:
 
 - [`integrity-core` audit status](../audits/2026-08-06-cross-repository-status.md): strong testnet prototype; SDK has 2 failing tests; production readiness not established.
@@ -117,8 +122,8 @@ flowchart TB
 - [integrity-zkp](entities/integrity-zkp.md) — the real Noir/Barretenberg circuit
 
 ### Architecture
-- [Ecosystem Dependencies](architecture/ecosystem-dependencies.md) — cross-repository ownership and dependency direction for integrity-core, Xibalba Cortex, Xibalba Shield, and Integrity MVP.
-- [Repository Implementation Plans](architecture/repository-implementation-plans.md) — closed/planned/blocked implementation ledger for integrity-core, Integrity MVP, Xibalba Shield, and Xibalba Cortex.
+- [Ecosystem Dependencies](architecture/ecosystem-dependencies.md) — cross-repository ownership and dependency direction for integrity-core (including its integrity-dashboard/ component), Xibalba Cortex, and Xibalba Shield.
+- [Repository Implementation Plans](architecture/repository-implementation-plans.md) — closed/planned/blocked implementation ledger for integrity-core, integrity-dashboard/, Xibalba Shield, and Xibalba Cortex.
 
 ### Guides
 - [Smart Contract Development](../guides/smart-contract-development.md) — writing/testing/deploying a new contract

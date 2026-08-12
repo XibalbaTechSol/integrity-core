@@ -1,7 +1,8 @@
-# Integrity MVP Implementation Plan
+# Integrity Dashboard Implementation Plan
 
-**Updated:** 2026-08-06
-**Repository:** integrity-mvp
+**Updated:** 2026-08-12
+**Repository:** integrity-core (component: `integrity-dashboard/`) — corrected 2026-08-12 from a
+previously separate `integrity-mvp` repository, now stale/superseded.
 **Role:** React/Vite presentation and operator-workflow layer for the Integrity Protocol product stack.
 
 This document merges the repo README, SPECIFICATION.md, PRODUCTION_GAPS.md, docs/audits/2026-08-06-status.md, archived product plans, current wiki work, and cross-repo specifications into one implementation task ledger. Each capability is marked Closed, Planned, Blocked, or Todo.

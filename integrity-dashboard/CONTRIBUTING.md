@@ -1,6 +1,9 @@
-# Contributing to integrity-mvp
+# Contributing to integrity-dashboard
 
-Thank you for helping improve integrity-mvp. This repository values small, reviewable changes backed by reproducible evidence.
+Thank you for helping improve `integrity-dashboard/`, the operator-dashboard component of
+`integrity-core` (previously developed as a separate `integrity-mvp` repository, now
+stale/superseded). This component values small, reviewable changes backed by reproducible
+evidence.
 
 ## Before you start
 
