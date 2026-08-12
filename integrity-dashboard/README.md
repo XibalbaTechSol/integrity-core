@@ -21,7 +21,7 @@ This repository is the **conscious observer** in a four-project ecosystem design
 
 | Repository | Analogy | Role |
 |---|---|---|
-| `xibalba-graph-memory` | 🧠 The Brain | Local cognitive store — memories, context, reasoning provenance, session Merkle roots |
+| `xibalba-cortex` | 🧠 The Brain | Local cognitive store — memories, context, reasoning provenance, session Merkle roots |
 | `xibalba-shield` | 🛡️ The Immune System | Endpoint enforcement, kernel sensing, policy gating, semantic guardrails |
 | `INTEGRITY-LATEST` | 🦴 The Unifying Backend | Protocol backbone — on-chain identity, BCC, Oracle scoring, smart contracts |
 | **`integrity-mvp`** | **👁️ The Human Control Center** | Operator dashboard — visualizes health, surfaces evidence, enables human intervention |
@@ -34,7 +34,7 @@ This repository is the **conscious observer** in a four-project ecosystem design
 ```mermaid
 flowchart LR
     Backbone["🦴 INTEGRITY-LATEST<br/>(Oracle + Chain)"] ==>|"AIS, identity,<br/>governance, evidence"| Eyes["👁️ integrity-mvp<br/>(This repo)"]
-    Brain["🧠 xibalba-graph-memory"] -.->|"Memory graph<br/>& provenance"| Eyes
+    Brain["🧠 xibalba-cortex"] -.->|"Memory graph<br/>& provenance"| Eyes
     Immune["🛡️ xibalba-shield"] -->|"Signed telemetry"| Backbone
     Brain -->|"Session Merkle roots"| Backbone
     Eyes ==>|"Operator audits,<br/>policy updates,<br/>interventions"| Agent["🤖 Agent"]
@@ -48,7 +48,7 @@ See [`INTEGRITY-LATEST/docs/architecture/ecosystem-dependencies.md`](https://git
 
 `integrity-mvp` sits at the top of a four-project operator stack:
 
-`integrity-mvp -> xibalba-graph-memory -> INTEGRITY-LATEST`
+`integrity-mvp -> xibalba-cortex -> INTEGRITY-LATEST`
 
 `integrity-mvp -> xibalba-shield -> INTEGRITY-LATEST`
 
@@ -57,7 +57,7 @@ It also consumes INTEGRITY-LATEST APIs and contracts directly.
 | Project | Role | Boundary |
 |---|---|---|
 | `INTEGRITY-LATEST` | Protocol trust backend: SDK, BCC middleware, Oracle/AIS, user API, contracts, canonical wiki | MVP must not own protocol scoring, anchoring, Merkle conventions, or chain schemas |
-| `xibalba-graph-memory` | Local cognitive store: memories, provenance, session roots, graph traversal | MVP may surface memory workflows and evidence; recalled memory remains untrusted content, not protocol truth |
+| `xibalba-cortex` | Local cognitive store: memories, provenance, session roots, graph traversal | MVP may surface memory workflows and evidence; recalled memory remains untrusted content, not protocol truth |
 | `xibalba-shield` | Endpoint sensor/enforcer and signed security-evidence producer | MVP may surface Shield workflows and evidence; Shield remains its own repo/product |
 | `integrity-mvp` | Web presentation, operator workflows, generated wiki browser | No independent trust backend; no direct wiki authoring database |
 

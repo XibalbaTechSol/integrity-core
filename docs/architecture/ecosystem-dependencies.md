@@ -1,11 +1,11 @@
 # Ecosystem Dependencies
 
 This document is the canonical cross-repository dependency map for INTEGRITY-LATEST,
-Xibalba Graph Memory, Xibalba Shield, and Integrity MVP.
+Xibalba Cortex, Xibalba Shield, and Integrity MVP.
 
 ```text
 integrity-mvp (React/Vite presentation and operator workflow layer)
-├── xibalba-graph-memory (local cognitive store, provenance, session roots)
+├── xibalba-cortex (local cognitive store, provenance, session roots)
 │   └── INTEGRITY-LATEST (BCC middleware, StateAnchor, protocol evidence)
 ├── xibalba-shield (endpoint sensor, local policy enforcement, evidence producer)
 │   └── INTEGRITY-LATEST (integrity-sdk, BCC middleware, Oracle, contracts)
@@ -17,7 +17,7 @@ integrity-mvp (React/Vite presentation and operator workflow layer)
 | Project | Owns | Consumes |
 |---|---|---|
 | `INTEGRITY-LATEST` | Integrity SDK, BCC policy and commitment pipeline, Oracle/AIS, user API, protocol contracts and chain conventions | No Shield, Graph Memory, or MVP code |
-| `xibalba-graph-memory` | Local memory store, recall, provenance, session hash/Merkle evidence, graph traversal, local viewer/API | Public INTEGRITY-LATEST anchoring interfaces only; no protocol authority |
+| `xibalba-cortex` | Local memory store, recall, provenance, session hash/Merkle evidence, graph traversal, local viewer/API | Public INTEGRITY-LATEST anchoring interfaces only; no protocol authority |
 | `xibalba-shield` | Endpoint discovery, local security policy enforcement, guardrail hooks, endpoint evidence production | `integrity-sdk` plus INTEGRITY-LATEST BCC, telemetry, Oracle, and chain interfaces |
 | `integrity-mvp` | Web presentation and operator workflows | INTEGRITY-LATEST APIs/contracts directly; graph-memory service data; Shield evidence and security workflows |
 
@@ -25,21 +25,21 @@ Xibalba Shield is therefore built on INTEGRITY-LATEST. It is a separate product 
 not a replacement backend and not the Integrity Health vertical. Shield feeds signed security
 decisions into the protocol, where INTEGRITY-LATEST verifies, scores, and anchors them.
 
-Xibalba Graph Memory is the local cognitive store. It can produce session roots and provenance
+Xibalba Cortex is the local cognitive store. It can produce session roots and provenance
 evidence for anchoring through INTEGRITY-LATEST, but recalled memory is not instruction authority
 and local memory hashes do not replace protocol verification.
 
 Integrity MVP uses all three backend surfaces. Protocol-wide identity, reputation, telemetry,
 BCC, user, and chain data come from INTEGRITY-LATEST. Local memory/provenance views originate in
-Xibalba Graph Memory. Endpoint-security discovery, enforcement, and evidence originate in Xibalba
+Xibalba Cortex. Endpoint-security discovery, enforcement, and evidence originate in Xibalba
 Shield and become visible to the MVP through the shared INTEGRITY-LATEST trust pipeline.
 
 ## Dependency rules
 
 1. INTEGRITY-LATEST must not import, call, or require Xibalba Shield or Integrity MVP.
-2. INTEGRITY-LATEST must not import, call, or require Xibalba Graph Memory for protocol
+2. INTEGRITY-LATEST must not import, call, or require Xibalba Cortex for protocol
    correctness.
-3. Xibalba Graph Memory may cite or anchor evidence through public INTEGRITY-LATEST interfaces,
+3. Xibalba Cortex may cite or anchor evidence through public INTEGRITY-LATEST interfaces,
    but it must not implement a parallel protocol authority or present recalled text as trust.
 4. Xibalba Shield must use the same public SDK and protocol interfaces available to any other
    Integrity consumer; it receives no privileged backend path.

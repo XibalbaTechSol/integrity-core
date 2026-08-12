@@ -1253,11 +1253,11 @@ entry records what survived verification and what did not. Full detail:
 ## 25. `integrity_sdk/mcp_server.py` exposed signing/on-chain-write tools with zero coverage from the one gate anyone trusted (2026-08-05)
 
 Found while reviewing a *proposed, not-yet-built* idea in a different project
-(`xibalba-graph-memory`) — an MCP server that would wrap the SDK's signing capabilities as
+(`xibalba-cortex`) — an MCP server that would wrap the SDK's signing capabilities as
 agent-callable tools. A Devil's Advocate review commissioned to evaluate that proposal checked
 whether anything like it already existed before assessing the hypothetical, and found this
 module already shipped exactly the gap the review was there to prevent. Full narrative:
-`xibalba-graph-memory/docs/session-log/2026-08-05-integrity-coupling-session.md`. Design and
+`xibalba-cortex/docs/session-log/2026-08-05-integrity-coupling-session.md`. Design and
 fix: `docs/design/mcp-signing-boundary.md`.
 
 * **The measured problem — `integrity_register_agent` was a live, callable MCP tool that loaded

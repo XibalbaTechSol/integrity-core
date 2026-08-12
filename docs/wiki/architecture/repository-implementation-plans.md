@@ -23,7 +23,7 @@ This page is the cross-repository implementation and specification ledger for th
 - `INTEGRITY-LATEST/IMPLEMENTATION_PLAN.md` and `INTEGRITY-LATEST/SPECIFICATION.md`
 - `integrity-mvp/IMPLEMENTATION_PLAN.md` and `integrity-mvp/SPECIFICATION.md`
 - `xibalba-shield/IMPLEMENTATION_PLAN.md` and `xibalba-shield/SPECIFICATION.md`
-- `xibalba-graph-memory/IMPLEMENTATION_PLAN.md` and `xibalba-graph-memory/SPECIFICATION.md`
+- `xibalba-cortex/IMPLEMENTATION_PLAN.md` and `xibalba-cortex/SPECIFICATION.md`
 
 The root implementation plans and root specifications are the repo-local implementation/specification source of truth. The permanent audit ledger at `/home/xibalba/Documents/INTEGRITY — Cross-Repository Audit and Implementation Plan.md` and the repo-local `docs/audits/2026-08-06*.md` files provide the current verification evidence. This wiki page is the canonical cross-repo map used to see dependency direction, closed work, open work, and blockers in one place.
 
@@ -34,7 +34,7 @@ The root implementation plans and root specifications are the repo-local impleme
 - [INTEGRITY-LATEST](#integrity-latest)
 - [Integrity MVP](#integrity-mvp)
 - [Xibalba Shield](#xibalba-shield)
-- [Xibalba Graph Memory](#xibalba-graph-memory)
+- [Xibalba Cortex](#xibalba-cortex)
 - [Cross-repository task list](#cross-repository-task-list)
 - [Update rule](#update-rule)
 
@@ -44,7 +44,7 @@ The root implementation plans and root specifications are the repo-local impleme
 flowchart LR
     Latest["INTEGRITY-LATEST<br/>protocol backend, contracts, APIs, canonical wiki"]
     Shield["xibalba-shield<br/>endpoint evidence producer"]
-    Graph["xibalba-graph-memory<br/>local provenance memory service"]
+    Graph["xibalba-cortex<br/>local provenance memory service"]
     MVP["integrity-mvp<br/>presentation and operator workflows"]
 
     Shield -->|DID, BCC, telemetry, evidence export| Latest
@@ -177,11 +177,11 @@ INTEGRITY-LATEST remains the protocol authority. Shield and graph memory do not 
 - [ ] Windows/macOS sensors are blocked until target platforms are available.
 - [ ] Tenant cloud policy API is blocked until a real server contract exists.
 
-## Xibalba Graph Memory
+## Xibalba Cortex
 
 **Role:** Local, provenance-aware graph memory MCP server and runtime-controller substrate for Xibalba agent memory.
 
-**Specification authority:** `SPECIFICATION.md`, `spec/xibalba-graph-memory-v1.md`, `README.md`, `docs/audits/2026-08-06-status.md`, archived historical plans under `docs/archive/2026-08-06/`, `docs/architecture/runtime-controller-contract.md`, `docs/architecture/event-hash-chain.md`, and `docs/integrity/xibalba-graph-crypto-profile-v1.md`.
+**Specification authority:** `SPECIFICATION.md`, `spec/xibalba-cortex-v1.md`, `README.md`, `docs/audits/2026-08-06-status.md`, archived historical plans under `docs/archive/2026-08-06/`, `docs/architecture/runtime-controller-contract.md`, `docs/architecture/event-hash-chain.md`, and `docs/integrity/xibalba-graph-crypto-profile-v1.md`.
 
 **Audit checkpoint:** The suite passes with `uv sync --extra drive && uv run pytest -q`; plain default test collection fails because Drive tests import optional Google dependencies without the Drive extra. Runtime adapters, controller/session synchronization, tests, and viewer changes are present in the dirty worktree and require separate review.
 
@@ -222,8 +222,8 @@ INTEGRITY-LATEST remains the protocol authority. Shield and graph memory do not 
 - [x] Add root `SPECIFICATION.md` to integrity-mvp.
 - [x] Add root `IMPLEMENTATION_PLAN.md` to xibalba-shield.
 - [x] Update root `SPECIFICATION.md` in xibalba-shield.
-- [x] Add root `IMPLEMENTATION_PLAN.md` to xibalba-graph-memory.
-- [x] Add root `SPECIFICATION.md` to xibalba-graph-memory.
+- [x] Add root `IMPLEMENTATION_PLAN.md` to xibalba-cortex.
+- [x] Add root `SPECIFICATION.md` to xibalba-cortex.
 - [x] Add this canonical wiki rollup page.
 - [x] Sync canonical wiki into integrity-mvp after this page is accepted.
 - [x] Merge permanent audit docs into implementation plans without duplicate task entries.

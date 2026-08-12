@@ -25,7 +25,7 @@ The repository defines how AI agents establish identity, commit to behavior befo
 ## 3. Ecosystem Integration & Closed Loop
 
 The INTEGRITY-LATEST repository serves as the backbone for a 4-project ecosystem, designed conceptually as a living organism:
-1. **`xibalba-graph-memory` (The Brain & Intelligence Layer)**: The agent's local cognitive store, managing memories and contextual thought.
+1. **`xibalba-cortex` (The Brain & Intelligence Layer)**: The agent's local cognitive store, managing memories and contextual thought.
 2. **`xibalba-shield` (The Immune System)**: The local endpoint enforcement sandbox that intercepts and neutralizes harmful actions.
 3. **`INTEGRITY-LATEST` (The Unifying Backend)**: The core protocol that securely ties everything together via cryptographic truth and scoring.
 4. **`integrity-mvp` (The Human Control Center)**: The central operator dashboard for human oversight and governance.
@@ -37,7 +37,7 @@ flowchart TD
     subgraph AgentEnvironment["1. Agent Environment (Local Node)"]
         direction TB
         Agent["Autonomous Agent<br/>(e.g., Hermes)"]
-        Memory["xibalba-graph-memory<br/>(The Brain & Intelligence Layer)"]
+        Memory["xibalba-cortex<br/>(The Brain & Intelligence Layer)"]
         Shield["xibalba-shield<br/>(The Agent's Immune System)"]
 
         Agent <-->|Context, Prompts, Memory Retrieval| Memory
@@ -82,7 +82,7 @@ flowchart TD
 
 ## 4. Ownership Boundary
 
-INTEGRITY-LATEST owns protocol primitives and public protocol interfaces. It must not import or depend on integrity-mvp, xibalba-shield, or xibalba-graph-memory. Those repositories consume public Integrity interfaces and own their own presentation, endpoint, or local-memory implementation details.
+INTEGRITY-LATEST owns protocol primitives and public protocol interfaces. It must not import or depend on integrity-mvp, xibalba-shield, or xibalba-cortex. Those repositories consume public Integrity interfaces and own their own presentation, endpoint, or local-memory implementation details.
 
 ## 5. Components
 
@@ -123,7 +123,7 @@ Every trust claim must name its evidence class: code, tests, direct chain read, 
 
 - This repository does not own endpoint enforcement behavior; xibalba-shield owns that.
 - This repository does not own MVP presentation behavior; integrity-mvp owns that.
-- This repository does not own local agent memory storage; xibalba-graph-memory owns that.
+- This repository does not own local agent memory storage; xibalba-cortex owns that.
 - This repository does not certify production deployment without fresh CI/deployment/security evidence.
 
 ## 10. Acceptance Criteria
@@ -138,14 +138,14 @@ Every trust claim must name its evidence class: code, tests, direct chain read, 
 
 The protocol does not operate in isolation; it anchors an ecosystem conceptualized as a living organism — four subsystems that close the trust loop between local agent execution and human oversight:
 
-- **🧠 The Brain & Intelligence Layer** (`xibalba-graph-memory`): The agent's cognitive store — memories, context, reasoning provenance, session Merkle roots.
+- **🧠 The Brain & Intelligence Layer** (`xibalba-cortex`): The agent's cognitive store — memories, context, reasoning provenance, session Merkle roots.
 - **🛡️ The Immune System** (`xibalba-shield`): Endpoint enforcement, kernel sensing, policy gating, semantic guardrails. Detects threats and produces verifiable evidence.
 - **🦴 The Unifying Backend** (`INTEGRITY-LATEST`): The protocol backbone — on-chain identity, BCC commitment gate, Oracle scoring, smart contracts, ZK circuits.
 - **👁️ The Human Control Center** (`integrity-mvp`): Operator dashboard — visualizes health, surfaces evidence, enables human intervention.
 
 ```mermaid
 flowchart TD
-    subgraph Brain["🧠 THE BRAIN — xibalba-graph-memory"]
+    subgraph Brain["🧠 THE BRAIN — xibalba-cortex"]
         direction TB
         MCP["MCP Server<br/>(40+ tools)"]
         MemStore["SQLite Store<br/>(Sources, Memories, Events,<br/>Entities, Relations)"]

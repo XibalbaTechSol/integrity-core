@@ -1,6 +1,6 @@
 import { GRAPH_MEMORY_URL } from '../config';
 
-// Mirrors xibalba_graph.local_api's routes exactly, which themselves are thin wrappers around
+// Mirrors xibalba_cortex.local_api's routes exactly, which themselves are thin wrappers around
 // GraphStore's own methods (store.py) -- no response envelope, each route just returns the
 // JSON the underlying GraphStore method returned.
 
@@ -80,7 +80,7 @@ async function postJson<T>(path: string, payload: Record<string, unknown>): Prom
 }
 
 // ---------------------------------------------------------------------------
-// API client — full parity with xibalba-graph-memory viewer/src/api.ts
+// API client — full parity with xibalba-cortex viewer/src/api.ts
 // ---------------------------------------------------------------------------
 
 export const graphMemory = {

@@ -7,7 +7,7 @@ viewer API. From this repository, start the stack with:
 ./scripts/dev-stack.sh
 ```
 
-The script starts `xibalba-graph-memory` on `http://localhost:8420`, then runs
+The script starts `xibalba-cortex` on `http://localhost:8420`, then runs
 the `oracle-backend` and `bcc-middleware` services from the sibling
 `INTEGRITY-LATEST/docker-compose.yml`. Docker Compose starts their Postgres,
 Redis, and OPA dependencies as needed. In a second terminal, run the MVP:

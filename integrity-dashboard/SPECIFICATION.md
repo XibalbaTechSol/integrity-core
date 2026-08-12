@@ -23,7 +23,7 @@ integrity-mvp is the React/Vite presentation layer for the Integrity Protocol pr
 
 This repository is the conscious observer in a four-project ecosystem designed as a living organism:
 
-- **🧠 The Brain** (`xibalba-graph-memory`): The agent's cognitive store — memories, context, reasoning provenance, session Merkle roots.
+- **🧠 The Brain** (`xibalba-cortex`): The agent's cognitive store — memories, context, reasoning provenance, session Merkle roots.
 - **🛡️ The Immune System** (`xibalba-shield`): Endpoint enforcement, kernel sensing, policy gating, semantic guardrails.
 - **🦴 The Unifying Backend** (`INTEGRITY-LATEST`): The protocol backbone — on-chain identity, BCC, Oracle scoring, smart contracts, ZK circuits.
 - **👁️ The Human Control Center** (`integrity-mvp`, this repo): Operator dashboard — visualizes health, surfaces evidence, enables human intervention.
@@ -31,7 +31,7 @@ This repository is the conscious observer in a four-project ecosystem designed a
 ```mermaid
 flowchart LR
     Backbone["🦴 INTEGRITY-LATEST"] ==>|"AIS, identity, evidence"| Eyes["👁️ This Repo"]
-    Brain["🧠 xibalba-graph-memory"] -.->|"Memory & provenance"| Eyes
+    Brain["🧠 xibalba-cortex"] -.->|"Memory & provenance"| Eyes
     Eyes ==>|"Audits, policy updates,<br/>interventions"| Agent["🤖 Agent"]
     Agent <-->|"Context"| Brain
     Agent -->|"System calls"| Immune["🛡️ xibalba-shield"]

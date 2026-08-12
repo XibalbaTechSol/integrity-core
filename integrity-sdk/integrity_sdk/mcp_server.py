@@ -33,7 +33,7 @@ These four are advertised and callable only if `INTEGRITY_MCP_ALLOW_SIGNING_TOOL
 own tool-selection judgment is not an acceptable gate for a real signature or an irreversible
 on-chain write; that boundary must be a human running integrity-cli/the SDK directly. See
 `docs/design/mcp-signing-boundary.md` for the full reasoning and
-`xibalba-graph-memory/docs/session-log/2026-08-05-integrity-coupling-session.md` for how this
+`xibalba-cortex/docs/session-log/2026-08-05-integrity-coupling-session.md` for how this
 was found (a Devil's Advocate review commissioned for a *different*, not-yet-built proposal
 discovered this module already shipped the exact gap it was reviewing).
 
@@ -92,7 +92,7 @@ logger = logging.getLogger("integrity_sdk.mcp_server")
 # based on its own reasoning over context -- including context an attacker controls (a
 # poisoned memory, a malicious webpage, an adversarial tool result). That is not an
 # acceptable gate for a real Ed25519/secp256k1 signature or an irreversible on-chain write.
-# A Devil's Advocate review (full account: xibalba-graph-memory's
+# A Devil's Advocate review (full account: xibalba-cortex's
 # docs/session-log/2026-08-05-integrity-coupling-session.md) found this module already
 # exposed `integrity_register_agent` as a live, callable tool loading a real identity key
 # with no gate covering it -- not hypothetical, already shipped. Verified independently

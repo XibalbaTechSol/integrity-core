@@ -29,7 +29,7 @@ repository. It consumes `integrity-sdk` and submits signed endpoint-security evi
 the BCC and telemetry pipeline; this repository never imports or calls Shield.
 [`integrity-mvp`](https://github.com/XibalbaTechSol/integrity-mvp) is the presentation layer
 for both products: it consumes INTEGRITY-LATEST services directly and surfaces the Shield
-evidence stored by the protocol. [`xibalba-graph-memory`](https://github.com/XibalbaTechSol/xibalba-graph-memory) acts as the local cognitive store that anchors session roots into the protocol.
+evidence stored by the protocol. [`xibalba-cortex`](https://github.com/XibalbaTechSol/xibalba-cortex) acts as the local cognitive store that anchors session roots into the protocol.
 
 ### Ecosystem Closed Loop
 
@@ -45,7 +45,7 @@ The latest local cross-repository verification is recorded in [`docs/audits/2026
 **Ecosystem Integration Architecture (The Biological Analogy):**
 
 To help conceptualize the ecosystem, we map each repository to its functional analogy:
-- **The Brain & Intelligence Layer** (`xibalba-graph-memory`): The agent's local cognitive store, acting as its memory and thought processor.
+- **The Brain & Intelligence Layer** (`xibalba-cortex`): The agent's local cognitive store, acting as its memory and thought processor.
 - **The Immune System** (`xibalba-shield`): The local endpoint enforcement and sandbox that protects the system from internal errors and external threats.
 - **The Unifying Backend** (`INTEGRITY-LATEST`): The protocol layer that ties the entire ecosystem together, providing trust, verification, and scoring.
 - **The Human Control Center** (`integrity-mvp`): The operator dashboard where humans monitor, audit, and direct the autonomous system.
@@ -55,7 +55,7 @@ flowchart TD
     subgraph AgentEnvironment["1. Agent Environment (Local Node)"]
         direction TB
         Agent["Autonomous Agent<br/>(e.g., Hermes)"]
-        Memory["xibalba-graph-memory<br/>(The Brain & Intelligence Layer)"]
+        Memory["xibalba-cortex<br/>(The Brain & Intelligence Layer)"]
         Shield["xibalba-shield<br/>(The Agent's Immune System)"]
 
         Agent <-->|Context, Prompts, Memory Retrieval| Memory
