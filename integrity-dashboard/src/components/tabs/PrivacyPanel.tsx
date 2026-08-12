@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
 import { Panel } from '../shared/Panel';
 import { Shield, Save, Loader2 } from 'lucide-react';
-import { useDashboard } from '../../context/useDashboard';
+import { useDashboard } from '../../context/DashboardContext';
 import { oracle } from '../../services/oracle';
 import { RPC_URL } from '../../constants';
 import { AGENT_PROFILE_ABI, executeAsAgent } from '../../chain/markets';
@@ -175,7 +175,7 @@ export function PrivacyPanel() {
                 cursor: 'pointer'
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, fontSize: '0.85rem', color: 'var(--gold)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, fontSize: '0.85rem', color: 'var(--theme-accent)' }}>
                 <input 
                   type="radio" 
                   name="privacyMode" 

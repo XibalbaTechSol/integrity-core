@@ -1,4 +1,11 @@
-import { getTier } from '../../types';
+export function getTier(ais: number): string {
+  if (ais >= 900) return 'AAA';
+  if (ais >= 800) return 'AA';
+  if (ais >= 700) return 'A';
+  if (ais >= 600) return 'B';
+  if (ais >= 500) return 'C';
+  return 'D';
+}
 
 interface StatusBadgeProps {
   status?: string;

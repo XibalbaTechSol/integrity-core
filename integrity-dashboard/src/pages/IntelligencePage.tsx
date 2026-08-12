@@ -1,142 +1,81 @@
 import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Activity, Brain, GitBranch, Zap, TrendingUp, FlaskConical } from 'lucide-react';
+import { Activity, Brain, GitBranch, Zap, CheckCircle2, Sigma, Shield, Clock } from 'lucide-react';
 import { Panel } from '../components/shared/Panel';
 import { TelemetryPanel } from '../components/tabs/TelemetryPanel';
-import { TraceAnalysisPanel } from '../components/tabs/TraceAnalysisPanel';
 import { IntegrityRadar } from '../components/shared/IntegrityRadar';
-import { useDashboard } from '../context/useDashboard';
-
-// ... (keep existing types and sub-components)
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-type IntelTab = 'telemetry' | 'reasoning' | 'trajectory';
-
-interface StatCardProps {
-  label: string;
-  value: number | string;
-  icon: React.ReactNode;
-  accent?: string;
-}
+import { useDashboard } from '../context/DashboardContext';
+import 'katex/dist/katex.min.css';
+import { BlockMath, InlineMath } from 'react-katex';
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
-const LiveBadge = () => (
-  <span
-    style={{
-      display: 'inline-flex',
-      alignItems: 'center',
-      gap: '6px',
-      padding: '3px 10px',
-      background: 'rgba(34, 197, 94, 0.12)',
-      border: '1px solid var(--success)',
-      borderRadius: '999px',
-      fontSize: '0.65rem',
-      fontWeight: 700,
-      letterSpacing: '0.1em',
-      color: 'var(--success)',
-      textTransform: 'uppercase' as const,
-    }}
-  >
-    <span
-      style={{
-        width: '6px',
-        height: '6px',
-        borderRadius: '50%',
-        background: 'var(--success)',
-        display: 'inline-block',
-        animation: 'intel-pulse 1.4s ease-in-out infinite',
-      }}
-    />
-    LIVE
-  </span>
-);
-
-const StatCard = ({ label, value, icon, accent = 'var(--primary)' }: StatCardProps) => (
+const FormulaCard = ({ title, description, formula, icon, accent = 'var(--primary)' }: any) => (
   <div
     style={{
       flex: 1,
       display: 'flex',
-      alignItems: 'center',
+      flexDirection: 'column',
       gap: 'var(--space-4)',
-      padding: 'var(--space-4)',
+      padding: 'var(--space-6)',
       background: 'var(--bg-secondary)',
       border: '1px solid var(--glass-border)',
       borderRadius: 'var(--radius-md)',
-      minWidth: 0,
+      minWidth: '300px',
+      transition: 'transform 0.2s, box-shadow 0.2s',
+      cursor: 'default',
+    }}
+    onMouseEnter={(e) => {
+      e.currentTarget.style.transform = 'translateY(-2px)';
+      e.currentTarget.style.boxShadow = '0 10px 30px rgba(0,0,0,0.2)';
+    }}
+    onMouseLeave={(e) => {
+      e.currentTarget.style.transform = 'none';
+      e.currentTarget.style.boxShadow = 'none';
     }}
   >
-    <div
-      style={{
-        width: '40px',
-        height: '40px',
-        borderRadius: 'var(--radius-md)',
-        background: `color-mix(in srgb, ${accent} 15%, transparent)`,
-        border: `1px solid color-mix(in srgb, ${accent} 35%, transparent)`,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexShrink: 0,
-        color: accent,
-      }}
-    >
-      {icon}
-    </div>
-    <div style={{ minWidth: 0 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
       <div
         style={{
-          fontSize: '1.5rem',
-          fontWeight: 700,
-          lineHeight: 1,
-          fontFamily: 'monospace',
+          width: '36px',
+          height: '36px',
+          borderRadius: 'var(--radius-md)',
+          background: `color-mix(in srgb, ${accent} 15%, transparent)`,
+          border: `1px solid color-mix(in srgb, ${accent} 35%, transparent)`,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
           color: accent,
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
         }}
       >
-        {value}
+        {icon}
       </div>
-      <div
-        style={{
-          fontSize: '0.7rem',
-          color: 'var(--text-muted)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.08em',
-          marginTop: '4px',
-        }}
-      >
-        {label}
-      </div>
+      <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)' }}>{title}</h3>
+    </div>
+    
+    <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: 1.5 }}>
+      {description}
+    </div>
+
+    <div style={{ 
+      marginTop: 'auto', 
+      padding: '12px', 
+      background: 'var(--bg-card)', 
+      borderRadius: 'var(--radius-sm)',
+      border: '1px dashed var(--glass-border)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      overflow: 'hidden'
+    }}>
+      <BlockMath math={formula} />
     </div>
   </div>
 );
 
-// ─── Tab config ───────────────────────────────────────────────────────────────
-
-const TABS: { id: IntelTab; label: string; icon: React.ReactNode }[] = [
-  { id: 'telemetry',  label: 'Telemetry',        icon: <Activity size={14} /> },
-  { id: 'reasoning',  label: 'Reasoning Traces',  icon: <Brain size={14} /> },
-  { id: 'trajectory', label: 'Diagnostics',        icon: <GitBranch size={14} /> },
-];
-
-// ─── Section animation variants ──────────────────────────────────────────────
-
-const sectionVariants = {
-  initial: { opacity: 0, y: 18 },
-  animate: { opacity: 1, y: 0, transition: { duration: 0.3, ease: 'easeOut' } },
-  exit:    { opacity: 0, y: -12, transition: { duration: 0.2, ease: 'easeIn' } },
-} as any;
-
 // ─── IntelligencePage ────────────────────────────────────────────────────────
 
 export function IntelligencePage() {
-  const { stats, agents, selectedAgent, selectAgent } = useDashboard();
-
-  const activeNodes    = stats?.active_nodes    ?? 0;
-  const aggregateAis   = stats?.aggregate_ais   ?? 0;
-  const activeDisputes = stats?.active_disputes ?? 0;
+  const { stats, selectedAgent } = useDashboard() as any;
 
   // Customization States: control visibility of different panels
   const [showTelemetry, setShowTelemetry] = useState(true);
@@ -146,14 +85,11 @@ export function IntelligencePage() {
   const [isAddTelemetryOpen, setIsAddTelemetryOpen] = useState(false);
   const [newFieldName, setNewFieldName] = useState('');
   const [newFieldValue, setNewFieldValue] = useState('');
-  // User-defined annotations only. Previously seeded with two fabricated defaults
-  // ("Semantic Drift 0.8%", "Enclave Memory 412 MB") that had no oracle source and read as
-  // real system metrics next to the live ones — removed (no silent mocks).
+  
   const [customFields, setCustomFields] = useState<any[]>(() => {
     const saved = localStorage.getItem('integrity_custom_telemetry');
     if (!saved) return [];
     try {
-      // Drop the legacy fabricated defaults if an older build cached them.
       return JSON.parse(saved).filter((f: any) => f?.id !== 'drift' && f?.id !== 'memory');
     } catch {
       return [];
@@ -177,25 +113,8 @@ export function IntelligencePage() {
     setIsAddTelemetryOpen(false);
   };
 
-  // Radar Data calculation for the selected agent
-  const radarData = selectedAgent ? [
-    { subject: 'Stability (1-E)', value: (selectedAgent.entropy_score || 0) / 10 },
-    { subject: 'Grounding', value: (selectedAgent.grounding_score || 0) / 10 },
-    { subject: 'Sacrifice', value: (selectedAgent.sacrifice_score || 0) / 10 },
-    { subject: 'Identity Tier', value: (selectedAgent.verification_tier || 1) * 33.3 },
-    { subject: 'Compliance', value: selectedAgent.compliance_score || 0 },
-  ] : [];
-
   return (
     <>
-      {/* Keyframe for the LIVE pulse dot */}
-      <style>{`
-        @keyframes intel-pulse {
-          0%, 100% { opacity: 1; transform: scale(1); }
-          50%       { opacity: 0.4; transform: scale(0.7); }
-        }
-      `}</style>
-
       <div
         style={{
           display: 'flex',
@@ -206,6 +125,85 @@ export function IntelligencePage() {
         }}
       >
 
+        <div style={{ marginBottom: '1rem' }}>
+          <h1 style={{ margin: '0 0 8px 0', fontSize: '2rem' }}>Intelligence & Alignment</h1>
+          <p style={{ margin: 0, color: 'var(--text-secondary)' }}>
+            Transparent oversight into mathematical formulas driving the Agent Integrity Score (AIS) and multi-dimensional behavior tracking.
+          </p>
+        </div>
+
+        {/* ── Mathematical Definitions Section ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 'var(--space-6)' }}>
+          <FormulaCard 
+            title="Stability (Entropy Control)"
+            description={<span>Measures the determinism and bounded variance of agent outputs using Shannon Entropy <InlineMath math="E" />.</span>}
+            formula="S(E) = 1 - \left( -\sum_{x \in X} P(x) \log P(x) \right)"
+            icon={<Sigma size={20} />}
+            accent="#2196f3"
+          />
+          <FormulaCard 
+            title="Grounding (Human-in-the-Loop)"
+            description={<span>Time-decayed confidence scoring based on human validation <InlineMath math="v_i" /> and oracle confidence <InlineMath math="c_i" />.</span>}
+            formula="G(v, c) = \frac{1}{N} \sum_{i=1}^{N} (v_i \cdot c_i) \cdot w(t_i)"
+            icon={<CheckCircle2 size={20} />}
+            accent="#4caf50"
+          />
+          <FormulaCard 
+            title="Sacrifice (Economic Commitment)"
+            description={<span>Time-weighted integral of Staked ITK collateral <InlineMath math="V(\tau)" /> over lock duration.</span>}
+            formula="K(V, t) = \int_{t_0}^{t_f} V(\tau) \cdot e^{-\lambda(t_f - \tau)} d\tau"
+            icon={<Clock size={20} />}
+            accent="#f59e0b"
+          />
+          <FormulaCard 
+            title="Overall Agent Integrity Score"
+            description={<span>The final AIS aggregates all sub-metrics <InlineMath math="m \in M" /> with weights <InlineMath math="w_m" /> and applies a ZK/TEE proof multiplier <InlineMath math="\gamma_{\text{TEE}}" />.</span>}
+            formula="\text{AIS} = \left( \sum_{m \in M} w_m \cdot \phi_m(x) \right) \times \gamma_{\text{TEE}}"
+            icon={<Shield size={20} />}
+            accent="var(--theme-accent)"
+          />
+        </div>
+
+        {/* ── Interactive Radar Section (Conditional) ───────────────── */}
+        {showRadar && selectedAgent && (
+          <Panel title={`${selectedAgent.name || selectedAgent.alias || 'Agent'} // Multi-Dimensional Integrity Radar`} icon={<Brain size={18} />}>
+            <div className="grid-cols-2" style={{ gap: 'var(--space-6)', alignItems: 'center' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                  This multi-dimensional radar chart displays the normalized performance indices of the focused agent. 
+                  Reputation checks analyze alignment margins across stability (entropy control), human-in-the-loop validation (grounding), TEE checks, and economic commitments.
+                </div>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', padding: '6px 0', borderBottom: '1px solid var(--glass-border)' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Focused Agent Alias</span>
+                    <span style={{ fontWeight: 600 }}>{selectedAgent.name || selectedAgent.alias || 'Agent'}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', padding: '6px 0', borderBottom: '1px solid var(--glass-border)' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Cryptographic Address</span>
+                    <span className="mono" style={{ fontSize: '0.7rem' }}>{selectedAgent.eth_address}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', padding: '6px 0', borderBottom: '1px solid var(--glass-border)' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Agent Integrity Score (AIS)</span>
+                    <span style={{ fontWeight: 700, color: 'var(--theme-accent)' }}>{selectedAgent?.current_ais != null ? `${selectedAgent.current_ais.toFixed(1)} / 1000` : 'No reading yet'}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', padding: '6px 0', borderBottom: '1px solid var(--glass-border)' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>ZK Proof Boost</span>
+                    <span style={{ color: selectedAgent.tee_verified ? 'var(--success)' : 'var(--text-muted)' }}>
+                      {selectedAgent.tee_verified ? 'VERIFIED (bb)' : 'NOT BOOSTED'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'center', minWidth: 0, minHeight: 0, background: 'rgba(0,0,0,0.2)', border: '1px solid var(--glass-border)', padding: 'var(--space-6)', borderRadius: 'var(--radius-md)' }}>
+                <div style={{ width: '100%', height: '240px', minWidth: 0, minHeight: 0, position: 'relative' }}>
+                  <IntegrityRadar agent={selectedAgent} />
+                </div>
+              </div>
+            </div>
+          </Panel>
+        )}
 
         {/* ── Intelligence Customization Console Toolbar ── */}
         <div 
@@ -221,7 +219,6 @@ export function IntelligencePage() {
             gap: '12px'
           }}
         >
-          {/* Left: Label + Quick Toggles */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderRight: '1px solid var(--glass-border)', paddingRight: '16px' }}>
               <Activity size={16} style={{ color: 'var(--primary)' }} />
@@ -252,7 +249,6 @@ export function IntelligencePage() {
                 </button>
               ))}
 
-              {/* Dynamic custom telemetry filters */}
               {customFields.map(field => (
                 <button
                   key={field.id}
@@ -260,9 +256,9 @@ export function IntelligencePage() {
                   style={{
                     padding: '6px 12px',
                     borderRadius: 'var(--radius-sm)',
-                    border: `1px solid ${field.active ? 'var(--gold)' : 'var(--glass-border)'}`,
+                    border: `1px solid ${field.active ? 'var(--theme-accent)' : 'var(--glass-border)'}`,
                     background: field.active ? 'rgba(212, 175, 55, 0.1)' : 'transparent',
-                    color: field.active ? 'var(--gold)' : 'var(--text-muted)',
+                    color: field.active ? 'var(--theme-accent)' : 'var(--text-muted)',
                     fontSize: '0.7rem',
                     fontWeight: 700,
                     cursor: 'pointer',
@@ -285,91 +281,6 @@ export function IntelligencePage() {
             </button>
           </div>
         </div>
-
-        {/* ── Stat Strip ──────────────────────────────────────────── */}
-        <div
-          style={{
-            display: 'flex',
-            gap: 'var(--space-4)',
-            flexWrap: 'wrap',
-          }}
-        >
-          <StatCard
-            label="Active Nodes"
-            value={activeNodes}
-            icon={<Activity size={18} />}
-            accent="var(--primary)"
-          />
-          <StatCard
-            label="Aggregate AIS"
-            value={aggregateAis.toLocaleString()}
-            icon={<Brain size={18} />}
-            accent="var(--gold)"
-          />
-          <StatCard
-            label="Active Disputes"
-            value={activeDisputes}
-            icon={<GitBranch size={18} />}
-            accent={activeDisputes > 0 ? 'var(--warning, #f59e0b)' : 'var(--success)'}
-          />
-
-          {/* Render active custom telemetries as config cards */}
-          {customFields.filter(f => f.active).map(f => (
-            <StatCard
-              key={f.id}
-              label={f.label}
-              value={f.value}
-              icon={<Zap size={18} />}
-              accent="var(--emerald)"
-            />
-          ))}
-        </div>
-
-        {/* ── Interactive Radar Section (Conditional) ───────────────── */}
-        {showRadar && selectedAgent && (
-          <Panel title={`${selectedAgent.alias} // Multi-Dimensional Integrity Radar`} icon={<Brain size={18} />}>
-            <div className="grid-cols-2" style={{ gap: 'var(--space-6)', alignItems: 'center' }}>
-              {/* Left Column: Legend / Info */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
-                  This multi-dimensional radar chart displays the normalized performance indices of the focused agent. 
-                  Reputation checks analyze alignment margins across stability (entropy control), human-in-the-loop validation (grounding), TEE checks, and economic commitments.
-                </div>
-                
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', padding: '6px 0', borderBottom: '1px solid var(--glass-border)' }}>
-                    <span style={{ color: 'var(--text-muted)' }}>Focused Agent Alias</span>
-                    <span style={{ fontWeight: 600 }}>{selectedAgent.alias}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', padding: '6px 0', borderBottom: '1px solid var(--glass-border)' }}>
-                    <span style={{ color: 'var(--text-muted)' }}>Cryptographic Address</span>
-                    <span className="mono" style={{ fontSize: '0.7rem' }}>{selectedAgent.eth_address}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', padding: '6px 0', borderBottom: '1px solid var(--glass-border)' }}>
-                    <span style={{ color: 'var(--text-muted)' }}>Agent Integrity Score (AIS)</span>
-                    <span style={{ fontWeight: 700, color: 'var(--gold)' }}>{selectedAgent.current_ais.toFixed(1)} / 1000</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', padding: '6px 0', borderBottom: '1px solid var(--glass-border)' }}>
-                    {/* `tee_verified` is sourced from the oracle's zk_proof_verified — a real ZK-boost
-                        signal, NOT hardware TEE attestation (which this protocol does not implement).
-                        Label it as what it actually is. */}
-                    <span style={{ color: 'var(--text-muted)' }}>ZK Proof Boost</span>
-                    <span style={{ color: selectedAgent.tee_verified ? 'var(--success)' : 'var(--text-muted)' }}>
-                      {selectedAgent.tee_verified ? 'VERIFIED (bb)' : 'NOT BOOSTED'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Right Column: Dynamic Radar Chart */}
-              <div style={{ display: 'flex', justifyContent: 'center', minWidth: 0, minHeight: 0, background: 'rgba(0,0,0,0.2)', border: '1px solid var(--glass-border)', padding: 'var(--space-6)', borderRadius: 'var(--radius-md)' }}>
-                <div style={{ width: '100%', height: '240px', minWidth: 0, minHeight: 0, position: 'relative' }}>
-                  <IntegrityRadar agent={selectedAgent} />
-                </div>
-              </div>
-            </div>
-          </Panel>
-        )}
 
         {/* ── Section content (Stacked) ─────────────────────────────────── */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)', marginTop: 'var(--space-4)' }}>

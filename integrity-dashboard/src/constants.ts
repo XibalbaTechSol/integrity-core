@@ -20,6 +20,9 @@ export const SMART_BAA_FACTORY_ADDRESS = S.SmartBAAFactory;
 export const COVERED_ENTITY_REGISTRY_ADDRESS = S.CoveredEntityRegistry;
 export const XNS_ADDRESS = (S as Record<string, string>).XibalbaNameService;
 export const GOVERNANCE_ADDRESS = (S as Record<string, string>).IntegrityGovernance;
+// undefined until DeployEHRGate.s.sol runs against Base Sepolia (only ever run
+// locally so far — see PRODUCTION_GAPS.md). Consumers must check for this before use.
+export const EHR_GATE_ADDRESS = (S as Record<string, string>).EHRGate;
 
 // Protocol-held signer that every agent grants StateAnchor ANCHOR_ROLE to (and the
 // SovereignAgent `oracle_` constructor arg). Single-operator testnet setup.
@@ -38,12 +41,3 @@ export const NO_CODE_FACTORY_ADDRESS = AGENT_PRIMITIVES_FACTORY_ADDRESS;
 export const BASE_SEPOLIA_CHAIN_ID = deployments.chainId;
 export const RPC_URL = deployments.rpcUrl;
 export const EXPLORER_URL = deployments.explorerUrl;
-
-export const IS_PRODUCTION = false; // Set to false to route to the local backend for session telemetry
-
-const envApiBase = import.meta.env.VITE_API_BASE;
-export const API_BASE = (envApiBase && envApiBase.startsWith('http'))
-  ? envApiBase
-  : (IS_PRODUCTION
-      ? "https://integrity-protocol-backend.onrender.com"
-      : "http://127.0.0.1:9000");

@@ -5,7 +5,7 @@ import { StatusBadge } from '../shared/StatusBadge';
 import {
   Zap, Plus, RefreshCw, BarChart2, Handshake, X, Terminal, Gavel, Trophy,
 } from 'lucide-react';
-import { useDashboard } from '../../context/useDashboard';
+import { useDashboard } from '../../context/DashboardContext';
 import { oracle, type MarketSummaryDto, type BenchmarkDto } from '../../services/oracle';
 import { MARKET_FACTORY_ADDRESS, ITK_TOKEN_ADDRESS } from '../../constants';
 import {
@@ -303,7 +303,7 @@ export function ActuarialHub({ mode }: { mode: 'markets' | 'stability' }) {
                     </td>
                     <td>{m.outcome_count}{m.outcome_staked?.length ? ` (${m.outcome_staked.map(s => fmt(s)).join(' / ')})` : ''}</td>
                     <td>{m.min_ais_to_enter}</td>
-                    <td className="mono" style={{ color: 'var(--gold)' }}>{fmt(m.total_staked)} ITK</td>
+                    <td className="mono" style={{ color: 'var(--theme-accent)' }}>{fmt(m.total_staked)} ITK</td>
                     <td style={{ fontSize: '0.75rem' }}>{new Date(deadline).toLocaleString()}</td>
                     <td><StatusBadge status={m.resolved ? 'resolved' : past ? 'pending' : 'active'} /></td>
                     <td>

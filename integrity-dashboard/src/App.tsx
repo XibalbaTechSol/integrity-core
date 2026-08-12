@@ -1,123 +1,58 @@
-import { Suspense, lazy } from 'react';
-import { DashboardProvider } from './context/DashboardProvider';
-import { SettingsProvider } from './context/SettingsProvider';
-import { Sidebar } from './components/layout/Sidebar';
-import { GlobalNav } from './components/layout/GlobalNav';
-import { SubNav } from './components/layout/SubNav';
-import { ToastManager } from './components/shared/Toast';
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { LandingPage } from './pages/LandingPage';
-
-// Lazy-load the 5 consolidated pages
-const IntelligencePage = lazy(() =>
-  import('./pages/IntelligencePage').then(m => ({ default: m.IntelligencePage }))
-);
-const CognitionPage = lazy(() =>
-  import('./pages/CognitionPage').then(m => ({ default: m.CognitionPage }))
-);
-const FinancePage = lazy(() =>
-  import('./pages/FinancePage').then(m => ({ default: m.FinancePage }))
-);
-const ContractsPage = lazy(() =>
-  import('./pages/ContractsPage').then(m => ({ default: m.ContractsPage }))
-);
-const HealthPage = lazy(() =>
-  import('./pages/HealthPage').then(m => ({ default: m.HealthPage }))
-);
-const IdentityPage = lazy(() =>
-  import('./pages/IdentityPage').then(m => ({ default: m.IdentityPage }))
-);
-const ProfilePage = lazy(() =>
-  import('./pages/ProfilePage').then(m => ({ default: m.ProfilePage }))
-);
-const SettingsPage = lazy(() =>
-  import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage }))
-);
-
-const LoadingFallback = () => (
-  <div style={{
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    height: '100%',
-    flexDirection: 'column',
-    gap: '16px',
-    color: 'var(--text-muted)',
-  }}>
-    <div style={{
-      width: '36px',
-      height: '36px',
-      border: '2px solid var(--glass-border)',
-      borderTop: '2px solid var(--primary)',
-      borderRadius: '50%',
-      animation: 'spin 0.8s linear infinite',
-    }} />
-    <span style={{ fontSize: '0.75rem', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-      Loading
-    </span>
-  </div>
-);
-
-import { useDashboard } from './context/useDashboard';
-
-import { CommandPalette } from './components/shared/CommandPalette';
-
-function DashboardShell() {
-  const { activeTab } = useDashboard();
-
-  const isIntelligence = ['telemetry'].includes(activeTab);
-  const isCognition = ['cognition', 'reasoning', 'diagnostics'].includes(activeTab);
-  const isFinance = ['wallet', 'staking', 'credit', 'markets', 'stability'].includes(activeTab);
-  const isContracts = ['map', 'factory', 'zk', 'oracle', 'ledger'].includes(activeTab);
-  const isHealth = ['governance', 'compliance', 'health'].includes(activeTab);
-  const isIdentity = ['identity', 'apikeys'].includes(activeTab);
-  const isProfile = activeTab === 'profile';
-  const isSettings = activeTab === 'settings';
-
-  return (
-    <div className="app-shell">
-      <Sidebar />
-      <div className="main-area">
-        <GlobalNav />
-        <SubNav />
-        <main className="content-area" style={activeTab === 'factory' ? { padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' } : undefined}>
-          <Suspense fallback={<LoadingFallback />}>
-            {isIntelligence && <IntelligencePage />}
-            {isCognition && <CognitionPage />}
-            {isFinance && <FinancePage />}
-            {isContracts && <ContractsPage />}
-            {isHealth && <HealthPage />}
-            {isIdentity && <IdentityPage />}
-            {isProfile && <ProfilePage />}
-            {isSettings && <SettingsPage />}
-          </Suspense>
-        </main>
-      </div>
-      <ToastManager />
-      <CommandPalette />
-    </div>
-  );
-}
-
+import { lazy, Suspense } from 'react';
+import { Routes, Route } from 'react-router-dom';
+import 'katex/dist/katex.min.css';
+import './index.css';
+import LandingPage from './LandingPage';
+import Dashboard from './Dashboard';
+import IdentityPage from './pages/IdentityPage';
+import FinancialsPage from './pages/FinancialsPage';
+import HealthPage from './pages/HealthPage';
+import ShieldPage from './pages/ShieldPage';
 import AuthPage from './pages/AuthPage';
+import SettingsPage from './pages/SettingsPage';
+import { DeveloperPage } from './pages/DeveloperPage';
+import DocsPage from './pages/DocsPage';
+import MemoryPage from './pages/MemoryPage';
+import PrivacyPage from './pages/PrivacyPage';
+import TermsPage from './pages/TermsPage';
+import { IntelligencePage } from './pages/IntelligencePage';
+import { ActuarialHub } from './components/tabs/ActuarialHub';
+import { DashboardProvider } from './context/DashboardContext';
+import { SettingsProvider } from './context/SettingsContext';
+import MainAppLayout from './layouts/MainAppLayout';
+import PublicLayout from './layouts/PublicLayout';
 
-export default function App() {
+const WikiPage = lazy(() => import('./pages/WikiPage'));
+
+function App() {
   return (
     <SettingsProvider>
       <DashboardProvider>
-        <HashRouter>
-          <Routes>
-            <Route path="/" element={<LandingPage />} />
-            <Route path="/landing" element={<LandingPage />} />
-            <Route path="/auth" element={<AuthPage />} />
-            <Route
-              path="/integrity/*"
-              element={<DashboardShell />}
-            />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </HashRouter>
+        <Routes>
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/auth" element={<AuthPage />} />
+          <Route path="/wiki" element={<Suspense fallback={<div style={{ minHeight: '100vh', background: '#07111d' }} />}><WikiPage /></Suspense>} />
+          <Route element={<PublicLayout />}>
+            <Route path="/docs" element={<DocsPage />} />
+            <Route path="/privacy" element={<PrivacyPage />} />
+            <Route path="/terms" element={<TermsPage />} />
+          </Route>
+          <Route element={<MainAppLayout />}>
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/identity" element={<IdentityPage />} />
+            <Route path="/financials" element={<FinancialsPage />} />
+            <Route path="/intelligence" element={<IntelligencePage />} />
+            <Route path="/prediction-markets" element={<ActuarialHub mode="markets" />} />
+            <Route path="/health" element={<HealthPage />} />
+            <Route path="/shield" element={<ShieldPage />} />
+            <Route path="/memory" element={<MemoryPage />} />
+            <Route path="/developer" element={<DeveloperPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+          </Route>
+        </Routes>
       </DashboardProvider>
     </SettingsProvider>
   );
 }
+
+export default App;

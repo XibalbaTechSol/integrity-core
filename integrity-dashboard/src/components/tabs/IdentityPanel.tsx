@@ -1,15 +1,16 @@
 import { useState } from 'react';
-import { useDashboard } from '../../context/useDashboard';
+import { useDashboard } from '../../context/DashboardContext';
 import { Panel } from '../shared/Panel';
 import { Key, Users, ShieldCheck, Search, Link as LinkIcon, Settings, Globe } from 'lucide-react';
 import { DIDExplorer } from '../ui/DIDExplorer';
 import { RegisterAgentModal } from '../ui/RegisterAgentModal';
 import { XNSSearchService } from '../ui/XNSSearchService';
 import { XNSRegisterForm } from '../ui/XNSRegisterForm';
-import { ClaimAgentModal } from './ClaimAgentModal';
+import { ClaimAgentModal } from '../ui/ClaimAgentModal';
+import { VerificationPanel } from './VerificationPanel';
 
 export function IdentityPanel() {
-  const { selectedAgent, fetchData } = useDashboard();
+  const { selectedAgent } = useDashboard();
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [isClaimModalOpen, setIsClaimModalOpen] = useState(false);
 
@@ -24,6 +25,8 @@ export function IdentityPanel() {
           </div>
         )}
       </Panel>
+
+      <VerificationPanel />
 
       <Panel title="XNS Search Service" icon={<Search size={18} />}>
         <XNSSearchService />
@@ -61,7 +64,7 @@ export function IdentityPanel() {
          <RegisterAgentModal
            isOpen={isRegisterModalOpen}
            onClose={() => setIsRegisterModalOpen(false)}
-           onSuccess={() => { setIsRegisterModalOpen(false); if (fetchData) fetchData(); }}
+           onSuccess={() => { setIsRegisterModalOpen(false); }}
          />
       )}
       {isClaimModalOpen && (
@@ -69,7 +72,7 @@ export function IdentityPanel() {
            isOpen={isClaimModalOpen} 
            defaultAddress={selectedAgent?.eth_address}
            onClose={() => setIsClaimModalOpen(false)} 
-           onSuccess={() => { setIsClaimModalOpen(false); if (fetchData) fetchData(); }} 
+           onSuccess={() => { setIsClaimModalOpen(false); }} 
          />
       )}
     </div>
