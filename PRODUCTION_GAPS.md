@@ -1303,3 +1303,37 @@ fix: `docs/design/mcp-signing-boundary.md`.
     rejected as the mechanism — it's a structured-input request either side of the session can
     answer, not a safety property. The actual fix removes the capability from the tool surface
     entirely; a human runs `integrity-cli` directly for anything that signs.
+
+## 26. `UltraPlonkVerifier` is the real generated ZK verifier now, with zero test coverage (2026-08-12)
+
+Found while triaging an uncommitted, dirty working tree on `audit/harness-loop-2026-07-30` ahead
+of a repo-wide rename/stabilization pass. `contracts/src/oracle/UltraPlonkVerifier.sol` was
+initially suspected to be accidental damage — its interface conformance to `IZkVerifier` had been
+dropped, and `contracts/test/UltraPlonkVerifier.t.sol` was deleted in the same uncommitted diff.
+
+* **Not damage — this is the real `bb`-generated verifier, correctly wired.** The working-tree
+  contract has an actual `verify()` implementation (no more
+  `PlaceholderVerifierNotYetGenerated` revert), matches `integrity-zkp/generated/UltraPlonkVerifier.sol`
+  plus hand-added `assembly ("memory-safe")` annotations, and compiles clean
+  (`forge build` succeeds with only pre-existing lint warnings from the generated code).
+* **Dropping the `IZkVerifier` conformance was necessary, not accidental.** The generated file
+  already carries Barretenberg's own baked-in `interface IVerifier` with an identical
+  `verify(bytes,bytes32[]) external view returns (bool)` signature. Attempting
+  `contract UltraPlonkVerifier is BaseZKHonkVerifier(...), IZkVerifier` fails to compile
+  (Solidity error 6480 — diamond conflict, two base declarations of the same function). This was
+  verified directly, not assumed: re-adding the explicit conformance and running `forge build`
+  reproduced the compile error, then reverting confirmed clean compilation. `IZkVerifier` was
+  deliberately designed (see its own docstring) to be satisfied via ABI-compatible low-level
+  dispatch (`IZkVerifier(impl).verify(...)` in `VerifierRegistry.sol`), not formal inheritance —
+  this is exactly what lets `make generate-verifier` swap the placeholder for the real contract
+  without touching any calling contract.
+* **The deleted test file is correctly obsolete, not a regression.** It only asserted
+  placeholder-only behavior (`vm.expectRevert(UltraPlonkVerifier.PlaceholderVerifierNotYetGenerated.selector)`
+  on every input, including a fuzz test) — assertions that no longer hold now that `verify()` does
+  real work. Restoring it as-is would fail.
+* **OPEN — the real verifier currently has no test coverage at all.** No new test exists that
+  feeds it an actual proof (from `integrity-zkp`'s real pipeline) and confirms valid proofs verify
+  while invalid ones don't. This is exactly the class of gap `docs/INTERFACE_CONTRACT.md` and this
+  file's own convention exist to surface rather than leave silently unstated. Tracked here per
+  user decision (2026-08-12) to handle test-writing as a separate follow-up rather than blocking
+  the in-progress repo stabilization/rename pass on it.

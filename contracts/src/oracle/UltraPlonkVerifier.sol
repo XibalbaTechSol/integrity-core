@@ -189,7 +189,7 @@ library FrLib {
         uint256 result;
 
         // Call the modexp precompile to invert in the field
-        assembly {
+        assembly ("memory-safe") {
             let free := mload(0x40)
             mstore(free, 0x20)
             mstore(add(free, 0x20), 0x20)
@@ -216,7 +216,7 @@ library FrLib {
         uint256 result;
 
         // Call the modexp precompile to invert in the field
-        assembly {
+        assembly ("memory-safe") {
             let free := mload(0x40)
             mstore(free, 0x20)
             mstore(add(free, 0x20), 0x20)
@@ -1776,7 +1776,7 @@ function mulWithSeperator(Honk.G1Point memory basePoint, Honk.G1Point memory oth
 function ecMul(Fr value, Honk.G1Point memory point) view returns (Honk.G1Point memory) {
     Honk.G1Point memory result;
 
-    assembly {
+    assembly ("memory-safe") {
         let free := mload(0x40)
         // Write the point into memory (two 32 byte words)
         // Memory layout:
@@ -1822,7 +1822,7 @@ function ecMul(Fr value, Honk.G1Point memory point) view returns (Honk.G1Point m
 function ecAdd(Honk.G1Point memory lhs, Honk.G1Point memory rhs) view returns (Honk.G1Point memory) {
     Honk.G1Point memory result;
 
-    assembly {
+    assembly ("memory-safe") {
         let free := mload(0x40)
         // Write lhs into memory (two 32 byte words)
         // Memory layout:
@@ -2403,7 +2403,7 @@ abstract contract BaseZKHonkVerifier is IVerifier {
         // upheld by sumcheck/Shplemini, which would fail on inconsistent evaluations.
 
         bool success = true;
-        assembly {
+        assembly ("memory-safe") {
             let free := mload(0x40)
 
             let count := 0x01
@@ -2460,7 +2460,7 @@ abstract contract BaseZKHonkVerifier is IVerifier {
 
 import {IZkVerifier} from "./IZkVerifier.sol";
 
-contract UltraPlonkVerifier is BaseZKHonkVerifier(N, LOG_N, VK_HASH, NUMBER_OF_PUBLIC_INPUTS), IZkVerifier {
+contract UltraPlonkVerifier is BaseZKHonkVerifier(N, LOG_N, VK_HASH, NUMBER_OF_PUBLIC_INPUTS) {
      function loadVerificationKey() internal pure override returns (Honk.VerificationKey memory) {
        return HonkVerificationKey.loadVerificationKey();
     }
