@@ -103,7 +103,7 @@ function resolveWikiLink(currentPage: WikiPageRecord, href: string) {
 }
 
 function inlineMarkup(value: string, currentPage: WikiPageRecord, onNavigate: WikiNavigate) {
-  const segments = value.split(/(`[^`]+`|\*\*[^*]+\*|\[[^\]]+\]\([^)]+\))/g);
+  const segments = value.split(/(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\))/g);
   return segments.map((segment, index) => {
     const link = segment.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
     if (link) {

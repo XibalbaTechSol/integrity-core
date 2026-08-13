@@ -127,7 +127,12 @@ export const DIDExplorer: React.FC<DIDExplorerProps> = ({ agent }) => {
                         >
                             <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 'var(--space-10)' }}>
                                 {/* DID Document Visualization */}
-                                <div>
+                                {/* minWidth: 0 overrides the grid item's default auto min-width, which
+                                    otherwise sizes this track to the DID string's full un-truncated
+                                    intrinsic width (nowrap text ignores its own text-overflow:ellipsis
+                                    for min-content purposes) and starves the sibling "Sovereign Node"
+                                    column down to near-zero. */}
+                                <div style={{ minWidth: 0 }}>
                                     <div style={{ marginBottom: 'var(--space-8)' }}>
                                         <div style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.2em', marginBottom: '8px' }}>Global DID Identifier</div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', background: 'rgba(0,0,0,0.3)', padding: '16px', borderRadius: 'var(--r-md)', border: '1px solid var(--border)' }}>

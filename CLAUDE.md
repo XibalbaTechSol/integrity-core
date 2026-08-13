@@ -232,24 +232,25 @@ change in one automatically applies to the other.
 
 ## Known gaps / things this doc's own exploration found stale — verify before relying on them
 
-- **`integrity-dashboard/e2e/` does not exist**, though `integrity-dashboard/playwright.config.ts`
-  sets `testDir: './e2e'` and root `Makefile`'s `test-e2e` target names
-  `integrity-dashboard/e2e/global-setup.ts` as the thing that boots anvil + Postgres/Redis +
-  oracle + a seeded agent. So `make test-e2e` currently has no tests to run, and the
-  global-setup architecture the Makefile documents is not built. Either build the suite or
-  drop the target — a documented-but-absent test layer reads as coverage that isn't there.
-  Compounding it, `playwright.config.ts` sets `reuseExistingServer: !process.env.CI`, so a
-  leftover host dev server on `:5173` is silently adopted instead of flagged — the same
-  port-shadowing failure recorded as F11 in `docs/design/harness-loop-audit-2026-07-30.md`.
 - `contracts/.env` (populated, not just `.env.example`) exists on disk — don't commit it.
+- Root `Makefile`'s `test-e2e` target comment still names
+  `integrity-dashboard/e2e/global-setup.ts` as the thing that boots anvil + Postgres/Redis +
+  oracle + a seeded agent — **that file does not exist**. `playwright.config.ts`'s `webServer`
+  only boots `npm run dev`; the real backend stack must be started manually first (see
+  `docs/TESTING.md`'s Layer 2 section, corrected 2026-08-13). `playwright.config.ts` also sets
+  `reuseExistingServer: !process.env.CI`, so a leftover host dev server on the configured port
+  is silently adopted instead of flagged — the same port-shadowing failure recorded as F11 in
+  `docs/design/harness-loop-audit-2026-07-30.md`.
 
-Four gaps previously listed here were **verified stale on 2026-07-31** and removed rather than
-left to mislead: `integrity-dashboard/package.json` *does* define `"test": "vitest run"`;
+Five gaps previously listed here were **verified stale on 2026-08-13** and removed rather than
+left to mislead: `integrity-dashboard/e2e/` *does* exist (16 route specs, 140 tests, a full
+audit pass — see `docs/wiki/entities/integrity-dashboard.md`); `package.json` does **not**
+define a `"test"` script and has no `vitest` dependency at all (a 2026-07-31 note here claimed
+it did — re-verify claims like this against `package.json` directly, don't carry them forward);
 `integrity-dashboard/demo/` *does* exist (`demo/pyproject.toml`, entry point `integrity-demo`);
-`src/services/api.ts` no longer exists at all, so the "hardcoded mock data" warning pointed at a
-deleted file (confirm the dashboard's current data path before relying on either claim); and
-`ethers ^6.16.0` *is* a dashboard dependency, so "no wallet-connection library is present" no
-longer holds. Re-check this section against disk before trusting it — it drifted once.
+`src/services/api.ts` no longer exists at all, so any "hardcoded mock data" warning pointing at
+that file is stale; and `ethers ^6.16.0` *is* a dashboard dependency. Re-check this section
+against disk before trusting it — it has drifted more than once.
 
 ## Live deployment
 

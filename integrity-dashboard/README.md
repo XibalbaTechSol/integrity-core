@@ -19,9 +19,13 @@ This README is the repo-level source of truth for what this application is, what
 
 If this README conflicts with code, fix the README or the code in the same change. Do not document mock behavior as production behavior.
 
+## 2026-08-13 full-site Playwright audit
+
+Every one of the 16 routes now has a dedicated Playwright spec under `e2e/` (one file per page, 140 tests total), run against a real local backend stack (no mocking), each followed by a full-page screenshot reviewed before moving to the next page. The audit found and fixed 7 real bugs (rendering, layout, chart-domain math, date parsing, a stuck-loading state, a CORS misconfiguration blocking auth testing, a false-success wallet-auth navigation) — see [`docs/wiki/entities/integrity-dashboard.md`](https://github.com/XibalbaTechSol/integrity-core/blob/main/docs/wiki/entities/integrity-dashboard.md) in `integrity-core` for the full list and per-page backend-wiring breakdown. Run it yourself with `npx playwright test` (see `docs/TESTING.md` in `integrity-core` for the manual backend-stack steps this needs first).
+
 ## 2026-08-06 audit status
 
-See [`docs/audits/2026-08-06-status.md`](docs/audits/2026-08-06-status.md), the current [`docs/audits/2026-08-07-gap-closure.md`](docs/audits/2026-08-07-gap-closure.md), and the consolidated cross-repository plan at `/home/xibalba/Documents/INTEGRITY — Cross-Repository Audit and Implementation Plan.md`. The current worktree build, lint gate, and 26-test Playwright suite pass locally. `npm audit` still reports 4 vulnerabilities (1 moderate, 3 high). This repository is a presentation proof of concept, not a standalone production trust backend.
+See [`docs/audits/2026-08-06-status.md`](docs/audits/2026-08-06-status.md), the current [`docs/audits/2026-08-07-gap-closure.md`](docs/audits/2026-08-07-gap-closure.md), and the consolidated cross-repository plan at `/home/xibalba/Documents/INTEGRITY — Cross-Repository Audit and Implementation Plan.md`. `npm audit` still reports 4 vulnerabilities (1 moderate, 3 high). This repository is a presentation proof of concept, not a standalone production trust backend.
 
 ## Ecosystem Role: 👁️ The Human Control Center
 
@@ -91,7 +95,7 @@ Built and verified in this repo:
 - Generated wiki browser at `/wiki` backed by `src/generated/wiki-data.json`.
 - Wiki renderer support for canonical Markdown tables, Mermaid diagrams, relative wiki navigation, repository-source links, right-rail article TOC, and ordered left-rail Protocol TOC.
 - Xibalba Solutions logo in the wiki header linked to `/`.
-- Playwright regression coverage for wiki table rendering, ordered TOC behavior, logo navigation, and mobile search placement.
+- Full-site Playwright regression coverage — one spec per route (16 files, 140 tests) — including wiki table rendering, ordered TOC behavior, logo navigation, and mobile search placement.
 
 Still dependent on running backend services:
 
@@ -141,7 +145,8 @@ The dev server defaults to Vite. Backend URLs are configured through `src/config
 | Command | Purpose |
 |---|---|
 | `npm run build` | TypeScript build plus Vite production bundle |
-| `npm run test-e2e -- e2e/wiki.spec.ts` | Focused browser regression for the wiki route |
+| `npm run test-e2e` | Full Playwright suite — all 16 route specs (140 tests); needs the backend stack started first, see `docs/TESTING.md` in `integrity-core` |
+| `npm run test-e2e -- e2e/wiki.spec.ts` | Focused browser regression for a single route |
 | `npm run sync-wiki` | Regenerate the read-only wiki snapshot from canonical Markdown |
 | `git diff --check` | Whitespace sanity check before handoff |
 
@@ -154,7 +159,7 @@ Near-term:
 - Keep `/wiki` synchronized with canonical integrity-core Markdown and regression-tested on desktop/mobile.
 - Keep UI labels and product boundaries aligned with the three-repo dependency map.
 - Continue replacing static demonstration panels with explicit real-service reads where backend endpoints are available.
-- Add broader E2E coverage for Shield, identity, memory, and financial workflows as their backend contracts stabilize.
+- Full-site E2E coverage (Shield, identity, memory, financial, and every other route) landed 2026-08-13; keep it current as pages change rather than letting it drift stale again.
 
 Longer-term:
 

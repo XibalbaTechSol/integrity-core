@@ -56,16 +56,24 @@ const FormulaCard = ({ title, description, formula, icon, accent = 'var(--primar
       {description}
     </div>
 
-    <div style={{ 
-      marginTop: 'auto', 
-      padding: '12px', 
-      background: 'var(--bg-card)', 
+    <div style={{
+      marginTop: 'auto',
+      padding: '12px',
+      background: 'var(--bg-card)',
       borderRadius: 'var(--radius-sm)',
       border: '1px dashed var(--glass-border)',
       display: 'flex',
       alignItems: 'center',
-      justifyContent: 'center',
-      overflow: 'hidden'
+      // overflow: hidden clipped BOTH edges of formulas wider than the card (centered
+      // content clips symmetrically) — "AIS = (...)" rendered as "[S = (...)" with the
+      // leading "A" and "I" cut away. overflowX: auto alone isn't enough to fix it:
+      // justify-content: center + overflow: auto starts pre-scrolled to the midpoint,
+      // so the unscrolled screenshot still shows both edges clipped. flex-start keeps
+      // the formula's start flush left and fully visible; only genuine excess width
+      // requires scrolling, matching the AIS formula box on LandingPage.tsx.
+      justifyContent: 'flex-start',
+      overflowX: 'auto',
+      overflowY: 'hidden'
     }}>
       <BlockMath math={formula} />
     </div>

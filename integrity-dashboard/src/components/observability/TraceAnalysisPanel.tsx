@@ -198,6 +198,11 @@ const TraceTreeNode = ({ node, depth = 0, onTimeTravel }: { node: TraceNode, dep
 export function TraceAnalysisPanel() {
   const { selectedAgent } = useDashboard();
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
+  // Tracks WHY selectedSession is null — genuinely still loading vs. no agent selected
+  // vs. the agent has zero traces — so the render below can show honest, distinct copy
+  // for each instead of a single "Loading session..." that never resolved and looked
+  // identical to a hang for the (common) case of an agent with no telemetry yet.
+  const [status, setStatus] = useState<'loading' | 'no-agent' | 'no-traces' | 'ready'>('loading');
   const [isRewinding, setIsRewinding] = useState(false);
   const [rewindSpan, setRewindSpan] = useState<Span | null>(null);
 
@@ -209,13 +214,15 @@ export function TraceAnalysisPanel() {
     let cancelled = false;
     if (!selectedAgent) {
       setSelectedSession(null);
+      setStatus('no-agent');
       return;
     }
+    setStatus('loading');
     (async () => {
       try {
         const recent = await oracle.getRecentTraces(selectedAgent.eth_address, 1);
         if (!recent.length) {
-          if (!cancelled) setSelectedSession(null);
+          if (!cancelled) { setSelectedSession(null); setStatus('no-traces'); }
           return;
         }
         const tree = await oracle.getTraceTree(recent[0].trace_id);
@@ -227,9 +234,10 @@ export function TraceAnalysisPanel() {
             overall_risk_score: spans.length ? errorCount / spans.length : 0,
             traces: [{ trace_id: tree.trace_id, spans }],
           });
+          setStatus('ready');
         }
       } catch {
-        if (!cancelled) setSelectedSession(null);
+        if (!cancelled) { setSelectedSession(null); setStatus('no-traces'); }
       }
     })();
     return () => {
@@ -265,7 +273,14 @@ export function TraceAnalysisPanel() {
     return roots;
   };
 
-  if (!selectedSession) return <div style={{ padding: '20px', color: 'var(--text-muted)' }}>Loading session...</div>;
+  if (!selectedSession) {
+    const message = status === 'no-agent'
+      ? 'Select an agent from the sidebar to view its trace history.'
+      : status === 'no-traces'
+      ? 'No traces recorded for this agent yet.'
+      : 'Loading session...';
+    return <div style={{ padding: '20px', color: 'var(--text-muted)' }}>{message}</div>;
+  }
 
   const traceTree = buildTree(selectedSession.traces[0].spans);
 

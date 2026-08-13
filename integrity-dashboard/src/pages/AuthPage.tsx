@@ -29,8 +29,8 @@ const AuthPage: React.FC = () => {
   };
 
   const handleWalletAuth = async () => {
-    await connectWallet();
-    navigate('/dashboard');
+    const connected = await connectWallet();
+    if (connected) navigate('/dashboard');
   };
 
   return (

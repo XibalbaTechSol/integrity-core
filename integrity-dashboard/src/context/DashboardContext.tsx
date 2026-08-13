@@ -60,7 +60,7 @@ interface DashboardContextType {
   setApiKeys: (keys: ApiKey[]) => void;
   user: User | null;
   walletAddress: string | null;
-  connectWallet: () => void;
+  connectWallet: () => Promise<boolean>;
   addToast: (type: 'success' | 'error' | 'info', message: string) => void;
   stats: Stats | null;
 }
@@ -123,11 +123,14 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     console.log(`[Toast ${type}] ${message}`);
   }, []);
 
-  const connectWallet = useCallback(async () => {
+  // Returns whether a wallet was actually connected — callers (e.g. AuthPage's
+  // handleWalletAuth) must not navigate to an authenticated route on a false return,
+  // since every failure path here is handled by an addToast rather than a thrown error.
+  const connectWallet = useCallback(async (): Promise<boolean> => {
     const ethereum = (window as any).ethereum;
     if (typeof ethereum === 'undefined') {
       addToast('error', 'No Ethereum wallet found');
-      return;
+      return false;
     }
     try {
       const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
@@ -144,9 +147,11 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
       setWalletAddress(accounts[0]);
       localStorage.setItem(WALLET_KEY, accounts[0]);
+      return true;
     } catch (err) {
       console.error(err);
       addToast('error', 'Wallet connection failed');
+      return false;
     }
   }, [addToast]);
 

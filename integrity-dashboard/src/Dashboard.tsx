@@ -73,11 +73,16 @@ const Dashboard: React.FC = () => {
     );
   }
 
+  // ais.components.* are on a 0-1000 scale (integrity-oracle scoring-core's
+  // MAX_COMPONENT_SCORE = 1000, matching AIS itself), not a 0-1 fraction — dividing by
+  // 10 maps it onto this radar's 0-100 domain. The previous `* 100` treated it as a
+  // fraction, producing values like 100,000 for a perfect score: wildly outside
+  // fullMark: 100, which made Recharts render a literal "NaN" tick/label on this chart.
   const radarData = ais ? [
-    { subject: 'Entropy', A: (ais.components.entropy || 0) * 100, fullMark: 100 },
-    { subject: 'Grounding', A: (ais.components.grounding || 0) * 100, fullMark: 100 },
-    { subject: 'Sacrifice', A: (ais.components.sacrifice || 0) * 100, fullMark: 100 },
-    { subject: 'Compliance', A: (ais.components.compliance || 0) * 100, fullMark: 100 },
+    { subject: 'Entropy', A: (ais.components.entropy || 0) / 10, fullMark: 100 },
+    { subject: 'Grounding', A: (ais.components.grounding || 0) / 10, fullMark: 100 },
+    { subject: 'Sacrifice', A: (ais.components.sacrifice || 0) / 10, fullMark: 100 },
+    { subject: 'Compliance', A: (ais.components.compliance || 0) / 10, fullMark: 100 },
     { subject: 'ZK-Boost', A: ais.zk_boost > 1 ? 100 : 0, fullMark: 100 },
   ] : [];
 
