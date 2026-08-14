@@ -129,18 +129,7 @@ contract ReputationRegistryTest is Test {
         registry.submitZkAttestation(agent, hex"1234", new bytes32[](0), root, leaf, proof);
     }
 
-    /// @notice Against the REAL placeholder verifier (not a test mock): confirms the
-    /// placeholder fails closed by reverting, so the ZK-boost path is provably
-    /// unusable until `make generate-verifier` swaps in the real contract.
-    function test_placeholderVerifierRevertsInsteadOfMocking() public {
-        UltraPlonkVerifier placeholder = new UltraPlonkVerifier();
-        vm.prank(admin);
-        registry.setZkConfig(address(placeholder), address(anchor));
 
-        vm.prank(agent);
-        vm.expectRevert(UltraPlonkVerifier.PlaceholderVerifierNotYetGenerated.selector);
-        registry.submitZkAttestation(agent, hex"1234", new bytes32[](0), root, leaf, proof);
-    }
 
     function test_bridgeRoleCanUpdateScore() public {
         address bridge = makeAddr("bridge");

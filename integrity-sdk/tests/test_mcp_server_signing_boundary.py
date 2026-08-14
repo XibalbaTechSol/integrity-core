@@ -1,6 +1,6 @@
 """Signing/on-chain-write MCP tools must be disabled by default -- both undiscoverable and
 unexecutable. Security fix, 2026-08-05: see integrity_sdk/mcp_server.py's module docstring and
-xibalba-graph-memory/docs/session-log/2026-08-05-integrity-coupling-session.md for the full
+xibalba-cortex/docs/session-log/2026-08-05-integrity-coupling-session.md for the full
 account of the gap this closes (integrity_register_agent was a live, callable tool loading a
 real identity key with no gate covering it).
 """

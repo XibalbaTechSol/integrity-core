@@ -2,7 +2,7 @@
 import React from 'react';
 import { ShieldCheck, Activity, BarChart3, Database, Layers } from 'lucide-react';
 import { useIsMobile } from '../../utils/useIsMobile';
-import { useDashboard } from '../../context/useDashboard';
+import { useDashboard } from '../../context/DashboardContext';
 
 export const ProtocolStats: React.FC = () => {
     const isMobile = useIsMobile();
@@ -25,7 +25,7 @@ export const ProtocolStats: React.FC = () => {
                     label="Network AIS" 
                     value={s.aggregateAis.toFixed(1)} 
                     icon={BarChart3} 
-                    color="var(--gold)" 
+                    color="var(--theme-accent)" 
                     trend="+4.2% WK"
                     loading={loading}
                     isMobile={isMobile}
@@ -52,7 +52,7 @@ export const ProtocolStats: React.FC = () => {
                     label="Active Nodes" 
                     value={s.totalNodes} 
                     icon={Database} 
-                    color="var(--gold)" 
+                    color="var(--theme-accent)" 
                     trend="↑ 12%"
                     loading={loading}
                     isMobile={isMobile}
@@ -82,7 +82,7 @@ const StatCard = ({ label, value, icon: Icon, color, trend, subLabel, loading, i
             </div>
         ) : (
             <div>
-                <h3 className="mono" style={{ fontSize: isMobile ? '1.8rem' : '2.2rem', fontWeight: 700, color: color === 'var(--gold)' ? 'var(--gold)' : 'white', margin: 0 }}>
+                <h3 className="mono" style={{ fontSize: isMobile ? '1.8rem' : '2.2rem', fontWeight: 700, color: color === 'var(--theme-accent)' ? 'var(--theme-accent)' : 'white', margin: 0 }}>
                     {value}
                 </h3>
                 <p style={{ fontSize: '0.65rem', color: trend?.startsWith('+') || trend?.includes('↑') ? 'var(--emerald)' : 'var(--text-muted)', fontWeight: 700, marginTop: '8px', display: 'flex', alignItems: 'center', gap: '4px', margin: '6px 0 0' }}>

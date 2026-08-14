@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer, Tooltip } from 'recharts';
-import type { Agent } from '../../types';
+import type { Agent } from '../../context/DashboardContext';
+import { oracle, AisComponents } from '../../services/oracle';
 
 interface IntegrityRadarProps {
   agent: Agent;
@@ -17,16 +18,16 @@ const CustomTooltip = ({ active, payload, mode }: any) => {
         formula = 'Stability = (1 - Entropy) * 100';
         explanation = 'Measures prediction consistency and low system volatility. Lower entropy yields higher stability.';
       } else if (data.subject === 'Grounding') {
-        formula = 'Grounding = Grounding Score / 10';
+        formula = 'Grounding = oracle AIS component G';
         explanation = 'Measures alignment with factuality, correctness, and context verification.';
       } else if (data.subject === 'Sacrifice') {
-        formula = 'Sacrifice = Min(100, Staked ITK / 50)';
+        formula = 'Sacrifice = oracle AIS component S';
         explanation = 'Represents economic collateral staked on the platform to guarantee integrity.';
       } else if (data.subject === 'Identity') {
         formula = 'Identity = Verification Tier * 33.3';
         explanation = 'Reflects identity verification and reputation grade (Tiers 1-3).';
       } else if (data.subject === 'Compliance') {
-        formula = 'Compliance = (1.0 - Penalty Points) * 100';
+        formula = 'Compliance = oracle AIS component C';
         explanation = 'Indicates regulatory compliance, penalized by accumulated infractions.';
       }
     } else {
@@ -65,24 +66,44 @@ const CustomTooltip = ({ active, payload, mode }: any) => {
 
 export function IntegrityRadar({ agent }: IntegrityRadarProps) {
   const [mode, setMode] = useState<'integrity' | 'risk'>('integrity');
+  const [components, setComponents] = useState<AisComponents | null>(null);
 
-  // Convert 0-1000 scores to 0-100 scale for normalized radar visualization
+  useEffect(() => {
+    let active = true;
+    oracle.getAis(agent.eth_address)
+      .then(r => { if (active) setComponents(r.components); })
+      .catch(() => { if (active) setComponents(null); });
+    return () => { active = false; };
+  }, [agent.eth_address]);
+
+  // Real AIS sub-scores from the oracle (already 0-1) scaled to 0-100 for the radar.
+  // "Sacrifice" doubles as economic stake exposure — same axis the scoring formula uses.
+  const entropy = components ? Math.round(components.entropy * 100) : 0;
+  const grounding = components ? Math.round(components.grounding * 100) : 0;
+  const sacrifice = components ? Math.round(components.sacrifice * 100) : 0;
+  const compliance = components ? Math.round(components.compliance * 100) : 0;
+  const identity = Math.round((agent.verification_tier ?? 0) * 33.3);
+
   const integrityData = [
-    { subject: 'Stability (1-E)', value: Math.round((1 - ((agent as any).performance_entropy ?? 0.05)) * 100) },
-    { subject: 'Grounding', value: Math.round(((agent as any).metadata?.grounding_score ?? 850) / 10) },
-    { subject: 'Sacrifice', value: Math.min(100, Math.round(((agent as any).staked_itk ?? (agent as any).metadata?.staked_amount_itk ?? 2500) / 50)) },
-    { subject: 'Identity', value: Math.round(((agent as any).metadata?.verification_tier ?? agent.verification_tier ?? 1) * 33.3) },
-    { subject: 'Compliance', value: Math.round((1.0 - ((agent as any).penalty_points ?? 0.0)) * 100) },
+    { subject: 'Stability (Entropy)', value: entropy },
+    { subject: 'Grounding', value: grounding },
+    { subject: 'Sacrifice', value: sacrifice },
+    { subject: 'Identity', value: identity },
+    { subject: 'Compliance', value: compliance },
   ];
 
   const riskData = [
-    { subject: 'Behavioral Drift', value: Math.round(((agent as any).performance_entropy ?? 0.05) * 100) },
-    { subject: 'Hallucination Risk', value: Math.max(0, 100 - Math.round(((agent as any).metadata?.grounding_score ?? 850) / 10)) },
-    { subject: 'Sybil Exposure', value: Math.max(0, 100 - Math.min(100, Math.round(((agent as any).staked_itk ?? (agent as any).metadata?.staked_amount_itk ?? 2500) / 50))) },
+    { subject: 'Behavioral Drift', value: 100 - entropy },
+    { subject: 'Hallucination Risk', value: 100 - grounding },
+    { subject: 'Sybil Exposure', value: 100 - sacrifice },
   ];
 
   const data = mode === 'integrity' ? integrityData : riskData;
   const activeColor = mode === 'integrity' ? 'var(--primary)' : '#ef4444';
+
+  if (!components) {
+    return <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>No AIS reading yet for this agent.</div>;
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%' }}>

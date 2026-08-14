@@ -13,7 +13,7 @@ that pushes oracle-computed reputation scores on-chain and raises slashing
 disputes — the only place in the monorepo that closes that loop (see
 `app/reputation.py`'s module docstring).
 
-Sibling packages: see `/home/xibalba/Projects/INTEGRITY-LATEST/CLAUDE.md` for
+Sibling packages: see `/home/xibalba/Projects/integrity-core/CLAUDE.md` for
 the full monorepo. `docs/INTERFACE_CONTRACT.md` at the repo root is the
 binding cross-package spec (§4.2 commitment schema, §6 deployments file, §7
 OPA integration) — read it before changing any schema/endpoint/env var this

@@ -18,7 +18,7 @@ this rewrite's entire point is not repeating that.
 
 ## Repository structure
 
-A single git repo at the root (`github.com/XibalbaTechSol/integrity-latest`), but still a
+A single git repo at the root (`github.com/XibalbaTechSol/integrity-core`), but still a
 Makefile-orchestrated set of independently versioned packages, each with its own dependency
 lockfile (`.venv`/`uv.lock`, `node_modules`, `Cargo.lock`) — there's no root-level package
 manifest tying them together, only the `Makefile`. `contracts/lib/forge-std` is a real git
@@ -64,7 +64,7 @@ Per-package, when iterating on one piece:
 ```bash
 # contracts/  (Foundry, solc 0.8.28, via_ir=true)
 cd contracts && forge build
-cd contracts && forge test                      # 165 tests
+cd contracts && forge test                      # 195 tests
 forge script script/Deploy.s.sol --rpc-url base_sepolia --broadcast --verify       # genesis deploy
 forge script script/DeployMarkets.s.sol --rpc-url base_sepolia --broadcast --verify # incremental app-layer deploy
 
@@ -76,12 +76,12 @@ cd integrity-zkp && make build             # test + prove + verify + solidity-ve
 # integrity-oracle/  (Cargo workspace: scoring-core + backend)
 cd integrity-oracle && cargo build
 cd integrity-oracle && cargo run --bin oracle-backend   # needs DATABASE_URL, REDIS_URL env vars minimum
-cd integrity-oracle && cargo test --workspace --lib     # 37 tests (29 backend + 8 scoring-core)
+cd integrity-oracle && cargo test --workspace --lib     # 130 tests (119 backend + 11 scoring-core)
 ORACLE_E2E=1 cargo test --test e2e                      # opt-in, needs a real TEST_DATABASE_URL/TEST_REDIS_URL
 
 # integrity-sdk/, integrity-cli/, bcc_middleware/, integrity-userapi/  (uv-managed Python)
 cd <pkg> && uv venv .venv && uv pip install -e ".[dev]"
-cd <pkg> && .venv/bin/python -m pytest tests/          # sdk: 97 tests, cli: 49 tests, bcc_middleware: 49 tests
+cd <pkg> && .venv/bin/python -m pytest tests/          # sdk: 262 passed/2 skipped, cli: 68 passed/1 skipped, bcc_middleware: 121 tests
 cd bcc_middleware && opa test policies/ -v             # 12 OPA policy tests, separate from pytest
 
 # integrity-dashboard/  (Vite/React 19/TS)
@@ -113,9 +113,15 @@ bridge), `markets/` (agent-owned prediction markets + capital pool), `health/` (
 `ComplianceGate`, `CoveredEntityRegistry`, `EHRGate`, `SmartBAA(Factory)`,
 `HIPAAGuardrailRegistry`).
 
-`UltraPlonkVerifier.sol` is an explicit placeholder that reverts (fails *closed*) until replaced
-wholesale by `make generate-verifier`, which runs `integrity-zkp`'s `bb write_solidity_verifier`
-pipeline — comment in the file says "WILL BE REPLACED WHOLESALE, NOT EDITED."
+`UltraPlonkVerifier.sol` is now the real `bb`-generated verifier (as of 2026-08-12), not the
+placeholder — `make generate-verifier` already ran, via `integrity-zkp`'s
+`bb write_solidity_verifier` pipeline, and `forge build` compiles it clean. It deliberately does
+not formally inherit `IZkVerifier` (the generated file already carries Barretenberg's own
+`IVerifier`, and adding `IZkVerifier` too causes a diamond-conflict compile error) — it's
+satisfied via ABI-compatible low-level dispatch in `VerifierRegistry.sol` instead, which is
+exactly what let the swap from placeholder to real verifier happen without touching any calling
+contract. **Zero test coverage exists yet exercising it with a real proof** — see
+`PRODUCTION_GAPS.md` §26 for the full record and what's still open.
 
 ### The four foundational primitives
 
@@ -226,24 +232,25 @@ change in one automatically applies to the other.
 
 ## Known gaps / things this doc's own exploration found stale — verify before relying on them
 
-- **`integrity-dashboard/e2e/` does not exist**, though `integrity-dashboard/playwright.config.ts`
-  sets `testDir: './e2e'` and root `Makefile`'s `test-e2e` target names
-  `integrity-dashboard/e2e/global-setup.ts` as the thing that boots anvil + Postgres/Redis +
-  oracle + a seeded agent. So `make test-e2e` currently has no tests to run, and the
-  global-setup architecture the Makefile documents is not built. Either build the suite or
-  drop the target — a documented-but-absent test layer reads as coverage that isn't there.
-  Compounding it, `playwright.config.ts` sets `reuseExistingServer: !process.env.CI`, so a
-  leftover host dev server on `:5173` is silently adopted instead of flagged — the same
-  port-shadowing failure recorded as F11 in `docs/design/harness-loop-audit-2026-07-30.md`.
 - `contracts/.env` (populated, not just `.env.example`) exists on disk — don't commit it.
+- Root `Makefile`'s `test-e2e` target comment still names
+  `integrity-dashboard/e2e/global-setup.ts` as the thing that boots anvil + Postgres/Redis +
+  oracle + a seeded agent — **that file does not exist**. `playwright.config.ts`'s `webServer`
+  only boots `npm run dev`; the real backend stack must be started manually first (see
+  `docs/TESTING.md`'s Layer 2 section, corrected 2026-08-13). `playwright.config.ts` also sets
+  `reuseExistingServer: !process.env.CI`, so a leftover host dev server on the configured port
+  is silently adopted instead of flagged — the same port-shadowing failure recorded as F11 in
+  `docs/design/harness-loop-audit-2026-07-30.md`.
 
-Four gaps previously listed here were **verified stale on 2026-07-31** and removed rather than
-left to mislead: `integrity-dashboard/package.json` *does* define `"test": "vitest run"`;
+Five gaps previously listed here were **verified stale on 2026-08-13** and removed rather than
+left to mislead: `integrity-dashboard/e2e/` *does* exist (16 route specs, 140 tests, a full
+audit pass — see `docs/wiki/entities/integrity-dashboard.md`); `package.json` does **not**
+define a `"test"` script and has no `vitest` dependency at all (a 2026-07-31 note here claimed
+it did — re-verify claims like this against `package.json` directly, don't carry them forward);
 `integrity-dashboard/demo/` *does* exist (`demo/pyproject.toml`, entry point `integrity-demo`);
-`src/services/api.ts` no longer exists at all, so the "hardcoded mock data" warning pointed at a
-deleted file (confirm the dashboard's current data path before relying on either claim); and
-`ethers ^6.16.0` *is* a dashboard dependency, so "no wallet-connection library is present" no
-longer holds. Re-check this section against disk before trusting it — it drifted once.
+`src/services/api.ts` no longer exists at all, so any "hardcoded mock data" warning pointing at
+that file is stale; and `ethers ^6.16.0` *is* a dashboard dependency. Re-check this section
+against disk before trusting it — it has drifted more than once.
 
 ## Live deployment
 

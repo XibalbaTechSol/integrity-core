@@ -2,7 +2,7 @@
 
 Status: AUDIT IN PROGRESS · 2026-08-06
 
-This page records the current codebase audit for `integrity-latest`. The consolidated cross-repository implementation plan is `/home/xibalba/Documents/INTEGRITY — Cross-Repository Audit and Implementation Plan.md`.
+This page records the current codebase audit for `integrity-core`. The consolidated cross-repository implementation plan is `/home/xibalba/Documents/INTEGRITY — Cross-Repository Audit and Implementation Plan.md`.
 
 ## Current verified state
 
@@ -19,7 +19,7 @@ Base Sepolia bytecode was directly observed at declared protocol addresses, incl
 ## Open findings
 
 1. `integrity-sdk/tests/unit/test_hardware.py` is out of sync with `integrity_sdk/hardware.py`: the test mocks `subprocess.run`, but the current implementation uses `/proc/cpuinfo` and `/.dockerenv`. The clean main branch therefore reports 2 test failures, while open PR #48 updates the tests and has green CI. This is a test/implementation contract drift finding, not proof that production hardware detection is correct.
-2. Aggregate `make test` timed out during SDK tests; no aggregate pass is claimed. The corresponding main CI failure is [run 31087969036](https://github.com/XibalbaTechSol/integrity-latest/actions/runs/31087969036).
+2. Aggregate `make test` timed out during SDK tests; no aggregate pass is claimed. The corresponding main CI failure is [run 31087969036](https://github.com/XibalbaTechSol/integrity-core/actions/runs/31087969036).
 3. `.github/workflows/auto-merge-jules.yml` grants automatic review/merge authority to a bot, which conflicts with the required human-review/no-automatic-merge policy.
 4. Base Sepolia deployment records, roles, bytecode, and source matches require direct chain verification.
 5. Production gaps and package READMEs contain a mixture of closed, partial, planned, blocked, and historical claims; the canonical reconciliation is still in progress.

@@ -175,8 +175,8 @@ def main() -> None:
         f.write("\n".join(sidebar) + "\n")
     with open(os.path.join(dst, "_Footer.md"), "w", encoding="utf-8") as f:
         f.write(
-            "Generated from [INTEGRITY-LATEST/docs/wiki]"
-            "(https://github.com/XibalbaTechSol/integrity-latest/tree/main/docs/wiki). "
+            "Generated from [integrity-core/docs/wiki]"
+            "(https://github.com/XibalbaTechSol/integrity-core/tree/main/docs/wiki). "
             "Edit the canonical repository files, not this mirror.\n"
         )
 
@@ -203,7 +203,7 @@ def main() -> None:
         # to a real, working absolute GitHub URL instead of left dangling.
         content = content.replace(
             "](../../contracts/README.md)",
-            "](https://github.com/XibalbaTechSol/integrity-latest/blob/main/contracts/README.md)",
+            "](https://github.com/XibalbaTechSol/integrity-core/blob/main/contracts/README.md)",
         )
         with open(os.path.join(dst, fname), "w", encoding="utf-8") as f:
             f.write(content)

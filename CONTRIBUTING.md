@@ -1,6 +1,6 @@
-# Contributing to integrity-latest
+# Contributing to integrity-core
 
-Thank you for helping improve integrity-latest. This repository values small, reviewable changes backed by reproducible evidence.
+Thank you for helping improve integrity-core. This repository values small, reviewable changes backed by reproducible evidence.
 
 ## Before you start
 

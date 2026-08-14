@@ -67,12 +67,12 @@ see §12.
 
 **Decision (2026-08-01), recorded in [`spec/integrity-protocol-v0.4.md`](integrity-protocol-v0.4.md) §14.1:**
 Xibalba Shield lives in the separate `XibalbaTechSol/xibalba-shield` repository, not as a
-package inside `integrity-latest`. It is built on INTEGRITY-LATEST's public SDK and service
+package inside `integrity-core`. It is built on integrity-core's public SDK and service
 interfaces, while remaining independently deployable.
 
 **Dependency direction is one-way.** `xibalba-shield` depends on `integrity-sdk` (imported the
 same way any third-party agent runtime would use it — no privileged API, no special-cased
-access). `integrity-latest` has and must have **zero** dependency on `xibalba-shield`; a change
+access). `integrity-core` has and must have **zero** dependency on `xibalba-shield`; a change
 to kernel-sensor code must never be able to affect AIS computation or
 Merkle conventions, which is the entire reason the split exists.
 
