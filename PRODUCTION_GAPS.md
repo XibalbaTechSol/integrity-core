@@ -1331,9 +1331,13 @@ dropped, and `contracts/test/UltraPlonkVerifier.t.sol` was deleted in the same u
   placeholder-only behavior (`vm.expectRevert(UltraPlonkVerifier.PlaceholderVerifierNotYetGenerated.selector)`
   on every input, including a fuzz test) — assertions that no longer hold now that `verify()` does
   real work. Restoring it as-is would fail.
-* **OPEN — the real verifier currently has no test coverage at all.** No new test exists that
-  feeds it an actual proof (from `integrity-zkp`'s real pipeline) and confirms valid proofs verify
-  while invalid ones don't. This is exactly the class of gap `docs/INTERFACE_CONTRACT.md` and this
-  file's own convention exist to surface rather than leave silently unstated. Tracked here per
-  user decision (2026-08-12) to handle test-writing as a separate follow-up rather than blocking
-  the in-progress repo stabilization/rename pass on it.
+* **CLOSED (2026-08-13) — direct generated-verifier real-proof coverage.** Retained fixtures live at
+  `contracts/test/fixtures/ultraplonk/proof.bin` (8,000 bytes) and
+  `contracts/test/fixtures/ultraplonk/public_inputs.bin` (96 bytes). The Foundry test
+  `contracts/test/UltraPlonkVerifier.t.sol` reads the binary proof and exactly three caller-supplied
+  `bytes32` public inputs, matching the generated ABI's `publicInputs.length == 3` requirement.
+  It asserts fixture lengths and hashes, then exercises the actual generated verifier with a valid
+  proof, a tampered proof, tampered public inputs, and malformed proof bytes.
+  `forge test --match-path test/UltraPlonkVerifier.t.sol -vvv` returned **4 passed, 0 failed**.
+  This closes direct verifier coverage only; registry forwarding, proof regeneration from a clean
+  environment, and deployed/on-chain verification remain separate gaps.
