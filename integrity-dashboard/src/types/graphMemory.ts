@@ -205,6 +205,22 @@ export interface InferenceTask {
     updated_at: string;
 }
 
+export interface ParaClassification {
+    task_id: string;
+    memory_id: string;
+    source_content_hash: string;
+    category: 'project' | 'area' | 'resource' | 'archive';
+    confidence: number;
+    rationale: string;
+    signals: string[];
+    alternatives: Array<Record<string, unknown>>;
+    status: 'proposed' | 'accepted' | 'dismissed' | 'kept_original' | 'stale';
+    decision_note: string | null;
+    created_at: string;
+    decided_at: string | null;
+}
+
+
 export interface RecordModelExchangePayload {
     external_session_id: string;
     user_prompt: string;

@@ -1168,14 +1168,14 @@ entry records what survived verification and what did not. Full detail:
     `|| { $(TEST_STATUS) pkg fail; false; }` with `$(CURDIR)` on the recorder: record the
     outcome, then still fail.
 
-* **CONFIRMED — F5 is a design bug, not a discipline problem.** The previous session predicted
-  this but could not test it. Reading the real vault: **21/21 leaves carry `unverified`**, and
-  17 of those are specifically `unverified:stale` — the fingerprint-mismatch path, not an
-  absent status file. Not one leaf in the entire history has ever recorded a verified test
-  result. `vault_commit_leaf.py` fingerprints `HEAD ‖ git diff HEAD ‖ untracked`, which cannot
-  be equal pre- and post-commit under any ordering. The fix (key status to tree content —
-  `git write-tree` pre-commit equals `HEAD^{tree}` post-commit) is now unblocked, since the
-  recorder bug above was the other half of it. **Still OPEN.**
+* **CLOSED (2026-08-13) — test-status tree fingerprints now survive the commit boundary.**
+  `scripts/tree_hash.py` is the shared implementation imported by both
+  `record_test_status.py` and `vault_commit_leaf.py`; it hashes tracked file bytes rather than
+  `HEAD` plus a commit-relative diff. The deterministic self-test passed **4/4**: stable across
+  a commit, unaffected by untracked files, changed by a staged tracked edit, and stable across a
+  second commit. This closes the algorithmic stale-status defect. It does not prove that a test
+  status was externally anchored or that every future leaf will be submitted; those remain
+  separate delivery and anchoring observations.
 
 * **CLOSED — the vault-leaf importer would have written a false lineage, caught before its
   first real run.** `scripts/import_memory_dag.py` chained each leaf to its predecessor in
@@ -1205,15 +1205,20 @@ entry records what survived verification and what did not. Full detail:
   **Do not close this by deleting the five stale rows** — that silences the symptom and
   destroys evidence.
 
-* **OPEN — audit reports are fire-and-forget and are dropped on shutdown.**
-  `main._report_decision_background` schedules the audit write as
-  `ensure_future(to_thread(report_decision, …))` and nothing ever awaits it. The
-  `_audit_report_tasks` set prevents garbage collection; it does not make anything *wait*. A
-  worker shutting down with reports in flight loses them silently. Surfaced because
-  `test_evidence_linkage.py` was accidentally reproducing exactly that: its bare
+* **CLOSED — audit reports are fire-and-forget during requests but drained on shutdown.**
+  `main._report_decision_background` still schedules the audit write as
+  `ensure_future(to_thread(report_decision, …))` and nothing ever awaits it during the
+  request, preserving non-blocking authorization responses. `lifespan()` now retains the
+  task and waits for a snapshot of all in-flight audit reports before the ASGI shutdown
+  event returns. The wait is bounded at 10 seconds; reports still in flight are logged as
+  a residual degraded-mode finding rather than blocking shutdown indefinitely. Surfaced
+  because `test_evidence_linkage.py` was accidentally reproducing exactly that: its bare
   `TestClient(app)` tore down a fresh event loop per request and cancelled the pending task,
   giving 1 pass / 3 fail across four consecutive runs with no code change. The test is fixed
-  (context-managed client); **the production drop is not.**
+  (context-managed client), and `test_shutdown_drain.py` now proves both successful draining
+  and bounded give-up logging. This closes shutdown cancellation loss, not oracle delivery
+  guarantees: an oracle outage can still lose a report because the audit path remains
+  best-effort and has no local durable spool or retry queue.
 
 * **OPEN — the nonce race survives its own documented lock.** After the chain-id fix,
   `updateScore` still failed with `nonce too low: next nonce 261, tx nonce 260`, despite

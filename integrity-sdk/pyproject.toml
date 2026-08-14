@@ -28,6 +28,12 @@ classifiers = [
 #    `publicKeyMultibase` fields instead of a hand-rolled implementation.
 dependencies = [
     "requests>=2.31.0",
+    # policy/opa_client.py imports this unconditionally (async OPA evaluation calls) —
+    # was missing from this list entirely; every known local dev venv had it anyway as a
+    # transitive dep of something else, which is exactly how a real consumer with a
+    # leaner dependency closure (xibalba-shield's Docker image) first surfaced this as a
+    # hard ModuleNotFoundError at import time rather than at pip-install time.
+    "httpx>=0.27.0",
     "cryptography>=42.0.0",
     "cbor2>=5.6.0",
     "base58>=2.1.0",

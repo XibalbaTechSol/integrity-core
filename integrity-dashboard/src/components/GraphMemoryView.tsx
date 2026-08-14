@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, memo } from 'react';
 import ForceGraph3D, { type ForceGraphMethods, type NodeObject, type LinkObject } from 'react-force-graph-3d';
 import SpriteText from 'three-spritetext';
 import * as THREE from 'three';
@@ -61,15 +61,17 @@ interface Props {
     showGrid: boolean;
     backgroundColor: string;
     sizeBy: NodeSizeBy;
+    snapToGrid: boolean;
 }
 
-export const GraphMemoryView = forwardRef<GraphMemoryViewHandle, Props>(function GraphMemoryView(
-    { data, onNodeClick, onLinkClick, selectedNodeId, showGrid, backgroundColor, sizeBy },
+export const GraphMemoryView = memo(forwardRef<GraphMemoryViewHandle, Props>(function GraphMemoryView(
+    { data, onNodeClick, onLinkClick, selectedNodeId, showGrid, backgroundColor, sizeBy, snapToGrid },
     ref,
 ) {
     const [containerRef, { width, height }] = useContainerSize<HTMLDivElement>();
     const fgRef = useRef<ForceGraphMethods>(undefined);
     const snapEnabledRef = useRef(false);
+    const [hoverNode, setHoverNode] = useState<string | null>(null);
 
     const graphData = useMemo(() => {
         console.log("GraphMemoryView graphData", data);
@@ -121,11 +123,12 @@ export const GraphMemoryView = forwardRef<GraphMemoryViewHandle, Props>(function
     // full color/width, and mutes everything else to grey -- the standard way to make a dense
     // graph (113 nodes, 200+ edges here) legible once you're looking at one specific node,
     // rather than every node/edge competing for attention all the time.
-    const highlightedNeighborIds = selectedNodeId ? neighborsById.get(selectedNodeId) ?? new Set<string>() : null;
+    const activeCenterId = hoverNode ?? selectedNodeId;
+    const highlightedNeighborIds = activeCenterId ? neighborsById.get(activeCenterId) ?? new Set<string>() : null;
     const isDimmed = (nodeId: string) =>
-        highlightedNeighborIds !== null && nodeId !== selectedNodeId && !highlightedNeighborIds.has(nodeId);
+        highlightedNeighborIds !== null && nodeId !== activeCenterId && !highlightedNeighborIds.has(nodeId);
     const isLinkDimmed = (sourceId: string, targetId: string) =>
-        highlightedNeighborIds !== null && selectedNodeId !== sourceId && selectedNodeId !== targetId;
+        highlightedNeighborIds !== null && activeCenterId !== sourceId && activeCenterId !== targetId;
 
     useImperativeHandle(ref, () => ({
         zoomToFit: () => fgRef.current?.zoomToFit(600, 80),
@@ -180,6 +183,15 @@ export const GraphMemoryView = forwardRef<GraphMemoryViewHandle, Props>(function
         return () => clearTimeout(timer);
     }, [width, height]);
 
+    // Auto-rotate the camera to make the graph feel alive when idle
+    useEffect(() => {
+        const controls = fgRef.current?.controls() as any;
+        if (controls) {
+            controls.autoRotate = true;
+            controls.autoRotateSpeed = 0.6;
+        }
+    }, [graphData, width, height]);
+
     // A real 3D grid enclosure -- six GridHelper planes, one per cube face, forming a closed
     // "technical blueprint" box around the graph (the standard 3D-scatter-plot box look, e.g.
     // matplotlib's 3D axes), not just a floor or an open corner. Added directly to the three.js
@@ -218,6 +230,14 @@ export const GraphMemoryView = forwardRef<GraphMemoryViewHandle, Props>(function
             });
         };
     }, [width, height, showGrid]);
+
+    // Cinematic overhaul: Reverted extreme physics to native clustering
+    useEffect(() => {
+        // We removed manual fog and charge tuning because 3d-force-graph dynamically
+        // scales the node rendering size relative to the internal bounding box.
+        // Curvature and LOD labels are sufficient to clean the visual noise.
+    }, [backgroundColor, graphData]);
+
     console.log("GraphMemoryView render", width, height);
     return (
         <div ref={containerRef} style={{ position: 'absolute', inset: 0 }}>
@@ -235,48 +255,43 @@ export const GraphMemoryView = forwardRef<GraphMemoryViewHandle, Props>(function
                     // uniform. sqrt in nodeSizeValue keeps a large value from dwarfing everything
                     // else on a 113-node graph.
                     nodeVal={(node: NodeObject) => nodeSizeValue((node as unknown as { id: string }).id)}
-                    nodeColor={(node: NodeObject) => {
-                        const n = node as unknown as { id: string; type: string };
-                        if (n.id === selectedNodeId) return '#ef4444';
-                        if (isDimmed(n.id)) return '#334155';
-                        return NODE_COLORS[n.type] ?? '#94a3b8';
-                    }}
-                    nodeOpacity={0.92}
-                    // Permanent text-sprite labels (not hover-only tooltips), anchored just above
-                    // each node's sphere -- nodeThreeObjectExtend:true keeps the default sphere
-                    // and adds the sprite as a child of it (so it inherits the sphere's position
-                    // and moves with it during the force simulation) rather than replacing the
-                    // sphere with free-floating text. Entities get their full canonical name;
-                    // memories get a short truncation (full text goes in the side panel on click).
-                    //
-                    // Sized small by default (113 nodes' worth of full-size labels is unreadable
-                    // clutter, especially over the dense wiki entity cluster) and grown + made
-                    // opaque only for the selected node, so the graph reads as a shape at a
-                    // glance and reveals detail exactly where the user clicked. Dimmed nodes
-                    // (outside the selection's neighborhood) drop their label entirely -- focus
-                    // mode should quiet the whole node, not just its sphere.
                     nodeThreeObject={(node: NodeObject) => {
                         const n = node as unknown as { id: string; type: string; label: string };
                         const isSelected = n.id === selectedNodeId;
+                        const isHovered = n.id === hoverNode;
                         const dimmed = isDimmed(n.id);
-                        if (dimmed) return new THREE.Object3D(); // empty -- no label while dimmed
-                        const text = n.type === 'entity' ? n.label : n.label.slice(0, 28);
-                        const sprite = new SpriteText(text);
-                        sprite.color = isSelected ? '#ef4444' : (NODE_COLORS[n.type] ?? '#e2e8f0');
-                        sprite.textHeight = isSelected ? 3.6 : n.type === 'entity' ? 1.1 : 0.8;
-                        sprite.backgroundColor = isSelected ? 'rgba(2, 6, 23, 0.9)' : 'rgba(2, 6, 23, 0.4)';
-                        sprite.padding = isSelected ? 2 : 0.5;
-                        // SpriteText's bundled .d.ts doesn't surface the inherited THREE.Object3D
-                        // members (position/rotation/etc.) even though it extends THREE.Sprite at
-                        // runtime -- a type-defs gap, not a real absence of `.position`.
-                        (sprite as unknown as { position: { set(x: number, y: number, z: number): void } }).position.set(
-                            0,
-                            NODE_RADIUS + (isSelected ? 4 : 1.5),
-                            0,
-                        );
-                        return sprite;
+                        
+                        const group = new THREE.Group();
+                        
+                        // Custom sphere (glows without lights)
+                        const volume = nodeSizeValue(n.id);
+                        const radius = Math.cbrt(volume) * NODE_RADIUS;
+                        const colorStr = (isSelected || isHovered) ? '#ef4444' : (NODE_COLORS[n.type] ?? '#94a3b8');
+                        const opacity = dimmed ? 0.2 : 0.92;
+                        const material = new THREE.MeshBasicMaterial({ color: colorStr, transparent: true, opacity });
+                        const geometry = new THREE.SphereGeometry(radius);
+                        const sphere = new THREE.Mesh(geometry, material);
+                        group.add(sphere);
+
+                        if (!dimmed) {
+                            // LOD Labeling: Only show labels for hubs, hovered, or selected nodes
+                            const degree = degreeById.get(n.id) ?? 0;
+                            const isHub = degree > 4;
+                            if (isSelected || isHovered || isHub) {
+                                const text = n.type === 'entity' ? n.label : n.label.slice(0, 28);
+                                const sprite = new SpriteText(text);
+                                sprite.color = (isSelected || isHovered) ? '#ef4444' : (NODE_COLORS[n.type] ?? '#e2e8f0');
+                                sprite.textHeight = (isSelected || isHovered) ? 3.6 : n.type === 'entity' ? 1.6 : 1.0;
+                                sprite.backgroundColor = (isSelected || isHovered) ? 'rgba(2, 6, 23, 0.9)' : 'rgba(2, 6, 23, 0.5)';
+                                sprite.padding = (isSelected || isHovered) ? 2 : 0.8;
+                                sprite.position.set(0, radius + ((isSelected || isHovered) ? 4 : 2), 0);
+                                group.add(sprite);
+                            }
+                        }
+                        return group;
                     }}
-                    nodeThreeObjectExtend={true}
+                    nodeThreeObjectExtend={false}
+                    linkCurvature={(link: LinkObject) => (link as unknown as { type: string }).type === 'similarity' ? 0.2 : 0.15}
                     linkColor={(link: LinkObject) => {
                         const l = link as unknown as { source: string | { id: string }; target: string | { id: string }; type: string };
                         const sourceId = typeof l.source === 'string' ? l.source : l.source.id;
@@ -301,7 +316,18 @@ export const GraphMemoryView = forwardRef<GraphMemoryViewHandle, Props>(function
                     linkDirectionalParticleWidth={1.6}
                     linkDirectionalParticleSpeed={0.004}
                     linkDirectionalParticleColor={() => EDGE_COLORS.relation}
-                    onNodeClick={(node: NodeObject) => onNodeClick((node as unknown as { id: string }).id)}
+                    onNodeHover={(node: NodeObject | null) => setHoverNode(node ? (node as unknown as { id: string }).id : null)}
+                    onNodeClick={(node: NodeObject) => {
+                        const n = node as unknown as { id: string, x: number, y: number, z: number };
+                        onNodeClick(n.id);
+                        const distance = 160;
+                        const distRatio = 1 + distance/Math.hypot(n.x, n.y, n.z);
+                        fgRef.current?.cameraPosition(
+                            { x: n.x * distRatio, y: n.y * distRatio, z: n.z * distRatio },
+                            n,
+                            2000
+                        );
+                    }}
                     onLinkClick={(link: LinkObject) => onLinkClick?.(link as unknown as GraphEdge)}
                     // Snaps every node onto the nearest grid intersection each simulation tick,
                     // once enabled (see snapEnabledRef above -- disabled for the first few
@@ -313,7 +339,7 @@ export const GraphMemoryView = forwardRef<GraphMemoryViewHandle, Props>(function
                     // intersections as the force engine keeps nudging a continuous position that
                     // snapping keeps discretizing.
                     onEngineTick={() => {
-                        if (!snapEnabledRef.current) return;
+                        if (!snapToGrid || !snapEnabledRef.current) return;
                         for (const node of graphData.nodes) {
                             const n = node as unknown as {
                                 x?: number; y?: number; z?: number; vx?: number; vy?: number; vz?: number;
@@ -331,4 +357,4 @@ export const GraphMemoryView = forwardRef<GraphMemoryViewHandle, Props>(function
             )}
         </div>
     );
-});
+}));

@@ -1,7 +1,7 @@
 ---
 title: bcc_middleware
 created: 2026-07-07
-updated: 2026-08-04
+updated: 2026-08-13
 type: entity
 tags: [infrastructure, compliance, cryptography, metrics]
 confidence: high
@@ -16,6 +16,8 @@ source_files:
   - bcc_middleware/app/config.py
   - bcc_middleware/app/nonce_lock.py
   - bcc_middleware/app/verification_token.py
+  - bcc_middleware/app/audit.py
+  - bcc_middleware/tests/test_shutdown_drain.py
   - bcc_middleware/policies/bcc.rego
 ---
 
@@ -51,6 +53,14 @@ check** (if OPA flags `requires_baa`) → admit to
 deny); anchoring happens after authorization and is best-effort. The circuit
 breaker only counts violations attributable to the agent — an OPA/RPC outage
 denies but never trips the breaker (else one outage locks out the whole fleet).
+
+Audit decisions (allow and deny) are reported asynchronously to the oracle so an
+unreachable audit endpoint cannot change the authorization response. The FastAPI
+lifespan now drains in-flight audit-report tasks during shutdown, with a bounded
+10-second wait, a shutdown admission gate, and explicit cleanup/logging when a report
+remains stuck. This closes shutdown cancellation loss, but does not claim delivery
+guarantees: an oracle outage can still lose a report because no local durable spool or
+retry queue exists.
 The reputation-sync loop below follows the same best-effort posture for score
 pushes (a stale on-chain score, not a wrongly-trusted one) but the opposite for
 disputes — see below.

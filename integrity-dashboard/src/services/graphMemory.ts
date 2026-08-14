@@ -12,6 +12,7 @@ import type {
     GraphPayload,
     InferenceManifest,
     InferenceTask,
+    ParaClassification,
     IntegrityLinksStatus,
     Memory,
     MemoryEvent,
@@ -36,6 +37,7 @@ export type {
     GraphPayload,
     InferenceManifest,
     InferenceTask,
+    ParaClassification,
     IntegrityLinkRecord,
     IntegrityLinksStatus,
     Memory,
@@ -121,7 +123,10 @@ export const graphMemory = {
     inferenceTasks: (status = 'pending', limit = 50) =>
         getJson<InferenceTask[]>(`/api/inference/tasks?status=${encodeURIComponent(status)}&limit=${limit}`),
 
-    // Write operations — local API only, operator-facing
+    paraClassifications: (status = 'proposed', limit = 50) =>
+        getJson<ParaClassification[]>(`/api/para/classifications?status=${encodeURIComponent(status)}&limit=${limit}`),
+    decideParaClassification: (taskId: string, decision: 'accept' | 'dismiss' | 'keep_original', note?: string) =>
+        postJson<ParaClassification>(`/api/para/classifications/${encodeURIComponent(taskId)}/decision`, { decision, ...(note ? { note } : {}) }),
     recordModelExchange: (payload: RecordModelExchangePayload) =>
         postJson<RecordModelExchangeResult>('/api/exchanges/model', payload as unknown as Record<string, unknown>),
     requestInferenceTask: (payload: Record<string, unknown>) =>

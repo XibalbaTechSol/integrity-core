@@ -5,6 +5,13 @@ anchor linkage via the JOIN design); Phases B (control mapping) and C (export en
 🔨 not built. Decisions locked: **join** (not back-fill), **multi-framework** control map,
 **oracle-signed** report.
 
+**2026-08-13 — competitive reprioritization flag:** Semantica (a direct competitor sharing the
+same compliance-buyer persona) already ships a PROV-O-shaped fact-provenance export with no
+cryptographic backing. `xibalba-cortex/docs/plans/2026-08-13-semantica-parity.md` scopes a
+stronger, tamper-evident fact-provenance export there; this document's Phase C (action-lineage
+export) is the complementary half of the same competitive answer and is recommended for
+reprioritization alongside it. See that plan's "Cross-reference" section.
+
 > **Phase A shipped:** ALLOW rows carry `metadata.leaf` (`bcc_middleware/app/main.py`); anchored
 > sub-trees are reported to `POST /v1/audit/anchor` → `anchor_events` table (oracle migration
 > 0007); `/v1/audit-log` LEFT JOINs them onto each decision (`anchor_root`/`anchor_tx_hash`/

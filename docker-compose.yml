@@ -34,8 +34,17 @@ services:
 
   opa:
     image: openpolicyagent/opa:1.1.0
-    command: ["run", "--server", "--addr=0.0.0.0:8181", "/policies"]
-    volumes: ["./bcc_middleware/policies:/policies:ro"]
+    # Shared sidecar for both bcc_middleware (package integrity.*) and xibalba-shield
+    # (package shield.policy, queried at /v1/data/shield/policy) — no package-name
+    # collision between the two, so one OPA instance serves both. Was previously
+    # bcc_middleware-only: shield's PolicyEngine got a real HTTP 200 back with no
+    # `result` key at all (data path never existed), which its own client code
+    # correctly treated as OPA-unavailable/fail-closed — silent-looking but never unsafe,
+    # just permanently unable to evaluate any real rule.
+    command: ["run", "--server", "--addr=0.0.0.0:8181", "/policies", "/shield-policies"]
+    volumes:
+      - ./bcc_middleware/policies:/policies:ro
+      - ../xibalba-shield/policies/rego:/shield-policies:ro
     ports: ["8181:8181"]
 
   oracle-backend:
@@ -174,8 +183,17 @@ services:
   # `shield validate`/direct invocation without --device-config still has a sane default.
   shield:
     build:
-      context: ../xibalba-shield
-    depends_on: [bcc-middleware, oracle-backend]
+      # Context widened from ../xibalba-shield to the shared parent: shield's
+      # pyproject.toml pins integrity-sdk via an absolute host path
+      # (file:///home/xibalba/Projects/integrity-core/integrity-sdk, see that file's own
+      # comment on why) which a build context scoped to xibalba-shield alone cannot see —
+      # `pip install .` failed with ENOENT on that path with the old context. The
+      # Dockerfile below recreates that exact path inside the image instead of editing
+      # the dependency URL, so a non-Docker/local editable install of xibalba-shield is
+      # unaffected.
+      context: ..
+      dockerfile: xibalba-shield/Dockerfile
+    depends_on: [bcc-middleware, oracle-backend, opa]
     command:
       - --sensor
       - dev
@@ -183,6 +201,12 @@ services:
       - http://bcc-middleware:8000
       - --oracle-url
       - http://oracle-backend:8080
+      # PolicyEngine's opa_url previously had no CLI/env override at all (hardcoded
+      # http://localhost:8181, meaningless inside a container where OPA is a separate
+      # service) — every policy evaluation failed closed with "OPA unavailable" until
+      # shield/cli.py grew this flag.
+      - --opa-url
+      - http://opa:8181
       - --device-config
       - /config/device-config.json
       - --rules
