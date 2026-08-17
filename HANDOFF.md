@@ -1,3 +1,65 @@
+# Handoff — 2026-08-17f (Shield registration retry: real second root cause found, fixed, verified)
+
+With explicit user authorization for real Base Sepolia transactions, re-ran
+`xibalba-shield/scripts/register_with_oracle.py`. **Corrects 2026-08-17e §2 item 4 below,
+which said this was still open pending go-ahead — it's now genuinely done, not just
+attempted.**
+
+## 0. What actually happened
+
+The run deployed a real `SovereignAgent` (`0x0C24806C751A04B785F1aF3A9E915FE4d4313A77`) and
+`StateAnchor` (`0x4131ccebaA186A95B51f7017f99fF8E55c87B358`), got through genesis-root
+anchoring, then failed at the final `registerPrimitives` step with
+`AccessControlUnauthorizedAccount(0xC19fc9cB..., REGISTRAR_ROLE)` — the same error
+`PRODUCTION_GAPS.md`'s existing registration entry (item 4) had already seen and attributed
+to RPC staleness. **That attribution was wrong.** `AgentPrimitivesFactory.registerPrimitives`
+needs `REGISTRAR_ROLE` on two registries, not one — its own NatSpec says so
+("Holds `REGISTRAR_ROLE` on both registries") — and only `XibalbaAgentRegistry`'s grant had
+been fixed on 2026-08-14. `DomainRegistry.recordJoin` (`onlyRole(REGISTRAR_ROLE)`) never got
+the same fix. Confirmed live via `hasRole` returning `false` on the canonical
+`sepolia.base.org` endpoint — the same endpoint item 4 already trusted, ruling out staleness
+as this call's explanation.
+
+**Fix**: granted `REGISTRAR_ROLE` to the factory on `DomainRegistry` from the funder/
+governance wallet (tx `0xd40ac7e2586b3aca21d2d36c015385b07650202c3efe61e5b9d962e2b2ccb979`),
+verified `true` afterward. Then — deliberately not re-running the non-idempotent script from
+scratch, which would have deployed a *fifth* orphaned pair on top of the four already
+documented — resumed registration from the already-deployed `SovereignAgent`/`StateAnchor`
+via a one-off script calling `integrity_sdk.chain.register_primitives` directly with those
+existing addresses. `registerPrimitives` succeeded for real. The one remaining failure (the
+final oracle-registration POST hitting `http://localhost:8080` from inside the container,
+which doesn't resolve there) was a pure networking misconfiguration in that resume script,
+fixed by passing the compose-internal `http://oracle-backend:8080` and re-running — which
+correctly took the script's existing "already registered on-chain, just re-POST idempotently"
+branch rather than touching the chain again.
+
+**Verified end-to-end against the real running stack, not assumed:** `resolveDID` returns
+the full real 7-primitive set; `GET /v1/agent/{id}` shows `oracle_registered: true`; the DID
+no longer appears in `GET /v1/shield/unregistered-agents`. Full detail:
+`PRODUCTION_GAPS.md`'s registration entry item 7, `docs/demo-shield-integration.md`'s
+2026-08-17 update.
+
+## 1. What this does and doesn't mean
+
+- Milestone 2 of the Shield demo is done for Shield's specific DID. No new orphan was
+  created — the four pre-existing orphaned `SovereignAgent`/`StateAnchor` pairs from
+  2026-08-14 are untouched, still no cleanup path.
+- **Does NOT mean registration is now robust for a new agent.** The script's core
+  non-idempotency bug (a partial failure isn't resumable automatically, only manually as
+  done here) is unfixed. A future agent's first registration attempt could still orphan a
+  pair if it fails partway for an unrelated reason.
+- **Does NOT mean `DomainRegistry`'s role setup is done.** It's fixed enough to work today,
+  on the same stopgap factory with the old shared-key roles `docs/signer-role-rotation-2026-08.md`
+  already flagged for `XibalbaAgentRegistry`. Same caveat now applies to both registries.
+
+## 2. State of the tree
+
+Committed and pushed to `audit/harness-loop-2026-07-30`: `PRODUCTION_GAPS.md`,
+`docs/demo-shield-integration.md`, this file. The on-chain transactions themselves are, of
+course, already final and irreversible — nothing to commit there, just to document.
+
+---
+
 # Handoff — 2026-08-17e (AIS shadow mode landed; MCP gap found; Cortex Merkle item closed as reviewed-and-documented)
 
 Continuation after 2026-08-17d below (Phase 0 + doc reconciliation, committed as `bd233e1`).

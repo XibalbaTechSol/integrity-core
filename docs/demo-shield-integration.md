@@ -122,3 +122,31 @@ which will redeploy the factory properly (with the new Safe/EOA roles) and super
 Milestone 1 (sensor → signed commitment → oracle visibility) is done and verified live.
 Milestone 2 (full on-chain registration) is not complete — see the open item above. Treat
 registration as a known, documented gap, not a blocker to demoing milestone 1.
+
+## Update — 2026-08-17: Milestone 2 complete for the Shield agent
+
+`REGISTRAR_ROLE` had a second gap this runbook's "Real bugs found and fixed" section didn't
+cover: `AgentPrimitivesFactory.registerPrimitives` needs `REGISTRAR_ROLE` on **both**
+`XibalbaAgentRegistry` (fixed 2026-08-14) **and** `DomainRegistry.recordJoin` (missed —
+never re-granted after the same phantom-factory incident). Confirmed live via `hasRole`
+returning `false`, granted via `DomainRegistry.grantRole` from the funder/governance wallet
+(tx `0xd40ac7e2586b3aca21d2d36c015385b07650202c3efe61e5b9d962e2b2ccb979`), then verified
+`true`. Full detail and the exact revert decoding in `PRODUCTION_GAPS.md`'s registration
+entry, item 7.
+
+Registration then completed for real: `resolveDID` returns the full 7-primitive set,
+`GET /v1/agent/{id}` shows `oracle_registered: true`, and the DID no longer appears in
+`GET /v1/shield/unregistered-agents`. **No new orphan was created** — the run that hit this
+error had already deployed a real `SovereignAgent`/`StateAnchor` pair before failing at the
+final step; rather than re-running the (still non-idempotent) script from scratch, resumed
+directly from those existing addresses via a one-off script calling
+`integrity_sdk.chain.register_primitives` — the four pre-existing orphaned pairs from
+2026-08-14 are untouched and still have no cleanup path, but this run didn't add a fifth.
+
+Milestone 2 is done for Shield's specific DID
+(`did:integrity:f0a1b6755774d977b8eda0b3f53de30e3cab8c927db39865b413d6e815900f41`). The
+underlying registration flow is real and working now — a *different* agent registering for
+the first time would hit no known blocker, but would still deploy a fresh
+`SovereignAgent`/`StateAnchor` (this fix didn't make the script idempotent for partial
+failures, it only unblocked the specific role gap that was causing every attempt to fail at
+the last step).
