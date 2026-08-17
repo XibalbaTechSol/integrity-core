@@ -1472,3 +1472,38 @@ implementation gaps:
 Whitepaper §1.5 (comparative architecture) and §10.4 (enabler framing) remain explanatory rather
 than independent protocol clauses. Acceptance requires clause-level review, interface schemas,
 tests, migration/conformance evidence, and explicit incorporation into the active specification.
+
+### §27 addendum (2026-08-17) — real dry-run against the one live registered agent
+
+Per §27's own "still open" note: rows 5-6 (floors/gate, pre-boost accessor) need a dry-run
+against the live agent set before landing, since this repo auto-pushes AIS to chain with
+slashing consequences. Ran that dry-run for real against the actually-running local stack
+(`docker ps` showed `oracle-backend`/`postgres`/`bcc-middleware` etc. already up for days,
+not started for this check) rather than synthetic data.
+
+**Only one agent is registered**: `did:integrity:68fed1331613937555a59398223e8e87520a87dd0305aac4fd7ecdc32a14a861`
+(`xibalba.integrity`, verification_tier 1) — this repo's own dogfooding agent. `GET /v1/agent/{id}/ais`:
+
+| Component | Value (of 1000) |
+|---|---|
+| entropy | 268.45 |
+| grounding | 950.17 |
+| sacrifice | 861.34 |
+| compliance | 1000.0 |
+
+Reported `ais: 600.0` is **not** the raw geometric mean (`268.45^0.3 * 950.17^0.3 * 861.34^0.2
+* 1000^0.2 ≈ 645`, computed by hand) — it's `scoring-core::ceiling_for_tier(1) == 600.0`
+clamping it down, confirmed by reading `lib.rs`'s tier-ceiling match arms directly. The
+Verification Ladder tier ceiling and the proposed AIS floor/gate (§3.1.1) are two independent
+capping mechanisms; this agent is already capped by the former regardless of the latter.
+
+**What this means for the still-unmade floor-value decision (§3.1.4 row 5):** entropy is this
+agent's weakest axis by a wide margin (268 vs. 950-1000 on the other three). Under the proposed
+conjunctive Θ gate, **any entropy floor set above ~268 would zero this repo's own dogfooding
+agent's entire score** — not a hypothetical edge case, a concrete real number from the only
+agent currently live. This doesn't argue for or against any specific floor value (that decision
+is explicitly not this document's to make), but it's the number a floor-value decision needs to
+be checked against before landing, and it's now on record rather than needing to be re-derived.
+
+No chain writes, no code changes, no floor values chosen. Read-only against the already-running
+local stack.
