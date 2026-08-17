@@ -2,7 +2,7 @@
 
 > **Current audit pointer — 2026-08-06:** The cross-repository status page is [`docs/audits/2026-08-06-cross-repository-status.md`](docs/audits/2026-08-06-cross-repository-status.md). It records the clean default-branch commit, reproducible package test results, open SDK failures, deployment-verification scope, and the automatic-merge workflow contradiction. This document remains the detailed gap register; historical entries below are not silently rewritten.
 
-Following a deep audit of the `INTEGRITY-LATEST` codebase, the following outlines the specific, technical gaps required to connect the `integrity-dashboard` UI to the backend production systems.
+Following a deep audit of the `integrity-core` codebase, the following outlines the specific, technical gaps required to connect the `integrity-dashboard` UI to the backend production systems.
 
 ## 1. Oracle (`integrity-oracle/backend`)
 *Current State:* Streaming, real OTLP ingestion, and time-bucketed historical queries
@@ -886,7 +886,7 @@ the production build before anyone had run it locally.
 
 ## 8. CI / Autonomous Fix-Forward (`.github/workflows/ci.yml`)
 *Current State:* A real CI workflow now runs every package's test suite (mirroring the root `Makefile`'s `test` target) as separate per-package jobs on push/PR to `main`. The `notify-jules-on-failure` job makes a real call to the Jules API (`POST https://jules.googleapis.com/v1alpha/sessions`, `X-Goog-Api-Key` auth, `AUTOMATION_MODE_AUTO_CREATE_PR`) — verified against `@google/jules-sdk`'s actual published source, not guessed.
-* **Gap - One-time repo-owner authorization still required:** the workflow will fail loudly (not silently no-op) until (1) Jules is authorized for `XibalbaTechSol/integrity-latest` at jules.google.com (grants its GitHub App repo access), and (2) a `JULES_API_KEY` secret (from jules.google.com/settings/api) is added under repo Settings → Secrets and variables → Actions. Both are account-holder actions no automation can complete on the owner's behalf.
+* **Gap - One-time repo-owner authorization still required:** the workflow will fail loudly (not silently no-op) until (1) Jules is authorized for `XibalbaTechSol/integrity-core` at jules.google.com (grants its GitHub App repo access), and (2) a `JULES_API_KEY` secret (from jules.google.com/settings/api) is added under repo Settings → Secrets and variables → Actions. Both are account-holder actions no automation can complete on the owner's behalf.
 * **CLOSED (2026-07-16) — `auto-merge-jules.yml`'s own actor filter never actually matched anything.** Confirmed via the API: every PR in this repo, including ones on `jules-<id>-<hash>` branches, is attributed to user `XibalbaTechSol` (type `User`), not a distinct `jules-google[bot]` identity `github.actor == 'jules-google[bot]'` checks for. The workflow has likely never fired. Also confirmed `allow_auto_merge` was `false` at the repo level — a documented prerequisite in that workflow's own setup comments that was never actually done; fixed via `gh api` PATCH. `auto-merge-jules.yml` itself was not rewritten (not this pass's file to unilaterally edit) — flagged here so the mismatch isn't lost.
 * **CLOSED (2026-07-16) — 21 stale branches, 5 of 8 open PRs in real CONFLICTING state.** Root cause: `auto-merge-jules.yml` only re-evaluates a PR on `opened`/`synchronize`/`reopened`, never when `main` itself advances past it — several Jules branches cut from a similar base drifted into genuine git conflicts as earlier ones merged serially, then sat forever (GitHub won't auto-merge a conflicting PR regardless of how long auto-merge stays "enabled" on it). Verified directly: `gh pr view --json mergeable` showed `CONFLICTING` for #12/14/18/19/24/26. Separately, 18 of 26 total PRs were already merged but their branches were never deleted (no "automatically delete head branches" repo setting). **GitHub Merge Queue is unavailable for this repo** — a `merge_queue` ruleset rule is rejected by the API while an otherwise-identical `required_status_checks` rule succeeds; likely a personal-account plan restriction (org-owned repos get merge queue, and this repo's owner returns `404` on `/orgs/{owner}`). Fix applied instead: a `required_status_checks` ruleset naming the 8 real CI job names from `ci.yml` (verified against the workflow source, not guessed), plus a new hourly workflow (`.github/workflows/close-conflicting-jules-prs.yml`) that finds Jules-branch PRs (matched by branch-name pattern, not the broken actor check) sitting in `CONFLICTING` state and closes them with an explanatory comment — if the underlying CI failure is still real, the next failure on `main` has Jules open a fresh PR against current `main`. **Note:** an earlier attempt also added `required_status_checks` alone (without `merge_queue`) directly to `main`'s branch protection and discovered empirically that it blocks *direct* pushes to `main`, not just PR merges — removed again since that conflicts with this repo's established direct-push workflow; only the auto-close-conflicting-PRs workflow was kept.
 
@@ -1168,14 +1168,14 @@ entry records what survived verification and what did not. Full detail:
     `|| { $(TEST_STATUS) pkg fail; false; }` with `$(CURDIR)` on the recorder: record the
     outcome, then still fail.
 
-* **CONFIRMED — F5 is a design bug, not a discipline problem.** The previous session predicted
-  this but could not test it. Reading the real vault: **21/21 leaves carry `unverified`**, and
-  17 of those are specifically `unverified:stale` — the fingerprint-mismatch path, not an
-  absent status file. Not one leaf in the entire history has ever recorded a verified test
-  result. `vault_commit_leaf.py` fingerprints `HEAD ‖ git diff HEAD ‖ untracked`, which cannot
-  be equal pre- and post-commit under any ordering. The fix (key status to tree content —
-  `git write-tree` pre-commit equals `HEAD^{tree}` post-commit) is now unblocked, since the
-  recorder bug above was the other half of it. **Still OPEN.**
+* **CLOSED (2026-08-13) — test-status tree fingerprints now survive the commit boundary.**
+  `scripts/tree_hash.py` is the shared implementation imported by both
+  `record_test_status.py` and `vault_commit_leaf.py`; it hashes tracked file bytes rather than
+  `HEAD` plus a commit-relative diff. The deterministic self-test passed **4/4**: stable across
+  a commit, unaffected by untracked files, changed by a staged tracked edit, and stable across a
+  second commit. This closes the algorithmic stale-status defect. It does not prove that a test
+  status was externally anchored or that every future leaf will be submitted; those remain
+  separate delivery and anchoring observations.
 
 * **CLOSED — the vault-leaf importer would have written a false lineage, caught before its
   first real run.** `scripts/import_memory_dag.py` chained each leaf to its predecessor in
@@ -1205,15 +1205,20 @@ entry records what survived verification and what did not. Full detail:
   **Do not close this by deleting the five stale rows** — that silences the symptom and
   destroys evidence.
 
-* **OPEN — audit reports are fire-and-forget and are dropped on shutdown.**
-  `main._report_decision_background` schedules the audit write as
-  `ensure_future(to_thread(report_decision, …))` and nothing ever awaits it. The
-  `_audit_report_tasks` set prevents garbage collection; it does not make anything *wait*. A
-  worker shutting down with reports in flight loses them silently. Surfaced because
-  `test_evidence_linkage.py` was accidentally reproducing exactly that: its bare
+* **CLOSED — audit reports are fire-and-forget during requests but drained on shutdown.**
+  `main._report_decision_background` still schedules the audit write as
+  `ensure_future(to_thread(report_decision, …))` and nothing ever awaits it during the
+  request, preserving non-blocking authorization responses. `lifespan()` now retains the
+  task and waits for a snapshot of all in-flight audit reports before the ASGI shutdown
+  event returns. The wait is bounded at 10 seconds; reports still in flight are logged as
+  a residual degraded-mode finding rather than blocking shutdown indefinitely. Surfaced
+  because `test_evidence_linkage.py` was accidentally reproducing exactly that: its bare
   `TestClient(app)` tore down a fresh event loop per request and cancelled the pending task,
   giving 1 pass / 3 fail across four consecutive runs with no code change. The test is fixed
-  (context-managed client); **the production drop is not.**
+  (context-managed client), and `test_shutdown_drain.py` now proves both successful draining
+  and bounded give-up logging. This closes shutdown cancellation loss, not oracle delivery
+  guarantees: an oracle outage can still lose a report because the audit path remains
+  best-effort and has no local durable spool or retry queue.
 
 * **OPEN — the nonce race survives its own documented lock.** After the chain-id fix,
   `updateScore` still failed with `nonce too low: next nonce 261, tx nonce 260`, despite
@@ -1253,11 +1258,11 @@ entry records what survived verification and what did not. Full detail:
 ## 25. `integrity_sdk/mcp_server.py` exposed signing/on-chain-write tools with zero coverage from the one gate anyone trusted (2026-08-05)
 
 Found while reviewing a *proposed, not-yet-built* idea in a different project
-(`xibalba-graph-memory`) — an MCP server that would wrap the SDK's signing capabilities as
+(`xibalba-cortex`) — an MCP server that would wrap the SDK's signing capabilities as
 agent-callable tools. A Devil's Advocate review commissioned to evaluate that proposal checked
 whether anything like it already existed before assessing the hypothetical, and found this
 module already shipped exactly the gap the review was there to prevent. Full narrative:
-`xibalba-graph-memory/docs/session-log/2026-08-05-integrity-coupling-session.md`. Design and
+`xibalba-cortex/docs/session-log/2026-08-05-integrity-coupling-session.md`. Design and
 fix: `docs/design/mcp-signing-boundary.md`.
 
 * **The measured problem — `integrity_register_agent` was a live, callable MCP tool that loaded
@@ -1303,3 +1308,41 @@ fix: `docs/design/mcp-signing-boundary.md`.
     rejected as the mechanism — it's a structured-input request either side of the session can
     answer, not a safety property. The actual fix removes the capability from the tool surface
     entirely; a human runs `integrity-cli` directly for anything that signs.
+
+## 26. `UltraPlonkVerifier` is the real generated ZK verifier now, with zero test coverage (2026-08-12)
+
+Found while triaging an uncommitted, dirty working tree on `audit/harness-loop-2026-07-30` ahead
+of a repo-wide rename/stabilization pass. `contracts/src/oracle/UltraPlonkVerifier.sol` was
+initially suspected to be accidental damage — its interface conformance to `IZkVerifier` had been
+dropped, and `contracts/test/UltraPlonkVerifier.t.sol` was deleted in the same uncommitted diff.
+
+* **Not damage — this is the real `bb`-generated verifier, correctly wired.** The working-tree
+  contract has an actual `verify()` implementation (no more
+  `PlaceholderVerifierNotYetGenerated` revert), matches `integrity-zkp/generated/UltraPlonkVerifier.sol`
+  plus hand-added `assembly ("memory-safe")` annotations, and compiles clean
+  (`forge build` succeeds with only pre-existing lint warnings from the generated code).
+* **Dropping the `IZkVerifier` conformance was necessary, not accidental.** The generated file
+  already carries Barretenberg's own baked-in `interface IVerifier` with an identical
+  `verify(bytes,bytes32[]) external view returns (bool)` signature. Attempting
+  `contract UltraPlonkVerifier is BaseZKHonkVerifier(...), IZkVerifier` fails to compile
+  (Solidity error 6480 — diamond conflict, two base declarations of the same function). This was
+  verified directly, not assumed: re-adding the explicit conformance and running `forge build`
+  reproduced the compile error, then reverting confirmed clean compilation. `IZkVerifier` was
+  deliberately designed (see its own docstring) to be satisfied via ABI-compatible low-level
+  dispatch (`IZkVerifier(impl).verify(...)` in `VerifierRegistry.sol`), not formal inheritance —
+  this is exactly what lets `make generate-verifier` swap the placeholder for the real contract
+  without touching any calling contract.
+* **The deleted test file is correctly obsolete, not a regression.** It only asserted
+  placeholder-only behavior (`vm.expectRevert(UltraPlonkVerifier.PlaceholderVerifierNotYetGenerated.selector)`
+  on every input, including a fuzz test) — assertions that no longer hold now that `verify()` does
+  real work. Restoring it as-is would fail.
+* **CLOSED (2026-08-13) — direct generated-verifier real-proof coverage.** Retained fixtures live at
+  `contracts/test/fixtures/ultraplonk/proof.bin` (8,000 bytes) and
+  `contracts/test/fixtures/ultraplonk/public_inputs.bin` (96 bytes). The Foundry test
+  `contracts/test/UltraPlonkVerifier.t.sol` reads the binary proof and exactly three caller-supplied
+  `bytes32` public inputs, matching the generated ABI's `publicInputs.length == 3` requirement.
+  It asserts fixture lengths and hashes, then exercises the actual generated verifier with a valid
+  proof, a tampered proof, tampered public inputs, and malformed proof bytes.
+  `forge test --match-path test/UltraPlonkVerifier.t.sol -vvv` returned **4 passed, 0 failed**.
+  This closes direct verifier coverage only; registry forwarding, proof regeneration from a clean
+  environment, and deployed/on-chain verification remain separate gaps.

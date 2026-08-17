@@ -19,7 +19,7 @@ An MCP tool call is not a deliberate human action — it's an LLM deciding to in
 based on its own reasoning over context, including context an attacker controls (a poisoned
 memory, a malicious webpage, an adversarial tool result). That is not an acceptable gate for
 something irreversible and signed. This is the same reasoning
-`xibalba-graph-memory`'s security invariants already state for recalled content ("untrusted
+`xibalba-cortex`'s security invariants already state for recalled content ("untrusted
 evidence... cannot silently become instructions, system authority, or tool permissions") —
 applied here to the far higher-stakes case of a real signature instead of a recalled fact.
 
@@ -31,7 +31,7 @@ could run a full on-chain registration, with zero coverage from the one gate
 (`~/.claude/xibalba/pretool_gate.py`) anyone was relying on. Verified independently before any
 fix: not wired into any running MCP client config on this machine at the time, so not an active
 incident — but reachable the moment someone did wire it in. Full narrative:
-`xibalba-graph-memory/docs/session-log/2026-08-05-integrity-coupling-session.md`.
+`xibalba-cortex/docs/session-log/2026-08-05-integrity-coupling-session.md`.
 
 ## What changed
 

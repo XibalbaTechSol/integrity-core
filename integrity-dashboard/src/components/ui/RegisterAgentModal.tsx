@@ -1,7 +1,7 @@
 import React from 'react';
 import { ethers } from 'ethers';
 import { X, Loader2, Check, ExternalLink } from 'lucide-react';
-import { useDashboard } from '../../context/useDashboard';
+import { useDashboard } from '../../context/DashboardContext';
 import { oracle } from '../../services/oracle';
 import {
   AGENT_PRIMITIVES_FACTORY_ADDRESS,
@@ -202,7 +202,7 @@ export function RegisterAgentModal({ onClose, onSuccess }: Props) {
         </div>
 
         <div className="text-muted" style={{ fontSize: '0.8rem' }}>
-          Deploys this agent's own contracts and registers its full 7-primitive set on Base Sepolia — four wallet-signed transactions. DID: <code style={{ color: 'var(--gold)' }}>{did}</code>
+          Deploys this agent's own contracts and registers its full 7-primitive set on Base Sepolia — four wallet-signed transactions. DID: <code style={{ color: 'var(--theme-accent)' }}>{did}</code>
         </div>
 
         {!walletAddress ? (
@@ -218,7 +218,7 @@ export function RegisterAgentModal({ onClose, onSuccess }: Props) {
                 <label className="form-label" htmlFor="ra-vertical">Vertical</label>
                 <select id="ra-vertical" className="input" value={vertical} onChange={(e) => setVertical(Number(e.target.value) as 0 | 1)}>
                   <option value={0}>General</option>
-                  <option value={1}>Healthcare (Integrity Health)</option>
+                  <option value={1}>Healthcare (Shield)</option>
                 </select>
               </div>
             </div>
@@ -253,7 +253,7 @@ export function RegisterAgentModal({ onClose, onSuccess }: Props) {
             )}
 
             {lastTx && (
-              <a href={`${EXPLORER_URL}/tx/${lastTx}`} target="_blank" rel="noreferrer" style={{ fontSize: '0.72rem', color: 'var(--gold)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <a href={`${EXPLORER_URL}/tx/${lastTx}`} target="_blank" rel="noreferrer" style={{ fontSize: '0.72rem', color: 'var(--theme-accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 Latest tx <ExternalLink size={12} />
               </a>
             )}

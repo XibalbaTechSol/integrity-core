@@ -5,7 +5,7 @@ import { StatusBadge } from '../shared/StatusBadge';
 import {
   Zap, Plus, RefreshCw, BarChart2, Handshake, X, Terminal, Gavel, Trophy,
 } from 'lucide-react';
-import { useDashboard } from '../../context/useDashboard';
+import { useDashboard } from '../../context/DashboardContext';
 import { oracle, type MarketSummaryDto, type BenchmarkDto } from '../../services/oracle';
 import { MARKET_FACTORY_ADDRESS, ITK_TOKEN_ADDRESS } from '../../constants';
 import {
@@ -292,7 +292,13 @@ export function ActuarialHub({ mode }: { mode: 'markets' | 'stability' }) {
               ) : markets.length === 0 ? (
                 <tr><td colSpan={7} style={{ textAlign: 'center', padding: '2rem' }}>No markets deployed yet.</td></tr>
               ) : markets.map(m => {
-                const deadline = Number(m.resolve_deadline) * 1000;
+                // resolve_deadline is a real ISO 8601 string from the oracle (see
+                // services/oracle.ts's MarketSummaryDto), not a Unix-seconds number —
+                // `Number(isoString)` is NaN, which made every deadline render as
+                // "Invalid Date" and made `past` permanently false (NaN comparisons are
+                // always false), silently breaking the creator-resolve gate for any
+                // market past its real deadline.
+                const deadline = Date.parse(m.resolve_deadline);
                 const past = Date.now() >= deadline;
                 const isCreator = !!saAddr && saAddr.toLowerCase() === m.creator.toLowerCase();
                 return (
@@ -303,7 +309,7 @@ export function ActuarialHub({ mode }: { mode: 'markets' | 'stability' }) {
                     </td>
                     <td>{m.outcome_count}{m.outcome_staked?.length ? ` (${m.outcome_staked.map(s => fmt(s)).join(' / ')})` : ''}</td>
                     <td>{m.min_ais_to_enter}</td>
-                    <td className="mono" style={{ color: 'var(--gold)' }}>{fmt(m.total_staked)} ITK</td>
+                    <td className="mono" style={{ color: 'var(--theme-accent)' }}>{fmt(m.total_staked)} ITK</td>
                     <td style={{ fontSize: '0.75rem' }}>{new Date(deadline).toLocaleString()}</td>
                     <td><StatusBadge status={m.resolved ? 'resolved' : past ? 'pending' : 'active'} /></td>
                     <td>

@@ -20,7 +20,7 @@ on Base (EVM). Eight packages, each with its own real test suite:
 | `integrity-cli/` | Python / uv | `uv run pytest` |
 | `bcc_middleware/` | Python / uv + OPA | `uv run pytest && opa test policies/ -v` |
 | `integrity-userapi/` | Python / uv + Postgres | `uv run pytest` (needs Postgres on 5435) |
-| `integrity-dashboard/` | React / Vite / TypeScript | `npm test` |
+| `integrity-dashboard/` | React / Vite / TypeScript | `npm run test-e2e` (Playwright — no `npm test` unit-test script exists) |
 
 CI runs all eight in parallel. See `.github/workflows/ci.yml`.
 
@@ -50,10 +50,11 @@ CI runs all eight in parallel. See `.github/workflows/ci.yml`.
 
 ### What Jules is used for in this repo
 
-Jules is invoked automatically by `.github/workflows/ci.yml`'s
-`notify-jules-on-failure` job when a CI run on `main` fails. Jules's task is
-to investigate the failing run's logs, identify the root cause, fix it, and
-open a PR. It should:
+Jules dispatch is **not** wired into this repo's own CI anymore — `.github/workflows/ci.yml`
+explicitly notes it was intentionally removed and relocated to
+`xibalba-agents/ops/jules-loop/`. When Jules is invoked (from that external loop, on a CI
+failure), its task is to investigate the failing run's logs, identify the root cause, fix it,
+and open a PR. It should:
 
 - Read the failing job's logs via the GitHub Actions run URL in the prompt.
 - Read the relevant package's wiki entity page in `docs/wiki/entities/`.
@@ -67,7 +68,7 @@ open a PR. It should:
 
 - `.agents/AGENTS.md` — full procedural schema (read this)
 - `docs/INTERFACE_CONTRACT.md` — cross-package schemas, ports, decisions
-- `docs/wiki/WIKI_INDEX.md` — map of all 25 wiki pages
+- `docs/wiki/WIKI_INDEX.md` — map of all 35 wiki pages (24 concepts, 8 entities, 2 architecture, 1 query)
 - `docs/wiki/WIKI_LOG.md` — recent session history (last ~10 entries)
 - `docs/TESTING.md` — test pyramid: what CI covers vs. what needs a live stack
 - Per-package `README.md` — setup, run, test instructions for each package

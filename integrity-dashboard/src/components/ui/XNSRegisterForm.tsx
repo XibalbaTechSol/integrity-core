@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ethers } from 'ethers';
 import { Globe, Loader2 } from 'lucide-react';
-import { useDashboard } from '../../context/useDashboard';
+import { useDashboard } from '../../context/DashboardContext';
 import { oracle } from '../../services/oracle';
 import { XNS_ADDRESS } from '../../constants';
 import { XNS_ABI } from '../../chain/xns';

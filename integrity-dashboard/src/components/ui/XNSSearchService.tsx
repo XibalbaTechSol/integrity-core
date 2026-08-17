@@ -148,7 +148,7 @@ export const XNSSearchService: React.FC = () => {
                             </div>
                         </div>
                         <div style={{ textAlign: 'right' }}>
-                            <div style={{ fontSize: '1.25rem', fontWeight: 900, color: 'var(--gold)' }}>
+                            <div style={{ fontSize: '1.25rem', fontWeight: 900, color: 'var(--theme-accent)' }}>
                                 {result.current_ais}
                             </div>
                             <div style={{ fontSize: '0.55rem', color: 'var(--text-muted)', fontWeight: 800, letterSpacing: '0.05em' }}>
@@ -164,12 +164,12 @@ export const XNSSearchService: React.FC = () => {
                          </div>
                          <div style={{ padding: '8px', background: 'rgba(0,0,0,0.2)', borderRadius: '6px', border: '1px solid var(--border)' }}>
                             <div style={{ fontSize: '0.55rem', color: 'var(--text-muted)', fontWeight: 700, marginBottom: '4px' }}>TRUST LEVEL</div>
-                            <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--gold)' }}>{result.trust_level}</div>
+                            <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--theme-accent)' }}>{result.trust_level}</div>
                          </div>
                     </div>
 
                     {result.xns_handle && (
-                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', color: 'var(--gold)' }}>
+                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', color: 'var(--theme-accent)' }}>
                             <Globe size={14} />
                             <span style={{ fontWeight: 800 }}>{result.xns_handle}</span>
                          </div>

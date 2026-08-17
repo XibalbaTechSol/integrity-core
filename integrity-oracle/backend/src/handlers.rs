@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+use crate::anchor_coverage::{self, AnchorCoverage};
 use crate::chain::{MarketDetail, PrimitiveSet as ChainPrimitiveSet};
 use crate::crypto::{self, AgentVerificationMethods};
 use crate::db;
@@ -234,6 +235,19 @@ pub struct AgentResponse {
     pub created_at: chrono::DateTime<Utc>,
     pub has_ed25519_key: bool,
     pub has_eth_address: bool,
+    /// True only when this DID has a real row in this oracle's own `agents` table (a real
+    /// `POST /v1/agent/register` call against THIS oracle, at some point in its history).
+    /// **Not** the same question as "does this DID exist" — a DID that resolves live on-chain
+    /// (see `primitives_source: "chain-backfill"` below) but was never registered against
+    /// this specific oracle instance still returns `200` here with `oracle_registered: false`,
+    /// a synthesized `id`/`primitives` and no other real fields. Added because that
+    /// distinction was previously only inferable by checking `primitives_source != "cache"`
+    /// AND `has_ed25519_key`/`has_eth_address`, which every caller had to reverse-engineer —
+    /// `GET /v1/telemetry/ingest` and `GET /v1/agent/{id}/ais` both fail closed
+    /// (`AgentNotFound`) on exactly this same local-row check (`db::get_agent`), so a caller
+    /// deciding "is it safe/worthwhile to send telemetry for this agent" needs this exact
+    /// boolean, not "does the DID exist anywhere."
+    pub oracle_registered: bool,
     pub primitives: Option<PrimitiveSetDto>,
     /// True when this response's `primitives` came from a live chain read performed just
     /// now (cache miss / no local `agents` row), rather than the Postgres cache.
@@ -314,6 +328,7 @@ pub async fn get_agent(State(state): State<AppState>, Path(id): Path<String>) ->
                 created_at: Utc::now(),
                 has_ed25519_key: false,
                 has_eth_address: false,
+                oracle_registered: false,
                 primitives,
                 primitives_source: source,
                 did_document: None,
@@ -341,6 +356,7 @@ pub async fn get_agent(State(state): State<AppState>, Path(id): Path<String>) ->
         created_at: agent_row.created_at,
         has_ed25519_key: agent_row.ed25519_pubkey.is_some(),
         has_eth_address: agent_row.eth_address.is_some(),
+        oracle_registered: true,
         primitives,
         primitives_source: source,
         did_document: agent_row.did_document,
@@ -478,6 +494,10 @@ pub struct AisResponse {
     /// submitted directly to the contract that hasn't shown up in telemetry yet) but is
     /// worth surfacing to an operator.
     pub onchain_zk_boost_consistent: Option<bool>,
+    /// Whether this agent's on-chain `StateAnchor` shows anchoring activity at or after
+    /// `period_start`, given it had telemetry activity in that same window.
+    /// Informational only (see `anchor_coverage.rs`) — never fed into `ais` itself.
+    pub anchor_coverage: AnchorCoverage,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -522,7 +542,9 @@ pub(crate) async fn compute_ais_for_agent(state: &AppState, id: &str) -> Result<
     let tier = db::effective_verification_tier(&state.pool, id, agent.verification_tier).await?;
     let breakdown = engine.score_with_tier(&inputs, tier);
 
-    let onchain_zk_boost_consistent = match db::get_agent_primitives(&state.pool, id).await? {
+    let primitives_row = db::get_agent_primitives(&state.pool, id).await?;
+
+    let onchain_zk_boost_consistent = match &primitives_row {
         Some(row) => {
             let rep_addr = Address::from_str(&row.reputation_registry_address).ok();
             let sov_addr = Address::from_str(&row.sovereign_agent_address).ok();
@@ -533,6 +555,24 @@ pub(crate) async fn compute_ais_for_agent(state: &AppState, id: &str) -> Result<
         }
         None => None,
     };
+
+    // Best-effort, same posture as the zk-boost cross-check above: an RPC failure or
+    // unset address must not fail the whole AIS response, only leave the on-chain half
+    // of the reading absent (`anchor_coverage::evaluate` treats `None` as "unknown",
+    // never as a false-positive "current").
+    let onchain_anchor_activity = match &primitives_row {
+        Some(row) => match Address::from_str(&row.state_anchor_address) {
+            Ok(state_anchor) => state
+                .chain
+                .latest_anchor_activity(state_anchor)
+                .await
+                .ok()
+                .map(|(epoch, ts)| (epoch.to::<u64>(), ts.to::<u64>() as i64)),
+            Err(_) => None,
+        },
+        None => None,
+    };
+    let anchor_coverage = anchor_coverage::evaluate(aggregate.event_count, period_start, onchain_anchor_activity);
 
     Ok(AisResponse {
         agent_id: id.to_string(),
@@ -550,6 +590,7 @@ pub(crate) async fn compute_ais_for_agent(state: &AppState, id: &str) -> Result<
         period_end,
         event_count: aggregate.event_count,
         onchain_zk_boost_consistent,
+        anchor_coverage,
     })
 }
 
@@ -669,7 +710,7 @@ pub struct TelemetryIngestResponse {
     pub flagged: bool,
 }
 
-/// Fixed-window rate limiter over Redis: `INCR` a per-agent, per-minute counter (key
+/// Fixed-window Redis rate limiter over Redis: `INCR` a per-agent, per-minute counter (key
 /// includes the current unix-minute bucket, so an old counter can never leak into a new
 /// window) and set it to expire in 60s the first time it's created in that window. This
 /// is the "concrete, real use of Redis" `config.rs`'s doc comment on
@@ -678,6 +719,41 @@ pub struct TelemetryIngestResponse {
 /// bucket (a fixed window is simpler and sufficient for this purpose: the worst case is
 /// bursting up to 2x the limit at a window boundary, which is an acceptable trade for not
 /// needing a token-bucket's extra state).
+
+fn check_oracle_api_key(state: &AppState, headers: &axum::http::HeaderMap) -> Result<(), AppError> {
+    if let Some(expected_key) = &state.config.oracle_api_key {
+        let auth_header = headers.get("authorization").or_else(|| headers.get("Authorization"));
+        match auth_header {
+            Some(value) => {
+                let value_str = value.to_str().unwrap_or("");
+                if value_str != expected_key && value_str != format!("Bearer {}", expected_key) {
+                    return Err(AppError::Unauthorized);
+                }
+            }
+            None => return Err(AppError::Unauthorized),
+        }
+    }
+    Ok(())
+}
+
+async fn check_internal_api_rate_limit(state: &AppState) -> Result<(), AppError> {
+    use redis::AsyncCommands;
+    let window = Utc::now().timestamp() / 60;
+    let key = format!("ratelimit:internal_api:{window}");
+
+    let mut conn = state.redis.clone();
+    let count: i64 = conn.incr(&key, 1).await?;
+    if count == 1 {
+        let _: () = conn.expire(&key, 60).await?;
+    }
+
+    // A simple global limit for internal endpoints, scaled up
+    if count > (state.config.telemetry_rate_limit_per_minute as i64 * 10) {
+        return Err(AppError::RateLimited);
+    }
+    Ok(())
+}
+
 async fn check_telemetry_rate_limit(state: &AppState, agent_id: &str) -> Result<(), AppError> {
     use redis::AsyncCommands;
 
@@ -1635,8 +1711,12 @@ pub struct AuditLogIngestResponse {
 )]
 pub async fn ingest_audit_log(
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<AuditLogIngestRequest>,
 ) -> Result<Json<AuditLogIngestResponse>, AppError> {
+    check_internal_api_rate_limit(&state).await?;
+    check_oracle_api_key(&state, &headers)?;
+
     let metadata = req.metadata.unwrap_or_else(|| serde_json::json!({}));
     let id = db::insert_audit_log(
         &state.pool,
@@ -1692,8 +1772,12 @@ pub struct AnchorEventIngestResponse {
 )]
 pub async fn ingest_anchor_events(
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<AnchorEventIngestRequest>,
 ) -> Result<Json<AnchorEventIngestResponse>, AppError> {
+    check_internal_api_rate_limit(&state).await?;
+    check_oracle_api_key(&state, &headers)?;
+
     let recorded =
         db::insert_anchor_events(&state.pool, &req.agent_id, &req.leaves, &req.root, &req.tx_hash)
             .await?;

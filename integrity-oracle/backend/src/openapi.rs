@@ -107,6 +107,8 @@ pub struct ApiDocCore;
         handlers::XnsResolveDto,
         handlers::AgentHandleDto,
         handlers::ProposalDto,
+        crate::anchor_coverage::AnchorCoverage,
+        crate::anchor_coverage::AnchorCoverageStatus,
         handlers::StatsDto,
         handlers::AuditLogEntryDto,
         handlers::RecentTraceDto,

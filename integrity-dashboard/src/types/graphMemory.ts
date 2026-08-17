@@ -1,0 +1,244 @@
+export interface GraphNode {
+    id: string;
+    type: 'memory' | 'entity';
+    label: string;
+    status?: string;
+    evidence_class?: string;
+    source_kind?: string;
+    entity_type?: string;
+}
+
+export interface GraphEdge {
+    source: string;
+    target: string;
+    type: 'relation' | 'similarity' | 'contradiction';
+    predicate?: string;
+    cosine_similarity?: number;
+    evidence_memory_id?: string;
+    reason?: string;
+}
+
+export interface GraphPayload {
+    nodes: GraphNode[];
+    edges: GraphEdge[];
+}
+
+export interface MemorySource {
+    kind: string;
+    locator?: string | null;
+    role?: string | null;
+    session_id?: string | null;
+    prompt_id?: string | null;
+    metadata: Record<string, unknown>;
+}
+
+export interface Memory {
+    id: string;
+    content: string;
+    content_hash: string;
+    status: string;
+    source: MemorySource;
+    quarantine_reasons: string[];
+    supersedes_id: string | null;
+    evidence_class: string;
+    cosine_similarity?: number;
+}
+
+export interface SimilarHit {
+    memory: Memory;
+    cosine_similarity: number;
+}
+
+export interface EntityRelation {
+    subject: string;
+    predicate: string;
+    object: string;
+    evidence_memory_id?: string;
+}
+
+export interface TraversalEdge {
+    predicate: string;
+    object: string;
+    evidence_memory_id?: string;
+}
+
+export interface TraversalResult {
+    truncated?: boolean;
+    edges: TraversalEdge[];
+}
+
+export interface GraphMemoryStats {
+    memories: number;
+    entities: number;
+    relations: number;
+    sessions: number;
+    embedded_memories: number;
+}
+
+export interface StoreStatus {
+    schema_version: number;
+    journal_mode: string;
+    foreign_keys: boolean;
+    fts5: boolean;
+    integrity_check: string;
+    identity_mode: string;
+    db_path: string;
+    memory_count: number;
+    backup_ready: boolean;
+    backup_method: string;
+}
+
+export interface IntegrityLinkRecord {
+    memory_id: string;
+    node_id: string | null;
+    verification_state: string;
+    expected_content_hash: string | null;
+    failure_reason: string | null;
+    verified_at: string | null;
+}
+
+export interface IntegrityLinksStatus {
+    total_memories: number;
+    linked_records: number;
+    states: Record<string, number>;
+    sample: IntegrityLinkRecord[];
+}
+
+export interface Session {
+    id: string;
+    external_session_id: string;
+    retention_tier: string;
+    started_at: string;
+    ended_at: string | null;
+    summary_memory_id: string | null;
+}
+
+export interface MemoryEvent {
+    id: number;
+    event_type: string;
+    detail: Record<string, unknown>;
+    node_id: string;
+    parent_event_id: string | null;
+    created_at: string;
+}
+
+export interface OtelEvent {
+    id: string;
+    session_id: string;
+    kind: string;
+    name: string;
+    trace_id: string | null;
+    span_id: string | null;
+    parent_span_id: string | null;
+    prompt_id: string | null;
+    memory_id: string | null;
+    value: number | null;
+    unit: string | null;
+    start_time: string | null;
+    end_time: string | null;
+    attributes: Record<string, unknown>;
+    created_at: string;
+}
+
+export interface Attachment {
+    id: string;
+    memory_id: string;
+    media_type: string;
+    content_hash: string;
+    byte_size: number;
+    storage_locator: string;
+    created_at: string;
+}
+
+export interface ContextContribution {
+    memory: Memory;
+    contribution_id: string;
+    context_kind: string;
+    relevance: number | null;
+    metadata: Record<string, unknown>;
+}
+
+export interface Exchange {
+    id: string;
+    session_id: string;
+    sequence_number: number;
+    prompt_id: string | null;
+    prompt_time: string | null;
+    response_time: string | null;
+    latency_ms: number | null;
+    node_id: string;
+    parent_node_id: string | null;
+    prompt_memories: Memory[];
+    response_memories: Memory[];
+    context_contributions: ContextContribution[];
+    tool_calls: OtelEvent[];
+}
+
+export interface MerkleRoot {
+    session_id: string;
+    root_node_id: string | null;
+    exchange_count: number;
+    valid: boolean;
+    root_kind: string;
+}
+
+export interface InferenceManifest {
+    name: string;
+    role: string;
+    input_rule: string;
+    output_rule: string;
+    task_types: string[];
+    tools: string[];
+}
+
+export interface InferenceTask {
+    id: string;
+    task_type: string;
+    status: string;
+    subject_type: string;
+    subject_id: string;
+    input: Record<string, unknown>;
+    output: Record<string, unknown> | null;
+    requested_by: string | null;
+    error: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface ParaClassification {
+    task_id: string;
+    memory_id: string;
+    source_content_hash: string;
+    category: 'project' | 'area' | 'resource' | 'archive';
+    confidence: number;
+    rationale: string;
+    signals: string[];
+    alternatives: Array<Record<string, unknown>>;
+    status: 'proposed' | 'accepted' | 'dismissed' | 'kept_original' | 'stale';
+    decision_note: string | null;
+    created_at: string;
+    decided_at: string | null;
+}
+
+
+export interface RecordModelExchangePayload {
+    external_session_id: string;
+    user_prompt: string;
+    model_response: string;
+    context?: Array<Record<string, unknown>>;
+    runtime?: string;
+    agent_id?: string;
+    prompt_id?: string;
+    prompt_time?: string;
+    response_time?: string;
+    metadata?: Record<string, unknown>;
+    idempotency_key?: string;
+}
+
+export interface RecordModelExchangeResult {
+    session: Session;
+    exchange: Exchange;
+    prompt_memory: Memory;
+    response_memory: Memory;
+    context_memory_ids: string[];
+}

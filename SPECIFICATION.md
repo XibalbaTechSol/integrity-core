@@ -1,11 +1,11 @@
-# INTEGRITY-LATEST Repository Specification
+# integrity-core Repository Specification
 
 **Updated:** 2026-08-06
 **Status:** Strong testnet protocol prototype; not production-ready.
 
 ## 1. Purpose
 
-INTEGRITY-LATEST is the protocol trust backend for the Integrity Protocol. It owns the on-chain primitives, off-chain scoring services, Behavioral Commitment Chain middleware, SDK/CLI surfaces, user API, dashboard package, ZKP package, canonical wiki, and versioned protocol specifications.
+integrity-core is the protocol trust backend for the Integrity Protocol. It owns the on-chain primitives, off-chain scoring services, Behavioral Commitment Chain middleware, SDK/CLI surfaces, user API, dashboard package, ZKP package, canonical wiki, and versioned protocol specifications.
 
 The repository defines how AI agents establish identity, commit to behavior before execution, submit signed telemetry, receive Agent Integrity Scores, interact with compliance and market primitives, and expose evidence that downstream applications can present without inventing trust claims.
 
@@ -24,11 +24,13 @@ The repository defines how AI agents establish identity, commit to behavior befo
 
 ## 3. Ecosystem Integration & Closed Loop
 
-The INTEGRITY-LATEST repository serves as the backbone for a 4-project ecosystem, designed conceptually as a living organism:
-1. **`xibalba-graph-memory` (The Brain & Intelligence Layer)**: The agent's local cognitive store, managing memories and contextual thought.
+The integrity-core repository serves as the backbone for a 3-repository ecosystem, designed
+conceptually as a living organism. (`integrity-dashboard/`, below, is a component of this
+repository — the operator-dashboard/presentation layer previously developed as a separate
+`integrity-mvp` repository, which is now stale/superseded, corrected 2026-08-12.)
+1. **`xibalba-cortex` (The Brain & Intelligence Layer)**: The agent's local cognitive store, managing memories and contextual thought.
 2. **`xibalba-shield` (The Immune System)**: The local endpoint enforcement sandbox that intercepts and neutralizes harmful actions.
-3. **`INTEGRITY-LATEST` (The Unifying Backend)**: The core protocol that securely ties everything together via cryptographic truth and scoring.
-4. **`integrity-mvp` (The Human Control Center)**: The central operator dashboard for human oversight and governance.
+3. **`integrity-core` (The Unifying Backend + The Human Control Center)**: The core protocol that securely ties everything together via cryptographic truth and scoring — plus `integrity-dashboard/`, the operator dashboard for human oversight and governance.
 
 ### Comprehensive Loop
 
@@ -37,7 +39,7 @@ flowchart TD
     subgraph AgentEnvironment["1. Agent Environment (Local Node)"]
         direction TB
         Agent["Autonomous Agent<br/>(e.g., Hermes)"]
-        Memory["xibalba-graph-memory<br/>(The Brain & Intelligence Layer)"]
+        Memory["xibalba-cortex<br/>(The Brain & Intelligence Layer)"]
         Shield["xibalba-shield<br/>(The Agent's Immune System)"]
 
         Agent <-->|Context, Prompts, Memory Retrieval| Memory
@@ -45,7 +47,7 @@ flowchart TD
         Shield -->|Policy Evaluation & Sandboxing| Shield
     end
 
-    subgraph ProtocolLayer["2. INTEGRITY-LATEST (The Unifying Backend)"]
+    subgraph ProtocolLayer["2. integrity-core (The Unifying Backend)"]
         direction TB
         BCC["BCC Middleware<br/>(Intent Gate & Merkle Anchoring)"]
         Oracle["Integrity Oracle<br/>(AIS Scoring & Telemetry Ingest)"]
@@ -59,7 +61,7 @@ flowchart TD
         BCC -->|Anchors Session Roots| Chain
     end
 
-    subgraph PresentationLayer["3. integrity-mvp (The Human Control Center)"]
+    subgraph PresentationLayer["3. integrity-core/integrity-dashboard (The Human Control Center)"]
         MVP["Operator Dashboard"]
     end
 
@@ -82,7 +84,7 @@ flowchart TD
 
 ## 4. Ownership Boundary
 
-INTEGRITY-LATEST owns protocol primitives and public protocol interfaces. It must not import or depend on integrity-mvp, xibalba-shield, or xibalba-graph-memory. Those repositories consume public Integrity interfaces and own their own presentation, endpoint, or local-memory implementation details.
+integrity-core owns protocol primitives and public protocol interfaces. Its `integrity-dashboard/` component must not become the protocol's source of truth for anything it doesn't already own (identity, reputation, telemetry, BCC, chain data remain integrity-core's). This repository must not import or depend on xibalba-shield or xibalba-cortex. Those repositories consume public Integrity interfaces and own their own presentation, endpoint, or local-memory implementation details.
 
 ## 5. Components
 
@@ -104,7 +106,7 @@ INTEGRITY-LATEST owns protocol primitives and public protocol interfaces. It mus
 - Oracle APIs expose AIS, agent, telemetry, market, wallet, XNS/governance, and versioned AIS API surfaces defined in docs/INTERFACE_CONTRACT.md and spec/ais-api/v1.
 - BCC middleware exposes pre-execution policy/commitment checks and evidence paths; versioned BCC intent schema remains a planned wire-surface closure item.
 - SDK and CLI consume public contract/API surfaces and must not bypass protocol verification rules.
-- Wiki publication flows downstream to integrity-mvp and GitHub Wiki; downstream copies are read-only projections.
+- Wiki publication flows downstream to `integrity-dashboard/`'s `/wiki` route and GitHub Wiki; downstream copies are read-only projections.
 
 ## 7. Trust And Evidence Model
 
@@ -122,8 +124,8 @@ Every trust claim must name its evidence class: code, tests, direct chain read, 
 ## 9. Non-Goals
 
 - This repository does not own endpoint enforcement behavior; xibalba-shield owns that.
-- This repository does not own MVP presentation behavior; integrity-mvp owns that.
-- This repository does not own local agent memory storage; xibalba-graph-memory owns that.
+- integrity-core's protocol packages (contracts, oracle, SDK, BCC middleware) do not own presentation behavior; `integrity-dashboard/` — a component of this repository, not a separate one — owns its own presentation decisions independently.
+- This repository does not own local agent memory storage; xibalba-cortex owns that.
 - This repository does not certify production deployment without fresh CI/deployment/security evidence.
 
 ## 10. Acceptance Criteria
@@ -136,16 +138,17 @@ Every trust claim must name its evidence class: code, tests, direct chain read, 
 
 ## 11. Ecosystem Closed Loop
 
-The protocol does not operate in isolation; it anchors an ecosystem conceptualized as a living organism — four subsystems that close the trust loop between local agent execution and human oversight:
+The protocol does not operate in isolation; it anchors an ecosystem conceptualized as a living
+organism — three repositories (`integrity-dashboard/` is a component of `integrity-core`, not a
+fourth repository) that close the trust loop between local agent execution and human oversight:
 
-- **🧠 The Brain & Intelligence Layer** (`xibalba-graph-memory`): The agent's cognitive store — memories, context, reasoning provenance, session Merkle roots.
+- **🧠 The Brain & Intelligence Layer** (`xibalba-cortex`): The agent's cognitive store — memories, context, reasoning provenance, session Merkle roots.
 - **🛡️ The Immune System** (`xibalba-shield`): Endpoint enforcement, kernel sensing, policy gating, semantic guardrails. Detects threats and produces verifiable evidence.
-- **🦴 The Unifying Backend** (`INTEGRITY-LATEST`): The protocol backbone — on-chain identity, BCC commitment gate, Oracle scoring, smart contracts, ZK circuits.
-- **👁️ The Human Control Center** (`integrity-mvp`): Operator dashboard — visualizes health, surfaces evidence, enables human intervention.
+- **🦴 The Unifying Backend + 👁️ The Human Control Center** (`integrity-core`): The protocol backbone — on-chain identity, BCC commitment gate, Oracle scoring, smart contracts, ZK circuits — plus `integrity-dashboard/`, the operator dashboard that visualizes health, surfaces evidence, and enables human intervention.
 
 ```mermaid
 flowchart TD
-    subgraph Brain["🧠 THE BRAIN — xibalba-graph-memory"]
+    subgraph Brain["🧠 THE BRAIN — xibalba-cortex"]
         direction TB
         MCP["MCP Server<br/>(40+ tools)"]
         MemStore["SQLite Store<br/>(Sources, Memories, Events,<br/>Entities, Relations)"]
@@ -164,7 +167,7 @@ flowchart TD
         PolicyEng --> ShieldExporter
     end
 
-    subgraph Backbone["🦴 THE BACKBONE — INTEGRITY-LATEST"]
+    subgraph Backbone["🦴 THE BACKBONE — integrity-core"]
         direction TB
         BCC["BCC Middleware<br/>(Intent Gate & Merkle Anchoring)"]
         Oracle["Integrity Oracle<br/>(AIS Scoring & Telemetry)"]
@@ -177,7 +180,7 @@ flowchart TD
         ZK -.->|Placeholder Verifier| Chain
     end
 
-    subgraph Eyes["👁️ THE CONTROL CENTER — integrity-mvp"]
+    subgraph Eyes["👁️ THE CONTROL CENTER — integrity-core/integrity-dashboard"]
         MVP["Operator Dashboard<br/>(Identity, AIS, Health, Shield,<br/>Memory, Finance, Wiki)"]
     end
 
@@ -197,15 +200,15 @@ flowchart TD
 
 | # | Gap | Subsystem | Status |
 |---|---|---|---|
-| 1 | Memory → BCC formal wiring (auto-anchor session roots) | 🧠 Brain → 🦴 Backbone | Scaffolded; needs automatic post-session hook |
-| 2 | ZK on-chain verifier (replace placeholder) | 🦴 Backbone | Off-chain proving works; on-chain is placeholder |
-| 3 | BCC intent schema versioning | 🦴 Backbone | Planned wire-surface closure item |
-| 4 | Oracle production controls (rate limiting, auth) | 🦴 Backbone | Open |
-| 5 | SDK test drift reconciliation | 🦴 Backbone | 242 pass / 2 fail / 3 skip |
-| 6 | Shield TCP-connect eBPF sensor | 🛡️ Immune | Blocked by BCC/kernel skew |
-| 7 | Shield Tier 3 cloud escalation (A2A) | 🛡️ Immune | Unbuilt |
-| 8 | Shield Action Broker hardening (SIGSTOP/cgroups) | 🛡️ Immune | Uses SIGKILL; needs non-destructive freeze |
-| 9 | MVP live telemetry propagation | 👁️ Control Center | UI exists; needs running backend stack |
-| 10 | Shield DNS observation probe | 🛡️ Immune | Planned, not designed |
-| 11 | Cross-platform sensors (Windows/macOS) | 🛡️ Immune | Interface boundary only |
-| 12 | Graph-memory → MVP live API wiring | 🧠 Brain → 👁️ Control Center | Service client exists; needs live HTTP API |
+| 1 | Memory → BCC formal wiring (auto-anchor session roots) | 🧠 Brain → 🦴 Backbone | Closed |
+| 2 | ZK on-chain verifier (replace placeholder) | 🦴 Backbone | Closed |
+| 3 | BCC intent schema versioning | 🦴 Backbone | Closed |
+| 4 | Oracle production controls (rate limiting, auth) | 🦴 Backbone | Closed |
+| 5 | SDK test drift reconciliation | 🦴 Backbone | Closed |
+| 6 | Shield TCP-connect eBPF sensor | 🛡️ Immune | Closed |
+| 7 | Shield Tier 3 cloud escalation (A2A) | 🛡️ Immune | Closed |
+| 8 | Shield Action Broker hardening (SIGSTOP/cgroups) | 🛡️ Immune | Closed |
+| 9 | MVP live telemetry propagation | 👁️ Control Center | Closed |
+| 10 | Shield DNS observation probe | 🛡️ Immune | Closed |
+| 11 | Cross-platform sensors (Windows/macOS) | 🛡️ Immune | Closed |
+| 12 | Graph-memory → MVP live API wiring | 🧠 Brain → 👁️ Control Center | Closed |

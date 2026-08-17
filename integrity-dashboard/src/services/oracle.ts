@@ -337,6 +337,15 @@ export interface AuditLogEntryDto {
     created_at: string;
 }
 
+// backend::handlers::get_unregistered_agents — real "shadow AI" discovery: DIDs the
+// oracle has telemetry/audit evidence for that never registered via
+// POST /v1/agent/register. See db::list_unregistered_agents' doc comment.
+export interface UnregisteredAgentDto {
+    agent_id: string;
+    source: 'otel' | 'audit_log';
+    first_seen: string;
+}
+
 // Server-Sent Event frames pushed over /v1/stream and /v1/agent/{id}/stream — mirrors
 // backend::stream::StreamEvent's #[serde(tag = "type")] shape exactly.
 export type StreamEvent =
@@ -392,6 +401,77 @@ export interface RegisterAgentResponse {
     primitives: PrimitiveSetDto;
     controller: string;
     domain_id: string;
+}
+
+// Verification Ladder (backend::verification / backend::kyc) — registration establishes
+// only a tier-1 floor; DNS/GitHub (tier 2), TEE/KYC (tier 3) evidence raises it. Mirrors
+// backend::db::IdentityVerificationRow exactly.
+export interface IdentityVerificationRow {
+    id: number;
+    agent_id: string;
+    method: string;
+    tier_granted: number;
+    subject: string;
+    evidence: Record<string, unknown>;
+    verified_at: string;
+    expires_at: string | null;
+    revoked_at: string | null;
+    revoked_reason: string | null;
+}
+
+// 'dev_override' means the tier is ASSERTED by the oracle operator's local config
+// (INTEGRITY_ALLOW_DEV_TIER_OVERRIDE), not proven by any evidence row — see
+// backend::verification's dev-override module docs. Never render it like a real tier.
+export type TierSource = 'verified' | 'dev_override';
+
+export interface VerificationListResponse {
+    agent_id: string;
+    registration_tier: number;
+    effective_tier: number;
+    tier_source: TierSource;
+    ais_ceiling: number;
+    verifications: IdentityVerificationRow[];
+}
+
+// backend::handlers::KycChallengeResponse. The nonce/message_format describe what the
+// agent's own KYC provider tooling must sign — the oracle never sees raw PII and the
+// browser never holds the agent's DID Ed25519 key, so this challenge is informational,
+// not something this UI signs itself.
+export interface KycChallengeResponse {
+    agent_id: string;
+    provider: string;
+    nonce: string;
+    assurance_profile: string;
+    message_format: string;
+    expires_at: string;
+}
+
+// backend::kyc::KycReceipt — produced by the agent's own KYC provider integration
+// (SDK/CLI), signed with the provider's configured Ed25519 key, then pasted/uploaded
+// here. This client never constructs or signs one.
+export interface KycReceipt {
+    provider: string;
+    opaque_subject_reference: string;
+    assurance_profile: string;
+    checks: {
+        document_authenticity: boolean;
+        biometric_liveness: boolean;
+        sanctions_pep_screening: boolean;
+    };
+    verified_at: string;
+    expires_at: string;
+    nonce: string;
+    signature: string;
+}
+
+// backend::handlers::VerificationResponse — shared by every verify/{method} endpoint.
+export interface VerificationResponse {
+    agent_id: string;
+    method: string;
+    subject: string;
+    tier_granted: number;
+    effective_tier: number;
+    expires_at: string | null;
 }
 
 function historyQuery(bucket?: HistoryBucket, since?: string): string {
@@ -470,6 +550,9 @@ export const oracle = {
         return get<AuditLogEntryDto[]>(`/v1/audit-log${qs ? `?${qs}` : ''}`);
     },
 
+    // Real "shadow AI" discovery (Shield vertical) — see UnregisteredAgentDto's comment.
+    getUnregisteredAgents: () => get<UnregisteredAgentDto[]>('/v1/shield/unregistered-agents'),
+
     // The agent's real on-chain-anchored provenance chain (backend::handlers::
     // get_provenance) — each committed Merkle leaf + the StateAnchor root/tx that
     // anchored it + the policy decision that produced it.
@@ -509,6 +592,20 @@ export const oracle = {
     // EventSource doesn't take fetch-style options, so callers construct their own
     // `new EventSource(oracle.streamUrl(id))` — see hooks/useOracleStream.ts.
     streamUrl: (agentId?: string) => `${ORACLE_URL}${agentId ? `/v1/agent/${encodeURIComponent(agentId)}/stream` : '/v1/stream'}`,
+
+    // Full verification ladder state: effective tier, its source (verified vs. an
+    // operator's local dev override), the implied AIS ceiling, and every evidence row
+    // (DNS/GitHub/TEE/KYC), including revoked ones for audit visibility.
+    getVerifications: (id: string) =>
+        get<VerificationListResponse>(`/v1/agent/${encodeURIComponent(id)}/verify`),
+    // Issues a nonce for a trusted KYC provider (must be a key configured in the oracle's
+    // KYC_PROVIDER_KEYS). 400s if the provider id isn't trusted.
+    requestKycChallenge: (id: string, provider: string) =>
+        post<KycChallengeResponse>(`/v1/agent/${encodeURIComponent(id)}/verify/kyc/challenge`, { provider }),
+    // Verifies and persists a signed KYC receipt produced externally by the agent's own
+    // provider tooling. Grants tier 3 on success.
+    submitKycReceipt: (id: string, receipt: KycReceipt) =>
+        post<VerificationResponse>(`/v1/agent/${encodeURIComponent(id)}/verify/kyc`, receipt),
 };
 
 export { OracleError };

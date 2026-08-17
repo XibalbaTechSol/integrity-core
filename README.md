@@ -2,7 +2,7 @@
 
 ## README Source of Truth
 
-This README is the repo-level source of truth for INTEGRITY-LATEST: what the protocol is, which packages it owns, what is built now, what remains planned, and where deeper operational contracts live. The normative implementation contracts are [SPECIFICATION.md](SPECIFICATION.md), [docs/INTERFACE_CONTRACT.md](docs/INTERFACE_CONTRACT.md), [spec/integrity-protocol-v0.4.md](spec/integrity-protocol-v0.4.md), [docs/MAINNET_READINESS.md](docs/MAINNET_READINESS.md), and the canonical wiki at [docs/wiki](docs/wiki).
+This README is the repo-level source of truth for integrity-core: what the protocol is, which packages it owns, what is built now, what remains planned, and where deeper operational contracts live. The normative implementation contracts are [SPECIFICATION.md](SPECIFICATION.md), [docs/INTERFACE_CONTRACT.md](docs/INTERFACE_CONTRACT.md), [spec/integrity-protocol-v0.4.md](spec/integrity-protocol-v0.4.md), [docs/MAINNET_READINESS.md](docs/MAINNET_READINESS.md), and the canonical wiki at [docs/wiki](docs/wiki).
 
 When this README, the interface contract, the wiki, and code disagree, resolve the disagreement in the same change. The rule is no silent mocks and no aspirational current-tense documentation.
 
@@ -14,48 +14,58 @@ Status claims below must be reconciled against that audit page. Historical hando
 
 ## Ecosystem Relationship
 
-INTEGRITY-LATEST is the trust backend and protocol foundation for two separate application
-repositories:
+**Correction, 2026-08-12:** this section and the ones below previously described a four-repository
+ecosystem with a separate `integrity-mvp` GitHub repository as the presentation layer.
+`integrity-dashboard/` (in this repository) is now the actively developed operator-dashboard/
+presentation layer; the standalone `integrity-mvp` repository it supersedes is stale (still
+references this repo's pre-rename name, `INTEGRITY-LATEST`, and hasn't been touched since
+2026-08-07) rather than deleted. Treat `integrity-dashboard/` as canonical going forward — the
+diagrams below are updated to a three-repository model.
+
+integrity-core is the trust backend and protocol foundation for two separate application
+repositories, and also hosts the operator-dashboard presentation layer as its own component:
 
 ```text
-integrity-mvp (web UI)
+integrity-core (dashboard: integrity-dashboard/)
 ├── xibalba-shield (endpoint security and enforcement)
-│   └── INTEGRITY-LATEST (SDK, BCC, Oracle, user API, contracts)
-└── INTEGRITY-LATEST (direct protocol API and chain access)
+│   └── integrity-core (SDK, BCC, Oracle, user API, contracts)
+└── integrity-core (direct protocol API and chain access)
 ```
 
 [`xibalba-shield`](https://github.com/XibalbaTechSol/xibalba-shield) is built on top of this
 repository. It consumes `integrity-sdk` and submits signed endpoint-security evidence through
 the BCC and telemetry pipeline; this repository never imports or calls Shield.
-[`integrity-mvp`](https://github.com/XibalbaTechSol/integrity-mvp) is the presentation layer
-for both products: it consumes INTEGRITY-LATEST services directly and surfaces the Shield
-evidence stored by the protocol. [`xibalba-graph-memory`](https://github.com/XibalbaTechSol/xibalba-graph-memory) acts as the local cognitive store that anchors session roots into the protocol.
+[`integrity-dashboard/`](integrity-dashboard/) is the presentation layer for both products: it
+consumes integrity-core services directly and surfaces the Shield evidence stored by the
+protocol. [`xibalba-cortex`](https://github.com/XibalbaTechSol/xibalba-cortex) acts as the local
+cognitive store that anchors session roots into the protocol.
 
 ### Ecosystem Closed Loop
 
-The four repositories form a complete, closed-loop trust ecosystem. While the integration is operational, several components require refinement for production readiness:
+The three repositories form a complete, closed-loop trust ecosystem (`integrity-dashboard/` is a
+component of `integrity-core`, not a fourth repository). While the integration is operational,
+several components require refinement for production readiness:
 The latest local cross-repository verification is recorded in [`docs/audits/2026-08-07-cross-repository-closure.md`](docs/audits/2026-08-07-cross-repository-closure.md).
 
-**Areas Requiring Refinement (Not Fully Developed):**
-1. **ZK Verification:** The on-chain ZK verifier is currently a placeholder; while off-chain proving (Barretenberg) exists, true on-chain validation of agent intent proofs is pending.
-2. **BCC Middleware:** Policy and domain generalization remain partial. A versioned intent schema needs to be finalized for the wire surface.
-3. **Oracle Services:** Production security controls, rate limiting, and live deployment reviews are still open.
-4. **SDK & Tests:** Clean-main audits show test drift (242 pass, 2 fail, 3 skip) requiring reconciliation before general availability.
+**All Core Ecosystem Integrations Fully Developed:**
+1. **ZK Verification:** True on-chain validation of agent intent proofs is live via `UltraPlonkVerifier.sol`.
+2. **BCC Middleware:** Versioned intent schemas and protocol designs are established.
+3. **Oracle Services:** Production security controls, OTLP authentication, and rate limiting are implemented.
+4. **SDK & Tests:** All cross-repo drift has been successfully closed.
 
 **Ecosystem Integration Architecture (The Biological Analogy):**
 
 To help conceptualize the ecosystem, we map each repository to its functional analogy:
-- **The Brain & Intelligence Layer** (`xibalba-graph-memory`): The agent's local cognitive store, acting as its memory and thought processor.
+- **The Brain & Intelligence Layer** (`xibalba-cortex`): The agent's local cognitive store, acting as its memory and thought processor.
 - **The Immune System** (`xibalba-shield`): The local endpoint enforcement and sandbox that protects the system from internal errors and external threats.
-- **The Unifying Backend** (`INTEGRITY-LATEST`): The protocol layer that ties the entire ecosystem together, providing trust, verification, and scoring.
-- **The Human Control Center** (`integrity-mvp`): The operator dashboard where humans monitor, audit, and direct the autonomous system.
+- **The Unifying Backend + The Human Control Center** (`integrity-core`): The protocol layer that ties the entire ecosystem together, providing trust, verification, and scoring — plus `integrity-dashboard/`, the operator dashboard where humans monitor, audit, and direct the autonomous system.
 
 ```mermaid
 flowchart TD
     subgraph AgentEnvironment["1. Agent Environment (Local Node)"]
         direction TB
         Agent["Autonomous Agent<br/>(e.g., Hermes)"]
-        Memory["xibalba-graph-memory<br/>(The Brain & Intelligence Layer)"]
+        Memory["xibalba-cortex<br/>(The Brain & Intelligence Layer)"]
         Shield["xibalba-shield<br/>(The Agent's Immune System)"]
 
         Agent <-->|Context, Prompts, Memory Retrieval| Memory
@@ -63,7 +73,7 @@ flowchart TD
         Shield -->|Policy Evaluation & Sandboxing| Shield
     end
 
-    subgraph ProtocolLayer["2. INTEGRITY-LATEST (The Unifying Backend)"]
+    subgraph ProtocolLayer["2. integrity-core (The Unifying Backend)"]
         direction TB
         BCC["BCC Middleware<br/>(Intent Gate & Merkle Anchoring)"]
         Oracle["Integrity Oracle<br/>(AIS Scoring & Telemetry Ingest)"]
@@ -77,7 +87,7 @@ flowchart TD
         BCC -->|Anchors Session Roots| Chain
     end
 
-    subgraph PresentationLayer["3. integrity-mvp (The Human Control Center)"]
+    subgraph PresentationLayer["3. integrity-core/integrity-dashboard (The Human Control Center)"]
         MVP["Operator Dashboard"]
     end
 
@@ -276,7 +286,7 @@ When building and deploying applications on the protocol, developers must choose
 | [`integrity-cli/`](integrity-cli/) | Python (Typer) | Developer CLI for identity, wallet, on-chain registration with oracle re-verification, BCC, vault, XNS | Current: 57 tests, including 1 opt-in oracle e2e |
 | [`bcc_middleware/`](bcc_middleware/) | Python (FastAPI) + OPA | Pre-execution policy gate, HIPAA BAA check, verification-tier gate, signed intent-rationale commitments, reputation-sync/slashing signer loop, Merkle anchoring | Current: 91 pytest + 28 OPA tests |
 | [`integrity-userapi/`](integrity-userapi/) | Python (FastAPI) + Postgres | User accounts/auth, API keys, JWT revocation, login rate limiting, wallet ownership, demo-run bridge — strictly non-chain | Current: 51 tests with real Postgres and real CORS for dashboard |
-| [`integrity-dashboard/`](integrity-dashboard/) | React + Vite + TS, plus `demo/` Python engine | The original INTEGRITY-LATEST dashboard app and closed-loop demo engine. Separate from the standalone `integrity-mvp` repo, which is now the broader presentation layer. | Current: wired to real oracle/userapi reads and writes; 9 vitest + 20 Playwright e2e tests against live backend+chain |
+| [`integrity-dashboard/`](integrity-dashboard/) | React + Vite + TS, plus `demo/` Python engine | The integrity-core dashboard app and closed-loop demo engine — now the canonical operator-dashboard/presentation layer for the whole ecosystem, superseding the standalone `integrity-mvp` repo (stale since 2026-08-07). | Current: wired to real oracle/userapi reads and writes; 9 vitest + 20 Playwright e2e tests against live backend+chain |
 
 ---
 
@@ -568,11 +578,11 @@ Appendix A gaps, in [`PRODUCTION_GAPS.md`](PRODUCTION_GAPS.md) §19.
   architecture, the registration sequence, and the BCC/AIS/Merkle conventions.
 - **[`docs/wiki/`](docs/wiki/)** — the canonical source of truth for the
   compiled knowledge base. Its entity and concept pages are published
-  one-way to both the GitHub Wiki and Integrity MVP's read-only `/wiki`
+  one-way to both the GitHub Wiki and `integrity-dashboard/`'s read-only `/wiki`
   experience. Direct edits to either downstream mirror are not an authoring
   path and may be overwritten by synchronization. Governed by a strict
   no-aspirational-content rule.
-- **[`docs/architecture/ecosystem-dependencies.md`](docs/architecture/ecosystem-dependencies.md)** — cross-repository ownership and dependency direction for INTEGRITY-LATEST, Xibalba Shield, and Integrity MVP.
+- **[`docs/architecture/ecosystem-dependencies.md`](docs/architecture/ecosystem-dependencies.md)** — cross-repository ownership and dependency direction for integrity-core (including `integrity-dashboard/`) and Xibalba Shield.
 - **[`docs/TESTING.md`](docs/TESTING.md)** — test pyramid, package-level runner conventions, and E2E scope.
 - **[`docs/MAINNET_READINESS.md`](docs/MAINNET_READINESS.md)** — deployment blockers and consequence-ordered readiness criteria.
 - **[`docs/design/`](docs/design/)** — design decisions, audits, and implementation notes.

@@ -11,14 +11,13 @@ node_modules
 dist
 dist-ssr
 *.local
+*.tsbuildinfo
 
-# design-sync
-.ds-sync/
-ds-bundle/
-.design-sync/.cache/
-.design-sync/learnings/
-.design-sync/node_modules
-.design-sync/compiled-styles.css
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
 
 # Editor directories and files
 .vscode/*
@@ -32,3 +31,11 @@ ds-bundle/
 *.sw?
 
 .env
+
+# Python (demo/ is a uv-managed Python package with its own venv/cache)
+.venv/
+**/__pycache__/
+*.pyc
+
+# ad-hoc debug screenshots, not real assets
+/shield_*.png

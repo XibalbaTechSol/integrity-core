@@ -1,11 +1,17 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Key, ShieldCheck, User, Globe, Code } from 'lucide-react';
-import { useDashboard } from '../context/useDashboard';
+import { Key, ShieldCheck, User } from 'lucide-react';
+import { useDashboard } from '../context/DashboardContext';
 import { Panel } from '../components/shared/Panel';
 import { IdentityPanel } from '../components/tabs/IdentityPanel';
-import { PrivacyPanel } from '../components/tabs/PrivacyPanel';
-import { getTier } from '../types';
+
+const getTier = (ais: number) => {
+  if (ais >= 900) return 'AAA';
+  if (ais >= 800) return 'AA';
+  if (ais >= 700) return 'A';
+  if (ais >= 500) return 'B';
+  return 'C';
+};
 
 // ─── Tier badge colours ───────────────────────────────────────────────────────
 const TIER_COLORS: Record<string, string> = {
@@ -24,18 +30,18 @@ const sectionVariants = {
 } as any;
 
 // ─── Component ────────────────────────────────────────────────────────────────
-export function IdentityPage() {
-  const { selectedAgent, activeTab, setActiveTab } = useDashboard();
+export default function IdentityPage() {
+  const { selectedAgent } = useDashboard();
 
   // ── Derived values ──────────────────────────────────────────────────────────
   // eth_address actually holds the agent's DID (did:integrity:…), so never re-wrap a value
   // that's already a DID — doing so produced a malformed `did:xibalba:did:integrity:…`.
   const rawDid    = (selectedAgent as any)?.did_document?.id ?? selectedAgent?.eth_address ?? null;
   const did       = rawDid ? (rawDid.startsWith('did:') ? rawDid : `did:xibalba:${rawDid}`) : null;
-  const ais       = selectedAgent?.current_ais ?? null;
+  const ais       = (selectedAgent as any)?.current_ais ?? null;
   const tier      = ais !== null ? getTier(ais) : null;
   const tierColor = tier ? TIER_COLORS[tier] : 'var(--text-muted)';
-  const teeVerified = selectedAgent?.tee_verified ?? false;
+  const teeVerified = (selectedAgent as any)?.tee_verified ?? false;
 
   // ── Truncate long DID for display ──────────────────────────────────────────
   const shortDID = did
@@ -76,7 +82,7 @@ export function IdentityPage() {
                 <div
                   className="mono"
                   title={did ?? '\u2014'}
-                  style={{ fontSize: '0.8rem', color: 'var(--text-primary)', wordBreak: 'break-all' }}
+                  style={{ fontSize: '0.8rem', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
                 >
                   {shortDID ?? <span style={{ color: 'var(--text-muted)' }}>Not Registered</span>}
                 </div>
@@ -115,7 +121,7 @@ export function IdentityPage() {
                     <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>\u2014</span>
                   )}
                   <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                    L{selectedAgent.verification_tier}
+                    L{(selectedAgent as any)?.verification_tier ?? 2}
                   </span>
                 </div>
               </div>
@@ -128,8 +134,8 @@ export function IdentityPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   {teeVerified ? (
                     <>
-                      <ShieldCheck size={18} color="var(--gold, #f59e0b)" />
-                      <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--gold, #f59e0b)' }}>
+                      <ShieldCheck size={18} color="var(--theme-accent)" />
+                      <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--theme-accent)' }}>
                         Verified (bb)
                       </span>
                     </>
@@ -167,24 +173,18 @@ export function IdentityPage() {
         </motion.div>
       )}
 
-      {/* ── Sub-navigation Tab Bar ───────────────────────────────────────── */}
-
-      {/* ── Section content (Tabbed Component Mount) ────────────────────── */}
+      {/* ── Section content ────────────────────────────────────────────── */}
       <div style={{ marginTop: 'var(--space-2)' }}>
         <AnimatePresence mode="wait">
           <motion.div
-            key={activeTab}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.18 }}
           >
-            {activeTab === 'identity' && (
-              <div className="flex-col gap-6">
-                <IdentityPanel />
-                <PrivacyPanel />
-              </div>
-            )}
+            <div className="flex-col gap-6">
+              <IdentityPanel />
+            </div>
           </motion.div>
         </AnimatePresence>
       </div>

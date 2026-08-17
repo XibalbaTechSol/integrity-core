@@ -77,6 +77,7 @@ except ImportError:
 logger = logging.getLogger("bcc_middleware")
 
 _score_sync_task: asyncio.Task | None = None
+_audit_shutdown_started = False
 
 
 async def _score_sync_loop(settings: Settings) -> None:
@@ -105,46 +106,46 @@ async def _score_sync_loop(settings: Settings) -> None:
         await asyncio.sleep(settings.score_sync_interval_seconds)
 
 
+async def _drain_audit_reports(timeout: float = 10.0) -> None:
+    """Drain audit tasks admitted before shutdown, with a hard deadline.
+
+    The shutdown gate prevents new work from being admitted while this function
+    drains. Re-checking the set handles tasks whose completion callbacks have not
+    run yet, and cancelled/finished tasks are consumed so shutdown does not emit
+    unhandled-task warnings.
+    """
+    deadline = asyncio.get_running_loop().time() + timeout
+    while _audit_report_tasks:
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            break
+        await asyncio.wait(list(_audit_report_tasks), timeout=remaining)
+
+    if _audit_report_tasks:
+        pending = list(_audit_report_tasks)
+        logger.warning(
+            "shutdown: %d audit report(s) still in flight after %.0fs, giving up "
+            "on the ASGI shutdown wait (the underlying thread may still be running)",
+            len(pending),
+            timeout,
+        )
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        _audit_report_tasks.difference_update(pending)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _score_sync_task
+    global _score_sync_task, _audit_shutdown_started
+    _audit_shutdown_started = False
     if default_settings.score_sync_enabled:
         _score_sync_task = asyncio.create_task(_score_sync_loop(default_settings))
     yield
     if _score_sync_task is not None:
         _score_sync_task.cancel()
-    # Drain in-flight audit-report tasks before the ASGI shutdown event returns.
-    # Without this, a worker shutting down mid-request drops any
-    # `_report_decision_background` call that hadn't completed yet -- silently,
-    # since nothing ever awaited it in the first place. `_audit_report_tasks`
-    # already prevents garbage collection; this is what turns "kept alive" into
-    # "actually finishes" (audit E16, docs/design/e2e-audit-2026-07-31.md).
-    # Bounded rather than unbounded: a report stuck on a dead ORACLE_URL must not
-    # hang the shutdown signal forever. `report_decision`'s own HTTP calls time out
-    # at 3s (see audit.py), so 10s covers that plus thread-scheduling slack for a
-    # small burst of pending reports.
-    #
-    # KNOWN RESIDUAL LIMIT, not fixed by this: `asyncio.to_thread` runs on
-    # Python's default `ThreadPoolExecutor`, whose worker threads are non-daemon.
-    # If a report is still running past the 10s bound above, THIS coroutine moves
-    # on and logs it as dropped -- but the underlying OS thread keeps running, and
-    # `asyncio.run()`'s own cleanup (`loop.shutdown_default_executor()`) still
-    # joins it before the process can fully exit. Verified directly: an orphaned
-    # `to_thread` call delays `asyncio.run()`'s return even after the awaiting
-    # coroutine itself has long since given up on it. So this drain bounds what
-    # the ASGI shutdown EVENT reports and how long IT waits, not literal process
-    # exit time under a truly hung thread -- that residual is accepted rather than
-    # solved by swapping in a daemon-thread executor, which would trade "delayed
-    # exit" for "reports killed mid-write," a worse failure for an evidence path.
-    if _audit_report_tasks:
-        _done, pending = await asyncio.wait(list(_audit_report_tasks), timeout=10.0)
-        if pending:
-            logger.warning(
-                "shutdown: %d audit report(s) still in flight after 10s, giving up "
-                "on the ASGI shutdown wait (the underlying thread may still be "
-                "running and could still delay process exit)",
-                len(pending),
-            )
+    _audit_shutdown_started = True
+    await _drain_audit_reports()
 
 
 app = FastAPI(title="BCC Middleware", version="3.0.0", lifespan=lifespan)
@@ -167,6 +168,13 @@ _audit_report_tasks: set[asyncio.Task] = set()
 
 
 def _report_decision_background(settings: Settings, *, agent_id: str | None, decision: str, reason_code: str | None = None, detail: str | None = None, intent_type: str | None = None, metadata: dict | None = None) -> None:
+    if _audit_shutdown_started:
+        logger.warning(
+            "audit report dropped because middleware shutdown has started: agent=%s decision=%s",
+            agent_id,
+            decision,
+        )
+        return
     task = asyncio.ensure_future(
         asyncio.to_thread(
             audit_module.report_decision,

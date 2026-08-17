@@ -1,13 +1,39 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-08-13] update | Real UltraPlonk verifier coverage
+
+- Added retained binary proof/public-input fixtures and `contracts/test/UltraPlonkVerifier.t.sol` without editing generated verifier Solidity.
+- The direct generated verifier test covers valid proof acceptance, tampered proof rejection, tampered public-input rejection, and malformed-proof rejection.
+- Fixture lengths and hashes are asserted; the public-input conversion passes exactly three `bytes32` values required by the generated ABI.
+- Verification: `forge test --match-path test/UltraPlonkVerifier.t.sol -vvv` -> 4 passed, 0 failed.
+- Residual limits: registry forwarding, clean proof regeneration, deployed/on-chain verification, and external anchoring remain open.
+
+
+## [2026-08-13] update | Test-status tree binding
+
+- Added `concepts/test-status-tree-binding.md` and indexed it in `WIKI_INDEX.md`.
+- Documented the shared `scripts/tree_hash.py` implementation used by
+  `record_test_status.py` and `vault_commit_leaf.py`.
+- Recorded measured verification: `python3 scripts/tree_hash.py --self-test` -> 4/4 passed.
+- Preserved the boundary that this proves local source-tree binding only, not external anchoring
+  or successful delivery of every historical leaf.
+
+
 > Chronological record of wiki actions. Append-only — never edit past entries.
 > Actions: ingest, create, update, lint, query, archive
+
+## [2026-08-13] update | BCC audit-report shutdown drain verified
+
+- Closed the documented shutdown-loss gap for `bcc_middleware` audit reports.
+- Verified that `lifespan()` waits for in-flight asynchronous audit-report tasks, bounded by 10 seconds, while preserving non-blocking request handling.
+- Evidence: `bcc_middleware/tests/test_shutdown_drain.py` and `test_evidence_linkage.py` passed 6/6; the full package suite passed 122/122 with `uv run python -m pytest -q`.
+- Preserved the residual limitation: oracle unavailability can still lose reports because the path remains best-effort and has no local durable spool or retry queue.
 
 ## [2026-08-06] create | Cross-repository audit status ledger
 
 - Added `docs/audits/2026-08-06-cross-repository-status.md` as the current Integrity Protocol repository audit pointer.
 - Linked the consolidated four-repository implementation plan and status vocabulary from the wiki index.
-- Recorded verified default-branch test evidence and open findings for `integrity-latest`, `integrity-mvp`, `xibalba-shield`, and `xibalba-graph-memory`.
+- Recorded verified default-branch test evidence and open findings for `integrity-core`, `integrity-mvp`, `xibalba-shield`, and `xibalba-cortex`.
 - Preserved historical wiki entries and marked the audit as `AUDIT IN PROGRESS`; no production-readiness claim was promoted.
 
 ## [2026-08-06] update | Scoped Devil's Advocate and Red-Team Reviews
@@ -76,7 +102,7 @@
 
 ## [2026-07-07] create | Wiki initialized for the from-scratch rewrite
 
-- Rebuilding the Integrity Protocol monorepo at `INTEGRITY-LATEST/` from
+- Rebuilding the Integrity Protocol monorepo at `integrity-core/` from
   scratch, after an audit of the old `INTEGRITY/` prototype found working
   code alongside protocol-critical pieces (ZK proving, TEE attestation, OPA
   evaluation, on-chain BAA checks, Merkle anchoring) that were explicit,
@@ -1105,7 +1131,7 @@
 
 - Next item in the user-directed queue after the AIS spec/tier-gate work
   above. Legacy `INTEGRITY` had a real, tested `XibalbaNameService.sol` +
-  dashboard UI; it was never carried into `INTEGRITY-LATEST`'s rewrite
+  dashboard UI; it was never carried into `integrity-core`'s rewrite
   (confirmed earlier this session — no XNS contract anywhere in
   `contracts/src/`, only a `[PLANNED]` wiki stub at
   `docs/wiki/concepts/xns.md` referencing the root README's roadmap table).
@@ -1550,7 +1576,7 @@
   not just response-shape inspection)**: brought up a real local anvil +
   `forge script Deploy.s.sol` + a real `cargo run oracle-backend` +
   Postgres/Redis (a throwaway `integrity-verify-pg` Docker container was
-  used instead of the pre-existing `integrity-latest-postgres-1`, whose
+  used instead of the pre-existing `integrity-core-postgres-1`, whose
   password didn't match its own `docker-compose.yml` — root cause found:
   host port 5432 is already bound by an unrelated native Postgres
   process, so the compose container's port was never actually reaching
@@ -2847,10 +2873,10 @@ writeup: PRODUCTION_GAPS.md §18.
 ## [2026-08-04] docs | Ecosystem dependency boundaries documented
 
 - Added `docs/architecture/ecosystem-dependencies.md` as the canonical map across
-  INTEGRITY-LATEST, Xibalba Shield, and Integrity MVP.
+  integrity-core, Xibalba Shield, and Integrity MVP.
 - Clarified that Integrity MVP presents both backend layers, Xibalba Shield is built on
-  INTEGRITY-LATEST's public SDK/BCC/Oracle trust substrate, and dependency direction never
-  flows back from INTEGRITY-LATEST into either application.
+  integrity-core's public SDK/BCC/Oracle trust substrate, and dependency direction never
+  flows back from integrity-core into either application.
 - Reconciled the Shield specification's stale claim that its implementation repository did
   not yet exist; implementation status remains owned by the Shield README.
 
@@ -2865,7 +2891,7 @@ writeup: PRODUCTION_GAPS.md §18.
 
 ## [2026-08-04] docs | Canonical wiki publication contract enforced
 
-- Declared `INTEGRITY-LATEST/docs/wiki/` as the sole authoring source of truth;
+- Declared `integrity-core/docs/wiki/` as the sole authoring source of truth;
   Integrity MVP and GitHub Wiki are downstream, read-only projections.
 - Extended the GitHub Wiki publisher to include architecture and query pages.
 - Made GitHub Wiki sidebar and footer generation deterministic from the canonical
@@ -2931,11 +2957,11 @@ writeup: PRODUCTION_GAPS.md §18.
 - Fixed the mobile wiki search trigger so it docks at the bottom of the viewport instead of overlapping the top header grid.
 - Added Playwright regression coverage for table rendering and mobile search placement.
 - Clarified the canonical contract-documentation policy: `entities/contracts.md` remains the default aggregate owner for the contract suite; per-contract pages are reserved for contracts that need standalone API documentation.
-- Regenerated the MVP wiki snapshot from `INTEGRITY-LATEST/docs/wiki/` after the canonical metadata update, and fixed the MVP sync path so canonical `docs/guides/*.md` pages appear under the Guides rail instead of falling out of navigation.
+- Regenerated the MVP wiki snapshot from `integrity-core/docs/wiki/` after the canonical metadata update, and fixed the MVP sync path so canonical `docs/guides/*.md` pages appear under the Guides rail instead of falling out of navigation.
 
 ## [2026-08-06] update | Cross-repo wiki coverage and MVP browser TOC
 
-- Added `docs/wiki/architecture/ecosystem-dependencies.md` so the canonical wiki exposes the verified dependency boundary across INTEGRITY-LATEST, Xibalba Shield, and Integrity MVP, instead of leaving it only in `docs/architecture/ecosystem-dependencies.md`.
+- Added `docs/wiki/architecture/ecosystem-dependencies.md` so the canonical wiki exposes the verified dependency boundary across integrity-core, Xibalba Shield, and Integrity MVP, instead of leaving it only in `docs/architecture/ecosystem-dependencies.md`.
 - Updated `WIKI_INDEX.md` and the wiki home page from 33 to 34 pages, adding one architecture page.
 - Recorded the Integrity MVP `/wiki` browser changes: the header uses the official Xibalba Solutions logo linked to `/`, and the left rail is now an ordered protocol TOC with functional article and section navigation.
 - Verification performed in `integrity-mvp`: focused Playwright wiki suite passed (4 tests), production build passed, whitespace check passed, and desktop/mobile screenshots were saved under `~/Pictures/`.
@@ -2944,9 +2970,9 @@ writeup: PRODUCTION_GAPS.md §18.
 
 - Updated the three top-level repository READMEs so each explicitly states its source-of-truth role, definitions, current status, ownership boundaries, plans, and documentation map.
 - Expanded `integrity-mvp/README.md` from a short project note into a full app source-of-truth document covering the three-repo stack, generated wiki, current UI surfaces, commands, testing, and roadmap.
-- Updated `INTEGRITY-LATEST/README.md` package-status language to align with the current wiki and added explicit README/interface/spec/wiki precedence.
+- Updated `integrity-core/README.md` package-status language to align with the current wiki and added explicit README/interface/spec/wiki precedence.
 - Added source-of-truth and documentation-map sections to `xibalba-shield/README.md`, preserving its implementation-status dashboard as the Shield truth ledger.
-- Updated `docs/INTERFACE_CONTRACT.md` to describe current internal scope and explicitly keep `integrity-mvp` and `xibalba-shield` outside INTEGRITY-LATEST's dependency graph.
+- Updated `docs/INTERFACE_CONTRACT.md` to describe current internal scope and explicitly keep `integrity-mvp` and `xibalba-shield` outside integrity-core's dependency graph.
 
 ## [2026-08-06] spec | Specification expansion and Shield spec ownership
 
@@ -2957,7 +2983,7 @@ writeup: PRODUCTION_GAPS.md §18.
 
 ## [2026-08-06] docs | Cross-repository implementation plans
 
-- Added root `IMPLEMENTATION_PLAN.md` files to INTEGRITY-LATEST, integrity-mvp, xibalba-shield, and xibalba-graph-memory.
+- Added root `IMPLEMENTATION_PLAN.md` files to integrity-core, integrity-mvp, xibalba-shield, and xibalba-cortex.
 - Added `docs/wiki/architecture/repository-implementation-plans.md` as the canonical wiki rollup for closed/planned/blocked work across the four repositories.
 - Updated the wiki home page and WIKI_INDEX architecture section from one to two architecture pages.
 
@@ -2969,12 +2995,20 @@ writeup: PRODUCTION_GAPS.md §18.
 
 ## [2026-08-06] docs | Root specifications and archive cleanup
 
-- Added detailed root `SPECIFICATION.md` files for INTEGRITY-LATEST, integrity-mvp, and xibalba-graph-memory, and updated xibalba-shield `SPECIFICATION.md` with the current audit boundary.
-- Archived superseded historical planning/handoff files into dated `docs/archive/2026-08-06/` folders in integrity-mvp, xibalba-shield, and xibalba-graph-memory.
+- Added detailed root `SPECIFICATION.md` files for integrity-core, integrity-mvp, and xibalba-cortex, and updated xibalba-shield `SPECIFICATION.md` with the current audit boundary.
+- Archived superseded historical planning/handoff files into dated `docs/archive/2026-08-06/` folders in integrity-mvp, xibalba-shield, and xibalba-cortex.
 - Updated `docs/wiki/architecture/repository-implementation-plans.md` so specifications, implementation plans, audit evidence, and archived historical records are represented without duplicate task entries.
 
 ## [2026-08-06] cleanup | Repository generated-artifact cleanup
 
-- Removed reproducible generated artifacts and caches from INTEGRITY-LATEST, integrity-mvp, xibalba-shield, and xibalba-graph-memory.
+- Removed reproducible generated artifacts and caches from integrity-core, integrity-mvp, xibalba-shield, and xibalba-cortex.
 - Kept source files, audits, docs, `.env`, `.venv`, `node_modules`, local deployment state, and active worktree changes intact.
 - Archived superseded historical plan/handoff documents under dated `docs/archive/2026-08-06/` folders rather than deleting them.
+
+## [2026-08-13] update | integrity-dashboard full-site Playwright audit
+
+- Rewrote `entities/integrity-dashboard.md` from scratch — the prior content described a structurally different, pre-2026-08-12-reconciliation dashboard (`AgentListPage`/`MarketsPage`/`WalletPage`, `wagmi`/`viem`, a `react-grid-layout` widget dashboard) whose files no longer exist on disk.
+- Documented the current 16-route dashboard, its per-page backend wiring (oracle/userapi/direct-chain-to-Base-Sepolia/xibalba-cortex local_api), and the `/shield` page's identity as a self-contained attack-simulation demo (confirmed via `git log` that its real-backend integration code, `services/shieldBackend.ts` + `components/ShieldEvidenceGraph.tsx`, is orphaned, never imported by any page).
+- Recorded a full-site Playwright audit (16 specs, 140 tests, one spec per route, real backend stack, no mocking, screenshot-verified per page) that found and fixed 7 real bugs: `WikiPage.tsx` bold-markdown regex, `DIDExplorer.tsx` grid-collapse layout bug, `integrity-userapi` CORS missing the e2e origin, `AuthPage.tsx`/`DashboardContext.tsx` false-success wallet-auth navigation, `IntelligencePage.tsx` formula-box double-edge clipping, `Dashboard.tsx` radar-chart NaN from a 0-1 vs 0-1000 scaling mismatch, `TraceAnalysisPanel.tsx` stuck-loading state, and `ActuarialHub.tsx` Invalid-Date/resolve-gating bug from parsing an ISO string as a Unix-seconds number.
+- Updated `WIKI_INDEX.md`'s `integrity-dashboard` entry and `docs/TESTING.md`'s Layer 2 section (the previously-documented `e2e/global-setup.ts`/`global-teardown.ts` do not exist in this repo; corrected to the actual manual-stack-then-`npx playwright test` workflow).
+- Corrected `CLAUDE.md`'s stale "Known gaps" claims that `integrity-dashboard/e2e/` doesn't exist and that `package.json` defines a `vitest`-backed `"test"` script (it doesn't — no vitest dependency, no unit-test layer, Playwright e2e is the only test surface).
