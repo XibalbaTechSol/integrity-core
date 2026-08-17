@@ -1,3 +1,56 @@
+# Handoff — 2026-08-17i (Phase I third adapter: assurance tier — completes the named trio, real gas-budget finding surfaced and documented, not hidden)
+
+Continuation after 2026-08-17h below. Same authorization pattern: scoped proposal
+(`docs/plans/2026-08-17-phase1-assurance-tier-adapter-proposal.md`) committed first, explicit
+"authorize as scoped," then built. Mid-build, the user set a standing session goal — "implement
+all kernel features and validate each one" — which is being treated as the authorization to
+continue through the rest of Phase I's well-scoped pieces without a fresh go/no-go each time,
+while keeping the same rigor (dependency checks, strict TDD, mutation testing, gas assertions,
+honest documentation) that produced this finding in the first place.
+
+## 0. What changed
+
+`preCheck` gained a third conjunctive condition: `ReputationRegistry.isZkBoosted(boundAccount)`
+must be true. No new external dependency — reuses the `reputationRegistry` immutable the
+reputation-floor adapter already wired in. This completes the trio of reference adapters the
+original Phase I plan named (spend/velocity cap, reputation floor, assurance tier).
+
+**Two real bugs surfaced and fixed during this build, both genuinely instructive:**
+
+1. **Test interaction bug, not a kernel bug.** Making the account ZK-boosted by default (for the
+   new adapter's own tests) silently broke the existing below-floor reputation test: a raw
+   `baseScore` of 499 boosted 1.15x becomes 573 — *above* the 500 floor — so the "below floor"
+   test was actually exercising an above-floor call and wrongly passing. Fixed by choosing a base
+   score low enough to stay below the floor even after boosting, with the boosted value computed
+   from the contract's own constants rather than hand-rounded.
+2. **Real gas-budget finding, not fixed away.** With all three checks live, `preCheck` measures
+   ~40,129 gas — over the whitepaper's own Table 4 budget (`<=40k`), exactly the pressure point
+   the Phase I plan had already named as a risk before this slice existed. Per this session's own
+   stated commitment (written into the proposal *before* this was measured), the response was to
+   document the finding honestly — the gas test was renamed
+   (`test_preCheckGasExceedsPaperTable4BudgetWithThreeUncachedChecks`) and now asserts the cost
+   is both genuinely over 40k and hasn't regressed further past a documented ceiling, rather than
+   quietly raising the threshold to make a red test go green.
+
+2 new tests (non-boosted reverts even when budget+reputation pass; an expired boost — a real
+`block.timestamp` boundary — is treated as not-boosted), both mutation-tested same as every other
+check in this kernel. Net effect on the suite: +2 (one redundant test removed along the way).
+Full repo suite: 226/226.
+
+## 1. What this does NOT close, restated
+
+The gas-budget finding is a real, open item — not resolved by this slice, and not silently
+absorbed either. The real fix (per-epoch score snapshotting instead of live cross-contract reads)
+is exactly what the original plan already anticipated and is out of scope for a reference-adapter
+slice. Everything else from the prior sections' "still true, restated" lists still applies:
+not deployed, not audited, module governance/canonical intent encoding/BCC replay-gap unbuilt.
+
+## 2. State of the tree
+
+`forge build` clean, full suite 226/226. Committed and pushed to `audit/harness-loop-2026-07-30`.
+
+---
+
 # Handoff — 2026-08-17h (Phase I second adapter: reputation floor, authorized, built, tested)
 
 Continuation after 2026-08-17g below (the first tracer-bullet slice, same day). Same

@@ -1639,9 +1639,29 @@ repo suite green: 224/224. Explicitly independent of the still-deferred AIS floo
 decision (§27) — reads the existing oracle-pushed `effectiveScore`, doesn't touch `scoring-core`
 or pick any floor value there.
 
+**Extended again same day with the third and final named reference adapter (assurance tier)**,
+per `docs/plans/2026-08-17-phase1-assurance-tier-adapter-proposal.md`. `preCheck` gains a third
+conjunctive condition: `ReputationRegistry.isZkBoosted(boundAccount)` must be true. No new
+external dependency (reuses the same `reputationRegistry` immutable the reputation-floor adapter
+already wired in). 2 new tests (non-boosted reverts even when budget+reputation pass; an expired
+boost — a genuine `block.timestamp` boundary, not a static flag — is treated as not-boosted),
+both mutation-tested. Net +2 tests (added 2, removed 1 redundant test the new work made
+unnecessary). Full repo suite: 226/226.
+
+**Real, disclosed finding from this extension, not silently resolved:** with all three checks
+live, `preCheck` measures ~40,129 gas — over the whitepaper's own Table 4 budget (`<=40k`). The
+Phase I plan itself named this exact pressure point before this slice existed ("reputation
+should be cached/snapshotted per epoch rather than read live on every call") — now confirmed
+live. Per this session's own stated commitment, the gas test was renamed to document the finding
+honestly (`test_preCheckGasExceedsPaperTable4BudgetWithThreeUncachedChecks`, asserting the cost
+is both genuinely over 40k and hasn't regressed past a documented 42k ceiling) rather than having
+its threshold quietly raised. The real fix (per-epoch score snapshotting) is out of scope for a
+reference-adapter slice and would need its own proposal if pursued. Full detail:
+`docs/design/phase1-tracer-bullet-slice-2026-08-17.md`'s "Known limitation" section.
+
 **What this explicitly does not close:** any of the rest of the real Phase I plan (module
-governance, reference adapters beyond the one budget check, canonical intent encoding, the BCC
-`chain_id`/verifier-binding gap) remains unbuilt. No external audit has occurred — this slice
-does not clear the Devil's Advocate review's own stated gate to Phase II. Not deployed to Base
-Sepolia or anywhere else, and completing this slice is not itself grounds to deploy it — that
-would be a separate, later, separately-approved decision.
+governance, canonical intent encoding, the BCC `chain_id`/verifier-binding gap, the gas-budget
+finding above) remains unbuilt/unresolved. No external audit has occurred — this slice does not
+clear the Devil's Advocate review's own stated gate to Phase II. Not deployed to Base Sepolia or
+anywhere else, and completing this slice is not itself grounds to deploy it — that would be a
+separate, later, separately-approved decision.

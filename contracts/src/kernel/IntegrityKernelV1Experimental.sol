@@ -39,6 +39,7 @@ contract IntegrityKernelV1Experimental is IERC7579Hook {
     error ZeroReputationRegistry();
     error ZeroMinEffectiveScore();
     error ReputationBelowFloor(uint256 score, uint256 minRequired);
+    error AssuranceTierNotMet(address account);
 
     address public immutable boundAccount;
     uint256 public immutable perOpBudgetWei;
@@ -110,6 +111,11 @@ contract IntegrityKernelV1Experimental is IERC7579Hook {
 
         uint256 score = reputationRegistry.effectiveScore(boundAccount);
         if (score < minEffectiveScore) revert ReputationBelowFloor(score, minEffectiveScore);
+
+        // Third reference adapter (docs/plans/2026-08-17-phase1-assurance-tier-adapter-proposal.md):
+        // reuses the same reputationRegistry immutable, no new external dependency. Unconditional,
+        // not toggleable -- consistent with the two checks above.
+        if (!reputationRegistry.isZkBoosted(boundAccount)) revert AssuranceTierNotMet(boundAccount);
 
         armed = true;
         return abi.encode(boundAccount.balance);
