@@ -69,10 +69,21 @@ agent without doing new work," not by technical interest:
    and until native convergence is implemented. Existing Base Sepolia remains unchanged.
 2. **Watch FIDO's Agentic Authentication WG for a draft spec, don't build against it yet.**
    Too early to integrate; worth a calendar re-check (see §6) rather than work now.
-3. **Confirm MCP compatibility of agent identity resolution** — if Xibalba agents are
-   already MCP-server-shaped (per this repo's own `mcp_server.py`), check whether an
-   external MCP client can resolve an agent's DID/AIS through the existing tool surface
-   without new code, or what the gap is. Low-cost to check, not yet done.
+3. **Confirm MCP compatibility of agent identity resolution — CHECKED 2026-08-17, real gap
+   found.** `integrity_sdk/mcp_server.py`'s `integrity_resolve_did` (the only DID-resolution
+   MCP tool) calls `GET /v1/agent/{id}` (`handlers::get_agent`), whose `AgentResponse`
+   struct (`handlers.rs:228`) carries `id`, `verification_tier`, `last_nonce`,
+   `has_ed25519_key`/`has_eth_address`, `primitives`, `oracle_registered` — no `ais` field.
+   AIS is served exclusively by the separate `GET /v1/agent/{id}/ais`
+   (`handlers::get_ais`), which has **zero corresponding MCP tool**. So today: an external
+   MCP client CAN resolve identity (DID, registration state, verification tier) through the
+   existing surface with no new code, but CANNOT resolve reputation/AIS the same way — the
+   exact half of the "resolve an Integrity agent" story that matters for the adoption thesis
+   (identity without reputation is what §1.2 critiques ERC-8004 for). Fix, if wanted: add a
+   read-only `integrity_get_ais` tool mirroring `integrity_resolve_did`'s exact pattern
+   (`GET /v1/agent/{id}/ais`, defaults to the server's own DID) — small, same shape as the
+   existing read-only tools, not attempted here since it wasn't asked for, just the gap
+   confirmed.
 4. **Do not chase Cloudflare/GoDaddy integration yet** — it's a distribution chokepoint
    worth tracking, not an API surface with an obvious integration point today. Revisit if
    their agent-permissioning spec becomes concrete and public.
