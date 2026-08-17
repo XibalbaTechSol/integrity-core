@@ -1,3 +1,97 @@
+# Handoff — 2026-08-17k (Phase I reputation epoch-snapshotting — resolves the Table 4 gas finding for real, Devil's Advocate reviewed and code-fixed before landing)
+
+Continuation after 2026-08-17j below. Direct continuation of the user's explicit next-scope
+choice ("lets continue... reputation epoch-snapshotting") and the standing "validation loop for
+every new feature" instruction — proposal doc first, strict TDD, mutation-test every
+security-relevant guard, gas-measure rather than estimate, then a dedicated Devil's Advocate
+review before landing, matching the exact pattern 2026-08-17j established for kernel-swap
+governance.
+
+## 0. What changed
+
+`IntegrityKernelV1Experimental`'s `preCheck` no longer reads `effectiveScore`/`isZkBoosted` live
+from `ReputationRegistry` on every call — the real, previously-disclosed cause of the Table 4
+gas-budget overage (~40,129 gas, over the whitepaper's `<=40k` ceiling). It now reads a local
+cache (`snapshotScore`/`snapshotIsZkBoosted`/`snapshotTakenAt`), refreshed by a new permissionless
+`refreshReputationSnapshot()` function (anyone may call it — a keeper-bot pattern, not gated
+behind the account's own signer), and fails closed with `SnapshotStale` if the cache is older
+than an immutable `epochLengthSeconds`. **Measured, not estimated: `preCheck` now costs 33,321
+gas — genuinely under the Table 4 budget**, confirmed live both before and after the review below.
+
+Real design research happened before any Solidity: read `ReputationRegistry.sol` in full to
+confirm `baseScore` has no monotonicity guarantee (a naive cache genuinely needs periodic
+refresh) and to evaluate-then-reject an alternative (caching the raw `zkBoostExpiry` timestamp
+instead of a boolean, which looked staleness-free at first but isn't, because `reportingPeriod`
+is admin-mutable and could produce a real expiry earlier than a previously cached one). A second
+alternative — auto-refreshing inline inside `preCheck` instead of failing closed — was also
+considered and rejected (it wouldn't bring the worst-case call under budget, only the average),
+though review later flagged that this specific claim was asserted rather than measured — see
+below.
+
+**The Devil's Advocate review's top-line verdict was "add code-level mitigations before treating
+this as closed."** Three real gaps got fixed:
+
+1. **The constants-match test verified nothing about the kernel.** `ZK_BOOST_BPS`/
+   `BPS_DENOMINATOR` are duplicated locally on the kernel (for gas efficiency — one external call
+   instead of two on refresh) but marked `private`, so the original test comparing them to the
+   real registry's values never actually touched the kernel — it compared two hardcoded literals
+   in the test file against each other. A future `ReputationRegistry` redeployment with different
+   constants would have silently produced wrong cached scores forever. Fixed: the constructor now
+   reads the real registry's constants once and reverts `BoostConstantsMismatch` on divergence.
+2. **`epochLengthSeconds` had no upper bound** — a deployment could set an absurdly long epoch and
+   truthfully claim "epoch-snapshotted reputation" while meaning "never re-checked." Fixed:
+   capped at `MAX_EPOCH_LENGTH_SECONDS = 7 days`.
+3. **Zero events anywhere** — the entire mechanism's safety story depends on someone (a keeper,
+   the operator) noticing staleness and refreshing, but there was no on-chain signal to react to.
+   Fixed: `ReputationSnapshotRefreshed` now emits on every refresh.
+
+All three are mutation-tested. A genuine differential test
+(`test_refreshedSnapshotMatchesALiveEffectiveScoreRead`) was also added, asserting the cached
+value equals a live `effectiveScore()`/`isZkBoosted()` read — this is what actually would catch a
+rounding/boundary/order-of-operations divergence between the kernel's reimplementation of the
+boost math and the registry's own (review confirmed these are currently bit-for-bit identical by
+reading both side by side, not assumed).
+
+**Disclosed more precisely, not code-fixed — real tradeoffs, not oversights:**
+- Within an epoch, reputation is not "possibly a little stale" — it is **completely unenforced**;
+  only the budget check still bounds behavior during that window. This was true from the first
+  design pass but under-stated before review.
+- A compounding case the original tests missed: a boost expiring mid-epoch leaves BOTH the
+  assurance-tier flag and the boosted (1.15x) score stale-permissive at once, not just one —
+  now its own dedicated test rather than an inference from the score-staleness test.
+- **A real, newly-surfaced interaction with 2026-08-17j's kernel-swap governance**: this test
+  suite's own placeholder values already have `moduleActionTimelockSeconds` (3 days) exceed
+  `epochLengthSeconds` (1 day). If the timelock outlives the epoch, a fully-vested swap's
+  uninstall half can revert `SnapshotStale` for a reason unrelated to reputation, and a
+  freshly-installed replacement kernel can be stale-on-arrival, rejecting the account's very
+  first post-swap call. The test suite was already patched around this with explicit refresh
+  calls, but review correctly flagged the original test comments as underselling it — this is now
+  stated as an explicit, named **deployment invariant** (`epochLengthSeconds >=
+  moduleActionTimelockSeconds`) in both contracts' NatSpec, not left implicit in test comments.
+  Neither contract enforces this across the other; it's deploy-time discipline, not a code
+  guarantee, and it's the one item from this piece that most needs picking up before any real
+  deploy script gets written.
+- The permissionless refresh's original "no manipulation surface" framing was slightly too
+  strong: a caller can't manipulate WHAT gets cached, only WHEN real data gets pulled in — an
+  adversary could force an early refresh locking in a real-but-temporary reputation dip sooner
+  than an operator wanted. Stricter, not exploited, but worth naming precisely.
+
+## 1. What this does NOT close, restated
+
+The gas-budget finding is now genuinely closed (33,321 < 40,000, measured). Everything else from
+2026-08-17j's list still applies unchanged: multi-party governance (still single-signer), the two
+disclosed reentrancy windows, the no-recovery-path broken-kernel-brick class, no external audit,
+not deployed. New open item from this piece: the `epochLengthSeconds`-vs-
+`moduleActionTimelockSeconds` deployment invariant is real and currently unenforced by code.
+
+## 2. State of the tree
+
+`forge build` clean. `contracts/test/IntegrityAccountV1Experimental.t.sol`: 41/41 (up from 31).
+Full repo suite: 250/250 (up from 240). Not yet committed as of this write-up; commit and push to
+follow immediately after.
+
+---
+
 # Handoff — 2026-08-17j (Phase I module governance: timelocked kernel swap — reverses the "module mutation permanently disabled" claim, Devil's Advocate reviewed and code-fixed before landing)
 
 Continuation after 2026-08-17i below. Different pattern from the three adapters: this change

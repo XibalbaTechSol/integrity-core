@@ -103,6 +103,19 @@ contract IntegrityAccountV1Experimental is AccountERC7579Hooked, SignerECDSA {
     /// @dev Delay between proposing and executing a kernel swap. Immutable -- the delay itself
     /// cannot be shortened or lengthened after deployment, closing off "govern the governance"
     /// as an attack surface.
+    ///
+    /// **Deployment invariant with `IntegrityKernelV1Experimental.epochLengthSeconds`, if the
+    /// bound kernel uses reputation epoch-snapshotting** (see that contract's own doc comment):
+    /// this value should be `<= epochLengthSeconds` on the currently-installed kernel. If the
+    /// timelock outlives the epoch, `executeKernelSwap`'s uninstall half (mediated by the
+    /// outgoing kernel's `preCheck`) can revert `SnapshotStale` on a fully-vested swap for a
+    /// reason unrelated to reputation, and a freshly-installed replacement kernel can be
+    /// stale-on-arrival, immediately rejecting the account's first post-swap `execute()` call.
+    /// Neither is destructive, but both are easy to mistake for a reputation problem. Nothing in
+    /// either contract enforces this ordering across the two -- they are constructed
+    /// independently and neither knows the other's parameters, so it is a deploy-time discipline,
+    /// not a code-level guarantee. Found by an independent adversarial review, not caught at
+    /// design time.
     uint256 public immutable moduleActionTimelockSeconds;
 
     struct PendingKernelSwap {
@@ -116,9 +129,7 @@ contract IntegrityAccountV1Experimental is AccountERC7579Hooked, SignerECDSA {
     /// silently overwrite the first.
     PendingKernelSwap public pendingKernelSwap;
 
-    constructor(address signerAddr, address kernel, uint256 moduleActionTimelockSeconds_)
-        SignerECDSA(signerAddr)
-    {
+    constructor(address signerAddr, address kernel, uint256 moduleActionTimelockSeconds_) SignerECDSA(signerAddr) {
         // A zero timelock would make executeKernelSwap immediately callable in the same
         // transaction as proposeKernelSwap, silently voiding this mechanism's entire value
         // proposition over the tracer-bullet slice's original "permanently unreachable" design --

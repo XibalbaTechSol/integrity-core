@@ -9,8 +9,14 @@ import {ReputationRegistry} from "../src/oracle/ReputationRegistry.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {Account as ERC4337Account} from "@openzeppelin/contracts/account/Account.sol";
 import {MODULE_TYPE_HOOK} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
-import {ERC7579Utils, Mode, CallType, ExecType, ModeSelector, ModePayload} from
-    "@openzeppelin/contracts/account/utils/draft-ERC7579Utils.sol";
+import {
+    ERC7579Utils,
+    Mode,
+    CallType,
+    ExecType,
+    ModeSelector,
+    ModePayload
+} from "@openzeppelin/contracts/account/utils/draft-ERC7579Utils.sol";
 
 /// @dev Deliberately conforms only to the shallow `isModuleType` probe `proposeKernelSwap` now
 /// performs -- used to prove that probe genuinely rejects a non-conforming address, not just a
@@ -42,6 +48,20 @@ contract AlwaysRevertingKernel {
     function postCheck(bytes calldata) external pure {}
 }
 
+/// @dev Adversarial fixture for the constant-drift finding a Devil's Advocate review surfaced:
+/// exposes the same `scores`/`ZK_BOOST_BPS`/`BPS_DENOMINATOR` shape as the real
+/// `ReputationRegistry`, but with DIFFERENT boost constants, to prove
+/// `IntegrityKernelV1Experimental`'s constructor-time cross-check genuinely rejects a mismatch
+/// rather than silently trusting its own local mirror.
+contract MismatchedBoostRegistry {
+    uint256 public constant ZK_BOOST_BPS = 20_000;
+    uint256 public constant BPS_DENOMINATOR = 10_000;
+
+    function scores(address) external pure returns (uint256 baseScore, uint256 lastUpdate, uint256 zkBoostExpiry) {
+        return (0, 0, 0);
+    }
+}
+
 /// @notice Phase I tracer-bullet slice (docs/plans/2026-08-17-phase1-tracer-bullet-proposal.md),
 /// extended with a second reference adapter
 /// (docs/plans/2026-08-17-phase1-reputation-adapter-proposal.md). NOT the full Phase I kernel.
@@ -60,6 +80,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
     uint256 constant MIN_EFFECTIVE_SCORE = 500;
     uint256 constant ABOVE_FLOOR_SCORE = 800;
     uint256 constant MODULE_ACTION_TIMELOCK = 3 days;
+    uint256 constant REPUTATION_EPOCH_LENGTH = 1 days;
 
     IntegrityKernelV1Experimental kernel;
     IntegrityAccountV1Experimental account;
@@ -92,7 +113,12 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         // mock call.
         _setZkBoostExpiry(predictedAccount, block.timestamp + 7 days);
         kernel = new IntegrityKernelV1Experimental(
-            predictedAccount, PER_OP_BUDGET, CUMULATIVE_BUDGET, address(reputation), MIN_EFFECTIVE_SCORE
+            predictedAccount,
+            PER_OP_BUDGET,
+            CUMULATIVE_BUDGET,
+            address(reputation),
+            MIN_EFFECTIVE_SCORE,
+            REPUTATION_EPOCH_LENGTH
         );
         account = new IntegrityAccountV1Experimental(signer, address(kernel), MODULE_ACTION_TIMELOCK);
         assertEq(address(account), predictedAccount, "CREATE address prediction must match actual deployment");
@@ -126,7 +152,9 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         vm.prank(address(account));
         account.execute(_singleCallMode(), executionCalldata);
 
-        assertEq(recipient.balance, recipientBalanceBefore + sendAmount, "recipient must receive the in-budget transfer");
+        assertEq(
+            recipient.balance, recipientBalanceBefore + sendAmount, "recipient must receive the in-budget transfer"
+        );
     }
 
     function test_overPerOpBudgetCallRevertsBeforeAnyStateChange() public {
@@ -144,7 +172,9 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         vm.prank(address(account));
         account.execute(_singleCallMode(), executionCalldata);
 
-        assertEq(address(account).balance, accountBalanceBefore, "account balance must be unchanged after a reverted call");
+        assertEq(
+            address(account).balance, accountBalanceBefore, "account balance must be unchanged after a reverted call"
+        );
         assertEq(recipient.balance, recipientBalanceBefore, "recipient must not receive anything from a reverted call");
         assertFalse(kernel.armed(), "the armed guard must not be left set after a reverted call");
     }
@@ -159,7 +189,9 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         account.execute(_singleCallMode(), abi.encodePacked(recipient, PER_OP_BUDGET, bytes("")));
         account.execute(_singleCallMode(), abi.encodePacked(recipient, PER_OP_BUDGET, bytes("")));
         assertEq(kernel.cumulativeSpentWei(), 3 * PER_OP_BUDGET);
-        assertEq(kernel.cumulativeSpentWei(), CUMULATIVE_BUDGET, "test setup must land exactly at the cumulative boundary");
+        assertEq(
+            kernel.cumulativeSpentWei(), CUMULATIVE_BUDGET, "test setup must land exactly at the cumulative boundary"
+        );
 
         uint256 fourthCallAmount = 0.1 ether;
         uint256 recipientBalanceBeforeFourthCall = recipient.balance;
@@ -174,7 +206,11 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         account.execute(_singleCallMode(), abi.encodePacked(recipient, fourthCallAmount, bytes("")));
         vm.stopPrank();
 
-        assertEq(recipient.balance, recipientBalanceBeforeFourthCall, "the over-cumulative-budget fourth call must not move any funds");
+        assertEq(
+            recipient.balance,
+            recipientBalanceBeforeFourthCall,
+            "the over-cumulative-budget fourth call must not move any funds"
+        );
         assertEq(kernel.cumulativeSpentWei(), CUMULATIVE_BUDGET, "cumulative spend must not advance on a reverted call");
     }
 
@@ -283,7 +319,11 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         vm.expectRevert(IntegrityKernelV1Experimental.AlreadyArmed.selector);
         account.execute(_singleCallMode(), outerCalldata);
 
-        assertEq(address(account).balance, accountBalanceBefore, "no funds may move when the reentrant attempt fails the whole call");
+        assertEq(
+            address(account).balance,
+            accountBalanceBefore,
+            "no funds may move when the reentrant attempt fails the whole call"
+        );
         assertEq(recipient.balance, recipientBalanceBefore);
         assertFalse(kernel.armed(), "armed must be false again once the whole transaction has unwound");
     }
@@ -299,6 +339,9 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         // would compute (399's own integer math, not a hand-rounded guess) for the revert assertion.
         uint256 belowFloorBaseScore = 400;
         reputation.updateScore(address(account), belowFloorBaseScore);
+        // Reputation is now cached (docs/plans/2026-08-17-phase1-reputation-snapshot-proposal.md)
+        // -- a registry mutation is not visible to preCheck until refreshed.
+        kernel.refreshReputationSnapshot();
         uint256 boostedScore = (belowFloorBaseScore * reputation.ZK_BOOST_BPS()) / reputation.BPS_DENOMINATOR();
         assertLt(boostedScore, MIN_EFFECTIVE_SCORE, "test setup must stay below the floor even after the ZK boost");
 
@@ -315,12 +358,20 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         vm.prank(address(account));
         account.execute(_singleCallMode(), executionCalldata);
 
-        assertEq(address(account).balance, accountBalanceBefore, "a below-floor call must move no funds, even a well-within-budget amount");
+        assertEq(
+            address(account).balance,
+            accountBalanceBefore,
+            "a below-floor call must move no funds, even a well-within-budget amount"
+        );
         assertEq(recipient.balance, recipientBalanceBefore);
     }
 
     function test_scoreExactlyAtTheFloorSucceeds() public {
         reputation.updateScore(address(account), MIN_EFFECTIVE_SCORE);
+        // Without this refresh, the cache would still hold setUp()'s stale ABOVE_FLOOR_SCORE
+        // (boosted to 920), and this test would spuriously pass without ever exercising the
+        // actual floor boundary it claims to test -- caught during the snapshot-mechanism build.
+        kernel.refreshReputationSnapshot();
         uint256 recipientBalanceBefore = recipient.balance;
         uint256 sendAmount = 0.1 ether;
 
@@ -329,7 +380,11 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         vm.prank(address(account));
         account.execute(_singleCallMode(), executionCalldata);
 
-        assertEq(recipient.balance, recipientBalanceBefore + sendAmount, "a score exactly at the floor must succeed, the boundary itself is not a violation");
+        assertEq(
+            recipient.balance,
+            recipientBalanceBefore + sendAmount,
+            "a score exactly at the floor must succeed, the boundary itself is not a violation"
+        );
     }
 
     /// @dev Confirms all three checks are genuinely independent -- an above-floor, ZK-boosted
@@ -355,6 +410,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
 
     function test_nonBoostedAccountRevertsEvenWhenBudgetAndReputationBothPass() public {
         _setZkBoostExpiry(address(account), 0);
+        kernel.refreshReputationSnapshot();
         uint256 accountBalanceBefore = address(account).balance;
         uint256 recipientBalanceBefore = recipient.balance;
 
@@ -366,7 +422,11 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         vm.prank(address(account));
         account.execute(_singleCallMode(), executionCalldata);
 
-        assertEq(address(account).balance, accountBalanceBefore, "a non-boosted call must move no funds even when budget and reputation both pass");
+        assertEq(
+            address(account).balance,
+            accountBalanceBefore,
+            "a non-boosted call must move no funds even when budget and reputation both pass"
+        );
         assertEq(recipient.balance, recipientBalanceBefore);
     }
 
@@ -375,7 +435,11 @@ contract IntegrityAccountV1ExperimentalTest is Test {
     /// the past) must be treated identically to never having been boosted at all.
     function test_expiredBoostIsTreatedAsNotBoosted() public {
         _setZkBoostExpiry(address(account), block.timestamp - 1);
-        assertFalse(reputation.isZkBoosted(address(account)), "test setup must genuinely be expired, not accidentally still live");
+        assertFalse(
+            reputation.isZkBoosted(address(account)),
+            "test setup must genuinely be expired, not accidentally still live"
+        );
+        kernel.refreshReputationSnapshot();
 
         bytes memory executionCalldata = abi.encodePacked(recipient, uint256(0.1 ether), bytes(""));
         vm.expectRevert(
@@ -387,43 +451,34 @@ contract IntegrityAccountV1ExperimentalTest is Test {
 
     // --- gas assertions (whitepaper Table 4: preCheck <= 40k total) ---------------------------
 
-    /// @dev Regression test, not a one-off measurement -- CI catches it if this ever regresses
-    /// past the paper's own budget, per this slice's process-discipline commitment.
-    /// @dev NAMED HONESTLY, NOT SILENTLY LOOSENED: this kernel's three-check preCheck
-    /// (budget + reputation floor + assurance tier) genuinely exceeds the whitepaper's Table 4
-    /// single-hook budget (<=40k). Measured directly: ~40,129 gas with all three checks live,
-    /// up from ~27,131 with the budget check alone and ~35,505 with budget+reputation -- each
-    /// added cross-contract-adjacent read costs real, uncached gas. This is precisely the
-    /// pressure point the Phase I plan itself already named before this slice existed
-    /// ("a cold cross-contract SLOAD for effectiveScore() is ~2.6k on its own... reputation
-    /// should be cached/snapshotted per epoch rather than read live on every call") -- this test
-    /// is the live confirmation that prediction was correct, not a surprise requiring a hasty
-    /// fix. The real mitigation (per-epoch snapshotting) is out of scope for this reference-
-    /// adapter slice; per the assurance-tier proposal's own stated commitment, the honest
-    /// response to crossing budget is reporting it, not quietly raising the threshold to make
-    /// the number disappear. This test asserts BOTH directions: that the cost is genuinely over
-    /// the original 40k budget (so a future accidental optimization that brings it back under
-    /// budget would need this test updated, not silently start passing against a stale
-    /// assumption) AND that it hasn't regressed further past a documented ceiling.
-    function test_preCheckGasExceedsPaperTable4BudgetWithThreeUncachedChecks() public {
+    /// @dev SUPERSEDES the prior `test_preCheckGasExceedsPaperTable4BudgetWithThreeUncachedChecks`
+    /// -- that test documented a real, measured over-budget finding (~40,129 gas with all three
+    /// checks reading live cross-contract state). Reputation epoch-snapshotting
+    /// (docs/plans/2026-08-17-phase1-reputation-snapshot-proposal.md) resolves it for real, not
+    /// by loosening a threshold: `preCheck` now reads a local cache instead of making two
+    /// cross-contract calls, and this is the live confirmation. Measured directly, not estimated.
+    /// The steady-state case (post-refresh, within-epoch, exercised here via setUp()'s own
+    /// constructor-time snapshot with no additional refresh needed) is what matters for the
+    /// Table 4 claim -- see `test_refreshReputationSnapshotGasCost` for the amortized cost this
+    /// design defers, not eliminates.
+    function test_preCheckGasIsUnderPaperTable4BudgetWithCachedReputation() public {
         vm.prank(address(account));
         uint256 gasBefore = gasleft();
         kernel.preCheck(address(account), 0, "");
         uint256 gasUsed = gasBefore - gasleft();
 
-        assertGe(
-            gasUsed,
-            40_000,
-            "this documents a real, disclosed over-budget finding -- if this now fails because "
-            "gasUsed dropped below 40k, the finding has been resolved (e.g. by per-epoch score "
-            "caching) and this test should be replaced with a real <=40k assertion, not adjusted "
-            "to keep failing"
-        );
         assertLt(
             gasUsed,
-            42_000,
-            "regression ceiling for the current three-uncached-checks design -- a further increase "
-            "here is a new finding, not the one this test already documents"
+            40_000,
+            "the whole point of epoch-snapshotting is to bring preCheck back under the whitepaper's "
+            "Table 4 budget for the steady-state, non-refresh path -- if this fails, the fix did "
+            "not actually resolve the finding it was built to close"
+        );
+        assertGt(
+            gasUsed,
+            30_000,
+            "regression floor -- a further, unexplained drop could mean a check silently stopped "
+            "doing real work rather than a genuine optimization"
         );
 
         // Clean up the armed state this direct call left behind, so it doesn't leak into any
@@ -433,11 +488,196 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         kernel.postCheck(abi.encode(address(account).balance));
     }
 
+    /// @dev The gas this design defers rather than eliminates -- makes the "amortized, not free"
+    /// tradeoff visible as its own regression, not hidden by only reporting the cheap path. Also
+    /// confirms `refreshReputationSnapshot` is genuinely cheaper than today's live-read cost would
+    /// be (one external call to the `scores` struct getter instead of two separate calls to
+    /// `effectiveScore`/`isZkBoosted`), per the proposal doc's efficiency claim.
+    function test_refreshReputationSnapshotGasCost() public {
+        uint256 gasBefore = gasleft();
+        kernel.refreshReputationSnapshot();
+        uint256 gasUsed = gasBefore - gasleft();
+
+        assertLt(
+            gasUsed,
+            40_000,
+            "refresh should cost less than the old two-external-call live-read design did in "
+            "total, since it now makes only one external call to the scores struct getter"
+        );
+    }
+
+    /// @dev The staleness window is a real, accepted gap, not a rounding error (see the proposal
+    /// doc's "Real risk worth naming explicitly"). Proves it directly: a real reputation change
+    /// is genuinely invisible to preCheck until a refresh, even while the snapshot is otherwise
+    /// still within its epoch (this is not the SnapshotStale case -- that is tested separately).
+    function test_withinEpochPreCheckDoesNotReflectARealReputationChangeUntilRefreshed() public {
+        uint256 belowFloorScore = 400;
+        reputation.updateScore(address(account), belowFloorScore);
+        // Deliberately NOT calling kernel.refreshReputationSnapshot() -- proving the cache is a
+        // real cache, not accidentally still reading live state.
+        assertLt(
+            block.timestamp,
+            kernel.snapshotTakenAt() + kernel.epochLengthSeconds(),
+            "sanity: still within the epoch, so this must not be the SnapshotStale case"
+        );
+
+        uint256 recipientBalanceBefore = recipient.balance;
+        bytes memory executionCalldata = abi.encodePacked(recipient, uint256(0.1 ether), bytes(""));
+        vm.prank(address(account));
+        account.execute(_singleCallMode(), executionCalldata);
+
+        assertEq(
+            recipient.balance,
+            recipientBalanceBefore + 0.1 ether,
+            "the call must succeed using the stale-but-not-yet-expired cached score, "
+            "even though the real registry score has since dropped below the floor"
+        );
+    }
+
+    /// @dev Mutation-tested alongside its own guard: a snapshot older than epochLengthSeconds
+    /// must block execution even when the underlying reputation is genuinely fine, rather than
+    /// silently falling back to a live read or (worse) silently permitting the call.
+    function test_staleSnapshotRevertsEvenWhenRealReputationWouldPass() public {
+        vm.warp(block.timestamp + REPUTATION_EPOCH_LENGTH + 1);
+
+        bytes memory executionCalldata = abi.encodePacked(recipient, uint256(0.1 ether), bytes(""));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IntegrityKernelV1Experimental.SnapshotStale.selector, 1, block.timestamp, REPUTATION_EPOCH_LENGTH
+            )
+        );
+        vm.prank(address(account));
+        account.execute(_singleCallMode(), executionCalldata);
+    }
+
+    /// @dev Confirms refresh is genuinely permissionless (a stranger can call it, not only the
+    /// bound account) and that it actually restores normal operation after a staleness revert.
+    function test_refreshBySomeoneOtherThanTheAccountRestoresOperationAfterStaleness() public {
+        vm.warp(block.timestamp + REPUTATION_EPOCH_LENGTH + 1);
+        address keeper = makeAddr("keeper");
+        vm.prank(keeper);
+        kernel.refreshReputationSnapshot();
+
+        uint256 recipientBalanceBefore = recipient.balance;
+        bytes memory executionCalldata = abi.encodePacked(recipient, uint256(0.1 ether), bytes(""));
+        vm.prank(address(account));
+        account.execute(_singleCallMode(), executionCalldata);
+        assertEq(recipient.balance, recipientBalanceBefore + 0.1 ether);
+    }
+
+    function test_constructorRevertsOnZeroEpochLength() public {
+        vm.expectRevert(IntegrityKernelV1Experimental.ZeroEpochLength.selector);
+        new IntegrityKernelV1Experimental(
+            address(account), PER_OP_BUDGET, CUMULATIVE_BUDGET, address(reputation), MIN_EFFECTIVE_SCORE, 0
+        );
+    }
+
+    /// @dev SUPERSEDES an earlier version of this test that only compared two hardcoded literals
+    /// against each other and never touched `kernel` at all (caught by an independent
+    /// adversarial review -- ZK_BOOST_BPS/BPS_DENOMINATOR are `private` on the kernel, so nothing
+    /// external could even read them to verify a real match). This is a genuine differential
+    /// test: refresh the cache, then assert it equals a REAL live `effectiveScore()` read against
+    /// the same registry, at the same moment -- the only way to actually catch a rounding,
+    /// boundary, or order-of-operations divergence between the kernel's reimplementation and the
+    /// registry's own math.
+    function test_refreshedSnapshotMatchesALiveEffectiveScoreRead() public {
+        kernel.refreshReputationSnapshot();
+        assertEq(kernel.snapshotScore(), reputation.effectiveScore(address(account)));
+        assertEq(kernel.snapshotIsZkBoosted(), reputation.isZkBoosted(address(account)));
+    }
+
+    /// @dev The real, code-level guard the differential test above builds on: the constructor
+    /// cross-checks its local ZK_BOOST_BPS/BPS_DENOMINATOR against the REAL bound registry's own
+    /// values and reverts on any mismatch, so a future ReputationRegistry deployment with
+    /// different constants fails loudly at deploy time instead of silently producing wrong
+    /// cached scores forever.
+    function test_constructorRevertsWhenBoostConstantsMismatchTheRegistry() public {
+        MismatchedBoostRegistry mismatched = new MismatchedBoostRegistry();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IntegrityKernelV1Experimental.BoostConstantsMismatch.selector,
+                11_500,
+                mismatched.ZK_BOOST_BPS(),
+                10_000,
+                mismatched.BPS_DENOMINATOR()
+            )
+        );
+        new IntegrityKernelV1Experimental(
+            address(account),
+            PER_OP_BUDGET,
+            CUMULATIVE_BUDGET,
+            address(mismatched),
+            MIN_EFFECTIVE_SCORE,
+            REPUTATION_EPOCH_LENGTH
+        );
+    }
+
+    function test_constructorRevertsOnEpochLengthTooLong() public {
+        uint256 tooLong = kernel.MAX_EPOCH_LENGTH_SECONDS() + 1;
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IntegrityKernelV1Experimental.EpochLengthTooLong.selector, tooLong, kernel.MAX_EPOCH_LENGTH_SECONDS()
+            )
+        );
+        new IntegrityKernelV1Experimental(
+            address(account), PER_OP_BUDGET, CUMULATIVE_BUDGET, address(reputation), MIN_EFFECTIVE_SCORE, tooLong
+        );
+    }
+
+    function test_refreshReputationSnapshotEmitsEvent() public {
+        vm.expectEmit(address(kernel));
+        emit IntegrityKernelV1Experimental.ReputationSnapshotRefreshed(
+            reputation.effectiveScore(address(account)), reputation.isZkBoosted(address(account)), block.timestamp
+        );
+        kernel.refreshReputationSnapshot();
+    }
+
+    /// @dev The compounding case a Devil's Advocate review flagged as untested: the existing
+    /// expired-boost test always refreshes immediately after mutating the registry, which only
+    /// proves "after a refresh, an expired boost is rejected." This proves the OTHER half -- while
+    /// still within the epoch (not the SnapshotStale case), a boost that expires in the REAL
+    /// registry is invisible to preCheck until refreshed, and BOTH the assurance-tier flag AND the
+    /// boosted (1.15x) score stay stale-permissive simultaneously, not just one of them.
+    function test_withinEpochBoostExpiryIsNotReflectedUntilRefreshed() public {
+        _setZkBoostExpiry(address(account), block.timestamp + 1);
+        kernel.refreshReputationSnapshot();
+        assertTrue(kernel.snapshotIsZkBoosted(), "sanity: cache must start boosted");
+        uint256 boostedSnapshotScore = kernel.snapshotScore();
+
+        vm.warp(block.timestamp + 2);
+        assertFalse(reputation.isZkBoosted(address(account)), "sanity: the real boost must have genuinely expired");
+        assertLt(
+            block.timestamp,
+            kernel.snapshotTakenAt() + kernel.epochLengthSeconds(),
+            "sanity: still within the epoch, so this must not be the SnapshotStale case"
+        );
+
+        // Deliberately NOT refreshing -- the stale cache must still report boosted=true and the
+        // same boosted score, even though the real registry now says otherwise.
+        assertTrue(kernel.snapshotIsZkBoosted(), "the cache must stay stale-permissive on the assurance tier");
+        assertEq(kernel.snapshotScore(), boostedSnapshotScore, "the cache must stay stale-permissive on the score");
+
+        uint256 recipientBalanceBefore = recipient.balance;
+        bytes memory executionCalldata = abi.encodePacked(recipient, uint256(0.1 ether), bytes(""));
+        vm.prank(address(account));
+        account.execute(_singleCallMode(), executionCalldata);
+        assertEq(
+            recipient.balance,
+            recipientBalanceBefore + 0.1 ether,
+            "the call must succeed on the stale-but-not-yet-expired cache despite the real boost having expired"
+        );
+    }
+
     // --- kernel-swap governance (timelocked, atomic, single-signer) ---------------------------
 
     function _deployKernel(uint256 minEffectiveScore) internal returns (IntegrityKernelV1Experimental) {
         return new IntegrityKernelV1Experimental(
-            address(account), PER_OP_BUDGET, CUMULATIVE_BUDGET, address(reputation), minEffectiveScore
+            address(account),
+            PER_OP_BUDGET,
+            CUMULATIVE_BUDGET,
+            address(reputation),
+            minEffectiveScore,
+            REPUTATION_EPOCH_LENGTH
         );
     }
 
@@ -506,6 +746,12 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         // pending slot, not just mark it cancelled.
         account.proposeKernelSwap(address(secondProposed));
         vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
+        // MODULE_ACTION_TIMELOCK (3 days) outlives REPUTATION_EPOCH_LENGTH (1 day), so the
+        // currently-installed kernel's snapshot -- which mediates the swap's uninstall half --
+        // would otherwise be stale by the time the timelock clears. A real operator would need
+        // the same refresh; this is a genuine, disclosed interaction between the two mechanisms,
+        // not a test artifact.
+        kernel.refreshReputationSnapshot();
         account.executeKernelSwap(address(secondProposed));
         vm.stopPrank();
         assertEq(account.hook(), address(secondProposed), "the cancelled proposal must not be the one that lands");
@@ -516,6 +762,9 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         vm.startPrank(address(account));
         account.proposeKernelSwap(address(newKernel));
         vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
+        // See test_cancelKernelSwapThenReproposeSucceeds -- the outgoing kernel's snapshot must
+        // be refreshed before it can mediate the swap after a timelock longer than its own epoch.
+        kernel.refreshReputationSnapshot();
         account.executeKernelSwap(address(newKernel));
         vm.stopPrank();
 
@@ -524,6 +773,10 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         (address stalePending, uint256 staleReadyAt) = account.pendingKernelSwap();
         assertEq(stalePending, address(0));
         assertEq(staleReadyAt, 0);
+
+        // The NEW kernel's own snapshot was also taken at ITS construction time, before the warp
+        // above -- also needs a refresh before it can mediate the post-swap execute() call below.
+        newKernel.refreshReputationSnapshot();
 
         // The account must remain fully functional post-swap: an in-budget call through the new
         // kernel still succeeds, proving the swap didn't leave the account permanently unhooked.
@@ -554,6 +807,11 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         uint256 boostedScore = (belowFloorScore * reputation.ZK_BOOST_BPS()) / reputation.BPS_DENOMINATOR();
         assertLt(boostedScore, MIN_EFFECTIVE_SCORE, "sanity: the boosted score must still be below the floor");
         reputation.updateScore(address(account), belowFloorScore);
+        // This refresh does double duty: it pulls the new low score into the cache (without it,
+        // preCheck would still see setUp()'s stale ABOVE_FLOOR_SCORE) AND resets the staleness
+        // clock the 3-day warp above already exhausted against the 1-day epoch -- so the revert
+        // below is genuinely ReputationBelowFloor, not a SnapshotStale masking it.
+        kernel.refreshReputationSnapshot();
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -584,6 +842,9 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         vm.prank(address(account));
         account.proposeKernelSwap(address(strictKernel));
         vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
+        // Outgoing kernel's snapshot must be fresh to mediate the uninstall half at all -- see
+        // test_cancelKernelSwapThenReproposeSucceeds for why.
+        kernel.refreshReputationSnapshot();
 
         // Succeeds despite the new kernel's floor being unreachable -- proving the install half
         // never consults it.
@@ -597,9 +858,11 @@ contract IntegrityAccountV1ExperimentalTest is Test {
 
         // Only NOW, on a genuine post-swap execute(), does the new kernel's real preCheck run --
         // and it correctly rejects, confirming the earlier success wasn't because the check is
-        // broken, only that it wasn't invoked during installation.
-        uint256 boostedAboveFloorScore =
-            (ABOVE_FLOOR_SCORE * reputation.ZK_BOOST_BPS()) / reputation.BPS_DENOMINATOR();
+        // broken, only that it wasn't invoked during installation. strictKernel's own snapshot
+        // was taken at ITS construction (before the warp above) and needs its own refresh so this
+        // reverts with the intended ReputationBelowFloor, not SnapshotStale.
+        strictKernel.refreshReputationSnapshot();
+        uint256 boostedAboveFloorScore = (ABOVE_FLOOR_SCORE * reputation.ZK_BOOST_BPS()) / reputation.BPS_DENOMINATOR();
         bytes memory executionCalldata = abi.encodePacked(recipient, uint256(0.1 ether), bytes(""));
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -620,9 +883,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
     function test_proposeKernelSwapRevertsOnNonConformingKernel() public {
         NonHookModule notAHook = new NonHookModule();
         vm.expectRevert(
-            abi.encodeWithSelector(
-                IntegrityAccountV1Experimental.NewKernelNotAHookModule.selector, address(notAHook)
-            )
+            abi.encodeWithSelector(IntegrityAccountV1Experimental.NewKernelNotAHookModule.selector, address(notAHook))
         );
         vm.prank(address(account));
         account.proposeKernelSwap(address(notAHook));
@@ -666,6 +927,9 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         vm.startPrank(address(account));
         account.proposeKernelSwap(address(brokenKernel));
         vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
+        // Outgoing kernel's snapshot must be fresh to mediate the uninstall half -- see
+        // test_cancelKernelSwapThenReproposeSucceeds for why.
+        kernel.refreshReputationSnapshot();
         account.executeKernelSwap(address(brokenKernel));
         vm.stopPrank();
         assertEq(

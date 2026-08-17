@@ -36,13 +36,16 @@ update, not trusted as current.
 
 `contracts/src/kernel/IntegrityAccountV1Experimental.sol` and
 `IntegrityKernelV1Experimental.sol`. **Not deployed anywhere** — Foundry-test-only. Not
-upgradeable, not a proxy, not referenced by `Deploy.s.sol` or any deployment script. 31 passing
+upgradeable, not a proxy, not referenced by `Deploy.s.sol` or any deployment script. 41 passing
 tests in `contracts/test/IntegrityAccountV1Experimental.t.sol` (up from 17: +10 for the
-module-governance kernel-swap mechanism, +4 from a Devil's Advocate review's code-level findings
-— see `docs/plans/2026-08-17-phase1-module-governance-proposal.md`'s "Devil's Advocate review and
-response" section); full repo suite green at 240/240 (up from 209 before this slice began: +12
-for the first adapter, +3 for the reputation floor, +2 for the assurance tier net of one removed
-redundant test, +10 for module governance, +4 for the review's fixes).
+module-governance kernel-swap mechanism, +4 from that mechanism's own Devil's Advocate review, +6
+for reputation epoch-snapshotting, +4 from ITS Devil's Advocate review — see
+`docs/plans/2026-08-17-phase1-module-governance-proposal.md` and
+`docs/plans/2026-08-17-phase1-reputation-snapshot-proposal.md`'s respective "Devil's Advocate
+review and response" sections); full repo suite green at 250/250 (up from 209 before this slice
+began: +12 for the first adapter, +3 for the reputation floor, +2 for the assurance tier net of
+one removed redundant test, +10 for module governance, +4 for its review's fixes, +6 for
+epoch-snapshotting, +4 for its review's fixes).
 
 ## The guarantee, precisely
 
@@ -54,16 +57,19 @@ EXECTYPE_DEFAULT)`, accepted by the account's own `onlyEntryPointOrSelf` gate �
 and the cumulative decrease across all such calls never exceeds `b_cum` (verified by
 `test_overPerOpBudgetCallRevertsBeforeAnyStateChange` and
 `test_overCumulativeBudgetCallRevertsEvenWhenEachCallIsIndividuallyInBudget`);
-**(2)** no call proceeds at all while `R.effectiveScore(account) < s_min` (verified by
-`test_belowFloorCallRevertsEvenThoughItWouldBeWithinBudget` and
-`test_scoreExactlyAtTheFloorSucceeds`); **and (3)** no call proceeds at all while
-`R.isZkBoosted(account)` is false (verified by
-`test_nonBoostedAccountRevertsEvenWhenBudgetAndReputationBothPass` and
+**(2)** no call proceeds at all while a CACHED snapshot of `R.effectiveScore(account) < s_min`
+(verified by `test_belowFloorCallRevertsEvenThoughItWouldBeWithinBudget` and
+`test_scoreExactlyAtTheFloorSucceeds` — as of the epoch-snapshotting update below, both now
+include an explicit `refreshReputationSnapshot()` call so they exercise current, not stale,
+state); **and (3)** no call proceeds at all while a CACHED `R.isZkBoosted(account)` is false
+(verified by `test_nonBoostedAccountRevertsEvenWhenBudgetAndReputationBothPass` and
 `test_expiredBoostIsTreatedAsNotBoosted`, the latter confirming this is a genuine
-`block.timestamp`-based boundary, not a static flag). All three conditions are conjunctive and
-mutually independent — `test_aboveFloorButOverBudgetCallStillRevertsOnBudget` confirms an
-account passing reputation AND assurance is still bound by the budget check; none of the three
-short-circuits any other.
+`block.timestamp`-based boundary, not a static flag). **The snapshot itself is at most
+`epochLengthSeconds` old, or the call reverts (`SnapshotStale`) rather than using stale data** —
+see "RESOLVED" below for what this cache-instead-of-live-read change actually trades away. All
+three conditions are conjunctive and mutually independent — `test_aboveFloorButOverBudgetCallStillRevertsOnBudget`
+confirms an account passing reputation AND assurance is still bound by the budget check; none of
+the three short-circuits any other.
 
 **What makes this hold, verified rather than assumed:**
 - The hook fires on every reachable execution path — verified by proving the other three
@@ -94,21 +100,48 @@ short-circuits any other.
   removing it makes both `test_nonBoostedAccountRevertsEvenWhenBudgetAndReputationBothPass` and
   `test_expiredBoostIsTreatedAsNotBoosted` wrongly pass, confirmed and reverted before landing.
 
-## Known limitation: `preCheck` exceeds the Table 4 gas budget with all three checks live
+## RESOLVED: `preCheck` now measures under the Table 4 gas budget
+
+**Update (2026-08-17, same day): resolved, not just disclosed.** The Table 4 finding below was
+real and stood for several hours of this same session before being closed for real by
+`docs/plans/2026-08-17-phase1-reputation-snapshot-proposal.md`: `IntegrityKernelV1Experimental`
+now caches `effectiveScore`/`isZkBoosted` locally (`refreshReputationSnapshot()`, permissionless)
+instead of reading them live, and `preCheck` reads the cache. Measured directly, not estimated:
+**33,321 gas** in the steady state (post-refresh, within-epoch) — under the whitepaper's `<=40k`
+ceiling for real (`test_preCheckGasIsUnderPaperTable4BudgetWithCachedReputation`, which supersedes
+the old over-budget test below).
+
+**This is a genuine trade, not a free resolution — read this as seriously as the win above.**
+`preCheck` fails closed (`SnapshotStale`) if the cache is older than an immutable
+`epochLengthSeconds` (capped at 7 days, `MAX_EPOCH_LENGTH_SECONDS`) — so for up to
+`epochLengthSeconds`, reputation is not "possibly a little stale," it is **completely
+unenforced**; only the budget check still bounds damage during that window. The design also
+introduces a new liveness dependency the live-read design never had: `execute()` can now revert
+purely because nobody called `refreshReputationSnapshot()` in time, for ANY call, not only
+governance actions. And it creates a genuine, disclosed interaction with the kernel-swap
+mechanism above: if `moduleActionTimelockSeconds` exceeds `epochLengthSeconds` (true of this
+slice's own test values — 3 days vs. 1 day), a fully-vested swap can revert `SnapshotStale` for a
+reason unrelated to reputation, and a freshly-installed kernel can be stale-on-arrival, rejecting
+the account's first post-swap call. Both contracts' NatSpec now state
+`epochLengthSeconds >= moduleActionTimelockSeconds` as an explicit deployment invariant neither
+contract enforces on its own. Full detail, including a Devil's Advocate review's findings and
+code-level fixes (a constant-drift hole that a hollow test had been silently not catching, a
+missing event, an unbounded epoch length): the proposal doc's "Devil's Advocate review and
+response" section.
+
+### Original finding (superseded above, kept for the record)
 
 Measured directly, not estimated: ~40,129 gas with the budget, reputation-floor, and
 assurance-tier checks all live — over the whitepaper's own `<=40k` `preCheck` ceiling
-(`test_preCheckGasExceedsPaperTable4BudgetWithThreeUncachedChecks`, which asserts the cost is
-both genuinely over 40k *and* hasn't regressed past a documented 42k ceiling — a two-sided
-assertion specifically so this finding stays visible rather than silently resolving itself or
-silently getting worse). This is not a surprise: the Phase I plan named the cause before this
-slice was built — "a cold cross-contract SLOAD for `effectiveScore()` is ~2.6k on its own...
-reputation should be cached/snapshotted per epoch rather than read live on every call." Each
-adapter this slice added makes an independent, uncached cross-contract-adjacent read to
-`ReputationRegistry`; the real fix is the per-epoch snapshotting the plan already anticipated,
-which is out of scope for a reference-adapter slice and would need its own proposal. Per this
-session's standing commitment (stated in the assurance-tier proposal before this was even
-measured): the response to crossing budget is reporting it, not quietly raising the number.
+(previously `test_preCheckGasExceedsPaperTable4BudgetWithThreeUncachedChecks`, since replaced).
+This was not a surprise: the Phase I plan named the cause before this slice was built — "a cold
+cross-contract SLOAD for `effectiveScore()` is ~2.6k on its own... reputation should be
+cached/snapshotted per epoch rather than read live on every call." Each adapter this slice added
+made an independent, uncached cross-contract-adjacent read to `ReputationRegistry`; the fix was
+exactly the per-epoch snapshotting the plan anticipated. Per this session's standing commitment
+(stated in the assurance-tier proposal before this was even measured): the response to crossing
+budget was reporting it first, not quietly raising the number — and then, once scoped as its own
+piece of work, actually closing it.
 
 ## What this does NOT prove — read this list as seriously as the guarantee above
 
@@ -119,9 +152,12 @@ measured): the response to crossing budget is reporting it, not quietly raising 
   exactly as far as that contract's own oracle-signer and `submitZkAttestation` trust model goes
   — no more, no less. Neither touches, and both are fully independent of, the still-deferred AIS
   floor/shadow-gate decision (`PRODUCTION_GAPS.md` §27).
-- **Does not meet the whitepaper's own Table 4 `preCheck` gas budget** with all three checks
-  live — see "Known limitation" above. A real, measured, disclosed finding, not resolved by this
-  slice.
+- **Now meets the whitepaper's own Table 4 `preCheck` gas budget (33,321 measured), but only by
+  trading it for a real, disclosed staleness/liveness dependency** — see "RESOLVED" above.
+  Reputation and assurance-tier checks are no longer live; they can lag real registry state by up
+  to `epochLengthSeconds`, during which only the budget check still bounds behavior, and
+  `execute()` can revert purely because nobody refreshed the cache in time. Read the "RESOLVED"
+  section's tradeoffs, not just its headline number.
 - **Not calldata-content-aware.** The kernel never inspects what the wrapped call actually does
   beyond the resulting native-balance delta — a call that moves zero ETH but does anything else
   (approves a token, calls an arbitrary contract, self-destructs a target) is unconstrained.
@@ -184,3 +220,12 @@ measured): the response to crossing budget is reporting it, not quietly raising 
 | Non-conforming `newKernel` is rejected at propose time, not after the delay | `test_proposeKernelSwapRevertsOnNonConformingKernel` | Mutation-tested against a real contract whose `isModuleType` returns `false` |
 | Only self/EntryPoint can propose, cancel, or execute a swap | `test_governanceFunctionsRevertForNonSelfNonEntryPointCaller` | Real revert-selector assertions against a stranger address for all three functions |
 | A `preCheck`-reverting kernel permanently bricks `execute()` and blocks every rescue swap | `test_brokenKernelPreCheckPermanentlyBricksAccountWithNoRescuePath` | Real adversarial fixture kernel; asserts both the brick and the failed rescue attempt |
+| `preCheck` gas is under the Table 4 budget with cached reputation | `test_preCheckGasIsUnderPaperTable4BudgetWithCachedReputation` | Live `gasleft()` diff, two-sided regression bound (>30k and <40k) |
+| Stale snapshot reverts even when real reputation would pass | `test_staleSnapshotRevertsEvenWhenRealReputationWouldPass` | Mutation-tested: removing the staleness check makes it wrongly pass |
+| A real reputation change is invisible until refreshed (within-epoch) | `test_withinEpochPreCheckDoesNotReflectARealReputationChangeUntilRefreshed` | Real registry mutation, no refresh, call still succeeds on stale data |
+| A boost that expires mid-epoch stays stale-permissive on BOTH the tier flag and the boosted score | `test_withinEpochBoostExpiryIsNotReflectedUntilRefreshed` | Real `zkBoostExpiry` mutation past its deadline, cache still reports boosted |
+| Refresh is genuinely permissionless and restores operation after staleness | `test_refreshBySomeoneOtherThanTheAccountRestoresOperationAfterStaleness` | A stranger address calls refresh; subsequent execute() succeeds |
+| Refresh emits an observable event | `test_refreshReputationSnapshotEmitsEvent` | `vm.expectEmit` against real emitted values |
+| Zero and over-long epoch lengths are rejected at construction | `test_constructorRevertsOnZeroEpochLength`, `test_constructorRevertsOnEpochLengthTooLong` | Both mutation-tested |
+| Local boost-math constants are verified against the real registry at deploy time, not just asserted in a test | `test_constructorRevertsWhenBoostConstantsMismatchTheRegistry` | Real fixture registry with different constants; mutation-tested |
+| Cached score/boost genuinely match a live read | `test_refreshedSnapshotMatchesALiveEffectiveScoreRead` | Differential test against `reputation.effectiveScore`/`isZkBoosted` directly |

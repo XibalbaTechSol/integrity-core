@@ -1712,4 +1712,57 @@ Full findings, the six-area review, and the fix-by-fix response:
 `docs/plans/2026-08-17-phase1-module-governance-proposal.md`'s "Devil's Advocate review and
 response" section. Still not deployed, still not externally audited, still does not clear the
 Phase II gate; multi-party governance, canonical intent encoding, the BCC binding gap, and the
-gas-budget finding all remain open per the paragraph above.
+gas-budget finding remain open — **except the gas-budget finding, closed same day, below.**
+
+**Extended same day with reputation epoch-snapshotting — this RESOLVES the gas-budget finding
+above, for real, not just a documented mitigation.** Per
+`docs/plans/2026-08-17-phase1-reputation-snapshot-proposal.md`, `IntegrityKernelV1Experimental`
+no longer reads `effectiveScore`/`isZkBoosted` live on every `preCheck` call. Instead,
+`refreshReputationSnapshot()` (permissionless — anyone may call it, not only the bound account)
+reads `reputationRegistry.scores(boundAccount)` once and caches both derived values;
+`preCheck` reads the cache and fails closed (`SnapshotStale`) if it is older than an immutable
+`epochLengthSeconds` (capped at `MAX_EPOCH_LENGTH_SECONDS = 7 days`). Measured, not estimated:
+**`preCheck` now costs 33,321 gas** in the steady state — under the whitepaper's own `<=40k`
+Table 4 ceiling, down from the previously-measured 40,129.
+
+**This closes the finding but does not make it free — the tradeoff is a real, disclosed one.**
+Within an epoch, reputation is not merely "possibly stale," it is completely unenforced — only
+the budget check still bounds behavior during that window. The design also introduces a new
+liveness dependency the live-read design never had: `execute()` can now revert purely because
+nobody refreshed the cache in time, for any call. And it creates a genuine interaction with the
+kernel-swap mechanism above: if `moduleActionTimelockSeconds` (governance timelock) exceeds
+`epochLengthSeconds` (reputation freshness window), a fully-vested swap can revert `SnapshotStale`
+for a reason unrelated to reputation, and a freshly-installed kernel can be stale-on-arrival,
+rejecting the account's first post-swap call. Both contracts' NatSpec now state
+`epochLengthSeconds >= moduleActionTimelockSeconds` as an explicit deployment invariant — neither
+contract enforces this on its own; it is operator/deploy-script discipline, not a code guarantee.
+
+A dedicated Devil's Advocate review (independent subagent, full diff + `ReputationRegistry.sol` +
+the kernel-swap mechanism + test suite) ran before landing. Two real gaps fixed in code: (1) the
+kernel's local `ZK_BOOST_BPS`/`BPS_DENOMINATOR` constants (duplicated for gas efficiency) were
+"verified" only by a test comparing two hardcoded literals against each other — since the
+constants are `private` on the kernel, the test never actually touched the kernel at all, so a
+future `ReputationRegistry` redeployment with different constants would have silently produced
+wrong cached scores forever, undetected; now the constructor cross-checks against the real
+registry's own values at deploy time and reverts `BoostConstantsMismatch` on divergence,
+mutation-tested, plus a genuine differential test (`test_refreshedSnapshotMatchesALiveEffectiveScoreRead`)
+asserting the cache equals a live read. (2) `epochLengthSeconds` had no upper bound, so "epoch-
+snapshotted reputation" could be truthfully claimed by a deployment meaning, in practice, "never
+re-checked"; now capped at `MAX_EPOCH_LENGTH_SECONDS = 7 days`, mutation-tested. A third gap —
+zero events anywhere, undermining the keeper-refresh pattern the whole mechanism depends on — was
+also closed: `ReputationSnapshotRefreshed` now emits on every refresh.
+
+10 new Foundry tests for the mechanism itself, +4 from the review's findings and their
+regressions (14 total this extension). Full suite for this file: 41/41 (up from 17 before any of
+today's kernel work). Full repo suite: 250/250 (up from 209 before this slice began). Full
+findings and the fix-by-fix response:
+`docs/plans/2026-08-17-phase1-reputation-snapshot-proposal.md`'s "Devil's Advocate review and
+response" section.
+
+**What remains open, restated:** multi-party governance (still single-signer-timelocked),
+canonical intent encoding / the BCC `chain_id`/verifier-binding gap, the two disclosed reentrancy
+windows from the kernel-swap review, the no-recovery-path broken-kernel-brick class, and the new
+`epochLengthSeconds`-vs-`moduleActionTimelockSeconds` deployment invariant (unenforced across the
+two contracts) all remain unbuilt/unresolved. No external audit. Not deployed to Base Sepolia or
+anywhere else, and none of today's work is grounds to deploy it — that remains a separate, later,
+separately-approved decision.
