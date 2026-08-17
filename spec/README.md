@@ -12,9 +12,18 @@ people outside this repo.
 
 ## The design specification
 
-[`integrity-protocol-v0.4.md`](integrity-protocol-v0.4.md) is the **normative design
+[`integrity-protocol-v0.4.md`](integrity-protocol-v0.4.md) is the **active normative design
 specification** — foundational primitives, AIS, memory, authority, interop. It supersedes
 `Integrity_Protocol_Specification_v0.3.pdf`.
+
+[`integrity-protocol-v0.5-proposed.md`](integrity-protocol-v0.5-proposed.md) is a **proposed,
+not-yet-accepted normative amendment** derived from the v3.1 whitepaper. It does not replace
+v0.4 until each clause is reviewed, accepted or rejected, implemented where applicable, and
+recorded in the interface contract, production-gap register, tests, and wiki log.
+
+`integrity-protocol-v3.1.md` is the **non-normative explanatory whitepaper**. It may explain
+and motivate the proposal, but it cannot amend the protocol by itself. The generated PDF is a
+release artifact, not a source of truth.
 
 It lives here, in markdown and under version control, deliberately: a specification that
 cannot be diffed, reviewed in a pull request, or kept in step with the code by any mechanism

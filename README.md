@@ -12,6 +12,14 @@ The current cross-repository audit is recorded in [`docs/audits/2026-08-06-cross
 
 Status claims below must be reconciled against that audit page. Historical handoffs and wiki log entries remain historical evidence.
 
+**2026-08-14 re-verification:** the SDK's "242 passed, 2 failed, 3 skipped" figure above could not be reproduced from a clean checkout — `integrity-sdk`'s dev environment had two latent bugs from the `INTEGRITY-LATEST` → `integrity-core` rename: (1) `README.md`'s documented install command, `uv pip install -e ".[dev]"`, silently installs no dev tools (`dev` is a dependency-group, not an extra), and (2) `.venv/bin/pytest`'s shebang had the pre-rename absolute path baked in, so running it fell through to an interpreter without `web3` installed. Both are fixed (`integrity-sdk/README.md` now documents `uv sync` + `uv run pytest`; the stale `.venv`/`venv` were rebuilt). Re-run after the fix: **259 passed, 3 skipped, 0 failed.**
+
+## Protocol v3 — planned, not implemented
+
+**2026-08-16.** A new whitepaper ("Integrity Protocol: A Verification and Execution-Control Layer for the Autonomous Intellectual Property Economy," v3.0) specifies an *execution firewall*: an ERC-7579 type-4 hook module installed inside an agent's ERC-4337 smart account, evaluating every proposed state transition against a machine-checkable constraint set before it is allowed to commit — closing the gap between *authenticity* (a valid signature) and *authority* (a permitted state transition) that today's account model does not address. **None of this exists in the codebase yet.** The account model in this repo today (`SovereignAgent.execute()`, `contracts/src/core/SovereignAgent.sol`) is an unconditional dispatch with no gate; per the whitepaper's own completeness-of-mediation requirement (§2.4), that account type cannot host the guarantee and will not be retrofitted — new agents will use a new account contract, while existing testnet agents keep today's behavior and are explicitly outside the v3 guarantee once it ships.
+
+The implementation plan (four phases mirroring the whitepaper's own §10.3 rollout — Kernel, Metered IP, Registry, Economy — plus a Phase 0 for identity substrate work) is tracked separately and is not yet started. Do not treat any "kernel," "hook," "adapter," or "constraint" language elsewhere in this repo as live until this section is updated to say so — per this file's own no-aspirational-current-tense rule (line 7 above).
+
 ## Ecosystem Relationship
 
 **Correction, 2026-08-12:** this section and the ones below previously described a four-repository

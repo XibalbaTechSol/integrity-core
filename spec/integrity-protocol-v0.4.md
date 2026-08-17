@@ -1101,14 +1101,24 @@ Use these words consistently across READMEs, wiki pages, dashboards, and product
 
 ### 23.3 Source-of-truth precedence
 
-When documents disagree, use this order:
+Separate **normative authority** from **observed implementation**; no source is authoritative for both questions.
 
-1. Deployed chain state for on-chain facts.
+For normative requirements, use this order:
+
+1. The accepted normative specification in `spec/`.
+2. Accepted protocol-facing schemas and `docs/INTERFACE_CONTRACT.md` for interface obligations.
+3. Implementation status evidence, which can show conformance or non-conformance but cannot silently amend the requirement.
+4. Whitepapers, proposals, plans, READMEs, wiki pages, and generated PDFs as explanatory or status material only.
+
+For observed implementation behavior, use this order:
+
+1. Fresh deployed chain state for on-chain facts.
 2. Source code and generated wire schemas for implemented API behavior.
-3. docs/INTERFACE_CONTRACT.md for internal package coordination.
-4. spec/ for normative protocol and protocol-facing companion specs.
-5. Repository README files for implementation status and operational commands.
-6. docs/wiki/ for reader-facing memory and navigation.
+3. Fresh test and audit evidence.
+4. Implementation status documents and package READMEs.
+5. `docs/wiki/` for reader-facing memory and navigation.
+
+A deployed defect is evidence of non-conformance, not an automatic normative amendment. A proposal or whitepaper cannot create a requirement until it is accepted into the normative specification.
 
 External repositories own their own implementation status. `xibalba-shield` owns Shield endpoint behavior through its README and SPECIFICATION.md; `xibalba-cortex` owns its own memory-service behavior the same way. integrity-core owns protocol primitives, public protocol surfaces, and (via its `integrity-dashboard/` component, corrected 2026-08-12 from a previously separate `integrity-mvp` repository, now stale/superseded) presentation behavior.
 

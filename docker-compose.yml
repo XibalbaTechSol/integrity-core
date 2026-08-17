@@ -156,31 +156,19 @@ services:
       VITE_CHAIN_ID: "84532"
     ports: ["5173:5173"]
 
-  # Sibling repo, not nested under integrity-core -- see /home/xibalba/CLAUDE.md.
-  mvp:
-    build:
-      context: ../integrity-mvp
-      args:
-        SOURCE_HASH: ${MVP_SOURCE_HASH:-unknown}
-    depends_on: [oracle-backend, bcc-middleware]
-    environment:
-      VITE_ORACLE_URL: http://localhost:8080
-      VITE_BCC_MIDDLEWARE_URL: http://localhost:8000
-      VITE_USERAPI_URL: http://localhost:8090
-      VITE_CHAIN_ID: "84532"
-    ports: ["5174:5173"]
-
   # Sibling repo (../xibalba-shield). Long-lived endpoint-agent daemon, not a web service --
   # exposes no ports, only exports outbound to bcc-middleware/oracle-backend. `--sensor dev`
   # is the synthetic, safe-default sensor (no eBPF/root capabilities); the real
   # process-exec/file-write eBPF sensors need a host PID namespace + kernel headers and are
   # an explicit follow-up, not wired here. `./xibalba-shield-config` is the control surface
   # (rules.json/device-config.json), hot-reloadable per shield/config/hot_reload.py, so an
-  # operator/subagent can edit policy without restarting the container. NOTE: shield/cli.py's
-  # `_run()` reads `bcc_middleware_url` from device-config.json (not the `--bcc-middleware-url`
-  # flag below) whenever `--device-config` is passed -- the real value lives in
-  # xibalba-shield-config/device-config.json, this flag is a harmless no-op kept only so
-  # `shield validate`/direct invocation without --device-config still has a sane default.
+  # operator/subagent can edit policy without restarting the container. NOTE (corrected
+  # 2026-08-14): shield/cli.py's `_run()` previously loaded device-config.json's
+  # bcc_middleware_url/oracle_url but never applied them to the exporter -- only the raw
+  # --bcc-middleware-url/--oracle-url flags below reached it, making a bare `--device-config`
+  # invocation (without these flags) silently ignore that file's URLs. Fixed: an explicit flag
+  # here still wins (so these two lines below remain load-bearing, not a no-op), but omitting
+  # them now falls back to whatever xibalba-shield-config/device-config.json specifies.
   shield:
     build:
       # Context widened from ../xibalba-shield to the shared parent: shield's
@@ -219,11 +207,17 @@ services:
       # scripts/register_with_oracle.py` registration step (Phase 4) -- `shield run` itself
       # never touches the chain directly, only bcc-middleware/oracle-backend over HTTP.
       RPC_URL: ${DOCKER_RPC_URL:-http://host.docker.internal:8545}
-      DEPLOYMENTS_FILE: /deployments.local.json
+      # Was hardcoded to /deployments.local.json regardless of DOCKER_RPC_URL/DOCKER_DEPLOYMENTS_FILE,
+      # so pointing RPC_URL at Base Sepolia (via .env's DOCKER_RPC_URL) while this stayed on the
+      # local-anvil deployments file made resolveDID() calls against a real-chain address that
+      # only exists in the local file -- BadFunctionCallOutput ("only got 0 bytes"), not a chain
+      # outage. Now follows the same override the oracle-backend/bcc-middleware services already use.
+      DEPLOYMENTS_FILE: ${DOCKER_DEPLOYMENTS_FILE:-/deployments.local.json}
     volumes:
       - ./xibalba-shield-config:/config
       - shield-identity:/identity
       - ./deployments.local.json:/deployments.local.json
+      - ./deployments.baseSepolia.json:/deployments.baseSepolia.json
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

@@ -1,3 +1,102 @@
+# Handoff — 2026-08-17 (whitepaper v3.2, AIS scoring defect, registration root-caused)
+
+Cross-repo session. **Nothing was committed** — all changes are uncommitted working-tree edits.
+Every claim below was verified directly (tests run, chain reads, PDFs parsed), not inferred.
+
+## 0. If you take away nothing else
+
+- **AIS has a live scoring vulnerability. This is the highest-value open item and it is ~6 lines.**
+  `integrity-oracle/backend/src/derive.rs`: `derive_entropy` and `derive_grounding` return **1.0
+  (maximum)** when no values are present, and `self_reported_compliance` returns 1.0 for an empty
+  batch. Missing data therefore reads as *perfect*. Only `derive_sacrifice` fails closed. Verified
+  numerically: a submission carrying token counts but **no analysable content** scores
+  r = **0.923** at 100 claimed GPU-hours, while an honest agent with real-but-mediocre telemetry
+  scores **0.465** — the content-free agent outscores the honest one roughly two-to-one. Fix:
+  return 0 on absent evidence. Independently valuable regardless of any v3 work.
+- **Compliance is self-reported for every non-healthcare agent.** `handlers.rs`'s
+  `oracle_compliance` falls back to `derive::self_reported_compliance` in six paths, including
+  `compliance_vertical != 1`. Only a live healthcare BAA read can override it downward. The
+  agent tells the oracle whether it violated policy.
+- **Registration was root-caused and is no longer a mystery.** `REGISTRAR_ROLE` on
+  `XibalbaAgentRegistry` had been granted **only to an `AgentPrimitivesFactory` address with zero
+  deployed bytecode** since 2026-08-13. A prior rotation's `CREATE` never broadcast (only 3 of 22
+  txs in `broadcast/RotateOperatorKeyGrant.s.sol/84532/run-latest.json` have real hashes;
+  `receipts: []`), but `deployments.baseSepolia.json` was updated with the predicted address
+  anyway, and a later manual `cast send` granted the role to that phantom address while revoking
+  it from the real factory. A call to a codeless address trivially "succeeds" with empty return
+  data — which is exactly the `status: 1`, ~29k-gas, zero-log symptom every attempt produced.
+  **Fixed:** deployments files repointed to the real factory `0xC19fc9cB2cB87297EfDF11DA7e211e44A6C1181D`
+  and `REGISTRAR_ROLE` re-granted (verified `hasRole == true`). One registration retry away from done.
+- **Lesson now encoded in `docs/demo-shield-integration.md`:** never write a deployed-contract
+  address to a deployments file or grant it a role without first confirming `eth_getCode` returns
+  real bytecode.
+- **`.env` key naming is actively misleading.** `FUNDER_PRIVATE_KEY` and `DEPLOYER_PRIVATE_KEY`
+  are the **public Anvil test key** (`0xf39Fd6e5…`), useless on Base Sepolia. The key controlling
+  the funded `funderWallet` (`0x7530bd7C…`) is `ORACLE_SIGNER_PRIVATE_KEY`. Use that one.
+
+## 1. What was produced
+
+| Artefact | Notes |
+|---|---|
+| `spec/integrity-protocol-v3.2.md` | 1,646 lines. Markdown+LaTeX, 13 mermaid diagrams, 13 "In plain terms" on-ramps, Appendix D change register. Non-normative; proposes changes for `v0.5-proposed`. |
+| `spec/Integrity_Protocol_Whitepaper_v3.2.pdf` | 64pp. Built markdown → HTML (`marked` + `mermaid@11` + KaTeX) → headless chromium print. **No LaTeX/pandoc on this machine.** Chromium is snap-confined and cannot write to or serve from `/tmp` — stage under `$HOME`. |
+| `docs/demo-shield-integration.md` | Shield↔integrity-core bring-up runbook, incl. the funder-key trap above. |
+| `docs/signer-role-rotation-2026-08.md` | Operator-side steps for the 2-of-3 Safe + distinct EOAs. |
+| `PRODUCTION_GAPS.md` | New dated entries: registration root cause, nonce race, RPC read-after-write lag. |
+
+## 2. Substantive spec decisions (don't silently reverse these)
+
+- **AIS redefined** as a *gated* weighted geometric mean over *admissible* evidence (§3.1.1):
+  requirements N1–N5, an evidence-admissibility rule (unverifiable assertion scores 0),
+  per-component floors enforced by a conjunctive Θ gate reusing the kernel's own constraint form,
+  and `r(ι)` normalised from the **pre-boost** score clamped to [0,1]. A bare geometric mean does
+  **not** prevent compensation — only exact zero collapses it, and a 90%-violation agent still
+  reached r = 0.631. §3.1.4 is a 6-row implementation-delta table; the code does not satisfy it yet.
+- **Identity: bridge, not adopt.** Keep `XibalbaAgentRegistry` as substrate; expose a read-only
+  ERC-8004-shaped adapter for external legibility. AIS stays the single authoritative `r(ι)` —
+  running two reputation systems would reintroduce the commensurability failure §1.2 diagnoses.
+  Convergence deferred with explicit revisit triggers.
+- **Shield is Untrusted tier** (§9.4), deliberately not part of the guarantee, with a stated
+  four-condition path to graduate (hardware root of trust, on-chain remote attestation,
+  freshness-with-expiry, honest sensor coverage).
+- **Three v3.2 amendments implemented differently from the source register**, each because
+  verbatim transcription contradicted an existing section: ZK-telemetry → research horizon, not a
+  roadmap phase; hybrid TEE → joint coverage, not "complete mediation achieved"; grace modes →
+  operate strictly inside AIS floors. Appendix D records each with reasoning.
+- **Cortex corrected the spec, not the reverse:** v3.0's Eq. 5 used naive `∥` concatenation while
+  §4.4 warns that construction is an attack surface; Cortex already used an injective encoding.
+
+## 3. Open items, priority order
+
+1. **`derive.rs` items 1–2** — invert the fail-open defaults (§3.1.4 rows 1–2). ~6 lines.
+2. **Cortex Merkle malleability** — `events.py`'s `merkle_parent` sorts the pair before hashing and
+   promotes odd nodes with no leaf/internal domain tag (CVE-2012-2459 shape). Anchored roots are
+   safe (root = chain head); impact is limited to inclusion evidence via `session_merkle_evidence`,
+   which calls the **un-domained** `merkle_proof`. Fix before that evidence is used in a dispute.
+3. **Registration retry** — stack is up, fix is in, one run to confirm end-to-end.
+4. **Doc alignment** — `CLAUDE.md` architecture map, `docs/INTERFACE_CONTRACT.md` (planned v3
+   schemas), cortex/shield cross-repo notes. README already has a marked-planned v3 section.
+5. **Signer-role rotation** — blocked on operator: needs the 2-of-3 Safe address plus three new
+   EOA addresses (see `docs/signer-role-rotation-2026-08.md`). Then adapt
+   `RotateOperatorKeyGrant.s.sol` and hand back a `forge script --broadcast` command.
+6. **Orphaned testnet contracts** — at least four `SovereignAgent`/`StateAnchor` pairs from failed
+   registration attempts against the phantom factory. Real gas spent, no cleanup path. Listed in
+   `PRODUCTION_GAPS.md`.
+
+## 4. Caveats
+
+- **Nothing is committed.** Working tree only, across `integrity-core`, `xibalba-shield`
+  (`shield/cli.py` device-config fix), and `integrity-sdk` (`chain.py` nonce/read retries).
+- `integrity-sdk` suite is green at **259 passed / 3 skipped** after fixing a stale
+  `.venv/bin/pytest` shebang carrying the pre-rename path. The README's old "242 passed, 2 failed"
+  was unreproducible.
+- The docker-compose `mvp` service was removed — it pointed at the deleted `integrity-mvp` repo and
+  broke `docker compose up` entirely.
+- `DOCKER_RPC_URL` switched to `https://sepolia.base.org`; the previous third-party endpoint was
+  responsible for a nonce race and stale role reads.
+
+---
+
 # Handoff — 2026-08-12 (ecosystem stabilization + dual rename: xibalba-graph-memory → xibalba-cortex, INTEGRITY-LATEST → integrity-core)
 
 Cross-repo session covering `integrity-core` (this repo), `xibalba-shield`, and `xibalba-cortex`.

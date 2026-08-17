@@ -3012,3 +3012,55 @@ writeup: PRODUCTION_GAPS.md §18.
 - Recorded a full-site Playwright audit (16 specs, 140 tests, one spec per route, real backend stack, no mocking, screenshot-verified per page) that found and fixed 7 real bugs: `WikiPage.tsx` bold-markdown regex, `DIDExplorer.tsx` grid-collapse layout bug, `integrity-userapi` CORS missing the e2e origin, `AuthPage.tsx`/`DashboardContext.tsx` false-success wallet-auth navigation, `IntelligencePage.tsx` formula-box double-edge clipping, `Dashboard.tsx` radar-chart NaN from a 0-1 vs 0-1000 scaling mismatch, `TraceAnalysisPanel.tsx` stuck-loading state, and `ActuarialHub.tsx` Invalid-Date/resolve-gating bug from parsing an ISO string as a Unix-seconds number.
 - Updated `WIKI_INDEX.md`'s `integrity-dashboard` entry and `docs/TESTING.md`'s Layer 2 section (the previously-documented `e2e/global-setup.ts`/`global-teardown.ts` do not exist in this repo; corrected to the actual manual-stack-then-`npx playwright test` workflow).
 - Corrected `CLAUDE.md`'s stale "Known gaps" claims that `integrity-dashboard/e2e/` doesn't exist and that `package.json` defines a `vitest`-backed `"test"` script (it doesn't — no vitest dependency, no unit-test layer, Playwright e2e is the only test surface).
+
+## [2026-08-17] create | Integrity Protocol Whitepaper v3.1 PDF
+
+- Generated `docs/releases/Integrity_Protocol_Whitepaper_v3.1.pdf` from the authoritative `spec/integrity-protocol-v3.1.md` working draft.
+- Preserved the source's explicit boundaries around implemented components, planned execution-firewall architecture, unaudited examples, and residual risks; no deployed v3 capability was promoted by the typesetting step.
+- Verification: Headless Chrome generated a 34-page A4 PDF; `pdfinfo` reported the expected title and unencrypted output; `pdftotext` recovered 127,514 bytes and retained Version 3.1 and all six `SPEC CHANGE` markers; first-page rendering was visually inspected.
+- Artifact SHA-256: `11e72f0d7d4e0ba671f5bdae8712799b4c29924f71206170efe1a6586cb12221`.
+
+## [2026-08-17] update | Designed Whitepaper v3.1 release
+
+- Replaced the basic text PDF with `docs/releases/Integrity_Protocol_Whitepaper_v3.1_designed.pdf`, following the v3 cover language: Xibalba logo, centered navy title, teal subtitle, divider, metadata, shaded ground-rule box, and footer branding.
+- Added local MathJax SVG rendering so display and inline mathematics are embedded in the PDF rather than shown as raw LaTeX source.
+- Verification: Headless Chrome generated a 35-page US Letter PDF; `pdfinfo` confirmed the title, page size, and unencrypted output; text extraction succeeded; cover and equation-bearing pages were visually inspected; the Downloads copy was read back and matched byte-for-byte.
+- Final artifact SHA-256: `cad533cf5952ef7626fb780a11410a1155bb0e010df0ae1017c64dc9e8b5cfeb`.
+
+## [2026-08-17] update | Equation and cover refinement
+
+- Increased display-equation scale and spacing to more closely match the v3 LaTeX presentation: centered formulas, embedded SVG math glyphs, visible fractions/subscripts, and right-aligned equation tags.
+- Enlarged the exact Xibalba Solutions black logo mark on page 1 while retaining the v3 cover hierarchy.
+- Verification: final output is a 35-page US Letter PDF; cover and equation page were visually inspected; repository and Downloads copies match byte-for-byte.
+- Final SHA-256: `5dd9e628091d98729fe4b9bdecf405506ce78cc44c4be4ab021b2a538fa18c45`.
+
+## [2026-08-17] update | PDF chrome and equation weight correction
+
+- Removed Chromium's automatic date/title print header so pages begin with the whitepaper content and retain only the designed footer.
+- Reduced equation visual weight with a lighter embedded SVG treatment while preserving centered LaTeX-style formulas, fractions, subscripts, symbols, and equation tags.
+- Verification: extracted text contains no automatic `4:18 AM` header; final PDF and Downloads copy match byte-for-byte; equation page was visually inspected.
+- Final SHA-256: `403805498e7a29524c1a1415e7de68880e2d46fe7de91b5daf8b1b8b205bab5a`.
+
+## [2026-08-17] update | Specification and whitepaper authority reconciliation
+
+- Added `spec/integrity-protocol-v0.5-proposed.md` as a traceable proposed normative amendment derived from Whitepaper v3.1. It does not replace active normative baseline `spec/integrity-protocol-v0.4.md` until clause-by-clause review, implementation evidence, tests, and acceptance are recorded.
+- Reclassified `spec/integrity-protocol-v3.1.md` as explanatory and non-normative; changed inline `SPEC CHANGE` markers to `PROPOSED NORMATIVE CHANGE`; added an explicit relationship-to-specification section.
+- Updated `spec/README.md` with the authority hierarchy and proposal status.
+- Verification: consistency checks passed for active-baseline, proposal existence, whitepaper status, proposal linkage, marker replacement, and PDF inclusion; regenerated 35-page unencrypted United States Letter PDF; repository and Downloads copies match byte-for-byte.
+- Reconciled PDF SHA-256: `de48ad9787f214a56b4984df75a0753a1b3394df90da8a4bfd1d5f7599608b44`.
+
+## [2026-08-17] update | Adversarial authority and compatibility hardening
+
+- Incorporated review findings without promoting the proposal to active protocol authority.
+- Split v0.4 §23.3 precedence into normative requirements versus observed implementation, explicitly preventing proposals, whitepapers, READMEs, wikis, or deployed defects from silently changing the normative contract.
+- Added explicit AIS profile/migration requirements (`ais/v0.5-gated-geometric-1`) and memory commitment profile/migration requirements (`memory/v0.5-injective-1`) to the proposed amendment.
+- Marked the whitepaper memory-continuity snippet as non-conforming pseudocode that reverts as not implemented; changed audience language so proposed sections are not presented as active specifications.
+- Verification: consistency checks passed; regenerated 35-page unencrypted United States Letter PDF; automatic browser header remains absent; repository and Downloads copies match byte-for-byte.
+- Final PDF SHA-256: `ab285c706ec8f533c4827e3f23d6b8b040ad576ce20a07b1f9ebff789a77935e`.
+
+## [2026-08-17] update | v3 equation-style correction
+
+- Compared the actual v3 PDF equation treatment and corrected v3.1 to use light, left-aligned monospace formula bars on a light-gray background rather than bold SVG/LaTeX typesetting.
+- Normalized escaped LaTeX source into readable v3-style formula text, including Greek symbols, operators, subscripts, and parenthetical labels.
+- Verification: equation page was visually inspected against v3; no raw LaTeX backslashes or automatic browser header remain; regenerated 35-page unencrypted United States Letter PDF; repository and Downloads copies match byte-for-byte.
+- Final PDF SHA-256: `7aff28317b8fd2afb2309135ab7272b15f750c974b8309edc472277da344043c`.

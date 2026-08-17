@@ -6,7 +6,7 @@
   "explorerUrl": "https://sepolia.basescan.org",
   "singletons": {
     "A2ACapitalPool": "0x388D0180725E0F757C6Ef01ef0474E718faA3776",
-    "AgentPrimitivesFactory": "0x219109961c1c9bB8e9f27a37757a5d426e1f91Ec",
+    "AgentPrimitivesFactory": "0xC19fc9cB2cB87297EfDF11DA7e211e44A6C1181D",
     "CoveredEntityRegistry": "0x3E42C072BA8Ca6EE6E86c8DB011eB4063b8aac07",
     "DomainRegistry": "0xC1aee61b8826d79c21a335Fb1777cA372Bea1Ba0",
     "EHRGate": "0x684E31dc51667E37803EBeA7a781172A27D55B16",
