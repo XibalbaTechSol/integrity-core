@@ -1,3 +1,81 @@
+# Handoff — 2026-08-17e (AIS shadow mode landed; MCP gap found; Cortex Merkle item closed as reviewed-and-documented)
+
+Continuation after 2026-08-17d below (Phase 0 + doc reconciliation, committed as `bd233e1`).
+Everything in this section is committed and pushed to `audit/harness-loop-2026-07-30` (and,
+for the `xibalba-cortex` item, that repo's `feat/hybrid-extraction-retrieval-docs`) — nothing
+here is a working-tree-only claim.
+
+## 0. What landed
+
+- **MCP identity-resolution gap found and documented** (`b80522f`) — `integrity_resolve_did`
+  only reaches `GET /v1/agent/{id}`, which has no `ais` field. An external MCP client can
+  resolve identity but not reputation today. Fix sketch recorded in
+  `docs/plans/2026-08-17-ecosystem-adoption-strategy.md` §5 item 3, not implemented (wasn't
+  asked for).
+- **AIS dry-run against the live agent set** (`1e5b44d`, `PRODUCTION_GAPS.md` §27 addendum) —
+  only one agent is registered (`xibalba.integrity` itself). Its real breakdown: entropy
+  268.45, grounding 950.17, sacrifice 861.34, compliance 1000.0 (of 1000); reported `ais:600`
+  is the verification-tier-1 ceiling, not the raw ~645 geometric mean. Recorded as the one real
+  number a future entropy-floor decision needs to be checked against.
+- **spec §3.1.4 rows 5–6 landed** (`afab497`) — row 6 for real: `AisBreakdown.constraint_score`
+  (eq. 4b's `r(ι)`, pre-boost, tier-ceilinged, clamped `[0,1]`), now the correct field for any
+  future reputation-parameterised constraint to read instead of `ais`. Row 5 in **shadow
+  mode**, an explicit user decision after the dry-run above showed N=1 isn't enough to
+  responsibly pick permanent floor values: `AisFloors` (provisional defaults — compliance 400
+  is the spec's own worked example, entropy/grounding chosen to sit below the one real agent's
+  telemetry) plus `gate_entropy_pass`/`gate_grounding_pass`/`gate_compliance_pass`/
+  `gate_would_pass` on `AisBreakdown`, purely observational — never zeroes `ais` or
+  `constraint_score`, not wired into `bcc_middleware`'s chain-push or dispute logic. Verified
+  live against the real running oracle (rebuilt + restarted the container, not just unit
+  tests): the real dogfooding agent returns `constraint_score:0.6`,
+  `shadow_gate.would_pass:true`.
+- **Floor-value + enforcement decision: explicitly deferred** (`277fe11`) — user's own call,
+  not a default. Revisit once a second real agent registers, or the decision is explicitly
+  revisited regardless of count.
+- **Cortex Merkle malleability item (§5.2 below, and the 2026-08-17c/d sections' own
+  references): reviewed, closed as reviewed-and-documented, not patched.** The exploitable
+  half (leaf domain-separation + position commitment for `session_merkle_evidence`) was already
+  fixed before this section, in `xibalba-cortex`'s `32b1b1c`. The remaining residual
+  (`merkle_parent`'s internal-node combination has no domain/level tag; odd-width nodes are
+  promoted unchanged — the CVE-2012-2459 *shape*) got a real adversarial review before any
+  further code was touched, using a fresh independent agent with no prior exposure to this
+  session's own reasoning (the paid Devil's Advocate MCP tool was tried first and is not
+  entitled/subscribed in this environment). Verdict: **not practically exploitable today**
+  (every leaf is forced through `domain_leaf`'s own tag before entering the tree — no free
+  collision the way Bitcoin's original bug allowed); the specific proposed fix was itself
+  flawed (claimed level-separation it didn't actually deliver); and the alternative
+  (leaf-count-in-root) would force a breaking wire-format bump plus migration of two OTHER
+  domains' persisted roots (`projection_checkpoint`, `retrieval_trace`) that the original
+  framing of this item never anticipated. Documented in `xibalba-cortex`'s
+  `spec/xibalba-cortex-v1.md`, wiki concept page, and `WIKI_LOG.md` (commit `ddf46cf`) rather
+  than patched. **Do not re-open this as "still open, needs a fix"** — it was reviewed and the
+  considered decision was to document, not patch; only reopen if a version bump of this
+  construction happens anyway for unrelated reasons, in which case do it as a deliberate
+  versioned profile with an explicit migration plan, not an in-place patch.
+
+## 1. State of the tree
+
+Both repos clean relative to their remote — everything above is pushed, not working-tree-only.
+`integrity-core`'s `CLAUDE_HANDOFF_2026-08-17.md` remains untracked at repo root (preserved,
+per the 2026-08-17c/d sections' own instruction) and is now stale relative to this section on
+the Phase 0/documentation status front — read this section and 2026-08-17d together, not that
+file alone, for current status.
+
+## 2. Next, adjusted again
+
+1. ~~MCP AIS-resolution gap~~ **found and documented, not fixed — this section.**
+2. ~~AIS dry-run / floor values~~ **dry-run done, floors deliberately deferred — this section.**
+3. ~~Cortex Merkle malleability~~ **reviewed and documented as deliberately unfixed — this
+   section. Do not re-open without a real reason to revisit.**
+4. Registration retry — still open, still a real chain write (real testnet gas, real on-chain
+   state), still pending explicit go-ahead.
+5. Phase I — still needs a new, explicit authorization distinct from routine "continue"/
+   "proceed" instructions, per its own Devil's Advocate review (2026-08-17d §9). Not resumed.
+6. Base Sepolia facade deployment, ERC-8004 clause-by-clause acceptance — both still open,
+   both real external actions requiring separate approval.
+
+---
+
 # Handoff — 2026-08-17d (Phase 0 and v3.2 documentation reconciliation complete locally)
 
 This section supersedes the current-status and document-authority claims in older same-day
