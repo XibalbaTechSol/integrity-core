@@ -1,7 +1,33 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-08-13] update | Real UltraPlonk verifier coverage
+
+- Added retained binary proof/public-input fixtures and `contracts/test/UltraPlonkVerifier.t.sol` without editing generated verifier Solidity.
+- The direct generated verifier test covers valid proof acceptance, tampered proof rejection, tampered public-input rejection, and malformed-proof rejection.
+- Fixture lengths and hashes are asserted; the public-input conversion passes exactly three `bytes32` values required by the generated ABI.
+- Verification: `forge test --match-path test/UltraPlonkVerifier.t.sol -vvv` -> 4 passed, 0 failed.
+- Residual limits: registry forwarding, clean proof regeneration, deployed/on-chain verification, and external anchoring remain open.
+
+
+## [2026-08-13] update | Test-status tree binding
+
+- Added `concepts/test-status-tree-binding.md` and indexed it in `WIKI_INDEX.md`.
+- Documented the shared `scripts/tree_hash.py` implementation used by
+  `record_test_status.py` and `vault_commit_leaf.py`.
+- Recorded measured verification: `python3 scripts/tree_hash.py --self-test` -> 4/4 passed.
+- Preserved the boundary that this proves local source-tree binding only, not external anchoring
+  or successful delivery of every historical leaf.
+
+
 > Chronological record of wiki actions. Append-only — never edit past entries.
 > Actions: ingest, create, update, lint, query, archive
+
+## [2026-08-13] update | BCC audit-report shutdown drain verified
+
+- Closed the documented shutdown-loss gap for `bcc_middleware` audit reports.
+- Verified that `lifespan()` waits for in-flight asynchronous audit-report tasks, bounded by 10 seconds, while preserving non-blocking request handling.
+- Evidence: `bcc_middleware/tests/test_shutdown_drain.py` and `test_evidence_linkage.py` passed 6/6; the full package suite passed 122/122 with `uv run python -m pytest -q`.
+- Preserved the residual limitation: oracle unavailability can still lose reports because the path remains best-effort and has no local durable spool or retry queue.
 
 ## [2026-08-06] create | Cross-repository audit status ledger
 

@@ -74,6 +74,7 @@ sol! {
     interface IStateAnchor {
         function latestRoot() external view returns (bytes32);
         function latestEpoch() external view returns (uint256);
+        function latestTimestamp() external view returns (uint256);
     }
 }
 
@@ -774,6 +775,21 @@ impl ChainClient {
         let root = c.latestRoot().call().await?;
         let epoch = c.latestEpoch().call().await?;
         Ok((root, epoch))
+    }
+
+    /// `(latestEpoch, latestTimestamp)` from the agent's own `StateAnchor` — the
+    /// anchor-coverage signal's on-chain half (see `anchor_coverage.rs`). `latestEpoch`
+    /// is a monotonic count of every `anchorRoot` call this contract has ever accepted
+    /// (from any submitter, not just `bcc_middleware` — the same value `memory_state`
+    /// reads for the registration gate); `latestTimestamp` is that call's block
+    /// timestamp. Read directly from chain for the same reason `memory_state` is: an
+    /// agent (or a compromised anchoring signer) claiming "I anchored" off-chain proves
+    /// nothing, only the contract's own state does.
+    pub async fn latest_anchor_activity(&self, state_anchor: Address) -> Result<(U256, U256), ChainError> {
+        let c = IStateAnchor::new(state_anchor, self.provider.clone());
+        let epoch = c.latestEpoch().call().await?;
+        let timestamp = c.latestTimestamp().call().await?;
+        Ok((epoch, timestamp))
     }
 
     /// The agent's chosen primary handle ("" if none).

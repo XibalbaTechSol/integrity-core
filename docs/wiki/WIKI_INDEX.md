@@ -34,6 +34,7 @@
 - [ZK-ML Model-Inference Verification](concepts/zk-ml-spec.md) — `[PLANNED]`
 - [Persistent Memory, Genesis Root & Lineage](concepts/agent-memory.md) — **foundational primitive** (spec v0.3 §4.1): Trust Vault anchored on the agent's existing `StateAnchor` (no 8th primitive), agent-authorized genesis root, `400 MemoryNotInitialized` registration gate. `[PARTIALLY BUILT]` — gate + SDK anchoring enforced; contract-level epoch-1 restriction and lineage open
 - [Persistent Memory Configuration Guide](concepts/persistent-memory.md) — how users/agents can config memory systems.
+- [Test-Status Tree Binding and Vault Evidence](concepts/test-status-tree-binding.md) — source-tree binding for recorded test outcomes.
 - [Xibalba Agent Operating Model](concepts/xibalba-agent-operating-model.md) — identity, closed-loop execution, graph memory, wiki compilation, interface design, and approval-gated operations.
 - [Testing Strategy](concepts/testing-strategy.md) — the 3-layer test pyramid, incl. new Playwright E2E (built)
 - [AIS API — Versioned Wire Spec](concepts/ais-api-spec.md) — the generated, externally-supported `/v1/*` spec at `spec/ais-api/` (built)

@@ -248,7 +248,7 @@ def test_invoke_intent_convenience_pulls_nonce_from_store_and_rides_along_on_flu
 
 def test_first_flush_syncs_nonce_from_oracle_before_posting(monkeypatch, captured_posts):
     monkeypatch.setattr(
-        "integrity_sdk.client.requests.get", lambda *a, **k: _FakeResponse(payload={"last_nonce": 41})
+        "integrity_sdk.client.requests.get", lambda *a, **k: _FakeResponse(payload={"last_nonce": 41, "oracle_registered": True})
     )
     client = IntegrityClient("agent-a", auto_flush=False)
     client.log_telemetry({"text_output": "hi"})
@@ -267,7 +267,7 @@ def test_subsequent_flush_does_not_resync_nonce(monkeypatch, captured_posts):
     get_calls = []
     monkeypatch.setattr(
         "integrity_sdk.client.requests.get",
-        lambda *a, **k: get_calls.append(1) or _FakeResponse(payload={"last_nonce": 5}),
+        lambda *a, **k: get_calls.append(1) or _FakeResponse(payload={"last_nonce": 5, "oracle_registered": True}),
     )
     client = IntegrityClient("agent-a", auto_flush=False)
     client.log_telemetry({"text_output": "first"})
@@ -289,7 +289,7 @@ def test_409_response_resyncs_nonce_instead_of_rolling_back(monkeypatch):
     get_calls = []
     monkeypatch.setattr(
         "integrity_sdk.client.requests.get",
-        lambda *a, **k: get_calls.append(1) or _FakeResponse(payload={"last_nonce": 15}),
+        lambda *a, **k: get_calls.append(1) or _FakeResponse(payload={"last_nonce": 15, "oracle_registered": True}),
     )
 
     client = IntegrityClient("agent-a", auto_flush=False)
@@ -322,6 +322,61 @@ def test_non_409_failure_still_rolls_back_nonce_for_retry(monkeypatch):
     assert client.flush_telemetry() is False
     assert get_calls == []  # non-409 failure does not trigger a re-sync
     assert client._nonce == 10  # rolled back from 11
+
+
+# --- Default-deny: refuse to send telemetry for an oracle-confirmed-unregistered agent ---
+
+
+def test_flush_refuses_to_send_when_oracle_confirms_agent_unregistered(monkeypatch):
+    monkeypatch.setattr(
+        "integrity_sdk.client.requests.get", lambda *a, **k: _FakeResponse(status_code=404)
+    )
+    posts = []
+    monkeypatch.setattr(
+        "integrity_sdk.client.requests.post",
+        lambda url, json=None, timeout=None: posts.append(json) or _FakeResponse(True),
+    )
+
+    client = IntegrityClient("unregistered-agent", auto_flush=False)
+    client.log_telemetry({"text_output": "should not leave the process"})
+
+    assert client.flush_telemetry() is False
+    assert posts == []  # the payload was never POSTed, not merely rejected server-side
+    assert client._registered is False
+
+
+def test_flush_requeues_and_succeeds_once_the_agent_becomes_registered(monkeypatch):
+    get_responses = iter([_FakeResponse(status_code=404), _FakeResponse(payload={"last_nonce": 0, "oracle_registered": True})])
+    monkeypatch.setattr("integrity_sdk.client.requests.get", lambda *a, **k: next(get_responses))
+    posts = []
+    monkeypatch.setattr(
+        "integrity_sdk.client.requests.post",
+        lambda url, json=None, timeout=None: posts.append(json) or _FakeResponse(True),
+    )
+
+    client = IntegrityClient("agent-a", auto_flush=False)
+    client.log_telemetry({"text_output": "buffered before registration"})
+    assert client.flush_telemetry() is False
+    assert posts == []
+
+    # A later flush re-checks (nonce sync is one-shot per client, so this simulates a
+    # fresh client instance after the agent registers — the realistic restart path).
+    client._nonce_synced = False
+    assert client.flush_telemetry() is True
+    assert len(posts) == 1
+    assert len([s for s in posts[0]["otel_spans"] if s["kind"] == "telemetry"]) == 1
+
+
+def test_flush_proceeds_when_registration_check_is_inconclusive(captured_posts):
+    # The autouse fixture simulates an unreachable oracle (ConnectionError), which must
+    # leave `_registered` at None (unknown) — telemetry stays best-effort, not gated
+    # shut, on a transient failure that says nothing about registration either way.
+    client = IntegrityClient("agent-a", auto_flush=False)
+    client.log_telemetry({"text_output": "hi"})
+
+    assert client.flush_telemetry() is True
+    assert client._registered is None
+    assert len(captured_posts) == 1
 
 
 # --- OTel wiring: client.traceable()/trace_run() must actually export spans ---

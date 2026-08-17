@@ -112,3 +112,14 @@ async def test_shutdown_drain_gives_up_after_10s_and_logs_it(monkeypatch, caplog
     assert 9.5 <= drain_elapsed <= 11.5, (
         f"drain returned at {drain_elapsed:.2f}s, expected close to its 10s bound"
     )
+
+
+def test_shutdown_gate_rejects_new_audit_reports(monkeypatch, caplog):
+    """Reports arriving after shutdown admission are dropped explicitly."""
+    monkeypatch.setattr(main_module, "_audit_shutdown_started", True)
+    with caplog.at_level(logging.WARNING, logger="bcc_middleware"):
+        main_module._report_decision_background(
+            Settings(), agent_id="did:integrity:late", decision="allow"
+        )
+    assert not main_module._audit_report_tasks
+    assert any("shutdown has started" in record.message for record in caplog.records)

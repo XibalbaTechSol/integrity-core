@@ -200,6 +200,11 @@ whose telemetry omits one axis (e.g. reports no token usage, so `sacrifice`
 derives to 0) scores 0.0 even with the other three axes perfect. Absent and
 catastrophic are currently indistinguishable here; see `PRODUCTION_GAPS.md`.
 
+`ais-equations.html` at repo root is a standalone, polished static page presenting this formula
+and its components for a non-engineering audience (e.g. linked from marketing/pitch material) —
+keep it in sync if the weights or formula shape change; it is not auto-generated from
+`scoring-core`.
+
 ### Oracle service
 
 Rust/Axum, `alloy` (not `ethers-rs` — repo comment notes ethers-rs is in maintenance mode and
@@ -230,6 +235,20 @@ telemetry content could produce disagreeing canonical bytes between the oracle a
 wallet/chain/BCC logic, kept wire-compatible via cross-package round-trip tests. Don't assume a
 change in one automatically applies to the other.
 
+## Working state — check before trusting "current" claims
+
+Don't assume `main` reflects the latest work. As of this writing the checked-out branch is
+`audit/harness-loop-2026-07-30`, not `main`, with substantial uncommitted changes across
+`bcc_middleware`, `integrity-dashboard` (memory/graph views), `integrity-oracle/backend`
+(`chain.rs`, `handlers.rs`, `lib.rs`, `openapi.rs`), and `integrity-sdk/client.py`. Run `git
+status` and `git branch --show-current` before relying on this file's snapshot of "what's
+implemented" — it describes the last committed state, not necessarily what's on disk right now.
+
+Test-count claims for a given package (e.g. "sdk: 262 passed/2 skipped" above) drift between
+this file, the README's audit section, and `SPECIFICATION.md`, and none of them are
+auto-updated — treat any specific number here as approximate and re-run the package's test
+suite if the exact count matters, rather than trusting whichever doc you read first.
+
 ## Known gaps / things this doc's own exploration found stale — verify before relying on them
 
 - `contracts/.env` (populated, not just `.env.example`) exists on disk — don't commit it.
@@ -249,8 +268,9 @@ define a `"test"` script and has no `vitest` dependency at all (a 2026-07-31 not
 it did — re-verify claims like this against `package.json` directly, don't carry them forward);
 `integrity-dashboard/demo/` *does* exist (`demo/pyproject.toml`, entry point `integrity-demo`);
 `src/services/api.ts` no longer exists at all, so any "hardcoded mock data" warning pointing at
-that file is stale; and `ethers ^6.16.0` *is* a dashboard dependency. Re-check this section
-against disk before trusting it — it has drifted more than once.
+that file is stale; and `ethers ^6.17.0` *is* a dashboard dependency (bumped from the `^6.16.0` previously recorded
+here — re-check `package.json` directly rather than trusting a version number quoted in prose).
+Re-check this section against disk before trusting it — it has drifted more than once.
 
 ## Live deployment
 

@@ -879,6 +879,7 @@ components:
       - created_at
       - has_ed25519_key
       - has_eth_address
+      - oracle_registered
       - primitives_source
       properties:
         created_at:
@@ -899,6 +900,21 @@ components:
         last_nonce:
           type: integer
           format: int64
+        oracle_registered:
+          type: boolean
+          description: |-
+            True only when this DID has a real row in this oracle's own `agents` table (a real
+            `POST /v1/agent/register` call against THIS oracle, at some point in its history).
+            **Not** the same question as "does this DID exist" — a DID that resolves live on-chain
+            (see `primitives_source: "chain-backfill"` below) but was never registered against
+            this specific oracle instance still returns `200` here with `oracle_registered: false`,
+            a synthesized `id`/`primitives` and no other real fields. Added because that
+            distinction was previously only inferable by checking `primitives_source != "cache"`
+            AND `has_ed25519_key`/`has_eth_address`, which every caller had to reverse-engineer —
+            `GET /v1/telemetry/ingest` and `GET /v1/agent/{id}/ais` both fail closed
+            (`AgentNotFound`) on exactly this same local-row check (`db::get_agent`), so a caller
+            deciding "is it safe/worthwhile to send telemetry for this agent" needs this exact
+            boolean, not "does the DID exist anywhere."
         primitives:
           oneOf:
           - type: 'null'
@@ -1078,12 +1094,19 @@ components:
       - period_start
       - period_end
       - event_count
+      - anchor_coverage
       properties:
         agent_id:
           type: string
         ais:
           type: number
           format: double
+        anchor_coverage:
+          $ref: '#/components/schemas/AnchorCoverage'
+          description: |-
+            Whether this agent's on-chain `StateAnchor` shows anchoring activity at or after
+            `period_start`, given it had telemetry activity in that same window.
+            Informational only (see `anchor_coverage.rs`) — never fed into `ais` itself.
         components:
           $ref: '#/components/schemas/AisComponents'
         event_count:
@@ -1159,6 +1182,39 @@ components:
           format: double
         status:
           type: string
+    AnchorCoverage:
+      type: object
+      required:
+      - status
+      - events_in_period
+      properties:
+        events_in_period:
+          type: integer
+          format: int64
+        last_anchored_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: |-
+            `None` if the on-chain read failed (RPC unreachable, bad address) or the
+            `StateAnchor` has never anchored anything (`latestEpoch == 0`) — indistinguishable
+            from each other at this layer, both surfaced as "we don't know," never coerced
+            into a false `Stale` or `Current`.
+        last_anchored_epoch:
+          type:
+          - integer
+          - 'null'
+          format: int64
+          minimum: 0
+        status:
+          $ref: '#/components/schemas/AnchorCoverageStatus'
+    AnchorCoverageStatus:
+      type: string
+      enum:
+      - no_activity
+      - current
+      - stale
     AnchorEventIngestRequest:
       type: object
       required:
