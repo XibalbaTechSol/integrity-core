@@ -5,23 +5,33 @@ Companion to `docs/plans/2026-08-17-phase1-tracer-bullet-proposal.md` (the autho
 note states the actual guarantee, in the same register as the whitepaper's own Proposition 1 —
 no broader, no narrower.
 
+**Update (2026-08-17, same day): extended with a second reference adapter**, per
+`docs/plans/2026-08-17-phase1-reputation-adapter-proposal.md` (separately authorized). The kernel
+now enforces two conjunctive conditions, not one — see the updated guarantee statement below.
+
 ## What exists
 
 `contracts/src/kernel/IntegrityAccountV1Experimental.sol` and
 `IntegrityKernelV1Experimental.sol`. **Not deployed anywhere** — Foundry-test-only. Not
-upgradeable, not a proxy, not referenced by `Deploy.s.sol` or any deployment script. 12 passing
-tests in `contracts/test/IntegrityAccountV1Experimental.t.sol`; full repo suite green at 221/221
-(up from 209 before this slice).
+upgradeable, not a proxy, not referenced by `Deploy.s.sol` or any deployment script. 15 passing
+tests in `contracts/test/IntegrityAccountV1Experimental.t.sol`; full repo suite green at 224/224
+(up from 209 before this slice, +12 for the first adapter, +3 for the reputation floor).
 
 ## The guarantee, precisely
 
 **Proposition (slice-scoped).** For an `IntegrityAccountV1Experimental` instance with kernel `K`
-bound at construction and budgets `(b_op, b_cum)`: for every sequence of calls to `execute()`
-with mode `(CALLTYPE_SINGLE, EXECTYPE_DEFAULT)`, accepted by the account's own
-`onlyEntryPointOrSelf` gate, the account's native-token balance decrease from any single call
-never exceeds `b_op`, and the cumulative decrease across all such calls never exceeds `b_cum`.
-Verified by `test_overPerOpBudgetCallRevertsBeforeAnyStateChange` and
-`test_overCumulativeBudgetCallRevertsEvenWhenEachCallIsIndividuallyInBudget`.
+bound at construction, budgets `(b_op, b_cum)`, a reputation registry `R`, and a floor `s_min`:
+for every sequence of calls to `execute()` with mode `(CALLTYPE_SINGLE, EXECTYPE_DEFAULT)`,
+accepted by the account's own `onlyEntryPointOrSelf` gate — (1) the account's native-token
+balance decrease from any single call never exceeds `b_op`, and the cumulative decrease across
+all such calls never exceeds `b_cum` (verified by
+`test_overPerOpBudgetCallRevertsBeforeAnyStateChange` and
+`test_overCumulativeBudgetCallRevertsEvenWhenEachCallIsIndividuallyInBudget`); **and (2)** no
+call proceeds at all while `R.effectiveScore(account) < s_min` (verified by
+`test_belowFloorCallRevertsEvenThoughItWouldBeWithinBudget`,
+`test_scoreExactlyAtTheFloorSucceeds`, and `test_aboveFloorButOverBudgetCallStillRevertsOnBudget`
+— the last confirming the two conditions are genuinely independent, not that one subsumes the
+other).
 
 **What makes this hold, verified rather than assumed:**
 - The hook fires on every reachable execution path — verified by proving the other three
@@ -39,12 +49,22 @@ Verified by `test_overPerOpBudgetCallRevertsBeforeAnyStateChange` and
   `armed` guard makes the same test fail differently, demonstrating the guard performs real work
   rather than being decorative (see the commit history for the mutation-test transcript).
 - `preCheck` measured under the whitepaper's own Table 4 budget (`<=40k` total) — a live
-  regression test, not a one-off measurement (`test_preCheckGasIsWithinPaperTable4Budget`).
+  regression test, not a one-off measurement (`test_preCheckGasIsWithinPaperTable4Budget`; this
+  test caught a real cost increase when the reputation check was added — 27,131 → 35,505 gas —
+  still comfortably under budget, but the kind of regression this test exists to catch).
+- The reputation floor is a real gate, not decoration — same mutation-testing discipline as the
+  `armed` guard: removing the check makes `test_belowFloorCallRevertsEvenThoughItWouldBeWithinBudget`
+  fail (the call wrongly succeeds), confirmed and reverted before landing.
 
 ## What this does NOT prove — read this list as seriously as the guarantee above
 
 - **Not general value conservation.** Only native ETH is tracked. Any ERC-20/ERC-721/other
   asset movement inside the wrapped call is completely unconstrained by this kernel.
+- **Does not reason about how `effectiveScore` was computed, or whether the oracle pushing it is
+  honest.** The reputation floor trusts `ReputationRegistry.effectiveScore(account)` exactly as
+  far as that contract's own oracle-signer trust model goes — no more, no less. It does not
+  touch, and is fully independent of, the still-deferred AIS floor/shadow-gate decision
+  (`PRODUCTION_GAPS.md` §27).
 - **Not calldata-content-aware.** The kernel never inspects what the wrapped call actually does
   beyond the resulting native-balance delta — a call that moves zero ETH but does anything else
   (approves a token, calls an arbitrary contract, self-destructs a target) is unconstrained.
@@ -73,3 +93,7 @@ Verified by `test_overPerOpBudgetCallRevertsBeforeAnyStateChange` and
 | Hook cannot be spoofed or called out of sequence | 2 tests | Direct calls to `preCheck`/`postCheck` from non-account callers and without pairing |
 | Reentrancy guard does real work | 1 test + mutation check | Genuine self-call reentrancy; guard removal changes the failure mode |
 | `preCheck` gas within Table 4 budget | `test_preCheckGasIsWithinPaperTable4Budget` | Live `gasleft()` diff, regression-tested |
+| Below-floor call reverts even if in-budget | `test_belowFloorCallRevertsEvenThoughItWouldBeWithinBudget` | Real `ReputationRegistry` clone, real pushed score |
+| Score exactly at the floor succeeds | `test_scoreExactlyAtTheFloorSucceeds` | Boundary case, matching the budget check's own boundary discipline |
+| Budget and reputation checks are independent | `test_aboveFloorButOverBudgetCallStillRevertsOnBudget` | Above-floor account still bound by the budget check |
+| Reputation floor does real work | mutation check | Removing the check makes the below-floor test wrongly pass |

@@ -4,13 +4,17 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {IntegrityAccountV1Experimental} from "../src/kernel/IntegrityAccountV1Experimental.sol";
 import {IntegrityKernelV1Experimental} from "../src/kernel/IntegrityKernelV1Experimental.sol";
+import {ReputationRegistry} from "../src/oracle/ReputationRegistry.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {ERC7579Utils, Mode, CallType, ExecType, ModeSelector, ModePayload} from
     "@openzeppelin/contracts/account/utils/draft-ERC7579Utils.sol";
 
-/// @notice Phase I tracer-bullet slice (docs/plans/2026-08-17-phase1-tracer-bullet-proposal.md).
-/// NOT the full Phase I kernel. Non-deployable, non-upgradeable, single CALL mode only, one
-/// conserved quantity (a native-value spend budget). See the proposal doc for full scope
-/// boundaries -- this test file only proves what that document claims, nothing more.
+/// @notice Phase I tracer-bullet slice (docs/plans/2026-08-17-phase1-tracer-bullet-proposal.md),
+/// extended with a second reference adapter
+/// (docs/plans/2026-08-17-phase1-reputation-adapter-proposal.md). NOT the full Phase I kernel.
+/// Non-deployable, non-upgradeable, single CALL mode only, two conjunctive conditions (a
+/// native-value spend budget and a reputation floor). See both proposal docs for full scope
+/// boundaries -- this test file only proves what those documents claim, nothing more.
 contract IntegrityAccountV1ExperimentalTest is Test {
     address signer;
     uint256 signerKey;
@@ -18,18 +22,36 @@ contract IntegrityAccountV1ExperimentalTest is Test {
 
     uint256 constant PER_OP_BUDGET = 1 ether;
     uint256 constant CUMULATIVE_BUDGET = 3 ether;
+    uint256 constant MIN_EFFECTIVE_SCORE = 500;
+    uint256 constant ABOVE_FLOOR_SCORE = 800;
 
     IntegrityKernelV1Experimental kernel;
     IntegrityAccountV1Experimental account;
+    ReputationRegistry reputation;
 
     function setUp() public {
         (signer, signerKey) = makeAddrAndKey("signer");
+
+        // ReputationRegistry disables initializers on its own implementation constructor
+        // (standard OZ upgradeable-safety pattern) -- deploy a real EIP-1167 clone, same as
+        // AgentPrimitivesFactory does in production, rather than a bare `new` (which would
+        // revert InvalidInitialization on `initialize`). effectiveScore/updateScore never touch
+        // zkVerifier/stateAnchor (confirmed in the proposal doc), so address(0) for both is fine.
+        address reputationImpl = address(new ReputationRegistry());
+        reputation = ReputationRegistry(Clones.clone(reputationImpl));
+        reputation.initialize(address(this), address(this), address(0), address(0));
+
         // Kernel and account are mutually referential (kernel binds to the account address,
         // account installs the kernel at construction) -- CREATE2-predicted address breaks the
         // circularity without needing a two-step "deploy then bind" flow that would leave a
         // window where the account exists with no kernel installed.
         address predictedAccount = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1);
-        kernel = new IntegrityKernelV1Experimental(predictedAccount, PER_OP_BUDGET, CUMULATIVE_BUDGET);
+        // Set the score BEFORE the account exists at its predicted address -- effectiveScore is
+        // keyed by address regardless of whether anything is deployed there yet.
+        reputation.updateScore(predictedAccount, ABOVE_FLOOR_SCORE);
+        kernel = new IntegrityKernelV1Experimental(
+            predictedAccount, PER_OP_BUDGET, CUMULATIVE_BUDGET, address(reputation), MIN_EFFECTIVE_SCORE
+        );
         account = new IntegrityAccountV1Experimental(signer, address(kernel));
         assertEq(address(account), predictedAccount, "CREATE address prediction must match actual deployment");
         vm.deal(address(account), 10 ether);
@@ -215,6 +237,56 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         assertEq(address(account).balance, accountBalanceBefore, "no funds may move when the reentrant attempt fails the whole call");
         assertEq(recipient.balance, recipientBalanceBefore);
         assertFalse(kernel.armed(), "armed must be false again once the whole transaction has unwound");
+    }
+
+    // --- reputation-floor adapter (docs/plans/2026-08-17-phase1-reputation-adapter-proposal.md)
+
+    function test_belowFloorCallRevertsEvenThoughItWouldBeWithinBudget() public {
+        reputation.updateScore(address(account), MIN_EFFECTIVE_SCORE - 1);
+        uint256 accountBalanceBefore = address(account).balance;
+        uint256 recipientBalanceBefore = recipient.balance;
+
+        bytes memory executionCalldata = abi.encodePacked(recipient, uint256(0.1 ether), bytes(""));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IntegrityKernelV1Experimental.ReputationBelowFloor.selector, MIN_EFFECTIVE_SCORE - 1, MIN_EFFECTIVE_SCORE
+            )
+        );
+        vm.prank(address(account));
+        account.execute(_singleCallMode(), executionCalldata);
+
+        assertEq(address(account).balance, accountBalanceBefore, "a below-floor call must move no funds, even a well-within-budget amount");
+        assertEq(recipient.balance, recipientBalanceBefore);
+    }
+
+    function test_scoreExactlyAtTheFloorSucceeds() public {
+        reputation.updateScore(address(account), MIN_EFFECTIVE_SCORE);
+        uint256 recipientBalanceBefore = recipient.balance;
+        uint256 sendAmount = 0.1 ether;
+
+        bytes memory executionCalldata = abi.encodePacked(recipient, sendAmount, bytes(""));
+
+        vm.prank(address(account));
+        account.execute(_singleCallMode(), executionCalldata);
+
+        assertEq(recipient.balance, recipientBalanceBefore + sendAmount, "a score exactly at the floor must succeed, the boundary itself is not a violation");
+    }
+
+    /// @dev Confirms the two checks are genuinely independent -- an above-floor account is
+    /// still bound by the budget check, reputation passing does not somehow short-circuit it.
+    function test_aboveFloorButOverBudgetCallStillRevertsOnBudget() public {
+        // setUp already leaves the account above the reputation floor (ABOVE_FLOOR_SCORE).
+        uint256 overBudgetAmount = PER_OP_BUDGET + 1;
+        bytes memory executionCalldata = abi.encodePacked(recipient, overBudgetAmount, bytes(""));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IntegrityKernelV1Experimental.PerOperationBudgetExceeded.selector, overBudgetAmount, PER_OP_BUDGET
+            )
+        );
+        vm.prank(address(account));
+        account.execute(_singleCallMode(), executionCalldata);
     }
 
     // --- gas assertions (whitepaper Table 4: preCheck <= 40k total) ---------------------------

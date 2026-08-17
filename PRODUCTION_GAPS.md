@@ -1621,6 +1621,24 @@ real evidence the guard does work, not decoration. `preCheck` gas measured live 
 whitepaper's own Table 4 budget (`<=40k`), as a regression test, not a one-off number. Full repo
 suite green: 221/221 (up from 209 before this slice).
 
+**Extended same day with a second reference adapter (reputation floor)**, per separate
+authorization of `docs/plans/2026-08-17-phase1-reputation-adapter-proposal.md`. The kernel now
+enforces two conjunctive conditions: the existing native-value budget, and
+`ReputationRegistry.effectiveScore(boundAccount) >= minEffectiveScore` (a precondition gate
+checked once in `preCheck`, not a conserved quantity needing `postCheck` involvement). Real
+multiplexing inside the one hook module the base OZ contract allows, not a second hook. Tested
+against a real, standalone `ReputationRegistry` EIP-1167 clone (its implementation disables
+direct initialization, confirmed by reading the constructor — deployed via `Clones.clone` the
+same way `AgentPrimitivesFactory` does in production, not a bare `new`). 3 new tests: below-floor
+reverts even when in-budget, the exact floor boundary succeeds, and an above-floor account is
+still independently bound by the budget check. The reputation check was also mutation-tested —
+removing it makes the below-floor test wrongly pass, confirmed and reverted before landing.
+`preCheck` gas re-measured (the real reason the gas test is a regression test, not a one-off
+number): 27,131 → 35,505, still under the 40k Table 4 budget but a real, caught increase. Full
+repo suite green: 224/224. Explicitly independent of the still-deferred AIS floor/shadow-gate
+decision (§27) — reads the existing oracle-pushed `effectiveScore`, doesn't touch `scoring-core`
+or pick any floor value there.
+
 **What this explicitly does not close:** any of the rest of the real Phase I plan (module
 governance, reference adapters beyond the one budget check, canonical intent encoding, the BCC
 `chain_id`/verifier-binding gap) remains unbuilt. No external audit has occurred — this slice

@@ -1,3 +1,48 @@
+# Handoff — 2026-08-17h (Phase I second adapter: reputation floor, authorized, built, tested)
+
+Continuation after 2026-08-17g below (the first tracer-bullet slice, same day). Same
+authorization pattern repeated: scoped proposal committed first
+(`docs/plans/2026-08-17-phase1-reputation-adapter-proposal.md`), explicit user go/no-go
+("authorize as scoped"), then built.
+
+## 0. What changed
+
+`IntegrityKernelV1Experimental` now enforces two conjunctive conditions instead of one: the
+existing native-value budget, plus `ReputationRegistry.effectiveScore(boundAccount) >=
+minEffectiveScore`, checked once in `preCheck` (a precondition gate, not a conserved quantity —
+reputation can't change mid-call, so no `postCheck` involvement needed). This is the paper's
+actual "adapters multiplex inside one hook" model, exercised for real — `AccountERC7579Hooked`
+only ever supports one installed hook module, confirmed when the first slice was built.
+
+Real `ReputationRegistry` used in tests, not a mock: its implementation constructor calls
+`_disableInitializers()` (standard OZ upgradeable-safety pattern), so a bare `new` +
+`.initialize()` reverts — deployed via `Clones.clone`, the same path `AgentPrimitivesFactory`
+uses in production, confirmed by reading the contract before writing the test.
+
+3 new tests, plus a mutation-test sanity check (same discipline as the first slice's `armed`
+guard): removing the reputation check makes the below-floor test wrongly pass, confirmed and
+reverted before landing. `preCheck`'s gas regression test caught a real cost increase from the
+new cross-contract read (27,131 → 35,505) — still under the paper's 40k budget, but exactly the
+kind of thing that test exists to catch. Full repo suite: 224/224 (up from 221).
+
+Full detail: `PRODUCTION_GAPS.md` §29 (updated in place, same entry as the first slice — this is
+explicitly an extension, not a new one), `docs/design/phase1-tracer-bullet-slice-2026-08-17.md`
+(guarantee statement updated to state both conditions precisely).
+
+## 1. Still true, restated
+
+Not deployed anywhere. Not referenced by `Deploy.s.sol`. Not audited. Does not touch or resolve
+the still-deferred AIS floor/shadow-gate decision (§27) — reads the existing
+`effectiveScore`, independent of that unmade decision. Module governance, the third adapter
+(assurance-tier), canonical intent encoding, and the BCC replay-gap fix all remain unbuilt and
+unscoped — nothing here is a queued next step by default, same as the first slice's own note.
+
+## 2. State of the tree
+
+`forge build` clean, full suite 224/224. Committed and pushed to `audit/harness-loop-2026-07-30`.
+
+---
+
 # Handoff — 2026-08-17g (Phase I tracer-bullet slice: authorized, built, tested, not deployed)
 
 Continuation after 2026-08-17f below. This is the first Phase I code to exist anywhere in this
