@@ -1574,11 +1574,25 @@ registration entry above, items 3/4/7), each leaving a real, orphaned, gas-paid
   SAME `SovereignAgent`/`StateAnchor` addresses are reused; the other asserts a progress file
   pointing at bytecode-less addresses is discarded rather than trusted. Full suite green (264
   passed / 3 skipped, up from 262 by exactly the 2 new tests).
-* **Still open — `integrity-cli` has its own, independent copy of this registration flow**
-  (`integrity_cli/main.py`/`chain.py`) that doesn't import `integrity-sdk` at all (see
-  `CLAUDE.md`'s "SDK vs CLI" section) and doesn't have even the *basic* `resolve_did`
-  idempotency check, let alone the deploy-resume logic above — a retry via the CLI today
-  would unconditionally deploy a fresh pair on every call, worse than the SDK's pre-fix
-  behavior. Not fixed in this pass — the real incidents that burned gas all went through
-  `integrity-sdk` (`xibalba-shield/scripts/register_with_oracle.py`), and porting this fix
-  to the CLI's independent implementation is real, separate scope, not a quick mirror.
+* **CLOSED — `integrity-cli` had its own, independent copy of this registration flow**
+  (`integrity_cli/main.py`/`chain.py`, doesn't import `integrity-sdk` at all — see
+  `CLAUDE.md`'s "SDK vs CLI" section) that turned out to have **no idempotency protection
+  of any kind**, not even the basic `resolve_did` check the SDK had before its own fix —
+  every `integrity agent register` invocation unconditionally deployed a fresh
+  `SovereignAgent`/`StateAnchor` pair, even for an already-registered DID. Ported the same
+  two layers from the SDK fix: `chain.py` gained `resolve_did`/`has_anchor_role`/
+  `itk_balance`/`state_anchor_latest_root` (identical shape to the SDK's versions,
+  duplicated per this package's existing "no sibling dependency" convention, not imported);
+  `main.py`'s `agent_register` now checks `resolve_did` first (short-circuits with the
+  existing registration, matching the SDK's early-return branch) and persists/resumes
+  deploy progress via a new `<identity>.registration_progress.json`, with the same
+  bytecode-verification-before-trusting-a-recorded-address discipline. Also factored the
+  previously-duplicated oracle-POST logic (~50 lines inline, twice) into one shared
+  `_post_registration_to_oracle` helper used by both the early-return and full-registration
+  paths. Two new regression tests against a real local anvil chain
+  (`tests/test_register_resume.py`, no Docker/cargo/oracle-backend needed unlike the
+  existing `ORACLE_E2E=1` oracle test): one simulates `register_primitives` failing on the
+  first `integrity agent register` invocation and succeeding on a retry, asserting the CLI
+  reuses the same addresses; the other asserts a second invocation for an already-registered
+  identity is a genuine no-op. Full suite green (70 passed, up from 68 by exactly the 2 new
+  tests; the Docker-gated oracle e2e test was not re-run, unrelated to this change).

@@ -219,6 +219,93 @@ class AgentRegistration:
         return asdict(self)
 
 
+def _registration_progress_path(identity_name: str):
+    """Where a not-yet-fully-registered identity's already-deployed SovereignAgent/
+    StateAnchor addresses are recorded, mirroring `integrity_sdk.registration`'s
+    `registration_progress.json` (PRODUCTION_GAPS.md §28). Separate file from
+    `<name>.primitives.json` (written only on full success) so the two can never be
+    confused -- this file's existence means "incomplete," the other's means "done."
+    """
+    return identity.IDENTITY_DIR / f"{identity_name}.registration_progress.json"
+
+
+def _load_registration_progress(identity_name: str) -> Optional[dict]:
+    path = _registration_progress_path(identity_name)
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _save_registration_progress(identity_name: str, **fields: str) -> None:
+    path = _registration_progress_path(identity_name)
+    existing = _load_registration_progress(identity_name) or {}
+    existing.update(fields)
+    path.write_text(json.dumps(existing))
+
+
+def _clear_registration_progress(identity_name: str) -> None:
+    path = _registration_progress_path(identity_name)
+    if path.exists():
+        path.unlink()
+
+
+def _post_registration_to_oracle(
+    oracle_url: str,
+    agent_did: str,
+    doc: dict,
+    registration: "AgentRegistration",
+    identity_name: str,
+    evm_account,
+    alias: str,
+    description: str,
+    *,
+    idempotent: bool,
+) -> None:
+    """POSTs to integrity-oracle's `/v1/agent/register`, mutating `registration.
+    oracle_registered` on success. Payload shape pinned by `RegisterAgentRequest`
+    (handlers.rs) -- see docs/INTERFACE_CONTRACT.md §6.3 and the original inline
+    comment this was factored out of for the three payload-shape gotchas already
+    found and fixed here on 2026-07-09. `idempotent` only changes the console
+    message on success/failure, not the request itself -- the oracle's own
+    `POST /v1/agent/register` handler is itself idempotent for an already-registered
+    DID (re-verifies on-chain state and accepts it again), so there's nothing
+    conditionally different to send.
+    """
+    oracle_client = IntegrityClient(base_url=oracle_url)
+    private_key = identity.load_private_key(identity_name)
+    payload = {
+        "did": agent_did,
+        "did_document": doc,
+        "primitives": {
+            "sovereign_agent": registration.sovereign_agent,
+            "state_anchor": registration.state_anchor,
+            "reputation_registry": registration.reputation_registry,
+            "slasher": registration.slasher,
+            "verifier_registry": registration.verifier_registry,
+            "compliance_gate": registration.compliance_gate,
+            "agent_profile": registration.agent_profile,
+        },
+        "ed25519_pubkey_hex": "0x" + private_key.public_key().public_bytes_raw().hex(),
+        "eth_address_hex": evm_account.address,
+        "alias": alias,
+        "description": description,
+    }
+    try:
+        with console.status("[bold blue]Registering with Oracle..."):
+            oracle_client.post("/v1/agent/register", json_data=payload)
+        registration.oracle_registered = True
+        console.print("  [green]done[/green] Oracle accepted the registration" + (" (idempotent re-post)" if idempotent else ""))
+    except ApiError as e:
+        console.print(
+            f"[bold red]Error:[/bold red] on-chain registration succeeded (SovereignAgent "
+            f"{registration.sovereign_agent}) but Oracle registration failed: {e}"
+        )
+        raise typer.Exit(1)
+
+
 @agent_app.command("register")
 def agent_register(
     identity_name: str = typer.Option(
@@ -306,6 +393,7 @@ def agent_register(
         deployments = chain.load_deployments(deployments_file)
         factory_address = deployments["singletons"]["AgentPrimitivesFactory"]
         itk_address = deployments["singletons"]["IntegrityToken"]
+        registry_address = deployments["singletons"]["XibalbaAgentRegistry"]
         oracle_signer = deployments["protocolAddresses"]["oracleSigner"]
     except (chain.DeploymentsFileMissing, KeyError) as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
@@ -322,6 +410,40 @@ def agent_register(
 
     console.print(f"[bold]Registering[/bold] {agent_did}")
     console.print(f"  EVM wallet: [cyan]{evm_account.address}[/cyan]  (chain {chain_id} @ {rpc_url})")
+
+    # Idempotency check (PRODUCTION_GAPS.md §28): before spending any gas or testnet ITK,
+    # ask XibalbaAgentRegistry whether this exact DID is already fully registered. This CLI
+    # previously had NO such check at all -- every invocation for an already-registered DID
+    # deployed a second, orphaned SovereignAgent/StateAnchor pair, worse than even the SDK's
+    # pre-fix behavior (which at least had this one check, just not the deploy-resume one
+    # below it).
+    existing = chain.resolve_did(w3, registry_address, agent_did)
+    if existing is not None:
+        console.print(f"  [dim]skip[/dim] {agent_did} is already registered on-chain (SovereignAgent [cyan]{existing.sovereign_agent}[/cyan]) -- returning existing registration, no new on-chain work")
+        registration = AgentRegistration(
+            did=agent_did,
+            evm_address=evm_account.address,
+            sovereign_agent=existing.sovereign_agent,
+            state_anchor=existing.state_anchor,
+            reputation_registry=existing.reputation_registry,
+            slasher=existing.slasher,
+            verifier_registry=existing.verifier_registry,
+            compliance_gate=existing.compliance_gate,
+            agent_profile=existing.agent_profile,
+            domain_id=existing.domain_id,
+            oracle_registered=False,
+        )
+        doc_path = identity.IDENTITY_DIR / f"{identity_name}.document.json"
+        primitives_path = identity.IDENTITY_DIR / f"{identity_name}.primitives.json"
+        doc_path.write_text(json.dumps(doc, indent=2) + "\n")
+        primitives_path.write_text(json.dumps(registration.to_dict(), indent=2) + "\n")
+        _clear_registration_progress(identity_name)
+        if not skip_oracle:
+            _post_registration_to_oracle(
+                oracle_url, agent_did, doc, registration, identity_name, evm_account, alias, description, idempotent=True
+            )
+        console.print(f"\n[bold green]Already registered:[/bold green] {agent_did}")
+        return
 
     try:
         _MIN_OPERATING_BALANCE_WEI = Web3.to_wei(0.001, "ether")
@@ -348,17 +470,44 @@ def agent_register(
 
         import time
 
-        with console.status("[bold blue]Deploying SovereignAgent..."):
-            sovereign_agent = chain.deploy_sovereign_agent(w3, evm_account, agent_did, oracle_signer, chain_id, nonce=next_nonce)
-        console.print(f"  [green]done[/green] SovereignAgent deployed at [cyan]{sovereign_agent}[/cyan]")
-        next_nonce += 1
-        time.sleep(5)  # Wait for contract bytecode to propagate
+        # Resume-from-partial-failure (PRODUCTION_GAPS.md §28): before deploying
+        # anything, check whether a prior invocation already got a SovereignAgent/
+        # StateAnchor on-chain for this identity and simply never finished (steps
+        # after this failing, e.g. a missing role grant -- the exact incidents that
+        # motivated this fix). Verify each recorded address genuinely has deployed
+        # bytecode before trusting it -- never trust a locally-recorded address
+        # blindly, the same lesson the phantom-factory incident taught the hard way.
+        progress = _load_registration_progress(identity_name)
+        sovereign_agent = progress.get("sovereign_agent") if progress else None
+        state_anchor = progress.get("state_anchor") if progress else None
+        if sovereign_agent and w3.eth.get_code(Web3.to_checksum_address(sovereign_agent)) in (b"", "0x"):
+            console.print(f"  [yellow]warn[/yellow] recorded SovereignAgent {sovereign_agent} has no bytecode -- discarding stale progress")
+            sovereign_agent = None
+            state_anchor = None
 
-        with console.status("[bold blue]Deploying StateAnchor..."):
-            state_anchor = chain.deploy_state_anchor(w3, evm_account, sovereign_agent, chain_id, nonce=next_nonce)
-        console.print(f"  [green]done[/green] StateAnchor deployed at [cyan]{state_anchor}[/cyan]")
-        next_nonce += 1
-        time.sleep(5)  # Wait for contract bytecode to propagate
+        if sovereign_agent:
+            console.print(f"  [dim]skip[/dim] reusing already-deployed SovereignAgent [cyan]{sovereign_agent}[/cyan] (no new deploy)")
+        else:
+            with console.status("[bold blue]Deploying SovereignAgent..."):
+                sovereign_agent = chain.deploy_sovereign_agent(w3, evm_account, agent_did, oracle_signer, chain_id, nonce=next_nonce)
+            console.print(f"  [green]done[/green] SovereignAgent deployed at [cyan]{sovereign_agent}[/cyan]")
+            next_nonce += 1
+            time.sleep(5)  # Wait for contract bytecode to propagate
+            _save_registration_progress(identity_name, sovereign_agent=sovereign_agent)
+
+        if state_anchor and w3.eth.get_code(Web3.to_checksum_address(state_anchor)) in (b"", "0x"):
+            console.print(f"  [yellow]warn[/yellow] recorded StateAnchor {state_anchor} has no bytecode -- discarding stale progress")
+            state_anchor = None
+
+        if state_anchor:
+            console.print(f"  [dim]skip[/dim] reusing already-deployed StateAnchor [cyan]{state_anchor}[/cyan] (no new deploy)")
+        else:
+            with console.status("[bold blue]Deploying StateAnchor..."):
+                state_anchor = chain.deploy_state_anchor(w3, evm_account, sovereign_agent, chain_id, nonce=next_nonce)
+            console.print(f"  [green]done[/green] StateAnchor deployed at [cyan]{state_anchor}[/cyan]")
+            next_nonce += 1
+            time.sleep(5)  # Wait for contract bytecode to propagate
+            _save_registration_progress(identity_name, sovereign_agent=sovereign_agent, state_anchor=state_anchor)
 
         # Minted to the SovereignAgent CONTRACT, not the wallet, and only after that
         # contract exists (PRODUCTION_GAPS.md Sec3) -- IntegrityMarket/A2ACapitalPool pull
@@ -367,24 +516,41 @@ def agent_register(
         # wallet (the previous order here) left testnet ITK stranded on an address that
         # can never spend it through that call path. Mirrors integrity-sdk's
         # registration.py, which was already fixed the same way.
-        with console.status("[bold blue]Minting testnet ITK..."):
-            chain.mint_testnet_itk(
-                w3, funder, itk_address, sovereign_agent, _DEFAULT_TESTNET_ITK_ALLOCATION_WEI, chain_id
-            )
-        console.print("  [green]done[/green] minted testnet ITK")
-        time.sleep(2)
+        #
+        # Checked first on a retry, unlike grant_anchor_role below (idempotent by
+        # construction) -- minting again would genuinely double-issue ITK.
+        if chain.itk_balance(w3, itk_address, sovereign_agent) >= _DEFAULT_TESTNET_ITK_ALLOCATION_WEI:
+            console.print("  [dim]skip[/dim] SovereignAgent already holds enough testnet ITK -- skipping mint")
+        else:
+            with console.status("[bold blue]Minting testnet ITK..."):
+                chain.mint_testnet_itk(
+                    w3, funder, itk_address, sovereign_agent, _DEFAULT_TESTNET_ITK_ALLOCATION_WEI, chain_id
+                )
+            console.print("  [green]done[/green] minted testnet ITK")
+            time.sleep(2)
 
-        with console.status("[bold blue]Granting oracle ANCHOR_ROLE..."):
-            chain.grant_anchor_role(w3, evm_account, sovereign_agent, state_anchor, oracle_signer, chain_id, nonce=next_nonce)
-        console.print("  [green]done[/green] granted ANCHOR_ROLE to oracle signer")
-        next_nonce += 1
-        time.sleep(3)
+        # OZ's grantRole no-ops if already held, but checked first anyway to skip the
+        # transaction entirely on a retry rather than pay gas for a no-op.
+        if chain.has_anchor_role(w3, state_anchor, oracle_signer):
+            console.print("  [dim]skip[/dim] StateAnchor already granted ANCHOR_ROLE to oracle signer")
+        else:
+            with console.status("[bold blue]Granting oracle ANCHOR_ROLE..."):
+                chain.grant_anchor_role(w3, evm_account, sovereign_agent, state_anchor, oracle_signer, chain_id, nonce=next_nonce)
+            console.print("  [green]done[/green] granted ANCHOR_ROLE to oracle signer")
+            next_nonce += 1
+            time.sleep(3)
 
-        with console.status("[bold blue]Anchoring genesis memory root..."):
-            chain.anchor_root(w3, evm_account, sovereign_agent, state_anchor, chain_id, nonce=next_nonce)
-        console.print("  [green]done[/green] anchored genesis memory root")
-        next_nonce += 1
-        time.sleep(3)
+        # Re-anchoring against a StateAnchor that already has a non-zero root is
+        # unverified/likely-unsafe territory (see integrity_sdk.chain.anchor_genesis_root's
+        # docstring) -- checked explicitly rather than assumed safe to retry.
+        if chain.state_anchor_latest_root(w3, state_anchor) != b"\x00" * 32:
+            console.print("  [dim]skip[/dim] StateAnchor already has a non-zero root -- skipping re-anchor")
+        else:
+            with console.status("[bold blue]Anchoring genesis memory root..."):
+                chain.anchor_root(w3, evm_account, sovereign_agent, state_anchor, chain_id, nonce=next_nonce)
+            console.print("  [green]done[/green] anchored genesis memory root")
+            next_nonce += 1
+            time.sleep(3)
 
         domain_id = keccak(text=domain)
         with console.status("[bold blue]Registering primitives..."):
@@ -428,63 +594,14 @@ def agent_register(
     primitives_path = identity.IDENTITY_DIR / f"{identity_name}.primitives.json"
     doc_path.write_text(json.dumps(doc, indent=2) + "\n")
     primitives_path.write_text(json.dumps(registration.to_dict(), indent=2) + "\n")
+    # registerPrimitives just succeeded -- resolve_did's idempotency check (top of this
+    # command) now covers this DID going forward, so the progress file has done its job.
+    _clear_registration_progress(identity_name)
 
     if not skip_oracle:
-        oracle_client = IntegrityClient(base_url=oracle_url)
-        # Payload shape is pinned by integrity-oracle's real
-        # `RegisterAgentRequest` struct (handlers.rs) -- see
-        # docs/INTERFACE_CONTRACT.md §6.3. This used to drift from that
-        # struct in three ways (found 2026-07-09, mirroring the identical
-        # bug integrity-sdk's registration.py had until the same day -- see
-        # docs/wiki/WIKI_LOG.md and entities/integrity-cli.md's now-resolved
-        # "Known open gap"):
-        #   1. The DID field is named `did`, not `agent_id` -- sending
-        #      `agent_id` left the struct's required `did` field missing,
-        #      which serde rejects (422) before the handler runs.
-        #   2. `primitives` must be exactly the 7-address PrimitiveSetDto
-        #      shape -- built explicitly here rather than
-        #      `registration.to_dict()`, which also carries
-        #      `did`/`evm_address`/`domain_id`/`oracle_registered` (fields
-        #      PrimitiveSetDto doesn't have; serde ignores unknown fields by
-        #      default, but this keeps the payload exact rather than relying
-        #      on that permissiveness).
-        #   3. The handler requires at least one of `ed25519_pubkey_hex` /
-        #      `eth_address_hex` (400 if both are absent). Both are sent
-        #      here since this command always has both by this point.
-        # `alias`/`description` have no on-chain equivalent but are useful
-        # human-readable metadata this CLI has always collected (see the
-        # --alias/--desc options) -- kept alongside the required fields
-        # above; the oracle's struct has no `deny_unknown_fields`, so serde
-        # simply ignores them.
-        private_key = identity.load_private_key(identity_name)
-        payload = {
-            "did": agent_did,
-            "did_document": doc,
-            "primitives": {
-                "sovereign_agent": registration.sovereign_agent,
-                "state_anchor": registration.state_anchor,
-                "reputation_registry": registration.reputation_registry,
-                "slasher": registration.slasher,
-                "verifier_registry": registration.verifier_registry,
-                "compliance_gate": registration.compliance_gate,
-                "agent_profile": registration.agent_profile,
-            },
-            "ed25519_pubkey_hex": "0x" + private_key.public_key().public_bytes_raw().hex(),
-            "eth_address_hex": evm_account.address,
-            "alias": alias,
-            "description": description,
-        }
-        try:
-            with console.status("[bold blue]Registering with Oracle..."):
-                oracle_client.post("/v1/agent/register", json_data=payload)
-            registration.oracle_registered = True
-            console.print("  [green]done[/green] Oracle accepted the registration")
-        except ApiError as e:
-            console.print(
-                f"[bold red]Error:[/bold red] on-chain registration succeeded (SovereignAgent "
-                f"{sovereign_agent}) but Oracle registration failed: {e}"
-            )
-            raise typer.Exit(1)
+        _post_registration_to_oracle(
+            oracle_url, agent_did, doc, registration, identity_name, evm_account, alias, description, idempotent=False
+        )
 
     console.print(f"[bold green]Registered:[/bold green] {agent_did}")
     console.print_json(data=registration.to_dict())
