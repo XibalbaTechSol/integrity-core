@@ -1542,3 +1542,43 @@ provisional floors and enforcing now anyway (rejected — an agent failing a flo
 `ais`/`constraint_score`, which can trigger `Slasher.raiseDispute` via
 `bcc_middleware/app/scoring_loop.py` and drop PHI-gate access via `EHRGate`/
 `ComplianceGate`, too consequential to base on one data point).
+
+## 28. Registration non-idempotency: fixed in `integrity-sdk`, still open in `integrity-cli`
+
+*Current State:* `integrity_sdk/registration.py`'s `register_agent()` deploys a
+`SovereignAgent`/`StateAnchor` pair (steps 5-6), then mints testnet ITK, grants `ANCHOR_ROLE`,
+and anchors a genesis root (steps 7-8b) before the final `registerPrimitives` (step 9). Its
+only idempotency check — `resolve_did()` against `XibalbaAgentRegistry` — only starts matching
+once step 9 has *already* succeeded, so every retry after a failure anywhere in steps 4-8b
+deployed a fresh, throwaway pair. This is not hypothetical: it's the exact shape of five
+separate real incidents on Base Sepolia across two sessions (2026-08-14, 2026-08-17 — see the
+registration entry above, items 3/4/7), each leaving a real, orphaned, gas-paid
+`SovereignAgent`/`StateAnchor` pair with no cleanup path.
+
+* **CLOSED in `integrity-sdk`** — `register_agent()` now persists a
+  `registration_progress.json` next to the DID's `document.json` immediately after
+  `SovereignAgent`/`StateAnchor` deploy succeeds (steps 5-6), and checks it (verifying real
+  bytecode via `eth_getCode` before trusting it — the same lesson the phantom-factory incident
+  taught about blindly trusting a recorded address) before attempting a fresh deploy on any
+  subsequent call. Steps 7 (ITK mint — NOT idempotent, a retry would double-mint) and 8b
+  (genesis root anchor — re-running against an already-anchored `StateAnchor` was previously
+  unverified territory, not actually protected by the `resolve_did` short-circuit the old
+  comment claimed) are now also checked before re-running, via two new `chain.py` read helpers
+  (`itk_balance`, `state_anchor_latest_root`). Step 8 (`grant_anchor_role`) was already safe —
+  OZ's `grantRole` no-ops if already held — but is now checked first too, to skip the
+  redundant transaction rather than just tolerate it. The progress file is cleared once
+  `registerPrimitives` succeeds (the point `resolve_did`'s own check takes over) or once an
+  early idempotent return confirms the DID is already fully registered. Two new regression
+  tests against a real local anvil chain (`tests/test_registration.py`): one simulates
+  `registerPrimitives` failing on the first call and succeeding on a retry, asserting the
+  SAME `SovereignAgent`/`StateAnchor` addresses are reused; the other asserts a progress file
+  pointing at bytecode-less addresses is discarded rather than trusted. Full suite green (264
+  passed / 3 skipped, up from 262 by exactly the 2 new tests).
+* **Still open — `integrity-cli` has its own, independent copy of this registration flow**
+  (`integrity_cli/main.py`/`chain.py`) that doesn't import `integrity-sdk` at all (see
+  `CLAUDE.md`'s "SDK vs CLI" section) and doesn't have even the *basic* `resolve_did`
+  idempotency check, let alone the deploy-resume logic above — a retry via the CLI today
+  would unconditionally deploy a fresh pair on every call, worse than the SDK's pre-fix
+  behavior. Not fixed in this pass — the real incidents that burned gas all went through
+  `integrity-sdk` (`xibalba-shield/scripts/register_with_oracle.py`), and porting this fix
+  to the CLI's independent implementation is real, separate scope, not a quick mirror.

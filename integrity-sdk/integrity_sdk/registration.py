@@ -79,6 +79,51 @@ class RegistrationError(RuntimeError):
     caller has to dig through logs to diagnose."""
 
 
+def _progress_path(agent_id: Optional[str]):
+    """Where a not-yet-fully-registered agent's already-deployed SovereignAgent/
+    StateAnchor addresses are recorded, so a subsequent call (a manual retry, or
+    an operator re-running the same registration script) resumes from them
+    instead of deploying a fresh pair. Separate file from `primitives.json`
+    (written only on full success, step 10) so the two can never be confused —
+    this file's mere existence means "incomplete," `primitives.json`'s means
+    "done."
+
+    Real motivation, not speculative: every documented orphaned SovereignAgent/
+    StateAnchor pair on Base Sepolia (PRODUCTION_GAPS.md's registration entry)
+    came from exactly this gap — a failure after step 5/6 left nothing on disk
+    recording what had already been deployed, so the next attempt (whether an
+    operator's manual retry or this function called again) always deployed a
+    second, throwaway pair. Real testnet gas, real abandoned contracts, five
+    incidents across two sessions before this fix.
+    """
+    return did.agent_dir(agent_id) / "registration_progress.json"
+
+
+def _load_deploy_progress(agent_id: Optional[str]) -> Optional[dict]:
+    path = _progress_path(agent_id)
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        # Corrupt/unreadable progress file must never block registration —
+        # treat exactly like "no progress recorded" and deploy fresh.
+        return None
+
+
+def _save_deploy_progress(agent_id: Optional[str], **fields: str) -> None:
+    path = _progress_path(agent_id)
+    existing = _load_deploy_progress(agent_id) or {}
+    existing.update(fields)
+    path.write_text(json.dumps(existing))
+
+
+def _clear_deploy_progress(agent_id: Optional[str]) -> None:
+    path = _progress_path(agent_id)
+    if path.exists():
+        path.unlink()
+
+
 @dataclass
 class AgentRegistration:
     did: str
@@ -190,6 +235,7 @@ def register_agent(
         doc_path.write_text(json.dumps(doc, indent=2) + "\n")
         primitives_path = did.agent_dir(agent_id) / "primitives.json"
         primitives_path.write_text(json.dumps(registration.to_dict(), indent=2) + "\n")
+        _clear_deploy_progress(agent_id)  # fully registered on-chain -- any lingering progress file is stale
 
         if not skip_oracle_registration:
             _post_to_oracle(oracle_url, agent_did, doc, registration, keypair, evm_account, idempotent=True)
@@ -211,11 +257,51 @@ def register_agent(
     # live on the SovereignAgent CONTRACT, not the wallet -- see the mint
     # step's comment below for why, and IntegrityMarket.sol/A2ACapitalPool.sol
     # for the downstream contracts that require it.
-    try:
-        sovereign_agent = chain.deploy_sovereign_agent(w3, evm_account, agent_did, oracle_signer, chain_id)
-        state_anchor = chain.deploy_state_anchor(w3, evm_account, sovereign_agent, chain_id)
-    except Exception as exc:  # noqa: BLE001
-        raise RegistrationError(f"step 5/6 (direct primitive deploy) failed: {exc}") from exc
+    #
+    # Resume-from-partial-failure: before deploying anything, check whether a
+    # prior call already got a SovereignAgent/StateAnchor on-chain for this
+    # exact agent_id and simply never finished (steps 7+ failing, e.g. the two
+    # missing-role incidents in PRODUCTION_GAPS.md's registration entry). If
+    # so, verify each recorded address genuinely has deployed bytecode --
+    # never trust a locally-recorded address blindly, the same lesson the
+    # phantom-factory incident (PRODUCTION_GAPS.md, same entry) taught the
+    # hard way about deployments.baseSepolia.json -- and reuse them instead of
+    # paying to deploy a second, throwaway pair. A stale/invalid record (empty
+    # bytecode) is silently discarded and this falls through to a fresh
+    # deploy, exactly like having no progress file at all.
+    progress = _load_deploy_progress(agent_id)
+    sovereign_agent = progress.get("sovereign_agent") if progress else None
+    state_anchor = progress.get("state_anchor") if progress else None
+    if sovereign_agent and w3.eth.get_code(Web3.to_checksum_address(sovereign_agent)) in (b"", "0x"):
+        logger.warning("step 5: recorded SovereignAgent %s has no bytecode -- discarding stale progress", sovereign_agent)
+        sovereign_agent = None
+        state_anchor = None
+
+    if sovereign_agent:
+        logger.info("step 5: reusing already-deployed SovereignAgent %s (no new deploy)", sovereign_agent)
+    else:
+        try:
+            sovereign_agent = chain.deploy_sovereign_agent(w3, evm_account, agent_did, oracle_signer, chain_id)
+        except Exception as exc:  # noqa: BLE001
+            raise RegistrationError(f"step 5 (deploy_sovereign_agent) failed: {exc}") from exc
+        _save_deploy_progress(agent_id, sovereign_agent=sovereign_agent)
+
+    if state_anchor and w3.eth.get_code(Web3.to_checksum_address(state_anchor)) in (b"", "0x"):
+        logger.warning("step 6: recorded StateAnchor %s has no bytecode -- discarding stale progress", state_anchor)
+        state_anchor = None
+
+    if state_anchor:
+        logger.info("step 6: reusing already-deployed StateAnchor %s (no new deploy)", state_anchor)
+    else:
+        try:
+            state_anchor = chain.deploy_state_anchor(w3, evm_account, sovereign_agent, chain_id)
+        except Exception as exc:  # noqa: BLE001
+            raise RegistrationError(
+                f"step 6 (deploy_state_anchor) failed — SovereignAgent {sovereign_agent} was deployed "
+                f"and its address is saved in {_progress_path(agent_id)}; a retry will reuse it "
+                f"rather than deploying a second one: {exc}"
+            ) from exc
+        _save_deploy_progress(agent_id, sovereign_agent=sovereign_agent, state_anchor=state_anchor)
 
     # Step 7: testnet ITK allocation, minted to the SovereignAgent CONTRACT
     # address (not the wallet). Every AIS-gated application contract
@@ -229,7 +315,14 @@ def register_agent(
     # submits (via SovereignAgent.execute, see markets.py) would revert with
     # an ERC20 insufficient-balance error despite the agent's wallet holding
     # plenty of ITK it can never spend through that call path.
-    if testnet_itk_allocation_wei > 0:
+    # Skip re-minting on a retry that already got this far -- unlike grant_anchor_role
+    # below (idempotent by construction, OZ's grantRole no-ops if already held), minting
+    # again would genuinely double-issue ITK to the same SovereignAgent.
+    already_minted = testnet_itk_allocation_wei > 0 and chain.itk_balance(w3, itk_address, sovereign_agent) >= testnet_itk_allocation_wei
+    if already_minted:
+        logger.info("step 7: SovereignAgent %s already holds >= %s wei ITK -- skipping mint", sovereign_agent, testnet_itk_allocation_wei)
+
+    if testnet_itk_allocation_wei > 0 and not already_minted:
         # Preferred path: mint from the protocol's designated *liquidity agent* (e.g.
         # `xibalba.integrity`), so testnet ITK is issued by a registered agent through its
         # own `SovereignAgent.execute` and is attributable on-chain to that agent rather
@@ -278,14 +371,19 @@ def register_agent(
             except Exception as exc:  # noqa: BLE001
                 raise RegistrationError(f"step 7 (mint_testnet_itk) failed: {exc}") from exc
 
-    # Step 8: route the ANCHOR_ROLE grant through the agent's own contract.
-    try:
-        chain.grant_anchor_role(w3, evm_account, sovereign_agent, state_anchor, oracle_signer, chain_id)
-    except Exception as exc:  # noqa: BLE001
-        raise RegistrationError(
-            f"step 8 (grant_anchor_role) failed — SovereignAgent {sovereign_agent} and "
-            f"StateAnchor {state_anchor} were deployed but are not fully wired: {exc}"
-        ) from exc
+    # Step 8: route the ANCHOR_ROLE grant through the agent's own contract. Idempotent by
+    # construction (OZ's grantRole no-ops if the role is already held) but checked first
+    # anyway on a retry, to skip the transaction entirely rather than pay gas for a no-op.
+    if chain.has_anchor_role(w3, state_anchor, oracle_signer):
+        logger.info("step 8: StateAnchor %s already granted ANCHOR_ROLE to %s -- skipping", state_anchor, oracle_signer)
+    else:
+        try:
+            chain.grant_anchor_role(w3, evm_account, sovereign_agent, state_anchor, oracle_signer, chain_id)
+        except Exception as exc:  # noqa: BLE001
+            raise RegistrationError(
+                f"step 8 (grant_anchor_role) failed — SovereignAgent {sovereign_agent} and "
+                f"StateAnchor {state_anchor} were deployed but are not fully wired: {exc}"
+            ) from exc
 
     # Step 8b: anchor the genesis memory root, BEFORE registerPrimitives.
     #
@@ -295,16 +393,25 @@ def register_agent(
     # `POST /v1/agent/register` and returns 400 MemoryNotInitialized on a zero root. An
     # agent that skipped this step deploys fine on-chain and then cannot register with the
     # oracle — hence doing it here, inside the atomic registration flow, rather than
-    # leaving it to callers. Idempotence: re-running registration short-circuits earlier
-    # (step 0's on-chain resolve_did), so this never double-anchors a live agent.
-    try:
-        chain.anchor_genesis_root(w3, evm_account, sovereign_agent, state_anchor, chain_id)
-    except Exception as exc:  # noqa: BLE001
-        raise RegistrationError(
-            f"step 8b (anchor_genesis_root) failed — SovereignAgent {sovereign_agent} and "
-            f"StateAnchor {state_anchor} exist on-chain but the agent has no genesis memory "
-            f"root, so the oracle will reject it with MemoryNotInitialized: {exc}"
-        ) from exc
+    # leaving it to callers.
+    #
+    # Idempotence: NOT guaranteed solely by step 0's resolve_did short-circuit, despite
+    # what this comment used to claim -- resolve_did only catches a retry once
+    # registerPrimitives (step 9) has succeeded. A retry after step 9 itself fails (the
+    # exact shape of both real incidents in PRODUCTION_GAPS.md's registration entry) reaches
+    # this line again for the same StateAnchor, so it's checked explicitly here too, the
+    # same way steps 5-8 now are.
+    if chain.state_anchor_latest_root(w3, state_anchor) != b"\x00" * 32:
+        logger.info("step 8b: StateAnchor %s already has a non-zero root -- skipping re-anchor", state_anchor)
+    else:
+        try:
+            chain.anchor_genesis_root(w3, evm_account, sovereign_agent, state_anchor, chain_id)
+        except Exception as exc:  # noqa: BLE001
+            raise RegistrationError(
+                f"step 8b (anchor_genesis_root) failed — SovereignAgent {sovereign_agent} and "
+                f"StateAnchor {state_anchor} exist on-chain but the agent has no genesis memory "
+                f"root, so the oracle will reject it with MemoryNotInitialized: {exc}"
+            ) from exc
 
     # Step 9: clone + register the remaining 5.
     domain_id = keccak(text=domain_name)
@@ -347,6 +454,10 @@ def register_agent(
     doc_path.write_text(json.dumps(doc, indent=2) + "\n")
     primitives_path = did.agent_dir(agent_id) / "primitives.json"
     primitives_path.write_text(json.dumps(registration.to_dict(), indent=2) + "\n")
+    # registerPrimitives just succeeded -- resolve_did's idempotency check (top of this
+    # function) now covers this DID going forward, so the deploy-progress file has done its
+    # job and would only be misleading state to leave behind.
+    _clear_deploy_progress(agent_id)
 
     # Step 11: oracle independent re-verification.
     if not skip_oracle_registration:

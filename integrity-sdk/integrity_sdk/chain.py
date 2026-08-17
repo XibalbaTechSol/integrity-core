@@ -374,6 +374,35 @@ def grant_anchor_role(
     return tx_hash.hex()
 
 
+def has_anchor_role(w3: Web3, state_anchor_address: str, oracle_signer: str) -> bool:
+    """Read-only check for whether `grant_anchor_role` has already succeeded for this
+    StateAnchor — lets a registration retry skip a redundant (if harmless, since OZ's
+    `grantRole` is itself idempotent) transaction rather than assume it's needed."""
+    state_anchor = _contract(w3, "StateAnchor", address=state_anchor_address)
+    anchor_role = _call_with_retry(state_anchor.functions.ANCHOR_ROLE().call)
+    return _call_with_retry(
+        lambda: state_anchor.functions.hasRole(anchor_role, Web3.to_checksum_address(oracle_signer)).call()
+    )
+
+
+def itk_balance(w3: Web3, itk_address: str, holder_address: str) -> int:
+    """Read-only ITK balance check — lets a registration retry skip re-minting (which,
+    unlike `grantRole`, is NOT idempotent: calling `mint_testnet_itk` twice mints twice)."""
+    itk = _contract(w3, "IntegrityToken", address=itk_address)
+    return _call_with_retry(lambda: itk.functions.balanceOf(Web3.to_checksum_address(holder_address)).call())
+
+
+def state_anchor_latest_root(w3: Web3, state_anchor_address: str) -> bytes:
+    """Read-only `StateAnchor.latestRoot()` — a non-zero return means
+    `anchor_genesis_root` (or a later real anchor) has already run for this agent. Used by
+    a registration retry to skip re-anchoring, since re-running `anchorRoot` against a
+    StateAnchor that already has a non-zero root is exactly the "never double-anchors a
+    live agent" case `anchor_genesis_root`'s own docstring warns is unverified territory
+    once a caller can reach this step more than once for the same DID."""
+    state_anchor = _contract(w3, "StateAnchor", address=state_anchor_address)
+    return _call_with_retry(state_anchor.functions.latestRoot().call)
+
+
 #: Seed for the "initialized but empty Trust Vault" genesis root — see
 #: docs/INTERFACE_CONTRACT.md §4.4a. Hashed, never hardcoded as a hex literal, so every
 #: package that needs this value derives the same bytes from the same ASCII string.
