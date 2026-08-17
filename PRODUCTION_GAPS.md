@@ -1596,3 +1596,34 @@ registration entry above, items 3/4/7), each leaving a real, orphaned, gas-paid
   reuses the same addresses; the other asserts a second invocation for an already-registered
   identity is a genuine no-op. Full suite green (70 passed, up from 68 by exactly the 2 new
   tests; the Docker-gated oracle e2e test was not re-run, unrelated to this change).
+
+## 29. Phase I tracer-bullet slice — built, tested, NOT deployed (2026-08-17)
+
+*Current State:* per explicit user authorization of
+`docs/plans/2026-08-17-phase1-tracer-bullet-proposal.md`, built the minimal slice the proposal
+scoped: `contracts/src/kernel/IntegrityAccountV1Experimental.sol` +
+`IntegrityKernelV1Experimental.sol`. Non-upgradeable, non-deployed (not referenced by
+`Deploy.s.sol` or any script), single `CALLTYPE_SINGLE`/`EXECTYPE_DEFAULT` execution mode only,
+module mutation permanently disabled after the one atomic constructor-time kernel install, one
+conserved quantity (a native-value spend budget, per-operation and cumulative). Full precise
+guarantee statement and what it does NOT prove:
+`docs/design/phase1-tracer-bullet-slice-2026-08-17.md`.
+
+12 new Foundry tests (`contracts/test/IntegrityAccountV1Experimental.t.sol`), covering: in/out-of
+per-op-budget, exact cumulative-budget boundary vs. one-wei-over, all three rejected execution
+modes, both module-mutation entry points disabled (including against the real already-installed
+kernel, not a hypothetical), the hook rejecting non-account callers and out-of-sequence calls,
+and a genuine self-call reentrancy attempt against the `armed` guard. The reentrancy test was
+mutation-tested, not just written and trusted: temporarily removing the `armed` check makes the
+same test fail with a *different* error (`NotArmed` instead of `AlreadyArmed`), demonstrating the
+nested call's `postCheck` silently corrupts the outer call's own armed state without the guard —
+real evidence the guard does work, not decoration. `preCheck` gas measured live under the
+whitepaper's own Table 4 budget (`<=40k`), as a regression test, not a one-off number. Full repo
+suite green: 221/221 (up from 209 before this slice).
+
+**What this explicitly does not close:** any of the rest of the real Phase I plan (module
+governance, reference adapters beyond the one budget check, canonical intent encoding, the BCC
+`chain_id`/verifier-binding gap) remains unbuilt. No external audit has occurred — this slice
+does not clear the Devil's Advocate review's own stated gate to Phase II. Not deployed to Base
+Sepolia or anywhere else, and completing this slice is not itself grounds to deploy it — that
+would be a separate, later, separately-approved decision.

@@ -1,3 +1,65 @@
+# Handoff — 2026-08-17g (Phase I tracer-bullet slice: authorized, built, tested, not deployed)
+
+Continuation after 2026-08-17f below. This is the first Phase I code to exist anywhere in this
+repo — everything before this was architecture discovery, a Devil's Advocate review, and a plan.
+
+## 0. What happened, in order
+
+1. Reviewed Phase 0 (`IntegrityIdentityReadV1`) independently rather than trusting the prior
+   session's summary — verified the controller-check logic against `SovereignAgent`'s actual
+   role model, confirmed genuine `Deploy.s.sol` wiring, confirmed genuinely not yet on Base
+   Sepolia. No issues found.
+2. Reviewed Phase I's plan (`/home/xibalba/.claude/plans/where-are-we-with-dapper-gem.md`) and
+   the Devil's Advocate findings (`CLAUDE_HANDOFF_2026-08-17.md` §9) — spot-verified the plan's
+   three most load-bearing claims directly against code (`SovereignAgent.execute` is genuinely
+   ungated; OZ's hooked-account plumbing genuinely exists at the claimed path; BCC's signed
+   fields genuinely carry no `chain_id`/verifier binding). All three checked out.
+3. Scoped the review's own recommended minimal slice into
+   `docs/plans/2026-08-17-phase1-tracer-bullet-proposal.md` — explicit IN/OUT boundaries,
+   acceptance criteria, real risks stated. Committed as documentation only, not authorization.
+4. **User explicitly authorized the slice as scoped**, via a direct go/no-go decision, not a
+   general "continue."
+5. Built it, strict TDD throughout: real dependency inventory first
+   (`docs/design/phase1-slice-dependency-inventory-2026-08-17.md`, written before any Solidity),
+   then one failing test at a time. See §1 below for what exists.
+
+## 1. What exists now
+
+`contracts/src/kernel/IntegrityAccountV1Experimental.sol` +
+`IntegrityKernelV1Experimental.sol`, `contracts/test/IntegrityAccountV1Experimental.t.sol` (12
+tests), `docs/design/phase1-tracer-bullet-slice-2026-08-17.md` (the precise guarantee statement).
+Full detail in `PRODUCTION_GAPS.md` §29 — don't duplicate it here, read that entry for the
+verification table and what's explicitly NOT proven.
+
+**Load-bearing, not decorative — verified by mutation testing, not just written:** the kernel's
+`armed` reentrancy guard was proven to do real work by temporarily removing it and confirming the
+reentrancy test fails *differently* (a different revert reason, revealing real state corruption
+from the missing guard) rather than just failing generically. This is the standard this session
+tries to hold every claimed protection to.
+
+## 2. What this is NOT, stated again because it matters
+
+Not deployed anywhere. Not referenced by `Deploy.s.sol`. Not the full Phase I plan — module
+governance, reference adapters, canonical intent encoding, and the BCC replay-gap fix are all
+still unbuilt. Not audited — this slice does not clear the Devil's Advocate review's own gate to
+Phase II. Completing this slice is explicitly not grounds to deploy it or to claim "the kernel is
+built" — see the proposal doc's own risk section and the design note's "what this does NOT
+prove" list.
+
+## 3. State of the tree
+
+`forge build` clean, full suite 221/221 (up from 209). Committed and pushed to
+`audit/harness-loop-2026-07-30`.
+
+## 4. Next, if this is ever picked back up
+
+Nothing here is a queued next step by default — this was a scoped, bounded authorization, not an
+open door to the rest of Phase I. If continuing: the proposal doc's explicit OUT-of-scope list is
+the menu, and each item there would need its own review/authorization cycle the same way this
+slice did, not an assumption that authorizing the slice authorized the rest of the plan.
+
+---
+
 # Handoff — 2026-08-17f (Shield registration retry: real second root cause found, fixed, verified)
 
 With explicit user authorization for real Base Sepolia transactions, re-ran
