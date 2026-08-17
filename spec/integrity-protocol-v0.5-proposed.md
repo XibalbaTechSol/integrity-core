@@ -2,11 +2,11 @@
 
 **Status:** `[PROPOSED]` — not yet accepted as the active normative specification
 
-**Source proposal:** [Integrity Protocol Whitepaper v3.1](integrity-protocol-v3.1.md)
+**Source proposal:** [Integrity Protocol Whitepaper v3.2](integrity-protocol-v3.2.md) (superseded v3.1's copy of the same clauses at §3.1–§3.1.5; the AIS gate/floor definitions this document tracks did not change between the two revisions)
 
 **Current normative baseline:** [Integrity Protocol v0.4](integrity-protocol-v0.4.md)
 
-**Date:** 2026-08-17
+**Date:** 2026-08-17 (implementation-evidence addendum to §4.1/§4.3 added same day, below)
 
 ---
 
@@ -109,6 +109,18 @@ The assurance multiplier MUST remain outside this reputation input. A display sc
 The distinction between absent evidence and evidence showing failure MUST be preserved in evidence-class and margin telemetry even though both resolve to zero for the score.
 
 **Implementation status:** `[PARTIAL]` — the current implementation requires the v3.1 implementation delta to enforce all admissibility and floor rules.
+
+**Implementation evidence (2026-08-17), landed against clause 4.1's "no admissible evidence MUST evaluate to zero" only — clause 4.2's gate/floors are not yet implemented, see below:**
+
+| Clause 4.1 requirement | Code path | Test |
+|---|---|---|
+| Entropy: no admissible evidence ⇒ 0 | `integrity-oracle/backend/src/derive.rs::derive_entropy` | `derive::tests::empty_batch_entropy_and_grounding_fail_closed_to_zero` |
+| Grounding: no admissible evidence ⇒ 0 | `integrity-oracle/backend/src/derive.rs::derive_grounding` | `derive::tests::empty_batch_entropy_and_grounding_fail_closed_to_zero` |
+| Self-reported compliance signal: no admissible evidence ⇒ 0 | `integrity-oracle/backend/src/derive.rs::self_reported_compliance` | `derive::tests::self_reported_compliance_empty_batch_fails_closed_to_zero` |
+| Same three, client-side mirror | `integrity_sdk/telemetry/derive.py::derive_entropy`, `derive_grounding`, `derive_compliance` | `integrity-sdk/tests/unit/test_derive.py::test_derive_entropy_empty_batch_fails_closed_to_zero` and siblings |
+| Attack-scenario regression (content-bearing token count, no analysable text) | both of the above modules | `derive::tests::content_free_submission_with_token_counts_fails_closed_on_entropy_and_grounding` (Rust); `test_content_free_submission_with_token_counts_fails_closed_on_entropy_and_grounding` (Python) |
+
+**Not yet evidenced — do not read the table above as clause 4 being implemented:** compliance still admits the scored agent's own self-report as sole evidence for non-healthcare agents (violates 4.1's "an agent's own assertion... MUST NOT be sufficient"); sacrifice still has no validator/TEE attestation requirement; clause 4.2's declared floors and conjunctive Θ gate do not exist in `scoring-core`; and the pre-boost, clamped `r(ι)` accessor clause 4.2 requires as the constraint input is not exposed — `scoring-core::AisBreakdown::ais` remains the only reported value, post-boost and unclamped. Full detail: `PRODUCTION_GAPS.md` §27.
 
 ### 4.4 Versioned AIS profile and migration
 

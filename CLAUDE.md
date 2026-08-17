@@ -198,7 +198,25 @@ A weighted **geometric** mean, not arithmetic — so **any single zero component
 zeroes the entire score**. This is the most common way to misread AIS: an agent
 whose telemetry omits one axis (e.g. reports no token usage, so `sacrifice`
 derives to 0) scores 0.0 even with the other three axes perfect. Absent and
-catastrophic are currently indistinguishable here; see `PRODUCTION_GAPS.md`.
+catastrophic are deliberately indistinguishable here — both resolve to 0, which is
+correct under `spec/integrity-protocol-v3.2.md` §3.1.1's N2 ("earned, not granted"),
+not a bug to fix by relaxing it; see `PRODUCTION_GAPS.md`.
+
+As of 2026-08-17, `derive_entropy`/`derive_grounding`/`self_reported_compliance`
+(`integrity-oracle/backend/src/derive.rs`, mirrored in
+`integrity_sdk/telemetry/derive.py`) also fail closed to 0 on empty/no-evidence
+input — previously they defaulted to 1.0 (maximum), which let a submission with
+token counts but no analysable content outscore an honest, mediocre agent
+(§3.1.1's worked example). `derive_sacrifice` was always the only axis that failed
+closed; now three of four are. **Still open** (spec §3.1.4 rows 3–6, none landed in
+code yet): compliance still falls back to the agent's own self-reported flags for
+every non-healthcare agent (no independent evidence requirement), sacrifice is
+still self-reported token counts rather than validator/TEE-attested, there is no
+per-component floor + conjunctive gate (so a 90%-violation agent still reaches
+r≈0.631 rather than being gated to 0 — the "knife's-edge zero" problem the bare
+mean doesn't solve), and the reported `ais` field is still post-boost/unclamped
+rather than exposing the pre-boost, [0,1]-clamped value §3.1.1 eq. 4b requires as
+the actual constraint input.
 
 `ais-equations.html` at repo root is a standalone, polished static page presenting this formula
 and its components for a non-engineering audience (e.g. linked from marketing/pitch material) —

@@ -1355,3 +1355,51 @@ dropped, and `contracts/test/UltraPlonkVerifier.t.sol` was deleted in the same u
   `forge test --match-path test/UltraPlonkVerifier.t.sol -vvv` returned **4 passed, 0 failed**.
   This closes direct verifier coverage only; registry forwarding, proof regeneration from a clean
   environment, and deployed/on-chain verification remain separate gaps.
+
+## 27. AIS scoring — fail-open empty-evidence defaults inverted (2026-08-17)
+
+Found while implementing `spec/integrity-protocol-v3.2.md` §3.1.1's AIS redefinition
+(requirement N2, "earned, not granted") against the reference implementation. Verified
+numerically before touching any code, not assumed from the spec's description.
+
+* **CLOSED (rows 1–2 of §3.1.4's implementation-delta table) — `derive_entropy`,
+  `derive_grounding` (`integrity-oracle/backend/src/derive.rs`, mirrored in
+  `integrity_sdk/telemetry/derive.py`) and `self_reported_compliance`
+  (`derive.rs` only — `derive.py`'s `derive_compliance` had the same defect inline) all
+  returned **1.0 (maximum)** for an empty batch or a batch with no scoreable content.
+  Missing evidence therefore read as *perfect* evidence on three of the four AIS axes —
+  only `derive_sacrifice` failed closed to 0. Because `scoring-core::score` is a weighted
+  **geometric** mean (`AIS = S_entropy^0.3 · S_grounding^0.3 · S_sacrifice^0.2 ·
+  S_compliance^0.2`), this meant a submission carrying token counts but **no analysable
+  content** — maximal entropy/grounding/compliance by default, plus a self-reported
+  `sacrifice` claim — scored **r = 0.923** at 100 claimed GPU-hours, while an honest agent
+  reporting real-but-mediocre telemetry across all four axes scored **0.465**. The
+  content-free agent outscored the honest one roughly two-to-one, inverting the incentive
+  the metric exists to create.
+* **Fix:** all three now return `0.0` on empty/no-evidence input. Verified: the same
+  content-free-but-token-bearing submission now scores entropy=0 and grounding=0
+  regardless of claimed sacrifice — `scoring-core`'s existing geometric-mean annihilation
+  (any single exact zero zeroes the product; see its own
+  `any_single_zero_component_annihilates_ais` test) does the rest without needing rows
+  5–6 below. New regression tests:
+  `integrity-oracle/backend/src/derive.rs::content_free_submission_with_token_counts_fails_closed_on_entropy_and_grounding`
+  and
+  `integrity-sdk/tests/unit/test_derive.py::test_content_free_submission_with_token_counts_fails_closed_on_entropy_and_grounding`.
+  Full suites green: oracle workspace 137/137 (`cargo test --workspace --lib`), SDK 262
+  passed/3 skipped (`uv run pytest tests/`).
+* **Still open (§3.1.4 rows 3–6, none landed in code) — do not consider this gap fully
+  closed.** Compliance still falls back to the agent's own self-reported
+  `policy_violation`/`flagged` metadata for every non-healthcare agent (row 3);
+  `derive_sacrifice` still divides self-reported token counts by a proxy constant instead
+  of requiring validator/TEE attestation (row 4); there is no declared per-component floor
+  or conjunctive Θ gate (row 5) — a 90%-violation agent still reaches r≈0.631 under the
+  bare geometric mean, since only an *exact* zero annihilates the product, not a small
+  positive value; and the oracle's published `ais` field is still post-boost and unclamped
+  (up to 1150) rather than exposing the pre-boost, `[0,1]`-clamped accessor §3.1.1 eq. 4b
+  requires as the actual constraint input (row 6). Rows 3–4 are blocked on attestation
+  infrastructure the spec assigns to Phase III (§10.2); rows 5–6 are not code-complex but
+  change AIS's output for every currently-registered agent, and this repo pushes AIS to
+  chain automatically (`bcc_middleware/app/scoring_loop.py`, default 300s) and can raise a
+  real `Slasher.raiseDispute` off the resulting score — landing rows 5–6 needs a dry-run
+  against the live agent set first, not a direct edit. See `HANDOFF.md`'s 2026-08-17
+  section (and its later addendum) for the full priority ordering.

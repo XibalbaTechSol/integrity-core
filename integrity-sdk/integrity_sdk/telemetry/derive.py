@@ -106,17 +106,21 @@ def _entry_grounding(entry: Dict[str, Any]) -> Optional[float]:
 
 def derive_entropy(batch: List[Dict[str, Any]]) -> float:
     """Batch-mean stability score across every entry that has a completion
-    text or a pre-computed value. Returns 1.0 (no evidence of instability)
-    for an empty batch or a batch with no scoreable entries — an agent that
-    hasn't produced any output yet shouldn't be penalized as if it had
-    produced erratic output."""
+    text or a pre-computed value. Returns 0.0 for an empty batch or a batch
+    with no scoreable entries — spec/integrity-protocol-v3.2.md §3.1.1
+    requirement N2 ("earned, not granted"): absence of evidence must score
+    low, not high. This mirrors integrity-oracle/backend/src/derive.rs's
+    server-side recomputation, which is what the oracle actually scores on;
+    a client-side default that disagreed would just be a misleading display
+    value."""
     values = [v for v in (_entry_entropy(e) for e in batch) if v is not None]
-    return sum(values) / len(values) if values else 1.0
+    return sum(values) / len(values) if values else 0.0
 
 
 def derive_grounding(batch: List[Dict[str, Any]]) -> float:
+    """See `derive_entropy`'s docstring — same fail-closed rationale (spec §3.1.1 N2)."""
     values = [v for v in (_entry_grounding(e) for e in batch) if v is not None]
-    return sum(values) / len(values) if values else 1.0
+    return sum(values) / len(values) if values else 0.0
 
 
 # Ceiling chosen so a single, realistically-sized agent session (a few dozen
@@ -244,7 +248,9 @@ def derive_compliance(
         if metadata.get("policy_violation") or metadata.get("flagged"):
             flagged_count += 1
 
-    self_reported = 1.0 - (flagged_count / total) if total > 0 else 1.0
+    # Empty batch fails closed to 0.0 (spec §3.1.1 N2) — absence of compliance
+    # evidence is not evidence of compliance.
+    self_reported = 1.0 - (flagged_count / total) if total > 0 else 0.0
 
     if compliance_gate_address and covered_entity_address and w3 is not None:
         try:

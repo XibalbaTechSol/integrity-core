@@ -43,8 +43,26 @@ def test_derive_entropy_recomputes_from_text_when_no_precomputed():
     assert derive.derive_entropy(batch) == 1.0
 
 
-def test_derive_entropy_empty_batch_is_max():
-    assert derive.derive_entropy([]) == 1.0
+def test_derive_entropy_empty_batch_fails_closed_to_zero():
+    assert derive.derive_entropy([]) == 0.0
+
+
+def test_derive_grounding_empty_batch_fails_closed_to_zero():
+    assert derive.derive_grounding([]) == 0.0
+
+
+def test_derive_compliance_empty_batch_fails_closed_to_zero():
+    assert derive.derive_compliance([]) == 0.0
+
+
+def test_content_free_submission_with_token_counts_fails_closed_on_entropy_and_grounding():
+    # Regression for the attack this fix closes (spec/integrity-protocol-v3.2.md
+    # §3.1.1): a submission carrying token counts (so sacrifice is nonzero) but no
+    # analysable text_output must not read as maximally stable and grounded.
+    batch = [{"metadata": {"token_usage": {"total_tokens": 5_000_000}}}]
+    assert derive.derive_entropy(batch) == 0.0
+    assert derive.derive_grounding(batch) == 0.0
+    assert derive.derive_sacrifice(batch) > 0.0
 
 
 def test_derive_sacrifice_scales_with_total_tokens():

@@ -1,6 +1,126 @@
+# Handoff — 2026-08-17b (AIS fail-closed defaults landed; v0.5-proposed evidence trail; open-item triage)
+
+Continuation of the same-day session below, picking up its own priority-ordered open-items
+list (§3). Landed on top of the already-committed `3372db5`; nothing here has been committed
+yet — see "State of the tree" at the end of this section.
+
+## 0. What actually changed
+
+**Landed HANDOFF §3 item 1 — `derive.rs` fail-open defaults, items 1–2 of spec
+§3.1.4's implementation-delta table.** `derive_entropy`, `derive_grounding`
+(`integrity-oracle/backend/src/derive.rs`) and `self_reported_compliance` (same file) now
+return `0.0` on an empty batch instead of `1.0`. Mirrored in
+`integrity_sdk/telemetry/derive.py`'s `derive_entropy`, `derive_grounding`, and the
+self-reported half of `derive_compliance` — these were not previously in lockstep with the
+Rust side's fix scope; both now are. This is the fix the earlier section's §0 called "the
+highest-value open item."
+
+**Why this alone closes the numerically-verified attack, without needing the floor/gate
+(item 5, still open):** `scoring-core::score` is a weighted *geometric* mean, and
+`scoring-core`'s own `any_single_zero_component_annihilates_ais` test already establishes
+that any exact-zero component annihilates the product. Entropy and grounding now derive to
+exactly `0.0` on content-free input (not a small positive number), so the attack scenario
+from the earlier section's §0 (content-free submission, claimed GPU-hours, r = 0.923) now
+independently gates to `r = 0.000` through the existing mean, with no new gate code
+required. The honest-agent case (real telemetry on all four axes, r = 0.465) is untouched
+— its axes are non-empty, so the changed branch never fires. Verified as a direct regression
+test, not just reasoned about:
+`derive::tests::content_free_submission_with_token_counts_fails_closed_on_entropy_and_grounding`
+(Rust) and the Python sibling of the same name in `test_derive.py`.
+
+**Deliberately NOT landed — items 3–6 of the same table (compliance/sacrifice attestation,
+floors + Θ gate, pre-boost clamp).** These change AIS's *output value* for every currently
+registered agent, and this repo pushes AIS to chain automatically
+(`bcc_middleware/app/scoring_loop.py`, default `SCORE_SYNC_INTERVAL_SECONDS=300`) and can
+fire a real `Slasher.raiseDispute` off the resulting flagged ratio, locking
+`DISPUTE_STAKE_BPS` (default 10%) of an agent's stake. Landing those needs a dry-run score
+table against the live agent set *first* — advised against and not attempted this session.
+See §2 below.
+
+## 1. What was verified
+
+| Suite | Result |
+|---|---|
+| `cargo test --workspace --lib` (`integrity-oracle`) | **137 passed** (126 backend + 11 scoring-core), 0 failed — verified directly this session; not compared against the prior session's recorded 130, since `CLAUDE.md` itself warns per-package test counts drift across docs and aren't auto-updated |
+| `uv run pytest tests/` (`integrity-sdk`) | **262 passed / 3 skipped**, up from the prior session's recorded 259 passed/3 skipped — 1 existing test renamed in place (`test_derive_entropy_empty_batch_is_max` → `..._fails_closed_to_zero`, assertion flipped, no count change) plus 3 new tests added |
+
+No e2e run (`ORACLE_E2E=1 cargo test --test e2e`) this session — the change is in a pure
+function exercised directly by unit tests; the e2e suite needs a live Postgres/Redis it
+wasn't worth standing up for a 6-line fix already covered at the unit level. If the exact
+ingest-path wiring (`handlers::ingest_telemetry` → `derive::recompute`) is ever suspected of
+drifting from these pure functions, that's the suite to re-run — see the earlier section's
+own note that `--lib` doesn't exercise the ingest path.
+
+## 2. Devil's-Advocate gate on items 3–6 — explicitly not run, explicitly required before landing
+
+Per the operating profile's own carve-out (foundational security/identity-boundary changes
+warrant a red-team pass; routine work doesn't), items 5–6 cross that line because they
+change every registered agent's on-chain score and can trigger slashing. **Before landing
+them:** pull the live agent set from `XibalbaAgentRegistry`, recompute AIS under the
+proposed floors+gate for each using its actual recent telemetry, and diff against today's
+pushed scores — specifically flag any agent that would newly fall below a
+`DISPUTE_FLAGGED_RATIO_THRESHOLD` or lose PHI-gate access it currently has under
+`EHRGate`/`ComplianceGate`. Only after that table exists should a Devil's-Advocate pass run
+against the floor *values* chosen (§3.1.1's Table 1a leaves `S_E^floor`, `S_G^floor`,
+`S_C^floor` as symbols, not numbers — picking the actual thresholds is itself a decision
+this session did not make).
+
+## 3. Other continuation work this session
+
+- **Documentation kept in lockstep, not left to drift:** `CLAUDE.md`'s AIS-scoring section
+  now states which axes fail closed as of this fix and lists rows 3–6 as explicitly still
+  open (it previously said nothing about the empty-batch defaults at all).
+  `PRODUCTION_GAPS.md` gained `§27` recording the vulnerability, the fix, and what's still
+  open — appended, not merged into any existing entry (no prior entry named this
+  specifically). `spec/integrity-protocol-v0.5-proposed.md` §4.1 gained a clause →
+  code-path → test-name evidence table for the two landed requirements, explicitly scoped
+  to *not* claim clause 4.2 (the gate) is implemented — the document's `[PARTIAL]` status
+  line for this section is unchanged, correctly, since the gate itself still doesn't exist.
+- **Did not touch:** `ais-equations.html` — checked, and it presents the formula *shape*
+  (weights, geometric mean, ZK boost), which did not change; only empty-input *behavior*
+  did, which isn't represented there. Re-check this call if items 5–6 land — a floor/gate
+  is a shape change the page's own sync rule would then require.
+- **Did not touch:** `integrity-cli` — confirmed by grep it holds no independent copy of
+  `derive_entropy`/`derive_grounding`/`self_reported_compliance` logic (per `CLAUDE.md`,
+  the CLI reimplements identity/wallet/chain/BCC, not AIS derivation), so there is nothing
+  there to bring into lockstep.
+
+## 4. State of the tree
+
+Working-tree changes only, not committed: `integrity-oracle/backend/src/derive.rs`,
+`integrity-sdk/integrity_sdk/telemetry/derive.py`,
+`integrity-sdk/tests/unit/test_derive.py`, `CLAUDE.md`, `PRODUCTION_GAPS.md`,
+`spec/integrity-protocol-v0.5-proposed.md`, this file. Run `git status`/`git diff` before
+trusting this list — it was accurate at time of writing, not re-verified after.
+
+## 5. Next, in the earlier section's own priority order, adjusted
+
+1. ~~`derive.rs` items 1–2~~ **DONE — this section.**
+2. Cortex Merkle malleability — still open, still a separate bounded lane in
+   `xibalba-cortex`, not touched here.
+3. Registration retry — still open; unrelated to this session's AIS work.
+4. Doc alignment — partially advanced (CLAUDE.md, PRODUCTION_GAPS.md,
+   v0.5-proposed.md above); `docs/INTERFACE_CONTRACT.md` not yet touched.
+5. Signer-role rotation — still blocked on operator input, unrelated to this session.
+6. Orphaned testnet contracts — still open, unrelated to this session.
+7. **New, added by this session:** items 3–6 of §3.1.4, gated on the dry-run + review in §2
+   above — do not land by editing `scoring-core`/`derive.rs` directly from the spec table
+   without that first.
+
+---
+
 # Handoff — 2026-08-17 (whitepaper v3.2, AIS scoring defect, registration root-caused)
 
-Cross-repo session. **Nothing was committed** — all changes are uncommitted working-tree edits.
+**Correction (2026-08-17, later same day): this section's original claim that "nothing was
+committed" is false.** Commit `3372db5` ("Whitepaper v3.2, AIS redefinition, and registration
+root cause") landed everything this section describes, including this file. Left in place
+uncorrected rather than rewritten, per this file's own 2026-08-12 precedent of not silently
+rewriting historical entries — read `§0`/`§4` below as describing the working tree at the
+moment this section was drafted, not the repo's state after the session ended. See the new
+section at the top of this file for what happened after that commit.
+
+Cross-repo session. ~~**Nothing was committed** — all changes are uncommitted working-tree edits.~~
+**(Corrected above — this was committed as `3372db5`.)**
 Every claim below was verified directly (tests run, chain reads, PDFs parsed), not inferred.
 
 ## 0. If you take away nothing else
