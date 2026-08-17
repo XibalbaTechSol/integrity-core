@@ -3,8 +3,8 @@
 Compiled knowledge base for the Integrity Protocol monorepo — a trust/
 compliance layer for AI agents on Base L2. This page is the map; every
 section below links to the real page. Governance/conventions:
-`WIKI_SCHEMA.md` (page format), `WIKI_INDEX.md` (the full catalog with
-one-line descriptions — the canonical index this page summarizes),
+`WIKI_SCHEMA.md` (page format), this `index.md` (the canonical catalog),
+`WIKI_INDEX.md` (a retained legacy catalog),
 `WIKI_LOG.md` (chronological history, append-only). Cross-package
 decisions live in `../INTERFACE_CONTRACT.md`; how this wiki gets kept in
 sync with the code is `../../.agents/AGENTS.md`.
@@ -16,6 +16,13 @@ sync with the code is `../../.agents/AGENTS.md`.
 gates registration), then [AIS](concepts/ais.md) (the trust score) and
 [Telemetry Ingestion Pipeline](concepts/telemetry-ingestion.md) (how
 agent behavior becomes that score).
+
+## Specification authority — 2026-08-17
+
+- [Integrity Protocol v0.4](../../spec/integrity-protocol-v0.4.md) is the accepted normative baseline.
+- [Integrity Protocol v0.5 proposed](../../spec/integrity-protocol-v0.5-proposed.md) is the new non-authoritative amendment under review.
+- [Whitepaper v3.2](../../spec/integrity-protocol-v3.2.md) is explanatory and non-normative.
+- The v3.2 PDF is generated publication output; code, tests, and deployments are separate implementation evidence layers.
 
 ## Current cross-repository audit — 2026-08-06
 

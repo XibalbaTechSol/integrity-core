@@ -83,29 +83,40 @@ contract DeployEHRGate is Script {
             singletons, "UltraPlonkVerifier", vm.parseJsonAddress(existingJson, ".singletons.UltraPlonkVerifier")
         );
         vm.serializeAddress(singletons, "XibalbaAgentRegistry", registry);
+        if (vm.keyExistsJson(existingJson, ".singletons.IntegrityIdentityReadV1")) {
+            vm.serializeAddress(
+                singletons,
+                "IntegrityIdentityReadV1",
+                vm.parseJsonAddress(existingJson, ".singletons.IntegrityIdentityReadV1")
+            );
+        }
         if (vm.keyExistsJson(existingJson, ".singletons.XibalbaNameService")) {
             vm.serializeAddress(
                 singletons, "XibalbaNameService", vm.parseJsonAddress(existingJson, ".singletons.XibalbaNameService")
             );
         } else {
-            console2.log("NOTE: .singletons.XibalbaNameService was absent from the existing file before this run too -- not written here either. See PRODUCTION_GAPS.md Sec4.");
+            console2.log(
+                "NOTE: .singletons.XibalbaNameService was absent from the existing file before this run too -- not written here either. See PRODUCTION_GAPS.md Sec4."
+            );
         }
         vm.serializeAddress(
             singletons, "DomainRegistry", vm.parseJsonAddress(existingJson, ".singletons.DomainRegistry")
         );
         vm.serializeAddress(
-            singletons, "AgentPrimitivesFactory", vm.parseJsonAddress(existingJson, ".singletons.AgentPrimitivesFactory")
+            singletons,
+            "AgentPrimitivesFactory",
+            vm.parseJsonAddress(existingJson, ".singletons.AgentPrimitivesFactory")
         );
         vm.serializeAddress(
             singletons, "CoveredEntityRegistry", vm.parseJsonAddress(existingJson, ".singletons.CoveredEntityRegistry")
         );
         vm.serializeAddress(singletons, "SmartBAAFactory", baaFactory);
         vm.serializeAddress(
-            singletons, "HIPAAGuardrailRegistry", vm.parseJsonAddress(existingJson, ".singletons.HIPAAGuardrailRegistry")
+            singletons,
+            "HIPAAGuardrailRegistry",
+            vm.parseJsonAddress(existingJson, ".singletons.HIPAAGuardrailRegistry")
         );
-        vm.serializeAddress(
-            singletons, "MarketFactory", vm.parseJsonAddress(existingJson, ".singletons.MarketFactory")
-        );
+        vm.serializeAddress(singletons, "MarketFactory", vm.parseJsonAddress(existingJson, ".singletons.MarketFactory"));
         vm.serializeAddress(
             singletons, "A2ACapitalPool", vm.parseJsonAddress(existingJson, ".singletons.A2ACapitalPool")
         );
@@ -161,12 +172,15 @@ contract DeployEHRGate is Script {
     function _rawSection(string memory json, string memory sectionKey) internal returns (string memory) {
         if (keccak256(bytes(sectionKey)) == keccak256(bytes("cloneTemplates"))) {
             string memory s = "cloneTemplatesTmp";
-            vm.serializeAddress(s, "ReputationRegistry", vm.parseJsonAddress(json, ".cloneTemplates.ReputationRegistry"));
+            vm.serializeAddress(
+                s, "ReputationRegistry", vm.parseJsonAddress(json, ".cloneTemplates.ReputationRegistry")
+            );
             vm.serializeAddress(s, "Slasher", vm.parseJsonAddress(json, ".cloneTemplates.Slasher"));
             vm.serializeAddress(s, "VerifierRegistry", vm.parseJsonAddress(json, ".cloneTemplates.VerifierRegistry"));
             vm.serializeAddress(s, "ComplianceGate", vm.parseJsonAddress(json, ".cloneTemplates.ComplianceGate"));
             vm.serializeAddress(s, "AgentProfile", vm.parseJsonAddress(json, ".cloneTemplates.AgentProfile"));
-            return vm.serializeAddress(s, "IntegrityMarket", vm.parseJsonAddress(json, ".cloneTemplates.IntegrityMarket"));
+            return
+                vm.serializeAddress(s, "IntegrityMarket", vm.parseJsonAddress(json, ".cloneTemplates.IntegrityMarket"));
         }
         string memory p = "protocolAddressesTmp";
         vm.serializeAddress(p, "oracleSigner", vm.parseJsonAddress(json, ".protocolAddresses.oracleSigner"));

@@ -713,6 +713,13 @@ The Integrity DID and `SovereignAgent` remain canonical. An 8004 NFT is a discov
 transfer must not silently move Integrity reputation. Optional: publish primitive addresses and
 the AIS endpoint in `agentURI`.
 
+**Implementation clarification (2026-08-17).** `IntegrityIdentityReadV1` now provides a
+tested, read-only Integrity-native projection over `XibalbaAgentRegistry` without migrating
+existing agents. It is not the ERC-8004 Identity Registry described above: it exposes no
+ERC-721 identifier, ownership, transfer, approval, wallet-proof, metadata-write, event, or
+ERC-165 semantics and returns `isERC8004Conformant() == false`. It therefore improves local
+discovery but does not satisfy or silently remove the optional native ERC-8004 integration gap.
+
 ---
 
 ## 17. Package Map and Status
@@ -1152,7 +1159,8 @@ Ordered by consequence. Cross-referenced with
 6. **Lineage attestation** + on-chain record (§7.4).
 7. **Silence-as-signal** for the observability obligation (§4.4).
 8. **Counterparty symmetry** — `counterparty_did` on BCC (§11).
-9. Optional ERC-8004 registration adapter for discovery (§16).
+9. Optional native ERC-8004 registration/convergence path for discovery (§16); the local
+   `IntegrityIdentityReadV1` custom profile is implemented but deliberately non-conformant.
 
 ---
 

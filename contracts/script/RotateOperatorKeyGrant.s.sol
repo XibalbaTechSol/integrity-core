@@ -182,7 +182,8 @@ contract RotateOperatorKeyGrant is Script {
         console2.log("new AgentPrimitivesFactory:", address(newFactory));
         console2.log("Verify new key's access before running RotateOperatorKeyRevoke.s.sol.");
 
-        if (vmSafe.isContext(VmSafe.ForgeContext.ScriptBroadcast) || vmSafe.isContext(VmSafe.ForgeContext.ScriptResume)) {
+        if (vmSafe.isContext(VmSafe.ForgeContext.ScriptBroadcast) || vmSafe.isContext(VmSafe.ForgeContext.ScriptResume))
+        {
             _mergeDeploymentsFile();
         } else {
             console2.log("Dry run (no --broadcast) -- skipping deployments file write.");
@@ -197,15 +198,20 @@ contract RotateOperatorKeyGrant is Script {
         vm.serializeAddress(singletons, "IntegrityToken", itk);
         vm.serializeAddress(singletons, "UltraPlonkVerifier", initialZkVerifier);
         vm.serializeAddress(singletons, "XibalbaAgentRegistry", registry);
+        if (vm.keyExistsJson(existingJson, ".singletons.IntegrityIdentityReadV1")) {
+            vm.serializeAddress(
+                singletons,
+                "IntegrityIdentityReadV1",
+                vm.parseJsonAddress(existingJson, ".singletons.IntegrityIdentityReadV1")
+            );
+        }
         vm.serializeAddress(singletons, "XibalbaNameService", xns);
         vm.serializeAddress(singletons, "DomainRegistry", domainRegistry);
         vm.serializeAddress(singletons, "AgentPrimitivesFactory", address(newFactory));
         vm.serializeAddress(singletons, "CoveredEntityRegistry", entityRegistry);
         vm.serializeAddress(singletons, "SmartBAAFactory", baaFactory);
         vm.serializeAddress(singletons, "HIPAAGuardrailRegistry", hipaaRegistry);
-        vm.serializeAddress(
-            singletons, "MarketFactory", vm.parseJsonAddress(existingJson, ".singletons.MarketFactory")
-        );
+        vm.serializeAddress(singletons, "MarketFactory", vm.parseJsonAddress(existingJson, ".singletons.MarketFactory"));
         vm.serializeAddress(singletons, "IntegrityGovernance", governanceContract);
         string memory singletonsJson = vm.serializeAddress(singletons, "A2ACapitalPool", a2aPool);
 

@@ -2,7 +2,7 @@
 title: Repository Implementation Plans
 acronyms: [AIS, BCC, DID, MVP]
 created: 2026-08-06
-updated: 2026-08-06
+updated: 2026-08-17
 type: architecture
 tags: [infrastructure, planning, roadmap, documentation]
 confidence: high
@@ -12,6 +12,8 @@ source_files:
   - README.md
   - docs/INTERFACE_CONTRACT.md
   - spec/integrity-protocol-v0.4.md
+  - spec/integrity-protocol-v0.5-proposed.md
+  - spec/integrity-protocol-v3.2.md
   - spec/xibalba-shield-v1.md
   - docs/audits/2026-08-06-cross-repository-status.md
 ---
@@ -75,9 +77,9 @@ integrity-core remains the protocol authority. Shield and graph memory do not be
 
 **Role:** Protocol trust backend: contracts, SDK, CLI, BCC middleware, Oracle/AIS, user API, dashboard, ZKP, canonical wiki, and protocol specs.
 
-**Specification authority:** `README.md`, `SPECIFICATION.md`, `PRODUCTION_GAPS.md`, `docs/INTERFACE_CONTRACT.md`, `spec/integrity-protocol-v0.4.md`, `spec/README.md`, `spec/ais-api/v1`, `docs/MAINNET_READINESS.md`, `docs/audits/2026-08-06-cross-repository-status.md`, and `docs/wiki/`.
+**Specification authority:** `spec/integrity-protocol-v0.4.md` is accepted normative authority. `spec/integrity-protocol-v0.5-proposed.md` is a proposed, non-authoritative delta. `spec/integrity-protocol-v3.2.md` is explanatory/non-normative. Current implementation evidence is maintained by `README.md`, `SPECIFICATION.md`, `PRODUCTION_GAPS.md`, `docs/INTERFACE_CONTRACT.md`, `docs/MAINNET_READINESS.md`, `HANDOFF.md`, and `docs/wiki/`.
 
-**Audit checkpoint:** Clean main has broad test evidence but main CI is red on SDK drift; PR #48 is green and unmerged. Base Sepolia deployment, source/role matching, production controls, and automatic-merge authority remain review items.
+**Audit checkpoint (2026-08-17):** Phase 0 is locally complete. The Foundry suite passes 209/209; `IntegrityIdentityReadV1` passes its 10 focused tests; the local generated verifier has real-proof negative-control coverage; and package Continuous Integration includes dashboard build/lint rather than a nonexistent unit-test script. Base Sepolia still lacks the identity facade and retains the older fail-closed verifier, so source capability is not deployed capability.
 
 **Closed:**
 
@@ -85,6 +87,9 @@ integrity-core remains the protocol authority. Shield and graph memory do not be
 - [x] Integrity Health, SmartBAA, ComplianceGate, Oracle/AIS, telemetry, BCC, SDK, CLI, user API, and ZKP packages exist.
 - [x] Canonical wiki exists and feeds downstream MVP/GitHub wiki projections.
 - [x] Protocol spec v0.4 is version-controlled Markdown and supersedes the archived v0.3 PDF.
+- [x] Phase 0 `IntegrityIdentityReadV1` is implemented locally, fails inconsistent mappings closed, preserves registry/AIS authority separation, and requires no agent migration.
+- [x] Whitepaper v3.2 and the proposed v0.5 delta are published with explicit explanatory/proposed authority labels.
+- [x] Future genesis and incremental deployment serialization preserve the optional identity singleton.
 - [x] Status vocabulary exists: VERIFIED, PARTIAL, PLANNED, BLOCKED, DEPRECATED, REMOVED.
 
 **Planned / todo:**
@@ -97,7 +102,9 @@ integrity-core remains the protocol authority. Shield and graph memory do not be
 - [ ] Implement lineage attestation, silence-as-signal handling, and required counterparty symmetry.
 - [ ] Add versioned BCC intent schema and conformance vectors.
 - [ ] Complete evidence-export Phase B/C and report examples.
-- [ ] Complete SDK test/implementation reconciliation through PR #48 review; do not merge automatically.
+- [ ] Review and accept or reject v0.5 clause-by-clause; keep it non-authoritative until that gate closes.
+- [ ] Reconcile the SDK prover with the canonical `integrity-zkp` circuit and add an on-chain proof-submission path.
+- [ ] Deploy and verify the generated verifier and identity facade only through separately approved Base Sepolia migrations.
 - [ ] Verify Base Sepolia deployment records against chain state, bytecode, roles, ownership, and configuration.
 - [ ] Resolve or explicitly preserve the automatic-merge workflow after human-review policy review.
 - [ ] Label clean-main, active-branch, and dirty-worktree evidence separately in docs.

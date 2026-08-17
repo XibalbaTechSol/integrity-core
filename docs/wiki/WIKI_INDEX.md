@@ -1,8 +1,11 @@
 # Integrity Protocol Wiki — Index
 
+> **Legacy catalog.** The canonical current index is [`index.md`](index.md). This file is
+> retained for historical links and must not override current status or specification authority.
+
 > Content catalog. Every page represents something that actually exists in
 > the codebase right now — see the schema's "no aspirational content" rule.
-> Last updated: 2026-08-06 | Total pages: 35 (24 concepts, 8 entities, 2 architecture, 1 query)
+> Last updated: 2026-08-17 | Total pages: 36 (25 concepts, 8 entities, 2 architecture, 1 query)
 
 ## Acronym glossary
 - [AIS](concepts/ais.md) — Agent Integrity Score
@@ -13,7 +16,7 @@
 - [ZKP](concepts/zkp.md) — Zero-Knowledge Proof(ing pipeline)
 
 ## Concepts
-- [Integrity Protocol Specification](concepts/integrity-specification.md) — current normative v0.4 living specification and the archived v0.3 PDF
+- [Integrity Protocol Specification](concepts/integrity-specification.md) — accepted v0.4, new non-authoritative v0.5 proposal, explanatory Whitepaper v3.2, and archived v0.3
 - [The Four Foundational Primitives](concepts/foundational-primitives.md) — memory, agent-owned contracts, authority, reputation: the **concepts**; **start here**
 - [Agent Primitives (Self-Sovereign Identity)](concepts/agent-primitives.md) — the 7 per-agent **contracts** (`PrimitiveSet`) — a different sense of "primitive", see the note at the top of both pages
 - [ComplianceGate & Integrity Health](concepts/compliance-gate.md) — the HIPAA/healthcare vertical
@@ -40,7 +43,7 @@
 - [AIS API — Versioned Wire Spec](concepts/ais-api-spec.md) — the generated, externally-supported `/v1/*` spec at `spec/ais-api/` (built)
 
 ## Entities (built)
-- [contracts](entities/contracts.md) — Solidity/Foundry: the 7 primitives, factory, registries, XNS, IntegrityGovernance, Integrity Health, market layer, $ITK, reworked CCIPReputationBridge (198 tests, live on Base Sepolia — XNS/governance/CCIP not yet broadcast)
+- [contracts](entities/contracts.md) — Solidity/Foundry: 209 tests locally, including the non-deployed `IntegrityIdentityReadV1`; existing Base Sepolia deployment predates that facade and other deferred singletons
 - [integrity-oracle](entities/integrity-oracle.md) — Rust/Axum AIS scoring (incl. server-side telemetry-signal re-derivation, `derive.rs`) + on-chain verification + markets/leaderboard/wallet/contracts/BAA/VC/benchmarks/XNS/governance reads + PHI-rejection backstop + unauthenticated OTLP/gRPC trace receiver, ASCII-escaping canonical-JSON fix (80 lib tests + 9 e2e)
 - [integrity-sdk](entities/integrity-sdk.md) — Python agent library: registration, BCC, markets, telemetry (widened OpenAI/LangChain integration metadata, opt-in `redact_phi`), PHI redaction, pre-execution intent-capture (`invoke_intent`), fixed telemetry-signing wire bug (135 tests, 1 skipped + 1 opt-in oracle e2e)
 - [integrity-cli](entities/integrity-cli.md) — developer CLI, real on-chain register incl. real oracle re-verification, new `xns` command group (57 tests, incl. 1 opt-in oracle e2e)

@@ -8,7 +8,7 @@
 
 ---
 
-> **Status of this document.** This is the explanatory, non-normative Markdown edition of the whitepaper, revised in light of reference implementations and recorded as a proposal for the next normative specification. It reflects two revision passes: **v3.1** reconciled the specification against the implementations that already exist in this ecosystem (`integrity-core`, `xibalba-cortex`, `xibalba-shield`), and **v3.2** incorporates the amendment register arising from adversarial technical review — liveness/DoS traps (§4.7), AIS oracle centrality (§3.1.5), forensic memory withholding (§3.2.5), micro-transaction gas friction (§7.5), the exfiltration surface (§9.5), and competing-paradigm skepticism (§1.5, §10.3). Every substantive change is flagged inline as `SPEC CHANGE`; they are **proposed normative changes**, not active protocol requirements until accepted. The change register is in Appendix D, and the proposed amendment is `spec/integrity-protocol-v0.5-proposed.md`.
+> **Status of this document.** This is the explanatory, non-normative Markdown edition of the whitepaper, revised in light of reference implementations and recorded as a proposal for the next normative specification. It reflects two revision passes: **v3.1** reconciled the specification against the implementations that already exist in this ecosystem (`integrity-core`, `xibalba-cortex`, `xibalba-shield`), and **v3.2** incorporates the amendment register arising from adversarial technical review — liveness/DoS traps (§4.7), AIS oracle centrality (§3.1.5), forensic memory withholding (§3.2.5), micro-transaction gas friction (§7.5), the exfiltration surface (§9.5), and competing-paradigm skepticism (§1.5, §10.4). Every substantive change is flagged inline as `PROPOSED NORMATIVE CHANGE`; they are **proposed normative changes**, not active protocol requirements until accepted. The change register is in Appendix D, and the proposed amendment is `spec/integrity-protocol-v0.5-proposed.md`.
 >
 > Three v3.2 amendments were **implemented differently from the register**, each because transcribing them verbatim would have contradicted an existing section: ZK-telemetry is recorded as a research horizon rather than a roadmap phase (§3.1.5); the hybrid TEE configuration is framed as joint coverage of two attack surfaces rather than "complete mediation achieved" (§9.5); and grace modes operate strictly inside the bound floors AIS establishes (§4.7.2). Appendix D records each with its reasoning.
 >
@@ -18,7 +18,7 @@
 
 > **Important notice.** This document is published for technical and informational purposes. It is not an offer to sell, or a solicitation of an offer to buy, any security, token, or other instrument, and it is not investment, legal, accounting, or tax advice. Statements concerning future protocol capability, adoption, revenue, token supply dynamics, or market size are forward-looking and subject to substantial uncertainty; actual outcomes will differ. All economic figures in Section 8 are parametric illustrations computed from explicitly stated hypothetical inputs, not forecasts, projections, or promises of return. Digital assets carry risk of total loss. Protocol components described as planned or in development are not yet audited or deployed; see Section 9 for a candid enumeration of the threats this design does not eliminate.
 
-**Relationship to the normative specification.** This whitepaper explains the protocol's thesis, architecture, economics, and proposed direction. It is not the authority for implementers. The active normative baseline is `spec/integrity-protocol-v0.4.md`; the v3.1 changes collected here are recorded as a `[PROPOSED]` amendment in `spec/integrity-protocol-v0.5-proposed.md`. If the proposal is rejected or modified, this whitepaper must be revised to match the accepted specification. Implementation status remains governed by `README.md`, `PRODUCTION_GAPS.md`, the interface contract, and fresh test evidence.
+**Relationship to the normative specification.** This whitepaper explains the protocol's thesis, architecture, economics, and proposed direction. It is not the authority for implementers. The active normative baseline is `spec/integrity-protocol-v0.4.md`; the v3.1 foundation and v3.2 amendments collected here are recorded as a `[PROPOSED]` amendment in `spec/integrity-protocol-v0.5-proposed.md`. If the proposal is rejected or modified, this whitepaper must be revised to match the accepted specification. Implementation status must be established from source, tests, the interface contract, and the production-gap register rather than inferred from this paper.
 
 ---
 
@@ -26,7 +26,7 @@
 
 Autonomous software agents have become economic principals: they hold balances, negotiate terms, purchase data, and settle payments without a human in the transaction loop. The coordination stack for this activity assembled quickly — messaging and discovery through MCP and A2A, identity and reputation through ERC-8004, settlement through stablecoin rails such as x402 — but it assembled with a hole in the middle. Every one of those layers describes what an agent *claims* or what it *did*. None of them constrains what an agent *may do* at the moment of execution.
 
-The consequence is measurable rather than hypothetical. The first large-scale empirical audit of ERC-8004, covering Ethereum, BNB Smart Chain and Base through May 2026, found that the reputation layer intended to carry trust satisfies none of the four conditions a trust signal requires, that a majority of reviewers on every chain studied exhibit coordinated Sybil behaviour, and that the Validation Registry — the one component specified to carry hard assurance — had no confirmed mainnet deployment at all.
+The consequence is measurable rather than hypothetical. The first large-scale empirical audit of ERC-8004, covering Ethereum, BNB Smart Chain and Base through May 2026, found that the reputation layer intended to carry trust satisfies none of the four conditions a trust signal requires, that a majority of reviewers on every chain studied exhibit coordinated Sybil behaviour, and that the Validation Registry — the one component specified to carry hard assurance — had no confirmed mainnet deployment as of its observation cutoff.[^1] A later direct review found deployed Validation proxy bytecode, while canonical project material still labels that component unstable; deployment existence therefore must not be conflated with stable, exercised assurance.
 
 A sovereign agent rests on three foundational primitives: a portable on-chain identity that survives key rotation and gives a mandate something durable to bind to; a cryptographically committed persistent memory that makes metered rights enforceable and disputes decidable; and agent-owned contracts that let the agent hold and move assets as a principal. Each of these expands what an agent *can* do. None of them narrows what it *may* do, and an agent that is durable, attributable and self-directed but unconstrained is the most consequential configuration in the stack, not the safest.
 
@@ -50,7 +50,7 @@ If you read nothing else, read that sentence, Section 1, and Section 10.
 2. **We check the *outcome*, not the request.** Before a transaction commits, we compute what the account's state *would become*, and test it against rules the operator wrote in advance. Fail the test, and the transaction reverts — there's nothing to unwind, because nothing happened.
 3. **We do not claim the agent behaves well.** We claim its *damage is bounded*, even if the agent has been completely hijacked and the attacker holds its keys. That's a weaker promise than "safe AI," and it's the one that's actually achievable — and the one an underwriter needs.
 
-**How the sections layer.** Sections 1 and 10 are the argument. Sections 2–7 are the specification an engineer implements against. Sections 8–9 are economics and honest risk. Dense sections open with an *In plain terms* box; if the box is enough, skip to the next one.
+**How the sections layer.** Sections 1 and 10 are the argument. Sections 2–7 describe the proposed engineering architecture; accepted implementer requirements remain in v0.4 unless and until corresponding v0.5 clauses are reviewed and accepted. Sections 8–9 are economics and honest risk. Dense sections open with an *In plain terms* box; if the box is enough, skip to the next one.
 
 **A note on tone.** Where this paper says a thing is unproven, incomplete, or not yet built, that is deliberate rather than modest. A verification protocol that oversells itself is worse than none, and the same standard is applied to our own components throughout — including several places where our reference implementation failed its own spec and we say so.
 
@@ -78,7 +78,7 @@ Every layer just described is either **declarative** (an agent asserts an identi
 
 - **Reputation does not travel.** Among agents declaring registration on multiple chains, scores across chain pairs are statistically uncorrelated (Spearman $\rho = 0.05$, $p = 0.56$ for BSC–Base; $\rho = 0.14$, $p = 0.48$ for ETH–Base). Each deployment is an isolated silo.
 
-- **The hard-assurance component was never shipped.** The Validation Registry — the tier intended to carry stake-secured re-execution, zkML proofs and TEE attestations — had no confirmed mainnet deployment on any studied chain as of 13 May 2026.[^1]
+- **The cited audit did not confirm the hard-assurance component at its cutoff.** The Validation Registry — the tier intended to carry stake-secured re-execution, zkML proofs and TEE attestations — had no confirmed mainnet deployment on any studied chain as of 13 May 2026.[^1] Later direct review found deployed proxy bytecode, while canonical project material still described Validation as unstable; deployed code is not evidence of stable, exercised assurance.
 
 [^1]: X. Xiong et al., ["Can Trustless Agents Be Trusted? An Empirical Study of the ERC-8004 Decentralized AI Agent Ecosystem"](https://arxiv.org/abs/2606.26028), arXiv:2606.26028, July 2026, §2.
 
@@ -136,7 +136,7 @@ The analogy earns its keep at exactly one point, and it is worth naming because 
 
 ### 1.5 Comparative architecture: competing safety dogmas
 
-> **`SPEC CHANGE` (v3.2) — new subsection.** Skepticism toward on-chain execution mediation almost always rests on attachment to one of five alternative paradigms. Each relies on a foundational, unstated assumption that collapses under adversarial conditions at machine rate. Stating them explicitly is not a rhetorical exercise: each failure mode below maps onto an adversary class from Table 1, and the mapping is what shows the paradigms are not merely weaker but *categorically unable* to address the relevant class.
+> **`PROPOSED NORMATIVE CHANGE` (v3.2) — new subsection.** Skepticism toward on-chain execution mediation almost always rests on attachment to one of five alternative paradigms. Each relies on a foundational, unstated assumption that collapses under adversarial conditions at machine rate. Stating them explicitly is not a rhetorical exercise: each failure mode below maps onto an adversary class from Table 1, and the mapping is what shows the paradigms are not merely weaker but *categorically unable* to address the relevant class.
 
 | Paradigm | Unstated assumption | Where it collapses |
 |---|---|---|
@@ -254,7 +254,7 @@ One further condition is required, and because the whole guarantee rests on it w
 
 Point (iii) is not a footnote. **An enforcement layer that can be removed by the entity it constrains provides no guarantee at all**, which is why module governance is treated as a first-class constraint in Section 4 rather than as configuration.
 
-> **Implementation note (v3.1).** This condition has a direct and unforgiving consequence for any codebase adopting the protocol: an account type that retains *any* ungated execution path cannot host the guarantee, and cannot be retrofitted to host it unless that path is removed or itself routed through the hook. An account with a legacy `execute()` that dispatches without invoking the kernel is not partially compliant; it is non-compliant, because the adversary of Section 2.1 will simply use that path. Deployments should state explicitly which accounts are inside the guarantee and which are not, rather than allowing readers to assume uniform coverage.
+> **`PROPOSED NORMATIVE CHANGE` (v3.1) — complete mediation is binary.** This condition has a direct and unforgiving consequence for any codebase adopting the protocol: an account type that retains *any* ungated execution path cannot host the guarantee, and cannot be retrofitted to host it unless that path is removed or itself routed through the hook. An account with a legacy `execute()` that dispatches without invoking the kernel is not partially compliant; it is non-compliant, because the adversary of Section 2.1 will simply use that path. Deployments should state explicitly which accounts are inside the guarantee and which are not, rather than allowing readers to assume uniform coverage.
 
 ---
 
@@ -295,11 +295,11 @@ $$c_i(\iota) = c_i^{\min} + (c_i^{\max} - c_i^{\min}) \cdot r(\iota), \qquad c_i
 
 > **Remark 1.** ERC-8004 explicitly places incentives and slashing outside the scope of its registries: they record validation results but do not price them. That gap is one of the concrete places this protocol adds value, by putting staked capital behind validators so that an attestation carries economic weight rather than being cheap talk (Section 8).
 
-> **`PROPOSED NORMATIVE CHANGE` (v3.1) — §3.1 states an interface obligation, not a deployment mandate.** What the kernel actually requires of identity is the three properties named in Figure 2: portable, verifiable, and stable under key rotation, resolvable within the gate's gas budget. ERC-8004 is the *canonical shape* for expressing those properties and the right target for ecosystem legibility — external wallets, indexers and counterparties should be able to resolve an agent through it. It is **not** a requirement that every deployment stand up ERC-8004's own three registries as its substrate.
+> **`PROPOSED NORMATIVE CHANGE` (v3.1, corrected in v3.2) — §3.1 states an Integrity interface obligation, not an ERC-8004 deployment mandate.** What the kernel actually requires of identity is the three properties named in Figure 2: portable, verifiable, and stable under key rotation, resolvable within the gate's gas budget. Native ERC-8004 registration is one possible interoperability route, not a label that can be applied to a DID registry with different token, ownership, transfer, wallet-proof, metadata, event, and interface-detection semantics.
 >
-> A deployment therefore conforms by either route: (a) registering agents natively in ERC-8004's registries, or (b) maintaining its own durable identity registry and exposing an **ERC-8004-shaped read interface** over it. Route (b) is what this ecosystem does — `XibalbaAgentRegistry` (DID-keyed, already deployed, already carrying the registered agent set) remains the substrate, with a read-only adapter presenting it in ERC-8004 shape. The distinction matters practically: the paper's own §1.2 audit found ERC-8004's Validation Registry had *no confirmed mainnet deployment on any studied chain*, so treating native registration as a precondition would gate this protocol on infrastructure that does not reliably exist.
+> A deployment may satisfy the Integrity identity obligation by either route: (a) registering agents natively in ERC-8004's registries, or (b) maintaining its own durable identity registry and exposing a **versioned Integrity read profile** over it. Route (b) is what this ecosystem does — `XibalbaAgentRegistry` remains the DID-keyed substrate and `IntegrityIdentityReadV1` is a custom discovery facade. It pins the reviewed ERC-8004 Draft revision but explicitly reports non-conformance. Generic ERC-8004 wallets and indexers cannot consume it as an ERC-721 Identity Registry. An earlier draft's statement that Validation had no confirmed mainnet deployment was stale; direct review found deployed proxy bytecode, while canonical project material still labels that component unstable.
 >
-> **What route (b) gives up, stated plainly.** Native cross-chain addressability via EIP-155/CAIP-10 identifiers, and direct consumption of ERC-8004's Reputation and Validation Registries by third parties who read them without going through the adapter. Neither is load-bearing for Proposition 1. Convergence onto a single registry is a deliberately deferred decision, to be revisited when a counterparty requires native registration, when the Validation Registry becomes real enough to consume for the assurance tier (§3.1.2), or when cross-chain portability becomes a live requirement rather than a design goal.
+> **What route (b) gives up, stated plainly.** Native token identity, ERC-721 ownership and transfers, EIP-155/CAIP-10 addressability, standard wallet/indexer discovery, and direct consumption of ERC-8004's Reputation and Validation Registries. None is load-bearing for Proposition 1. Convergence onto a single registry is deliberately deferred until a counterparty requires native registration, a stable Validation Registry is worth consuming for the assurance tier (§3.1.2), or cross-chain portability becomes a live requirement.
 >
 > **What route (b) must not do:** maintain two reputation systems. $r(\iota)$ has exactly one authoritative source (§3.1.1). An adapter that also surfaced a second, differently-computed reputation number would reintroduce the commensurability failure §1.2 diagnoses.
 
@@ -461,19 +461,19 @@ Three, stated rather than buried:
 | 5 | N3 | No floors exist; the bare mean permits the compensation shown above | Add declared per-component floors and the conjunctive $\Theta$ gate |
 | 6 | N1 | `ais` is post-boost and unclamped (up to 1150) | Expose a separate pre-boost, normalised accessor for constraint use; keep the boosted value for display only |
 
-Items 1–2 are small and strictly safety-increasing. Items 3–4 depend on attestation infrastructure that Phase III delivers (§10.2), and until then the honest posture is high floors on those axes plus explicit reporting that they are unattested — **not** a score that quietly treats assertion as evidence.
+Items 1–2 are small and strictly safety-increasing. Items 3–4 depend on attestation infrastructure that Phase III delivers (§10.3), and until then the honest posture is high floors on those axes plus explicit reporting that they are unattested — **not** a score that quietly treats assertion as evidence.
 
 #### 3.1.5 Decentralising the telemetry prover
 
-> **`SPEC CHANGE` (v3.2) — new subsection.** §3.1.3 places the oracle computing AIS in the **Trusted** tier. That is a real centralisation: if the ingestion service is compromised, $r(\iota)$ is falsified and Proposition 1's bounds are evaluated against false premises — the guarantee still holds mechanically, but against the wrong admissible set. Migrating this oracle from *Trusted* to *Attested* (Table 6) is therefore a requirement for economic soundness, not an optimisation.
+> **`PROPOSED NORMATIVE CHANGE` (v3.2) — new subsection.** §3.1.3 places the oracle computing AIS in the **Trusted** tier. That is a real centralisation: if the ingestion service is compromised, $r(\iota)$ is falsified and Proposition 1's bounds are evaluated against false premises — the guarantee still holds mechanically, but against the wrong admissible set. Migrating this oracle from *Trusted* to *Attested* (Table 6) is therefore a requirement for economic soundness, not an optimisation.
 
-**Phase I — server-side recomputation (current baseline).** A single operator ingests telemetry and recomputes components server-side. The mitigations are the ones already specified: fail-closed defaults (N2), non-compensable floors (N3), and evidence admissibility (N4). These bound the damage from a *buggy* pipeline; they do not remove the trust placed in operator integrity. Stated plainly: in Phase I the AIS oracle is a single point of trust, and the protocol should say so rather than imply otherwise.
+**Phase I — server-side recomputation (partial current baseline).** A single operator ingests telemetry and recomputes components server-side. Fail-closed empty-evidence defaults (part of N2) are locally implemented. Independent compliance/sacrifice evidence, non-compensable floors (N3), the conjunctive gate, and the pre-boost constraint accessor remain proposed/open. Even when those mitigations exist, they bound damage from a *buggy* pipeline; they do not remove the trust placed in operator integrity. Stated plainly: in Phase I the AIS oracle is a single point of trust, and the protocol should say so rather than imply otherwise.
 
 **Phase II — federated consortium with threshold attestation.** Telemetry is routed to a set of independent validating nodes, and an on-chain AIS update requires an $M$-of-$N$ threshold signature from that set. The trust assumption shifts from *one operator's integrity* to *non-collusion among staked members* — a genuine improvement, and the point at which the oracle can honestly be described as Attested rather than Trusted, because the members carry stake that is slashable under §3.2.5's machinery. Phase II is the actual decentralisation target and requires no unavailable technology.
 
 > **Research horizon — ZK-telemetry (not a roadmap phase).** The structurally ideal endpoint would eliminate the off-chain oracle: the agent's runtime generates a zero-knowledge proof $\pi$ that its execution adhered to declared policy, and the hook verifies $\pi$ on chain, making the AIS update trustless.
 >
-> **This is stated as a research direction, deliberately not as a delivery phase.** Proving properties of language-model inference in zero knowledge is far outside current practical cost — zkML for even small models remains orders of magnitude too expensive for per-span proving, and "adhered to its system prompt" is not yet a well-posed circuit. Presenting it as a scheduled phase would repeat precisely the failure §1.2 uses as its strongest evidence: ERC-8004 specified a hard-assurance tier (the Validation Registry) that never shipped on any chain. A protocol that criticises that pattern must not reproduce it. What *is* tractable near-term is narrower: ZK proofs over *deterministic* post-processing of telemetry (e.g. that a reported aggregate was computed correctly from a committed input set), which strengthens Phase II without requiring inference-level proving.
+> **This is stated as a research direction, deliberately not as a delivery phase.** Proving properties of language-model inference in zero knowledge is far outside current practical cost — zkML for even small models remains orders of magnitude too expensive for per-span proving, and "adhered to its system prompt" is not yet a well-posed circuit. Presenting it as a scheduled phase would repeat the failure pattern §1.2 identifies: specifying a hard-assurance tier without evidence that it is stable and exercised. A protocol that criticises that pattern must not reproduce it. What *is* tractable near-term is narrower: ZK proofs over *deterministic* post-processing of telemetry (e.g. that a reported aggregate was computed correctly from a committed input set), which strengthens Phase II without requiring inference-level proving.
 
 ### 3.2 Primitive II — Persistent memory as state conservation
 
@@ -482,7 +482,7 @@ Determinism requires that state persist. An agent whose memory is a per-invocati
 Treat memory as a first-class component of the state. Augment the state vector of (1) with a durable memory term $\omega_k \in \Omega$ — accumulated context, licensing history, counterparty priors — and require every transition to commit to it.
 
 > **`PROPOSED NORMATIVE CHANGE` (v3.1) — the commitment must use an injective encoding, not concatenation.**
-> Version 3.0 defined the chain as $h_{k+1} = H(h_k \mathbin\Vert H(\delta_k))$. This is inconsistent with the protocol's own warning in Section 4.4 that "a domain separator built by naive string concatenation is itself an attack surface" — the criticism applies with equal force here. Under raw concatenation the field tuples `("ab", "c")` and `("a", "bc")` produce identical bytes, which is exactly the ambiguity the replay-domain invariant (14) exists to prevent. The reference implementation (`xibalba-cortex`) independently arrived at the correct construction and is specified here as normative.
+> Version 3.0 defined the chain as $h_{k+1} = H(h_k \mathbin\Vert H(\delta_k))$. This is inconsistent with the protocol's own warning in Section 4.4 that "a domain separator built by naive string concatenation is itself an attack surface" — the criticism applies with equal force here. Under raw concatenation the field tuples `("ab", "c")` and `("a", "bc")` produce identical bytes, which is exactly the ambiguity the replay-domain invariant (14) exists to prevent. The reference implementation (`xibalba-cortex`) independently arrived at the correct construction, which is proposed here for normative acceptance in v0.5.
 
 Let $\mathrm{canon}(\cdot)$ be a canonical, **injective** serialisation — concretely, JSON with sorted keys, no insignificant whitespace, ASCII escaping, and rejection of non-finite numbers, or any encoding with an equivalent injectivity proof. Then:
 
@@ -535,7 +535,7 @@ where $\Lambda_k$ is work performed, $\bar{p}$ the realised price of that work, 
 
 #### 3.2.5 Stake-secured availability and forensic redress
 
-> **`SPEC CHANGE` (v3.2) — new subsection.** §3.2.1 replaced mandated public storage with an availability obligation: produce the payload consistent with the anchored digest, on challenge, or the default rules against you. That default is **economically hollow against exactly the adversaries it needs to bind.** An attacker who has already drained value or exfiltrated licensed weights (A1, A3, A4) discards the local store, accepts an adverse judgment against an account it was going to abandon anyway, and walks. An unenforceable default is not a control. This subsection supplies the missing economics.
+> **`PROPOSED NORMATIVE CHANGE` (v3.2) — new subsection.** §3.2.1 replaced mandated public storage with an availability obligation: produce the payload consistent with the anchored digest, on challenge, or the default rules against you. That default is **economically hollow against exactly the adversaries it needs to bind.** An attacker who has already drained value or exfiltrated licensed weights (A1, A3, A4) discards the local store, accepts an adverse judgment against an account it was going to abandon anyway, and walks. An unenforceable default is not a control. This subsection supplies the missing economics.
 
 > **In plain terms.** Earlier we relaxed a rule: agents may keep their memory in ordinary local storage instead of a public network, so long as they can produce it when challenged, and "refusing to produce it counts against you."
 >
@@ -631,7 +631,7 @@ The three fail individually in ways that clarify why they are a set rather than 
 
 Together they make an agent durable, attributable and self-directed. What they conspicuously do not make it is **bounded**. The primitives establish the subject, the history and the assets; they say nothing whatsoever about which transitions that subject may make. Formally, they populate the arguments of $\mathbf{C}(\iota)$ in (3) and the state vector in (1) without constraining $T$ at all.
 
-> **The division of labour.** The three primitives are the necessary conditions for an agent economy to *exist*. A verification layer is the necessary condition for underwritten capital to *enter* it. The Integrity Protocol assumes the first and supplies the second: it consumes identity from ERC-8004, anchors memory through (5), and installs itself inside the agent-owned account so that sovereignty and constraint occupy the same contract. The remainder of this paper specifies that layer.
+> **The division of labour.** The three primitives are the necessary conditions for an agent economy to *exist*. A verification layer is the necessary condition for underwritten capital to *enter* it. The proposed Integrity Protocol assumes the first and supplies the second: it consumes identity through the Integrity identity obligation (a native ERC-8004 registry or a versioned local read profile), anchors memory through (5), and installs itself inside the agent-owned account so that sovereignty and constraint occupy the same contract. The remainder of this paper proposes that layer.
 
 ---
 
@@ -653,7 +653,7 @@ Representative constraint instances, to make the vocabulary concrete:
 
 - cumulative outbound value to non-allowlisted addresses within any 24-hour window must not exceed \$50,000;
 - remaining licensed inference calls must not go negative;
-- the counterparty must hold a live ERC-8004 identity with a validator attestation newer than 30 days.
+- the counterparty must resolve through the selected Integrity identity profile and, where the deployment uses an attested profile, hold an accepted validator attestation newer than 30 days.
 
 ### 4.2 The verification functional
 
@@ -750,7 +750,7 @@ ERC-7579 is explicit that a malicious or defective hook reverting in `preCheck` 
 
 ### 4.7 Circuit-breaker grace modes and adaptive liveness
 
-> **`SPEC CHANGE` (v3.2) — new subsection.** L1 requires that ambiguity resolve to rejection. Under an *unpartitioned* constraint vector that rule has a severe operational consequence: any missing telemetry input, stale feed, or adapter timeout evaluates to $V = 0$ and reverts. An adversary — or an ordinary network fault — can therefore degrade telemetry transport and render an agent unable to perform *risk-reducing* actions: collateral rebalancing, debt repayment, emergency liquidation. **Uniform fail-closed is a self-inflicted denial of service, and in a regulated setting the inability to act defensively is itself a compliance failure.** This subsection removes that vulnerability without weakening Proposition 1.
+> **`PROPOSED NORMATIVE CHANGE` (v3.2) — new subsection.** L1 requires that ambiguity resolve to rejection. Under an *unpartitioned* constraint vector that rule has a severe operational consequence: any missing telemetry input, stale feed, or adapter timeout evaluates to $V = 0$ and reverts. An adversary — or an ordinary network fault — can therefore degrade telemetry transport and render an agent unable to perform *risk-reducing* actions: collateral rebalancing, debt repayment, emergency liquidation. **Uniform fail-closed is a self-inflicted denial of service, and in a regulated setting the inability to act defensively is itself a compliance failure.** This subsection removes that vulnerability without weakening Proposition 1.
 
 > **In plain terms.** There's a trap in strict fail-closed design. If *any* missing data means "reject," then an attacker who merely disrupts your telemetry can freeze your agent — and a frozen agent can't do the *defensive* things you'd most want it to do: repay a loan, post collateral, exit a position before liquidation. You've built a security tool that becomes a denial-of-service weapon against its own user.
 >
@@ -822,7 +822,7 @@ For a proposed action during soft-telemetry desynchronisation:
 1. **Autonomous throttled settlement.** If the request satisfies the contracted bound, the kernel executes immediately. The agent stays economically alive for defensive operations — which is the entire point.
 2. **Asynchronous escalation staging.** If the request exceeds the contracted bound but remains within the nominal earned bound, `preCheck` refuses immediate settlement and pushes the payload into an on-chain staging buffer (an ERC-7579 execution sub-module). It may later settle if telemetry is restored within the hold window $T_{\text{hold}}$, or if an authorised operator/multisig co-signs. Otherwise it expires and reverts cleanly with no side effects.
 
-> **The staging buffer must not become a governance hole.** A multisig releasing a staged transaction is a human path into the account, and §2.4(iii) is unambiguous that privileged paths are where guarantees die. Two constraints are therefore normative, not optional: **(a)** a staged release is evaluated against $\mathbf{C}_{\text{hard}}$ at settlement time, not at staging time — no co-signature can release a transaction violating a hard invariant; and **(b)** release cannot exceed the nominal bound $b_i(\iota)$ that applied when the action was staged, so staging can never be used to obtain a *larger* allowance than fresh telemetry would have granted. Staging defers a decision; it does not expand authority.
+> **The staging buffer must not become a governance hole.** A multisig releasing a staged transaction is a human path into the account, and §2.4(iii) is unambiguous that privileged paths are where guarantees die. Two constraints are therefore proposed normative requirements, not optional within this proposal: **(a)** a staged release is evaluated against $\mathbf{C}_{\text{hard}}$ at settlement time, not at staging time — no co-signature can release a transaction violating a hard invariant; and **(b)** release cannot exceed the nominal bound $b_i(\iota)$ that applied when the action was staged, so staging can never be used to obtain a *larger* allowance than fresh telemetry would have granted. Staging defers a decision; it does not expand authority.
 
 #### 4.7.4 Safety under grace
 
@@ -832,7 +832,7 @@ For a proposed action during soft-telemetry desynchronisation:
 
 Because $\mathcal{A}_{\text{grace}}$ is a *subset* of the operator-approved space, entering grace mode can never enlarge the reachable state set. **Forward invariance (Proposition 1) holds under every telemetry-degradation regime** — grace trades liveness for nothing, in the safety direction.
 
-#### 4.7.5 Normative rules for adapter authors
+#### 4.7.5 Proposed normative rules for adapter authors
 
 - **G1 — Hard-partition inviolability.** An adapter MUST NOT classify any balance delta, token transfer, or withdrawal as soft. All value-moving operations are governed by $\mathbf{C}_{\text{hard}}$.
 - **G2 — Monotone contraction.** An adapter MUST NOT inflate any bound on telemetry loss: $\partial b_i / \partial \Delta\tau \le 0$.
@@ -912,7 +912,7 @@ Note the structural point: the kernel is installed on licence accounts, not only
 | Volume cap | $q_{k+1} = q_k - c_k \ge 0$ | pre-check on every consumption call |
 | Term / expiry | $t_{\text{start}} \le t \le t_{\text{end}}$ | block timestamp bound |
 | Field of use | $\mathrm{purpose}(a) \in F$ | typed intent tag, adapter-decoded |
-| Licensee identity | ERC-8004 identity present, attestation fresh | registry read in pre-check |
+| Licensee identity | Integrity identity resolves; required profile attestation is fresh | configured identity-profile read in pre-check |
 | Royalty | $\Delta b_I \ge p(c_k)$ atomically with release | value conservation (12) |
 | Exclusivity | $\lvert\{\text{active licensees}\}\rvert \le n_{\max}$ | licence-account counter |
 | Derivative rights | flag required for training-use intents | typed intent tag |
@@ -987,7 +987,7 @@ Adapters are permissionless to author but admitted through a registry whose admi
 
 | # | Step | Where |
 |---|---|---|
-| 1 | **Discover** — resolve ERC-8004 identity, read terms | off-chain, cacheable |
+| 1 | **Discover** — resolve the configured Integrity identity profile, read terms | off-chain, cacheable |
 | 2 | **Intend** — sign scoped ATCP/IP request (session key, not root key) | off-chain, cacheable |
 | 3 | **Transduce** — adapter emits $\mathbf{C}$ | off-chain, cacheable, deterministic ⇒ memoisable per licence version |
 | 4 | **Validate** — signature, session, domain $d^\star$ | ERC-4337 validation phase (type-1 validator) |
@@ -1058,7 +1058,7 @@ For a team holding assets in an EOA, the migration is the ordinary one to a smar
 
 ### 7.5 High-frequency execution: state channels and declarative transduction
 
-> **`SPEC CHANGE` (v3.2) — new subsection.** Table 4's budget (≤40k gas per `preCheck`, ≤6k per predicate) is negligible for institutional transfers — well under 0.01% of value secured. It is prohibitive for agents negotiating per-token inference, live sensor feeds, or streaming micro-content above roughly 10 Hz. Two mechanisms address this without weakening the gate.
+> **`PROPOSED NORMATIVE CHANGE` (v3.2) — new subsection.** Table 4's budget (≤40k gas per `preCheck`, ≤6k per predicate) is negligible for institutional transfers — well under 0.01% of value secured. It is prohibitive for agents negotiating per-token inference, live sensor feeds, or streaming micro-content above roughly 10 Hz. Two mechanisms address this without weakening the gate.
 
 > **In plain terms.** Checking every action on-chain costs gas. For a \$2M treasury transfer that's rounding error. For an agent buying a thousand small inference queries a minute, it's fatal — the check would cost more than the thing being bought.
 >
@@ -1227,7 +1227,7 @@ Until all four hold, the correct posture is the one stated above: a host agent i
 
 ### 9.5 Case study: hybrid containment and the exfiltration surface
 
-> **`SPEC CHANGE` (v3.2) — new subsection.** §5.5 states a physical limit: once plaintext has been delivered, no contract can un-deliver it. §9.4 classifies ordinary host software as Untrusted because it runs on hardware the observed party controls. This case study shows what changes when the host layer has a *hardware* root of trust — and states precisely what that does and does not buy.
+> **`PROPOSED NORMATIVE CHANGE` (v3.2) — new subsection.** §5.5 states a physical limit: once plaintext has been delivered, no contract can un-deliver it. §9.4 classifies ordinary host software as Untrusted because it runs on hardware the observed party controls. This case study shows what changes when the host layer has a *hardware* root of trust — and states precisely what that does and does not buy.
 
 **Scenario.** An agent consumes a licensed financial dataset. Terms: metered per query, requires a live identity above a reputation tier, prohibits copying data to external servers.
 
@@ -1401,7 +1401,7 @@ Step 3 is the one integrators will be tempted to skip, and it is the one that ca
 
 ### 10.4 The enabler paradigm: containment as a precondition for velocity
 
-> **`SPEC CHANGE` (v3.2) — new subsection.** The protocol is routinely read as a restraint that slows autonomous systems down. That reading inverts the relationship between risk control and operational velocity, and correcting it matters commercially as much as technically.
+> **`PROPOSED NORMATIVE CHANGE` (v3.2) — new subsection.** The protocol is routinely read as a restraint that slows autonomous systems down. That reading inverts the relationship between risk control and operational velocity, and correcting it matters commercially as much as technically.
 
 Racecars do not carry high-performance brakes in order to go slowly. They carry them so the driver can approach the vehicle's mechanical limit without the first mistake being terminal. The analogue is exact: institutional capital cannot deploy agents into mission-critical positions when a single inference error or injected instruction produces unbounded balance drainage, a regulatory breach, or trade-secret loss. **The absence of a bound is not freedom; it is the reason the budget stays small.**
 
@@ -1544,7 +1544,7 @@ class Intent:
     """A scoped, single-domain, single-use request to consume licensed IP."""
     chain_id: int    # EIP-155 chain identifier
     verifier: str    # address of the kernel instance (contract binding)
-    agent: str       # ERC-8004 identity handle of the consuming agent
+    agent: str       # stable subject identifier from the selected Integrity identity profile
     ip_asset: str    # ERC-6551 account address holding the licence
     cycles: int      # requested compute units
     nonce: int       # strictly monotone within (chain_id, verifier, agent)
@@ -1632,7 +1632,7 @@ def verify_receipt(pubkey_hex: str, intent: Intent, signature_hex: str) -> bool:
 | 6a | §3.1.1–3.1.4 | New: **AIS specified as the source of $r(\iota)$**, and **redefined** as a *gated* weighted geometric mean over *admissible* evidence — requirements N1–N5, evidence-admissibility rule, per-component floors with a conjunctive $\Theta$ gate, corrected fail-closed defaults, honest four-conditions mapping, and an implementation-delta table | v3.0's central unresolved tension: §1.2 demolishes deployed reputation, then (4) consumes $r(\iota)$ without specifying where a trustworthy one comes from. Numerical evaluation of the reference implementation then showed the bare mean violates non-compensability (90% violation rate → $r = 0.631$) and that missing-data defaults inverted the incentive (content-free submission claiming 100 GPU-hours → $r = 0.923$ vs. an honest agent's $0.465$). The gate and the admissibility rule fix both |
 | 6b | §4 (4b) | $r(\iota)$ normalised from the **pre-boost** score, clamped to $[0,1]$; assurance multiplier kept strictly outside reputation | The implementation's reported score is post-boost and unclamped to 1150; normalising it would yield $r > 1$ and push $c_i(\iota)$ *above* $c_i^{\max}$, destroying (4)'s ceiling and re-opening A3 |
 | 7 | §2.4 | Implementation note on ungated legacy execution paths | Complete mediation is binary; an account with any ungated path is non-compliant, not partially compliant |
-| 7a | §3.1 | ERC-8004 restated as an **interface obligation** satisfiable by an ERC-8004-shaped read adapter over an existing durable registry, not a mandate to deploy its three registries as substrate; what that trade gives up is named; convergence explicitly deferred | The paper's own §1.2 audit found the Validation Registry had no confirmed mainnet deployment anywhere, so native registration cannot be a precondition. Also avoids two reputation systems, which would reintroduce the commensurability failure §1.2 diagnoses |
+| 7a | §3.1 | Identity restated as an **Integrity interface obligation** satisfiable by a versioned local read profile over a durable registry; the profile is explicitly not ERC-8004/ERC-721 compatible, its interoperability losses are named, and native convergence is deferred | Avoids false selector-level compatibility and a second reputation authority while preserving the durable identity properties the kernel actually consumes. An earlier no-deployment claim about Validation was corrected after direct review found deployed proxy bytecode. |
 | 8 | §3.2.3 (6) | Symbol corrected to $c_c$ (compute) for consistency with the text | Editorial. *Note: the v3.2 amendment register described this change as "corrected to κ"; the source text and this document both use $c_c$, so $c_c$ is retained and the register entry is the error.* |
 | 9 | §1.5 | New: **comparative architecture** — five competing safety dogmas, each mapped to the adversary class it cannot address | Skepticism is almost always attachment to one of five paradigms; naming the unstated assumption in each is more persuasive than asserting the kernel's merits, and the adversary-class mapping shows the failures are categorical rather than incremental |
 | 10 | §3.1.5 | New: **decentralising the telemetry prover** — Phase I server-side recomputation, Phase II federated $M$-of-$N$ consortium; ZK-telemetry marked as **research horizon, not a roadmap phase** | §3.1.3 places the AIS oracle in the Trusted tier; Phase II is what honestly moves it to Attested. Phase III was demoted deliberately: proving LLM prompt adherence in ZK is far outside current feasibility, and specifying an infeasible hard-assurance tier would reproduce exactly the ERC-8004 failure §1.2 uses as its strongest evidence |
@@ -1642,5 +1642,5 @@ def verify_receipt(pubkey_hex: str, intent: Intent, signature_hex: str) -> bool:
 | 12b | §4.7.3 | Staging buffer bounded: hard invariants evaluated at settlement, and release capped at the bound in force when staged | A multisig-releasable buffer is a privileged path, and §2.4(iii) is where guarantees die. Staging must defer a decision without expanding authority |
 | 13 | §7.5 | New: **ATCP/IP state channels** and **`integrity-dsl`** declarative adapter compilation; compiler placed in the **Trusted** tier | Per-query on-chain metering is gas-prohibitive above ~10 Hz. Channel digests use the injective encoding of (5) — an earlier draft advanced them by raw concatenation, the exact construction (5) exists to eliminate and which §3.2.5's dispute protocol requires to be injective |
 | 14 | §9.5 | New: **hybrid containment case study** (kernel + attested enclave), framed as **joint coverage of two attack surfaces, not "complete mediation achieved"**; three load-bearing conditions named | Complete mediation is defined over account-state paths and Proposition 1 quantifies over on-chain actions; extending the term to host space would make the proof cite a hypothesis it lacks. Attestation must be per-transaction and freshness-bound, enclave guarantees are not unconditional (§9.2), and the egress lock must be inside the attested measurement |
-| 15 | §10.3 | New: **enabler paradigm** — containment as a precondition for velocity, plus cross-domain adapter composition for healthcare, finance and IP | Corrects the reading of the protocol as a restraint. Includes an explicit limit: naming a vertical is not having an adapter for it, and none exist yet |
+| 15 | §10.4 | New: **enabler paradigm** — containment as a precondition for velocity, plus cross-domain adapter composition for healthcare, finance and IP | Corrects the reading of the protocol as a restraint. Includes an explicit limit: naming a vertical is not having an adapter for it, and none exist yet |
 

@@ -120,15 +120,13 @@ test:
 	cd integrity-cli && uv run pytest && $(TEST_STATUS) cli pass || { $(TEST_STATUS) cli fail; false; }
 	cd bcc_middleware && uv run pytest && $(TEST_STATUS) bcc pass || { $(TEST_STATUS) bcc fail; false; }
 	cd integrity-userapi && uv run pytest && $(TEST_STATUS) userapi pass || { $(TEST_STATUS) userapi fail; false; }
-	cd integrity-dashboard && npm test && $(TEST_STATUS) dashboard pass || { $(TEST_STATUS) dashboard fail; false; }
+	cd integrity-dashboard && npm run build && npm run lint && $(TEST_STATUS) dashboard pass || { $(TEST_STATUS) dashboard fail; false; }
 	$(TEST_STATUS) --finalize
 
 # Real browser (Playwright) end-to-end tests — a separate, slower layer from
-# `test` above, deliberately not folded into it. Boots its own real anvil +
-# genesis deploy + ephemeral Postgres/Redis + integrity-oracle + one real
-# seeded agent (see integrity-dashboard/e2e/global-setup.ts), then drives a real
-# chromium browser against the real running integrity-dashboard app. See
-# docs/TESTING.md for the full test-pyramid rationale and what's covered.
+# `test` above, deliberately not folded into it. Playwright starts only the Vite
+# frontend; the real chain/backend stack must be started separately as described
+# in docs/TESTING.md.
 test-e2e:
 	cd integrity-dashboard && npx playwright test
 

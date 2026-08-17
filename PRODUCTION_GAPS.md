@@ -1,6 +1,6 @@
 # Production Architecture Gap Analysis & Codebase Audit
 
-> **Current audit pointer — 2026-08-06:** The cross-repository status page is [`docs/audits/2026-08-06-cross-repository-status.md`](docs/audits/2026-08-06-cross-repository-status.md). It records the clean default-branch commit, reproducible package test results, open SDK failures, deployment-verification scope, and the automatic-merge workflow contradiction. This document remains the detailed gap register; historical entries below are not silently rewritten.
+> **Current pointer — 2026-08-17:** Phase 0 identity closure and the Whitepaper v3.2/specification reconciliation are recorded in the newest section of [`HANDOFF.md`](HANDOFF.md). The accepted normative baseline remains [`spec/integrity-protocol-v0.4.md`](spec/integrity-protocol-v0.4.md); [`spec/integrity-protocol-v0.5-proposed.md`](spec/integrity-protocol-v0.5-proposed.md) is not accepted, and Whitepaper v3.2 is explanatory. This document remains the detailed append-style gap register; dated entries below are not silently rewritten.
 
 Following a deep audit of the `integrity-core` codebase, the following outlines the specific, technical gaps required to connect the `integrity-dashboard` UI to the backend production systems.
 
@@ -284,7 +284,7 @@ skipped.
 
 ## 4. Smart Contracts (`contracts/src`) — findings from a full-package audit, ALL CLOSED
 
-*Current State:* 172 Foundry tests passing (up from 165), 66%+ line coverage. Web3 wallet
+*Current State:* 209 Foundry tests passing as of 2026-08-17. Web3 wallet
 connectivity and real on-chain writes from the frontend already exist (see §7) — the
 prior version of this section's "zero Web3 connectivity" claim was stale and has been
 removed. Every finding below is fixed and covered by a new regression test.
@@ -1318,7 +1318,7 @@ fix: `docs/design/mcp-signing-boundary.md`.
     answer, not a safety property. The actual fix removes the capability from the tool surface
     entirely; a human runs `integrity-cli` directly for anything that signs.
 
-## 26. `UltraPlonkVerifier` is the real generated ZK verifier now, with zero test coverage (2026-08-12)
+## 26. `UltraPlonkVerifier` generated-verifier adoption and proof coverage (2026-08-12; updated 2026-08-17)
 
 Found while triaging an uncommitted, dirty working tree on `audit/harness-loop-2026-07-30` ahead
 of a repo-wide rename/stabilization pass. `contracts/src/oracle/UltraPlonkVerifier.sol` was
@@ -1339,7 +1339,7 @@ dropped, and `contracts/test/UltraPlonkVerifier.t.sol` was deleted in the same u
   reproduced the compile error, then reverting confirmed clean compilation. `IZkVerifier` was
   deliberately designed (see its own docstring) to be satisfied via ABI-compatible low-level
   dispatch (`IZkVerifier(impl).verify(...)` in `VerifierRegistry.sol`), not formal inheritance —
-  this is exactly what lets `make generate-verifier` swap the placeholder for the real contract
+  this is exactly what lets a reviewed generated-verifier handoff swap the placeholder for the real contract
   without touching any calling contract.
 * **The deleted test file is correctly obsolete, not a regression.** It only asserted
   placeholder-only behavior (`vm.expectRevert(UltraPlonkVerifier.PlaceholderVerifierNotYetGenerated.selector)`
@@ -1397,9 +1397,78 @@ numerically before touching any code, not assumed from the spec's description.
   positive value; and the oracle's published `ais` field is still post-boost and unclamped
   (up to 1150) rather than exposing the pre-boost, `[0,1]`-clamped accessor §3.1.1 eq. 4b
   requires as the actual constraint input (row 6). Rows 3–4 are blocked on attestation
-  infrastructure the spec assigns to Phase III (§10.2); rows 5–6 are not code-complex but
+  infrastructure the whitepaper proposes for Phase III (§10.3); rows 5–6 are not code-complex but
   change AIS's output for every currently-registered agent, and this repo pushes AIS to
   chain automatically (`bcc_middleware/app/scoring_loop.py`, default 300s) and can raise a
   real `Slasher.raiseDispute` off the resulting score — landing rows 5–6 needs a dry-run
   against the live agent set first, not a direct edit. See `HANDOFF.md`'s 2026-08-17
   section (and its later addendum) for the full priority ordering.
+
+## 28. Phase 0 identity discovery facade — local implementation closed, deployment and native ERC-8004 convergence open (2026-08-17)
+
+The v3 rollout plan's Phase 0 originally called for an "ERC-8004-shaped" read adapter over
+`XibalbaAgentRegistry`. Primary-source review and a focused Devil's Advocate pass established
+that a read-only DID projection cannot honestly implement the current draft's ERC-721 token
+identity, ownership, transfer, approval, wallet-proof, metadata-write, event, Reputation
+Registry, or Validation Registry semantics.
+
+* **CLOSED — bounded Integrity-native read profile.**
+  `contracts/src/kernel/IntegrityIdentityReadV1.sol` provides DID, DID-hash, and
+  `SovereignAgent` resolution, all seven primitive addresses, domain and registration metadata,
+  the live agent-controlled `AgentProfile.profileURI`, and candidate-controller verification
+  against the account's current `DEFAULT_ADMIN_ROLE`. It pins the reviewed ERC-8004 draft
+  revision and returns `isERC8004Conformant() == false`.
+* **CLOSED — mapping inconsistencies fail closed.** The facade verifies the registry's
+  DID-to-agent and agent-to-DID mappings agree and that `SovereignAgent.agentDID()` hashes to
+  the registered DID. This prevents the existing registry's duplicate-agent overwrite edge
+  case from being silently projected as a valid identity.
+* **CLOSED — AIS authority remains separate.** The facade returns the agent's
+  `ReputationRegistry` primitive address but exposes no score or ERC-8004 feedback method.
+  Agent Integrity Score (AIS) remains authoritative only through the existing Integrity
+  Oracle and per-agent reputation primitive paths.
+* **CLOSED — no agent migration.** The facade is read-only and projects existing registry
+  records. Future genesis deployments include it as `singletons.IntegrityIdentityReadV1`;
+  existing agents and primitive addresses are unchanged.
+* **VERIFIED LOCALLY.** `forge test --match-contract IntegrityIdentityReadV1Test -vvv`
+  returned **10 passed, 0 failed**. Coverage includes negative conformance probing, controller
+  rotation, mutable/empty profile URIs, duplicate-agent stale mappings, declared-DID mismatch,
+  missing DID read surfaces, unknown records, zero dependency rejection, and proof that a
+  reverting profile cannot block fixed identity resolution.
+* **OPEN — existing Base Sepolia deployment.** No broadcast or deployment-file mutation was
+  performed. Deploying the facade against the existing registry is a separate gas-costing
+  external write requiring exact approval and post-deployment bytecode/readback verification.
+* **OPEN — native ERC-8004 convergence.** Exact conformance requires a separately reviewed
+  registry design with version-pinned token identifiers, ownership/transfer semantics, events,
+  historical treatment, wallet proof, and a selector-by-selector compatibility matrix. The
+  current facade must not be marketed to generic ERC-8004/ERC-721 tooling as compatible.
+* **OPEN — source-registry invariant.** `XibalbaAgentRegistry` still permits the same
+  `SovereignAgent` to be registered under multiple DIDs and the factory does not enforce that
+  its DID argument matches `SovereignAgent.agentDID()`. The facade detects and rejects this
+  state; it does not repair the underlying registry or retroactively change deployed code.
+
+## 29. Whitepaper v3.2 proposed-spec implementation delta (2026-08-17)
+
+`spec/integrity-protocol-v0.5-proposed.md` now maps every substantive v3.2 semantic amendment.
+It remains non-authoritative. The mapping closes a documentation gap; it does not close these
+implementation gaps:
+
+* **PARTIAL — identity and AIS defaults.** Phase 0's custom identity profile is locally tested,
+  and missing entropy/grounding plus empty self-reported compliance now fail closed to zero.
+  Native ERC-8004 convergence, the AIS floor gate, admissibility enforcement, pre-boost
+  constraint score, versioned profile, migration, and conformance vectors remain open.
+* **PLANNED — federated telemetry prover.** The current AIS Oracle remains a Trusted,
+  single-operator component. No threshold validator profile or general ZK-telemetry prover exists.
+* **PLANNED — stake-secured memory availability.** No accepted availability stake,
+  challenge/production contract, deadline enforcement, or deterministic slashing path exists.
+* **PLANNED — circuit-breaker grace modes.** No execution kernel, hard/soft constraint
+  partition, monotone contraction adapter, AIS-floor precedence implementation, or bounded
+  settlement staging path exists.
+* **PLANNED — high-frequency channels and compiler.** No ATCP/IP channel profile,
+  injective channel-head settlement implementation, or `integrity-dsl` compiler exists.
+* **PLANNED — hybrid attested-host profile.** No production deployment binds attestation to
+  the specific transaction with freshness and measured egress. Existing host/TEE evidence must
+  not be described as extending on-chain complete mediation.
+
+Whitepaper §1.5 (comparative architecture) and §10.4 (enabler framing) remain explanatory rather
+than independent protocol clauses. Acceptance requires clause-level review, interface schemas,
+tests, migration/conformance evidence, and explicit incorporation into the active specification.

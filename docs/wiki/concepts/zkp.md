@@ -2,7 +2,7 @@
 title: Zero-Knowledge Proving Pipeline
 acronyms: [ZKP]
 created: 2026-07-07
-updated: 2026-07-15
+updated: 2026-08-17
 type: concept
 tags: [cryptography]
 confidence: high
@@ -24,17 +24,13 @@ source_files:
   - docs/INTERFACE_CONTRACT.md
 ---
 
-**Correction to the previous version of this page**: it claimed the pipeline
-was "real at every layer." That overclaimed. Every *individual* stage below
-is real (no `assert(true)`, no hardcoded-`true` verifier) — but the stages
-are not yet wired to each other end to end. Three concrete gaps, detailed in
-§4-§6: the deployed on-chain verifier is a fail-closed placeholder, not the
-real generated verifier; `integrity-sdk`'s prover targets a different,
-stand-in circuit, not the one in `integrity-zkp`; and nothing in this repo
-currently calls `ReputationRegistry.submitZkAttestation`. This is a large
-improvement over the old prototype (which failed *open* — a mock verifier
-that accepted any non-empty proof) but "real, not yet connected" is the
-accurate description, not "real end to end."
+**Current boundary (2026-08-17):** the local pipeline now has a real generated
+Solidity verifier, real-proof Foundry coverage, and real Oracle-side
+Barretenberg verification during telemetry ingestion. It is still not wired
+end to end: the SDK prover targets its older proof-of-concept circuit, no
+runtime client submits proofs to `ReputationRegistry.submitZkAttestation`, and
+the existing Base Sepolia deployment still points at the older fail-closed
+placeholder. Local implementation and deployed behavior must not be conflated.
 
 ## Table of contents
 
@@ -42,10 +38,10 @@ accurate description, not "real end to end."
 - [2. What this repo's circuit actually proves](#2-what-this-repo-s-circuit-actually-proves)
 - [3. The real build/prove/verify pipeline, as it exists in integrity-zkp/](#3-the-real-build-prove-verify-pipeline-as-it-exists-in-integrity-zkp)
 - [4. How the pieces are (and are not yet) wired together](#4-how-the-pieces-are-and-are-not-yet-wired-together)
-- [5. Is the deployed UltraPlonkVerifier on Base Sepolia real or a placeholder?](#5-is-the-deployed-ultraplonkverifier-on-base-sepolia-real-or-a-placeholder)
-- [6. Regenerating the verifier when the circuit changes — a real gap](#6-regenerating-the-verifier-when-the-circuit-changes-a-real-gap)
-- [Pipeline, visually: what's real vs. what's a documented gap](#pipeline-visually-what-s-real-vs-what-s-a-documented-gap)
-- [Summary: pipeline stage → real or gap](#summary-pipeline-stage-real-or-gap)
+- [5. Local verifier versus Base Sepolia deployment](#5-local-verifier-versus-base-sepolia-deployment)
+- [6. Regenerating and adopting a verifier](#6-regenerating-and-adopting-a-verifier)
+- [Pipeline, visually: current state](#pipeline-visually-current-state)
+- [Summary: pipeline stage → current status](#summary-pipeline-stage-current-status)
 
 ## 1. What Noir/Barretenberg are (context, not the point)
 
@@ -125,155 +121,87 @@ solidity-verifier, the full sequence above), `make clean`.
 
 ## 4. How the pieces are (and are not yet) wired together
 
-**On-chain contract shape** (all real code, per `contracts/src/oracle/`):
-`IZkVerifier` defines `verify(bytes calldata proof, bytes32[] calldata
-publicInputs) external view returns (bool)` — the exact signature `bb
-write_solidity_verifier` emits. `ReputationRegistry.submitZkAttestation`
-(only callable by `agent == msg.sender`, blocking cross-agent replay) checks
-the leaf against a `StateAnchor`-anchored Merkle root, then calls
-`zkVerifier.verify(proof, publicInputs)`; on success it sets a 7-day
-`zkBoostExpiry`, and `effectiveScore()` applies the 1.15x (`ZK_BOOST_BPS =
-11_500/10_000`) multiplier while that window is live. The verifier call is
-indirected through `VerifierRegistry` (a per-agent clone mapping circuit
-*version* → verifier address) so a global circuit upgrade doesn't force
-every agent onto a new verifier simultaneously.
+**Local on-chain verifier:** `contracts/src/oracle/UltraPlonkVerifier.sol` is
+now the generated UltraHonk verifier. `contracts/test/UltraPlonkVerifier.t.sol`
+uses a checked-in 8,000-byte proof fixture: the valid proof passes, while a
+tampered proof, tampered public input, and malformed proof are rejected.
+`ReputationRegistry.submitZkAttestation` retains its versioned-verifier and
+Merkle-anchor checks.
 
-**What's not yet connected**:
-- **Nothing calls `submitZkAttestation`.** `grep -rln "submitZkAttestation"`
-  across the repo matches only Solidity contracts and Solidity tests — no
-  Python (`integrity-sdk`, `integrity-cli`) or Rust (`integrity-oracle`)
-  caller submits a proof on-chain anywhere in this repo today. `[PLANNED]`.
-- **`integrity-sdk`'s prover targets a different circuit.**
-  `integrity_sdk/prover.py`'s `NoirProver.generate_proof()` really shells
-  out to `nargo execute` and `bb prove` (`subprocess.run(...)`, not a
-  mock) — but against `integrity-sdk/circuits/poc_commitment/src/main.nr`,
-  a smaller stand-in circuit (`fn main(secret: Field, intent_hash: pub
-  Field) -> pub Field`) built to exercise the SDK's proving code path
-  *before* `integrity-zkp`'s real circuit existed. Its own docstring says
-  so explicitly. It also derives its field element with SHA-256 +
-  `int.from_bytes(...) % FR_MODULUS`, not the `blake2s`-based
-  `derive_circuit_secret()` convention `integrity-zkp/README.md` specifies
-  for the real circuit's `secret_key`. Repointing `prover.py` at
-  `integrity-zkp/src/main.nr` and reconciling the KDF is `[PLANNED]`, not
-  done.
-- **The oracle does not run `bb verify`.** `integrity-oracle`'s AIS
-  response has two related-but-distinct fields
-  (`integrity-oracle/backend/src/handlers.rs`):
-  `zk_proof_verified` is set straight from an off-chain telemetry
-  aggregate (`aggregate.zk_verified_this_period`, itself
-  `COALESCE(BOOL_OR(zk_verified), false)` over ingested telemetry rows,
-  `backend/src/db.rs`) — i.e. a **self-reported flag**, not a recomputed
-  proof check. `onchain_zk_boost_consistent: Option<bool>` is a genuine
-  on-chain cross-check, calling `ReputationRegistry.isZkBoosted(agent)` via
-  `alloy` (`backend/src/chain.rs::is_zk_boosted`) and comparing it against
-  the telemetry flag — but it only *detects disagreement* between the two;
-  it never verifies a Barretenberg proof itself, and given §4/§6 below,
-  on-chain `isZkBoosted` can currently never be `true` at all (nothing sets
-  `zkBoostExpiry`, and even if something called `submitZkAttestation`, the
-  deployed verifier reverts unconditionally — see §5).
+**Oracle verification:** telemetry ingestion decodes the submitted proof and
+public inputs, then calls `state.zk.verify(...)`. `backend/src/zk.rs` shells out
+to the pinned `bb verify` binary using only server-configured verification-key
+paths (`ZK_VK_PATHS`); the request cannot choose its own key. The persisted
+`zk_verified` flag and resulting AIS boost therefore represent an actual
+Barretenberg verification result, not a self-reported boolean.
 
-## 5. Is the deployed `UltraPlonkVerifier` on Base Sepolia real or a placeholder?
+**Still open:**
 
-**It is the fail-closed placeholder, confirmed.** `contracts/src/` contains
-exactly one `UltraPlonkVerifier` contract in source:
-`contracts/src/oracle/UltraPlonkVerifier.sol`, 52 lines. Its own NatSpec
-states this plainly:
+- `integrity-sdk/integrity_sdk/prover.py` still targets
+  `integrity-sdk/circuits/poc_commitment`, not the canonical
+  `integrity-zkp/src/main.nr` circuit, and uses a different field derivation.
+- No SDK, CLI, or Oracle runtime path currently submits a proof on chain through
+  `ReputationRegistry.submitZkAttestation`.
+- Off-chain Oracle verification and on-chain proof submission are separate
+  evidence paths; one must not be described as proving the other occurred.
 
-> PLACEHOLDER — THIS FILE WILL BE REPLACED WHOLESALE, NOT EDITED. ... This
-> placeholder instead fails CLOSED: every call to `verify` reverts,
-> unconditionally.
+## 5. Local verifier versus Base Sepolia deployment
 
-```solidity
-function verify(bytes calldata, bytes32[] calldata) external pure override returns (bool) {
-    revert PlaceholderVerifierNotYetGenerated();
-}
-```
+The repository source now contains the generated verifier and local tests prove
+that it accepts the canonical fixture and rejects negative controls. However,
+`deployments.baseSepolia.json` still records the verifier address created by the
+older deployment, when `UltraPlonkVerifier.sol` was the fail-closed placeholder.
+No verifier replacement was broadcast during Phase 0.
 
-`contracts/script/Deploy.s.sol` instantiates exactly this contract
-(`verifier = new UltraPlonkVerifier();`, line 108) and registers its address
-under `singletons.UltraPlonkVerifier` in the deployments file. Cross-checked
-against `deployments.baseSepolia.json`: the live Base Sepolia address is
-`0xD6eE9031320382831c8C96627D02aEE573089226` under `singletons` — that is
-the placeholder, deployed. Any call to its `verify()` reverts
-unconditionally; it is not a mock that returns `true`/`false`, it simply
-cannot be exercised on-chain at all right now, by design (contrast with the
-old `/INTEGRITY/` prototype, whose equivalent contract returned `true` for
-any non-empty proof — a fail-*open* silent mock). Tests that need to
-exercise the rest of `submitZkAttestation` (Merkle-anchor check, boost
-bookkeeping) do so against a `vm.mockCall`-controlled `IZkVerifier` stand-in
-in `contracts/test/ReputationRegistry.t.sol`, not against this contract.
+Consequently:
 
-The real, 2465-line generated verifier exists only at
-`integrity-zkp/generated/UltraPlonkVerifier.sol` and has never been copied
-into `contracts/src/oracle/UltraPlonkVerifier.sol`. Diffing the two files
-confirms they are unrelated beyond sharing a filename and the `IZkVerifier`
-signature — the placeholder doesn't even import Honk verification-key
-constants.
+- **local source/build:** generated verifier, real-proof tests passing;
+- **existing Base Sepolia address:** older fail-closed placeholder;
+- **future genesis deployment from current source:** would deploy the generated
+  verifier, but only after a separately approved broadcast;
+- **production assurance:** not established until deployed bytecode,
+  verification key, roles, and a real proof transaction are independently
+  verified.
 
-## 6. Regenerating the verifier when the circuit changes — a real gap
+## 6. Regenerating and adopting a verifier
 
-`integrity-zkp/README.md` documents the *circuit-side* regeneration step,
-and it's real and runnable today: `make solidity-verifier` (or `make
-build`) in `integrity-zkp/` re-runs `bb write_vk` + `bb
-write_solidity_verifier` and rewrites `integrity-zkp/generated/UltraPlonkVerifier.sol`.
+`integrity-zkp/Makefile` provides `make solidity-verifier` and `make build` to
+regenerate `integrity-zkp/generated/UltraPlonkVerifier.sol`. Adopting a new
+circuit version still requires an explicit reviewed handoff into
+`contracts/src/oracle/UltraPlonkVerifier.sol`, fixture regeneration, Foundry
+negative controls, deployment approval, and deployed-bytecode verification.
+There is no root `make generate-verifier` target; documentation and source
+comments must not imply that command exists.
 
-The *hand-off* step — copying that generated file into
-`contracts/src/oracle/UltraPlonkVerifier.sol` and redeploying — is where the
-gap is. The placeholder's own NatSpec and `docs/wiki`'s root `CLAUDE.md`
-both reference a `make generate-verifier` target and a
-`contracts/script/GenerateVerifier.sh` script as the intended way to do
-this. **Neither exists.** Checked: no `Makefile` anywhere in the repo (root
-or `contracts/`) defines a `generate-verifier` target — `contracts/` has no
-`Makefile` at all — and `contracts/script/GenerateVerifier.sh` is not
-present on disk. `grep -rln "generate-verifier"` across the repo matches
-only prose references (`CLAUDE.md`, the placeholder's NatSpec, two test
-files' comments), never a target definition. This is a genuine, documented
-tooling gap, not something to paper over: today, replacing the placeholder
-is a manual copy (`cp integrity-zkp/generated/UltraPlonkVerifier.sol
-contracts/src/oracle/UltraPlonkVerifier.sol`) followed by a manual
-`forge script script/Deploy.s.sol` redeploy — no single command does both
-steps. `[PLANNED]`.
-
-## Pipeline, visually: what's real vs. what's a documented gap
+## Pipeline, visually: current state
 
 ```mermaid
 flowchart LR
-    subgraph Real["Real, working today"]
-        Circuit["Circuit constraints<br/>(main.nr, 4/4 nargo test)"]
-        Prove["nargo compile → witness →<br/>bb prove / bb verify"]
-        Verifier["bb write_solidity_verifier<br/>(2465-line Honk verifier)"]
-        OracleChain["oracle: onchain_zk_boost_consistent<br/>(real isZkBoosted read)"]
-    end
-    subgraph Gaps["Documented gaps — [PLANNED]"]
-        Handoff["Manual copy into contracts/,<br/>no generate-verifier tooling"]
-        Deployed["Deployed verifier is the<br/>fail-closed PLACEHOLDER"]
-        SDKProver["SDK prover.py targets<br/>poc_commitment, not this circuit"]
-        Submit["Nothing calls<br/>submitZkAttestation"]
-        OracleFlag["oracle: zk_proof_verified is a<br/>self-reported telemetry flag"]
-    end
+    Circuit["Canonical circuit<br/>integrity-zkp/src/main.nr"] --> BB["nargo + bb<br/>prove / verify"]
+    BB --> Generated["Generated Solidity verifier<br/>local source"]
+    Generated --> Foundry["Real-proof Foundry tests<br/>valid + negative controls"]
+    Telemetry["Telemetry proof"] --> Oracle["Oracle bb verify<br/>trusted server VK"]
 
-    Circuit --> Prove --> Verifier --> Handoff --> Deployed
-    SDKProver -.-> Prove
-    Submit -.-> Deployed
-    OracleFlag -.-> OracleChain
-    OracleChain -.->|can only detect disagreement| Deployed
+    SDK["SDK poc_commitment circuit"] -. "not yet canonical" .-> BB
+    Generated -. "deployment approval required" .-> Base["Base Sepolia<br/>older placeholder remains"]
+    Oracle -. "no runtime submit path" .-> Registry["submitZkAttestation"]
 ```
 
-## Summary: pipeline stage → real or gap
+## Summary: pipeline stage → current status
 
 | Stage | Status |
 |---|---|
-| Circuit constraints (`integrity-zkp/src/main.nr`) | Real, tested (4/4 `nargo test`) |
-| `nargo compile` → witness → `bb prove`/`bb verify` | Real, real transcripts, real negative control |
-| `bb write_solidity_verifier` output | Real, 2465-line generated Honk verifier |
-| Deployed on-chain verifier (Base Sepolia) | **Placeholder** — fails closed, `revert`s unconditionally |
-| Circuit → contracts hand-off tooling | **Missing** — `make generate-verifier` / `GenerateVerifier.sh` referenced, not built |
-| `integrity-sdk` proof generation | Real toolchain calls, but against `poc_commitment`, **not** `integrity-zkp`'s circuit |
-| Proof submission to `ReputationRegistry.submitZkAttestation` | **Nothing calls it** anywhere in this repo |
-| Oracle `zk_proof_verified` field | Self-reported telemetry flag, not a recomputed proof check |
-| Oracle `onchain_zk_boost_consistent` field | Real on-chain read (`isZkBoosted` via `alloy`), but only ever detects disagreement — can't currently observe `true` given the gaps above |
+| Canonical Noir circuit and `nargo test` | Implemented and tested |
+| `bb prove` / `bb verify` pipeline | Implemented with real positive and negative controls |
+| Generated Solidity verifier in contract source | Implemented locally |
+| Solidity verifier real-proof Foundry coverage | Implemented: valid, tampered-proof, tampered-input, malformed-proof cases |
+| Oracle telemetry proof verification | Implemented with real `bb verify` and server-controlled verification keys |
+| SDK canonical-circuit integration | **Open** — SDK still targets `poc_commitment` |
+| Runtime on-chain proof submission | **Open** — no caller invokes `submitZkAttestation` |
+| Base Sepolia verifier | **Older fail-closed placeholder remains deployed** |
+| Verifier regeneration | Circuit-side Makefile targets exist; adoption/deployment remains reviewed and manual |
 
 See [Interface Contract §5](../../INTERFACE_CONTRACT.md#5-zero-knowledge-proving-pipeline-must-be-real-end-to-end)
-for the pipeline's original spec, and [integrity-zkp](../entities/integrity-zkp.md)
-for the concrete hash-function/domain-separation decisions every consumer
-must replicate exactly.
+for the normative pipeline boundary and
+[integrity-zkp](../entities/integrity-zkp.md) for the circuit's concrete field,
+hash, and domain-separation conventions.

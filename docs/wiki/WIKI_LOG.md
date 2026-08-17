@@ -3064,3 +3064,40 @@ writeup: PRODUCTION_GAPS.md §18.
 - Normalized escaped LaTeX source into readable v3-style formula text, including Greek symbols, operators, subscripts, and parenthetical labels.
 - Verification: equation page was visually inspected against v3; no raw LaTeX backslashes or automatic browser header remain; regenerated 35-page unencrypted United States Letter PDF; repository and Downloads copies match byte-for-byte.
 - Final PDF SHA-256: `7aff28317b8fd2afb2309135ab7272b15f750c974b8309edc472277da344043c`.
+
+## [2026-08-17] update | Phase 0 Integrity identity read profile
+
+- Added `contracts/src/kernel/IntegrityIdentityReadV1.sol`, a read-only discovery facade over `XibalbaAgentRegistry`, and wired it into future genesis deployments as `singletons.IntegrityIdentityReadV1`.
+- A primary-source ERC-8004 review and focused Devil's Advocate pass rejected false compatibility: the facade pins the reviewed Draft revision, returns `isERC8004Conformant() == false`, and exposes no ERC-721 token, ownership, transfer, approval, wallet-proof, metadata-write, reputation-feedback, validation, event, or ERC-165 surface.
+- Identity resolution fails closed when forward/reverse registry mappings disagree, when `SovereignAgent.agentDID()` is unavailable, or when its declared DID does not match the registered hash. Current controller candidates are checked against live account roles rather than the registry's registration-time snapshot.
+- Agent Integrity Score (AIS) remains separate and authoritative through the existing Integrity Oracle and per-agent `ReputationRegistry`; the facade does not compute or translate reputation.
+- Verification: `forge test --match-contract IntegrityIdentityReadV1Test -vvv` returned 10 passed/0 failed; full `forge test` returned **209 passed/0 failed/0 skipped**; the touched Solidity files pass scoped `forge fmt --check`; no Base Sepolia transaction was broadcast. Fixed identity resolution remains available when the separate agent-controlled profile URI read reverts.
+- Residual gaps: native ERC-8004 convergence, an incremental Base Sepolia deployment, and prevention (rather than facade-level detection) of duplicate-agent/DID mismatches remain open in `PRODUCTION_GAPS.md` §28.
+- Reconciled the proposed v0.5 amendment, the explanatory v3.2 source, the Phase 0 plan, and the ecosystem-adoption draft: all now distinguish an Integrity identity obligation from ERC-8004 compatibility and correct the stale no-deployment claim about the Validation component without rewriting historical v3.1 release artifacts.
+
+## [2026-08-17] update | Whitepaper v3.2 and complete proposed-spec reconciliation
+
+- Reconciled the repository authority chain across the root README/specification/implementation plan, `spec/README.md`, `docs/INTERFACE_CONTRACT.md`, `docs/MAINNET_READINESS.md`, `PRODUCTION_GAPS.md`, developer guidance, plans, and the canonical wiki: v0.4 remains accepted normative authority; v0.5-proposed is a non-authoritative review candidate; Whitepaper v3.2 is explanatory; its PDF is generated output.
+- Expanded `spec/integrity-protocol-v0.5-proposed.md` to map the full substantive v3.2 amendment set: telemetry-prover decentralization, stake-secured memory availability, monotone grace modes with AIS-floor precedence, high-frequency channel/compiler trust, and the hybrid attested-host boundary. Comparative-architecture and enabler framing remain explanatory rather than fabricated implementation requirements.
+- Preserved implementation honesty: Phase 0 identity discovery and bounded fail-closed AIS defaults are local evidence; the execution firewall and all five expanded v3.2 profiles remain `[PLANNED]`. Source capability, test evidence, and Base Sepolia deployment are separate layers.
+- Added `scripts/build_whitepaper_v32.py`, using pinned Mermaid 11.16.1 and KaTeX 0.16.47 browser assets from the user cache. The build rendered all 13 Mermaid diagrams and regenerated `spec/Integrity_Protocol_Whitepaper_v3.2.pdf` from the reconciled Markdown.
+- PDF verification: 59 A4 pages, unencrypted, title `Integrity Protocol v3.2`; extracted text retained the non-normative notice, v0.5-proposed linkage, and `PROPOSED NORMATIVE CHANGE` markers while containing no stale `SPEC CHANGE` marker. Cover and technical/equation/diagram page 16 were visually inspected with no clipping, overlap, browser header, broken glyph, or raw-markup defect.
+- Regenerated PDF SHA-256: `9d3a990e1d684080a9dda274e876071cc6ee79169ca72c12dac3698e9ae4169b`.
+
+## [2026-08-17] update | delayed documentation-audit reconciliation and final v3.2 rebuild
+
+- Reconciled the delayed three-lane documentation audit against the post-audit worktree. Corrected remaining living drift in developer/testing guidance, package READMEs, the AIS and ZKP concept pages, the repository implementation ledger, the production-gap register, and the external Phase 0 plan.
+- Removed the invented dashboard Vitest/component-test layer. The root `make test` contract and GitHub Actions dashboard job now run the manifest-backed `npm run build && npm run lint`; Playwright remains separate and requires a separately prepared backend stack.
+- Corrected Whitepaper v3.2's remaining internal ambiguity: sections 2–7 are proposed architecture rather than accepted implementer authority; Validation deployment claims are bounded to the cited audit cutoff; the AIS baseline is partial; and identity constraints resolve through a selected Integrity identity profile rather than assuming native ERC-8004.
+- Reconciled proof-pipeline documentation with source: local generated verifier + real-proof Foundry coverage, Oracle-side `bb verify` with server-controlled verification keys, SDK proof-of-concept circuit mismatch, absent runtime on-chain submission, and the older fail-closed Base Sepolia verifier are now separate explicit states.
+- Fixed `scripts/wiki_linter.py` so the legacy `WIKI_INDEX.md` catalog may link to canonical `index.md` without counting the landing page as an article or falsely reporting it dead.
+- Verification: dashboard build/lint passed with 0 errors (56 existing warnings); Foundry passed **209/209**; wiki TOCs are current for 36 pages; wiki linter reports 0 orphans and 0 dead catalog links; 108 living Markdown files exposed 544 local links with 0 missing; Python compilation and `git diff --check` passed.
+- Final Whitepaper v3.2 artifact: 59 A4 pages, 13/13 Mermaid diagrams, extracted authority/identity assertions passed. SHA-256: `01d1312f36a3826432759d01faaa1ae7b2d38e2efd26fa0f8a2c62046432cdb0`.
+
+## [2026-08-17] correction | final adversarial clause-mapping closure
+
+- Dispositioned the delayed independent final review, which correctly rejected the prior closure despite otherwise sound v0.4/v0.5/v3.2 and Phase 0 identity boundaries.
+- Removed residual local-authority wording from the non-normative whitepaper, marked complete mediation as a `PROPOSED NORMATIVE CHANGE`, relabeled adapter rules as proposed, and corrected the Phase III and enabler cross-references to §10.3 and §10.4 respectively.
+- Expanded v0.5-proposed without changing its non-authoritative status: added verified-evidence monotonicity; exposure-scaled availability escrow, anti-grief challenge deposits, AIS reduction, deterministic redress, and burn; hard classification for all value movement plus typed degradation events; locked-budget state channels with highest-mutually-signed state, monotone depletion, value conservation, and unilateral settlement; and per-transaction enclave binding with explicit side-channel/rollback/microarchitectural residual risk.
+- Verification: focused source assertions passed; prohibited authority phrases and broken references are absent; the proposed clause mapping contains every reviewed load-bearing requirement; wiki TOCs and linter passed; `git diff --check` passed.
+- Rebuilt Whitepaper v3.2: 59 A4 pages, unencrypted, 13/13 Mermaid diagrams; normalized extracted-text assertions and visual inspection of pages 10, 18, 31, and 59 passed. Superseding SHA-256: `d7d3135007f118f174be3a5bcde247198a8fb6f5dbf821c2825fca8508c63552`.

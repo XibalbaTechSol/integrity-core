@@ -1,3 +1,174 @@
+# Handoff — 2026-08-17d (Phase 0 and v3.2 documentation reconciliation complete locally)
+
+This section supersedes the current-status and document-authority claims in older same-day
+sections below. Historical evidence remains preserved.
+
+## 0. Closure outcome
+
+All Phase 0 tasks and the added Whitepaper v3.2/new-specification documentation criterion are
+**complete locally**. No external deployment, specification acceptance, public release, or Base
+Sepolia mutation occurred.
+
+The document authority chain is now explicit and consistent:
+
+1. `spec/integrity-protocol-v0.4.md` remains the accepted normative specification.
+2. `spec/integrity-protocol-v0.5-proposed.md` is the new non-authoritative amendment under
+   clause-level review. It now maps the full substantive v3.2 proposal set, including identity,
+   AIS evidence/floors, memory, complete mediation, telemetry-prover decentralization,
+   availability escrow, grace modes, high-frequency channels/compiler trust, and the hybrid
+   attested-host boundary.
+3. `spec/integrity-protocol-v3.2.md` is explanatory and non-normative. All change labels say
+   `PROPOSED NORMATIVE CHANGE`; no whitepaper text silently amends v0.4.
+4. `spec/Integrity_Protocol_Whitepaper_v3.2.pdf` is generated publication output.
+
+Phase 0's `IntegrityIdentityReadV1` remains a custom, read-only, explicitly non-ERC-8004 profile.
+It is locally tested, wired into future-genesis deployment output, and preserved by every
+incremental deployment-file reserializer. It was not broadcast to Base Sepolia. Agent Integrity
+Score (AIS) remains the sole reputation authority.
+
+## 1. Documentation reconciliation
+
+Updated living authority/status surfaces include `README.md`, `SPECIFICATION.md`,
+`IMPLEMENTATION_PLAN.md`, `CLAUDE.md`, `.agents/AGENTS.md`, `spec/README.md`, v0.4's
+implementation clarification, the complete v0.5 proposal, Whitepaper v3.2,
+`docs/INTERFACE_CONTRACT.md`, `docs/MAINNET_READINESS.md`, `docs/TESTING.md`,
+`docs/CONTRIBUTOR_VALIDATION.md`, package READMEs, `PRODUCTION_GAPS.md`, active plans, and the
+canonical wiki/index/backlinks/log. Historical v3.1 releases and archived plans/log entries were
+not rewritten.
+
+The v0.5 proposal and interface/gap ledgers preserve honest status: Phase 0 identity discovery
+and bounded AIS fail-closed defaults are implementation evidence; the execution firewall,
+federated telemetry prover, availability escrow, grace modes, high-frequency channel/compiler,
+and attested-host profiles remain `[PLANNED]` or `[PARTIAL]`, not deployed behavior.
+
+A delayed independent adversarial review initially failed this closure on residual whitepaper
+authority wording, two section references, and five load-bearing mapping omissions. The final source
+now marks complete mediation as proposed, uses only proposed-normative language, corrects §10.3/§10.4
+references, and carries verified-evidence monotonicity, exposure-scaled availability escrow with
+anti-grief deposit and deterministic redress/burn, hard value partition plus typed degradation
+events, budgeted state-channel conservation/unilateral settlement, and per-transaction enclave
+binding with residual TEE risk into v0.5-proposed. These remain proposals, not v0.4 requirements.
+
+## 2. Publication evidence
+
+- Added reproducible builder `scripts/build_whitepaper_v32.py`.
+- Build inputs: pinned Mermaid 11.16.1 and KaTeX 0.16.47 assets in the user cache.
+- Build result: all 13 Mermaid diagrams rendered; 59-page A4, unencrypted PDF.
+- Extracted-text checks retained the v3.2 title, non-normative notice, v0.5-proposed link,
+  custom identity/non-conformance boundary, and proposed-change markers; no stale `SPEC CHANGE`
+  marker remained.
+- Cover and technical page 16 were visually inspected before the final text reconciliation;
+  representative final pages 3, 18, 24, 38, and 56 were then re-rendered and inspected with no
+  clipping, overlap, browser header, broken glyph, or raw-markup defect. Page 24 is underfilled
+  because the following structured block is kept together, not because content was truncated.
+- PDF SHA-256 after the final internal-authority/identity reconciliation:
+  `d7d3135007f118f174be3a5bcde247198a8fb6f5dbf821c2825fca8508c63552`.
+
+## 3. Final verification evidence
+
+- Scoped `forge fmt --check`: passed for the facade, test, genesis script, and all touched
+  incremental deployment scripts.
+- `forge build`: passed; only pre-existing lint warnings were reported.
+- Full Foundry suite: **209 passed / 0 failed / 0 skipped** across 23 suites.
+- Living Markdown link audit: **108 files, 544 local links, 0 missing**. Append-only wiki logs,
+  schema-template examples, dated audits, and archived plans were intentionally excluded from
+  current-link assertions while remaining preserved.
+- Wiki table-of-contents check: current for 36 pages.
+- Wiki linter: 36 total pages, 25 concepts, 8 entities, 0 orphans, and 0 dead catalog links. The
+  linter now correctly treats canonical `index.md` as a landing page rather than a counted article.
+- Dashboard validation contract: `npm run build && npm run lint` passed with 0 errors (56 existing
+  warnings). `Makefile` and hosted CI now use that real validation surface; Playwright remains a
+  separately prepared browser layer because no dashboard unit/component test script exists.
+- Authority/claim assertions: passed for v0.4 authority, v0.5 proposal status, v3.2
+  non-normativity, complete v3.2 clause mapping, Phase 0 negative ERC-8004 conformance, interface
+  planned-state rows, and production-gap coverage.
+- `git diff --check`: passed.
+- No external transaction or deployment was performed.
+
+## 4. Remaining work is post-Phase-0
+
+The following are explicit future work, not blockers to Phase 0 closure: accepting or rejecting
+v0.5 clause by clause; native ERC-8004 convergence; approval-gated incremental Base Sepolia
+facade deployment; underlying registry invariant prevention; and implementation of Phase I plus
+the other planned v3.2 profiles.
+
+---
+
+# Handoff — 2026-08-17c (Phase 0 identity discovery closed locally; no external deployment)
+
+This section supersedes only the Phase 0 identity/adoption claims in the older same-day
+sections below. Historical test evidence and unresolved Phase I work remain intact.
+
+## 0. Outcome
+
+Phase 0 is **complete locally**. `contracts/src/kernel/IntegrityIdentityReadV1.sol` is a
+read-only, versioned discovery facade over `XibalbaAgentRegistry`; it is not an ERC-8004
+Identity Registry or ERC-721 implementation. It resolves by DID, DID hash, and
+`SovereignAgent`, returns fixed registry/primitives state, validates forward/reverse and
+declared-DID consistency, and checks candidate controllers against the account's live role
+state. The optional, mutable `profileURI` is a separate read, so a broken profile contract
+cannot deny fixed identity resolution.
+
+Primary-source review pinned the ERC-8004 Draft at
+`ethereum/ERCs@503591a6e80e6e1affdd6403341e25269141f046/ERCS/erc-8004.md` and rejected the
+earlier "ERC-8004-shaped" compatibility claim. The facade explicitly returns
+`isERC8004Conformant() == false` and defines no token identifier, ownership, transfer,
+approval, wallet-proof, metadata-write, reputation-feedback, validation, event, or ERC-165
+surface. Agent Integrity Score (AIS) remains the sole reputation authority through the
+existing Integrity Oracle and per-agent `ReputationRegistry`.
+
+Existing agents require no migration and no Base Sepolia transaction was broadcast.
+`Deploy.s.sol` now includes the facade for future genesis deployments as
+`singletons.IntegrityIdentityReadV1`; an incremental testnet deployment remains a distinct,
+approval-gated external write.
+
+## 1. Verification evidence
+
+- Focused Foundry suite: **10 passed / 0 failed / 0 skipped**.
+- Full Foundry suite: **209 passed / 0 failed / 0 skipped** across 23 suites.
+- `forge build`: compiler run successful; only pre-existing lint warnings were emitted.
+- Scoped `forge fmt --check` for the facade, tests, and deployment script: passed.
+- `git diff --check`: passed.
+- Future-genesis dry simulation: passed; `deployments.local.json` contained a valid
+  `singletons.IntegrityIdentityReadV1` address and the deployment log named the facade.
+- Wiki checks: 36-page table of contents current; zero index orphans; zero dead index links.
+- Static secret-pattern scan over the Phase 0 Solidity/deployment diff: no hits.
+
+## 2. Reconciled artifacts
+
+- `README.md`
+- `docs/INTERFACE_CONTRACT.md` §6.1a and deployment schema
+- `spec/integrity-protocol-v0.5-proposed.md` (still proposed/non-authoritative)
+- `spec/integrity-protocol-v3.2.md` (explanatory source correction)
+- `PRODUCTION_GAPS.md` §28
+- `docs/wiki/entities/contracts.md` and append-only `docs/wiki/WIKI_LOG.md`
+- `/home/xibalba/.claude/plans/where-are-we-with-dapper-gem.md`
+- `docs/plans/2026-08-17-ecosystem-adoption-strategy.md`
+
+Historical v3.1 release artifacts were deliberately not rewritten. The v3.2 correction
+records that direct review found deployed Validation proxy bytecode while canonical project
+material still labels that component unstable.
+
+## 3. Open items are post-Phase-0
+
+1. Prevent duplicate-agent and registered/declared-DID mismatches in the registry/factory
+   write path; the facade currently detects and rejects them.
+2. Deploy `IntegrityIdentityReadV1` incrementally to Base Sepolia only after exact approval,
+   then verify bytecode and reads directly.
+3. Revisit native ERC-8004 convergence only on a real integrator, stable Validation, or
+   cross-chain portability trigger, with a selector-by-selector compatibility review.
+4. Begin Phase I kernel work only under its independent-audit and machine-checked-invariance
+   gate. The kernel must read fixed registry/primitive state directly, not this external
+   discovery facade or dynamic profile metadata.
+
+## 4. Tree state
+
+Work is intentionally uncommitted on branch `audit/harness-loop-2026-07-30`. The
+pre-existing untracked ecosystem-adoption draft was preserved and minimally reconciled;
+unrelated files were not deleted or staged.
+
+---
+
 # Handoff — 2026-08-17b (AIS fail-closed defaults landed; v0.5-proposed evidence trail; open-item triage)
 
 Continuation of the same-day session below, picking up its own priority-ordered open-items

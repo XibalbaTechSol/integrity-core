@@ -1,6 +1,6 @@
 # integrity-core Repository Specification
 
-**Updated:** 2026-08-06
+**Updated:** 2026-08-17
 **Status:** Strong testnet protocol prototype; not production-ready.
 
 ## 1. Purpose
@@ -18,6 +18,8 @@ The repository defines how AI agents establish identity, commit to behavior befo
 | PRODUCTION_GAPS.md | Detailed production-readiness gap register. |
 | docs/INTERFACE_CONTRACT.md | Internal package ports, schemas, environment variables, and coordination rules. |
 | spec/integrity-protocol-v0.4.md | Normative protocol specification. |
+| spec/integrity-protocol-v0.5-proposed.md | New proposed normative amendment; non-authoritative until clause-level acceptance. |
+| spec/integrity-protocol-v3.2.md | Current explanatory, non-normative whitepaper. |
 | spec/README.md and spec/ais-api/v1 | Versioned externally-supported wire surfaces. |
 | docs/audits/2026-08-06-cross-repository-status.md | Current audit evidence and production posture. |
 | docs/wiki/ | Canonical long-term project memory and downstream wiki source. |
@@ -57,7 +59,7 @@ flowchart TD
         BCC -->|Validated Telemetry & Evidence| Oracle
         Oracle -->|Scores, Slashing, Reputation| Chain
         BCC -->|ZK Intent Proofs| ZK
-        ZK -.->|Placeholder Verifier| Chain
+        ZK -.->|Generated local verifier;<br/>older placeholder remains deployed| Chain
         BCC -->|Anchors Session Roots| Chain
     end
 
@@ -177,7 +179,7 @@ flowchart TD
         Oracle -->|Scores & Reputation| Chain
         BCC -->|Anchor Roots| Chain
         BCC -->|ZK Proofs| ZK
-        ZK -.->|Placeholder Verifier| Chain
+        ZK -.->|Generated local verifier;<br/>older placeholder remains deployed| Chain
     end
 
     subgraph Eyes["👁️ THE CONTROL CENTER — integrity-core/integrity-dashboard"]

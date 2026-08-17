@@ -96,12 +96,12 @@ prior port of this file had trimmed it down to a single inline step,
 losing the parallel-subagent mechanism that made it actually scale):
 
 **Phase 1 — COVERAGE DISCOVERY**
-1. Run that package's real test runner (`forge test`, `nargo test`,
-   `cargo test`, `pytest`, `npm test`/`vitest`) — not just typecheck. If the
-   change touches an `integrity-dashboard` page, also run `make test-e2e`
-   (Playwright, real browser against a real backend stack — see
-   `docs/TESTING.md`); it's a separate, slower layer from `npm test`'s
-   component tests, not a substitute for it.
+1. Run that package's real validation (`forge test`, `nargo test`,
+   `cargo test`, `pytest`, or the dashboard's `npm run build && npm run lint`)
+   — not just typecheck. The dashboard currently has no unit/component test
+   script. If the change touches a dashboard page, also run `make test-e2e`
+   (Playwright, real browser against a separately prepared backend stack — see
+   `docs/TESTING.md`).
 2. Identify newly added or changed features (endpoints, contract
    functions, exported SDK calls, dashboard pages) lacking real test
    coverage.
