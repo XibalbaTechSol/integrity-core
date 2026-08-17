@@ -20,15 +20,29 @@ own standing commitment, the test asserting this was renamed to document the fin
 (`test_preCheckGasExceedsPaperTable4BudgetWithThreeUncachedChecks`) rather than having its
 threshold quietly raised to make it pass silently. See §"Known limitation" below.
 
+**Third update (2026-08-17, same day): module mutation is now reachable, reversing a claim this
+doc previously made.** Per `docs/plans/2026-08-17-phase1-module-governance-proposal.md` (which
+states the reversal plainly — read it before trusting any "unreachable" language elsewhere in
+this doc that hasn't been updated), the account now exposes a timelocked, atomic kernel-swap path
+(`proposeKernelSwap`/`executeKernelSwap`/`cancelKernelSwap`). `installModule`/`uninstallModule`
+themselves still always revert — the new path reaches the same underlying internals through a
+different, constrained route. This is **single-signer-timelocked, not the plan's full
+"timelocked + multi-party"** requirement. The guarantee statement and "What this does NOT prove"
+section below are updated accordingly; anywhere else in the repo that still says "module mutation
+is permanently unreachable" for this slice is now stale and should be corrected against this
+update, not trusted as current.
+
 ## What exists
 
 `contracts/src/kernel/IntegrityAccountV1Experimental.sol` and
 `IntegrityKernelV1Experimental.sol`. **Not deployed anywhere** — Foundry-test-only. Not
-upgradeable, not a proxy, not referenced by `Deploy.s.sol` or any deployment script. 17 passing
-tests in `contracts/test/IntegrityAccountV1Experimental.t.sol`; full repo suite green at 226/226
-(up from 209 before this slice, +12 for the first adapter, +3 for the reputation floor, +2 for
-the assurance tier — a net +2 after also removing one redundant test the assurance-tier work made
-unnecessary).
+upgradeable, not a proxy, not referenced by `Deploy.s.sol` or any deployment script. 31 passing
+tests in `contracts/test/IntegrityAccountV1Experimental.t.sol` (up from 17: +10 for the
+module-governance kernel-swap mechanism, +4 from a Devil's Advocate review's code-level findings
+— see `docs/plans/2026-08-17-phase1-module-governance-proposal.md`'s "Devil's Advocate review and
+response" section); full repo suite green at 240/240 (up from 209 before this slice began: +12
+for the first adapter, +3 for the reputation floor, +2 for the assurance tier net of one removed
+redundant test, +10 for module governance, +4 for the review's fixes).
 
 ## The guarantee, precisely
 
@@ -56,9 +70,12 @@ short-circuits any other.
   ERC-7579 dispatch combinations are rejected before reaching the base class's execution logic
   (`test_batchExecutionModeIsRejected`, `test_delegatecallExecutionModeIsRejected`,
   `test_tryExecTypeIsRejectedEvenWithSingleCalltype`), and that no second execution path can ever
-  be opened (`test_moduleInstallIsUnconditionallyDisabled`,
+  be opened via a direct call (`test_moduleInstallIsUnconditionallyDisabled`,
   `test_moduleUninstallIsUnconditionallyDisabled` — the latter tried against the real, already-
-  installed kernel specifically, not a hypothetical module).
+  installed kernel specifically, not a hypothetical module). The direct `installModule`/
+  `uninstallModule` functions remain disabled unconditionally; module mutation is reachable only
+  through the separate, timelocked kernel-swap path (see "Not complete mediation" below) — a
+  deliberate reversal of this doc's original claim that mutation was unreachable entirely.
 - The hook cannot be bypassed or spoofed by a caller other than the bound account
   (`test_preCheckAndPostCheckRejectCallersOtherThanTheBoundAccount`), and cannot be invoked out
   of sequence (`test_postCheckCannotBeCalledDirectlyWithoutAPrecedingPreCheck`).
@@ -108,12 +125,28 @@ measured): the response to crossing budget is reporting it, not quietly raising 
 - **Not calldata-content-aware.** The kernel never inspects what the wrapped call actually does
   beyond the resulting native-balance delta — a call that moves zero ETH but does anything else
   (approves a token, calls an arbitrary contract, self-destructs a target) is unconstrained.
-- **Not complete mediation in the whitepaper's full sense.** Condition (iii) — module
-  install/removal must itself be a constrained transition — is satisfied only by making
-  install/removal *unreachable entirely*, not by gating it through the kernel. This is a
-  materially weaker property: an account that could never evolve its policy is trivially "safe"
-  from policy-removal attacks, but it is also not a general-purpose account design. The full
-  Phase I plan's module-governance item (timelocked, multi-party removal) remains unbuilt.
+- **Closer to, but still short of, complete mediation in the whitepaper's full sense.**
+  Condition (iii) — module install/removal must itself be a constrained transition — is now
+  satisfied by a timelocked, atomic kernel-swap path (`proposeKernelSwap`/`executeKernelSwap`/
+  `cancelKernelSwap`, per `docs/plans/2026-08-17-phase1-module-governance-proposal.md`), not by
+  making mutation unreachable. This is still a materially weaker property than the plan's full
+  "timelocked + multi-party" requirement: this account has exactly one ECDSA signer, so a
+  compromised signing key can still eventually force a kernel swap, just not instantly, and not
+  silently (the timelock window is observable). The swap is asymmetrically mediated — verified,
+  not assumed, by `test_executeKernelSwapUninstallHalfIsMediatedByOldKernel` and
+  `test_executeKernelSwapInstallHalfIsUnmediated` — removal of the outgoing kernel is genuinely
+  content-gated (reputation floor + assurance tier), while installation of the new kernel is
+  gated only by a superficial `isModuleType` interface probe and elapsed time, never by a check
+  with security content. Two distinct lockout classes follow from this, not one: an account below
+  the outgoing kernel's floor/tier is temporarily locked out but can requalify and retry; a
+  SEPARATE, more severe class has no recovery path at all — a kernel that passes the interface
+  probe but reverts unconditionally in `preCheck` bricks `execute()` permanently AND blocks every
+  rescue swap too (the rescue's own uninstall half must call the broken kernel's `preCheck`
+  first). This second class was found by a Devil's Advocate review and is now a permanent
+  regression fixture, not just a documented claim:
+  `test_brokenKernelPreCheckPermanentlyBricksAccountWithNoRescuePath`. A genuinely multi-party
+  version of this mechanism remains unbuilt and is separate, larger scope. Full review findings
+  and code-level response: `docs/plans/2026-08-17-phase1-module-governance-proposal.md`.
 - **Not audited.** No external review has occurred. This slice's own completion does not clear
   the Devil's Advocate review's stated gate to Phase II ("audit + machine-checked invariance").
 - **Not proof that `IntegrityAccount`/`IntegrityKernel` (the real Phase I names) exist.** This is
@@ -140,3 +173,14 @@ measured): the response to crossing budget is reporting it, not quietly raising 
 | Non-boosted account reverts even when budget+reputation pass | `test_nonBoostedAccountRevertsEvenWhenBudgetAndReputationBothPass` | `stdStorage`-set `zkBoostExpiry`, real `isZkBoosted` read |
 | Expired boost treated as not-boosted | `test_expiredBoostIsTreatedAsNotBoosted` | Real `block.timestamp`-based boundary, not a static flag |
 | Assurance-tier check does real work | mutation check | Removing the check makes both assurance-tier tests wrongly pass |
+| Direct `installModule`/`uninstallModule` remain unconditionally disabled | `test_moduleInstallIsUnconditionallyDisabled`, `test_moduleUninstallIsUnconditionallyDisabled` | Attempted against a real, already-installed kernel |
+| Kernel swap succeeds after the timelock and leaves the account functional | `test_kernelSwapSucceedsAfterTimelockElapsesAndInstallsTheNewKernel` | Real `hook()` readback + a genuine post-swap `execute()` |
+| Swap rejects: no pending swap, already pending, parameter mismatch, premature execution | 4 tests | Real revert-selector assertions against each error |
+| Cancel fully clears the pending slot, not just marks it cancelled | `test_cancelKernelSwapThenReproposeSucceeds` | Re-propose immediately after cancel succeeds and lands |
+| Timelock does real work | mutation check | Removing `block.timestamp < readyAt` makes the premature-execution test wrongly pass (instant swap) |
+| Swap's uninstall half is genuinely mediated by the outgoing kernel | `test_executeKernelSwapUninstallHalfIsMediatedByOldKernel` | Real reputation drop after propose, before execute, blocks the swap |
+| Swap's install half is genuinely unmediated (nothing to mediate against, not a bypass) | `test_executeKernelSwapInstallHalfIsUnmediated` | New kernel with an unreachable floor still installs; only the next real `execute()` correctly rejects |
+| Zero timelock is rejected at construction | `test_constructorRevertsOnZeroTimelock` | Mutation-tested: removing the check makes it instead fail with the kernel's `Unauthorized` further downstream |
+| Non-conforming `newKernel` is rejected at propose time, not after the delay | `test_proposeKernelSwapRevertsOnNonConformingKernel` | Mutation-tested against a real contract whose `isModuleType` returns `false` |
+| Only self/EntryPoint can propose, cancel, or execute a swap | `test_governanceFunctionsRevertForNonSelfNonEntryPointCaller` | Real revert-selector assertions against a stranger address for all three functions |
+| A `preCheck`-reverting kernel permanently bricks `execute()` and blocks every rescue swap | `test_brokenKernelPreCheckPermanentlyBricksAccountWithNoRescuePath` | Real adversarial fixture kernel; asserts both the brick and the failed rescue attempt |

@@ -1,3 +1,92 @@
+# Handoff — 2026-08-17j (Phase I module governance: timelocked kernel swap — reverses the "module mutation permanently disabled" claim, Devil's Advocate reviewed and code-fixed before landing)
+
+Continuation after 2026-08-17i below. Different pattern from the three adapters: this change
+**reverses** a previously committed claim (module mutation was "permanently disabled by
+construction"; it no longer is), so it was written up as its own proposal doc
+(`docs/plans/2026-08-17-phase1-module-governance-proposal.md`) alongside the implementation, and
+— because this session's own operating loop calls for a focused review before landing a
+foundational security/identity-boundary change — was run through a dedicated Devil's Advocate
+review (independent subagent, full diff + OZ base source + test suite) before being finalized,
+not after.
+
+## 0. What changed
+
+`IntegrityAccountV1Experimental` gained `proposeKernelSwap`/`executeKernelSwap`/
+`cancelKernelSwap`: a timelocked, atomic mechanism to replace the installed kernel. Direct
+`installModule`/`uninstallModule` still always revert — this is the only reachable path to
+module mutation, and it is swap-only (not generic install/uninstall) by design: in a one-hook
+account, bare uninstall with nothing queued to replace it is exactly the "the agent can simply
+uninstall its own supervisor" failure the whitepaper names as fatal, so the swap atomically
+uninstalls-then-installs in one transaction, never leaving a reachable zero-hook state.
+
+**The review's top-line verdict was "add code-level mitigations before shipping,"** not ship-as-is
+and not revert. Two real gaps got fixed in code:
+
+1. **Zero timelock had no validation** — would have let `executeKernelSwap` succeed in the same
+   transaction as `proposeKernelSwap`, silently voiding the mechanism's entire point. Fixed:
+   constructor now reverts `ZeroTimelock()` on a zero value.
+2. **No interface probe on the proposed kernel** — a non-conforming address only failed after the
+   timelock had already elapsed. Fixed: `proposeKernelSwap` now probes
+   `newKernel.isModuleType(MODULE_TYPE_HOOK)` and fails fast.
+
+Both are mutation-tested (temporarily removed, confirmed the specific regression test fails for
+the right reason, restored byte-identical via `diff`).
+
+**One finding was disclosed rather than code-fixed, because it's genuinely unfixable at this
+scope, not because it was overlooked:** the interface probe can't verify `preCheck`/`postCheck`
+*correctness*. A kernel that passes the probe but reverts unconditionally in `preCheck` installs
+cleanly, then permanently bricks the account — every future `execute()` reverts forever, and so
+does every rescue-swap attempt (the rescue's own uninstall half must call the broken kernel's
+`preCheck` first). This is genuinely worse than simply re-enabling `installModule` outright (a
+bad kernel there fails instantly and visibly; here it can fail catastrophically later with no way
+back). It's now a permanent regression fixture, not just prose:
+`test_brokenKernelPreCheckPermanentlyBricksAccountWithNoRescuePath`. This also corrected an
+earlier, incomplete disclosure — the original NatSpec framed the lockout risk as "requalify and
+retry" (true for the separate reputation-floor case), which underclaimed how severe the
+broken-kernel case actually is.
+
+The review also sharpened, rather than changed, one existing claim: the swap is *asymmetrically*
+mediated — removal of the old kernel is genuinely content-gated (reputation floor + assurance
+tier, both real security checks), installation of the new kernel is gated only by the interface
+probe and elapsed time. So this mechanism satisfies the whitepaper's condition (iii) for removal,
+not for installation — the docs now say this explicitly rather than leaving a single uniform
+"constrained" claim to be read either way. Two reentrancy windows (one per swap half, both from
+`AccountERC7579Hooked` updating `_hook` storage before calling the module's own
+`onInstall`/`onUninstall`) were named and disclosed, not closed — closing them would need
+re-architecting the swap ordering, disproportionate for an experimental, non-deployed slice.
+
+Single-signer governance and the reentrancy/mediation asymmetry were reviewed and found already
+correctly bounded — no code change, but one test gap was closed
+(`test_governanceFunctionsRevertForNonSelfNonEntryPointCaller`, since the access-control claim had
+rested only on reading the inherited base class, not a regression test).
+
+**One process note worth keeping:** the review also caught and helped verify a genuine Foundry
+optimizer artifact (a second `vm.warp` call within one test function can silently fail to advance
+`block.timestamp` under this repo's exact settings). The new brick-and-no-rescue test genuinely
+needs two sequential timelocked actions; rather than assume the landmine applied, the test was
+written to assert the *specific* custom-error selector expected only if time truly advanced both
+times (not a generic revert, and not the timelock error) — it passes, confirming this exact usage
+pattern is safe, and that's documented in the test itself rather than worked around blindly.
+
+## 1. What this does NOT close, restated
+
+Everything from 2026-08-17i's list still applies (gas-budget finding, no external audit, not
+deployed). Additionally now open: multi-party governance (this remains single-signer), the two
+disclosed reentrancy windows, and the no-recovery-path brick class for a hostile/broken kernel —
+none of these are solved by this change, only the "permanently unreachable" state itself is
+replaced with something reachable-but-still-constrained-on-one-side.
+
+## 2. State of the tree
+
+`forge build` clean. `contracts/test/IntegrityAccountV1Experimental.t.sol`: 31/31 (up from 17).
+Full repo suite: 240/240 (up from 226). `forge fmt --check` flags pre-existing formatting drift
+across several unrelated files repo-wide (`IntegrityGovernance.sol`, `Slasher.sol`,
+`CCIPReputationBridge.sol`, `UltraPlonkVerifier.sol`) that predates this change and was not
+introduced by it — not fixed here as out of scope for this slice. Not yet committed as of this
+write-up; commit and push to follow immediately after.
+
+---
+
 # Handoff — 2026-08-17i (Phase I third adapter: assurance tier — completes the named trio, real gas-budget finding surfaced and documented, not hidden)
 
 Continuation after 2026-08-17h below. Same authorization pattern: scoped proposal

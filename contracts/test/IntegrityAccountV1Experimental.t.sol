@@ -7,8 +7,40 @@ import {IntegrityAccountV1Experimental} from "../src/kernel/IntegrityAccountV1Ex
 import {IntegrityKernelV1Experimental} from "../src/kernel/IntegrityKernelV1Experimental.sol";
 import {ReputationRegistry} from "../src/oracle/ReputationRegistry.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {Account as ERC4337Account} from "@openzeppelin/contracts/account/Account.sol";
+import {MODULE_TYPE_HOOK} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {ERC7579Utils, Mode, CallType, ExecType, ModeSelector, ModePayload} from
     "@openzeppelin/contracts/account/utils/draft-ERC7579Utils.sol";
+
+/// @dev Deliberately conforms only to the shallow `isModuleType` probe `proposeKernelSwap` now
+/// performs -- used to prove that probe genuinely rejects a non-conforming address, not just a
+/// zero address.
+contract NonHookModule {
+    function isModuleType(uint256) external pure returns (bool) {
+        return false;
+    }
+}
+
+/// @dev Adversarial fixture for the Devil's Advocate review's area-1/area-4 finding: a kernel
+/// that passes the shallow `isModuleType` probe (so it installs) but reverts unconditionally in
+/// `preCheck` -- demonstrating the probe cannot and does not verify hook-logic correctness, and
+/// that this class of failure has no on-chain rescue path once installed.
+contract AlwaysRevertingKernel {
+    error AlwaysReverts();
+
+    function isModuleType(uint256 moduleTypeId) external pure returns (bool) {
+        return moduleTypeId == MODULE_TYPE_HOOK;
+    }
+
+    function onInstall(bytes calldata) external {}
+    function onUninstall(bytes calldata) external {}
+
+    function preCheck(address, uint256, bytes calldata) external pure returns (bytes memory) {
+        revert AlwaysReverts();
+    }
+
+    function postCheck(bytes calldata) external pure {}
+}
 
 /// @notice Phase I tracer-bullet slice (docs/plans/2026-08-17-phase1-tracer-bullet-proposal.md),
 /// extended with a second reference adapter
@@ -27,6 +59,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
     uint256 constant CUMULATIVE_BUDGET = 3 ether;
     uint256 constant MIN_EFFECTIVE_SCORE = 500;
     uint256 constant ABOVE_FLOOR_SCORE = 800;
+    uint256 constant MODULE_ACTION_TIMELOCK = 3 days;
 
     IntegrityKernelV1Experimental kernel;
     IntegrityAccountV1Experimental account;
@@ -61,7 +94,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         kernel = new IntegrityKernelV1Experimental(
             predictedAccount, PER_OP_BUDGET, CUMULATIVE_BUDGET, address(reputation), MIN_EFFECTIVE_SCORE
         );
-        account = new IntegrityAccountV1Experimental(signer, address(kernel));
+        account = new IntegrityAccountV1Experimental(signer, address(kernel), MODULE_ACTION_TIMELOCK);
         assertEq(address(account), predictedAccount, "CREATE address prediction must match actual deployment");
         vm.deal(address(account), 10 ether);
     }
@@ -398,5 +431,273 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         // function a fresh contract deployment via setUp, so this is defensive, not required).
         vm.prank(address(account));
         kernel.postCheck(abi.encode(address(account).balance));
+    }
+
+    // --- kernel-swap governance (timelocked, atomic, single-signer) ---------------------------
+
+    function _deployKernel(uint256 minEffectiveScore) internal returns (IntegrityKernelV1Experimental) {
+        return new IntegrityKernelV1Experimental(
+            address(account), PER_OP_BUDGET, CUMULATIVE_BUDGET, address(reputation), minEffectiveScore
+        );
+    }
+
+    function test_proposeKernelSwapRevertsOnZeroKernel() public {
+        vm.expectRevert(IntegrityAccountV1Experimental.ZeroKernel.selector);
+        vm.prank(address(account));
+        account.proposeKernelSwap(address(0));
+    }
+
+    function test_proposeKernelSwapRevertsIfAlreadyPending() public {
+        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        vm.startPrank(address(account));
+        account.proposeKernelSwap(address(newKernel));
+        vm.expectRevert(IntegrityAccountV1Experimental.SwapAlreadyPending.selector);
+        account.proposeKernelSwap(address(newKernel));
+        vm.stopPrank();
+    }
+
+    function test_cancelKernelSwapRevertsWhenNothingPending() public {
+        vm.expectRevert(IntegrityAccountV1Experimental.NoSwapPending.selector);
+        vm.prank(address(account));
+        account.cancelKernelSwap();
+    }
+
+    function test_executeKernelSwapRevertsWhenNothingPending() public {
+        vm.expectRevert(IntegrityAccountV1Experimental.NoSwapPending.selector);
+        vm.prank(address(account));
+        account.executeKernelSwap(address(0xBEEF));
+    }
+
+    function test_executeKernelSwapRevertsOnParameterMismatch() public {
+        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        address otherKernel = address(0xBEEF);
+        vm.startPrank(address(account));
+        account.proposeKernelSwap(address(newKernel));
+        vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IntegrityAccountV1Experimental.SwapMismatch.selector, address(newKernel), otherKernel
+            )
+        );
+        account.executeKernelSwap(otherKernel);
+        vm.stopPrank();
+    }
+
+    function test_executeKernelSwapRevertsBeforeTimelockElapses() public {
+        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        vm.startPrank(address(account));
+        account.proposeKernelSwap(address(newKernel));
+        (, uint256 readyAt) = account.pendingKernelSwap();
+        vm.warp(readyAt - 1);
+        vm.expectRevert(
+            abi.encodeWithSelector(IntegrityAccountV1Experimental.TimelockNotElapsed.selector, readyAt, readyAt - 1)
+        );
+        account.executeKernelSwap(address(newKernel));
+        vm.stopPrank();
+    }
+
+    function test_cancelKernelSwapThenReproposeSucceeds() public {
+        IntegrityKernelV1Experimental firstProposed = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernelV1Experimental secondProposed = _deployKernel(MIN_EFFECTIVE_SCORE);
+        vm.startPrank(address(account));
+        account.proposeKernelSwap(address(firstProposed));
+        account.cancelKernelSwap();
+        // A second propose immediately after cancel must succeed -- cancel must fully clear the
+        // pending slot, not just mark it cancelled.
+        account.proposeKernelSwap(address(secondProposed));
+        vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
+        account.executeKernelSwap(address(secondProposed));
+        vm.stopPrank();
+        assertEq(account.hook(), address(secondProposed), "the cancelled proposal must not be the one that lands");
+    }
+
+    function test_kernelSwapSucceedsAfterTimelockElapsesAndInstallsTheNewKernel() public {
+        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        vm.startPrank(address(account));
+        account.proposeKernelSwap(address(newKernel));
+        vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
+        account.executeKernelSwap(address(newKernel));
+        vm.stopPrank();
+
+        assertEq(account.hook(), address(newKernel), "hook() must reflect the new kernel after a completed swap");
+        // The pending slot must be cleared, not left with a stale (already-executed) entry.
+        (address stalePending, uint256 staleReadyAt) = account.pendingKernelSwap();
+        assertEq(stalePending, address(0));
+        assertEq(staleReadyAt, 0);
+
+        // The account must remain fully functional post-swap: an in-budget call through the new
+        // kernel still succeeds, proving the swap didn't leave the account permanently unhooked.
+        bytes memory executionCalldata = abi.encodePacked(recipient, uint256(0.1 ether), bytes(""));
+        vm.prank(address(account));
+        account.execute(_singleCallMode(), executionCalldata);
+    }
+
+    /// @dev Empirically verifies the mediation asymmetry documented in the contract's top-level
+    /// NatSpec, rather than leaving it as an asserted comment: the swap's uninstall half is
+    /// wrapped by `withHook` while `_hook` still points at the OLD kernel, so the old kernel's
+    /// own `preCheck` genuinely fires and can genuinely block the swap.
+    function test_executeKernelSwapUninstallHalfIsMediatedByOldKernel() public {
+        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        vm.prank(address(account));
+        account.proposeKernelSwap(address(newKernel));
+        vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
+
+        // Drop the account below the CURRENTLY INSTALLED (old) kernel's reputation floor after
+        // proposing but before executing -- if the uninstall half were unmediated, this would
+        // have no effect on the swap at all.
+        // Same base score used by test_belowFloorCallRevertsEvenThoughItWouldBeWithinBudget --
+        // MIN_EFFECTIVE_SCORE - 1 (499) boosted (573) would land ABOVE the 500 floor, so it can't
+        // be used here either; 400 boosted (460) genuinely stays under it.
+        uint256 belowFloorScore = 400;
+        // Boosted, so effectiveScore = belowFloorScore * 1.15 -- must still land under the floor,
+        // matching the same boost-aware boundary discipline used elsewhere in this file.
+        uint256 boostedScore = (belowFloorScore * reputation.ZK_BOOST_BPS()) / reputation.BPS_DENOMINATOR();
+        assertLt(boostedScore, MIN_EFFECTIVE_SCORE, "sanity: the boosted score must still be below the floor");
+        reputation.updateScore(address(account), belowFloorScore);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IntegrityKernelV1Experimental.ReputationBelowFloor.selector, boostedScore, MIN_EFFECTIVE_SCORE
+            )
+        );
+        vm.prank(address(account));
+        account.executeKernelSwap(address(newKernel));
+
+        // The swap must not have partially applied -- still the old kernel, still pending.
+        assertEq(account.hook(), address(kernel), "a reverted swap must leave the old kernel installed");
+        (address stillPending, uint256 stillReadyAt) = account.pendingKernelSwap();
+        assertEq(stillPending, address(newKernel), "a reverted swap must not silently clear the pending proposal");
+        assertGt(stillReadyAt, 0, "a reverted swap must not silently clear the pending proposal");
+    }
+
+    /// @dev The install half's own `withHook` sees `hook() == address(0)` (the uninstall half
+    /// already cleared it moments earlier in the same call), so it never fires ANY hook -- not
+    /// the old kernel, and not the new one either. Proven here by giving the new kernel a
+    /// reputation floor the account cannot meet: if the install half were mediated by the new
+    /// kernel, this swap would revert with ReputationBelowFloor. It does not.
+    function test_executeKernelSwapInstallHalfIsUnmediated() public {
+        // An unreachably high floor guarantees the account could never pass this new kernel's
+        // own preCheck if it were actually invoked during the swap.
+        uint256 unreachableFloor = 1_000_000;
+        IntegrityKernelV1Experimental strictKernel = _deployKernel(unreachableFloor);
+
+        vm.prank(address(account));
+        account.proposeKernelSwap(address(strictKernel));
+        vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
+
+        // Succeeds despite the new kernel's floor being unreachable -- proving the install half
+        // never consults it.
+        vm.prank(address(account));
+        account.executeKernelSwap(address(strictKernel));
+        assertEq(
+            account.hook(),
+            address(strictKernel),
+            "the swap must land even though the new kernel's own floor is unreachable"
+        );
+
+        // Only NOW, on a genuine post-swap execute(), does the new kernel's real preCheck run --
+        // and it correctly rejects, confirming the earlier success wasn't because the check is
+        // broken, only that it wasn't invoked during installation.
+        uint256 boostedAboveFloorScore =
+            (ABOVE_FLOOR_SCORE * reputation.ZK_BOOST_BPS()) / reputation.BPS_DENOMINATOR();
+        bytes memory executionCalldata = abi.encodePacked(recipient, uint256(0.1 ether), bytes(""));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IntegrityKernelV1Experimental.ReputationBelowFloor.selector, boostedAboveFloorScore, unreachableFloor
+            )
+        );
+        vm.prank(address(account));
+        account.execute(_singleCallMode(), executionCalldata);
+    }
+
+    // --- Devil's Advocate review findings (2026-08-17): code-level fixes and their regressions ---
+
+    function test_constructorRevertsOnZeroTimelock() public {
+        vm.expectRevert(IntegrityAccountV1Experimental.ZeroTimelock.selector);
+        new IntegrityAccountV1Experimental(signer, address(kernel), 0);
+    }
+
+    function test_proposeKernelSwapRevertsOnNonConformingKernel() public {
+        NonHookModule notAHook = new NonHookModule();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IntegrityAccountV1Experimental.NewKernelNotAHookModule.selector, address(notAHook)
+            )
+        );
+        vm.prank(address(account));
+        account.proposeKernelSwap(address(notAHook));
+    }
+
+    function test_governanceFunctionsRevertForNonSelfNonEntryPointCaller() public {
+        address stranger = makeAddr("stranger");
+        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+
+        vm.expectRevert(abi.encodeWithSelector(ERC4337Account.AccountUnauthorized.selector, stranger));
+        vm.prank(stranger);
+        account.proposeKernelSwap(address(newKernel));
+
+        // Get a real proposal in place (as the account itself) so cancel/execute have something
+        // to reject a stranger from touching, not just "nothing pending."
+        vm.prank(address(account));
+        account.proposeKernelSwap(address(newKernel));
+
+        vm.expectRevert(abi.encodeWithSelector(ERC4337Account.AccountUnauthorized.selector, stranger));
+        vm.prank(stranger);
+        account.cancelKernelSwap();
+
+        vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
+        vm.expectRevert(abi.encodeWithSelector(ERC4337Account.AccountUnauthorized.selector, stranger));
+        vm.prank(stranger);
+        account.executeKernelSwap(address(newKernel));
+    }
+
+    /// @dev Devil's Advocate area 1/4/5: `proposeKernelSwap`'s `isModuleType` probe can only
+    /// reject an address that doesn't even superficially conform to the hook-module interface --
+    /// it cannot verify `preCheck`/`postCheck` correctness. A kernel that conforms but reverts
+    /// unconditionally in `preCheck` installs cleanly and then permanently bricks the account: no
+    /// `execute()` can ever succeed again, AND no rescue swap can succeed either, because the
+    /// rescue's own uninstall half must call the broken kernel's `preCheck` first. This is a real,
+    /// disclosed, unresolved risk for this experimental slice (see the contract's own top-level
+    /// NatSpec and the module-governance proposal doc) -- this test makes it a permanent
+    /// regression fixture rather than only a documented claim.
+    function test_brokenKernelPreCheckPermanentlyBricksAccountWithNoRescuePath() public {
+        AlwaysRevertingKernel brokenKernel = new AlwaysRevertingKernel();
+
+        vm.startPrank(address(account));
+        account.proposeKernelSwap(address(brokenKernel));
+        vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
+        account.executeKernelSwap(address(brokenKernel));
+        vm.stopPrank();
+        assertEq(
+            account.hook(),
+            address(brokenKernel),
+            "the broken kernel installs cleanly -- the isModuleType probe cannot catch this class"
+        );
+
+        // Every subsequent execute() now reverts forever.
+        bytes memory executionCalldata = abi.encodePacked(recipient, uint256(0.1 ether), bytes(""));
+        vm.expectRevert(AlwaysRevertingKernel.AlwaysReverts.selector);
+        vm.prank(address(account));
+        account.execute(_singleCallMode(), executionCalldata);
+
+        // And there is no rescue: proposing and waiting out the timelock for a real, healthy
+        // replacement kernel still fails, because executeKernelSwap's uninstall half must call
+        // the broken kernel's preCheck first.
+        IntegrityKernelV1Experimental rescueKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        vm.prank(address(account));
+        account.proposeKernelSwap(address(rescueKernel));
+        // This is a genuine second vm.warp call within this test function. An independent
+        // adversarial review flagged that a second vm.warp call can silently fail to advance
+        // block.timestamp under some Foundry optimizer configurations -- checked directly here,
+        // not assumed away: this call's target only needs to be in the future relative to
+        // whatever block.timestamp already is, so a no-op second warp would make the assertion
+        // below fail with TimelockNotElapsed instead of the expected AlwaysReverts. It doesn't --
+        // confirming time genuinely advanced a second time for this specific call pattern (a real
+        // state-changing external call sits between the two warps, unlike the flagged repro's
+        // back-to-back-warps-with-no-call-between shape).
+        vm.warp(block.timestamp + 2 * MODULE_ACTION_TIMELOCK);
+        vm.expectRevert(AlwaysRevertingKernel.AlwaysReverts.selector);
+        vm.prank(address(account));
+        account.executeKernelSwap(address(rescueKernel));
     }
 }

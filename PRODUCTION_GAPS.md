@@ -1665,3 +1665,51 @@ finding above) remains unbuilt/unresolved. No external audit has occurred — th
 clear the Devil's Advocate review's own stated gate to Phase II. Not deployed to Base Sepolia or
 anywhere else, and completing this slice is not itself grounds to deploy it — that would be a
 separate, later, separately-approved decision.
+
+**Extended same day with timelocked, atomic kernel-swap module governance — this REVERSES the
+"module mutation permanently disabled" claim made above.** Per
+`docs/plans/2026-08-17-phase1-module-governance-proposal.md` (which states the reversal
+plainly), `installModule`/`uninstallModule` still always revert directly, but a new
+`proposeKernelSwap`/`executeKernelSwap`/`cancelKernelSwap` path now reaches the same underlying
+`_installModule`/`_uninstallModule` internals through a timelocked, atomic swap: propose a new
+kernel, wait out a mandatory delay, then atomically uninstall the old kernel and install the new
+one in one transaction (never a reachable state with zero hook modules installed). Explicitly
+**single-signer-timelocked, not the plan's full "timelocked + multi-party"** — this account has
+exactly one ECDSA signer, so a compromised key can still eventually force a swap, just not
+instantly or silently.
+
+A dedicated Devil's Advocate review (independent subagent, full diff + OZ base source + test
+suite) ran before landing, attacking six named risk areas. Top-line verdict: add code-level
+mitigations before shipping (not ship-as-is, not revert). Two real gaps were fixed in code, not
+just documented: (1) the constructor accepted a zero timelock with no validation, which would
+have silently voided the entire mechanism (instant swap in one transaction) — now reverts
+`ZeroTimelock()`, matching the same input-validation discipline the sibling
+`IntegrityKernelV1Experimental` constructor already applies; (2) `proposeKernelSwap` accepted any
+non-zero address with zero interface validation, so a non-conforming address only failed after
+the timelock elapsed — now probes `newKernel.isModuleType(MODULE_TYPE_HOOK)` and fails fast.
+Both fixes are mutation-tested. A third, more severe finding is disclosed rather than code-fixed
+because it is genuinely unfixable at this scope: a kernel that passes the interface probe but
+reverts unconditionally in `preCheck` installs cleanly, then permanently bricks every future
+`execute()` AND blocks every rescue swap too (the rescue's own uninstall half must call the
+broken kernel's `preCheck` first) — worse than simply re-enabling `installModule` outright, since
+a bad kernel there fails instantly and visibly rather than catastrophically later with no way
+back. This is now a permanent regression fixture
+(`test_brokenKernelPreCheckPermanentlyBricksAccountWithNoRescuePath`), not just a documented
+claim, and corrects an earlier, incomplete "locked out until it requalifies" framing (that
+describes only the separate, recoverable reputation-floor lockout case). The review also
+confirmed and sharpened: the swap is asymmetrically mediated (removal of the old kernel is
+content-gated via reputation/assurance checks; installation of the new kernel is gated only by
+the interface probe and elapsed time, never by a security-content check) — so this mechanism
+satisfies the whitepaper's condition (iii) for removal, not installation; and named two
+reentrancy windows (both swap halves run with `_hook` storage already updated before the
+module's own `onInstall`/`onUninstall` lifecycle hook fires) that remain open, disclosed rather
+than closed.
+
+14 new Foundry tests total for this extension (10 for the mechanism itself, +4 from the review's
+findings and their regressions), all mutation-tested where they assert a security-relevant
+guard. Full suite for this file: 31/31 (up from 17). Full repo suite: 240/240 (up from 226).
+Full findings, the six-area review, and the fix-by-fix response:
+`docs/plans/2026-08-17-phase1-module-governance-proposal.md`'s "Devil's Advocate review and
+response" section. Still not deployed, still not externally audited, still does not clear the
+Phase II gate; multi-party governance, canonical intent encoding, the BCC binding gap, and the
+gas-budget finding all remain open per the paragraph above.
