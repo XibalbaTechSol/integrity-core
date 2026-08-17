@@ -151,6 +151,53 @@ pub struct AisBreakdown {
     /// formula doesn't specify a post-boost ceiling, so we report the true computed
     /// value rather than silently reintroducing a cap that isn't part of the spec.
     pub ais: f64,
+    /// spec/integrity-protocol-v3.2.md §3.1.1 eq. 4b's `r(ι)`: the normalised,
+    /// **pre-boost** base score clamped to `[0,1]`, for use as a reputation-parameterised
+    /// constraint input — never `ais` above, which is post-boost and unclamped. Computed
+    /// from the same pre-boost weighted geometric mean `ais` is derived from (divide out
+    /// `zk_boost` rather than recomputing, so the two can never drift). `score_with_tier`
+    /// additionally applies the verification-tier ceiling here, matching what it does to
+    /// `ais`, so an agent's identity-assurance level bounds its constraint input the same
+    /// way it bounds its display score.
+    pub constraint_score: f64,
+    /// **Shadow-mode only** (`spec` §3.1.4 row 5, `PRODUCTION_GAPS.md` §27) — what the
+    /// proposed per-component floor + conjunctive Θ gate (eq. 4a) would decide, using
+    /// `AisFloors::default()`'s provisional thresholds. Computed and reported for
+    /// observation; **does not affect `ais` or `constraint_score` above**, does not gate
+    /// anything, and is not wired into chain pushes or dispute logic. No floor exists for
+    /// sacrifice (spec: "contribution is optional").
+    pub gate_entropy_pass: bool,
+    pub gate_grounding_pass: bool,
+    pub gate_compliance_pass: bool,
+    /// Conjunction of the three `gate_*_pass` fields above.
+    pub gate_would_pass: bool,
+}
+
+/// Per-component floors for the proposed conjunctive gate (spec §3.1.1 eq. 4a,
+/// `PRODUCTION_GAPS.md` §27). **Provisional, shadow-mode-only values** — chosen to sit
+/// comfortably below every component of the one real registered agent's current telemetry
+/// (entropy 268/1000, grounding 950/1000, compliance 1000/1000 as of 2026-08-17) so shadow
+/// observation starts without immediately flagging the repo's own dogfooding agent, not
+/// because they're believed to be the right permanent thresholds — there isn't enough real
+/// agent-population data yet to calibrate permanent values responsibly. The compliance
+/// floor of 400 is the one spec §3.1.1 itself uses as a worked illustrative example
+/// ("every row above 0.631 and below the floor collapses to zero"). Revisit once shadow
+/// observation has run against real traffic from more than one agent.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct AisFloors {
+    pub entropy: f64,
+    pub grounding: f64,
+    pub compliance: f64,
+}
+
+impl Default for AisFloors {
+    fn default() -> Self {
+        Self {
+            entropy: 100.0,
+            grounding: 200.0,
+            compliance: 400.0,
+        }
+    }
 }
 
 /// Stateless computation engine over a fixed set of weights. Cheap to construct;
@@ -159,12 +206,17 @@ pub struct AisBreakdown {
 #[derive(Debug, Clone, Copy)]
 pub struct AisEngine {
     pub weights: AisWeights,
+    /// Shadow-mode-only gate floors (see `AisFloors`'s own doc comment). Defaulted so
+    /// every existing caller of `AisEngine::default()`/`new()` gets shadow observation for
+    /// free without needing to opt in — it's purely additive reporting, not enforcement.
+    pub floors: AisFloors,
 }
 
 impl Default for AisEngine {
     fn default() -> Self {
         Self {
             weights: AisWeights::default(),
+            floors: AisFloors::default(),
         }
     }
 }
@@ -172,7 +224,17 @@ impl Default for AisEngine {
 impl AisEngine {
     pub fn new(weights: AisWeights) -> Result<Self, String> {
         weights.validate()?;
-        Ok(Self { weights })
+        Ok(Self {
+            weights,
+            floors: AisFloors::default(),
+        })
+    }
+
+    /// Same as `new`, but with explicit (e.g. operator-configured or test-chosen) floors
+    /// instead of `AisFloors::default()`'s provisional values.
+    pub fn with_floors(weights: AisWeights, floors: AisFloors) -> Result<Self, String> {
+        weights.validate()?;
+        Ok(Self { weights, floors })
     }
 
     /// S_entropy: rewards *stability*, not any particular performance level. Uses a
@@ -231,6 +293,17 @@ impl AisEngine {
             * s_sacrifice.powf(self.weights.w_sacrifice)
             * s_compliance.powf(self.weights.w_compliance);
 
+        // eq. 4b: r(ι) is the PRE-boost base score, normalised and clamped to [0,1].
+        // `weighted` (not `weighted * zk_boost`) is deliberate — see AisBreakdown's doc
+        // comment on why the boost must never reach a constraint input.
+        let constraint_score = (weighted / MAX_COMPONENT_SCORE).clamp(0.0, 1.0);
+
+        // Shadow-mode gate (eq. 4a's conjunctive Θ product) — reporting only, see
+        // AisBreakdown's doc comment. No floor on sacrifice by design.
+        let gate_entropy_pass = s_entropy >= self.floors.entropy;
+        let gate_grounding_pass = s_grounding >= self.floors.grounding;
+        let gate_compliance_pass = s_compliance >= self.floors.compliance;
+
         AisBreakdown {
             s_entropy,
             s_grounding,
@@ -238,6 +311,11 @@ impl AisEngine {
             s_compliance,
             zk_boost,
             ais: weighted * zk_boost,
+            constraint_score,
+            gate_entropy_pass,
+            gate_grounding_pass,
+            gate_compliance_pass,
+            gate_would_pass: gate_entropy_pass && gate_grounding_pass && gate_compliance_pass,
         }
     }
 
@@ -261,6 +339,11 @@ impl AisEngine {
         let ceiling = Self::ceiling_for_tier(verification_tier);
         if verification_tier < 3 {
             breakdown.ais = breakdown.ais.min(ceiling);
+            // Same ceiling, same rationale, expressed on constraint_score's [0,1] scale:
+            // an agent's identity-assurance tier bounds its constraint input exactly as it
+            // bounds its display score, so a low-tier agent can't use eq. 4b to reach a
+            // reputation-parameterised bound its verification level hasn't earned.
+            breakdown.constraint_score = breakdown.constraint_score.min(ceiling / MAX_COMPONENT_SCORE);
         }
         breakdown
     }
@@ -502,5 +585,124 @@ mod tests {
             penalty_ratio: 1.0 - (compliance / MAX_COMPONENT_SCORE),
             zk_verified_this_period: false,
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // constraint_score (eq. 4b) and the shadow-mode gate (eq. 4a) — spec §3.1.1,
+    // PRODUCTION_GAPS.md §27.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn constraint_score_uses_pre_boost_value_unlike_ais() {
+        let engine = AisEngine::default();
+        let inputs = component_inputs_yielding(800.0, 800.0, 800.0, 800.0, &engine);
+        let boosted = AisComponentInputs { zk_verified_this_period: true, ..inputs };
+        let unboosted = engine.score(&inputs);
+        let boosted_score = engine.score(&boosted);
+
+        // Same pre-boost components -> ais differs by the boost, constraint_score does not.
+        assert!(boosted_score.ais > unboosted.ais, "ais must reflect the boost");
+        assert!(
+            (boosted_score.constraint_score - unboosted.constraint_score).abs() < 1e-9,
+            "constraint_score must NOT reflect the boost (eq. 4b is pre-boost only): \
+             unboosted {}, boosted {}",
+            unboosted.constraint_score,
+            boosted_score.constraint_score
+        );
+    }
+
+    #[test]
+    fn constraint_score_is_clamped_to_unit_interval_even_when_boosted_ais_exceeds_1000() {
+        let engine = AisEngine::default();
+        let inputs = AisComponentInputs {
+            performance_variance: 0.0,
+            hgi_raw: 1.0,
+            gpu_hours_verified: 1000.0,
+            penalty_ratio: 0.0,
+            zk_verified_this_period: true,
+        };
+        let breakdown = engine.score(&inputs);
+        assert!(breakdown.ais > 1000.0, "test setup must exercise the >1000 boosted case, got {}", breakdown.ais);
+        assert!(
+            (0.0..=1.0).contains(&breakdown.constraint_score),
+            "constraint_score must stay in [0,1] regardless of ais: got {}",
+            breakdown.constraint_score
+        );
+        assert!((breakdown.constraint_score - 1.0).abs() < 1e-9, "a perfect pre-boost score normalises to exactly 1.0");
+    }
+
+    #[test]
+    fn constraint_score_respects_the_verification_tier_ceiling_same_as_ais() {
+        let engine = AisEngine::default();
+        let perfect_inputs = AisComponentInputs {
+            performance_variance: 0.0,
+            hgi_raw: 1.0,
+            gpu_hours_verified: 1000.0,
+            penalty_ratio: 0.0,
+            zk_verified_this_period: false,
+        };
+        let tier1 = engine.score_with_tier(&perfect_inputs, 1);
+        assert_eq!(tier1.ais, 600.0);
+        assert!(
+            (tier1.constraint_score - 0.6).abs() < 1e-9,
+            "tier-1 ceiling (600/1000) must cap constraint_score at 0.6, got {}",
+            tier1.constraint_score
+        );
+    }
+
+    #[test]
+    fn shadow_gate_passes_when_every_component_clears_its_floor() {
+        let engine = AisEngine::default();
+        // Real telemetry from the one live registered agent as of 2026-08-17
+        // (PRODUCTION_GAPS.md §27 addendum): entropy 268.45, grounding 950.17,
+        // sacrifice 861.34, compliance 1000.0 — all above AisFloors::default().
+        let inputs = component_inputs_yielding(268.45, 950.17, 861.34, 1000.0, &engine);
+        let breakdown = engine.score(&inputs);
+        assert!(breakdown.gate_entropy_pass);
+        assert!(breakdown.gate_grounding_pass);
+        assert!(breakdown.gate_compliance_pass);
+        assert!(breakdown.gate_would_pass);
+    }
+
+    #[test]
+    fn shadow_gate_fails_on_a_single_sub_floor_component_without_affecting_ais() {
+        let engine = AisEngine::default();
+        // Entropy at 50 is below AisFloors::default().entropy (100.0); everything else high.
+        let inputs = component_inputs_yielding(50.0, 900.0, 900.0, 900.0, &engine);
+        let breakdown = engine.score(&inputs);
+        assert!(!breakdown.gate_entropy_pass);
+        assert!(breakdown.gate_grounding_pass);
+        assert!(breakdown.gate_compliance_pass);
+        assert!(!breakdown.gate_would_pass, "gate is conjunctive: one failing component fails the whole gate");
+        // Shadow mode: ais and constraint_score must be computed exactly as before,
+        // unaffected by the gate verdict.
+        assert!(breakdown.ais > 0.0, "shadow gate must not zero ais");
+        assert!(breakdown.constraint_score > 0.0, "shadow gate must not zero constraint_score");
+    }
+
+    #[test]
+    fn shadow_gate_has_no_sacrifice_floor_by_design() {
+        let engine = AisEngine::default();
+        // Zero sacrifice, everything else comfortably above floor.
+        let inputs = component_inputs_yielding(900.0, 900.0, 0.0, 900.0, &engine);
+        let breakdown = engine.score(&inputs);
+        assert!(breakdown.gate_entropy_pass);
+        assert!(breakdown.gate_grounding_pass);
+        assert!(breakdown.gate_compliance_pass);
+        assert!(breakdown.gate_would_pass, "no sacrifice floor exists (spec: contribution is optional) -- gate must still pass");
+        // The geometric mean itself still annihilates ais on a zero component --
+        // that's the pre-existing mean behavior, not the gate. Shadow gate and mean
+        // are independent mechanisms.
+        assert_eq!(breakdown.ais, 0.0);
+    }
+
+    #[test]
+    fn with_floors_allows_operator_supplied_thresholds_instead_of_the_provisional_defaults() {
+        let custom = AisFloors { entropy: 0.0, grounding: 0.0, compliance: 0.0 };
+        let engine = AisEngine::with_floors(AisWeights::default(), custom).unwrap();
+        // Entropy 50 would fail AisFloors::default() (100.0) but must pass a 0.0 floor.
+        let inputs = component_inputs_yielding(50.0, 50.0, 50.0, 50.0, &engine);
+        let breakdown = engine.score(&inputs);
+        assert!(breakdown.gate_would_pass);
     }
 }
