@@ -1507,3 +1507,13 @@ be checked against before landing, and it's now on record rather than needing to
 
 No chain writes, no code changes, no floor values chosen. Read-only against the already-running
 local stack.
+
+**Decision (2026-08-17, explicit user call):** wait for more agents before picking floor
+values or flipping enforcement on. Shadow mode (above) stays purely observational — no
+numbers chosen, no code change, no chain-behavior change. Revisit trigger: a second real
+agent registers (so there's an actual distribution instead of N=1), or the decision is
+explicitly revisited regardless of agent count. Options considered and declined: setting
+provisional floors and enforcing now anyway (rejected — an agent failing a floor zeroes
+`ais`/`constraint_score`, which can trigger `Slasher.raiseDispute` via
+`bcc_middleware/app/scoring_loop.py` and drop PHI-gate access via `EHRGate`/
+`ComplianceGate`, too consequential to base on one data point).
