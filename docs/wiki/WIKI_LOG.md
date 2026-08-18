@@ -3101,3 +3101,8 @@ writeup: PRODUCTION_GAPS.md §18.
 - Expanded v0.5-proposed without changing its non-authoritative status: added verified-evidence monotonicity; exposure-scaled availability escrow, anti-grief challenge deposits, AIS reduction, deterministic redress, and burn; hard classification for all value movement plus typed degradation events; locked-budget state channels with highest-mutually-signed state, monotone depletion, value conservation, and unilateral settlement; and per-transaction enclave binding with explicit side-channel/rollback/microarchitectural residual risk.
 - Verification: focused source assertions passed; prohibited authority phrases and broken references are absent; the proposed clause mapping contains every reviewed load-bearing requirement; wiki TOCs and linter passed; `git diff --check` passed.
 - Rebuilt Whitepaper v3.2: 59 A4 pages, unencrypted, 13/13 Mermaid diagrams; normalized extracted-text assertions and visual inspection of pages 10, 18, 31, and 59 passed. Superseding SHA-256: `d7d3135007f118f174be3a5bcde247198a8fb6f5dbf821c2825fca8508c63552`.
+## [2026-08-18] fix | CI dependency resolution
+
+- Added the explicit OpenZeppelin 5.3.0 remapping required by Chainlink CCIP imports; this restores clean deployment-script compilation for the contracts, Software Development Kit (SDK), and command-line interface (CLI) validation paths.
+- Declared the dashboard's `globals` ESLint dependency and refreshed `package-lock.json`, so `npm ci` followed by `npm run lint` has a complete dependency graph.
+- Verification is recorded in the implementation branch: Foundry unit tests and dashboard lint pass locally; deployment-backed package tests remain the next CI confirmation after the branch is pushed.
