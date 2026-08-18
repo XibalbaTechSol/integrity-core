@@ -1,6 +1,6 @@
 # Production Architecture Gap Analysis & Codebase Audit
 
-> **Current audit pointer — 2026-08-06:** The cross-repository status page is [`docs/audits/2026-08-06-cross-repository-status.md`](docs/audits/2026-08-06-cross-repository-status.md). It records the clean default-branch commit, reproducible package test results, open SDK failures, deployment-verification scope, and the automatic-merge workflow contradiction. This document remains the detailed gap register; historical entries below are not silently rewritten.
+> **Current pointer — 2026-08-17:** Phase 0 identity closure and the Whitepaper v3.2/specification reconciliation are recorded in the newest section of [`HANDOFF.md`](HANDOFF.md). The accepted normative baseline remains [`spec/integrity-protocol-v0.4.md`](spec/integrity-protocol-v0.4.md); [`spec/integrity-protocol-v0.5-proposed.md`](spec/integrity-protocol-v0.5-proposed.md) is not accepted, and Whitepaper v3.2 is explanatory. This document remains the detailed append-style gap register; dated entries below are not silently rewritten.
 
 Following a deep audit of the `integrity-core` codebase, the following outlines the specific, technical gaps required to connect the `integrity-dashboard` UI to the backend production systems.
 
@@ -284,7 +284,7 @@ skipped.
 
 ## 4. Smart Contracts (`contracts/src`) — findings from a full-package audit, ALL CLOSED
 
-*Current State:* 172 Foundry tests passing (up from 165), 66%+ line coverage. Web3 wallet
+*Current State:* 209 Foundry tests passing as of 2026-08-17. Web3 wallet
 connectivity and real on-chain writes from the frontend already exist (see §7) — the
 prior version of this section's "zero Web3 connectivity" claim was stale and has been
 removed. Every finding below is fixed and covered by a new regression test.
@@ -901,6 +901,40 @@ the production build before anyone had run it locally.
   1. **Every span was silently dropped on process exit, 100% of the time, for as long as this fix has existed.** `main.py` never called `force_flush()`/`shutdown()` on any of its per-agent `TracerProvider`s before the process exited. `BatchSpanProcessor` buffers spans and only exports on a timer/batch-size threshold — a short-lived CLI script that exits immediately after its work is exactly the shape of process this silently loses spans for. Confirmed for real: ran the engine, then queried `otel_spans` directly and found zero rows for any of the 4 just-registered agents, despite the spans genuinely being created in-process (confirmed via a minimal isolated repro of the same `TracerProvider`/`BatchSpanProcessor`/`force_flush` pattern, which worked once the flush call was added). Fixed by tracking every created `TracerProvider` (not just the `Tracer` handles `_tracer_for` previously kept) and flushing+shutting down all of them in a `finally` block around `main()`'s scenario run, so telemetry is exported whether the run succeeds or fails partway.
   2. **Every span was tagged with the internal persona short-name (`"capital_allocation_agent"`) instead of the agent's real DID, making it permanently invisible to any per-agent frontend view.** The oracle's telemetry/trace endpoints and every frontend consumer (`AgentContext`, `TraceAnalyticsPage`, `SystemDiagnosticsPage`) key exclusively by DID (`GET /v1/agent/{did}/...`) — a span resource attribute of `"capital_allocation_agent"` instead of `"did:integrity:..."` meant `GET /v1/agent/{did}/otel/volume` would return `[]` forever for that agent, even though the spans were sitting right there in the table under the wrong key. Fixed by resolving the real DID via `load_or_create_did(a["id"])` (a pure local keypair load/create, no chain call, and `register_agent()` calls the same function internally with an identical result) *before* opening each agent's registration span, and threading that real DID through to the capital-allocator's tool-call and conversation spans too (previously hardcoded to the short-name in both the `_tracer_for()` key and the `agent.id` span attribute). Verified for real: `GET /v1/agent/{did}/otel/volume` and `GET /v1/traces/{trace_id}` both now return the correct span data keyed by the real DID, confirmed against a fresh local run with 4 newly-registered agents (fresh `~/.integrity/wallet`/`~/.integrity/did` identities — the prior session's persona keystores were reset for this verification pass, see `docs/wiki/WIKI_LOG.md` for why).
   Also confirmed, not a bug: a freshly-registered agent with zero telemetry history legitimately fails `A2ACapitalPool`'s `AisTooLow(50, 0)` gate when another agent tries to allocate it capital — `bcc_middleware`'s `scoring_loop.py` continuously re-syncs each agent's real oracle-computed score on-chain (`Settings.score_sync_interval_seconds`), so a manual `updateScore` seed gets overwritten by the next real sync cycle within seconds. This is the reputation-sync safety mechanism working exactly as designed, not a demo bug — earning a real score requires real telemetry/compliant activity over time, same as any other agent.
+* **Partially closed (2026-08-14) — sequential agent-signed transactions in `integrity_sdk/chain.py` raced `get_transaction_count` against a load-balanced public RPC.** Found running `xibalba-shield/scripts/register_with_oracle.py` against real Base Sepolia via `base-sepolia-rpc.publicnode.com`: `deploy_sovereign_agent` → `deploy_state_anchor` → `grant_anchor_role` → `anchor_genesis_root` are four separate transactions signed by the same freshly-created agent wallet, each fetching its own nonce via `w3.eth.get_transaction_count(agent.address)`. Even with `_wait()` genuinely blocking on `wait_for_transaction_receipt` (confirmed by reading it directly, not assumed) before the next call, the very next `get_transaction_count` could still be answered by a different backend node in the RPC's pool that hadn't yet converged on the just-mined tx, returning a stale nonce and getting the resend rejected outright with `nonce too low` — reproduced three times in a row, at three different points in the sequence (`next nonce 1, tx nonce 0` → `next nonce 2, tx nonce 1` → `next nonce 3, tx nonce 2`), confirming this is systemic to the sequence rather than one flaky call. Each failed attempt orphaned a real `SovereignAgent`/`StateAnchor` pair on Base Sepolia (see `register_with_oracle.py`'s corrected docstring — re-running before full completion is not idempotent). Ruled out before fixing, not assumed: `_wait` (read directly, blocks correctly, no swallowed timeout) and client-side caching (`get_w3` only `lru_cache`s the `Web3`/`HTTPProvider` instance itself, no request-level caching middleware is attached). Fixed two ways: (1) all 9 nonce-fetch call sites in `chain.py` now query the `"pending"` block tag instead of the default `"latest"`, which includes the node's own mempool view; (2) all 9 now go through a new shared `_send_signed` helper that retries once or twice with a short backoff and a fresh nonce fetch specifically on a `"nonce too low"` rejection (never on any other error) — a real, standard mitigation for this exact multi-node-RPC race, not a broader nonce-tracking refactor (that would need to change signatures shared with `markets.py`/tests, and wasn't justified without first confirming — via the two ruled-out causes above — that the race is genuinely RPC-side). **Marked partially closed, not closed:** a live re-run after this fix got substantially further (all the way to the final `registerPrimitives` step, no nonce errors at all) but then hit a different failure — see the next entry — so this fix is confirmed to have resolved the specific nonce race but registration as a whole is still not verified end-to-end. Covered by the full `integrity-sdk` test suite (259 passed, 3 skipped, no regressions).
+* **Root-caused and CLOSED (2026-08-14) — `deployments.baseSepolia.json`'s `AgentPrimitivesFactory` address has had NO deployed bytecode since 2026-08-13, and `REGISTRAR_ROLE` on `XibalbaAgentRegistry` has been granted only to that empty address since the same date — registration has been completely broken for every agent, not an SDK bug.** The earlier entry in this file (now corrected) speculated about an SDK-side event-filtering bug; that was wrong. The real chain, confirmed via two independent RPC providers (`sepolia.base.org` and Blockscout's indexed log API, cross-checked against raw `eth_getTransactionByHash`/`eth_getCode`/`eth_call` reads, not trusted from any JSON file or broadcast label):
+  1. `contracts/broadcast/RotateOperatorKeyGrant.s.sol/84532/run-latest.json` records a `CREATE` of a new `AgentPrimitivesFactory` at `0x219109961c1c9bB8e9f27a37757a5d426e1f91Ec` with `hash: null` — this transaction, and 12 others after it in the same run, were never actually broadcast (only the first 3 of 22 transactions have real tx hashes; `receipts: []` is empty). `deployments.baseSepolia.json` was updated with this address anyway, as if the rotation had completed. `eth_getCode` confirms zero bytecode at that address today.
+  2. Despite the deploy never happening, `REGISTRAR_ROLE` was later granted to this same empty address at block 44942495, and revoked from the real, working factory (`0xC19fc9cB2cB87297EfDF11DA7e211e44A6C1181D`, real bytecode confirmed, 6/6 transactions in `broadcast/FixComplianceGateFactory.s.sol/84532/run-latest.json` genuinely broadcast and verified via on-chain logs) at block 44942506 — both via a `cast send` or similar not captured in any `broadcast/` JSON, presumably trusting the same wrong `deployments.baseSepolia.json` record. Full `RoleGranted`/`RoleRevoked` history for `REGISTRAR_ROLE`, confirmed via Blockscout's log API (`base-sepolia.blockscout.com/api?module=logs&action=getLogs`): genesis factory `0x215f39C8a2Cea2F8c6976fA10bbf48479825aD6e` (block 43837743) → `0xC19fc9cB2cB87297EfDF11DA7e211e44A6C1181D` (granted block 43927267, revoked block 44942506) → the empty phantom address (granted block 44942495, still current).
+  3. A call to an address with no bytecode always trivially "succeeds" with empty return data (`0x`) regardless of calldata — this is why every `registerPrimitives` call this session returned `status: 1` with `gasUsed` far too low for the real function (29,270 gas for something that should cost several hundred thousand) and zero logs: it never reached any real contract logic. Confirmed by replaying the exact failing call via `eth_call` against the pre-transaction block, which also returned bare `0x`.
+  **Fix**: grant `REGISTRAR_ROLE` back to the real, working factory `0xC19fc9cB2cB87297EfDF11DA7e211e44A6C1181D` (`0x7530bd7Cb142C50d5cC742EdF02263f368e89E2f`, controlled by `.env`'s `ORACLE_SIGNER_PRIVATE_KEY`, confirmed to hold `DEFAULT_ADMIN_ROLE` on the registry today and can do this). This is a stopgap using the existing factory (still has the old shared-key `governance`/`oracleSigner`/`disputer`) — properly redeploying a new factory with the new Safe/EOA roles (see `docs/signer-role-rotation-2026-08.md`) will supersede it once that work completes; this time verify `eth_getCode` on any newly-deployed factory address before writing it to `deployments.baseSepolia.json` or granting any role to it, precisely to avoid repeating this exact class of bug. The SDK-side defensive fixes from the (incorrect) earlier diagnosis — checksummed address comparison, tx-hash/log diagnostics in the error message — are harmless and were kept; they just weren't the actual fix. **Orphaned on-chain from failed attempts against the broken factory, real testnet gas spent, no cleanup path:** at least four `SovereignAgent`/`StateAnchor` pairs, including `0x95e2390D4b826DBCb7A7C3d56F7838bBE5F1087C`/`0xFa4EdF80B9B14D484B9905924D683461803c6292`, `0x9366595315BF23c7e6eEb28B43286D2D43e367cd`/`0x9290e91ea80bBa5E99c2C46eF496670B17Cf020d`, `0x3B3a46507A0029EF205A26cfA81435594350A911`/`0xFC78af016870E0373Fcca675699f02E98e71624D`, `0x4459d17Cc6FFC1BCCFd327584309A4231755667b`/`0x9cBc8A8930E2e86a01921B8d94C19B84949CB584`.
+  4. **After granting `REGISTRAR_ROLE` back (verified via `sepolia.base.org`), a registration attempt against the running stack still reverted** with `AccessControlUnauthorizedAccount(0xC19fc9cB..., REGISTRAR_ROLE)` — a real, correctly-decoded custom-error revert this time (`0xe2517d3f`, not a phantom-address silent success), meaning the stack's own view of chain state was stale relative to the grant. Root cause: `.env`'s `DOCKER_RPC_URL` (what `oracle-backend`/`shield` actually use) was still `base-sepolia-rpc.publicnode.com`, the same load-balanced third-party endpoint responsible for the nonce race earlier in this file — evidently also inconsistent for role-state reads, not just nonces. Switched `DOCKER_RPC_URL` to `https://sepolia.base.org` (Base's own official endpoint, already used for all the verification reads in this entry) and restarted `oracle-backend`/`shield` to pick it up.
+  5. **Even after switching to the official RPC, two more read-after-write lag instances hit**, confirming this class of issue isn't specific to any one provider — it's inherent to reading state moments after writing it: (a) `fund_agent_wallet`'s transfer confirmed (`_wait` returned a real mined receipt) but `deploy_sovereign_agent`'s very next balance-implied check reported `insufficient funds ... have 0` — verified transient by directly reading the agent wallet's on-chain balance afterward (`0.01 ETH`, exactly the expected amount, nonce still 0) — the funds were there, just not yet visible to whatever backend/view answered the failing check. (b) `grant_anchor_role`'s `StateAnchor.ANCHOR_ROLE().call()`, reading a contract `deploy_state_anchor` had just deployed and `_wait`-confirmed moments earlier, failed with `BadFunctionCallOutput` ("is contract deployed correctly and chain synced?") — verified transient the same way (a manual `cast call` for the same function on the same address, seconds later, returned real data). Fixed generally this time instead of case-by-case: `chain.py` gained `_call_with_retry`, a backoff-retry wrapper specifically for `BadFunctionCallOutput` on read-only `.call()`s, mirroring `_send_signed`'s existing retry-on-stale-nonce pattern for writes — applied to `grant_anchor_role`'s `ANCHOR_ROLE()` read (the confirmed failure site). Covered by the full test suite (259 passed, 3 skipped, no regressions).
+  6. **The same lag hit a third form**: a later live attempt failed at `deploy_sovereign_agent` itself with `insufficient funds for gas * price + value: have 0` straight from `send_raw_transaction` — again verified transient (the agent wallet genuinely held 0.02 ETH and nonce 2 immediately after, proving the funds were real and prior sends had gone through). `_send_signed`'s retry condition, previously only "nonce too low", now also catches "insufficient funds" — same reasoning: a rejection at submission never enters any mempool, so retrying costs nothing, and a genuinely-out-of-funds condition still correctly fails after `max_attempts` since it won't resolve on retry. Covered by the full test suite (259 passed, 3 skipped, no regressions). Not yet re-verified with a fresh live registration attempt end-to-end.
+  7. **RESOLVED (2026-08-17) — item 4's diagnosis was incomplete, and there was a SECOND missing role grant, not RPC staleness.** Re-ran `xibalba-shield/scripts/register_with_oracle.py` for real against the live stack. It got all the way through step 8b (genesis root anchored, confirmed via `StateAnchor.latestRoot()` returning non-zero) and deployed a real `SovereignAgent`
+    (`0x0C24806C751A04B785F1aF3A9E915FE4d4313A77`) and `StateAnchor`
+    (`0x4131ccebaA186A95B51f7017f99fF8E55c87B358`) — then failed at step 9 with the exact same `AccessControlUnauthorizedAccount(0xC19fc9cB..., REGISTRAR_ROLE)` revert item 4 already saw, decoded fresh (`0xe2517d3f`, confirmed against `sepolia.base.org` directly, not inferred). **Item 4 was wrong to attribute this to RPC staleness.** `AgentPrimitivesFactory.registerPrimitives` (`contracts/src/framework/AgentPrimitivesFactory.sol`) calls into **two** registries requiring `REGISTRAR_ROLE` — its own NatSpec says so explicitly ("Holds `REGISTRAR_ROLE` on both registries") — `XibalbaAgentRegistry.registerPrimitives` (which the earlier fix correctly re-granted) **and** `DomainRegistry.recordJoin` (`onlyRole(REGISTRAR_ROLE)`), which never got re-granted after the same phantom-factory rotation incident. Confirmed live, no ambiguity: `DomainRegistry.hasRole(REGISTRAR_ROLE, 0xC19fc9cB...)` returned `false` against `sepolia.base.org` — the same canonical endpoint item 4 already trusted — ruling out staleness as the explanation this time. (The `DOCKER_RPC_URL` switch in item 4 may still have been a real, separate fix for the nonce/balance-read lag documented in items 5-6; it just wasn't sufficient for *this* revert, which was a genuinely-missing grant, not a stale read of a genuinely-present one.)
+
+     **Fix**: granted `REGISTRAR_ROLE` to the real factory on `DomainRegistry`
+     (`0xC1aee61b8826d79c21a335Fb1777cA372Bea1Ba0`) from the funder/governance wallet
+     (confirmed to hold `DEFAULT_ADMIN_ROLE` there), tx
+     `0xd40ac7e2586b3aca21d2d36c015385b07650202c3efe61e5b9d962e2b2ccb979`, verified via
+     `hasRole` returning `true` afterward. **Registration then completed successfully without
+     creating a new orphan** — rather than re-running the non-idempotent script from scratch
+     (which would have deployed a *fifth* orphaned pair on top of the four already listed
+     above), resumed from the already-deployed `SovereignAgent`/`StateAnchor` directly via a
+     one-off script calling `integrity_sdk.chain.register_primitives` with those existing
+     addresses. `resolveDID` now returns the full real 7-primitive set;
+     `GET /v1/agent/{id}` confirms `oracle_registered: true` and the agent no longer appears
+     in `GET /v1/shield/unregistered-agents`. Milestone 2 of
+     `docs/demo-shield-integration.md` is genuinely complete for the Shield agent's DID as of
+     this entry — see that doc's own updated status section.
+
+     **Still open**: `DomainRegistry` should get the same `docs/signer-role-rotation-2026-08.md`
+     treatment eventually noted for `XibalbaAgentRegistry` in item 3's fix — both registries'
+     `REGISTRAR_ROLE` currently point at the same stopgap factory with the old shared-key
+     roles. The four orphaned `SovereignAgent`/`StateAnchor` pairs listed in item 3 remain
+     orphaned; this entry didn't create a fifth, but it also didn't clean up the existing four
+     — no cleanup path exists for any of them.
 
 ## 10. SDK tracing → oracle → frontend trace-tree pipeline (LangSmith-style spans/traces)
 
@@ -1309,7 +1343,7 @@ fix: `docs/design/mcp-signing-boundary.md`.
     answer, not a safety property. The actual fix removes the capability from the tool surface
     entirely; a human runs `integrity-cli` directly for anything that signs.
 
-## 26. `UltraPlonkVerifier` is the real generated ZK verifier now, with zero test coverage (2026-08-12)
+## 26. `UltraPlonkVerifier` generated-verifier adoption and proof coverage (2026-08-12; updated 2026-08-17)
 
 Found while triaging an uncommitted, dirty working tree on `audit/harness-loop-2026-07-30` ahead
 of a repo-wide rename/stabilization pass. `contracts/src/oracle/UltraPlonkVerifier.sol` was
@@ -1330,7 +1364,7 @@ dropped, and `contracts/test/UltraPlonkVerifier.t.sol` was deleted in the same u
   reproduced the compile error, then reverting confirmed clean compilation. `IZkVerifier` was
   deliberately designed (see its own docstring) to be satisfied via ABI-compatible low-level
   dispatch (`IZkVerifier(impl).verify(...)` in `VerifierRegistry.sol`), not formal inheritance —
-  this is exactly what lets `make generate-verifier` swap the placeholder for the real contract
+  this is exactly what lets a reviewed generated-verifier handoff swap the placeholder for the real contract
   without touching any calling contract.
 * **The deleted test file is correctly obsolete, not a regression.** It only asserted
   placeholder-only behavior (`vm.expectRevert(UltraPlonkVerifier.PlaceholderVerifierNotYetGenerated.selector)`
@@ -1346,3 +1380,389 @@ dropped, and `contracts/test/UltraPlonkVerifier.t.sol` was deleted in the same u
   `forge test --match-path test/UltraPlonkVerifier.t.sol -vvv` returned **4 passed, 0 failed**.
   This closes direct verifier coverage only; registry forwarding, proof regeneration from a clean
   environment, and deployed/on-chain verification remain separate gaps.
+
+## 27. AIS scoring — fail-open empty-evidence defaults inverted (2026-08-17)
+
+Found while implementing `spec/integrity-protocol-v3.2.md` §3.1.1's AIS redefinition
+(requirement N2, "earned, not granted") against the reference implementation. Verified
+numerically before touching any code, not assumed from the spec's description.
+
+* **CLOSED (rows 1–2 of §3.1.4's implementation-delta table) — `derive_entropy`,
+  `derive_grounding` (`integrity-oracle/backend/src/derive.rs`, mirrored in
+  `integrity_sdk/telemetry/derive.py`) and `self_reported_compliance`
+  (`derive.rs` only — `derive.py`'s `derive_compliance` had the same defect inline) all
+  returned **1.0 (maximum)** for an empty batch or a batch with no scoreable content.
+  Missing evidence therefore read as *perfect* evidence on three of the four AIS axes —
+  only `derive_sacrifice` failed closed to 0. Because `scoring-core::score` is a weighted
+  **geometric** mean (`AIS = S_entropy^0.3 · S_grounding^0.3 · S_sacrifice^0.2 ·
+  S_compliance^0.2`), this meant a submission carrying token counts but **no analysable
+  content** — maximal entropy/grounding/compliance by default, plus a self-reported
+  `sacrifice` claim — scored **r = 0.923** at 100 claimed GPU-hours, while an honest agent
+  reporting real-but-mediocre telemetry across all four axes scored **0.465**. The
+  content-free agent outscored the honest one roughly two-to-one, inverting the incentive
+  the metric exists to create.
+* **Fix:** all three now return `0.0` on empty/no-evidence input. Verified: the same
+  content-free-but-token-bearing submission now scores entropy=0 and grounding=0
+  regardless of claimed sacrifice — `scoring-core`'s existing geometric-mean annihilation
+  (any single exact zero zeroes the product; see its own
+  `any_single_zero_component_annihilates_ais` test) does the rest without needing rows
+  5–6 below. New regression tests:
+  `integrity-oracle/backend/src/derive.rs::content_free_submission_with_token_counts_fails_closed_on_entropy_and_grounding`
+  and
+  `integrity-sdk/tests/unit/test_derive.py::test_content_free_submission_with_token_counts_fails_closed_on_entropy_and_grounding`.
+  Full suites green: oracle workspace 137/137 (`cargo test --workspace --lib`), SDK 262
+  passed/3 skipped (`uv run pytest tests/`).
+* **Still open (§3.1.4 rows 3–6, none landed in code) — do not consider this gap fully
+  closed.** Compliance still falls back to the agent's own self-reported
+  `policy_violation`/`flagged` metadata for every non-healthcare agent (row 3);
+  `derive_sacrifice` still divides self-reported token counts by a proxy constant instead
+  of requiring validator/TEE attestation (row 4); there is no declared per-component floor
+  or conjunctive Θ gate (row 5) — a 90%-violation agent still reaches r≈0.631 under the
+  bare geometric mean, since only an *exact* zero annihilates the product, not a small
+  positive value; and the oracle's published `ais` field is still post-boost and unclamped
+  (up to 1150) rather than exposing the pre-boost, `[0,1]`-clamped accessor §3.1.1 eq. 4b
+  requires as the actual constraint input (row 6). Rows 3–4 are blocked on attestation
+  infrastructure the whitepaper proposes for Phase III (§10.3); rows 5–6 are not code-complex but
+  change AIS's output for every currently-registered agent, and this repo pushes AIS to
+  chain automatically (`bcc_middleware/app/scoring_loop.py`, default 300s) and can raise a
+  real `Slasher.raiseDispute` off the resulting score — landing rows 5–6 needs a dry-run
+  against the live agent set first, not a direct edit. See `HANDOFF.md`'s 2026-08-17
+  section (and its later addendum) for the full priority ordering.
+
+## 28. Phase 0 identity discovery facade — local implementation closed, deployment and native ERC-8004 convergence open (2026-08-17)
+
+The v3 rollout plan's Phase 0 originally called for an "ERC-8004-shaped" read adapter over
+`XibalbaAgentRegistry`. Primary-source review and a focused Devil's Advocate pass established
+that a read-only DID projection cannot honestly implement the current draft's ERC-721 token
+identity, ownership, transfer, approval, wallet-proof, metadata-write, event, Reputation
+Registry, or Validation Registry semantics.
+
+* **CLOSED — bounded Integrity-native read profile.**
+  `contracts/src/kernel/IntegrityIdentityReadV1.sol` provides DID, DID-hash, and
+  `SovereignAgent` resolution, all seven primitive addresses, domain and registration metadata,
+  the live agent-controlled `AgentProfile.profileURI`, and candidate-controller verification
+  against the account's current `DEFAULT_ADMIN_ROLE`. It pins the reviewed ERC-8004 draft
+  revision and returns `isERC8004Conformant() == false`.
+* **CLOSED — mapping inconsistencies fail closed.** The facade verifies the registry's
+  DID-to-agent and agent-to-DID mappings agree and that `SovereignAgent.agentDID()` hashes to
+  the registered DID. This prevents the existing registry's duplicate-agent overwrite edge
+  case from being silently projected as a valid identity.
+* **CLOSED — AIS authority remains separate.** The facade returns the agent's
+  `ReputationRegistry` primitive address but exposes no score or ERC-8004 feedback method.
+  Agent Integrity Score (AIS) remains authoritative only through the existing Integrity
+  Oracle and per-agent reputation primitive paths.
+* **CLOSED — no agent migration.** The facade is read-only and projects existing registry
+  records. Future genesis deployments include it as `singletons.IntegrityIdentityReadV1`;
+  existing agents and primitive addresses are unchanged.
+* **VERIFIED LOCALLY.** `forge test --match-contract IntegrityIdentityReadV1Test -vvv`
+  returned **10 passed, 0 failed**. Coverage includes negative conformance probing, controller
+  rotation, mutable/empty profile URIs, duplicate-agent stale mappings, declared-DID mismatch,
+  missing DID read surfaces, unknown records, zero dependency rejection, and proof that a
+  reverting profile cannot block fixed identity resolution.
+* **OPEN — existing Base Sepolia deployment.** No broadcast or deployment-file mutation was
+  performed. Deploying the facade against the existing registry is a separate gas-costing
+  external write requiring exact approval and post-deployment bytecode/readback verification.
+* **OPEN — native ERC-8004 convergence.** Exact conformance requires a separately reviewed
+  registry design with version-pinned token identifiers, ownership/transfer semantics, events,
+  historical treatment, wallet proof, and a selector-by-selector compatibility matrix. The
+  current facade must not be marketed to generic ERC-8004/ERC-721 tooling as compatible.
+* **OPEN — source-registry invariant.** `XibalbaAgentRegistry` still permits the same
+  `SovereignAgent` to be registered under multiple DIDs and the factory does not enforce that
+  its DID argument matches `SovereignAgent.agentDID()`. The facade detects and rejects this
+  state; it does not repair the underlying registry or retroactively change deployed code.
+
+## 29. Whitepaper v3.2 proposed-spec implementation delta (2026-08-17)
+
+`spec/integrity-protocol-v0.5-proposed.md` now maps every substantive v3.2 semantic amendment.
+It remains non-authoritative. The mapping closes a documentation gap; it does not close these
+implementation gaps:
+
+* **PARTIAL — identity and AIS defaults.** Phase 0's custom identity profile is locally tested,
+  and missing entropy/grounding plus empty self-reported compliance now fail closed to zero.
+  Native ERC-8004 convergence, the AIS floor gate, admissibility enforcement, pre-boost
+  constraint score, versioned profile, migration, and conformance vectors remain open.
+* **PLANNED — federated telemetry prover.** The current AIS Oracle remains a Trusted,
+  single-operator component. No threshold validator profile or general ZK-telemetry prover exists.
+* **PLANNED — stake-secured memory availability.** No accepted availability stake,
+  challenge/production contract, deadline enforcement, or deterministic slashing path exists.
+* **PLANNED — circuit-breaker grace modes.** No execution kernel, hard/soft constraint
+  partition, monotone contraction adapter, AIS-floor precedence implementation, or bounded
+  settlement staging path exists.
+* **PLANNED — high-frequency channels and compiler.** No ATCP/IP channel profile,
+  injective channel-head settlement implementation, or `integrity-dsl` compiler exists.
+* **PLANNED — hybrid attested-host profile.** No production deployment binds attestation to
+  the specific transaction with freshness and measured egress. Existing host/TEE evidence must
+  not be described as extending on-chain complete mediation.
+
+Whitepaper §1.5 (comparative architecture) and §10.4 (enabler framing) remain explanatory rather
+than independent protocol clauses. Acceptance requires clause-level review, interface schemas,
+tests, migration/conformance evidence, and explicit incorporation into the active specification.
+
+### §27 addendum (2026-08-17) — real dry-run against the one live registered agent
+
+Per §27's own "still open" note: rows 5-6 (floors/gate, pre-boost accessor) need a dry-run
+against the live agent set before landing, since this repo auto-pushes AIS to chain with
+slashing consequences. Ran that dry-run for real against the actually-running local stack
+(`docker ps` showed `oracle-backend`/`postgres`/`bcc-middleware` etc. already up for days,
+not started for this check) rather than synthetic data.
+
+**Only one agent is registered**: `did:integrity:68fed1331613937555a59398223e8e87520a87dd0305aac4fd7ecdc32a14a861`
+(`xibalba.integrity`, verification_tier 1) — this repo's own dogfooding agent. `GET /v1/agent/{id}/ais`:
+
+| Component | Value (of 1000) |
+|---|---|
+| entropy | 268.45 |
+| grounding | 950.17 |
+| sacrifice | 861.34 |
+| compliance | 1000.0 |
+
+Reported `ais: 600.0` is **not** the raw geometric mean (`268.45^0.3 * 950.17^0.3 * 861.34^0.2
+* 1000^0.2 ≈ 645`, computed by hand) — it's `scoring-core::ceiling_for_tier(1) == 600.0`
+clamping it down, confirmed by reading `lib.rs`'s tier-ceiling match arms directly. The
+Verification Ladder tier ceiling and the proposed AIS floor/gate (§3.1.1) are two independent
+capping mechanisms; this agent is already capped by the former regardless of the latter.
+
+**What this means for the still-unmade floor-value decision (§3.1.4 row 5):** entropy is this
+agent's weakest axis by a wide margin (268 vs. 950-1000 on the other three). Under the proposed
+conjunctive Θ gate, **any entropy floor set above ~268 would zero this repo's own dogfooding
+agent's entire score** — not a hypothetical edge case, a concrete real number from the only
+agent currently live. This doesn't argue for or against any specific floor value (that decision
+is explicitly not this document's to make), but it's the number a floor-value decision needs to
+be checked against before landing, and it's now on record rather than needing to be re-derived.
+
+No chain writes, no code changes, no floor values chosen. Read-only against the already-running
+local stack.
+
+**Decision (2026-08-17, explicit user call):** wait for more agents before picking floor
+values or flipping enforcement on. Shadow mode (above) stays purely observational — no
+numbers chosen, no code change, no chain-behavior change. Revisit trigger: a second real
+agent registers (so there's an actual distribution instead of N=1), or the decision is
+explicitly revisited regardless of agent count. Options considered and declined: setting
+provisional floors and enforcing now anyway (rejected — an agent failing a floor zeroes
+`ais`/`constraint_score`, which can trigger `Slasher.raiseDispute` via
+`bcc_middleware/app/scoring_loop.py` and drop PHI-gate access via `EHRGate`/
+`ComplianceGate`, too consequential to base on one data point).
+
+## 28. Registration non-idempotency: fixed in `integrity-sdk`, still open in `integrity-cli`
+
+*Current State:* `integrity_sdk/registration.py`'s `register_agent()` deploys a
+`SovereignAgent`/`StateAnchor` pair (steps 5-6), then mints testnet ITK, grants `ANCHOR_ROLE`,
+and anchors a genesis root (steps 7-8b) before the final `registerPrimitives` (step 9). Its
+only idempotency check — `resolve_did()` against `XibalbaAgentRegistry` — only starts matching
+once step 9 has *already* succeeded, so every retry after a failure anywhere in steps 4-8b
+deployed a fresh, throwaway pair. This is not hypothetical: it's the exact shape of five
+separate real incidents on Base Sepolia across two sessions (2026-08-14, 2026-08-17 — see the
+registration entry above, items 3/4/7), each leaving a real, orphaned, gas-paid
+`SovereignAgent`/`StateAnchor` pair with no cleanup path.
+
+* **CLOSED in `integrity-sdk`** — `register_agent()` now persists a
+  `registration_progress.json` next to the DID's `document.json` immediately after
+  `SovereignAgent`/`StateAnchor` deploy succeeds (steps 5-6), and checks it (verifying real
+  bytecode via `eth_getCode` before trusting it — the same lesson the phantom-factory incident
+  taught about blindly trusting a recorded address) before attempting a fresh deploy on any
+  subsequent call. Steps 7 (ITK mint — NOT idempotent, a retry would double-mint) and 8b
+  (genesis root anchor — re-running against an already-anchored `StateAnchor` was previously
+  unverified territory, not actually protected by the `resolve_did` short-circuit the old
+  comment claimed) are now also checked before re-running, via two new `chain.py` read helpers
+  (`itk_balance`, `state_anchor_latest_root`). Step 8 (`grant_anchor_role`) was already safe —
+  OZ's `grantRole` no-ops if already held — but is now checked first too, to skip the
+  redundant transaction rather than just tolerate it. The progress file is cleared once
+  `registerPrimitives` succeeds (the point `resolve_did`'s own check takes over) or once an
+  early idempotent return confirms the DID is already fully registered. Two new regression
+  tests against a real local anvil chain (`tests/test_registration.py`): one simulates
+  `registerPrimitives` failing on the first call and succeeding on a retry, asserting the
+  SAME `SovereignAgent`/`StateAnchor` addresses are reused; the other asserts a progress file
+  pointing at bytecode-less addresses is discarded rather than trusted. Full suite green (264
+  passed / 3 skipped, up from 262 by exactly the 2 new tests).
+* **CLOSED — `integrity-cli` had its own, independent copy of this registration flow**
+  (`integrity_cli/main.py`/`chain.py`, doesn't import `integrity-sdk` at all — see
+  `CLAUDE.md`'s "SDK vs CLI" section) that turned out to have **no idempotency protection
+  of any kind**, not even the basic `resolve_did` check the SDK had before its own fix —
+  every `integrity agent register` invocation unconditionally deployed a fresh
+  `SovereignAgent`/`StateAnchor` pair, even for an already-registered DID. Ported the same
+  two layers from the SDK fix: `chain.py` gained `resolve_did`/`has_anchor_role`/
+  `itk_balance`/`state_anchor_latest_root` (identical shape to the SDK's versions,
+  duplicated per this package's existing "no sibling dependency" convention, not imported);
+  `main.py`'s `agent_register` now checks `resolve_did` first (short-circuits with the
+  existing registration, matching the SDK's early-return branch) and persists/resumes
+  deploy progress via a new `<identity>.registration_progress.json`, with the same
+  bytecode-verification-before-trusting-a-recorded-address discipline. Also factored the
+  previously-duplicated oracle-POST logic (~50 lines inline, twice) into one shared
+  `_post_registration_to_oracle` helper used by both the early-return and full-registration
+  paths. Two new regression tests against a real local anvil chain
+  (`tests/test_register_resume.py`, no Docker/cargo/oracle-backend needed unlike the
+  existing `ORACLE_E2E=1` oracle test): one simulates `register_primitives` failing on the
+  first `integrity agent register` invocation and succeeding on a retry, asserting the CLI
+  reuses the same addresses; the other asserts a second invocation for an already-registered
+  identity is a genuine no-op. Full suite green (70 passed, up from 68 by exactly the 2 new
+  tests; the Docker-gated oracle e2e test was not re-run, unrelated to this change).
+
+## 29. Phase I tracer-bullet slice — built, tested, NOT deployed (2026-08-17)
+
+*Current State:* per explicit user authorization of
+`docs/plans/2026-08-17-phase1-tracer-bullet-proposal.md`, built the minimal slice the proposal
+scoped: `contracts/src/kernel/IntegrityAccountV1Experimental.sol` +
+`IntegrityKernelV1Experimental.sol`. Non-upgradeable, non-deployed (not referenced by
+`Deploy.s.sol` or any script), single `CALLTYPE_SINGLE`/`EXECTYPE_DEFAULT` execution mode only,
+module mutation permanently disabled after the one atomic constructor-time kernel install, one
+conserved quantity (a native-value spend budget, per-operation and cumulative). Full precise
+guarantee statement and what it does NOT prove:
+`docs/design/phase1-tracer-bullet-slice-2026-08-17.md`.
+
+12 new Foundry tests (`contracts/test/IntegrityAccountV1Experimental.t.sol`), covering: in/out-of
+per-op-budget, exact cumulative-budget boundary vs. one-wei-over, all three rejected execution
+modes, both module-mutation entry points disabled (including against the real already-installed
+kernel, not a hypothetical), the hook rejecting non-account callers and out-of-sequence calls,
+and a genuine self-call reentrancy attempt against the `armed` guard. The reentrancy test was
+mutation-tested, not just written and trusted: temporarily removing the `armed` check makes the
+same test fail with a *different* error (`NotArmed` instead of `AlreadyArmed`), demonstrating the
+nested call's `postCheck` silently corrupts the outer call's own armed state without the guard —
+real evidence the guard does work, not decoration. `preCheck` gas measured live under the
+whitepaper's own Table 4 budget (`<=40k`), as a regression test, not a one-off number. Full repo
+suite green: 221/221 (up from 209 before this slice).
+
+**Extended same day with a second reference adapter (reputation floor)**, per separate
+authorization of `docs/plans/2026-08-17-phase1-reputation-adapter-proposal.md`. The kernel now
+enforces two conjunctive conditions: the existing native-value budget, and
+`ReputationRegistry.effectiveScore(boundAccount) >= minEffectiveScore` (a precondition gate
+checked once in `preCheck`, not a conserved quantity needing `postCheck` involvement). Real
+multiplexing inside the one hook module the base OZ contract allows, not a second hook. Tested
+against a real, standalone `ReputationRegistry` EIP-1167 clone (its implementation disables
+direct initialization, confirmed by reading the constructor — deployed via `Clones.clone` the
+same way `AgentPrimitivesFactory` does in production, not a bare `new`). 3 new tests: below-floor
+reverts even when in-budget, the exact floor boundary succeeds, and an above-floor account is
+still independently bound by the budget check. The reputation check was also mutation-tested —
+removing it makes the below-floor test wrongly pass, confirmed and reverted before landing.
+`preCheck` gas re-measured (the real reason the gas test is a regression test, not a one-off
+number): 27,131 → 35,505, still under the 40k Table 4 budget but a real, caught increase. Full
+repo suite green: 224/224. Explicitly independent of the still-deferred AIS floor/shadow-gate
+decision (§27) — reads the existing oracle-pushed `effectiveScore`, doesn't touch `scoring-core`
+or pick any floor value there.
+
+**Extended again same day with the third and final named reference adapter (assurance tier)**,
+per `docs/plans/2026-08-17-phase1-assurance-tier-adapter-proposal.md`. `preCheck` gains a third
+conjunctive condition: `ReputationRegistry.isZkBoosted(boundAccount)` must be true. No new
+external dependency (reuses the same `reputationRegistry` immutable the reputation-floor adapter
+already wired in). 2 new tests (non-boosted reverts even when budget+reputation pass; an expired
+boost — a genuine `block.timestamp` boundary, not a static flag — is treated as not-boosted),
+both mutation-tested. Net +2 tests (added 2, removed 1 redundant test the new work made
+unnecessary). Full repo suite: 226/226.
+
+**Real, disclosed finding from this extension, not silently resolved:** with all three checks
+live, `preCheck` measures ~40,129 gas — over the whitepaper's own Table 4 budget (`<=40k`). The
+Phase I plan itself named this exact pressure point before this slice existed ("reputation
+should be cached/snapshotted per epoch rather than read live on every call") — now confirmed
+live. Per this session's own stated commitment, the gas test was renamed to document the finding
+honestly (`test_preCheckGasExceedsPaperTable4BudgetWithThreeUncachedChecks`, asserting the cost
+is both genuinely over 40k and hasn't regressed past a documented 42k ceiling) rather than having
+its threshold quietly raised. The real fix (per-epoch score snapshotting) is out of scope for a
+reference-adapter slice and would need its own proposal if pursued. Full detail:
+`docs/design/phase1-tracer-bullet-slice-2026-08-17.md`'s "Known limitation" section.
+
+**What this explicitly does not close:** any of the rest of the real Phase I plan (module
+governance, canonical intent encoding, the BCC `chain_id`/verifier-binding gap, the gas-budget
+finding above) remains unbuilt/unresolved. No external audit has occurred — this slice does not
+clear the Devil's Advocate review's own stated gate to Phase II. Not deployed to Base Sepolia or
+anywhere else, and completing this slice is not itself grounds to deploy it — that would be a
+separate, later, separately-approved decision.
+
+**Extended same day with timelocked, atomic kernel-swap module governance — this REVERSES the
+"module mutation permanently disabled" claim made above.** Per
+`docs/plans/2026-08-17-phase1-module-governance-proposal.md` (which states the reversal
+plainly), `installModule`/`uninstallModule` still always revert directly, but a new
+`proposeKernelSwap`/`executeKernelSwap`/`cancelKernelSwap` path now reaches the same underlying
+`_installModule`/`_uninstallModule` internals through a timelocked, atomic swap: propose a new
+kernel, wait out a mandatory delay, then atomically uninstall the old kernel and install the new
+one in one transaction (never a reachable state with zero hook modules installed). Explicitly
+**single-signer-timelocked, not the plan's full "timelocked + multi-party"** — this account has
+exactly one ECDSA signer, so a compromised key can still eventually force a swap, just not
+instantly or silently.
+
+A dedicated Devil's Advocate review (independent subagent, full diff + OZ base source + test
+suite) ran before landing, attacking six named risk areas. Top-line verdict: add code-level
+mitigations before shipping (not ship-as-is, not revert). Two real gaps were fixed in code, not
+just documented: (1) the constructor accepted a zero timelock with no validation, which would
+have silently voided the entire mechanism (instant swap in one transaction) — now reverts
+`ZeroTimelock()`, matching the same input-validation discipline the sibling
+`IntegrityKernelV1Experimental` constructor already applies; (2) `proposeKernelSwap` accepted any
+non-zero address with zero interface validation, so a non-conforming address only failed after
+the timelock elapsed — now probes `newKernel.isModuleType(MODULE_TYPE_HOOK)` and fails fast.
+Both fixes are mutation-tested. A third, more severe finding is disclosed rather than code-fixed
+because it is genuinely unfixable at this scope: a kernel that passes the interface probe but
+reverts unconditionally in `preCheck` installs cleanly, then permanently bricks every future
+`execute()` AND blocks every rescue swap too (the rescue's own uninstall half must call the
+broken kernel's `preCheck` first) — worse than simply re-enabling `installModule` outright, since
+a bad kernel there fails instantly and visibly rather than catastrophically later with no way
+back. This is now a permanent regression fixture
+(`test_brokenKernelPreCheckPermanentlyBricksAccountWithNoRescuePath`), not just a documented
+claim, and corrects an earlier, incomplete "locked out until it requalifies" framing (that
+describes only the separate, recoverable reputation-floor lockout case). The review also
+confirmed and sharpened: the swap is asymmetrically mediated (removal of the old kernel is
+content-gated via reputation/assurance checks; installation of the new kernel is gated only by
+the interface probe and elapsed time, never by a security-content check) — so this mechanism
+satisfies the whitepaper's condition (iii) for removal, not installation; and named two
+reentrancy windows (both swap halves run with `_hook` storage already updated before the
+module's own `onInstall`/`onUninstall` lifecycle hook fires) that remain open, disclosed rather
+than closed.
+
+14 new Foundry tests total for this extension (10 for the mechanism itself, +4 from the review's
+findings and their regressions), all mutation-tested where they assert a security-relevant
+guard. Full suite for this file: 31/31 (up from 17). Full repo suite: 240/240 (up from 226).
+Full findings, the six-area review, and the fix-by-fix response:
+`docs/plans/2026-08-17-phase1-module-governance-proposal.md`'s "Devil's Advocate review and
+response" section. Still not deployed, still not externally audited, still does not clear the
+Phase II gate; multi-party governance, canonical intent encoding, the BCC binding gap, and the
+gas-budget finding remain open — **except the gas-budget finding, closed same day, below.**
+
+**Extended same day with reputation epoch-snapshotting — this RESOLVES the gas-budget finding
+above, for real, not just a documented mitigation.** Per
+`docs/plans/2026-08-17-phase1-reputation-snapshot-proposal.md`, `IntegrityKernelV1Experimental`
+no longer reads `effectiveScore`/`isZkBoosted` live on every `preCheck` call. Instead,
+`refreshReputationSnapshot()` (permissionless — anyone may call it, not only the bound account)
+reads `reputationRegistry.scores(boundAccount)` once and caches both derived values;
+`preCheck` reads the cache and fails closed (`SnapshotStale`) if it is older than an immutable
+`epochLengthSeconds` (capped at `MAX_EPOCH_LENGTH_SECONDS = 7 days`). Measured, not estimated:
+**`preCheck` now costs 33,321 gas** in the steady state — under the whitepaper's own `<=40k`
+Table 4 ceiling, down from the previously-measured 40,129.
+
+**This closes the finding but does not make it free — the tradeoff is a real, disclosed one.**
+Within an epoch, reputation is not merely "possibly stale," it is completely unenforced — only
+the budget check still bounds behavior during that window. The design also introduces a new
+liveness dependency the live-read design never had: `execute()` can now revert purely because
+nobody refreshed the cache in time, for any call. And it creates a genuine interaction with the
+kernel-swap mechanism above: if `moduleActionTimelockSeconds` (governance timelock) exceeds
+`epochLengthSeconds` (reputation freshness window), a fully-vested swap can revert `SnapshotStale`
+for a reason unrelated to reputation, and a freshly-installed kernel can be stale-on-arrival,
+rejecting the account's first post-swap call. Both contracts' NatSpec now state
+`epochLengthSeconds >= moduleActionTimelockSeconds` as an explicit deployment invariant — neither
+contract enforces this on its own; it is operator/deploy-script discipline, not a code guarantee.
+
+A dedicated Devil's Advocate review (independent subagent, full diff + `ReputationRegistry.sol` +
+the kernel-swap mechanism + test suite) ran before landing. Two real gaps fixed in code: (1) the
+kernel's local `ZK_BOOST_BPS`/`BPS_DENOMINATOR` constants (duplicated for gas efficiency) were
+"verified" only by a test comparing two hardcoded literals against each other — since the
+constants are `private` on the kernel, the test never actually touched the kernel at all, so a
+future `ReputationRegistry` redeployment with different constants would have silently produced
+wrong cached scores forever, undetected; now the constructor cross-checks against the real
+registry's own values at deploy time and reverts `BoostConstantsMismatch` on divergence,
+mutation-tested, plus a genuine differential test (`test_refreshedSnapshotMatchesALiveEffectiveScoreRead`)
+asserting the cache equals a live read. (2) `epochLengthSeconds` had no upper bound, so "epoch-
+snapshotted reputation" could be truthfully claimed by a deployment meaning, in practice, "never
+re-checked"; now capped at `MAX_EPOCH_LENGTH_SECONDS = 7 days`, mutation-tested. A third gap —
+zero events anywhere, undermining the keeper-refresh pattern the whole mechanism depends on — was
+also closed: `ReputationSnapshotRefreshed` now emits on every refresh.
+
+10 new Foundry tests for the mechanism itself, +4 from the review's findings and their
+regressions (14 total this extension). Full suite for this file: 41/41 (up from 17 before any of
+today's kernel work). Full repo suite: 250/250 (up from 209 before this slice began). Full
+findings and the fix-by-fix response:
+`docs/plans/2026-08-17-phase1-reputation-snapshot-proposal.md`'s "Devil's Advocate review and
+response" section.
+
+**What remains open, restated:** multi-party governance (still single-signer-timelocked),
+canonical intent encoding / the BCC `chain_id`/verifier-binding gap, the two disclosed reentrancy
+windows from the kernel-swap review, the no-recovery-path broken-kernel-brick class, and the new
+`epochLengthSeconds`-vs-`moduleActionTimelockSeconds` deployment invariant (unenforced across the
+two contracts) all remain unbuilt/unresolved. No external audit. Not deployed to Base Sepolia or
+anywhere else, and none of today's work is grounds to deploy it — that remains a separate, later,
+separately-approved decision.

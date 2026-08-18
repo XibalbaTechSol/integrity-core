@@ -1,13 +1,14 @@
 ---
 title: contracts
 created: 2026-07-07
-updated: 2026-07-25
+updated: 2026-08-17
 type: entity
 tags: [layer-2, identity, tokenomics, compliance]
 confidence: high
 source_files:
   - contracts/src/framework/AgentPrimitivesFactory.sol
   - contracts/src/framework/XibalbaAgentRegistry.sol
+  - contracts/src/kernel/IntegrityIdentityReadV1.sol
   - contracts/src/framework/XibalbaNameService.sol
   - contracts/src/core/SovereignAgent.sol
   - contracts/src/oracle/ReputationRegistry.sol
@@ -40,7 +41,8 @@ factory that deploys them, the shared registries, the `$ITK` token, the
   `AgentProfile` (EIP-1167 clones — `Initializable`, set up via `initialize`
   not a constructor).
 - **Singletons:** `IntegrityToken` ($ITK), `UltraPlonkVerifier`,
-  `XibalbaAgentRegistry`, `XibalbaNameService` (XNS, added 2026-07-11 — see
+  `XibalbaAgentRegistry`, `IntegrityIdentityReadV1` (future genesis deployments),
+  `XibalbaNameService` (XNS, added 2026-07-11 — see
   below), `IntegrityGovernance` (added 2026-07-25 — see [Governance](../concepts/governance.md)),
   `DomainRegistry`, plus the Integrity Health stack (`CoveredEntityRegistry`,
   `SmartBAAFactory`/`SmartBAA` — see [Smart BAA](../concepts/smart-baa.md) —
@@ -79,6 +81,15 @@ factory that deploys them, the shared registries, the `$ITK` token, the
   accept-actions-at-execute path → actions can't be mutated between vote and
   execute), `nonReentrant`, gated on an ETA + a bounded `GRACE_PERIOD`. Full
   design + lifecycle: [Governance](../concepts/governance.md).
+- **`IntegrityIdentityReadV1` (`contracts/src/kernel/IntegrityIdentityReadV1.sol`,
+  added 2026-08-17):** a read-only Integrity identity discovery facade over
+  `XibalbaAgentRegistry`. It resolves by DID, DID hash, and `SovereignAgent`,
+  verifies forward/reverse and declared-DID consistency, returns the seven
+  primitives and agent-controlled `profileURI`, and checks controller candidates
+  against live account roles. It is informed by a pinned ERC-8004 Draft revision
+  but explicitly non-conformant: no ERC-721 token, owner, transfer, approval,
+  wallet-proof, metadata-write, event, reputation-feedback, validation, or ERC-165
+  surface. See [Interface Contract](../../INTERFACE_CONTRACT.md) §6.1a.
 
 ## Key invariants
 
@@ -93,7 +104,7 @@ factory that deploys them, the shared registries, the `$ITK` token, the
 
 ## State
 
-- **198 tests** (`forge test`, confirmed via a real run 2026-07-25), all green
+- **209 tests** (`forge test`, confirmed via a real run 2026-08-17), all green
   — including full end-to-end coverage of the registration sequence in
   `test/AgentPrimitivesFactory.t.sol`, 21 market-layer tests, 14
   `test/XibalbaNameService.t.sol` tests, 3 tests covering
@@ -102,6 +113,10 @@ factory that deploys them, the shared registries, the `$ITK` token, the
   double-vote, both-sides, withdraw-while-locked, quorum-unmet/tie/against-wins
   → Defeated, execute-before-timelock, execute-after-grace, only-Succeeded-can-queue,
   cancel authz, failing-action rollback).
+  The total includes 10 `IntegrityIdentityReadV1` tests covering negative
+  ERC-8004 conformance, identity consistency, controller rotation, URI behavior,
+  malformed registry states, and isolation of fixed identity reads from a
+  reverting profile contract.
 - **Deployed to Base Sepolia** (chainId 84532): `XibalbaAgentRegistry` at
   `0x72e21e44AdD6d6e7CAa02eaedF078630afC40819`, `AgentPrimitivesFactory` at
   `0x215f39C8a2Cea2F8c6976fA10bbf48479825aD6e`, plus the market-layer
@@ -114,14 +129,24 @@ factory that deploys them, the shared registries, the `$ITK` token, the
   `MissingSingleton` (**HTTP 400**) and the dashboard degrades to an honest
   "not deployed yet" state (never a fabricated result). See `PRODUCTION_GAPS.md`
   §4.
+- `IntegrityIdentityReadV1` is wired into future `Deploy.s.sol` genesis runs but
+  is **not deployed to Base Sepolia**. Existing agents require no migration. An
+  incremental deployment remains an approval-gated external write; see
+  `PRODUCTION_GAPS.md` §28.
 
 ## Honest gaps
 
-- `UltraPlonkVerifier.sol` is a **fail-closed placeholder** (`verify()` reverts)
-  until `bb write_solidity_verifier` generates the real UltraHonk verifier from
-  [integrity-zkp](integrity-zkp.md). Confirmed directly against the deployed Base
-  Sepolia bytecode (234 bytes — far too small to be the real ~2465-line generated
-  verifier), not just inferred from source: the placeholder is what's actually live.
+- The identity facade detects duplicate-agent and declared-DID inconsistencies,
+  but the deployed `XibalbaAgentRegistry`/factory do not prevent those states at
+  registration. Native ERC-8004 convergence is also deferred; generic ERC-8004
+  or ERC-721 tooling must not be pointed at this facade.
+
+- The repository's `UltraPlonkVerifier.sol` is now the real generated verifier and
+  has valid/tampered/malformed proof coverage. The **existing Base Sepolia address
+  still contains the older fail-closed placeholder bytecode**, so source capability
+  must not be described as deployed capability until a separately approved verifier
+  deployment is read back and exercised on-chain. See [ZKP](integrity-zkp.md) and
+  `PRODUCTION_GAPS.md` §26.
 - `CCIPReputationBridge.sol` — **reworked 2026-07-11**, no longer a gap in the
   sense of being architecturally incompatible with the per-agent clone model: it
   now holds `XibalbaAgentRegistry` and resolves each agent's own

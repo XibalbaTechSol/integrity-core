@@ -2,7 +2,7 @@
 
 ## README Source of Truth
 
-This README is the repo-level source of truth for integrity-core: what the protocol is, which packages it owns, what is built now, what remains planned, and where deeper operational contracts live. The normative implementation contracts are [SPECIFICATION.md](SPECIFICATION.md), [docs/INTERFACE_CONTRACT.md](docs/INTERFACE_CONTRACT.md), [spec/integrity-protocol-v0.4.md](spec/integrity-protocol-v0.4.md), [docs/MAINNET_READINESS.md](docs/MAINNET_READINESS.md), and the canonical wiki at [docs/wiki](docs/wiki).
+This README is the repo-level status source for integrity-core: what the protocol is, which packages it owns, what is built now, what remains planned, and where deeper operational contracts live. The accepted normative protocol is [spec/integrity-protocol-v0.4.md](spec/integrity-protocol-v0.4.md). The new [v0.5 proposed amendment](spec/integrity-protocol-v0.5-proposed.md) is not yet authoritative, and [Whitepaper v3.2](spec/integrity-protocol-v3.2.md) is explanatory and non-normative. Repository ownership and implementation boundaries live in [SPECIFICATION.md](SPECIFICATION.md), [docs/INTERFACE_CONTRACT.md](docs/INTERFACE_CONTRACT.md), [docs/MAINNET_READINESS.md](docs/MAINNET_READINESS.md), and the canonical wiki at [docs/wiki](docs/wiki).
 
 When this README, the interface contract, the wiki, and code disagree, resolve the disagreement in the same change. The rule is no silent mocks and no aspirational current-tense documentation.
 
@@ -11,6 +11,16 @@ When this README, the interface contract, the wiki, and code disagree, resolve t
 The current cross-repository audit is recorded in [`docs/audits/2026-08-06-cross-repository-status.md`](docs/audits/2026-08-06-cross-repository-status.md) and the consolidated implementation plan at `/home/xibalba/Documents/INTEGRITY — Cross-Repository Audit and Implementation Plan.md`. The clean default-branch audit verified Solidity (200 tests), Zero-Knowledge circuits (4), Oracle Rust tests (114 library + 13 e2e + 11 scoring-core), CLI (68 passed/1 skipped), middleware (119 passed), User API (51 passed against temporary PostgreSQL), and dashboard unit tests (68 passed). The SDK remains open with 242 passed, 2 failed, and 3 skipped. This repository is a strong testnet prototype, not production-ready.
 
 Status claims below must be reconciled against that audit page. Historical handoffs and wiki log entries remain historical evidence.
+
+**2026-08-14 re-verification:** the SDK's "242 passed, 2 failed, 3 skipped" figure above could not be reproduced from a clean checkout — `integrity-sdk`'s dev environment had two latent bugs from the `INTEGRITY-LATEST` → `integrity-core` rename: (1) `README.md`'s documented install command, `uv pip install -e ".[dev]"`, silently installs no dev tools (`dev` is a dependency-group, not an extra), and (2) `.venv/bin/pytest`'s shebang had the pre-rename absolute path baked in, so running it fell through to an interpreter without `web3` installed. Both are fixed (`integrity-sdk/README.md` now documents `uv sync` + `uv run pytest`; the stale `.venv`/`venv` were rebuilt). Re-run after the fix: **259 passed, 3 skipped, 0 failed.**
+
+## Whitepaper v3.2 implementation status
+
+**2026-08-17.** [Whitepaper v3.2](spec/integrity-protocol-v3.2.md) explains a proposed *execution firewall*: an ERC-7579 type-4 hook module installed inside an ERC-4337 smart account, evaluating proposed state transitions against a machine-checkable constraint set before commit. It is not the normative specification; proposed requirements are tracked in [v0.5-proposed](spec/integrity-protocol-v0.5-proposed.md). The execution firewall does not exist in the codebase yet. The current `SovereignAgent.execute()` dispatches without that gate and cannot claim complete mediation.
+
+The implementation plan has four delivery phases mirroring the whitepaper's own §10.3 rollout — Kernel, Metered IP, Registry, Economy — plus Phase 0 identity-substrate work. **Phase 0 is implemented and locally verified; Phase I and all execution-firewall guarantees remain unstarted.** Phase 0 adds `contracts/src/kernel/IntegrityIdentityReadV1.sol`, a read-only discovery facade over `XibalbaAgentRegistry`. It is informed by the pinned ERC-8004 draft but explicitly returns `isERC8004Conformant() == false`: it has no ERC-721/token identity, ownership, transfer, wallet-proof, metadata-write, reputation-feedback, or validation surface. Existing agents need no migration; the current Base Sepolia deployment has not received this new singleton. See `docs/INTERFACE_CONTRACT.md` §6.1a for the exact boundary. Do not treat any "kernel," "hook," or "constraint" language elsewhere in this repo as live until this section is updated again — per this file's own no-aspirational-current-tense rule (line 7 above).
+
+The expanded v0.5 proposal also records v3.2's federated telemetry prover, stake-secured memory availability, circuit-breaker grace modes, high-frequency state channels/compiler trust, and hybrid attested-host boundary. These are all `[PLANNED]`; their missing interfaces and implementation evidence are enumerated in `docs/INTERFACE_CONTRACT.md` §16 and `PRODUCTION_GAPS.md` §29. Whitepaper argument and roadmap language is not itself an implementation.
 
 ## Ecosystem Relationship
 
@@ -47,11 +57,11 @@ component of `integrity-core`, not a fourth repository). While the integration i
 several components require refinement for production readiness:
 The latest local cross-repository verification is recorded in [`docs/audits/2026-08-07-cross-repository-closure.md`](docs/audits/2026-08-07-cross-repository-closure.md).
 
-**All Core Ecosystem Integrations Fully Developed:**
-1. **ZK Verification:** True on-chain validation of agent intent proofs is live via `UltraPlonkVerifier.sol`.
-2. **BCC Middleware:** Versioned intent schemas and protocol designs are established.
-3. **Oracle Services:** Production security controls, OTLP authentication, and rate limiting are implemented.
-4. **SDK & Tests:** All cross-repo drift has been successfully closed.
+**Current integration evidence and limits:**
+1. **Zero-Knowledge Proof (ZKP) verification:** the local source and off-chain Noir/Barretenberg pipeline are real and tested; the currently declared Base Sepolia verifier still contains older fail-closed placeholder bytecode and is not live production verification.
+2. **Behavioral Commitment Chain (BCC) middleware:** intent schemas, policy gating, and Merkle anchoring paths exist, with remaining production controls tracked in `PRODUCTION_GAPS.md`.
+3. **Oracle services:** telemetry ingestion and the sole Agent Integrity Score (AIS) implementation exist; the oracle remains a single-operator trust boundary.
+4. **Cross-repository status:** local integration is substantial, but production, deployment, identity, replay/origin, and runtime evidence gaps remain explicitly open.
 
 **Ecosystem Integration Architecture (The Biological Analogy):**
 
@@ -279,7 +289,7 @@ When building and deploying applications on the protocol, developers must choose
 
 | Package | Stack | Purpose | Status |
 |---|---|---|---|
-| [`contracts/`](contracts/) | Solidity + Foundry | The 7 primitives, factory, registries, XNS, `IntegrityGovernance`, $ITK, Integrity Health stack, ZK verifier, cross-chain reputation bridge | ✅ 198 tests; deployed to Base Sepolia (XNS/governance/CCIP bridge not yet broadcast — see below) |
+| [`contracts/`](contracts/) | Solidity + Foundry | The 7 primitives, factory, registries, XNS, `IntegrityGovernance`, $ITK, Integrity Health stack, ZK verifier, cross-chain reputation bridge, and local `IntegrityIdentityReadV1` facade | ✅ 209 tests locally; the existing Base Sepolia deployment predates the identity facade and still has the older verifier bytecode (XNS/governance/CCIP bridge also not yet broadcast) |
 | [`integrity-zkp/`](integrity-zkp/) | Noir + Barretenberg | The ZK circuit proving an action matches its committed intent | ✅ real `nargo`/`bb` pipeline |
 | [`integrity-oracle/`](integrity-oracle/) | Rust + Axum + Postgres | Telemetry ingestion, authoritative AIS computation, on-chain reads, markets/leaderboard/wallet/contracts/BAA/VC/benchmarks/XNS/governance reads, PHI rejection, OTLP/gRPC trace receiver | Current: 80 lib tests + 9 e2e; single-operator oracle, not decentralized |
 | [`integrity-sdk/`](integrity-sdk/) | Python | Agent library: DID/keys, EVM wallet, self-deploy registration, BCC, markets, telemetry, OpenAI/LangChain integrations, PHI redaction, memory anchoring | Current: 135 tests, 1 skipped + 1 opt-in oracle e2e |
@@ -294,7 +304,9 @@ When building and deploying applications on the protocol, developers must choose
 
 The protocol's trust metric. Computed in exactly one place —
 `integrity-oracle/scoring-core` — and read by everyone else via the oracle's
-HTTP API, never recomputed:
+HTTP API, never recomputed. The equations below describe the current local
+implementation profile, not automatic acceptance of every v0.5-proposed floor,
+evidence-admissibility, migration, or assurance rule:
 
 ```
 AIS_raw = (S_entropy^wE · S_grounding^wG · S_sacrifice^wS · S_compliance^wC) · ZK_boost
@@ -483,16 +495,17 @@ make setup     # install per-package dependencies
 make chain     # start a local anvil chain + run contracts/script/Deploy.s.sol
 make sync-abis # extract trimmed contract ABIs into the SDK/CLI
 make up        # docker-compose: postgres, redis, opa, oracle, bcc middleware, dashboard
-make test      # run every package's test suite
-make test-e2e  # real-browser (Playwright) E2E against a real, freshly-booted stack
+make test      # package suites plus dashboard production build/lint
+make test-e2e  # Playwright against a separately prepared real backend stack
 ```
 
 Each package has its own `README.md` with package-specific detail and its own
 test suite. The toolchain (Foundry, Rust, Noir/Barretenberg, OPA, Node, Python)
 is pinned in [`docs/INTERFACE_CONTRACT.md`](docs/INTERFACE_CONTRACT.md) §1. See
 [`docs/TESTING.md`](docs/TESTING.md) for the full test-pyramid rationale — what
-each layer covers, why `make test-e2e` is separate from `make test`, and the
-honest current gap (no hosted CI; this repo has no git remote yet).
+each layer covers and why `make test-e2e` is separate from `make test`. GitHub
+Actions runs package jobs on pushes/pull requests to `main`; Playwright remains
+outside hosted CI because its real backend stack must be started separately.
 
 ### Registering an agent (the self-sovereign flow)
 
@@ -554,8 +567,9 @@ issuer of last resort. See [`PRODUCTION_GAPS.md`](PRODUCTION_GAPS.md) §20.
 
 **Before mainnet:** see [`docs/MAINNET_READINESS.md`](docs/MAINNET_READINESS.md) — the
 blocker list, ordered by consequence. The headline items: all six protocol roles are
-currently one EOA that also holds `MINTER_ROLE`; the ZK verifier is a placeholder that
-always reverts; and `SovereignAgent`/`StateAnchor` are deployed per-agent and non-
+currently one EOA that also holds `MINTER_ROLE`; the deployed Base Sepolia ZK verifier
+contains older fail-closed placeholder bytecode that always reverts; and
+`SovereignAgent`/`StateAnchor` are deployed per-agent and non-
 upgradeable, so the upgrade-path decision must be made *before* the first mainnet agent
 exists.
 

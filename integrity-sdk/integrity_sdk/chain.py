@@ -27,7 +27,7 @@ from eth_account.signers.local import LocalAccount
 from eth_utils import keccak
 from web3 import Web3
 from web3.contract import Contract
-from web3.exceptions import ContractCustomError
+from web3.exceptions import BadFunctionCallOutput, ContractCustomError
 
 _ABIS_DIR = Path(__file__).resolve().parent / "abis"
 
@@ -118,6 +118,76 @@ def _wait(w3: Web3, tx_hash: bytes, *, action: str):
     return receipt
 
 
+import time
+
+
+def _send_signed(w3: Web3, signer: LocalAccount, build_tx, *, action: str, max_attempts: int = 3):
+    """
+    Fetches a fresh "pending" nonce, builds/signs/sends, and waits for the receipt —
+    the shape every function below repeats. Retries once or twice, with a short
+    backoff and a fresh nonce fetch, on either a "nonce too low" or an
+    "insufficient funds" rejection.
+
+    Both are the same underlying failure mode against a load-balanced RPC: a
+    transaction this same process just had `_wait` confirm as mined (a nonce bump
+    for the sender, or a balance credit for a just-funded recipient) can still be
+    invisible to whichever backend node answers the *next* request a moment later
+    — either `eth_getTransactionCount("pending")` (stale nonce) or the balance
+    check `send_raw_transaction` does internally (stale "insufficient funds", seen
+    right after `fund_agent_wallet` confirmed and the freshly-funded address's own
+    next send got rejected against a lagging view). Neither costs gas: a rejection
+    at submission never enters any mempool. A genuinely-out-of-funds condition
+    just keeps failing across every retry and correctly raises after
+    `max_attempts` — this doesn't mask a real shortfall, only the transient case.
+    A short sleep gives the backend pool a chance to converge; any other error
+    still raises immediately without retrying.
+
+    `build_tx(nonce)` returns the unsigned tx dict for that nonce — callers close
+    over everything else (contract call, `from`, `chainId`, ...). Returns
+    `(receipt, tx_hash)`.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(max_attempts):
+        nonce = w3.eth.get_transaction_count(signer.address, "pending")
+        tx = build_tx(nonce)
+        signed = signer.sign_transaction(tx)
+        try:
+            tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+        except Exception as exc:  # noqa: BLE001 — inspected below, re-raised if not this case
+            transient = "nonce too low" in str(exc) or "insufficient funds" in str(exc)
+            if transient and attempt < max_attempts - 1:
+                last_exc = exc
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            raise
+        return _wait(w3, tx_hash, action=action), tx_hash
+    raise last_exc  # pragma: no cover — unreachable, loop always returns or raises above
+
+
+def _call_with_retry(fn, *, max_attempts: int = 4, initial_delay: float = 1.0):
+    """
+    Retries a read-only `.call()` a few times, with backoff, specifically for
+    `BadFunctionCallOutput` (empty return data — "is contract deployed correctly and
+    chain synced?"). Real, observed failure mode: a `.call()` against a contract this
+    same process deployed and had `_wait` confirm as mined moments earlier can still
+    return empty data if the RPC backend answering the read hasn't caught up yet —
+    the same read-after-write lag `_send_signed` retries for nonces, just manifesting
+    as a call instead of a stale nonce. Confirmed transient by direct reproduction:
+    re-running the identical `.call()` seconds later (this file's own diagnosis
+    process, not guessed) returned real data every time. Any other exception is not
+    this case and is not retried.
+    """
+    delay = initial_delay
+    for attempt in range(max_attempts):
+        try:
+            return fn()
+        except BadFunctionCallOutput:
+            if attempt == max_attempts - 1:
+                raise
+            time.sleep(delay)
+            delay *= 1.5
+
+
 def fund_agent_wallet(w3: Web3, funder: LocalAccount, agent_address: str, amount_wei: int, chain_id: int) -> str:
     """
     Sends `amount_wei` of native ETH from the protocol's funder wallet to a
@@ -127,18 +197,20 @@ def fund_agent_wallet(w3: Web3, funder: LocalAccount, agent_address: str, amount
     signed by a key other than the agent's own — by construction, since a
     wallet with zero balance cannot pay for the transaction that would fund it.
     """
-    tx = {
-        "from": funder.address,
-        "to": Web3.to_checksum_address(agent_address),
-        "value": amount_wei,
-        "nonce": w3.eth.get_transaction_count(funder.address),
-        "chainId": chain_id,
-        "gas": 21_000,
-        "gasPrice": w3.eth.gas_price,
-    }
-    signed = funder.sign_transaction(tx)
-    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-    _wait(w3, tx_hash, action="fund_agent_wallet")
+    gas_price = w3.eth.gas_price
+    _, tx_hash = _send_signed(
+        w3, funder,
+        lambda nonce: {
+            "from": funder.address,
+            "to": Web3.to_checksum_address(agent_address),
+            "value": amount_wei,
+            "nonce": nonce,
+            "chainId": chain_id,
+            "gas": 21_000,
+            "gasPrice": gas_price,
+        },
+        action="fund_agent_wallet",
+    )
     return tx_hash.hex()
 
 
@@ -157,16 +229,13 @@ def mint_testnet_itk(
     registration invariants documented in the interface contract.
     """
     itk = _contract(w3, "IntegrityToken", address=itk_address)
-    tx = itk.functions.mint(Web3.to_checksum_address(agent_address), amount_wei).build_transaction(
-        {
-            "from": funder.address,
-            "nonce": w3.eth.get_transaction_count(funder.address),
-            "chainId": chain_id,
-        }
+    _, tx_hash = _send_signed(
+        w3, funder,
+        lambda nonce: itk.functions.mint(
+            Web3.to_checksum_address(agent_address), amount_wei
+        ).build_transaction({"from": funder.address, "nonce": nonce, "chainId": chain_id}),
+        action="mint_testnet_itk",
     )
-    signed = funder.sign_transaction(tx)
-    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-    _wait(w3, tx_hash, action="mint_testnet_itk")
     return tx_hash.hex()
 
 
@@ -202,18 +271,13 @@ def mint_testnet_itk_from_treasury(
     ).build_transaction({"gas": 0})["data"]
 
     sovereign_agent = _contract(w3, "SovereignAgent", address=treasury_sovereign_agent)
-    tx = sovereign_agent.functions.execute(
-        Web3.to_checksum_address(itk_address), 0, mint_calldata
-    ).build_transaction(
-        {
-            "from": controller.address,
-            "nonce": w3.eth.get_transaction_count(controller.address),
-            "chainId": chain_id,
-        }
+    _, tx_hash = _send_signed(
+        w3, controller,
+        lambda nonce: sovereign_agent.functions.execute(
+            Web3.to_checksum_address(itk_address), 0, mint_calldata
+        ).build_transaction({"from": controller.address, "nonce": nonce, "chainId": chain_id}),
+        action="mint_testnet_itk_from_treasury",
     )
-    signed = controller.sign_transaction(tx)
-    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-    _wait(w3, tx_hash, action="mint_testnet_itk_from_treasury")
     return tx_hash.hex()
 
 
@@ -225,16 +289,13 @@ def approve_erc20(w3: Web3, owner: LocalAccount, token_address: str, spender: st
     rather than duplicated in markets.py since it's not market-specific.
     """
     token = _contract(w3, "IntegrityToken", address=token_address)
-    tx = token.functions.approve(Web3.to_checksum_address(spender), amount_wei).build_transaction(
-        {
-            "from": owner.address,
-            "nonce": w3.eth.get_transaction_count(owner.address),
-            "chainId": chain_id,
-        }
+    _, tx_hash = _send_signed(
+        w3, owner,
+        lambda nonce: token.functions.approve(
+            Web3.to_checksum_address(spender), amount_wei
+        ).build_transaction({"from": owner.address, "nonce": nonce, "chainId": chain_id}),
+        action="approve_erc20",
     )
-    signed = owner.sign_transaction(tx)
-    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-    _wait(w3, tx_hash, action="approve_erc20")
     return tx_hash.hex()
 
 
@@ -249,16 +310,13 @@ def deploy_sovereign_agent(
     Returns the deployed contract's checksummed address.
     """
     factory = _contract(w3, "SovereignAgent")
-    tx = factory.constructor(did, agent.address, oracle_signer, "0x0000000000000000000000000000000000000000").build_transaction(
-        {
-            "from": agent.address,
-            "nonce": w3.eth.get_transaction_count(agent.address),
-            "chainId": chain_id,
-        }
+    receipt, _ = _send_signed(
+        w3, agent,
+        lambda nonce: factory.constructor(
+            did, agent.address, oracle_signer, "0x0000000000000000000000000000000000000000"
+        ).build_transaction({"from": agent.address, "nonce": nonce, "chainId": chain_id}),
+        action="deploy_sovereign_agent",
     )
-    signed = agent.sign_transaction(tx)
-    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-    receipt = _wait(w3, tx_hash, action="deploy_sovereign_agent")
     return receipt.contractAddress
 
 
@@ -272,16 +330,13 @@ def deploy_state_anchor(w3: Web3, agent: LocalAccount, sovereign_agent_address: 
     `SovereignAgent.execute`.
     """
     factory = _contract(w3, "StateAnchor")
-    tx = factory.constructor(Web3.to_checksum_address(sovereign_agent_address)).build_transaction(
-        {
-            "from": agent.address,
-            "nonce": w3.eth.get_transaction_count(agent.address),
-            "chainId": chain_id,
-        }
+    receipt, _ = _send_signed(
+        w3, agent,
+        lambda nonce: factory.constructor(
+            Web3.to_checksum_address(sovereign_agent_address)
+        ).build_transaction({"from": agent.address, "nonce": nonce, "chainId": chain_id}),
+        action="deploy_state_anchor",
     )
-    signed = agent.sign_transaction(tx)
-    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-    receipt = _wait(w3, tx_hash, action="deploy_state_anchor")
     return receipt.contractAddress
 
 
@@ -303,25 +358,49 @@ def grant_anchor_role(
     from the EOA would revert.
     """
     state_anchor = _contract(w3, "StateAnchor", address=state_anchor_address)
-    anchor_role = state_anchor.functions.ANCHOR_ROLE().call()
+    anchor_role = _call_with_retry(state_anchor.functions.ANCHOR_ROLE().call)
     grant_calldata = state_anchor.functions.grantRole(anchor_role, Web3.to_checksum_address(oracle_signer)).build_transaction(
         {"gas": 0}
     )["data"]
 
     sovereign_agent = _contract(w3, "SovereignAgent", address=sovereign_agent_address)
-    tx = sovereign_agent.functions.execute(
-        Web3.to_checksum_address(state_anchor_address), 0, grant_calldata
-    ).build_transaction(
-        {
-            "from": agent.address,
-            "nonce": w3.eth.get_transaction_count(agent.address),
-            "chainId": chain_id,
-        }
+    _, tx_hash = _send_signed(
+        w3, agent,
+        lambda nonce: sovereign_agent.functions.execute(
+            Web3.to_checksum_address(state_anchor_address), 0, grant_calldata
+        ).build_transaction({"from": agent.address, "nonce": nonce, "chainId": chain_id}),
+        action="grant_anchor_role",
     )
-    signed = agent.sign_transaction(tx)
-    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-    _wait(w3, tx_hash, action="grant_anchor_role")
     return tx_hash.hex()
+
+
+def has_anchor_role(w3: Web3, state_anchor_address: str, oracle_signer: str) -> bool:
+    """Read-only check for whether `grant_anchor_role` has already succeeded for this
+    StateAnchor — lets a registration retry skip a redundant (if harmless, since OZ's
+    `grantRole` is itself idempotent) transaction rather than assume it's needed."""
+    state_anchor = _contract(w3, "StateAnchor", address=state_anchor_address)
+    anchor_role = _call_with_retry(state_anchor.functions.ANCHOR_ROLE().call)
+    return _call_with_retry(
+        lambda: state_anchor.functions.hasRole(anchor_role, Web3.to_checksum_address(oracle_signer)).call()
+    )
+
+
+def itk_balance(w3: Web3, itk_address: str, holder_address: str) -> int:
+    """Read-only ITK balance check — lets a registration retry skip re-minting (which,
+    unlike `grantRole`, is NOT idempotent: calling `mint_testnet_itk` twice mints twice)."""
+    itk = _contract(w3, "IntegrityToken", address=itk_address)
+    return _call_with_retry(lambda: itk.functions.balanceOf(Web3.to_checksum_address(holder_address)).call())
+
+
+def state_anchor_latest_root(w3: Web3, state_anchor_address: str) -> bytes:
+    """Read-only `StateAnchor.latestRoot()` — a non-zero return means
+    `anchor_genesis_root` (or a later real anchor) has already run for this agent. Used by
+    a registration retry to skip re-anchoring, since re-running `anchorRoot` against a
+    StateAnchor that already has a non-zero root is exactly the "never double-anchors a
+    live agent" case `anchor_genesis_root`'s own docstring warns is unverified territory
+    once a caller can reach this step more than once for the same DID."""
+    state_anchor = _contract(w3, "StateAnchor", address=state_anchor_address)
+    return _call_with_retry(state_anchor.functions.latestRoot().call)
 
 
 #: Seed for the "initialized but empty Trust Vault" genesis root — see
@@ -358,18 +437,13 @@ def anchor_vault_root(
     anchor_calldata = state_anchor.functions.anchorRoot(root).build_transaction({"gas": 0})["data"]
 
     sovereign_agent = _contract(w3, "SovereignAgent", address=sovereign_agent_address)
-    tx = sovereign_agent.functions.execute(
-        Web3.to_checksum_address(state_anchor_address), 0, anchor_calldata
-    ).build_transaction(
-        {
-            "from": agent.address,
-            "nonce": w3.eth.get_transaction_count(agent.address),
-            "chainId": chain_id,
-        }
+    _, tx_hash = _send_signed(
+        w3, agent,
+        lambda nonce: sovereign_agent.functions.execute(
+            Web3.to_checksum_address(state_anchor_address), 0, anchor_calldata
+        ).build_transaction({"from": agent.address, "nonce": nonce, "chainId": chain_id}),
+        action="anchor_vault_root",
     )
-    signed = agent.sign_transaction(tx)
-    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-    _wait(w3, tx_hash, action="anchor_vault_root")
     return tx_hash.hex()
 
 
@@ -492,23 +566,18 @@ def register_primitives(
     authoritative source for what the factory actually deployed.
     """
     factory = _contract(w3, "AgentPrimitivesFactory", address=factory_address)
-    tx = factory.functions.registerPrimitives(
-        Web3.to_checksum_address(sovereign_agent_address),
-        Web3.to_checksum_address(state_anchor_address),
-        did,
-        domain_id,
-        vertical,
-        profile_uri,
-    ).build_transaction(
-        {
-            "from": agent.address,
-            "nonce": w3.eth.get_transaction_count(agent.address),
-            "chainId": chain_id,
-        }
+    receipt, tx_hash = _send_signed(
+        w3, agent,
+        lambda nonce: factory.functions.registerPrimitives(
+            Web3.to_checksum_address(sovereign_agent_address),
+            Web3.to_checksum_address(state_anchor_address),
+            did,
+            domain_id,
+            vertical,
+            profile_uri,
+        ).build_transaction({"from": agent.address, "nonce": nonce, "chainId": chain_id}),
+        action="register_primitives",
     )
-    signed = agent.sign_transaction(tx)
-    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-    receipt = _wait(w3, tx_hash, action="register_primitives")
 
     # `registerPrimitives` triggers many events across the 5 newly-cloned
     # contracts (their own Initialized/RoleGranted events, etc) in the same
@@ -516,13 +585,22 @@ def register_primitives(
     # PrimitivesRegistered's signature and warns loudly for each one that
     # doesn't match — pre-filtering to logs from the factory's own address
     # avoids that noise without changing which event we actually decode.
-    factory_logs = [log for log in receipt["logs"] if log["address"] == factory.address]
+    # Compared checksummed on both sides (Web3.to_checksum_address), not raw equality --
+    # a receipt log address arriving in a different case than factory.address would
+    # silently fail this filter and produce exactly the "impossible" error below.
+    factory_logs = [
+        log for log in receipt["logs"]
+        if Web3.to_checksum_address(log["address"]) == Web3.to_checksum_address(factory.address)
+    ]
     events = factory.events.PrimitivesRegistered().process_receipt({**receipt, "logs": factory_logs})
     if not events:
         raise RuntimeError(
             "register_primitives transaction succeeded but emitted no "
             "PrimitivesRegistered event — this should be impossible given "
-            "AgentPrimitivesFactory.sol always emits it on success."
+            "AgentPrimitivesFactory.sol always emits it on success. "
+            f"tx_hash={tx_hash.hex()} receipt_log_count={len(receipt['logs'])} "
+            f"receipt_log_addresses={sorted({log['address'] for log in receipt['logs']})} "
+            f"factory_address={factory.address}"
         )
     args = events[0]["args"]
     return PrimitivesRegistered(

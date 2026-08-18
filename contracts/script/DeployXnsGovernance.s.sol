@@ -93,14 +93,27 @@ contract DeployXnsGovernance is Script {
         string memory s = "singletons";
         vm.serializeAddress(s, "IntegrityToken", itk);
         vm.serializeAddress(s, "IntegrityGovernance", address(gov));
-        vm.serializeAddress(s, "UltraPlonkVerifier", vm.parseJsonAddress(existingJson, ".singletons.UltraPlonkVerifier"));
+        vm.serializeAddress(
+            s, "UltraPlonkVerifier", vm.parseJsonAddress(existingJson, ".singletons.UltraPlonkVerifier")
+        );
         vm.serializeAddress(s, "XibalbaAgentRegistry", registry);
+        if (vm.keyExistsJson(existingJson, ".singletons.IntegrityIdentityReadV1")) {
+            vm.serializeAddress(
+                s, "IntegrityIdentityReadV1", vm.parseJsonAddress(existingJson, ".singletons.IntegrityIdentityReadV1")
+            );
+        }
         vm.serializeAddress(s, "XibalbaNameService", address(xns));
         vm.serializeAddress(s, "DomainRegistry", vm.parseJsonAddress(existingJson, ".singletons.DomainRegistry"));
-        vm.serializeAddress(s, "AgentPrimitivesFactory", vm.parseJsonAddress(existingJson, ".singletons.AgentPrimitivesFactory"));
-        vm.serializeAddress(s, "CoveredEntityRegistry", vm.parseJsonAddress(existingJson, ".singletons.CoveredEntityRegistry"));
+        vm.serializeAddress(
+            s, "AgentPrimitivesFactory", vm.parseJsonAddress(existingJson, ".singletons.AgentPrimitivesFactory")
+        );
+        vm.serializeAddress(
+            s, "CoveredEntityRegistry", vm.parseJsonAddress(existingJson, ".singletons.CoveredEntityRegistry")
+        );
         vm.serializeAddress(s, "SmartBAAFactory", vm.parseJsonAddress(existingJson, ".singletons.SmartBAAFactory"));
-        vm.serializeAddress(s, "HIPAAGuardrailRegistry", vm.parseJsonAddress(existingJson, ".singletons.HIPAAGuardrailRegistry"));
+        vm.serializeAddress(
+            s, "HIPAAGuardrailRegistry", vm.parseJsonAddress(existingJson, ".singletons.HIPAAGuardrailRegistry")
+        );
         vm.serializeAddress(s, "MarketFactory", vm.parseJsonAddress(existingJson, ".singletons.MarketFactory"));
         if (vm.keyExistsJson(existingJson, ".singletons.EHRGate")) {
             vm.serializeAddress(s, "EHRGate", vm.parseJsonAddress(existingJson, ".singletons.EHRGate"));
@@ -111,13 +124,18 @@ contract DeployXnsGovernance is Script {
         // cloneTemplates + protocolAddresses unchanged — re-serialized field-by-field
         // (forge-std has no verbatim-copy primitive).
         string memory ct = "cloneTemplatesTmp";
-        vm.serializeAddress(ct, "ReputationRegistry", vm.parseJsonAddress(existingJson, ".cloneTemplates.ReputationRegistry"));
+        vm.serializeAddress(
+            ct, "ReputationRegistry", vm.parseJsonAddress(existingJson, ".cloneTemplates.ReputationRegistry")
+        );
         vm.serializeAddress(ct, "Slasher", vm.parseJsonAddress(existingJson, ".cloneTemplates.Slasher"));
-        vm.serializeAddress(ct, "VerifierRegistry", vm.parseJsonAddress(existingJson, ".cloneTemplates.VerifierRegistry"));
+        vm.serializeAddress(
+            ct, "VerifierRegistry", vm.parseJsonAddress(existingJson, ".cloneTemplates.VerifierRegistry")
+        );
         vm.serializeAddress(ct, "ComplianceGate", vm.parseJsonAddress(existingJson, ".cloneTemplates.ComplianceGate"));
         vm.serializeAddress(ct, "AgentProfile", vm.parseJsonAddress(existingJson, ".cloneTemplates.AgentProfile"));
-        string memory cloneTemplatesJson =
-            vm.serializeAddress(ct, "IntegrityMarket", vm.parseJsonAddress(existingJson, ".cloneTemplates.IntegrityMarket"));
+        string memory cloneTemplatesJson = vm.serializeAddress(
+            ct, "IntegrityMarket", vm.parseJsonAddress(existingJson, ".cloneTemplates.IntegrityMarket")
+        );
 
         string memory p = "protocolAddressesTmp";
         vm.serializeAddress(p, "oracleSigner", vm.parseJsonAddress(existingJson, ".protocolAddresses.oracleSigner"));
@@ -125,8 +143,9 @@ contract DeployXnsGovernance is Script {
         vm.serializeAddress(p, "governance", vm.parseJsonAddress(existingJson, ".protocolAddresses.governance"));
         vm.serializeAddress(p, "arbitrator", vm.parseJsonAddress(existingJson, ".protocolAddresses.arbitrator"));
         vm.serializeAddress(p, "resolverSigner", vm.parseJsonAddress(existingJson, ".protocolAddresses.resolverSigner"));
-        string memory protocolAddressesJson =
-            vm.serializeAddress(p, "funderWallet", vm.parseJsonAddress(existingJson, ".protocolAddresses.funderWallet"));
+        string memory protocolAddressesJson = vm.serializeAddress(
+            p, "funderWallet", vm.parseJsonAddress(existingJson, ".protocolAddresses.funderWallet")
+        );
 
         string memory root = "root";
         vm.serializeString(root, "singletons", singletonsJson);

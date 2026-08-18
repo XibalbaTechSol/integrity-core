@@ -3012,3 +3012,92 @@ writeup: PRODUCTION_GAPS.md §18.
 - Recorded a full-site Playwright audit (16 specs, 140 tests, one spec per route, real backend stack, no mocking, screenshot-verified per page) that found and fixed 7 real bugs: `WikiPage.tsx` bold-markdown regex, `DIDExplorer.tsx` grid-collapse layout bug, `integrity-userapi` CORS missing the e2e origin, `AuthPage.tsx`/`DashboardContext.tsx` false-success wallet-auth navigation, `IntelligencePage.tsx` formula-box double-edge clipping, `Dashboard.tsx` radar-chart NaN from a 0-1 vs 0-1000 scaling mismatch, `TraceAnalysisPanel.tsx` stuck-loading state, and `ActuarialHub.tsx` Invalid-Date/resolve-gating bug from parsing an ISO string as a Unix-seconds number.
 - Updated `WIKI_INDEX.md`'s `integrity-dashboard` entry and `docs/TESTING.md`'s Layer 2 section (the previously-documented `e2e/global-setup.ts`/`global-teardown.ts` do not exist in this repo; corrected to the actual manual-stack-then-`npx playwright test` workflow).
 - Corrected `CLAUDE.md`'s stale "Known gaps" claims that `integrity-dashboard/e2e/` doesn't exist and that `package.json` defines a `vitest`-backed `"test"` script (it doesn't — no vitest dependency, no unit-test layer, Playwright e2e is the only test surface).
+
+## [2026-08-17] create | Integrity Protocol Whitepaper v3.1 PDF
+
+- Generated `docs/releases/Integrity_Protocol_Whitepaper_v3.1.pdf` from the authoritative `spec/integrity-protocol-v3.1.md` working draft.
+- Preserved the source's explicit boundaries around implemented components, planned execution-firewall architecture, unaudited examples, and residual risks; no deployed v3 capability was promoted by the typesetting step.
+- Verification: Headless Chrome generated a 34-page A4 PDF; `pdfinfo` reported the expected title and unencrypted output; `pdftotext` recovered 127,514 bytes and retained Version 3.1 and all six `SPEC CHANGE` markers; first-page rendering was visually inspected.
+- Artifact SHA-256: `11e72f0d7d4e0ba671f5bdae8712799b4c29924f71206170efe1a6586cb12221`.
+
+## [2026-08-17] update | Designed Whitepaper v3.1 release
+
+- Replaced the basic text PDF with `docs/releases/Integrity_Protocol_Whitepaper_v3.1_designed.pdf`, following the v3 cover language: Xibalba logo, centered navy title, teal subtitle, divider, metadata, shaded ground-rule box, and footer branding.
+- Added local MathJax SVG rendering so display and inline mathematics are embedded in the PDF rather than shown as raw LaTeX source.
+- Verification: Headless Chrome generated a 35-page US Letter PDF; `pdfinfo` confirmed the title, page size, and unencrypted output; text extraction succeeded; cover and equation-bearing pages were visually inspected; the Downloads copy was read back and matched byte-for-byte.
+- Final artifact SHA-256: `cad533cf5952ef7626fb780a11410a1155bb0e010df0ae1017c64dc9e8b5cfeb`.
+
+## [2026-08-17] update | Equation and cover refinement
+
+- Increased display-equation scale and spacing to more closely match the v3 LaTeX presentation: centered formulas, embedded SVG math glyphs, visible fractions/subscripts, and right-aligned equation tags.
+- Enlarged the exact Xibalba Solutions black logo mark on page 1 while retaining the v3 cover hierarchy.
+- Verification: final output is a 35-page US Letter PDF; cover and equation page were visually inspected; repository and Downloads copies match byte-for-byte.
+- Final SHA-256: `5dd9e628091d98729fe4b9bdecf405506ce78cc44c4be4ab021b2a538fa18c45`.
+
+## [2026-08-17] update | PDF chrome and equation weight correction
+
+- Removed Chromium's automatic date/title print header so pages begin with the whitepaper content and retain only the designed footer.
+- Reduced equation visual weight with a lighter embedded SVG treatment while preserving centered LaTeX-style formulas, fractions, subscripts, symbols, and equation tags.
+- Verification: extracted text contains no automatic `4:18 AM` header; final PDF and Downloads copy match byte-for-byte; equation page was visually inspected.
+- Final SHA-256: `403805498e7a29524c1a1415e7de68880e2d46fe7de91b5daf8b1b8b205bab5a`.
+
+## [2026-08-17] update | Specification and whitepaper authority reconciliation
+
+- Added `spec/integrity-protocol-v0.5-proposed.md` as a traceable proposed normative amendment derived from Whitepaper v3.1. It does not replace active normative baseline `spec/integrity-protocol-v0.4.md` until clause-by-clause review, implementation evidence, tests, and acceptance are recorded.
+- Reclassified `spec/integrity-protocol-v3.1.md` as explanatory and non-normative; changed inline `SPEC CHANGE` markers to `PROPOSED NORMATIVE CHANGE`; added an explicit relationship-to-specification section.
+- Updated `spec/README.md` with the authority hierarchy and proposal status.
+- Verification: consistency checks passed for active-baseline, proposal existence, whitepaper status, proposal linkage, marker replacement, and PDF inclusion; regenerated 35-page unencrypted United States Letter PDF; repository and Downloads copies match byte-for-byte.
+- Reconciled PDF SHA-256: `de48ad9787f214a56b4984df75a0753a1b3394df90da8a4bfd1d5f7599608b44`.
+
+## [2026-08-17] update | Adversarial authority and compatibility hardening
+
+- Incorporated review findings without promoting the proposal to active protocol authority.
+- Split v0.4 §23.3 precedence into normative requirements versus observed implementation, explicitly preventing proposals, whitepapers, READMEs, wikis, or deployed defects from silently changing the normative contract.
+- Added explicit AIS profile/migration requirements (`ais/v0.5-gated-geometric-1`) and memory commitment profile/migration requirements (`memory/v0.5-injective-1`) to the proposed amendment.
+- Marked the whitepaper memory-continuity snippet as non-conforming pseudocode that reverts as not implemented; changed audience language so proposed sections are not presented as active specifications.
+- Verification: consistency checks passed; regenerated 35-page unencrypted United States Letter PDF; automatic browser header remains absent; repository and Downloads copies match byte-for-byte.
+- Final PDF SHA-256: `ab285c706ec8f533c4827e3f23d6b8b040ad576ce20a07b1f9ebff789a77935e`.
+
+## [2026-08-17] update | v3 equation-style correction
+
+- Compared the actual v3 PDF equation treatment and corrected v3.1 to use light, left-aligned monospace formula bars on a light-gray background rather than bold SVG/LaTeX typesetting.
+- Normalized escaped LaTeX source into readable v3-style formula text, including Greek symbols, operators, subscripts, and parenthetical labels.
+- Verification: equation page was visually inspected against v3; no raw LaTeX backslashes or automatic browser header remain; regenerated 35-page unencrypted United States Letter PDF; repository and Downloads copies match byte-for-byte.
+- Final PDF SHA-256: `7aff28317b8fd2afb2309135ab7272b15f750c974b8309edc472277da344043c`.
+
+## [2026-08-17] update | Phase 0 Integrity identity read profile
+
+- Added `contracts/src/kernel/IntegrityIdentityReadV1.sol`, a read-only discovery facade over `XibalbaAgentRegistry`, and wired it into future genesis deployments as `singletons.IntegrityIdentityReadV1`.
+- A primary-source ERC-8004 review and focused Devil's Advocate pass rejected false compatibility: the facade pins the reviewed Draft revision, returns `isERC8004Conformant() == false`, and exposes no ERC-721 token, ownership, transfer, approval, wallet-proof, metadata-write, reputation-feedback, validation, event, or ERC-165 surface.
+- Identity resolution fails closed when forward/reverse registry mappings disagree, when `SovereignAgent.agentDID()` is unavailable, or when its declared DID does not match the registered hash. Current controller candidates are checked against live account roles rather than the registry's registration-time snapshot.
+- Agent Integrity Score (AIS) remains separate and authoritative through the existing Integrity Oracle and per-agent `ReputationRegistry`; the facade does not compute or translate reputation.
+- Verification: `forge test --match-contract IntegrityIdentityReadV1Test -vvv` returned 10 passed/0 failed; full `forge test` returned **209 passed/0 failed/0 skipped**; the touched Solidity files pass scoped `forge fmt --check`; no Base Sepolia transaction was broadcast. Fixed identity resolution remains available when the separate agent-controlled profile URI read reverts.
+- Residual gaps: native ERC-8004 convergence, an incremental Base Sepolia deployment, and prevention (rather than facade-level detection) of duplicate-agent/DID mismatches remain open in `PRODUCTION_GAPS.md` §28.
+- Reconciled the proposed v0.5 amendment, the explanatory v3.2 source, the Phase 0 plan, and the ecosystem-adoption draft: all now distinguish an Integrity identity obligation from ERC-8004 compatibility and correct the stale no-deployment claim about the Validation component without rewriting historical v3.1 release artifacts.
+
+## [2026-08-17] update | Whitepaper v3.2 and complete proposed-spec reconciliation
+
+- Reconciled the repository authority chain across the root README/specification/implementation plan, `spec/README.md`, `docs/INTERFACE_CONTRACT.md`, `docs/MAINNET_READINESS.md`, `PRODUCTION_GAPS.md`, developer guidance, plans, and the canonical wiki: v0.4 remains accepted normative authority; v0.5-proposed is a non-authoritative review candidate; Whitepaper v3.2 is explanatory; its PDF is generated output.
+- Expanded `spec/integrity-protocol-v0.5-proposed.md` to map the full substantive v3.2 amendment set: telemetry-prover decentralization, stake-secured memory availability, monotone grace modes with AIS-floor precedence, high-frequency channel/compiler trust, and the hybrid attested-host boundary. Comparative-architecture and enabler framing remain explanatory rather than fabricated implementation requirements.
+- Preserved implementation honesty: Phase 0 identity discovery and bounded fail-closed AIS defaults are local evidence; the execution firewall and all five expanded v3.2 profiles remain `[PLANNED]`. Source capability, test evidence, and Base Sepolia deployment are separate layers.
+- Added `scripts/build_whitepaper_v32.py`, using pinned Mermaid 11.16.1 and KaTeX 0.16.47 browser assets from the user cache. The build rendered all 13 Mermaid diagrams and regenerated `spec/Integrity_Protocol_Whitepaper_v3.2.pdf` from the reconciled Markdown.
+- PDF verification: 59 A4 pages, unencrypted, title `Integrity Protocol v3.2`; extracted text retained the non-normative notice, v0.5-proposed linkage, and `PROPOSED NORMATIVE CHANGE` markers while containing no stale `SPEC CHANGE` marker. Cover and technical/equation/diagram page 16 were visually inspected with no clipping, overlap, browser header, broken glyph, or raw-markup defect.
+- Regenerated PDF SHA-256: `9d3a990e1d684080a9dda274e876071cc6ee79169ca72c12dac3698e9ae4169b`.
+
+## [2026-08-17] update | delayed documentation-audit reconciliation and final v3.2 rebuild
+
+- Reconciled the delayed three-lane documentation audit against the post-audit worktree. Corrected remaining living drift in developer/testing guidance, package READMEs, the AIS and ZKP concept pages, the repository implementation ledger, the production-gap register, and the external Phase 0 plan.
+- Removed the invented dashboard Vitest/component-test layer. The root `make test` contract and GitHub Actions dashboard job now run the manifest-backed `npm run build && npm run lint`; Playwright remains separate and requires a separately prepared backend stack.
+- Corrected Whitepaper v3.2's remaining internal ambiguity: sections 2–7 are proposed architecture rather than accepted implementer authority; Validation deployment claims are bounded to the cited audit cutoff; the AIS baseline is partial; and identity constraints resolve through a selected Integrity identity profile rather than assuming native ERC-8004.
+- Reconciled proof-pipeline documentation with source: local generated verifier + real-proof Foundry coverage, Oracle-side `bb verify` with server-controlled verification keys, SDK proof-of-concept circuit mismatch, absent runtime on-chain submission, and the older fail-closed Base Sepolia verifier are now separate explicit states.
+- Fixed `scripts/wiki_linter.py` so the legacy `WIKI_INDEX.md` catalog may link to canonical `index.md` without counting the landing page as an article or falsely reporting it dead.
+- Verification: dashboard build/lint passed with 0 errors (56 existing warnings); Foundry passed **209/209**; wiki TOCs are current for 36 pages; wiki linter reports 0 orphans and 0 dead catalog links; 108 living Markdown files exposed 544 local links with 0 missing; Python compilation and `git diff --check` passed.
+- Final Whitepaper v3.2 artifact: 59 A4 pages, 13/13 Mermaid diagrams, extracted authority/identity assertions passed. SHA-256: `01d1312f36a3826432759d01faaa1ae7b2d38e2efd26fa0f8a2c62046432cdb0`.
+
+## [2026-08-17] correction | final adversarial clause-mapping closure
+
+- Dispositioned the delayed independent final review, which correctly rejected the prior closure despite otherwise sound v0.4/v0.5/v3.2 and Phase 0 identity boundaries.
+- Removed residual local-authority wording from the non-normative whitepaper, marked complete mediation as a `PROPOSED NORMATIVE CHANGE`, relabeled adapter rules as proposed, and corrected the Phase III and enabler cross-references to §10.3 and §10.4 respectively.
+- Expanded v0.5-proposed without changing its non-authoritative status: added verified-evidence monotonicity; exposure-scaled availability escrow, anti-grief challenge deposits, AIS reduction, deterministic redress, and burn; hard classification for all value movement plus typed degradation events; locked-budget state channels with highest-mutually-signed state, monotone depletion, value conservation, and unilateral settlement; and per-transaction enclave binding with explicit side-channel/rollback/microarchitectural residual risk.
+- Verification: focused source assertions passed; prohibited authority phrases and broken references are absent; the proposed clause mapping contains every reviewed load-bearing requirement; wiki TOCs and linter passed; `git diff --check` passed.
+- Rebuilt Whitepaper v3.2: 59 A4 pages, unencrypted, 13/13 Mermaid diagrams; normalized extracted-text assertions and visual inspection of pages 10, 18, 31, and 59 passed. Superseding SHA-256: `d7d3135007f118f174be3a5bcde247198a8fb6f5dbf821c2825fca8508c63552`.

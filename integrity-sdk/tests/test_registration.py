@@ -105,6 +105,75 @@ def test_register_agent_is_idempotent_for_an_already_registered_did():
     assert second.agent_profile == first.agent_profile
 
 
+def test_register_agent_resumes_from_partial_failure_without_redeploying(monkeypatch):
+    """
+    Regression test for the real incidents in PRODUCTION_GAPS.md's registration entry
+    (2026-08-14, 2026-08-17): a failure after SovereignAgent/StateAnchor deploy but before
+    registerPrimitives succeeds used to be invisible to register_agent's idempotency check
+    (which only fires once registerPrimitives has already succeeded), so every retry
+    deployed a fresh, throwaway pair -- real gas spent, real orphaned contracts, five
+    separate incidents across two sessions.
+
+    Simulates that exact failure shape: monkeypatch register_primitives to fail on the
+    first call (as if the on-chain registerPrimitives itself reverted, e.g. a missing role
+    grant), then let it succeed on a second call. The second call must reuse the SAME
+    SovereignAgent/StateAnchor -- not deploy a second pair.
+    """
+    from integrity_sdk import chain as chain_module
+
+    real_register_primitives = chain_module.register_primitives
+    call_count = {"n": 0}
+
+    def flaky_register_primitives(*args, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise RuntimeError("simulated registerPrimitives revert (e.g. a missing role grant)")
+        return real_register_primitives(*args, **kwargs)
+
+    monkeypatch.setattr(chain_module, "register_primitives", flaky_register_primitives)
+
+    with pytest.raises(registration.RegistrationError, match="step 9"):
+        registration.register_agent("resume-test-agent", skip_oracle_registration=True)
+
+    # Progress must be recorded after the failed attempt.
+    from integrity_sdk import did as did_module
+
+    progress_path = did_module.agent_dir("resume-test-agent") / "registration_progress.json"
+    assert progress_path.exists()
+    progress = json.loads(progress_path.read_text())
+    assert progress["sovereign_agent"].startswith("0x")
+    assert progress["state_anchor"].startswith("0x")
+
+    result = registration.register_agent("resume-test-agent", skip_oracle_registration=True)
+
+    assert result.sovereign_agent.lower() == progress["sovereign_agent"].lower()
+    assert result.state_anchor.lower() == progress["state_anchor"].lower()
+    assert call_count["n"] == 2
+
+    # Progress file must be cleared once registration genuinely completes.
+    assert not progress_path.exists()
+
+
+def test_register_agent_discards_stale_progress_with_no_bytecode(tmp_path, monkeypatch):
+    """A progress file pointing at an address with no deployed bytecode (e.g. hand-edited,
+    corrupted, or pointing at a phantom address the way deployments.baseSepolia.json once
+    did) must never be trusted blindly -- register_agent must fall back to a fresh deploy
+    rather than trying to reuse something that was never really there."""
+    from integrity_sdk import did as did_module
+
+    did_module.load_or_create_did("stale-progress-agent")
+    progress_path = did_module.agent_dir("stale-progress-agent") / "registration_progress.json"
+    progress_path.write_text(json.dumps({
+        "sovereign_agent": "0x000000000000000000000000000000000000dEaD",
+        "state_anchor": "0x000000000000000000000000000000000000bEEF",
+    }))
+
+    result = registration.register_agent("stale-progress-agent", skip_oracle_registration=True)
+
+    assert result.sovereign_agent.lower() != "0x000000000000000000000000000000000000dead"
+    assert result.state_anchor.lower() != "0x000000000000000000000000000000000000beef"
+
+
 def test_register_agent_requires_funder_key(monkeypatch):
     monkeypatch.delenv("FUNDER_PRIVATE_KEY", raising=False)
     with pytest.raises(registration.RegistrationError, match="FUNDER_PRIVATE_KEY"):

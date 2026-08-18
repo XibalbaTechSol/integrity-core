@@ -68,3 +68,6 @@ integrity-dashboard/validation_reports/screenshots/
 
 # Nested checkout used only during manual cross-repo audits.
 integrity-mvp/
+
+# Playwright output at repo root (dashboard copy already ignored above)
+test-results/

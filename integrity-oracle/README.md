@@ -34,6 +34,11 @@ period. This is a weighted geometric mean. Tiers 0/1/2 cap the result at
 300/600/850; Tier 3 has no post-boost cap. See
 [`../docs/wiki/concepts/ais.md`](../docs/wiki/concepts/ais.md).
 
+The Oracle verifies a submitted telemetry proof off chain with `bb verify` and
+a server-configured verification key. It does not currently submit that proof
+to `ReputationRegistry.submitZkAttestation`; off-chain verification and an
+on-chain ZK boost are separate evidence states.
+
 ## HTTP API
 
 | Method | Path | Purpose |

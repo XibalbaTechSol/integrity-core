@@ -498,6 +498,18 @@ pub struct AisResponse {
     /// `period_start`, given it had telemetry activity in that same window.
     /// Informational only (see `anchor_coverage.rs`) — never fed into `ais` itself.
     pub anchor_coverage: AnchorCoverage,
+    /// spec/integrity-protocol-v3.2.md §3.1.1 eq. 4b's `r(ι)`: the normalised, pre-boost,
+    /// tier-ceilinged constraint input in `[0,1]`. Distinct from `ais` above (post-boost,
+    /// unclamped, display-only) — any integration reading a reputation-parameterised bound
+    /// off this response MUST use this field, never `ais`. See `AisBreakdown`'s doc comment.
+    pub constraint_score: f64,
+    /// **Shadow-mode only** (spec §3.1.4 row 5, `PRODUCTION_GAPS.md` §27) — reports what
+    /// the proposed per-component floor + conjunctive gate would decide, using this
+    /// oracle's currently-configured `AisFloors` (provisional defaults unless an operator
+    /// has overridden them). Purely observational: does not affect `ais` or
+    /// `constraint_score`, does not gate anything, and is not consumed by
+    /// `bcc_middleware`'s chain-push or dispute logic.
+    pub shadow_gate: ShadowGate,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -506,6 +518,14 @@ pub struct AisComponents {
     pub grounding: f64,
     pub sacrifice: f64,
     pub compliance: f64,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ShadowGate {
+    pub entropy_pass: bool,
+    pub grounding_pass: bool,
+    pub compliance_pass: bool,
+    pub would_pass: bool,
 }
 
 /// Computes the current AIS breakdown for an agent. The single call site both
@@ -591,6 +611,13 @@ pub(crate) async fn compute_ais_for_agent(state: &AppState, id: &str) -> Result<
         event_count: aggregate.event_count,
         onchain_zk_boost_consistent,
         anchor_coverage,
+        constraint_score: breakdown.constraint_score,
+        shadow_gate: ShadowGate {
+            entropy_pass: breakdown.gate_entropy_pass,
+            grounding_pass: breakdown.gate_grounding_pass,
+            compliance_pass: breakdown.gate_compliance_pass,
+            would_pass: breakdown.gate_would_pass,
+        },
     })
 }
 

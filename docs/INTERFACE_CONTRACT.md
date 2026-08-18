@@ -6,7 +6,11 @@ Repo documentation precedence is:
 
 1. `README.md` defines repo-level ownership, current package status, and source-of-truth pointers.
 2. This file defines internal schemas, ports, env vars, service boundaries, and cross-package call conventions inside integrity-core.
-3. `spec/` defines externally-supported design and wire surfaces.
+3. `spec/integrity-protocol-v0.4.md` is the accepted normative protocol;
+   `spec/integrity-protocol-v0.5-proposed.md` is a non-authoritative review candidate;
+   `spec/integrity-protocol-v3.2.md` is the explanatory, non-normative whitepaper; and
+   the remaining `spec/` subtrees define externally-supported wire surfaces. A generated
+   PDF is publication output, not an interface contract.
 4. `docs/wiki/` is the compiled long-term knowledge layer generated out to the GitHub Wiki and `integrity-dashboard/`'s browser wiki.
 
 Scope: this rewrite covers **six protocol core packages**:
@@ -451,6 +455,58 @@ that's the address that arrives as `msg.sender` on every other call (e.g.
 `REGISTRAR_ROLE`, granted only to `AgentPrimitivesFactory` — no other
 contract should hold it.
 
+### 6.1a Integrity identity read profile v1 and ERC-8004 boundary
+
+`contracts/src/kernel/IntegrityIdentityReadV1.sol` is a read-only discovery
+facade over `XibalbaAgentRegistry`. Its interface profile is
+`keccak256("xibalba.integrity.identity-read.v1")`. It is informed by the
+ERC-8004 draft at
+`ethereum/ERCs@503591a6e80e6e1affdd6403341e25269141f046/ERCS/erc-8004.md`,
+but it is deliberately **not** an ERC-8004 Identity Registry or ERC-721
+implementation. ERC-8004 remains Draft at that revision.
+
+The supported local read surface is:
+
+```solidity
+resolveDID(string did)         -> IdentityView
+resolveDIDHash(bytes32 hash)   -> IdentityView
+resolveAgent(address account)  -> IdentityView
+profileURI(bytes32 didHash)    -> string
+isController(address account, address candidate) -> bool
+isERC8004Conformant()          -> false
+```
+
+`IdentityView` returns the canonical DID hash, `SovereignAgent`, domain,
+registration timestamp, and all seven primitive addresses. The separate
+`profileURI` read returns the live `AgentProfile.profileURI`; a malformed or
+reverting profile therefore cannot block fixed identity resolution. The URI
+is mutable, unbounded, agent-controlled, and unverified; consumers MUST fetch
+and validate its document under their own policy. The facade fails closed
+when the registry's DID-to-agent and
+agent-to-DID mappings disagree, when the subject has no readable
+`agentDID()`, or when the subject's declared DID hashes to a different value.
+
+The facade exposes none of ERC-8004/ERC-721's `agentId`, `ownerOf`,
+`tokenURI`, transfer, approval, wallet-proof, metadata-write, event, ERC-165,
+Reputation Registry, or Validation Registry semantics. The registry's
+`AgentRecord.controller` is a registration-time snapshot and is not returned
+as current ownership. `isController` instead verifies a caller-supplied
+candidate against the `SovereignAgent`'s live `DEFAULT_ADMIN_ROLE`.
+
+Agent Integrity Score (AIS) remains an Integrity-native reputation signal:
+the facade returns the agent's `ReputationRegistry` primitive address but
+does not read, translate, or publish AIS through ERC-8004 feedback methods.
+Execution-control code, including the future kernel, MUST continue reading
+fixed identity and reputation state directly from `XibalbaAgentRegistry` and
+the resolved Integrity primitive. It MUST NOT put dynamic URI reads or this
+discovery facade in the execution gate.
+
+Existing agents require no migration: the facade has no write surface and
+projects existing canonical records. Actual native ERC-8004 convergence is
+deferred until a separately reviewed registry design can provide exact token
+identity, ownership/transfer semantics, events, historical treatment, and a
+version-pinned compatibility matrix without relabeling Integrity semantics.
+
 ### 6.2 Call-routing convention
 
 Every clone's `DEFAULT_ADMIN_ROLE` is the agent's own `SovereignAgent`
@@ -665,6 +721,7 @@ singletons:
     "IntegrityGovernance": "0x...",
     "UltraPlonkVerifier": "0x...",
     "XibalbaAgentRegistry": "0x...",
+    "IntegrityIdentityReadV1": "0x...",
     "XibalbaNameService": "0x...",
     "DomainRegistry": "0x...",
     "AgentPrimitivesFactory": "0x...",
@@ -696,6 +753,12 @@ as `Option<Address>`; endpoints that need an absent one (`/v1/xns/resolve`,
 → **HTTP 400** (a deployment-shape fact, not a transient failure — same mapping as the
 market/health singletons) rather than fabricating a result. Dashboard consumers degrade to
 an honest "not deployed" state on that 400.
+
+`IntegrityIdentityReadV1` is also wired into future genesis deployments but
+has not been broadcast to the existing Base Sepolia deployment. Its absence
+there is an honest deployment-state gap, not a reason to rerun genesis or
+migrate existing agents. Any incremental broadcast and deployment-file
+mutation require separate approval and post-deployment readback.
 
 **Market/application layer additions (§6.9)**: `singletons.MarketFactory` and
 `singletons.A2ACapitalPool` (protocol-level, deployed once), plus
@@ -1276,3 +1339,23 @@ here**, to avoid the exact two-copies-drift failure mode this document exists to
 Shield spec §4.5, not a new oracle endpoint. `integrity-oracle` requires **no route changes** to
 receive Shield telemetry — it arrives through the existing `POST /v1/bcc/intercept` and
 telemetry-ingest paths (§2, §4.2 above) like any other agent's traffic.
+
+## 16. Whitepaper v3.2 / proposed v0.5 interface status (2026-08-17)
+
+Normative status: [`spec/integrity-protocol-v0.5-proposed.md`](../spec/integrity-protocol-v0.5-proposed.md)
+is a review candidate, not an active interface version. No package may emit a v0.5 profile
+identifier or claim v3.2 conformance merely because a related local mechanism exists.
+
+| Proposed surface | Current internal interface status |
+|---|---|
+| Identity read profile | **LOCAL / TESTED:** `IntegrityIdentityReadV1` is defined in §6.1a; custom and explicitly non-ERC-8004; not deployed to Base Sepolia. |
+| AIS fail-closed evidence | **PARTIAL:** empty entropy/grounding and empty self-reported compliance default to zero; no accepted `ais/v0.5-*` profile, floor vector, pre-boost constraint score, or migration wire field exists. |
+| Federated telemetry prover | **PLANNED:** no validator-set, threshold-signature, disagreement, rotation, or quorum wire schema exists. The current Oracle remains Trusted and single-operator. |
+| Memory availability escrow | **PLANNED:** no challenge/stake/deadline/production/slashing schema or contract exists in integrity-core. |
+| Grace-mode adapter | **PLANNED:** no hard/soft partition, contraction-function, freshness, recovery, or staged-settlement schema exists. |
+| High-frequency channel / `integrity-dsl` | **PLANNED:** no channel-head envelope, settlement interface, compiler manifest, or generated-adapter profile exists. |
+| Attested-host profile | **PLANNED:** existing TEE-related evidence does not satisfy the v3.2 transaction/session binding, freshness, measured-egress, or joint-boundary requirements. |
+
+The next interface revision for any planned row must define a versioned schema, authority and
+replay domain, fail-closed behavior, conformance vectors, and migration rule before package code
+or documentation treats the surface as available.

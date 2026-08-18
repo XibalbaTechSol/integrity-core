@@ -1,10 +1,10 @@
 # integrity-core Implementation Plan
 
-**Updated:** 2026-08-06
+**Updated:** 2026-08-17
 **Repository:** integrity-core
 **Role:** Protocol trust backend: contracts, SDK, CLI, BCC middleware, Oracle/AIS, user API, dashboard, ZKP, canonical wiki, and protocol specs.
 
-This plan merges README.md, SPECIFICATION.md, PRODUCTION_GAPS.md, docs/INTERFACE_CONTRACT.md, spec/README.md, spec/integrity-protocol-v0.4.md, spec/xibalba-shield-v1.md, docs/MAINNET_READINESS.md, docs/ENTERPRISE_ADOPTION.md, docs/audits/2026-08-06-cross-repository-status.md, package READMEs, and the canonical wiki into one implementation task ledger.
+This plan merges README.md, SPECIFICATION.md, PRODUCTION_GAPS.md, docs/INTERFACE_CONTRACT.md, spec/README.md, the accepted `spec/integrity-protocol-v0.4.md`, the new non-authoritative `spec/integrity-protocol-v0.5-proposed.md`, explanatory Whitepaper v3.2, spec/xibalba-shield-v1.md, docs/MAINNET_READINESS.md, docs/ENTERPRISE_ADOPTION.md, audit evidence, package READMEs, and the canonical wiki into one implementation task ledger.
 
 ## Specification Authority
 
@@ -14,6 +14,8 @@ This plan merges README.md, SPECIFICATION.md, PRODUCTION_GAPS.md, docs/INTERFACE
 | SPECIFICATION.md | Repository-level system specification and ownership boundary. |
 | docs/INTERFACE_CONTRACT.md | Internal package schemas, ports, environment, and coordination rules. |
 | spec/integrity-protocol-v0.4.md | Normative protocol design specification. |
+| spec/integrity-protocol-v0.5-proposed.md | Proposed amendment; review candidate, not active requirements. |
+| spec/integrity-protocol-v3.2.md | Explanatory non-normative whitepaper and roadmap. |
 | spec/README.md and spec/ais-api/v1 | Externally-supported versioned wire surfaces. |
 | docs/MAINNET_READINESS.md | Consequence-ordered mainnet blockers. |
 | PRODUCTION_GAPS.md | Production-readiness gap register and risk-control backlog. |
@@ -39,6 +41,8 @@ Current observed status is [`docs/audits/2026-08-06-cross-repository-status.md`]
 - [x] Canonical docs/wiki exists and feeds downstream MVP/GitHub wiki projections.
 - [x] Protocol spec v0.4 is version-controlled Markdown and supersedes archived v0.3 PDF.
 - [x] Spec conformance vocabulary exists: VERIFIED, PARTIAL, PLANNED, BLOCKED, DEPRECATED, REMOVED.
+- [x] Phase 0 identity discovery facade is implemented and locally verified without ERC-8004 conformance claims or existing-agent migration.
+- [x] Whitepaper v3.2 and the proposed v0.5 amendment are separated from the accepted v0.4 authority layer.
 
 ## Planned And Todo
 
@@ -52,7 +56,14 @@ Current observed status is [`docs/audits/2026-08-06-cross-repository-status.md`]
 - [ ] Implement lineage attestation and on-chain record.
 - [ ] Add silence-as-signal handling for observability obligations.
 - [ ] Add counterparty symmetry to BCC where required by spec roadmap.
-- [ ] Add optional ERC-8004 registration adapter when discovery scope is ready.
+- [ ] Decide whether to pursue native ERC-8004 convergence; `IntegrityIdentityReadV1` is deliberately a custom, non-conformant read profile.
+- [ ] Deploy the optional `IntegrityIdentityReadV1` singleton incrementally to Base Sepolia only after a separate deployment approval and verification plan.
+- [ ] Implement the v3.2 execution-firewall phases; Phase I and complete-mediation guarantees remain unstarted.
+- [ ] Define and implement a versioned federated telemetry-prover profile; general ZK telemetry remains research-only.
+- [ ] Define and implement stake-secured memory availability challenges and deterministic dispute consequences.
+- [ ] Define and implement monotone grace-mode adapters with hard/soft constraints and AIS-floor precedence.
+- [ ] Define and implement high-frequency channel settlement and a reproducible, versioned adapter-compiler trust profile.
+- [ ] Define and implement an attested-host profile without extending on-chain complete-mediation claims beyond their proven boundary.
 
 ### Wire Surfaces And External Contracts
 
@@ -89,7 +100,8 @@ Current observed status is [`docs/audits/2026-08-06-cross-repository-status.md`]
 
 ### Wiki And Documentation
 
-- [ ] Keep WIKI_INDEX counts and categories current.
+- [x] Keep canonical `docs/wiki/index.md` counts and categories current for Phase 0/v3.2 reconciliation.
+- [x] Mark uppercase `docs/wiki/WIKI_INDEX.md` as a legacy index and remove stale current-status claims from it.
 - [ ] Run wiki lint/TOC tooling after canonical wiki page changes.
 - [ ] Sync canonical wiki into `integrity-dashboard/`'s `/wiki` route and GitHub Wiki after documentation changes.
 - [ ] Keep package READMEs aligned with interface contract and spec status.

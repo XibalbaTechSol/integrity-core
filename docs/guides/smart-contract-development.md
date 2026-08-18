@@ -30,7 +30,7 @@ built and tested with [Foundry](https://github.com/foundry-rs/foundry)
 cd contracts
 npm install          # pulls node_modules/@openzeppelin, @chainlink/contracts-ccip, etc. — see remappings.txt
 forge build
-forge test            # 165 tests as of this writing
+forge test            # 209 tests verified 2026-08-17
 ```
 
 `via_ir = true` is set in `contracts/foundry.toml` — required because

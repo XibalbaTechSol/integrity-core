@@ -138,6 +138,6 @@ repo's no-silent-mocks rule rather than left as unmarked placeholder data.
   real bug on first run: `TelemetryGraphs.tsx` crashed with `Cannot read properties of
   null (reading 'split')` on `/intelligence` whenever any agent in the fleet has a null
   `alias` (no XNS handle or DID-document name yet) — fixed by falling back to
-  `name`/`id`. No CI wiring yet (no GitHub Actions workflow calls `test-e2e`) — still
-  a human/agent-run step per the root `CLAUDE.md`'s `make test`/`make test-e2e`
-  convention, same as every other package in the monorepo.
+  `name`/`id`. Hosted package CI now exists, but deliberately does not call
+  `test-e2e`; Playwright remains a human/agent-run step because its real backend
+  stack must be prepared separately.

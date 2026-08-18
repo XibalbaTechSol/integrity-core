@@ -22,9 +22,10 @@ A single git repo at the root (`github.com/XibalbaTechSol/integrity-core`), but 
 Makefile-orchestrated set of independently versioned packages, each with its own dependency
 lockfile (`.venv`/`uv.lock`, `node_modules`, `Cargo.lock`) — there's no root-level package
 manifest tying them together, only the `Makefile`. `contracts/lib/forge-std` is a real git
-submodule (`.gitmodules`); everything else is a plain tracked directory. No CI exists yet —
-`make test` / `make test-e2e`, run by a human or agent before calling a change done, is the
-enforcement mechanism (see `docs/TESTING.md`).
+submodule (`.gitmodules`); everything else is a plain tracked directory. GitHub Actions runs
+per-package validation on pushes and pull requests to `main`; Playwright end-to-end coverage
+still requires a separately booted local stack and is intentionally outside hosted CI. Local
+`make test` / `make test-e2e` remain the pre-completion gates (see `docs/TESTING.md`).
 
 | Package | Stack | Role |
 |---|---|---|
@@ -35,7 +36,7 @@ enforcement mechanism (see `docs/TESTING.md`).
 | `integrity-cli/` | Python/Typer | Developer CLI — independent reimplementation of SDK's core flows, not a wrapper around it |
 | `bcc_middleware/` | Python/FastAPI + OPA | Pre-execution policy gate agents call before acting on an intent |
 | `integrity-userapi/` | Python/FastAPI + Postgres | User-account service, deliberately isolated trust domain from the oracle's DB |
-| `integrity-dashboard/` | React/Vite/TS | Dashboard frontend — see "Known gaps" below, much of it is still mock data |
+| `integrity-dashboard/` | React/Vite/TS | Dashboard frontend with mixed backend/direct-chain reads and explicit empty/unavailable states; Playwright is its current test surface |
 | `docs/wiki/` | Markdown | Compiled long-term memory; governed by `.agents/AGENTS.md` |
 
 Read `.agents/AGENTS.md` before any session that materially changes code — it defines a
@@ -44,6 +45,13 @@ background agents to close test gaps with real tests, not placeholders). Read
 `docs/INTERFACE_CONTRACT.md` before changing any cross-package schema, port, or env var — it's
 the pinned toolchain/contract source of truth (forge/anvil 1.7.1, cargo/rustc 1.96.0, nargo
 1.0.0-beta.22, bb 5.0.0-nightly, opa 1.18.2, node/npm 22.x/10.x, python/uv 3.12/0.11).
+
+Specification authority is layered: `spec/integrity-protocol-v0.4.md` is the accepted
+normative baseline; `spec/integrity-protocol-v0.5-proposed.md` is the new non-authoritative
+amendment under clause-level review; and `spec/integrity-protocol-v3.2.md` is the current
+explanatory, non-normative whitepaper. The v3.2 PDF is generated output. Never implement or
+claim a v0.5/v3.2 surface solely because the whitepaper describes it; check the proposal's
+status, `docs/INTERFACE_CONTRACT.md` §16, `PRODUCTION_GAPS.md`, source, tests, and deployment.
 
 ## Common commands
 
@@ -64,7 +72,7 @@ Per-package, when iterating on one piece:
 ```bash
 # contracts/  (Foundry, solc 0.8.28, via_ir=true)
 cd contracts && forge build
-cd contracts && forge test                      # 195 tests
+cd contracts && forge test                      # 209 tests verified 2026-08-17
 forge script script/Deploy.s.sol --rpc-url base_sepolia --broadcast --verify       # genesis deploy
 forge script script/DeployMarkets.s.sol --rpc-url base_sepolia --broadcast --verify # incremental app-layer deploy
 
@@ -114,14 +122,16 @@ bridge), `markets/` (agent-owned prediction markets + capital pool), `health/` (
 `HIPAAGuardrailRegistry`).
 
 `UltraPlonkVerifier.sol` is now the real `bb`-generated verifier (as of 2026-08-12), not the
-placeholder — `make generate-verifier` already ran, via `integrity-zkp`'s
-`bb write_solidity_verifier` pipeline, and `forge build` compiles it clean. It deliberately does
+placeholder — `integrity-zkp`'s `make solidity-verifier` / `bb write_solidity_verifier`
+pipeline generated it, and `forge build` compiles it clean. No root `make generate-verifier`
+target exists. The generated contract deliberately does
 not formally inherit `IZkVerifier` (the generated file already carries Barretenberg's own
 `IVerifier`, and adding `IZkVerifier` too causes a diamond-conflict compile error) — it's
 satisfied via ABI-compatible low-level dispatch in `VerifierRegistry.sol` instead, which is
 exactly what let the swap from placeholder to real verifier happen without touching any calling
-contract. **Zero test coverage exists yet exercising it with a real proof** — see
-`PRODUCTION_GAPS.md` §26 for the full record and what's still open.
+contract. Four Foundry tests now exercise a checked-in real proof and reject malformed,
+tampered-proof, and tampered-public-input cases. The generated source remains distinct from the
+older fail-closed verifier deployed on Base Sepolia; see `PRODUCTION_GAPS.md` §26.
 
 ### The four foundational primitives
 
@@ -198,7 +208,27 @@ A weighted **geometric** mean, not arithmetic — so **any single zero component
 zeroes the entire score**. This is the most common way to misread AIS: an agent
 whose telemetry omits one axis (e.g. reports no token usage, so `sacrifice`
 derives to 0) scores 0.0 even with the other three axes perfect. Absent and
-catastrophic are currently indistinguishable here; see `PRODUCTION_GAPS.md`.
+catastrophic are deliberately indistinguishable here — both resolve to 0, which is
+consistent with proposed N2 ("earned, not granted") in
+`spec/integrity-protocol-v0.5-proposed.md` §4.1 and its explanatory source at
+`spec/integrity-protocol-v3.2.md` §3.1.1. That bounded implementation evidence does not
+make the full proposal normative or complete; see `PRODUCTION_GAPS.md`.
+
+As of 2026-08-17, `derive_entropy`/`derive_grounding`/`self_reported_compliance`
+(`integrity-oracle/backend/src/derive.rs`, mirrored in
+`integrity_sdk/telemetry/derive.py`) also fail closed to 0 on empty/no-evidence
+input — previously they defaulted to 1.0 (maximum), which let a submission with
+token counts but no analysable content outscore an honest, mediocre agent
+(§3.1.1's worked example). `derive_sacrifice` was always the only axis that failed
+closed; now three of four are. **Still open** (spec §3.1.4 rows 3–6, none landed in
+code yet): compliance still falls back to the agent's own self-reported flags for
+every non-healthcare agent (no independent evidence requirement), sacrifice is
+still self-reported token counts rather than validator/TEE-attested, there is no
+per-component floor + conjunctive gate (so a 90%-violation agent still reaches
+r≈0.631 rather than being gated to 0 — the "knife's-edge zero" problem the bare
+mean doesn't solve), and the reported `ais` field is still post-boost/unclamped
+rather than exposing the pre-boost, [0,1]-clamped value §3.1.1 eq. 4b requires as
+the actual constraint input.
 
 `ais-equations.html` at repo root is a standalone, polished static page presenting this formula
 and its components for a non-engineering audience (e.g. linked from marketing/pitch material) —
@@ -237,14 +267,11 @@ change in one automatically applies to the other.
 
 ## Working state — check before trusting "current" claims
 
-Don't assume `main` reflects the latest work. As of this writing the checked-out branch is
-`audit/harness-loop-2026-07-30`, not `main`, with substantial uncommitted changes across
-`bcc_middleware`, `integrity-dashboard` (memory/graph views), `integrity-oracle/backend`
-(`chain.rs`, `handlers.rs`, `lib.rs`, `openapi.rs`), and `integrity-sdk/client.py`. Run `git
-status` and `git branch --show-current` before relying on this file's snapshot of "what's
-implemented" — it describes the last committed state, not necessarily what's on disk right now.
+Do not assume `main` or this file reflects the latest worktree. Run `git status` and
+`git branch --show-current` before relying on any snapshot of what is implemented, and bind exact
+test-count claims to the command/date or commit that produced them.
 
-Test-count claims for a given package (e.g. "sdk: 262 passed/2 skipped" above) drift between
+Test-count claims for a given package drift between
 this file, the README's audit section, and `SPECIFICATION.md`, and none of them are
 auto-updated — treat any specific number here as approximate and re-run the package's test
 suite if the exact count matters, rather than trusting whichever doc you read first.

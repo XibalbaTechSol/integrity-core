@@ -2,7 +2,7 @@
 title: Agent Integrity Score (AIS)
 acronyms: [AIS]
 created: 2026-07-07
-updated: 2026-08-04
+updated: 2026-08-17
 type: concept
 tags: [metrics]
 confidence: high
@@ -53,7 +53,7 @@ trail alongside the oracle's own recomputation — it does not feed the formula.
 ```mermaid
 flowchart LR
     Agent["Agent (SDK/CLI)"] -->|"signed POST /v1/telemetry/ingest<br/>(otel_spans + derived_signals)"| Oracle["integrity-oracle"]
-    Oracle -->|"re-derive from otel_spans<br/>(same posture as the PHI backstop)"| Recompute["entropy / grounding / sacrifice /<br/>compliance (oracle-computed,<br/>authoritative — derived_signals<br/>becomes audit-trail only)"]
+    Oracle -->|"re-derive from otel_spans<br/>(same posture as the PHI backstop)"| Recompute["entropy / grounding / sacrifice /<br/>compliance (oracle-recomputed;<br/>some source evidence remains<br/>self-asserted or proxy-derived)"]
     Recompute --> Formula["AIS = Π(S^w) · ZK_boost<br/>(scoring-core, geometric volume model)"]
     ZK["Real Barretenberg ZK proof<br/>(bb verify)"] -.->|"1.15× if verified<br/>this period"| Formula
     Formula --> API["GET /v1/agent/{id}/ais<br/>+ live SSE push (/v1/stream)"]
@@ -73,6 +73,14 @@ pushes each agent's recomputed AIS to `ReputationRegistry.updateScore` and raise
 `Slasher.raiseDispute` on a flagged-telemetry threshold (see `PRODUCTION_GAPS.md` §1 and
 `docs/INTERFACE_CONTRACT.md` §7a) — this AIS trust hardening now has a live economic
 consumer.
+
+Whitepaper v3.2 proposes additional safeguards that are **not yet accepted or
+fully implemented**: independent admissibility for compliance and sacrifice
+evidence, non-compensable component floors, a conjunctive gate, and a separate
+pre-boost normalized accessor for constraint use. Current server-side
+recomputation reduces client tampering but does not make self-asserted span
+content independently true. See the proposed clauses in
+[`spec/integrity-protocol-v0.5-proposed.md`](../../../spec/integrity-protocol-v0.5-proposed.md).
 
 `AIS_final = min(S_calculated, Tier_ceiling)` — an identity-verification
 ceiling clamp — is **`[BUILT]`** and enforced in `integrity-oracle/scoring-core`

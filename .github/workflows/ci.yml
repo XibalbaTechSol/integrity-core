@@ -209,7 +209,7 @@ jobs:
         working-directory: integrity-userapi
 
   dashboard:
-    name: integrity-dashboard (npm test)
+    name: integrity-dashboard (build + lint)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -218,7 +218,9 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
       - run: npm ci --legacy-peer-deps
         working-directory: integrity-dashboard
-      - run: npm test
+      - run: npm run build
+        working-directory: integrity-dashboard
+      - run: npm run lint
         working-directory: integrity-dashboard
 
   # Jules dispatch is intentionally removed from repository CI. The malformed

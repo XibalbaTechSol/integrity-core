@@ -63,6 +63,6 @@ The dependency boundary is one-way: integrity-core's protocol packages must not 
 
 ## Source of truth
 
-The normative Shield product boundary is [spec/xibalba-shield-v1.md](../../spec/xibalba-shield-v1.md). Current Shield implementation status lives in the separate `xibalba-shield` repository README. Cross-package wire shapes inside integrity-core remain governed by [docs/INTERFACE_CONTRACT.md](../../INTERFACE_CONTRACT.md).
+The normative Shield product boundary is [spec/xibalba-shield-v1.md](../../../spec/xibalba-shield-v1.md). Current Shield implementation status lives in the separate `xibalba-shield` repository README. Cross-package wire shapes inside integrity-core remain governed by [docs/INTERFACE_CONTRACT.md](../../INTERFACE_CONTRACT.md).
 
 The canonical wiki content source remains [WIKI_SCHEMA.md](../WIKI_SCHEMA.md): integrity-core/docs/wiki is authored directly; `integrity-dashboard/`'s `/wiki` route and the GitHub Wiki are generated, read-only projections.
