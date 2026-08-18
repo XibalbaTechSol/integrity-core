@@ -24,3 +24,4 @@
 {"timestamp": "2026-08-04T06:30:10.229476", "action": "anchor_vault_root", "tx_hash": "016501ce84157defc96b67605077fbaa3b3b41587e0b6e3112b102c995975c39", "gas_used": 100170, "gas_price": 6000000, "cost_wei": 601020000000, "status": "success"}
 {"timestamp": "2026-08-04T18:39:56.065860", "action": "anchor_vault_root", "tx_hash": "e84d473065404b4b5768ee9c9e9b37cfcea137bead5bc4289f8fd128f5af3081", "gas_used": 100170, "gas_price": 6000000, "cost_wei": 601020000000, "status": "success"}
 {"timestamp": "2026-08-04T22:49:18.168012", "action": "anchor_vault_root", "tx_hash": "f5ef690e7e43045b201d8013b816c21be6e6dd0b9ead546c23eb7030f1c3dc50", "gas_used": 100170, "gas_price": 6000000, "cost_wei": 601020000000, "status": "success"}
+{"timestamp": "2026-08-17T15:20:54.219847", "action": "anchor_vault_root", "tx_hash": "f34d6b8070d1b84d971a32065d854eebd20c0e36dd7af1d7094aa1c1ccc88796", "gas_used": 100170, "gas_price": 6000000, "cost_wei": 601020000000, "status": "success"}
