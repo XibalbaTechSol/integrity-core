@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 
 import base58
@@ -19,7 +20,19 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from httpx import Response
 
 from app.chain import resolve_agent_primitives
+from app.config import settings as default_settings
 from app.schemas import BCCCommitment
+
+# A well-formed but unregistered placeholder registry address, used as
+# sign_commitment's default `verifying_contract`. Safe as a default because
+# app/main.py's deployment-binding check only enforces verifying_contract
+# when Settings.contract_address("XibalbaAgentRegistry") is actually
+# configured -- most of this suite runs with no deployments file at all
+# (see test_chain_baa_anchor.py's own "Explicit, nonexistent deployments_file"
+# comment), so this value is never compared against anything for those
+# tests. Tests that DO configure a registry address must pass a matching
+# `verifying_contract` explicitly.
+_PLACEHOLDER_VERIFYING_CONTRACT = "0x000000000000000000000000000000000000dEaD"
 
 _MULTICODEC_ED25519_PUB = bytes([0xED, 0x01])
 
@@ -48,16 +61,46 @@ def sign_commitment(
     covered_entity_address: str | None = None,
     intent_rationale: str | None = None,
     agent_thought: str | None = None,
+    chain_id: int | None = None,
+    verifying_contract: str | None = None,
 ) -> dict:
     """
     Builds a fully-formed, correctly-signed BCC Commitment dict ready to
     POST to /v1/bcc/intercept, using the same canonicalization
     (app.canonical.canonical_commitment_bytes) the server verifies against.
+
+    `chain_id` defaults to `int(os.getenv("CHAIN_ID", "31337"))` -- the exact
+    same default_factory expression `Settings.chain_id` itself uses -- rather
+    than the frozen `default_settings` singleton. This matters because
+    `anvil_chain` (this file's own fixture) permanently overwrites
+    `os.environ["CHAIN_ID"]` process-wide the first time any test uses it, so
+    every `Settings()` constructed AFTER that point (the common per-test
+    pattern in this suite, e.g. `Settings(opa_url=real_opa_server, ...)`)
+    picks up anvil's real chain id -- but `default_settings` was already
+    constructed once at process start, before that mutation, so it would
+    silently keep signing commitments for a chain_id later tests' Settings
+    no longer match. Reading the env var directly, at call time, tracks
+    whichever `Settings()` the calling test actually built. `verifying_contract`
+    defaults to a placeholder address (see module-level comment) -- neither
+    default needs to be a real deployed contract, since the deployment-
+    binding check is a string/int comparison against Settings, not an
+    on-chain call.
     """
     if timestamp is None:
         timestamp = int(time.time() * 1000)
     if intended_state_hash is None:
         intended_state_hash = "0x" + hashlib.sha256(f"{intent_type}:{nonce}".encode()).hexdigest()
+    if chain_id is None:
+        chain_id = int(os.getenv("CHAIN_ID", "31337"))
+    if verifying_contract is None:
+        # Prefer whatever XibalbaAgentRegistry the ambient default Settings
+        # actually resolves (DEPLOYMENTS_FILE, via the repo-root .env most
+        # tests inherit) so a test that builds a bare `Settings(...)` with no
+        # explicit deployments_file override -- the common case in this
+        # suite -- gets a MATCHING verifying_contract by default, not one
+        # that only happens to pass because the registry was unconfigured.
+        # Falls back to the placeholder when nothing is configured at all.
+        verifying_contract = default_settings.contract_address("XibalbaAgentRegistry") or _PLACEHOLDER_VERIFYING_CONTRACT
 
     public_bytes = private_key.public_key().public_bytes_raw()
     rationale = intent_rationale or agent_thought
@@ -74,6 +117,8 @@ def sign_commitment(
         "covered_entity_address": covered_entity_address,
         "agent_public_key": _public_key_multibase(public_bytes),
         "intent_rationale": rationale,
+        "chain_id": chain_id,
+        "verifying_contract": verifying_contract,
     }
     message = json.dumps(fields, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     signature = private_key.sign(message)

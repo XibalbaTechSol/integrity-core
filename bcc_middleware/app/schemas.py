@@ -93,6 +93,33 @@ class BCCCommitment(BaseModel):
         description="Total LLM tokens consumed generating this action (prompt + completion); used for tier-based daily budget enforcement",
     )
 
+    # --- Canonical intent encoding (docs/plans/2026-08-18-phase1-canonical-
+    # intent-encoding-proposal.md) -------------------------------------------
+    # Before these two fields, a commitment signed once was valid, byte-for-
+    # byte, against any chain or any deployment of the protocol sharing the
+    # signing agent's DID -- neither `nonce` (monotonic per-agent, but not
+    # deployment-scoped) nor anything else in §4.2 bound a commitment to a
+    # specific chain/deployment. Both REQUIRED, both signed (see
+    # canonical.py's canonical_commitment_bytes) so neither can be swapped
+    # post-signature. `app/main.py`'s deployment-binding check enforces
+    # `chain_id` unconditionally (Settings.chain_id always has a value) but
+    # enforces `verifying_contract` only when this deployment has a
+    # configured XibalbaAgentRegistry address -- see that check's own
+    # docstring for why that asymmetry is a disclosed limitation, not a
+    # silent downgrade.
+    chain_id: int = Field(..., gt=0, description="EVM chain ID this commitment is scoped to")
+    verifying_contract: str = Field(
+        ...,
+        description="0x-prefixed XibalbaAgentRegistry address for the target chain -- the root every downstream primitive in this architecture resolves through",
+    )
+
+    @field_validator("verifying_contract")
+    @classmethod
+    def _verifying_contract_shape(cls, v: str) -> str:
+        if not _HEX_ADDR.match(v):
+            raise ValueError("verifying_contract must be 0x-prefixed 20-byte hex (an EVM address)")
+        return v
+
     @field_validator("trace_id")
     @classmethod
     def _trace_id_shape(cls, v: str | None) -> str | None:

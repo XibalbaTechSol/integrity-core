@@ -1766,3 +1766,55 @@ windows from the kernel-swap review, the no-recovery-path broken-kernel-brick cl
 two contracts) all remain unbuilt/unresolved. No external audit. Not deployed to Base Sepolia or
 anywhere else, and none of today's work is grounds to deploy it — that remains a separate, later,
 separately-approved decision.
+
+## 30. BCC `chain_id`/`verifying_contract` binding — closes the general-purpose half of the
+canonical intent encoding gap (2026-08-18)
+
+*Current State:* per `docs/plans/2026-08-18-phase1-canonical-intent-encoding-proposal.md`, the
+BCC commitment schema (§4.2) now requires and signs two new fields: `chain_id` (EVM chain ID) and
+`verifying_contract` (the target chain's `XibalbaAgentRegistry` address). Before this, a
+commitment signed once was valid, byte-for-byte, against any chain or any deployment of the
+protocol sharing the signing agent's DID — `nonce` is monotonic per-agent but not
+deployment-scoped, so it didn't close this. Implemented identically across `integrity-sdk/bcc.py`,
+`integrity-cli/bcc.py`, and `bcc_middleware/app/{schemas,canonical}.py`; every real production
+call site updated (`integrity-sdk/markets.py`'s three BCC-integrated market flows,
+`integrity-sdk/telemetry/intent.py`'s `invoke_intent`, `integrity-cli/main.py`'s `agent intercept`
+command, `integrity-dashboard/demo/heartbeat.py`).
+
+`bcc_middleware/app/main.py` gained a new deployment-binding check (step 1b, before signature
+verification — cheapest, no crypto, no I/O). **A real, disclosed design adjustment from the
+proposal's original framing:** the proposal described both fields as an unconditional hard deny.
+In implementation, `chain_id` IS enforced unconditionally (`Settings.chain_id` always has a
+value). `verifying_contract` is enforced only when this deployment has a configured
+`XibalbaAgentRegistry` address (`Settings.contract_address("XibalbaAgentRegistry")` returns
+non-`None`) — most of the existing local/dev/test topology runs with no deployments file
+configured at all (`bcc_middleware/tests/conftest.py`'s `deployments.local.json` is `touch()`ed
+empty; several tests explicitly point at a nonexistent deployments file, e.g.
+`test_chain_baa_anchor.py`'s "Explicit, nonexistent deployments_file" case), and making
+`verifying_contract` an unconditional fail-closed check would have turned that whole existing
+posture into a blanket deny — a materially larger blast radius than this slice's own proposal
+disclosed ("pure Python wire-schema + middleware validation... lower blast radius"). Stated
+plainly here rather than silently shipped as the originally-described unconditional check.
+
+**What this does NOT close**, matching the proposal's own explicit deferrals: the experimental
+kernel's own hook-frame replay-domain binding (account, kernel/profile, execution depth, action
+digest, pre-state digest, configuration epoch — `CLAUDE_HANDOFF_2026-08-17.md` §9) is untouched,
+separate, contract-side, larger scope. Binding `chain_id` into the ZK circuit's
+`intent_commitment` (`integrity-zkp/src/main.nr`) is untouched — the Pedersen hash still covers
+only `secret_key`, `intent_payload_hash`, `agent_id_commitment`, `nonce`; adding a public input
+means a circuit change, verifying-key regen, and `UltraPlonkVerifier` regen, real cross-package
+work not attempted here. A `verifying_contract` mismatch against an *unconfigured* registry is
+never enforced by this slice — a real, disclosed residual, not a silent gap: an operator relying
+on this binding for a production deployment must confirm `DEPLOYMENTS_FILE` actually resolves a
+`XibalbaAgentRegistry` entry, or the check silently no-ops for that field.
+
+Tests: `bcc_middleware/tests/test_deployment_binding.py` (new) covers chain_id mismatch denied,
+verifying_contract mismatch denied when configured, verifying_contract NOT enforced when
+unconfigured, and schema-level rejection of missing/malformed fields. `bcc_middleware/tests/
+helpers.py`'s `sign_commitment` gained defaulted `chain_id`/`verifying_contract` params (sourced
+from `default_settings.chain_id` and a placeholder address respectively) so the existing ~75-test
+suite continues to exercise the same behavior it did before this change, without per-test edits.
+`integrity-cli/tests/test_bcc.py` updated for the new required positional params and field-set
+assertion. Cross-repo: `xibalba-shield/shield/integrity_exporter` calls
+`integrity_sdk.bcc.build_bcc_commitment` directly and needed a matching update — see that repo's
+own history for the corresponding change, tracked separately from this repo's scope.

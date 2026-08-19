@@ -277,6 +277,14 @@ def build_server(agent_id: str, oracle_url: str) -> Any:
                         "type": "string",
                         "description": "On-chain CoveredEntity address for HIPAA-gated intents",
                     },
+                    "chain_id": {
+                        "type": "integer",
+                        "description": "EVM chain ID this commitment is scoped to (default: env CHAIN_ID or 84532)",
+                    },
+                    "verifying_contract": {
+                        "type": "string",
+                        "description": "Target chain's XibalbaAgentRegistry address (default: resolved from DEPLOYMENTS_FILE)",
+                    },
                 },
                 "required": ["intent_type"],
             },
@@ -418,9 +426,24 @@ def build_server(agent_id: str, oracle_url: str) -> Any:
         # ---- integrity_invoke_intent ---------------------------------- #
         elif name == "integrity_invoke_intent":
             try:
+                # docs/plans/2026-08-18-phase1-canonical-intent-encoding-proposal.md:
+                # every commitment now binds chain_id + verifying_contract. Same
+                # arguments-then-env-then-file resolution order as
+                # integrity_register_agent above, so a caller that doesn't pass
+                # either explicitly still gets a real value rather than a crash.
+                chain_id = arguments.get("chain_id") or int(os.getenv("CHAIN_ID", "84532"))
+                verifying_contract = arguments.get("verifying_contract")
+                if verifying_contract is None:
+                    from . import chain as chain_module
+
+                    deployments_file = os.getenv("DEPLOYMENTS_FILE", str(Path.cwd() / "deployments.local.json"))
+                    verifying_contract = chain_module.load_deployments(deployments_file)["singletons"]["XibalbaAgentRegistry"]
+
                 result = client.invoke_intent(
                     intent_type=arguments["intent_type"],
                     intent_payload=arguments.get("intent_payload", {}),
+                    chain_id=chain_id,
+                    verifying_contract=verifying_contract,
                     goal=arguments.get("goal"),
                     plan=arguments.get("plan"),
                     planned_action=arguments.get("planned_action"),

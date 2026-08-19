@@ -288,6 +288,8 @@ class IntegrityClient:
         *,
         intent_type: str,
         intent_payload: Dict[str, Any],
+        chain_id: int,
+        verifying_contract: str,
         goal: Optional[str] = None,
         plan: Optional[List[str]] = None,
         planned_action: Optional[Dict[str, Any]] = None,
@@ -303,6 +305,10 @@ class IntegrityClient:
         client wasn't constructed with both `keypair` and `bcc_nonce_store` —
         BCC commitments cannot be built or nonce-tracked without them, and
         this fails loudly rather than silently skipping the intent gate.
+
+        `chain_id`/`verifying_contract` are REQUIRED (docs/plans/2026-08-18-
+        phase1-canonical-intent-encoding-proposal.md) — see bcc.py's
+        `build_bcc_commitment` for why.
         """
         if self._keypair is None or self._bcc_nonce_store is None:
             raise RuntimeError(
@@ -315,6 +321,8 @@ class IntegrityClient:
             keypair=self._keypair,
             nonce=self._bcc_nonce_store.next(),
             agent_id=self.agent_id,
+            chain_id=chain_id,
+            verifying_contract=verifying_contract,
             goal=goal,
             plan=plan,
             planned_action=planned_action,

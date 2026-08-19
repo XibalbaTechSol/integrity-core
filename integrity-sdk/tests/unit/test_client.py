@@ -215,14 +215,20 @@ def test_flush_drains_custom_metrics_into_otel_spans(captured_posts):
 def test_invoke_intent_without_keypair_raises_clear_error():
     client = IntegrityClient("agent-a", auto_flush=False)
     with pytest.raises(RuntimeError, match="keypair"):
-        with client.invoke_intent(intent_type="EMR_WRITE", intent_payload={}):
+        with client.invoke_intent(
+            intent_type="EMR_WRITE", intent_payload={},
+            chain_id=31337, verifying_contract="0x111111111111111111111111111111111111111a",
+        ):
             pass
 
 
 def test_invoke_intent_without_nonce_store_raises_clear_error(tmp_path):
     client = IntegrityClient("agent-a", auto_flush=False, keypair=Keypair.generate())
     with pytest.raises(RuntimeError, match="bcc_nonce_store"):
-        with client.invoke_intent(intent_type="EMR_WRITE", intent_payload={}):
+        with client.invoke_intent(
+            intent_type="EMR_WRITE", intent_payload={},
+            chain_id=31337, verifying_contract="0x111111111111111111111111111111111111111a",
+        ):
             pass
 
 
@@ -231,7 +237,10 @@ def test_invoke_intent_convenience_pulls_nonce_from_store_and_rides_along_on_flu
     nonce_store = bcc.NonceStore(tmp_path / "bcc_nonce.txt")
     client = IntegrityClient("agent-a", auto_flush=False, keypair=keypair, bcc_nonce_store=nonce_store)
 
-    with client.invoke_intent(intent_type="EMR_WRITE", intent_payload={"a": 1}, planned_action={"tool": "write_emr"}) as intent:
+    with client.invoke_intent(
+        intent_type="EMR_WRITE", intent_payload={"a": 1}, planned_action={"tool": "write_emr"},
+        chain_id=31337, verifying_contract="0x111111111111111111111111111111111111111a",
+    ) as intent:
         intent.record_outcome({"tool": "write_emr"})
 
     client.flush_telemetry()

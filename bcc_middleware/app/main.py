@@ -6,6 +6,16 @@ why each step is where it is):
 
   0. Schema validation (FastAPI/pydantic, via BCCCommitment).
   1. Circuit breaker check -- cheap, no I/O, so it goes first.
+  1b. Deployment-binding check (chain_id + verifying_contract) -- cheap, no
+      I/O, no crypto, so it runs before the actual signature check. chain_id
+      is checked unconditionally (Settings.chain_id always has a value);
+      verifying_contract is checked only when this deployment has a
+      configured XibalbaAgentRegistry address, so a local/dev/test topology
+      with no deployments file configured (common -- see
+      Settings.contract_address's own "missing key is NOT an error" rule)
+      isn't turned into a blanket deny. Disclosed limitation, not a silent
+      downgrade -- see docs/plans/2026-08-18-phase1-canonical-intent-
+      encoding-proposal.md's "Real risks".
   2. Signature verification -- if we can't trust the commitment came from
      `agent_id`, nothing downstream matters.
   3. Nonce replay check.
@@ -319,6 +329,29 @@ async def _run_intercept_inner(
     if circuit_breaker.is_locked_out(agent_id):
         remaining = int(circuit_breaker.lockout_remaining_seconds(agent_id))
         resp = _deny(f"CIRCUIT_BREAKER_OPEN: agent is locked out for {remaining}s due to prior violations", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
+        finalize_span("deny", resp.reason)
+        return resp
+
+    # --- 1b. Deployment-binding check ----------------------------------------
+    # See module docstring for why this is split into an unconditional
+    # chain_id check and a conditional verifying_contract check, and why
+    # both run before signature verification (cheapest -- no crypto, no I/O).
+    if commitment.chain_id != settings.chain_id:
+        _record_violation(agent_id, settings)
+        resp = _deny(
+            f"BCC_CHAIN_MISMATCH: commitment signed for chain_id {commitment.chain_id}, this deployment is chain_id {settings.chain_id}",
+            agent_id=agent_id, settings=settings, intent_type=commitment.intent_type,
+        )
+        finalize_span("deny", resp.reason)
+        return resp
+
+    configured_registry = settings.contract_address("XibalbaAgentRegistry")
+    if configured_registry is not None and commitment.verifying_contract.lower() != configured_registry.lower():
+        _record_violation(agent_id, settings)
+        resp = _deny(
+            f"BCC_VERIFYING_CONTRACT_MISMATCH: commitment names verifying_contract {commitment.verifying_contract}, this deployment's XibalbaAgentRegistry is {configured_registry}",
+            agent_id=agent_id, settings=settings, intent_type=commitment.intent_type,
+        )
         finalize_span("deny", resp.reason)
         return resp
 
