@@ -44,6 +44,13 @@ contracts/broadcast/**/run-*.json
 **/target/
 Prover.toml
 Verifier.toml
+# integrity-zkp/circuit/Prover.toml is a real, checked-in test fixture (see
+# integrity-zkp/README.md "Fixture values") — not a per-developer secret
+# file. Discovered 2026-08-18 that the blanket `Prover.toml` rule above had
+# silently kept it untracked this whole time despite the README calling it
+# "checked-in"; this exception makes that claim true rather than editing
+# the claim to match the bug.
+!integrity-zkp/circuit/Prover.toml
 
 # --- misc ---
 .DS_Store

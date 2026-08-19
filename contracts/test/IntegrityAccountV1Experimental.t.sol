@@ -119,6 +119,53 @@ contract ReentrancyObserverKernel {
     function postCheck(bytes calldata) external pure {}
 }
 
+/// @dev Adversarial fixture for the reentrancy-guard proposal
+/// (docs/plans/2026-08-18-phase1-swap-reentrancy-guard-proposal.md): attempts a genuinely
+/// reentrant call into the account's UNGATED `fallback()` (not the `onlyEntryPointOrSelf`-gated
+/// `execute()`, which a hostile kernel could never reach directly -- its caller identity from the
+/// account's perspective is the kernel's own address) from both `onInstall` (playing "new kernel")
+/// and `onUninstall` (playing "old kernel"), recording whether each attempt was rejected.
+contract ReentrantFallbackKernel {
+    IntegrityAccountV1Experimental public immutable account;
+
+    // Both the guarded and unguarded paths ultimately revert the reentrant call (the account
+    // never installs a fallback handler, so `_fallback` fails closed regardless) -- the REVERT
+    // REASON, not success/failure, is what proves the guard actually intercepts the call before
+    // `preCheck` runs, rather than merely happening to fail for an unrelated, pre-existing reason.
+    bytes4 public installReentrantRevertSelector;
+    bytes4 public uninstallReentrantRevertSelector;
+
+    constructor(IntegrityAccountV1Experimental account_) {
+        account = account_;
+    }
+
+    function isModuleType(uint256 moduleTypeId) external pure returns (bool) {
+        return moduleTypeId == MODULE_TYPE_HOOK;
+    }
+
+    function onInstall(bytes calldata) external {
+        installReentrantRevertSelector = _attemptReentrantFallback();
+    }
+
+    function onUninstall(bytes calldata) external {
+        uninstallReentrantRevertSelector = _attemptReentrantFallback();
+    }
+
+    function _attemptReentrantFallback() internal returns (bytes4 revertSelector) {
+        (bool success, bytes memory returnData) =
+            address(account).call(abi.encodeWithSignature("aSelectorThatDoesNotExist()"));
+        if (success) return bytes4(0);
+        if (returnData.length < 4) return bytes4(0);
+        return bytes4(returnData);
+    }
+
+    function preCheck(address, uint256, bytes calldata) external pure returns (bytes memory) {
+        return "";
+    }
+
+    function postCheck(bytes calldata) external pure {}
+}
+
 /// @dev Adversarial fixture for the constant-drift finding a Devil's Advocate review surfaced:
 /// exposes the same `scores`/`ZK_BOOST_BPS`/`BPS_DENOMINATOR` shape as the real
 /// `ReputationRegistry`, but with DIFFERENT boost constants, to prove
@@ -131,6 +178,27 @@ contract MismatchedBoostRegistry {
     function scores(address) external pure returns (uint256 baseScore, uint256 lastUpdate, uint256 zkBoostExpiry) {
         return (0, 0, 0);
     }
+}
+
+/// @dev Fixture for the epoch/timelock deployment-invariant proposal's Option B (fail-open,
+/// 2026-08-19): a fully-conforming, working hook module that deliberately does NOT implement
+/// `epochLengthSeconds()` at all -- representing a legitimate future kernel that doesn't use
+/// reputation epoch-snapshotting (e.g. budget-only, no reputation check). Used to prove
+/// `_checkEpochCompatibility`'s `try`/`catch` genuinely skips the invariant for such a kernel
+/// rather than rejecting it outright, matching the account's own disclosed fail-open caveat.
+contract NonSnapshottingKernel {
+    function isModuleType(uint256 moduleTypeId) external pure returns (bool) {
+        return moduleTypeId == MODULE_TYPE_HOOK;
+    }
+
+    function onInstall(bytes calldata) external {}
+    function onUninstall(bytes calldata) external {}
+
+    function preCheck(address, uint256, bytes calldata) external pure returns (bytes memory) {
+        return "";
+    }
+
+    function postCheck(bytes calldata) external pure {}
 }
 
 /// @notice Phase I tracer-bullet slice (docs/plans/2026-08-17-phase1-tracer-bullet-proposal.md),
@@ -151,7 +219,15 @@ contract IntegrityAccountV1ExperimentalTest is Test {
     uint256 constant MIN_EFFECTIVE_SCORE = 500;
     uint256 constant ABOVE_FLOOR_SCORE = 800;
     uint256 constant MODULE_ACTION_TIMELOCK = 3 days;
-    uint256 constant REPUTATION_EPOCH_LENGTH = 1 days;
+    uint256 constant RESCUE_TIMELOCK = 1 days;
+    // Must be >= MODULE_ACTION_TIMELOCK as of the epoch/timelock deployment-invariant check
+    // (2026-08-19, PRODUCTION_GAPS.md §37) -- `_checkEpochCompatibility` now rejects a genesis
+    // or swapped-in kernel whose epoch is shorter than this account's timelock. Was `1 days`
+    // (deliberately shorter than MODULE_ACTION_TIMELOCK) before that check existed, specifically
+    // so the default fixture could demonstrate the pre-existing SnapshotStale interaction bug
+    // this invariant closes -- that demonstration is now `test_deployingMismatchedGenesisPairRevertsAtConstruction`'s
+    // job via a dedicated, deliberately-uncompliant standalone kernel, not the shared fixture's.
+    uint256 constant REPUTATION_EPOCH_LENGTH = 3 days;
     uint256 constant GUARDIAN_THRESHOLD = 2;
 
     IntegrityKernelV1Experimental kernel;
@@ -201,7 +277,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
             REPUTATION_EPOCH_LENGTH
         );
         account = new IntegrityAccountV1Experimental(
-            signer, address(kernel), MODULE_ACTION_TIMELOCK, guardianSet, GUARDIAN_THRESHOLD
+            signer, address(kernel), MODULE_ACTION_TIMELOCK, guardianSet, GUARDIAN_THRESHOLD, RESCUE_TIMELOCK
         );
         assertEq(address(account), predictedAccount, "CREATE address prediction must match actual deployment");
         vm.deal(address(account), 10 ether);
@@ -838,11 +914,13 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         // pending slot, not just mark it cancelled.
         account.proposeKernelSwap(address(secondProposed));
         vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
-        // MODULE_ACTION_TIMELOCK (3 days) outlives REPUTATION_EPOCH_LENGTH (1 day), so the
-        // currently-installed kernel's snapshot -- which mediates the swap's uninstall half --
-        // would otherwise be stale by the time the timelock clears. A real operator would need
-        // the same refresh; this is a genuine, disclosed interaction between the two mechanisms,
-        // not a test artifact.
+        // REPUTATION_EPOCH_LENGTH is >= MODULE_ACTION_TIMELOCK (enforced at proposal time as of
+        // 2026-08-19's epoch/timelock deployment invariant -- see `_checkEpochCompatibility`),
+        // so the currently-installed kernel's genesis-time snapshot is still exactly at the
+        // boundary here, not stale. This refresh is kept anyway as defense-in-depth against exact
+        // timestamp-boundary timing rather than relied upon to paper over a mismatch (the old
+        // 1-day-epoch/3-day-timelock fixture this comment used to describe no longer exists; see
+        // `test_deployingMismatchedGenesisPairRevertsAtConstruction` for that scenario now).
         kernel.refreshReputationSnapshot();
         vm.stopPrank();
         _approveWithTwoGuardians(account.kernelSwapNonce(), address(secondProposed));
@@ -857,8 +935,9 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         vm.startPrank(address(account));
         account.proposeKernelSwap(address(newKernel));
         vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
-        // See test_cancelKernelSwapThenReproposeSucceeds -- the outgoing kernel's snapshot must
-        // be refreshed before it can mediate the swap after a timelock longer than its own epoch.
+        // See test_cancelKernelSwapThenReproposeSucceeds -- kept as defense-in-depth against
+        // exact timestamp-boundary timing, not because the epoch is shorter than the timelock
+        // (it isn't, as of the epoch/timelock deployment invariant).
         kernel.refreshReputationSnapshot();
         vm.stopPrank();
         _approveWithTwoGuardians(account.kernelSwapNonce(), address(newKernel));
@@ -872,7 +951,8 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         assertEq(staleReadyAt, 0);
 
         // The NEW kernel's own snapshot was also taken at ITS construction time, before the warp
-        // above -- also needs a refresh before it can mediate the post-swap execute() call below.
+        // above -- kept as the same defense-in-depth refresh before it mediates the post-swap
+        // execute() call below.
         newKernel.refreshReputationSnapshot();
 
         // The account must remain fully functional post-swap: an in-budget call through the new
@@ -904,10 +984,11 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         uint256 boostedScore = (belowFloorScore * reputation.ZK_BOOST_BPS()) / reputation.BPS_DENOMINATOR();
         assertLt(boostedScore, MIN_EFFECTIVE_SCORE, "sanity: the boosted score must still be below the floor");
         reputation.updateScore(address(account), belowFloorScore);
-        // This refresh does double duty: it pulls the new low score into the cache (without it,
-        // preCheck would still see setUp()'s stale ABOVE_FLOOR_SCORE) AND resets the staleness
-        // clock the 3-day warp above already exhausted against the 1-day epoch -- so the revert
-        // below is genuinely ReputationBelowFloor, not a SnapshotStale masking it.
+        // This refresh is required to pull the new low score into the cache -- without it,
+        // preCheck would still see setUp()'s stale ABOVE_FLOOR_SCORE, and the revert below
+        // would never happen. (REPUTATION_EPOCH_LENGTH >= MODULE_ACTION_TIMELOCK now, so the
+        // 3-day warp above alone does not exhaust the epoch -- this refresh is about the score
+        // value, not staleness.)
         kernel.refreshReputationSnapshot();
         _approveWithTwoGuardians(account.kernelSwapNonce(), address(newKernel));
 
@@ -958,8 +1039,10 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         // Only NOW, on a genuine post-swap execute(), does the new kernel's real preCheck run --
         // and it correctly rejects, confirming the earlier success wasn't because the check is
         // broken, only that it wasn't invoked during installation. strictKernel's own snapshot
-        // was taken at ITS construction (before the warp above) and needs its own refresh so this
-        // reverts with the intended ReputationBelowFloor, not SnapshotStale.
+        // was taken at ITS construction (before the warp above); this refresh is kept as
+        // defense-in-depth against exact timestamp-boundary timing so this reverts with the
+        // intended ReputationBelowFloor, not SnapshotStale (REPUTATION_EPOCH_LENGTH >=
+        // MODULE_ACTION_TIMELOCK now, so the warp alone should not exhaust the epoch either way).
         strictKernel.refreshReputationSnapshot();
         uint256 boostedAboveFloorScore = (ABOVE_FLOOR_SCORE * reputation.ZK_BOOST_BPS()) / reputation.BPS_DENOMINATOR();
         bytes memory executionCalldata = abi.encodePacked(recipient, uint256(0.1 ether), bytes(""));
@@ -976,7 +1059,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
 
     function test_constructorRevertsOnZeroTimelock() public {
         vm.expectRevert(IntegrityAccountV1Experimental.ZeroTimelock.selector);
-        new IntegrityAccountV1Experimental(signer, address(kernel), 0, guardianSet, GUARDIAN_THRESHOLD);
+        new IntegrityAccountV1Experimental(signer, address(kernel), 0, guardianSet, GUARDIAN_THRESHOLD, RESCUE_TIMELOCK);
     }
 
     function test_proposeKernelSwapRevertsOnNonConformingKernel() public {
@@ -986,6 +1069,77 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         );
         vm.prank(address(account));
         account.proposeKernelSwap(address(notAHook));
+    }
+
+    // --- epoch/timelock deployment invariant (2026-08-19 proposal, PRODUCTION_GAPS.md §37) -----
+
+    function test_deployingMismatchedGenesisPairRevertsAtConstruction() public {
+        uint256 shortEpoch = MODULE_ACTION_TIMELOCK - 1;
+        IntegrityKernelV1Experimental mismatchedKernel = new IntegrityKernelV1Experimental(
+            address(this), PER_OP_BUDGET, CUMULATIVE_BUDGET, address(reputation), MIN_EFFECTIVE_SCORE, shortEpoch
+        );
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IntegrityAccountV1Experimental.EpochTooShortForTimelock.selector, shortEpoch, MODULE_ACTION_TIMELOCK
+            )
+        );
+        new IntegrityAccountV1Experimental(
+            signer, address(mismatchedKernel), MODULE_ACTION_TIMELOCK, guardianSet, GUARDIAN_THRESHOLD, RESCUE_TIMELOCK
+        );
+    }
+
+    function test_proposeKernelSwapRevertsWhenNewKernelEpochShorterThanTimelock() public {
+        uint256 shortEpoch = MODULE_ACTION_TIMELOCK - 1;
+        IntegrityKernelV1Experimental mismatchedKernel = new IntegrityKernelV1Experimental(
+            address(account), PER_OP_BUDGET, CUMULATIVE_BUDGET, address(reputation), MIN_EFFECTIVE_SCORE, shortEpoch
+        );
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IntegrityAccountV1Experimental.EpochTooShortForTimelock.selector, shortEpoch, MODULE_ACTION_TIMELOCK
+            )
+        );
+        vm.prank(address(account));
+        account.proposeKernelSwap(address(mismatchedKernel));
+    }
+
+    function test_guardianProposeActionRevertsWhenNewKernelEpochShorterThanTimelock() public {
+        uint256 shortEpoch = MODULE_ACTION_TIMELOCK - 1;
+        IntegrityKernelV1Experimental mismatchedKernel = new IntegrityKernelV1Experimental(
+            address(account), PER_OP_BUDGET, CUMULATIVE_BUDGET, address(reputation), MIN_EFFECTIVE_SCORE, shortEpoch
+        );
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IntegrityAccountV1Experimental.EpochTooShortForTimelock.selector, shortEpoch, MODULE_ACTION_TIMELOCK
+            )
+        );
+        vm.prank(guardian1);
+        account.guardianProposeAction(false, address(mismatchedKernel));
+    }
+
+    /// @dev Option B's deliberate fail-open case, as an explicit, asserted test outcome rather
+    /// than an accident: a kernel that doesn't implement `epochLengthSeconds()` at all must
+    /// still be proposable and swappable -- the invariant simply doesn't apply to it.
+    function test_kernelSwapSucceedsForAKernelWithNoEpochConcept() public {
+        NonSnapshottingKernel simpleKernel = new NonSnapshottingKernel();
+        vm.prank(address(account));
+        account.proposeKernelSwap(address(simpleKernel));
+        (address pending,) = account.pendingKernelSwap();
+        assertEq(
+            pending, address(simpleKernel), "propose must succeed for a kernel with no epoch concept -- Option B"
+        );
+
+        vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
+        // Defense-in-depth against exact timestamp-boundary timing, same reasoning as
+        // test_cancelKernelSwapThenReproposeSucceeds -- unrelated to this kernel's missing epoch.
+        kernel.refreshReputationSnapshot();
+        _approveWithTwoGuardians(account.kernelSwapNonce(), address(simpleKernel));
+        vm.prank(address(account));
+        account.executeKernelSwap(address(simpleKernel));
+        assertEq(
+            account.hook(),
+            address(simpleKernel),
+            "swap to a non-snapshotting kernel must fully succeed -- Option B fail-open, not a partial state"
+        );
     }
 
     function test_governanceFunctionsRevertForNonSelfNonEntryPointCaller() public {
@@ -1075,7 +1229,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
                 IntegrityAccountV1Experimental.InvalidGuardianThreshold.selector, 0, guardianSet.length
             )
         );
-        new IntegrityAccountV1Experimental(signer, address(kernel), MODULE_ACTION_TIMELOCK, guardianSet, 0);
+        new IntegrityAccountV1Experimental(signer, address(kernel), MODULE_ACTION_TIMELOCK, guardianSet, 0, RESCUE_TIMELOCK);
     }
 
     function test_constructorRevertsWhenThresholdExceedsGuardianCount() public {
@@ -1085,7 +1239,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
                 IntegrityAccountV1Experimental.InvalidGuardianThreshold.selector, tooHigh, guardianSet.length
             )
         );
-        new IntegrityAccountV1Experimental(signer, address(kernel), MODULE_ACTION_TIMELOCK, guardianSet, tooHigh);
+        new IntegrityAccountV1Experimental(signer, address(kernel), MODULE_ACTION_TIMELOCK, guardianSet, tooHigh, RESCUE_TIMELOCK);
     }
 
     function test_constructorRevertsOnDuplicateGuardian() public {
@@ -1093,7 +1247,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         dup[0] = guardian1;
         dup[1] = guardian1;
         vm.expectRevert(abi.encodeWithSelector(IntegrityAccountV1Experimental.DuplicateGuardian.selector, guardian1));
-        new IntegrityAccountV1Experimental(signer, address(kernel), MODULE_ACTION_TIMELOCK, dup, 1);
+        new IntegrityAccountV1Experimental(signer, address(kernel), MODULE_ACTION_TIMELOCK, dup, 1, RESCUE_TIMELOCK);
     }
 
     function test_constructorRevertsOnZeroAddressGuardian() public {
@@ -1101,7 +1255,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         withZero[0] = guardian1;
         withZero[1] = address(0);
         vm.expectRevert(IntegrityAccountV1Experimental.ZeroGuardian.selector);
-        new IntegrityAccountV1Experimental(signer, address(kernel), MODULE_ACTION_TIMELOCK, withZero, 1);
+        new IntegrityAccountV1Experimental(signer, address(kernel), MODULE_ACTION_TIMELOCK, withZero, 1, RESCUE_TIMELOCK);
     }
 
     function test_executeKernelSwapRevertsBelowGuardianThreshold() public {
@@ -1411,5 +1565,789 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         vm.prank(address(account));
         account.executeKernelSwap(address(newKernel));
         assertEq(account.hook(), address(newKernel), "swap must land once the snapshot is refreshed post-quorum");
+    }
+
+    // --- guardian emergency action: closes unilateral swap DENIAL (2026-08-18 proposal) -------
+
+    /// @dev Gathers unanimous (3-of-3) guardian approval for the currently pending guardian
+    /// action. Distinct from `_approveWithTwoGuardians` -- that helper is for `executeKernelSwap`'s
+    /// M-of-N execution quorum; this is for `executeGuardianAction`'s deliberately stricter N-of-N.
+    function _approveGuardianActionUnanimously(uint256 nonce) internal {
+        vm.prank(guardian1);
+        account.approveGuardianAction(nonce);
+        vm.prank(guardian2);
+        account.approveGuardianAction(nonce);
+        vm.prank(guardian3);
+        account.approveGuardianAction(nonce);
+    }
+
+    function test_guardianProposeActionRevertsForNonGuardian() public {
+        vm.expectRevert(abi.encodeWithSelector(IntegrityAccountV1Experimental.NotAGuardian.selector, address(this)));
+        account.guardianProposeAction(true, address(0));
+    }
+
+    function test_guardianProposeActionForcePropose_RevertsOnZeroKernel() public {
+        vm.prank(guardian1);
+        vm.expectRevert(IntegrityAccountV1Experimental.ZeroKernel.selector);
+        account.guardianProposeAction(false, address(0));
+    }
+
+    function test_guardianProposeActionForcePropose_RevertsOnNonHookModule() public {
+        NonHookModule notAHook = new NonHookModule();
+        vm.prank(guardian1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IntegrityAccountV1Experimental.NewKernelNotAHookModule.selector, address(notAHook)
+            )
+        );
+        account.guardianProposeAction(false, address(notAHook));
+    }
+
+    function test_guardianProposeActionRevertsIfAlreadyPending() public {
+        vm.prank(guardian1);
+        account.guardianProposeAction(true, address(0));
+        vm.prank(guardian2);
+        vm.expectRevert(IntegrityAccountV1Experimental.GuardianActionAlreadyPending.selector);
+        account.guardianProposeAction(true, address(0));
+    }
+
+    function test_approveGuardianActionRevertsForNonGuardian() public {
+        vm.prank(guardian1);
+        account.guardianProposeAction(true, address(0));
+        uint256 nonce = account.guardianActionNonce();
+        vm.expectRevert(abi.encodeWithSelector(IntegrityAccountV1Experimental.NotAGuardian.selector, address(this)));
+        account.approveGuardianAction(nonce);
+    }
+
+    function test_approveGuardianActionRevertsWhenNothingPending() public {
+        vm.prank(guardian1);
+        vm.expectRevert(IntegrityAccountV1Experimental.NoGuardianActionPending.selector);
+        account.approveGuardianAction(0);
+    }
+
+    function test_approveGuardianActionRevertsOnWrongNonce() public {
+        vm.prank(guardian1);
+        account.guardianProposeAction(true, address(0));
+        uint256 currentNonce = account.guardianActionNonce();
+        uint256 wrongNonce = currentNonce + 1;
+        vm.prank(guardian2);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IntegrityAccountV1Experimental.GuardianActionNonceMismatch.selector, currentNonce, wrongNonce
+            )
+        );
+        account.approveGuardianAction(wrongNonce);
+    }
+
+    function test_approveGuardianActionRevertsOnDoubleApproval() public {
+        vm.prank(guardian1);
+        account.guardianProposeAction(true, address(0));
+        uint256 nonce = account.guardianActionNonce();
+        vm.prank(guardian1);
+        account.approveGuardianAction(nonce);
+        vm.prank(guardian1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IntegrityAccountV1Experimental.GuardianActionAlreadyApproved.selector, guardian1, nonce
+            )
+        );
+        account.approveGuardianAction(nonce);
+    }
+
+    function test_executeGuardianActionRevertsWhenNothingPending() public {
+        vm.expectRevert(IntegrityAccountV1Experimental.NoGuardianActionPending.selector);
+        account.executeGuardianAction();
+    }
+
+    /// @dev Mutation target: this is the security-relevant guard closing the gap between
+    /// `guardianThreshold` (M-of-N, sufficient for ordinary execution quorum) and the strictly
+    /// higher N-of-N bar this emergency path requires. Only 2 of 3 guardians approve -- enough
+    /// for `executeKernelSwap`'s own quorum, deliberately NOT enough here.
+    function test_executeGuardianActionRevertsBelowUnanimity() public {
+        vm.prank(guardian1);
+        account.guardianProposeAction(true, address(0));
+        uint256 nonce = account.guardianActionNonce();
+        vm.prank(guardian1);
+        account.approveGuardianAction(nonce);
+        vm.prank(guardian2);
+        account.approveGuardianAction(nonce);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IntegrityAccountV1Experimental.InsufficientGuardianActionApprovals.selector, 2, 3)
+        );
+        account.executeGuardianAction();
+    }
+
+    /// @notice The narrower denial case: signer proposes a swap, then goes dark (never cancels).
+    /// Guardians force-cancel it, unanimously, with zero signer involvement.
+    function test_guardianForceCancel_StuckSignerProposal() public {
+        IntegrityKernelV1Experimental unwantedKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        vm.prank(address(account));
+        account.proposeKernelSwap(address(unwantedKernel));
+        (, uint256 readyAtBefore) = account.pendingKernelSwap();
+        assertGt(readyAtBefore, 0, "sanity: a swap is genuinely pending before the rescue");
+
+        vm.prank(guardian2);
+        account.guardianProposeAction(true, address(0));
+        uint256 nonce = account.guardianActionNonce();
+        _approveGuardianActionUnanimously(nonce);
+
+        account.executeGuardianAction();
+
+        (, uint256 readyAtAfter) = account.pendingKernelSwap();
+        assertEq(readyAtAfter, 0, "force-cancel must clear the stuck proposal");
+        assertEq(account.hook(), address(kernel), "force-cancel must not itself touch the installed kernel");
+    }
+
+    /// @notice The wider denial case: signer never proposes anything at all (key lost/absent).
+    /// Guardians force-propose a swap themselves, with zero signer involvement anywhere in the
+    /// flow -- including the final `executeKernelSwap` call, which a guardian (not the signer)
+    /// submits, per the executeKernelSwap access-control widening this proposal also required.
+    function test_guardianForcePropose_UnresponsiveSigner_FullRescueWithNoSignerInvolvement() public {
+        IntegrityKernelV1Experimental rescueKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        (, uint256 readyAtBefore) = account.pendingKernelSwap();
+        assertEq(readyAtBefore, 0, "sanity: nothing pending before the rescue -- the harder denial case");
+
+        vm.prank(guardian1);
+        account.guardianProposeAction(false, address(rescueKernel));
+        uint256 actionNonce = account.guardianActionNonce();
+        _approveGuardianActionUnanimously(actionNonce);
+
+        uint256 kernelSwapNonceBefore = account.kernelSwapNonce();
+        vm.prank(guardian3);
+        account.executeGuardianAction();
+
+        assertEq(
+            account.kernelSwapNonce(),
+            kernelSwapNonceBefore + 1,
+            "a force-proposed swap must bump kernelSwapNonce exactly as proposeKernelSwap does"
+        );
+        (address pendingKernelAddr, uint256 readyAt) = account.pendingKernelSwap();
+        assertEq(pendingKernelAddr, address(rescueKernel), "force-propose must target the guardian-agreed kernel");
+        assertGt(readyAt, block.timestamp, "force-propose must still respect the normal timelock, not bypass it");
+
+        // The force-proposed swap is now indistinguishable from a signer-proposed one: it needs
+        // the ordinary M-of-N execution quorum via the EXISTING approveKernelSwap mechanism, and
+        // is subject to the same timelock -- no shortcut for either.
+        vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
+        kernel.refreshReputationSnapshot();
+        _approveWithTwoGuardians(account.kernelSwapNonce(), address(rescueKernel));
+
+        // The signer is never invoked anywhere in this test -- a guardian submits the final call.
+        vm.prank(guardian2);
+        account.executeKernelSwap(address(rescueKernel));
+
+        assertEq(account.hook(), address(rescueKernel), "the rescued account must end up on the guardian-chosen kernel");
+    }
+
+    /// @notice A force-propose is rejected while a (possibly unrelated) swap is already pending --
+    /// guardians must force-cancel first, a separate unanimous action, rather than atomically
+    /// overriding an in-flight proposal.
+    function test_guardianForcePropose_RevertsIfSwapAlreadyPending() public {
+        IntegrityKernelV1Experimental signerProposed = _deployKernel(MIN_EFFECTIVE_SCORE);
+        vm.prank(address(account));
+        account.proposeKernelSwap(address(signerProposed));
+
+        IntegrityKernelV1Experimental guardianWanted = _deployKernel(MIN_EFFECTIVE_SCORE);
+        vm.prank(guardian1);
+        account.guardianProposeAction(false, address(guardianWanted));
+        uint256 nonce = account.guardianActionNonce();
+        _approveGuardianActionUnanimously(nonce);
+
+        vm.expectRevert(IntegrityAccountV1Experimental.SwapAlreadyPending.selector);
+        account.executeGuardianAction();
+    }
+
+    /// @notice A force-cancel is rejected when nothing is pending -- there is nothing to cancel,
+    /// guardians should force-propose instead.
+    function test_guardianForceCancel_RevertsWhenNoSwapPending() public {
+        vm.prank(guardian1);
+        account.guardianProposeAction(true, address(0));
+        uint256 nonce = account.guardianActionNonce();
+        _approveGuardianActionUnanimously(nonce);
+
+        vm.expectRevert(IntegrityAccountV1Experimental.NoSwapPending.selector);
+        account.executeGuardianAction();
+    }
+
+    /// @notice `executeKernelSwap`'s widened caller set (entry point, self, OR any guardian) does
+    /// NOT lower what is required to succeed -- a guardian submitting the call before quorum is
+    /// reached still hits the exact same `InsufficientGuardianApprovals` guard a signer would.
+    function test_executeKernelSwapCallableByGuardian_StillEnforcesExecutionQuorum() public {
+        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        vm.prank(address(account));
+        account.proposeKernelSwap(address(newKernel));
+        vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
+        kernel.refreshReputationSnapshot();
+        // Zero execution approvals gathered -- a guardian submitting the call is still bound by
+        // the same quorum check any other caller would be.
+        vm.expectRevert(
+            abi.encodeWithSelector(IntegrityAccountV1Experimental.InsufficientGuardianApprovals.selector, 0, GUARDIAN_THRESHOLD)
+        );
+        vm.prank(guardian1);
+        account.executeKernelSwap(address(newKernel));
+    }
+
+    /// @notice A non-guardian, non-signer, non-entry-point address may not submit
+    /// `executeKernelSwap` even once every substantive precondition (including quorum) is
+    /// satisfied -- the widened caller set is exactly {entry point, self, guardians}, not "anyone."
+    function test_executeKernelSwapRevertsForUnrelatedCaller_EvenAtFullQuorum() public {
+        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        vm.prank(address(account));
+        account.proposeKernelSwap(address(newKernel));
+        vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
+        kernel.refreshReputationSnapshot();
+        _approveWithTwoGuardians(account.kernelSwapNonce(), address(newKernel));
+
+        address stranger = makeAddr("stranger");
+        vm.expectRevert(abi.encodeWithSelector(ERC4337Account.AccountUnauthorized.selector, stranger));
+        vm.prank(stranger);
+        account.executeKernelSwap(address(newKernel));
+    }
+
+    // --- guardian-set rotation (2026-08-18 proposal) -------------------------------------------
+
+    /// @dev Gathers unanimous approval from the CURRENT 3-guardian set for the pending rotation.
+    function _approveGuardianRotationUnanimously(uint256 nonce) internal {
+        vm.prank(guardian1);
+        account.approveGuardianRotation(nonce);
+        vm.prank(guardian2);
+        account.approveGuardianRotation(nonce);
+        vm.prank(guardian3);
+        account.approveGuardianRotation(nonce);
+    }
+
+    function test_proposeGuardianRotationRevertsForNonGuardian() public {
+        vm.expectRevert(abi.encodeWithSelector(IntegrityAccountV1Experimental.NotAGuardian.selector, address(this)));
+        account.proposeGuardianRotation(true, makeAddr("newGuardian"));
+    }
+
+    function test_proposeGuardianRotationAddition_RevertsOnZeroAddress() public {
+        vm.prank(guardian1);
+        vm.expectRevert(IntegrityAccountV1Experimental.ZeroGuardian.selector);
+        account.proposeGuardianRotation(true, address(0));
+    }
+
+    function test_proposeGuardianRotationAddition_RevertsIfAlreadyAGuardian() public {
+        vm.prank(guardian1);
+        vm.expectRevert(
+            abi.encodeWithSelector(IntegrityAccountV1Experimental.DuplicateGuardian.selector, guardian2)
+        );
+        account.proposeGuardianRotation(true, guardian2);
+    }
+
+    function test_proposeGuardianRotationRemoval_RevertsIfNotAGuardian() public {
+        address notAGuardian = makeAddr("notAGuardian");
+        vm.prank(guardian1);
+        vm.expectRevert(
+            abi.encodeWithSelector(IntegrityAccountV1Experimental.GuardianNotFound.selector, notAGuardian)
+        );
+        account.proposeGuardianRotation(false, notAGuardian);
+    }
+
+    /// @dev With 3 guardians and GUARDIAN_THRESHOLD = 2, removing one guardian leaves 2 -- exactly
+    /// at the threshold, still valid. A second removal would drop to 1, below threshold, and must
+    /// revert. This test proves the boundary, not just the interior case.
+    function test_proposeGuardianRotationRemoval_RevertsWhenItWouldDropBelowThreshold() public {
+        // First removal: 3 -> 2, exactly at GUARDIAN_THRESHOLD. Must succeed.
+        vm.prank(guardian1);
+        account.proposeGuardianRotation(false, guardian3);
+        _approveGuardianRotationUnanimously(account.guardianRotationNonce());
+        account.executeGuardianRotation();
+        assertEq(account.guardians().length, 2, "sanity: down to exactly threshold after first removal");
+
+        // Second removal: 2 -> 1, below GUARDIAN_THRESHOLD (2). Must revert.
+        vm.prank(guardian1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IntegrityAccountV1Experimental.GuardianRemovalWouldBreakThreshold.selector, 1, GUARDIAN_THRESHOLD
+            )
+        );
+        account.proposeGuardianRotation(false, guardian2);
+    }
+
+    function test_proposeGuardianRotationRevertsIfAlreadyPending() public {
+        vm.prank(guardian1);
+        account.proposeGuardianRotation(true, makeAddr("newGuardian"));
+        vm.prank(guardian2);
+        vm.expectRevert(IntegrityAccountV1Experimental.GuardianRotationAlreadyPending.selector);
+        account.proposeGuardianRotation(true, makeAddr("anotherNewGuardian"));
+    }
+
+    function test_approveGuardianRotationRevertsOnWrongNonce() public {
+        vm.prank(guardian1);
+        account.proposeGuardianRotation(true, makeAddr("newGuardian"));
+        uint256 currentNonce = account.guardianRotationNonce();
+        uint256 wrongNonce = currentNonce + 1;
+        vm.prank(guardian2);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IntegrityAccountV1Experimental.GuardianRotationNonceMismatch.selector, currentNonce, wrongNonce
+            )
+        );
+        account.approveGuardianRotation(wrongNonce);
+    }
+
+    function test_approveGuardianRotationRevertsOnDoubleApproval() public {
+        vm.prank(guardian1);
+        account.proposeGuardianRotation(true, makeAddr("newGuardian"));
+        uint256 nonce = account.guardianRotationNonce();
+        vm.prank(guardian1);
+        account.approveGuardianRotation(nonce);
+        vm.prank(guardian1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IntegrityAccountV1Experimental.GuardianRotationAlreadyApproved.selector, guardian1, nonce
+            )
+        );
+        account.approveGuardianRotation(nonce);
+    }
+
+    /// @dev Mutation target: only 2 of 3 guardians approve -- enough for ordinary
+    /// `guardianThreshold` execution quorum, deliberately NOT enough for rotation's unanimous bar.
+    function test_executeGuardianRotationRevertsBelowUnanimity() public {
+        vm.prank(guardian1);
+        account.proposeGuardianRotation(true, makeAddr("newGuardian"));
+        uint256 nonce = account.guardianRotationNonce();
+        vm.prank(guardian1);
+        account.approveGuardianRotation(nonce);
+        vm.prank(guardian2);
+        account.approveGuardianRotation(nonce);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IntegrityAccountV1Experimental.InsufficientGuardianRotationApprovals.selector, 2, 3
+            )
+        );
+        account.executeGuardianRotation();
+    }
+
+    function test_executeGuardianRotationRevertsWhenNothingPending() public {
+        vm.expectRevert(IntegrityAccountV1Experimental.NoGuardianRotationPending.selector);
+        account.executeGuardianRotation();
+    }
+
+    /// @notice Full addition end-to-end: the new guardian is unusable until the rotation
+    /// executes, and immediately usable (can approve a real kernel-swap execution) afterward.
+    function test_guardianAddition_FullLifecycle_NewGuardianCanActAfterward() public {
+        address newGuardianAddr = makeAddr("newGuardian");
+
+        vm.prank(guardian1);
+        account.proposeGuardianRotation(true, newGuardianAddr);
+        uint256 nonce = account.guardianRotationNonce();
+        _approveGuardianRotationUnanimously(nonce);
+        account.executeGuardianRotation();
+
+        assertEq(account.guardians().length, 4, "guardian count must grow by one");
+        address[] memory current = account.guardians();
+        bool found;
+        for (uint256 i = 0; i < current.length; i++) {
+            if (current[i] == newGuardianAddr) found = true;
+        }
+        assertTrue(found, "the newly-added address must appear in guardians()");
+
+        // The new guardian can immediately participate in an ordinary kernel-swap quorum.
+        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        vm.prank(address(account));
+        account.proposeKernelSwap(address(newKernel));
+        vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
+        kernel.refreshReputationSnapshot();
+        uint256 swapNonce = account.kernelSwapNonce();
+        vm.prank(newGuardianAddr);
+        account.approveKernelSwap(swapNonce, address(newKernel));
+        vm.prank(guardian1);
+        account.approveKernelSwap(swapNonce, address(newKernel));
+        vm.prank(address(account));
+        account.executeKernelSwap(address(newKernel));
+        assertEq(account.hook(), address(newKernel), "the new guardian's approval must count toward real quorum");
+    }
+
+    /// @notice Full removal end-to-end: the removed guardian can no longer approve anything,
+    /// including a rotation attempting to reinstate them.
+    function test_guardianRemoval_FullLifecycle_RemovedGuardianCanNoLongerAct() public {
+        vm.prank(guardian1);
+        account.proposeGuardianRotation(false, guardian3);
+        uint256 nonce = account.guardianRotationNonce();
+        _approveGuardianRotationUnanimously(nonce);
+        account.executeGuardianRotation();
+
+        assertEq(account.guardians().length, 2, "guardian count must shrink by one");
+
+        vm.prank(guardian3);
+        vm.expectRevert(abi.encodeWithSelector(IntegrityAccountV1Experimental.NotAGuardian.selector, guardian3));
+        account.approveKernelSwap(0, address(0));
+
+        vm.prank(guardian3);
+        vm.expectRevert(abi.encodeWithSelector(IntegrityAccountV1Experimental.NotAGuardian.selector, guardian3));
+        account.proposeGuardianRotation(true, guardian3);
+    }
+
+    /// @notice The liveness bug found while writing rotation tests: guardians unanimously agree
+    /// to force-cancel a stuck swap, but the signer independently cancels it first (a normal race,
+    /// not an attack) -- executeGuardianAction can no longer succeed (NoSwapPending), and without
+    /// cancelPendingGuardianAction there would be no way to clear the now-permanently-stuck
+    /// pendingGuardianAction slot, which would otherwise block every future
+    /// proposeKernelSwap/guardianProposeAction/proposeGuardianRotation call forever.
+    function test_cancelPendingGuardianAction_RecoversFromSignerRaceThatWouldOtherwiseBrickGovernance()
+        public
+    {
+        IntegrityKernelV1Experimental someKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        vm.prank(address(account));
+        account.proposeKernelSwap(address(someKernel));
+
+        vm.prank(guardian1);
+        account.guardianProposeAction(true, address(0));
+        _approveGuardianActionUnanimously(account.guardianActionNonce());
+
+        // The signer independently cancels the swap the guardians were about to force-cancel --
+        // ordinary, good-faith behavior, not malicious.
+        vm.prank(address(account));
+        account.cancelKernelSwap();
+
+        // The guardian action can no longer execute -- the world moved on.
+        vm.expectRevert(IntegrityAccountV1Experimental.NoSwapPending.selector);
+        account.executeGuardianAction();
+
+        // Without the fix, pendingGuardianAction would now be permanently stuck, blocking every
+        // GUARDIAN-side governance entry point (the signer's own proposeKernelSwap was never
+        // gated on guardian-action state, so it stays usable throughout -- only
+        // guardianProposeAction/proposeGuardianRotation check pendingGuardianAction.active).
+        // Confirm that's genuinely what would happen without the escape hatch.
+        vm.prank(guardian1);
+        vm.expectRevert(IntegrityAccountV1Experimental.GuardianActionAlreadyPending.selector);
+        account.guardianProposeAction(true, address(0));
+        vm.prank(guardian1);
+        vm.expectRevert(IntegrityAccountV1Experimental.GuardianActionAlreadyPending.selector);
+        account.proposeGuardianRotation(true, makeAddr("newGuardian"));
+
+        // The fix: anyone can clear the stuck slot, and the guardian-side paths resume working.
+        account.cancelPendingGuardianAction();
+        vm.prank(guardian1);
+        account.guardianProposeAction(true, address(0));
+        (, uint256 readyAt) = account.pendingKernelSwap();
+        assertEq(readyAt, 0, "sanity: nothing pending, this force-cancel proposal is just to prove the path works again");
+    }
+
+    /// @notice Rotation cannot be proposed while a kernel swap is pending -- must be force- or
+    /// signer-cancelled first, per the "only one governance process in flight" invariant.
+    function test_proposeGuardianRotationRevertsWhileKernelSwapPending() public {
+        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        vm.prank(address(account));
+        account.proposeKernelSwap(address(newKernel));
+
+        vm.prank(guardian1);
+        vm.expectRevert(IntegrityAccountV1Experimental.SwapAlreadyPending.selector);
+        account.proposeGuardianRotation(true, makeAddr("newGuardian"));
+    }
+
+    /// @notice Rotation cannot be proposed while a guardian emergency action is pending, and
+    /// symmetrically neither a kernel swap nor a guardian action can be proposed while a rotation
+    /// is pending -- the invariant holds in both directions, not just one.
+    function test_crossMechanismLock_HoldsInBothDirections() public {
+        vm.prank(guardian1);
+        account.guardianProposeAction(true, address(0));
+        vm.prank(guardian2);
+        vm.expectRevert(IntegrityAccountV1Experimental.GuardianActionAlreadyPending.selector);
+        account.proposeGuardianRotation(true, makeAddr("newGuardian"));
+        // Clean up the guardian action so the next part of this test starts from a clean slate --
+        // via the dedicated cancel escape hatch, not by relying on executeGuardianAction to revert
+        // (a revert would undo any cleanup attempted in the same call).
+        account.cancelPendingGuardianAction();
+
+        vm.prank(guardian1);
+        account.proposeGuardianRotation(true, makeAddr("newGuardian"));
+
+        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        vm.prank(address(account));
+        vm.expectRevert(IntegrityAccountV1Experimental.GuardianRotationInProgress.selector);
+        account.proposeKernelSwap(address(newKernel));
+
+        vm.prank(guardian2);
+        vm.expectRevert(IntegrityAccountV1Experimental.GuardianRotationInProgress.selector);
+        account.guardianProposeAction(true, address(0));
+    }
+
+    // --- swap reentrancy guard (2026-08-18 proposal) --------------------------------------------
+
+    /// @dev `_fallback` is unconditionally reachable (no access control, unlike `execute()`) and
+    /// the account never installs a fallback handler module, so a reentrant fallback call
+    /// reverts EITHER WAY -- `ERC7579MissingFallbackHandler` without the guard,
+    /// `ReentrantDuringSwap` with it. The revert SELECTOR, not success/failure, is what proves
+    /// the guard actually intercepts the call before `preCheck` runs (closing the self-mediation
+    /// risk), rather than merely happening to fail for an unrelated, pre-existing reason.
+    function test_reentrantFallbackDuringInstallIsRejected() public {
+        ReentrantFallbackKernel reentrantKernel = new ReentrantFallbackKernel(account);
+
+        vm.prank(address(account));
+        account.proposeKernelSwap(address(reentrantKernel));
+        vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
+        kernel.refreshReputationSnapshot();
+        _approveWithTwoGuardians(account.kernelSwapNonce(), address(reentrantKernel));
+        vm.prank(address(account));
+        account.executeKernelSwap(address(reentrantKernel));
+
+        assertEq(
+            reentrantKernel.installReentrantRevertSelector(),
+            IntegrityAccountV1Experimental.ReentrantDuringSwap.selector,
+            "a hostile new kernel's onInstall reentrant attempt must be blocked by the swap-in-progress guard"
+        );
+    }
+
+    function test_reentrantFallbackDuringUninstallIsRejected() public {
+        ReentrantFallbackKernel reentrantKernel = new ReentrantFallbackKernel(account);
+
+        vm.prank(address(account));
+        account.proposeKernelSwap(address(reentrantKernel));
+        vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
+        kernel.refreshReputationSnapshot();
+        _approveWithTwoGuardians(account.kernelSwapNonce(), address(reentrantKernel));
+        vm.prank(address(account));
+        account.executeKernelSwap(address(reentrantKernel));
+
+        // A second swap away from the now-installed reentrant fixture -- its onUninstall fires
+        // as the OLD kernel this time.
+        IntegrityKernelV1Experimental finalKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        vm.prank(address(account));
+        account.proposeKernelSwap(address(finalKernel));
+        // Warp to the pending swap's exact readyAt rather than `block.timestamp + X` a second
+        // time in this function -- a known via_ir optimizer quirk documented elsewhere in this
+        // file can silently no-op a repeated `block.timestamp`-relative warp.
+        (, uint256 secondReadyAt) = account.pendingKernelSwap();
+        vm.warp(secondReadyAt);
+        _approveWithTwoGuardians(account.kernelSwapNonce(), address(finalKernel));
+        vm.prank(address(account));
+        account.executeKernelSwap(address(finalKernel));
+
+        assertEq(
+            reentrantKernel.uninstallReentrantRevertSelector(),
+            IntegrityAccountV1Experimental.ReentrantDuringSwap.selector,
+            "a hostile old kernel's onUninstall reentrant attempt must be blocked by the swap-in-progress guard"
+        );
+    }
+
+    // --- guardian emergency funds-recovery sweep (2026-08-18 proposal) -------------------------
+
+    address rescueRecipient = makeAddr("rescueRecipient");
+
+    function _approveRescueSweepUnanimously(uint256 nonce) internal {
+        vm.prank(guardian1);
+        account.approveGuardianRescueSweep(nonce);
+        vm.prank(guardian2);
+        account.approveGuardianRescueSweep(nonce);
+        vm.prank(guardian3);
+        account.approveGuardianRescueSweep(nonce);
+    }
+
+    function test_proposeGuardianRescueSweepRevertsForNonGuardian() public {
+        vm.expectRevert(abi.encodeWithSelector(IntegrityAccountV1Experimental.NotAGuardian.selector, address(this)));
+        account.proposeGuardianRescueSweep(payable(rescueRecipient), 1 ether, false);
+    }
+
+    function test_proposeGuardianRescueSweepRevertsOnZeroRecipient() public {
+        vm.prank(guardian1);
+        vm.expectRevert(IntegrityAccountV1Experimental.ZeroRescueRecipient.selector);
+        account.proposeGuardianRescueSweep(payable(address(0)), 1 ether, false);
+    }
+
+    function test_proposeGuardianRescueSweepRevertsIfAlreadyPending() public {
+        vm.prank(guardian1);
+        account.proposeGuardianRescueSweep(payable(rescueRecipient), 1 ether, false);
+        vm.prank(guardian2);
+        vm.expectRevert(IntegrityAccountV1Experimental.RescueSweepAlreadyPending.selector);
+        account.proposeGuardianRescueSweep(payable(rescueRecipient), 1 ether, false);
+    }
+
+    function test_approveGuardianRescueSweepRevertsOnWrongNonce() public {
+        vm.prank(guardian1);
+        account.proposeGuardianRescueSweep(payable(rescueRecipient), 1 ether, false);
+        uint256 currentNonce = account.rescueSweepNonce();
+        uint256 wrongNonce = currentNonce + 1;
+        vm.prank(guardian2);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IntegrityAccountV1Experimental.RescueSweepNonceMismatch.selector, currentNonce, wrongNonce
+            )
+        );
+        account.approveGuardianRescueSweep(wrongNonce);
+    }
+
+    function test_approveGuardianRescueSweepRevertsOnDoubleApproval() public {
+        vm.prank(guardian1);
+        account.proposeGuardianRescueSweep(payable(rescueRecipient), 1 ether, false);
+        uint256 nonce = account.rescueSweepNonce();
+        vm.prank(guardian1);
+        account.approveGuardianRescueSweep(nonce);
+        vm.prank(guardian1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IntegrityAccountV1Experimental.RescueSweepAlreadyApproved.selector, guardian1, nonce
+            )
+        );
+        account.approveGuardianRescueSweep(nonce);
+    }
+
+    /// @dev Mutation target: only 2 of 3 guardians approve -- enough for ordinary
+    /// `guardianThreshold` execution quorum, deliberately NOT enough for the sweep's unanimous bar.
+    function test_executeGuardianRescueSweepRevertsBelowUnanimity() public {
+        vm.prank(guardian1);
+        account.proposeGuardianRescueSweep(payable(rescueRecipient), 1 ether, false);
+        uint256 nonce = account.rescueSweepNonce();
+        vm.prank(guardian1);
+        account.approveGuardianRescueSweep(nonce);
+        vm.prank(guardian2);
+        account.approveGuardianRescueSweep(nonce);
+
+        vm.warp(block.timestamp + RESCUE_TIMELOCK);
+        vm.expectRevert(
+            abi.encodeWithSelector(IntegrityAccountV1Experimental.InsufficientRescueSweepApprovals.selector, 2, 3)
+        );
+        account.executeGuardianRescueSweep();
+    }
+
+    function test_executeGuardianRescueSweepRevertsBeforeTimelockElapses() public {
+        vm.prank(guardian1);
+        account.proposeGuardianRescueSweep(payable(rescueRecipient), 1 ether, false);
+        uint256 nonce = account.rescueSweepNonce();
+        _approveRescueSweepUnanimously(nonce);
+
+        (,,,, uint256 readyAt) = account.pendingRescueSweep();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IntegrityAccountV1Experimental.RescueTimelockNotElapsed.selector, readyAt, block.timestamp
+            )
+        );
+        account.executeGuardianRescueSweep();
+    }
+
+    function test_executeGuardianRescueSweepRevertsWhenNothingPending() public {
+        vm.expectRevert(IntegrityAccountV1Experimental.NoRescueSweepPending.selector);
+        account.executeGuardianRescueSweep();
+    }
+
+    function test_executeGuardianRescueSweepRevertsWhenPartialAmountExceedsBalance() public {
+        uint256 tooMuch = address(account).balance + 1 ether;
+        vm.prank(guardian1);
+        account.proposeGuardianRescueSweep(payable(rescueRecipient), tooMuch, false);
+        uint256 nonce = account.rescueSweepNonce();
+        _approveRescueSweepUnanimously(nonce);
+        vm.warp(block.timestamp + RESCUE_TIMELOCK);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IntegrityAccountV1Experimental.RescueSweepAmountExceedsBalance.selector,
+                tooMuch,
+                address(account).balance
+            )
+        );
+        account.executeGuardianRescueSweep();
+    }
+
+    function test_guardianRescueSweep_PartialAmount_Succeeds() public {
+        uint256 accountBalanceBefore = address(account).balance;
+        uint256 recipientBalanceBefore = rescueRecipient.balance;
+
+        vm.prank(guardian1);
+        account.proposeGuardianRescueSweep(payable(rescueRecipient), 2 ether, false);
+        uint256 nonce = account.rescueSweepNonce();
+        _approveRescueSweepUnanimously(nonce);
+        vm.warp(block.timestamp + RESCUE_TIMELOCK);
+        account.executeGuardianRescueSweep();
+
+        assertEq(address(account).balance, accountBalanceBefore - 2 ether, "exactly the requested amount must leave");
+        assertEq(rescueRecipient.balance, recipientBalanceBefore + 2 ether, "the recipient must receive exactly that amount");
+        (bool active,,,,) = account.pendingRescueSweep();
+        assertFalse(active, "the pending sweep must be cleared after execution");
+    }
+
+    function test_guardianRescueSweep_FullBalance_DrainsEverythingRegardlessOfRequestedAmount() public {
+        uint256 accountBalanceBefore = address(account).balance;
+        uint256 recipientBalanceBefore = rescueRecipient.balance;
+        assertGt(accountBalanceBefore, 0, "sanity: the account must actually hold funds for this test to mean anything");
+
+        // The `amount` field is irrelevant when sweepFullBalance is true -- proven, not assumed,
+        // by passing a value that does not match the real balance.
+        vm.prank(guardian1);
+        account.proposeGuardianRescueSweep(payable(rescueRecipient), 1 wei, true);
+        uint256 nonce = account.rescueSweepNonce();
+        _approveRescueSweepUnanimously(nonce);
+        vm.warp(block.timestamp + RESCUE_TIMELOCK);
+        account.executeGuardianRescueSweep();
+
+        assertEq(address(account).balance, 0, "the account must be fully drained");
+        assertEq(
+            rescueRecipient.balance, recipientBalanceBefore + accountBalanceBefore, "the recipient must receive the entire prior balance"
+        );
+    }
+
+    function test_cancelPendingGuardianRescueSweep_AllowsRepropose() public {
+        vm.prank(guardian1);
+        account.proposeGuardianRescueSweep(payable(rescueRecipient), 1 ether, false);
+        account.cancelPendingGuardianRescueSweep();
+        (bool active,,,,) = account.pendingRescueSweep();
+        assertFalse(active, "cancel must clear the pending sweep");
+
+        address otherRecipient = makeAddr("otherRescueRecipient");
+        vm.prank(guardian2);
+        account.proposeGuardianRescueSweep(payable(otherRecipient), 1 ether, false);
+        (, address payable to,,,) = account.pendingRescueSweep();
+        assertEq(to, otherRecipient, "a fresh proposal after cancellation must succeed with a new target");
+    }
+
+    /// @notice THE definitive test: a rescue sweep succeeds and recovers funds even when the
+    /// currently-installed kernel is permanently broken (reverts unconditionally in `preCheck`) --
+    /// the exact scenario `test_brokenKernelPreCheckPermanentlyBricksAccountWithNoRescuePath`
+    /// proves has NO recovery path via the normal kernel-swap machinery. This is what "funds
+    /// become stuck, not stolen, but irrecoverable" (§29's own framing) no longer means once this
+    /// mechanism exists -- the account stays permanently unable to `execute()`, but its funds are
+    /// not actually irrecoverable anymore.
+    function test_guardianRescueSweep_RecoversFundsFromAPermanentlyBrickedAccount() public {
+        AlwaysRevertingKernel brokenKernel = new AlwaysRevertingKernel();
+        vm.startPrank(address(account));
+        account.proposeKernelSwap(address(brokenKernel));
+        vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
+        kernel.refreshReputationSnapshot();
+        vm.stopPrank();
+        _approveWithTwoGuardians(account.kernelSwapNonce(), address(brokenKernel));
+        vm.prank(address(account));
+        account.executeKernelSwap(address(brokenKernel));
+        assertEq(account.hook(), address(brokenKernel), "sanity: the broken kernel is genuinely installed");
+
+        // Confirm the account is genuinely bricked -- execute() reverts...
+        bytes memory executionCalldata = abi.encodePacked(recipient, uint256(0.1 ether), bytes(""));
+        vm.expectRevert(AlwaysRevertingKernel.AlwaysReverts.selector);
+        vm.prank(address(account));
+        account.execute(_singleCallMode(), executionCalldata);
+
+        // ...and a normal rescue swap cannot save it either (the uninstall half must call the
+        // broken preCheck first).
+        IntegrityKernelV1Experimental normalRescueAttempt = _deployKernel(MIN_EFFECTIVE_SCORE);
+        vm.prank(address(account));
+        account.proposeKernelSwap(address(normalRescueAttempt));
+        (, uint256 normalRescueReadyAt) = account.pendingKernelSwap();
+        vm.warp(normalRescueReadyAt);
+        _approveWithTwoGuardians(account.kernelSwapNonce(), address(normalRescueAttempt));
+        vm.expectRevert(AlwaysRevertingKernel.AlwaysReverts.selector);
+        vm.prank(address(account));
+        account.executeKernelSwap(address(normalRescueAttempt));
+
+        // The rescue sweep, in contrast, never touches the broken kernel at all -- it succeeds.
+        uint256 accountBalanceBefore = address(account).balance;
+        assertGt(accountBalanceBefore, 0, "sanity: real funds are genuinely stuck in the bricked account");
+
+        vm.prank(guardian1);
+        account.proposeGuardianRescueSweep(payable(rescueRecipient), 0, true);
+        uint256 sweepNonce = account.rescueSweepNonce();
+        _approveRescueSweepUnanimously(sweepNonce);
+        vm.warp(block.timestamp + RESCUE_TIMELOCK);
+        account.executeGuardianRescueSweep();
+
+        assertEq(address(account).balance, 0, "the funds must be fully recovered despite the account remaining bricked");
+        assertEq(rescueRecipient.balance, accountBalanceBefore, "the recipient must receive everything that was stuck");
+
+        // The account itself remains permanently bricked -- this mechanism recovers funds, it
+        // does not repair the account.
+        vm.expectRevert(AlwaysRevertingKernel.AlwaysReverts.selector);
+        vm.prank(address(account));
+        account.execute(_singleCallMode(), executionCalldata);
     }
 }

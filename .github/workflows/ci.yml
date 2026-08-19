@@ -59,7 +59,7 @@ jobs:
           curl --fail -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
           echo "$HOME/.nargo/bin" >> "$GITHUB_PATH"
       - run: ~/.nargo/bin/noirup -v ${{ env.NARGO_VERSION }}
-      - run: nargo test
+      - run: nargo test --workspace
         working-directory: integrity-zkp
 
   oracle:

@@ -215,10 +215,10 @@ included in the signed payload, so neither can be swapped post-signature:
   limitation so a local/dev/test topology with no deployments file
   configured isn't turned into a blanket deny). This does **not** close the
   experimental kernel's own hook-frame replay-domain binding (a separate,
-  contract-side concern — see `CLAUDE_HANDOFF_2026-08-17.md` §9) or bind
-  `chain_id` into the ZK circuit's `intent_commitment`
-  (`integrity-zkp/src/main.nr` — a real, larger, cross-package residual gap,
-  not attempted here).
+  contract-side concern — see `CLAUDE_HANDOFF_2026-08-17.md` §9). As of
+  2026-08-18/19, `chain_id`/`verifying_contract` ARE also bound into the ZK
+  circuit's `intent_commitment` (`integrity-zkp/circuit/src/main.nr` — see
+  `PRODUCTION_GAPS.md` §36) — this residual gap is closed, not open.
 
 **Canonicalization, pinned:** the signature covers every field above except
 `signature` itself, serialized as `json.dumps(fields, sort_keys=True,
@@ -405,9 +405,12 @@ whichever of the two structs currently has room**, not just be appended to
 
 ## 5. Zero-knowledge proving pipeline (must be real, end-to-end)
 
-1. Circuit lives in `integrity-zkp/src/main.nr` (Noir). It proves: "I know a
-   private Ed25519-derived secret and an intent payload whose hash equals the
-   public `intended_state_hash`, without revealing the secret or full payload."
+1. Circuit lives in `integrity-zkp/circuit/src/main.nr` (Noir) — a workspace
+   member as of 2026-08-18/19 (`integrity-zkp/tools/commitment_calc` is the
+   other member; see that package's own docstring for why it exists). It
+   proves: "I know a private Ed25519-derived secret and an intent payload
+   whose hash equals the public `intended_state_hash`, without revealing the
+   secret or full payload," bound to a specific `chain_id`/`verifying_contract`.
    Keep the circuit's constraint logic real — no `assert(true)`-style shortcuts.
 2. Compile with `nargo compile` (produces the ACIR bytecode).
 3. Generate a proving/verification key and Solidity verifier with `bb`:

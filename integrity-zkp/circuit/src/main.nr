@@ -58,6 +58,13 @@
 //                                   //         and passed in as a private Field
 //             nonce,                // Field — the same BCC per-agent nonce (§4.2),
 //                                   //         public here, not secret
+//             chain_id,             // Field — the EVM chain ID this proof is
+//                                   //         valid for (public); see CHAIN /
+//                                   //         CONTRACT BINDING below
+//             verifying_contract,   // Field — the XibalbaAgentRegistry
+//                                   //         singleton address for this
+//                                   //         deployment (public); see
+//                                   //         CHAIN / CONTRACT BINDING below
 //         ])
 //
 //     integrity-sdk's `prover.py` MUST compute `intent_commitment` with
@@ -78,6 +85,27 @@
 //     truncation of a few high bits; both sdk and oracle must do this
 //     identical `bytes_be_to_field_mod_r` step — see README.md for the
 //     reference Python snippet).
+//
+// CHAIN / CONTRACT BINDING
+// --------------------------
+// `chain_id` and `verifying_contract` bind a proof to one specific chain
+// and one specific protocol deployment (`verifying_contract` is the
+// `XibalbaAgentRegistry` singleton address, matching the field integrity-sdk
+// already sources via `chain.load_deployments(...)["singletons"]
+// ["XibalbaAgentRegistry"]` for the non-ZK BCC binding — see bcc.py/
+// markets.py), mirroring the same binding already applied to the non-ZK BCC
+// commitment object (§4.2). An
+// Ethereum address is at most 160 bits and the BN254 scalar field is
+// ~254 bits, so `Field(uint256(address))` is an injective, lossless
+// packing with no truncation — the same conversion integrity-sdk's
+// `registration.py` already performs elsewhere for the non-ZK binding.
+// `chain_id` is packed the same way: `Field(uint256(chain_id))`, no
+// reduction needed for realistic chain IDs. Without this binding, a valid
+// proof generated against one deployment (e.g. testnet) could be replayed
+// verbatim against another deployment of the same contracts (e.g. a
+// second testnet fork, or a future mainnet deployment reusing the same
+// `agent_id_commitment`) since nothing in the original circuit tied the
+// proof to where it would be submitted.
 //
 // KEY MATERIAL — SCOPE AND AN HONEST LIMITATION
 // -----------------------------------------------
@@ -139,6 +167,13 @@ fn main(
     nonce: pub Field,
     // The value this proof must reproduce from the private witnesses.
     intent_commitment: pub Field,
+    // The EVM chain ID this proof is valid for. See CHAIN / CONTRACT
+    // BINDING above.
+    chain_id: pub Field,
+    // The ReputationRegistry contract address this proof is submitted to,
+    // packed as Field(uint256(address)). See CHAIN / CONTRACT BINDING
+    // above.
+    verifying_contract: pub Field,
 ) {
     // Defensive: a nonce of 0 is the typical "uninitialized struct field"
     // sentinel in most languages sdk/oracle might be written in. Reject it
@@ -170,6 +205,8 @@ fn main(
         secret_key,
         intent_payload_hash,
         nonce,
+        chain_id,
+        verifying_contract,
     ]);
     assert(derived_intent == intent_commitment);
 }
@@ -193,6 +230,8 @@ fn test_valid_binding() {
     let secret_key = 0x1234;
     let intent_payload_hash = 0xabcdef;
     let nonce = 42;
+    let chain_id = 84532; // Base Sepolia
+    let verifying_contract = 0x5FbDB2315678afecb367f032d93F642f64180aa;
 
     let agent_id_commitment = std::hash::pedersen_hash([DOMAIN_IDENTITY, secret_key]);
     let intent_commitment = std::hash::pedersen_hash([
@@ -200,9 +239,19 @@ fn test_valid_binding() {
         secret_key,
         intent_payload_hash,
         nonce,
+        chain_id,
+        verifying_contract,
     ]);
 
-    main(secret_key, intent_payload_hash, agent_id_commitment, nonce, intent_commitment);
+    main(
+        secret_key,
+        intent_payload_hash,
+        agent_id_commitment,
+        nonce,
+        intent_commitment,
+        chain_id,
+        verifying_contract,
+    );
 }
 
 #[test(should_fail)]
@@ -212,6 +261,8 @@ fn test_invalid_binding_wrong_secret() {
     let real_secret = 0x1234;
     let intent_payload_hash = 0xabcdef;
     let nonce = 42;
+    let chain_id = 84532;
+    let verifying_contract = 0x5FbDB2315678afecb367f032d93F642f64180aa;
 
     let agent_id_commitment = std::hash::pedersen_hash([DOMAIN_IDENTITY, real_secret]);
     let intent_commitment = std::hash::pedersen_hash([
@@ -219,13 +270,23 @@ fn test_invalid_binding_wrong_secret() {
         real_secret,
         intent_payload_hash,
         nonce,
+        chain_id,
+        verifying_contract,
     ]);
 
     // An impostor who does not hold `real_secret` tries to substitute
     // their own secret and still claim the real agent's public
     // commitments. Constraint 1 (identity binding) must reject this.
     let impostor_secret = 0x9999;
-    main(impostor_secret, intent_payload_hash, agent_id_commitment, nonce, intent_commitment);
+    main(
+        impostor_secret,
+        intent_payload_hash,
+        agent_id_commitment,
+        nonce,
+        intent_commitment,
+        chain_id,
+        verifying_contract,
+    );
 }
 
 #[test(should_fail)]
@@ -238,6 +299,8 @@ fn test_invalid_binding_wrong_payload() {
     let real_payload_hash = 0xabcdef;
     let substituted_payload_hash = 0x111111;
     let nonce = 42;
+    let chain_id = 84532;
+    let verifying_contract = 0x5FbDB2315678afecb367f032d93F642f64180aa;
 
     let agent_id_commitment = std::hash::pedersen_hash([DOMAIN_IDENTITY, secret_key]);
     let intent_commitment = std::hash::pedersen_hash([
@@ -245,9 +308,19 @@ fn test_invalid_binding_wrong_payload() {
         secret_key,
         real_payload_hash,
         nonce,
+        chain_id,
+        verifying_contract,
     ]);
 
-    main(secret_key, substituted_payload_hash, agent_id_commitment, nonce, intent_commitment);
+    main(
+        secret_key,
+        substituted_payload_hash,
+        agent_id_commitment,
+        nonce,
+        intent_commitment,
+        chain_id,
+        verifying_contract,
+    );
 }
 
 #[test(should_fail)]
@@ -257,6 +330,8 @@ fn test_invalid_binding_zero_nonce() {
     let secret_key = 0x1234;
     let intent_payload_hash = 0xabcdef;
     let nonce = 0;
+    let chain_id = 84532;
+    let verifying_contract = 0x5FbDB2315678afecb367f032d93F642f64180aa;
 
     let agent_id_commitment = std::hash::pedersen_hash([DOMAIN_IDENTITY, secret_key]);
     let intent_commitment = std::hash::pedersen_hash([
@@ -264,7 +339,85 @@ fn test_invalid_binding_zero_nonce() {
         secret_key,
         intent_payload_hash,
         nonce,
+        chain_id,
+        verifying_contract,
     ]);
 
-    main(secret_key, intent_payload_hash, agent_id_commitment, nonce, intent_commitment);
+    main(
+        secret_key,
+        intent_payload_hash,
+        agent_id_commitment,
+        nonce,
+        intent_commitment,
+        chain_id,
+        verifying_contract,
+    );
 }
+
+#[test(should_fail)]
+fn test_invalid_binding_wrong_chain_id() {
+    // A proof legitimately constructed for chain_id 84532 (Base Sepolia)
+    // must not verify when the caller claims a different chain_id at the
+    // public-input boundary — this is exactly the cross-deployment replay
+    // this binding exists to stop.
+    let secret_key = 0x1234;
+    let intent_payload_hash = 0xabcdef;
+    let nonce = 42;
+    let real_chain_id = 84532;
+    let wrong_chain_id = 8453; // Base mainnet, not Base Sepolia
+    let verifying_contract = 0x5FbDB2315678afecb367f032d93F642f64180aa;
+
+    let agent_id_commitment = std::hash::pedersen_hash([DOMAIN_IDENTITY, secret_key]);
+    let intent_commitment = std::hash::pedersen_hash([
+        DOMAIN_INTENT,
+        secret_key,
+        intent_payload_hash,
+        nonce,
+        real_chain_id,
+        verifying_contract,
+    ]);
+
+    main(
+        secret_key,
+        intent_payload_hash,
+        agent_id_commitment,
+        nonce,
+        intent_commitment,
+        wrong_chain_id,
+        verifying_contract,
+    );
+}
+
+#[test(should_fail)]
+fn test_invalid_binding_wrong_verifying_contract() {
+    // Same idea as the chain_id test, but for the contract address half of
+    // the binding: a proof built for one XibalbaAgentRegistry deployment
+    // must not verify against a claimed different deployment address.
+    let secret_key = 0x1234;
+    let intent_payload_hash = 0xabcdef;
+    let nonce = 42;
+    let chain_id = 84532;
+    let real_verifying_contract = 0x5FbDB2315678afecb367f032d93F642f64180aa;
+    let wrong_verifying_contract = 0x0000000000000000000000000000000000dEaD;
+
+    let agent_id_commitment = std::hash::pedersen_hash([DOMAIN_IDENTITY, secret_key]);
+    let intent_commitment = std::hash::pedersen_hash([
+        DOMAIN_INTENT,
+        secret_key,
+        intent_payload_hash,
+        nonce,
+        chain_id,
+        real_verifying_contract,
+    ]);
+
+    main(
+        secret_key,
+        intent_payload_hash,
+        agent_id_commitment,
+        nonce,
+        intent_commitment,
+        chain_id,
+        wrong_verifying_contract,
+    );
+}
+
