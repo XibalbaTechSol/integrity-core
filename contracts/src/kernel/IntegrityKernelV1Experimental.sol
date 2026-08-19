@@ -41,9 +41,17 @@ import {ReputationRegistry} from "../oracle/ReputationRegistry.sol";
 /// a second refresh happens. Neither failure is destructive (a reverted swap leaves the prior
 /// state intact; `refreshReputationSnapshot` is cheap and permissionless), but both are easy to
 /// mistake for a reputation problem when they are actually a parameter-choice problem. This is
-/// also found by adversarial review, not by design-time analysis -- deploy scripts and operators
-/// must respect this ordering; nothing in either contract enforces it across the two, since the
-/// account and kernel are constructed independently and neither knows the other's parameters.
+/// also found by adversarial review, not by design-time analysis.
+///
+/// **As of 2026-08-19, `IntegrityAccountV1Experimental` enforces this at the one point a
+/// mismatched kernel could actually be installed** (`_checkEpochCompatibility`, called from its
+/// constructor and every kernel-swap-proposal path) -- WITH a disclosed, deliberate gap: the
+/// check is a `try`/`catch` probe of this kernel's `epochLengthSeconds()`, so it only applies to
+/// a `newKernel` that implements that function at all; a hypothetical future kernel with no
+/// epoch concept is not required to, and is not rejected. See that contract's own
+/// `moduleActionTimelockSeconds` doc comment for the full statement. This is no longer purely "a
+/// deploy scripts and operators must respect this" discipline for THIS kernel's own case, but the
+/// account contract, not this one, is where that enforcement actually lives.
 ///
 /// Guarantee this kernel actually provides, stated precisely (do not extend this claim beyond
 /// what's written here): while installed and while the bound account's `execute()` is invoked

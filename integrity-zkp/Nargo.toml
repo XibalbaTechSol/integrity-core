@@ -1,6 +1,3 @@
-[package]
-name = "integrity_zkp"
-type = "bin"
-authors = [""]
-
-[dependencies]
+[workspace]
+members = ["circuit", "tools/commitment_calc"]
+default-member = "circuit"

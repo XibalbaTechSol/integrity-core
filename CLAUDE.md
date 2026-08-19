@@ -173,14 +173,22 @@ attestation. All 7 agents registered before this change still report `latestRoot
 
 ### ZK proof pipeline (the reputation boost)
 
-`integrity-zkp/src/main.nr` is the real circuit ("Intent/Key Binding"): proves (1) the prover
-holds the secret behind the agent's published `agent_id_commitment`, and (2) that secret + a
-specific intent payload + a BCC nonce reproduce a public `intent_commitment` — both via Pedersen
-hashes, without revealing the secret or full payload. `secret_key` is a KDF'd stand-in for the
+`integrity-zkp/circuit/src/main.nr` is the real circuit ("Intent/Key Binding") — as of
+2026-08-18/19, `integrity-zkp` is a two-member Nargo workspace (`circuit/` + `tools/
+commitment_calc/`, the latter an offline Pedersen-hash calculator `prover.py` shells out to
+before it can write `circuit/Prover.toml` — see that package's own docstring for why). The
+circuit proves (1) the prover holds the secret behind the agent's published
+`agent_id_commitment`, and (2) that secret + a specific intent payload + a BCC nonce + `chain_id`
++ `verifying_contract` reproduce a public `intent_commitment` — both via Pedersen hashes, without
+revealing the secret or full payload. `chain_id`/`verifying_contract` binding (closing
+cross-deployment proof replay, mirroring the non-ZK BCC commitment's own binding) landed
+2026-08-18/19 — see `PRODUCTION_GAPS.md` §36. `secret_key` is a KDF'd stand-in for the
 real Ed25519 seed (documented scope limitation, not a mock — full in-circuit Ed25519 verification
 would need a bignum/foreign-field library).
 
-Flow: agent (`integrity-sdk`'s `prover.py`) runs `nargo execute` + `bb prove` → calls
+Flow: agent (`integrity-sdk`'s `prover.py`, actually wired to this real circuit as of
+2026-08-18/19 — previously it pointed at a placeholder and had no call sites or tests at all)
+runs `nargo execute` + `bb prove` → calls
 `ReputationRegistry.submitZkAttestation(agent, proof, publicInputs, root, leaf, merkleProof)`
 (only `msg.sender == agent`, to block cross-agent replay) → contract checks the leaf against an
 oracle-anchored Merkle root via `StateAnchor.verifyLeaf`, then checks the proof via
@@ -191,8 +199,10 @@ pinning) → on success sets a 7-day `zkBoostExpiry`. `effectiveScore()` returns
 `CCIPReputationBridge` (the boost itself is never bridged — must be re-earned per chain).
 
 Two other Noir packages exist and are NOT the real pipeline: `integrity-sdk/circuits/
-poc_commitment/` (an earlier placeholder, same shape as the real circuit) and
-`integrity-oracle/backend/tests/fixtures/zk_smoke/` (a Rust-side test fixture only).
+poc_commitment/` (an earlier placeholder, same shape as the real circuit — now fully
+unreferenced by any code in the repo as of 2026-08-18/19, since `prover.py` was repointed at the
+real circuit; left in place, not deleted, per this codebase's own "dead, not deleted" precedent)
+and `integrity-oracle/backend/tests/fixtures/zk_smoke/` (a Rust-side test fixture only).
 
 ### AIS scoring
 

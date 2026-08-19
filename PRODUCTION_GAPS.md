@@ -1766,3 +1766,770 @@ windows from the kernel-swap review, the no-recovery-path broken-kernel-brick cl
 two contracts) all remain unbuilt/unresolved. No external audit. Not deployed to Base Sepolia or
 anywhere else, and none of today's work is grounds to deploy it — that remains a separate, later,
 separately-approved decision.
+
+## 30. BCC `chain_id`/`verifying_contract` binding — closes the general-purpose half of the
+canonical intent encoding gap (2026-08-18)
+
+*Current State:* per `docs/plans/2026-08-18-phase1-canonical-intent-encoding-proposal.md`, the
+BCC commitment schema (§4.2) now requires and signs two new fields: `chain_id` (EVM chain ID) and
+`verifying_contract` (the target chain's `XibalbaAgentRegistry` address). Before this, a
+commitment signed once was valid, byte-for-byte, against any chain or any deployment of the
+protocol sharing the signing agent's DID — `nonce` is monotonic per-agent but not
+deployment-scoped, so it didn't close this. Implemented identically across `integrity-sdk/bcc.py`,
+`integrity-cli/bcc.py`, and `bcc_middleware/app/{schemas,canonical}.py`; every real production
+call site updated (`integrity-sdk/markets.py`'s three BCC-integrated market flows,
+`integrity-sdk/telemetry/intent.py`'s `invoke_intent`, `integrity-cli/main.py`'s `agent intercept`
+command, `integrity-dashboard/demo/heartbeat.py`).
+
+`bcc_middleware/app/main.py` gained a new deployment-binding check (step 1b, before signature
+verification — cheapest, no crypto, no I/O). **A real, disclosed design adjustment from the
+proposal's original framing:** the proposal described both fields as an unconditional hard deny.
+In implementation, `chain_id` IS enforced unconditionally (`Settings.chain_id` always has a
+value). `verifying_contract` is enforced only when this deployment has a configured
+`XibalbaAgentRegistry` address (`Settings.contract_address("XibalbaAgentRegistry")` returns
+non-`None`) — most of the existing local/dev/test topology runs with no deployments file
+configured at all (`bcc_middleware/tests/conftest.py`'s `deployments.local.json` is `touch()`ed
+empty; several tests explicitly point at a nonexistent deployments file, e.g.
+`test_chain_baa_anchor.py`'s "Explicit, nonexistent deployments_file" case), and making
+`verifying_contract` an unconditional fail-closed check would have turned that whole existing
+posture into a blanket deny — a materially larger blast radius than this slice's own proposal
+disclosed ("pure Python wire-schema + middleware validation... lower blast radius"). Stated
+plainly here rather than silently shipped as the originally-described unconditional check.
+
+**What this does NOT close**, matching the proposal's own explicit deferrals: the experimental
+kernel's own hook-frame replay-domain binding (account, kernel/profile, execution depth, action
+digest, pre-state digest, configuration epoch — `CLAUDE_HANDOFF_2026-08-17.md` §9) is untouched,
+separate, contract-side, larger scope. Binding `chain_id` into the ZK circuit's
+`intent_commitment` (`integrity-zkp/src/main.nr`) is untouched — the Pedersen hash still covers
+only `secret_key`, `intent_payload_hash`, `agent_id_commitment`, `nonce`; adding a public input
+means a circuit change, verifying-key regen, and `UltraPlonkVerifier` regen, real cross-package
+work not attempted here. A `verifying_contract` mismatch against an *unconfigured* registry is
+never enforced by this slice — a real, disclosed residual, not a silent gap: an operator relying
+on this binding for a production deployment must confirm `DEPLOYMENTS_FILE` actually resolves a
+`XibalbaAgentRegistry` entry, or the check silently no-ops for that field.
+
+Tests: `bcc_middleware/tests/test_deployment_binding.py` (new) covers chain_id mismatch denied,
+verifying_contract mismatch denied when configured, verifying_contract NOT enforced when
+unconfigured, and schema-level rejection of missing/malformed fields. `bcc_middleware/tests/
+helpers.py`'s `sign_commitment` gained defaulted `chain_id`/`verifying_contract` params (sourced
+from `default_settings.chain_id` and a placeholder address respectively) so the existing ~75-test
+suite continues to exercise the same behavior it did before this change, without per-test edits.
+`integrity-cli/tests/test_bcc.py` updated for the new required positional params and field-set
+assertion. Cross-repo: `xibalba-shield/shield/integrity_exporter` calls
+`integrity_sdk.bcc.build_bcc_commitment` directly and needed a matching update — see that repo's
+own history for the corresponding change, tracked separately from this repo's scope.
+
+## 31. Guardian M-of-N quorum on kernel-swap execution — closes unilateral swap *execution*, not
+unilateral swap *denial* (2026-08-19)
+
+*Current State:* per `docs/plans/2026-08-18-phase1-multiparty-kernel-governance-proposal.md`,
+`IntegrityAccountV1Experimental` gained an immutable guardian set (`address[] guardians()`) and
+threshold (`guardianThreshold`), set once at construction (no rotation mechanism in this slice).
+`proposeKernelSwap`/`cancelKernelSwap` remain unchanged, single-signer (`onlyEntryPointOrSelf`)
+— proposing/cancelling stays low-stakes by design, deliberately not gated, to avoid making swap
+*denial* itself a multi-party negotiation. `executeKernelSwap` gained a fourth precondition:
+`kernelSwapApprovalCount[kernelSwapNonce] >= guardianThreshold`, checked after the pre-existing
+three (pending exists, address match, timelock elapsed) and before the uninstall/install
+sequence — verified independently gating alongside, not instead of, those three
+(`test_existingSingleSignerPreconditionsStillGateAlongsideQuorum`). A new
+`approveKernelSwap(uint256 expectedNonce, address newKernel)` entry point is guardian-only,
+nonce-scoped (`kernelSwapNonce` bumped once per `proposeKernelSwap`, so a stale approval from a
+cancelled or already-executed proposal can never silently count toward a later one —
+`test_approvalFromACancelledProposalDoesNotCountTowardARepropose`), and idempotent per guardian
+per nonce (`test_approveKernelSwapDoesNotDoubleCountTheSameGuardianUnderTheSameNonce`).
+
+**What this closes, precisely:** before this slice, a single compromised signer key, waiting out
+the timelock, could force any kernel swap alone. After it, that same key can still *propose* and
+start the clock, but cannot *execute* without independently convincing `guardianThreshold`
+guardians — distinct keys, not derived from the account signer — to each submit their own
+on-chain approval.
+
+**What this does NOT close, disclosed and accepted, not solved:**
+- **Unilateral swap denial.** `proposeKernelSwap`/`cancelKernelSwap` stay signer-only; a
+  compromised or uncooperative signer can park an unwanted proposal in the single pending-swap
+  slot indefinitely (never cancelling, never letting guardians act on anything), denying the
+  account — including a legitimate rescue swap — for as long as the signer withholds a cancel.
+  Letting guardians cancel at threshold would close this but reintroduces a stuck-negotiation
+  failure mode this proposal deliberately rejected for `cancelKernelSwap`.
+- **Guardian collusion or guardian-key compromise at or above threshold.** An M-of-N quorum is
+  only as strong as the independence of the M keys, which the contract cannot verify or enforce
+  — an operational/deployment discipline, not a code guarantee.
+- **Guardian-set rotation.** The set is immutable forever at construction — simple to reason
+  about, but an unreachable or permanently-departed guardian permanently raises the effective bar
+  toward "impossible," never toward "insecure." A future slice would need a second, probably
+  also-guardian-gated rotation mechanism if this is adopted further.
+- **The two pre-existing reentrancy windows and the broken-kernel brick scenario from §29's
+  tracer-bullet entry.** A malicious or buggy `newKernel` that passes the `isModuleType` probe
+  can still brick the account after a fully-guardian-approved swap; quorum raises the bar for
+  *who* can propose a bad swap and get it through, not whether the swap itself is safe once
+  approved.
+- **A second, permanent break of the "hook mediates every reachable state-changing path" claim.**
+  `approveKernelSwap` is guardian-callable directly, deliberately not routed through
+  `execute()`/`withHook` (gating a guardian behind the account's own hook would be circular).
+  Proven empirically, not just asserted, by `test_approveKernelSwapIsNotMediatedByTheInstalledHook`
+  (installs a permanently-`preCheck`-reverting kernel, shows guardian approvals still succeed).
+  Both `docs/design/phase1-tracer-bullet-slice-2026-08-17.md` and this contract's own NatSpec now
+  disclose this, alongside the pre-existing swap install/uninstall mediation asymmetry.
+- **A genuinely new failure mode, not a restated one: quorum-gathering can itself stale the
+  reputation snapshot.** Guardian approval-gathering takes real elapsed time (the timelock, then
+  M separate guardian transactions), which can exhaust the outgoing kernel's `epochLengthSeconds`
+  even when the snapshot was fresh at the moment gathering began — not just via the pre-existing
+  timelock-vs-epoch collision every other success-path test already routes around with a single
+  upfront refresh. Regression-tested end to end, not left as a restated theoretical risk:
+  `test_quorumGatheringCanStaleTheSnapshotBetweenApprovals` assembles quorum with a warp *between*
+  the two guardian approvals, confirms `executeKernelSwap` reverts `SnapshotStale` (not
+  `InsufficientGuardianApprovals` — full quorum was genuinely reached), then confirms the
+  permissionless `refreshReputationSnapshot()` recovers it.
+
+**Verification discipline applied:** strict red→green TDD per the proposal's process section.
+Mutation-tested both new security-relevant guards — temporarily removed the
+`InsufficientGuardianApprovals` threshold check (caught by
+`test_executeKernelSwapRevertsBelowGuardianThreshold` and, incidentally,
+`test_approvalFromACancelledProposalDoesNotCountTowardARepropose`) and the nonce-equality check in
+`approveKernelSwap` (caught by `test_approveKernelSwapRevertsOnWrongNonce` — the cancelled-nonce
+replay test does NOT catch this mutation, since approvals are indexed by the *current* nonce
+regardless of what a guardian claims, so that guard protects intent-matching, not storage
+isolation; both guards restored after confirming detection). Constructor edge cases covered:
+threshold 0, threshold > guardian count, duplicate guardian address, zero-address guardian
+(`test_constructorRevertsOnZeroGuardianThreshold`, `test_constructorRevertsWhenThresholdExceedsGuardianCount`,
+`test_constructorRevertsOnDuplicateGuardian`, `test_constructorRevertsOnZeroAddressGuardian`).
+The proposal's third named adversarial-pass item — "interaction with the existing reentrancy
+windows (does a reentrant call during onInstall/onUninstall see stale or fresh approval state?)"
+— is answered empirically, not left open, by `test_reentrancyDuringInstallAndUninstallObservesFreshApprovalsAndEmptyPending`:
+a `ReentrancyObserverKernel` fixture plays "new kernel" (onInstall) in one swap and "old kernel"
+(onUninstall) in a following one. Answer: `pendingKernelSwap` is already cleared (empty) at BOTH
+callback points (`delete pendingKernelSwap` runs before either half), but
+`kernelSwapApprovalCount` for the just-consumed nonce is NOT cleared alongside it — a reentrant
+reader sees the full, fresh approval count next to an empty pending slot. Separately proves this
+window cannot be used to *mutate* quorum state: a reentrant `proposeKernelSwap` call from inside
+the callback reverts (`msg.sender` there is the kernel contract itself, neither `self` nor the
+entry point) and a reentrant `approveKernelSwap` call reverts (that same address is not a
+registered guardian). The two pre-existing reentrancy windows this test exercises remain open and
+disclosed, per §29's tracer-bullet entry — this only closes the *quorum-specific* question the
+proposal asked, not the windows themselves.
+
+Gas measured directly from call traces, not assumed unchanged: `proposeKernelSwap` 67,886 (cold);
+`approveKernelSwap` 49,771 first guardian / 27,871 second guardian (cold vs. one-less-cold slot);
+`executeKernelSwap` 41,268. `IntegrityAccountV1ExperimentalTest` suite: 41 → 55 tests (+14: 9
+scope-enumerated guardian-quorum tests, 4 constructor edge cases, 1 reentrancy-window
+observation), all passing; full repo suite 264/264 (up from 250 before this slice). The 5
+pre-existing tests that call `executeKernelSwap` on a success path were updated to gather
+guardian approval first, not left broken.
+
+**Not deployed anywhere.** Foundry-test-only, local, uncommitted at time of writing, same
+standing rule as every prior Phase I slice — no push/commit/deploy without separate explicit
+authorization.
+
+## 32. Guardian emergency action — closes unilateral swap *denial*, both forms (2026-08-18)
+
+*Current State:* per `docs/plans/2026-08-18-phase1-guardian-swap-denial-proposal.md` (Option B,
+user-selected), `IntegrityAccountV1Experimental` gained a third, fully signer-independent
+governance path: `guardianProposeAction(bool isCancel, address newKernel)` /
+`approveGuardianAction(uint256 expectedNonce)` / `executeGuardianAction()`. Unlike
+`approveKernelSwap` (§31, gates an already signer-initiated swap's *execution*), this path
+requires no signer action anywhere — a guardian starts it, and it is gated by **unanimous**
+approval (all of `_guardians`, not merely `guardianThreshold`), deliberately the highest bar in
+the contract, since this is the one path where the signer's cooperation is never required.
+
+**What this closes, precisely:** §31 left two denial gaps open, both now closed by one mechanism:
+(1) a signer who proposes a swap and then refuses to cancel can no longer park it forever —
+guardians unanimously force-cancel (`isCancel: true`); (2) a signer who is gone entirely (lost
+key, unresponsive) previously left guardians with *nothing to act on at all*, since only the
+signer could call `proposeKernelSwap` — guardians can now unanimously force-propose a new swap
+from scratch (`isCancel: false`), with no pending swap required first.
+
+**A real design gap found and fixed during implementation, not assumed away:** a force-proposed
+swap still has to pass through the *existing* `executeKernelSwap` to actually land — and that
+function was `onlyEntryPointOrSelf`, signer-only, unconditionally. An absent signer could never
+call it, so the rescue would have stalled at the last step even with full guardian consensus and
+an elapsed timelock. Fixed, with the user's explicit sign-off on the tradeoff (asked and answered
+plainly, not decided silently): `executeKernelSwap`'s caller check now accepts the entry point,
+the account itself, **or any single guardian** — `if (msg.sender != address(this) && msg.sender
+!= address(entryPoint()) && !_isGuardian[msg.sender]) revert AccountUnauthorized(msg.sender);`.
+This widens *who may submit* the call; it does not weaken *what is required to succeed* — the
+four existing preconditions (pending exists, address match, timelock elapsed,
+`kernelSwapApprovalCount[kernelSwapNonce] >= guardianThreshold`) are untouched and still
+independently gate every caller. Proven, not assumed:
+`test_executeKernelSwapCallableByGuardian_StillEnforcesExecutionQuorum` (a guardian calling before
+quorum still hits `InsufficientGuardianApprovals`) and
+`test_executeKernelSwapRevertsForUnrelatedCaller_EvenAtFullQuorum` (a non-guardian, non-signer
+stranger is rejected even once every other precondition, including quorum, is satisfied).
+
+**Deliberate design choice: force-propose requires nothing already pending, not an atomic
+override.** If a swap is stuck (case 1 above) and guardians also want a different kernel
+installed (case 2), they must force-cancel first, then force-propose — two separate unanimous
+actions, not one combined one. Keeps each guardian action's blast radius to exactly one state
+transition; `test_guardianForcePropose_RevertsIfSwapAlreadyPending` proves this is enforced, not
+merely intended.
+
+**A force-proposed swap is indistinguishable from a signer-proposed one once created** — it bumps
+`kernelSwapNonce` exactly as `proposeKernelSwap` does (proven by
+`test_guardianForcePropose_UnresponsiveSigner_FullRescueWithNoSignerInvolvement`, which asserts
+the nonce increment directly), so it needs the *same* `guardianThreshold` M-of-N execution quorum
+via the pre-existing `approveKernelSwap`, and is subject to the same timelock — no shortcut for
+either. This was a deliberate design choice (share the existing bookkeeping rather than invent
+parallel machinery) specifically to avoid reopening the class of bug `kernelSwapNonce` already
+solved once for proposal-to-proposal replay.
+
+**What this does NOT close, disclosed and accepted, not solved:**
+- **Guardian collusion or compromise at unanimity.** Raising the bar from `guardianThreshold` to
+  N-of-N raises the cost of an attack, it does not make the guardian set's honesty verifiable
+  on-chain — same standing caveat as §31's own execution quorum, at a stricter threshold.
+- **Guardian-set rotation.** Still absent (tracked separately,
+  `docs/plans/2026-08-18-phase1-guardian-rotation-proposal.md`). An unreachable guardian now
+  raises TWO bars toward impossible instead of one: the existing M-of-N execution threshold, and
+  this slice's new N-of-N emergency threshold — losing even one guardian permanently makes the
+  emergency path unusable, a real, disclosed cost of choosing unanimity.
+- **The broken-kernel brick scenario.** A force-proposed swap's uninstall half still calls the
+  outgoing kernel's `preCheck` (unchanged — `executeKernelSwap`'s uninstall/install mediation
+  asymmetry from §29 is untouched by this slice). A kernel that reverts unconditionally there
+  remains unrescuable by this mechanism alone; see
+  `docs/plans/2026-08-18-phase1-broken-kernel-rescue-proposal.md`, which explicitly builds on this
+  slice's guardian-origination machinery rather than duplicating it.
+- **The two pre-existing reentrancy windows from §29.** Orthogonal — unrelated to who originates
+  or authorizes a swap.
+- **A third, permanent exception to "hook mediates every reachable path."** Alongside
+  `approveKernelSwap` (§31), `guardianProposeAction`/`approveGuardianAction`/`executeGuardianAction`
+  are guardian-callable directly, never routed through `execute()`/`withHook` — gating an
+  emergency, signer-independent path behind the account's own hook would be circular. Both
+  `IntegrityAccountV1Experimental.sol`'s own NatSpec and
+  `docs/design/phase1-tracer-bullet-slice-2026-08-17.md` (pending amendment — see Scope: in below)
+  must disclose this as the third exception, not a silent extension of the second.
+
+**Verification discipline applied:** mutation-tested all three security-relevant guards this
+slice adds/changes, restored after confirming each was caught: (1) the unanimity check in
+`executeGuardianAction` weakened to `guardianThreshold` instead of `_guardians.length` — caught by
+`test_executeGuardianActionRevertsBelowUnanimity` failing with a different error
+(`NoSwapPending()` instead of the expected `InsufficientGuardianActionApprovals`, since a
+weakened-to-2 threshold let a force-cancel with no real pending swap slip past the approval gate
+and hit the next, unrelated check instead); (2) the nonce-mismatch check in `approveGuardianAction`
+removed — caught by `test_approveGuardianActionRevertsOnWrongNonce`; (3) the widened caller check
+on `executeKernelSwap` removed entirely — caught by
+`test_executeKernelSwapRevertsForUnrelatedCaller_EvenAtFullQuorum`. Strict red→green TDD was not
+followed test-by-test for this slice (implementation and tests were written together, not
+failing-test-first per function), a real deviation from this codebase's stated discipline,
+disclosed here rather than silently omitted — the mutation-testing pass after the fact is what
+substitutes for it, not a replacement for having done TDD, but real evidence the guards work.
+
+Gas measured directly from call traces, not assumed unchanged. Force-cancel path:
+`guardianProposeAction(true, address(0))` 49,282 (cold); `approveGuardianAction` 49,256 first
+guardian / 25,356 second / 27,356 third (unanimity, so all three guardians pay, unlike
+`approveKernelSwap`'s two-of-three); `executeGuardianAction` (force-cancel) 5,262 (cheap — only
+clears two storage slots). Force-propose path: `guardianProposeAction(false, newKernel)` 50,310
+(cold, includes the `isModuleType` probe); `approveGuardianAction` 47,256 / 27,356 / 27,356;
+`executeGuardianAction` (force-propose) 65,566 (writes `pendingKernelSwap`, bumps
+`kernelSwapNonce`); the subsequent `executeKernelSwap` called by a guardian (not the signer)
+41,625 — matching §31's own signer-called measurement (41,268) closely, confirming the widened
+caller check adds negligible cost to the already-measured function.
+
+`IntegrityAccountV1ExperimentalTest` suite: 55 → 71 tests (+16: guardian-action propose/approve/
+execute validation, both denial scenarios end-to-end with zero signer involvement, the
+already-pending and nothing-pending negative cases for each action type, and two tests confirming
+`executeKernelSwap`'s widened caller set doesn't weaken its existing guards). Full repo suite:
+280/280 (up from 264/264 before this slice).
+
+**Scope: in, not yet done —** `docs/design/phase1-tracer-bullet-slice-2026-08-17.md` still needs
+the same disclosure this entry gives; `IntegrityAccountV1Experimental.sol`'s own NatSpec was
+amended at implementation time (see the contract's guardian-emergency-action paragraph) but the
+design doc was not yet updated to match, per this codebase's own standing discipline that both
+must agree.
+
+**Not deployed anywhere.** Foundry-test-only, local, uncommitted at time of writing, same
+standing rule as every prior Phase I slice — no push/commit/deploy without separate explicit
+authorization.
+
+## 33. Guardian-set rotation, plus a real liveness bug found in §32's emergency path (2026-08-18)
+
+*Current State:* per `docs/plans/2026-08-18-phase1-guardian-rotation-proposal.md`, the guardian
+set is no longer permanently fixed at construction. `proposeGuardianRotation(bool isAddition,
+address guardian)` / `approveGuardianRotation(uint256 expectedNonce)` /
+`executeGuardianRotation()` let the CURRENT guardians add or remove one guardian at a time —
+never both in a single rotation — gated by UNANIMOUS approval, same bar as §32's emergency
+action. Two user decisions fixed the design, both explained in plain language before being asked
+(per the user's own standing preference — see the session's earlier exchange): (1)
+`guardianThreshold` itself is NEVER rotatable, immutable forever, closing off "guardians vote the
+bar down toward 1" as an attack surface; (2) rotation requires unanimous approval, not the
+ordinary `guardianThreshold`, since changing who the guardians ARE is at least as sensitive as
+using an emergency action.
+
+**Removal safety:** a removal that would drop the guardian count below the immutable
+`guardianThreshold` is rejected outright (`GuardianRemovalWouldBreakThreshold`), tested at the
+exact boundary (3 guardians, threshold 2 — first removal to exactly 2 succeeds, a second removal
+to 1 reverts), not just an interior case.
+
+**Cross-mechanism lock, enforced symmetrically:** at most one guardian-relevant governance
+process may be in flight at a time. `proposeGuardianRotation` is blocked while a kernel swap or
+guardian action is pending; `proposeKernelSwap` and `guardianProposeAction` are both blocked
+while a rotation is pending. This is what makes it safe to keep the removal-during-a-pending-swap
+question simple (block rotation entirely rather than needing to invalidate a removed guardian's
+stale approval mid-swap) — by construction, a swap can never be proposed while a rotation is
+pending, so the interaction the original proposal doc's "Trap 2" worried about cannot occur.
+Proven in both directions by `test_crossMechanismLock_HoldsInBothDirections`, not just asserted
+for one.
+
+**A real, previously-undiscovered liveness bug in §32's mechanism was found while writing this
+slice's tests, and fixed, not left disclosed-and-broken.** `executeGuardianAction` deletes
+`pendingGuardianAction` and only afterward checks whether the action can actually proceed
+(`NoSwapPending` for a force-cancel whose target was already cleared, `SwapAlreadyPending` for a
+force-propose whose slot was filled by something else in the meantime) — but a Solidity `revert`
+unwinds every state change made earlier in the SAME call, so on that revert path the earlier
+`delete` never actually took effect. There was no other way to clear a pending guardian action.
+Concretely: guardians unanimously agree to force-cancel a stuck swap; before they call
+`executeGuardianAction`, the signer independently (and perfectly legitimately) cancels the swap
+themselves. The guardian action can now never execute, and — discovered only once rotation's own
+cross-mechanism lock made the consequence concrete — it permanently blocks every future
+`guardianProposeAction`/`proposeGuardianRotation` call (both correctly check
+`pendingGuardianAction.active`), from an entirely ordinary race, not an attack.
+`proposeKernelSwap` itself is unaffected (it was never gated on guardian-action state), so this
+was "guardian-side governance permanently disabled," not a full brick, but still a real,
+uncaught defect in code that had already been through a mutation-testing pass. **Mutation testing
+checks that guards reject bad input; it does not check that legitimate recovery paths exist for
+every reachable stuck state** — a real limit of the technique worth remembering, not just a
+one-off miss.
+
+Fixed with two small, low-risk, permissionless functions: `cancelPendingGuardianAction()` (the
+actual fix — closes the liveness gap) and `cancelPendingGuardianRotation()` (added for parity/
+usability, not required for correctness, since rotation's own cross-mechanism lock makes its
+`executeGuardianRotation` preconditions unreachable in practice). Both simply clear pending state
+and never advance anything, so — same reasoning as `executeGuardianAction`/
+`refreshReputationSnapshot` — there is no manipulation surface in leaving them permissionless.
+The exact bug scenario is now a permanent regression fixture, not just a documented claim:
+`test_cancelPendingGuardianAction_RecoversFromSignerRaceThatWouldOtherwiseBrickGovernance` drives
+the signer/guardian race end to end, confirms `guardianProposeAction`/`proposeGuardianRotation`
+are genuinely stuck without the fix, then confirms `cancelPendingGuardianAction` restores normal
+operation.
+
+**What this does NOT close, disclosed and accepted, not solved:**
+- **Guardian collusion or compromise at unanimity threshold.** An attacker controlling every
+  current guardian key can rotate itself into a permanent, self-perpetuating set the same way any
+  legitimate unanimous quorum could — rotation changes WHO is trusted, it cannot make the
+  underlying trust model stronger than "the guardian keys are genuinely independent," the same
+  caveat every guardian mechanism in this contract already carries.
+- **No batch rotation.** One add XOR one remove per rotation cycle, by design — keeps each
+  rotation's blast radius to exactly one state transition, matching this contract's standing
+  single-pending-slot philosophy, at the cost of needing multiple full unanimous cycles to
+  replace several guardians at once.
+- **Initial guardian selection at registration time** remains SDK/CLI/dashboard scope, not
+  contract scope — noted in the rotation proposal doc's own "Related, deferred" section and saved
+  to project memory for whenever that registration wiring happens.
+
+**Verification discipline applied:** mutation-tested three security-relevant guards, all caught,
+all restored: the unanimity check in `executeGuardianRotation` (weakened to `guardianThreshold`
+— caught by `test_executeGuardianRotationRevertsBelowUnanimity`); the threshold-breaking removal
+check in `proposeGuardianRotation` (removed — caught by
+`test_proposeGuardianRotationRemoval_RevertsWhenItWouldDropBelowThreshold`); the cross-mechanism
+lock in `proposeKernelSwap` (removed — caught by `test_crossMechanismLock_HoldsInBothDirections`).
+
+Gas measured directly from call traces. Addition path: `proposeGuardianRotation(true, guardian)`
+56,231 (cold, includes duplicate/zero-address checks); `approveGuardianRotation` 47,377 first
+guardian / 27,477 second / 27,477 third (unanimity — all three pay, same shape as §32's emergency
+action); `executeGuardianRotation` 50,954 (array push). Removal path:
+`proposeGuardianRotation(false, guardian)` 58,395; `approveGuardianRotation` 47,377 / 27,477 /
+25,477; `executeGuardianRotation` 20,976 (swap-and-pop, cheaper than a push). The liveness fix:
+`cancelPendingGuardianAction()` 965 (a single `delete`).
+
+`IntegrityAccountV1ExperimentalTest` suite: 71 → 86 tests (+15: propose/approve/execute
+validation for both addition and removal, the threshold boundary, the cross-mechanism lock in
+both directions, full addition/removal lifecycles proving a newly-added guardian can immediately
+act and a removed one immediately cannot, and the liveness-bug regression). Full repo suite:
+295/295 (up from 280/280 before this slice).
+
+**Not deployed anywhere.** Foundry-test-only, local, uncommitted at time of writing, same
+standing rule as every prior Phase I slice — no push/commit/deploy without separate explicit
+authorization.
+
+## 34. Kernel-swap reentrancy guard — closes the reentrant-call half of §29's disclosed window, corrects an imprecise prior claim (2026-08-18)
+
+*Current State:* per `docs/plans/2026-08-18-phase1-swap-reentrancy-guard-proposal.md`, a new
+`bool public swapInProgress` is set `true` around `executeKernelSwap`'s uninstall/install pair and
+checked in both `_execute` and a newly-added `_fallback` override, reverting `ReentrantDuringSwap`
+unconditionally while a swap is mid-flight, regardless of what `_hook` transiently points at.
+
+**A real correction to a claim this contract had carried since §29, found while implementing, not
+assumed correct because it was already written down:** the account's own NatSpec (and
+`docs/design/phase1-tracer-bullet-slice-2026-08-17.md`) described the reentrancy risk as "a
+hostile `newKernel.onInstall` that reenters `execute()`." This is imprecise — `execute()` is
+`onlyEntryPointOrSelf`-gated by the base OZ contract, and a kernel contract's `onInstall`/
+`onUninstall` callback has caller identity equal to its OWN address (neither `self` nor the entry
+point) from the account's perspective, so it could never call `execute()` directly in the first
+place; that path was never actually reachable as described. The GENUINELY reachable path is
+`AccountERC7579.fallback(bytes calldata)`, which — unlike `execute()` — carries NO access
+restriction at all and routes through the same `withHook`-wrapped `_fallback` internal function.
+This is what the guard actually closes.
+
+**A second honest nuance, disclosed rather than glossed over:** in THIS account's current
+configuration, a reentrant fallback call fails closed either way, guard or not — the account never
+installs a fallback-handler module (`TYPE_FALLBACK` isn't part of this experimental account's
+model, only `TYPE_HOOK`), so `AccountERC7579._fallback` always reverts
+`ERC7579MissingFallbackHandler` regardless. The guard's value is proven by the REVERT REASON
+changing, not by success vs. failure: without the guard, a hostile kernel's own `preCheck` still
+runs (self-mediated, attacker-controlled) before the call ultimately fails for the unrelated
+missing-handler reason; with the guard, the call is rejected immediately, before `preCheck` is
+ever invoked. Concretely closes a currently-latent risk that becomes concrete the moment this
+account (or a descendant of it) ever legitimately installs a fallback handler — forward-looking
+hardening, not a fix for an exploit reachable in the account's PRESENT configuration.
+
+**Deliberately does NOT reorder or reimplement OZ's own `_installModule`/`_uninstallModule`** —
+that was the rejected, more expensive Shape A in the proposal doc (forking a vendored security
+contract's internal ordering for behavior this codebase doesn't own). The guard instead makes the
+actual attacker-reachable harm — a reentrant call mediated by whichever kernel `_hook` happens to
+point at mid-swap — revert unconditionally, independent of `_hook`'s value.
+
+**What this does NOT close:** a non-reentrant observation of `_hook`'s transient mid-swap state
+(reading, not calling back in) is unaffected and was never the risk this closes — see the
+pre-existing `test_reentrancyDuringInstallAndUninstallObservesFreshApprovalsAndEmptyPending`,
+which continues to pass unchanged. The broken-kernel brick scenario, guardian collusion at
+unanimity, and every other disclosed §29/§32/§33 gap are untouched — orthogonal to reentrancy.
+
+**Verification discipline applied:** mutation-tested the guard by removing it from `_fallback` and
+re-running both new tests — caught: the revert selector observed changes from
+`ReentrantDuringSwap` to `ERC7579MissingFallbackHandler`, concretely proving `preCheck` genuinely
+runs (self-mediated) when the guard is absent, not merely that "some revert still happens either
+way." Restored after confirming detection.
+
+Gas measured directly, diffed against an identical pre-fix build on the same test (not assumed
+unchanged): no observable increase in `executeKernelSwap`'s cost at call-trace granularity (the
+two `SSTORE`s toggling `swapInProgress` true then back to false within the same transaction are
+cheap enough not to register at this measurement resolution).
+
+`IntegrityAccountV1ExperimentalTest` suite: 86 → 88 tests (+2:
+`test_reentrantFallbackDuringInstallIsRejected`, `test_reentrantFallbackDuringUninstallIsRejected`),
+both driving a real two-swap sequence with a `ReentrantFallbackKernel` fixture playing both the
+new-kernel and old-kernel role, not a hypothetical. Full repo suite: 297/297 (up from 295/295
+before this slice).
+
+**Not deployed anywhere.** Foundry-test-only, local, uncommitted at time of writing, same
+standing rule as every prior Phase I slice — no push/commit/deploy without separate explicit
+authorization.
+
+## 35. Guardian emergency funds-recovery sweep — a true kernel-swap rescue is architecturally impossible; this recovers funds instead (2026-08-18)
+
+*Current State:* per `docs/plans/2026-08-18-phase1-broken-kernel-rescue-proposal.md`, this slice
+set out to close §29's broken-kernel brick scenario the way the proposal doc originally sketched
+— a guardian path that bypasses the outgoing kernel's `preCheck` to force a rescue swap through.
+**That approach was investigated and found genuinely impossible to build at this architectural
+layer, not merely difficult, before any code was written for it — surfaced and disclosed to the
+user before proceeding, not discovered partway through and quietly worked around.**
+`AccountERC7579Hooked`'s `_hook` storage is `private` to that base contract; its only two
+mutation paths, `_installModule`/`_uninstallModule`, are unconditionally wrapped by the `withHook`
+modifier IN THEIR OWN FUNCTION BODIES — there is no override point in a subclass that can reach
+`_hook` without triggering `preCheck` on whatever is currently installed. A true rescue would
+require forking and reimplementing `AccountERC7579Hooked` itself, the same class of undertaking
+Shape A explicitly rejected at much smaller scale for the reentrancy guard (§34) — not pursued
+here either, per explicit user decision after the tradeoff was explained plainly.
+
+**What was built instead, with the user's explicit, informed sign-off:** a guardian-unanimous
+emergency funds-recovery sweep — `proposeGuardianRescueSweep(address payable to, uint256 amount,
+bool sweepFullBalance)` / `approveGuardianRescueSweep(uint256 expectedNonce)` /
+`executeGuardianRescueSweep()` — that performs a raw low-level native-value transfer, **never
+touching `_hook`, `_installModule`, `_uninstallModule`, `execute()`, `_execute`, or `withHook` at
+all.** This sidesteps the architectural wall entirely rather than attempting to defeat it. The
+account itself remains permanently unable to `execute()` after this — the sweep recovers FUNDS,
+it does not repair the account. Proven against the exact scenario the normal rescue-swap machinery
+cannot save, not just asserted:
+`test_guardianRescueSweep_RecoversFundsFromAPermanentlyBrickedAccount` installs a real
+`AlwaysRevertingKernel`, confirms `execute()` is bricked, confirms a normal
+propose/approve/execute rescue-swap attempt still reverts on the broken `preCheck`, then confirms
+the sweep succeeds and fully drains the account's balance to a guardian-chosen recipient — the
+account remains bricked for `execute()` afterward, confirmed by a final assertion, not left
+implicit.
+
+**Two real design decisions, both explained in plain language and made explicitly by the user
+before implementation, not defaulted:**
+
+1. **A separate, independently configurable `rescueTimelockSeconds` immutable**, distinct from
+   `moduleActionTimelockSeconds`, and — unlike every other timelock in this contract — deliberately
+   permitted to be ZERO. Reasoning surfaced to the user, not assumed: an already-bricked account
+   has no normal activity a delay could interfere with, so a delay costs nothing operationally, but
+   different deployments (the user specifically named different market verticals) may have
+   genuinely different risk tolerances for how long a bricked account's funds should sit
+   unrecoverable before a sweep can fire. This reverses this slice's own first-draft
+   recommendation (the original scoping doc suggested no timelock at all) after the user pushed
+   back on the reasoning — a real instance of the advisor-reconciliation discipline this session
+   has applied throughout: re-examine a recommendation when new information (here, a request for
+   configurability) surfaces, rather than defending the original framing.
+2. **The severity of the sweep power was surfaced explicitly, not softened, before the user
+   authorized it.** Because no on-chain check can distinguish "genuinely, permanently broken" from
+   "reverted on some past calls," this cannot be scoped to only-when-bricked — it is disclosed as a
+   general guardian-unanimous power to drain the account's ENTIRE native balance to an address of
+   the guardians' choosing, reachable at ANY time, not only during a genuine emergency. This is
+   the first guardian mechanism in this contract that directly moves value rather than only
+   affecting governance (who is in charge, which kernel is installed) — a materially larger blast
+   radius than §31/§32/§33's mechanisms, named as such before building it. Accepted by the user as
+   the same tradeoff real-world social-recovery wallets make for their own backup-key quorums.
+
+**A third, smaller decision from the original scoping doc turned out to be moot, disclosed rather
+than silently dropped:** the proposal asked whether a rescue should still attempt a best-effort,
+try/catch notification to the broken kernel before removing it. The user chose "try, but ignore
+failure" — but the final design (a value-transfer sweep that never touches the kernel/hook system
+at all) has no interaction with the outgoing kernel whatsoever, so this decision does not apply to
+what was actually built. Recorded here so the decision isn't misread as having been silently
+reversed.
+
+**What this does NOT close:** the account itself is never repaired — `execute()` remains
+permanently bricked after a sweep, by construction, not as an oversight. Does not close guardian
+collusion/compromise at unanimity (same standing caveat as every other guardian mechanism). Does
+not add any ERC-20 or other token recovery — scoped to native value only, matching this
+account/kernel pair's own existing budget model (native-value-only throughout). Does not change
+`proposeKernelSwap`/`executeKernelSwap` at all — the sweep is a fully independent, parallel
+mechanism, deliberately NOT added to the cross-mechanism lock §33 introduced (rotation vs.
+kernel-swap vs. guardian-action), since the sweep never touches `_hook`/`pendingKernelSwap`/
+guardian-set state and has no correctness interaction with any of them to guard against.
+
+**Verification discipline applied:** mutation-tested three security-relevant guards, all caught,
+all restored: the unanimity check (weakened to `guardianThreshold` — caught by
+`test_executeGuardianRescueSweepRevertsBelowUnanimity`); the timelock check (removed — caught by
+`test_executeGuardianRescueSweepRevertsBeforeTimelockElapses`); the explicit
+exceeds-balance check (removed — caught by
+`test_executeGuardianRescueSweepRevertsWhenPartialAmountExceedsBalance`, which surfaced a real,
+minor finding worth recording: the raw `.call` would have failed regardless due to insufficient
+balance, so this specific guard's actual value is a clearer, named revert reason rather than being
+the only thing preventing an overdraft — the mutation still proves the guard does something real,
+just not what a first read might assume).
+
+Gas measured directly from call traces: `proposeGuardianRescueSweep` 94,600 (cold, full-balance
+sweep target); `approveGuardianRescueSweep` 47,035 first guardian / 25,135 second / 27,135 third
+(unanimity — all three pay, same shape as every other unanimous mechanism in this contract);
+`executeGuardianRescueSweep` 40,614.
+
+`IntegrityAccountV1ExperimentalTest` suite: 88 → 101 tests (+13: propose/approve/execute
+validation, the partial-vs-full-balance distinction, the exceeds-balance boundary, the
+cancel-and-repropose escape hatch, and the definitive brick-recovery end-to-end test). Full repo
+suite: 297/297 → 310/310.
+
+**Not deployed anywhere.** Foundry-test-only, local, uncommitted at time of writing, same
+standing rule as every prior Phase I slice — no push/commit/deploy without separate explicit
+authorization.
+
+## 36. ZK circuit `chain_id`/`verifying_contract` binding, plus `prover.py` wired to the real circuit for the first time (2026-08-18/19)
+
+**Closes:** the ZK-proof half of the cross-deployment replay gap §30 already closed for the
+non-ZK BCC commitment object. Before this, a `submitZkAttestation` proof built against one
+`ReputationRegistry`/`XibalbaAgentRegistry` deployment (e.g. a local anvil instance, or one
+testnet fork) could be replayed verbatim against any other deployment sharing the same agent's
+`agent_id_commitment` — nothing in the circuit tied a proof to where it would be submitted. The
+user explicitly chose to bind **both** `chain_id` and `verifying_contract` (not chain_id alone),
+matching §30's precedent.
+
+**What changed, concretely:**
+- `integrity-zkp/circuit/src/main.nr` (formerly `integrity-zkp/src/main.nr` — see workspace
+  restructure below): `chain_id: pub Field` and `verifying_contract: pub Field` added as new
+  public inputs, folded into the `intent_commitment` Pedersen hash alongside the existing
+  `DOMAIN_INTENT, secret_key, intent_payload_hash, nonce` array. `agent_id_commitment` is
+  unaffected (identity is deployment-independent by design — an agent's ZK identity doesn't
+  change across chains, only its per-action intent proofs do). Address/chain-ID packing is
+  `Field(uint256(value))` — lossless and injective, since both are well under the BN254 scalar
+  field's ~254 bits (no truncation, unlike the SHA-256-to-Field packing elsewhere in this
+  circuit, which IS lossy and disclosed as such).
+- 6 `#[test]` functions now (was 4): the existing valid/wrong-secret/wrong-payload/zero-nonce
+  cases updated for the new ABI, plus two new `should_fail` cases
+  (`test_invalid_binding_wrong_chain_id`, `test_invalid_binding_wrong_verifying_contract`)
+  proving the new binding actually rejects a mismatched chain/deployment.
+- `contracts/src/oracle/UltraPlonkVerifier.sol` regenerated end-to-end via the real
+  `make build` pipeline (`nargo` 1.0.0-beta.22, `bb` 5.0.0-nightly.20260522 — pinned versions
+  per `docs/INTERFACE_CONTRACT.md` §1, not assumed): `NUMBER_OF_PUBLIC_INPUTS` 11 → 13 (5 real
+  public inputs + 8 UltraHonk pairing-point words, confirmed both by the generated constant and
+  independently by `public_inputs.bin` growing from 96 to 160 bytes = 5 × 32), new `VK_HASH`.
+  The manual patch step applied to every regenerated copy (add `("memory-safe")` to 5 `assembly`
+  blocks, rename `HonkVerifier` → `UltraPlonkVerifier`, add the `IZkVerifier` import) was
+  extracted by diffing the pre-change generated/deployed copies against each other first, not
+  reconstructed from memory.
+- `contracts/test/fixtures/ultraplonk/{proof.bin,public_inputs.bin}` and
+  `contracts/test/UltraPlonkVerifier.t.sol`'s hardcoded length/keccak assertions and the
+  hand-unrolled `bytes32[]` assembly copy (3 words → 5) all regenerated/updated from a real,
+  freshly-proven fixture — not hand-edited numbers. All 4 verifier tests (valid/tampered-proof/
+  tampered-input/malformed) pass against the real 5-input circuit.
+- **`integrity-zkp` restructured into a two-member Nargo workspace** (`circuit/` = the real
+  proving circuit, `tools/commitment_calc/` = a new small sibling package) — required because
+  `integrity-sdk`'s `prover.py` needs `agent_id_commitment`/`intent_commitment` *before* it can
+  write `Prover.toml` for the real circuit (that circuit takes both as public inputs to be
+  checked, not computed as outputs), and this repo has no Python Pedersen-hash implementation
+  anywhere. Reimplementing Barretenberg's Pedersen hash from scratch in Python was rejected as
+  exactly the "two hashes, both look canonical" divergence risk `circuit/src/main.nr`'s own
+  docstring warns against; `commitment_calc` instead runs the *identical* hash computation
+  through the real Noir/Barretenberg toolchain (`nargo execute`'s return-value stdout line,
+  `Circuit output: (0x.., 0x..)`), and its own `#[test]` pins that output against
+  `circuit/Prover.toml`'s checked-in fixture. **Precisely, not overstated:** this test catches
+  drift in `commitment_calc`'s *own* logic (e.g. someone reorders its array without updating the
+  pinned constants) — a Noir `#[test]` cannot read another package's `Prover.toml` or call into
+  another package's functions, so it does NOT by itself catch `circuit/src/main.nr`'s hash shape
+  changing out from under it. What does catch that: `make build`'s `nargo execute` step against
+  `circuit/`'s own checked-in `Prover.toml` fails if that fixture no longer satisfies the
+  circuit's constraints — but only once `circuit/Prover.toml` is itself updated to match a hash
+  change, which is a same-commit discipline (documented in README.md "Fixture values"), not a
+  single CI-enforced invariant spanning both packages. Confirmed empirically (not assumed) that
+  both workspace members' build output lands in one shared `<workspace_root>/target/`, which is
+  what lets `prover.py` treat the workspace root as its one entry point.
+- **`integrity-sdk/integrity_sdk/prover.py` rewritten to actually drive the real circuit —
+  this had never happened before this session.** It previously pointed at
+  `circuits/poc_commitment/`, a smaller stand-in circuit with a different ABI, and — per a
+  background survey run before implementation started — was not called from anywhere else in
+  the repo (no call sites, no tests). Both facts are now different: `generate_proof` shells out
+  to the real `integrity-zkp` workspace (`circuit` + `commitment_calc`), and
+  `integrity-sdk/tests/unit/test_prover.py` is new, real, end-to-end coverage (6 tests, no
+  mocking of `nargo`/`bb`, skipped rather than faked when the toolchain isn't on PATH) — the
+  first tests this module has ever had. Also fixed in the same pass: the module's
+  `DEFAULT_VERIFIER_TARGET` was `"noir-recursive-no-zk"`, which uses a different internal hash
+  function than the `"evm"` target `contracts/src/oracle/UltraPlonkVerifier.sol` is generated
+  against — a proof built against the wrong target verifies fine locally via `bb verify` (same
+  wrong vk) but would never verify on-chain. This was a latent bug in unexercised code, not
+  something that had produced a bad proof in production, but is exactly the class of error that
+  only surfaces once code goes from "written" to "actually run."
+- `circuits/poc_commitment/` itself is now fully unreferenced by any code in this repo (dead,
+  not deleted — left in place as a historical artifact per CLAUDE.md's existing framing of it as
+  "an earlier placeholder"; `prover.py`'s docstring says plainly that nothing points at it
+  anymore rather than leaving an orphaned circuit undisclosed).
+- `.gitignore` fix (found, not introduced, by this work): a blanket `Prover.toml` rule had
+  silently kept `integrity-zkp`'s real, checked-in fixture untracked by git this whole time,
+  contradicting the package's own README ("The checked-in `Prover.toml` fixture..."). Added a
+  scoped `!integrity-zkp/circuit/Prover.toml` exception rather than editing the README's claim
+  to match the bug.
+- `.github/workflows/ci.yml`'s `zkp` job updated from `nargo test` to `nargo test --workspace` —
+  otherwise CI would silently stop running `commitment_calc`'s test entirely after the workspace
+  restructure (nargo's un-flagged default only builds/tests the workspace's `default-member`).
+  Stale `integrity-zkp/src/main.nr` path references (now `circuit/src/main.nr`) also corrected in
+  `docs/INTERFACE_CONTRACT.md` §5 (which also had its "chain_id not yet bound into the ZK
+  circuit" residual-gap note flipped to reflect that it's now closed) and `CLAUDE.md`'s "ZK proof
+  pipeline" section — found by grepping the whole repo for the old path after the restructure,
+  not left for the next session to discover as drift.
+
+**What this does NOT close:**
+- Does not change `integrity-oracle`'s verification path at all — the oracle still needs to
+  independently recompute or validate `intent_commitment` against the BCC record it has on file
+  for a given (agent, nonce) pair; this slice only changed what the circuit and `prover.py`
+  produce, not what the oracle checks it against. Not in scope for this slice. **Verified, not
+  assumed:** `integrity-oracle/backend/src/zk.rs`/`handlers.rs` treat `proof`/`public_inputs` as
+  opaque byte blobs passed through to `bb verify` — no hardcoded element count anywhere in the
+  oracle crate — and the oracle's own ZK test fixture (`backend/tests/fixtures/zk_smoke/`) is a
+  separate, smaller Noir circuit unaffected by this circuit's ABI change. Full oracle workspace
+  suite re-run after this change: 144/144 passed (126 backend + 18 scoring-core), zero
+  regressions.
+- Does not add a `VerifierRegistry` migration mechanism. Deliberately: nothing is deployed
+  anywhere against the old (3-public-input) circuit shape, and no real proofs exist against it
+  (confirmed via deployments-file inspection before this work started), so there is no live
+  population to migrate. If/when this is deployed, register the new verifier as a new version;
+  do not build migration machinery for zero live agents.
+- Does not close the disclosed `secret_key`-is-KDF'd-not-full-Ed25519 scope limitation
+  (unchanged, orthogonal to this binding) or the SHA-256-truncation lossy-packing disclosure
+  (unchanged, pre-existing, orthogonal).
+- Does not touch `integrity-cli`, which has no ZK code path at all (confirmed via survey: its
+  one `zk`-adjacent string match is an unrelated mocked JSON field in a test).
+
+**Verification discipline applied:** every circuit test re-run after each edit (`nargo test
+--workspace`, 6/6 then re-confirmed after the workspace restructure); full `make build` pipeline
+actually executed against the real toolchain (not assumed) — `nargo compile` → `execute` →
+`bb write_vk` → `bb prove` → `bb verify` (real proof, real verification, both succeeded) →
+`bb write_solidity_verifier`; the regenerated verifier's manual-patch transformation was
+extracted by diffing the *pre-change* generated/deployed file pair, then re-diffed against the
+freshly patched output to confirm the exact same transformation applied cleanly; `forge build` +
+full `forge test` re-run after the verifier/fixture swap (310/310, zero regressions); the new
+`integrity-sdk` prover tests actually generate and verify real UltraHonk proofs end-to-end
+(not mocked) and include a negative control (tampered proof byte → `verify_proof` returns
+`False`) and a binding-distinctness check (same keypair/payload, different `chain_id` →
+different `intent_commitment`, same `agent_id_commitment`); full `integrity-sdk` suite re-run
+(270 passed, 3 skipped, zero regressions).
+
+**Not deployed anywhere.** Every artifact above (circuit, verifier, fixtures, `prover.py`) is
+local and uncommitted at time of writing — no push/commit/deploy without separate explicit
+authorization, same standing rule as every prior Phase I slice.
+
+## 37. Epoch/timelock deployment invariant — Option B (fail-open for non-snapshotting kernels), (2026-08-19)
+
+**Closes:** the deployment invariant both `IntegrityAccountV1Experimental` and
+`IntegrityKernelV1Experimental` independently documented but neither enforced — that a kernel's
+`epochLengthSeconds` must be `>= moduleActionTimelockSeconds` on the account, or a fully-vested
+kernel swap can revert `SnapshotStale` for a reason unrelated to reputation, and a freshly-
+installed replacement kernel can be stale-on-arrival, rejecting the account's first post-swap
+`execute()` call. Previously "a deploy-time discipline, not a code-level guarantee" (both
+contracts' own words); now code-level, at every point a mismatched kernel could actually enter
+the account, not just genesis.
+
+**The decision, made explicitly, not defaulted:** the proposal doc named a real fork —
+Option A (require every future kernel to implement `epochLengthSeconds()`, fail closed, but
+permanently narrows what kinds of kernels this account can ever hold) vs. Option B (probe via
+`try`/`catch`, skip the check entirely for a kernel with no epoch concept — weaker, since
+Solidity's `try`/`catch` cannot distinguish "doesn't implement this" from "implements it but is
+currently reverting," but preserves generality for a legitimate future non-snapshotting kernel).
+Explained in plain language, then asked directly rather than defaulted to the proposal's own
+recommendation. The user chose **Option B**, matching the recommendation.
+
+**What changed, concretely:**
+- `IEpochSnapshotting` — a minimal marker interface (`epochLengthSeconds() external view returns
+  (uint256)`) — added to `IntegrityAccountV1Experimental.sol`. Deliberately not a requirement
+  every hook module implements.
+- `_checkEpochCompatibility(address newKernel)` — a private helper that probes
+  `newKernel.epochLengthSeconds()` via `try`/`catch` and reverts `EpochTooShortForTimelock` if
+  the kernel implements it and its value is less than `moduleActionTimelockSeconds`; silently
+  skips the check (does nothing) if the call reverts or the target has no such function.
+- Called from three places: the constructor (genesis kernel — closes the case a constructor-only
+  check would have missed everything BUT), `proposeKernelSwap` (the signer's normal path), and
+  `guardianProposeAction`'s force-propose branch (the guardian emergency path from §32) — a
+  constructor-only check would have left every subsequently swapped-in kernel unchecked, which
+  defeats the point given `executeKernelSwap` exists specifically to install a *different* kernel
+  later. All three probe the SAME helper, not three independent copies.
+- Both contracts' NatSpec corrected precisely, not just extended: the "deploy-time discipline,
+  not a code-level guarantee" line is now false for a kernel that implements the selector, and
+  still true for one that doesn't — both cases stated explicitly rather than picking one to be
+  accurate about.
+
+**A significant discovery made mid-implementation, not anticipated in the scoping doc:** the
+entire existing 101-test suite's shared `setUp()` fixture deliberately constructed its default
+account/kernel pair with `MODULE_ACTION_TIMELOCK = 3 days` and `REPUTATION_EPOCH_LENGTH = 1 days`
+— i.e., the EXACT invariant-violating configuration this feature exists to reject — because
+several existing tests use that mismatch to demonstrate the pre-existing `SnapshotStale`
+interaction bug this proposal's own "Why this slice" section cites as the motivation. Once the
+constructor-time check landed, this fixture would have made `setUp()` itself revert on every
+single test in the file. Resolved by raising `REPUTATION_EPOCH_LENGTH` to `3 days` (matching
+`MODULE_ACTION_TIMELOCK` — the shared fixture is now a compliant pair) and auditing every test
+that depended on the old mismatch: all of their `kernel.refreshReputationSnapshot()` calls turned
+out to already sit at an exact timestamp boundary (kept as disclosed defense-in-depth rather than
+removed, verified empirically, not by hand-checking the arithmetic, by actually removing them
+first and confirming nothing failed, then restoring them with corrected comments rather than
+leaving the file in a "probably fine" state); comments that specifically claimed "the epoch is
+shorter than the timelock" as their rationale were rewritten to state the accurate current reason
+(mostly: pulling a freshly-updated score into the cache, not staleness) rather than left
+describing a configuration that no longer exists. Zero test logic was weakened to make this
+land — every one of the 101 pre-existing tests in this file still passes unchanged in behavior,
+only the shared constant and a handful of comments changed.
+`test_quorumGatheringCanStaleTheSnapshotBetweenApprovals` (the proposal's own named regression to
+preserve) needed no changes at all — it demonstrates staleness caused by elapsed
+*quorum-gathering* time between guardian approvals, which is independent of the epoch/timelock
+relationship and remains fully reachable regardless of the two values.
+
+**New fixture, new tests:** `NonSnapshottingKernel` — a fully-conforming, working hook module
+(`isModuleType` returns true for `MODULE_TYPE_HOOK`, `preCheck`/`postCheck`/`onInstall`/
+`onUninstall` all succeed) that deliberately does NOT implement `epochLengthSeconds()` at all —
+representing a legitimate future kernel with no reputation-epoch concept. 4 new tests: genesis
+construction reverts for a mismatched pair; `proposeKernelSwap` reverts for a mismatched
+`newKernel`; `guardianProposeAction`'s force-propose branch reverts identically; and a full
+propose→approve→execute round trip against `NonSnapshottingKernel` succeeds end-to-end — Option
+B's fail-open case proven as an explicit, asserted test outcome, not left as an accident nobody
+checked.
+
+**What this does NOT close:**
+- Retroactive enforcement against an already-installed, already-violating kernel — out of scope
+  by design (per the proposal doc): this only prevents *installing* a mismatched pair going
+  forward.
+- The Option B fail-open gap itself — disclosed, not closed: a kernel that reverts on the
+  `epochLengthSeconds()` probe for a transient, unrelated reason (rather than genuinely not
+  implementing it) silently skips the check rather than failing closed. Solidity's `try`/`catch`
+  cannot distinguish the two cases.
+- Any change to `epochLengthSeconds`' own value, `MAX_EPOCH_LENGTH_SECONDS`, or any guardian
+  mechanism (§32/§33/§34/§35) — fully independent of those; this item had no dependency chain.
+
+**Verification discipline applied:** mutation-tested `_checkEpochCompatibility`'s core comparison
+(neutralized with `false && ...`, leaving the `try`/`catch` structure intact) — all three revert
+tests (`test_deployingMismatchedGenesisPairRevertsAtConstruction`,
+`test_proposeKernelSwapRevertsWhenNewKernelEpochShorterThanTimelock`,
+`test_guardianProposeActionRevertsWhenNewKernelEpochShorterThanTimelock`) failed with distinct,
+meaningful failures (a different revert reason or "did not revert as expected"), confirming the
+guard does real work; restored and re-confirmed 105/105. `IntegrityAccountV1ExperimentalTest`
+suite: 101 → 105 tests (+4). Full repo suite: 310/310 → 314/314.
+
+**Not deployed anywhere.** Foundry-test-only, local, uncommitted at time of writing, same
+standing rule as every prior Phase I slice — no push/commit/deploy without separate explicit
+authorization.
+
+This closes the sixth and final item of the six originally scoped. Item 7 (external audit /
+deployment) remains a gate, not actionable work — nothing in this repo's own discipline
+substitutes for it.

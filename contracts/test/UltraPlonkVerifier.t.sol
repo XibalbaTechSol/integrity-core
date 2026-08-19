@@ -38,15 +38,17 @@ contract UltraPlonkVerifierTest is Test {
     function _fixture() private view returns (bytes memory proof, bytes32[] memory publicInputs) {
         proof = vm.readFileBinary("test/fixtures/ultraplonk/proof.bin");
         assertEq(proof.length, 8000);
-        assertEq(keccak256(proof), 0x8772b7d10a4d6ec27b8a8cc8f5c24c6893f73697a75b880a99916fb21029f04a);
+        assertEq(keccak256(proof), 0x8301001eea7884326f420c791dd937c2577065fedf7819061bf58b1fc43999f0);
         bytes memory rawInputs = vm.readFileBinary("test/fixtures/ultraplonk/public_inputs.bin");
-        assertEq(rawInputs.length, 96);
-        assertEq(keccak256(rawInputs), 0xc3657226c528dfdbcf724b2351c5293f26f30e66b67aa500a0faadecace51da1);
-        publicInputs = new bytes32[](3);
+        assertEq(rawInputs.length, 160);
+        assertEq(keccak256(rawInputs), 0x1963fb18178d4e305ba37b8ae4e610e5a673af74f94fae4306bc8ba8dcd1f028);
+        publicInputs = new bytes32[](5);
         assembly {
             mstore(add(publicInputs, 0x20), mload(add(rawInputs, 0x20)))
             mstore(add(publicInputs, 0x40), mload(add(rawInputs, 0x40)))
             mstore(add(publicInputs, 0x60), mload(add(rawInputs, 0x60)))
+            mstore(add(publicInputs, 0x80), mload(add(rawInputs, 0x80)))
+            mstore(add(publicInputs, 0xa0), mload(add(rawInputs, 0xa0)))
         }
     }
 

@@ -6,7 +6,7 @@ type: entity
 tags: [cryptography]
 confidence: high
 source_files:
-  - integrity-zkp/src/main.nr
+  - integrity-zkp/circuit/src/main.nr
   - integrity-zkp/README.md
   - integrity-zkp/Makefile
 ---

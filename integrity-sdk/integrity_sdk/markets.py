@@ -350,6 +350,8 @@ def _intercept(
     intent_payload: dict,
     nonce: int,
     keypair: Keypair,
+    chain_id: int,
+    verifying_contract: str,
     bcc_middleware_url: str,
 ) -> tuple[dict, str]:
     """
@@ -361,7 +363,13 @@ def _intercept(
     pre-execution commitment gate.
     """
     commitment = build_bcc_commitment(
-        agent_id=agent_id, intent_type=intent_type, intent_payload=intent_payload, nonce=nonce, keypair=keypair
+        agent_id=agent_id,
+        intent_type=intent_type,
+        intent_payload=intent_payload,
+        nonce=nonce,
+        keypair=keypair,
+        chain_id=chain_id,
+        verifying_contract=verifying_contract,
     )
     
     import requests
@@ -397,6 +405,7 @@ def enter_prediction(
     amount_wei: int,
     nonce: int,
     rpc_url: Optional[str] = None,
+    deployments_file: Optional[str] = None,
     bcc_middleware_url: Optional[str] = None,
 ) -> MarketEntryResult:
     """
@@ -409,9 +418,13 @@ def enter_prediction(
     on-chain call, not after.
     """
     rpc_url = rpc_url or os.getenv("RPC_URL", "http://localhost:8545")
+    deployments_file = deployments_file or os.getenv("DEPLOYMENTS_FILE", "../deployments.local.json")
     bcc_middleware_url = bcc_middleware_url or os.getenv("BCC_MIDDLEWARE_URL", _DEFAULT_BCC_MIDDLEWARE_URL)
     w3 = chain.get_w3(rpc_url)
     chain_id = w3.eth.chain_id
+    # docs/plans/2026-08-18-phase1-canonical-intent-encoding-proposal.md: every
+    # BCC commitment now binds the registry address it was signed against.
+    verifying_contract = chain.load_deployments(deployments_file)["singletons"]["XibalbaAgentRegistry"]
 
     intent_payload = {
         "action": "enter_prediction_market",
@@ -425,6 +438,8 @@ def enter_prediction(
         intent_payload=intent_payload,
         nonce=nonce,
         keypair=keypair,
+        chain_id=chain_id,
+        verifying_contract=verifying_contract,
         bcc_middleware_url=bcc_middleware_url,
     )
 
@@ -446,6 +461,7 @@ def enter_binary_option(
     amount_wei: int,
     nonce: int,
     rpc_url: Optional[str] = None,
+    deployments_file: Optional[str] = None,
     bcc_middleware_url: Optional[str] = None,
 ) -> MarketEntryResult:
     """
@@ -459,9 +475,13 @@ def enter_binary_option(
     market deployed via this SDK should follow.
     """
     rpc_url = rpc_url or os.getenv("RPC_URL", "http://localhost:8545")
+    deployments_file = deployments_file or os.getenv("DEPLOYMENTS_FILE", "../deployments.local.json")
     bcc_middleware_url = bcc_middleware_url or os.getenv("BCC_MIDDLEWARE_URL", _DEFAULT_BCC_MIDDLEWARE_URL)
     w3 = chain.get_w3(rpc_url)
     chain_id = w3.eth.chain_id
+    # docs/plans/2026-08-18-phase1-canonical-intent-encoding-proposal.md: every
+    # BCC commitment now binds the registry address it was signed against.
+    verifying_contract = chain.load_deployments(deployments_file)["singletons"]["XibalbaAgentRegistry"]
 
     outcome_index = 0 if outcome_yes else 1
     intent_payload = {
@@ -476,6 +496,8 @@ def enter_binary_option(
         intent_payload=intent_payload,
         nonce=nonce,
         keypair=keypair,
+        chain_id=chain_id,
+        verifying_contract=verifying_contract,
         bcc_middleware_url=bcc_middleware_url,
     )
 
@@ -499,6 +521,7 @@ def allocate_capital(
     min_ais_to_maintain: int,
     nonce: int,
     rpc_url: Optional[str] = None,
+    deployments_file: Optional[str] = None,
     bcc_middleware_url: Optional[str] = None,
 ) -> tuple[int, str]:
     """
@@ -522,9 +545,13 @@ def allocate_capital(
     functions the same way `enter_position`/`claim_payout` were.
     """
     rpc_url = rpc_url or os.getenv("RPC_URL", "http://localhost:8545")
+    deployments_file = deployments_file or os.getenv("DEPLOYMENTS_FILE", "../deployments.local.json")
     bcc_middleware_url = bcc_middleware_url or os.getenv("BCC_MIDDLEWARE_URL", _DEFAULT_BCC_MIDDLEWARE_URL)
     w3 = chain.get_w3(rpc_url)
     chain_id = w3.eth.chain_id
+    # docs/plans/2026-08-18-phase1-canonical-intent-encoding-proposal.md: every
+    # BCC commitment now binds the registry address it was signed against.
+    verifying_contract = chain.load_deployments(deployments_file)["singletons"]["XibalbaAgentRegistry"]
 
     intent_payload = {
         "action": "allocate_capital",
@@ -538,6 +565,8 @@ def allocate_capital(
         intent_payload=intent_payload,
         nonce=nonce,
         keypair=keypair,
+        chain_id=chain_id,
+        verifying_contract=verifying_contract,
         bcc_middleware_url=bcc_middleware_url,
     )
 

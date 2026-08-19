@@ -1,0 +1,25 @@
+# Real test fixture for the Intent/Key Binding circuit (src/main.nr).
+#
+# These are NOT secrets in any live sense — this is a fixed, documented
+# fixture used to exercise the real nargo/bb pipeline end to end (compile,
+# execute/witness-gen, prove, verify). See README.md "Fixture values" for
+# how these were derived and how to regenerate them for a different secret.
+#
+# secret_key           = 0xf00d      (private — stand-in for a KDF'd Ed25519 seed)
+# intent_payload_hash  = 0xc0ffee    (private — stand-in for a reduced SHA-256 intended_state_hash)
+# nonce                = 7           (public  — BCC per-agent nonce, §4.2)
+# chain_id             = 31337       (public  — local anvil chain ID)
+# verifying_contract   = 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+#                                     (public  — XibalbaAgentRegistry singleton
+#                                      address from deployments.local.json)
+secret_key = "0x000000000000000000000000000000000000000000000000000000000000f00d"
+intent_payload_hash = "0x0000000000000000000000000000000000000000000000000000000000c0ffee"
+nonce = "0x07"
+chain_id = "0x7a69"
+verifying_contract = "0x0000000000000000000000005FC8d32690cc91D4c39d9d3abcBD16989F875707"
+
+# agent_id_commitment = pedersen_hash([DOMAIN_IDENTITY(1), secret_key])
+agent_id_commitment = "0x2817315e00e740df3fec7b27f79eacc3925ffc65d592bbbb273ca8d1b7c880ba"
+
+# intent_commitment = pedersen_hash([DOMAIN_INTENT(2), secret_key, intent_payload_hash, nonce, chain_id, verifying_contract])
+intent_commitment = "0x164a96b914cc827ea81f6b84b94e6753dfe88acf3255cfc91873550f3a58d88d"

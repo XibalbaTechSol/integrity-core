@@ -157,6 +157,8 @@ Real Ed25519 only (via the `cryptography` library) — no HMAC pseudo-signature 
   "agent_public_key": "z<multibase base58btc, multicodec ed25519-pub || raw 32-byte pubkey>",
   "covered_entity_address": "0x<20-byte hex EVM address> | null",
   "intent_rationale": "public-safe intent rationale, signed and preferred by policy",
+  "chain_id": "EVM chain ID this commitment is scoped to (int, required)",
+  "verifying_contract": "0x<20-byte hex EVM address> of the target chain's XibalbaAgentRegistry (required)",
   "signature": "0x<hex, Ed25519 sig over the above fields except signature itself, canonical JSON>"
 }
 ```
@@ -164,7 +166,7 @@ This exact shape is POSTed by `integrity-sdk` and `integrity-cli` to
 `bcc_middleware`'s `POST /v1/bcc/intercept`. Field names are load-bearing —
 don't rename them per-package.
 
-Three fields were added after this doc's original draft, all now **✅
+Five fields were added after this doc's original draft, all now **✅
 RECONCILED** and required by `bcc_middleware`'s real implementation
 (`app/schemas.py`, `app/canonical.py`) — not carried in isolation, but
 included in the signed payload, so neither can be swapped post-signature:
@@ -196,6 +198,27 @@ included in the signed payload, so neither can be swapped post-signature:
   legacy `agent_thought` field is still accepted as an alias for compatibility,
   but new callers should populate `intent_rationale` and let `agent_thought`
   mirror it only if they need backwards compatibility.
+
+- `chain_id` / `verifying_contract` — **both required**
+  (docs/plans/2026-08-18-phase1-canonical-intent-encoding-proposal.md).
+  Before these, a commitment signed once was valid, byte-for-byte, against
+  any chain or any deployment of the protocol sharing the signing agent's
+  DID — `nonce` is monotonic per-agent but not deployment-scoped, so it
+  didn't close this. `chain_id` is the EVM chain ID the commitment is scoped
+  to; `verifying_contract` is that chain's `XibalbaAgentRegistry` address —
+  the one address every downstream primitive in this architecture already
+  resolves through, so binding to it (rather than a per-intent-type
+  contract) keeps this general-purpose. `bcc_middleware` denies a
+  `chain_id` mismatch unconditionally; it denies a `verifying_contract`
+  mismatch only when it has a configured registry address (see
+  `bcc_middleware/app/main.py`'s deployment-binding check — a disclosed
+  limitation so a local/dev/test topology with no deployments file
+  configured isn't turned into a blanket deny). This does **not** close the
+  experimental kernel's own hook-frame replay-domain binding (a separate,
+  contract-side concern — see `CLAUDE_HANDOFF_2026-08-17.md` §9). As of
+  2026-08-18/19, `chain_id`/`verifying_contract` ARE also bound into the ZK
+  circuit's `intent_commitment` (`integrity-zkp/circuit/src/main.nr` — see
+  `PRODUCTION_GAPS.md` §36) — this residual gap is closed, not open.
 
 **Canonicalization, pinned:** the signature covers every field above except
 `signature` itself, serialized as `json.dumps(fields, sort_keys=True,
@@ -382,9 +405,12 @@ whichever of the two structs currently has room**, not just be appended to
 
 ## 5. Zero-knowledge proving pipeline (must be real, end-to-end)
 
-1. Circuit lives in `integrity-zkp/src/main.nr` (Noir). It proves: "I know a
-   private Ed25519-derived secret and an intent payload whose hash equals the
-   public `intended_state_hash`, without revealing the secret or full payload."
+1. Circuit lives in `integrity-zkp/circuit/src/main.nr` (Noir) — a workspace
+   member as of 2026-08-18/19 (`integrity-zkp/tools/commitment_calc` is the
+   other member; see that package's own docstring for why it exists). It
+   proves: "I know a private Ed25519-derived secret and an intent payload
+   whose hash equals the public `intended_state_hash`, without revealing the
+   secret or full payload," bound to a specific `chain_id`/`verifying_contract`.
    Keep the circuit's constraint logic real — no `assert(true)`-style shortcuts.
 2. Compile with `nargo compile` (produces the ACIR bytecode).
 3. Generate a proving/verification key and Solidity verifier with `bb`:

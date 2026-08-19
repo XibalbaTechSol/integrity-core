@@ -7,7 +7,7 @@ tags: [cryptography]
 confidence: low
 source_files:
   - README.md
-  - integrity-zkp/src/main.nr
+  - integrity-zkp/circuit/src/main.nr
 ---
 
 **`[PLANNED]` — not built.** The root `README.md`'s "Advanced primitives"

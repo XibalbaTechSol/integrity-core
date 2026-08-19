@@ -206,7 +206,8 @@ class IntentInvocation:
 class invoke_intent:
     """
     `with invoke_intent(intent_type="EMR_WRITE", intent_payload={...}, keypair=kp,
-    nonce=n, agent_id=did, planned_action={"tool": "write_emr", "args": {...}},
+    nonce=n, agent_id=did, chain_id=84532, verifying_contract="0x...XibalbaAgentRegistry",
+    planned_action={"tool": "write_emr", "args": {...}},
     goal="update patient record", policy_scope=["phi:write"]) as intent:
         decision = post_to_bcc_middleware(intent.commitment)  # your own call
         if decision.authorized:
@@ -245,6 +246,8 @@ class invoke_intent:
         keypair: Keypair,
         nonce: int,
         agent_id: str,
+        chain_id: int,
+        verifying_contract: str,
         goal: Optional[str] = None,
         plan: Optional[List[str]] = None,
         planned_action: Optional[Dict[str, Any]] = None,
@@ -262,6 +265,8 @@ class invoke_intent:
             intent_payload=intent_payload,
             nonce=nonce,
             keypair=keypair,
+            chain_id=chain_id,
+            verifying_contract=verifying_contract,
             timestamp_ms=timestamp_ms,
             covered_entity_address=covered_entity_address,
         )

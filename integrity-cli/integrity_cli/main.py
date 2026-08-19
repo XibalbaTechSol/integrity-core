@@ -658,6 +658,9 @@ def agent_intercept(
         help="0x EVM address of the covered entity (hospital) for a healthcare/clinical intent; "
         "required whenever the intent triggers OPA's requires_baa (e.g. EMR_WRITE)",
     ),
+    deployments_file: Optional[str] = typer.Option(
+        None, "--deployments-file", help="Path to deployments.local.json (env DEPLOYMENTS_FILE)"
+    ),
 ):
     """
     Build a real BCC Commitment (INTERFACE_CONTRACT.md section 4.2), sign it
@@ -680,9 +683,30 @@ def agent_intercept(
         console.print(f"[bold red]Error:[/bold red] {e}")
         raise typer.Exit(1)
 
+    # docs/plans/2026-08-18-phase1-canonical-intent-encoding-proposal.md: every
+    # commitment now binds the chain/registry it was signed against. Read
+    # straight from the deployments file's top-level "chainId" rather than
+    # opening an RPC connection -- this command otherwise never touches the
+    # chain, and adding a live RPC dependency here would be a bigger change
+    # than this command needs.
+    deployments_file = deployments_file or os.getenv("DEPLOYMENTS_FILE", "../deployments.local.json")
+    try:
+        deployments = chain.load_deployments(deployments_file)
+        target_chain_id = deployments["chainId"]
+        verifying_contract = deployments["singletons"]["XibalbaAgentRegistry"]
+    except (chain.DeploymentsFileMissing, KeyError) as e:
+        console.print(f"[bold red]Error:[/bold red] could not resolve chain_id/verifying_contract from {deployments_file}: {e}")
+        raise typer.Exit(1)
+
     agent_did = identity.did_document_for_key(private_key.public_key())["id"]
     commitment = bcc.build_commitment(
-        private_key, agent_did, intent_type, intent_payload, covered_entity_address=covered_entity
+        private_key,
+        agent_did,
+        intent_type,
+        intent_payload,
+        target_chain_id,
+        verifying_contract,
+        covered_entity_address=covered_entity,
     )
 
     client = BccClient()

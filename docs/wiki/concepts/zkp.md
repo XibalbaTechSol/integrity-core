@@ -7,7 +7,7 @@ type: concept
 tags: [cryptography]
 confidence: high
 source_files:
-  - integrity-zkp/src/main.nr
+  - integrity-zkp/circuit/src/main.nr
   - integrity-zkp/README.md
   - integrity-zkp/Makefile
   - integrity-zkp/generated/UltraPlonkVerifier.sol
@@ -58,7 +58,7 @@ contract is still named "UltraPlonk"). Pinned versions: `nargo`
 
 ## 2. What this repo's circuit actually proves
 
-The one real circuit is `integrity-zkp/src/main.nr` — a **key/intent binding
+The one real circuit is `integrity-zkp/circuit/src/main.nr` — a **key/intent binding
 proof**, not a proof about AIS computation or any behavioral-metric
 arithmetic. Full formula and domain-tag detail lives on
 [integrity-zkp](../entities/integrity-zkp.md); summarized here only for
@@ -139,7 +139,7 @@ Barretenberg verification result, not a self-reported boolean.
 
 - `integrity-sdk/integrity_sdk/prover.py` still targets
   `integrity-sdk/circuits/poc_commitment`, not the canonical
-  `integrity-zkp/src/main.nr` circuit, and uses a different field derivation.
+  `integrity-zkp/circuit/src/main.nr` circuit, and uses a different field derivation.
 - No SDK, CLI, or Oracle runtime path currently submits a proof on chain through
   `ReputationRegistry.submitZkAttestation`.
 - Off-chain Oracle verification and on-chain proof submission are separate
@@ -177,7 +177,7 @@ comments must not imply that command exists.
 
 ```mermaid
 flowchart LR
-    Circuit["Canonical circuit<br/>integrity-zkp/src/main.nr"] --> BB["nargo + bb<br/>prove / verify"]
+    Circuit["Canonical circuit<br/>integrity-zkp/circuit/src/main.nr"] --> BB["nargo + bb<br/>prove / verify"]
     BB --> Generated["Generated Solidity verifier<br/>local source"]
     Generated --> Foundry["Real-proof Foundry tests<br/>valid + negative controls"]
     Telemetry["Telemetry proof"] --> Oracle["Oracle bb verify<br/>trusted server VK"]

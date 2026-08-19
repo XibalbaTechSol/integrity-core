@@ -183,6 +183,161 @@ piece of work, actually closing it.
   `test_brokenKernelPreCheckPermanentlyBricksAccountWithNoRescuePath`. A genuinely multi-party
   version of this mechanism remains unbuilt and is separate, larger scope. Full review findings
   and code-level response: `docs/plans/2026-08-17-phase1-module-governance-proposal.md`.
+  **Fourth update (2026-08-18/19): the multi-party gap just named is now closed for swap
+  *execution*, not for the hook-mediation guarantee itself — a second reversal, not a silent
+  one.** Per `docs/plans/2026-08-18-phase1-multiparty-kernel-governance-proposal.md`,
+  `executeKernelSwap` now additionally requires `guardianThreshold`-of-`N` independent guardian
+  approvals (an immutable set fixed at construction, no rotation) before it will proceed — a
+  compromised signer can still *propose* and start the timelock, but can no longer *execute*
+  alone. This closes exactly the gap the third update above named ("a compromised signing key can
+  still eventually force a kernel swap"), not the account's day-to-day `execute()` authority,
+  which remains single-signer by design. It does NOT close unilateral swap *denial* (the signer
+  can still park an unwanted proposal forever by never cancelling) — see the proposal doc's "What
+  this does NOT prove" for the full disclosure list, including the newly-introduced
+  quorum-vs-epoch-staleness interaction (guardian approval-gathering takes real elapsed time,
+  which can itself exhaust the outgoing kernel's `epochLengthSeconds` even from a snapshot fresh
+  at the moment gathering began — regression-tested by
+  `test_quorumGatheringCanStaleTheSnapshotBetweenApprovals`). **This slice ALSO breaks the "hook
+  fires on every reachable execution path" claim above a second time, the same way the swap's own
+  install/uninstall asymmetry broke it once already**: the new `approveKernelSwap` entry point is
+  guardian-callable directly, deliberately NOT routed through `execute()`/`withHook` (gating a
+  guardian's approval behind the account's own hook would be circular — the guardian exists
+  precisely to act when the account may be compromised or non-conformant). Proven empirically, not
+  just asserted, by `test_approveKernelSwapIsNotMediatedByTheInstalledHook`, which installs a
+  kernel that reverts unconditionally in `preCheck` and shows guardian approvals still succeed.
+  So as of this update there are two permanent, disclosed exceptions to "the hook mediates
+  everything": the swap's install half (unmediated by either kernel) and `approveKernelSwap`
+  (unmediated by any hook at all). 14 new Foundry tests for this extension (9 scope-enumerated
+  guardian-quorum tests, 4 constructor edge cases, 1 proving what a reentrant call during
+  `onInstall`/`onUninstall` observes of quorum state — full findings and mutation-testing detail:
+  `PRODUCTION_GAPS.md` §31). File suite: 41 → 55 (up from 17 before the module-governance
+  extension). Full repo suite: 264/264 (up from 250). Foundry-test-only, not deployed, same as
+  every prior slice.
+  **Fifth update (2026-08-18): the denial gap the fourth update named ("the signer can still park
+  an unwanted proposal forever by never cancelling") is now closed, both forms of it, not just the
+  narrower one.** Per `docs/plans/2026-08-18-phase1-guardian-swap-denial-proposal.md` (Option B,
+  user-selected after the tradeoff was explained in plain terms), a new
+  `guardianProposeAction`/`approveGuardianAction`/`executeGuardianAction` triple lets guardians act
+  with ZERO signer involvement at all — closing both the narrow case (signer proposes, refuses to
+  cancel) and the wider one the fourth update didn't fully name (signer never proposes anything at
+  all, e.g. a lost key, leaving guardians nothing to act on even at full consensus). Gated by
+  UNANIMOUS approval (all of `_guardians`, not `guardianThreshold`) — deliberately the highest bar
+  in the contract, since this is the only path that requires no signer cooperation whatsoever. A
+  real gap was found and fixed during implementation, not assumed away: a guardian-force-proposed
+  swap still has to clear the pre-existing `executeKernelSwap`, which was signer-only
+  (`onlyEntryPointOrSelf`) — an absent signer could never call it, stalling the rescue at the last
+  step regardless of guardian consensus. Fixed, with explicit user sign-off on the tradeoff:
+  `executeKernelSwap` now additionally accepts any single guardian as caller, without changing any
+  of its four existing preconditions (proven, not assumed, by
+  `test_executeKernelSwapCallableByGuardian_StillEnforcesExecutionQuorum` and
+  `test_executeKernelSwapRevertsForUnrelatedCaller_EvenAtFullQuorum`). **This slice adds a THIRD
+  permanent, disclosed exception to "the hook mediates everything"** — `guardianProposeAction`/
+  `approveGuardianAction`/`executeGuardianAction` are guardian-callable directly, never routed
+  through `execute()`/`withHook`, same reasoning as `approveKernelSwap`'s own exception above. Does
+  NOT close guardian collusion/compromise at unanimity, guardian-set rotation (tracked separately,
+  `docs/plans/2026-08-18-phase1-guardian-rotation-proposal.md` — losing even one guardian now
+  raises TWO bars toward impossible, not one), or the broken-kernel brick scenario (a
+  force-proposed swap's uninstall half still calls the outgoing kernel's `preCheck`; see
+  `docs/plans/2026-08-18-phase1-broken-kernel-rescue-proposal.md`). Full findings, gas
+  measurements, and the mutation-testing pass on all three new/changed guards: `PRODUCTION_GAPS.md`
+  §32. File suite: 55 → 71 tests. Full repo suite: 280/280 (up from 264). Foundry-test-only, not
+  deployed, same as every prior slice.
+  **Sixth update (2026-08-18): guardian-set rotation, closing the gap the fifth update named.**
+  Per `docs/plans/2026-08-18-phase1-guardian-rotation-proposal.md`,
+  `proposeGuardianRotation`/`approveGuardianRotation`/`executeGuardianRotation` let the CURRENT
+  guardians add or remove one guardian at a time (never both at once), gated by UNANIMOUS
+  approval. Two decisions, explained in plain language before being asked: `guardianThreshold`
+  itself is never rotatable (immutable forever, closing off "vote the bar down" as an attack
+  surface); rotation requires unanimity, not the ordinary `guardianThreshold`. At most one
+  guardian-relevant governance process may be in flight at a time — rotation is blocked while a
+  kernel swap or guardian action is pending, and neither of those may be proposed while a rotation
+  is pending, enforced symmetrically and proven in both directions. **A real, previously-
+  undiscovered liveness bug in the fifth update's own mechanism was found while writing this
+  slice's tests and fixed, not left broken:** `executeGuardianAction` deleted its pending-action
+  state and only afterward checked whether the action could proceed, but a Solidity revert undoes
+  every state change made earlier in the same call — so a legitimate signer action (e.g.
+  cancelling a swap guardians were separately, unanimously already agreeing to force-cancel) could
+  leave `pendingGuardianAction` permanently stuck, blocking every future
+  `guardianProposeAction`/`proposeGuardianRotation` call from an entirely ordinary race, not an
+  attack. Fixed with two small permissionless functions, `cancelPendingGuardianAction()` (the
+  actual fix) and `cancelPendingGuardianRotation()` (added for parity). The exact bug scenario is
+  now a permanent regression fixture, not just a documented claim. Mutation-tested three new
+  guards, all caught. Full findings and gas measurements: `PRODUCTION_GAPS.md` §33. File suite:
+  71 → 86 tests. Full repo suite: 295/295 (up from 280). Foundry-test-only, not deployed, same as
+  every prior slice.
+  **Seventh update (2026-08-18): the reentrant-call half of the "reentrancy window during the
+  swap" risk named in this doc's own earlier update is now closed, and a real imprecision in how
+  that risk was described is corrected, not silently carried forward.** Per
+  `docs/plans/2026-08-18-phase1-swap-reentrancy-guard-proposal.md`, a new `swapInProgress` flag
+  makes both `_execute` and a newly-added `_fallback` override revert unconditionally
+  (`ReentrantDuringSwap`) for the duration of `executeKernelSwap`'s uninstall/install pair. The
+  correction: this doc and the account's own NatSpec previously described the risk as "a hostile
+  `newKernel.onInstall` that reenters `execute()`" -- imprecise, since `execute()` is
+  `onlyEntryPointOrSelf`-gated and a kernel's callback caller-identity is its own address, never
+  `self` or the entry point, so it could never reach `execute()` directly. The actually-reachable
+  path is `fallback()`, which carries no access restriction at all. Honestly disclosed rather than
+  overstated: in this account's CURRENT configuration (no fallback-handler module ever installed),
+  a reentrant fallback call fails closed either way -- the guard's effect is proven by the revert
+  REASON changing (`ReentrantDuringSwap` vs. `ERC7579MissingFallbackHandler`), which shows a
+  hostile kernel's own `preCheck` genuinely runs, self-mediated, before the unguarded call
+  eventually fails for an unrelated reason -- so this is real, forward-looking hardening for the
+  moment this account (or a descendant) ever legitimately installs a fallback handler, not a fix
+  for damage reachable today. Deliberately does NOT reorder or reimplement OZ's own
+  `_installModule`/`_uninstallModule` (the proposal's rejected, more expensive Shape A). Mutation-
+  tested: removing the `_fallback` guard changes the observed revert selector, caught by both new
+  tests, restored after confirming detection. Full findings: `PRODUCTION_GAPS.md` §34. File suite:
+  86 → 88 tests. Full repo suite: 297/297 (up from 295). Foundry-test-only, not deployed, same as
+  every prior slice.
+  **Eighth update (2026-08-18): a true kernel-swap rescue for the broken-kernel brick scenario is
+  ARCHITECTURALLY IMPOSSIBLE at this layer -- investigated and disclosed before writing any code,
+  not discovered partway through.** `AccountERC7579Hooked`'s `_hook` storage is `private`, and its
+  only two mutation paths (`_installModule`/`_uninstallModule`) are unconditionally `withHook`-
+  wrapped in their own bodies -- no subclass override point can clear `_hook` without asking
+  whatever is currently installed for permission first. A true rescue would require forking
+  `AccountERC7579Hooked` itself, the same class of undertaking the seventh update's Shape A
+  explicitly rejected at much smaller scale -- not pursued here either, per user decision after
+  the wall was explained plainly. **Built instead, with the user's fully-informed sign-off:** a
+  guardian-unanimous emergency funds-recovery SWEEP (`proposeGuardianRescueSweep`/
+  `approveGuardianRescueSweep`/`executeGuardianRescueSweep`), a raw value transfer that never
+  touches `_hook`/`execute()`/`withHook` at all -- sidesteps the wall rather than defeating it. The
+  account itself is never repaired; this recovers funds, proven against the exact scenario the
+  normal rescue-swap machinery cannot save
+  (`test_guardianRescueSweep_RecoversFundsFromAPermanentlyBrickedAccount`, which installs a real
+  always-reverting kernel, confirms the normal rescue path still fails, then confirms the sweep
+  succeeds and the account remains bricked afterward). Two real decisions the user made explicitly
+  after plain-language explanation, not defaulted: (1) a separate, independently configurable
+  `rescueTimelockSeconds`, deliberately allowed to be ZERO -- unlike every other timelock in this
+  contract -- because different deployments may have different risk tolerances and a delay costs
+  nothing operationally once an account is already bricked; (2) the sweep's severity was surfaced
+  explicitly before authorization -- since no on-chain check can distinguish "permanently broken"
+  from "reverted recently," this is a general guardian-unanimous power to drain the account's
+  ENTIRE balance at ANY time, not only during genuine emergencies, the first guardian mechanism in
+  this contract to directly move value rather than only govern. Mutation-tested three guards
+  (unanimity, timelock, exceeds-balance), all caught and restored. Full findings and gas
+  measurements: `PRODUCTION_GAPS.md` §35. File suite: 88 → 101 tests. Full repo suite: 310/310 (up
+  from 297). Foundry-test-only, not deployed, same as every prior slice.
+  **Ninth update (2026-08-19): the epoch/timelock deployment invariant both this account and the
+  kernel documented but neither enforced is now code-level, Option B (fail-open for kernels with
+  no epoch concept).** `_checkEpochCompatibility` (`try`/`catch` probe of `newKernel.
+  epochLengthSeconds()`) is called from the constructor and both kernel-swap-proposal paths
+  (`proposeKernelSwap`, `guardianProposeAction`'s force-propose branch), reverting
+  `EpochTooShortForTimelock` when the kernel implements the selector and its epoch is shorter
+  than `moduleActionTimelockSeconds` -- silently skipped, not failed closed, for a kernel that
+  doesn't implement it at all (the user's explicit choice between two real options, matching the
+  proposal's own recommendation). **A significant mid-implementation discovery:** the entire
+  101-test suite's shared fixture had deliberately used the exact invariant-violating pair
+  (3-day timelock, 1-day epoch) this feature rejects, since several tests used that mismatch to
+  demonstrate the pre-existing bug motivating this proposal -- fixed by raising the shared epoch
+  constant to match the timelock (compliant pair) and auditing every dependent test's now-
+  redundant `refreshReputationSnapshot()` calls and comments, verified empirically (removed and
+  re-added, not just hand-reasoned) rather than assumed safe. Zero existing test behavior
+  weakened; all 101 pass unchanged. New: `NonSnapshottingKernel` fixture + 4 tests (genesis
+  revert, propose revert via both paths, and a full fail-open round trip proven end-to-end, not
+  just at the constructor). Mutation-tested (neutralized the comparison, all three revert tests
+  failed distinctly, restored). Full findings: `PRODUCTION_GAPS.md` §37. File suite: 101 → 105
+  tests. Full repo suite: 310/310 → 314/314. Foundry-test-only, not deployed. **This closes the
+  sixth and final of the six items scoped for this slice's continuation** -- item 7 (external
+  audit) remains a gate, not buildable work.
 - **Not audited.** No external review has occurred. This slice's own completion does not clear
   the Devil's Advocate review's stated gate to Phase II ("audit + machine-checked invariance").
 - **Not proof that `IntegrityAccount`/`IntegrityKernel` (the real Phase I names) exist.** This is
