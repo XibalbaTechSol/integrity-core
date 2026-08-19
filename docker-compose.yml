@@ -41,10 +41,10 @@ services:
     # `result` key at all (data path never existed), which its own client code
     # correctly treated as OPA-unavailable/fail-closed — silent-looking but never unsafe,
     # just permanently unable to evaluate any real rule.
-    command: ["run", "--server", "--addr=0.0.0.0:8181", "/policies", "/shield-policies"]
+    command: ["run", "--server", "--addr=0.0.0.0:8181", "/policies", "/shield-policies/selected.rego"]
     volumes:
       - ./bcc_middleware/policies:/policies:ro
-      - ../xibalba-shield/policies/rego:/shield-policies:ro
+      - ../xibalba-shield/policies/rego/smb.rego:/shield-policies/selected.rego:ro
     ports: ["8181:8181"]
 
   oracle-backend:

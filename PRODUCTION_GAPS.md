@@ -1818,3 +1818,104 @@ suite continues to exercise the same behavior it did before this change, without
 assertion. Cross-repo: `xibalba-shield/shield/integrity_exporter` calls
 `integrity_sdk.bcc.build_bcc_commitment` directly and needed a matching update — see that repo's
 own history for the corresponding change, tracked separately from this repo's scope.
+
+## 31. Guardian M-of-N quorum on kernel-swap execution — closes unilateral swap *execution*, not
+unilateral swap *denial* (2026-08-19)
+
+*Current State:* per `docs/plans/2026-08-18-phase1-multiparty-kernel-governance-proposal.md`,
+`IntegrityAccountV1Experimental` gained an immutable guardian set (`address[] guardians()`) and
+threshold (`guardianThreshold`), set once at construction (no rotation mechanism in this slice).
+`proposeKernelSwap`/`cancelKernelSwap` remain unchanged, single-signer (`onlyEntryPointOrSelf`)
+— proposing/cancelling stays low-stakes by design, deliberately not gated, to avoid making swap
+*denial* itself a multi-party negotiation. `executeKernelSwap` gained a fourth precondition:
+`kernelSwapApprovalCount[kernelSwapNonce] >= guardianThreshold`, checked after the pre-existing
+three (pending exists, address match, timelock elapsed) and before the uninstall/install
+sequence — verified independently gating alongside, not instead of, those three
+(`test_existingSingleSignerPreconditionsStillGateAlongsideQuorum`). A new
+`approveKernelSwap(uint256 expectedNonce, address newKernel)` entry point is guardian-only,
+nonce-scoped (`kernelSwapNonce` bumped once per `proposeKernelSwap`, so a stale approval from a
+cancelled or already-executed proposal can never silently count toward a later one —
+`test_approvalFromACancelledProposalDoesNotCountTowardARepropose`), and idempotent per guardian
+per nonce (`test_approveKernelSwapDoesNotDoubleCountTheSameGuardianUnderTheSameNonce`).
+
+**What this closes, precisely:** before this slice, a single compromised signer key, waiting out
+the timelock, could force any kernel swap alone. After it, that same key can still *propose* and
+start the clock, but cannot *execute* without independently convincing `guardianThreshold`
+guardians — distinct keys, not derived from the account signer — to each submit their own
+on-chain approval.
+
+**What this does NOT close, disclosed and accepted, not solved:**
+- **Unilateral swap denial.** `proposeKernelSwap`/`cancelKernelSwap` stay signer-only; a
+  compromised or uncooperative signer can park an unwanted proposal in the single pending-swap
+  slot indefinitely (never cancelling, never letting guardians act on anything), denying the
+  account — including a legitimate rescue swap — for as long as the signer withholds a cancel.
+  Letting guardians cancel at threshold would close this but reintroduces a stuck-negotiation
+  failure mode this proposal deliberately rejected for `cancelKernelSwap`.
+- **Guardian collusion or guardian-key compromise at or above threshold.** An M-of-N quorum is
+  only as strong as the independence of the M keys, which the contract cannot verify or enforce
+  — an operational/deployment discipline, not a code guarantee.
+- **Guardian-set rotation.** The set is immutable forever at construction — simple to reason
+  about, but an unreachable or permanently-departed guardian permanently raises the effective bar
+  toward "impossible," never toward "insecure." A future slice would need a second, probably
+  also-guardian-gated rotation mechanism if this is adopted further.
+- **The two pre-existing reentrancy windows and the broken-kernel brick scenario from §29's
+  tracer-bullet entry.** A malicious or buggy `newKernel` that passes the `isModuleType` probe
+  can still brick the account after a fully-guardian-approved swap; quorum raises the bar for
+  *who* can propose a bad swap and get it through, not whether the swap itself is safe once
+  approved.
+- **A second, permanent break of the "hook mediates every reachable state-changing path" claim.**
+  `approveKernelSwap` is guardian-callable directly, deliberately not routed through
+  `execute()`/`withHook` (gating a guardian behind the account's own hook would be circular).
+  Proven empirically, not just asserted, by `test_approveKernelSwapIsNotMediatedByTheInstalledHook`
+  (installs a permanently-`preCheck`-reverting kernel, shows guardian approvals still succeed).
+  Both `docs/design/phase1-tracer-bullet-slice-2026-08-17.md` and this contract's own NatSpec now
+  disclose this, alongside the pre-existing swap install/uninstall mediation asymmetry.
+- **A genuinely new failure mode, not a restated one: quorum-gathering can itself stale the
+  reputation snapshot.** Guardian approval-gathering takes real elapsed time (the timelock, then
+  M separate guardian transactions), which can exhaust the outgoing kernel's `epochLengthSeconds`
+  even when the snapshot was fresh at the moment gathering began — not just via the pre-existing
+  timelock-vs-epoch collision every other success-path test already routes around with a single
+  upfront refresh. Regression-tested end to end, not left as a restated theoretical risk:
+  `test_quorumGatheringCanStaleTheSnapshotBetweenApprovals` assembles quorum with a warp *between*
+  the two guardian approvals, confirms `executeKernelSwap` reverts `SnapshotStale` (not
+  `InsufficientGuardianApprovals` — full quorum was genuinely reached), then confirms the
+  permissionless `refreshReputationSnapshot()` recovers it.
+
+**Verification discipline applied:** strict red→green TDD per the proposal's process section.
+Mutation-tested both new security-relevant guards — temporarily removed the
+`InsufficientGuardianApprovals` threshold check (caught by
+`test_executeKernelSwapRevertsBelowGuardianThreshold` and, incidentally,
+`test_approvalFromACancelledProposalDoesNotCountTowardARepropose`) and the nonce-equality check in
+`approveKernelSwap` (caught by `test_approveKernelSwapRevertsOnWrongNonce` — the cancelled-nonce
+replay test does NOT catch this mutation, since approvals are indexed by the *current* nonce
+regardless of what a guardian claims, so that guard protects intent-matching, not storage
+isolation; both guards restored after confirming detection). Constructor edge cases covered:
+threshold 0, threshold > guardian count, duplicate guardian address, zero-address guardian
+(`test_constructorRevertsOnZeroGuardianThreshold`, `test_constructorRevertsWhenThresholdExceedsGuardianCount`,
+`test_constructorRevertsOnDuplicateGuardian`, `test_constructorRevertsOnZeroAddressGuardian`).
+The proposal's third named adversarial-pass item — "interaction with the existing reentrancy
+windows (does a reentrant call during onInstall/onUninstall see stale or fresh approval state?)"
+— is answered empirically, not left open, by `test_reentrancyDuringInstallAndUninstallObservesFreshApprovalsAndEmptyPending`:
+a `ReentrancyObserverKernel` fixture plays "new kernel" (onInstall) in one swap and "old kernel"
+(onUninstall) in a following one. Answer: `pendingKernelSwap` is already cleared (empty) at BOTH
+callback points (`delete pendingKernelSwap` runs before either half), but
+`kernelSwapApprovalCount` for the just-consumed nonce is NOT cleared alongside it — a reentrant
+reader sees the full, fresh approval count next to an empty pending slot. Separately proves this
+window cannot be used to *mutate* quorum state: a reentrant `proposeKernelSwap` call from inside
+the callback reverts (`msg.sender` there is the kernel contract itself, neither `self` nor the
+entry point) and a reentrant `approveKernelSwap` call reverts (that same address is not a
+registered guardian). The two pre-existing reentrancy windows this test exercises remain open and
+disclosed, per §29's tracer-bullet entry — this only closes the *quorum-specific* question the
+proposal asked, not the windows themselves.
+
+Gas measured directly from call traces, not assumed unchanged: `proposeKernelSwap` 67,886 (cold);
+`approveKernelSwap` 49,771 first guardian / 27,871 second guardian (cold vs. one-less-cold slot);
+`executeKernelSwap` 41,268. `IntegrityAccountV1ExperimentalTest` suite: 41 → 55 tests (+14: 9
+scope-enumerated guardian-quorum tests, 4 constructor edge cases, 1 reentrancy-window
+observation), all passing; full repo suite 264/264 (up from 250 before this slice). The 5
+pre-existing tests that call `executeKernelSwap` on a success path were updated to gather
+guardian approval first, not left broken.
+
+**Not deployed anywhere.** Foundry-test-only, local, uncommitted at time of writing, same
+standing rule as every prior Phase I slice — no push/commit/deploy without separate explicit
+authorization.

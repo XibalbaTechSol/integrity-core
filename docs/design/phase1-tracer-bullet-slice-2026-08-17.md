@@ -183,6 +183,36 @@ piece of work, actually closing it.
   `test_brokenKernelPreCheckPermanentlyBricksAccountWithNoRescuePath`. A genuinely multi-party
   version of this mechanism remains unbuilt and is separate, larger scope. Full review findings
   and code-level response: `docs/plans/2026-08-17-phase1-module-governance-proposal.md`.
+  **Fourth update (2026-08-18/19): the multi-party gap just named is now closed for swap
+  *execution*, not for the hook-mediation guarantee itself — a second reversal, not a silent
+  one.** Per `docs/plans/2026-08-18-phase1-multiparty-kernel-governance-proposal.md`,
+  `executeKernelSwap` now additionally requires `guardianThreshold`-of-`N` independent guardian
+  approvals (an immutable set fixed at construction, no rotation) before it will proceed — a
+  compromised signer can still *propose* and start the timelock, but can no longer *execute*
+  alone. This closes exactly the gap the third update above named ("a compromised signing key can
+  still eventually force a kernel swap"), not the account's day-to-day `execute()` authority,
+  which remains single-signer by design. It does NOT close unilateral swap *denial* (the signer
+  can still park an unwanted proposal forever by never cancelling) — see the proposal doc's "What
+  this does NOT prove" for the full disclosure list, including the newly-introduced
+  quorum-vs-epoch-staleness interaction (guardian approval-gathering takes real elapsed time,
+  which can itself exhaust the outgoing kernel's `epochLengthSeconds` even from a snapshot fresh
+  at the moment gathering began — regression-tested by
+  `test_quorumGatheringCanStaleTheSnapshotBetweenApprovals`). **This slice ALSO breaks the "hook
+  fires on every reachable execution path" claim above a second time, the same way the swap's own
+  install/uninstall asymmetry broke it once already**: the new `approveKernelSwap` entry point is
+  guardian-callable directly, deliberately NOT routed through `execute()`/`withHook` (gating a
+  guardian's approval behind the account's own hook would be circular — the guardian exists
+  precisely to act when the account may be compromised or non-conformant). Proven empirically, not
+  just asserted, by `test_approveKernelSwapIsNotMediatedByTheInstalledHook`, which installs a
+  kernel that reverts unconditionally in `preCheck` and shows guardian approvals still succeed.
+  So as of this update there are two permanent, disclosed exceptions to "the hook mediates
+  everything": the swap's install half (unmediated by either kernel) and `approveKernelSwap`
+  (unmediated by any hook at all). 14 new Foundry tests for this extension (9 scope-enumerated
+  guardian-quorum tests, 4 constructor edge cases, 1 proving what a reentrant call during
+  `onInstall`/`onUninstall` observes of quorum state — full findings and mutation-testing detail:
+  `PRODUCTION_GAPS.md` §31). File suite: 41 → 55 (up from 17 before the module-governance
+  extension). Full repo suite: 264/264 (up from 250). Foundry-test-only, not deployed, same as
+  every prior slice.
 - **Not audited.** No external review has occurred. This slice's own completion does not clear
   the Devil's Advocate review's stated gate to Phase II ("audit + machine-checked invariance").
 - **Not proof that `IntegrityAccount`/`IntegrityKernel` (the real Phase I names) exist.** This is

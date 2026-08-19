@@ -82,11 +82,35 @@ import {ERC7579Utils, Mode, CallType, ExecType} from "@openzeppelin/contracts/ac
 ///  - This slice never exercises the ERC-4337 EntryPoint/UserOp/prefund path. `execute()` and
 ///    the governance functions below are reachable only via `onlyEntryPointOrSelf`'s "self"
 ///    branch in this slice's own test suite.
+///  - **Guardian quorum gates `executeKernelSwap`, extended
+///    (docs/plans/2026-08-18-phase1-multiparty-kernel-governance-proposal.md).** This is a
+///    SECOND reversal of the "hook fires on every reachable state-changing path" guarantee,
+///    alongside the swap's own install/uninstall mediation asymmetry already documented above:
+///    `approveKernelSwap` is a new state-changing entry point that is deliberately
+///    guardian-callable DIRECTLY, never routed through `execute()`/`_execute`/`withHook` --
+///    gating a guardian's approval behind the account's own hook would be circular, since
+///    guardians exist precisely to act when the account/kernel may itself be compromised or
+///    non-conformant. `proposeKernelSwap` and `cancelKernelSwap` remain signer-only, unchanged
+///    -- only `executeKernelSwap` additionally requires `guardianThreshold` independent guardian
+///    approvals, scoped to the current `kernelSwapNonce` so a stale approval from a cancelled or
+///    already-executed proposal can never count toward a later one. This closes unilateral swap
+///    EXECUTION (a compromised signer alone can no longer force a swap through), NOT unilateral
+///    swap DENIAL (a compromised signer can still park an unwanted proposal in the single
+///    pending-swap slot indefinitely, since only the signer may cancel) -- see the proposal
+///    doc's "What this does NOT prove" for why guardian-cancel was deliberately rejected. Also
+///    NOT closed: the two reentrancy windows and the broken-kernel brick scenario already
+///    disclosed above (orthogonal to who authorizes a swap), and the account's own day-to-day
+///    `execute()` authority remains single-signer by design -- only the swap path gained a
+///    second, independent authority axis. A guardian quorum also strictly lengthens real-world
+///    elapsed time between propose and execute, making the timelock-vs-`epochLengthSeconds`
+///    collision documented on `moduleActionTimelockSeconds` above materially more likely in
+///    practice, not just in theory -- recoverable via the permissionless
+///    `refreshReputationSnapshot()`, but easy to mistake for a reputation problem.
 ///
 /// See `IntegrityKernelV1Experimental` for exactly what guarantee the installed hook provides --
 /// this account only guarantees that the hook fires on every reachable state-changing path
-/// (and, for the swap's uninstall half, on the governance path too), not what the hook itself
-/// checks.
+/// EXCEPT `approveKernelSwap` (and, for the swap's uninstall half, that the outgoing kernel's
+/// hook fires on the governance path too), not what the hook itself checks.
 contract IntegrityAccountV1Experimental is AccountERC7579Hooked, SignerECDSA {
     using ERC7579Utils for Mode;
 
@@ -99,6 +123,13 @@ contract IntegrityAccountV1Experimental is AccountERC7579Hooked, SignerECDSA {
     error ZeroKernel();
     error ZeroTimelock();
     error NewKernelNotAHookModule(address newKernel);
+    error ZeroGuardian();
+    error DuplicateGuardian(address guardian);
+    error InvalidGuardianThreshold(uint256 threshold, uint256 guardianCount);
+    error NotAGuardian(address caller);
+    error GuardianNonceMismatch(uint256 expected, uint256 provided);
+    error GuardianAlreadyApproved(address guardian, uint256 nonce);
+    error InsufficientGuardianApprovals(uint256 approvals, uint256 threshold);
 
     /// @dev Delay between proposing and executing a kernel swap. Immutable -- the delay itself
     /// cannot be shortened or lengthened after deployment, closing off "govern the governance"
@@ -129,7 +160,37 @@ contract IntegrityAccountV1Experimental is AccountERC7579Hooked, SignerECDSA {
     /// silently overwrite the first.
     PendingKernelSwap public pendingKernelSwap;
 
-    constructor(address signerAddr, address kernel, uint256 moduleActionTimelockSeconds_) SignerECDSA(signerAddr) {
+    /// @dev Guardian set is fixed forever at construction -- no add/remove/rotate path exists in
+    /// this slice (see the proposal doc's "Scope: out"). `_isGuardian` avoids an array scan per
+    /// `approveKernelSwap` call; `_guardians` itself is kept only so the set can be inspected
+    /// off-chain, it is never iterated on-chain.
+    address[] private _guardians;
+    mapping(address guardian => bool) private _isGuardian;
+
+    /// @dev M-of-N threshold gating `executeKernelSwap` only -- `proposeKernelSwap` and
+    /// `cancelKernelSwap` remain signer-only. Immutable: this slice has no guardian-set or
+    /// threshold rotation mechanism.
+    uint256 public immutable guardianThreshold;
+
+    /// @dev Bumped once per `proposeKernelSwap` call. Scopes guardian approvals to exactly the
+    /// proposal that was current when they were cast, so an approval can never be replayed
+    /// against a later, different proposal (including a cancel-and-repropose of the SAME
+    /// `newKernel` address) -- there is deliberately no separate clear-on-cancel or
+    /// clear-on-execute bookkeeping; a new nonce alone makes prior approvals irrelevant.
+    uint256 public kernelSwapNonce;
+
+    mapping(uint256 nonce => mapping(address guardian => bool)) private _kernelSwapApprovals;
+    mapping(uint256 nonce => uint256) public kernelSwapApprovalCount;
+
+    event KernelSwapApproved(uint256 indexed nonce, address indexed guardian, address newKernel);
+
+    constructor(
+        address signerAddr,
+        address kernel,
+        uint256 moduleActionTimelockSeconds_,
+        address[] memory guardians_,
+        uint256 guardianThreshold_
+    ) SignerECDSA(signerAddr) {
         // A zero timelock would make executeKernelSwap immediately callable in the same
         // transaction as proposeKernelSwap, silently voiding this mechanism's entire value
         // proposition over the tracer-bullet slice's original "permanently unreachable" design --
@@ -137,7 +198,47 @@ contract IntegrityAccountV1Experimental is AccountERC7579Hooked, SignerECDSA {
         // already rejects for its analogous immutables (ZeroBudget, ZeroMinEffectiveScore).
         if (moduleActionTimelockSeconds_ == 0) revert ZeroTimelock();
         moduleActionTimelockSeconds = moduleActionTimelockSeconds_;
+
+        // threshold >= 1 and <= guardians_.length together already exclude both the empty-set
+        // and the zero-threshold case -- no separate check needed for either.
+        if (guardianThreshold_ == 0 || guardianThreshold_ > guardians_.length) {
+            revert InvalidGuardianThreshold(guardianThreshold_, guardians_.length);
+        }
+        for (uint256 i = 0; i < guardians_.length; i++) {
+            address guardian = guardians_[i];
+            if (guardian == address(0)) revert ZeroGuardian();
+            if (_isGuardian[guardian]) revert DuplicateGuardian(guardian);
+            _isGuardian[guardian] = true;
+            _guardians.push(guardian);
+        }
+        guardianThreshold = guardianThreshold_;
+
         _installModule(MODULE_TYPE_HOOK, kernel, "");
+    }
+
+    /// @notice Returns the immutable guardian set.
+    function guardians() external view returns (address[] memory) {
+        return _guardians;
+    }
+
+    /// @notice A guardian's independent approval of the currently pending kernel swap.
+    /// `expectedNonce` must match `kernelSwapNonce` exactly -- this is what prevents an approval
+    /// cast against one proposal from silently counting toward a different one (including a
+    /// cancel-and-repropose of the same `newKernel` address under a new nonce). Does NOT itself
+    /// mutate `_hook`; only raises `executeKernelSwap`'s approval count for this nonce.
+    /// @dev Deliberately NOT routed through `execute()`/`withHook` -- see the contract-level doc
+    /// comment's guardian-quorum paragraph for why gating a guardian behind the account's own
+    /// hook would be circular.
+    function approveKernelSwap(uint256 expectedNonce, address newKernel) external {
+        if (!_isGuardian[msg.sender]) revert NotAGuardian(msg.sender);
+        if (pendingKernelSwap.readyAt == 0) revert NoSwapPending();
+        if (expectedNonce != kernelSwapNonce) revert GuardianNonceMismatch(kernelSwapNonce, expectedNonce);
+        if (pendingKernelSwap.newKernel != newKernel) revert SwapMismatch(pendingKernelSwap.newKernel, newKernel);
+        if (_kernelSwapApprovals[kernelSwapNonce][msg.sender]) revert GuardianAlreadyApproved(msg.sender, kernelSwapNonce);
+
+        _kernelSwapApprovals[kernelSwapNonce][msg.sender] = true;
+        kernelSwapApprovalCount[kernelSwapNonce] += 1;
+        emit KernelSwapApproved(kernelSwapNonce, msg.sender, newKernel);
     }
 
     /// @notice Starts the timelock for a future swap of the currently installed kernel for
@@ -160,6 +261,10 @@ contract IntegrityAccountV1Experimental is AccountERC7579Hooked, SignerECDSA {
         if (!IERC7579Module(newKernel).isModuleType(MODULE_TYPE_HOOK)) {
             revert NewKernelNotAHookModule(newKernel);
         }
+        // Bumped BEFORE this proposal becomes current, so any approval a guardian casts against
+        // it always targets a freshly-zeroed approval count -- no prior proposal's leftover
+        // approvals (there are none stored under this new nonce) can carry over.
+        kernelSwapNonce += 1;
         pendingKernelSwap =
             PendingKernelSwap({newKernel: newKernel, readyAt: block.timestamp + moduleActionTimelockSeconds});
     }
@@ -183,6 +288,8 @@ contract IntegrityAccountV1Experimental is AccountERC7579Hooked, SignerECDSA {
         if (pending.readyAt == 0) revert NoSwapPending();
         if (pending.newKernel != newKernel) revert SwapMismatch(pending.newKernel, newKernel);
         if (block.timestamp < pending.readyAt) revert TimelockNotElapsed(pending.readyAt, block.timestamp);
+        uint256 approvals = kernelSwapApprovalCount[kernelSwapNonce];
+        if (approvals < guardianThreshold) revert InsufficientGuardianApprovals(approvals, guardianThreshold);
 
         delete pendingKernelSwap;
         address oldKernel = hook();
