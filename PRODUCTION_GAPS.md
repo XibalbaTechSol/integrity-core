@@ -204,7 +204,16 @@ skipped.
   on-chain primitives when the DID already resolves, instead of deploying a second orphaned
   pair. Verified end-to-end: `test_register_agent_is_idempotent_for_an_already_registered_did`
   calls `register_agent()` twice for the same identity and asserts both calls return
-  identical primitive addresses.
+  identical primitive addresses. Follow-up closure, 2026-08-19: the SDK idempotency path now
+  also checks whether the existing `StateAnchor` has a non-zero genesis memory root before
+  calling the oracle. A zero root triggers `anchor_genesis_root`; anchoring failure raises
+  `RegistrationError` and prevents the oracle POST, avoiding a known
+  `MemoryNotInitialized` rejection path. Covered by
+  `tests/unit/test_registration_existing_did_genesis.py`; full `integrity-sdk` validation
+  passed with 267 passed, 9 skipped after running the full SDK pytest suite from
+  `integrity-sdk/` with `/home/xibalba/.foundry/bin` on `PATH`. Residual boundary: this is
+  SDK behavior and local real-anvil/unit evidence, not a fresh live Base Sepolia
+  registration proof.
 * **CLOSED — `EHRGate` ABI + Integrity Health wrapper functions.** `scripts/sync_abis.py` now syncs
   `EHRGate`; new `integrity_sdk/health.py` wraps `CoveredEntityRegistry`/`SmartBAAFactory`/
   `SmartBAA`/`ComplianceGate`/`EHRGate`, reusing `markets._execute_via_agent` for every

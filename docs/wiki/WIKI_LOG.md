@@ -3106,3 +3106,9 @@ writeup: PRODUCTION_GAPS.md §18.
 - Added the explicit OpenZeppelin 5.3.0 remapping required by Chainlink CCIP imports; this restores clean deployment-script compilation for the contracts, Software Development Kit (SDK), and command-line interface (CLI) validation paths.
 - Declared the dashboard's `globals` ESLint dependency and refreshed `package-lock.json`, so `npm ci` followed by `npm run lint` has a complete dependency graph.
 - Verification is recorded in the implementation branch: Foundry unit tests and dashboard lint pass locally; deployment-backed package tests remain the next CI confirmation after the branch is pushed.
+
+## [2026-08-19] fix | SDK existing-DID genesis anchoring guard
+
+- Fixed `integrity_sdk.registration.register_agent()`'s already-registered DID path so it reads the existing `StateAnchor` root before the oracle POST, anchors the genesis root when the root is zero, and fails closed with `RegistrationError` without calling the oracle if anchoring fails.
+- Added `integrity-sdk/tests/unit/test_registration_existing_did_genesis.py` covering zero-root anchoring before POST, non-zero-root no-op behavior, and the failure case where anchoring prevents the Oracle POST.
+- Verification: focused regression `uv run pytest tests/unit/test_registration_existing_did_genesis.py` passed with 3 passed; full SDK validation `PATH="/home/xibalba/.foundry/bin:$PATH" uv run pytest` passed with 267 passed, 9 skipped, 1 warning. The first full run without Foundry on `PATH` failed at chain fixture setup because `anvil` was not discoverable; no code failures were observed after using the installed Foundry path.
