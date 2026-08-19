@@ -27,6 +27,14 @@ factory that deploys them, the shared registries, the `$ITK` token, the
 [market/application layer](../concepts/integrity-market.md), and the
 [ZK verifier](../concepts/zkp.md).
 
+## Table of contents
+
+- [Dependency-resolution evidence](#dependency-resolution-evidence)
+- [Contents](#contents)
+- [Key invariants](#key-invariants)
+- [State](#state)
+- [Honest gaps](#honest-gaps)
+
 ## Dependency-resolution evidence
 
 The Chainlink CCIP sources pin imports to the OpenZeppelin 5.3.0 namespace.
@@ -35,13 +43,6 @@ The Chainlink CCIP sources pin imports to the OpenZeppelin 5.3.0 namespace.
 package. Without that entry, deployment-backed Software Development Kit
 (SDK) and command-line interface (CLI) tests fail during Foundry compilation
 even though the ordinary contract unit tests can pass.
-
-## Table of contents
-
-- [Contents](#contents)
-- [Key invariants](#key-invariants)
-- [State](#state)
-- [Honest gaps](#honest-gaps)
 
 ## Contents
 
