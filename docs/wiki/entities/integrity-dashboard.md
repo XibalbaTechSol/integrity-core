@@ -1,7 +1,7 @@
 ---
 title: integrity-dashboard
 created: 2026-07-07
-updated: 2026-08-13
+updated: 2026-08-18
 type: entity
 tags: [infrastructure, sdk]
 confidence: high
@@ -52,6 +52,10 @@ rule, the old content is replaced rather than patched.
 - [Local e2e stack](#local-e2e-stack)
 
 ## What this is
+
+The lint toolchain declares the `globals` package explicitly in
+`devDependencies`; this keeps the flat ESLint configuration reproducible in
+Continuous Integration (CI) and after a clean `npm ci`.
 
 React 18 + TypeScript + Vite 5 dashboard, `react-router-dom` v7. 16 routes
 (`src/App.tsx`), no route-level auth guard — `MainAppLayout`/`PublicLayout`
