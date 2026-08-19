@@ -1543,7 +1543,16 @@ provisional floors and enforcing now anyway (rejected — an agent failing a flo
 `bcc_middleware/app/scoring_loop.py` and drop PHI-gate access via `EHRGate`/
 `ComplianceGate`, too consequential to base on one data point).
 
-## 28. Registration non-idempotency: fixed in `integrity-sdk`, still open in `integrity-cli`
+## 28. Registration non-idempotency — CLOSED in both `integrity-sdk` and `integrity-cli`
+
+**Heading corrected 2026-08-19** — this section's title previously read "fixed in
+`integrity-sdk`, still open in `integrity-cli`", written before the `integrity-cli` fix (the
+second bullet below) landed and never updated afterward. Verified directly against current
+source before changing this line, not assumed from the body text alone: both `integrity-cli`'s
+`chain.py` (`resolve_did`/`has_anchor_role`/`itk_balance`/`state_anchor_latest_root`) and
+`main.py` (`_registration_progress_path`/`_load_registration_progress`/
+`_save_registration_progress`) exist and match what the second bullet below describes. Nothing
+left to build here — this was a stale label, not open work.
 
 *Current State:* `integrity_sdk/registration.py`'s `register_agent()` deploys a
 `SovereignAgent`/`StateAnchor` pair (steps 5-6), then mints testnet ITK, grants `ANCHOR_ROLE`,
