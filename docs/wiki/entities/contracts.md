@@ -1,7 +1,7 @@
 ---
 title: contracts
 created: 2026-07-07
-updated: 2026-08-17
+updated: 2026-08-18
 type: entity
 tags: [layer-2, identity, tokenomics, compliance]
 confidence: high
@@ -26,6 +26,15 @@ factory that deploys them, the shared registries, the `$ITK` token, the
 [Integrity Health](../concepts/compliance-gate.md) HIPAA stack, the
 [market/application layer](../concepts/integrity-market.md), and the
 [ZK verifier](../concepts/zkp.md).
+
+## Dependency-resolution evidence
+
+The Chainlink CCIP sources pin imports to the OpenZeppelin 5.3.0 namespace.
+`contracts/remappings.txt` therefore includes an explicit
+`@openzeppelin/contracts@5.3.0` remapping to the installed OpenZeppelin 5.x
+package. Without that entry, deployment-backed Software Development Kit
+(SDK) and command-line interface (CLI) tests fail during Foundry compilation
+even though the ordinary contract unit tests can pass.
 
 ## Table of contents
 
