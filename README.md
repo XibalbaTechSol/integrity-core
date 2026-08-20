@@ -1,5 +1,19 @@
 # Integrity Protocol
 
+## Canonical documents (v1.0.0-draft)
+
+As of this branch, protocol meaning lives here — not in v0.3 / v0.4 / v0.5-proposed / whitepaper v3.2:
+
+| File | Role | Audience |
+|---|---|---|
+| [docs/WHITEPAPER.md](docs/WHITEPAPER.md) | Why the protocol exists | Buyer / CISO |
+| [docs/SPEC.md](docs/SPEC.md) | Normative grammar, invariants, status tags | Implementer |
+| [docs/CONTROLS_MATRIX.md](docs/CONTROLS_MATRIX.md) | HIPAA / NIST / OWASP / AIUC-1 map | Auditor |
+| [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) | Build order | Builders |
+
+Those four files supersede `spec/integrity-protocol-v0.4.md` as the constitution. Older specs remain in-tree until the archive cutover in [docs/ARCHIVE_PLAN.md](docs/ARCHIVE_PLAN.md). Do not implement a new vertical from v0.4, v3.2, or a wiki page if it disagrees with `docs/SPEC.md`.
+
+
 ## README Source of Truth
 
 This README is the repo-level status source for integrity-core: what the protocol is, which packages it owns, what is built now, what remains planned, and where deeper operational contracts live. The accepted normative protocol is [spec/integrity-protocol-v0.4.md](spec/integrity-protocol-v0.4.md). The new [v0.5 proposed amendment](spec/integrity-protocol-v0.5-proposed.md) is not yet authoritative, and [Whitepaper v3.2](spec/integrity-protocol-v3.2.md) is explanatory and non-normative. Repository ownership and implementation boundaries live in [SPECIFICATION.md](SPECIFICATION.md), [docs/INTERFACE_CONTRACT.md](docs/INTERFACE_CONTRACT.md), [docs/MAINNET_READINESS.md](docs/MAINNET_READINESS.md), and the canonical wiki at [docs/wiki](docs/wiki).
