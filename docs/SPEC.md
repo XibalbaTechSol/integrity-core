@@ -11,114 +11,717 @@ Implementations claim conformance only against this file. Whitepaper v3, specifi
 
 The key words MUST, MUST NOT, SHOULD, MAY are RFC 2119.
 
+Status tags on a requirement:
+
+| Tag | Meaning |
+|---|---|
+| `[BUILT]` | Present in `integrity-core` (or the named product repo) on `main` and treated as the live path |
+| `[PARTIAL]` | Exists; this document's semantics supersede older docs. The reduction is disclosed here. |
+| `[PLANNED]` | Normative when shipped; not required to claim v1 kernel conformance |
+| `[EXPERIMENTAL]` | Exists as a non-deployed, non-production slice. MUST NOT be claimed as the live path. |
+
+A tag applies to the nearest heading or bullet. Untagged text is definitional.
+
+**How to read this file**
+
+| If you are… | Read |
+|---|---|
+| Deciding whether to buy or enclose an agent | `WHITEPAPER.md`, then stop. Come back here only for a status tag. |
+| Implementing the hook, oracle, SDK, or a pack | This file, in order. §4–§7 are the contract. |
+| Mapping a control to HIPAA / NIST / OWASP | `CONTROLS_MATRIX.md`. It does not add requirements. |
+| Sequencing the work | `IMPLEMENTATION_PLAN.md`. It does not add requirements. |
+
+---
+
 ## 1. Conformance
 
-A v1 Core implementation MUST provide an enclosed account mediated by the hook, post-state constraint evaluation, a signed evidence plane, an oracle that verifies and anchors roots, and pack loading. Until M1–M5 are demonstrated, implementations MUST describe themselves as a testnet/prototype protocol specification with a narrow experimental reference implementation.
+A **v1 Core** implementation MUST provide:
+
+1. An enclosed account whose state transitions are mediated by the hook in §6.
+2. Evaluation of a constraint vector \(C\) on the **post-state** per §5.
+3. An evidence plane (§8) that stores signed packages and exposes epoch cursors.
+4. An oracle that verifies those packages and submits roots (§8.3).
+5. Pack loading per §7. A Core MAY ship with zero packs installed; it MUST accept a pack that satisfies the schema.
+
+A **v1 Pack** MUST be conservative (§7.2 R4). A pack MUST NOT be required to implement Integrity Health, ZK ingest, or a second chain.
+
+**Conformance levels:**
+
+| Level | Required |
+|---|---|
+| **L0 — Record** | Signed spans + evidence store + oracle verify/anchor. No hook. |
+| **L1 — Constrain + record** | L0 plus a hook that evaluates a pack's \(C\) on the enclosed account. |
+| **L2 — Full v1** | L1 plus escalate (deny-on-timeout) and at least one non-stub pack. |
+
+v1.0.0-draft targets **L1 on one chain, one OS, one pack stub**. Independent audit and a machine-checked invariance argument are the named gate for non-draft `v1.0.0`. They are not a prerequisite for calling this document v1.
+
+Until M1–M5 are demonstrated, implementations MUST describe themselves as: a testnet/prototype protocol specification with a narrow experimental reference implementation.
+
+---
 
 ## 2. Objects and planes
 
-v1 has four named planes: Enforce (account and hook), Record (Cortex and Oracle), Learn (AIS), and Settle (chain). AIS is evidence-derived and never a permission. Cortex stores and replays; the oracle verifies; the hook admits or reverts value-moving actions.
+v1 is a three-plane system. No other top-level plane is defined.
+
+| Plane | Object | Role | MUST NOT |
+|---|---|---|---|
+| **Enforce** | Account \(A\), Hook | Modular smart account. ERC-7579 type-4 hook evaluates \(C\) and reverts on violation. | Become an analytics platform |
+| **Record** | Cortex (reference), Oracle | Persistent evidence and memory; verify and anchor | Become the final authority to move funds; be a second hook |
+| **Learn** | AIS | Evidence-derived integrity measurement | Create unbounded authority; turn deny into allow |
+| **Settle** | Chain (StateAnchor, account) | Tamper-evident commitments and high-value settlement | Store raw telemetry or PHI |
+
+Shield can run with no Core; Cortex can run with no Core. The closed loop is Shield and Cortex both calling Core: local containment plus durable memory plus an account that cannot leave the box.
+
+**Shield** (`xibalba-shield`, own repo) is a product that emits SDK spans and MAY load `packs/integrity-health` or `packs/agents`. It is not a protocol object.
+
+**Console** is an operator API over the evidence plane + hook telemetry. It is not a protocol object.
+
+**Xibalba Cortex** is Integrity v1's persistent evidence and memory plane in the **reference architecture**. A future enterprise deployment MAY substitute a conforming store. Cortex MUST NOT be a second verifier. The oracle verifies; Cortex stores, indexes, and serves replay.
+
+**AIS** is derived from verified evidence. It is a parameter of \(C\), never a permission.
+
+---
 
 ## 3. Types
 
-Constraints are keyed by durable agent identity, never solely by a rotatable EOA. Account state includes balances, allowances, nonce, meters, modules, bounded parameters, and a memory commitment head. `kill_epoch` is monotonic and mismatched intents MUST fail.
+### 3.1 Account state
+
+Let \(X\) be the finite set of EVM state assignments reachable by \(A\).
+
+At step \(k\):
+
+\[
+x_k = (b_k, \ell_k, n_k, q_k, m_k, \pi_k, h_k) \in X
+\]
+
+| Field | Type | Meaning |
+|---|---|---|
+| \(b\) | balances | Native and token balances controlled by \(A\) |
+| \(\ell\) | allowances | ERC-20 / operator approvals |
+| \(n\) | nonce | Replay counter |
+| \(q\) | meters | Remaining consumable units, keyed by meter id |
+| \(m\) | modules | Installed ERC-7579 modules and their config |
+| \(\pi\) | params | Operator / pack parameters (finite bounds, allowlists). Not the agent's policy. |
+| \(h\) | `bytes32` | StateAnchor head: commitment to durable memory |
+
+The agent policy (model + harness) is **not** a field of \(x\). It is outside the TCB.
+
+`kill_epoch` is a monotone meter on the account. An intent whose `kill_epoch` does not equal the account's MUST fail.
+
+### 3.2 Action
+
+\[
+a \in U = \{(\mathit{to}, \mathit{value}, \mathit{calldata}, \mathit{op})\}
+\]
+
+`op` is call, delegatecall, or batch. A batch is one \(a\) whose components MUST each be mediated.
+
+### 3.3 Identity
+
+Constraints MUST be keyed by a durable agent id, not a raw key.
+
+```text
+AgentId      = IntegrityDid | ERC8004TokenId
+IntegrityDid = "did:integrity:" || sha256(pubkey)
+ChainRef     = EIP155ChainId
+AccountRef   = CAIP10Account
+PackId       = name "@" semver
+MeterId      = bytes32
+```
+
+\(C\) is a function of identity. Key rotation MUST NOT drop \(C\). An implementation that binds \(C\) only to `msg.sender` when that sender is a rotatable EOA is not conformant.
+
+Live stack: `did:integrity:<sha256(pubkey)>`. `[BUILT]` An ERC-8004-shaped read facade exists as `[EXPERIMENTAL]` (`IntegrityIdentityReadV1`) and MUST report `isERC8004Conformant() == false` until a separately accepted claim.
+
+### 3.4 Account profiles
+
+Both profiles MUST use the same hook, evidence format, memory chain, AIS inputs, and packs.
+
+| Profile | Ownership | On-chain footprint | v1 commercial default |
+|---|---|---|---|
+| **Enclosed enterprise agent** | Organization-owned ERC-4337 account; agent session keys; operator governance | Account + `StateAnchor` head only. No clone set required. | Yes |
+| **Sovereign economic agent** | Identity bound to ERC-6551 TBA or equivalent | MAY deploy the full `PrimitiveSet` (§3.4.1) | Optional, not required |
+
+A hospital MUST NOT be required to mint an NFT, or deploy a clone set, to enclose an internal agent.
+
+#### 3.4.1 PrimitiveSet (sovereign profile only) `[BUILT]`, count `[NOT NORMATIVE]`
+
+The current self-sovereign identity layout in `integrity-core` is `SovereignAgent` and `StateAnchor` (direct deploy, agent-signed) plus a set of EIP-1167 clones (`ReputationRegistry`, `Slasher`, `VerifierRegistry`, `ComplianceGate`, `AgentProfile`). This is `[BUILT]` today. The number and composition of clones is an **implementation detail, not a protocol invariant** — v1 does not fix "seven" as a normative count, and a future revision MAY shrink, merge, or drop clones. What is structurally load-bearing, if the sovereign profile is used at all, is only: (a) the agent's own key signs its identity-defining deploys, and (b) every post-registration call against a deployed clone routes through the agent's own account contract, never a raw EOA.
+
+The clone set exists for agents that opt into the sovereign profile: on-chain markets, staking, or a portable, transferable identity.
+
+It is **not required** for the enclosed enterprise profile as a v1 target: an enterprise agent conformant with this document needs only an account plus a `StateAnchor` head; it MUST NOT be required to deploy `ReputationRegistry`, `Slasher`, `VerifierRegistry`, `ComplianceGate`, or `AgentProfile` clones to be enclosed.
+
+**Disclosed gap `[PARTIAL]`:** the live `EHRGate.checkAccess` implementation today resolves `registry.resolveAgent(msg.sender).primitives.reputationRegistry` — i.e. it currently requires an agent to be registered through `AgentPrimitivesFactory` (the full clone set) before its AIS can gate PHI access. The enterprise profile's "no clone set required" claim is this document's **target**, not yet the live path for the Integrity Health pack. Closing this gap needs either an AIS/reputation read that does not require a `ReputationRegistry` clone, or a documented exception where an enclosed enterprise healthcare agent still deploys that one clone. Do not represent minimal-footprint enterprise Integrity Health agents as already working end-to-end.
+
+### 3.5 Reputation parameter
+
+Let \(r \in [0,1]\) be an attested score (AIS, or ERC-8004 if the operator pins it). For each numeric bound \(c_i\):
+
+\[
+c_i(r) = c_i^{\min} + r\,(c_i^{\max} - c_i^{\min}), \qquad c_i^{\max} < \infty
+\]
+
+An implementation MUST reject configuration with \(c_i^{\max} = \infty\). \(r\) MAY widen a bound. \(r\) MUST NOT remove a constraint. \(r\) MUST NOT change a pack `deny` into `allow`.
+
+### 3.6 Memory commitment `[PARTIAL]`
+
+\[
+h_{k+1} = H(h_k \,\|\, H(\delta_k))
+\]
+
+\(H\) is a collision-resistant hash (SHA-256 or keccak256; a deployment MUST name one). Only \(h_k\) is required on-chain. Payload lives in the evidence plane, content-addressed by the leaf. Presenting a history inconsistent with \(h_k\) MUST fail verification.
+
+Genesis: registration SHOULD require a non-zero \(h_0\). Enforcing `latestRoot != 0` at `registerPrimitives` and oracle ingest is `[PLANNED]` (P0).
+
+### 3.7 Domain separator `[BUILT]` (BCC path)
+
+An intent is valid in exactly one domain, exactly once.
+
+```text
+Domain = lenpref(chainId) || lenpref(account) || lenpref(packId)
+       || lenpref(licenceOrMeterId) || lenpref(epoch)
+```
+
+Encoding MUST be length-prefixed. Concatenation of raw strings is non-conformant. Nonce MUST be strictly monotone in that domain.
+
+Live BCC commitments bind `chain_id` and `verifying_contract`. `[PARTIAL]`: the experimental kernel's replay-domain binding and the ZK circuit's `intent_commitment` do not yet bind `chain_id`.
+
+**Disclosed residual `[PARTIAL]`:** canonical-JSON encoding is implemented three times (`integrity_sdk/bcc.py`, `integrity_cli/bcc.py`, `bcc_middleware/app/canonical.py`, all Python) and once more inside the oracle (Rust `serde_json`). Python's `ensure_ascii=True` escapes non-ASCII bytes; `serde_json` does not by default. A signature computed over one encoding and checked over the other diverges for any payload with non-ASCII content. This MUST be closed (single canonicalization crate/library shared across languages, or an explicit byte-for-byte test vector suite) before BCC signatures can be called cross-language conformant. See `IMPLEMENTATION_PLAN.md` §2.
+
+---
 
 ## 4. Constraint grammar
 
-Constraints evaluate post-state. A pack compiler lowers authoring syntax onto a closed family of bounded on-chain checks. Unknown identifiers, unbounded iteration, exception-as-success, and fail-open cursor staleness on a value path are non-conformant.
+This section is the v1 language. Packs compile into it. The hook evaluates it. Nothing else is enforced on-chain.
+
+### 4.1 Sign convention
+
+A constraint is \(g : X \to \mathbb{R} \cup \{+\infty\}\).
+
+\[
+g(x) \le 0 \quad\text{means satisfied.}
+\]
+
+The admissible set is
+
+\[
+S_C = \{\, x \in X \mid g_i(x) \le 0 \text{ for all } i = 1,\ldots,m \,\}.
+\]
+
+The margin of a state is \(\min_i (-g_i(x))\). The hook SHOULD expose per-\(g_i\) margin to the console.
+
+### 4.2 Abstract syntax `[PARTIAL]` / `[EXPERIMENTAL]`
+
+```text
+C            = g ("," g)*
+g            = g_id ":" expr
+expr         = cmp | "AND" "(" expr ("," expr)+ ")"
+             | "OR"  "(" expr ("," expr)+ ")"   ; pack-local only; see 4.4
+cmp          = term op term
+op           = "<=" | ">=" | "==" | "!="
+term         = UINT | ADDR | BYTES32 | BOOL
+             | state_ref | param_ref | call
+state_ref    = "pre." path | "post." path
+path         = "balance" "[" ADDR "]"
+             | "allowance" "[" ADDR "]" "[" ADDR "]"
+             | "nonce"
+             | "meter" "[" MeterId "]"
+             | "module" "[" ADDR "]" ".installed"
+             | "head"
+             | "timestamp"
+param_ref    = "param." IDENT
+             | "id." IDENT
+             | "r"
+call         = "sum_out" "(" window "," destset ")"
+             | "attestation_age" "(" AgentId ")"
+             | "owner_of" "(" ADDR ")"
+```
+
+`pre` is \(x_k\). `post` is \(T(x_k, a)\). A constraint that reads only `pre` and ignores `post` for a quantity the action can change is non-conformant for that quantity.
+
+The experimental kernel slice (`IntegrityKernelV1Experimental`) implements a **reduced** grammar: native-value spend budget, a reputation-floor precondition, and a ZK-assurance-tier precondition. It is not this grammar. Status: `[EXPERIMENTAL]`. It MUST NOT write storage in `preCheck`. Projected checks belong in `preCheck`; conservation of realized post-state belongs in `postCheck`.
+
+### 4.3 Concrete YAML (pack surface)
+
+```yaml
+pack: integrity-health@1.0.0
+constraints:
+  - id: daily_outbound
+    g: post.sum_out(24h, NOT allowlist) - param.daily_cap
+  - id: meter_nonneg
+    g: 0 - post.meter[ehr_write]
+  - id: no_self_uninstall
+    g: 1 - post.module[KERNEL].installed
+  - id: spend_cap
+    g: (pre.balance[USDC] - post.balance[USDC]) - param.max_usdc_out
+```
+
+`g` in YAML is the real-valued expression. Compilers MUST NOT invert the sign. Unknown identifiers MUST fail closed.
+
+### 4.4 Conjunction at the hook
+
+\[
+V(a,x,C) = \prod_{i=1}^{m} \mathbf{1}[g_i(T(x,a)) \le 0] \in \{0,1\}
+\]
+
+`OR` MAY appear **inside a single pack-local** \(g_i\). `OR` MUST NOT be used to let one pack disable another pack's \(g_j\).
+
+**Hook wins:** if Rego returns allow and \(V = 0\), the transition MUST NOT commit.
+
+### 4.5 Primitive families `[PARTIAL]`
+
+**Value conservation (settlement).** For participant set \(P\) and declared fee to a named recipient:
+
+\[
+\sum_{j \in P} \Delta b_j = 0
+\]
+
+A transition that mints, burns, or leaks MUST revert unless a constraint **explicitly** authorizes that class. Native ETH balance alone is non-conformant as the conservation check; ERC-20/721 and allowances MUST be in scope for any pack that claims value conservation.
+
+**Monotone meters.** Working **and** inbound orders update meters in `preCheck` on the projected book. A reject rolls the projection back. Caps apply to working + filled, not filled only.
+
+\[
+q_{k+1} = q_k - c_k,\quad c_k \ge 0,\quad q_{k+1} \ge 0,\quad q_0 = Q
+\]
+
+A meter MUST NOT increase except by an operator-signed refill that is itself constrained. AIS MUST NOT refill a loss cap.
+
+**Replay domain.**
+
+\[
+n_{k+1} > n_k,\qquad d(a) = d_{\text{declared}}
+\]
+
+**Delegation / license (`delegation_active`).** A principal-to-agent grant: `(principal, agent, scope_hash) → {active, expires, meter}`. The hook MUST treat a missing, expired, revoked, or out-of-scope grant as \(V = 0\) when the installed pack requires one. Integrity Health's `SmartBAA` is the first on-chain body of this family (covered entity = principal, business associate = agent, PHI class = scope). An IP-license pack is the same family with a different principal and scope. Packs MUST NOT each invent a second `checkAccess` idiom that bypasses this family.
+
+Status: `[PARTIAL]` — `SmartBAA` is `[BUILT]`; a kernel-level view `(principal, agent, scope_hash)` that both Health and IP consume is `[PLANNED]`. `covered_entity_address` is still client-supplied on the BCC path today; resolving it through this view is P0.
+
+### 4.6 Gas bound
+
+Each \(g_i\) MUST declare `gas_max`. Evaluation MUST use a metered call. Exceeding `gas_max` MUST be treated as \(V = 0\), not as "skip this constraint."
+
+The v3 whitepaper's 40k `preCheck` budget is a target, not a silent requirement of this spec. Live reads of foreign registries MUST be amortized (epoch snapshots) or declared out of that budget. Do not claim both a 40k cap and live ERC-8004 / licence TBA reads on every call.
+
+### 4.7 Forbidden
+
+A conformant compiler MUST reject:
+
+- Unbounded loops over attacker-supplied arrays
+- Reads of `block.coinbase` or `prevrandao` to decide \(g_i\)
+- A constraint that is satisfied when evaluation throws
+- \(c^{\max} = \infty\)
+- Relaxation of another pack's \(g_j\)
+- World-event predicates ("the election result is X")
+- Fail-open on oracle-cursor staleness, for the value path
+- Storage writes in `preCheck`
+
+---
 
 ## 5. Verification rule
 
-A transition commits only where every installed constraint holds. Rejection MUST revert. `preCheck` MAY reject based on projected post-state; `postCheck` MUST verify conserved quantities against realized post-state and revert the whole transition if they fail.
+Let \(T\) be the EVM transition of \(A\).
 
-### 5.1 Forward invariance `[PLANNED]`
+\[
+x_{k+1} =
+\begin{cases}
+T(x_k, a_k) & \text{if } V(a_k, x_k, C) = 1 \\
+x_k & \text{otherwise (revert)}
+\end{cases}
+\]
 
-If the initial state is admissible and every transition is mediated by the verification rule, all reachable states remain admissible. The proposition is void, not merely degraded, if any of M1–M5 fail. Independent audit and a machine-checked argument gate non-draft v1.0.0.
+Rejection MUST be a revert. It MUST NOT be a compensating transaction.
+
+`preCheck` MAY reject on **projected** post-state. `postCheck` MUST re-check conserved quantities on the **realized** post-state and revert if they do not hold. A pass in `preCheck` and a fail in `postCheck` MUST leave \(x_{k+1} = x_k\).
+
+This is the errata to whitepaper v3 Appendix A. Projected arithmetic is not \(T(x,a)\). Claiming Proposition 1 of a `preCheck`-only native-balance gate is non-conformant.
+
+### 5.1 Forward invariance `[PLANNED]` as machine-checked
+
+**Proposition 1.** If \(x_0 \in S_C\) and every transition of \(A\) is mediated by the rule above, then \(x_k \in S_C\) for all \(k \ge 0\), for every sequence \(a_0, a_1, \ldots\), including adversarial sequences and sequences signed with stolen keys.
+
+Proof is induction on \(k\): a revert leaves \(x_k \in S_C\); an accept has \(T(x_k,a_k) \in S_C\) by definition of \(V\).
+
+Proposition 1 does not say \(S_C\) is a good box. A catastrophe that \(C\) permits is permitted with assurance. If any of M1–M5 fail, Proposition 1 is **void**, not degraded.
+
+Independent audit plus a machine-checked argument is the named gate for non-draft v1.0.0.
 
 ### 5.2 Placement `[EXPERIMENTAL]`
 
-The kernel MUST be an ERC-7579 type-4 hook. `preCheck` and `postCheck` MUST cover direct execution, executor paths, and module installation/removal. The live production `SovereignAgent.execute()` does not yet dispatch through such a hook; the kernel slice is experimental and non-deployed.
+The kernel MUST be an ERC-7579 type-4 hook. `preCheck` / `postCheck` MUST run on every execution path named in §6, including `executeFromExecutor` and module install/remove.
+
+Live production `SovereignAgent.execute()` does **not** currently dispatch through such a hook. An experimental, non-deployed instance exists at `contracts/src/kernel/` and MUST NOT be referenced by deployment scripts.
+
+A companion type-1 validator MAY enforce session keys. Rich policy that reads foreign account state MUST NOT be placed only in the ERC-4337 validation phase.
 
 ### 5.3 Upgradeability of per-agent contracts `[PLANNED]`
 
-Decided 2026-08-20. v1 uses a hybrid; implementations MUST NOT introduce a third upgrade shape without a specification revision.
+Decided 2026-08-20. Closes the `[OPEN]` fork between the two design docs. Do not implement a third shape.
 
-| Contract | Bytecode | How behavior changes | Compromised-authority effect |
+v1 uses a **hybrid**:
+
+| Contract | Bytecode | How behaviour changes | Blast radius of a compromised authority key |
 |---|---|---|---|
-| `StateAnchor` | Frozen after deployment | Replace `IAnchorPolicy` at the `anchorRoot` chokepoint | May deny anchoring; MUST NOT rewrite, reorder, or un-anchor history. |
-| `SovereignAgent` | MAY be a proxy | Replace `IExecutionPolicy` at `execute`; delayed, multi-authorized implementation upgrade under M4 | Policy-key compromise is disruption. Upgrade-key compromise can rewrite fund handling and is theft. |
+| `StateAnchor` | Frozen after deploy | Swap `IAnchorPolicy` at the `anchorRoot` chokepoint | Denial-of-service on anchoring. MUST NOT rewrite, reorder, or un-anchor a root. |
+| `SovereignAgent` | MAY be a proxy | (1) swap `IExecutionPolicy` at `execute`; (2) delayed multi-party implementation upgrade under M4 | Policy-key compromise is disruption. Upgrade-key compromise can rewrite fund-handling — treat as theft. See §5.4. |
 
-`anchorRoot` MUST call `IAnchorPolicy.checkAnchor(...)` before writing a root. `execute` MUST call `IExecutionPolicy.checkExecution(...)` before moving value or performing a call. A policy that returns false or reverts MUST deny. A zero policy is the disclosed testnet/development posture; mainnet value paths MUST use a non-zero policy and fail closed.
+**Policy hooks.** `anchorRoot` MUST call `IAnchorPolicy.checkAnchor(...)` before writing a root. `execute` MUST call `IExecutionPolicy.checkExecution(...)` before moving value or performing a call. A missing, reverting, or zero-address policy on a value-increasing path MUST be treated as \(V = 0\) (fail closed). Reduce-only MAY remain open only when the installed pack sets `allow_reduce_on_stale = 1`. A zero policy is the disclosed testnet/development posture; mainnet value paths MUST use a non-zero policy.
 
-`StateAnchor` MUST remain frozen: `isAnchoredRoot`, `rootAtEpoch`, and monotonic `latestEpoch` are sacred. An additive satellite is permitted; a proxy on `StateAnchor` is non-conformant.
+**Why `StateAnchor` is frozen.** Its value is that `isAnchoredRoot`, `rootAtEpoch`, and monotone `latestEpoch` are sacred. An additive satellite is permitted. A proxy on `StateAnchor` is non-conformant.
 
-`SovereignAgent` MAY be proxied because an unanticipated bug in call/return handling, or value locked in the account, cannot be repaired by a hook. If proxied, controller pin/opt-out authority belongs to the agent controller, never the protocol; storage layout is append-only; implementation changes are M4 transitions (delayed and multi-authorized); same-transaction swaps MUST revert; proxy code is in the independent-audit scope.
+**Why `SovereignAgent` MAY be a proxy.** Unanticipated bugs in call/return handling, or value locked inside the account, cannot be reached by a hook. Recovery from those classes is judged worth the added surface. If a proxy is used: pin/opt-out authority belongs to the agent's controller (never the protocol); storage layout is append-only; implementation swap is an M4 transition (delayed, multi-authorized); same-tx swap MUST revert; proxy code MUST be in the independent audit scope of §5.1.
 
-Guardian actions that remove or replace the kernel MAY bypass the hook. The hook cannot gate its own removal without becoming unremovable. This is a permanent named M4 exception; every other state-changing path remains mediated.
+**Disclosed M4 exception.** Guardian actions that remove or swap the kernel MAY bypass the hook. The hook cannot gate its own removal without becoming unremovable. This is a permanent named exception, not an audit finding to fix.
 
-Pre-existing Base Sepolia agents remain frozen testnet artifacts. Mainnet deploys the hybrid from genesis. Fleet-wide `StateAnchor` beacon control, fully frozen hookless `SovereignAgent`, and per-agent UUPS as the sole upgrade path are rejected for v1.
+**Existing Sepolia agents.** The seven pre-existing Base Sepolia agents remain frozen testnet artifacts. Mainnet deploys the hybrid from genesis.
+
+**Rejected for v1.** Fleet-wide beacon control of `StateAnchor`. Fully frozen `SovereignAgent` with no hooks. Per-agent UUPS as the sole upgrade path.
 
 ### 5.4 Protocol roles and key custody `[OPEN]` on testnet — P0 for mainnet
 
-Today `arbitrator`, `disputer`, `funderWallet`, `governance`, `oracleSigner`, `resolverSigner`, `MINTER_ROLE`, and `DEFAULT_ADMIN_ROLE` are one EOA. That is accepted testnet posture and non-conformant on mainnet.
+Today `arbitrator`, `disputer`, `funderWallet`, `governance`, `oracleSigner`, `resolverSigner`, `MINTER_ROLE`, and `DEFAULT_ADMIN_ROLE` are one EOA. That is an accepted **testnet** posture. It is non-conformant as a **mainnet** posture. A single compromised key would simultaneously rewrite oracle scores, mint unbounded \(ITK\), resolve disputes in an attacker's favour, and upgrade `SovereignAgent`.
 
-A mainnet deployment MUST complete this sequence:
+Required mainnet sequence (consequence order, not effort order):
 
-1. Give every named authority a distinct key.
-2. Hold `oracleSigner` and `resolverSigner` in separate oracle and middleware process custody, never a human wallet.
-3. Constrain ITK supply: fixed supply, or `MINTER_ROLE` held only by governance. Governance MUST NOT be represented as decentralized while a funder EOA can mint voting power.
-4. Only then place governance, `DEFAULT_ADMIN_ROLE`, and `SovereignAgent` upgrade authority behind a 2-of-3 or stricter multisig or timelock. Transfer to `IntegrityGovernance` happens only after supply is constrained.
+1. **Distinct keys first.** No two of the named roles share a key — even before hardware custody.
+2. **Process-held signers.** `oracleSigner` and `resolverSigner` MUST be keys held by the oracle and middleware processes respectively, never a human wallet. These rotate automatically and are never typed into a terminal.
+3. **Constrain \(ITK\) supply.** Fixed supply, or `MINTER_ROLE` held only by the governance contract itself. Until this lands, claiming decentralized governance is false — the funder EOA controls minting, and minting controls votes.
+4. **Then** move `governance`, `DEFAULT_ADMIN_ROLE`, and any `SovereignAgent` upgrade authority behind a 2-of-3 or stricter multisig (Safe or equivalent). Transfer to `IntegrityGovernance` happens only after step 3.
 
-A `SovereignAgent` proxy MUST NOT deploy to mainnet before this sequence. The theft-versus-disruption analysis in §5.3 is void while upgrade authority and `MINTER_ROLE` share an EOA.
+§5.3's theft-vs-disruption argument is void on mainnet if the upgrade key and `MINTER_ROLE` still share an EOA. A `SovereignAgent` proxy MUST NOT be deployed to mainnet before steps 1–4 are complete.
 
-## 6. Complete mediation `[PLANNED]`
+---
 
-M1–M5 require in-scope value to remain in mediated accounts; all direct, executor, fallback, and batch paths to route through the hook; module changes to be constrained; kernel removal to be delayed and multi-authorized; and bypassing executors to remain removable only through M3–M4.
+## 6. Complete mediation `[PLANNED]` (auditor) / `[EXPERIMENTAL]` (slice)
+
+Let \(E\) be the set of paths that can change \(A\)'s state. The hook MUST be invoked on every path in \(E\).
+
+A deployment is **mediated** only if all of the following hold:
+
+| ID | Rule |
+|---|---|
+| M1 | No value that the operator treats as in-scope MAY live in an EOA or contract the hook does not mediate. |
+| M2 | Direct execute, executor modules, fallback handlers, and batches MUST route through the hook. |
+| M3 | Module install and removal MUST be constrained transitions. |
+| M4 | Kernel removal MUST be delayed and multi-authorized. Immediate self-uninstall MUST revert. |
+| M5 | A new executor that bypasses the hook MUST be uninstallable only via M3–M4, and MUST fail mediation audit until removed. |
+
+Implementations SHOULD expose a `mediation_ok` boolean from a published audit checklist. Console SHOULD refuse "enclosed" labeling when `mediation_ok` is false.
+
+The experimental slice covers `execute()` against three reference conditions and a **single-signer** kernel swap. That is a disclosed reduction of M4, not a silent one.
+
+Re-enable of a killed account is `Escalate` class `reenable`: two humans, or one human plus delay. The agent MUST NOT clear its own kill.
+
+---
 
 ## 7. Packs
 
+v1 extension surface. A pack compiles to \(C\) plus off-chain policy. A new vertical that needs a new daemon, a new brand, or a fourth verb is not a pack.
+
+### 7.0 Three layers, two extra words
+
+Keep this small:
+
+```text
+integrity-core          protocol: hook + oracle + pack loader     (this repo)
+xibalba-shield          product: device / network agent           (own repo)
+xibalba-cortex          product: evidence / memory plane          (own repo)
+```
+
+Inside Core, specialization is only a **pack**. An **adapter** is not a pack and not a product. It is a translator that maps someone else's schema into a pack. It adds no constraint of its own.
+
+| | Lives | Example |
+|---|---|---|
+| **Pack** | `integrity-core` folder | Integrity Health (`packs/integrity-health`) |
+| **Adapter** | next to a pack, or in a product SDK | AP2 mandate → Integrity Health params; FIX → `packs/trading`; loopback test broker |
+| **Product** | its own GitHub repo | Shield, Cortex |
+
+Integrity Health is the first pack, not an adapter and not Shield. `contracts/src/health/` (`CoveredEntityRegistry`, `SmartBAA`, `ComplianceGate`, `EHRGate`, `HIPAAGuardrailRegistry`) is the current `[PARTIAL]` on-chain body of that pack. The pack-folder form is `[PLANNED]`. Shield **loads** Integrity Health; it does not own it.
+
+If a new venue or mandate format needs a new constraint id, write an adapter. If a new vertical needs new constraints, write a pack. If it needs a new daemon or a new brand, it is a product repo, not Core.
+
+### 7.1 Schema `[PLANNED]` as the only extension API
+
+```text
+packs/<id>/
+  pack.yaml           required — manifest
+  constraints.yaml    required — compile input for the hook
+  policy.rego         required — off-chain allow / deny / escalate
+  redact.rules        required — what Path A may upload
+  controls.yaml       required — officer-facing form fields
+  profile.md          informative — vertical map (HIPAA, IP, trading, …)
+  views.yaml          informative — console widgets
+```
+
 Packs compile into constraints plus off-chain policy. They are conservative: a pack may only add restrictions, never relax another installed pack. A compiler MUST use a closed family of constraint records and reject an expression it cannot lower.
 
-## 8. Evidence plane, oracle, and hybrid ledger
+`PackId = id@version` plus content hash. Pin in the account. Installing or replacing a pack is a constrained transition.
 
-Path A signed ingest may feed AIS; unauthenticated OTLP Path B may not. The oracle verifies signatures, domains, nonce, leaf inclusion, ancestry, and independently derives AIS signals before anchoring. Cortex stores, indexes, and replays; it is not a second verifier.
+### 7.2 Obligations (was v3 adapter R1–R5)
+
+| ID | Rule |
+|---|---|
+| R1 Determinism | Same payload → same \(C\). No time/coinbase/rand in compilation. |
+| R2 Totality | Unparseable input → reject with a typed reason. Never silent accept. |
+| R3 Bounded cost | Declared `gas_max`. No unbounded attacker iteration. |
+| R4 Conservatism | MAY only add constraints. MUST NOT relax another pack or the base mandate. |
+| R5 Identity | Published with source, machine-readable semantics, and a version hash the account pins. |
+
+### 7.3 Composition
+
+**Proposition 2.** If packs \(1..n\) induce \(C_1..C_n\), then
+
+\[
+S_{C} = \bigcap_{j=1}^{n} S_{C_j} \subseteq S_{C_j} \quad \forall j.
+\]
+
+Installing a pack MUST NOT enlarge the reachable set. Liveness MAY degrade. Console SHOULD show the binding \(g_i\) (least margin).
+
+### 7.4 Policy vs constraints
+
+`policy.rego` MAY `allow`, `deny`, or `escalate` off-chain or pre-hook. It MUST NOT authorize a transition that any installed \(g_i\) rejects. Hook wins. Rego is never compiled to Solidity.
+
+### 7.5 Compiler `[PLANNED]`
+
+Off-chain, in `integrity-sdk` (or a small `pack-compiler` module in `integrity-core`). Deterministic (R1). Unparseable input → typed reject, never accept (R2). The compiler MUST NOT emit a new Solidity contract per pack.
+
+Closed v1 families — YAML may grow; this enum MUST NOT change without a spec revision:
+
+| Family | Meaning | Status |
+|---|---|---|
+| `native_value_budget` | per-op + cumulative wei | `[EXPERIMENTAL]` kernel |
+| `token_out_cap` | ERC-20/721 out, allowlist dest | `[PLANNED]` |
+| `meter` | monotone remaining units | `[PLANNED]` |
+| `reputation_floor` | snapshot score ≥ min | `[EXPERIMENTAL]` kernel |
+| `assurance_tier` | ZK-boost / tier required | `[EXPERIMENTAL]` kernel |
+| `module_installed` | kernel cannot self-uninstall | `[PLANNED]` |
+| `delegation_active` | principal→agent grant in scope | `[PARTIAL]` — SmartBAA body `[BUILT]`; kernel view `[PLANNED]` |
+
+### 7.6 First packs (informative)
+
+| Pack | Question | Phase |
+|---|---|---|
+| stub | Can the loop run? | 1 |
+| `integrity-health@*` | May this principal touch PHI? | 2 |
+| `agents@*` | Is this workload a principal at all? | 3 |
+| `ip-license@*` | May this principal read, infer from, or train on this proprietary scope? | 3 |
+| `trading@*` | May this approved principal spend at this venue, this size, still alive? | 3+ |
+| `markets@*` | May this principal list, bid, or settle in an AIS-gated market? | 3+ |
+| `eu-ai-act@*` | Optional profile | only if a buyer asks |
+
+### 7.7 Redaction obligation `[PARTIAL]`
+
+`pack.yaml` `redact` is one of `off | warn | enforce`.
+
+| Mode | Path A unsigned/unredacted payload |
+|---|---|
+| `off` | Accept (non-regulated packs only) |
+| `warn` | Accept and mark the package `redact_incomplete` |
+| `enforce` | BCC and the oracle MUST reject. SDK constructor defaults MUST NOT be able to override this. |
+
+Integrity Health and `ip-license` MUST ship `redact: enforce`. A deployment that claims either pack while Path A can upload raw PHI or proprietary content is non-conformant.
+
+**Disclosed gap:** `integrity-sdk` integrations (`IntegrityOpenAI`, `IntegrityLangChainCallback`) default `redact_phi=False`. The SDK cannot infer the installed pack. Until BCC/oracle enforce `redact: enforce` server-side, default-off redaction is a Health and IP blocker, not an SDK preference.
+
+---
+
+## 8. Evidence plane, oracle, and hybrid ledger `[PARTIAL]`
+
+### 8.1 Split of duties
+
+| Job | Who |
+|---|---|
+| Ingest, store, index, redact, replay | Cortex (reference) or a conforming store |
+| Verify signatures, proofs, heads; advance `oracle_verified`; submit roots | Oracle |
+| Hold \(h_k\) and settle value | Chain |
+
+The oracle MUST NOT be renamed Cortex. Cortex MUST NOT submit roots except through the oracle, other than a documented disaster-recovery path that is itself audited.
+
+### 8.2 Ingest contract (the dual-span rule)
+
+Two pipes exist. They MUST NOT be confused.
+
+| Path | Transport | May feed AIS? | Notes |
+|---|---|---|---|
+| **A — signed ingest** | HTTP `POST /v1/telemetry/ingest` (or BCC intercept) | Yes | Only AIS input. Oracle re-derives numeric signals; client `derived_signals` are audit-only. `[BUILT]` |
+| **B — OTLP** | gRPC `:4317` | No | Operator traces. Unauthenticated. Stored separately. `[BUILT]` |
+
+`otel_spans` on a signed Path A request are **not** the Path B OTLP table. Integrators MUST NOT score Path B as AIS.
+
+When the installed pack sets `redact: enforce` (§7.7), PHI and proprietary content MUST be redacted before Path A egress, and BCC/oracle MUST reject an unredacted Path A package.
+
+### 8.3 Package and verify
+
+The oracle MUST:
+
+1. Check `sig` against the agent's current keys (`sha256(pubkey)` matches `AgentId`).
+2. Check `domain` and nonce.
+3. Check `leaf` inclusion against `head_claimed`, or verify the ZK statement.
+4. Reject if `head_claimed` is not a descendant of the last accepted head (no forks).
+5. Independently re-derive any numeric signals used as AIS inputs. `[BUILT]` for entropy/grounding/sacrifice on Path A.
+6. Advance `oracle_verified`.
+7. Submit `anchorRoot` to StateAnchor. After inclusion, advance `chain_anchored`.
+
+### 8.4 Cursors
+
+```text
+Cursor = observed | oracle_verified | chain_anchored
+```
+
+Always \(\textit{chain_anchored} \le \textit{oracle_verified}\).
+
+Stale cursor on a value-increasing path MUST fail closed when the pack requires a fresh cursor. Reduce-only MAY remain open if `allow_reduce_on_stale = 1`.
+
+### 8.5 Cortex responsibilities (reference)
+
+- Canonical event ingestion from SDK, Shield, tool gateways, and account receipts.
+- Persistent agent memory as an append-only commitment chain.
+- Evidence bundles for audit, incident response, and model evaluation.
+- Derived features for AIS.
+- Cursor management.
+- Policy and pack version pinning.
+- Replay APIs: what the agent knew, which policy applied, what it attempted, and why it was allowed or denied.
+
+Cortex MAY inform a future action. The hook decides whether a specific value-moving action commits.
+
+### 8.6 Cortex reference implementation — disclosed anchoring gaps `[PARTIAL]`
+
+The reference evidence store's local hash-chain and session-Merkle-root construction (§3.6) are `[BUILT]` and independently sound, but the step that anchors a Cortex session root into this protocol's on-chain commitment (§8.3) has four open, named gaps. A deployment MUST NOT claim "session evidence anchored and ancestry-verified end to end" until these are closed.
+
+| Gap | What's true today | Why it matters |
+|---|---|---|
+| Hash-space mismatch | Cortex's session Merkle root is SHA-256. On-chain `StateAnchor`/`TrustVault` is keccak256. | A root anchored from Cortex cannot be verified against on-chain state without an explicit re-hash step that does not exist yet. |
+| No receiving contract or schema | Cortex's `anchor_session_root()` posts to an operator-configured `XIBALBA_ANCHOR_URL`. Neither repo documents what that endpoint must accept. | §8.3's oracle verification steps have no defined counterpart for a Cortex-originated root. |
+| Unauthenticated anchor submission | The anchor POST carries no DID signature, no nonce. | Anyone who can reach the configured URL could submit a claimed root. |
+| Conformance vectors are a stub | The vector file is a placeholder. | Interoperable verification of Cortex evidence is not yet demonstrable. |
+
+---
 
 ## 9. Decision grammar
 
-Off-chain policy may allow, deny, or escalate, but never overrides a hook denial. Escalation remains deny until an authorized human authorizes the body-hash in its domain; timeout defaults to deny.
+Off-chain / pack policy. Does not replace \(V\).
 
-## 10. AIS
+```text
+Decision     = Allow | Deny | Escalate
+Allow        = { "allow", cursor, reasons[] }
+Deny         = { "deny",  cursor, constraint_id | rule_id, reasons[] }
+Escalate     = { "escalate", class, until, cursor, reasons[] }
+```
 
-AIS is an evidence-derived bounded integrity measurement. It may widen a finite bound and may require step-up or quarantine. It MUST NOT turn deny into allow, remove a constraint, be computed from unsigned OTLP, or explain why a hook passed.
+`Escalate` means: the hook MUST treat the action as denied until an authorized human (or listed multi-party) emits `Allow` for that `class` and body hash, or the pack defines a timeout **deny**. Timeout MUST NOT default to allow.
+
+Human approval MUST be domain-separated and single-use (§3.7). The agent MUST NOT resolve its own escalation.
+
+Integrity Health intents: when Shield domain is set, missing BAA MUST deny (403), not warn. `[PARTIAL]` — advisory on some `bcc_middleware` paths today; hard deny is P0.
+
+---
+
+## 10. AIS `[PARTIAL]`
+
+AIS is an evidence-derived integrity measurement, not a global reputation token.
+
+AIS MAY drive one of four bounded outcomes: high confidence (larger but finite quota), normal, reduced, or integrity failure (quarantine / revoke session / require human).
+
+AIS MUST NEVER:
+
+- Change a policy `deny` into `allow`
+- Set \(c^{\max} = \infty\)
+- Be computed from Path B (unsigned OTLP)
+- Be treated as the reason a hook passed
+
+---
 
 ## 11. Trust tiers
 
-Trusted: chain, EVM, EntryPoint, kernel bytecode, and constraint grammar. Attested: packs, oracle, Cortex, and validators. Untrusted: agent policy, prompts, tools, bundlers, and counterparties. The agent policy is not in the TCB.
+| Tier | Components | Failure |
+|---|---|---|
+| Trusted | Chain + EVM, EntryPoint, kernel bytecode, constraint grammar | Total. Keep this set small. |
+| Attested | Packs, oracle binary, Cortex binary, validators | Wrong \(C\) faithfully enforced; pin versions; audit |
+| Untrusted | Agent policy \(\pi\), prompts, tools, bundlers, counterparties | Contained if M1–M5 hold |
 
-## 12. Residual non-goals
+\(\pi\) MUST NOT be trusted. Proposition 1 is stated over adversarial \(a_k\) for that reason.
 
-v1 does not claim policy correctness, DRM after delivery, complete mediation without M1–M5, AIS deny overrides, token economy as protocol spine, a second verifier in Cortex, scoring unsigned OTLP, or world-event/price-oracle authority.
+---
 
-## 13. Liveness
+## 12. Residual non-goals (normative exclusions)
 
-Ambiguity MUST produce a typed rejection. Each pack declares bounded gas. Kernel removal is delayed and multi-party. An unattested hook requires an explicit operator override.
+A conformant implementation MUST NOT claim:
+
+| Exclusion | Reason |
+|---|---|
+| Correctness of \(\pi\) | Outside TCB |
+| Copy control / DRM after delivery | Access is not copy. Gating access to proprietary data is a pack (`ip-license`, §7.6), not this exclusion. |
+| Complete mediation without M1–M5 | Guarantee void |
+| AIS or reputation as a deny-override | §3.5, §10 |
+| Token economy (governance, implied cap, adapter marketplace) | Not v1 spine |
+| Metered IP marketplace | Archive. Access gating does not require it. |
+| EU AI Act as kernel types | Profile / pack only |
+| Shield as a protocol object | Product on Core |
+| Cortex as a second verifier | Evidence plane |
+| Scoring unsigned OTLP | §8.2 |
+| World-event / price oracle | Wrong tool |
+
+---
+
+## 13. Liveness (normative minimum)
+
+| ID | Rule |
+|---|---|
+| L1 | Ambiguity → reject with typed reason. No silent fail-open on the value path. |
+| L2 | Every pack declares `gas_max`; overflow → reject. |
+| L3 | Unattested hook installable only by explicit operator override. |
+| L4 | Kernel removal is delayed + multi-party (M4). |
+
+---
 
 ## 14. Implementation status (Core)
 
-Grounded against `XibalbaTechSol/integrity-core` `main` as of 2026-08-20.
+Grounded against `XibalbaTechSol/integrity-core` `main` as of 2026-08-20, plus `xibalba-cortex` and `xibalba-shield`.
 
 | Item | Tag |
 |---|---|
-| SDK signed telemetry and BCC intercept | `[BUILT]` |
+| SDK signed telemetry + BCC intercept | `[BUILT]` |
+| Path A vs Path B ingest split | `[BUILT]` |
 | Oracle ingest, verify, store, AIS API | `[BUILT]` |
-| ERC-7579 hook and post-state verification | `[EXPERIMENTAL]` |
-| M1–M5 mediation checklist | `[PLANNED]` |
-| Pack schema and compiler | `[PLANNED]` |
-| Independent audit and invariance proof | `[PLANNED]` |
-| Upgradeability of `SovereignAgent` / `StateAnchor` | `[PLANNED]` — hybrid decided: frozen `StateAnchor` plus `IAnchorPolicy`; `SovereignAgent` MAY proxy plus `IExecutionPolicy`. See §5.3. |
-| Protocol role concentration | `[OPEN]` / P0 — accepted only on testnet. Mainnet MUST complete §5.4 before a `SovereignAgent` proxy deploys. |
-| ZK verifier source vs deployed | `[PARTIAL]` |
-| Single RPC dependency | `[OPEN]` |
+| Server-side AIS re-derivation | `[BUILT]` |
+| AIS identity-ceiling clamp | `[BUILT]` |
+| Oracle → ReputationRegistry score push | `[BUILT]` |
+| StateAnchor + Merkle batch | `[PARTIAL]` |
+| Cortex evidence / memory plane | `[BUILT]` as product; protocol pin is this file |
+| ERC-7579 hook + post-state \(V\) | `[EXPERIMENTAL]` |
+| Constraint grammar §4 | `[PARTIAL]` |
+| M1–M5 mediation checklist | `[PLANNED]` as a shipped auditor |
+| M4 multi-party kernel swap | `[EXPERIMENTAL]` single-signer reduction |
+| Identity keyed \(C\) | `[PARTIAL]` |
+| Pack schema §7.1 + compiler §7.5 | `[PLANNED]` |
+| Closed constraint families §7.5 | `[PARTIAL]` |
+| Integrity Health pack in this schema | `[PARTIAL]` |
+| `ip-license` pack | `[PLANNED]` |
+| `markets` pack | `[PLANNED]` as pack form |
+| Pack `redact: enforce` server-side | `[PARTIAL]` |
+| Hard BAA deny on Shield-domain paths | `[PARTIAL]` / P0 |
+| Genesis `latestRoot != 0` | `[PLANNED]` / P0 |
+| Escalate + deny-on-timeout as first-class OBS | `[PARTIAL]` |
+| ZK ingest profile | `[PARTIAL]` |
+| Independent audit + invariance proof | `[PLANNED]` — gate for non-draft v1.0.0 |
+| Upgradeability of `SovereignAgent` / `StateAnchor` | `[PLANNED]` — hybrid decided 2026-08-20: `StateAnchor` frozen + `IAnchorPolicy`; `SovereignAgent` MAY proxy + `IExecutionPolicy`. Beacon-only and fully-frozen-no-hooks are rejected. See §5.3. |
+| Protocol role concentration | `[OPEN]` / P0 — one EOA on testnet is disclosed and accepted. Mainnet MUST follow §5.4 sequence (distinct keys → process signers → constrain ITK → then multisig). A `SovereignAgent` proxy MUST NOT ship to mainnet before that sequence. |
+| ZK verifier: source vs. deployed | `[PARTIAL]` |
+| Single RPC dependency, no failover | `[OPEN]` |
+| Silence-as-signal | `[PLANNED]` |
+| Uniform minimum stake at registration | `[OPEN]` |
+
+**Phase 1 (Freeze Core) exit:**
+
+1. SDK emits a signed span + Merkle leaf. `[BUILT]`
+2. Cortex stores; oracle verifies and anchors a root. `[PARTIAL]` / `[BUILT]`
+3. Hook enforces a constraint file from the active pack (stub acceptable). `[EXPERIMENTAL]`
+4. Policy engine can allow / deny / escalate. `[PARTIAL]`
+5. Console shows replay + pending escalations. `[PARTIAL]`
+
+Integrity Health pack contents are Phase 2 and MUST NOT block calling this constitution v1.
+
+---
 
 ## 15. Machine-readable fragment (canonical)
 
@@ -126,9 +729,29 @@ Grounded against `XibalbaTechSol/integrity-core` `main` as of 2026-08-20.
 protocol: integrity
 version: 1.0.0-draft
 verbs: [constrain, record, escalate]
+planes: [core, cortex, ais, chain]
+profiles: [enclosed_enterprise, sovereign_economic]
 hook:
   grammar: post-state
+  admit: "forall g_i <= 0"
   hook_wins: true
+  preCheck: projected
+  postCheck: realized
+oracle:
+  is_price_feed: false
+  is_cortex: false
+ingest:
+  path_A_scores: true
+  path_B_scores: false
+ais:
+  authority: false
+  may_lift_c_max: false
+  may_flip_deny: false
+escalation:
+  timeout: deny
+packs:
+  composition: conjunction
+  widen: false
 upgradeability:
   state_anchor: frozen_with_anchor_policy
   sovereign_agent: policy_hook_then_optional_m4_proxy
@@ -137,8 +760,26 @@ mainnet_custody:
   process_signers: required
   itk_supply_constrained_before_governance: required
   multisig_minimum: 2-of-3
+exclusions:
+  - token_economy_as_spine
+  - metered_ip_marketplace
+  - drm_after_delivery
+  - world_event_oracle
+  - eu_ai_act_as_spine
+  - fourth_verb
+  - unsigned_otlp_ais
 ```
 
-## 16. File authority
+---
 
-`docs/SPEC.md` is normative. `WHITEPAPER.md`, `CONTROLS_MATRIX.md`, and `IMPLEMENTATION_PLAN.md` are informative and MUST NOT conflict with this file. Archive documents are historical and MUST NOT direct implementation.
+## 16. File authority (after cutover)
+
+| File | Authority |
+|---|---|
+| `docs/WHITEPAPER.md` | Informative, public |
+| `docs/SPEC.md` | **Normative** |
+| `docs/CONTROLS_MATRIX.md` | Informative mapping |
+| `docs/IMPLEMENTATION_PLAN.md` | Informative roadmap. Sequences the work that closes the `[PARTIAL]`/`[PLANNED]`/`[EXPERIMENTAL]` gaps named in this file. It MUST NOT introduce a requirement this file doesn't already state. |
+| `docs/archive/` | Historical. Do not implement from these. |
+
+When README, wiki, interface contract, and this file disagree, this file wins for protocol meaning; the disagreement MUST be repaired in the same change.
