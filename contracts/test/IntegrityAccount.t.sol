@@ -11,6 +11,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {Account as ERC4337Account} from "@openzeppelin/contracts/account/Account.sol";
 import {MODULE_TYPE_HOOK} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
+import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
+import {ERC4337Utils} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
 import {
     ERC7579Utils,
     Mode,
@@ -546,6 +548,106 @@ contract IntegrityAccountTest is Test {
         );
         assertEq(recipient.balance, recipientBalanceBefore);
         assertFalse(kernel.armed(), "armed must be false again once the whole transaction has unwound");
+    }
+
+    // --- ERC-4337 validateUserOp / EntryPoint integration (Devil's Advocate review, 2026-08-24 --
+    // --- docs/plans/2026-08-24-phase1-devils-advocate-governance-entrypoint-proposal.md, finding
+    // --- B2: this path had ZERO test coverage anywhere in the repo before this) -----------------
+
+    function _minimalUserOp(bytes memory signature) internal view returns (PackedUserOperation memory) {
+        // Every field except `signature` is irrelevant to `_signableUserOpHash` (the default
+        // implementation just returns the passed-in `userOpHash` untouched, ignoring `userOp`
+        // entirely -- confirmed by reading Account.sol's own `_signableUserOpHash` before writing
+        // this, not assumed) or to `_payPrefund` (a no-op when `missingAccountFunds == 0`, which
+        // every call below passes). Zeroed/empty for everything not under test.
+        return PackedUserOperation({
+            sender: address(account),
+            nonce: 0,
+            initCode: "",
+            callData: "",
+            accountGasLimits: bytes32(0),
+            preVerificationGas: 0,
+            gasFees: bytes32(0),
+            paymasterAndData: "",
+            signature: signature
+        });
+    }
+
+    /// @notice The real, previously-never-exercised signature-validation path: a genuine
+    /// signature from the account's own signer, over an arbitrary userOpHash, called as the real
+    /// `entryPoint()` address (not `vm.prank(address(account))`, the "self" branch every other
+    /// test in this file uses) must validate successfully.
+    function test_validateUserOpAcceptsAGenuineSignerSignature() public {
+        bytes32 userOpHash = keccak256("a real user operation");
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, userOpHash);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        vm.prank(address(account.entryPoint()));
+        uint256 validationData = account.validateUserOp(_minimalUserOp(signature), userOpHash, 0);
+
+        assertEq(validationData, ERC4337Utils.SIG_VALIDATION_SUCCESS, "a genuine signer signature must validate");
+    }
+
+    /// @notice The negative case: a signature from a DIFFERENT key must fail validation, not
+    /// revert and not silently succeed -- ERC-4337's own convention is a nonzero return value,
+    /// not a revert, so this must be checked as a return value, not `vm.expectRevert`.
+    function test_validateUserOpRejectsASignatureFromAWrongKey() public {
+        (, uint256 wrongKey) = makeAddrAndKey("not-the-signer");
+        bytes32 userOpHash = keccak256("a real user operation");
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(wrongKey, userOpHash);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        vm.prank(address(account.entryPoint()));
+        uint256 validationData = account.validateUserOp(_minimalUserOp(signature), userOpHash, 0);
+
+        assertEq(validationData, ERC4337Utils.SIG_VALIDATION_FAILED, "a wrong-key signature must fail validation");
+    }
+
+    /// @notice A signature valid for a DIFFERENT hash than the one actually passed must also
+    /// fail -- proves the hash itself is what's being checked, not merely "is this calldata
+    /// well-formed."
+    function test_validateUserOpRejectsAValidSignatureOverTheWrongHash() public {
+        bytes32 signedHash = keccak256("the hash that was actually signed");
+        bytes32 differentUserOpHash = keccak256("a different user operation entirely");
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, signedHash);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        vm.prank(address(account.entryPoint()));
+        uint256 validationData = account.validateUserOp(_minimalUserOp(signature), differentUserOpHash, 0);
+
+        assertEq(
+            validationData, ERC4337Utils.SIG_VALIDATION_FAILED, "a signature over the wrong hash must fail validation"
+        );
+    }
+
+    /// @notice `validateUserOp` is `onlyEntryPoint`, NOT `onlyEntryPointOrSelf` like `execute()`
+    /// and the governance functions -- confirms this real access-control distinction by reverting
+    /// for a self-call, not just for an arbitrary stranger.
+    function test_validateUserOpRevertsWhenCalledBySelfNotEntryPoint() public {
+        bytes32 userOpHash = keccak256("a real user operation");
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, userOpHash);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        vm.prank(address(account));
+        vm.expectRevert();
+        account.validateUserOp(_minimalUserOp(signature), userOpHash, 0);
+    }
+
+    /// @notice Confirms the real, canonical EntryPoint v0.9 address this account's un-overridden
+    /// `entryPoint()` resolves to (finding B1: never previously verified against anything) DOES
+    /// carry genuine EntryPoint bytecode on the network this account is actually deployed to --
+    /// `getNonce(address,uint192)` cleanly returns 0 for a fresh address at
+    /// `0x433709009B8330FDa32311DF1C2AFA402eD8D009` on Base Sepolia (chain 84532), checked live via
+    /// `cast call` before this test was written, not assumed. This test pins the ADDRESS the
+    /// account resolves to, which is checkable locally; the live bytecode check itself is
+    /// recorded in `PRODUCTION_GAPS.md`, not repeatable inside a local Foundry test without a
+    /// forked RPC.
+    function test_entryPointResolvesToTheRealCanonicalAddress() public view {
+        assertEq(
+            address(account.entryPoint()),
+            0x433709009B8330FDa32311DF1C2AFA402eD8D009,
+            "entryPoint() must resolve to the real, canonical EntryPoint v0.9 address -- verified live on Base Sepolia"
+        );
     }
 
     // --- reputation-floor adapter (docs/plans/2026-08-17-phase1-reputation-adapter-proposal.md)
@@ -1762,6 +1864,47 @@ contract IntegrityAccountTest is Test {
         assertEq(account.hook(), address(kernel), "force-cancel must not itself touch the installed kernel");
     }
 
+    /// @notice Real finding, fixed 2026-08-24 (Devil's Advocate review): force-cancel previously
+    /// had NO binding to which specific swap guardians were agreeing to kill. A signer could
+    /// substitute a different (decoy) swap underneath an in-flight, already-unanimous force-cancel
+    /// approval, and the old code would silently cancel the decoy instead of reverting. Proves the
+    /// fix: guardians approve a force-cancel targeting `unwantedKernel`'s swap; the signer then
+    /// cancels it and proposes a DIFFERENT swap (`decoyKernel`) before guardians finish executing;
+    /// `executeGuardianAction` must revert rather than silently cancelling the decoy.
+    function test_guardianForceCancel_RevertsIfTheTargetedSwapWasReplacedWithADecoy() public {
+        IntegrityKernel unwantedKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        vm.prank(address(account));
+        account.proposeKernelSwap(address(unwantedKernel));
+        uint256 originalSwapNonce = account.kernelSwapNonce();
+
+        vm.prank(guardian2);
+        account.guardianProposeAction(true, address(0));
+        uint256 actionNonce = account.guardianActionNonce();
+        _approveGuardianActionUnanimously(actionNonce);
+
+        // The signer substitutes the target UNDERNEATH the guardians' already-complete approval,
+        // before anyone calls executeGuardianAction.
+        vm.prank(address(account));
+        account.cancelKernelSwap();
+        IntegrityKernel decoyKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        vm.prank(address(account));
+        account.proposeKernelSwap(address(decoyKernel));
+        assertGt(
+            account.kernelSwapNonce(), originalSwapNonce, "sanity: the decoy swap is genuinely a different proposal"
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IntegrityAccount.GuardianActionSwapTargetChanged.selector, originalSwapNonce, account.kernelSwapNonce()
+            )
+        );
+        account.executeGuardianAction();
+
+        // The decoy swap must survive untouched -- guardians never agreed to cancel it.
+        (address stillPendingKernel,) = account.pendingKernelSwap();
+        assertEq(stillPendingKernel, address(decoyKernel), "the decoy swap must NOT have been silently cancelled");
+    }
+
     /// @notice The wider denial case: signer never proposes anything at all (key lost/absent).
     /// Guardians force-propose a swap themselves, with zero signer involvement anywhere in the
     /// flow -- including the final `executeKernelSwap` call, which a guardian (not the signer)
@@ -1870,14 +2013,98 @@ contract IntegrityAccountTest is Test {
 
     // --- guardian-set rotation (2026-08-18 proposal) -------------------------------------------
 
-    /// @dev Gathers unanimous approval from the CURRENT 3-guardian set for the pending rotation.
+    /// @dev Gathers unanimous approval from the CURRENT guardian set for the pending rotation --
+    /// EXCLUDING the removal target's own vote for a removal rotation, since it can no longer
+    /// cast one (real deadlock found and fixed 2026-08-24, see `approveGuardianRotation`'s own
+    /// doc comment in the contract). For an addition, all three approve as before.
     function _approveGuardianRotationUnanimously(uint256 nonce) internal {
+        (, bool isAddition, address target) = account.pendingGuardianRotation();
+        address[3] memory allGuardians = [guardian1, guardian2, guardian3];
+        for (uint256 i = 0; i < allGuardians.length; i++) {
+            if (!isAddition && allGuardians[i] == target) continue;
+            vm.prank(allGuardians[i]);
+            account.approveGuardianRotation(nonce);
+        }
+    }
+
+    // --- lost-guardian-key deadlock fix (Devil's Advocate review, 2026-08-24) -------------------
+
+    /// @notice The removal target cannot approve their own removal -- a real, deliberate
+    /// restriction (not an oversight): counting the target's own vote toward its own removal
+    /// would reopen the deadlock this fix exists to close (see the contract's own doc comment).
+    function test_guardianCannotApproveOwnRemoval() public {
+        vm.prank(guardian1);
+        account.proposeGuardianRotation(false, guardian3);
+        uint256 nonce = account.guardianRotationNonce();
+
+        vm.prank(guardian3);
+        vm.expectRevert(abi.encodeWithSelector(IntegrityAccount.CannotApproveOwnRemoval.selector, guardian3));
+        account.approveGuardianRotation(nonce);
+    }
+
+    /// @notice THE deadlock fix, proven end-to-end: a guardian whose key is permanently lost
+    /// (never calls approve, ever) does NOT block their own removal -- the other two guardians'
+    /// approval alone is sufficient. Before this fix, `executeGuardianRotation` required
+    /// `_guardians.length` (3) approvals including the target's own, making this scenario
+    /// permanently unreachable.
+    function test_removalSucceedsWithoutTheDepartingGuardiansOwnApproval() public {
+        vm.prank(guardian1);
+        account.proposeGuardianRotation(false, guardian3);
+        uint256 nonce = account.guardianRotationNonce();
+
+        // guardian3 (the departing guardian, whose key is modeled as permanently lost) never
+        // approves anything. Only guardian1 and guardian2 do.
         vm.prank(guardian1);
         account.approveGuardianRotation(nonce);
         vm.prank(guardian2);
         account.approveGuardianRotation(nonce);
+
+        account.executeGuardianRotation();
+
+        assertEq(account.guardians().length, 2, "removal must succeed with only the two non-target guardians");
         vm.prank(guardian3);
-        account.approveGuardianRotation(nonce);
+        vm.expectRevert(abi.encodeWithSelector(IntegrityAccount.NotAGuardian.selector, guardian3));
+        account.approveGuardianRotation(0);
+    }
+
+    /// @notice The fixed deadlock's own downstream consequence, proven: once the unreachable
+    /// guardian is removed (via the fix above), the OTHER unanimity-gated mechanisms
+    /// (guardian emergency action, rescue sweep) become reachable again with the smaller,
+    /// all-cooperative guardian set -- they were never touched by this fix directly, but were
+    /// transitively unblocked by it, since they too require `_guardians.length` unanimity of
+    /// whatever the CURRENT set is.
+    function test_guardianActionReachableAgainAfterRemovingTheUnreachableGuardian() public {
+        vm.prank(guardian1);
+        account.proposeGuardianRotation(false, guardian3);
+        uint256 rotationNonce = account.guardianRotationNonce();
+        vm.prank(guardian1);
+        account.approveGuardianRotation(rotationNonce);
+        vm.prank(guardian2);
+        account.approveGuardianRotation(rotationNonce);
+        account.executeGuardianRotation();
+        assertEq(account.guardians().length, 2);
+
+        // A guardian emergency action (force-cancel) now only needs unanimity of the remaining
+        // TWO guardians -- both cooperative, so it succeeds where it would have been permanently
+        // stuck (needing guardian3's vote) before the removal above.
+        // `_deployKernel` is evaluated into a local BEFORE pranking -- calling it inline as an
+        // argument would itself be the "next call" vm.prank affects (it deploys a contract, a
+        // state-changing operation), consuming the prank before it ever reaches
+        // proposeKernelSwap. The same class of bug this session already found and fixed once in
+        // the Halmos harness work.
+        address freshKernel = address(_deployKernel(MIN_EFFECTIVE_SCORE));
+        vm.prank(address(account));
+        account.proposeKernelSwap(freshKernel);
+        vm.prank(guardian1);
+        account.guardianProposeAction(true, address(0));
+        uint256 actionNonce = account.guardianActionNonce();
+        vm.prank(guardian1);
+        account.approveGuardianAction(actionNonce);
+        vm.prank(guardian2);
+        account.approveGuardianAction(actionNonce);
+        account.executeGuardianAction();
+        (, uint256 readyAt) = account.pendingKernelSwap();
+        assertEq(readyAt, 0, "force-cancel must have succeeded with the reduced, fully-cooperative guardian set");
     }
 
     function test_proposeGuardianRotationRevertsForNonGuardian() public {

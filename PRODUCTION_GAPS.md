@@ -3004,3 +3004,128 @@ future run of this or a similar script: pass `GIT_COMMIT_SHA=$(git rev-parse HEA
 (`BASESCAN_API_KEY` is unset in `contracts/.env`, so `--verify` was not attempted) -- the deployed
 bytecode is real and on-chain, but its source is not yet publicly linked/readable on Basescan.
 A separate, low-effort follow-up, not a blocker to anything else in this entry.
+
+## 45. Devil's Advocate review (governance + EntryPoint) — two real bugs fixed, EntryPoint gap closed for signature validation (2026-08-24)
+
+*Current State:* per `docs/plans/2026-08-24-phase1-devils-advocate-governance-entrypoint-proposal.md`
+(user's own explicit decision: no external auditor available, so internal adversarial review is
+substituted for Phase I hardening -- **explicitly NOT claimed to satisfy Table 8's "independent
+audit" gate**, which requires genuine outside review), an independent subagent reviewed
+`IntegrityAccount.sol`'s fully-assembled governance state machine (kernel-swap, guardian
+emergency action, guardian rotation, rescue sweep together -- no prior review had looked at all
+four together) and the never-before-reviewed ERC-4337 EntryPoint integration gap. Six findings;
+two real bugs fixed and mutation-verified, one NatSpec overstatement corrected, one already-open
+finding (EntryPoint address never verified) checked and resolved favorably, one gap
+(`validateUserOp` had zero test coverage) closed with real tests, one (prefund/live-bundler path)
+disclosed as still open. Full repo suite: 330/330 (up from 321 before this entry), zero
+regressions. All six Halmos properties re-verified unbounded after the fixes.
+
+**Finding A1 (High, FIXED) — guardian rotation, emergency action, and rescue sweep all
+permanently deadlock if any one guardian's key is genuinely lost.** `executeGuardianRotation`
+required unanimity of `_guardians.length` -- which still counted the DEPARTING guardian's own
+vote, since they remain in `_guardians` until the rotation executes. A guardian who has lost their
+key can never cast that vote, so their own removal -- the exact real-world scenario rotation
+exists to handle -- was permanently unreachable, not merely harder. Because
+`executeGuardianAction` and `executeGuardianRescueSweep` require unanimity of the same
+`_guardians.length`, the same lost key froze both of them too: the two mechanisms built
+specifically as "works even without signer cooperation" safety nets, disabled by exactly the
+failure they were meant to survive. No existing test constructed this scenario.
+
+Fixed by excluding the removal target's own vote entirely, not merely lowering the required
+count: `approveGuardianRotation` now reverts `CannotApproveOwnRemoval` if the target tries to
+approve their own removal, and `executeGuardianRotation`'s required-approvals computation is
+`isAddition ? _guardians.length : _guardians.length - 1`. Three new tests
+(`test_guardianCannotApproveOwnRemoval`, `test_removalSucceedsWithoutTheDepartingGuardiansOwnApproval`,
+`test_guardianActionReachableAgainAfterRemovingTheUnreachableGuardian` -- the last one proving the
+downstream unblock, not just the rotation fix itself), all mutation-tested (reverting the
+`required` computation makes the removal test fail with `InsufficientGuardianRotationApprovals`,
+confirmed and restored before landing). Writing the third test surfaced a real, separate bug in
+the TEST itself, same class already found twice this session: `_deployKernel(...)` evaluated
+inline as a `proposeKernelSwap` argument consumed the single-shot `vm.prank` meant for the
+subsequent call -- fixed by evaluating it into a local first.
+
+**Finding A2 (Medium, FIXED) — guardian force-cancel had no binding to which specific pending
+swap it was approving.** `GuardianAction` carried no target for a cancel action; `executeGuardianAction`'s
+cancel branch only checked "something is pending," not "the SAME swap guardians observed when
+they started approving." A signer could `cancelKernelSwap()` then `proposeKernelSwap(decoy)`
+mid-approval, and guardians finishing an unrelated unanimous approval would silently cancel the
+decoy swap they never saw or agreed to kill. Every other approval path in this contract
+(`approveKernelSwap`'s `expectedNonce`, force-propose's own stored `newKernel`) fails safe against
+this substitution class; force-cancel was the one exception, and it failed unsafe (silently acted
+on whatever was there) rather than reverting. Capped severity: cannot cause fund loss or a
+malicious kernel install, since `executeKernelSwap` still independently requires real
+`guardianThreshold` approvals regardless of what force-cancel does -- worst case is griefing
+(a wanted swap gets cancelled) or an uncooperative signer repeatedly evading a targeted
+force-cancel.
+
+Fixed by adding `targetKernelSwapNonce` to the `GuardianAction` struct, captured from the live
+`kernelSwapNonce` at `guardianProposeAction(true, ...)` time, and checked against the current
+`kernelSwapNonce` in `executeGuardianAction`'s cancel branch (`GuardianActionSwapTargetChanged`
+if mismatched, recoverable via the existing `cancelPendingGuardianAction`). One new test
+(`test_guardianForceCancel_RevertsIfTheTargetedSwapWasReplacedWithADecoy`), mutation-tested
+(disabling the check makes the decoy swap get silently cancelled instead of the revert being
+asserted, confirmed and restored).
+
+**Documentation-precision fix, not a bug:** the contract's own NatSpec previously claimed "at
+most one guardian-relevant governance process is ever in flight" -- false as written across all
+four mechanisms (kernel-swap and guardian-action are explicitly designed to coexist; rescue-sweep
+was always meant to run independently). Corrected to state the actual, narrower enforced
+invariant: rotation is mutually exclusive with (kernel-swap OR guardian-action); rescue-sweep is
+exclusive with nothing.
+
+**Everything else in the governance review checked and found sound:** the four nonce/approval
+namespaces are fully independent storage, so a bump in one can never make a stale approval from a
+different mechanism count toward anything; the kernel-swap↔rotation lock is genuinely symmetric
+and bidirectional as claimed; the three previously-disclosed classes (broken-kernel brick, the two
+reentrancy windows, unilateral swap denial) remain correctly closed/disclosed -- full assembly did
+not reopen any of them; rescue-sweep's live `_guardians.length` re-read during a concurrent
+rotation was checked for exploitability and found safe (a guardian added mid-flight only raises
+the bar; a guardian removed mid-flight requires that guardian's own consent per A1's fix, so it
+cannot be abused to strand a stale approval below the new count).
+
+**Finding B1 (High for usability, RESOLVED FAVORABLY, not a bug) — `entryPoint()` was never
+overridden and resolves to OZ's hardcoded default, previously unverified against anything.**
+Checked live, not assumed: `cast call 0x433709009B8330FDa32311DF1C2AFA402eD8D009
+"getNonce(address,uint192)" ... --rpc-url https://base-sepolia-rpc.publicnode.com` returns
+cleanly (`0`), confirming genuine, functional ERC-4337 EntryPoint v0.9 bytecode really is deployed
+at the address this account's `entryPoint()` resolves to, on the exact network this account is
+live on. This was a real, disclosed, previously-unverified assumption -- now verified correct, a
+favorable resolution rather than a fix. Pinned as a permanent regression check:
+`test_entryPointResolvesToTheRealCanonicalAddress` (the address side, checkable locally; the live
+bytecode check itself is this paragraph's own record, not repeatable inside a local Foundry test
+without a forked RPC).
+
+**Finding B2 (High, FIXED) — `validateUserOp` had zero test coverage anywhere in the repo.**
+The signature-validation path (`Account.validateUserOp` → `_validateUserOp` →
+`_signableUserOpHash` → `SignerECDSA._rawSignatureValidation`, resolved via `IntegrityAccount`'s
+own diamond-override in favor of the real ECDSA check) was plausible by inspection but had never
+actually been exercised. Four new tests: a genuine signer signature validates
+(`test_validateUserOpAcceptsAGenuineSignerSignature`), a wrong-key signature fails validation
+(not reverts -- ERC-4337's own convention is a nonzero return value)
+(`test_validateUserOpRejectsASignatureFromAWrongKey`), a valid signature over the WRONG hash
+fails (`test_validateUserOpRejectsAValidSignatureOverTheWrongHash`), and `validateUserOp` itself
+is `onlyEntryPoint` (not `onlyEntryPointOrSelf` like `execute()`), confirmed by reverting on a
+self-call (`test_validateUserOpRevertsWhenCalledBySelfNotEntryPoint`). Mutation-tested: forcing
+`_rawSignatureValidation`'s diamond resolution to `return false` unconditionally makes the
+accept-case test fail with the exact expected mismatch, confirmed and restored.
+
+**Finding B3 (High for usability, DISCLOSED, not fully closed) — sharper than the account's own
+prior NatSpec stated: the "self" branch every test in this file uses has NO production
+equivalent at all.** Every test authorizing `execute()`/the governance functions does
+`vm.prank(address(account))` -- a Foundry-only capability. No real caller, including this
+account's own signer, can make an external call where `msg.sender == address(this)`; that
+identity is only reachable by the contract calling itself, which requires an already-authorized
+call to bootstrap from, and this account has none (no installed executor module, module mutation
+disabled except the hook-swap path). Concretely: on the live deployment, `execute()`/
+`proposeKernelSwap()`/`cancelKernelSwap()` have exactly ONE reachable caller in production -- the
+real ERC-4337 `EntryPoint`, via a genuine UserOp/bundler flow. The account's own NatSpec is
+corrected to state this precisely rather than let a reader infer a "direct call" option exists in
+production that in fact does not. **Still genuinely open, not attempted here:** no real bundler
+has ever been driven against the live Base Sepolia deployment; the prefund/gas-sponsorship path
+(`missingAccountFunds > 0`) remains unexercised, matching the tracer-bullet slice's own original,
+still-accurate scope disclosure on that specific point.
+
+**What this entry does NOT claim:** satisfying Table 8's "independent audit complete" gate. This
+was internal review, by design (no external auditor engaged), and is documented as such throughout
+this entry and the proposal doc it came from -- the distinction matters and is deliberately not
+blurred.
