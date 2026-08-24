@@ -803,7 +803,17 @@ only the new contracts against the existing `IntegrityToken`/
 file (every pre-existing field is re-serialized unchanged). This is now the
 general pattern for any future protocol-layer addition after genesis: a new,
 narrowly-scoped incremental script, never a re-run of `Deploy.s.sol` against
-a live network.
+a live network. This pattern does not imply arbitrary schema migration: an
+incremental script may only bind to singleton addresses whose deployed bytecode
+already satisfies the new contract's interface assumptions.
+
+**Integrity Health incremental boundary (§6.7)**: `DeployEHRGate.s.sol` does
+not deploy `AgentAuthorityResolver` as a side effect. It reuses an existing
+serialized `singletons.AgentAuthorityResolver` address and fails before
+`startBroadcast` when that key is absent. Existing networks whose registry
+bytecode predates enterprise-agent reads (`isEnterpriseAgent` /
+`registerEnterpriseAgent`) require a separately approved registry/resolver
+migration before `EHRGate` can be incrementally deployed.
 - `singletons` — protocol-level contracts that exist exactly once, deployed
   by governance, unchanged from before except for the removal of
   `AgentFactory` (deleted) and `ReputationRegistry`/`Slasher`/`StateAnchor`

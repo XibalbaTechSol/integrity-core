@@ -3134,3 +3134,14 @@ writeup: PRODUCTION_GAPS.md §18.
 - Verification: focused Foundry resolver/identity tests passed 17/17; full
   contracts `forge test -vvv` passed 331/331; SDK `uv run pytest` passed 267
   with 9 skipped; CLI `uv run pytest` passed 70 with 1 skipped.
+
+## [2026-08-24] correction | EHRGate incremental resolver boundary
+
+- Corrected `contracts/script/DeployEHRGate.s.sol` so incremental deployments reuse only
+  an existing serialized `singletons.AgentAuthorityResolver` and fail before broadcasting
+  when that key is absent.
+- Documented the residual migration boundary: existing networks with legacy
+  `XibalbaAgentRegistry` bytecode that lacks enterprise-agent reads require a separately
+  approved registry/resolver migration before `EHRGate` can be incrementally deployed.
+- No historical wiki log entries were edited; this entry supersedes the earlier wording
+  that overstated incremental EHR deployment support.

@@ -19,6 +19,7 @@ source_files:
   - contracts/src/markets/IntegrityMarket.sol
   - contracts/script/Deploy.s.sol
   - contracts/script/DeployMarkets.s.sol
+  - contracts/script/DeployEHRGate.s.sol
 ---
 
 The Solidity/Foundry package (solc 0.8.28): the on-chain heart of the protocol.
@@ -105,7 +106,9 @@ even though the ordinary contract unit tests can pass.
   a read-only adapter used by `EHRGate` to resolve AIS for both sovereign clone-set
   agents and enterprise StateAnchor-only agents. It reads sovereign AIS from the
   agent's `ReputationRegistry` primitive and enterprise AIS from the registered
-  account's `ais()` cache; it cannot set AIS.
+  account's `ais()` cache; it cannot set AIS. Incremental `EHRGate` deployments
+  require this resolver to already be serialized in `deployments.<network>.json`;
+  they do not deploy it against legacy registry bytecode as a side effect.
 
 ## Key invariants
 
@@ -149,6 +152,11 @@ even though the ordinary contract unit tests can pass.
   is **not deployed to Base Sepolia**. Existing agents require no migration. An
   incremental deployment remains an approval-gated external write; see
   `PRODUCTION_GAPS.md` §28.
+- `EHRGate` is wired for future genesis deployments and has an incremental
+  script, but existing networks whose registry bytecode predates the enterprise
+  registry API require a separately approved registry/resolver migration first.
+  `DeployEHRGate.s.sol` fails before broadcasting if
+  `singletons.AgentAuthorityResolver` is absent.
 
 ## Honest gaps
 
