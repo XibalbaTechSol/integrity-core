@@ -2891,3 +2891,65 @@ unconditional, per Halmos's own `bounds: []` reporting convention) has NOT been 
 parent proposal's own acceptance criteria named this explicitly and it remains open. Workstream 3
 as a whole is not yet closed: this closes the "four target properties" deliverable specifically,
 not the NatSpec documentation deliverable alongside it.
+
+**Update (2026-08-24, same day): the NatSpec deliverable above is now also closed.**
+`IntegrityKernel`'s contract-level doc comment gained a "Machine-checked properties" section
+stating each of the four claims precisely, with the same bound/scope caveats this entry names
+(precompile/code-length/address(0)-means-self exclusions), and correcting a now-stale line that
+had called the Table 4 gas crossing (§41) "an open finding requiring its own decision" after that
+decision was actually made. `make verify-kernel` now runs both `KernelSwapHarnessTest` and
+`KernelPropertiesTest` (previously only the harness proof), closing the small gap this entry
+itself named. Workstream 3 is fully closed as of this update.
+
+## 44. Phase I kernel reference deploy script built and dry-run verified — not broadcast to any live network (2026-08-24)
+
+*Current State:* per `docs/plans/2026-08-24-phase1-testnet-deployment-proposal.md` (workstream 4,
+authorized 2026-08-24 after weighing its own four open design questions), `contracts/script/
+DeployKernelReference.s.sol` deploys ONE experimental, non-production reference instance of the
+promoted `IntegrityKernel`/`IntegrityAccount` (§40) -- explicitly NOT integrated with any real
+registered agent, `XibalbaAgentRegistry` entry, or `PrimitiveSet`. Four design decisions made
+explicitly, not defaulted: (1) a fresh `ReputationRegistry` clone, cloned from the network's
+already-deployed, real implementation (not a redundant new implementation, not bound to any real
+agent's actual reputation); (2) reuses `IntegrityAccountTest`'s own budget constants exactly, so
+this deployment is provably the same configuration already exercised by 321 concrete tests and
+six Halmos properties (§43), not a fresh unverified one; (3) `trackedToken` disabled, avoiding
+conflating this deployment with the already-disclosed Table 4 gas crossing (§41); (4) guardian
+addresses are REQUIRED env vars with no default -- this repo's existing protocol role addresses
+mostly collapse to the same deployer address (verified against the live
+`deployments.baseSepolia.json` before writing the script: only 2 of 6 `protocolAddresses` entries
+are actually distinct), not viable for a constructor that rejects duplicate guardians, and
+inventing placeholder addresses nobody controls would defeat the point of a multi-party mechanism
+even for a reference deployment.
+
+**Two real bugs found and fixed via a local dry run (anvil, chain 31337) before this was trusted,
+neither caught by compilation alone:**
+- **A genuine off-by-one in the CREATE-nonce address prediction**, caught only by actually running
+  the script: `updateScore` is itself a separate broadcast transaction that consumes a nonce
+  between the prediction read and the kernel deployment, which an early draft didn't count --
+  the KERNEL ended up deployed at the address predicted for the ACCOUNT, and the reputation score
+  was set for the wrong address entirely (the kernel's, not the account's -- `preCheck` checks
+  `effectiveScore(boundAccount)`, where `boundAccount` is the account). Fixed by reading the
+  deployer's nonce exactly once, before any further broadcast transaction, and predicting two
+  nonces ahead (`updateScore`, then the kernel deployment, both precede the account's own).
+- **A JSON re-serialization bug in the `domains` merge helper**, inherited uncritically from
+  `DeployEHRGate.s.sol`'s own `_rawDomains` pattern: dot-path concatenation
+  (`.domains.` + key) breaks when the key itself contains a literal dot (e.g.
+  `"general.integrity"`), which this repo's real domain names do -- `vm.parseJsonBytes32` treats
+  each embedded dot as a further path-traversal segment and reverts. Never caught before because
+  `DeployEHRGate.s.sol` was written and run when the real Base Sepolia `domains` section was still
+  empty (`{}`); this script's own local dry run has real domain entries and exercised the bug for
+  the first time. Fixed with bracket notation (`.domains["general.integrity"]`), which addresses
+  the key literally.
+
+**Verified beyond "the script didn't revert":** after the dry run, `cast call` confirmed the
+deployed account's `hook()` returns the kernel's address and the kernel's `boundAccount()` returns
+the account's address -- both directions of the binding, not assumed from the absence of a
+revert. Full local repo suite re-verified at 321/321 after the dry run and a clean rebuild.
+`deployments.local.json` is gitignored; the dry run's local addresses are not committed anywhere,
+and the local anvil instance used for it was stopped, not left running.
+
+**Not done, and not attempted here:** any broadcast to Base Sepolia or any other live network.
+Per the proposal's own scope ("this proposal covers scoping and building the script only, not
+running it"), actual broadcast execution -- which spends real (if low-value) testnet ETH from the
+real `FUNDER_PRIVATE_KEY` and creates a permanent public record -- requires its own separate,
+explicit authorization, not granted by this entry.
