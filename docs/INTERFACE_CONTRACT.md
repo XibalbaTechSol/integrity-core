@@ -46,6 +46,7 @@ and in that package's README — don't fake the check silently.
 | `opa` | 1.18.2 | bcc_middleware, integrity-sdk |
 | `node` / `npm` | 22.x / 10.x | integrity-dashboard, contracts (npm-based deps) |
 | `python` / `uv` | 3.12 / 0.11 | integrity-sdk, integrity-cli, bcc_middleware |
+| `halmos` | 0.3.3 | contracts (`make verify-kernel`, Phase I kernel symbolic verification, isolated in `contracts/.venv-halmos`) |
 
 All of these are on `PATH` (added to `~/.bashrc`). Use them for real — compile
 the circuits, run `bb prove`/`bb verify`, run `forge test`, run `opa eval`

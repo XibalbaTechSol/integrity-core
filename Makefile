@@ -1,4 +1,4 @@
-.PHONY: setup chain chain-reset up down test test-e2e sync-abis demo check-deploy
+.PHONY: setup chain chain-reset up down test test-e2e sync-abis demo check-deploy verify-kernel
 
 setup:
 	cd contracts && npm install
@@ -46,6 +46,18 @@ chain-reset:
 sync-abis:
 	cd contracts && forge build
 	python3 scripts/sync_abis.py
+
+# Halmos (0.3.3, pinned) symbolic/bounded-model-checking pass over the Phase I kernel slice --
+# workstream 3 of docs/plans/2026-08-24-phase1-formal-verification-proposal.md. Isolated in its
+# own uv-managed venv (contracts/.venv-halmos), never installed globally, matching this repo's
+# existing per-package Python isolation. --ast is required: without it Halmos silently skips
+# every contract's build artifact ("KeyError: 'ast'") rather than erroring loudly. Creates the
+# venv on first run if missing.
+verify-kernel:
+	cd contracts && [ -d .venv-halmos ] || uv venv .venv-halmos --python 3.12
+	cd contracts && uv pip install --python .venv-halmos/bin/python "halmos==0.3.3"
+	cd contracts && forge build --ast
+	cd contracts && .venv-halmos/bin/halmos --contract KernelSwapHarnessTest --root .
 
 # Is the running stack actually built from the code in this tree? On 2026-07-30 the
 # oracle image was three minutes older than the commit adding the Verification Ladder

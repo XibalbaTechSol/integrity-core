@@ -2542,3 +2542,352 @@ authorization.
 This closes the sixth and final item of the six originally scoped. Item 7 (external audit /
 deployment) remains a gate, not actionable work — nothing in this repo's own discipline
 substitutes for it.
+
+## 38. `bcc.rego` had no "financial" risk class — an unrecognized intent authorized by matching nothing, not by policy (2026-08-19)
+
+**Context:** found while building `xibalba-quant`, a real autonomous trading agent meant to
+stress-test this protocol's own mediation pipeline (separate initiative, tracked outside this
+repo — see `~/.claude/plans/velvet-gathering-rivest.md`). Before building the trade executor,
+its BCC (Behavioral Commitment Chain) commitments were checked against the live policy, and it
+turned out `bcc_middleware/policies/bcc.rego` had zero rules for any trading/financial
+`intent_type` — exactly the same failure `bcc.rego` §3b already names and fixed once before for
+Claude Code's own tool calls (that section's own comment: *"792 logged decisions... authorized
+715, denied 0... A gate that cannot express an opinion is not a gate"*).
+
+**Closed:** added `"financial"` to `high_risk_tool_classes` (§3b's existing mechanism —
+`agent_tool_prefixes := {"claude_tool", "hermes_tool"}`), so an intent shaped
+`hermes_tool:<venue>_trade:financial` is now genuinely evaluated: it requires
+`verification_tier >= 1` (same threshold as the existing destructive/credential/chain_write
+classes — kept there deliberately, not raised, per the CEILING NOTE already in this file: Tier
+2/3 verification isn't real yet, so a higher threshold would be an unreachable no-op dressed up
+as a real policy decision) and, via `_is_agent_tool`, automatically inherits the AOS
+observability requirement (real `trace_id`/`span_id`/`intent_rationale` >= 15 chars, no
+exceptions). 5 new OPA tests in `bcc_test.rego`, including a regression anchor that pins the
+OLD failure mode (an unclassified two-segment `hermes_tool:coinbase_trade` label still passes
+through matching nothing — proving the gap was real, not assumed). Mutation-tested: removing
+`"financial"` from the set makes `test_financial_intent_denied_for_unverifiable_agent` fail with
+a real, distinct failure. `opa test policies/ -v`: 43 → 48 passing.
+
+**What this does NOT check, stated plainly (per this file's own header note):** the BCC
+commitment schema never carries the actual trade payload across the wire pre-execution — only
+`intended_state_hash` does — so this policy cannot and does not validate venue, asset, size, or
+side. That validation is the trade-executor's own job before it ever builds a commitment. This
+rule only gates identity verifiability and the observability/rationale requirement, same as
+every other class in this section.
+
+**A second, separate finding from verifying this against the real running stack, not just the
+OPA test suite:** the `opa` container (`docker-compose.yml`'s `opa` service) does **not
+hot-reload** its policy files. It bind-mounts `bcc_middleware/policies/` but loads them once at
+container start (`opa run --server ... policies/`, no `-w`/`--watch` flag) — editing the `.rego`
+files on disk has no effect on a running container until it's restarted. Confirmed by querying
+OPA's own `GET /v1/policies` admin endpoint directly: it kept serving the pre-edit policy
+(`"financial" in raw` → `False`) for several manual test calls after the file was already
+saved, which briefly produced a false-positive `authorized: true` result during verification —
+caught by cross-checking the admin endpoint rather than trusting the HTTP verdict alone, not
+shipped as a false "it works." `docker compose restart opa` picks up the change. Not fixed here
+(no code change needed, this is expected behavior for a file-loaded OPA server) — but worth
+knowing for anyone editing this policy locally: **restart `opa` after every `.rego` edit, or the
+change silently doesn't apply**, and don't trust a single manual verdict without also confirming
+via `/v1/policies` that the running server actually has the edit loaded.
+
+**Also found and fixed in the same pass, unrelated to the policy itself:** `xibalba-cortex`'s
+own venv (`/home/xibalba/Projects/xibalba-cortex/.venv`) had a stale, non-editable, frozen copy
+of `integrity-sdk` installed in `site-packages` despite `xibalba-cortex/pyproject.toml`
+declaring it as a `path` dependency (which should track the live local source) — meaning it
+predated this session's own `chain_id`/`verifying_contract` binding work on
+`build_bcc_commitment()` and would have raised `TypeError: unexpected keyword argument
+'chain_id'` for any real caller. `uv sync` alone did not detect/fix this (the resolved lock
+apparently didn't consider the path dependency stale); fixed with an explicit `uv pip install
+--reinstall --no-deps -e ../integrity-core/integrity-sdk`, confirmed editable and current
+afterward. Not integrity-core's own bug, but directly blocked integrity-core's own protocol
+change from reaching a real downstream consumer, so recorded here rather than left silently
+discovered-and-forgotten.
+
+**Not deployed anywhere beyond this local dev stack.** Local Docker Compose only, not committed
+at time of writing.
+
+## 39. Two real bugs found registering `xibalba-quant` for real on Base Sepolia (2026-08-19)
+
+**Context:** `xibalba-quant`'s DID already had real, live on-chain primitives deployed from
+2026-07-29 (a prior, undocumented session/attempt — not part of any work tracked in this repo's
+history) but was never fully registered with the oracle. Completing that registration, using the
+same funded operator key already used for the Health/Shield agent, surfaced two real, distinct
+bugs, neither hypothetical.
+
+* **`docker-compose.yml`'s Docker-facing RPC endpoint was pointed at an unhealthy public RPC.**
+  `.env`'s `DOCKER_RPC_URL` (consumed by `oracle-backend` and `bcc-middleware`) was
+  `https://sepolia.base.org`, while the host-facing `RPC_URL` (used by `integrity-sdk` scripts
+  run directly, outside Docker) was already correctly set to
+  `https://base-sepolia-rpc.publicnode.com`. The former was failing with `"no backend is
+  currently healthy to serve traffic"` — confirmed directly in `oracle-backend`'s own logs, not
+  inferred — causing every `resolveDID`-dependent oracle read (including the registration
+  endpoint) to silently degrade. **Fixed:** `DOCKER_RPC_URL` now matches the working
+  `RPC_URL`. This was a live infra misconfiguration, not a code bug — flagged here because it
+  would have equally broken any other agent's real registration or the periodic reputation-sync
+  loop against Base Sepolia, not just this one.
+* **`register_agent()`'s `resolve_did` short-circuit can skip genesis memory anchoring
+  entirely, leaving a real but oracle-unregistrable agent.** The short-circuit at the top of
+  `register_agent()` (added for the orphaned-pair problem §28/§18 already document) treats "the
+  agent's primitives are already deployed on-chain" as "registration already fully completed,"
+  and returns straight to the oracle POST — it does NOT re-check `StateAnchor.latestRoot`
+  before doing so, unlike the main (non-short-circuited) path, which the code's own comment
+  says explicitly should not be trusted to be automatic ("Idempotence: NOT guaranteed solely by
+  step 0's resolve_did short-circuit, despite what this comment used to claim"). This is exactly
+  the gap that comment already warns about, just not closed for the short-circuit branch itself.
+  `xibalba-quant`'s on-chain identity was a live instance of it: primitives fully deployed, zero
+  genesis root, oracle correctly refusing with `400 MemoryNotInitialized` on every registration
+  attempt. **Worked around manually for this one agent** (called `chain.anchor_genesis_root()`
+  directly, confirmed the root changed from `0x00...00` to a real non-zero value via
+  `state_anchor_latest_root`, then re-ran `register_agent()`, which succeeded). **Not fixed in
+  the SDK itself** — the short-circuit branch (`registration.py` lines ~214-243) should check
+  `state_anchor_latest_root` and anchor if zero, the same way the main path already does, before
+  this is considered closed. Left open rather than patched under time pressure while a live
+  registration was blocked on it; a real fix belongs in its own reviewed change, not folded
+  silently into an unrelated trading-agent registration.
+
+**Verified for real, not assumed:** `GET /v1/agent/<did>` now returns `verification_tier: 1`,
+`oracle_registered: true`, `has_ed25519_key: true`, `has_eth_address: true`; `GET /v1/agent/<did>
+/ais` returns a real (zero-activity) score. A separate, pre-existing cosmetic issue noticed while
+verifying: the returned `did_document.verificationMethod` array contains the same `#evm-1` EVM
+verification method duplicated 5 times — likely a byproduct of the same partial-registration
+history above (repeated `attach_evm_account` calls across multiple incomplete attempts) — not
+investigated further here, noted for whoever picks up the short-circuit fix above.
+
+**Not committed.** Both the `.env` fix and this write-up are local, uncommitted changes at time
+of writing.
+
+## 40. Phase I kernel slice promoted from `...V1Experimental` to production names — rename only, no logic change (2026-08-24)
+
+*Current State:* per `docs/plans/2026-08-24-phase1-promotion-decision-proposal.md` (Option A,
+authorized), `contracts/src/kernel/IntegrityAccountV1Experimental.sol` and
+`IntegrityKernelV1Experimental.sol` are renamed to `IntegrityAccount.sol` and `IntegrityKernel.sol`
+respectively (contract names, file names, and internal NatSpec cross-references — every
+occurrence verified by grep before and after, none remaining). `contracts/test/
+IntegrityAccountV1Experimental.t.sol` → `IntegrityAccount.t.sol`, its 146 references to the old
+names mechanically replaced. **Zero logic change**: `git mv` + `sed` only, no lines of behavior
+touched. Verified, not assumed: `Experimental` never appeared in any `error`/`event` identifier in
+either contract (only in contract names and comments), so this is not an ABI-shape change; `forge
+build` compiles clean (warnings only, pre-existing lint categories unrelated to this change); full
+repo suite re-run after the rename: 314/314 passing, zero regressions, `IntegrityAccountTest`
+(renamed from `IntegrityAccountV1ExperimentalTest`) itself at 105/105.
+
+**What this does NOT change:** the contracts remain exactly as un-deployed, un-audited, and
+un-formally-verified as before — promotion is a naming decision only, made because the
+2026-08-24 Phase I audit found the artifact had outgrown its original "tracer bullet" framing
+(six governance-hardening slices and a ZK-circuit binding since the name was chosen) with no
+technical defect motivating a rebuild under the production names instead. See the proposal doc
+for the full go/no-go reasoning, including why a from-scratch rebuild (Option B) was declined:
+it would have discarded 314 tests and six rounds of Devil's Advocate review with no named
+architectural justification, which is exactly the kind of divergence-prone path this repo's own
+history (§21 above) warns against.
+
+**Historical documents intentionally NOT rewritten:** `HANDOFF.md`, `CLAUDE_HANDOFF_2026-08-19.md`,
+`docs/design/phase1-tracer-bullet-slice-2026-08-17.md`, and every dated `docs/plans/2026-08-1[78]-
+phase1-*.md` proposal still refer to `IntegrityAccountV1Experimental`/`IntegrityKernelV1Experimental`
+— correct as dated logs of what was true when written. Only current-state documents (this file,
+README.md) were updated forward. Anyone grepping for the old names in a historical doc should not
+read that as the rename having failed to land — check `contracts/src/kernel/` directly.
+
+**What remains open for Phase I, restated from the 2026-08-24 audit — unaffected by this rename
+either way:** no Base Sepolia (or any) deployment, no external/independent audit, no
+machine-checked invariance argument, and the still-undecided general-value-conservation scope
+question (only native ETH is conserved today; ERC-20/721/arbitrary calldata inside a zero-ETH
+call remains unconstrained).
+
+## 41. Declared multi-asset value conservation built, tested, and found genuinely over the Table 4 gas budget — real finding, not resolved (2026-08-24)
+
+*Current State:* per `docs/plans/2026-08-24-phase1-declared-asset-conservation-proposal.md`
+(authorized, "full scoped slice at once"), `IntegrityKernel` gained a single additional declared
+conserved asset — an immutable `trackedToken` (ERC-20, `address(0)` disables the feature
+entirely, preserving prior behavior byte-for-byte), with its own `tokenPerOpBudgetWei`/
+`tokenCumulativeBudgetWei` two-tier budget, checked exactly like the existing native-ETH budget:
+a live `balanceOf` snapshot in `preCheck`, a live re-read and conjunctive revert in `postCheck`.
+7 new Foundry tests (in-budget transfer succeeds, per-op and cumulative reverts at their exact
+boundaries, native/token budget independence in both directions, a zero-token-budget constructor
+guard, the disabled-path pin), all passing; the two new guard checks (per-op, cumulative)
+mutation-tested — removing either makes its own test fail differently (wrongly succeeds), both
+restored before landing. Full repo suite: 321/321 (up from 314 at the promotion commit), zero
+regressions to any pre-existing test.
+
+**The gas checkpoint the proposal named as a precondition was run for real, and the finding is
+genuinely negative — reported, not absorbed.** `preCheck` with `trackedToken` enabled measures
+**~41,056 gas** against a genuinely COLD token-balance read — over the whitepaper's own Table 4
+`<=40k` ceiling. This is real, not an estimate: `test_preCheckGasExceedsPaperTable4BudgetWithTrackedTokenLiveRead`
+asserts it directly (`>40_000` and `<45_000`, a regression window matching the discipline the
+earlier three-reference-adapter over-budget finding used before ITS resolution). **A first
+measurement (~25,829 gas) looked like it fit — that number was wrong, an artifact of minting the
+tracked token inside the same test-body transaction as the `preCheck` call, which left the
+balance slot warm.** Restructured the test fixture (`tokenAccount`/`tokenKernel`/`token` now
+deployed in `setUp`, mirroring exactly how `reputation`'s own storage is cold-read from every
+test body) to get the representative, production-equivalent measurement before trusting any
+number — the corrected, cold figure is the one reported above. This is exactly the risk the
+proposal doc's own dependency-inventory section named before any Solidity existed: value
+conservation is a **hard invariant** per the whitepaper's own §4.7.1 ("never enter grace...
+fail-closed in every state"), so this slice cannot reuse the epoch-snapshotting cache that
+rescued the reputation/assurance-tier checks from their own, earlier crossing — caching a
+conserved-quantity balance would silently misstate the invariant itself, not merely widen a
+staleness window on a soft precondition.
+
+**No mitigation has been attempted within this slice's scope.** Both the kernel's contract-level
+NatSpec and the guarantee-statement doc comment are updated to state the crossing plainly rather
+than imply Table 4 compliance. Options for whoever picks this up next, none chosen here: (a)
+accept the crossing as a disclosed Phase I boundary (ERC-4337 bundler simulation limits are a
+policy question, not a hard on-chain revert, so an over-budget `preCheck` degrades UserOp
+inclusion economics rather than breaking correctness — a real cost, not a safety failure); (b)
+attempt a to-be-scoped mitigation (e.g., a keeper-refreshed cache with a MUCH shorter staleness
+window than reputation's, if a bounded-staleness value-conservation design can be shown not to
+violate §4.7.1's own hard-invariant framing — non-trivial, not attempted here); (c) drop the
+tracked-token feature and treat native-ETH-only as Phase I's permanent scope after all (reverts
+this slice, does not delete evidence — `IntegrityKernel`'s git history keeps this work available).
+
+**Decision (2026-08-24): option (a), accepted as a disclosed, permanent Phase I boundary.** The
+crossing is not being mitigated or reverted — `IntegrityKernel` keeps the `trackedToken` feature
+exactly as built and measured above. Reasoning, stated plainly rather than left implicit: this
+kernel is still Foundry-test-only and un-deployed (workstream 4, testnet deployment, remains
+separately gated), so no live UserOp is affected today; the crossing's actual cost is bundler
+simulation/inclusion economics under real ERC-4337 gas limits, not an on-chain correctness or
+safety failure (the value-conservation guarantee itself holds regardless of `preCheck`'s exact gas
+figure — a call either passes both budget checks or reverts, correctly, at 41k gas same as it
+would at 33k). Matches the same "document it, don't silently absorb it" posture this repo already
+applied to the earlier three-reference-adapter crossing before that one *was* resolved by
+caching — the difference here is that no equivalent resolution is available (§4.7.1's hard-
+invariant framing forecloses it), so this crossing is accepted rather than chased. Whoever
+proceeds to workstream 3 (formal verification) or workstream 5 (external audit) should treat
+this Table 4 crossing as a known, disclosed, in-scope finding to hand the auditor — not a
+regression to fix first. `IntegrityKernel`'s NatSpec is not being softened to reflect
+"acceptance"; the crossing stays stated as a crossing, only the decision about what to do with it
+is now closed.
+
+## 42. Halmos symbolic-verification harness built — real kernel installed via governance swap, two real cheatcode gaps found and worked around (2026-08-24)
+
+*Current State:* per `docs/plans/2026-08-24-phase1-formal-verification-proposal.md` (workstream
+3: machine-checked invariance argument, Table 8's Phase I gate) and its two follow-up scoping
+docs, a working Halmos harness now exists at `contracts/test/halmos/KernelSwapHarness.t.sol`,
+runnable reproducibly via `make verify-kernel`. This closes the dependency-inventory and
+harness-design steps; the four target properties (native-ETH budget containment, declared-token
+budget containment, reputation/assurance-tier fail-closed gating, reentrancy-guard soundness) are
+the next, separately-scoped step, not attempted in this entry.
+
+**Two of the three considered address-prediction approaches were tried and found genuinely
+infeasible, not just inconvenient — real findings, reported rather than routed around:**
+- **CREATE-nonce prediction:** Halmos 0.3.3 does not model plain `CREATE` addresses via real
+  RLP/nonce semantics at all — confirmed by reading `halmos/sevm.py`'s `create()`, which assigns
+  addresses from an internal synthetic counter unrelated to any real-world-computable formula. A
+  hand-written RLP predictor, cross-validated correct against `vm.computeCreateAddress` and a real
+  deployment under plain `forge test` (nonces 0–20), failed unconditionally under Halmos.
+- **CREATE2-salt prediction:** Halmos's CREATE2 addressing genuinely DOES match the standard
+  formula (verified directly, unbounded, symbolic salt) — the tool was never the problem here.
+  The problem is structural and tool-independent: `IntegrityKernel` and `IntegrityAccount` each
+  need the other's real final address embedded in their own constructor args, so both contracts'
+  CREATE2 addresses depend on each other through a one-way hash — an unsolvable two-variable fixed
+  point, true on real Ethereum as much as under Halmos, not something any salt choice fixes.
+
+**The working approach (placeholder-genesis-kernel, then a real governance swap) needs no address
+prediction at all**, which is exactly why it sidesteps both dead ends above. A trivial
+`AlwaysPassingPlaceholderKernel` (no `boundAccount` restriction) is genesis-installed on a real,
+unmodified `IntegrityAccount`; the real `IntegrityKernel` — bound to `address(account)`, already
+concrete by the time it's deployed, never predicted — is installed for real through the account's
+actual `proposeKernelSwap` → two guardian `approveKernelSwap` calls → `vm.warp` past the timelock
+→ `executeKernelSwap` path, completely unmodified production code. Two `check_` functions, both
+passing **unbounded** (Halmos's own `bounds: []`, meaning proven for literally all reachable
+symbolic values, not a sampled subset) in under 1.1s combined.
+
+**Two more real, disclosed Halmos/cheatcode compatibility gaps found and fixed, each
+cross-validated against plain `forge test` before being trusted under Halmos:**
+- `stdStorage`'s `checked_write` (the concrete test suite's own technique for writing
+  `AgentScore.zkBoostExpiry`, no other setter exists short of a real ZK attestation) depends on
+  `vm.record()`, confirmed unsupported. Fixed by writing the storage slot directly: `forge inspect
+  ReputationRegistry storage-layout` gives `scores` at slot 1 (its OZ v5 `Initializable`/
+  `AccessControlUpgradeable` bases use ERC-7201 namespaced storage, not the linear slot space, so
+  there's no inherited-storage offset to account for); a `mapping(address => AgentScore)` entry's
+  base slot is `keccak256(abi.encode(subject, uint256(1)))`, and `zkBoostExpiry` is the struct's
+  third `uint256` field, so `+2`. Verified against the real `scores(address)` getter under
+  concrete `forge test`, not asserted blind.
+- `vm.prank`/`vm.warp`/`vm.store`/`vm.load` are all confirmed **supported** under Halmos, each
+  checked directly rather than assumed — this is what makes the governance-swap sequence and the
+  manual storage write both viable.
+- Unrelated build-config gap: Halmos requires `forge build --ast`; without it every contract's
+  artifact is silently skipped (`KeyError: 'ast'`) rather than erroring, which reads exactly like
+  "no tests exist" if not caught. `Makefile`'s `verify-kernel` target always passes it.
+
+**Toolchain:** Halmos 0.3.3, pinned in `docs/INTERFACE_CONTRACT.md`, isolated in
+`contracts/.venv-halmos` (created on first `make verify-kernel` run, never installed globally) —
+matches this repo's existing per-package Python isolation convention. Full repo suite unaffected:
+321/321, zero regressions (the new harness files use Halmos's `check_` naming convention, which
+`forge test`'s own `test`-prefix matcher never picks up).
+
+**What remains for workstream 3:** the four target properties themselves (not attempted here);
+Halmos's actual scaling behavior against a property that exercises the reputation/assurance-tier
+gating logic (the harness above only proves installation succeeds, not any of the four named
+guarantees); and, per the parent proposal's own acceptance criteria, a precise, bound-stated
+guarantee summary added to `IntegrityKernel`'s NatSpec once properties are actually proven —
+premature to write until they exist.
+
+## 43. All four target Halmos properties proven, unbounded — workstream 3's own scaling risk resolved favorably (2026-08-24)
+
+*Current State:* `contracts/test/halmos/KernelProperties.t.sol` now machine-checks all four
+properties `docs/plans/2026-08-24-phase1-formal-verification-proposal.md` named, against the
+REAL, unmodified `IntegrityKernel`/`IntegrityAccount`, installed via the real governance-swap
+harness (`PRODUCTION_GAPS.md` §42). All six `check_` functions (property 1 has a second, cumulative-
+sequence variant; property 2 has a second, conjunction-with-native variant) pass **unbounded**
+(Halmos's own `bounds: []`) in ~7.6s combined — the scaling risk the parent proposal's own "real
+risk" section named ("Halmos may not scale to this kernel's cross-contract-call-heavy code") did
+not materialize. Every property is mutation-tested: the corresponding guard was disabled directly
+in `IntegrityKernel.sol`, confirmed to make the property fail, then restored — full repo suite
+re-verified at 321/321 after every restoration.
+
+- **Property 1 (native-ETH budget containment).** `check_nativeBudgetContainment`: single call,
+  any recipient/amount, succeeds iff within both budgets, exact balance delta. Two real scoping
+  findings from the FIRST Halmos run, both fixed by narrowing the property's own domain, not by
+  changing the kernel: (a) a fully symbolic recipient can legitimately be a contract that
+  unconditionally reverts on any call (excluded via `code.length == 0`, matching the concrete
+  suite's own `makeAddr` convention); (b) `target == address(0)` is ERC-7579's own "call self"
+  convention (`ERC7579Utils.sol` remaps it to `address(this)`), not a literal zero-address
+  transfer, and changes the balance-delta math entirely (excluded explicitly).
+  `check_cumulativeBudgetContainmentAcrossTwoCalls`: extends to a genuine two-call sequence, since
+  the single-call property structurally cannot exercise the cumulative check when
+  `PER_OP_BUDGET < CUMULATIVE_BUDGET`. Needed its OWN kernel with a wider per-op-to-cumulative
+  ratio (2 ether / 3 ether) — even generalizing the *ratio itself* was tried first and found
+  insufficient (two 1-ether-capped calls can never sum past 3 ether, so the cumulative branch was
+  silently unreachable in an earlier draft — a real scoping bug, caught before trusting the
+  property, not assumed away).
+- **Property 2 (declared-token budget containment + conjunction).**
+  `check_tokenBudgetContainmentAndNativeConjunction` and
+  `check_nativeBudgetStillEnforcedOnTokenTrackingKernel`: an ERC-20 transfer via a token-tracking
+  kernel succeeds iff within the token's own per-op budget; a pure-native call on the SAME kernel
+  is still independently bound by the native check, proving neither check masks the other.
+- **Property 3 (reputation/assurance-tier gating cannot be bypassed while stale or below floor).**
+  `check_reputationAndAssuranceTierGating`: for a symbolic base score, boost expiry, and elapsed
+  time, a trivial call succeeds iff the cached snapshot is fresh, above floor, and boosted —
+  generalizing four separate concrete boundary tests to every reachable combination. Found and
+  fixed a genuinely surprising Solidity/Foundry interaction while scoping this, tracked down via a
+  debug-revert bisection rather than assumed: caching `uint256 x = block.timestamp;` before a
+  later `vm.warp(...)` and reading `x` afterward returns the POST-warp value, not the value at the
+  point of assignment, in this codebase's `via_ir = true` build — reading the timestamp back from
+  real contract storage (`kernel.snapshotTakenAt()`) instead sidesteps it and is more
+  ground-truth-correct regardless. Worth remembering for any future property that warps forward
+  after capturing a timestamp.
+- **Property 4 (the `armed` reentrancy guard is sound).** `check_reentrancyGuardIsSound`:
+  generalizes the single concrete self-reentrancy test
+  (`test_reentrantExecuteDuringAnInFlightCallIsRejected`) to every combination of two in-budget
+  amounts. Mutation-testing this one surfaced a genuinely interesting result, recorded in the
+  property's own code comment: disabling only `preCheck`'s `AlreadyArmed` check does NOT make the
+  property fail — the reentrant call still reverts, on `postCheck`'s own separate `NotArmed`
+  check instead, since the nested call's `postCheck` clears `armed` before the outer call's
+  `postCheck` runs. Containment genuinely still holds under that single mutation; the property (by
+  design) proves the outcome, not which specific line catches it. Demonstrating the property has
+  real teeth required disabling BOTH `armed` checks at once — only then does the reentrant call
+  actually succeed and move funds, and only then does the property correctly fail.
+
+**Toolchain, harness, and dependency-inventory work:** all already recorded in §42 and unaffected
+by this entry — same pinned Halmos 0.3.3, same `contracts/.venv-halmos`, same `make verify-kernel`
+reproducibility (not yet updated to include this file's checks explicitly by name; still runs
+`--contract KernelSwapHarnessTest` only, a known small gap for whoever extends the Makefile target
+next).
+
+**What remains for workstream 3, restated:** a precise, bound-stated guarantee summary added to
+`IntegrityKernel`'s own NatSpec (each property's exact claim and that it's bounded, not
+unconditional, per Halmos's own `bounds: []` reporting convention) has NOT been written yet — the
+parent proposal's own acceptance criteria named this explicitly and it remains open. Workstream 3
+as a whole is not yet closed: this closes the "four target properties" deliverable specifically,
+not the NatSpec documentation deliverable alongside it.

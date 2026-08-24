@@ -2,9 +2,10 @@
 pragma solidity ^0.8.28;
 
 import {IERC7579Hook, MODULE_TYPE_HOOK} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReputationRegistry} from "../oracle/ReputationRegistry.sol";
 
-/// @title IntegrityKernelV1Experimental
+/// @title IntegrityKernel
 /// @notice Phase I tracer-bullet slice (docs/plans/2026-08-17-phase1-tracer-bullet-proposal.md),
 /// extended with a second reference adapter
 /// (docs/plans/2026-08-17-phase1-reputation-adapter-proposal.md), then with reputation
@@ -32,7 +33,7 @@ import {ReputationRegistry} from "../oracle/ReputationRegistry.sol";
 ///
 /// **Deployment invariant, not just a recommendation: `epochLengthSeconds` on THIS kernel must be
 /// `>= moduleActionTimelockSeconds` on the bound account, if that account uses the timelocked
-/// kernel-swap governance mechanism** (`IntegrityAccountV1Experimental.proposeKernelSwap`/
+/// kernel-swap governance mechanism** (`IntegrityAccount.proposeKernelSwap`/
 /// `executeKernelSwap`). If the timelock outlives the epoch, a fully-vested swap's uninstall half
 /// (mediated by THIS kernel's own `preCheck`) can revert `SnapshotStale` for a reason that has
 /// nothing to do with reputation actually being bad, and a freshly-installed replacement kernel
@@ -43,7 +44,7 @@ import {ReputationRegistry} from "../oracle/ReputationRegistry.sol";
 /// mistake for a reputation problem when they are actually a parameter-choice problem. This is
 /// also found by adversarial review, not by design-time analysis.
 ///
-/// **As of 2026-08-19, `IntegrityAccountV1Experimental` enforces this at the one point a
+/// **As of 2026-08-19, `IntegrityAccount` enforces this at the one point a
 /// mismatched kernel could actually be installed** (`_checkEpochCompatibility`, called from its
 /// constructor and every kernel-swap-proposal path) -- WITH a disclosed, deliberate gap: the
 /// check is a `try`/`catch` probe of this kernel's `epochLengthSeconds()`, so it only applies to
@@ -58,25 +59,63 @@ import {ReputationRegistry} from "../oracle/ReputationRegistry.sol";
 /// with `(CALLTYPE_SINGLE, EXECTYPE_DEFAULT)` (the only mode the paired account contract
 /// permits), (1) a single execution can never move more than `perOpBudgetWei` of the account's
 /// own native-token balance out, and the running total across all such executions can never
-/// exceed `cumulativeBudgetWei`; AND (2) no execution proceeds at all while the CACHED
-/// `effectiveScore(boundAccount) < minEffectiveScore`, where the cache is at most
+/// exceed `cumulativeBudgetWei`; (1b) if `trackedToken != address(0)`, the same two-tier budget
+/// (`tokenPerOpBudgetWei`/`tokenCumulativeBudgetWei`) independently applies to
+/// `trackedToken.balanceOf(boundAccount)`, read LIVE on every check (never cached -- see the
+/// contract-level "declared multi-asset value conservation" note below for why this cannot use
+/// the same epoch-snapshot trick reputation does); AND (2) no execution proceeds at all while the
+/// CACHED `effectiveScore(boundAccount) < minEffectiveScore`, where the cache is at most
 /// `epochLengthSeconds` old (older, and the call reverts rather than proceeding on stale data).
-/// This kernel does NOT verify calldata content, does NOT constrain ERC-20 or other token
-/// transfers, does NOT enforce anything about batch/delegatecall/executor/fallback paths (the
-/// paired account is responsible for making those paths unreachable, not this kernel), does NOT
-/// implement module governance (`onUninstall` is intentionally left reachable only via the bound
-/// account's own, separately governed, module-mutation path), and does NOT reason about how
-/// `effectiveScore` was computed or whether the oracle pushing it is honest -- it trusts that
-/// number exactly as far as `ReputationRegistry` itself does, subject to the staleness window
-/// above.
-contract IntegrityKernelV1Experimental is IERC7579Hook {
+/// This kernel does NOT verify calldata content, does NOT constrain any asset other than native
+/// ETH and the single, immutably-declared `trackedToken` (any other ERC-20/ERC-721/other asset
+/// movement inside the wrapped call remains completely unconstrained), does NOT enforce anything
+/// about batch/delegatecall/executor/fallback paths (the paired account is responsible for making
+/// those paths unreachable, not this kernel), does NOT implement module governance (`onUninstall`
+/// is intentionally left reachable only via the bound account's own, separately governed,
+/// module-mutation path), and does NOT reason about how `effectiveScore` was computed or whether
+/// the oracle pushing it is honest -- it trusts that number exactly as far as `ReputationRegistry`
+/// itself does, subject to the staleness window above.
+///
+/// **Declared multi-asset value conservation** (`docs/plans/2026-08-24-phase1-declared-asset-
+/// conservation-proposal.md`): a single additional ERC-20 `trackedToken`, immutable, set at
+/// construction, `address(0)` meaning "no additional token tracked" (preserves the original
+/// native-only behavior). Unlike the reputation/assurance-tier checks above, this CANNOT be
+/// cached -- value conservation is a hard invariant per the whitepaper's own §4.7.1 ("never enter
+/// grace... fail-closed in every state"), so a cached balance would silently misstate the actual
+/// conserved quantity rather than merely widen a staleness window on a soft precondition. Every
+/// check reads `balanceOf` live, in both `preCheck` and `postCheck`, exactly as the native-ETH
+/// budget already does for `boundAccount.balance`. Deliberately scoped to exactly ONE additional
+/// token, not a general list -- `preCheck` was already gas-constrained before this addition (see
+/// the proposal doc's gas-checkpoint discussion); more than one tracked token was not attempted
+/// without first measuring this one. Does NOT support ERC-721 or any non-fungible asset, and does
+/// NOT protect against fee-on-transfer/rebasing token behavior beyond correctly bounding the
+/// *observed* balance delta (which is what equation (12) actually requires) -- a token whose
+/// balance moves by more than the wrapped call's own transfer amount (e.g. a rebase) is still
+/// correctly checked against the observed delta, not the nominal one.
+///
+/// **Real, disclosed finding: with `trackedToken` enabled, `preCheck` measures OVER the
+/// whitepaper's own Table 4 ceiling (`<=40k`), not under it.** A cold `trackedToken.balanceOf`
+/// read (the representative production case -- see
+/// `test_preCheckGasExceedsPaperTable4BudgetWithTrackedTokenLiveRead`'s own comment for why an
+/// earlier, same-transaction-mint measurement of ~25.8k was an unrepresentative warm-storage
+/// artifact) puts `preCheck` at ~41k, against the ~35.5k the disabled-token path itself measures
+/// cold. This crossing was named as a real possibility, not a surprise, before this feature was
+/// built (`docs/plans/2026-08-24-phase1-declared-asset-conservation-proposal.md`'s own dependency
+/// inventory) -- value conservation is a hard invariant (§4.7.1) and therefore cannot reuse the
+/// epoch-snapshotting cache that rescued the reputation/assurance-tier checks from their own,
+/// earlier crossing. **No mitigation has been attempted within this slice's scope.** This is an
+/// open finding requiring its own decision, not a resolved one.
+contract IntegrityKernel is IERC7579Hook {
     error Unauthorized(address caller);
     error AlreadyArmed();
     error NotArmed();
     error PerOperationBudgetExceeded(uint256 spent, uint256 budget);
     error CumulativeBudgetExceeded(uint256 spentSoFar, uint256 attempted, uint256 budget);
+    error TokenPerOperationBudgetExceeded(uint256 spent, uint256 budget);
+    error TokenCumulativeBudgetExceeded(uint256 spentSoFar, uint256 attempted, uint256 budget);
     error ZeroAccount();
     error ZeroBudget();
+    error ZeroTokenBudget();
     error ZeroReputationRegistry();
     error ZeroMinEffectiveScore();
     error ZeroEpochLength();
@@ -93,6 +132,14 @@ contract IntegrityKernelV1Experimental is IERC7579Hook {
     address public immutable boundAccount;
     uint256 public immutable perOpBudgetWei;
     uint256 public immutable cumulativeBudgetWei;
+
+    /// @dev Declared multi-asset value conservation (docs/plans/2026-08-24-phase1-declared-
+    /// asset-conservation-proposal.md). `address(0)` means no additional token is tracked --
+    /// every existing deployment/test that doesn't pass a real token sees zero behavior change.
+    IERC20 public immutable trackedToken;
+    uint256 public immutable tokenPerOpBudgetWei;
+    uint256 public immutable tokenCumulativeBudgetWei;
+    uint256 public tokenCumulativeSpentWei;
 
     /// @dev Second reference adapter (docs/plans/2026-08-17-phase1-reputation-adapter-proposal.md):
     /// a conjunctive precondition, not a conserved quantity -- reputation cannot change DURING
@@ -153,7 +200,10 @@ contract IntegrityKernelV1Experimental is IERC7579Hook {
         uint256 cumulativeBudgetWei_,
         address reputationRegistry_,
         uint256 minEffectiveScore_,
-        uint256 epochLengthSeconds_
+        uint256 epochLengthSeconds_,
+        address trackedToken_,
+        uint256 tokenPerOpBudgetWei_,
+        uint256 tokenCumulativeBudgetWei_
     ) {
         if (boundAccount_ == address(0)) revert ZeroAccount();
         if (perOpBudgetWei_ == 0 || cumulativeBudgetWei_ == 0) revert ZeroBudget();
@@ -163,9 +213,18 @@ contract IntegrityKernelV1Experimental is IERC7579Hook {
         if (epochLengthSeconds_ > MAX_EPOCH_LENGTH_SECONDS) {
             revert EpochLengthTooLong(epochLengthSeconds_, MAX_EPOCH_LENGTH_SECONDS);
         }
+        // trackedToken_ == address(0) deliberately disables this feature entirely -- the two
+        // budget params are then meaningless and NOT validated, matching how a disabled feature
+        // should behave (no forced non-zero values for a token that will never be checked).
+        if (trackedToken_ != address(0) && (tokenPerOpBudgetWei_ == 0 || tokenCumulativeBudgetWei_ == 0)) {
+            revert ZeroTokenBudget();
+        }
         boundAccount = boundAccount_;
         perOpBudgetWei = perOpBudgetWei_;
         cumulativeBudgetWei = cumulativeBudgetWei_;
+        trackedToken = IERC20(trackedToken_);
+        tokenPerOpBudgetWei = tokenPerOpBudgetWei_;
+        tokenCumulativeBudgetWei = tokenCumulativeBudgetWei_;
         ReputationRegistry registry = ReputationRegistry(reputationRegistry_);
         reputationRegistry = registry;
         minEffectiveScore = minEffectiveScore_;
@@ -211,7 +270,7 @@ contract IntegrityKernelV1Experimental is IERC7579Hook {
     function onInstall(bytes calldata) external view onlyBoundAccount {}
 
     /// @dev Left callable (per IERC7579Module's interface requirement) but this slice's paired
-    /// account never exposes a reachable uninstall path -- see IntegrityAccountV1Experimental's
+    /// account never exposes a reachable uninstall path -- see IntegrityAccount's
     /// own module comment. Not a guarantee this kernel itself provides.
     function onUninstall(bytes calldata) external view onlyBoundAccount {}
 
@@ -244,14 +303,20 @@ contract IntegrityKernelV1Experimental is IERC7579Hook {
         if (!snapshotIsZkBoosted) revert AssuranceTierNotMet(boundAccount);
 
         armed = true;
-        return abi.encode(boundAccount.balance);
+        // Declared multi-asset value conservation: the tracked token's balance must be read
+        // LIVE here (never cached) since this is a hard invariant, not soft context -- see the
+        // contract-level doc comment. address(trackedToken) == address(0) skips the external
+        // call entirely (encodes 0, which postCheck's identical guard also skips re-reading).
+        uint256 tokenBefore =
+            address(trackedToken) == address(0) ? 0 : trackedToken.balanceOf(boundAccount);
+        return abi.encode(boundAccount.balance, tokenBefore);
     }
 
     function postCheck(bytes calldata hookData) external onlyBoundAccount {
         if (!armed) revert NotArmed();
         armed = false;
 
-        uint256 balanceBefore = abi.decode(hookData, (uint256));
+        (uint256 balanceBefore, uint256 tokenBefore) = abi.decode(hookData, (uint256, uint256));
         uint256 balanceAfter = boundAccount.balance;
         uint256 spent = balanceBefore > balanceAfter ? balanceBefore - balanceAfter : 0;
 
@@ -262,5 +327,20 @@ contract IntegrityKernelV1Experimental is IERC7579Hook {
             revert CumulativeBudgetExceeded(cumulativeSpentWei, spent, cumulativeBudgetWei);
         }
         cumulativeSpentWei = newCumulative;
+
+        if (address(trackedToken) != address(0)) {
+            uint256 tokenAfter = trackedToken.balanceOf(boundAccount);
+            uint256 tokenSpent = tokenBefore > tokenAfter ? tokenBefore - tokenAfter : 0;
+
+            if (tokenSpent > tokenPerOpBudgetWei) {
+                revert TokenPerOperationBudgetExceeded(tokenSpent, tokenPerOpBudgetWei);
+            }
+
+            uint256 newTokenCumulative = tokenCumulativeSpentWei + tokenSpent;
+            if (newTokenCumulative > tokenCumulativeBudgetWei) {
+                revert TokenCumulativeBudgetExceeded(tokenCumulativeSpentWei, tokenSpent, tokenCumulativeBudgetWei);
+            }
+            tokenCumulativeSpentWei = newTokenCumulative;
+        }
     }
 }

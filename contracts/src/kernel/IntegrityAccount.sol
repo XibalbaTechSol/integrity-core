@@ -9,7 +9,7 @@ import {ERC7579Utils, Mode, CallType, ExecType} from "@openzeppelin/contracts/ac
 
 /// @dev Minimal marker interface for the epoch-length deployment-invariant probe (see
 /// `_checkEpochCompatibility` below). Deliberately NOT a requirement every hook module must
-/// implement -- only `IntegrityKernelV1Experimental` (and any future kernel that opts into the
+/// implement -- only `IntegrityKernel` (and any future kernel that opts into the
 /// same epoch-snapshotting pattern) implements this; a `newKernel` that doesn't is not rejected,
 /// just not checked. See the account's own `moduleActionTimelockSeconds` doc comment for the
 /// full disclosed fail-open caveat this implies.
@@ -17,7 +17,7 @@ interface IEpochSnapshotting {
     function epochLengthSeconds() external view returns (uint256);
 }
 
-/// @title IntegrityAccountV1Experimental
+/// @title IntegrityAccount
 /// @notice Phase I tracer-bullet slice (docs/plans/2026-08-17-phase1-tracer-bullet-proposal.md),
 /// extended with a timelocked, atomic kernel-swap governance mechanism
 /// (docs/plans/2026-08-17-phase1-module-governance-proposal.md). **This reverses a previously
@@ -184,11 +184,11 @@ interface IEpochSnapshotting {
 ///    stronger than "the guardian keys are genuinely independent," the same caveat every guardian
 ///    mechanism in this contract already carries.
 ///
-/// See `IntegrityKernelV1Experimental` for exactly what guarantee the installed hook provides --
+/// See `IntegrityKernel` for exactly what guarantee the installed hook provides --
 /// this account only guarantees that the hook fires on every reachable state-changing path
 /// EXCEPT `approveKernelSwap` (and, for the swap's uninstall half, that the outgoing kernel's
 /// hook fires on the governance path too), not what the hook itself checks.
-contract IntegrityAccountV1Experimental is AccountERC7579Hooked, SignerECDSA {
+contract IntegrityAccount is AccountERC7579Hooked, SignerECDSA {
     using ERC7579Utils for Mode;
 
     error ModuleMutationDisabled();
@@ -236,7 +236,7 @@ contract IntegrityAccountV1Experimental is AccountERC7579Hooked, SignerECDSA {
     /// cannot be shortened or lengthened after deployment, closing off "govern the governance"
     /// as an attack surface.
     ///
-    /// **Deployment invariant with `IntegrityKernelV1Experimental.epochLengthSeconds`, if the
+    /// **Deployment invariant with `IntegrityKernel.epochLengthSeconds`, if the
     /// bound kernel uses reputation epoch-snapshotting** (see that contract's own doc comment):
     /// this value should be `<= epochLengthSeconds` on the currently-installed kernel. If the
     /// timelock outlives the epoch, `executeKernelSwap`'s uninstall half (mediated by the
@@ -418,7 +418,7 @@ contract IntegrityAccountV1Experimental is AccountERC7579Hooked, SignerECDSA {
         // A zero timelock would make executeKernelSwap immediately callable in the same
         // transaction as proposeKernelSwap, silently voiding this mechanism's entire value
         // proposition over the tracer-bullet slice's original "permanently unreachable" design --
-        // this is exactly the class of parameter IntegrityKernelV1Experimental's own constructor
+        // this is exactly the class of parameter IntegrityKernel's own constructor
         // already rejects for its analogous immutables (ZeroBudget, ZeroMinEffectiveScore).
         if (moduleActionTimelockSeconds_ == 0) revert ZeroTimelock();
         moduleActionTimelockSeconds = moduleActionTimelockSeconds_;
