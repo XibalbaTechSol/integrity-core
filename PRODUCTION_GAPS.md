@@ -3129,3 +3129,31 @@ still-accurate scope disclosure on that specific point.
 was internal review, by design (no external auditor engaged), and is documented as such throughout
 this entry and the proposal doc it came from -- the distinction matters and is deliberately not
 blurred.
+
+## 46. Fixed governance logic redeployed to Base Sepolia — the §44 deployment is superseded, not deleted (2026-08-24)
+
+*Current State:* per direct user instruction ("redeploy the fixed version to Base Sepolia"),
+`DeployKernelReference.s.sol` ran again for real, from commit `10ff4ad44d087f589f6e305e08c925ab6d0feaa7`
+(the Devil's Advocate fixes, §45) -- this time with `GIT_COMMIT_SHA` correctly passed, closing
+the "unknown" gap §44 disclosed. New addresses (`deployments.baseSepolia.json`'s
+`experimentalPhase1Reference` key, overwriting the §44 entry):
+
+- `ReputationRegistry` (fresh clone): `0x5f235388aD02bc7c5426B7f8d2773a17DeB9A616`
+- `IntegrityKernel`: `0x3e05E67Fb6dd3eE382eD24150141ffcBE2C9c338`
+- `IntegrityAccount`: `0x25858C53818E777C5569163F2e05570314fC947d`
+
+Verified live, not assumed: `cast call` confirmed both directions of the account/kernel binding;
+`cast code` confirmed real bytecode at both addresses (26,371 bytes for the account -- larger
+than §44's 25,907, consistent with the added `CannotApproveOwnRemoval`/
+`GuardianActionSwapTargetChanged` checks and the new `GuardianAction.targetKernelSwapNonce`
+field). Cost: ~5,440,035 gas (marginally more than §44's 5,374,892, same reason), ~0.00006 ETH,
+from the same funder wallet, balance still ~0.0624 ETH before this run.
+
+**The §44 deployment is NOT deleted or reachable through this repo's own records anymore (the
+JSON key was overwritten), but it still exists as real, immutable, deployed bytecode on Base
+Sepolia** at its own addresses (`IntegrityAccount` `0xE1a31947A18f20F5Cb38122be4Cf37B4cFA9F1aD`,
+`IntegrityKernel` `0xb910cA020EB0ED18eb27e9eb2eedC4adeAdA6C57`) -- contracts cannot be un-deployed.
+That instance still carries the two bugs §45 found and fixed (the guardian-key-loss deadlock and
+the force-cancel decoy-substitution gap) and should not be used or referenced going forward.
+Recorded here explicitly so it isn't silently forgotten: anyone who indexed or bookmarked the §44
+addresses is now looking at superseded, known-buggy bytecode, not the current reference instance.

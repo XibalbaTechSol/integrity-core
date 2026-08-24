@@ -10,10 +10,10 @@
   },
   "domains": {},
   "experimentalPhase1Reference": {
-    "IntegrityAccount": "0xE1a31947A18f20F5Cb38122be4Cf37B4cFA9F1aD",
-    "IntegrityKernel": "0xb910cA020EB0ED18eb27e9eb2eedC4adeAdA6C57",
-    "ReputationRegistry": "0x1Ff487b0c568bF88Ae67789b8e891E3f9861a374",
-    "deployedFromCommit": "9e7c9586c0fc081f4287f08a79ffa412c2a65a4b",
+    "IntegrityAccount": "0x25858C53818E777C5569163F2e05570314fC947d",
+    "IntegrityKernel": "0x3e05E67Fb6dd3eE382eD24150141ffcBE2C9c338",
+    "ReputationRegistry": "0x5f235388aD02bc7c5426B7f8d2773a17DeB9A616",
+    "deployedFromCommit": "10ff4ad44d087f589f6e305e08c925ab6d0feaa7",
     "disclosure": "EXPERIMENTAL, NOT AUDITED, NOT integrated with XibalbaAgentRegistry or any real agent. See PRODUCTION_GAPS.md and README.md before treating as production."
   },
   "network": "base-sepolia",
