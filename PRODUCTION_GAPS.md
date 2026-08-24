@@ -3157,3 +3157,70 @@ That instance still carries the two bugs §45 found and fixed (the guardian-key-
 the force-cancel decoy-substitution gap) and should not be used or referenced going forward.
 Recorded here explicitly so it isn't silently forgotten: anyone who indexed or bookmarked the §44
 addresses is now looking at superseded, known-buggy bytecode, not the current reference instance.
+
+## 47. Phase II tracer-bullet slice: ERC-6551 licence account with volume cap, royalty, expiry, and the transfer-drain guard (2026-08-24)
+
+*Current State:* per `docs/plans/2026-08-24-phase2-licence-account-tracer-bullet-proposal.md`
+(authorized as scoped, with one addition mid-scoping -- the user added expiry as a third licence
+term alongside the original volume-cap/royalty pair, and confirmed the bespoke-account-not-hybrid
+architectural recommendation and the explicit `armTransfer`/`disarmTransfer` design for the
+transfer-drain guard), the first buildable piece of whitepaper Phase II ("Metered IP" — Table 8)
+now exists. Confirmed before writing any code: **zero prior ERC-6551/licence/ATCP code anywhere
+in this repo** (`grep` across `contracts/src/`, `integrity-sdk/`, `node_modules` came back empty)
+-- genuine greenfield, not an extension of Phase I's kernel/account primitives.
+
+New files, all under `contracts/`:
+- `src/licence/IERC6551.sol` -- hand-written `IERC6551Registry`/`IERC6551Account` interfaces (no
+  vendored ERC-6551 package exists in `node_modules`). The `account(...)` view signature was
+  cross-validated against the REAL, live canonical registry
+  (`0x000000006551c19487814612e58FE06813775758`, the same address on every EVM chain by EIP-6551
+  design) via a direct `cast call` on Base Sepolia before being trusted -- returned a clean
+  address, confirming the hand-written ABI matches what's actually deployed, not merely what the
+  EIP text says it should be.
+- `src/licence/LicenceToken.sol` -- minimal owner-gated-mint ERC-721, no marketplace logic, just
+  enough to attach a token-bound account to.
+- `src/licence/LicenceAccount.sol` -- the core slice. Enforces exactly three Table 2 terms
+  (volume cap / monotone depletion eq 13, royalty / value conservation eq 12, expiry) plus the
+  transfer-drain guard (eq 17). Deliberately **one implementation contract per licence** (terms
+  `immutable`, baked into bytecode at construction), not the more gas-efficient
+  shared-implementation-with-bytecode-introspection pattern real-world ERC-6551 tooling typically
+  uses -- disclosed in the contract's own NatSpec as a scope simplification, matching Phase I's
+  own "prove it narrow first, generalize later" precedent. Royalty balance ($b_I$, eq 16) is
+  `address(this).balance` directly, no separate accounting variable. `execute()` supports only
+  `operation == 0` (CALL).
+- `test/licence/LicenceAccount.t.sol` -- 25 tests, all boundary-tested (exact cap, one-over;
+  exact royalty, one-under; exact start/end timestamps, one-second-outside; exact committed
+  balance, one-under), not just interior cases.
+- `test/licence/Erc6551RegistryIntegration.t.sol` -- 6 tests, forking Base Sepolia against the
+  REAL canonical registry (not a mock): `account()`'s prediction matches what `createAccount()`
+  actually deploys, `createAccount()` is idempotent, and the deployed minimal-proxy enforces the
+  volume-cap and transfer-drain guards identically to a directly-constructed instance. Skips
+  cleanly (not fails) if no fork RPC is reachable, matching this repo's own
+  network-dependent-but-not-default posture for deploy scripts.
+
+**Total: 31/31 tests passing.** All three hard guards (volume cap, royalty, transfer-drain) were
+mutation-tested -- each temporarily disabled directly in `LicenceAccount.sol`, confirmed the
+corresponding test then fails, then restored and the full suite re-confirmed green -- same
+discipline as every Phase I kernel guard.
+
+**Explicitly deferred, matching the proposal's own scope section:** ATCP/IP signed intents
+(`consume()` is called directly via `vm.prank`/a real EOA, not through a signed-intent decode
+path -- matching how Phase I's own first tracer-bullet slice worked before EntryPoint
+integration existed); the adapter registry (terms are hardcoded per-instance); state channels;
+the other six Table 2 terms (field of use, licensee identity, exclusivity, derivative rights,
+assurance tier, memory continuity); any marketplace/escrow integration for `armTransfer`/
+`disarmTransfer` (bare owner-gated setters today, not wired to an actual sale flow); and any
+unification with `IntegrityKernel`/`IntegrityAccount`'s ERC-7579 hook pattern, despite the
+whitepaper's own "the same mechanism serves both" language (§5.3) -- a real, separately-scoped
+later undertaking, not attempted here for the same reason Phase I's original proposal declined
+the equivalent scope-creep risk in its own first slice.
+
+**No Halmos work done on this contract** -- unlike `IntegrityKernel.sol`'s four
+symbolic-verification properties (§43), `LicenceAccount.sol`'s guarantees rest on the 31 concrete
+Foundry tests described above, not an unbounded proof. Recorded as an open gap, not silently
+implied otherwise, in the contract's own NatSpec guarantee-statement section.
+
+This slice does not and cannot close the Phase II→III gate on its own -- Table 8's stated gate is
+"sustained real licensing volume from counterparties who are not the protocol's own
+contributors," an adoption metric no amount of building satisfies alone. Not deployed to any live
+network as part of this slice; that remains a separate, later decision.
