@@ -88,4 +88,15 @@ contract EHRGate {
         if (resolver.getAis(msg.sender) < minAisThreshold) return false;
         return true;
     }
+
+    /// @notice Same check as `checkAccess`, but emits an auditable log either way --
+    /// intended to be called immediately before an agent performs off-chain inference
+    /// over PHI, so there's an on-chain record of every access attempt (granted or
+    /// denied) that integrity-oracle/bcc_middleware can correlate with the OPA policy
+    /// decision made for the same request.
+    function verifyAndLogAccess(address patient, bytes32 recordHash) external returns (bool) {
+        bool granted = checkAccess(patient, recordHash);
+        emit AccessLogged(patient, recordHash, msg.sender, granted);
+        return granted;
+    }
 }
