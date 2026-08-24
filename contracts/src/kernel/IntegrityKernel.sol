@@ -103,8 +103,47 @@ import {ReputationRegistry} from "../oracle/ReputationRegistry.sol";
 /// built (`docs/plans/2026-08-24-phase1-declared-asset-conservation-proposal.md`'s own dependency
 /// inventory) -- value conservation is a hard invariant (§4.7.1) and therefore cannot reuse the
 /// epoch-snapshotting cache that rescued the reputation/assurance-tier checks from their own,
-/// earlier crossing. **No mitigation has been attempted within this slice's scope.** This is an
-/// open finding requiring its own decision, not a resolved one.
+/// earlier crossing. **No mitigation was attempted; the crossing is accepted as a disclosed,
+/// permanent Phase I boundary (decided 2026-08-24, `PRODUCTION_GAPS.md` §41)** -- not a safety
+/// failure (the conjunctive revert logic is correct at 41k gas exactly as it is at 33k), a
+/// bundler-simulation/inclusion-economics cost, relevant once this kernel is ever deployed
+/// (it is not, as of this writing).
+///
+/// **Machine-checked properties** (Halmos 0.3.3, `make verify-kernel`,
+/// `contracts/test/halmos/KernelProperties.t.sol`, `docs/plans/2026-08-24-phase1-formal-
+/// verification-proposal.md`, `PRODUCTION_GAPS.md` §43): the four claims above are not solely
+/// backed by the 321 concrete Foundry tests in this repo -- each has also been proven, via
+/// bounded symbolic execution, to hold for every reachable input up to Halmos's own reported
+/// bound, not merely the specific values those concrete tests happened to construct. Every
+/// property below reported `bounds: []` (Halmos's notation for "no loop/depth bound was needed to
+/// complete the proof" -- an unbounded result within Halmos's own symbolic model, not an
+/// independent guarantee that model is a complete account of the EVM) and is mutation-tested (the
+/// corresponding guard was disabled directly in this file, confirmed to make the property fail,
+/// then restored) before being trusted:
+/// - **Native-ETH budget containment.** `execute()` never moves more than `perOpBudgetWei` in one
+///   call, nor more than `cumulativeBudgetWei` across a sequence, or it reverts -- checked both
+///   for a single call and for a genuine two-call sequence isolating the cumulative check as the
+///   binding constraint (`check_nativeBudgetContainment`,
+///   `check_cumulativeBudgetContainmentAcrossTwoCalls`).
+/// - **Declared-token budget containment, and its conjunction with the native check.** The same
+///   claim for `trackedToken`, plus proof that neither budget check masks the other on a
+///   token-tracking kernel (`check_tokenBudgetContainmentAndNativeConjunction`,
+///   `check_nativeBudgetStillEnforcedOnTokenTrackingKernel`).
+/// - **Reputation/assurance-tier gating cannot be bypassed while stale or below floor.** For any
+///   base score, boost expiry, and elapsed time, `execute()` succeeds if and only if the cached
+///   snapshot is fresh, at-or-above `minEffectiveScore`, and boosted
+///   (`check_reputationAndAssuranceTierGating`).
+/// - **The `armed` reentrancy guard is sound.** No self-reentrant `execute()` call, for any pair
+///   of individually-in-budget amounts, can ever succeed or move funds
+///   (`check_reentrancyGuardIsSound`).
+///
+/// What this does NOT claim: Halmos's own address/precompile/timestamp modeling was found to
+/// diverge from real concrete EVM execution in specific, disclosed ways while scoping these
+/// properties (see that test file's own comments) -- each property's input domain was narrowed
+/// accordingly (excluding precompile-range and code-bearing recipients, the ERC-7579
+/// address(0)-means-self convention), and those exclusions are real scope boundaries, not
+/// incidental. This also does not clear Table 8's Phase I gate on its own -- that additionally
+/// requires independent audit (workstream 5, not started).
 contract IntegrityKernel is IERC7579Hook {
     error Unauthorized(address caller);
     error AlreadyArmed();
