@@ -1,13 +1,14 @@
 ---
 title: contracts
 created: 2026-07-07
-updated: 2026-08-18
+updated: 2026-08-24
 type: entity
 tags: [layer-2, identity, tokenomics, compliance]
 confidence: high
 source_files:
   - contracts/src/framework/AgentPrimitivesFactory.sol
   - contracts/src/framework/XibalbaAgentRegistry.sol
+  - contracts/src/framework/AgentAuthorityResolver.sol
   - contracts/src/kernel/IntegrityIdentityReadV1.sol
   - contracts/src/framework/XibalbaNameService.sol
   - contracts/src/core/SovereignAgent.sol
@@ -56,7 +57,7 @@ even though the ordinary contract unit tests can pass.
   below), `IntegrityGovernance` (added 2026-07-25 — see [Governance](../concepts/governance.md)),
   `DomainRegistry`, plus the Integrity Health stack (`CoveredEntityRegistry`,
   `SmartBAAFactory`/`SmartBAA` — see [Smart BAA](../concepts/smart-baa.md) —
-  `HIPAAGuardrailRegistry`, `EHRGate`).
+  `HIPAAGuardrailRegistry`, `AgentAuthorityResolver`, `EHRGate`).
 - **Factory:** `AgentPrimitivesFactory.registerPrimitives(...)` clones the 5 and
   atomically registers all 7 addresses in `XibalbaAgentRegistry`.
 - **Markets (`contracts/src/markets/`, added 2026-07-09):** `IntegrityMarket`
@@ -100,6 +101,11 @@ even though the ordinary contract unit tests can pass.
   but explicitly non-conformant: no ERC-721 token, owner, transfer, approval,
   wallet-proof, metadata-write, event, reputation-feedback, validation, or ERC-165
   surface. See [Interface Contract](../../INTERFACE_CONTRACT.md) §6.1a.
+- **`AgentAuthorityResolver` (`contracts/src/framework/AgentAuthorityResolver.sol`):**
+  a read-only adapter used by `EHRGate` to resolve AIS for both sovereign clone-set
+  agents and enterprise StateAnchor-only agents. It reads sovereign AIS from the
+  agent's `ReputationRegistry` primitive and enterprise AIS from the registered
+  account's `ais()` cache; it cannot set AIS.
 
 ## Key invariants
 
@@ -114,7 +120,7 @@ even though the ordinary contract unit tests can pass.
 
 ## State
 
-- **209 tests** (`forge test`, confirmed via a real run 2026-08-17), all green
+- **331 tests** (`forge test -vvv`, confirmed via a real run 2026-08-24), all green
   — including full end-to-end coverage of the registration sequence in
   `test/AgentPrimitivesFactory.t.sol`, 21 market-layer tests, 14
   `test/XibalbaNameService.t.sol` tests, 3 tests covering
@@ -125,8 +131,8 @@ even though the ordinary contract unit tests can pass.
   cancel authz, failing-action rollback).
   The total includes 10 `IntegrityIdentityReadV1` tests covering negative
   ERC-8004 conformance, identity consistency, controller rotation, URI behavior,
-  malformed registry states, and isolation of fixed identity reads from a
-  reverting profile contract.
+  duplicate-agent rejection, malformed registry states, and isolation of fixed
+  identity reads from a reverting profile contract.
 - **Deployed to Base Sepolia** (chainId 84532): `XibalbaAgentRegistry` at
   `0x72e21e44AdD6d6e7CAa02eaedF078630afC40819`, `AgentPrimitivesFactory` at
   `0x215f39C8a2Cea2F8c6976fA10bbf48479825aD6e`, plus the market-layer
@@ -146,10 +152,11 @@ even though the ordinary contract unit tests can pass.
 
 ## Honest gaps
 
-- The identity facade detects duplicate-agent and declared-DID inconsistencies,
-  but the deployed `XibalbaAgentRegistry`/factory do not prevent those states at
-  registration. Native ERC-8004 convergence is also deferred; generic ERC-8004
-  or ERC-721 tooling must not be pointed at this facade.
+- The source `XibalbaAgentRegistry` now rejects registering the same
+  `SovereignAgent` under multiple DIDs, and the identity facade still detects
+  declared-DID mismatches. Existing Base Sepolia bytecode has not been updated,
+  and native ERC-8004 convergence is still deferred; generic ERC-8004 or
+  ERC-721 tooling must not be pointed at this facade.
 
 - The repository's `UltraPlonkVerifier.sol` is now the real generated verifier and
   has valid/tampered/malformed proof coverage. The **existing Base Sepolia address

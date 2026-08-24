@@ -1454,8 +1454,9 @@ Registry, or Validation Registry semantics.
   revision and returns `isERC8004Conformant() == false`.
 * **CLOSED — mapping inconsistencies fail closed.** The facade verifies the registry's
   DID-to-agent and agent-to-DID mappings agree and that `SovereignAgent.agentDID()` hashes to
-  the registered DID. This prevents the existing registry's duplicate-agent overwrite edge
-  case from being silently projected as a valid identity.
+  the registered DID. The source registry now also rejects registering the same
+  `SovereignAgent` under multiple DIDs, preventing the duplicate-agent overwrite edge
+  before it can be projected as a valid identity in new deployments.
 * **CLOSED — AIS authority remains separate.** The facade returns the agent's
   `ReputationRegistry` primitive address but exposes no score or ERC-8004 feedback method.
   Agent Integrity Score (AIS) remains authoritative only through the existing Integrity
@@ -1464,9 +1465,10 @@ Registry, or Validation Registry semantics.
   records. Future genesis deployments include it as `singletons.IntegrityIdentityReadV1`;
   existing agents and primitive addresses are unchanged.
 * **VERIFIED LOCALLY.** `forge test --match-contract IntegrityIdentityReadV1Test -vvv`
-  returned **10 passed, 0 failed**. Coverage includes negative conformance probing, controller
-  rotation, mutable/empty profile URIs, duplicate-agent stale mappings, declared-DID mismatch,
-  missing DID read surfaces, unknown records, zero dependency rejection, and proof that a
+  returned **10 passed, 0 failed** on 2026-08-24 as part of the default-CI repair.
+  Coverage includes negative conformance probing, controller rotation, mutable/empty
+  profile URIs, duplicate-agent registration rejection, declared-DID mismatch, missing
+  DID read surfaces, unknown records, zero dependency rejection, and proof that a
   reverting profile cannot block fixed identity resolution.
 * **OPEN — existing Base Sepolia deployment.** No broadcast or deployment-file mutation was
   performed. Deploying the facade against the existing registry is a separate gas-costing
@@ -1475,10 +1477,11 @@ Registry, or Validation Registry semantics.
   registry design with version-pinned token identifiers, ownership/transfer semantics, events,
   historical treatment, wallet proof, and a selector-by-selector compatibility matrix. The
   current facade must not be marketed to generic ERC-8004/ERC-721 tooling as compatible.
-* **OPEN — source-registry invariant.** `XibalbaAgentRegistry` still permits the same
-  `SovereignAgent` to be registered under multiple DIDs and the factory does not enforce that
-  its DID argument matches `SovereignAgent.agentDID()`. The facade detects and rejects this
-  state; it does not repair the underlying registry or retroactively change deployed code.
+* **PARTIAL — source-registry invariant.** Source `XibalbaAgentRegistry` now prevents
+  duplicate `SovereignAgent` registration. The factory still does not enforce that its
+  DID argument matches `SovereignAgent.agentDID()`, and existing deployed bytecode is not
+  retroactively changed by this source fix; the facade continues to detect and reject a
+  declared-DID mismatch.
 
 ## 29. Whitepaper v3.2 proposed-spec implementation delta (2026-08-17)
 

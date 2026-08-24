@@ -5,6 +5,7 @@ import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 
 import {EHRGate} from "../src/health/EHRGate.sol";
+import {AgentAuthorityResolver} from "../src/framework/AgentAuthorityResolver.sol";
 
 /// @title DeployEHRGate
 /// @notice Incremental deploy: adds `EHRGate` -- the actual PHI-access enforcement
@@ -33,6 +34,7 @@ contract DeployEHRGate is Script {
     address registry;
     address baaFactory;
 
+    AgentAuthorityResolver authorityResolver;
     EHRGate ehrGate;
 
     string existingJson;
@@ -51,7 +53,13 @@ contract DeployEHRGate is Script {
         baaFactory = vm.parseJsonAddress(existingJson, ".singletons.SmartBAAFactory");
 
         vm.startBroadcast(deployerKey);
-        ehrGate = new EHRGate(registry, baaFactory, EHR_GATE_MIN_AIS_THRESHOLD, deployer);
+        if (vm.keyExistsJson(existingJson, ".singletons.AgentAuthorityResolver")) {
+            authorityResolver =
+                AgentAuthorityResolver(vm.parseJsonAddress(existingJson, ".singletons.AgentAuthorityResolver"));
+        } else {
+            authorityResolver = new AgentAuthorityResolver(registry);
+        }
+        ehrGate = new EHRGate(registry, baaFactory, address(authorityResolver), EHR_GATE_MIN_AIS_THRESHOLD, deployer);
         vm.stopBroadcast();
 
         _logSummary();
@@ -63,6 +71,7 @@ contract DeployEHRGate is Script {
         console2.log("network:               ", network);
         console2.log("existing AgentRegistry:", registry);
         console2.log("existing SmartBAAFactory:", baaFactory);
+        console2.log("AgentAuthorityResolver:", address(authorityResolver));
         console2.log("EHRGate:               ", address(ehrGate));
     }
 
@@ -83,6 +92,7 @@ contract DeployEHRGate is Script {
             singletons, "UltraPlonkVerifier", vm.parseJsonAddress(existingJson, ".singletons.UltraPlonkVerifier")
         );
         vm.serializeAddress(singletons, "XibalbaAgentRegistry", registry);
+        vm.serializeAddress(singletons, "AgentAuthorityResolver", address(authorityResolver));
         if (vm.keyExistsJson(existingJson, ".singletons.IntegrityIdentityReadV1")) {
             vm.serializeAddress(
                 singletons,

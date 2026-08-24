@@ -11,6 +11,7 @@ import {ReputationRegistry} from "../../src/oracle/ReputationRegistry.sol";
 import {StateAnchor} from "../../src/oracle/StateAnchor.sol";
 import {IntegrityToken} from "../../src/oracle/IntegrityToken.sol";
 import {XibalbaAgentRegistry} from "../../src/framework/XibalbaAgentRegistry.sol";
+import {AgentAuthorityResolver} from "../../src/framework/AgentAuthorityResolver.sol";
 
 /// @notice EHRGate must require ALL THREE of: patient consent, an active SmartBAA, and
 /// a sufficient reputation score. This is the test that proves the old prototype's gap
@@ -23,6 +24,7 @@ contract EHRGateTest is Test {
     CoveredEntityRegistry entityRegistry;
     IntegrityToken itk;
     XibalbaAgentRegistry registry;
+    AgentAuthorityResolver resolver;
 
     address admin = makeAddr("admin");
     address arbitrator = makeAddr("arbitrator");
@@ -52,7 +54,8 @@ contract EHRGateTest is Test {
         // EHRGate test (that sequence gets its own coverage in
         // AgentPrimitivesFactory.t.sol).
         registry = new XibalbaAgentRegistry(admin);
-        gate = new EHRGate(address(registry), address(baaFactory), THRESHOLD, admin);
+        resolver = new AgentAuthorityResolver(address(registry));
+        gate = new EHRGate(address(registry), address(baaFactory), address(resolver), THRESHOLD, admin);
 
         vm.startPrank(admin);
         registry.grantRole(registry.REGISTRAR_ROLE(), admin);

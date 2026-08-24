@@ -699,25 +699,26 @@ Evidence revocation is agent-authorized and audit-preserving:
    and `revoked_reason`, consumes the nonce, and returns the newly derived
    `effective_tier`; it never deletes the evidence row.
 
-### 6.4 `EHRGate` reputation resolution (was: one immutable global registry)
+### 6.4 `EHRGate` authority resolution (was: one immutable global registry)
 
 `health/EHRGate.sol` used to hold one immutable global `ReputationRegistry`
-address, read once at construction. Now that every agent owns its own
-`ReputationRegistry` clone, there is no single address to point at.
-`EHRGate` instead holds the shared `XibalbaAgentRegistry` and resolves
-`msg.sender`'s own clone on every call:
+address, read once at construction. Now that sovereign agents own their own
+`ReputationRegistry` clone and enterprise agents use a StateAnchor-only profile,
+there is no single address to point at. `EHRGate` instead holds the shared
+`XibalbaAgentRegistry` plus an `AgentAuthorityResolver` read adapter and resolves
+`msg.sender` on every call:
 ```solidity
-if (!registry.isRegisteredAgent(msg.sender)) return false;
-address reputationRegistry = registry.resolveAgent(msg.sender).primitives.reputationRegistry;
-if (ReputationRegistry(reputationRegistry).effectiveScore(msg.sender) < minAisThreshold) return false;
+if (!resolver.isAuthorityRegistered(msg.sender)) return false;
+if (resolver.getAis(msg.sender) < minAisThreshold) return false;
 ```
-This resolution is itself a meaningful check, not just plumbing: an address
-that was never registered through `AgentPrimitivesFactory` has no entry in
-`XibalbaAgentRegistry`, so `checkAccess` returns `false` before it can even
-reach the reputation check — closing off any hand-rolled contract that only
-pretends to be a Sovereign Agent. All three of `EHRGate`'s gates (patient
-consent, active BAA, AIS ≥ `minAisThreshold`) are required simultaneously;
-consent alone is necessary but not sufficient.
+For sovereign clone-set agents, the resolver reads AIS from the agent's own
+`ReputationRegistry` primitive. For enterprise StateAnchor-only agents, it reads
+the registered account's `ais()` cache. This resolution is itself a meaningful
+check, not just plumbing: an address with no sovereign or enterprise registry
+entry returns `false` before the AIS check. All three of `EHRGate`'s gates
+(patient consent, active BAA, AIS >= `minAisThreshold`) are required
+simultaneously; consent alone is necessary but not sufficient. The resolver is
+read-only and does not introduce an AIS write path.
 
 ### 6.5 Known gap: `CCIPReputationBridge` is unwired
 
@@ -747,6 +748,7 @@ singletons:
     "IntegrityGovernance": "0x...",
     "UltraPlonkVerifier": "0x...",
     "XibalbaAgentRegistry": "0x...",
+    "AgentAuthorityResolver": "0x...",
     "IntegrityIdentityReadV1": "0x...",
     "XibalbaNameService": "0x...",
     "DomainRegistry": "0x...",
@@ -806,7 +808,7 @@ a live network.
   by governance, unchanged from before except for the removal of
   `AgentFactory` (deleted) and `ReputationRegistry`/`Slasher`/`StateAnchor`
   (no longer singletons — see below) and the addition of
-  `AgentPrimitivesFactory`.
+  `AgentPrimitivesFactory` and `AgentAuthorityResolver`.
 - `cloneTemplates` — the 5 shared implementation contracts every agent's
   EIP-1167 clones delegatecall into (§6.1, #3–#7). These are deployed once
   with `_disableInitializers()` already called, so they can never be

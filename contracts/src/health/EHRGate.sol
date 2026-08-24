@@ -35,7 +35,9 @@ contract EHRGate {
     // patient => recordHash => agent => Gate
     mapping(address => mapping(bytes32 => mapping(address => Gate))) public accessGates;
 
-    event AccessGranted(address indexed patient, bytes32 indexed recordHash, address indexed agent, address coveredEntity);
+    event AccessGranted(
+        address indexed patient, bytes32 indexed recordHash, address indexed agent, address coveredEntity
+    );
     event AccessRevoked(address indexed patient, bytes32 indexed recordHash, address indexed agent);
     event AccessLogged(address indexed patient, bytes32 indexed recordHash, address indexed agent, bool successful);
     event ThresholdUpdated(uint256 newThreshold);
@@ -87,5 +89,12 @@ contract EHRGate {
         if (!resolver.isAuthorityRegistered(msg.sender)) return false;
         if (resolver.getAis(msg.sender) < minAisThreshold) return false;
         return true;
+    }
+
+    /// @notice Same check as `checkAccess`, but emits an auditable log either way.
+    function verifyAndLogAccess(address patient, bytes32 recordHash) external returns (bool) {
+        bool granted = checkAccess(patient, recordHash);
+        emit AccessLogged(patient, recordHash, msg.sender, granted);
+        return granted;
     }
 }
