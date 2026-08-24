@@ -3131,9 +3131,9 @@ writeup: PRODUCTION_GAPS.md §18.
   (SDK)/command-line interface (CLI) tests stay on the real authority-resolution path.
 - Updated the contracts and ComplianceGate wiki pages plus the interface contract to
   document the read-only authority resolver boundary.
-- Verification: focused Foundry resolver/identity tests passed 17/17; full
-  contracts `forge test -vvv` passed 331/331; SDK `uv run pytest` passed 267
-  with 9 skipped; CLI `uv run pytest` passed 70 with 1 skipped.
+- Verification: focused Foundry resolver/identity/health tests passed 24/24;
+  full contracts `forge test -vvv` passed 330/330; SDK `uv run pytest` passed
+  267 with 9 skipped; CLI `uv run pytest` passed 70 with 1 skipped.
 
 ## [2026-08-24] correction | EHRGate incremental resolver boundary
 

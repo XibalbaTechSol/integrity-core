@@ -123,7 +123,7 @@ even though the ordinary contract unit tests can pass.
 
 ## State
 
-- **331 tests** (`forge test -vvv`, confirmed via a real run 2026-08-24), all green
+- **330 tests** (`forge test -vvv`, confirmed via a real run 2026-08-24), all green
   — including full end-to-end coverage of the registration sequence in
   `test/AgentPrimitivesFactory.t.sol`, 21 market-layer tests, 14
   `test/XibalbaNameService.t.sol` tests, 3 tests covering
