@@ -2953,3 +2953,28 @@ Per the proposal's own scope ("this proposal covers scoping and building the scr
 running it"), actual broadcast execution -- which spends real (if low-value) testnet ETH from the
 real `FUNDER_PRIVATE_KEY` and creates a permanent public record -- requires its own separate,
 explicit authorization, not granted by this entry.
+
+**A third real finding, this one repo-wide, not specific to this script: `forge script` without
+`--broadcast` still executes `vm.writeJson`.** Simulating `DeployKernelReference.s.sol` against
+the REAL Base Sepolia RPC (to get a live gas estimate before requesting broadcast authorization)
+silently overwrote the real, tracked `deployments.baseSepolia.json` with fictitious addresses
+that were never actually deployed -- the simulation still runs `_mergeDeploymentsFile()` because
+Solidity/forge-std cheatcodes like `vm.writeJson` are local filesystem operations, not on-chain
+actions gated by `--broadcast`. Caught and reverted immediately (`git checkout --
+deployments.baseSepolia.json`) before it could be committed or mistaken for a real deployment
+record. **This is not unique to this script** -- `Deploy.s.sol`, `DeployEHRGate.s.sol`,
+`DeployMarkets.s.sol`, and `DeployXnsGovernance.s.sol` all write their deployments file
+unconditionally too, with no check for whether a broadcast actually happened. Anyone simulating
+any of them against a live RPC (e.g. to sanity-check gas before a real run, exactly what this
+entry was doing) would corrupt the same file the same way. Not fixed here -- a real, disclosed,
+pre-existing gap surfaced by this session's own workflow, worth its own scoped fix (e.g. gating
+the write behind `vm.isContext(VmSafe.ForgeContext.ScriptBroadcast)` or an explicit
+`--sig`-passed flag) rather than folded silently into this entry.
+
+**Real cost, measured against the live network, not estimated:** simulating against Base
+Sepolia's real RPC (`https://base-sepolia-rpc.publicnode.com`) reports 5,374,892 gas at ~0.011
+gwei, ~0.000059 ETH total. The real funder wallet (`cast wallet address` from the real
+`FUNDER_PRIVATE_KEY`, `0x7530bd7C...`) holds ~0.0625 ETH on Base Sepolia as of this check --
+`FAUCET_INFO.md`'s own balance figures are stale and describe different addresses entirely, not
+the actual deploying key. Broadcast cost is not a real constraint; authorization is the only
+remaining gate.
