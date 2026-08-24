@@ -36,8 +36,9 @@ contract AgentAuthorityResolverTest is Test {
     function setUp() public {
         vm.prank(admin);
         registry = new XibalbaAgentRegistry(admin);
+        bytes32 registrarRole = registry.REGISTRAR_ROLE();
         vm.prank(admin);
-        registry.grantRole(registry.REGISTRAR_ROLE(), registrar);
+        registry.grantRole(registrarRole, registrar);
         resolver = new AgentAuthorityResolver(address(registry));
     }
 
@@ -52,7 +53,8 @@ contract AgentAuthorityResolverTest is Test {
             stateAnchor: stateAnchor,
             reputationRegistry: address(reputationRegistry),
             slasher: address(0),
-            vaultMerkle: address(0),
+            verifierRegistry: address(0),
+            complianceGate: address(0),
             agentProfile: address(0)
         });
 

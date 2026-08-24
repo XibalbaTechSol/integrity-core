@@ -114,22 +114,16 @@ contract IntegrityIdentityReadV1Test is Test {
         identityRead.resolveDIDHash(keccak256("unknown"));
     }
 
-    function test_duplicateSovereignAgentRegistrationMakesStaleMappingFailClosed() public {
+    function test_duplicateSovereignAgentRegistrationIsRejected() public {
         string memory secondDID = "did:integrity:second-subject";
-        _register(secondDID, primitives, controller);
-
-        bytes32 firstHash = registry.didHash(DID);
         bytes32 secondHash = registry.didHash(secondDID);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(IntegrityIdentityReadV1.IdentityMappingMismatch.selector, firstHash, secondHash)
-        );
-        identityRead.resolveDID(DID);
+        vm.prank(registrar);
+        vm.expectRevert(XibalbaAgentRegistry.AlreadyRegistered.selector);
+        registry.registerPrimitives(secondHash, primitives, controller, domainId);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(IntegrityIdentityReadV1.DeclaredDIDMismatch.selector, secondHash, firstHash)
-        );
-        identityRead.resolveAgent(address(sovereignAgent));
+        IntegrityIdentityReadV1.IdentityView memory identity = identityRead.resolveDID(DID);
+        assertEq(identity.sovereignAgent, address(sovereignAgent));
     }
 
     function test_registryDIDMustMatchSovereignAgentsDeclaredDID() public {

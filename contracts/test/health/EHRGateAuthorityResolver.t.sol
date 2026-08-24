@@ -4,6 +4,9 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {EHRGate} from "../../src/health/EHRGate.sol";
 import {SmartBAAFactory} from "../../src/health/SmartBAAFactory.sol";
+import {SmartBAA} from "../../src/health/SmartBAA.sol";
+import {CoveredEntityRegistry} from "../../src/health/CoveredEntityRegistry.sol";
+import {IntegrityToken} from "../../src/oracle/IntegrityToken.sol";
 import {XibalbaAgentRegistry} from "../../src/framework/XibalbaAgentRegistry.sol";
 import {AgentAuthorityResolver} from "../../src/framework/AgentAuthorityResolver.sol";
 
@@ -24,25 +27,32 @@ contract MockSovereignAgentAis {
 contract EHRGateAuthorityResolverTest is Test {
     XibalbaAgentRegistry registry;
     AgentAuthorityResolver resolver;
+    CoveredEntityRegistry entityRegistry;
+    IntegrityToken itk;
     SmartBAAFactory baaFactory;
     EHRGate gate;
 
     address admin = makeAddr("admin");
     address registrar = makeAddr("registrar");
     address controller = makeAddr("controller");
+    address arbitrator = makeAddr("arbitrator");
     address patient = makeAddr("patient");
     address coveredEntity = makeAddr("coveredEntity");
+    uint256 constant COLLATERAL = 1_000 ether;
 
     MockSovereignAgentAis enterpriseAgent;
 
     function setUp() public {
         vm.prank(admin);
         registry = new XibalbaAgentRegistry(admin);
+        bytes32 registrarRole = registry.REGISTRAR_ROLE();
         vm.prank(admin);
-        registry.grantRole(registry.REGISTRAR_ROLE(), registrar);
+        registry.grantRole(registrarRole, registrar);
 
         resolver = new AgentAuthorityResolver(address(registry));
-        baaFactory = new SmartBAAFactory();
+        itk = new IntegrityToken(admin, 1_000_000 ether);
+        entityRegistry = new CoveredEntityRegistry(admin);
+        baaFactory = new SmartBAAFactory(address(entityRegistry), address(itk), arbitrator, admin);
 
         gate = new EHRGate(address(registry), address(baaFactory), address(resolver), 50, admin);
 
@@ -52,7 +62,9 @@ contract EHRGateAuthorityResolverTest is Test {
         vm.prank(registrar);
         registry.registerEnterpriseAgent(address(enterpriseAgent), makeAddr("stateAnchor"), controller, bytes32(0));
 
-        baaFactory.activateBAA(coveredEntity, address(enterpriseAgent));
+        vm.prank(admin);
+        entityRegistry.registerEntity(coveredEntity, CoveredEntityRegistry.EntityType.CoveredEntity, "uri");
+        _signBAA(address(enterpriseAgent));
 
         vm.prank(patient);
         gate.grantAccess(keccak256("record-1"), address(enterpriseAgent), coveredEntity);
@@ -73,9 +85,22 @@ contract EHRGateAuthorityResolverTest is Test {
         address stranger = makeAddr("stranger");
         vm.prank(patient);
         gate.grantAccess(keccak256("record-2"), stranger, coveredEntity);
-        baaFactory.activateBAA(coveredEntity, stranger);
+        _signBAA(stranger);
 
         vm.prank(stranger);
         assertFalse(gate.checkAccess(patient, keccak256("record-2")));
+    }
+
+    function _signBAA(address businessAssociate) internal {
+        vm.prank(coveredEntity);
+        address baaAddr = baaFactory.createBAA(businessAssociate, keccak256("baa-doc"), COLLATERAL);
+
+        vm.prank(admin);
+        itk.transfer(businessAssociate, COLLATERAL);
+
+        vm.startPrank(businessAssociate);
+        itk.approve(baaAddr, COLLATERAL);
+        SmartBAA(baaAddr).sign();
+        vm.stopPrank();
     }
 }
