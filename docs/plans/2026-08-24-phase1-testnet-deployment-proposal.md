@@ -133,3 +133,17 @@ instance. Full write-up: `PRODUCTION_GAPS.md` §44.
 **What remains, per this proposal's own scope:** actual broadcast to Base Sepolia is a separate,
 not-yet-granted authorization -- real testnet ETH from the real funder key, a permanent public
 record. This proposal's "Decision needed" only ever covered scoping and building the script.
+
+**Update (2026-08-24, same day): broadcast authorized separately and executed.** Real gas cost
+checked first (5,374,892 gas, ~0.011 gwei, ~0.000059 ETH -- the real funder wallet held ~0.0625
+ETH), then broadcast for real. Deployed: `ReputationRegistry` clone
+`0x1Ff487b0c568bF88Ae67789b8e891E3f9861a374`, `IntegrityKernel`
+`0xb910cA020EB0ED18eb27e9eb2eedC4adeAdA6C57`, `IntegrityAccount`
+`0xE1a31947A18f20F5Cb38122be4Cf37B4cFA9F1aD`, recorded in `deployments.baseSepolia.json`'s
+`experimentalPhase1Reference` key. Verified live via `cast call`/`cast code`, not assumed. A
+real, repo-wide gap surfaced while getting the gas estimate: simulating (no `--broadcast`)
+against a live RPC still runs `vm.writeJson`, silently corrupting the real
+`deployments.baseSepolia.json` with fictitious addresses -- caught and reverted before commit,
+disclosed as affecting every deploy script in this repo, not fixed. Whitepaper Table 8's Phase I
+"testnet deployment" deliverable is now genuinely satisfied. Full write-up: `PRODUCTION_GAPS.md`
+§44's own update. Workstream 4 is closed.

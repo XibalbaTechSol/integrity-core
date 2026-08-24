@@ -2978,3 +2978,29 @@ gwei, ~0.000059 ETH total. The real funder wallet (`cast wallet address` from th
 `FAUCET_INFO.md`'s own balance figures are stale and describe different addresses entirely, not
 the actual deploying key. Broadcast cost is not a real constraint; authorization is the only
 remaining gate.
+
+**Update (2026-08-24, same day): broadcast, authorized explicitly.** `DeployKernelReference.s.sol`
+ran for real against Base Sepolia (`--broadcast`, real `FUNDER_PRIVATE_KEY`). Deployed addresses,
+recorded under `deployments.baseSepolia.json`'s `experimentalPhase1Reference` key (commit
+`9e7c9586c0fc081f4287f08a79ffa412c2a65a4b`):
+- `ReputationRegistry` (fresh clone): `0x1Ff487b0c568bF88Ae67789b8e891E3f9861a374`
+- `IntegrityKernel`: `0xb910cA020EB0ED18eb27e9eb2eedC4adeAdA6C57`
+- `IntegrityAccount`: `0xE1a31947A18f20F5Cb38122be4Cf37B4cFA9F1aD`
+
+Verified against the live chain, not assumed from the absence of a revert: `cast call` confirmed
+`account.hook() == kernel address` and `kernel.boundAccount() == account address`, both
+directions; `cast code` confirmed real, non-empty bytecode at both addresses (25,907 and 5,957
+bytes respectively, hex-string length including the `0x` prefix). Whitepaper Table 8's Phase I
+"testnet deployment" deliverable is now genuinely satisfied, not merely built-and-dry-run.
+
+**A `deployedFromCommit: "unknown"` gap, caught and fixed post-deploy:** the broadcast ran without
+`GIT_COMMIT_SHA` set, so the JSON record initially said "unknown" for that field -- corrected by
+hand to the real deploying commit SHA afterward (a local JSON edit, not an on-chain action, so
+safe to fix without redeploying). The script's own `vm.envOr("GIT_COMMIT_SHA", ...)` support was
+already correct; this was an invocation omission, not a script defect. Worth remembering for any
+future run of this or a similar script: pass `GIT_COMMIT_SHA=$(git rev-parse HEAD)` explicitly.
+
+**Remaining, explicitly not this entry's scope:** Etherscan/Basescan source verification
+(`BASESCAN_API_KEY` is unset in `contracts/.env`, so `--verify` was not attempted) -- the deployed
+bytecode is real and on-chain, but its source is not yet publicly linked/readable on Basescan.
+A separate, low-effort follow-up, not a blocker to anything else in this entry.

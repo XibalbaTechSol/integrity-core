@@ -9,6 +9,13 @@
     "VerifierRegistry": "0x09D034BE2D98A36a5B8637f282814F9D2c23a4Bf"
   },
   "domains": {},
+  "experimentalPhase1Reference": {
+    "IntegrityAccount": "0xE1a31947A18f20F5Cb38122be4Cf37B4cFA9F1aD",
+    "IntegrityKernel": "0xb910cA020EB0ED18eb27e9eb2eedC4adeAdA6C57",
+    "ReputationRegistry": "0x1Ff487b0c568bF88Ae67789b8e891E3f9861a374",
+    "deployedFromCommit": "9e7c9586c0fc081f4287f08a79ffa412c2a65a4b",
+    "disclosure": "EXPERIMENTAL, NOT AUDITED, NOT integrated with XibalbaAgentRegistry or any real agent. See PRODUCTION_GAPS.md and README.md before treating as production."
+  },
   "network": "base-sepolia",
   "protocolAddresses": {
     "arbitrator": "0x7530bd7Cb142C50d5cC742EdF02263f368e89E2f",
