@@ -65,7 +65,11 @@ contract ConstraintExecutionPolicy is AccessControl, IExecutionPolicy {
         emit TokenCapSet(token, cap);
     }
 
-    function check(address agent, address target, uint256 value, bytes calldata data) external view returns (bool) {
+    function check(address agent, address target, uint256 value, bytes calldata data)
+        external
+        view
+        returns (bool)
+    {
         if (IAisReader(agent).ais() < minAis) return false;
         if (maxValue != 0 && value > maxValue) return false;
         if (enforceTargetAllowlist && !allowedTarget[target]) return false;

@@ -42,9 +42,7 @@ contract XibalbaAgentRegistry is AccessControl {
     mapping(address => EnterpriseRecord) public enterpriseRecordOf;
 
     event PrimitivesRegistered(bytes32 indexed didHash, PrimitiveSet primitives);
-    event EnterpriseAgentRegistered(
-        address indexed agent, address indexed stateAnchor, address controller, bytes32 domainId
-    );
+    event EnterpriseAgentRegistered(address indexed agent, address indexed stateAnchor, address controller, bytes32 domainId);
 
     error AlreadyRegistered();
     error UnknownDID();
@@ -55,12 +53,10 @@ contract XibalbaAgentRegistry is AccessControl {
     }
 
     /// @notice Registers a sovereign agent with the full 7-primitive set.
-    function registerPrimitives(
-        bytes32 didHash_,
-        PrimitiveSet calldata primitives,
-        address controller,
-        bytes32 domainId
-    ) external onlyRole(REGISTRAR_ROLE) {
+    function registerPrimitives(bytes32 didHash_, PrimitiveSet calldata primitives, address controller, bytes32 domainId)
+        external
+        onlyRole(REGISTRAR_ROLE)
+    {
         if (_byDID[didHash_].exists) revert AlreadyRegistered();
         if (didHashOf[primitives.sovereignAgent] != bytes32(0)) revert AlreadyRegistered();
 
@@ -85,8 +81,12 @@ contract XibalbaAgentRegistry is AccessControl {
         require(agent != address(0), "zero agent");
         require(stateAnchor != address(0), "zero stateAnchor");
 
-        enterpriseRecordOf[agent] =
-            EnterpriseRecord({stateAnchor: stateAnchor, controller: controller, domainId: domainId, exists: true});
+        enterpriseRecordOf[agent] = EnterpriseRecord({
+            stateAnchor: stateAnchor,
+            controller: controller,
+            domainId: domainId,
+            exists: true
+        });
         totalAgents += 1;
         emit EnterpriseAgentRegistered(agent, stateAnchor, controller, domainId);
     }

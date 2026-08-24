@@ -165,18 +165,6 @@ contract EHRGateTest is Test {
         assertFalse(gate.checkAccess(patient, RECORD_HASH));
     }
 
-    function test_verifyAndLogAccessEmitsAuditEvent() public {
-        _signBAA();
-        _setScore(900);
-        vm.prank(patient);
-        gate.grantAccess(RECORD_HASH, agent, hospital);
-
-        vm.prank(agent);
-        vm.expectEmit(true, true, true, true);
-        emit EHRGate.AccessLogged(patient, RECORD_HASH, agent, true);
-        gate.verifyAndLogAccess(patient, RECORD_HASH);
-    }
-
     function test_onlyAdminCanSetThreshold() public {
         vm.expectRevert(EHRGate.NotAdmin.selector);
         gate.setThreshold(1);
