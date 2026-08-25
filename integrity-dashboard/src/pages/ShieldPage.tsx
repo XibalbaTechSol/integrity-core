@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { SHIELD_SIM_BACKEND_URL } from '../config';
 
 export default function ShieldPage() {
   const [terminals, setTerminals] = useState({
@@ -59,7 +60,7 @@ export default function ShieldPage() {
       
       let launchData = { success: false, pid: 0, telemetry: '' };
       try {
-        const launchRes = await fetch('http://localhost:5000/api/launch', {
+        const launchRes = await fetch(`${SHIELD_SIM_BACKEND_URL}/api/launch`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ type: type })
@@ -92,7 +93,7 @@ export default function ShieldPage() {
       try {
           let data = { success: false, decision: { action: 'CONTAIN', reason: '' }, latency: 0 };
           try {
-            const response = await fetch('http://localhost:5000/api/simulate', {
+            const response = await fetch(`${SHIELD_SIM_BACKEND_URL}/api/simulate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ telemetry: telemetryStr, pid: pid })
@@ -134,7 +135,7 @@ export default function ShieldPage() {
                   
                   let statusData = { running: false };
                   try {
-                    const statusRes = await fetch(`http://localhost:5000/api/status/${pid}`);
+                    const statusRes = await fetch(`${SHIELD_SIM_BACKEND_URL}/api/status/${pid}`);
                     statusData = await statusRes.json();
                   } catch(err) {
                     // Fallback

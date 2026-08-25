@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { NavLink, Link } from 'react-router-dom';
-import { LayoutDashboard, Key, DollarSign, Activity, ShieldCheck, Code, BrainCircuit, User, Settings, LogIn, LogOut } from 'lucide-react';
+import { LayoutDashboard, Key, DollarSign, Activity, ShieldCheck, Code, BrainCircuit, User, Settings, LogIn, LogOut, TrendingUp, FileText, Cpu } from 'lucide-react';
 import { useDashboard } from '../context/DashboardContext';
 import { BCC_MIDDLEWARE_URL, GRAPH_MEMORY_URL, ORACLE_URL, SHIELD_BACKEND_URL } from '../config';
 
@@ -57,10 +57,13 @@ export function AppHeader() {
   const navItems = [
     { to: '/dashboard', label: 'Dashboard', icon: <LayoutDashboard size={18} /> },
     { to: '/identity', label: 'Identity', icon: <Key size={18} /> },
+    { to: '/kernel', label: 'Kernel', icon: <Cpu size={18} /> },
+    { to: '/licence', label: 'Licence', icon: <FileText size={18} /> },
     { to: '/financials', label: 'Financials', icon: <DollarSign size={18} /> },
+    { to: '/intelligence', label: 'Intelligence', icon: <BrainCircuit size={18} /> },
     { to: '/health', label: 'Health', icon: <Activity size={18} /> },
     { to: '/shield', label: 'Shield', icon: <ShieldCheck size={18} /> },
-    { to: '/intelligence', label: 'Intelligence', icon: <BrainCircuit size={18} /> },
+    { to: '/quant', label: 'Quant', icon: <TrendingUp size={18} /> },
     { to: '/prediction-markets', label: 'Prediction Markets', icon: <DollarSign size={18} /> },
     { to: '/developer', label: 'Developer', icon: <Code size={18} /> },
   ];

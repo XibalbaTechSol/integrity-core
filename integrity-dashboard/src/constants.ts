@@ -41,3 +41,41 @@ export const NO_CODE_FACTORY_ADDRESS = AGENT_PRIMITIVES_FACTORY_ADDRESS;
 export const BASE_SEPOLIA_CHAIN_ID = deployments.chainId;
 export const RPC_URL = deployments.rpcUrl;
 export const EXPLORER_URL = deployments.explorerUrl;
+
+// Phase I's guardian-governed IntegrityAccount + its bound IntegrityKernel (the three
+// reference adapters -- budget, reputation-floor, assurance-tier -- live inside the
+// kernel). Real bytecode on Base Sepolia, unlike LicenceAccount -- but explicitly marked
+// experimental at the deploy record itself; KERNEL_REFERENCE.disclosure is that exact
+// string, surfaced verbatim by KernelPage rather than paraphrased.
+export const KERNEL_REFERENCE = (
+  deployments as unknown as {
+    experimentalPhase1Reference?: {
+      IntegrityAccount: string;
+      IntegrityKernel: string;
+      ReputationRegistry: string;
+      deployedFromCommit: string;
+      disclosure: string;
+    };
+  }
+).experimentalPhase1Reference;
+
+export const LICENCE_REFERENCE = (
+  deployments as unknown as {
+    experimentalPhase2LicenceReference?: {
+      LicenceAccountImplementation: string;
+      LicenceToken: string;
+      deployedFromCommit: string;
+      disclosure: string;
+      licenceEndTime: number;
+      licenceStartTime: number;
+      owner: string;
+      protocolFeeBps: number;
+      protocolFeeRecipient: string;
+      royaltyPricePerUnitWei: number;
+      salt: string;
+      tokenBoundAccount: string;
+      tokenId: number;
+      volumeCapTotal: number;
+    };
+  }
+).experimentalPhase2LicenceReference;

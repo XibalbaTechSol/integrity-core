@@ -8,6 +8,9 @@ import IdentityPage from './pages/IdentityPage';
 import FinancialsPage from './pages/FinancialsPage';
 import HealthPage from './pages/HealthPage';
 import ShieldPage from './pages/ShieldPage';
+import QuantPage from './pages/QuantPage';
+import LicencePage from './pages/LicencePage';
+import KernelPage from './pages/KernelPage';
 import AuthPage from './pages/AuthPage';
 import SettingsPage from './pages/SettingsPage';
 import { DeveloperPage } from './pages/DeveloperPage';
@@ -45,6 +48,9 @@ function App() {
             <Route path="/prediction-markets" element={<ActuarialHub mode="markets" />} />
             <Route path="/health" element={<HealthPage />} />
             <Route path="/shield" element={<ShieldPage />} />
+            <Route path="/quant" element={<QuantPage />} />
+            <Route path="/licence" element={<LicencePage />} />
+            <Route path="/kernel" element={<KernelPage />} />
             <Route path="/memory" element={<MemoryPage />} />
             <Route path="/developer" element={<DeveloperPage />} />
             <Route path="/settings" element={<SettingsPage />} />

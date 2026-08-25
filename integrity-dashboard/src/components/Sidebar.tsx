@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { NavLink, Link } from 'react-router-dom';
-import { LayoutDashboard, Key, DollarSign, Activity, ShieldCheck, Code, BrainCircuit, BookOpen, ChevronLeft, ChevronRight, User, Settings, LogIn, LogOut, Database } from 'lucide-react';
+import { LayoutDashboard, Key, DollarSign, Activity, ShieldCheck, Code, BrainCircuit, BookOpen, ChevronLeft, ChevronRight, User, Settings, LogIn, LogOut, Database, TrendingUp, FileText, Cpu } from 'lucide-react';
 import { useDashboard } from '../context/DashboardContext';
 
 export function Sidebar() {
@@ -19,17 +19,45 @@ export function Sidebar() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
   
-  const navItems = [
-    { to: '/dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20} /> },
-    { to: '/identity', label: 'Identity', icon: <Key size={20} /> },
-    { to: '/financials', label: 'Financials', icon: <DollarSign size={20} /> },
-    { to: '/health', label: 'Health', icon: <Activity size={20} /> },
-    { to: '/shield', label: 'Shield', icon: <ShieldCheck size={20} /> },
-    { to: '/memory', label: 'Memory', icon: <Database size={20} /> },
-    { to: '/intelligence', label: 'Intelligence', icon: <BrainCircuit size={20} /> },
-    { to: '/prediction-markets', label: 'Prediction Markets', icon: <DollarSign size={20} /> },
-    { to: '/developer', label: 'Developer', icon: <Code size={20} /> },
-    { to: '/wiki', label: 'Wiki', icon: <BookOpen size={20} /> },
+  // Grouped around the real architecture: Phase I agent primitives (identity, the
+  // kernel/guardian system, reputation-adjacent markets, scoring), Phase II licensing,
+  // unrelated verticals/demos, and system-level pages. Flat list before this was just
+  // route-arrival order, not a reflection of what these pages actually are.
+  const navGroups: { section: string; items: { to: string; label: string; icon: React.ReactNode }[] }[] = [
+    {
+      section: 'Overview',
+      items: [{ to: '/dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20} /> }],
+    },
+    {
+      section: 'Agent primitives',
+      items: [
+        { to: '/identity', label: 'Identity', icon: <Key size={20} /> },
+        { to: '/kernel', label: 'Kernel & Guardians', icon: <Cpu size={20} /> },
+        { to: '/financials', label: 'Financials', icon: <DollarSign size={20} /> },
+        { to: '/intelligence', label: 'Intelligence', icon: <BrainCircuit size={20} /> },
+      ],
+    },
+    {
+      section: 'Licensing',
+      items: [{ to: '/licence', label: 'Licence', icon: <FileText size={20} /> }],
+    },
+    {
+      section: 'Verticals',
+      items: [
+        { to: '/health', label: 'Health', icon: <Activity size={20} /> },
+        { to: '/shield', label: 'Shield', icon: <ShieldCheck size={20} /> },
+        { to: '/quant', label: 'Quant', icon: <TrendingUp size={20} /> },
+      ],
+    },
+    {
+      section: 'System',
+      items: [
+        { to: '/memory', label: 'Memory', icon: <Database size={20} /> },
+        { to: '/prediction-markets', label: 'Prediction Markets', icon: <DollarSign size={20} /> },
+        { to: '/developer', label: 'Developer', icon: <Code size={20} /> },
+        { to: '/wiki', label: 'Wiki', icon: <BookOpen size={20} /> },
+      ],
+    },
   ];
 
   return (
@@ -77,30 +105,47 @@ export function Sidebar() {
         </div>
       )}
 
-      <nav style={{ flex: 1, padding: '1.5rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-        {navItems.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            style={({ isActive }) => ({
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: collapsed ? 'center' : 'flex-start',
-              padding: collapsed ? '1rem 0' : '1rem 1.25rem',
-              background: isActive ? 'var(--theme-accent-muted)' : 'transparent',
-              color: isActive ? 'var(--theme-accent)' : 'var(--text-secondary)',
-              border: 'none',
-              borderLeft: isActive ? '4px solid var(--theme-accent)' : '4px solid transparent',
-              borderRadius: collapsed ? '4px' : '0 4px 4px 0',
-              textDecoration: 'none',
-              fontWeight: isActive ? 600 : 400,
-              transition: 'all 0.2s'
-            })}
-            title={collapsed ? item.label : undefined}
-          >
-            {item.icon}
-            {!collapsed && <span style={{ marginLeft: '1rem' }}>{item.label}</span>}
-          </NavLink>
+      <nav style={{ flex: 1, padding: '1.5rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+        {navGroups.map((group) => (
+          <div key={group.section} style={{ marginBottom: '0.5rem' }}>
+            {!collapsed && (
+              <div
+                style={{
+                  fontSize: '0.7rem',
+                  color: 'var(--text-muted)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                  padding: '0.75rem 1.25rem 0.25rem',
+                }}
+              >
+                {group.section}
+              </div>
+            )}
+            {group.items.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                style={({ isActive }) => ({
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: collapsed ? 'center' : 'flex-start',
+                  padding: collapsed ? '1rem 0' : '1rem 1.25rem',
+                  background: isActive ? 'var(--theme-accent-muted)' : 'transparent',
+                  color: isActive ? 'var(--theme-accent)' : 'var(--text-secondary)',
+                  border: 'none',
+                  borderLeft: isActive ? '4px solid var(--theme-accent)' : '4px solid transparent',
+                  borderRadius: collapsed ? '4px' : '0 4px 4px 0',
+                  textDecoration: 'none',
+                  fontWeight: isActive ? 600 : 400,
+                  transition: 'all 0.2s'
+                })}
+                title={collapsed ? item.label : undefined}
+              >
+                {item.icon}
+                {!collapsed && <span style={{ marginLeft: '1rem' }}>{item.label}</span>}
+              </NavLink>
+            ))}
+          </div>
         ))}
       </nav>
 

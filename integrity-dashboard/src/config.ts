@@ -11,3 +11,9 @@ export const GRAPH_MEMORY_URL = import.meta.env.VITE_GRAPH_MEMORY_URL || 'http:/
 //   uv run python -m shield.backend.api --admin-token dev-shield-admin
 export const SHIELD_BACKEND_URL = import.meta.env.VITE_SHIELD_BACKEND_URL || 'http://localhost:8765';
 export const SHIELD_BACKEND_TOKEN = import.meta.env.VITE_SHIELD_BACKEND_TOKEN || 'dev-shield-admin';
+// A DIFFERENT server than SHIELD_BACKEND_URL -- xibalba-shield's agent_core simulator/launcher
+// backend (shield/agent_core/slm_backend.py), routes shaped /api/launch, /api/simulate,
+// /api/status/:pid, no admin token. Used only by ShieldPage's live-attack demo, which already
+// has an explicit, honest fallback to canned data when this is offline -- not a bug to "fix"
+// by pointing it at SHIELD_BACKEND_URL, whose routes (/api/shield/*) are shaped differently.
+export const SHIELD_SIM_BACKEND_URL = import.meta.env.VITE_SHIELD_SIM_BACKEND_URL || 'http://localhost:5000';
