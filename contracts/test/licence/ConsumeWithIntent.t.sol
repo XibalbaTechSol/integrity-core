@@ -42,7 +42,7 @@ contract ConsumeWithIntentTest is Test {
         tokenId = licenceToken.mint(licensee);
 
         account = new LicenceAccount(
-            address(licenceToken), tokenId, VOLUME_CAP, ROYALTY_PER_UNIT, LICENCE_START, LICENCE_END
+            address(licenceToken), tokenId, VOLUME_CAP, ROYALTY_PER_UNIT, LICENCE_START, LICENCE_END, address(0), 0
         );
 
         vm.deal(relayer, 100 ether);
@@ -213,7 +213,7 @@ contract ConsumeWithIntentTest is Test {
 
     function test_intentSignedForADifferentAccountReverts() public {
         LicenceAccount otherAccount = new LicenceAccount(
-            address(licenceToken), tokenId, VOLUME_CAP, ROYALTY_PER_UNIT, LICENCE_START, LICENCE_END
+            address(licenceToken), tokenId, VOLUME_CAP, ROYALTY_PER_UNIT, LICENCE_START, LICENCE_END, address(0), 0
         );
 
         // Intent's `account` field names `otherAccount`, but we submit it against `account`.

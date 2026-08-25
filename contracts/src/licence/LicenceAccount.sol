@@ -39,8 +39,9 @@ import {IERC6551Account} from "./IERC6551.sol";
 /// rejected. Matches `IntegrityAccount`'s own single-execution-mode discipline for the identical
 /// reason: a narrower attack surface is easier to reason about completely.
 ///
-/// **Concrete guarantees this slice proves** (31 Foundry tests --
-/// `test/licence/LicenceAccount.t.sol` and `test/licence/Erc6551RegistryIntegration.t.sol`,
+/// **Concrete guarantees this slice proves** (60 Foundry tests --
+/// `test/licence/LicenceAccount.t.sol`, `test/licence/Erc6551RegistryIntegration.t.sol`,
+/// `test/licence/ConsumeWithIntent.t.sol`, and `test/licence/ProtocolFeeSettlement.t.sol`,
 /// `PRODUCTION_GAPS.md`): unlike `IntegrityKernel`'s four properties, none of the following are
 /// Halmos-proven (no symbolic-execution work has been done on this contract) -- each is backed
 /// only by concrete Foundry test cases, including exact-boundary and one-unit-over cases, not an
@@ -77,8 +78,7 @@ import {IERC6551Account} from "./IERC6551.sol";
 ///   volume-cap and transfer-drain guards identically to a directly-constructed instance.
 ///
 /// What this does NOT claim: no Halmos/symbolic verification (unlike `IntegrityKernel.sol`); no
-/// ATCP/IP signed-intent path (`consume()` is called directly, matching how Phase I's own first
-/// slice used `vm.prank` before EntryPoint integration existed); no adapter registry (terms are
+/// ERC-4337 validation-phase implementation; no adapter registry (terms are
 /// hardcoded per-instance, not compiled from an external payload); no marketplace or escrow
 /// contract (`armTransfer`/`disarmTransfer` are bare owner-gated setters, not integrated with any
 /// actual sale flow); and the other six Table 2 licence terms (field of use, licensee identity,
@@ -96,6 +96,17 @@ import {IERC6551Account} from "./IERC6551.sol";
 /// standalone signature-verification layer achieving the same practical goal (root-key-free
 /// scoped authorization) with a materially smaller mechanism, disclosed as such rather than
 /// implied to be the ERC-4337 path.
+///
+/// **Settlement integration guarantee** (`docs/plans/2026-08-24-phase2-settlement-integration-
+/// proposal.md`, `PRODUCTION_GAPS.md` section 49): this slice implements only eq (12) protocol-fee
+/// term phi as one immutable flat basis-point split on `royaltyDue`. The fee is computed from
+/// the required units-times-price amount, never from `msg.value`, so overpayment does not inflate
+/// the fee and the entire excess remains in this account. The split is settled inside the same
+/// `_consume()` transition used by both `consume()` and `consumeWithIntent()`; if the recipient
+/// transfer fails, the whole call reverts with no consumed-unit state change and no retained
+/// funds. `protocolFeeBps == 0` is a valid no-fee configuration, including a zero recipient.
+/// This does NOT implement adapter-author shares, staking yield, buy-back/burn, treasury
+/// allocation, per-adapter fee variation, or any fee on `execute()` withdrawals.
 contract LicenceAccount is IERC6551Account, EIP712, Nonces {
     error NotAuthorized(address caller);
     error UnsupportedOperation(uint8 operation);
@@ -114,6 +125,8 @@ contract LicenceAccount is IERC6551Account, EIP712, Nonces {
     error UnauthorizedSigner(address signer);
     error IntentExpired(uint256 expiry, uint256 currentTime);
     error IntentDomainMismatch(address expected, address actual);
+    error ZeroFeeRecipient(uint256 feeBps);
+    error ProtocolFeeTransferFailed(bytes returndata);
 
     event Consumed(uint256 units, uint256 royaltyPaid, uint256 totalConsumed);
     event TransferArmed(uint256 committedBalance);
@@ -121,6 +134,7 @@ contract LicenceAccount is IERC6551Account, EIP712, Nonces {
     event Withdrawn(address indexed to, uint256 value);
     event SessionKeyAuthorized(address indexed key, uint256 expiry);
     event SessionKeyRevoked(address indexed key);
+    event ProtocolFeeSettled(address indexed recipient, uint256 amount);
 
     /// @dev keccak256("ConsumeIntent(address account,uint256 units,uint256 nonce,uint256 expiry)")
     bytes32 public constant CONSUME_INTENT_TYPEHASH =
@@ -150,6 +164,12 @@ contract LicenceAccount is IERC6551Account, EIP712, Nonces {
     uint256 public immutable licenceStartTime;
     uint256 public immutable licenceEndTime;
 
+    // --- settlement integration (eq 12's fee term phi, PRODUCTION_GAPS.md #49): a single flat
+    // protocol fee, split atomically at settlement time. protocolFeeBps == 0 is a valid
+    // no-fee configuration.
+    address public immutable protocolFeeRecipient;
+    uint256 public immutable protocolFeeBps;
+
     // --- live state
     uint256 public consumedUnits;
     uint256 public state;
@@ -164,11 +184,14 @@ contract LicenceAccount is IERC6551Account, EIP712, Nonces {
         uint256 volumeCapTotal_,
         uint256 royaltyPricePerUnitWei_,
         uint256 licenceStartTime_,
-        uint256 licenceEndTime_
+        uint256 licenceEndTime_,
+        address protocolFeeRecipient_,
+        uint256 protocolFeeBps_
     ) EIP712("LicenceAccount", "1") {
         if (tokenContractAddr_ == address(0)) revert ZeroTokenContract();
         if (volumeCapTotal_ == 0) revert ZeroVolumeCap();
         if (licenceStartTime_ >= licenceEndTime_) revert StartNotBeforeEnd(licenceStartTime_, licenceEndTime_);
+        if (protocolFeeBps_ > 0 && protocolFeeRecipient_ == address(0)) revert ZeroFeeRecipient(protocolFeeBps_);
 
         _chainId = block.chainid;
         tokenContractAddr = tokenContractAddr_;
@@ -177,6 +200,8 @@ contract LicenceAccount is IERC6551Account, EIP712, Nonces {
         royaltyPricePerUnitWei = royaltyPricePerUnitWei_;
         licenceStartTime = licenceStartTime_;
         licenceEndTime = licenceEndTime_;
+        protocolFeeRecipient = protocolFeeRecipient_;
+        protocolFeeBps = protocolFeeBps_;
     }
 
     receive() external payable {}
@@ -280,6 +305,21 @@ contract LicenceAccount is IERC6551Account, EIP712, Nonces {
 
         consumedUnits += units;
         state += 1;
+
+        // Settlement integration (eq 12's fee term phi): the fee is computed off royaltyDue (the
+        // REQUIRED amount for the units actually consumed), never off msg.value -- an overpaying
+        // caller's excess lands entirely in this account's own balance, unaffected by the fee
+        // rate, exactly as it did before this fee existed. Settled atomically in this same call:
+        // if the fee transfer fails, the whole consumption reverts (eq 12 -- a transition where
+        // the fee leg fails is a leak, not representable), matching this contract's own
+        // no-partial-consumption discipline.
+        if (protocolFeeBps > 0) {
+            uint256 feeAmount = (royaltyDue * protocolFeeBps) / 10_000;
+            (bool feeSuccess, bytes memory feeReturndata) = protocolFeeRecipient.call{value: feeAmount}("");
+            if (!feeSuccess) revert ProtocolFeeTransferFailed(feeReturndata);
+            emit ProtocolFeeSettled(protocolFeeRecipient, feeAmount);
+        }
+
         emit Consumed(units, msg.value, consumedUnits);
         return msg.value;
     }

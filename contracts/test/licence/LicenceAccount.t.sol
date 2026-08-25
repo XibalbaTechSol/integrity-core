@@ -34,7 +34,7 @@ contract LicenceAccountTest is Test {
         tokenId = licenceToken.mint(licensee);
 
         account = new LicenceAccount(
-            address(licenceToken), tokenId, VOLUME_CAP, ROYALTY_PER_UNIT, LICENCE_START, LICENCE_END
+            address(licenceToken), tokenId, VOLUME_CAP, ROYALTY_PER_UNIT, LICENCE_START, LICENCE_END, address(0), 0
         );
         vm.deal(licensee, 100 ether);
     }
@@ -146,7 +146,7 @@ contract LicenceAccountTest is Test {
 
     function test_consumeRevertsBeforeLicenceStarts() public {
         LicenceAccount futureAccount = new LicenceAccount(
-            address(licenceToken), tokenId, VOLUME_CAP, ROYALTY_PER_UNIT, block.timestamp + 1 days, block.timestamp + 31 days
+            address(licenceToken), tokenId, VOLUME_CAP, ROYALTY_PER_UNIT, block.timestamp + 1 days, block.timestamp + 31 days, address(0), 0
         );
         vm.prank(licensee);
         vm.expectRevert(
@@ -179,7 +179,7 @@ contract LicenceAccountTest is Test {
 
     function test_constructorRevertsIfStartIsNotBeforeEnd() public {
         vm.expectRevert(abi.encodeWithSelector(LicenceAccount.StartNotBeforeEnd.selector, LICENCE_START, LICENCE_START));
-        new LicenceAccount(address(licenceToken), tokenId, VOLUME_CAP, ROYALTY_PER_UNIT, LICENCE_START, LICENCE_START);
+        new LicenceAccount(address(licenceToken), tokenId, VOLUME_CAP, ROYALTY_PER_UNIT, LICENCE_START, LICENCE_START, address(0), 0);
     }
 
     // --- transfer-drain guard (eq 17) -----------------------------------------------------------

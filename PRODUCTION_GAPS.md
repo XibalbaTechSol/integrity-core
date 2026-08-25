@@ -3288,3 +3288,37 @@ reuses an identical `block.timestamp + <literal>` expression twice around a `vm.
 silently exercising the wrong timestamp and getting a false-positive pass. This is a real,
 disclosed gap in confidence in any such existing test, not something this slice attempted to
 sweep for across the whole repo.
+
+## 49. Settlement integration for `LicenceAccount.consume()` -- atomic protocol fee split (2026-08-24)
+
+*Current State:* per `docs/plans/2026-08-24-phase2-settlement-integration-proposal.md`, the third
+named Phase II workstream ("settlement integration" -- Table 8) now exists locally in
+`contracts/src/licence/LicenceAccount.sol`. This closes only eq (12) fee term phi for the existing
+licence-account consumption path; it does not implement the larger section 8.3 tokenomics system.
+
+Implemented directly on the same `_consume()` path shared by `consume()` and
+`consumeWithIntent()`:
+- `protocolFeeRecipient` and `protocolFeeBps` are immutable per-account terms, matching the rest
+  of this slice's one-implementation-per-licence design.
+- A nonzero `protocolFeeBps` with `protocolFeeRecipient == address(0)` reverts at construction;
+  `protocolFeeBps == 0` is a valid no-fee configuration, including a zero recipient, so prior
+  no-fee behavior remains representable.
+- The fee is computed from `royaltyDue` (`units * royaltyPricePerUnitWei`), not `msg.value`; any
+  overpayment continues to land in the licence account's own balance and does not inflate the
+  protocol fee.
+- The fee transfer is settled inside the same transaction as the meter decrement. If the
+  recipient call fails, the entire consumption reverts: no consumed units, no retained funds, no
+  partial settlement.
+
+New concrete coverage in `contracts/test/licence/ProtocolFeeSettlement.t.sol` proves the split on
+both `consume()` and `consumeWithIntent()`, constructor validation, exact no-fee regression
+behavior, overpayment behavior, and recipient-failure rollback. This is still concrete Foundry
+coverage only, not a Halmos/symbolic proof. `LicenceAccount.sol`'s top-level NatSpec now states the
+settlement guarantee alongside the earlier volume-cap, royalty, expiry, transfer-drain, and
+ATCP/IP intent claims.
+
+Explicitly still not built: adapter-author revenue share, staking yield, buy-back/burn, treasury
+allocation, per-adapter/per-term fee variation, a real economic parameter-setting process, and any
+fee on `execute()` withdrawals. A misconfigured recipient that reverts can deny all consumption on
+that licence by design; this slice prefers eq (12)'s no-partial-settlement invariant over a
+fee-bypass escape hatch.

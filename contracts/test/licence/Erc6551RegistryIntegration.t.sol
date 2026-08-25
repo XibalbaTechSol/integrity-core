@@ -56,7 +56,7 @@ contract Erc6551RegistryIntegrationTest is Test {
         // implementation's immutables are baked into ITS bytecode; a delegatecall proxy reads
         // them as inlined constants, not storage, so this works correctly through a proxy too.
         implementation =
-            new LicenceAccount(address(licenceToken), tokenId, VOLUME_CAP, ROYALTY_PER_UNIT, licenceStart, licenceEnd);
+            new LicenceAccount(address(licenceToken), tokenId, VOLUME_CAP, ROYALTY_PER_UNIT, licenceStart, licenceEnd, address(0), 0);
     }
 
     function _predictedAndActual() internal returns (address predicted, address actual) {
