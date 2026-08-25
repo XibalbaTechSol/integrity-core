@@ -3322,3 +3322,30 @@ allocation, per-adapter/per-term fee variation, a real economic parameter-settin
 fee on `execute()` withdrawals. A misconfigured recipient that reverts can deny all consumption on
 that licence by design; this slice prefers eq (12)'s no-partial-settlement invariant over a
 fee-bypass escape hatch.
+
+
+## 50. Phase II licence reference deployed to Base Sepolia -- experimental only (2026-08-24)
+
+*Current State:* the Phase II reference deployment in
+`docs/plans/2026-08-24-phase2-licence-testnet-deployment-proposal.md` was first dry-run against
+an Anvil fork of Base Sepolia, then broadcast after explicit authorization. All four transactions
+were mined successfully in Base Sepolia block `45930892`:
+- `LicenceToken`: `0x6B915ABC6e90B6E500b127EeFE4Ec616537A722C`
+  (`0xb64f5c3a9e748e3be91350153b33bccd3aa87dce621b5ed0b8ed67a716441c8e`)
+- Mint token ID `1`: `0x84bf753dee29f83a5b7e5c55cf44842b5c514206231deedb79f4fa7e7be17360`
+- `LicenceAccount` implementation: `0xf2394f0763288981Eb64077507a732B560093B3B`
+  (`0xcaf36d9f79ccb288264011acea2996b41db66d7b2d772e101bf5fa9886b94045`)
+- ERC-6551 token-bound account: `0xDBb7828137d3F44c8331c1E45Ba9416C7Ab9D2B7`
+  (`0x4d5e5235add8244a805b9eea29604e77aa43500570cfb20b4cd9c01de547b731`)
+
+The account binds `(84532, LicenceToken, 1)` and reports the minted NFT holder, its configured
+fee recipient, and `protocolFeeBps = 100` on live readback. The `LicenceToken` and
+`LicenceAccount` implementation are Sourcify exact matches. The ERC-6551 account is registry
+created proxy bytecode, so it has no standalone source-verification match. Actual total gas used
+was `2,322,660`; the combined L2 and L1 data fee was `0.000014327185348083 ETH`.
+
+This is an experimental, unaudited, illustrative reference only: volume cap `1000`, royalty price
+`0.0001 ETH` per unit, 30-day duration, zero ERC-6551 salt, and 100 bps protocol fee. It is not a
+commercial licence offer, does not establish production readiness, and received no live
+`consume()` or settlement call. A live consumption demonstration remains a separately authorized
+external action.
