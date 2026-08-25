@@ -3224,3 +3224,67 @@ This slice does not and cannot close the Phase II→III gate on its own -- Table
 "sustained real licensing volume from counterparties who are not the protocol's own
 contributors," an adoption metric no amount of building satisfies alone. Not deployed to any live
 network as part of this slice; that remains a separate, later decision.
+
+## 48. ATCP/IP signed-intent layer for `LicenceAccount.consume()` -- session keys, EIP-712 intents, open relaying (2026-08-24)
+
+*Current State:* per `docs/plans/2026-08-24-phase2-atcpip-intent-format-proposal.md` (authorized
+as scoped: open relaying, no per-session-key spending sub-limits, sequential OZ `Nonces`), the
+second Phase II workstream ("ATCP/IP intent format" -- Table 8). Whitepaper §7.1's transaction
+lifecycle names step 4 ("Validate: signature, session, domain") as happening in the "ERC-4337
+validation phase" via a "type-1 validator" -- this slice deliberately does NOT build that; making
+`LicenceAccount` a full ERC-4337 smart account is the same kernel-hybrid undertaking the base
+slice's own proposal already declined. Instead, `LicenceAccount.sol` gained a standalone EIP-712
+signature-verification layer achieving the same practical goal (root-key-free scoped
+authorization) with a materially smaller mechanism -- disclosed as such, not implied to be the
+ERC-4337 path, in the contract's own NatSpec.
+
+Added directly to `contracts/src/licence/LicenceAccount.sol` (now inherits OpenZeppelin's
+`EIP712` and `Nonces`, both already vendored, no new dependency):
+- `authorizeSessionKey(address key, uint256 expiry)` / `revokeSessionKey(address key)` --
+  owner-gated (dynamic `ownerOf` check, same as every other owner-gated function here). A session
+  key can only ever sign `ConsumeIntent`s -- it is never checked against `execute()`,
+  `armTransfer()`, or `disarmTransfer()`, proven directly
+  (`test_sessionKeyCannotCallExecuteOrArmTransferDirectly`).
+- `ConsumeIntent { address account; uint256 units; uint256 nonce; uint256 expiry; }`, an EIP-712
+  typed struct.
+- `consumeWithIntent(ConsumeIntent calldata intent, bytes calldata signature)` -- verifies, in
+  order: domain binding (`intent.account` must be THIS contract), intent expiry, signer
+  authorization (the owner or a currently-unexpired, non-revoked session key), and nonce
+  replay-protection (`Nonces.useCheckedNonce`, keyed to the recovered SIGNER, not `msg.sender`) --
+  before falling through to the exact same volume-cap/royalty/expiry enforcement `consume()`
+  itself uses. Deliberately callable by ANY relayer -- the signer authorizes the action, not the
+  caller, matching the whitepaper's own intent model. `consume()` itself is unchanged and remains
+  valid.
+
+New file `contracts/test/licence/ConsumeWithIntent.t.sol`: 20 tests covering owner-signed intents
+submitted by an unrelated relayer, session-key authorization/expiry/revocation (each at its exact
+boundary), domain-mismatch rejection, intent-expiry rejection (exact boundary and one-second-over),
+nonce reuse and out-of-order rejection, sequential intents from the same signer, and confirmation
+that `consumeWithIntent` still enforces the base slice's volume-cap and royalty checks. **Total:
+381/381 tests passing** across the full `contracts/` suite. All four new guards (domain binding,
+intent expiry, signer authorization, session-key past-expiry rejection) were mutation-tested --
+each temporarily disabled directly in `LicenceAccount.sol`, confirmed the corresponding test then
+fails, then restored and the full suite re-confirmed green.
+
+**A real, disclosed via_ir/solc 0.8.28 miscompilation was found and worked around while writing
+these tests, not silently patched over:** this repo's `foundry.toml` sets `via_ir = true`
+(required elsewhere for stack-too-deep reasons -- see this doc's own architecture notes). Under
+that setting, when the identical literal expression `block.timestamp + 1 hours` appears twice
+within one Solidity test function with a `vm.warp` call between them, the second evaluation
+silently reuses the FIRST evaluation's cached result instead of recomputing against the
+post-warp timestamp -- confirmed via isolated repro (`console2.log` before/after
+`vm.warp`), and confirmed NOT to occur when either (a) only one occurrence of the expression
+exists per function, or (b) the two occurrences use different literal offsets (e.g. `+ 1 hours`
+vs. `+ 2 hours`). This is consistent with an overly aggressive common-subexpression-elimination
+pass treating `TIMESTAMP()` as invariant within a function body -- true on a real chain (a
+contract's own external call cannot change `block.timestamp` mid-transaction) but false under
+Foundry's `vm.warp` cheatcode, which is exactly what the two affected tests
+(`test_expiredSessionKeyIntentReverts`, `test_sessionKeyValidExactlyAtItsOwnExpiryBoundary`)
+needed to exercise. Worked around locally in those two tests only (reordering the expression --
+literal first, `1 hours + nowAfterWarp` rather than `nowAfterWarp + 1 hours` -- confirmed to
+compile correctly), with the reasoning documented inline. **Not fixed at the repo level and not
+audited for other occurrences across the existing test suite** -- any OTHER test file that
+reuses an identical `block.timestamp + <literal>` expression twice around a `vm.warp` could be
+silently exercising the wrong timestamp and getting a false-positive pass. This is a real,
+disclosed gap in confidence in any such existing test, not something this slice attempted to
+sweep for across the whole repo.

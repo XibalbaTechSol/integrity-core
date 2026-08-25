@@ -2,6 +2,9 @@
 pragma solidity ^0.8.28;
 
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {Nonces} from "@openzeppelin/contracts/utils/Nonces.sol";
 import {IERC6551Account} from "./IERC6551.sol";
 
 /// @title LicenceAccount
@@ -81,7 +84,19 @@ import {IERC6551Account} from "./IERC6551.sol";
 /// actual sale flow); and the other six Table 2 licence terms (field of use, licensee identity,
 /// exclusivity, derivative rights, assurance tier, memory continuity) are unimplemented -- see
 /// `docs/plans/2026-08-24-phase2-licence-account-tracer-bullet-proposal.md`'s own scope section.
-contract LicenceAccount is IERC6551Account {
+///
+/// **ATCP/IP signed-intent layer** (`docs/plans/2026-08-24-phase2-atcpip-intent-format-
+/// proposal.md`, `PRODUCTION_GAPS.md` §48): `consumeWithIntent()` lets the owner authorize a
+/// revocable, expiring session key (`authorizeSessionKey`/`revokeSessionKey`) to sign scoped
+/// `ConsumeIntent` structs (EIP-712, via OpenZeppelin's `EIP712`/`Nonces`) that ANY relayer may
+/// submit on-chain -- the signer authorizes the action, not the caller. This is deliberately
+/// NOT the whitepaper's literal §7.1 step-4 claim ("ERC-4337 validation phase, type-1
+/// validator") -- that would require this contract to also be a full ERC-4337 smart account,
+/// the same kernel-hybrid undertaking the base slice's own proposal already declined. This is a
+/// standalone signature-verification layer achieving the same practical goal (root-key-free
+/// scoped authorization) with a materially smaller mechanism, disclosed as such rather than
+/// implied to be the ERC-4337 path.
+contract LicenceAccount is IERC6551Account, EIP712, Nonces {
     error NotAuthorized(address caller);
     error UnsupportedOperation(uint8 operation);
     error LicenceNotYetActive(uint256 startTime, uint256 currentTime);
@@ -94,11 +109,34 @@ contract LicenceAccount is IERC6551Account {
     error ZeroVolumeCap();
     error ZeroTokenContract();
     error StartNotBeforeEnd(uint256 startTime, uint256 endTime);
+    error ZeroSessionKey();
+    error SessionKeyExpiryInPast(uint256 expiry, uint256 currentTime);
+    error UnauthorizedSigner(address signer);
+    error IntentExpired(uint256 expiry, uint256 currentTime);
+    error IntentDomainMismatch(address expected, address actual);
 
     event Consumed(uint256 units, uint256 royaltyPaid, uint256 totalConsumed);
     event TransferArmed(uint256 committedBalance);
     event TransferDisarmed();
     event Withdrawn(address indexed to, uint256 value);
+    event SessionKeyAuthorized(address indexed key, uint256 expiry);
+    event SessionKeyRevoked(address indexed key);
+
+    /// @dev keccak256("ConsumeIntent(address account,uint256 units,uint256 nonce,uint256 expiry)")
+    bytes32 public constant CONSUME_INTENT_TYPEHASH =
+        keccak256("ConsumeIntent(address account,uint256 units,uint256 nonce,uint256 expiry)");
+
+    struct ConsumeIntent {
+        address account;
+        uint256 units;
+        uint256 nonce;
+        uint256 expiry;
+    }
+
+    // --- ATCP/IP session keys: owner-authorized, revocable, expiring signers scoped to
+    // ConsumeIntent signing only -- never able to call execute()/armTransfer() directly, since
+    // those remain gated to msg.sender == owner().
+    mapping(address key => uint256 expiry) public sessionKeyExpiry;
 
     // --- ERC-6551 context -- see this contract's own top-level NatSpec for why these are
     // immutable rather than read via bytecode introspection.
@@ -127,7 +165,7 @@ contract LicenceAccount is IERC6551Account {
         uint256 royaltyPricePerUnitWei_,
         uint256 licenceStartTime_,
         uint256 licenceEndTime_
-    ) {
+    ) EIP712("LicenceAccount", "1") {
         if (tokenContractAddr_ == address(0)) revert ZeroTokenContract();
         if (volumeCapTotal_ == 0) revert ZeroVolumeCap();
         if (licenceStartTime_ >= licenceEndTime_) revert StartNotBeforeEnd(licenceStartTime_, licenceEndTime_);
@@ -172,6 +210,64 @@ contract LicenceAccount is IERC6551Account {
     /// the order these checks are written in.
     function consume(uint256 units) external payable returns (uint256 royaltyPaid) {
         if (msg.sender != owner()) revert NotAuthorized(msg.sender);
+        return _consume(units);
+    }
+
+    /// @notice The ATCP/IP entry point: any relayer may submit a `ConsumeIntent` signed off-chain
+    /// by the owner or a currently-authorized session key. The SIGNER, not `msg.sender`, is what
+    /// authorizes this call -- matching whitepaper §7.1's "sign scoped ATCP/IP request" step,
+    /// deliberately allowing open relaying rather than gating this function to a specific caller.
+    /// @dev Enforces, in order: domain binding (`intent.account` must be THIS contract, not
+    /// merely a correctly-shaped signature replayed from another licence account), intent
+    /// expiry, signer authorization (owner or an unexpired, non-revoked session key), and
+    /// nonce replay-protection (`Nonces.useCheckedNonce`, keyed to the recovered signer, not
+    /// `msg.sender`) -- before falling through to the exact same volume-cap/royalty/expiry
+    /// enforcement `consume()` itself uses. This is additive authorization, not a parallel or
+    /// weaker path.
+    function consumeWithIntent(ConsumeIntent calldata intent, bytes calldata signature)
+        external
+        payable
+        returns (uint256 royaltyPaid)
+    {
+        if (intent.account != address(this)) revert IntentDomainMismatch(address(this), intent.account);
+        if (block.timestamp > intent.expiry) revert IntentExpired(intent.expiry, block.timestamp);
+
+        bytes32 structHash =
+            keccak256(abi.encode(CONSUME_INTENT_TYPEHASH, intent.account, intent.units, intent.nonce, intent.expiry));
+        address signer = ECDSA.recover(_hashTypedDataV4(structHash), signature);
+
+        if (signer != owner() && !_isAuthorizedSessionKey(signer)) revert UnauthorizedSigner(signer);
+
+        _useCheckedNonce(signer, intent.nonce);
+
+        return _consume(intent.units);
+    }
+
+    /// @notice Authorizes `key` to sign `ConsumeIntent`s on the owner's behalf until `expiry`.
+    /// Owner-gated, dynamically -- only the CURRENT NFT holder may authorize a session key, same
+    /// as every other owner-gated function here. A session key can only ever sign consumption
+    /// intents -- it is never checked against `execute()`, `armTransfer()`, or `disarmTransfer()`.
+    function authorizeSessionKey(address key, uint256 expiry) external {
+        if (msg.sender != owner()) revert NotAuthorized(msg.sender);
+        if (key == address(0)) revert ZeroSessionKey();
+        if (expiry <= block.timestamp) revert SessionKeyExpiryInPast(expiry, block.timestamp);
+        sessionKeyExpiry[key] = expiry;
+        emit SessionKeyAuthorized(key, expiry);
+    }
+
+    /// @notice Revokes `key` immediately, regardless of its previously-set expiry.
+    function revokeSessionKey(address key) external {
+        if (msg.sender != owner()) revert NotAuthorized(msg.sender);
+        delete sessionKeyExpiry[key];
+        emit SessionKeyRevoked(key);
+    }
+
+    function _isAuthorizedSessionKey(address key) internal view returns (bool) {
+        uint256 expiry = sessionKeyExpiry[key];
+        return expiry != 0 && block.timestamp <= expiry;
+    }
+
+    function _consume(uint256 units) internal returns (uint256 royaltyPaid) {
         if (units == 0) revert ZeroUnits();
         if (block.timestamp < licenceStartTime) revert LicenceNotYetActive(licenceStartTime, block.timestamp);
         if (block.timestamp > licenceEndTime) revert LicenceExpired(licenceEndTime, block.timestamp);
