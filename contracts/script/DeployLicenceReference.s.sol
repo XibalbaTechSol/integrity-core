@@ -5,6 +5,7 @@ import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 
 import {LicenceAccount} from "../src/licence/LicenceAccount.sol";
+import {ILicenceHook} from "../src/licence/ILicenceHook.sol";
 import {IERC6551Registry} from "../src/licence/IERC6551.sol";
 import {LicenceToken} from "../src/licence/LicenceToken.sol";
 
@@ -65,7 +66,8 @@ contract DeployLicenceReference is Script {
             licenceStartTime,
             licenceEndTime,
             protocolFeeRecipient,
-            PROTOCOL_FEE_BPS
+            PROTOCOL_FEE_BPS,
+            ILicenceHook(address(0))
         );
 
         address predicted = ERC6551_REGISTRY.account(

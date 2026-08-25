@@ -3349,3 +3349,62 @@ This is an experimental, unaudited, illustrative reference only: volume cap `100
 commercial licence offer, does not establish production readiness, and received no live
 `consume()` or settlement call. A live consumption demonstration remains a separately authorized
 external action.
+
+## 51. Kernel hook on `LicenceAccount` -- a single additive precondition, not the ERC-7579/whitepaper §6 adapter registry (2026-08-25)
+
+*Current State:* whitepaper §5.3 states "the same [kernel] mechanism serves both" agent accounts
+and licence accounts. The base Phase II proposal
+(`docs/plans/2026-08-24-phase2-licence-account-tracer-bullet-proposal.md`) explicitly declined
+combining `IntegrityKernel`'s ERC-4337/ERC-7579 hook architecture with `LicenceAccount`'s
+ERC-6551 standard in one contract, naming it separate, later, scoped work. This entry is that
+slice, built directly to user request without a separate pre-authorization proposal round-trip
+(scope confirmed via chat instead) -- kept intentionally narrow, matching every prior Phase I/II
+precedent of proving a mechanism narrow before generalizing.
+
+New files, all under `contracts/src/licence/`:
+- `ILicenceHook.sol` -- a bespoke, NOT ERC-7579, single-method interface: `preConsume(address
+  account, address consumer, uint256 units, uint256 royaltyPaid)`, revert-to-reject (no bool/
+  hookData return), no `postConsume` (there is no balance-delta postcondition analogous to
+  `IntegrityKernel`'s spend-budget check -- `LicenceAccount.consume()`'s outcome is already fully
+  determined by its own inputs before the hook runs).
+- `ReputationFloorLicenceHook.sol` -- the one reference implementation: rejects a consumer whose
+  `ReputationRegistry.effectiveScore` is below a declared floor. Reads the score LIVE on every
+  call, no epoch-snapshot cache -- a disclosed, deliberate divergence from `IntegrityKernel`'s own
+  reputation check, which caches specifically to stay under the whitepaper's Table 4 ERC-4337
+  bundler-simulation gas ceiling. `LicenceAccount.consume()` is not an ERC-4337 validation-phase
+  call, so that ceiling does not apply here.
+
+`LicenceAccount.sol` changes: a new immutable constructor parameter, `ILicenceHook hook` (9th
+positional arg; `address(0)` disables it, matching `IntegrityKernel.trackedToken`'s own
+zero-disables convention). `_consume()` gained a `consumer` parameter (the resolved actor --
+`owner()` for `consume()`, the recovered EIP-712 signer for `consumeWithIntent()`, never merely
+`msg.sender`) and calls `hook.preConsume(address(this), consumer, units, royaltyDue)` after this
+contract's own volume-cap/royalty/expiry checks already passed, before any state mutation. All 8
+existing constructor call sites across `test/licence/*.sol` and
+`script/DeployLicenceReference.s.sol` updated to pass `ILicenceHook(address(0))`, preserving
+identical behavior -- verified: the full pre-existing 60-test licence suite still passes
+unchanged.
+
+New test file `test/licence/LicenceAccountHook.t.sol`, two suites:
+- `LicenceAccountHookTest` (a `MockLicenceHook`): hook disabled reproduces prior behavior exactly;
+  hook is called with correct `(account, consumer, units, royaltyPaid)` context on `consume()`;
+  hook rejection reverts the whole call with zero state change; a call that fails
+  `LicenceAccount`'s OWN checks never reaches the hook at all (`callCount` stays zero); the hook
+  sees the recovered SIGNER, not `msg.sender`, for `consumeWithIntent()`'s open-relay path.
+- `ReputationFloorLicenceHookTest` (real `ReputationRegistry`, EIP-1167 clone, same pattern
+  `IntegrityAccount.t.sol` already uses): reverts below the floor, succeeds exactly at the floor,
+  succeeds above it, and a same-block score change is reflected immediately (proving the live-read
+  design choice, not merely asserting it in prose).
+
+**Total: 9/9 new tests passing, 399/399 across the full `contracts/` suite.** The hook call site
+was mutation-tested (temporarily commented out, confirmed 5 of the 9 new tests then fail for the
+expected reasons, restored, full suite re-confirmed green) -- same discipline as every other guard
+in this file.
+
+**What this does NOT claim:** not swappable or composable (one immutable hook, not
+`IntegrityAccount`'s timelocked kernel-swap governance and not whitepaper §6's permissionless,
+staked, many-adapters registry); no declared/enforced gas bound (whitepaper §6.2 obligation R2 is
+not implemented -- an unbounded or misbehaving hook can make `consume()` arbitrarily expensive);
+no Halmos/symbolic verification (concrete Foundry tests only, same disclosed gap as the rest of
+`LicenceAccount.sol`); applies to `consume()`/`consumeWithIntent()` only, not `execute()` or
+`armTransfer()`/`disarmTransfer()`. Not deployed to any live network as part of this entry.

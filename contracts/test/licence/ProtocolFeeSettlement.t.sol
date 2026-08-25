@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {LicenceToken} from "../../src/licence/LicenceToken.sol";
 import {LicenceAccount} from "../../src/licence/LicenceAccount.sol";
+import {ILicenceHook} from "../../src/licence/ILicenceHook.sol";
 
 /// @notice A recipient with no `receive()`/`fallback()` -- any native-value `call` to it fails,
 /// used to prove the protocol-fee leg's failure genuinely reverts the whole settlement.
@@ -40,7 +41,7 @@ contract ProtocolFeeSettlementTest is Test {
 
     function _accountWithFee(address recipient, uint256 feeBps) internal returns (LicenceAccount) {
         return new LicenceAccount(
-            address(licenceToken), tokenId, VOLUME_CAP, ROYALTY_PER_UNIT, LICENCE_START, LICENCE_END, recipient, feeBps
+            address(licenceToken), tokenId, VOLUME_CAP, ROYALTY_PER_UNIT, LICENCE_START, LICENCE_END, recipient, feeBps, ILicenceHook(address(0))
         );
     }
 

@@ -6,6 +6,7 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {Nonces} from "@openzeppelin/contracts/utils/Nonces.sol";
 import {IERC6551Account} from "./IERC6551.sol";
+import {ILicenceHook} from "./ILicenceHook.sol";
 
 /// @title LicenceAccount
 /// @notice Phase II tracer-bullet slice
@@ -107,6 +108,20 @@ import {IERC6551Account} from "./IERC6551.sol";
 /// funds. `protocolFeeBps == 0` is a valid no-fee configuration, including a zero recipient.
 /// This does NOT implement adapter-author shares, staking yield, buy-back/burn, treasury
 /// allocation, per-adapter fee variation, or any fee on `execute()` withdrawals.
+///
+/// **Kernel hook** (`ILicenceHook.sol`, `PRODUCTION_GAPS.md` §51): an optional, immutable
+/// `hook` -- whitepaper §5.3's "the same [kernel] mechanism serves both" claim, scoped down to
+/// a single additive precondition rather than the full ERC-7579/whitepaper-§6 adapter-registry
+/// architecture. `preConsume` is called on `hook` (if set) AFTER this contract's own volume-cap/
+/// royalty/expiry checks already passed and BEFORE any state change, receiving the resolved
+/// consumer (owner for `consume()`, the recovered EIP-712 signer for `consumeWithIntent()` --
+/// never merely `msg.sender`) and the units/royalty about to be committed. `address(0)` disables
+/// it, matching `trackedToken`'s own convention. See `ILicenceHook.sol` for what this
+/// deliberately does NOT claim: not swappable/composable, no declared gas bound, no
+/// ERC-7579/whitepaper-§6 adapter-registry semantics. Reference implementation:
+/// `ReputationFloorLicenceHook.sol`, reading `ReputationRegistry.effectiveScore` LIVE (no
+/// epoch-snapshot cache, unlike `IntegrityKernel`'s own reputation check -- disclosed design
+/// choice, see that contract's own NatSpec).
 contract LicenceAccount is IERC6551Account, EIP712, Nonces {
     error NotAuthorized(address caller);
     error UnsupportedOperation(uint8 operation);
@@ -170,6 +185,11 @@ contract LicenceAccount is IERC6551Account, EIP712, Nonces {
     address public immutable protocolFeeRecipient;
     uint256 public immutable protocolFeeBps;
 
+    // --- kernel hook (ILicenceHook.sol, whitepaper §5.3 "the same mechanism serves both"):
+    // a single, immutable precondition hook, address(0) disables it. Not swappable/composable --
+    // see ILicenceHook's own doc comment for exactly what this does and does not claim.
+    ILicenceHook public immutable hook;
+
     // --- live state
     uint256 public consumedUnits;
     uint256 public state;
@@ -186,7 +206,8 @@ contract LicenceAccount is IERC6551Account, EIP712, Nonces {
         uint256 licenceStartTime_,
         uint256 licenceEndTime_,
         address protocolFeeRecipient_,
-        uint256 protocolFeeBps_
+        uint256 protocolFeeBps_,
+        ILicenceHook hook_
     ) EIP712("LicenceAccount", "1") {
         if (tokenContractAddr_ == address(0)) revert ZeroTokenContract();
         if (volumeCapTotal_ == 0) revert ZeroVolumeCap();
@@ -202,6 +223,7 @@ contract LicenceAccount is IERC6551Account, EIP712, Nonces {
         licenceEndTime = licenceEndTime_;
         protocolFeeRecipient = protocolFeeRecipient_;
         protocolFeeBps = protocolFeeBps_;
+        hook = hook_;
     }
 
     receive() external payable {}
@@ -235,7 +257,7 @@ contract LicenceAccount is IERC6551Account, EIP712, Nonces {
     /// the order these checks are written in.
     function consume(uint256 units) external payable returns (uint256 royaltyPaid) {
         if (msg.sender != owner()) revert NotAuthorized(msg.sender);
-        return _consume(units);
+        return _consume(units, msg.sender);
     }
 
     /// @notice The ATCP/IP entry point: any relayer may submit a `ConsumeIntent` signed off-chain
@@ -265,7 +287,7 @@ contract LicenceAccount is IERC6551Account, EIP712, Nonces {
 
         _useCheckedNonce(signer, intent.nonce);
 
-        return _consume(intent.units);
+        return _consume(intent.units, signer);
     }
 
     /// @notice Authorizes `key` to sign `ConsumeIntent`s on the owner's behalf until `expiry`.
@@ -292,7 +314,7 @@ contract LicenceAccount is IERC6551Account, EIP712, Nonces {
         return expiry != 0 && block.timestamp <= expiry;
     }
 
-    function _consume(uint256 units) internal returns (uint256 royaltyPaid) {
+    function _consume(uint256 units, address consumer) internal returns (uint256 royaltyPaid) {
         if (units == 0) revert ZeroUnits();
         if (block.timestamp < licenceStartTime) revert LicenceNotYetActive(licenceStartTime, block.timestamp);
         if (block.timestamp > licenceEndTime) revert LicenceExpired(licenceEndTime, block.timestamp);
@@ -302,6 +324,13 @@ contract LicenceAccount is IERC6551Account, EIP712, Nonces {
 
         uint256 royaltyDue = units * royaltyPricePerUnitWei;
         if (msg.value < royaltyDue) revert InsufficientRoyalty(royaltyDue, msg.value);
+
+        // Kernel hook (ILicenceHook.sol): an additive precondition, checked AFTER this contract's
+        // own checks above already passed, BEFORE any state change below. Reverts propagate
+        // directly -- no partial consumption, same discipline as every other check here.
+        if (address(hook) != address(0)) {
+            hook.preConsume(address(this), consumer, units, royaltyDue);
+        }
 
         consumedUnits += units;
         state += 1;
