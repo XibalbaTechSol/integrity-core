@@ -3576,3 +3576,75 @@ only `preCheck` was touched; a hypothetical adapter needing a balance-delta post
 the kernel's own spend-budget check works) is not supported by this slice. No change to
 `IntegrityAccount`'s own governance/timelock/guardian logic -- untouched. Not deployed to any live
 network as part of this entry.
+
+## 55. `IntegrityKernel.preCheck` registry gas mitigation -- crossing reduced, not eliminated (2026-08-27)
+
+*Current State:* per explicit user direction to "mitigate the gas crossing" measured and
+disclosed in §54 (~59.2k gas for the registry-ENABLED `preCheck` path, against the whitepaper's
+Table 4 `<=40k` ceiling). Before writing any code, the whitepaper's own §6.4 was re-read and
+re-interpreted: "R5 gates installability... without operator override" describes the registry as
+an INSTALL-TIME gate, not a per-transaction dispatcher. §54's wiring had `preCheck` call
+`AdapterRegistry.evaluate(...)` on every single invocation -- paying `AdapterRegistry`'s own
+external-call and dispatch overhead on top of the adapter's own cold read, every time. That
+per-call registry hop is not required by the spec; only confirming the adapter IS registered is,
+and that can happen once.
+
+**Mechanism:** `IntegrityKernel` gains a new immutable, `registryAdapterGasBound`. The
+constructor, when `registryHook_ != address(0)`, reads `registryHook_.adapters(registryAdapter_)`
+ONCE -- the same public-mapping getter tuple `(uint256 declaredGasBound, bytes32 specHash, bool
+registered)` `AdapterRegistry.sol` (§52) already exposes -- reverts `RegistryAdapterNotRegistered`
+if the adapter was never registered, and otherwise mirrors `declaredGasBound` into the new
+immutable (this repo's existing "verify once at construction, use forever" pattern, already used
+for `ZK_BOOST_BPS`/`BPS_DENOMINATOR`). `preCheck` no longer calls `registryHook.evaluate(...)` at
+all; it calls the adapter directly -- `IAdapter(registryAdapter).check{gas: registryAdapterGasBound}
+(boundAccount, value)` -- inside a try/catch that replicates `AdapterRegistry.evaluate`'s own
+zero-length-returndata heuristic locally: empty `reason` reverts the kernel's own new
+`RegistryAdapterExceededGasBound`, anything else re-reverts the adapter's original reason via
+inline assembly. `registryHook` itself is retained as a field (read in the constructor, otherwise
+unused at runtime) purely so `preCheck` still knows whether the registry integration is enabled at
+all -- the object of the address(0) check that gates the whole block.
+
+**Real, measured result:** `test_preCheckGasCostWithRegistryEnabled` re-measured cold (same
+dedicated-`setUp()` methodology as §54, warming the reputation score outside the measured call) at
+**49,290 gas**, down from §54's pinned ~59,167 -- a genuine **~9,877 gas / ~16.7% reduction**,
+re-pinned to a tightened `(44_000, 54_000)` regression range. **This does not close the gap
+against the whitepaper's `<=40k` ceiling** -- the registry-enabled configuration is still ~9.3k
+gas over. What was eliminated is exactly the registry's own external-call/dispatch overhead
+(`preCheck -> AdapterRegistry.evaluate -> adapter.check`, now `preCheck -> adapter.check`
+directly); what remains is the adapter's own inherent cold read, which no per-transaction
+mitigation touches -- shrinking that further would mean either accepting a shallower adapter
+(cheaper `check()` body) or reworking `AdapterRegistry`'s installability semantics so registration
+denotes something stronger than "callable," neither of which was in scope for this entry.
+
+**Halmos re-verified against the final mitigated code:** `forge build --ast` followed by
+`.venv-halmos/bin/halmos --contract KernelPropertiesTest --root .` -- **6 passed, 0 failed,
+7.90s**, identical property count to §54's baseline. Same disclosed limitation as §54:
+`HalmosKernelFixture.sol` still constructs the kernel with `AdapterRegistry(address(0))`, so
+every branch touched by this entry (the constructor's registry-read block, `preCheck`'s new
+direct-adapter try/catch) remains UNREACHABLE to Halmos across all six properties -- this run
+proves the mitigation does not regress the six properties when the registry is left disabled; it
+proves nothing about the registry-enabled configuration, which still has zero Halmos coverage.
+
+**Test coverage -- two real gaps found and closed via mutation testing, not merely asserted:**
+`IntegrityKernelRegistryHook.t.sol` gained a `KernelGasBurnerAdapter` mock (an infinite loop, to
+force a genuine out-of-gas) and a `KernelBareRevertAdapter` mock (a bare `revert()`, zero
+returndata by construction) alongside three new tests --
+`test_constructorRevertsWhenAdapterWasNeverRegistered`,
+`test_executeReportsRegistryAdapterExceededGasBoundForARealOutOfGasAdapter`, and
+`test_bareRevertFromRegistryAdapterIsIndistinguishableFromGasBoundExceeded` (the last of these
+DELIBERATELY demonstrates the disclosed heuristic weakness: a bare revert and a real
+out-of-gas both surface as the same `RegistryAdapterExceededGasBound` error, since both produce
+zero-length returndata -- this is not a bug, it is the documented limitation made concrete in a
+passing test). Mutation testing on the new constructor guard (`if (!registered) revert
+RegistryAdapterNotRegistered(...)` mutated to `if (false)`) and on `preCheck`'s zero-length-
+returndata branch (`if (reason.length == 0)` mutated to `if (false)`) initially passed ALL
+existing tests unmodified -- exposing that neither guard had real coverage before these three
+tests existed. Both gaps closed; both mutations, once the new tests were added, were then
+correctly caught. Full `contracts/` suite: 438/438.
+
+**What this does NOT claim:** that the `<=40k` Table 4 ceiling is met in the registry-enabled
+configuration -- it is not, by ~9.3k gas. No change to the registry-DISABLED configuration's gas
+profile (still governed by §54's unchanged `(30_000, 40_000)`-bounded test). No Halmos coverage of
+the registry-enabled configuration (same gap §54 already disclosed, unchanged by this entry). No
+change to `AdapterRegistry.sol` itself, `LicenceAccount`'s own registry wiring (§53), or
+`postCheck`. Not deployed to any live network as part of this entry.

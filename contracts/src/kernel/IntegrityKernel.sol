@@ -5,6 +5,7 @@ import {IERC7579Hook, MODULE_TYPE_HOOK} from "@openzeppelin/contracts/interfaces
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReputationRegistry} from "../oracle/ReputationRegistry.sol";
 import {AdapterRegistry} from "../registry/AdapterRegistry.sol";
+import {IAdapter} from "../registry/IAdapter.sol";
 
 /// @title IntegrityKernel
 /// @notice Phase I tracer-bullet slice (docs/plans/2026-08-17-phase1-tracer-bullet-proposal.md),
@@ -160,6 +161,8 @@ contract IntegrityKernel is IERC7579Hook {
     error ZeroMinEffectiveScore();
     error ZeroEpochLength();
     error ZeroRegistryAdapter();
+    error RegistryAdapterNotRegistered(address registryHook, address registryAdapter);
+    error RegistryAdapterExceededGasBound(address registryAdapter, uint256 declaredGasBound);
     error EpochLengthTooLong(uint256 requested, uint256 maxAllowed);
     error BoostConstantsMismatch(
         uint256 localBps, uint256 registryBps, uint256 localDenominator, uint256 registryDenominator
@@ -191,23 +194,53 @@ contract IntegrityKernel is IERC7579Hook {
     /// configurable address.
     ReputationRegistry public immutable reputationRegistry;
 
-    /// @dev Phase III adapter registry (`AdapterRegistry.sol`, `PRODUCTION_GAPS.md` §54): a
+    /// @dev Phase III adapter registry (`AdapterRegistry.sol`, `PRODUCTION_GAPS.md` §54/§55): a
     /// SECOND, independent, additive precondition alongside the cached reputation/assurance-tier
-    /// checks above -- same `address(0)`-disables convention as `trackedToken`. Checked in
-    /// `preCheck`, AFTER the existing checks, via `registryHook.evaluate(registryAdapter,
-    /// boundAccount, value)` where `value` is the wrapped call's own native value (the same
-    /// number the per-op/cumulative budget checks below ultimately measure a real delta against
-    /// in `postCheck` -- this check does NOT independently verify a delta itself, it only forwards
-    /// the declared value to whatever adapter is registered). **Halmos coverage does NOT extend to
-    /// this branch**: `HalmosKernelFixture.sol` always constructs this kernel with
-    /// `AdapterRegistry(address(0))`, so the six machine-checked properties above were re-run and
-    /// confirmed to still hold with this feature ADDED-BUT-DISABLED (6/6 passed,
+    /// checks above -- same `address(0)`-disables convention as `trackedToken`.
+    ///
+    /// **Gas mitigation (§55): the registry is consulted ONCE, at construction, never on the
+    /// `preCheck` hot path.** Re-reading whitepaper §6.4 ("R5 gates installability... without
+    /// operator override") more carefully than the first wiring did: the registry's actual job is
+    /// an INSTALL-TIME gate, not a per-transaction dispatcher. This kernel's constructor reads
+    /// `registryHook_.adapters(registryAdapter_)` once, reverts `RegistryAdapterNotRegistered` if
+    /// the adapter was never registered there, and mirrors `declaredGasBound` into the immutable
+    /// `registryAdapterGasBound` below -- the SAME "verify once, use forever" pattern this
+    /// contract already uses for `ZK_BOOST_BPS`/`BPS_DENOMINATOR`. `preCheck` then calls
+    /// `IAdapter(registryAdapter).check{gas: registryAdapterGasBound}(boundAccount, value)`
+    /// DIRECTLY, replicating `AdapterRegistry.evaluate`'s own adapter-rejection-vs-gas-bound-
+    /// exceeded distinguishing logic locally (see `preCheck`'s own doc comment) rather than
+    /// re-paying that contract's own external-call overhead on every check. This is safe because
+    /// `AdapterRegistry` entries are themselves immutable once registered (no re-registration path
+    /// exists there either) -- there is no staleness risk analogous to the reputation snapshot's
+    /// own epoch window; a mirrored `declaredGasBound` can never drift from the registry's actual
+    /// value after construction, because neither can change.
+    ///
+    /// **Real, measured result (`PRODUCTION_GAPS.md` §55): this mitigation is real but partial.**
+    /// It removes the `AdapterRegistry.evaluate` hop's own ~12.2k gas overhead (one fewer cold
+    /// external `CALL` plus its own `SLOAD`), but the underlying adapter's own live external read
+    /// (`ReputationFloorAdapter` reading `ReputationRegistry.effectiveScore`, ~15.5k gas cold) is
+    /// unavoidable without caching the SCORE itself -- which this kernel deliberately does NOT do
+    /// for a registry-installed adapter, because a stateful adapter like `SpendBudgetAdapter`
+    /// needs genuinely live, uncached evaluation on every call to mean anything at all; caching
+    /// would silently break that adapter's own guarantee for the sake of a number this kernel has
+    /// no way to know is safe to cache for an arbitrary, permissionlessly-installed adapter. See
+    /// §55 for the exact before/after gas figures -- the crossing is reduced, not eliminated.
+    ///
+    /// `preCheck`, AFTER the existing cached reputation/assurance-tier checks, receives
+    /// `boundAccount` as the subject and `value` (the wrapped call's own native value -- the same
+    /// number the per-op/cumulative budget checks below ultimately measure a real delta against in
+    /// `postCheck`) as the amount; this does NOT independently verify a delta itself, it only
+    /// forwards the declared value to whatever adapter is registered. **Halmos coverage does NOT
+    /// extend to the registry-enabled configuration**: `HalmosKernelFixture.sol` always constructs
+    /// this kernel with `AdapterRegistry(address(0))`, so the six machine-checked properties above
+    /// were re-run and confirmed to still hold with this feature ADDED-BUT-DISABLED (6/6 passed,
     /// `PRODUCTION_GAPS.md` §54's own record) -- proving this addition does not regress anyone who
     /// leaves it off, NOT that the properties hold with the registry actually enabled. That
     /// configuration is concrete-Foundry-tested only (`test/kernel/IntegrityKernelRegistryHook.t.sol`),
     /// same disclosed-gap category as `LicenceAccount`'s own hook slots.
     AdapterRegistry public immutable registryHook;
     address public immutable registryAdapter;
+    uint256 public immutable registryAdapterGasBound;
     uint256 public immutable minEffectiveScore;
 
     /// @dev Mirrors `ReputationRegistry.ZK_BOOST_BPS`/`BPS_DENOMINATOR` locally so
@@ -295,6 +328,17 @@ contract IntegrityKernel is IERC7579Hook {
         epochLengthSeconds = epochLengthSeconds_;
         registryHook = registryHook_;
         registryAdapter = registryAdapter_;
+        // Mirror the registered gas bound ONCE, at deploy time, off the gas-constrained preCheck
+        // path -- same "verify once, use forever" pattern as the ZK boost constants below. Safe
+        // because AdapterRegistry entries are themselves immutable once registered (no
+        // re-registration path exists there either), so this can never drift stale.
+        if (address(registryHook_) != address(0)) {
+            (uint256 declaredGasBound,, bool registered) = registryHook_.adapters(registryAdapter_);
+            if (!registered) revert RegistryAdapterNotRegistered(address(registryHook_), registryAdapter_);
+            registryAdapterGasBound = declaredGasBound;
+        } else {
+            registryAdapterGasBound = 0;
+        }
 
         // Verified once, at deploy time, not merely asserted in a test: the locally-mirrored
         // ZK_BOOST_BPS/BPS_DENOMINATOR must match the REAL bound registry's own values, or every
@@ -368,12 +412,30 @@ contract IntegrityKernel is IERC7579Hook {
         // why a separately-cached raw zkBoostExpiry was considered and rejected.
         if (!snapshotIsZkBoosted) revert AssuranceTierNotMet(boundAccount);
 
-        // Phase III adapter registry (PRODUCTION_GAPS.md #54): a SECOND, independent additive
-        // precondition, AFTER the existing cached checks above, same address(0)-disables
+        // Phase III adapter registry (PRODUCTION_GAPS.md #54/#55): a SECOND, independent
+        // additive precondition, AFTER the existing cached checks above, same address(0)-disables
         // convention as trackedToken. See this contract's own top-level NatSpec for what this
         // does and does not claim (notably: no Halmos coverage for the enabled configuration).
+        //
+        // Calls the registered adapter DIRECTLY -- not through AdapterRegistry.evaluate -- using
+        // the gas bound already mirrored at construction (see the top-level NatSpec's "gas
+        // mitigation" section for why this is safe). Replicates AdapterRegistry.evaluate's own
+        // distinguishing logic locally: the adapter's own rejection reason is bubbled up
+        // UNCHANGED; a failure with zero-length returndata is reported as
+        // RegistryAdapterExceededGasBound. Same disclosed heuristic limitation as the registry's
+        // own version -- a bare `revert()` from an otherwise well-behaved adapter is
+        // indistinguishable from true out-of-gas.
         if (address(registryHook) != address(0)) {
-            registryHook.evaluate(registryAdapter, boundAccount, value);
+            try IAdapter(registryAdapter).check{gas: registryAdapterGasBound}(boundAccount, value) {
+                // allowed
+            } catch (bytes memory reason) {
+                if (reason.length == 0) {
+                    revert RegistryAdapterExceededGasBound(registryAdapter, registryAdapterGasBound);
+                }
+                assembly {
+                    revert(add(reason, 32), mload(reason))
+                }
+            }
         }
 
         armed = true;
