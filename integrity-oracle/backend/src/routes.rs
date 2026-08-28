@@ -55,6 +55,8 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/traces/{trace_id}", get(handlers::get_trace_tree))
         .route("/v1/telemetry/ingest", post(handlers::ingest_telemetry))
         .route("/v1/audit/ingest", post(handlers::ingest_audit_log))
+        .route("/v1/audit/effect", post(handlers::submit_audit_effect))
+        .route("/v1/audit/intent/{intended_state_hash}", get(handlers::get_audit_intent_join))
         .route("/v1/audit/anchor", post(handlers::ingest_anchor_events))
         .route("/v1/agent/{id}/provenance", get(handlers::get_provenance))
         .route("/v1/agent/{id}/stake", get(handlers::get_stake))

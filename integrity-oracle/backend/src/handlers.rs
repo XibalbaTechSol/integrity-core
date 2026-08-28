@@ -1761,6 +1761,94 @@ pub async fn ingest_audit_log(
 }
 
 // ---------------------------------------------------------------------------------
+// BCC intent-vs-effect join (~/.claude/plans/velvet-giggling-quill.md). `intended_state_hash`
+// is already written into an ALLOW row's metadata (see /v1/audit/ingest above and
+// bcc_middleware/app/main.py) specifically so a later verifier can line intent up against
+// effect -- this is that verifier's ingest side, finally implemented (previously referenced
+// as `posttool_report.py`, which didn't exist anywhere). Deliberately a NEW, separate
+// audit_log row (event_type="posttool_effect") rather than an UPDATE onto the original
+// intent row -- append-only, same posture as every other audit_log write, joined by matching
+// `intended_state_hash` values rather than by rewriting history. Reuses `db::insert_audit_log`
+// unchanged; this handler is only a typed, purpose-built shape for integrity-sdk's
+// `posttool_report.submit_effect_report` to call, same auth/rate-limit posture as
+// /v1/audit/ingest.
+// ---------------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct AuditEffectRequest {
+    pub agent_id: String,
+    pub intended_state_hash: String,
+    pub effect_hash: String,
+    pub matches: bool,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AuditEffectResponse {
+    pub id: Uuid,
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/audit/effect",
+    request_body = AuditEffectRequest,
+    responses(
+        (status = 200, description = "Effect report recorded", body = AuditEffectResponse),
+    ),
+    tag = "audit",
+)]
+pub async fn submit_audit_effect(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<AuditEffectRequest>,
+) -> Result<Json<AuditEffectResponse>, AppError> {
+    check_internal_api_rate_limit(&state).await?;
+    check_oracle_api_key(&state, &headers)?;
+
+    let metadata = serde_json::json!({
+        "intended_state_hash": req.intended_state_hash,
+        "effect_hash": req.effect_hash,
+        "matches": req.matches,
+    });
+    let decision = if req.matches { "matched" } else { "diverged" };
+    let id = db::insert_audit_log(
+        &state.pool,
+        Some(&req.agent_id),
+        "posttool_report",
+        "posttool_effect",
+        decision,
+        None,
+        None,
+        None,
+        &metadata,
+    )
+    .await?;
+    Ok(Json(AuditEffectResponse { id }))
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AuditEffectJoinResponse {
+    pub intended_state_hash: String,
+    pub rows: Vec<db::AuditEffectJoinRow>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/audit/intent/{intended_state_hash}",
+    params(("intended_state_hash" = String, Path, description = "The intent commitment's intended_state_hash")),
+    responses(
+        (status = 200, description = "All audit_log rows sharing this intended_state_hash (the original intent row plus any posttool_effect reports)", body = AuditEffectJoinResponse),
+    ),
+    tag = "audit",
+)]
+pub async fn get_audit_intent_join(
+    State(state): State<AppState>,
+    Path(intended_state_hash): Path<String>,
+) -> Result<Json<AuditEffectJoinResponse>, AppError> {
+    let rows = db::get_audit_log_by_intended_state_hash(&state.pool, &intended_state_hash).await?;
+    Ok(Json(AuditEffectJoinResponse { intended_state_hash, rows }))
+}
+
+// ---------------------------------------------------------------------------------
 // Anchor-event ingest (docs/design/evidence-export.md, Lever 4). bcc_middleware
 // posts here after it successfully anchors an agent's Merkle sub-tree on-chain, so
 // each anchored ALLOW decision can be joined to its StateAnchor transaction at

@@ -9,8 +9,10 @@
 //! `tests/`, which run the real migrations against a real Postgres.
 
 use chrono::{DateTime, Utc};
+use serde::Serialize;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 pub async fn create_pool(database_url: &str) -> Result<PgPool, sqlx::Error> {
@@ -956,6 +958,42 @@ pub async fn get_recent_audit_log(
             .await
         }
     }
+}
+
+/// BCC intent-vs-effect join (~/.claude/plans/velvet-giggling-quill.md): both the original
+/// ALLOW row (written with `intended_state_hash` in its metadata, see /v1/audit/ingest) and
+/// any `posttool_effect` row(s) reporting an actual effect hash against it (see
+/// `submit_audit_effect`) share the same `intended_state_hash` value inside their JSONB
+/// `metadata` -- there's no dedicated column for it (see this session's own earlier
+/// investigation: it lives only in the blob), so this queries the JSONB field directly
+/// (`metadata->>'intended_state_hash' = $1`) rather than requiring a migration. `AuditLogRow`
+/// doesn't carry `metadata` (it's a read DTO shaped for the dashboard's audit panel), so this
+/// returns a lighter-weight row that does, since inspecting the metadata IS the point here.
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, ToSchema)]
+pub struct AuditEffectJoinRow {
+    pub id: Uuid,
+    pub agent_id: Option<String>,
+    pub event_type: String,
+    pub decision: String,
+    pub metadata: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+}
+
+pub async fn get_audit_log_by_intended_state_hash(
+    pool: &PgPool,
+    intended_state_hash: &str,
+) -> Result<Vec<AuditEffectJoinRow>, sqlx::Error> {
+    sqlx::query_as::<_, AuditEffectJoinRow>(
+        r#"
+        SELECT id, agent_id, event_type, decision, metadata, created_at
+        FROM audit_log
+        WHERE metadata->>'intended_state_hash' = $1
+        ORDER BY created_at ASC
+        "#,
+    )
+    .bind(intended_state_hash)
+    .fetch_all(pool)
+    .await
 }
 
 /// Records the anchor events for one agent's just-anchored Merkle sub-tree:
