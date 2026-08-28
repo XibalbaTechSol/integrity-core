@@ -50,6 +50,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.baa import BAAStatus, check_baa_status
 from app.canonical import SignatureVerificationError, verify_commitment_signature
@@ -159,6 +160,14 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="BCC Middleware", version="3.0.0", lifespan=lifespan)
+
+_cors_origins = default_settings.cors_allowed_origins
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"] if _cors_origins == "*" else [o.strip() for o in _cors_origins.split(",") if o.strip()],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
+)
 
 # Process-local state. See nonce_store.py / circuit_breaker.py docstrings
 # for why in-memory is an accepted scope limitation for this service today
