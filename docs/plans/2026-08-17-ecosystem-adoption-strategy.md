@@ -40,6 +40,16 @@ high-risk obligations start biting. Re-verify against the Act's actual text/Offi
 entry before citing an immediate high-risk deadline in GTM material — see Changelog for
 sources.
 
+**CORRECTION 2026-08-28 (see Changelog):** the date in the note directly above is wrong by
+one year — it should read **2027-12-02**, not 2026-12-02 (the note's own "16-month deferral"
+math from 2026-08-02 lands in December 2027, not December 2026; this looks like a transcription
+slip in the 2026-08-26 run, not a substantive correction). Multiple independent sources
+(the Council of the EU's own final-approval press release, plus Gibson Dunn, White & Case, and
+Sidley client alerts) confirm: standalone Annex III high-risk obligations are deferred to
+**2 December 2027** (16-month deferral), and AI embedded in regulated products under Annex I
+separately to **2 August 2028** (12-month deferral, not previously noted in this doc at all).
+See Changelog for full sourcing. Do not cite "2026-12-02" anywhere downstream.
+
 ## 3. Landscape, by category (re-verify before quoting externally)
 
 | Project | Category | One line | Relevance |
@@ -180,3 +190,47 @@ doc's dateline, no stake/slashing mechanism reported); Trulioo+Worldpay Digital 
 coverage of general agent-security startups (Zenity, Norm AI, HappyRobot) — adjacent
 enterprise-IAM/compliance space but none combine on-chain identity + staked/slashable
 reputation + compliance gating, so none meet this doc's specific competitor bar.
+
+### 2026-08-28 — Ecosystem watch: correction to 2026-08-26's EU AI Act date; no other material change
+
+Automated research sweep (scheduled tracking run, ~2 days after the prior run). Landscape
+table in §3 unchanged — swept all nine named players plus a general sweep for a new entrant
+combining identity + staked reputation + compliance gating; nothing found meets this doc's
+materiality bar (see "not material" list below). One correction to a prior entry:
+
+1. **Correction to the 2026-08-26 changelog entry's EU AI Act date.** That entry stated the
+   Digital Omnibus pushed the Annex III high-risk conformity deadline to "2026-12-02." This is
+   a one-year transcription error — independent confirmation from the Council of the EU's own
+   final-approval press release plus three law-firm client alerts all give **2 December 2027**
+   (a 16-month deferral from the original 2026-08-02 date — consistent with the prior entry's
+   own "16-month" language, just the wrong year attached). Separately, and not previously
+   captured in this doc at all: AI embedded in regulated products under **Annex I** gets its
+   own, later deferral to **2 August 2028** (12 months from the original 2027-08-02 date).
+   Inline correction added to §2 above (marked `CORRECTION 2026-08-28`, original erroneous
+   note left visible per this doc's own convention).
+   Sources: [Consilium, Council gives final green light to simplify and streamline rules (2026-06-29)](https://www.consilium.europa.eu/en/press/press-releases/2026/06/29/artificial-intelligence-council-gives-final-green-light-to-simplify-and-streamline-rules/),
+   [Gibson Dunn, EU AI Act Omnibus Agreement — Postponed High-Risk Deadlines](https://www.gibsondunn.com/eu-ai-act-omnibus-agreement-postponed-high-risk-deadlines-and-other-key-changes/),
+   [White & Case, EU agrees Digital Omnibus deal to simplify AI rules](https://www.whitecase.com/insight-alert/eu-agrees-digital-omnibus-deal-simplify-ai-rules),
+   [Sidley, EU Lawmakers Reach Provisional Agreement to Delay Key EU AI Act Obligations](https://datamatters.sidley.com/2026/06/22/eu-lawmakers-reach-provisional-agreement-to-delay-key-eu-ai-act-obligations/),
+   [Axios, The EU AI Act gets real (2026-08-28)](https://www.axios.com/2026/08/28/eu-ai-act-gets-real) (the piece that
+   surfaced the discrepancy in the first place, by citing "December 2027" against this doc's
+   then-current "2026-12-02").
+
+2. **§4 fact-check (a), ERC-8004 Validation Registry: no change since 2026-08-26.** Re-checked;
+   Identity/Reputation registries remain live on 40+ EVM networks including Ethereum mainnet,
+   Validation Registry remains explicitly under active spec revision per the same primary repo,
+   no new mainnet address published. Status unchanged from the 2026-08-26 entry.
+
+Not material / considered and not added: Injective Institutional Services' SEC transfer-agent
+registration (effective 2026-08-19) — securities-transfer-agent status, unrelated to the
+identity/reputation/compliance combination tracked here; Anthropic's enterprise-managed MCP
+connector authorization GA (2026-08-24) — org-level IdP-gated tool-connector provisioning, not
+agent identity/reputation resolution, so an evolution of the already-tracked MCP row rather
+than a new fact; BNBAgent SDK / ERC-8183 (BNB Chain, escrow + UMA optimistic-oracle dispute
+resolution for agent task settlement) — dates to 2026-03-18, predates this doc, and combines
+identity with escrow/arbitration rather than staked/slashable reputation or compliance gating;
+Vouched's "Know Your Agent" / Agent Reputation Directory — dates to 2025, reputation is
+community-reported rather than staked/slashable, no compliance-gating component; Offroad ($7M
+seed, 2026-06-04) and SecureAuth Agentic Authority Platform (2026-05) — enterprise agent-IAM
+governance plays, no staking/slashing or compliance-vertical gating. None meet this doc's
+specific competitor bar.
