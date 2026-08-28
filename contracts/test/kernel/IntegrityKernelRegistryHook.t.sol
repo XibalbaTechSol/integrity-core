@@ -161,3 +161,126 @@ contract IntegrityKernelRegistryHookTest is Test {
         assertEq(recipient.balance, recipientBalanceBefore + sendAmount);
     }
 }
+
+/// @notice End-to-end `preCheck` gas measurement with the registry ENABLED -- the follow-on
+/// measurement `PRODUCTION_GAPS.md` §54 named as real, disclosed, not-yet-done work. Deliberately
+/// a SEPARATE contract from `IntegrityKernelRegistryHookTest` above: the score that clears both
+/// floors must be set in `setUp()`, not inline in the measured test function, or the same-slot
+/// `updateScore` write would pre-warm exactly the storage `ReputationFloorAdapter.check`'s
+/// `effectiveScore` read then touches -- the identical same-transaction-warm-read pitfall
+/// `PRODUCTION_GAPS.md` §41's own dependency-inventory section named for `IntegrityKernel`'s
+/// tracked-token check, and #48 named again for `LicenceAccount`'s `via_ir` timestamp caching.
+/// `setUp()` runs as a separate top-level call from Foundry's perspective, so the measured test
+/// function's very first `preCheck` call is a genuinely cold read, same discipline as
+/// `test_preCheckGasExceedsPaperTable4BudgetWithTrackedTokenLiveRead` in `IntegrityAccount.t.sol`.
+contract IntegrityKernelRegistryHookGasTest is Test {
+    using stdStorage for StdStorage;
+
+    IntegrityAccount account;
+    IntegrityKernel kernel;
+    ReputationRegistry reputation;
+    AdapterRegistry registry;
+    ReputationFloorAdapter adapter;
+
+    address signer;
+    address guardian1;
+    address guardian2;
+    address guardian3;
+    address[] guardianSet;
+
+    uint256 constant MODULE_ACTION_TIMELOCK = 3 days;
+    uint256 constant RESCUE_TIMELOCK = 1 days;
+    uint256 constant GUARDIAN_THRESHOLD = 2;
+    uint256 constant PER_OP_BUDGET = 1 ether;
+    uint256 constant CUMULATIVE_BUDGET = 3 ether;
+    uint256 constant MIN_EFFECTIVE_SCORE = 500;
+    uint256 constant REPUTATION_EPOCH_LENGTH = 3 days;
+    uint256 constant REGISTRY_MIN_SCORE = 700;
+
+    function setUp() public {
+        signer = makeAddr("signer");
+        guardian1 = makeAddr("guardian1");
+        guardian2 = makeAddr("guardian2");
+        guardian3 = makeAddr("guardian3");
+        guardianSet = [guardian1, guardian2, guardian3];
+
+        address reputationImpl = address(new ReputationRegistry());
+        reputation = ReputationRegistry(Clones.clone(reputationImpl));
+        reputation.initialize(address(this), address(this), address(0), address(0));
+
+        registry = new AdapterRegistry();
+        adapter = new ReputationFloorAdapter(reputation, REGISTRY_MIN_SCORE);
+        registry.register(address(adapter), 200_000, keccak256("reputation-floor-v1"));
+
+        address predictedAccount = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1);
+        // Set the score high enough to clear BOTH the kernel's own floor and the registry
+        // adapter's floor, in setUp -- NOT in the measured test function itself.
+        reputation.updateScore(predictedAccount, REGISTRY_MIN_SCORE + 100);
+        _setZkBoostExpiry(predictedAccount, block.timestamp + 7 days);
+
+        kernel = new IntegrityKernel(
+            predictedAccount,
+            PER_OP_BUDGET,
+            CUMULATIVE_BUDGET,
+            address(reputation),
+            MIN_EFFECTIVE_SCORE,
+            REPUTATION_EPOCH_LENGTH,
+            address(0),
+            0,
+            0,
+            registry,
+            address(adapter)
+        );
+        account = new IntegrityAccount(
+            signer, address(kernel), MODULE_ACTION_TIMELOCK, guardianSet, GUARDIAN_THRESHOLD, RESCUE_TIMELOCK
+        );
+        assertEq(address(account), predictedAccount);
+        vm.deal(address(account), 10 ether);
+        // The atomic initial snapshot taken at kernel construction is already current -- no
+        // refreshReputationSnapshot() call needed (and none is made here, so it cannot warm
+        // anything the measured call would otherwise touch cold).
+    }
+
+    function _setZkBoostExpiry(address subject, uint256 expiry) internal {
+        stdstore.target(address(reputation)).sig("scores(address)").with_key(subject).depth(2).checked_write(expiry);
+    }
+
+    /// @notice The measurement `PRODUCTION_GAPS.md` §54 named as not-yet-done: `preCheck`'s real,
+    /// end-to-end, cold gas cost with the registry genuinely enabled (not the isolated
+    /// `AdapterRegistry.evaluate` figure from §52, and not the disabled-branch figure already
+    /// covered by the existing `test_preCheckGasIsUnderPaperTable4BudgetWithCachedReputation`).
+    /// **Real, disclosed finding: this measures at ~59.2k gas, well OVER the whitepaper's own
+    /// Table 4 `preCheck` ceiling (`<=40k`)** -- a third crossing in this codebase's own history,
+    /// same category as `IntegrityKernel`'s tracked-token check (§41) and joining it as an
+    /// accepted, disclosed boundary rather than a silently-hidden cost. Two extra cold external
+    /// `CALL`s are the whole story: `preCheck` -> `AdapterRegistry.evaluate` ->
+    /// `ReputationFloorAdapter.check` -> `ReputationRegistry.effectiveScore`, each paying
+    /// EIP-2929's cold-access surcharge once. No mitigation attempted as part of this
+    /// measurement -- the registry-enabled configuration is not deployed anywhere, and per this
+    /// codebase's own "measure, don't assume" discipline, this test exists to make the real
+    /// number visible before any deployment decision, not to hide it behind an assumed-cheap
+    /// default.
+    function test_preCheckGasCostWithRegistryEnabled() public {
+        vm.prank(address(account));
+        uint256 gasBefore = gasleft();
+        kernel.preCheck(address(account), 0, "");
+        uint256 gasUsed = gasBefore - gasleft();
+
+        assertGt(
+            gasUsed,
+            50_000,
+            "this test's OWN name/doc asserts an over-budget finding (~59.2k) -- if this now "
+            "fails low, the crossing may have been resolved and this test should be replaced "
+            "with an under-budget assertion, not left stale"
+        );
+        assertLt(
+            gasUsed,
+            65_000,
+            "regression ceiling -- a further, unexplained rise could mean something other than "
+            "the named, understood cost (two cold external CALLs) is now driving this number"
+        );
+
+        vm.prank(address(account));
+        kernel.postCheck(abi.encode(address(account).balance, uint256(0)));
+    }
+}

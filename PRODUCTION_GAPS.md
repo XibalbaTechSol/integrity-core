@@ -3539,24 +3539,36 @@ six properties for any deployment that leaves it disabled (the only configuratio
 exercised). What it does NOT prove: that the properties hold with the registry actually enabled
 and a symbolic/arbitrary adapter installed -- that configuration has zero Halmos coverage.
 
-Gas: `preCheck`'s existing regression-bounded test
+Gas, disabled configuration: `preCheck`'s existing regression-bounded test
 (`test_preCheckGasIsUnderPaperTable4BudgetWithCachedReputation`, asserted range `(30_000, 40_000)`
 gas) still passes unchanged with the new field present but disabled -- consistent with `registryHook`
 being an `immutable` (inlined into runtime bytecode at deploy time via `CODECOPY`, not read via
-`SLOAD`), so the disabled-branch check costs a few gas, not a storage read. The ENABLED
-configuration's real gas cost was measured separately via `AdapterRegistry.evaluate` in isolation
-(~5.4k gas for a `ReputationFloorAdapter` call, `PRODUCTION_GAPS.md` §52's own measurement) -- not
-re-measured end-to-end through a live `preCheck` call with the registry enabled as part of this
-entry; a real measurement of that combined cost against the whitepaper's Table 4 ceiling is
-real, disclosed follow-on work, not claimed here.
+`SLOAD`), so the disabled-branch check costs a few gas, not a storage read.
 
-New test file `test/kernel/IntegrityKernelRegistryHook.t.sol` (3 tests, concrete Foundry only):
+**Gas, ENABLED configuration -- measured end-to-end, real, disclosed finding (2026-08-27):**
+`test_preCheckGasCostWithRegistryEnabled` (`IntegrityKernelRegistryHookGasTest`, its own dedicated
+`setUp()` specifically so the reputation score is set BEFORE the measured call, not inline in the
+test body -- the same same-transaction-warm-read pitfall §41 and #48 both already named, avoided
+here rather than repeated) measures a genuinely cold, live `preCheck` call with the registry
+enabled at **~59.2k gas, pinned to a `(50_000, 65_000)` regression range**. This is well OVER the
+whitepaper's own Table 4 `preCheck` ceiling (`<=40k`) -- a THIRD crossing in this codebase's
+history, same category as `IntegrityKernel`'s tracked-token check (§41). A supplementary spot-check
+(not a pinned test, an equivalent fresh account/kernel pair with the registry disabled) measured
+~24.9k gas for the same call shape, isolating a real ~34k-gas delta attributable to exactly two
+extra cold external `CALL`s: `preCheck` -> `AdapterRegistry.evaluate` ->
+`ReputationFloorAdapter.check` -> `ReputationRegistry.effectiveScore`, each paying EIP-2929's
+cold-access surcharge once. No mitigation attempted -- the registry-enabled configuration is not
+deployed anywhere; this measurement exists so that decision is made with the real number in hand,
+not an assumed-cheap one.
+
+New test file `test/kernel/IntegrityKernelRegistryHook.t.sol` (4 tests, concrete Foundry only):
 constructor reverts on a set-registry-zero-adapter misconfiguration; `execute()` reverts with the
 registry adapter's own reason when the account clears the kernel's OWN reputation floor but not
 the registry adapter's independently-configured (deliberately higher) floor, isolating that the
-NEW check is what actually fired; `execute()` succeeds when both floors are cleared. The new guard
-was mutation-tested (temporarily disabled, confirmed the one test that exercises it then failed
-for the expected reason, restored). Full `contracts/` suite: 434/434.
+NEW check is what actually fired; `execute()` succeeds when both floors are cleared; and the
+end-to-end gas measurement above, in its own dedicated `IntegrityKernelRegistryHookGasTest`
+contract. The new guard was mutation-tested (temporarily disabled, confirmed the one test that
+exercises it then failed for the expected reason, restored). Full `contracts/` suite: 435/435.
 
 **What this does NOT claim:** Halmos coverage for the registry-ENABLED configuration (see above --
 the single largest disclosed gap in this entry). No wiring of the registry into `postCheck` --
