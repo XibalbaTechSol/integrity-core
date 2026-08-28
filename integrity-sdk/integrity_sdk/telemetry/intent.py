@@ -285,9 +285,11 @@ class invoke_intent:
         timestamp_ms: Optional[int] = None,
         covered_entity_address: Optional[str] = None,
         client: Optional[Any] = None,
+        invocation_id: Optional[str] = None,
     ):
         self._client = client
         self._planned_action = planned_action
+        self.invocation_id = invocation_id or bcc.new_invocation_id()
         self.commitment = bcc.build_bcc_commitment(
             agent_id=agent_id,
             intent_type=intent_type,
@@ -298,6 +300,7 @@ class invoke_intent:
             verifying_contract=verifying_contract,
             timestamp_ms=timestamp_ms,
             covered_entity_address=covered_entity_address,
+            invocation_id=self.invocation_id,
         )
         # Carried on the commitment dict under a `_`-prefixed key so
         # `record_outcome` can find it without a second parameter threaded
@@ -318,6 +321,7 @@ class invoke_intent:
             inputs={
                 "intent_type": intent_type,
                 "intent_id": self.intent_id,
+                "invocation_id": self.invocation_id,
                 "goal": goal,
                 "plan": plan,
                 "planned_action": planned_action,
@@ -340,6 +344,7 @@ class invoke_intent:
         self._span_cm = tracer.start_as_current_span("integrity.invoke_intent")
         self._span = self._span_cm.__enter__()
         self._span.set_attribute("integrity.intent.id", self.intent_id)
+        self._span.set_attribute("integrity.invocation.id", self.invocation_id)
         self._span.set_attribute("integrity.intent.type", self.commitment["intent_type"])
         self._span.set_attribute("integrity.run_id", self.run.run_id)
         if self.run.parent_run_id:

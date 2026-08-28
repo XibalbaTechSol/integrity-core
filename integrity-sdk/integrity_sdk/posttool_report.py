@@ -21,13 +21,15 @@ def submit_effect_report(
     intended_state_hash: str,
     effect_hash: str,
     matches: bool,
+    invocation_id: str,
     oracle_url: str,
     timeout: int = 10,
 ) -> Dict[str, Any]:
     """POSTs the intent-vs-effect comparison to integrity-oracle. The oracle inserts a new,
     separate `audit_log` row (event_type="posttool_effect") rather than mutating the original
-    intent row -- append-only, joined by matching `intended_state_hash` values, not by
-    rewriting history. See integrity-oracle/backend/src/handlers.rs's `submit_audit_effect`.
+    intent row -- append-only and correlated by the signed `invocation_id`, not by
+    rewriting history or assuming repeated content hashes are unique. See
+    integrity-oracle/backend/src/handlers.rs's `submit_audit_effect`.
     """
     import requests
     from .telemetry.core import get_tracer
@@ -36,6 +38,7 @@ def submit_effect_report(
     with tracer.start_as_current_span("integrity.posttool.effect_report") as span:
         span.set_attribute("integrity.intent.effect_hash", effect_hash)
         span.set_attribute("integrity.intent.matches_effect", matches)
+        span.set_attribute("integrity.invocation.id", invocation_id)
         try:
             resp = requests.post(
                 f"{oracle_url}/v1/audit/effect",
@@ -44,6 +47,7 @@ def submit_effect_report(
                     "intended_state_hash": intended_state_hash,
                     "effect_hash": effect_hash,
                     "matches": matches,
+                    "invocation_id": invocation_id,
                 },
                 timeout=timeout,
             )
@@ -59,6 +63,7 @@ def report_intent_deviation(
     *,
     agent_id: str,
     intended_state_hash: str,
+    invocation_id: str,
     oracle_url: str,
     timeout: int = 10,
 ) -> Optional[Dict[str, Any]]:
@@ -72,6 +77,7 @@ def report_intent_deviation(
     return submit_effect_report(
         agent_id=agent_id,
         intended_state_hash=intended_state_hash,
+        invocation_id=invocation_id,
         effect_hash=deviation.effect_hash,
         matches=bool(deviation.intent_matches_effect),
         oracle_url=oracle_url,
