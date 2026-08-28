@@ -8,6 +8,7 @@ import {LicenceAccount} from "../src/licence/LicenceAccount.sol";
 import {ILicenceHook} from "../src/licence/ILicenceHook.sol";
 import {IERC6551Registry} from "../src/licence/IERC6551.sol";
 import {LicenceToken} from "../src/licence/LicenceToken.sol";
+import {AdapterRegistry} from "../src/registry/AdapterRegistry.sol";
 
 /// @title DeployLicenceReference
 /// @notice Phase II reference deployment script for one experimental, non-production licence
@@ -67,7 +68,9 @@ contract DeployLicenceReference is Script {
             licenceEndTime,
             protocolFeeRecipient,
             PROTOCOL_FEE_BPS,
-            ILicenceHook(address(0))
+            ILicenceHook(address(0)),
+            AdapterRegistry(address(0)),
+            address(0)
         );
 
         address predicted = ERC6551_REGISTRY.account(

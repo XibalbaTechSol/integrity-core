@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {IERC7579Hook, MODULE_TYPE_HOOK} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReputationRegistry} from "../oracle/ReputationRegistry.sol";
+import {AdapterRegistry} from "../registry/AdapterRegistry.sol";
 
 /// @title IntegrityKernel
 /// @notice Phase I tracer-bullet slice (docs/plans/2026-08-17-phase1-tracer-bullet-proposal.md),
@@ -158,6 +159,7 @@ contract IntegrityKernel is IERC7579Hook {
     error ZeroReputationRegistry();
     error ZeroMinEffectiveScore();
     error ZeroEpochLength();
+    error ZeroRegistryAdapter();
     error EpochLengthTooLong(uint256 requested, uint256 maxAllowed);
     error BoostConstantsMismatch(
         uint256 localBps, uint256 registryBps, uint256 localDenominator, uint256 registryDenominator
@@ -188,6 +190,24 @@ contract IntegrityKernel is IERC7579Hook {
     /// `IntegrityAccount` registers itself as `primitives.sovereignAgent`), never a separate
     /// configurable address.
     ReputationRegistry public immutable reputationRegistry;
+
+    /// @dev Phase III adapter registry (`AdapterRegistry.sol`, `PRODUCTION_GAPS.md` §54): a
+    /// SECOND, independent, additive precondition alongside the cached reputation/assurance-tier
+    /// checks above -- same `address(0)`-disables convention as `trackedToken`. Checked in
+    /// `preCheck`, AFTER the existing checks, via `registryHook.evaluate(registryAdapter,
+    /// boundAccount, value)` where `value` is the wrapped call's own native value (the same
+    /// number the per-op/cumulative budget checks below ultimately measure a real delta against
+    /// in `postCheck` -- this check does NOT independently verify a delta itself, it only forwards
+    /// the declared value to whatever adapter is registered). **Halmos coverage does NOT extend to
+    /// this branch**: `HalmosKernelFixture.sol` always constructs this kernel with
+    /// `AdapterRegistry(address(0))`, so the six machine-checked properties above were re-run and
+    /// confirmed to still hold with this feature ADDED-BUT-DISABLED (6/6 passed,
+    /// `PRODUCTION_GAPS.md` §54's own record) -- proving this addition does not regress anyone who
+    /// leaves it off, NOT that the properties hold with the registry actually enabled. That
+    /// configuration is concrete-Foundry-tested only (`test/kernel/IntegrityKernelRegistryHook.t.sol`),
+    /// same disclosed-gap category as `LicenceAccount`'s own hook slots.
+    AdapterRegistry public immutable registryHook;
+    address public immutable registryAdapter;
     uint256 public immutable minEffectiveScore;
 
     /// @dev Mirrors `ReputationRegistry.ZK_BOOST_BPS`/`BPS_DENOMINATOR` locally so
@@ -242,8 +262,13 @@ contract IntegrityKernel is IERC7579Hook {
         uint256 epochLengthSeconds_,
         address trackedToken_,
         uint256 tokenPerOpBudgetWei_,
-        uint256 tokenCumulativeBudgetWei_
+        uint256 tokenCumulativeBudgetWei_,
+        AdapterRegistry registryHook_,
+        address registryAdapter_
     ) {
+        if (address(registryHook_) != address(0) && registryAdapter_ == address(0)) {
+            revert ZeroRegistryAdapter();
+        }
         if (boundAccount_ == address(0)) revert ZeroAccount();
         if (perOpBudgetWei_ == 0 || cumulativeBudgetWei_ == 0) revert ZeroBudget();
         if (reputationRegistry_ == address(0)) revert ZeroReputationRegistry();
@@ -268,6 +293,8 @@ contract IntegrityKernel is IERC7579Hook {
         reputationRegistry = registry;
         minEffectiveScore = minEffectiveScore_;
         epochLengthSeconds = epochLengthSeconds_;
+        registryHook = registryHook_;
+        registryAdapter = registryAdapter_;
 
         // Verified once, at deploy time, not merely asserted in a test: the locally-mirrored
         // ZK_BOOST_BPS/BPS_DENOMINATOR must match the REAL bound registry's own values, or every
@@ -322,7 +349,7 @@ contract IntegrityKernel is IERC7579Hook {
     /// @dev Snapshots the bound account's native balance. Returns it ABI-encoded as `hookData`,
     /// threaded directly to `postCheck` by the account's own `withHook` modifier -- no kernel
     /// storage needed for the snapshot itself, only for the `armed` guard.
-    function preCheck(address, uint256, bytes calldata) external onlyBoundAccount returns (bytes memory hookData) {
+    function preCheck(address, uint256 value, bytes calldata) external onlyBoundAccount returns (bytes memory hookData) {
         if (armed) revert AlreadyArmed();
 
         // Reputation epoch-snapshotting (docs/plans/2026-08-17-phase1-reputation-snapshot-proposal.md):
@@ -340,6 +367,14 @@ contract IntegrityKernel is IERC7579Hook {
         // uniform deliberately, see the snapshot proposal doc's rejected-alternative section for
         // why a separately-cached raw zkBoostExpiry was considered and rejected.
         if (!snapshotIsZkBoosted) revert AssuranceTierNotMet(boundAccount);
+
+        // Phase III adapter registry (PRODUCTION_GAPS.md #54): a SECOND, independent additive
+        // precondition, AFTER the existing cached checks above, same address(0)-disables
+        // convention as trackedToken. See this contract's own top-level NatSpec for what this
+        // does and does not claim (notably: no Halmos coverage for the enabled configuration).
+        if (address(registryHook) != address(0)) {
+            registryHook.evaluate(registryAdapter, boundAccount, value);
+        }
 
         armed = true;
         // Declared multi-asset value conservation: the tracked token's balance must be read

@@ -7,6 +7,7 @@ import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {Nonces} from "@openzeppelin/contracts/utils/Nonces.sol";
 import {IERC6551Account} from "./IERC6551.sol";
 import {ILicenceHook} from "./ILicenceHook.sol";
+import {AdapterRegistry} from "../registry/AdapterRegistry.sol";
 
 /// @title LicenceAccount
 /// @notice Phase II tracer-bullet slice
@@ -122,6 +123,17 @@ import {ILicenceHook} from "./ILicenceHook.sol";
 /// `ReputationFloorLicenceHook.sol`, reading `ReputationRegistry.effectiveScore` LIVE (no
 /// epoch-snapshot cache, unlike `IntegrityKernel`'s own reputation check -- disclosed design
 /// choice, see that contract's own NatSpec).
+///
+/// **Phase III adapter registry** (`AdapterRegistry.sol`, `PRODUCTION_GAPS.md` §53): a SECOND,
+/// independent, additive precondition slot -- `registryHook`/`registryAdapter`, both immutable,
+/// `address(registryHook) == address(0)` disables it. Deliberately NOT a replacement for `hook`
+/// above; `ILicenceHook` and `IAdapter` are different interfaces by design (see
+/// `docs/design/phase3-adapter-encoding-strategy-2026-08-25.md`'s own open question on whether
+/// they should ever merge -- not resolved here). When enabled, `_consume()` calls
+/// `registryHook.evaluate(registryAdapter, consumer, royaltyDue)` AFTER `hook` (if also set),
+/// both additive, both able to independently reject. Reverts with whatever `AdapterRegistry.
+/// evaluate` itself reverts with -- see that contract's own NatSpec for the exact
+/// adapter-rejection-vs-gas-bound-exceeded distinction and its disclosed limitation.
 contract LicenceAccount is IERC6551Account, EIP712, Nonces {
     error NotAuthorized(address caller);
     error UnsupportedOperation(uint8 operation);
@@ -141,6 +153,7 @@ contract LicenceAccount is IERC6551Account, EIP712, Nonces {
     error IntentExpired(uint256 expiry, uint256 currentTime);
     error IntentDomainMismatch(address expected, address actual);
     error ZeroFeeRecipient(uint256 feeBps);
+    error ZeroRegistryAdapter();
     error ProtocolFeeTransferFailed(bytes returndata);
 
     event Consumed(uint256 units, uint256 royaltyPaid, uint256 totalConsumed);
@@ -190,6 +203,19 @@ contract LicenceAccount is IERC6551Account, EIP712, Nonces {
     // see ILicenceHook's own doc comment for exactly what this does and does not claim.
     ILicenceHook public immutable hook;
 
+    // --- Phase III adapter registry (PRODUCTION_GAPS.md §52/§53): a SECOND, independent,
+    // additive precondition slot alongside `hook` above -- deliberately not a replacement.
+    // `hook`'s ILicenceHook interface and IAdapter are different by design (see
+    // docs/design/phase3-adapter-encoding-strategy-2026-08-25.md's own open question on whether
+    // they should ever merge); this is not that merge. address(registryHook) == address(0)
+    // disables this slot entirely, same convention as `hook` and `trackedToken` elsewhere in this
+    // codebase. When enabled, `_consume()` calls
+    // `registryHook.evaluate(registryAdapter, consumer, royaltyDue)` -- an adapter registered
+    // there sees the consumer as `subject` and the royalty due as `amount`, mirroring
+    // SpendBudgetAdapter's own parameter shape.
+    AdapterRegistry public immutable registryHook;
+    address public immutable registryAdapter;
+
     // --- live state
     uint256 public consumedUnits;
     uint256 public state;
@@ -207,8 +233,13 @@ contract LicenceAccount is IERC6551Account, EIP712, Nonces {
         uint256 licenceEndTime_,
         address protocolFeeRecipient_,
         uint256 protocolFeeBps_,
-        ILicenceHook hook_
+        ILicenceHook hook_,
+        AdapterRegistry registryHook_,
+        address registryAdapter_
     ) EIP712("LicenceAccount", "1") {
+        if (address(registryHook_) != address(0) && registryAdapter_ == address(0)) {
+            revert ZeroRegistryAdapter();
+        }
         if (tokenContractAddr_ == address(0)) revert ZeroTokenContract();
         if (volumeCapTotal_ == 0) revert ZeroVolumeCap();
         if (licenceStartTime_ >= licenceEndTime_) revert StartNotBeforeEnd(licenceStartTime_, licenceEndTime_);
@@ -224,6 +255,8 @@ contract LicenceAccount is IERC6551Account, EIP712, Nonces {
         protocolFeeRecipient = protocolFeeRecipient_;
         protocolFeeBps = protocolFeeBps_;
         hook = hook_;
+        registryHook = registryHook_;
+        registryAdapter = registryAdapter_;
     }
 
     receive() external payable {}
@@ -330,6 +363,14 @@ contract LicenceAccount is IERC6551Account, EIP712, Nonces {
         // directly -- no partial consumption, same discipline as every other check here.
         if (address(hook) != address(0)) {
             hook.preConsume(address(this), consumer, units, royaltyDue);
+        }
+
+        // Phase III adapter registry (PRODUCTION_GAPS.md §53): a SECOND, independent additive
+        // precondition, same placement discipline as `hook` above -- after this contract's own
+        // checks, before any state change. Reverts with whatever AdapterRegistry.evaluate itself
+        // reverts with (the registered adapter's own reason, or AdapterExceededGasBound).
+        if (address(registryHook) != address(0)) {
+            registryHook.evaluate(registryAdapter, consumer, royaltyDue);
         }
 
         consumedUnits += units;

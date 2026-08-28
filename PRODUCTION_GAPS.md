@@ -3479,3 +3479,88 @@ admission/metered-call machinery in isolation, nothing more. The gas-bound-excee
 from an otherwise well-behaved adapter is indistinguishable from real out-of-gas, and this entry's
 own mutation test proves that limitation directly rather than only describing it. Not deployed to
 any live network as part of this entry.
+
+## 53. `AdapterRegistry` wired into `LicenceAccount` as a second, independent hook slot (2026-08-27)
+
+*Current State:* `LicenceAccount` gains a second, immutable, additive precondition slot --
+`registryHook` (`AdapterRegistry`) and `registryAdapter` (the specific adapter to evaluate) --
+alongside the existing `hook` (`ILicenceHook`) slot from §51. `address(registryHook) == address(0)`
+disables it, matching every other `address(0)`-disables convention in this codebase. When enabled,
+`_consume()` calls `registryHook.evaluate(registryAdapter, consumer, royaltyDue)` AFTER `hook` (if
+also set) and after this contract's own volume-cap/royalty/expiry checks, before any state change
+-- both slots are genuinely independent and additive, proven directly (`test_bothHookSlotsAreIndependentAndAdditive`
+installs both an always-allow `ILicenceHook` and a rejecting registry adapter simultaneously, and
+confirms the always-allow hook's own `callCount` only increments on the call that ACTUALLY
+succeeds, not the one that reverted from the other slot).
+
+Deliberately NOT a replacement for `hook` and NOT a merge of `ILicenceHook`/`IAdapter` -- that
+question remains open per `docs/design/phase3-adapter-encoding-strategy-2026-08-25.md`'s own
+unresolved-questions section, not decided by this entry. All 8 existing `LicenceAccount`
+constructor call sites (tests + `DeployLicenceReference.s.sol`) updated to pass
+`AdapterRegistry(address(0)), address(0)` for the two new trailing params, preserving identical
+behavior -- the full pre-existing licence suite (69 tests as of §51/§52) passes unchanged.
+
+New tests in `test/licence/LicenceAccountHook.t.sol` (`LicenceAccountRegistryHookTest`, 4 tests):
+constructor reverts when the registry is set but the adapter address is zero
+(`ZeroRegistryAdapter`); `consume()` reverts with the registered adapter's own reason when the
+consumer fails the registry check; succeeds when the consumer passes; both slots installed
+simultaneously are proven genuinely independent. The new guard in `_consume()` was
+mutation-tested (temporarily disabled, confirmed exactly the 2 tests that exercise it then failed,
+restored). Full `contracts/` suite: 431/431.
+
+## 54. `AdapterRegistry` wired into `IntegrityKernel.preCheck` -- Halmos re-verified for the disabled configuration only (2026-08-27)
+
+*Current State:* per explicit user direction to wire the Phase III registry into both
+`LicenceAccount` (§53) and `IntegrityKernel`, with two decisions made in chat before any code was
+written (this repo's own proposal-authorization discipline, exercised as a conversational
+check-in rather than a written document given the narrow, mechanical nature of the change): (1)
+run Halmos against a draft before committing to the approach, stopping if any of the kernel's six
+machine-checked properties broke; (2) add the registry to `LicenceAccount` as a SECOND, separate
+slot alongside `hook`, not a replacement.
+
+`IntegrityKernel` gains the identical pattern: immutable `registryHook`/`registryAdapter` (10th/
+11th constructor params, after the existing 9), `address(0)` disables. `preCheck` calls
+`registryHook.evaluate(registryAdapter, boundAccount, value)` (`value` is the wrapped call's own
+native value, the same `IERC7579Hook.preCheck` parameter the existing budget checks ultimately
+measure a delta against in `postCheck`) AFTER the existing cached reputation/assurance-tier
+checks, before `armed = true`. All 3 real constructor call sites (`HalmosKernelFixture.sol`,
+10 sites in `IntegrityAccount.t.sol`, `DeployKernelReference.s.sol`) updated to pass
+`AdapterRegistry(address(0)), address(0)`.
+
+**Halmos baseline, unmodified kernel:** 6 passed, 0 failed, 8.16s (`KernelPropertiesTest`, all six
+properties from `PRODUCTION_GAPS.md` §43). **Halmos against the draft wiring:** 6 passed, 0
+failed, 6.90s (first placement, check before the reputation checks) and again 6 passed, 0 failed,
+7.67s (final placement, check after the reputation checks, matching this entry's own described
+call order). **This is a real, disclosed limitation, not a clean bill of health:**
+`HalmosKernelFixture.sol` always constructs the kernel with `AdapterRegistry(address(0))`, so the
+new `if (address(registryHook) != address(0))` branch was UNREACHABLE in every symbolic path
+Halmos explored across all three runs. What this proves: adding the feature does not regress the
+six properties for any deployment that leaves it disabled (the only configuration Halmos actually
+exercised). What it does NOT prove: that the properties hold with the registry actually enabled
+and a symbolic/arbitrary adapter installed -- that configuration has zero Halmos coverage.
+
+Gas: `preCheck`'s existing regression-bounded test
+(`test_preCheckGasIsUnderPaperTable4BudgetWithCachedReputation`, asserted range `(30_000, 40_000)`
+gas) still passes unchanged with the new field present but disabled -- consistent with `registryHook`
+being an `immutable` (inlined into runtime bytecode at deploy time via `CODECOPY`, not read via
+`SLOAD`), so the disabled-branch check costs a few gas, not a storage read. The ENABLED
+configuration's real gas cost was measured separately via `AdapterRegistry.evaluate` in isolation
+(~5.4k gas for a `ReputationFloorAdapter` call, `PRODUCTION_GAPS.md` §52's own measurement) -- not
+re-measured end-to-end through a live `preCheck` call with the registry enabled as part of this
+entry; a real measurement of that combined cost against the whitepaper's Table 4 ceiling is
+real, disclosed follow-on work, not claimed here.
+
+New test file `test/kernel/IntegrityKernelRegistryHook.t.sol` (3 tests, concrete Foundry only):
+constructor reverts on a set-registry-zero-adapter misconfiguration; `execute()` reverts with the
+registry adapter's own reason when the account clears the kernel's OWN reputation floor but not
+the registry adapter's independently-configured (deliberately higher) floor, isolating that the
+NEW check is what actually fired; `execute()` succeeds when both floors are cleared. The new guard
+was mutation-tested (temporarily disabled, confirmed the one test that exercises it then failed
+for the expected reason, restored). Full `contracts/` suite: 434/434.
+
+**What this does NOT claim:** Halmos coverage for the registry-ENABLED configuration (see above --
+the single largest disclosed gap in this entry). No wiring of the registry into `postCheck` --
+only `preCheck` was touched; a hypothetical adapter needing a balance-delta postcondition (the way
+the kernel's own spend-budget check works) is not supported by this slice. No change to
+`IntegrityAccount`'s own governance/timelock/guardian logic -- untouched. Not deployed to any live
+network as part of this entry.

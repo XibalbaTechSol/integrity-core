@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {IntegrityAccount} from "../../src/kernel/IntegrityAccount.sol";
 import {IntegrityKernel} from "../../src/kernel/IntegrityKernel.sol";
+import {AdapterRegistry} from "../../src/registry/AdapterRegistry.sol";
 import {ReputationRegistry} from "../../src/oracle/ReputationRegistry.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {MODULE_TYPE_HOOK} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
@@ -120,7 +121,9 @@ abstract contract HalmosKernelFixture is Test {
             REPUTATION_EPOCH_LENGTH,
             trackedToken,
             tokenPerOpBudget,
-            tokenCumulativeBudget
+            tokenCumulativeBudget,
+            AdapterRegistry(address(0)),
+            address(0)
         );
     }
 

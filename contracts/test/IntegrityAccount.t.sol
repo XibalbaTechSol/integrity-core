@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {StdStorage, stdStorage} from "forge-std/StdStorage.sol";
 import {IntegrityAccount} from "../src/kernel/IntegrityAccount.sol";
 import {IntegrityKernel} from "../src/kernel/IntegrityKernel.sol";
+import {AdapterRegistry} from "../src/registry/AdapterRegistry.sol";
 import {ReputationRegistry} from "../src/oracle/ReputationRegistry.sol";
 import {IntegrityToken} from "../src/oracle/IntegrityToken.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -294,7 +295,7 @@ contract IntegrityAccountTest is Test {
             address(0),
             0,
             0
-        );
+        , AdapterRegistry(address(0)), address(0));
         account = new IntegrityAccount(
             signer, address(kernel), MODULE_ACTION_TIMELOCK, guardianSet, GUARDIAN_THRESHOLD, RESCUE_TIMELOCK
         );
@@ -317,7 +318,7 @@ contract IntegrityAccountTest is Test {
             address(token),
             TOKEN_PER_OP_BUDGET,
             TOKEN_CUMULATIVE_BUDGET
-        );
+        , AdapterRegistry(address(0)), address(0));
         tokenAccount = new IntegrityAccount(
             signer, address(tokenKernel), MODULE_ACTION_TIMELOCK, guardianSet, GUARDIAN_THRESHOLD, RESCUE_TIMELOCK
         );
@@ -892,7 +893,7 @@ contract IntegrityAccountTest is Test {
         new IntegrityKernel(
             address(account), PER_OP_BUDGET, CUMULATIVE_BUDGET, address(reputation), MIN_EFFECTIVE_SCORE, 0,
             address(0), 0, 0
-        );
+        , AdapterRegistry(address(0)), address(0));
     }
 
     /// @dev SUPERSEDES an earlier version of this test that only compared two hardcoded literals
@@ -935,7 +936,7 @@ contract IntegrityAccountTest is Test {
             address(0),
             0,
             0
-        );
+        , AdapterRegistry(address(0)), address(0));
     }
 
     function test_constructorRevertsOnEpochLengthTooLong() public {
@@ -948,7 +949,7 @@ contract IntegrityAccountTest is Test {
         new IntegrityKernel(
             address(account), PER_OP_BUDGET, CUMULATIVE_BUDGET, address(reputation), MIN_EFFECTIVE_SCORE, tooLong,
             address(0), 0, 0
-        );
+        , AdapterRegistry(address(0)), address(0));
     }
 
     function test_refreshReputationSnapshotEmitsEvent() public {
@@ -1008,7 +1009,7 @@ contract IntegrityAccountTest is Test {
             address(0),
             0,
             0
-        );
+        , AdapterRegistry(address(0)), address(0));
     }
 
     function test_proposeKernelSwapRevertsOnZeroKernel() public {
@@ -1240,7 +1241,7 @@ contract IntegrityAccountTest is Test {
         IntegrityKernel mismatchedKernel = new IntegrityKernel(
             address(this), PER_OP_BUDGET, CUMULATIVE_BUDGET, address(reputation), MIN_EFFECTIVE_SCORE, shortEpoch,
             address(0), 0, 0
-        );
+        , AdapterRegistry(address(0)), address(0));
         vm.expectRevert(
             abi.encodeWithSelector(
                 IntegrityAccount.EpochTooShortForTimelock.selector, shortEpoch, MODULE_ACTION_TIMELOCK
@@ -1256,7 +1257,7 @@ contract IntegrityAccountTest is Test {
         IntegrityKernel mismatchedKernel = new IntegrityKernel(
             address(account), PER_OP_BUDGET, CUMULATIVE_BUDGET, address(reputation), MIN_EFFECTIVE_SCORE, shortEpoch,
             address(0), 0, 0
-        );
+        , AdapterRegistry(address(0)), address(0));
         vm.expectRevert(
             abi.encodeWithSelector(
                 IntegrityAccount.EpochTooShortForTimelock.selector, shortEpoch, MODULE_ACTION_TIMELOCK
@@ -1271,7 +1272,7 @@ contract IntegrityAccountTest is Test {
         IntegrityKernel mismatchedKernel = new IntegrityKernel(
             address(account), PER_OP_BUDGET, CUMULATIVE_BUDGET, address(reputation), MIN_EFFECTIVE_SCORE, shortEpoch,
             address(0), 0, 0
-        );
+        , AdapterRegistry(address(0)), address(0));
         vm.expectRevert(
             abi.encodeWithSelector(
                 IntegrityAccount.EpochTooShortForTimelock.selector, shortEpoch, MODULE_ACTION_TIMELOCK
@@ -2667,7 +2668,7 @@ contract IntegrityAccountTest is Test {
             address(token),
             0,
             TOKEN_CUMULATIVE_BUDGET
-        );
+        , AdapterRegistry(address(0)), address(0));
     }
 
     function test_zeroTokenBudgetsAreAllowedWhenTrackedTokenIsDisabled() public {

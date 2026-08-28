@@ -8,6 +8,8 @@ import {LicenceAccount} from "../../src/licence/LicenceAccount.sol";
 import {ILicenceHook} from "../../src/licence/ILicenceHook.sol";
 import {ReputationFloorLicenceHook} from "../../src/licence/ReputationFloorLicenceHook.sol";
 import {ReputationRegistry} from "../../src/oracle/ReputationRegistry.sol";
+import {AdapterRegistry} from "../../src/registry/AdapterRegistry.sol";
+import {ReputationFloorAdapter} from "../../src/registry/ReputationFloorAdapter.sol";
 
 /// @notice Kernel-hook slice for `LicenceAccount` (whitepaper §5.3 "the same mechanism serves
 /// both") -- see `ILicenceHook.sol`'s own doc comment for exactly what this proves and does not.
@@ -64,7 +66,17 @@ contract LicenceAccountHookTest is Test {
         hook = new MockLicenceHook();
 
         account = new LicenceAccount(
-            address(licenceToken), tokenId, VOLUME_CAP, ROYALTY_PER_UNIT, LICENCE_START, LICENCE_END, address(0), 0, hook
+            address(licenceToken),
+            tokenId,
+            VOLUME_CAP,
+            ROYALTY_PER_UNIT,
+            LICENCE_START,
+            LICENCE_END,
+            address(0),
+            0,
+            hook,
+            AdapterRegistry(address(0)),
+            address(0)
         );
         vm.deal(licensee, 100 ether);
     }
@@ -79,7 +91,9 @@ contract LicenceAccountHookTest is Test {
             LICENCE_END,
             address(0),
             0,
-            ILicenceHook(address(0))
+            ILicenceHook(address(0)),
+            AdapterRegistry(address(0)),
+            address(0)
         );
         vm.prank(licensee);
         noHookAccount.consume{value: ROYALTY_PER_UNIT}(1);
@@ -198,7 +212,17 @@ contract ReputationFloorLicenceHookTest is Test {
         licenceToken = new LicenceToken(operator);
         tokenId = licenceToken.mint(licensee);
         account = new LicenceAccount(
-            address(licenceToken), tokenId, VOLUME_CAP, ROYALTY_PER_UNIT, LICENCE_START, LICENCE_END, address(0), 0, hook
+            address(licenceToken),
+            tokenId,
+            VOLUME_CAP,
+            ROYALTY_PER_UNIT,
+            LICENCE_START,
+            LICENCE_END,
+            address(0),
+            0,
+            hook,
+            AdapterRegistry(address(0)),
+            address(0)
         );
         vm.deal(licensee, 100 ether);
     }
@@ -251,5 +275,137 @@ contract ReputationFloorLicenceHookTest is Test {
         vm.prank(licensee);
         account.consume{value: ROYALTY_PER_UNIT}(1);
         assertEq(account.consumedUnits(), 1);
+    }
+}
+
+/// @notice The Phase III `registryHook` slot (`PRODUCTION_GAPS.md` §53) -- a SECOND, independent
+/// precondition alongside `hook`, proven separately here rather than folded into
+/// `LicenceAccountHookTest` above, since it exercises a materially different call path
+/// (`AdapterRegistry.evaluate`, not a direct `ILicenceHook` call).
+contract LicenceAccountRegistryHookTest is Test {
+    LicenceToken licenceToken;
+    LicenceAccount account;
+    AdapterRegistry registry;
+    ReputationFloorAdapter adapter;
+    ReputationRegistry reputation;
+
+    address licensee = makeAddr("licensee");
+    address operator = address(this);
+
+    uint256 constant VOLUME_CAP = 100;
+    uint256 constant ROYALTY_PER_UNIT = 0.01 ether;
+    uint256 constant LICENCE_START = 1000;
+    uint256 constant LICENCE_DURATION = 30 days;
+    uint256 constant MIN_EFFECTIVE_SCORE = 500;
+    uint256 LICENCE_END;
+
+    uint256 tokenId;
+
+    function setUp() public {
+        vm.warp(LICENCE_START);
+        LICENCE_END = LICENCE_START + LICENCE_DURATION;
+
+        address reputationImpl = address(new ReputationRegistry());
+        reputation = ReputationRegistry(Clones.clone(reputationImpl));
+        reputation.initialize(address(this), address(this), address(0), address(0));
+
+        registry = new AdapterRegistry();
+        adapter = new ReputationFloorAdapter(reputation, MIN_EFFECTIVE_SCORE);
+        registry.register(address(adapter), 200_000, keccak256("reputation-floor-v1"));
+
+        licenceToken = new LicenceToken(operator);
+        tokenId = licenceToken.mint(licensee);
+        account = new LicenceAccount(
+            address(licenceToken),
+            tokenId,
+            VOLUME_CAP,
+            ROYALTY_PER_UNIT,
+            LICENCE_START,
+            LICENCE_END,
+            address(0),
+            0,
+            ILicenceHook(address(0)),
+            registry,
+            address(adapter)
+        );
+        vm.deal(licensee, 100 ether);
+    }
+
+    function test_constructorRevertsWhenRegistrySetButAdapterIsZero() public {
+        vm.expectRevert(LicenceAccount.ZeroRegistryAdapter.selector);
+        new LicenceAccount(
+            address(licenceToken),
+            tokenId,
+            VOLUME_CAP,
+            ROYALTY_PER_UNIT,
+            LICENCE_START,
+            LICENCE_END,
+            address(0),
+            0,
+            ILicenceHook(address(0)),
+            registry,
+            address(0)
+        );
+    }
+
+    function test_consumeRevertsWhenConsumerReputationBelowFloorThroughRegistry() public {
+        reputation.updateScore(licensee, MIN_EFFECTIVE_SCORE - 1);
+        vm.prank(licensee);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ReputationFloorAdapter.ReputationBelowFloor.selector, licensee, MIN_EFFECTIVE_SCORE - 1, MIN_EFFECTIVE_SCORE
+            )
+        );
+        account.consume{value: ROYALTY_PER_UNIT}(1);
+        assertEq(account.consumedUnits(), 0);
+    }
+
+    function test_consumeSucceedsAboveFloorThroughRegistry() public {
+        reputation.updateScore(licensee, MIN_EFFECTIVE_SCORE + 1);
+        vm.prank(licensee);
+        account.consume{value: ROYALTY_PER_UNIT}(1);
+        assertEq(account.consumedUnits(), 1);
+    }
+
+    function test_bothHookSlotsAreIndependentAndAdditive() public {
+        // Install BOTH slots: a MockLicenceHook that always allows, plus the registry adapter
+        // that rejects below-floor reputation -- proves the two slots are genuinely independent
+        // (this account's own constructor accepts both simultaneously) and that a rejection from
+        // EITHER slot blocks consumption.
+        MockLicenceHook alwaysAllowHook = new MockLicenceHook();
+        LicenceAccount bothSlotsAccount = new LicenceAccount(
+            address(licenceToken),
+            tokenId,
+            VOLUME_CAP,
+            ROYALTY_PER_UNIT,
+            LICENCE_START,
+            LICENCE_END,
+            address(0),
+            0,
+            alwaysAllowHook,
+            registry,
+            address(adapter)
+        );
+
+        // Below the floor: the WHOLE call reverts (a revert rolls back every state change made
+        // during it, including the hook's own callCount increment -- so callCount cannot be
+        // asserted here; the revert itself is the proof this slot ran and rejected).
+        reputation.updateScore(licensee, MIN_EFFECTIVE_SCORE - 1);
+        vm.prank(licensee);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ReputationFloorAdapter.ReputationBelowFloor.selector, licensee, MIN_EFFECTIVE_SCORE - 1, MIN_EFFECTIVE_SCORE
+            )
+        );
+        bothSlotsAccount.consume{value: ROYALTY_PER_UNIT}(1);
+        assertEq(alwaysAllowHook.callCount(), 0); // rolled back along with everything else
+
+        // Above the floor: the call succeeds, and NOW callCount really did increment -- direct
+        // proof both slots genuinely ran, not merely one masking the other.
+        reputation.updateScore(licensee, MIN_EFFECTIVE_SCORE);
+        vm.prank(licensee);
+        bothSlotsAccount.consume{value: ROYALTY_PER_UNIT}(1);
+        assertEq(alwaysAllowHook.callCount(), 1);
+        assertEq(bothSlotsAccount.consumedUnits(), 1);
     }
 }

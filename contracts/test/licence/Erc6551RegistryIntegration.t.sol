@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {LicenceToken} from "../../src/licence/LicenceToken.sol";
 import {LicenceAccount} from "../../src/licence/LicenceAccount.sol";
 import {ILicenceHook} from "../../src/licence/ILicenceHook.sol";
+import {AdapterRegistry} from "../../src/registry/AdapterRegistry.sol";
 import {IERC6551Account, IERC6551Registry} from "../../src/licence/IERC6551.sol";
 
 /// @notice Phase II tracer-bullet slice
@@ -57,7 +58,7 @@ contract Erc6551RegistryIntegrationTest is Test {
         // implementation's immutables are baked into ITS bytecode; a delegatecall proxy reads
         // them as inlined constants, not storage, so this works correctly through a proxy too.
         implementation =
-            new LicenceAccount(address(licenceToken), tokenId, VOLUME_CAP, ROYALTY_PER_UNIT, licenceStart, licenceEnd, address(0), 0, ILicenceHook(address(0)));
+            new LicenceAccount(address(licenceToken), tokenId, VOLUME_CAP, ROYALTY_PER_UNIT, licenceStart, licenceEnd, address(0), 0, ILicenceHook(address(0)), AdapterRegistry(address(0)), address(0));
     }
 
     function _predictedAndActual() internal returns (address predicted, address actual) {

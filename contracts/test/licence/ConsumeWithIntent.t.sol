@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {LicenceToken} from "../../src/licence/LicenceToken.sol";
 import {LicenceAccount} from "../../src/licence/LicenceAccount.sol";
 import {ILicenceHook} from "../../src/licence/ILicenceHook.sol";
+import {AdapterRegistry} from "../../src/registry/AdapterRegistry.sol";
 import {Nonces} from "@openzeppelin/contracts/utils/Nonces.sol";
 
 /// @notice Phase II ATCP/IP signed-intent slice
@@ -43,7 +44,7 @@ contract ConsumeWithIntentTest is Test {
         tokenId = licenceToken.mint(licensee);
 
         account = new LicenceAccount(
-            address(licenceToken), tokenId, VOLUME_CAP, ROYALTY_PER_UNIT, LICENCE_START, LICENCE_END, address(0), 0, ILicenceHook(address(0))
+            address(licenceToken), tokenId, VOLUME_CAP, ROYALTY_PER_UNIT, LICENCE_START, LICENCE_END, address(0), 0, ILicenceHook(address(0)), AdapterRegistry(address(0)), address(0)
         );
 
         vm.deal(relayer, 100 ether);
@@ -214,7 +215,7 @@ contract ConsumeWithIntentTest is Test {
 
     function test_intentSignedForADifferentAccountReverts() public {
         LicenceAccount otherAccount = new LicenceAccount(
-            address(licenceToken), tokenId, VOLUME_CAP, ROYALTY_PER_UNIT, LICENCE_START, LICENCE_END, address(0), 0, ILicenceHook(address(0))
+            address(licenceToken), tokenId, VOLUME_CAP, ROYALTY_PER_UNIT, LICENCE_START, LICENCE_END, address(0), 0, ILicenceHook(address(0)), AdapterRegistry(address(0)), address(0)
         );
 
         // Intent's `account` field names `otherAccount`, but we submit it against `account`.
