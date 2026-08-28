@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { NavLink, Link } from 'react-router-dom';
-import { LayoutDashboard, Key, DollarSign, Activity, ShieldCheck, Code, BrainCircuit, BookOpen, ChevronLeft, ChevronRight, User, Settings, LogIn, LogOut, Database, TrendingUp, FileText, Cpu } from 'lucide-react';
+import { LayoutDashboard, Key, DollarSign, Activity, ShieldCheck, Code, BrainCircuit, BookOpen, ChevronLeft, ChevronRight, User, Settings, LogIn, LogOut, Database, TrendingUp, FileText, Cpu, GitCompare } from 'lucide-react';
 import { useDashboard } from '../context/DashboardContext';
 
 export function Sidebar() {
@@ -33,6 +33,7 @@ export function Sidebar() {
       items: [
         { to: '/identity', label: 'Identity', icon: <Key size={20} /> },
         { to: '/kernel', label: 'Kernel & Guardians', icon: <Cpu size={20} /> },
+        { to: '/kernel-intent', label: 'Kernel Intent', icon: <GitCompare size={20} /> },
         { to: '/financials', label: 'Financials', icon: <DollarSign size={20} /> },
         { to: '/intelligence', label: 'Intelligence', icon: <BrainCircuit size={20} /> },
       ],

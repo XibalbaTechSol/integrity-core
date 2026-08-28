@@ -11,6 +11,7 @@ import ShieldPage from './pages/ShieldPage';
 import QuantPage from './pages/QuantPage';
 import LicencePage from './pages/LicencePage';
 import KernelPage from './pages/KernelPage';
+import KernelIntentPage from './pages/KernelIntentPage';
 import AuthPage from './pages/AuthPage';
 import SettingsPage from './pages/SettingsPage';
 import { DeveloperPage } from './pages/DeveloperPage';
@@ -51,6 +52,7 @@ function App() {
             <Route path="/quant" element={<QuantPage />} />
             <Route path="/licence" element={<LicencePage />} />
             <Route path="/kernel" element={<KernelPage />} />
+            <Route path="/kernel-intent" element={<KernelIntentPage />} />
             <Route path="/memory" element={<MemoryPage />} />
             <Route path="/developer" element={<DeveloperPage />} />
             <Route path="/settings" element={<SettingsPage />} />

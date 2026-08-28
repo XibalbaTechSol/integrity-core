@@ -12,6 +12,8 @@ import type {
     GraphPayload,
     InferenceManifest,
     InferenceTask,
+    KernelDecision,
+    KernelIntentTriple,
     ParaClassification,
     IntegrityLinksStatus,
     Memory,
@@ -37,6 +39,8 @@ export type {
     GraphPayload,
     InferenceManifest,
     InferenceTask,
+    KernelDecision,
+    KernelIntentTriple,
     ParaClassification,
     IntegrityLinkRecord,
     IntegrityLinksStatus,
@@ -95,6 +99,7 @@ export const graphMemory = {
     sessions: (limit = 100) => getJson<Session[]>(`/api/sessions?limit=${limit}`),
     sessionExchanges: (id: string) => getJson<Exchange[]>(`/api/session/${encodeURIComponent(id)}/exchanges`),
     sessionMerkleRoot: (id: string) => getJson<MerkleRoot>(`/api/session/${encodeURIComponent(id)}/merkle-root`),
+    sessionKernelIntents: (id: string) => getJson<KernelIntentTriple[]>(`/api/session/${encodeURIComponent(id)}/kernel-intents`),
 
     // Graph & search
     graph: (limit = 500, similarityThreshold = 0.75) =>

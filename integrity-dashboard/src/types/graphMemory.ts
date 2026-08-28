@@ -182,6 +182,34 @@ export interface MerkleRoot {
     root_kind: string;
 }
 
+// Kernel-first intent-vs-outcome bridge (~/.claude/plans/iridescent-stirring-kettle.md).
+// Mirrors GraphStore.kernel_bridge_intents()'s return shape exactly.
+export interface KernelDecision {
+    tool_name: string | null;
+    user_op_hash?: string;
+    success?: boolean;
+    actual_gas_cost?: number;
+    revert_reason_hex?: string | null;
+    adapter_note?: string;
+    error?: string;
+}
+
+export interface KernelIntentTriple {
+    tool_call_id: string;
+    tool_name: string | null;
+    declared_intent: {
+        intent_rationale: string | null;
+        tool_input_hash: string | null;
+    };
+    kernel_decision: KernelDecision;
+    actual_outcome: {
+        outcome: string | null;
+        result: unknown;
+        duration_ms: number | null;
+    } | null;
+    diverges: boolean;
+}
+
 export interface InferenceManifest {
     name: string;
     role: string;
