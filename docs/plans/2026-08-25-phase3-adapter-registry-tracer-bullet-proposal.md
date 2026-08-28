@@ -179,4 +179,11 @@ packed-enum approach does not satisfy whitepaper §6.1's own goal and recommende
 adapters behind a minimal `IAdapter` interface instead. This document is revised above to adopt
 that finding. Scope is now: **authorized as revised** — `IAdapter.sol`, `AdapterRegistry.sol`,
 `SpendBudgetAdapter.sol`, `ReputationFloorAdapter.sol`, exactly as the revised sections above
-describe. Implementation proceeds next.
+describe.
+
+**Built (2026-08-27), exactly as scoped:** all four files under `contracts/src/registry/`, 28 new
+Foundry tests (13 registry, 9 `SpendBudgetAdapter`, 6 `ReputationFloorAdapter`), the gas-bound
+distinguishing guard mutation-tested and confirmed caught by exactly the two tests that should
+catch it. 427/427 across the full `contracts/` suite. Full detail: `PRODUCTION_GAPS.md` §52. Not
+deployed to any live network. Not wired into `IntegrityKernel` or `LicenceAccount`'s gate path --
+that remains real, separately-scoped follow-on work per this document's own deferred list.

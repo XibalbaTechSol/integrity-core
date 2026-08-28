@@ -3408,3 +3408,74 @@ not implemented -- an unbounded or misbehaving hook can make `consume()` arbitra
 no Halmos/symbolic verification (concrete Foundry tests only, same disclosed gap as the rest of
 `LicenceAccount.sol`); applies to `consume()`/`consumeWithIntent()` only, not `execute()` or
 `armTransfer()`/`disarmTransfer()`. Not deployed to any live network as part of this entry.
+
+## 52. `AdapterRegistry.sol` -- Phase III tracer-bullet slice, R3 (bounded cost) real, R1/R5 explicitly not attempted (2026-08-27)
+
+*Current State:* per `docs/plans/2026-08-25-phase3-adapter-registry-tracer-bullet-proposal.md`
+(authorized as revised, after `docs/design/phase3-adapter-encoding-strategy-2026-08-25.md`'s own
+design pass moved the encoding decision from a packed constraint-vector enum to bespoke-contract
+adapters), the first buildable piece of whitepaper Phase III ("Registry" -- §6). Confirmed before
+writing any code: zero prior `AdapterRegistry`/`IAdapter`/generic-constraint-vector code anywhere
+in this repo -- genuine greenfield, building on top of Phase I's `IntegrityKernel` and Phase II's
+`ReputationFloorLicenceHook` shapes (§51) without touching either.
+
+New files, all under `contracts/src/registry/`:
+- `IAdapter.sol` -- the minimal shared interface every registered adapter implements:
+  `check(address subject, uint256 amount)`, revert-to-reject, no bool/status return. Typed
+  parameters, not opaque `bytes calldata` -- the proposal's own open question, resolved here in
+  favor of the cheaper, clearer option sufficient for both seed adapters.
+- `AdapterRegistry.sol` -- permissionless `register(adapter, declaredGasBound, specHash)`,
+  idempotent on an exact repeat, reverting on a conflicting re-registration (no update path
+  exists in this slice); `evaluate(adapter, subject, amount)`, which calls
+  `adapter.check{gas: declaredGasBound}(subject, amount)` via Solidity's native `try`/`catch` and
+  distinguishes an adapter's own typed rejection (bubbled up UNCHANGED, exact revert data) from a
+  genuine gas-bound violation (`AdapterExceededGasBound`, fired when the failure carries
+  zero-length returndata); `isInstallable(address)` always returns `false` -- R5 is not
+  implemented, and this function says so honestly rather than defaulting to `true` in the absence
+  of a staking mechanism.
+- `SpendBudgetAdapter.sol` -- reference adapter mirroring `IntegrityKernel`'s per-op/cumulative
+  native-value check, generalized to track `cumulativeSpentWei` independently per `subject` (one
+  deployed instance can serve many subjects, unlike `IntegrityKernel`'s one-bound-account model).
+  **Disclosed, real weakening relative to `IntegrityKernel`:** trusts the caller-supplied `amount`
+  directly -- `IAdapter.check` is a single synchronous call, not `IntegrityKernel`'s pre/post
+  balance-snapshot pair, so there is no way to independently measure a real balance delta here.
+- `ReputationFloorAdapter.sol` -- reference adapter mirroring `ReputationFloorLicenceHook`'s
+  `effectiveScore` floor check (§51), same live (uncached) read for the same reason (not subject
+  to `IntegrityKernel`'s ERC-4337 validation-phase gas ceiling). Deliberately a separate contract
+  from `ReputationFloorLicenceHook`, not a shared base -- `IAdapter` and `ILicenceHook` are
+  different interfaces by design; whether they should ever merge is recorded as an open question
+  in the design note, not resolved here.
+
+New test files under `contracts/test/registry/`: `AdapterRegistry.t.sol` (13 tests -- zero-address/
+zero-gas-bound registration guards, permissionless registration, idempotent-vs-conflicting
+re-registration, `isInstallable` always false, an adapter's own rejection bubbled up unchanged,
+and -- the one mechanism this slice trusts to make R3 real -- a genuinely gas-burning adapter
+(`GasBurnerAdapter`, an unbounded loop) correctly reported as `AdapterExceededGasBound`, alongside
+a DIRECT PROOF of the disclosed heuristic limitation: a bare `revert()` with plenty of gas
+remaining is indistinguishable from true out-of-gas and is ALSO reported as
+`AdapterExceededGasBound`, not silently glossed over in prose); `SpendBudgetAdapter.t.sol` (9
+tests, boundary-tested at the exact per-op and cumulative caps, one-unit-over each, and
+independent per-subject tracking, plus registry-integration coverage); `ReputationFloorAdapter.
+t.sol` (6 tests, mirroring `ReputationFloorLicenceHookTest`'s own boundary/live-read discipline
+exactly, plus registry-integration coverage).
+
+**Total: 28/28 new tests passing, 427/427 across the full `contracts/` suite.** The gas-bound
+distinguishing guard (`AdapterRegistry.evaluate`'s `if (reason.length == 0)` branch) was
+mutation-tested: temporarily replaced with `if (false)`, confirmed exactly the two tests that
+should catch it then failed (`test_evaluateReportsGasBoundExceededForARealOutOfGasAdapter`,
+`test_bareRevertIsIndistinguishableFromGasBoundExceeded`) for the expected reason (`AlwaysAllowAdapter`,
+`AlwaysRejectAdapter`, and every boundary test elsewhere were unaffected, proving the mutation's
+blast radius was exactly the guard under test), restored, full suite re-confirmed green.
+
+**What this does NOT claim:** R1 (determinism) -- no differential-replay admission suite exists;
+this registry cannot and does not verify that a registered adapter is actually deterministic. R4
+(conservatism) -- structural only, by construction, IF a future caller only ever ANDs multiple
+adapters together; this registry evaluates exactly one adapter per call and has no composition
+logic of its own. R5 (attestation/staking) -- `isInstallable` always `false`, no `stakedITK`, no
+slashing, no ERC-7484-style vetting record, no fee routing (§8.3's `μ_ad` split). Not wired into
+`IntegrityKernel` or `LicenceAccount`'s actual gate path -- this slice proves the registry's own
+admission/metered-call machinery in isolation, nothing more. The gas-bound-exceeded heuristic
+(zero-length returndata) is explicitly disclosed as imperfect, not proven -- a bare `revert()`
+from an otherwise well-behaved adapter is indistinguishable from real out-of-gas, and this entry's
+own mutation test proves that limitation directly rather than only describing it. Not deployed to
+any live network as part of this entry.
