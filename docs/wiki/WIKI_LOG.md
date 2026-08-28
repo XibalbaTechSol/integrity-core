@@ -1,5 +1,15 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-08-28] update | Invocation correlation profile v1
+
+- Added the accepted `spec/invocation-id-v1.md` cross-repository profile and updated the BCC
+  interface contract.
+- New SDK commitments sign a canonical UUID `invocation_id`; middleware validates and records it;
+  Oracle effect ingest and reconciliation use it instead of treating repeated content hashes as
+  unique attempts.
+- Legacy rows remain readable as `legacy_hash_only`. The identifier proves correlation only, not
+  execution, truth, authorization, or completeness.
+
 ## [2026-08-13] update | Real UltraPlonk verifier coverage
 
 - Added retained binary proof/public-input fixtures and `contracts/test/UltraPlonkVerifier.t.sol` without editing generated verifier Solidity.
@@ -3106,3 +3116,17 @@ writeup: PRODUCTION_GAPS.md §18.
 - Added the explicit OpenZeppelin 5.3.0 remapping required by Chainlink CCIP imports; this restores clean deployment-script compilation for the contracts, Software Development Kit (SDK), and command-line interface (CLI) validation paths.
 - Declared the dashboard's `globals` ESLint dependency and refreshed `package-lock.json`, so `npm ci` followed by `npm run lint` has a complete dependency graph.
 - Verification is recorded in the implementation branch: Foundry unit tests and dashboard lint pass locally; deployment-backed package tests remain the next CI confirmation after the branch is pushed.
+
+## [2026-08-25] update | External-runtime Devil's Advocate ensemble
+
+- Updated `docs/wiki/concepts/xibalba-agent-operating-model.md` to record the verified local external-runtime review adapter: Claude Code (Anthropic), Antigravity CLI (`agy`), and OpenAI Codex CLI execute in bounded read-only parallel review with Hermes synthesis, provider-independence labeling, secret redaction, hashes, per-runtime status, and timeout process-group cleanup.
+- Evidence source: `/home/xibalba/.hermes/skills/red-teaming/devils-advocate/scripts/external_ensemble.py` and its `SKILL.md`, as captured in session `20260818_175703_6b87e8`; local adapter and command-surface validation passed in that session.
+- Residual gap preserved: the real provider-to-provider smoke run was not attempted because the Behavioral Commitment Chain gate blocked uncommitted external execution; this workflow is usable but not production-ready until a narrowly scoped live run is separately authorized and verified.
+- Wiki validation: `python3 scripts/wiki_toc.py --check` was run and reports one pre-existing unrelated drift in `docs/wiki/entities/contracts.md`; no broad regeneration was applied.
+
+## [2026-08-25] update | Hermes/Cortex and Phase I session evidence compiled
+
+- Updated `architecture/repository-implementation-plans.md` with the 2026-08-19 session's material but partial evidence: reported green eight-job Continuous Integration, incomplete Phase I contract work with no deployment, and the remaining Hermes/BCC dispatch boundary failure for missing `intent_rationale`.
+- Recorded that Open Policy Agent (OPA) service reachability and local adapter validation do not establish host-tool dispatch evidence or live provider parity; the external provider smoke path remained blocked by the Behavioral Commitment Chain gate.
+- Updated `index.md` and the retained `WIKI_INDEX.md` date/status summaries. No new page was created.
+- Residual completeness gap: the session finalization summary is partial because `hook_watermark_not_verified`; claims above remain bounded to captured session evidence and are not current deployment proof.

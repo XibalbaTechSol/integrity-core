@@ -32,7 +32,12 @@ function safeLocalStorageSet(key: string, value: string): void {
   }
 }
 
-function Row({ label, value }: { label: string; value: React.ReactNode }) {
+// `mono` (default true) fits identifier-like values (hashes, UserOp IDs) -- monospace with
+// `break-all` so a long hex string wraps cleanly instead of overflowing. Prose text (e.g. a
+// human-written rationale sentence) must opt out with `mono={false}`: `break-all` on a
+// sentence chops words at arbitrary character boundaries ("kernel_b" / "ridge_..." on two
+// lines) instead of wrapping at word breaks like normal text.
+function Row({ label, value, mono = true }: { label: string; value: React.ReactNode; mono?: boolean }) {
   return (
     <div
       style={{
@@ -44,8 +49,15 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
         fontSize: '0.85rem',
       }}
     >
-      <span style={{ color: 'var(--text-muted)' }}>{label}</span>
-      <span style={{ fontFamily: 'var(--font-mono, monospace)', textAlign: 'right', wordBreak: 'break-all' }}>{value}</span>
+      <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>{label}</span>
+      <span style={{
+        fontFamily: mono ? 'var(--font-mono, monospace)' : 'inherit',
+        textAlign: 'right',
+        wordBreak: mono ? 'break-all' : 'normal',
+        overflowWrap: 'break-word',
+      }}>
+        {value}
+      </span>
     </div>
   );
 }
@@ -77,7 +89,7 @@ function TripleCard({ triple }: { triple: KernelIntentTriple }) {
           <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 'var(--space-2)' }}>
             Declared intent
           </div>
-          <Row label="Rationale" value={triple.declared_intent.intent_rationale ?? 'none'} />
+          <Row label="Rationale" value={triple.declared_intent.intent_rationale ?? 'none'} mono={false} />
           <Row label="Input hash" value={triple.declared_intent.tool_input_hash ?? 'none'} />
         </div>
 

@@ -591,6 +591,24 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AnchorEventIngestResponse'
+  /v1/audit/effect:
+    post:
+      tags:
+      - audit
+      operationId: submit_audit_effect
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuditEffectRequest'
+        required: true
+      responses:
+        '200':
+          description: Effect report recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditEffectResponse'
   /v1/audit/ingest:
     post:
       tags:
@@ -609,6 +627,45 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuditLogIngestResponse'
+  /v1/audit/intent/{intended_state_hash}:
+    get:
+      tags:
+      - audit
+      operationId: get_audit_intent_join
+      parameters:
+      - name: intended_state_hash
+        in: path
+        description: The intent commitment's intended_state_hash
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: All audit_log rows sharing this intended_state_hash (the original intent row plus any posttool_effect reports)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditEffectJoinResponse'
+  /v1/audit/invocation/{invocation_id}:
+    get:
+      tags:
+      - audit
+      operationId: get_audit_invocation_join
+      parameters:
+      - name: invocation_id
+        in: path
+        description: Canonical invocation UUID
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Audit rows for exactly one attempted action
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditInvocationJoinResponse'
   /v1/benchmarks:
     get:
       tags:
@@ -941,6 +998,14 @@ components:
         created_at:
           type: string
           format: date-time
+        erc8004_binding_status:
+          type:
+          - string
+          - 'null'
+          description: |-
+            `"verified"` / `"stale"` / `"transfer_conflict"`, or `None` if this agent has no
+            ERC-8004 binding on record. A directory filtering on this must never treat `None`
+            as untrustworthy — most agents simply haven't linked a public listing.
         handle:
           type:
           - string
@@ -1095,6 +1160,8 @@ components:
       - period_end
       - event_count
       - anchor_coverage
+      - constraint_score
+      - shadow_gate
       properties:
         agent_id:
           type: string
@@ -1109,6 +1176,14 @@ components:
             Informational only (see `anchor_coverage.rs`) — never fed into `ais` itself.
         components:
           $ref: '#/components/schemas/AisComponents'
+        constraint_score:
+          type: number
+          format: double
+          description: |-
+            spec/integrity-protocol-v3.2.md §3.1.1 eq. 4b's `r(ι)`: the normalised, pre-boost,
+            tier-ceilinged constraint input in `[0,1]`. Distinct from `ais` above (post-boost,
+            unclamped, display-only) — any integration reading a reputation-parameterised bound
+            off this response MUST use this field, never `ais`. See `AisBreakdown`'s doc comment.
         event_count:
           type: integer
           format: int64
@@ -1130,6 +1205,15 @@ components:
         period_start:
           type: string
           format: date-time
+        shadow_gate:
+          $ref: '#/components/schemas/ShadowGate'
+          description: |-
+            **Shadow-mode only** (spec §3.1.4 row 5, `PRODUCTION_GAPS.md` §27) — reports what
+            the proposed per-component floor + conjunctive gate would decide, using this
+            oracle's currently-configured `AisFloors` (provisional defaults unless an operator
+            has overridden them). Purely observational: does not affect `ais` or
+            `constraint_score`, does not gate anything, and is not consumed by
+            `bcc_middleware`'s chain-push or dispute logic.
         weights:
           $ref: '#/components/schemas/AisWeightsSchema'
         zk_boost:
@@ -1246,6 +1330,93 @@ components:
           format: int64
           description: Rows inserted (leaves already recorded are skipped idempotently).
           minimum: 0
+    AuditEffectJoinResponse:
+      type: object
+      required:
+      - intended_state_hash
+      - rows
+      properties:
+        intended_state_hash:
+          type: string
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEffectJoinRow'
+    AuditEffectJoinRow:
+      type: object
+      description: |-
+        BCC intent-vs-effect join (~/.claude/plans/velvet-giggling-quill.md): both the original
+        ALLOW row (written with `intended_state_hash` in its metadata, see /v1/audit/ingest) and
+        any `posttool_effect` row(s) reporting an actual effect hash against it (see
+        `submit_audit_effect`) share the same `intended_state_hash` value inside their JSONB
+        `metadata` -- there's no dedicated column for it (see this session's own earlier
+        investigation: it lives only in the blob), so this queries the JSONB field directly
+        (`metadata->>'intended_state_hash' = $1`) rather than requiring a migration. `AuditLogRow`
+        doesn't carry `metadata` (it's a read DTO shaped for the dashboard's audit panel), so this
+        returns a lighter-weight row that does, since inspecting the metadata IS the point here.
+      required:
+      - id
+      - event_type
+      - decision
+      - metadata
+      - created_at
+      properties:
+        agent_id:
+          type:
+          - string
+          - 'null'
+        created_at:
+          type: string
+          format: date-time
+        decision:
+          type: string
+        event_type:
+          type: string
+        id:
+          type: string
+          format: uuid
+        metadata: {}
+    AuditEffectRequest:
+      type: object
+      required:
+      - agent_id
+      - invocation_id
+      - intended_state_hash
+      - effect_hash
+      - matches
+      properties:
+        agent_id:
+          type: string
+        effect_hash:
+          type: string
+        intended_state_hash:
+          type: string
+        invocation_id:
+          type: string
+          format: uuid
+        matches:
+          type: boolean
+    AuditEffectResponse:
+      type: object
+      required:
+      - id
+      properties:
+        id:
+          type: string
+          format: uuid
+    AuditInvocationJoinResponse:
+      type: object
+      required:
+      - invocation_id
+      - rows
+      properties:
+        invocation_id:
+          type: string
+          format: uuid
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEffectJoinRow'
     AuditLogEntryDto:
       type: object
       required:
@@ -1937,6 +2108,22 @@ components:
         verification_tier:
           type: integer
           format: int32
+    ShadowGate:
+      type: object
+      required:
+      - entropy_pass
+      - grounding_pass
+      - compliance_pass
+      - would_pass
+      properties:
+        compliance_pass:
+          type: boolean
+        entropy_pass:
+          type: boolean
+        grounding_pass:
+          type: boolean
+        would_pass:
+          type: boolean
     SpanTreeNode:
       type: object
       required:

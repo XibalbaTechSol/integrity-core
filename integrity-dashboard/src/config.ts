@@ -11,9 +11,9 @@ export const GRAPH_MEMORY_URL = import.meta.env.VITE_GRAPH_MEMORY_URL || 'http:/
 //   uv run python -m shield.backend.api --admin-token dev-shield-admin
 export const SHIELD_BACKEND_URL = import.meta.env.VITE_SHIELD_BACKEND_URL || 'http://localhost:8765';
 export const SHIELD_BACKEND_TOKEN = import.meta.env.VITE_SHIELD_BACKEND_TOKEN || 'dev-shield-admin';
-// A DIFFERENT server than SHIELD_BACKEND_URL -- xibalba-shield's agent_core simulator/launcher
-// backend (shield/agent_core/slm_backend.py), routes shaped /api/launch, /api/simulate,
-// /api/status/:pid, no admin token. Used only by ShieldPage's live-attack demo, which already
-// has an explicit, honest fallback to canned data when this is offline -- not a bug to "fix"
-// by pointing it at SHIELD_BACKEND_URL, whose routes (/api/shield/*) are shaped differently.
-export const SHIELD_SIM_BACKEND_URL = import.meta.env.VITE_SHIELD_SIM_BACKEND_URL || 'http://localhost:5000';
+// A DIFFERENT server than SHIELD_BACKEND_URL -- xibalba-shield's real root+eBPF Flask demo
+// (slm_training/app.py), routes shaped /api/launch, /api/simulate, /api/status/:pid, no admin
+// token. Port corrected 2026-08-28: app.py's own `app.run(..., port=5050)` -- the previous
+// default (5000) could never reach it even when the demo was running. Not the same as
+// SHIELD_BACKEND_URL, whose routes (/api/shield/*) are shaped differently.
+export const SHIELD_SIM_BACKEND_URL = import.meta.env.VITE_SHIELD_SIM_BACKEND_URL || 'http://localhost:5050';

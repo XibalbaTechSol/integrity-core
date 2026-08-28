@@ -21,12 +21,12 @@ export const ProtocolStats: React.FC = () => {
     return (
         <div style={{ marginBottom: 'var(--space-8)' }}>
             <div className="dash-grid-4" style={{ gap: 'var(--space-4)' }}>
-                <StatCard 
-                    label="Network AIS" 
-                    value={s.aggregateAis.toFixed(1)} 
-                    icon={BarChart3} 
-                    color="var(--theme-accent)" 
-                    trend="+4.2% WK"
+                <StatCard
+                    label="Network AIS"
+                    value={s.aggregateAis.toFixed(1)}
+                    icon={BarChart3}
+                    color="var(--theme-accent)"
+                    subLabel="AGGREGATE, LIVE AGENTS"
                     loading={loading}
                     isMobile={isMobile}
                 />
@@ -39,21 +39,21 @@ export const ProtocolStats: React.FC = () => {
                     loading={loading}
                     isMobile={isMobile}
                 />
-                <StatCard 
-                    label="Integrity" 
-                    value={`${(s.networkIntegrity * 100).toFixed(1)}%`} 
-                    icon={ShieldCheck} 
-                    color="var(--emerald)" 
-                    subLabel="CONSENSUS"
+                <StatCard
+                    label="Network AIS (% of scale)"
+                    value={`${(s.networkIntegrity * 100).toFixed(1)}%`}
+                    icon={ShieldCheck}
+                    color="var(--emerald)"
+                    subLabel="SAME AGGREGATE, AS % OF 1000"
                     loading={loading}
                     isMobile={isMobile}
                 />
-                <StatCard 
-                    label="Active Nodes" 
-                    value={s.totalNodes} 
-                    icon={Database} 
-                    color="var(--theme-accent)" 
-                    trend="↑ 12%"
+                <StatCard
+                    label="Active Nodes"
+                    value={s.totalNodes}
+                    icon={Database}
+                    color="var(--theme-accent)"
+                    subLabel="REGISTERED AGENTS"
                     loading={loading}
                     isMobile={isMobile}
                 />

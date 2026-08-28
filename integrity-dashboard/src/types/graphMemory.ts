@@ -210,6 +210,28 @@ export interface KernelIntentTriple {
     diverges: boolean;
 }
 
+export interface InvocationCorrelation {
+    invocation_id: string;
+    session_id: string;
+    runtime: string | null;
+    tool_name: string | null;
+    tool_call_id: string | null;
+    first_seen_at: string;
+    last_seen_at: string;
+    runtime_status: 'complete' | 'awaiting_outcome' | 'orphan_outcome';
+    pre_tool: {
+        intent_rationale: string | null;
+        tool_input_hash: string | null;
+        policy_reason: string | null;
+        kernel_decision: Record<string, unknown> | null;
+    } | null;
+    post_tool: {
+        outcome: string | null;
+        result: unknown;
+        duration_ms: number | null;
+    } | null;
+}
+
 export interface InferenceManifest {
     name: string;
     role: string;

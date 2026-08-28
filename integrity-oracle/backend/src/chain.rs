@@ -65,6 +65,27 @@ sol! {
 }
 
 sol! {
+    // ERC-8004 ("Trustless Agents") Identity Registry — a third-party, external
+    // deployment this repo does not own or compile, so unlike every other `sol!` block
+    // in this file these three signatures are NOT cross-checked against a local
+    // `contracts/out/*.json` artifact. They're transcribed from the published interface
+    // description in https://github.com/erc-8004/erc-8004-contracts/blob/master/ERC8004SPEC.md
+    // (`ownerOf`/`tokenURI` are the standard ERC-721 URIStorage extension the registry is
+    // built on; `getAgentWallet` is the registry's own optional payment-address accessor,
+    // which reverts or returns address(0) for a token with no wallet set — treated as
+    // "no wallet asserted", not an error, by `ChainClient::read_erc8004_identity`).
+    // Deliberately no deployment address is pinned anywhere in this repo: the caller
+    // supplies `registry`, and this module only ever reads what's actually on chain at
+    // that address, per `PRODUCTION_GAPS.md`'s "never invent a contract address" rule.
+    #[sol(rpc)]
+    interface IErc8004IdentityRegistry {
+        function ownerOf(uint256 agentId) external view returns (address);
+        function tokenURI(uint256 agentId) external view returns (string memory);
+        function getAgentWallet(uint256 agentId) external view returns (address);
+    }
+}
+
+sol! {
     // Per-agent StateAnchor (contracts/src/oracle/StateAnchor.sol). Only the two
     // fields the registration memory gate needs: spec v0.3 §7.1 requires the oracle
     // to independently read `latestRoot` and reject a zero root at registration.
@@ -451,6 +472,17 @@ struct Singletons {
 /// `DynProvider` is alloy's purpose-built answer for "erase the concrete provider type
 /// but stay usable with the generated bindings". It's `Clone` and internally `Arc`-backed,
 /// so cloning stays cheap.
+/// Result of a live `read_erc8004_identity` call — the on-chain half of an ERC-8004
+/// binding. The off-chain half (fetching and validating `uri`'s content) is the caller's
+/// job (`erc8004::validate_registration`), since it needs an HTTP client this read-only
+/// chain module deliberately doesn't own.
+#[derive(Debug, Clone)]
+pub struct Erc8004OnChainIdentity {
+    pub owner: Address,
+    pub uri: String,
+    pub wallet: Option<Address>,
+}
+
 #[derive(Clone)]
 pub struct ChainClient {
     provider: DynProvider,
@@ -761,6 +793,32 @@ impl ChainClient {
             return Ok(Address::ZERO);
         }
         Ok(c.resolve(handle.to_string()).call().await?)
+    }
+
+    /// Live ERC-8004 identity read: current NFT owner, `agentURI`, and the optional
+    /// payment `agentWallet` for `agentId` at `registry`. `registry` is caller-supplied
+    /// per call rather than a `ChainClient` field — unlike Integrity's own singletons,
+    /// an ERC-8004 registry is a third-party deployment an agent chooses to register
+    /// with, and this oracle does not maintain a canonical address for one.
+    ///
+    /// `getAgentWallet` reverting (no wallet ever set for this token) is treated as
+    /// `wallet: None`, not a read failure — an agent with no declared payment wallet is
+    /// a valid, common state per the ERC-8004 spec, not a broken one.
+    pub async fn read_erc8004_identity(
+        &self,
+        registry: Address,
+        agent_id: U256,
+    ) -> Result<Erc8004OnChainIdentity, ChainError> {
+        let c = IErc8004IdentityRegistry::new(registry, self.provider.clone());
+        let owner = c.ownerOf(agent_id).call().await?;
+        let uri = c.tokenURI(agent_id).call().await?;
+        let wallet = c
+            .getAgentWallet(agent_id)
+            .call()
+            .await
+            .ok()
+            .filter(|w| *w != Address::ZERO);
+        Ok(Erc8004OnChainIdentity { owner, uri, wallet })
     }
 
     /// The agent's own memory state: `(latestRoot, latestEpoch)` from its `StateAnchor`.

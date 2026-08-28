@@ -11,6 +11,7 @@ pub mod config;
 pub mod crypto;
 pub mod db;
 pub mod derive;
+pub mod erc8004;
 pub mod error;
 pub mod handlers;
 pub mod kyc;

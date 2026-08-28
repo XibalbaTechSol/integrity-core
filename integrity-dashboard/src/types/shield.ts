@@ -16,13 +16,14 @@ export interface ShieldDecisionAction {
 }
 
 export interface ShieldDecisionRecord {
+    invocation_id?: string;
     class?: string;
     device_id?: string;
     time?: string;
     event_ref?: { class?: string; event_id?: string };
     rule?: { rule_id?: string; name?: string; version?: string };
     decision?: ShieldDecisionAction;
-    export?: { attempted?: boolean; event_exported?: boolean; decision_exported?: boolean; authorized?: boolean };
+    export?: { attempted?: boolean; event_exported?: boolean; decision_exported?: boolean; authorized?: boolean; invocation_id?: string };
     policy?: { version?: string; hash?: string };
     synthetic?: boolean;
 }
@@ -70,6 +71,39 @@ export interface ShieldPolicyBundle {
     policy_version: string;
     policy_hash: string;
     rules: number;
+}
+
+// shield/backend/store.py's enforcement_outcomes table -- "what actually happened when a
+// decision's chosen action was carried out" (forward-link counterpart to a ShieldDecision,
+// keyed by the same event_id). Real per-device execution results, not a decision itself.
+export interface ShieldEnforcementOutcome {
+    received_at: string;
+    outcome: {
+        event_id: string;
+        agent_id?: string;
+        action: string;
+        completed: boolean;
+        escalated: boolean;
+        [key: string]: unknown;
+    };
+}
+
+// shield/backend/store.py's detection_quality table -- Shield's own detection-rate/precision/
+// false-positive/containment-latency scorecard per device, computed from real recorded
+// decisions, not a fabricated demo metric.
+export interface ShieldDetectionQuality {
+    device_id: string;
+    received_at: string;
+    quality: {
+        aggregate: {
+            shield_adr: number | null;
+            precision: number | null;
+            blocking_false_positive_rate: number | null;
+            mean_time_to_contain_sec: number | null;
+        };
+        synthetic?: boolean;
+        [key: string]: unknown;
+    };
 }
 
 export interface ShieldSeedResult {

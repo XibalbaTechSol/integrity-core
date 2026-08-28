@@ -148,11 +148,18 @@ against real policies. Don't write code you haven't run.
 Real Ed25519 only (via the `cryptography` library) — no HMAC pseudo-signature fallback.
 
 ### 4.2 BCC Commitment (the "Behavioral Commitment Chain" intent-lock object)
+
+Per-action correlation follows [`spec/invocation-id-v1.md`](../spec/invocation-id-v1.md).
+`invocation_id` is a canonical UUID identifying one attempted action. It is signed when present
+and is distinct from the content-addressed `intended_state_hash`; new protected tool calls MUST
+carry it. Legacy commitments without it remain readable but cannot support an unambiguous
+intent/outcome reconciliation claim.
 ```json
 {
   "agent_id": "did:integrity:...",
   "intent_type": "string, e.g. 'payment' | 'data_access' | 'contract_call'",
   "intended_state_hash": "0x<32-byte hex, sha256 of the canonical intent payload>",
+  "invocation_id": "lowercase canonical UUID; required for new protected tool calls",
   "nonce": "monotonic per-agent integer",
   "timestamp": "<unix ms>",
   "agent_public_key": "z<multibase base58btc, multicodec ed25519-pub || raw 32-byte pubkey>",

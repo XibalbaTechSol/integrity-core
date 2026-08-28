@@ -12,11 +12,16 @@ source_files:
   - docs/INTERFACE_CONTRACT.md
 ---
 
-> **Not to be confused with the four foundational primitives.** This page is about the seven
-> **contracts** an agent owns (the `PrimitiveSet`). The four *foundational* primitives —
-> memory, agent-owned contracts, authority, reputation — are **concepts**, documented in
-> [The Four Foundational Primitives](foundational-primitives.md). This page is one of them
-> (#2, Agent-Owned Contracts) expressed in Solidity; the other three are not contracts at all.
+> **Not to be confused with the four foundational primitives — or the kernel's three.** This
+> page is about the seven **contracts** an agent owns (the `PrimitiveSet`). The four
+> *foundational* primitives — memory, agent-owned contracts, authority, reputation — are
+> **concepts**, documented in [The Four Foundational Primitives](foundational-primitives.md).
+> This page is one of them (#2, Agent-Owned Contracts) expressed in Solidity; the other
+> three are not contracts at all. A third, unrelated sense also exists: the **kernel
+> primitives** (spec v3.2 §4.4) — value conservation, metered-rights depletion, and
+> replay-domain monotonicity — are invariants `IntegrityKernel` enforces for adapters, live
+> in `contracts/src/kernel/`, and are not part of this page's `PrimitiveSet` at all (see the
+> naming box in [The Four Foundational Primitives](foundational-primitives.md)).
 
 The defining architecture of the Integrity Protocol: **an agent owns and
 deploys its own on-chain contracts.** There is no privileged factory that

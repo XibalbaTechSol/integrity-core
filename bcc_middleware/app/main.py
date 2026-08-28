@@ -502,7 +502,18 @@ async def _run_intercept_inner(
         decision="allow",
         detail=f"admitted to merkle batch index {batch_index}",
         intent_type=commitment.intent_type,
-        metadata={"leaf": leaf_hex, "batch_index": batch_index, "verification_token": token},
+        # `intended_state_hash` is the join key `posttool_report.py` recomputes and reports
+        # against after execution (see its module docstring: "a later verifier can line
+        # intent up against effect") — until this line, that verifier was structurally
+        # impossible, because the durable ALLOW row never carried the hash to join on at
+        # all. It only ever lived in the in-memory `commitment` object here.
+        metadata={
+            "leaf": leaf_hex,
+            "batch_index": batch_index,
+            "verification_token": token,
+            "intended_state_hash": commitment.intended_state_hash,
+            "invocation_id": commitment.invocation_id,
+        },
     )
     # `enforced` mirrors the deployment posture even on the allow path so a
     # caller/dashboard can tell a genuinely-gated approval from a shadow-mode
@@ -513,7 +524,12 @@ async def _run_intercept_inner(
 
 @app.post("/v1/bcc/intercept", response_model=BCCInterceptResponse)
 async def intercept(commitment: BCCCommitment) -> BCCInterceptResponse:
-    return await run_intercept(commitment, default_settings)
+    response = await run_intercept(commitment, default_settings)
+    # Echo the signed correlation key on every allow/deny response. This is not a new
+    # authorization proof; it lets callers verify that the response belongs to the
+    # commitment they submitted instead of correlating by content hash.
+    response.invocation_id = commitment.invocation_id
+    return response
 
 
 @app.post("/v1/reputation/sync")

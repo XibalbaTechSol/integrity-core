@@ -20,6 +20,7 @@ import MemoryPage from './pages/MemoryPage';
 import PrivacyPage from './pages/PrivacyPage';
 import TermsPage from './pages/TermsPage';
 import { IntelligencePage } from './pages/IntelligencePage';
+import CorrelationPage from './pages/CorrelationPage';
 import { ActuarialHub } from './components/tabs/ActuarialHub';
 import { DashboardProvider } from './context/DashboardContext';
 import { SettingsProvider } from './context/SettingsContext';
@@ -46,6 +47,7 @@ function App() {
             <Route path="/identity" element={<IdentityPage />} />
             <Route path="/financials" element={<FinancialsPage />} />
             <Route path="/intelligence" element={<IntelligencePage />} />
+            <Route path="/correlation" element={<CorrelationPage />} />
             <Route path="/prediction-markets" element={<ActuarialHub mode="markets" />} />
             <Route path="/health" element={<HealthPage />} />
             <Route path="/shield" element={<ShieldPage />} />

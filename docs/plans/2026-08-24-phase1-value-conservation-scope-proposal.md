@@ -9,8 +9,10 @@ promotion of `IntegrityAccount`/`IntegrityKernel` (`PRODUCTION_GAPS.md` §40).
 `docs/design/phase1-tracer-bullet-slice-2026-08-17.md` discloses, and the 2026-08-24 audit
 restated: **"Not general value conservation. Only native ETH is tracked. Any ERC-20/ERC-721/
 other asset movement inside the wrapped call is completely unconstrained by this kernel."** The
-whitepaper's own §4.4 names value conservation as one of three primitives "the kernel supplies... so
-that adapter authors do not re-derive them":
+whitepaper's own §4.4 names value conservation as one of three **kernel primitives** — a third,
+distinct sense of "primitive" from the four foundational concepts and the seven-contract
+`PrimitiveSet`; see the naming box in `docs/wiki/concepts/foundational-primitives.md` — "the
+kernel supplies... so that adapter authors do not re-derive them":
 
 $$\sum_{j \in P} \Delta b(j) + \varphi = 0 \tag{12}$$
 

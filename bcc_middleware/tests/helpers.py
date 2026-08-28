@@ -63,6 +63,7 @@ def sign_commitment(
     agent_thought: str | None = None,
     chain_id: int | None = None,
     verifying_contract: str | None = None,
+    invocation_id: str | None = None,
 ) -> dict:
     """
     Builds a fully-formed, correctly-signed BCC Commitment dict ready to
@@ -120,6 +121,8 @@ def sign_commitment(
         "chain_id": chain_id,
         "verifying_contract": verifying_contract,
     }
+    if invocation_id is not None:
+        fields["invocation_id"] = invocation_id
     message = json.dumps(fields, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     signature = private_key.sign(message)
 

@@ -16,6 +16,7 @@ import type {
     KernelIntentTriple,
     ParaClassification,
     IntegrityLinksStatus,
+    InvocationCorrelation,
     Memory,
     MemoryEvent,
     MerkleRoot,
@@ -44,6 +45,7 @@ export type {
     ParaClassification,
     IntegrityLinkRecord,
     IntegrityLinksStatus,
+    InvocationCorrelation,
     Memory,
     MemoryEvent,
     MemorySource,
@@ -97,6 +99,12 @@ export const graphMemory = {
 
     // Sessions
     sessions: (limit = 100) => getJson<Session[]>(`/api/sessions?limit=${limit}`),
+    invocations: (limit = 100) => getJson<InvocationCorrelation[]>(`/api/invocations?limit=${limit}`),
+    sessionOtel: (id: string) => getJson<OtelEvent[]>(`/api/session/${encodeURIComponent(id)}/otel`),
+    // Cross-system test log write (~/.claude/plans/velvet-giggling-quill.md) -- browser-reachable
+    // counterpart to record_otel_batch, previously only callable in-process via MCP tools.
+    recordOtelBatch: (sessionId: string, events: Array<Record<string, unknown>>) =>
+        postJson<{ session_id: string; recorded: number }>('/api/otel/batch', { session_id: sessionId, events }),
     sessionExchanges: (id: string) => getJson<Exchange[]>(`/api/session/${encodeURIComponent(id)}/exchanges`),
     sessionMerkleRoot: (id: string) => getJson<MerkleRoot>(`/api/session/${encodeURIComponent(id)}/merkle-root`),
     sessionKernelIntents: (id: string) => getJson<KernelIntentTriple[]>(`/api/session/${encodeURIComponent(id)}/kernel-intents`),

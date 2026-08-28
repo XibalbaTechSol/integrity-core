@@ -641,3 +641,26 @@ input[type=range]::-moz-range-track {
   background-image: none;
   padding: 0;
 }
+@media (max-width: 900px) {
+  .correlation-page {
+    padding: 0 !important;
+  }
+
+  .correlation-table-header,
+  .correlation-row {
+    grid-template-columns: 24px minmax(0, 1fr) 90px !important;
+    gap: 8px !important;
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+  }
+
+  .correlation-table-header > :nth-child(n + 4),
+  .correlation-row > :nth-child(n + 4) {
+    display: none !important;
+  }
+
+  .correlation-detail {
+    padding-left: 16px !important;
+    grid-template-columns: 1fr !important;
+  }
+}

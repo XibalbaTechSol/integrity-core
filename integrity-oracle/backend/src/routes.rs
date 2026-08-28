@@ -18,6 +18,14 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/agent/{id}", get(handlers::get_agent))
         .route("/v1/agents", get(handlers::list_agents))
         .route("/v1/agent/{id}/ais", get(handlers::get_ais))
+        .route(
+            "/v1/agent/{id}/erc8004",
+            get(handlers::get_erc8004_identity).post(handlers::link_erc8004_identity),
+        )
+        .route(
+            "/v1/agent/{id}/reconciliation",
+            get(handlers::get_intent_outcome_reconciliation),
+        )
         // Verification Ladder (rungs 2/3). The challenge endpoint issues a
         // server-generated nonce; the verify endpoint resolves DNS itself over DoH
         // and checks the signature with the pubkey from registration -- nothing in
@@ -56,6 +64,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/telemetry/ingest", post(handlers::ingest_telemetry))
         .route("/v1/audit/ingest", post(handlers::ingest_audit_log))
         .route("/v1/audit/effect", post(handlers::submit_audit_effect))
+        .route("/v1/audit/invocation/{invocation_id}", get(handlers::get_audit_invocation_join))
         .route("/v1/audit/intent/{intended_state_hash}", get(handlers::get_audit_intent_join))
         .route("/v1/audit/anchor", post(handlers::ingest_anchor_events))
         .route("/v1/agent/{id}/provenance", get(handlers::get_provenance))

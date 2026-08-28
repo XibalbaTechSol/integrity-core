@@ -3,6 +3,7 @@ import { Activity, Brain, GitBranch, Zap, CheckCircle2, Sigma, Shield, Clock } f
 import { Panel } from '../components/shared/Panel';
 import { TelemetryPanel } from '../components/tabs/TelemetryPanel';
 import { IntegrityRadar } from '../components/shared/IntegrityRadar';
+import { AisSimulator } from '../components/shared/AisSimulator';
 import { useDashboard } from '../context/DashboardContext';
 import 'katex/dist/katex.min.css';
 import { BlockMath, InlineMath } from 'react-katex';
@@ -140,37 +141,61 @@ export function IntelligencePage() {
           </p>
         </div>
 
-        {/* ── Mathematical Definitions Section ── */}
+        {/* ── Mathematical Definitions Section ──
+            Formulas verbatim from integrity-oracle/scoring-core/src/lib.rs -- the ONLY
+            place AIS is computed anywhere in the protocol (see that file's own top
+            docstring). Every consumer, including this page, reads the oracle's
+            GET /v1/agent/{id}/ais rather than re-deriving this math independently. */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 'var(--space-6)' }}>
-          <FormulaCard 
-            title="Stability (Entropy Control)"
-            description={<span>Measures the determinism and bounded variance of agent outputs using Shannon Entropy <InlineMath math="E" />.</span>}
-            formula="S(E) = 1 - \left( -\sum_{x \in X} P(x) \log P(x) \right)"
+          <FormulaCard
+            title="Stability (Entropy)"
+            description={<span>Gaussian-style decay over reported task-performance variance <InlineMath math="v" />. Small variance barely moves the score; unbounded variance saturates toward 0.</span>}
+            formula="S_{\text{entropy}}(v) = 1000 \cdot e^{-1.5 v^2}"
             icon={<Sigma size={20} />}
             accent="#2196f3"
           />
-          <FormulaCard 
-            title="Grounding (Human-in-the-Loop)"
-            description={<span>Time-decayed confidence scoring based on human validation <InlineMath math="v_i" /> and oracle confidence <InlineMath math="c_i" />.</span>}
-            formula="G(v, c) = \frac{1}{N} \sum_{i=1}^{N} (v_i \cdot c_i) \cdot w(t_i)"
+          <FormulaCard
+            title="Grounding (Human Oversight)"
+            description={<span>Linear in the Human Grounding Index <InlineMath math="h \in [0,1]" /> -- the fraction of the agent's actions in the period checked against real human-in-the-loop feedback.</span>}
+            formula="S_{\text{grounding}}(h) = 1000 \cdot \text{clamp}(h, 0, 1)"
             icon={<CheckCircle2 size={20} />}
             accent="#4caf50"
           />
-          <FormulaCard 
-            title="Sacrifice (Economic Commitment)"
-            description={<span>Time-weighted integral of Staked ITK collateral <InlineMath math="V(\tau)" /> over lock duration.</span>}
-            formula="K(V, t) = \int_{t_0}^{t_f} V(\tau) \cdot e^{-\lambda(t_f - \tau)} d\tau"
+          <FormulaCard
+            title="Sacrifice (Compute Commitment)"
+            description={<span>Log-scale over the oracle's re-derived verified compute-hours proxy <InlineMath math="g" />, saturating at 1000 hours so a whale can't simply out-spend a trust signal.</span>}
+            formula="S_{\text{sacrifice}}(g) = 1000 \cdot \min\!\left(\frac{\log_{10}(g+1)}{3}, 1\right)"
             icon={<Clock size={20} />}
             accent="#f59e0b"
           />
-          <FormulaCard 
-            title="Overall Agent Integrity Score"
-            description={<span>The final AIS aggregates all sub-metrics <InlineMath math="m \in M" /> with weights <InlineMath math="w_m" /> and applies a ZK/TEE proof multiplier <InlineMath math="\gamma_{\text{TEE}}" />.</span>}
-            formula="\text{AIS} = \left( \sum_{m \in M} w_m \cdot \phi_m(x) \right) \times \gamma_{\text{TEE}}"
+          <FormulaCard
+            title="Compliance"
+            description={<span>Linear inverse of the policy-flagged action ratio <InlineMath math="p \in [0,1]" /> from the BCC/OPA pipeline -- 0 flags scores 1000, every action flagged scores 0.</span>}
+            formula="S_{\text{compliance}}(p) = 1000 \cdot (1 - p)"
             icon={<Shield size={20} />}
-            accent="var(--theme-accent)"
+            accent="#8b5cf6"
           />
         </div>
+
+        <FormulaCard
+          title="Overall Agent Integrity Score -- a weighted GEOMETRIC mean, not arithmetic"
+          description={
+            <span>
+              Default weights <InlineMath math="w_E{=}0.30, w_G{=}0.30, w_S{=}0.20, w_C{=}0.20" /> (sum to 1.0).{' '}
+              <InlineMath math="\gamma_{\text{ZK}} = 1.15" /> only when a real Barretenberg proof verified this
+              period, else <InlineMath math="1.0" />. Because it's a product of powers, not a sum, any single
+              zero component raises the whole product to zero -- a strong entropy/grounding/compliance score
+              cannot compensate for sacrifice never being reported. That's the exact reason the network's own
+              dogfooding agent read AIS 0.0 for weeks (see scoring-core's own regression test,{' '}
+              <code style={{ fontSize: '0.7rem' }}>any_single_zero_component_annihilates_ais</code>).
+            </span>
+          }
+          formula="\text{AIS} = S_{\text{entropy}}^{\,w_E} \cdot S_{\text{grounding}}^{\,w_G} \cdot S_{\text{sacrifice}}^{\,w_S} \cdot S_{\text{compliance}}^{\,w_C} \cdot \gamma_{\text{ZK}}"
+          icon={<Shield size={20} />}
+          accent="var(--theme-accent)"
+        />
+
+        <AisSimulator />
 
         {/* ── Interactive Radar Section (Conditional) ───────────────── */}
         {showRadar && selectedAgent && (

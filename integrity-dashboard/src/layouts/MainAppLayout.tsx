@@ -2,10 +2,12 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar } from '../components/Sidebar';
 import { AppHeader } from '../components/AppHeader';
 import { useDashboard } from '../context/DashboardContext';
+import { useIsMobile } from '../utils/useIsMobile';
 
 export default function MainAppLayout() {
   const { layoutMode } = useDashboard();
   const location = useLocation();
+  const isMobile = useIsMobile(768);
   const isFullWidth = location.pathname === '/developer' || location.pathname === '/memory';
 
   return (
@@ -15,7 +17,7 @@ export default function MainAppLayout() {
       
       <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', minHeight: layoutMode === 'header' ? 'calc(100vh - 70px)' : '100vh' }}>
         <div style={{ 
-          padding: isFullWidth ? '0' : '2rem 3rem', 
+          padding: isFullWidth ? '0' : isMobile ? '1rem' : '2rem 3rem',
           maxWidth: isFullWidth ? 'none' : '1400px', 
           margin: '0 auto',
           width: '100%',

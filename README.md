@@ -153,11 +153,17 @@ above it:
 | 3 | **Authority** | *May* it act, and for whom? |
 | 4 | **Reputation** | *How* has it acted? |
 
-Two notes that prevent the usual confusions. **"Primitive" is used in two senses here:** these
-four are *concepts*; the [seven per-agent contracts](docs/wiki/concepts/agent-primitives.md)
-(`PrimitiveSet`) are *contracts*, and only #2 is a contract at all. And **AIS is not a
-primitive** — reputation is the record, AIS is a replaceable weighted score over it. Change
-the formula and the record stands; delete the record and no formula means anything.
+Two notes that prevent the usual confusions. **"Primitive" is used in three senses in this
+repo:** these four are *concepts*; the [seven per-agent contracts](docs/wiki/concepts/agent-primitives.md)
+(`PrimitiveSet`) are *contracts*, and only #2 is a contract at all; and the kernel/adapter
+architecture (spec v3.2 §4.4, `contracts/src/kernel/IntegrityKernel.sol`) adds a third —
+**kernel primitives**, the three invariants (value conservation, metered-rights depletion,
+replay-domain monotonicity) the kernel enforces for adapters, unrelated to either list above
+and not stored in any agent's `PrimitiveSet`. See the naming box in
+[The Four Foundational Primitives](docs/wiki/concepts/foundational-primitives.md) for all
+three, spelled out. And **AIS is not a primitive** — reputation is the record, AIS is a
+replaceable weighted score over it. Change the formula and the record stands; delete the
+record and no formula means anything.
 
 Bonded stake sits inside #2 rather than standing alone: you can only stake what you own, and
 ownership only means something when losing it hurts. Cryptographic self-sovereignty is

@@ -139,7 +139,14 @@ Concepts, not contracts: **memory** (continuity), **agent-owned contracts** (cap
 consequence — stake lives here), **authority** (delegated permission the agent cannot
 self-grant), **reputation** (earned, non-forgeable standing). Beware the word: the *seven*
 per-agent contracts (`PrimitiveSet`) are a different sense, and only the second concept is a
-contract at all. AIS is a score over reputation, not a primitive.
+contract at all. A third sense also exists as of the kernel/adapter work (spec v3.2 §4.4,
+`contracts/src/kernel/`): **kernel primitives** — value conservation, metered-rights
+depletion, and replay-domain monotonicity, the invariants `IntegrityKernel` enforces so
+adapter authors don't re-derive them. These belong to neither the four concepts nor the
+seven-contract `PrimitiveSet`; `IntegrityKernel`/`IntegrityAccount` are a deliberately
+separate architecture from `PrimitiveSet`/`XibalbaAgentRegistry`. See the naming box in
+`docs/wiki/concepts/foundational-primitives.md` for all three spelled out together. AIS is a
+score over reputation, not a primitive.
 
 Authority is built only in the Integrity Health vertical so far — `SmartBAA` is already a delegation
 instrument — and generalizing it is what closes the client-supplied `covered_entity_address`

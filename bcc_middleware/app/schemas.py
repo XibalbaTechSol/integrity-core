@@ -10,6 +10,7 @@ different name would read better in isolation.
 from __future__ import annotations
 
 import re
+import uuid
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -112,6 +113,24 @@ class BCCCommitment(BaseModel):
         ...,
         description="0x-prefixed XibalbaAgentRegistry address for the target chain -- the root every downstream primitive in this architecture resolves through",
     )
+    invocation_id: str | None = Field(
+        default=None,
+        description="Canonical UUID identifying one attempted action; signed when present",
+    )
+
+    @field_validator("invocation_id")
+    @classmethod
+    def _invocation_id_shape(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        try:
+            parsed = uuid.UUID(v)
+            canonical = str(parsed)
+        except (ValueError, AttributeError) as exc:
+            raise ValueError("invocation_id must be a canonical UUID") from exc
+        if v != canonical or parsed.int == 0:
+            raise ValueError("invocation_id must be a non-nil lowercase canonical UUID")
+        return v
 
     @field_validator("verifying_contract")
     @classmethod
@@ -178,6 +197,7 @@ class BCCCommitment(BaseModel):
 
 class BCCInterceptResponse(BaseModel):
     authorized: bool
+    invocation_id: str | None = None
     reason: str | None = None
     # --- Shadow (monitor-only) mode signalling (see app/config.py) ---------
     # `enforced` is False whenever this response was produced in shadow mode --

@@ -4,6 +4,7 @@ import { ethers } from 'ethers';
 import { Activity, ShieldCheck, Wallet, ListChecks } from 'lucide-react';
 import { Panel } from '../components/shared/Panel';
 import { oracle, AgentResponse, AisResponse, WalletResponse, AgentEventDto } from '../services/oracle';
+import { usePinnedAgent } from '../hooks/usePinnedAgent';
 
 // xibalba-quant's Integrity Protocol DID. Fixed and stable ahead of on-chain
 // registration -- integrity_sdk.did.load_or_create_did("xibalba-quant") is
@@ -57,6 +58,7 @@ function StatCard({ icon, label, value, sub }: { icon: React.ReactNode; label: s
 }
 
 export default function QuantPage() {
+  usePinnedAgent(QUANT_AGENT_ID);
   const [agent, setAgent] = useState<AgentResponse | null>(null);
   const [ais, setAis] = useState<AisResponse | null>(null);
   const [wallet, setWallet] = useState<WalletResponse | null>(null);
