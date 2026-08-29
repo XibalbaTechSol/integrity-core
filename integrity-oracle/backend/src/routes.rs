@@ -18,7 +18,6 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/agent/{id}", get(handlers::get_agent))
         .route("/v1/agents", get(handlers::list_agents))
         .route("/v1/agent/{id}/ais", get(handlers::get_ais))
-        .route("/v1/agent/{id}/ais/zero-axis", get(handlers::get_ais_zero_axis_counts))
         .route(
             "/v1/agent/{id}/erc8004",
             get(handlers::get_erc8004_identity).post(handlers::link_erc8004_identity),
