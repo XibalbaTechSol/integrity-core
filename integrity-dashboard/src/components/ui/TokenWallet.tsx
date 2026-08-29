@@ -82,15 +82,19 @@ function toTransaction(t: TransactionDto): Transaction {
 // backend indexer exists, so this reads the REAL ERC-20 Transfer log directly from Base
 // Sepolia instead of leaving Activity permanently empty.
 //
-// base-sepolia-rpc.publicnode.com hard-caps a single eth_getLogs call at 50,000 blocks
-// (confirmed live: an unbounded query returns error -32701 "exceed maximum block range:
-// 50000") -- Base Sepolia is well past block 45M, so this paginates backward from the
-// chain tip in 50,000-block windows rather than trying one call and giving up. Bounded by
-// MAX_LOOKBACK_BLOCKS (~2M blocks, ~46 days at Base's ~2s block time) so a very old agent
-// doesn't trigger dozens of sequential RPC round-trips on every page load; hitting that
-// bound is surfaced honestly as `truncated`, not silently presented as complete history.
-const CHUNK_BLOCKS = 45_000; // stay under the RPC's confirmed 50,000-block cap
-const MAX_LOOKBACK_BLOCKS = 2_000_000;
+// The dashboard's configured RPC (constants.ts's RPC_URL, currently sepolia.base.org --
+// confirmed live, NOT the base-sepolia-rpc.publicnode.com endpoint this comment
+// originally assumed) hard-caps a single eth_getLogs call at 10,000 blocks ("eth_getLogs
+// is limited to a 10,000 range", error -32614). Base Sepolia is well past block 45M, so
+// this paginates backward from the chain tip in 9,500-block windows, fired with limited
+// concurrency rather than one at a time (a fully sequential loop at this chunk size would
+// need ~200 round-trips to cover MAX_LOOKBACK_BLOCKS and take well over a minute). Bounded
+// by MAX_LOOKBACK_BLOCKS so a very old agent doesn't trigger unbounded RPC load on every
+// page load; hitting that bound is surfaced honestly as `truncated`, never silently
+// presented as complete history.
+const CHUNK_BLOCKS = 9_500; // stay under the RPC's confirmed 10,000-block cap
+const MAX_LOOKBACK_BLOCKS = 1_500_000; // ~35 days at Base Sepolia's ~2s block time
+const CONCURRENCY = 12;
 async function fetchOnChainTransferHistory(
     provider: ethers.JsonRpcProvider,
     sovereignAgent: string,
@@ -101,30 +105,30 @@ async function fetchOnChainTransferHistory(
 
     const latest = await provider.getBlockNumber();
     const genesisBound = Math.max(0, latest - MAX_LOOKBACK_BLOCKS);
-    const logs: ethers.EventLog[] = [];
-    let truncated = false;
-    let toBlock = latest;
 
-    while (toBlock >= genesisBound) {
+    const ranges: Array<[number, number]> = [];
+    for (let toBlock = latest; toBlock >= genesisBound; toBlock -= CHUNK_BLOCKS) {
         const fromBlock = Math.max(genesisBound, toBlock - CHUNK_BLOCKS + 1);
-        try {
-            const [inLogs, outLogs] = await Promise.all([
+        ranges.push([fromBlock, toBlock]);
+        if (fromBlock === genesisBound) break;
+    }
+
+    const logs: ethers.EventLog[] = [];
+    let truncated = genesisBound > 0; // MAX_LOOKBACK_BLOCKS may have cut off real history
+
+    for (let i = 0; i < ranges.length; i += CONCURRENCY) {
+        const batch = ranges.slice(i, i + CONCURRENCY);
+        const results = await Promise.allSettled(
+            batch.flatMap(([fromBlock, toBlock]) => [
                 itk.queryFilter(incoming, fromBlock, toBlock),
                 itk.queryFilter(outgoing, fromBlock, toBlock),
-            ]);
-            logs.push(...(inLogs as ethers.EventLog[]), ...(outLogs as ethers.EventLog[]));
-        } catch {
-            // A chunk failing (rate limit, transient RPC error) truncates history at that
-            // point rather than aborting the whole fetch -- what's found so far is real.
-            truncated = true;
-            break;
+            ]),
+        );
+        for (const r of results) {
+            if (r.status === 'fulfilled') logs.push(...(r.value as ethers.EventLog[]));
+            else truncated = true; // a failed chunk (rate limit, transient error) truncates just that window
         }
-        if (fromBlock === genesisBound) break;
-        toBlock = fromBlock - 1;
     }
-    // genesisBound > 0 means MAX_LOOKBACK_BLOCKS cut the search off before reaching the
-    // chain's real genesis block -- history before that point was never queried.
-    if (genesisBound > 0) truncated = true;
 
     logs.sort((a, b) => (b.blockNumber - a.blockNumber) || (b.index ?? 0) - (a.index ?? 0));
 
@@ -143,6 +147,43 @@ async function fetchOnChainTransferHistory(
     });
 
     return { transactions, truncated };
+}
+
+// Every mount was re-running the full ~130-chunk paginated RPC fetch from scratch (10-15s),
+// even just switching tabs and back -- there's no backend indexer to ask instead (see
+// fetchOnChainTransferHistory's own comment), so the only way to make it not feel like it
+// "doesn't persist" is to cache the real result client-side. sessionStorage (not just an
+// in-memory Map) so it survives a full page reload within the same browser tab, not just a
+// React remount. Short TTL because new transfers can arrive at any time -- this is a
+// snappy-reload cache, not a replacement for the real chain being the source of truth.
+const HISTORY_CACHE_TTL_MS = 2 * 60 * 1000;
+function loadCachedHistory(sovereignAgent: string): { transactions: Transaction[]; truncated: boolean } | null {
+    try {
+        const raw = sessionStorage.getItem(`itk-tx-history:${sovereignAgent.toLowerCase()}`);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (Date.now() - parsed.cachedAt > HISTORY_CACHE_TTL_MS) return null;
+        return { transactions: parsed.transactions, truncated: parsed.truncated };
+    } catch {
+        return null;
+    }
+}
+function saveCachedHistory(sovereignAgent: string, transactions: Transaction[], truncated: boolean): void {
+    try {
+        sessionStorage.setItem(
+            `itk-tx-history:${sovereignAgent.toLowerCase()}`,
+            JSON.stringify({ transactions, truncated, cachedAt: Date.now() }),
+        );
+    } catch {
+        // Best-effort only -- a full sessionStorage quota just means no caching, not a crash.
+    }
+}
+function clearCachedHistory(sovereignAgent: string): void {
+    try {
+        sessionStorage.removeItem(`itk-tx-history:${sovereignAgent.toLowerCase()}`);
+    } catch {
+        // Best-effort only.
+    }
 }
 
 export const TokenWallet = () => {
@@ -202,14 +243,23 @@ export const TokenWallet = () => {
             setGasBalance(ethers.formatEther(eth));
             // The oracle's own transaction_history is always null (no indexer built yet --
             // see fetchOnChainTransferHistory's comment) -- read the real ERC-20 Transfer
-            // log directly instead of showing a permanently-empty Activity tab.
-            try {
-                const { transactions, truncated } = await fetchOnChainTransferHistory(provider, w.sovereign_agent);
-                setTxHistory(transactions.length > 0 ? transactions : (w.transaction_history || []).map(toTransaction));
-                setHistoryTruncated(truncated);
-            } catch {
-                setTxHistory((w.transaction_history || []).map(toTransaction));
-                setHistoryTruncated(false);
+            // log directly instead of showing a permanently-empty Activity tab. Cached in
+            // sessionStorage (see loadCachedHistory) so switching agents/pages and coming
+            // back doesn't re-run the full multi-chunk fetch every time.
+            const cached = loadCachedHistory(w.sovereign_agent);
+            if (cached) {
+                setTxHistory(cached.transactions.length > 0 ? cached.transactions : (w.transaction_history || []).map(toTransaction));
+                setHistoryTruncated(cached.truncated);
+            } else {
+                try {
+                    const { transactions, truncated } = await fetchOnChainTransferHistory(provider, w.sovereign_agent);
+                    setTxHistory(transactions.length > 0 ? transactions : (w.transaction_history || []).map(toTransaction));
+                    setHistoryTruncated(truncated);
+                    saveCachedHistory(w.sovereign_agent, transactions, truncated);
+                } catch {
+                    setTxHistory((w.transaction_history || []).map(toTransaction));
+                    setHistoryTruncated(false);
+                }
             }
         } catch {
             setAddress('');
@@ -264,6 +314,7 @@ export const TokenWallet = () => {
             setActiveModal(null);
             setAmount('');
             setRecipient('');
+            if (address) clearCachedHistory(address); // the send just changed real history -- don't serve the stale cached version
             fetchWalletData();
         } catch (err: any) {
             addToast?.('error', `Transfer failed: ${err.shortMessage || err.reason || err.message}`);
@@ -416,8 +467,9 @@ export const TokenWallet = () => {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
                             {!isFetching && (
                                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                                    Real ITK Transfer events for this SovereignAgent, read directly from Base Sepolia.
-                                    {historyTruncated && ` This RPC endpoint rejected an unbounded lookup -- showing roughly the last ${MAX_LOOKBACK_BLOCKS.toLocaleString()} blocks only, not full history.`}
+                                    Real ITK Transfer events for this SovereignAgent, queried directly from Base Sepolia (no backend indexer exists yet -- see integrity-oracle's own wallet handler).
+                                    {historyTruncated && ` This dashboard's configured public RPC endpoint caps a single lookup at 50,000 blocks and does not reliably serve log history beyond a limited recent window even when paginated -- a dedicated/archive RPC endpoint (Alchemy, Infura, QuickNode) would be needed for guaranteed complete history.`}
+                                    {!historyTruncated && txHistory.length === 0 && ' No transfers found in the queried range.'}
                                 </div>
                             )}
                             {isFetching ? (

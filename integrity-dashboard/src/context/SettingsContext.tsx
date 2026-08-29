@@ -56,7 +56,7 @@ const defaultSettings: Omit<SettingsState, 'apiKeys'> = {
   theme: 'dark',
   font: 'System Default',
   fontSize: 16,
-  appName: 'Xibalba MVP',
+  appName: 'Integrity MVP', // matches index.html's static <title> so applying it on mount is a no-op, not a flash
   headerStyle: 'solid',
   animationsEnabled: true,
 };
@@ -77,6 +77,9 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       settings.font === 'System Default' ? 'system-ui, -apple-system, sans-serif' : `"${settings.font}", sans-serif`
     );
     document.documentElement.style.setProperty('--base-font-size', `${settings.fontSize}px`);
+    // SettingsPage's own caption claims "This title appears in headers and notifications" --
+    // that was never true (appName was stored but nothing read it back). Actually apply it.
+    document.title = settings.appName || 'Xibalba MVP';
   }, [settings]);
 
   const refreshApiKeys = useCallback(() => {

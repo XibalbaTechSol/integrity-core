@@ -20,7 +20,11 @@ export const ProtocolStats: React.FC = () => {
 
     return (
         <div style={{ marginBottom: 'var(--space-8)' }}>
-            <div className="dash-grid-4" style={{ gap: 'var(--space-4)' }}>
+            {/* .dash-grid-4 was referenced here but never defined anywhere in the codebase
+                (confirmed: no CSS file, no Tailwind config, defines it) -- the class was a
+                no-op, so these 4 cards silently stacked full-width instead of forming a
+                4-up grid. Inline grid instead of relying on an undefined utility class. */}
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, 1fr)', gap: 'var(--space-4)' }}>
                 <StatCard
                     label="Network AIS"
                     value={s.aggregateAis.toFixed(1)}
