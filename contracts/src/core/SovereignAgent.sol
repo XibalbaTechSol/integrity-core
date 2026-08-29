@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {IAccount} from "./IAccount.sol";
+import {IExecutionPolicy} from "./IExecutionPolicy.sol";
 
 /// @title SovereignAgent
 /// @notice The per-agent on-chain account for a single AI ("Sovereign") agent.
@@ -12,6 +13,9 @@ import {IAccount} from "./IAccount.sol";
 /// oracle/framework/health contracts and simply *reads* this contract's controller/DID,
 /// rather than being folded into it — that keeps a compromise of one agent's logic from
 /// being able to reach into protocol-wide state it has no business touching.
+///
+/// SPEC.md §5.3: `execute` MUST consult `IExecutionPolicy` when a policy is installed.
+/// address(0) is the disclosed testnet skip path so existing agents keep working.
 contract SovereignAgent is AccessControl, IAccount {
     /// @dev Granted to the integrity-oracle backend's signer so it can push AIS cache
     /// updates. Deliberately *not* the same key as DEFAULT_ADMIN_ROLE (the controller):
@@ -38,11 +42,16 @@ contract SovereignAgent is AccessControl, IAccount {
     /// @notice The factory that deployed this agent (informational / for indexers).
     address public immutable factory;
 
+    /// @notice Swappable execution policy. address(0) skips the check (testnet default).
+    IExecutionPolicy public executionPolicy;
+
     event AISUpdated(uint256 oldScore, uint256 newScore);
     event ControllerRotated(address indexed oldController, address indexed newController);
     event AgentExecuted(address indexed target, uint256 value, bytes data, uint256 nonce);
+    event ExecutionPolicySet(address indexed policy);
 
     error NotController();
+    error PolicyDenied();
 
     modifier onlyController() {
         if (!hasRole(DEFAULT_ADMIN_ROLE, msg.sender)) revert NotController();
@@ -70,16 +79,26 @@ contract SovereignAgent is AccessControl, IAccount {
         return _agentDID;
     }
 
+    /// @notice Install or clear the execution policy. Only the controller may do this.
+    function setExecutionPolicy(address policy_) external onlyController {
+        executionPolicy = IExecutionPolicy(policy_);
+        emit ExecutionPolicySet(policy_);
+    }
+
     /// @inheritdoc IAccount
     /// @dev Arbitrary external call gated to the controller only. Bubbles up the revert
     /// reason from the callee verbatim (via the assembly block) so failures are
     /// debuggable from the controller's perspective instead of collapsing to a generic
-    /// "call failed".
+    /// "call failed". Policy is evaluated *before* the nonce bump so a denial does not
+    /// consume a BCC-correlated nonce.
     function execute(address target, uint256 value, bytes calldata data)
         external
         onlyController
         returns (bytes memory)
     {
+        if (address(executionPolicy) != address(0)) {
+            if (!executionPolicy.check(address(this), target, value, data)) revert PolicyDenied();
+        }
         uint256 nonce = ++executionNonce;
         (bool success, bytes memory result) = target.call{value: value}(data);
         if (!success) {

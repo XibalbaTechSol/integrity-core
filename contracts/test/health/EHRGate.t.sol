@@ -11,6 +11,7 @@ import {ReputationRegistry} from "../../src/oracle/ReputationRegistry.sol";
 import {StateAnchor} from "../../src/oracle/StateAnchor.sol";
 import {IntegrityToken} from "../../src/oracle/IntegrityToken.sol";
 import {XibalbaAgentRegistry} from "../../src/framework/XibalbaAgentRegistry.sol";
+import {AgentAuthorityResolver} from "../../src/framework/AgentAuthorityResolver.sol";
 
 /// @notice EHRGate must require ALL THREE of: patient consent, an active SmartBAA, and
 /// a sufficient reputation score. This is the test that proves the old prototype's gap
@@ -23,6 +24,7 @@ contract EHRGateTest is Test {
     CoveredEntityRegistry entityRegistry;
     IntegrityToken itk;
     XibalbaAgentRegistry registry;
+    AgentAuthorityResolver resolver;
 
     address admin = makeAddr("admin");
     address arbitrator = makeAddr("arbitrator");
@@ -52,7 +54,8 @@ contract EHRGateTest is Test {
         // EHRGate test (that sequence gets its own coverage in
         // AgentPrimitivesFactory.t.sol).
         registry = new XibalbaAgentRegistry(admin);
-        gate = new EHRGate(address(registry), address(baaFactory), THRESHOLD, admin);
+        resolver = new AgentAuthorityResolver(address(registry));
+        gate = new EHRGate(address(registry), address(baaFactory), address(resolver), THRESHOLD, admin);
 
         vm.startPrank(admin);
         registry.grantRole(registry.REGISTRAR_ROLE(), admin);
@@ -162,20 +165,57 @@ contract EHRGateTest is Test {
         assertFalse(gate.checkAccess(patient, RECORD_HASH));
     }
 
-    function test_verifyAndLogAccessEmitsAuditEvent() public {
+    function test_onlyAdminCanSetThreshold() public {
+        vm.expectRevert(EHRGate.NotAdmin.selector);
+        gate.setThreshold(1);
+    }
+
+    // --- verifyAndLogAccess: regression coverage. This function was silently dropped when
+    // EHRGate.sol was rewritten to resolve AIS through IAgentAuthorityResolver -- the ABI
+    // (integrity-sdk/integrity_sdk/abis/EHRGate.json) still declared it, so integrity_sdk's
+    // health.verify_and_log_access() built calldata for a function that no longer existed on
+    // the deployed contract and every call reverted (CI: test_full_health_flow_grants_and_
+    // verifies_ehr_access). No Solidity test called this function before, which is exactly how
+    // the regression went unnoticed at this layer -- these tests close that gap.
+
+    function test_verifyAndLogAccess_grantedCase_returnsTrueAndEmitsLog() public {
+        _signBAA();
+        _setScore(900);
+        vm.prank(patient);
+        gate.grantAccess(RECORD_HASH, agent, hospital);
+
+        vm.expectEmit(true, true, true, true);
+        emit EHRGate.AccessLogged(patient, RECORD_HASH, agent, true);
+
+        vm.prank(agent);
+        bool result = gate.verifyAndLogAccess(patient, RECORD_HASH);
+        assertTrue(result);
+    }
+
+    function test_verifyAndLogAccess_deniedCase_returnsFalseAndEmitsLog() public {
+        // No BAA, no consent, no score -- must return false and still emit an auditable
+        // "denied" log entry, not revert.
+        vm.expectEmit(true, true, true, true);
+        emit EHRGate.AccessLogged(patient, RECORD_HASH, agent, false);
+
+        vm.prank(agent);
+        bool result = gate.verifyAndLogAccess(patient, RECORD_HASH);
+        assertFalse(result);
+    }
+
+    function test_verifyAndLogAccess_matchesCheckAccess() public {
+        // Proves the two functions agree, not merely that each individually looks right.
         _signBAA();
         _setScore(900);
         vm.prank(patient);
         gate.grantAccess(RECORD_HASH, agent, hospital);
 
         vm.prank(agent);
-        vm.expectEmit(true, true, true, true);
-        emit EHRGate.AccessLogged(patient, RECORD_HASH, agent, true);
-        gate.verifyAndLogAccess(patient, RECORD_HASH);
-    }
+        bool checked = gate.checkAccess(patient, RECORD_HASH);
 
-    function test_onlyAdminCanSetThreshold() public {
-        vm.expectRevert(EHRGate.NotAdmin.selector);
-        gate.setThreshold(1);
+        vm.prank(agent);
+        bool logged = gate.verifyAndLogAccess(patient, RECORD_HASH);
+
+        assertEq(checked, logged);
     }
 }

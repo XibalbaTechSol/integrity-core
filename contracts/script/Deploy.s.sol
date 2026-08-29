@@ -8,6 +8,7 @@ import {IntegrityToken} from "../src/oracle/IntegrityToken.sol";
 import {IntegrityGovernance} from "../src/oracle/IntegrityGovernance.sol";
 import {UltraPlonkVerifier} from "../src/oracle/UltraPlonkVerifier.sol";
 import {XibalbaAgentRegistry} from "../src/framework/XibalbaAgentRegistry.sol";
+import {AgentAuthorityResolver} from "../src/framework/AgentAuthorityResolver.sol";
 import {XibalbaNameService} from "../src/framework/XibalbaNameService.sol";
 import {DomainRegistry} from "../src/framework/DomainRegistry.sol";
 import {CoveredEntityRegistry} from "../src/health/CoveredEntityRegistry.sol";
@@ -65,6 +66,7 @@ contract Deploy is Script {
     IntegrityGovernance gov;
     UltraPlonkVerifier verifier;
     XibalbaAgentRegistry registry;
+    AgentAuthorityResolver authorityResolver;
     IntegrityIdentityReadV1 identityRead;
     XibalbaNameService xns;
     DomainRegistry domainRegistry;
@@ -133,6 +135,7 @@ contract Deploy is Script {
         );
         verifier = new UltraPlonkVerifier();
         registry = new XibalbaAgentRegistry(deployer);
+        authorityResolver = new AgentAuthorityResolver(address(registry));
         // Read-only Integrity identity discovery facade. It intentionally exposes no
         // ERC-721 or native ERC-8004 ownership/transfer surface; see its NatSpec and
         // docs/INTERFACE_CONTRACT.md before integrating it.
@@ -154,7 +157,9 @@ contract Deploy is Script {
         // actual PHI-access enforcement contract ComplianceGate's own NatSpec says it
         // does NOT replace — the three-way consent+BAA+AIS gate the Integrity Health vertical's
         // docs describe had no reachable contract to call on-chain until this line.
-        ehrGate = new EHRGate(address(registry), address(baaFactory), EHR_GATE_MIN_AIS_THRESHOLD, deployer);
+        ehrGate = new EHRGate(
+            address(registry), address(baaFactory), address(authorityResolver), EHR_GATE_MIN_AIS_THRESHOLD, deployer
+        );
     }
 
     /// @dev Each clone-implementation contract's own constructor calls
@@ -230,6 +235,7 @@ contract Deploy is Script {
         console2.log("IntegrityGovernance:   ", address(gov));
         console2.log("UltraPlonkVerifier:    ", address(verifier));
         console2.log("XibalbaAgentRegistry:  ", address(registry));
+        console2.log("AgentAuthorityResolver:", address(authorityResolver));
         console2.log("IntegrityIdentityReadV1:", address(identityRead));
         console2.log("XibalbaNameService:    ", address(xns));
         console2.log("DomainRegistry:        ", address(domainRegistry));
@@ -258,6 +264,7 @@ contract Deploy is Script {
         vm.serializeAddress(singletons, "IntegrityGovernance", address(gov));
         vm.serializeAddress(singletons, "UltraPlonkVerifier", address(verifier));
         vm.serializeAddress(singletons, "XibalbaAgentRegistry", address(registry));
+        vm.serializeAddress(singletons, "AgentAuthorityResolver", address(authorityResolver));
         vm.serializeAddress(singletons, "IntegrityIdentityReadV1", address(identityRead));
         vm.serializeAddress(singletons, "XibalbaNameService", address(xns));
         vm.serializeAddress(singletons, "DomainRegistry", address(domainRegistry));

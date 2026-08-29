@@ -1,13 +1,14 @@
 ---
 title: ComplianceGate & Integrity Health
 created: 2026-07-07
-updated: 2026-07-15
+updated: 2026-08-24
 type: concept
 tags: [compliance, layer-2]
 confidence: high
 source_files:
   - contracts/src/health/ComplianceGate.sol
   - contracts/src/health/EHRGate.sol
+  - contracts/src/framework/AgentAuthorityResolver.sol
   - contracts/src/health/SmartBAAFactory.sol
   - contracts/src/health/CoveredEntityRegistry.sol
 ---
@@ -59,11 +60,12 @@ dishonest agent cannot self-declare its way to compliance.
   access decision.
 - `EHRGate` — the real PHI-access enforcement boundary: requires patient consent
   **and** an active `SmartBAA` **and** a minimum [AIS](ais.md), resolving the
-  agent's own `ReputationRegistry` clone live via `XibalbaAgentRegistry`.
+  agent's authority and AIS through `AgentAuthorityResolver`.
 
 `ComplianceGate` does **not** replace `EHRGate` as the enforcement point — it is
 the read-optimized summary surface. `EHRGate` still performs its own live checks
-at access time.
+at access time through patient grants, active BAAs, and the shared authority
+resolver.
 
 ## The closed loop
 
@@ -85,7 +87,7 @@ flowchart TB
     CG --> BAA
     EHR --> BAA
     EHR -->|also checks| Consent["patient consent"]
-    EHR -->|also checks| AIS["minimum AIS<br/>(live ReputationRegistry read)"]
+    EHR -->|also checks| AIS["minimum AIS<br/>(authority resolver read)"]
 ```
 
 All three consult the same underlying `isBAAActive` read rather than caching

@@ -3111,6 +3111,15 @@ writeup: PRODUCTION_GAPS.md §18.
 - Expanded v0.5-proposed without changing its non-authoritative status: added verified-evidence monotonicity; exposure-scaled availability escrow, anti-grief challenge deposits, AIS reduction, deterministic redress, and burn; hard classification for all value movement plus typed degradation events; locked-budget state channels with highest-mutually-signed state, monotone depletion, value conservation, and unilateral settlement; and per-transaction enclave binding with explicit side-channel/rollback/microarchitectural residual risk.
 - Verification: focused source assertions passed; prohibited authority phrases and broken references are absent; the proposed clause mapping contains every reviewed load-bearing requirement; wiki TOCs and linter passed; `git diff --check` passed.
 - Rebuilt Whitepaper v3.2: 59 A4 pages, unencrypted, 13/13 Mermaid diagrams; normalized extracted-text assertions and visual inspection of pages 10, 18, 31, and 59 passed. Superseding SHA-256: `d7d3135007f118f174be3a5bcde247198a8fb6f5dbf821c2825fca8508c63552`.
+
+## [2026-08-19] update | Hermes native Cortex provider and profile isolation
+
+- Activated Hermes' native `xibalba_cortex_memory_provider`; Supermemory remains disabled.
+- Added a bounded local request/response bridge between the Hermes environment and Cortex' GraphStore without direct Hermes imports or model-visible bridge tools.
+- Made the provider own session and prompt/response persistence while the existing observer retains API, tool, and approval telemetry only when Cortex is active.
+- Verified a real local Cortex retrieval tool-call turn: one provider-owned logical turn, one tool event, and no duplicate prompt/response exchange from the observer.
+- Verified profile-scoped stores for the default profile and `xibalba-quant`; no shared session was created by the quant isolation probe.
+- Verification: Hermes provider and observer-boundary tests passed 9/9; full Cortex suite passed; the remaining limitation is the absence of a safe Hermes synchronous shared Model Context Protocol provider boundary.
 ## [2026-08-18] fix | CI dependency resolution
 
 - Added the explicit OpenZeppelin 5.3.0 remapping required by Chainlink CCIP imports; this restores clean deployment-script compilation for the contracts, Software Development Kit (SDK), and command-line interface (CLI) validation paths.
@@ -3130,3 +3139,32 @@ writeup: PRODUCTION_GAPS.md §18.
 - Recorded that Open Policy Agent (OPA) service reachability and local adapter validation do not establish host-tool dispatch evidence or live provider parity; the external provider smoke path remained blocked by the Behavioral Commitment Chain gate.
 - Updated `index.md` and the retained `WIKI_INDEX.md` date/status summaries. No new page was created.
 - Residual completeness gap: the session finalization summary is partial because `hook_watermark_not_verified`; claims above remain bounded to captured session evidence and are not current deployment proof.
+## [2026-08-19] fix | SDK existing-DID genesis anchoring guard
+
+- Fixed `integrity_sdk.registration.register_agent()`'s already-registered DID path so it reads the existing `StateAnchor` root before the oracle POST, anchors the genesis root when the root is zero, and fails closed with `RegistrationError` without calling the oracle if anchoring fails.
+- Added `integrity-sdk/tests/unit/test_registration_existing_did_genesis.py` covering zero-root anchoring before POST, non-zero-root no-op behavior, and the failure case where anchoring prevents the Oracle POST.
+- Verification: focused regression `uv run pytest tests/unit/test_registration_existing_did_genesis.py` passed with 3 passed; full SDK validation `PATH="/home/xibalba/.foundry/bin:$PATH" uv run pytest` passed with 267 passed, 9 skipped, 1 warning. The first full run without Foundry on `PATH` failed at chain fixture setup because `anvil` was not discoverable; no code failures were observed after using the installed Foundry path.
+## [2026-08-24] fix | default CI contract compile
+
+- Fixed the post-PR #70 Solidity compile break by restoring the 7-field `PrimitiveSet`
+  registry shape, adding registry DID read helpers required by `IntegrityIdentityReadV1`,
+  and correcting ERC20 calldata amount decoding in `ConstraintExecutionPolicy`.
+- Wired `AgentAuthorityResolver` into genesis and incremental `EHRGate` deployment
+  scripts so `EHRGate`'s constructor and deployment-backed Software Development Kit
+  (SDK)/command-line interface (CLI) tests stay on the real authority-resolution path.
+- Updated the contracts and ComplianceGate wiki pages plus the interface contract to
+  document the read-only authority resolver boundary.
+- Verification: focused Foundry resolver/identity/health tests passed 24/24;
+  full contracts `forge test -vvv` passed 330/330; SDK `uv run pytest` passed
+  267 with 9 skipped; CLI `uv run pytest` passed 70 with 1 skipped.
+
+## [2026-08-24] correction | EHRGate incremental resolver boundary
+
+- Corrected `contracts/script/DeployEHRGate.s.sol` so incremental deployments reuse only
+  an existing serialized `singletons.AgentAuthorityResolver` and fail before broadcasting
+  when that key is absent.
+- Documented the residual migration boundary: existing networks with legacy
+  `XibalbaAgentRegistry` bytecode that lacks enterprise-agent reads require a separately
+  approved registry/resolver migration before `EHRGate` can be incrementally deployed.
+- No historical wiki log entries were edited; this entry supersedes the earlier wording
+  that overstated incremental EHR deployment support.

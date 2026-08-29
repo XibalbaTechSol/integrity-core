@@ -237,6 +237,18 @@ def register_agent(
         primitives_path.write_text(json.dumps(registration.to_dict(), indent=2) + "\n")
         _clear_deploy_progress(agent_id)  # fully registered on-chain -- any lingering progress file is stale
 
+        if chain.state_anchor_latest_root(w3, existing.state_anchor) != b"\x00" * 32:
+            logger.info("step 8b: StateAnchor %s already has a non-zero root -- skipping re-anchor", existing.state_anchor)
+        else:
+            try:
+                chain.anchor_genesis_root(w3, evm_account, existing.sovereign_agent, existing.state_anchor, chain_id)
+            except Exception as exc:  # noqa: BLE001
+                raise RegistrationError(
+                    f"step 8b (anchor_genesis_root) failed — SovereignAgent {existing.sovereign_agent} and "
+                    f"StateAnchor {existing.state_anchor} exist on-chain but the agent has no genesis memory "
+                    f"root, so the oracle will reject it with MemoryNotInitialized: {exc}"
+                ) from exc
+
         if not skip_oracle_registration:
             _post_to_oracle(oracle_url, agent_did, doc, registration, keypair, evm_account, idempotent=True)
         logger.info("agent %s already registered (SovereignAgent %s) — no new on-chain work done", agent_did, registration.sovereign_agent)

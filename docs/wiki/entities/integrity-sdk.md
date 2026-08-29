@@ -1,7 +1,7 @@
 ---
 title: integrity-sdk
 created: 2026-07-07
-updated: 2026-07-29
+updated: 2026-08-19
 type: entity
 tags: [sdk, identity, metrics]
 confidence: high
@@ -61,6 +61,15 @@ deploy `SovereignAgent` + `StateAnchor` → grant anchor role via `execute` →
 on-chain re-verification. Proven against a live anvil chain running the real
 `Deploy.s.sol` (`tests/test_registration.py`, `skip_oracle_registration=True`,
 on-chain steps only).
+
+**Fixed 2026-08-19**: the already-registered DID idempotency path now checks
+`StateAnchor.latestRoot()` before posting to the oracle. If the DID resolves but
+the existing StateAnchor has no genesis memory root, `register_agent()` anchors
+the genesis root first; if that anchoring fails, it raises `RegistrationError`
+and does not POST to the oracle, preventing an avoidable oracle-side
+`MemoryNotInitialized` rejection from being reported as a successful SDK
+registration handoff. If the root is already non-zero, the SDK skips re-anchoring
+and proceeds with the idempotent oracle registration POST.
 
 **Fixed 2026-07-09**: the final oracle POST (step 11) used to send
 `{"agent_id": ..., "did_document": ..., "primitives": registration.to_dict()}`,
@@ -198,13 +207,13 @@ execute-routing. `registration.py`'s `_VERTICALS` extended with
 - `security/attestation.py` — real AWS Nitro attestation *verification* (gen
   needs enclave hardware — honest, documented gap).
 
-**135 tests, 1 skipped** (`pytest tests/`, confirmed via a real run — up
-from 97: the 2026-07-15 additions are `test_openai_integrity.py` (7),
-`test_langchain_callback.py` (6), plus attestation/health/wallet-race
-coverage added earlier the same session): unit + real-anvil integration,
-always run. Plus **1 opt-in test** (`test_registration_oracle_e2e.py`,
-`ORACLE_E2E=1`) covering the real oracle-POST path skipped by every
-always-run test above.
+**267 tests passed, 9 skipped** (`uv run pytest`, confirmed 2026-08-19 with
+Foundry's `anvil` on `PATH`): unit + real-anvil integration, always run. The
+2026-08-19 regression coverage adds
+`tests/unit/test_registration_existing_did_genesis.py`, including the failure
+case where genesis anchoring raises `RegistrationError` and prevents the oracle
+POST. Plus opt-in oracle e2e tests (`ORACLE_E2E=1`) covering real oracle-POST
+paths skipped by the always-run suite.
 
 Related: [Telemetry Ingestion Pipeline](../concepts/telemetry-ingestion.md),
 [agent primitives](../concepts/agent-primitives.md),
