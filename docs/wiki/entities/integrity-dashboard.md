@@ -48,7 +48,7 @@ rule, the old content is replaced rather than patched.
 
 - [What this is](#what-this-is)
 - [Routes](#routes)
-- [Cortex Operations boundary](#cortex-operations-boundary)
+- [Cortex Operations tab boundary](#cortex-operations-tab-boundary)
 - [2026-08-13 full-site Playwright audit](#2026-08-13-full-site-playwright-audit)
 - [Real bugs found and fixed this pass](#real-bugs-found-and-fixed-this-pass)
 - [Known gaps not fixed this pass](#known-gaps-not-fixed-this-pass)

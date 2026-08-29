@@ -32,6 +32,17 @@
 > Chronological record of wiki actions. Append-only — never edit past entries.
 > Actions: ingest, create, update, lint, query, archive
 
+## [2026-08-29] lint | Wiki Sync Loop
+
+- Pages created: 0
+- Pages updated: 0
+- Dead links fixed: 0
+- Orphans resolved: 33 by restoring the canonical machine-readable `WIKI_INDEX.md`
+- Stale pages refreshed: 0
+- Aspirational content flagged: 0
+- The historical archived catalog remains separate; `docs/wiki/index.md` and this index are
+  the active canonical documentation map.
+
 ## [2026-08-13] update | BCC audit-report shutdown drain verified
 
 - Closed the documented shutdown-loss gap for `bcc_middleware` audit reports.
