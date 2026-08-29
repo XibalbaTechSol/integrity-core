@@ -372,6 +372,8 @@ contract IntegrityAccountTest is Test {
         // satisfy outside of an external call boundary.
         bytes memory executionCalldata = abi.encodePacked(recipient, sendAmount, bytes(""));
 
+        vm.expectEmit(address(kernel));
+        emit IntegrityKernel.SpendChecked(address(account), sendAmount, sendAmount, 0, 0);
         vm.prank(address(account));
         account.execute(_singleCallMode(), executionCalldata);
 

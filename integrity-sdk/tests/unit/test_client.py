@@ -175,6 +175,7 @@ def test_flush_with_keypair_produces_a_real_verifiable_signature(captured_posts)
     # convention) and confirm the signature verifies against it.
     signable = {
         "schema_version": payload["schema_version"],
+        "evidence_tier": payload["evidence_tier"],
         "agent_id": payload["agent_id"],
         "nonce": payload["nonce"],
         "otel_spans": payload["otel_spans"],

@@ -1,4 +1,4 @@
-.PHONY: setup chain chain-reset up down test test-e2e sync-abis demo check-deploy verify-kernel
+.PHONY: setup chain chain-reset up down test test-e2e sync-abis demo check-deploy check-wallets verify-kernel
 
 setup:
 	cd contracts && npm install
@@ -69,6 +69,11 @@ verify-kernel:
 # running, with every other signal saying it was. Never let that be invisible again.
 check-deploy:
 	python3 scripts/check_deploy_freshness.py
+
+# Read-only operational guard for configured operator wallets. This is deliberately
+# manual/cron-invoked rather than a CI correctness gate: testnet funding is environment state.
+check-wallets:
+	python3 scripts/check_wallet_balances.py
 
 # Default target network is Base Sepolia (see root .env) — the stack runs against the real
 # deployed protocol so testnet inconsistencies surface before mainnet.

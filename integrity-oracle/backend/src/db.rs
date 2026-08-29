@@ -1432,6 +1432,24 @@ pub async fn insert_otel_log(
     Ok(())
 }
 
+/// Count fail-closed AIS axis observations for one agent in a recent window.
+pub async fn count_ais_axis_zeroes(
+    pool: &PgPool,
+    agent_id: &str,
+    since: DateTime<Utc>,
+) -> Result<Vec<(String, i64)>, sqlx::Error> {
+    sqlx::query_as(
+        r#"SELECT COALESCE(attributes->>'axis', 'unknown') AS axis, COUNT(*) AS count
+           FROM otel_logs
+           WHERE agent_id = $1 AND event_name = 'ais.axis_zeroed' AND time >= $2
+           GROUP BY COALESCE(attributes->>'axis', 'unknown') ORDER BY axis"#,
+    )
+    .bind(agent_id)
+    .bind(since)
+    .fetch_all(pool)
+    .await
+}
+
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct RecentTraceRow {
     pub trace_id: String,

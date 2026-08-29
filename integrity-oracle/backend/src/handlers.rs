@@ -697,6 +697,17 @@ pub struct DerivedSignals {
     /// see the field's doc in `aggregate_for_ais`/scoring-core for how per-event flags
     /// become the period's `penalty_ratio`.
     pub compliance: f64,
+    /// Optional provider-reported cost. This is absent when the provider did not
+    /// report a price; the oracle never derives one from token counts.
+    #[serde(default)]
+    pub billed_cost: Option<BilledCost>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct BilledCost {
+    pub amount: f64,
+    pub currency: String,
+    pub rate_source: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
@@ -735,7 +746,11 @@ pub struct JudgeEvaluationDto {
 ///
 /// A payload above this is refused rather than parsed on a guess — misreading a future shape
 /// and then storing it as signed evidence is worse than rejecting it.
-pub const MAX_TELEMETRY_SCHEMA_VERSION: i64 = 1;
+pub const MAX_TELEMETRY_SCHEMA_VERSION: i64 = 2;
+
+fn default_signed_evidence_tier() -> String {
+    "signed_agent".to_string()
+}
 
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct TelemetryIngestRequest {
@@ -748,6 +763,10 @@ pub struct TelemetryIngestRequest {
     /// change the canonical JSON and break every historical signature.
     #[serde(default)]
     pub schema_version: Option<i64>,
+    /// Explicit provenance tier for the signed-agent ingestion path. Version 1
+    /// payloads may omit this field and are treated as the historical signed tier.
+    #[serde(default = "default_signed_evidence_tier")]
+    pub evidence_tier: String,
     pub agent_id: String,
     pub nonce: i64,
     #[serde(default)]
@@ -919,6 +938,11 @@ pub async fn ingest_telemetry(
                  pre-versioning envelope). Upgrade the oracle before sending this shape."
             )));
         }
+        if version >= 2 && req.evidence_tier != "signed_agent" {
+            return Err(AppError::BadRequest(
+                "schema_version 2 telemetry must use evidence_tier=signed_agent".to_string(),
+            ));
+        }
     }
 
     // Defense-in-depth PHI/PII/secret backstop (see crate::phi's doc comment): scan the
@@ -1026,6 +1050,7 @@ pub async fn ingest_telemetry(
 
     let event_id = Uuid::new_v4();
     let payload_json = serde_json::json!({
+        "evidence_tier": &req.evidence_tier,
         "otel_spans": req.otel_spans,
         // Client's claimed values — advisory/audit-trail only, no longer what gets scored.
         "derived_signals": req.derived_signals,
@@ -1039,6 +1064,7 @@ pub async fn ingest_telemetry(
             "grounding": recomputed.grounding,
             "sacrifice": recomputed.sacrifice,
             "compliance": compliance,
+            "billed_cost": &req.derived_signals.billed_cost,
         },
         "zk_proof": req.zk_proof.as_ref().map(|p| &p.circuit_id),
     });
@@ -1076,6 +1102,27 @@ pub async fn ingest_telemetry(
         },
         db::InsertTelemetryError::Db(e) => AppError::Database(e),
     })?;
+
+    // Record missing-axis occurrences only after the signed telemetry row commits,
+    // so a rejected/replayed submission cannot leave an orphan observability event.
+    for (axis, reason) in derive::zero_axis_reasons(&req.otel_spans) {
+        db::insert_otel_log(
+            &state.pool,
+            Uuid::new_v4(),
+            &req.agent_id,
+            Some("ais.axis_zeroed"),
+            Some("WARN"),
+            Some(13),
+            Some(reason),
+            &serde_json::json!({"axis": axis, "reason": reason}),
+            None,
+            None,
+            Utc::now(),
+            "signed_agent",
+            None,
+        )
+        .await?;
+    }
 
     // Storage + ingestion plumbing only (see JudgeEvaluationDto's doc comment) — no
     // judge/rubric implementation lives here. Persisted only after the telemetry event
@@ -2963,6 +3010,37 @@ pub async fn get_agent_events(
             })
             .collect(),
     ))
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AxisZeroCount {
+    pub axis: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Deserialize, ToSchema, utoipa::IntoParams)]
+pub struct ZeroAxisQuery {
+    #[serde(default)]
+    pub days: Option<i64>,
+}
+
+/// Counts fail-closed AIS axes observed for an agent in the requested window.
+#[utoipa::path(
+    get,
+    path = "/v1/agent/{id}/ais/zero-axis",
+    params(("id" = String, Path, description = "agent identifier"), ("days" = Option<i64>, Query, description = "lookback window, default 30 days")),
+    responses((status = 200, body = [AxisZeroCount])),
+    tag = "telemetry",
+)]
+pub async fn get_ais_zero_axis_counts(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<ZeroAxisQuery>,
+) -> Result<Json<Vec<AxisZeroCount>>, AppError> {
+    let days = query.days.unwrap_or(30).clamp(1, 365);
+    let since = Utc::now() - chrono::Duration::days(days);
+    let rows = db::count_ais_axis_zeroes(&state.pool, &id, since).await?;
+    Ok(Json(rows.into_iter().map(|(axis, count)| AxisZeroCount { axis, count }).collect()))
 }
 
 fn default_history_since() -> chrono::DateTime<Utc> {
