@@ -1,10 +1,14 @@
 ---
 title: Persistent Memory Bridge
 created: 2026-07-30
-updated: 2026-07-30
+updated: 2026-08-29
 type: concept
 tags: [architecture, sdk, primitive]
 confidence: high
+source_files:
+  - integrity-sdk/integrity_sdk/memory.py
+  - integrity-cli/integrity_cli/vault.py
+  - integrity-sdk/integrity_sdk/mcp_server.py
 ---
 
 # Persistent Memory Configuration Guide
@@ -16,8 +20,8 @@ The Persistent Memory Bridge allows agents to anchor their localized memory stat
 - [1. The TrustVault Primitive](#1-the-trustvault-primitive)
 - [2. Pluggable Memory Backends](#2-pluggable-memory-backends)
   - [JSONLBackend (Default)](#jsonlbackend-default)
-  - [RAGBackend (Vector Databases)](#ragbackend-vector-databases)
-  - [GraphBackend (Relational/Knowledge Graphs)](#graphbackend-relational-knowledge-graphs)
+  - [RAGBackend (Vector Databases) — [PLANNED]](#ragbackend-vector-databases-planned)
+  - [GraphBackend (Relational/Knowledge Graphs) — [PLANNED]](#graphbackend-relational-knowledge-graphs-planned)
 - [3. CLI Configuration](#3-cli-configuration)
 - [4. MCP Agent Integration](#4-mcp-agent-integration)
 
@@ -32,7 +36,10 @@ Agents manage memory states via the `TrustVault` context manager exposed in `int
 
 ## 2. Pluggable Memory Backends
 
-The SDK provides an adapter pattern (`MemoryBackend`) allowing agents to use any underlying storage architecture.
+The SDK provides an adapter pattern (`MemoryBackend`) for storage integrations. In the current
+source, `JSONLBackend` is the only implemented backend; `RAGBackend` and `GraphBackend` are
+explicit stubs that raise `NotImplementedError` and must not be described as production-ready
+connectors.
 
 ### JSONLBackend (Default)
 **Use Case**: Simple append-only logs for linear conversational history.
@@ -46,7 +53,7 @@ vault = TrustVault(agent_did="did:integrity:...", backend=backend)
 ```
 *Root Calculation*: A sequential keccak256 hash chain of each line.
 
-### RAGBackend (Vector Databases)
+### RAGBackend (Vector Databases) — `[PLANNED]`
 **Use Case**: Dense retrieval architectures for high-dimensional semantic search (e.g., Pinecone, Weaviate, Qdrant, Chroma).
 **Configuration**:
 ```python
@@ -58,7 +65,7 @@ vault = TrustVault(agent_did="did:integrity:...", backend=backend)
 ```
 *Root Calculation*: A Merkle Root of all document chunk hashes stored in the collection. The `RAGBackend` queries the database for the sorted chunk list and builds the Merkle Tree client-side to derive the root.
 
-### GraphBackend (Relational/Knowledge Graphs)
+### GraphBackend (Relational/Knowledge Graphs) — `[PLANNED]`
 **Use Case**: Graph databases representing complex entity relations (e.g., Neo4j).
 **Configuration**:
 ```python

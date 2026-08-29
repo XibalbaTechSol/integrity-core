@@ -3196,3 +3196,12 @@ writeup: PRODUCTION_GAPS.md §18.
 - Corrected the wiki landing page's obsolete external absolute-path dependency and linked the repository-local implementation ledger.
 - Updated `repository-implementation-plans.md` source bindings to existing files; historical archive entries remain unchanged.
 - Verification: living documentation link/source checks and wiki TOC validation pass; remaining archive-only historical links are intentionally excluded from the current-state audit.
+
+## [2026-08-29] audit | Individual review of remaining older articles
+
+- Source-reviewed the remaining 22 stale articles against their bound implementation, specification, test, and script files; the telemetry article had already been refreshed in the preceding pass.
+- Corrected the AIS inventory from the historical 10-route snapshot to the current generated OpenAPI inventory of 38 `/v1/*` paths.
+- Marked the SDK RAG and Graph memory adapters as planned stubs because the current implementations raise `NotImplementedError`.
+- Removed the unsubstantiated claim that market contracts are currently live on Base Sepolia; local code/tests and live-network evidence are now explicitly separated.
+- Regenerated the gas-tracking query from the current SDK gas log and refreshed all 22 reviewed pages.
+- Verification: 35 indexed pages, 0 stale pages, 0 orphans, 0 dead index links, and wiki TOC check passes.

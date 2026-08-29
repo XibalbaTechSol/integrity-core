@@ -1,7 +1,7 @@
 ---
 title: bcc_middleware
 created: 2026-07-07
-updated: 2026-08-13
+updated: 2026-08-29
 type: entity
 tags: [infrastructure, compliance, cryptography, metrics]
 confidence: high

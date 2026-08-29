@@ -1,7 +1,7 @@
 ---
 title: Identity Ceiling & Verification Ladder [BUILT]
 created: 2026-07-09
-updated: 2026-08-04
+updated: 2026-08-29
 type: concept
 tags: [identity, metrics, compliance]
 confidence: high

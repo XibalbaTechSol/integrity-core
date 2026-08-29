@@ -1,7 +1,7 @@
 ---
 title: ZK-ML Model-Inference Verification [PLANNED]
 created: 2026-07-09
-updated: 2026-07-09
+updated: 2026-08-29
 type: concept
 tags: [cryptography]
 confidence: low

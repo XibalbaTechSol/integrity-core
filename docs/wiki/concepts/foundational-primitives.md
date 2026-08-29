@@ -1,7 +1,7 @@
 ---
 title: The Four Foundational Primitives
 created: 2026-07-30
-updated: 2026-07-30
+updated: 2026-08-29
 type: concept
 tags: [identity, metrics, compliance]
 confidence: high
