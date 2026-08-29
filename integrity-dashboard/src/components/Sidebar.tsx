@@ -58,6 +58,7 @@ export function Sidebar() {
       section: 'System',
       items: [
         { to: '/memory', label: 'Memory', icon: <Database size={20} /> },
+        { to: '/cortex', label: 'Cortex Operations', icon: <BrainCircuit size={20} /> },
         { to: '/prediction-markets', label: 'Prediction Markets', icon: <DollarSign size={20} /> },
         { to: '/developer', label: 'Developer', icon: <Code size={20} /> },
         { to: '/wiki', label: 'Wiki', icon: <BookOpen size={20} /> },
