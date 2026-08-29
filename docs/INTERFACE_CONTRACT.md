@@ -269,7 +269,7 @@ The signed object of `POST /v1/telemetry/ingest` carries `schema_version`, an in
 **inside the signature**:
 
 ```
-schema_version = 2          # integrity_sdk.client.TELEMETRY_SCHEMA_VERSION
+schema_version = 3          # integrity_sdk.client.TELEMETRY_SCHEMA_VERSION
                             # backend::handlers::MAX_TELEMETRY_SCHEMA_VERSION
 evidence_tier = "signed_agent" # inside the signed object; v1/legacy defaults to this tier
 ```
@@ -288,6 +288,11 @@ Both constants must move together. Rules, all load-bearing:
   `rate_source`) only when the provider reported it. The SDK never estimates a cost from
   token counts; absent provider data remains absent. The top-level `evidence_tier` is fixed
   to `signed_agent` for this path, distinguishing it from unauthenticated OTLP telemetry.
+- Version 3 adds structural validation for the signed `otel_spans` array before the PHI
+  backstop or persistence layer runs. The oracle rejects unknown top-level/metadata keys,
+  malformed covered-entity addresses, invalid numeric ranges, oversized text/properties,
+  and batches above the configured span limit. This is shape validation only; it does not
+  make the unauthenticated OTLP path part of AIS scoring.
 - Bumping the version is therefore a coordinated change: raise the SDK constant, raise the
   oracle's maximum, and deploy the oracle **first** so it can accept the new shape before any
   agent emits it.

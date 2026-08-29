@@ -3180,3 +3180,12 @@ writeup: PRODUCTION_GAPS.md §18.
 - Disabled extraction-decision and projection-mutation controls when the dashboard is not loopback-hosted; documented that this browser guard is defense in depth, not operator authentication.
 - Preserved authority boundaries: Cortex remains the profile-isolated canonical store for Cortex memory, does not become Integrity protocol authority, and complements rather than replaces Hermes memory.
 - No new wiki page or catalog entry was required; `docs/wiki/index.md` remains unchanged.
+## [2026-08-29] lint | Wiki Sync Loop
+
+- Pages created: 0
+- Pages updated: 4 (`WIKI_INDEX.md`, `entities/integrity-oracle.md`, `entities/contracts.md`, `concepts/telemetry-ingestion.md`)
+- Dead links fixed: 0
+- Orphans resolved: 2 (added `architecture/ecosystem-dependencies.md` and `architecture/repository-implementation-plans.md` to the catalog)
+- Stale pages refreshed: 3 (Oracle, contracts, and telemetry ingestion source-verified against the 2026-08-29 changes)
+- Aspirational content flagged: 0
+- Verification: `python3 scripts/wiki_linter.py` reports 35 indexed pages, 0 dead links; `python3 scripts/wiki_toc.py --check` passes for 35 wiki pages; dashboard `npm run sync-wiki` regenerated `src/generated/wiki-data.json`.

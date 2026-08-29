@@ -1,7 +1,7 @@
 ---
 title: contracts
 created: 2026-07-07
-updated: 2026-08-24
+updated: 2026-08-29
 type: entity
 tags: [layer-2, identity, tokenomics, compliance]
 confidence: high
@@ -34,6 +34,7 @@ factory that deploys them, the shared registries, the `$ITK` token, the
 - [Dependency-resolution evidence](#dependency-resolution-evidence)
 - [Contents](#contents)
 - [Key invariants](#key-invariants)
+  - [IntegrityKernel spend accounting event](#integritykernel-spend-accounting-event)
 - [State](#state)
 - [Honest gaps](#honest-gaps)
 
@@ -120,6 +121,15 @@ even though the ordinary contract unit tests can pass.
   `initialize` instead (`Slasher.disputeWindow`, `ReputationRegistry.reportingPeriod`).
 - **`via_ir = true`** — `registerPrimitives` clones+inits 5 contracts in one
   function and hits "stack too deep" under legacy codegen.
+
+### IntegrityKernel spend accounting event
+
+`IntegrityKernel` emits `SpendChecked` on every successful spend-check path,
+including the zero-value allow case. The event records the bound account,
+native amount, cumulative native amount, tracked-token amount, and cumulative
+tracked-token amount. This is an observability receipt for the kernel's
+budget decision; it does not replace the contract's state checks or authorize
+an otherwise rejected operation.
 
 ## State
 

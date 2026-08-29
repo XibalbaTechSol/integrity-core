@@ -1,7 +1,7 @@
 ---
 title: integrity-oracle
 created: 2026-07-07
-updated: 2026-08-04
+updated: 2026-08-29
 type: entity
 tags: [infrastructure, metrics, layer-2, tokenomics]
 confidence: high
@@ -45,6 +45,7 @@ this is the **only** backend that ever reads on-chain state.
   - [Governance: GET /v1/governance/proposals](#governance-get-v1-governance-proposals)
   - [GET /v1/agent/{id}/wallet](#get-v1-agent-id-wallet)
   - [Server-side telemetry-signal re-derivation (derive.rs)](#server-side-telemetry-signal-re-derivation-derive-rs)
+  - [Signed telemetry schema v3 (handlers.rs + spanschema.rs)](#signed-telemetry-schema-v3-handlers-rs-spanschema-rs)
   - [The OTLP/gRPC path (otlp.rs) — separate from telemetryevents, unauthenticated](#the-otlp-grpc-path-otlp-rs-separate-from-telemetryevents-unauthenticated)
   - [PHI backstop on POST /v1/telemetry/ingest](#phi-backstop-on-post-v1-telemetry-ingest)
   - [Judge evaluations (storage only — no judge implementation)](#judge-evaluations-storage-only-no-judge-implementation)
@@ -250,6 +251,19 @@ step 5 of an 11-step ordered handler sequence — PHI scan, agent lookup,
 rate limit, and signature verification all run first):
 [Telemetry Ingestion Pipeline](../concepts/telemetry-ingestion.md). Formula
 and trust-model detail: [AIS](../concepts/ais.md).
+
+### Signed telemetry schema v3 (`handlers.rs` + `span_schema.rs`)
+
+The signed `POST /v1/telemetry/ingest` envelope currently accepts schema versions 1 through
+3. Version 3 is the first version whose `otel_spans` array is structurally validated before
+the PHI scan and persistence path: the allowlisted shape, metadata/property counts, text
+and batch bounds, numeric ranges, and covered-entity address format are checked. Unknown or
+oversized shapes fail closed with a client-visible bad request. The validator does not apply
+to the separate unauthenticated OTLP receiver and does not make OTLP data eligible for AIS.
+
+The SDK and oracle version constants must move together. Historical envelopes without a
+`schema_version` remain valid, while future versions are rejected until the oracle is
+upgraded. See `docs/INTERFACE_CONTRACT.md` §4.2a for the wire-level contract.
 
 ### The OTLP/gRPC path (`otlp.rs`) — separate from telemetry_events, unauthenticated
 

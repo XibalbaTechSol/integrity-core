@@ -2,7 +2,7 @@
 title: Telemetry Ingestion Pipeline
 acronyms: []
 created: 2026-07-15
-updated: 2026-07-15
+updated: 2026-08-29
 type: concept
 tags: [sdk, metrics, infrastructure, compliance]
 confidence: high
@@ -142,6 +142,12 @@ payload = {**signable, "signature": signature}
 Optional args to `flush_telemetry(zk_proof=, compliance_gate_address=, covered_entity_address=, w3=)` thread through to `derive_compliance`'s on-chain "wins" check (§3) when the caller has chain access available.
 
 ## 7. Oracle ingestion pipeline (`handlers::ingest_telemetry`)
+
+Schema version 3 adds a fail-closed structural validator for the signed
+`otel_spans` array. It runs before the PHI backstop and persistence, enforcing
+the allowlisted shape, bounded batch/text/property sizes, numeric ranges, and
+covered-entity address format. Unknown or oversized entries are rejected;
+unauthenticated OTLP spans remain a separate evidence tier and never feed AIS.
 
 `POST /v1/telemetry/ingest` runs a fixed, ordered sequence — cheapest/most-certain-to-reject-fast first, matching this monorepo's general pipeline-ordering convention (same shape as `bcc_middleware`'s `run_intercept`):
 
