@@ -41,3 +41,49 @@ export const NO_CODE_FACTORY_ADDRESS = AGENT_PRIMITIVES_FACTORY_ADDRESS;
 export const BASE_SEPOLIA_CHAIN_ID = deployments.chainId;
 export const RPC_URL = deployments.rpcUrl;
 export const EXPLORER_URL = deployments.explorerUrl;
+
+// The real, on-chain registered agent used to attribute every dashboard-triggered test
+// action (Guided System Test wizard) -- NOT XIBALBA_AGENT_ADDRESS above (that's the
+// AgentRegistry contract's own address, a different thing). Confirmed live via the
+// Oracle's own GET /v1/agents: handle "xibalba.integrity", registered 2026-08-12. Every
+// system's test-event log (Oracle audit_log, Cortex otel_events, Shield test_events) is
+// tagged with this same DID so a test run is queryable by the same identity everywhere.
+export const XIBALBA_TEST_AGENT_ID = 'did:integrity:68fed1331613937555a59398223e8e87520a87dd0305aac4fd7ecdc32a14a861';
+
+// Phase I's guardian-governed IntegrityAccount + its bound IntegrityKernel (the three
+// reference adapters -- budget, reputation-floor, assurance-tier -- live inside the
+// kernel). Real bytecode on Base Sepolia, unlike LicenceAccount -- but explicitly marked
+// experimental at the deploy record itself; KERNEL_REFERENCE.disclosure is that exact
+// string, surfaced verbatim by KernelPage rather than paraphrased.
+export const KERNEL_REFERENCE = (
+  deployments as unknown as {
+    experimentalPhase1Reference?: {
+      IntegrityAccount: string;
+      IntegrityKernel: string;
+      ReputationRegistry: string;
+      deployedFromCommit: string;
+      disclosure: string;
+    };
+  }
+).experimentalPhase1Reference;
+
+export const LICENCE_REFERENCE = (
+  deployments as unknown as {
+    experimentalPhase2LicenceReference?: {
+      LicenceAccountImplementation: string;
+      LicenceToken: string;
+      deployedFromCommit: string;
+      disclosure: string;
+      licenceEndTime: number;
+      licenceStartTime: number;
+      owner: string;
+      protocolFeeBps: number;
+      protocolFeeRecipient: string;
+      royaltyPricePerUnitWei: number;
+      salt: string;
+      tokenBoundAccount: string;
+      tokenId: number;
+      volumeCapTotal: number;
+    };
+  }
+).experimentalPhase2LicenceReference;

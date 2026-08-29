@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-    Fingerprint, ShieldCheck, FileText, ExternalLink, 
+import { ethers } from 'ethers';
+import {
+    Fingerprint, ShieldCheck, FileText, ExternalLink,
     Copy, Search, CheckCircle2, Key, Globe, Shield, Zap, Download
 } from 'lucide-react';
 import { useIsMobile } from '../../utils/useIsMobile';
 import { oracle } from '../../services/oracle';
+import { STATE_ANCHOR_ABI } from '../../chain/bytecode';
+import { RPC_URL } from '../../constants';
 
 interface DIDExplorerProps {
     agent: any;
@@ -17,6 +20,10 @@ export const DIDExplorer: React.FC<DIDExplorerProps> = ({ agent }) => {
     const [vc, setVc] = useState<any>(null);
     const [handle, setHandle] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    // Real StateAnchor.latestRoot() read -- integrity-core's own CLAUDE.md documents that
+    // every agent registered before the memory-gating change still reports latestRoot == 0
+    // (unanchored), so this must never be hardcoded true. null = not checked yet/unknown.
+    const [anchored, setAnchored] = useState<boolean | null>(null);
     // eth_address already holds the agent's DID, so never re-wrap an already-qualified DID
     // (that produced a malformed did:xibalba:did:integrity:… string).
     // Optional-chained on `agent` too: this runs on every render, including the one where
@@ -57,10 +64,25 @@ export const DIDExplorer: React.FC<DIDExplorerProps> = ({ agent }) => {
                 setDidDoc(detail.did_document || { id: agent.eth_address, note: 'No DID document on record for this agent.' });
                 setVc(vcDoc || { note: 'Verifiable Credential unavailable.' });
                 setHandle(handleDoc?.handle ?? null);
+
+                const stateAnchorAddr = detail.primitives?.state_anchor;
+                if (stateAnchorAddr) {
+                    try {
+                        const provider = new ethers.JsonRpcProvider(RPC_URL);
+                        const anchorContract = new ethers.Contract(stateAnchorAddr, STATE_ANCHOR_ABI, provider);
+                        const root: string = await anchorContract.latestRoot();
+                        setAnchored(root !== ethers.ZeroHash);
+                    } catch {
+                        setAnchored(null); // couldn't read the chain -- show "unknown", never assume anchored
+                    }
+                } else {
+                    setAnchored(null);
+                }
             } catch (e) {
                 console.error("Identity fetch error:", e);
                 setDidDoc({ id: agent.eth_address, note: 'DID document unavailable (oracle unreachable).' });
                 setVc(null);
+                setAnchored(null);
             } finally {
                 setIsLoading(false);
             }
@@ -193,9 +215,12 @@ export const DIDExplorer: React.FC<DIDExplorerProps> = ({ agent }) => {
                                         
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', width: '100%' }}>
                                             {[
-                                                { label: 'XNS_RESOLVE', value: (handle ? `${handle.includes('.') ? handle : `${handle}.intg`}` : agent.xns_handle) || "UNANCHORED", active: !!(handle || agent.xns_handle) },
+                                                { label: 'XNS_RESOLVE', value: (handle ? `${handle.includes('.') ? handle : `${handle}.intg`}` : agent.xns_handle) || "UNRESOLVED", active: !!(handle || agent.xns_handle) },
                                                 { label: 'PROTO_VER', value: 'INTG_V1.0', active: true },
-                                                { label: 'STATUS', value: 'ANCHORED', active: true },
+                                                // Real StateAnchor.latestRoot() != 0x0 check -- never hardcode this. Most agents
+                                                // registered before the memory-gating change genuinely report unanchored (see
+                                                // integrity-core's own CLAUDE.md), so this must be able to show that honestly.
+                                                { label: 'STATUS', value: anchored === null ? 'UNKNOWN' : anchored ? 'ANCHORED' : 'NOT ANCHORED', active: anchored === true },
                                             ].map((item, i) => (
                                                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: 'rgba(255,255,255,0.02)', borderRadius: 'var(--r-md)', border: '1px solid var(--border)' }}>
                                                     <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 800 }}>{item.label}</span>

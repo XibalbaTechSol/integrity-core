@@ -24,27 +24,35 @@ test.describe('/health (HealthPage)', () => {
     expect(errors, `Uncaught errors: ${errors.map(e => e.message).join('; ')}`).toEqual([]);
   });
 
-  test('hero bar: Health Protocol heading, real BAA stats strip', async ({ page }) => {
+  test('hero bar: Integrity Health heading, HIPAA-aligned badge, real BAA stats strip', async ({ page }) => {
+    // Rebranded from "Health Protocol" to "Integrity Health" with a HIPAA-aligned badge,
+    // as part of reimagining the page around a HIPAA-clinical identity.
     await page.goto('/health');
-    await expect(page.getByText('Health Protocol')).toBeVisible();
-    await expect(page.getByText(/Smart BAA registry, EHR Gates, and Quarantine are all real/)).toBeVisible();
+    await expect(page.getByText('Integrity Health', { exact: true })).toBeVisible();
+    await expect(page.getByText('HIPAA-aligned')).toBeVisible();
+    await expect(page.getByText(/Smart BAA authoring, EHR access gates, and agent quarantine/)).toBeVisible();
     await expect(page.getByText('Active BAAs')).toBeVisible();
     await expect(page.getByText('Disputed BAAs')).toBeVisible();
   });
 
-  test('Smart BAA Registry: real table or honest empty state, Propose BAA opens a real modal', async ({ page }) => {
+  test('Draft a Business Associate Agreement: guided authoring panel replaces the old Propose BAA modal', async ({ page }) => {
+    // The old "+ Propose BAA Contract" button + modal was replaced with an always-visible,
+    // inline, step-labeled authoring panel (components/health/BaaAuthoringPanel.tsx) --
+    // every field is a real SmartBAAFactory.createBAA constructor argument, shown as it's
+    // filled in rather than hidden behind a popup.
     await page.goto('/health');
+    await expect(page.getByText('Draft a Business Associate Agreement')).toBeVisible();
+    await expect(page.getByText('Parties')).toBeVisible();
+    await expect(page.getByText('Agreement document')).toBeVisible();
+    await expect(page.getByText('Collateral terms')).toBeVisible();
+    await expect(page.getByRole('button', { name: /Write & Deploy SmartBAA/ })).toBeVisible();
+
     // exact: true — a substring match would also hit the hero banner's "Smart BAA
-    // registry, EHR Gates, and Quarantine are all real" copy.
+    // authoring, EHR access gates, and agent quarantine" copy.
     await expect(page.getByText('Smart BAA Registry', { exact: true })).toBeVisible();
     const noBaas = page.getByText('No BAAs found for this agent.');
     const baaRows = page.locator('table tbody tr td.mono');
     await expect(noBaas.or(baaRows.first())).toBeVisible();
-
-    await page.getByRole('button', { name: '+ Propose BAA Contract' }).click();
-    await expect(page.getByRole('heading', { name: 'Propose Smart BAA' })).toBeVisible();
-    await page.mouse.click(10, 10);
-    await expect(page.getByRole('heading', { name: 'Propose Smart BAA' })).not.toBeVisible();
   });
 
   test('HIPAA Gateway, Clinical Allowlist, and NHI Access Governance panels render', async ({ page }) => {

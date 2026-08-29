@@ -74,6 +74,14 @@ class IntentDeviationResult:
     planned_action: Optional[Dict[str, Any]]
     actual_action: Optional[Dict[str, Any]]
     detail: str
+    # Hash-based intent-vs-effect join (~/.claude/plans/velvet-giggling-quill.md), distinct
+    # from the structural planned_action/actual_action diff above: `effect_hash` is only set
+    # when the caller passes `actual_effect_payload` to `record_outcome` (below), shaped
+    # comparably to whatever `intent_payload` produced the commitment's own
+    # `intended_state_hash` -- this module deliberately doesn't guess that mapping itself,
+    # same separation of concerns its own docstring already states for planned_action.
+    effect_hash: Optional[str] = None
+    intent_matches_effect: Optional[bool] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -83,6 +91,8 @@ class IntentDeviationResult:
             "planned_action": self.planned_action,
             "actual_action": self.actual_action,
             "detail": self.detail,
+            "effect_hash": self.effect_hash,
+            "intent_matches_effect": self.intent_matches_effect,
         }
 
 
@@ -172,7 +182,11 @@ class IntentInvocation:
     _client: Optional[Any] = field(repr=False, default=None)
     deviation: Optional[IntentDeviationResult] = None
 
-    def record_outcome(self, actual_action: Optional[Dict[str, Any]] = None) -> IntentDeviationResult:
+    def record_outcome(
+        self,
+        actual_action: Optional[Dict[str, Any]] = None,
+        actual_effect_payload: Optional[Dict[str, Any]] = None,
+    ) -> IntentDeviationResult:
         """
         Call after the action this intent committed to has actually run (or
         been denied/aborted), passing what actually happened as
@@ -182,16 +196,31 @@ class IntentInvocation:
         next telemetry flush regardless of collector availability — same
         dual-path pattern `tracing.trace_run` already uses).
 
+        `actual_effect_payload`, if given, must be shaped comparably to
+        whatever `intent_payload` produced this commitment's own
+        `intended_state_hash` — it gets hashed the identical way
+        (`bcc.hash_intent_payload`) so the two are directly comparable. This
+        is the intent-vs-effect join; use `posttool_report.submit_effect_report`
+        to actually record the comparison (this method only computes it).
+
         Safe to call at most meaningfully once; a second call overwrites
         `self.deviation` with the new result (e.g. if a caller retries).
         """
         planned_action = self.commitment.get("_planned_action")
         result = compare_planned_to_actual(planned_action, actual_action)
+
+        if actual_effect_payload is not None:
+            result.effect_hash = bcc.hash_intent_payload(actual_effect_payload)
+            result.intent_matches_effect = result.effect_hash == self.commitment.get("intended_state_hash")
+
         self.deviation = result
 
         if self._span is not None:
             self._span.set_attribute("integrity.intent.plan_adherence", result.adherence_score)
             self._span.set_attribute("integrity.intent.plan_adherence_detail", result.detail)
+            if result.effect_hash is not None:
+                self._span.set_attribute("integrity.intent.effect_hash", result.effect_hash)
+                self._span.set_attribute("integrity.intent.matches_effect", bool(result.intent_matches_effect))
 
         if self._client is not None:
             self._client.record_metric(
@@ -256,9 +285,11 @@ class invoke_intent:
         timestamp_ms: Optional[int] = None,
         covered_entity_address: Optional[str] = None,
         client: Optional[Any] = None,
+        invocation_id: Optional[str] = None,
     ):
         self._client = client
         self._planned_action = planned_action
+        self.invocation_id = invocation_id or bcc.new_invocation_id()
         self.commitment = bcc.build_bcc_commitment(
             agent_id=agent_id,
             intent_type=intent_type,
@@ -269,6 +300,7 @@ class invoke_intent:
             verifying_contract=verifying_contract,
             timestamp_ms=timestamp_ms,
             covered_entity_address=covered_entity_address,
+            invocation_id=self.invocation_id,
         )
         # Carried on the commitment dict under a `_`-prefixed key so
         # `record_outcome` can find it without a second parameter threaded
@@ -289,6 +321,7 @@ class invoke_intent:
             inputs={
                 "intent_type": intent_type,
                 "intent_id": self.intent_id,
+                "invocation_id": self.invocation_id,
                 "goal": goal,
                 "plan": plan,
                 "planned_action": planned_action,
@@ -311,6 +344,7 @@ class invoke_intent:
         self._span_cm = tracer.start_as_current_span("integrity.invoke_intent")
         self._span = self._span_cm.__enter__()
         self._span.set_attribute("integrity.intent.id", self.intent_id)
+        self._span.set_attribute("integrity.invocation.id", self.invocation_id)
         self._span.set_attribute("integrity.intent.type", self.commitment["intent_type"])
         self._span.set_attribute("integrity.run_id", self.run.run_id)
         if self.run.parent_run_id:

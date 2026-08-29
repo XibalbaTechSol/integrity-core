@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Navigate, Routes, Route } from 'react-router-dom';
 import 'katex/dist/katex.min.css';
 import './index.css';
 import LandingPage from './LandingPage';
@@ -8,14 +8,19 @@ import IdentityPage from './pages/IdentityPage';
 import FinancialsPage from './pages/FinancialsPage';
 import HealthPage from './pages/HealthPage';
 import ShieldPage from './pages/ShieldPage';
+import QuantPage from './pages/QuantPage';
+import LicencePage from './pages/LicencePage';
+import KernelPage from './pages/KernelPage';
+import KernelIntentPage from './pages/KernelIntentPage';
 import AuthPage from './pages/AuthPage';
 import SettingsPage from './pages/SettingsPage';
 import { DeveloperPage } from './pages/DeveloperPage';
 import DocsPage from './pages/DocsPage';
-import MemoryPage from './pages/MemoryPage';
+import CortexPage from './pages/CortexPage';
 import PrivacyPage from './pages/PrivacyPage';
 import TermsPage from './pages/TermsPage';
 import { IntelligencePage } from './pages/IntelligencePage';
+import CorrelationPage from './pages/CorrelationPage';
 import { ActuarialHub } from './components/tabs/ActuarialHub';
 import { DashboardProvider } from './context/DashboardContext';
 import { SettingsProvider } from './context/SettingsContext';
@@ -42,10 +47,16 @@ function App() {
             <Route path="/identity" element={<IdentityPage />} />
             <Route path="/financials" element={<FinancialsPage />} />
             <Route path="/intelligence" element={<IntelligencePage />} />
+            <Route path="/correlation" element={<CorrelationPage />} />
+            <Route path="/cortex" element={<CortexPage />} />
             <Route path="/prediction-markets" element={<ActuarialHub mode="markets" />} />
             <Route path="/health" element={<HealthPage />} />
             <Route path="/shield" element={<ShieldPage />} />
-            <Route path="/memory" element={<MemoryPage />} />
+            <Route path="/quant" element={<QuantPage />} />
+            <Route path="/licence" element={<LicencePage />} />
+            <Route path="/kernel" element={<KernelPage />} />
+            <Route path="/kernel-intent" element={<KernelIntentPage />} />
+            <Route path="/memory" element={<Navigate to="/cortex" replace />} />
             <Route path="/developer" element={<DeveloperPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>

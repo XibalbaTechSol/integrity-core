@@ -17,14 +17,14 @@ gates registration), then [AIS](concepts/ais.md) (the trust score) and
 [Telemetry Ingestion Pipeline](concepts/telemetry-ingestion.md) (how
 agent behavior becomes that score).
 
-## Specification authority — 2026-08-17
+## Specification authority — 2026-08-25
 
 - [Integrity Protocol v0.4](../../spec/integrity-protocol-v0.4.md) is the accepted normative baseline.
 - [Integrity Protocol v0.5 proposed](../../spec/integrity-protocol-v0.5-proposed.md) is the new non-authoritative amendment under review.
 - [Whitepaper v3.2](../../spec/integrity-protocol-v3.2.md) is explanatory and non-normative.
 - The v3.2 PDF is generated publication output; code, tests, and deployments are separate implementation evidence layers.
 
-## Current cross-repository audit — 2026-08-06
+## Current cross-repository audit — 2026-08-25
 
 **Note, 2026-08-12:** the ecosystem is a three-repository model now — `integrity-mvp` (linked
 below as a dated historical pointer) has been superseded by `integrity-dashboard/` inside this
@@ -39,6 +39,8 @@ The four-repository implementation plan and audit ledger are maintained outside 
 - [`xibalba-cortex` audit status](https://github.com/XibalbaTechSol/xibalba-cortex/blob/main/docs/audits/2026-08-06-status.md): local MCP memory prototype; tests pass with Drive extras; active worktree changes require review.
 
 These pages distinguish `DONE`, `PARTIAL`, `PLANNED`, `BLOCKED`, `UNVERIFIED`, and `REQUIRES REVIEW`. Historical wiki log entries and design records remain historical evidence.
+
+The latest compiled session evidence keeps Phase I contract work and Hermes/BCC live dispatch in `PARTIAL`/`BLOCKED` status; local adapter validation and policy-service reachability do not establish live provider parity or host-tool execution.
 
 ## System at a glance
 
@@ -100,6 +102,7 @@ flowchart TB
 
 ### Concepts — behavioral gating & cryptography
 - [Behavioral Commitment Chain (BCC)](concepts/bcc.md) — the pre-execution signed-intent gate
+- [Invocation Correlation Profile v1](../../spec/invocation-id-v1.md) — canonical per-attempt UUID joining intent, policy, execution, and effect without content-hash ambiguity
 - [Merkle Batching & Anchoring Convention](concepts/merkle-batching.md)
 - [Zero-Knowledge Proving Pipeline (ZKP)](concepts/zkp.md)
 

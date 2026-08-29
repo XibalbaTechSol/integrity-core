@@ -283,7 +283,13 @@ export const TelemetryGraphs = () => {
                 {activeSeries.map(s => (
                   <Area
                     key={s.id}
-                    type="monotone"
+                    // "monotone" cubic-interpolates a smooth curve between points, implying a
+                    // gradual real-world transition -- but these are discrete telemetry
+                    // readings that genuinely jump between two values with no ramp (e.g. one
+                    // agent's performance_variance flipping 1.0<->0.0 within milliseconds
+                    // across two different real emitters). "stepAfter" draws the actual
+                    // step-function shape instead of fabricating a curve that never happened.
+                    type="stepAfter"
                     dataKey={s.dataKey}
                     stroke={s.color}
                     strokeWidth={2}

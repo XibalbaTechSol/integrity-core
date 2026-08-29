@@ -8,21 +8,31 @@ import type {
     Attachment,
     EntityRelation,
     Exchange,
+    ExtractionProposal,
+    HybridRetrieveResult,
     GraphMemoryStats,
     GraphPayload,
     InferenceManifest,
     InferenceTask,
+    KernelDecision,
+    KernelIntentTriple,
     ParaClassification,
     IntegrityLinksStatus,
+    InvocationCorrelation,
     Memory,
     MemoryEvent,
+    MerkleInclusionProof,
     MerkleRoot,
     OtelEvent,
+    ProjectionCheckpoint,
+    ProjectionReconciliation,
     RecordModelExchangePayload,
     RecordModelExchangeResult,
     Session,
     SimilarHit,
     StoreStatus,
+    RetrievalTrace,
+    EmbeddingModel,
     TraversalResult,
 } from '../types/graphMemory';
 
@@ -31,25 +41,35 @@ export type {
     ContextContribution,
     EntityRelation,
     Exchange,
+    ExtractionProposal,
+    HybridRetrieveResult,
     GraphEdge,
     GraphMemoryStats,
     GraphNode,
     GraphPayload,
     InferenceManifest,
     InferenceTask,
+    KernelDecision,
+    KernelIntentTriple,
     ParaClassification,
     IntegrityLinkRecord,
     IntegrityLinksStatus,
+    InvocationCorrelation,
     Memory,
     MemoryEvent,
     MemorySource,
+    MerkleInclusionProof,
     MerkleRoot,
     OtelEvent,
+    ProjectionCheckpoint,
+    ProjectionReconciliation,
     RecordModelExchangePayload,
     RecordModelExchangeResult,
     Session,
     SimilarHit,
     StoreStatus,
+    RetrievalTrace,
+    EmbeddingModel,
     TraversalEdge,
     TraversalResult,
 } from '../types/graphMemory';
@@ -93,8 +113,15 @@ export const graphMemory = {
 
     // Sessions
     sessions: (limit = 100) => getJson<Session[]>(`/api/sessions?limit=${limit}`),
+    invocations: (limit = 100) => getJson<InvocationCorrelation[]>(`/api/invocations?limit=${limit}`),
+    sessionOtel: (id: string) => getJson<OtelEvent[]>(`/api/session/${encodeURIComponent(id)}/otel`),
+    // Cross-system test log write (~/.claude/plans/velvet-giggling-quill.md) -- browser-reachable
+    // counterpart to record_otel_batch, previously only callable in-process via MCP tools.
+    recordOtelBatch: (sessionId: string, events: Array<Record<string, unknown>>) =>
+        postJson<{ session_id: string; recorded: number }>('/api/otel/batch', { session_id: sessionId, events }),
     sessionExchanges: (id: string) => getJson<Exchange[]>(`/api/session/${encodeURIComponent(id)}/exchanges`),
     sessionMerkleRoot: (id: string) => getJson<MerkleRoot>(`/api/session/${encodeURIComponent(id)}/merkle-root`),
+    sessionKernelIntents: (id: string) => getJson<KernelIntentTriple[]>(`/api/session/${encodeURIComponent(id)}/kernel-intents`),
 
     // Graph & search
     graph: (limit = 500, similarityThreshold = 0.75) =>
@@ -146,4 +173,27 @@ export const graphMemory = {
             output_payload: outputPayload,
             ...(error ? { error } : {}),
         }),
+    extractionProposals: (status = 'proposed', limit = 50) =>
+        getJson<ExtractionProposal[]>(`/api/extraction-proposals?status=${encodeURIComponent(status)}&limit=${limit}`),
+    decideExtractionProposal: (id: string, decision: 'accept' | 'dismiss', decidedBy = 'integrity-dashboard', note?: string) =>
+        postJson<ExtractionProposal>(`/api/extraction-proposals/${encodeURIComponent(id)}/decision`, {
+            decision,
+            decided_by: decidedBy,
+            ...(note ? { note } : {}),
+        }),
+    hybridRetrieve: (payload: { query: string; limit?: number; max_per_source?: number; max_total_chars?: number }) =>
+        postJson<HybridRetrieveResult>('/api/retrieval/hybrid', payload),
+    retrievalTrace: (id: string) =>
+        getJson<RetrievalTrace>(`/api/retrieval/trace/${encodeURIComponent(id)}`),
+    retrievalTraceEvidence: (id: string, rank: number) =>
+        getJson<MerkleInclusionProof>(`/api/retrieval/trace/${encodeURIComponent(id)}/evidence?rank=${rank}`),
+    projectionCheckpoints: (projectionId: string, limit = 20) =>
+        getJson<ProjectionCheckpoint[]>(`/api/projections/${encodeURIComponent(projectionId)}/checkpoints?limit=${limit}`),
+    createProjectionCheckpoint: (projectionId: string) =>
+        postJson<ProjectionCheckpoint>(`/api/projections/${encodeURIComponent(projectionId)}/checkpoint`, {}),
+    reconcileProjectionCheckpoint: (projectionId: string) =>
+        postJson<ProjectionReconciliation>(`/api/projections/${encodeURIComponent(projectionId)}/reconcile`, {}),
+    rebuildProjectionCheckpoint: (projectionId: string) =>
+        postJson<ProjectionCheckpoint & { verified: boolean }>(`/api/projections/${encodeURIComponent(projectionId)}/rebuild`, {}),
+    embeddingModels: () => getJson<EmbeddingModel[]>('/api/embedding/models'),
 };

@@ -1,5 +1,15 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-08-28] update | Invocation correlation profile v1
+
+- Added the accepted `spec/invocation-id-v1.md` cross-repository profile and updated the BCC
+  interface contract.
+- New SDK commitments sign a canonical UUID `invocation_id`; middleware validates and records it;
+  Oracle effect ingest and reconciliation use it instead of treating repeated content hashes as
+  unique attempts.
+- Legacy rows remain readable as `legacy_hash_only`. The identifier proves correlation only, not
+  execution, truth, authorization, or completeness.
+
 ## [2026-08-13] update | Real UltraPlonk verifier coverage
 
 - Added retained binary proof/public-input fixtures and `contracts/test/UltraPlonkVerifier.t.sol` without editing generated verifier Solidity.
@@ -3101,21 +3111,25 @@ writeup: PRODUCTION_GAPS.md §18.
 - Expanded v0.5-proposed without changing its non-authoritative status: added verified-evidence monotonicity; exposure-scaled availability escrow, anti-grief challenge deposits, AIS reduction, deterministic redress, and burn; hard classification for all value movement plus typed degradation events; locked-budget state channels with highest-mutually-signed state, monotone depletion, value conservation, and unilateral settlement; and per-transaction enclave binding with explicit side-channel/rollback/microarchitectural residual risk.
 - Verification: focused source assertions passed; prohibited authority phrases and broken references are absent; the proposed clause mapping contains every reviewed load-bearing requirement; wiki TOCs and linter passed; `git diff --check` passed.
 - Rebuilt Whitepaper v3.2: 59 A4 pages, unencrypted, 13/13 Mermaid diagrams; normalized extracted-text assertions and visual inspection of pages 10, 18, 31, and 59 passed. Superseding SHA-256: `d7d3135007f118f174be3a5bcde247198a8fb6f5dbf821c2825fca8508c63552`.
-
-## [2026-08-19] update | Hermes native Cortex provider and profile isolation
-
-- Activated Hermes' native `xibalba_cortex_memory_provider`; Supermemory remains disabled.
-- Added a bounded local request/response bridge between the Hermes environment and Cortex' GraphStore without direct Hermes imports or model-visible bridge tools.
-- Made the provider own session and prompt/response persistence while the existing observer retains API, tool, and approval telemetry only when Cortex is active.
-- Verified a real local Cortex retrieval tool-call turn: one provider-owned logical turn, one tool event, and no duplicate prompt/response exchange from the observer.
-- Verified profile-scoped stores for the default profile and `xibalba-quant`; no shared session was created by the quant isolation probe.
-- Verification: Hermes provider and observer-boundary tests passed 9/9; full Cortex suite passed; the remaining limitation is the absence of a safe Hermes synchronous shared Model Context Protocol provider boundary.
 ## [2026-08-18] fix | CI dependency resolution
 
 - Added the explicit OpenZeppelin 5.3.0 remapping required by Chainlink CCIP imports; this restores clean deployment-script compilation for the contracts, Software Development Kit (SDK), and command-line interface (CLI) validation paths.
 - Declared the dashboard's `globals` ESLint dependency and refreshed `package-lock.json`, so `npm ci` followed by `npm run lint` has a complete dependency graph.
 - Verification is recorded in the implementation branch: Foundry unit tests and dashboard lint pass locally; deployment-backed package tests remain the next CI confirmation after the branch is pushed.
 
+## [2026-08-25] update | External-runtime Devil's Advocate ensemble
+
+- Updated `docs/wiki/concepts/xibalba-agent-operating-model.md` to record the verified local external-runtime review adapter: Claude Code (Anthropic), Antigravity CLI (`agy`), and OpenAI Codex CLI execute in bounded read-only parallel review with Hermes synthesis, provider-independence labeling, secret redaction, hashes, per-runtime status, and timeout process-group cleanup.
+- Evidence source: `/home/xibalba/.hermes/skills/red-teaming/devils-advocate/scripts/external_ensemble.py` and its `SKILL.md`, as captured in session `20260818_175703_6b87e8`; local adapter and command-surface validation passed in that session.
+- Residual gap preserved: the real provider-to-provider smoke run was not attempted because the Behavioral Commitment Chain gate blocked uncommitted external execution; this workflow is usable but not production-ready until a narrowly scoped live run is separately authorized and verified.
+- Wiki validation: `python3 scripts/wiki_toc.py --check` was run and reports one pre-existing unrelated drift in `docs/wiki/entities/contracts.md`; no broad regeneration was applied.
+
+## [2026-08-25] update | Hermes/Cortex and Phase I session evidence compiled
+
+- Updated `architecture/repository-implementation-plans.md` with the 2026-08-19 session's material but partial evidence: reported green eight-job Continuous Integration, incomplete Phase I contract work with no deployment, and the remaining Hermes/BCC dispatch boundary failure for missing `intent_rationale`.
+- Recorded that Open Policy Agent (OPA) service reachability and local adapter validation do not establish host-tool dispatch evidence or live provider parity; the external provider smoke path remained blocked by the Behavioral Commitment Chain gate.
+- Updated `index.md` and the retained `WIKI_INDEX.md` date/status summaries. No new page was created.
+- Residual completeness gap: the session finalization summary is partial because `hook_watermark_not_verified`; claims above remain bounded to captured session evidence and are not current deployment proof.
 ## [2026-08-19] fix | SDK existing-DID genesis anchoring guard
 
 - Fixed `integrity_sdk.registration.register_agent()`'s already-registered DID path so it reads the existing `StateAnchor` root before the oracle POST, anchors the genesis root when the root is zero, and fails closed with `RegistrationError` without calling the oracle if anchoring fails.
@@ -3145,3 +3159,13 @@ writeup: PRODUCTION_GAPS.md §18.
   approved registry/resolver migration before `EHRGate` can be incrementally deployed.
 - No historical wiki log entries were edited; this entry supersedes the earlier wording
   that overstated incremental EHR deployment support.
+
+## [2026-08-28] update | Unified Cortex dashboard workspace
+
+- Consolidated the former Memory and Cortex Operations destinations under the canonical `/cortex` workspace. Existing memory views remain tabs, Operations is a new tab, the sidebar label is Cortex, and `/memory` redirects for bookmark compatibility.
+- Renamed the implementation to `CortexPage.tsx`, moved operator controls into `components/cortex/CortexOperationsTab.tsx`, and changed core loading to preserve successful session results when unrelated Cortex capabilities are unavailable.
+- Updated `docs/wiki/entities/integrity-dashboard.md` for the unified route and its hybrid-retrieval trace, extraction-review, inference/embedding visibility, and projection checkpoint/reconciliation/rebuild surfaces.
+- Recorded the cross-repository dashboard-to-Cortex HTTP boundary in `docs/INTERFACE_CONTRACT.md`, including `VITE_GRAPH_MEMORY_URL`, per-capability unavailable states, and the local/trusted operator constraint for write endpoints.
+- Disabled extraction-decision and projection-mutation controls when the dashboard is not loopback-hosted; documented that this browser guard is defense in depth, not operator authentication.
+- Preserved authority boundaries: Cortex remains the profile-isolated canonical store for Cortex memory, does not become Integrity protocol authority, and complements rather than replaces Hermes memory.
+- No new wiki page or catalog entry was required; `docs/wiki/index.md` remains unchanged.

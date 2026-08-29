@@ -28,6 +28,28 @@ AI agent policies, 26% can enforce them. This is the sharpest available framing 
 kernel's actual thesis — governance-as-document vs. governance-as-enforced-constraint — and
 is a better lead line than a feature comparison against Semantica/Trulioo-style audit trails.
 
+**MATERIAL UPDATE 2026-08-26 (see Changelog):** the "became enforceable 2026-08-02" framing
+above needs a caveat, not a rewrite. What actually took effect 2026-08-02 was the
+transparency-obligation tier (GPAI disclosure, deepfake/AI-content labeling, chatbot
+"you're talking to AI" notices) plus the Commission/AI Office's enforcement posture generally.
+The *high-risk* Annex III regime specifically (risk management, data governance, logging,
+human oversight — the tier this doc's Integrity Health framing leans on) had its conformity
+deadline pushed from 2026-08-02 to 2026-12-02 by the "Digital Omnibus" amendment (Regulation
+(EU) 2026/1744, entered into force 2026-07-27). Substance unchanged, only the date the
+high-risk obligations start biting. Re-verify against the Act's actual text/Official Journal
+entry before citing an immediate high-risk deadline in GTM material — see Changelog for
+sources.
+
+**CORRECTION 2026-08-28 (see Changelog):** the date in the note directly above is wrong by
+one year — it should read **2027-12-02**, not 2026-12-02 (the note's own "16-month deferral"
+math from 2026-08-02 lands in December 2027, not December 2026; this looks like a transcription
+slip in the 2026-08-26 run, not a substantive correction). Multiple independent sources
+(the Council of the EU's own final-approval press release, plus Gibson Dunn, White & Case, and
+Sidley client alerts) confirm: standalone Annex III high-risk obligations are deferred to
+**2 December 2027** (16-month deferral), and AI embedded in regulated products under Annex I
+separately to **2 August 2028** (12-month deferral, not previously noted in this doc at all).
+See Changelog for full sourcing. Do not cite "2026-12-02" anywhere downstream.
+
 ## 3. Landscape, by category (re-verify before quoting externally)
 
 | Project | Category | One line | Relevance |
@@ -55,6 +77,22 @@ deployment" claim in a future revision, or (b) treating this as grounds to revis
 bridge-not-adopt decision — the decision's other stated triggers (§3.1's own list: a
 counterparty requiring native registration, or cross-chain portability becoming a live
 requirement) haven't independently changed just because the registry itself deployed.
+
+**RESOLVED 2026-08-26 (partially — see Changelog for sources):** checked the primary source
+(`erc-8004/erc-8004-contracts` repo, the 8004 team's own deployment registry) directly rather
+than secondary press. Its own README distinguishes IdentityRegistry and ReputationRegistry —
+both deployed at fixed addresses (`0x8004A169...`, `0x8004BAa1...`) and replicated across 40+
+EVM networks including Ethereum mainnet — from the **Validation Registry**, which the same
+README flags with its own caution: "still under active update and discussion with the TEE
+community... will be revised and expanded in a follow-up spec update later this year," with
+only "basic request/response operations" currently supported and no stable mainnet address
+listed alongside the other two. So the v3.2 §1.2 claim was accurate as of 2026-08-17 and
+remains *substantially* accurate for the Validation Registry specifically — identity and
+reputation are live and widely replicated, but validation is not yet a finalized, deployed
+singleton the way the whitepaper's critique implies for the standard as a whole. This is
+narrower than what most secondary coverage ("all three registries live") reports — worth
+citing the primary repo, not the press summary, in any future spec revision. Does not by
+itself change the bridge-not-adopt decision's other triggers, per (b) above.
 
 ## 5. Integration targets, ranked by adoption leverage (not by feature parity)
 
@@ -99,3 +137,100 @@ research job, not attempted here). Manual trigger points instead:
   McKinsey stat against primary sources, not this doc's secondhand summary.
 - Roughly quarterly, or whenever a named project in §3 is mentioned again in unrelated
   research — that's a signal it's gaining traction and worth a fresh look.
+
+## Changelog
+
+### 2026-08-26 — Ecosystem watch: ERC-8004 Validation Registry status + EU AI Act high-risk deadline delay
+
+Automated research sweep (scheduled tracking run). Two material findings, both resolving or
+materially updating existing open items; landscape table in §3 unchanged (no new named
+competitor combining identity + staked reputation + compliance gating surfaced this sweep —
+checked Microsoft's `agent-governance-toolkit` [OSS, launched 2026-04-02] specifically since
+it combines DID-based identity with compliance/policy gating, but it uses non-economic "trust
+scoring," not staked/slashable reputation, so it doesn't match the specific combination this
+repo occupies and wasn't added to §3).
+
+1. **§4 fact-check (a) partially resolved.** Checked the primary source directly
+   (`erc-8004/erc-8004-contracts` GitHub repo, the ERC-8004 team's own deployment listing)
+   rather than secondary press. IdentityRegistry and ReputationRegistry are deployed at fixed
+   addresses and replicated across 40+ EVM networks including Ethereum mainnet (since
+   2026-01-29). The Validation Registry is explicitly *not* in that same deployed-address
+   list — the repo's own README states that section of the spec "is still under active
+   update and discussion with the TEE community" and will be "revised and expanded in a
+   follow-up spec update later this year," with only basic request/response operations
+   implemented so far. Net: most secondary coverage ("all three ERC-8004 registries live on
+   mainnet") overstates the Validation Registry's status specifically; see the inline
+   `RESOLVED 2026-08-26` note in §4 for full detail.
+   Sources: [erc-8004/erc-8004-contracts](https://github.com/erc-8004/erc-8004-contracts),
+   [ERC-8004: Trustless Agents (EIP)](https://eips.ethereum.org/EIPS/eip-8004),
+   [Forbes, AI Agents Gain Trust Via Ethereum: ERC-8004 On Mainnet (2026-02-05)](https://www.forbes.com/sites/digital-assets/2026/02/05/ai-agents-gain-trust-via-ethereum-erc-8004-on-mainnet/).
+
+2. **EU AI Act: high-risk (Annex III) deadline delayed to 2027-12-02, not immediate.**
+   The "Digital Omnibus on AI" amendment (Regulation (EU) 2026/1744) completed its EU
+   legislative process (Parliament backing 2026-06-16, Council approval 2026-06-29, signed
+   2026-07-08, published in the Official Journal 2026-07-24, entered into force 2026-07-27)
+   and pushes the high-risk Annex III systems conformity deadline from 2026-08-02 to
+   2026-12-02 — a 16-month delay, rationale being that harmonised standards weren't ready,
+   not that the substantive requirements changed. What *did* take effect on schedule on
+   2026-08-02 was the transparency-obligation tier (GPAI disclosure, AI-content/deepfake
+   labeling, chatbot disclosure) and the AI Office's general enforcement posture (up to 3% of
+   global revenue in fines). Material because this doc's §2 cited the immediate 2026-08-02
+   date as blanket "high-risk provisions became enforceable" without this carve-out — see the
+   inline `MATERIAL UPDATE 2026-08-26` note added to §2. Worth re-checking primary EU sources
+   (not this changelog) before any GTM claim about an imminent high-risk deadline.
+   Sources: [Consilium press release, Council and Parliament agree to simplify and streamline rules (2026-05-07)](https://www.consilium.europa.eu/en/press/press-releases/2026/05/07/artificial-intelligence-council-and-parliament-agree-to-simplify-and-streamline-rules/),
+   [Cloud Security Alliance, EU AI Act High-Risk Deadline Pushed to December 2027](https://labs.cloudsecurityalliance.org/research/csa-research-note-eu-ai-act-omnibus-vii-deadline-delay-20260/),
+   [Help Net Security, EU begins enforcing AI Act (2026-08-04)](https://www.helpnetsecurity.com/2026/08/04/eu-ai-act-enforcement-ai-models/),
+   [European Commission, Commission starts enforcing AI Act rules and new transparency requirements on 2 August](https://digital-strategy.ec.europa.eu/en/news/commission-starts-enforcing-ai-act-rules-and-new-transparency-requirements-2-august).
+
+Not material / considered and not added: Microsoft `agent-governance-toolkit` (see above, no
+staking mechanism); Sumsub/MetaComp KYA framework developments (April 2026, predates this
+doc's dateline, no stake/slashing mechanism reported); Trulioo+Worldpay Digital Agent Passport
+(no update since original tracking, partnership dates to 2025-08-14); routine funding-round
+coverage of general agent-security startups (Zenity, Norm AI, HappyRobot) — adjacent
+enterprise-IAM/compliance space but none combine on-chain identity + staked/slashable
+reputation + compliance gating, so none meet this doc's specific competitor bar.
+
+### 2026-08-28 — Ecosystem watch: correction to 2026-08-26's EU AI Act date; no other material change
+
+Automated research sweep (scheduled tracking run, ~2 days after the prior run). Landscape
+table in §3 unchanged — swept all nine named players plus a general sweep for a new entrant
+combining identity + staked reputation + compliance gating; nothing found meets this doc's
+materiality bar (see "not material" list below). One correction to a prior entry:
+
+1. **Correction to the 2026-08-26 changelog entry's EU AI Act date.** That entry stated the
+   Digital Omnibus pushed the Annex III high-risk conformity deadline to "2026-12-02." This is
+   a one-year transcription error — independent confirmation from the Council of the EU's own
+   final-approval press release plus three law-firm client alerts all give **2 December 2027**
+   (a 16-month deferral from the original 2026-08-02 date — consistent with the prior entry's
+   own "16-month" language, just the wrong year attached). Separately, and not previously
+   captured in this doc at all: AI embedded in regulated products under **Annex I** gets its
+   own, later deferral to **2 August 2028** (12 months from the original 2027-08-02 date).
+   Inline correction added to §2 above (marked `CORRECTION 2026-08-28`, original erroneous
+   note left visible per this doc's own convention).
+   Sources: [Consilium, Council gives final green light to simplify and streamline rules (2026-06-29)](https://www.consilium.europa.eu/en/press/press-releases/2026/06/29/artificial-intelligence-council-gives-final-green-light-to-simplify-and-streamline-rules/),
+   [Gibson Dunn, EU AI Act Omnibus Agreement — Postponed High-Risk Deadlines](https://www.gibsondunn.com/eu-ai-act-omnibus-agreement-postponed-high-risk-deadlines-and-other-key-changes/),
+   [White & Case, EU agrees Digital Omnibus deal to simplify AI rules](https://www.whitecase.com/insight-alert/eu-agrees-digital-omnibus-deal-simplify-ai-rules),
+   [Sidley, EU Lawmakers Reach Provisional Agreement to Delay Key EU AI Act Obligations](https://datamatters.sidley.com/2026/06/22/eu-lawmakers-reach-provisional-agreement-to-delay-key-eu-ai-act-obligations/),
+   [Axios, The EU AI Act gets real (2026-08-28)](https://www.axios.com/2026/08/28/eu-ai-act-gets-real) (the piece that
+   surfaced the discrepancy in the first place, by citing "December 2027" against this doc's
+   then-current "2026-12-02").
+
+2. **§4 fact-check (a), ERC-8004 Validation Registry: no change since 2026-08-26.** Re-checked;
+   Identity/Reputation registries remain live on 40+ EVM networks including Ethereum mainnet,
+   Validation Registry remains explicitly under active spec revision per the same primary repo,
+   no new mainnet address published. Status unchanged from the 2026-08-26 entry.
+
+Not material / considered and not added: Injective Institutional Services' SEC transfer-agent
+registration (effective 2026-08-19) — securities-transfer-agent status, unrelated to the
+identity/reputation/compliance combination tracked here; Anthropic's enterprise-managed MCP
+connector authorization GA (2026-08-24) — org-level IdP-gated tool-connector provisioning, not
+agent identity/reputation resolution, so an evolution of the already-tracked MCP row rather
+than a new fact; BNBAgent SDK / ERC-8183 (BNB Chain, escrow + UMA optimistic-oracle dispute
+resolution for agent task settlement) — dates to 2026-03-18, predates this doc, and combines
+identity with escrow/arbitration rather than staked/slashable reputation or compliance gating;
+Vouched's "Know Your Agent" / Agent Reputation Directory — dates to 2025, reputation is
+community-reported rather than staked/slashable, no compliance-gating component; Offroad ($7M
+seed, 2026-06-04) and SecureAuth Agentic Authority Platform (2026-05) — enterprise agent-IAM
+governance plays, no staking/slashing or compliance-vertical gating. None meet this doc's
+specific competitor bar.

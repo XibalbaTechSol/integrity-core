@@ -4,14 +4,15 @@
 
 use std::str::FromStr;
 
-use alloy::primitives::Address;
-use axum::extract::{Path, Query, State};
+use alloy::primitives::{Address, U256};
 use axum::Json;
+use axum::extract::{Path, Query, State};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+use crate::AppState;
 use crate::anchor_coverage::{self, AnchorCoverage};
 use crate::chain::{MarketDetail, PrimitiveSet as ChainPrimitiveSet};
 use crate::crypto::{self, AgentVerificationMethods};
@@ -20,7 +21,6 @@ use crate::derive;
 use crate::error::AppError;
 use crate::merkle;
 use crate::phi;
-use crate::AppState;
 
 // ---------------------------------------------------------------------------------
 // Shared wire types
@@ -43,7 +43,8 @@ pub struct PrimitiveSetDto {
 impl PrimitiveSetDto {
     fn parse_addresses(&self) -> Result<ChainPrimitiveSet, AppError> {
         let parse = |label: &str, s: &str| -> Result<Address, AppError> {
-            Address::from_str(s).map_err(|e| AppError::BadRequest(format!("invalid {label} address '{s}': {e}")))
+            Address::from_str(s)
+                .map_err(|e| AppError::BadRequest(format!("invalid {label} address '{s}': {e}")))
         };
         Ok(ChainPrimitiveSet {
             sovereign_agent: parse("sovereignAgent", &self.sovereign_agent)?,
@@ -164,7 +165,10 @@ pub async fn register_agent(
     // agent is not a continuing economic subject and registration is refused outright —
     // "no half-registered agents". The agent fixes this by anchoring its genesis root
     // (§7.2: controller or `SovereignAgent.execute`, at epoch 0) and retrying.
-    let (latest_root, latest_epoch) = state.chain.memory_state(record.primitives.state_anchor).await?;
+    let (latest_root, latest_epoch) = state
+        .chain
+        .memory_state(record.primitives.state_anchor)
+        .await?;
     if latest_root.is_zero() {
         return Err(AppError::MemoryNotInitialized(format!(
             "agent '{}' has no anchored genesis memory root — StateAnchor {:#x} reports \
@@ -269,7 +273,10 @@ pub struct AgentResponse {
     ),
     tag = "agents",
 )]
-pub async fn get_agent(State(state): State<AppState>, Path(id): Path<String>) -> Result<Json<AgentResponse>, AppError> {
+pub async fn get_agent(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<AgentResponse>, AppError> {
     let agent_row = db::get_agent(&state.pool, &id).await?;
 
     // Prefer the Postgres cache; fall back to a live chain resolution ("backfilled from
@@ -399,6 +406,10 @@ pub struct AgentSummary {
     pub name: Option<String>,
     pub verification_tier: i32,
     pub created_at: chrono::DateTime<Utc>,
+    /// `"verified"` / `"stale"` / `"transfer_conflict"`, or `None` if this agent has no
+    /// ERC-8004 binding on record. A directory filtering on this must never treat `None`
+    /// as untrustworthy — most agents simply haven't linked a public listing.
+    pub erc8004_binding_status: Option<String>,
 }
 
 #[utoipa::path(
@@ -407,7 +418,9 @@ pub struct AgentSummary {
     responses((status = 200, description = "All registered agents", body = Vec<AgentSummary>)),
     tag = "agents",
 )]
-pub async fn list_agents(State(state): State<AppState>) -> Result<Json<Vec<AgentSummary>>, AppError> {
+pub async fn list_agents(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<AgentSummary>>, AppError> {
     let rows = db::list_agents(&state.pool).await?;
     let handles = resolve_primary_handles(&state, &rows).await;
     Ok(Json(
@@ -415,7 +428,9 @@ pub async fn list_agents(State(state): State<AppState>) -> Result<Json<Vec<Agent
             .enumerate()
             .map(|(i, r)| AgentSummary {
                 handle: handles.get(i).cloned().flatten(),
-                name: r.did_document.as_ref()
+                name: r
+                    .did_document
+                    .as_ref()
                     .and_then(|d| d.get("alsoKnownAs"))
                     .and_then(|a| a.get(0))
                     .and_then(|v| v.as_str())
@@ -423,6 +438,7 @@ pub async fn list_agents(State(state): State<AppState>) -> Result<Json<Vec<Agent
                 id: r.id,
                 verification_tier: r.verification_tier,
                 created_at: r.created_at,
+                erc8004_binding_status: r.erc8004_binding_status,
             })
             .collect(),
     ))
@@ -438,14 +454,21 @@ pub async fn list_agents(State(state): State<AppState>) -> Result<Json<Vec<Agent
 /// anvil genesis) or a transient RPC error bubble up would turn "no handles" into "no
 /// agents", which is a far worse failure than an unnamed agent. The reads run concurrently,
 /// same `join_all` pattern as `refresh_leaderboard_if_stale`.
-async fn resolve_primary_handles(state: &AppState, rows: &[db::AgentListRow]) -> Vec<Option<String>> {
+async fn resolve_primary_handles(
+    state: &AppState,
+    rows: &[db::AgentListRow],
+) -> Vec<Option<String>> {
     let Some(xns) = state.chain.xibalba_name_service() else {
         // XNS not deployed on this chain — skip the chain reads entirely, don't error.
         return vec![None; rows.len()];
     };
     let reads = rows.iter().map(|row| async move {
         let sovereign_agent = Address::from_str(row.sovereign_agent_address.as_deref()?).ok()?;
-        let handle = state.chain.primary_handle(xns, sovereign_agent).await.ok()?;
+        let handle = state
+            .chain
+            .primary_handle(xns, sovereign_agent)
+            .await
+            .ok()?;
         if handle.is_empty() {
             None
         } else {
@@ -537,7 +560,10 @@ pub struct ShadowGate {
 /// Callers are responsible for the existence check (`db::get_agent(...).is_none()` ->
 /// `AppError::AgentNotFound`) before calling this, since a stream context may already have
 /// resolved that the agent exists.
-pub(crate) async fn compute_ais_for_agent(state: &AppState, id: &str) -> Result<AisResponse, AppError> {
+pub(crate) async fn compute_ais_for_agent(
+    state: &AppState,
+    id: &str,
+) -> Result<AisResponse, AppError> {
     let period_end = Utc::now();
     let period_start = period_end - chrono::Duration::days(state.config.reporting_period_days);
 
@@ -550,9 +576,12 @@ pub(crate) async fn compute_ais_for_agent(state: &AppState, id: &str) -> Result<
         penalty_ratio: aggregate.penalty_ratio,
         zk_verified_this_period: aggregate.zk_verified_this_period,
     };
-    let agent = db::get_agent(&state.pool, id).await?.ok_or_else(|| AppError::AgentNotFound(id.to_string()))?;
+    let agent = db::get_agent(&state.pool, id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.to_string()))?;
 
-    let engine = scoring_core::AisEngine::new(state.config.ais_weights).map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+    let engine = scoring_core::AisEngine::new(state.config.ais_weights)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
     // EFFECTIVE tier, not the registration column: `agents.verification_tier` is only
     // the floor registration can establish (a hardcoded 1). Rungs 2/3 are evidence-backed
     // rows in `identity_verifications`, and expiry is applied in that query, so a lapsed
@@ -569,7 +598,12 @@ pub(crate) async fn compute_ais_for_agent(state: &AppState, id: &str) -> Result<
             let rep_addr = Address::from_str(&row.reputation_registry_address).ok();
             let sov_addr = Address::from_str(&row.sovereign_agent_address).ok();
             match (rep_addr, sov_addr) {
-                (Some(rep), Some(sov)) => state.chain.is_zk_boosted(rep, sov).await.ok().map(|onchain| onchain == aggregate.zk_verified_this_period),
+                (Some(rep), Some(sov)) => state
+                    .chain
+                    .is_zk_boosted(rep, sov)
+                    .await
+                    .ok()
+                    .map(|onchain| onchain == aggregate.zk_verified_this_period),
                 _ => None,
             }
         }
@@ -592,7 +626,8 @@ pub(crate) async fn compute_ais_for_agent(state: &AppState, id: &str) -> Result<
         },
         None => None,
     };
-    let anchor_coverage = anchor_coverage::evaluate(aggregate.event_count, period_start, onchain_anchor_activity);
+    let anchor_coverage =
+        anchor_coverage::evaluate(aggregate.event_count, period_start, onchain_anchor_activity);
 
     Ok(AisResponse {
         agent_id: id.to_string(),
@@ -631,7 +666,10 @@ pub(crate) async fn compute_ais_for_agent(state: &AppState, id: &str) -> Result<
     ),
     tag = "ais",
 )]
-pub async fn get_ais(State(state): State<AppState>, Path(id): Path<String>) -> Result<Json<AisResponse>, AppError> {
+pub async fn get_ais(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<AisResponse>, AppError> {
     // Existence check: an AIS read for a totally unknown agent should 404, not silently
     // return a zeroed-out score for an id nobody registered.
     if db::get_agent(&state.pool, &id).await?.is_none() {
@@ -749,7 +787,9 @@ pub struct TelemetryIngestResponse {
 
 fn check_oracle_api_key(state: &AppState, headers: &axum::http::HeaderMap) -> Result<(), AppError> {
     if let Some(expected_key) = &state.config.oracle_api_key {
-        let auth_header = headers.get("authorization").or_else(|| headers.get("Authorization"));
+        let auth_header = headers
+            .get("authorization")
+            .or_else(|| headers.get("Authorization"));
         match auth_header {
             Some(value) => {
                 let value_str = value.to_str().unwrap_or("");
@@ -812,7 +852,11 @@ async fn check_telemetry_rate_limit(state: &AppState, agent_id: &str) -> Result<
 async fn oracle_compliance(state: &AppState, req: &TelemetryIngestRequest) -> f64 {
     let self_reported = derive::self_reported_compliance(&req.otel_spans);
 
-    let Some(primitives) = db::get_agent_primitives(&state.pool, &req.agent_id).await.ok().flatten() else {
+    let Some(primitives) = db::get_agent_primitives(&state.pool, &req.agent_id)
+        .await
+        .ok()
+        .flatten()
+    else {
         return self_reported;
     };
     let Some(covered_entity) = derive::entry_covered_entity_address(&req.otel_spans) else {
@@ -952,8 +996,13 @@ pub async fn ingest_telemetry(
                 .map_err(|e| AppError::BadRequest(format!("invalid base64 zk_proof.proof: {e}")))?;
             let inputs_bytes = base64::engine::general_purpose::STANDARD
                 .decode(&proof.public_inputs)
-                .map_err(|e| AppError::BadRequest(format!("invalid base64 zk_proof.public_inputs: {e}")))?;
-            state.zk.verify(&proof.circuit_id, &proof_bytes, &inputs_bytes).await?
+                .map_err(|e| {
+                    AppError::BadRequest(format!("invalid base64 zk_proof.public_inputs: {e}"))
+                })?;
+            state
+                .zk
+                .verify(&proof.circuit_id, &proof_bytes, &inputs_bytes)
+                .await?
         }
         None => false,
     };
@@ -1017,7 +1066,10 @@ pub async fn ingest_telemetry(
     )
     .await
     .map_err(|e| match e {
-        db::InsertTelemetryError::NonceReplay { submitted, last_seen } => AppError::NonceReplay {
+        db::InsertTelemetryError::NonceReplay {
+            submitted,
+            last_seen,
+        } => AppError::NonceReplay {
             agent_id: req.agent_id.clone(),
             submitted,
             last_seen,
@@ -1048,14 +1100,18 @@ pub async fn ingest_telemetry(
     // client), and the AIS recompute is skipped entirely when nobody's listening so a
     // quiet oracle doesn't pay for a computation no client will ever see.
     if state.telemetry_tx.receiver_count() > 0 {
-        let _ = state.telemetry_tx.send(crate::stream::StreamEvent::TelemetryEvent {
-            agent_id: req.agent_id.clone(),
-            event_id,
-            flagged,
-            created_at: Utc::now(),
-        });
+        let _ = state
+            .telemetry_tx
+            .send(crate::stream::StreamEvent::TelemetryEvent {
+                agent_id: req.agent_id.clone(),
+                event_id,
+                flagged,
+                created_at: Utc::now(),
+            });
         if let Ok(ais) = compute_ais_for_agent(&state, &req.agent_id).await {
-            let _ = state.telemetry_tx.send(crate::stream::StreamEvent::AisUpdate(ais));
+            let _ = state
+                .telemetry_tx
+                .send(crate::stream::StreamEvent::AisUpdate(ais));
         }
     }
 
@@ -1112,15 +1168,21 @@ pub async fn get_compliance(
         .await?
         .filter(|row| row.chain_id == Some(current_chain_id));
     let compliance_gate_addr = match cached {
-        Some(row) => Address::from_str(&row.compliance_gate_address)
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("cached compliance_gate_address is not a valid address: {e}")))?,
+        Some(row) => Address::from_str(&row.compliance_gate_address).map_err(|e| {
+            AppError::Internal(anyhow::anyhow!(
+                "cached compliance_gate_address is not a valid address: {e}"
+            ))
+        })?,
         None => {
             let record = state.chain.resolve_primitives_by_did(&id).await?;
             record.primitives.compliance_gate
         }
     };
 
-    let vertical_code = state.chain.compliance_vertical(compliance_gate_addr).await?;
+    let vertical_code = state
+        .chain
+        .compliance_vertical(compliance_gate_addr)
+        .await?;
     let vertical = match vertical_code {
         1 => "healthcare",
         _ => "none",
@@ -1137,9 +1199,13 @@ pub async fn get_compliance(
 
     let is_compliant = match &query.covered_entity {
         Some(addr_str) => {
-            let covered_entity = Address::from_str(addr_str)
-                .map_err(|e| AppError::BadRequest(format!("invalid covered_entity address: {e}")))?;
-            state.chain.is_healthcare_compliant(compliance_gate_addr, covered_entity).await?
+            let covered_entity = Address::from_str(addr_str).map_err(|e| {
+                AppError::BadRequest(format!("invalid covered_entity address: {e}"))
+            })?;
+            state
+                .chain
+                .is_healthcare_compliant(compliance_gate_addr, covered_entity)
+                .await?
         }
         None => false,
     };
@@ -1205,10 +1271,16 @@ pub struct MarketDetailDto {
 }
 
 fn market_cache_row_to_dto(row: db::MarketCacheRow) -> Result<MarketSummaryDto, AppError> {
-    let outcome_staked: Vec<String> = serde_json::from_value(row.outcome_staked)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("corrupt outcome_staked cache value: {e}")))?;
+    let outcome_staked: Vec<String> = serde_json::from_value(row.outcome_staked).map_err(|e| {
+        AppError::Internal(anyhow::anyhow!("corrupt outcome_staked cache value: {e}"))
+    })?;
     let resolve_deadline = chrono::DateTime::<Utc>::from_timestamp(row.resolve_deadline, 0)
-        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("resolve_deadline {} out of range", row.resolve_deadline)))?;
+        .ok_or_else(|| {
+            AppError::Internal(anyhow::anyhow!(
+                "resolve_deadline {} out of range",
+                row.resolve_deadline
+            ))
+        })?;
     Ok(MarketSummaryDto {
         address: row.address,
         creator: row.creator_address,
@@ -1217,16 +1289,25 @@ fn market_cache_row_to_dto(row: db::MarketCacheRow) -> Result<MarketSummaryDto, 
         min_ais_to_enter: row.min_ais_to_enter,
         resolve_deadline,
         resolved: row.resolved,
-        winning_outcome: if row.resolved { Some(row.winning_outcome as u8) } else { None },
+        winning_outcome: if row.resolved {
+            Some(row.winning_outcome as u8)
+        } else {
+            None
+        },
         total_staked: row.total_staked,
         outcome_staked,
     })
 }
 
 async fn upsert_market_detail(state: &AppState, detail: &MarketDetail) -> Result<(), AppError> {
-    let outcome_staked: Vec<String> = detail.outcome_staked.iter().map(|v| v.to_string()).collect();
-    let outcome_staked_json = serde_json::to_value(&outcome_staked)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("failed to serialize outcome_staked: {e}")))?;
+    let outcome_staked: Vec<String> = detail
+        .outcome_staked
+        .iter()
+        .map(|v| v.to_string())
+        .collect();
+    let outcome_staked_json = serde_json::to_value(&outcome_staked).map_err(|e| {
+        AppError::Internal(anyhow::anyhow!("failed to serialize outcome_staked: {e}"))
+    })?;
     db::upsert_market_cache(
         &state.pool,
         &format!("{:#x}", detail.address),
@@ -1252,7 +1333,10 @@ async fn refresh_markets_index_if_stale(state: &AppState) -> Result<(), AppError
     let sync = db::get_markets_index_sync(&state.pool).await?;
     let stale = match &sync {
         None => true,
-        Some(s) => Utc::now().signed_duration_since(s.synced_at).num_seconds() > MARKETS_CACHE_STALENESS_SECS,
+        Some(s) => {
+            Utc::now().signed_duration_since(s.synced_at).num_seconds()
+                > MARKETS_CACHE_STALENESS_SECS
+        }
     };
     if !stale {
         return Ok(());
@@ -1273,7 +1357,9 @@ async fn refresh_markets_index_if_stale(state: &AppState) -> Result<(), AppError
     responses((status = 200, description = "All known IntegrityMarket instances", body = Vec<MarketSummaryDto>)),
     tag = "markets",
 )]
-pub async fn list_markets(State(state): State<AppState>) -> Result<Json<Vec<MarketSummaryDto>>, AppError> {
+pub async fn list_markets(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<MarketSummaryDto>>, AppError> {
     refresh_markets_index_if_stale(&state).await?;
     let rows = db::list_market_cache(&state.pool).await?;
     let dtos: Result<Vec<_>, _> = rows.into_iter().map(market_cache_row_to_dto).collect();
@@ -1305,30 +1391,37 @@ pub async fn get_market(
     Path(id): Path<String>,
     Query(query): Query<MarketDetailQuery>,
 ) -> Result<Json<MarketDetailDto>, AppError> {
-    let market_addr = Address::from_str(&id).map_err(|e| AppError::BadRequest(format!("invalid market address '{id}': {e}")))?;
+    let market_addr = Address::from_str(&id)
+        .map_err(|e| AppError::BadRequest(format!("invalid market address '{id}': {e}")))?;
     let addr_key = format!("{:#x}", market_addr);
 
     let cached = db::get_market_cache(&state.pool, &addr_key).await?;
     let fresh = cached
         .as_ref()
-        .map(|r| Utc::now().signed_duration_since(r.refreshed_at).num_seconds() <= MARKETS_CACHE_STALENESS_SECS)
+        .map(|r| {
+            Utc::now()
+                .signed_duration_since(r.refreshed_at)
+                .num_seconds()
+                <= MARKETS_CACHE_STALENESS_SECS
+        })
         .unwrap_or(false);
 
     let row = if fresh {
         cached.expect("fresh implies Some")
     } else {
-        let live = state
-            .chain
-            .read_market(market_addr)
-            .await
-            .map_err(|e| AppError::BadRequest(format!("no readable IntegrityMarket at {addr_key}: {e}")))?;
+        let live = state.chain.read_market(market_addr).await.map_err(|e| {
+            AppError::BadRequest(format!("no readable IntegrityMarket at {addr_key}: {e}"))
+        })?;
         upsert_market_detail(&state, &live).await?;
-        db::get_market_cache(&state.pool, &addr_key).await?.expect("just upserted")
+        db::get_market_cache(&state.pool, &addr_key)
+            .await?
+            .expect("just upserted")
     };
 
     let your_position = match &query.agent {
         Some(agent_str) => {
-            let agent_addr = Address::from_str(agent_str).map_err(|e| AppError::BadRequest(format!("invalid agent address: {e}")))?;
+            let agent_addr = Address::from_str(agent_str)
+                .map_err(|e| AppError::BadRequest(format!("invalid agent address: {e}")))?;
             let pos = state.chain.get_position(market_addr, agent_addr).await?;
             if pos.amount.is_zero() {
                 None
@@ -1365,7 +1458,10 @@ pub async fn get_market(
 /// this is a smaller, best-effort variant: `Ok(None)` on any resolution failure rather
 /// than a hard error, since callers here (leaderboard) want to skip-and-continue, not
 /// fail the whole request over one agent's stale/unresolvable primitives.
-async fn resolve_primitives_row(state: &AppState, agent_id: &str) -> Result<Option<db::AgentPrimitivesRow>, AppError> {
+async fn resolve_primitives_row(
+    state: &AppState,
+    agent_id: &str,
+) -> Result<Option<db::AgentPrimitivesRow>, AppError> {
     // E11: only trust a cache row resolved against this oracle's own chain — see the
     // matching comment in `get_agent` above for why.
     let current_chain_id = state.chain.chain_id() as i64;
@@ -1425,7 +1521,10 @@ async fn refresh_leaderboard_if_stale(state: &AppState) -> Result<(), AppError> 
     let sync = db::get_leaderboard_sync(&state.pool).await?;
     let stale = match &sync {
         None => true,
-        Some(s) => Utc::now().signed_duration_since(s.synced_at).num_seconds() > MARKETS_CACHE_STALENESS_SECS,
+        Some(s) => {
+            Utc::now().signed_duration_since(s.synced_at).num_seconds()
+                > MARKETS_CACHE_STALENESS_SECS
+        }
     };
     if !stale {
         return Ok(());
@@ -1437,16 +1536,28 @@ async fn refresh_leaderboard_if_stale(state: &AppState) -> Result<(), AppError> 
     let reads = agents.into_iter().map(|agent| {
         let state = state.clone();
         async move {
-            let row = resolve_primitives_row(&state, &agent.id).await.ok().flatten()?;
+            let row = resolve_primitives_row(&state, &agent.id)
+                .await
+                .ok()
+                .flatten()?;
             let sovereign_agent = Address::from_str(&row.sovereign_agent_address).ok()?;
             let reputation_registry = Address::from_str(&row.reputation_registry_address).ok()?;
-            let score = state.chain.effective_score(reputation_registry, sovereign_agent).await.ok()?;
+            let score = state
+                .chain
+                .effective_score(reputation_registry, sovereign_agent)
+                .await
+                .ok()?;
             Some((agent.id, row.sovereign_agent_address, score))
         }
     });
-    let results: Vec<(String, String, alloy::primitives::U256)> = futures::future::join_all(reads).await.into_iter().flatten().collect();
+    let results: Vec<(String, String, alloy::primitives::U256)> = futures::future::join_all(reads)
+        .await
+        .into_iter()
+        .flatten()
+        .collect();
     for (agent_id, sovereign_agent, score) in &results {
-        db::upsert_leaderboard_cache(&state.pool, agent_id, sovereign_agent, &score.to_string()).await?;
+        db::upsert_leaderboard_cache(&state.pool, agent_id, sovereign_agent, &score.to_string())
+            .await?;
     }
     db::upsert_leaderboard_sync(&state.pool, agent_count as i32, Utc::now()).await?;
     Ok(())
@@ -1458,7 +1569,9 @@ async fn refresh_leaderboard_if_stale(state: &AppState) -> Result<(), AppError> 
     responses((status = 200, description = "Agents ranked by on-chain ReputationRegistry.effectiveScore", body = Vec<LeaderboardEntryDto>)),
     tag = "ais",
 )]
-pub async fn get_leaderboard(State(state): State<AppState>) -> Result<Json<Vec<LeaderboardEntryDto>>, AppError> {
+pub async fn get_leaderboard(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<LeaderboardEntryDto>>, AppError> {
     refresh_leaderboard_if_stale(&state).await?;
     let mut rows = db::list_leaderboard_cache(&state.pool).await?;
     // effective_score is a decimal-string uint256 — compare numerically via U256, not
@@ -1545,10 +1658,18 @@ pub struct WalletResponse {
     ),
     tag = "wallet",
 )]
-pub async fn get_wallet(State(state): State<AppState>, Path(id): Path<String>) -> Result<Json<WalletResponse>, AppError> {
-    let row = resolve_primitives_row(&state, &id).await?.ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
-    let sovereign_agent = Address::from_str(&row.sovereign_agent_address)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!("cached sovereign_agent_address is not a valid address: {e}")))?;
+pub async fn get_wallet(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<WalletResponse>, AppError> {
+    let row = resolve_primitives_row(&state, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+    let sovereign_agent = Address::from_str(&row.sovereign_agent_address).map_err(|e| {
+        AppError::Internal(anyhow::anyhow!(
+            "cached sovereign_agent_address is not a valid address: {e}"
+        ))
+    })?;
 
     let balance = state.chain.itk_balance_of(sovereign_agent).await?;
 
@@ -1559,7 +1680,11 @@ pub async fn get_wallet(State(state): State<AppState>, Path(id): Path<String>) -
         let state = state.clone();
         async move {
             let market_addr = Address::from_str(&m.address).ok()?;
-            let pos = state.chain.get_position(market_addr, sovereign_agent).await.ok()?;
+            let pos = state
+                .chain
+                .get_position(market_addr, sovereign_agent)
+                .await
+                .ok()?;
             if pos.amount.is_zero() || pos.claimed {
                 return None;
             }
@@ -1570,11 +1695,17 @@ pub async fn get_wallet(State(state): State<AppState>, Path(id): Path<String>) -
                 outcome_index: pos.outcome_index,
                 amount: pos.amount.to_string(),
                 market_resolved: dto.resolved,
-                won: dto.resolved.then_some(dto.winning_outcome == Some(pos.outcome_index)),
+                won: dto
+                    .resolved
+                    .then_some(dto.winning_outcome == Some(pos.outcome_index)),
             })
         }
     });
-    let open_positions: Vec<WalletPositionDto> = futures::future::join_all(reads).await.into_iter().flatten().collect();
+    let open_positions: Vec<WalletPositionDto> = futures::future::join_all(reads)
+        .await
+        .into_iter()
+        .flatten()
+        .collect();
 
     Ok(Json(WalletResponse {
         agent_id: id,
@@ -1761,6 +1892,121 @@ pub async fn ingest_audit_log(
 }
 
 // ---------------------------------------------------------------------------------
+// BCC intent-vs-effect join (~/.claude/plans/velvet-giggling-quill.md). `intended_state_hash`
+// is already written into an ALLOW row's metadata (see /v1/audit/ingest above and
+// bcc_middleware/app/main.py) specifically so a later verifier can line intent up against
+// effect -- this is that verifier's ingest side, finally implemented (previously referenced
+// as `posttool_report.py`, which didn't exist anywhere). Deliberately a NEW, separate
+// audit_log row (event_type="posttool_effect") rather than an UPDATE onto the original
+// intent row -- append-only, same posture as every other audit_log write, joined by the signed
+// `invocation_id` rather than by rewriting history. Reuses the database's idempotent outcome
+// insertion path; this handler is the typed, purpose-built shape for integrity-sdk's
+// `posttool_report.submit_effect_report` to call, same auth/rate-limit posture as
+// /v1/audit/ingest.
+// ---------------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct AuditEffectRequest {
+    pub agent_id: String,
+    pub invocation_id: Uuid,
+    pub intended_state_hash: String,
+    pub effect_hash: String,
+    pub matches: bool,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AuditEffectResponse {
+    pub id: Uuid,
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/audit/effect",
+    request_body = AuditEffectRequest,
+    responses(
+        (status = 200, description = "Effect report recorded", body = AuditEffectResponse),
+    ),
+    tag = "audit",
+)]
+pub async fn submit_audit_effect(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<AuditEffectRequest>,
+) -> Result<Json<AuditEffectResponse>, AppError> {
+    check_internal_api_rate_limit(&state).await?;
+    check_oracle_api_key(&state, &headers)?;
+
+    let metadata = serde_json::json!({
+        "invocation_id": req.invocation_id,
+        "intended_state_hash": req.intended_state_hash,
+        "effect_hash": req.effect_hash,
+        "matches": req.matches,
+    });
+    let decision = if req.matches { "matched" } else { "diverged" };
+    let (id, payload_matches) =
+        db::insert_audit_effect_idempotent(&state.pool, &req.agent_id, decision, &metadata).await?;
+    if !payload_matches {
+        return Err(AppError::BadRequest(format!(
+            "invocation_id {} already has a different outcome",
+            req.invocation_id
+        )));
+    }
+    Ok(Json(AuditEffectResponse { id }))
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AuditEffectJoinResponse {
+    pub intended_state_hash: String,
+    pub rows: Vec<db::AuditEffectJoinRow>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AuditInvocationJoinResponse {
+    pub invocation_id: Uuid,
+    pub rows: Vec<db::AuditEffectJoinRow>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/audit/invocation/{invocation_id}",
+    params(("invocation_id" = Uuid, Path, description = "Canonical invocation UUID")),
+    responses(
+        (status = 200, description = "Audit rows for exactly one attempted action", body = AuditInvocationJoinResponse),
+    ),
+    tag = "audit",
+)]
+pub async fn get_audit_invocation_join(
+    State(state): State<AppState>,
+    Path(invocation_id): Path<Uuid>,
+) -> Result<Json<AuditInvocationJoinResponse>, AppError> {
+    let rows = db::get_audit_log_by_invocation_id(&state.pool, invocation_id).await?;
+    Ok(Json(AuditInvocationJoinResponse {
+        invocation_id,
+        rows,
+    }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/audit/intent/{intended_state_hash}",
+    params(("intended_state_hash" = String, Path, description = "The intent commitment's intended_state_hash")),
+    responses(
+        (status = 200, description = "All audit_log rows sharing this intended_state_hash (the original intent row plus any posttool_effect reports)", body = AuditEffectJoinResponse),
+    ),
+    tag = "audit",
+)]
+pub async fn get_audit_intent_join(
+    State(state): State<AppState>,
+    Path(intended_state_hash): Path<String>,
+) -> Result<Json<AuditEffectJoinResponse>, AppError> {
+    let rows = db::get_audit_log_by_intended_state_hash(&state.pool, &intended_state_hash).await?;
+    Ok(Json(AuditEffectJoinResponse {
+        intended_state_hash,
+        rows,
+    }))
+}
+
+// ---------------------------------------------------------------------------------
 // Anchor-event ingest (docs/design/evidence-export.md, Lever 4). bcc_middleware
 // posts here after it successfully anchors an agent's Merkle sub-tree on-chain, so
 // each anchored ALLOW decision can be joined to its StateAnchor transaction at
@@ -1805,9 +2051,14 @@ pub async fn ingest_anchor_events(
     check_internal_api_rate_limit(&state).await?;
     check_oracle_api_key(&state, &headers)?;
 
-    let recorded =
-        db::insert_anchor_events(&state.pool, &req.agent_id, &req.leaves, &req.root, &req.tx_hash)
-            .await?;
+    let recorded = db::insert_anchor_events(
+        &state.pool,
+        &req.agent_id,
+        &req.leaves,
+        &req.root,
+        &req.tx_hash,
+    )
+    .await?;
     Ok(Json(AnchorEventIngestResponse { recorded }))
 }
 
@@ -1961,8 +2212,9 @@ pub async fn get_credit(
 /// uint256s, `winning_outcome` only when resolved) so a market looks identical whether
 /// it comes from the cache or a direct read.
 fn market_detail_to_dto(detail: MarketDetail) -> Result<MarketSummaryDto, AppError> {
-    let resolve_deadline = chrono::DateTime::<Utc>::from_timestamp(detail.resolve_deadline.to::<u64>() as i64, 0)
-        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("resolve_deadline out of range")))?;
+    let resolve_deadline =
+        chrono::DateTime::<Utc>::from_timestamp(detail.resolve_deadline.to::<u64>() as i64, 0)
+            .ok_or_else(|| AppError::Internal(anyhow::anyhow!("resolve_deadline out of range")))?;
     Ok(MarketSummaryDto {
         address: format!("{:#x}", detail.address),
         creator: format!("{:#x}", detail.creator),
@@ -1971,9 +2223,17 @@ fn market_detail_to_dto(detail: MarketDetail) -> Result<MarketSummaryDto, AppErr
         min_ais_to_enter: detail.min_ais_to_enter.to_string(),
         resolve_deadline,
         resolved: detail.resolved,
-        winning_outcome: if detail.resolved { Some(detail.winning_outcome) } else { None },
+        winning_outcome: if detail.resolved {
+            Some(detail.winning_outcome)
+        } else {
+            None
+        },
         total_staked: detail.total_staked.to_string(),
-        outcome_staked: detail.outcome_staked.iter().map(|v| v.to_string()).collect(),
+        outcome_staked: detail
+            .outcome_staked
+            .iter()
+            .map(|v| v.to_string())
+            .collect(),
     })
 }
 
@@ -1992,7 +2252,10 @@ pub async fn get_agent_contracts(
     // MarketFactory (marketsByCreator, keyed on the agent's SovereignAgent). Read live —
     // there's no per-agent cache table for this, and the set is small per agent.
     let record = state.chain.resolve_primitives_by_did(&id).await?;
-    let addresses = state.chain.markets_by_creator(record.primitives.sovereign_agent).await?;
+    let addresses = state
+        .chain
+        .markets_by_creator(record.primitives.sovereign_agent)
+        .await?;
     let details = state.chain.read_markets(&addresses).await;
     let dtos: Result<Vec<_>, _> = details.into_iter().map(market_detail_to_dto).collect();
     Ok(Json(dtos?))
@@ -2041,7 +2304,12 @@ pub struct BenchmarkDto {
 
 fn provider_for(model: &str) -> &'static str {
     let m = model.to_lowercase();
-    if m.contains("claude") || m.contains("opus") || m.contains("sonnet") || m.contains("haiku") || m.contains("fable") {
+    if m.contains("claude")
+        || m.contains("opus")
+        || m.contains("sonnet")
+        || m.contains("haiku")
+        || m.contains("fable")
+    {
         "Anthropic"
     } else if m.contains("gpt") || m.starts_with("o1") || m.starts_with("o3") {
         "OpenAI"
@@ -2062,7 +2330,9 @@ fn provider_for(model: &str) -> &'static str {
     responses((status = 200, description = "Model/provider stability benchmarks (network-wide telemetry aggregate)", body = Vec<BenchmarkDto>)),
     tag = "ais",
 )]
-pub async fn get_benchmarks(State(state): State<AppState>) -> Result<Json<Vec<BenchmarkDto>>, AppError> {
+pub async fn get_benchmarks(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<BenchmarkDto>>, AppError> {
     let rows = db::benchmark_by_model(&state.pool).await?;
     let dtos = rows
         .into_iter()
@@ -2103,10 +2373,13 @@ pub async fn get_agent_baas(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<BaaDto>>, AppError> {
-    let factory = state
-        .chain
-        .smart_baa_factory()
-        .ok_or(crate::chain::ChainError::MissingSingleton("SmartBAAFactory"))?;
+    let factory =
+        state
+            .chain
+            .smart_baa_factory()
+            .ok_or(crate::chain::ChainError::MissingSingleton(
+                "SmartBAAFactory",
+            ))?;
     let record = state.chain.resolve_primitives_by_did(&id).await?;
     let baas = state
         .chain
@@ -2157,10 +2430,13 @@ pub async fn get_xns_resolve(
     State(state): State<AppState>,
     Query(q): Query<XnsResolveQuery>,
 ) -> Result<Json<XnsResolveDto>, AppError> {
-    let xns = state
-        .chain
-        .xibalba_name_service()
-        .ok_or(crate::chain::ChainError::MissingSingleton("XibalbaNameService"))?;
+    let xns =
+        state
+            .chain
+            .xibalba_name_service()
+            .ok_or(crate::chain::ChainError::MissingSingleton(
+                "XibalbaNameService",
+            ))?;
     let handle = q.handle.trim_start_matches('@').to_string();
     let addr = state.chain.resolve_handle(xns, &handle).await?;
     let sovereign_agent = if addr.is_zero() {
@@ -2198,16 +2474,23 @@ pub async fn get_agent_handle(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<AgentHandleDto>, AppError> {
-    let xns = state
-        .chain
-        .xibalba_name_service()
-        .ok_or(crate::chain::ChainError::MissingSingleton("XibalbaNameService"))?;
+    let xns =
+        state
+            .chain
+            .xibalba_name_service()
+            .ok_or(crate::chain::ChainError::MissingSingleton(
+                "XibalbaNameService",
+            ))?;
     let record = state.chain.resolve_primitives_by_did(&id).await?;
     let handle = state
         .chain
         .primary_handle(xns, record.primitives.sovereign_agent)
         .await?;
-    let handle = if handle.is_empty() { None } else { Some(handle) };
+    let handle = if handle.is_empty() {
+        None
+    } else {
+        Some(handle)
+    };
     Ok(Json(AgentHandleDto { did: id, handle }))
 }
 
@@ -2258,10 +2541,13 @@ fn proposal_state_str(s: u8) -> &'static str {
 pub async fn get_governance_proposals(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<ProposalDto>>, AppError> {
-    let gov = state
-        .chain
-        .integrity_governance()
-        .ok_or(crate::chain::ChainError::MissingSingleton("IntegrityGovernance"))?;
+    let gov =
+        state
+            .chain
+            .integrity_governance()
+            .ok_or(crate::chain::ChainError::MissingSingleton(
+                "IntegrityGovernance",
+            ))?;
     let proposals = state.chain.read_proposals(gov).await?;
     let dtos = proposals
         .into_iter()
@@ -2361,7 +2647,9 @@ pub struct UnregisteredAgentDto {
     ),
     tag = "audit",
 )]
-pub async fn get_unregistered_agents(State(state): State<AppState>) -> Result<Json<Vec<UnregisteredAgentDto>>, AppError> {
+pub async fn get_unregistered_agents(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<UnregisteredAgentDto>>, AppError> {
     let rows = db::list_unregistered_agents(&state.pool).await?;
     Ok(Json(
         rows.into_iter()
@@ -2466,7 +2754,11 @@ pub async fn get_audit_log(
             agent_id: Some(e.agent_id),
             source: "sdk_telemetry".to_string(),
             event_type: "telemetry_event".to_string(),
-            decision: if e.flagged { "flagged".to_string() } else { "recorded".to_string() },
+            decision: if e.flagged {
+                "flagged".to_string()
+            } else {
+                "recorded".to_string()
+            },
             reason_code: None,
             detail: Some(format!(
                 "nonce={} performance_variance={:.3} hgi_raw={:.3} zk_verified={}",
@@ -2495,7 +2787,10 @@ pub async fn get_audit_log(
                 event_type: s.name,
                 decision: s.status_code,
                 reason_code: s.parent_span_id,
-                detail: Some(format!("trace_id={} duration_ms={}", s.trace_id, duration_ms)),
+                detail: Some(format!(
+                    "trace_id={} duration_ms={}",
+                    s.trace_id, duration_ms
+                )),
                 created_at: s.created_at.to_rfc3339(),
                 anchor_root: None,
                 anchor_tx_hash: None,
@@ -2536,7 +2831,11 @@ fn parse_bucket_interval(raw: Option<&str>) -> Result<&'static str, AppError> {
         "6h" => "6 hours",
         "1d" => "1 day",
         "1w" => "1 week",
-        other => return Err(AppError::BadRequest(format!("unsupported bucket '{other}', expected one of: 5m, 15m, 1h, 6h, 1d, 1w"))),
+        other => {
+            return Err(AppError::BadRequest(format!(
+                "unsupported bucket '{other}', expected one of: 5m, 15m, 1h, 6h, 1d, 1w"
+            )));
+        }
     })
 }
 
@@ -2587,9 +2886,15 @@ pub async fn get_agent_usage(
     let since = query.since.unwrap_or_else(default_history_since);
 
     let tokens: std::collections::BTreeMap<String, f64> =
-        db::agent_token_usage(&state.pool, &id, since).await?.into_iter().collect();
+        db::agent_token_usage(&state.pool, &id, since)
+            .await?
+            .into_iter()
+            .collect();
     let cost_usd_by_model: std::collections::BTreeMap<String, f64> =
-        db::agent_cost_usage(&state.pool, &id, since).await?.into_iter().collect();
+        db::agent_cost_usage(&state.pool, &id, since)
+            .await?
+            .into_iter()
+            .collect();
 
     // Normalize negative zero: summing an empty set can yield -0.0, which serializes as
     // "-0.0" and renders as "-0.0000" in a cost field. `-0.0 == 0.0` is true, so this
@@ -2696,13 +3001,16 @@ pub async fn get_ais_history(
     Path(id): Path<String>,
     Query(query): Query<HistoryQuery>,
 ) -> Result<Json<Vec<AisHistoryPoint>>, AppError> {
-    let agent = db::get_agent(&state.pool, &id).await?.ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+    let agent = db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
     let tier = agent.verification_tier;
 
     let bucket = parse_bucket_interval(query.bucket.as_deref())?;
     let since = query.since.unwrap_or_else(default_history_since);
 
-    let engine = scoring_core::AisEngine::new(state.config.ais_weights).map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+    let engine = scoring_core::AisEngine::new(state.config.ais_weights)
+        .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
 
     let buckets = db::ais_history_buckets(&state.pool, &id, bucket, since).await?;
     let points = buckets
@@ -2807,7 +3115,13 @@ pub async fn get_otel_volume(
     let since = query.since.unwrap_or_else(default_history_since);
 
     let rows = db::otel_volume_buckets(&state.pool, &id, bucket, since).await?;
-    let buckets = rows.into_iter().map(|(bucket_start, span_count)| OtelVolumeBucket { bucket_start, span_count }).collect();
+    let buckets = rows
+        .into_iter()
+        .map(|(bucket_start, span_count)| OtelVolumeBucket {
+            bucket_start,
+            span_count,
+        })
+        .collect();
 
     Ok(Json(buckets))
 }
@@ -2882,7 +3196,10 @@ pub struct TraceTreeResponse {
     ),
     tag = "telemetry",
 )]
-pub async fn get_trace_tree(State(state): State<AppState>, Path(trace_id): Path<String>) -> Result<Json<TraceTreeResponse>, AppError> {
+pub async fn get_trace_tree(
+    State(state): State<AppState>,
+    Path(trace_id): Path<String>,
+) -> Result<Json<TraceTreeResponse>, AppError> {
     let spans = db::get_otel_spans_for_trace(&state.pool, &trace_id).await?;
     if spans.is_empty() {
         return Err(AppError::TraceNotFound(trace_id));
@@ -2897,7 +3214,6 @@ pub async fn get_trace_tree(State(state): State<AppState>, Path(trace_id): Path<
         roots: result.roots,
     }))
 }
-
 
 // ---------------------------------------------------------------------------
 // Verification Ladder: rung 2 (DNS/GitHub) and rung 3 (Nitro TEE)
@@ -2951,7 +3267,8 @@ pub async fn request_dns_challenge(
 
     let nonce = uuid::Uuid::new_v4().simple().to_string();
     let expires_at =
-        db::issue_dns_challenge(&state.pool, &id, &domain, &nonce, v::CHALLENGE_TTL_MINUTES).await?;
+        db::issue_dns_challenge(&state.pool, &id, &domain, &nonce, v::CHALLENGE_TTL_MINUTES)
+            .await?;
 
     Ok(Json(DnsChallengeResponse {
         message_to_sign: v::challenge_message(&id, &domain, &nonce),
@@ -3149,20 +3466,25 @@ pub async fn request_verification_revocation_challenge(
     }
     db::get_revocable_identity_verification(&state.pool, &id, verification_id)
         .await?
-        .ok_or_else(|| AppError::BadRequest(
-            "verification does not exist for this agent or is already revoked".to_string(),
-        ))?;
+        .ok_or_else(|| {
+            AppError::BadRequest(
+                "verification does not exist for this agent or is already revoked".to_string(),
+            )
+        })?;
 
     let subject = format!("revoke:{verification_id}");
     let nonce = uuid::Uuid::new_v4().simple().to_string();
     let expires_at =
-        db::issue_dns_challenge(&state.pool, &id, &subject, &nonce, v::CHALLENGE_TTL_MINUTES).await?;
+        db::issue_dns_challenge(&state.pool, &id, &subject, &nonce, v::CHALLENGE_TTL_MINUTES)
+            .await?;
 
     Ok(Json(VerificationRevocationChallengeResponse {
         agent_id: id,
         verification_id,
         nonce,
-        message_format: "integrity-verification-revoke:v1:<did>:<verification_id>:<nonce>:<hex-utf8-reason>".to_string(),
+        message_format:
+            "integrity-verification-revoke:v1:<did>:<verification_id>:<nonce>:<hex-utf8-reason>"
+                .to_string(),
         expires_at,
     }))
 }
@@ -3186,35 +3508,34 @@ pub async fn revoke_verification(
     let agent = db::get_agent(&state.pool, &id)
         .await?
         .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
-    let pubkey = agent.ed25519_pubkey.as_deref().ok_or_else(|| {
-        AppError::BadRequest("agent has no Ed25519 key registered".to_string())
-    })?;
+    let pubkey = agent
+        .ed25519_pubkey
+        .as_deref()
+        .ok_or_else(|| AppError::BadRequest("agent has no Ed25519 key registered".to_string()))?;
     db::get_revocable_identity_verification(&state.pool, &id, verification_id)
         .await?
-        .ok_or_else(|| AppError::BadRequest(
-            "verification does not exist for this agent or is already revoked".to_string(),
-        ))?;
+        .ok_or_else(|| {
+            AppError::BadRequest(
+                "verification does not exist for this agent or is already revoked".to_string(),
+            )
+        })?;
 
     let subject = format!("revoke:{verification_id}");
     let nonce = db::get_active_dns_challenge(&state.pool, &id, &subject)
         .await?
-        .ok_or_else(|| AppError::BadRequest(
-            "no active revocation challenge — request one first".to_string(),
-        ))?;
+        .ok_or_else(|| {
+            AppError::BadRequest("no active revocation challenge — request one first".to_string())
+        })?;
     v::verify_revocation_signature(pubkey, &id, verification_id, &nonce, reason, &req.signature)
         .map_err(|_| AppError::Unauthorized)?;
 
-    let row = db::revoke_identity_verification(
-        &state.pool,
-        &id,
-        verification_id,
-        reason,
-        &subject,
-    )
-    .await?
-    .ok_or_else(|| AppError::BadRequest(
-        "verification was already revoked or its challenge expired".to_string(),
-    ))?;
+    let row = db::revoke_identity_verification(&state.pool, &id, verification_id, reason, &subject)
+        .await?
+        .ok_or_else(|| {
+            AppError::BadRequest(
+                "verification was already revoked or its challenge expired".to_string(),
+            )
+        })?;
     let effective =
         db::effective_verification_tier(&state.pool, &id, agent.verification_tier).await?;
 
@@ -3273,7 +3594,8 @@ pub async fn request_github_challenge(
     // Challenges are keyed by (agent, subject); `github:<login>` cannot collide
     // with a domain, so the same table serves both methods.
     let expires_at =
-        db::issue_dns_challenge(&state.pool, &id, &subject, &nonce, v::CHALLENGE_TTL_MINUTES).await?;
+        db::issue_dns_challenge(&state.pool, &id, &subject, &nonce, v::CHALLENGE_TTL_MINUTES)
+            .await?;
 
     Ok(Json(DnsChallengeResponse {
         message_to_sign: v::challenge_message(&id, &subject, &nonce),
@@ -3323,7 +3645,10 @@ pub async fn verify_github(
     // frequently cannot grant (`403 Resource not accessible by personal access
     // token`). Both are equally strong proofs; the fallback exists so an agent
     // whose token *can* write gists is not forced to create a repo.
-    let repo = req.repo.clone().unwrap_or_else(|| format!("{login}.github.io"));
+    let repo = req
+        .repo
+        .clone()
+        .unwrap_or_else(|| format!("{login}.github.io"));
     let mut payloads: Vec<String> = Vec::new();
     let mut attempts: Vec<String> = Vec::new();
 
@@ -3422,7 +3747,8 @@ pub async fn request_tee_challenge(
     let subject = "tee:nitro".to_string();
     let nonce = uuid::Uuid::new_v4().simple().to_string();
     let expires_at =
-        db::issue_dns_challenge(&state.pool, &id, &subject, &nonce, v::CHALLENGE_TTL_MINUTES).await?;
+        db::issue_dns_challenge(&state.pool, &id, &subject, &nonce, v::CHALLENGE_TTL_MINUTES)
+            .await?;
 
     Ok(Json(DnsChallengeResponse {
         message_to_sign: format!(
@@ -3467,7 +3793,9 @@ pub async fn verify_tee(
 
     let document = base64::engine::general_purpose::STANDARD
         .decode(req.attestation_document_b64.trim())
-        .map_err(|e| AppError::BadRequest(format!("attestation_document_b64 is not base64: {e}")))?;
+        .map_err(|e| {
+            AppError::BadRequest(format!("attestation_document_b64 is not base64: {e}"))
+        })?;
 
     // Vendored into this crate on purpose -- see backend/trust_roots/README.md:
     // the Docker build context is ./integrity-oracle, and a trust anchor should be
@@ -3595,7 +3923,8 @@ pub async fn request_kyc_challenge(
     let subject = format!("kyc:{provider}");
     let nonce = uuid::Uuid::new_v4().simple().to_string();
     let expires_at =
-        db::issue_dns_challenge(&state.pool, &id, &subject, &nonce, v::CHALLENGE_TTL_MINUTES).await?;
+        db::issue_dns_challenge(&state.pool, &id, &subject, &nonce, v::CHALLENGE_TTL_MINUTES)
+            .await?;
 
     Ok(Json(KycChallengeResponse {
         agent_id: id,
@@ -3649,14 +3978,9 @@ pub async fn verify_kyc_receipt(
             )
         })?;
 
-    let receipt_hash = crate::kyc::verify_receipt(
-        &receipt,
-        &id,
-        &nonce,
-        provider_key,
-        chrono::Utc::now(),
-    )
-    .map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let receipt_hash =
+        crate::kyc::verify_receipt(&receipt, &id, &nonce, provider_key, chrono::Utc::now())
+            .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
     let evidence = serde_json::json!({
         "provider": &receipt.provider,
@@ -3691,4 +4015,223 @@ pub async fn verify_kyc_receipt(
         effective_tier: effective,
         expires_at: row.expires_at,
     }))
+}
+
+// ---------------------------------------------------------------------------------
+// ERC-8004 identity binding
+//
+// ERC-8004 is a public *discovery* projection of an Integrity agent, never a second
+// identity or reputation authority (spec/integrity-protocol-v3.2.md §3.1: "must not
+// maintain two reputation systems"). Linking is agent-initiated and fail-closed: a
+// binding is recorded `verified` only after this handler independently reads the
+// claimed token's owner/URI/wallet on chain AND fetches+validates the registration
+// file's DID backlink (`erc8004::validate_registration`) — a one-way claim (registry
+// says "agentId 7", but the registration file doesn't name this agent's DID back) is
+// rejected outright, never stored as a soft "pending" state.
+// ---------------------------------------------------------------------------------
+
+const ERC8004_MAX_REGISTRATION_BYTES: usize = 64 * 1024;
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct LinkErc8004Request {
+    pub chain_id: i64,
+    pub identity_registry_address: String,
+    pub agent_token_id: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct Erc8004BindingResponse {
+    pub agent_id: String,
+    pub chain_id: i64,
+    pub identity_registry_address: String,
+    pub agent_token_id: String,
+    pub registration_uri: String,
+    pub registration_sha256: String,
+    pub nft_owner_address: String,
+    pub agent_wallet_address: Option<String>,
+    pub binding_status: String,
+    pub name: String,
+    pub description: String,
+    pub x402_support: bool,
+    pub mcp_endpoint: Option<String>,
+    pub a2a_endpoint: Option<String>,
+    pub a2a_version: Option<String>,
+    pub verified_at: chrono::DateTime<Utc>,
+}
+
+/// Fetches the content an `agentURI` resolves to. Only `https://` and `data:` URIs are
+/// supported today — an `ipfs://` scheme is rejected with a clear error rather than
+/// silently treated as unreachable, since wiring an IPFS gateway means picking one to
+/// trust and that address isn't invented here (see `PRODUCTION_GAPS.md`). Size-capped at
+/// `ERC8004_MAX_REGISTRATION_BYTES` regardless of scheme: a registration file is
+/// metadata, not a payload, and an oversized response is treated as a protocol violation
+/// rather than read to completion.
+async fn fetch_registration_bytes(uri: &str) -> Result<Vec<u8>, AppError> {
+    if let Some(data) = uri.strip_prefix("data:") {
+        if !data.contains(";base64,") {
+            return Err(AppError::BadRequest(
+                "only base64-encoded data: URIs are supported for agentURI".to_string(),
+            ));
+        }
+        let (_meta, encoded) = data
+            .split_once(",")
+            .ok_or_else(|| AppError::BadRequest("malformed data: URI in agentURI".to_string()))?;
+        let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded)
+            .map_err(|e| {
+                AppError::BadRequest(format!("agentURI data: URI is not valid base64: {e}"))
+            })?;
+        if bytes.len() > ERC8004_MAX_REGISTRATION_BYTES {
+            return Err(AppError::BadRequest(
+                "agentURI data: URI exceeds size limit".to_string(),
+            ));
+        }
+        return Ok(bytes);
+    }
+    if !uri.starts_with("https://") {
+        return Err(AppError::BadRequest(
+            "unsupported agentURI scheme — only https:// and data: URIs are supported \
+             (ipfs:// gateway integration is a documented gap, not silently faked)"
+                .to_string(),
+        ));
+    }
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .user_agent("integrity-oracle/erc8004-verification")
+        .build()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("http client: {e}")))?;
+    let resp = http
+        .get(uri)
+        .send()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("failed to fetch agentURI: {e}")))?;
+    if !resp.status().is_success() {
+        return Err(AppError::BadRequest(format!(
+            "agentURI returned HTTP {}",
+            resp.status()
+        )));
+    }
+    if resp
+        .content_length()
+        .is_some_and(|len| len as usize > ERC8004_MAX_REGISTRATION_BYTES)
+    {
+        return Err(AppError::BadRequest(
+            "agentURI response exceeds size limit".to_string(),
+        ));
+    }
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("failed to read agentURI response: {e}")))?;
+    if bytes.len() > ERC8004_MAX_REGISTRATION_BYTES {
+        return Err(AppError::BadRequest(
+            "agentURI response exceeds size limit".to_string(),
+        ));
+    }
+    Ok(bytes.to_vec())
+}
+
+pub async fn link_erc8004_identity(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<LinkErc8004Request>,
+) -> Result<Json<Erc8004BindingResponse>, AppError> {
+    db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+
+    let current_chain_id = state.chain.chain_id() as i64;
+    if req.chain_id != current_chain_id {
+        return Err(AppError::BadRequest(format!(
+            "cross-chain ERC-8004 binding not yet supported — this oracle is configured \
+             for chain {current_chain_id}, request named chain {}",
+            req.chain_id
+        )));
+    }
+    let registry = Address::from_str(&req.identity_registry_address).map_err(|_| {
+        AppError::BadRequest("identity_registry_address is not a valid address".to_string())
+    })?;
+    let token_id = U256::from_str(&req.agent_token_id)
+        .map_err(|_| AppError::BadRequest("agent_token_id is not a valid uint256".to_string()))?;
+
+    let onchain = state
+        .chain
+        .read_erc8004_identity(registry, token_id)
+        .await?;
+
+    let bytes = fetch_registration_bytes(&onchain.uri).await?;
+    let sha256 = {
+        use sha2::{Digest, Sha256};
+        hex::encode(Sha256::digest(&bytes))
+    };
+    let expected_registry =
+        crate::erc8004::caip10(current_chain_id as u64, &req.identity_registry_address);
+    let verified =
+        crate::erc8004::validate_registration(&bytes, &id, &expected_registry, &req.agent_token_id)
+            .map_err(AppError::BadRequest)?;
+
+    let owner_str = format!("{:#x}", onchain.owner);
+    let wallet_str = onchain.wallet.map(|w| format!("{w:#x}"));
+
+    db::upsert_erc8004_binding(
+        &state.pool,
+        &id,
+        current_chain_id,
+        &req.identity_registry_address,
+        &req.agent_token_id,
+        &onchain.uri,
+        &sha256,
+        &owner_str,
+        wallet_str.as_deref(),
+        "verified",
+    )
+    .await?;
+
+    tracing::info!(agent_id = %id, chain_id = current_chain_id, agent_token_id = %req.agent_token_id,
+                   "ERC-8004 identity binding verified and recorded");
+
+    Ok(Json(Erc8004BindingResponse {
+        agent_id: id,
+        chain_id: current_chain_id,
+        identity_registry_address: req.identity_registry_address,
+        agent_token_id: req.agent_token_id,
+        registration_uri: onchain.uri,
+        registration_sha256: sha256,
+        nft_owner_address: owner_str,
+        agent_wallet_address: wallet_str,
+        binding_status: "verified".to_string(),
+        name: verified.name,
+        description: verified.description,
+        x402_support: verified.x402_support,
+        mcp_endpoint: verified.mcp_endpoint,
+        a2a_endpoint: verified.a2a_endpoint,
+        a2a_version: verified.a2a_version,
+        verified_at: Utc::now(),
+    }))
+}
+
+pub async fn get_erc8004_identity(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Option<db::Erc8004BindingRow>>, AppError> {
+    db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+    Ok(Json(db::get_erc8004_binding(&state.pool, &id).await?))
+}
+
+// ---------------------------------------------------------------------------------
+// Intent/outcome reconciliation — see `db::reconcile_agent_intent_outcome`'s doc
+// comment for the mechanism and its known same-shaped-call collision limitation.
+// ---------------------------------------------------------------------------------
+
+pub async fn get_intent_outcome_reconciliation(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<db::IntentOutcomeRow>>, AppError> {
+    db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+    Ok(Json(
+        db::reconcile_agent_intent_outcome(&state.pool, &id, 200).await?,
+    ))
 }

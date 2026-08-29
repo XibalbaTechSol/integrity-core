@@ -8,6 +8,12 @@ html {
   scroll-behavior: smooth;
 }
 
+@media (max-width: 900px) {
+  .cortex-operations-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
 :root {
   --bg-color: #f8fafc;
   --surface-color: #ffffff;
@@ -483,6 +489,17 @@ a:hover {
 
 .flex { display: flex; }
 .flex-col { display: flex; flex-direction: column; }
+/* Referenced by className across 7+ pages/components (IntelligencePage, HealthPage,
+   ActuarialHub, CreditPanel, TraceAnalysisPanel, AisSimulator, StakingPanel, and the
+   dashboard's own ProtocolStats via the near-identical dash-grid-4) but never actually
+   defined anywhere in this codebase -- no CSS rule, no Tailwind config. Every one of
+   those "grids" was silently collapsing to stacked full-width single-column divs. */
+.grid-cols-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4, 1rem); }
+.grid-cols-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4, 1rem); }
+.grid-cols-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4, 1rem); }
+@media (max-width: 760px) {
+  .grid-cols-2, .grid-cols-3, .grid-cols-4 { grid-template-columns: 1fr; }
+}
 .gap-2 { gap: 0.5rem; }
 .gap-3 { gap: 0.75rem; }
 .gap-4 { gap: 1rem; }
@@ -604,6 +621,18 @@ input[type=range]::-moz-range-track {
 .sub-tabs-container::-webkit-scrollbar { display: none; }
 .sub-tabs-container { -ms-overflow-style: none; scrollbar-width: none; }
 
+/* Slim, theme-colored horizontal scrollbar for compact content boxes (e.g. Intelligence
+   page's formula boxes) -- the OS-default scrollbar there reads as an unfinished widget
+   sitting permanently in a small card, not an intentional overflow affordance. */
+.thin-scrollbar-x {
+  scrollbar-width: thin;
+  scrollbar-color: var(--glass-border) transparent;
+}
+.thin-scrollbar-x::-webkit-scrollbar { height: 5px; }
+.thin-scrollbar-x::-webkit-scrollbar-track { background: transparent; }
+.thin-scrollbar-x::-webkit-scrollbar-thumb { background: var(--glass-border); border-radius: 3px; }
+.thin-scrollbar-x::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
 /* Scoped Tailwind Preflight for ShieldPage */
 .shield-page-wrapper *,
 .shield-page-wrapper ::before,
@@ -640,4 +669,27 @@ input[type=range]::-moz-range-track {
   background-color: transparent;
   background-image: none;
   padding: 0;
+}
+@media (max-width: 900px) {
+  .correlation-page {
+    padding: 0 !important;
+  }
+
+  .correlation-table-header,
+  .correlation-row {
+    grid-template-columns: 24px minmax(0, 1fr) 90px !important;
+    gap: 8px !important;
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+  }
+
+  .correlation-table-header > :nth-child(n + 4),
+  .correlation-row > :nth-child(n + 4) {
+    display: none !important;
+  }
+
+  .correlation-detail {
+    padding-left: 16px !important;
+    grid-template-columns: 1fr !important;
+  }
 }

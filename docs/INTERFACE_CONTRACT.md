@@ -46,6 +46,7 @@ and in that package's README — don't fake the check silently.
 | `opa` | 1.18.2 | bcc_middleware, integrity-sdk |
 | `node` / `npm` | 22.x / 10.x | integrity-dashboard, contracts (npm-based deps) |
 | `python` / `uv` | 3.12 / 0.11 | integrity-sdk, integrity-cli, bcc_middleware |
+| `halmos` | 0.3.3 | contracts (`make verify-kernel`, Phase I kernel symbolic verification, isolated in `contracts/.venv-halmos`) |
 
 All of these are on `PATH` (added to `~/.bashrc`). Use them for real — compile
 the circuits, run `bb prove`/`bb verify`, run `forge test`, run `opa eval`
@@ -147,11 +148,18 @@ against real policies. Don't write code you haven't run.
 Real Ed25519 only (via the `cryptography` library) — no HMAC pseudo-signature fallback.
 
 ### 4.2 BCC Commitment (the "Behavioral Commitment Chain" intent-lock object)
+
+Per-action correlation follows [`spec/invocation-id-v1.md`](../spec/invocation-id-v1.md).
+`invocation_id` is a canonical UUID identifying one attempted action. It is signed when present
+and is distinct from the content-addressed `intended_state_hash`; new protected tool calls MUST
+carry it. Legacy commitments without it remain readable but cannot support an unambiguous
+intent/outcome reconciliation claim.
 ```json
 {
   "agent_id": "did:integrity:...",
   "intent_type": "string, e.g. 'payment' | 'data_access' | 'contract_call'",
   "intended_state_hash": "0x<32-byte hex, sha256 of the canonical intent payload>",
+  "invocation_id": "lowercase canonical UUID; required for new protected tool calls",
   "nonce": "monotonic per-agent integer",
   "timestamp": "<unix ms>",
   "agent_public_key": "z<multibase base58btc, multicodec ed25519-pub || raw 32-byte pubkey>",
@@ -1034,6 +1042,36 @@ contract directly.
 `integrity-dashboard` (the one dashboard/landing app, §9) is the only client
 expected to talk to both the Oracle trust domain and `integrity-userapi`
 directly.
+
+### 6.11 Dashboard-to-Cortex Operations tab boundary
+
+`xibalba-cortex` remains an external, profile-isolated cognitive store, not a
+third Integrity trust domain and not an authority for AIS, BCC, chain state,
+or protocol decisions. The dashboard may consume its local API through
+`integrity-dashboard/src/services/graphMemory.ts`; no protocol backend may
+import or depend on Cortex.
+
+The dashboard selects the Cortex base URL with `VITE_GRAPH_MEMORY_URL`
+(development default `http://localhost:8420`). Its `/cortex` operator route
+uses these currently implemented external calls:
+
+| Capability | HTTP surface | Dashboard behavior |
+|---|---|---|
+| Hybrid retrieval evidence | `POST /api/retrieval/hybrid`, `GET /api/retrieval/trace/{id}`, `GET /api/retrieval/trace/{id}/evidence?rank=` | Displays persisted trace/root identifiers, channel status, result signals, and the first result's Merkle inclusion proof without treating recall as protocol authority. |
+| Extraction review | `GET /api/extraction-proposals`, `POST /api/extraction-proposals/{id}/decision` | Lists proposed deterministic extractions; accept/dismiss is an explicit write to Cortex canonical memory state. |
+| Operator status | `GET /api/inference/tasks`, `GET /api/embedding/models` | Displays pending inference work and registered embedding-model availability. |
+| Projection integrity | `GET /api/projections/{id}/checkpoints`, `POST /api/projections/{id}/checkpoint`, `/reconcile`, `/rebuild` | Operates only the `memories`, `entities`, and `relations` derived projections; reconciliation mismatch is not silently promoted to verified state. |
+
+Failures are per-capability: the route presents a partial/unavailable state
+and does not fabricate fallback records. The current browser client has no
+operator authentication layer and labels extraction decisions with
+`decided_by: "integrity-dashboard"`. The page disables mutation controls when
+the dashboard is not loopback-hosted, but that client guard is not an
+authentication boundary; write endpoints remain suitable only for a trusted
+local deployment until Cortex or an authenticated gateway enforces operator
+authorization. Cortex provenance/session evidence
+complements runtime memory systems; it does not replace Hermes memory or
+Integrity protocol evidence.
 
 ## 7. OPA policy integration (must be real, no "assume success" fallback)
 

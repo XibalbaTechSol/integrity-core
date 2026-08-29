@@ -2,7 +2,7 @@
 title: Behavioral Commitment Chain (BCC)
 acronyms: [BCC]
 created: 2026-07-07
-updated: 2026-07-15
+updated: 2026-08-28
 type: concept
 tags: [compliance, cryptography]
 confidence: high
@@ -12,6 +12,13 @@ source_files:
   - bcc_middleware/app/canonical.py
   - docs/INTERFACE_CONTRACT.md
 ---
+
+New protected tool calls carry a canonical UUID `invocation_id` following
+[`spec/invocation-id-v1.md`](../../../spec/invocation-id-v1.md). Unlike the content-addressed
+`intended_state_hash`, it remains unique when identical tool/input bytes repeat. The SDK signs it
+when present, middleware records it on ALLOW audit metadata, and the Oracle uses it for
+intent/effect reconciliation. Legacy rows without it remain readable but are classified
+`legacy_hash_only`, not fully reconciled.
 
 ## Table of contents
 

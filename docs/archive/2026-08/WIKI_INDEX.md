@@ -5,7 +5,7 @@
 
 > Content catalog. Every page represents something that actually exists in
 > the codebase right now — see the schema's "no aspirational content" rule.
-> Last updated: 2026-08-17 | Total pages: 36 (25 concepts, 8 entities, 2 architecture, 1 query)
+> Last updated: 2026-08-28 | Total pages: 36 (25 concepts, 8 entities, 2 architecture, 1 query)
 
 ## Acronym glossary
 - [AIS](concepts/ais.md) — Agent Integrity Score
@@ -58,7 +58,7 @@
 
 ## Architecture
 - [Ecosystem Dependencies](architecture/ecosystem-dependencies.md) — cross-repository ownership and dependency direction for integrity-core (including its integrity-dashboard/ component), Xibalba Cortex, and Xibalba Shield.
-- [Repository Implementation Plans](architecture/repository-implementation-plans.md) — closed/planned/blocked implementation ledger for integrity-core, integrity-dashboard/, Xibalba Shield, and Xibalba Cortex.
+- [Repository Implementation Plans](architecture/repository-implementation-plans.md) — closed/planned/blocked implementation ledger; latest session evidence keeps Phase I and Hermes/BCC live dispatch partial or blocked.
 
 ## Open queries
 - No LLM-as-judge rubric exists anywhere in this repo or the cross-checked

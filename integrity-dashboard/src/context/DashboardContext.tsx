@@ -4,6 +4,26 @@ import { oracle, AgentSummary } from '../services/oracle';
 import { userapi, getToken, UserResponse } from '../services/userapi';
 import { BASE_SEPOLIA_CHAIN_ID } from '../constants';
 
+// Some browser/embedding contexts (e.g. a sandboxed automation profile) throw on any
+// localStorage access rather than just returning null -- these calls run during initial
+// render (the walletAddress useState initializer below), so an unguarded throw here takes
+// down this provider and therefore every route MainAppLayout wraps, not just this file.
+function safeLocalStorageGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeLocalStorageSet(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Best-effort only -- see safeLocalStorageGet's comment.
+  }
+}
+
 export interface Agent {
   /** The agent's DID — historically named `eth_address` across this codebase (see
    *  oracle.ts's resolveSovereignAgent comment); never use this as an on-chain
@@ -110,13 +130,13 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [fontFamily, setFontFamily] = useState<string>('Raleway');
   const [fontSize, setFontSize] = useState<'small' | 'medium' | 'large'>('medium');
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
-  const [walletAddress, setWalletAddress] = useState<string | null>(() => localStorage.getItem(WALLET_KEY));
+  const [walletAddress, setWalletAddress] = useState<string | null>(() => safeLocalStorageGet(WALLET_KEY));
   const [user, setUser] = useState<User | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
 
   const setSelectedAgent = useCallback((agent: Agent) => {
     setSelectedAgentId(agent.id);
-    localStorage.setItem(LAST_AGENT_KEY, agent.id);
+    safeLocalStorageSet(LAST_AGENT_KEY, agent.id);
   }, []);
 
   const addToast = useCallback((type: 'success' | 'error' | 'info', message: string) => {
@@ -146,7 +166,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         }
       }
       setWalletAddress(accounts[0]);
-      localStorage.setItem(WALLET_KEY, accounts[0]);
+      safeLocalStorageSet(WALLET_KEY, accounts[0]);
       return true;
     } catch (err) {
       console.error(err);
@@ -165,7 +185,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         if (!active) return;
         const real = summaries.map(agentFromSummary);
         setAgents(real);
-        const lastId = localStorage.getItem(LAST_AGENT_KEY);
+        const lastId = safeLocalStorageGet(LAST_AGENT_KEY);
         const restored = lastId && real.find(a => a.id === lastId);
         setSelectedAgentId((restored || real[0])?.id ?? null);
       })

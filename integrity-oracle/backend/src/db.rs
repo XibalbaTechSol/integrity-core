@@ -9,8 +9,10 @@
 //! `tests/`, which run the real migrations against a real Postgres.
 
 use chrono::{DateTime, Utc};
-use sqlx::postgres::PgPoolOptions;
+use serde::Serialize;
 use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 pub async fn create_pool(database_url: &str) -> Result<PgPool, sqlx::Error> {
@@ -155,6 +157,10 @@ pub struct AgentListRow {
     pub created_at: DateTime<Utc>,
     pub did_document: Option<serde_json::Value>,
     pub sovereign_agent_address: Option<String>,
+    /// `None` means no ERC-8004 binding on record — never rendered as "unlinked = bad",
+    /// just absence of a public discovery listing. See `erc8004_identity_bindings` and
+    /// `handlers::link_erc8004_identity` for how a row here gets set.
+    pub erc8004_binding_status: Option<String>,
 }
 
 pub async fn list_agents(pool: &PgPool) -> Result<Vec<AgentListRow>, sqlx::Error> {
@@ -177,9 +183,11 @@ pub async fn list_agents(pool: &PgPool) -> Result<Vec<AgentListRow>, sqlx::Error
                    ), 0)
                ) AS verification_tier,
                a.created_at, a.did_document,
-               p.sovereign_agent_address
+               p.sovereign_agent_address,
+               e.binding_status AS erc8004_binding_status
         FROM agents a
         LEFT JOIN agent_primitives p ON p.agent_id = a.id
+        LEFT JOIN erc8004_identity_bindings e ON e.agent_id = a.id
         ORDER BY a.created_at DESC
         "#,
     )
@@ -201,7 +209,9 @@ pub struct UnregisteredAgentRow {
 /// using data that already exists rather than any new scanning infra (see
 /// bcc_middleware/spec/xibalba-shield-v1.md's [PLANNED] kernel-sensor design for the
 /// separate, out-of-scope-here vision this deliberately does not attempt).
-pub async fn list_unregistered_agents(pool: &PgPool) -> Result<Vec<UnregisteredAgentRow>, sqlx::Error> {
+pub async fn list_unregistered_agents(
+    pool: &PgPool,
+) -> Result<Vec<UnregisteredAgentRow>, sqlx::Error> {
     sqlx::query_as::<_, UnregisteredAgentRow>(
         r#"
         SELECT agent_id, 'otel' AS source, MIN(start_time) AS first_seen
@@ -301,7 +311,10 @@ pub async fn upsert_agent_primitives(
     Ok(())
 }
 
-pub async fn get_agent_primitives(pool: &PgPool, agent_id: &str) -> Result<Option<AgentPrimitivesRow>, sqlx::Error> {
+pub async fn get_agent_primitives(
+    pool: &PgPool,
+    agent_id: &str,
+) -> Result<Option<AgentPrimitivesRow>, sqlx::Error> {
     sqlx::query_as::<_, AgentPrimitivesRow>(
         r#"
         SELECT agent_id, sovereign_agent_address, state_anchor_address, reputation_registry_address,
@@ -345,10 +358,11 @@ pub async fn insert_telemetry_event(
 ) -> Result<(), InsertTelemetryError> {
     let mut tx = pool.begin().await?;
 
-    let last_nonce: i64 = sqlx::query_scalar("SELECT last_nonce FROM agents WHERE id = $1 FOR UPDATE")
-        .bind(agent_id)
-        .fetch_one(&mut *tx)
-        .await?;
+    let last_nonce: i64 =
+        sqlx::query_scalar("SELECT last_nonce FROM agents WHERE id = $1 FOR UPDATE")
+            .bind(agent_id)
+            .fetch_one(&mut *tx)
+            .await?;
 
     if nonce <= last_nonce {
         return Err(InsertTelemetryError::NonceReplay {
@@ -431,7 +445,9 @@ pub async fn aggregate_for_ais(
 /// `model` recorded in each event's payload. Backs `GET /v1/benchmarks` — a real network-wide
 /// view of how each underlying model performs (behavioral variance + grounding), independent of
 /// which agent used it. Returns (model, avg_variance, avg_grounding, sample_count).
-pub async fn benchmark_by_model(pool: &PgPool) -> Result<Vec<(String, f64, f64, i64)>, sqlx::Error> {
+pub async fn benchmark_by_model(
+    pool: &PgPool,
+) -> Result<Vec<(String, f64, f64, i64)>, sqlx::Error> {
     sqlx::query_as(
         r#"
         SELECT
@@ -480,7 +496,13 @@ pub async fn fetch_pending_leaves(pool: &PgPool) -> Result<Vec<(Uuid, [u8; 32])>
 
     Ok(rows
         .into_iter()
-        .map(|(id, hash)| (id, hash.try_into().expect("leaf_hash column is always 32 bytes")))
+        .map(|(id, hash)| {
+            (
+                id,
+                hash.try_into()
+                    .expect("leaf_hash column is always 32 bytes"),
+            )
+        })
         .collect())
 }
 
@@ -504,19 +526,24 @@ pub async fn create_merkle_root_and_assign(
         .await?;
 
     for (index, event_id) in ordered_event_ids.iter().enumerate() {
-        sqlx::query("UPDATE telemetry_events SET merkle_root_id = $1, leaf_index = $2 WHERE id = $3")
-            .bind(root_id)
-            .bind(index as i32)
-            .bind(event_id)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "UPDATE telemetry_events SET merkle_root_id = $1, leaf_index = $2 WHERE id = $3",
+        )
+        .bind(root_id)
+        .bind(index as i32)
+        .bind(event_id)
+        .execute(&mut *tx)
+        .await?;
     }
 
     tx.commit().await?;
     Ok(())
 }
 
-pub async fn fetch_event(pool: &PgPool, event_id: Uuid) -> Result<Option<TelemetryEventRow>, sqlx::Error> {
+pub async fn fetch_event(
+    pool: &PgPool,
+    event_id: Uuid,
+) -> Result<Option<TelemetryEventRow>, sqlx::Error> {
     sqlx::query_as::<_, TelemetryEventRow>(
         "SELECT id, agent_id, nonce, leaf_hash, merkle_root_id, leaf_index FROM telemetry_events WHERE id = $1",
     )
@@ -525,7 +552,10 @@ pub async fn fetch_event(pool: &PgPool, event_id: Uuid) -> Result<Option<Telemet
     .await
 }
 
-pub async fn fetch_root(pool: &PgPool, root_id: Uuid) -> Result<Option<MerkleRootRow>, sqlx::Error> {
+pub async fn fetch_root(
+    pool: &PgPool,
+    root_id: Uuid,
+) -> Result<Option<MerkleRootRow>, sqlx::Error> {
     sqlx::query_as::<_, MerkleRootRow>(
         "SELECT id, root_hash, leaf_count, tx_hash, created_at FROM merkle_roots WHERE id = $1",
     )
@@ -604,7 +634,10 @@ pub async fn upsert_market_cache(
     Ok(())
 }
 
-pub async fn get_market_cache(pool: &PgPool, address: &str) -> Result<Option<MarketCacheRow>, sqlx::Error> {
+pub async fn get_market_cache(
+    pool: &PgPool,
+    address: &str,
+) -> Result<Option<MarketCacheRow>, sqlx::Error> {
     sqlx::query_as::<_, MarketCacheRow>(
         r#"
         SELECT address, creator_address, question, outcome_count, min_ais_to_enter, resolve_deadline,
@@ -637,13 +670,21 @@ pub struct MarketsIndexSyncRow {
     pub synced_at: DateTime<Utc>,
 }
 
-pub async fn get_markets_index_sync(pool: &PgPool) -> Result<Option<MarketsIndexSyncRow>, sqlx::Error> {
-    sqlx::query_as::<_, MarketsIndexSyncRow>("SELECT market_count, synced_at FROM markets_index_sync WHERE id = TRUE")
-        .fetch_optional(pool)
-        .await
+pub async fn get_markets_index_sync(
+    pool: &PgPool,
+) -> Result<Option<MarketsIndexSyncRow>, sqlx::Error> {
+    sqlx::query_as::<_, MarketsIndexSyncRow>(
+        "SELECT market_count, synced_at FROM markets_index_sync WHERE id = TRUE",
+    )
+    .fetch_optional(pool)
+    .await
 }
 
-pub async fn upsert_markets_index_sync(pool: &PgPool, market_count: i32, synced_at: DateTime<Utc>) -> Result<(), sqlx::Error> {
+pub async fn upsert_markets_index_sync(
+    pool: &PgPool,
+    market_count: i32,
+    synced_at: DateTime<Utc>,
+) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         INSERT INTO markets_index_sync (id, market_count, synced_at) VALUES (TRUE, $1, $2)
@@ -693,7 +734,9 @@ pub async fn upsert_leaderboard_cache(
     Ok(())
 }
 
-pub async fn list_leaderboard_cache(pool: &PgPool) -> Result<Vec<LeaderboardCacheRow>, sqlx::Error> {
+pub async fn list_leaderboard_cache(
+    pool: &PgPool,
+) -> Result<Vec<LeaderboardCacheRow>, sqlx::Error> {
     sqlx::query_as::<_, LeaderboardCacheRow>(
         "SELECT agent_id, sovereign_agent_address, effective_score, refreshed_at FROM leaderboard_cache",
     )
@@ -707,13 +750,21 @@ pub struct LeaderboardSyncRow {
     pub synced_at: DateTime<Utc>,
 }
 
-pub async fn get_leaderboard_sync(pool: &PgPool) -> Result<Option<LeaderboardSyncRow>, sqlx::Error> {
-    sqlx::query_as::<_, LeaderboardSyncRow>("SELECT agent_count, synced_at FROM leaderboard_sync WHERE id = TRUE")
-        .fetch_optional(pool)
-        .await
+pub async fn get_leaderboard_sync(
+    pool: &PgPool,
+) -> Result<Option<LeaderboardSyncRow>, sqlx::Error> {
+    sqlx::query_as::<_, LeaderboardSyncRow>(
+        "SELECT agent_count, synced_at FROM leaderboard_sync WHERE id = TRUE",
+    )
+    .fetch_optional(pool)
+    .await
 }
 
-pub async fn upsert_leaderboard_sync(pool: &PgPool, agent_count: i32, synced_at: DateTime<Utc>) -> Result<(), sqlx::Error> {
+pub async fn upsert_leaderboard_sync(
+    pool: &PgPool,
+    agent_count: i32,
+    synced_at: DateTime<Utc>,
+) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         INSERT INTO leaderboard_sync (id, agent_count, synced_at) VALUES (TRUE, $1, $2)
@@ -766,7 +817,10 @@ pub async fn insert_judge_evaluation(
 /// Leaves belonging to an already-anchored root, in the exact order the tree was
 /// originally built with (by `leaf_index`) — required to rebuild the same tree
 /// shape and regenerate a matching inclusion proof.
-pub async fn fetch_leaves_for_root(pool: &PgPool, root_id: Uuid) -> Result<Vec<(i32, [u8; 32])>, sqlx::Error> {
+pub async fn fetch_leaves_for_root(
+    pool: &PgPool,
+    root_id: Uuid,
+) -> Result<Vec<(i32, [u8; 32])>, sqlx::Error> {
     let rows: Vec<(i32, Vec<u8>)> = sqlx::query_as(
         r#"
         SELECT leaf_index, leaf_hash FROM telemetry_events
@@ -780,7 +834,13 @@ pub async fn fetch_leaves_for_root(pool: &PgPool, root_id: Uuid) -> Result<Vec<(
 
     Ok(rows
         .into_iter()
-        .map(|(idx, hash)| (idx, hash.try_into().expect("leaf_hash column is always 32 bytes")))
+        .map(|(idx, hash)| {
+            (
+                idx,
+                hash.try_into()
+                    .expect("leaf_hash column is always 32 bytes"),
+            )
+        })
         .collect())
 }
 
@@ -912,6 +972,36 @@ pub async fn insert_audit_log(
     Ok(id)
 }
 
+/// Insert the one authoritative outcome for an invocation, or return the row created by
+/// an earlier retry. The partial expression index in migration 0016 is the concurrency
+/// boundary: two simultaneous submissions of the same invocation cannot create two rows.
+pub async fn insert_audit_effect_idempotent(
+    pool: &PgPool,
+    agent_id: &str,
+    decision: &str,
+    metadata: &serde_json::Value,
+) -> Result<(Uuid, bool), sqlx::Error> {
+    let id = Uuid::new_v4();
+    let (stored_id, stored_metadata) = sqlx::query_as::<_, (Uuid, serde_json::Value)>(
+        r#"
+        INSERT INTO audit_log
+            (id, agent_id, source, event_type, decision, metadata)
+        VALUES ($1, $2, 'posttool_report', 'posttool_effect', $3, $4)
+        ON CONFLICT ((metadata->>'invocation_id'))
+            WHERE event_type = 'posttool_effect' AND metadata ? 'invocation_id'
+        DO UPDATE SET metadata = audit_log.metadata
+        RETURNING id, metadata
+        "#,
+    )
+    .bind(id)
+    .bind(agent_id)
+    .bind(decision)
+    .bind(metadata)
+    .fetch_one(pool)
+    .await?;
+    Ok((stored_id, stored_metadata == *metadata))
+}
+
 pub async fn get_recent_audit_log(
     pool: &PgPool,
     agent_id: Option<&str>,
@@ -956,6 +1046,59 @@ pub async fn get_recent_audit_log(
             .await
         }
     }
+}
+
+/// BCC intent-vs-effect join (~/.claude/plans/velvet-giggling-quill.md): both the original
+/// ALLOW row (written with `intended_state_hash` in its metadata, see /v1/audit/ingest) and
+/// any `posttool_effect` row(s) reporting an actual effect hash against it (see
+/// `submit_audit_effect`) share the same `intended_state_hash` value inside their JSONB
+/// `metadata` -- there's no dedicated column for it (see this session's own earlier
+/// investigation: it lives only in the blob), so this queries the JSONB field directly
+/// (`metadata->>'intended_state_hash' = $1`) rather than requiring a migration. `AuditLogRow`
+/// doesn't carry `metadata` (it's a read DTO shaped for the dashboard's audit panel), so this
+/// returns a lighter-weight row that does, since inspecting the metadata IS the point here.
+#[derive(Debug, Clone, sqlx::FromRow, Serialize, ToSchema)]
+pub struct AuditEffectJoinRow {
+    pub id: Uuid,
+    pub agent_id: Option<String>,
+    pub event_type: String,
+    pub decision: String,
+    pub metadata: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+}
+
+pub async fn get_audit_log_by_intended_state_hash(
+    pool: &PgPool,
+    intended_state_hash: &str,
+) -> Result<Vec<AuditEffectJoinRow>, sqlx::Error> {
+    sqlx::query_as::<_, AuditEffectJoinRow>(
+        r#"
+        SELECT id, agent_id, event_type, decision, metadata, created_at
+        FROM audit_log
+        WHERE metadata->>'intended_state_hash' = $1
+        ORDER BY created_at ASC
+        "#,
+    )
+    .bind(intended_state_hash)
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn get_audit_log_by_invocation_id(
+    pool: &PgPool,
+    invocation_id: Uuid,
+) -> Result<Vec<AuditEffectJoinRow>, sqlx::Error> {
+    sqlx::query_as::<_, AuditEffectJoinRow>(
+        r#"
+        SELECT id, agent_id, event_type, decision, metadata, created_at
+        FROM audit_log
+        WHERE metadata->>'invocation_id' = $1
+        ORDER BY created_at ASC
+        "#,
+    )
+    .bind(invocation_id.to_string())
+    .fetch_all(pool)
+    .await
 }
 
 /// Records the anchor events for one agent's just-anchored Merkle sub-tree:
@@ -1306,7 +1449,11 @@ pub struct RecentTraceRow {
 /// of that case) surfaces once per root here, which is an acceptable
 /// simplification for a "recent traces" picker, not a correctness issue for
 /// `get_trace_tree` itself (which still reconstructs every root).
-pub async fn get_recent_root_spans(pool: &PgPool, agent_id: &str, limit: i64) -> Result<Vec<RecentTraceRow>, sqlx::Error> {
+pub async fn get_recent_root_spans(
+    pool: &PgPool,
+    agent_id: &str,
+    limit: i64,
+) -> Result<Vec<RecentTraceRow>, sqlx::Error> {
     sqlx::query_as::<_, RecentTraceRow>(
         r#"
         SELECT trace_id, name, start_time
@@ -1328,7 +1475,11 @@ pub async fn get_recent_root_spans(pool: &PgPool, agent_id: &str, limit: i64) ->
 /// restricted to root spans like `get_recent_root_spans`: a manual-debugging
 /// log view needs the child spans (`tool_call.*`, `llm_call.*`) too, not
 /// just each trace's top-level name.
-pub async fn get_recent_spans_flat(pool: &PgPool, agent_id: &str, limit: i64) -> Result<Vec<OtelSpanRow>, sqlx::Error> {
+pub async fn get_recent_spans_flat(
+    pool: &PgPool,
+    agent_id: &str,
+    limit: i64,
+) -> Result<Vec<OtelSpanRow>, sqlx::Error> {
     sqlx::query_as::<_, OtelSpanRow>(
         r#"
         SELECT id, agent_id, trace_id, span_id, parent_span_id, name, kind, start_time, end_time, status_code, attributes, created_at
@@ -1346,7 +1497,10 @@ pub async fn get_recent_spans_flat(pool: &PgPool, agent_id: &str, limit: i64) ->
 
 /// Every span belonging to one trace, in start-time order — the shape
 /// `ChainOfThoughtPage`'s DAG view walks (parent_span_id links form the tree).
-pub async fn get_otel_spans_for_trace(pool: &PgPool, trace_id: &str) -> Result<Vec<OtelSpanRow>, sqlx::Error> {
+pub async fn get_otel_spans_for_trace(
+    pool: &PgPool,
+    trace_id: &str,
+) -> Result<Vec<OtelSpanRow>, sqlx::Error> {
     sqlx::query_as::<_, OtelSpanRow>(
         r#"
         SELECT id, agent_id, trace_id, span_id, parent_span_id, name, kind, start_time, end_time, status_code, attributes, created_at
@@ -1412,8 +1566,8 @@ pub async fn ais_history_buckets(
 
     Ok(rows
         .into_iter()
-        .map(|(bucket_start, avg_variance, avg_hgi, sum_gpu_hours, penalty_ratio, zk_verified_this_period, event_count)| {
-            AisBucketAggregate {
+        .map(
+            |(
                 bucket_start,
                 avg_variance,
                 avg_hgi,
@@ -1421,8 +1575,18 @@ pub async fn ais_history_buckets(
                 penalty_ratio,
                 zk_verified_this_period,
                 event_count,
-            }
-        })
+            )| {
+                AisBucketAggregate {
+                    bucket_start,
+                    avg_variance,
+                    avg_hgi,
+                    sum_gpu_hours,
+                    penalty_ratio,
+                    zk_verified_this_period,
+                    event_count,
+                }
+            },
+        )
         .collect())
 }
 
@@ -1477,7 +1641,6 @@ pub async fn otel_volume_buckets(
     .fetch_all(pool)
     .await
 }
-
 
 // ---------------------------------------------------------------------------
 // Verification Ladder (rungs 2 and 3) — see verification.rs and migration 0011.
@@ -1721,7 +1884,11 @@ pub async fn effective_verification_tier(
     agent_id: &str,
     registration_tier: i32,
 ) -> Result<i32, sqlx::Error> {
-    Ok(effective_tier_with_source(pool, agent_id, registration_tier).await?.0)
+    Ok(
+        effective_tier_with_source(pool, agent_id, registration_tier)
+            .await?
+            .0,
+    )
 }
 
 /// Effective tier plus WHERE IT CAME FROM.
@@ -1738,4 +1905,228 @@ pub async fn effective_tier_with_source(
     let tiers = active_verification_tiers(pool, agent_id).await?;
     let verified = crate::verification::effective_tier(registration_tier, &tiers);
     Ok(crate::verification::apply_dev_override(agent_id, verified))
+}
+
+/// A verified projection of an agent's public ERC-8004 registration — see
+/// `migrations/0015_erc8004_identity_bindings.sql`. One row per agent; an agent can hold
+/// at most one live binding at a time (re-linking overwrites it via the upsert below).
+#[derive(Debug, sqlx::FromRow, serde::Serialize)]
+pub struct Erc8004BindingRow {
+    pub agent_id: String,
+    pub chain_id: i64,
+    pub identity_registry_address: String,
+    pub agent_token_id: String,
+    pub registration_uri: String,
+    pub registration_sha256: String,
+    pub nft_owner_address: String,
+    pub agent_wallet_address: Option<String>,
+    pub binding_status: String,
+    pub verified_at: DateTime<Utc>,
+    pub last_checked_at: DateTime<Utc>,
+}
+
+/// Records (or re-records, on re-link) a verified two-way ERC-8004 binding. Callers must
+/// have already independently confirmed the on-chain read and the registration file's DID
+/// backlink (`erc8004::validate_registration`) before calling this — this function trusts
+/// its arguments completely and does no re-verification of its own.
+#[allow(clippy::too_many_arguments)]
+pub async fn upsert_erc8004_binding(
+    pool: &PgPool,
+    agent_id: &str,
+    chain_id: i64,
+    identity_registry_address: &str,
+    agent_token_id: &str,
+    registration_uri: &str,
+    registration_sha256: &str,
+    nft_owner_address: &str,
+    agent_wallet_address: Option<&str>,
+    binding_status: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        INSERT INTO erc8004_identity_bindings
+            (agent_id, chain_id, identity_registry_address, agent_token_id, registration_uri,
+             registration_sha256, nft_owner_address, agent_wallet_address, binding_status,
+             verified_at, last_checked_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), now())
+        ON CONFLICT (agent_id) DO UPDATE SET
+            chain_id = EXCLUDED.chain_id,
+            identity_registry_address = EXCLUDED.identity_registry_address,
+            agent_token_id = EXCLUDED.agent_token_id,
+            registration_uri = EXCLUDED.registration_uri,
+            registration_sha256 = EXCLUDED.registration_sha256,
+            nft_owner_address = EXCLUDED.nft_owner_address,
+            agent_wallet_address = EXCLUDED.agent_wallet_address,
+            binding_status = EXCLUDED.binding_status,
+            verified_at = now(),
+            last_checked_at = now()
+        "#,
+    )
+    .bind(agent_id)
+    .bind(chain_id)
+    .bind(identity_registry_address)
+    .bind(agent_token_id)
+    .bind(registration_uri)
+    .bind(registration_sha256)
+    .bind(nft_owner_address)
+    .bind(agent_wallet_address)
+    .bind(binding_status)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn get_erc8004_binding(
+    pool: &PgPool,
+    agent_id: &str,
+) -> Result<Option<Erc8004BindingRow>, sqlx::Error> {
+    sqlx::query_as::<_, Erc8004BindingRow>(
+        r#"
+        SELECT agent_id, chain_id, identity_registry_address, agent_token_id, registration_uri,
+               registration_sha256, nft_owner_address, agent_wallet_address, binding_status,
+               verified_at, last_checked_at
+        FROM erc8004_identity_bindings WHERE agent_id = $1
+        "#,
+    )
+    .bind(agent_id)
+    .fetch_optional(pool)
+    .await
+}
+
+// ---------------------------------------------------------------------------------
+// Intent/outcome reconciliation.
+//
+// `pretool_gate.py` records an intent (a signed `intended_state_hash`) in `audit_log`
+// *before* a tool call runs; `posttool_report.py` recomputes the identical hash and
+// reports the outcome *after* — see that file's own docstring: "so a later verifier can
+// line intent up against effect." This is that verifier. It was structurally impossible
+// until the ALLOW-path metadata in `bcc_middleware/app/main.py::run_intercept` started
+// including `intended_state_hash` (previously only `leaf`/`batch_index`/
+// `verification_token` were recorded) — a row written before that change has no hash to
+// join on and surfaces here as an intent with no reachable outcome, same as a genuinely
+// unreported one.
+//
+// The outcome half lives inside `telemetry_events.payload->'otel_spans'`, not a
+// top-level column: `IntegrityClient.log_telemetry()` folds `identity.report_action`'s
+// metadata dict into one tagged element of that JSON array (see
+// `integrity_sdk/client.py::flush_telemetry`'s 2026-07-11 fix note), so this query
+// unnests it rather than reading a dedicated column.
+//
+// New records join on signed `invocation_id`, which identifies one attempted action even when
+// tool and input bytes repeat. Legacy rows without it remain visible as `legacy_hash_only` and
+// are deliberately not presented as unambiguously reconciled.
+// ---------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize)]
+pub struct IntentOutcomeRow {
+    pub invocation_id: Option<String>,
+    pub intended_state_hash: Option<String>,
+    pub intent_type: Option<String>,
+    pub intent_at: Option<DateTime<Utc>>,
+    pub tool: Option<String>,
+    pub outcome: Option<String>,
+    pub outcome_at: Option<DateTime<Utc>>,
+    /// `"reconciled"` (both sides present), `"intent_without_outcome"` (authorized but
+    /// no outcome ever reported — a dropped report, a failed reconciliation call, or an
+    /// authorized action that was never actually executed), or `"outcome_without_intent"`
+    /// (an outcome reported for a hash with no matching ALLOW row — worth investigating,
+    /// since every outcome reported today is for a tool in `pretool_gate.RISKY_TOOLS`,
+    /// which should always have gone through the gate first).
+    pub status: String,
+}
+
+pub async fn reconcile_agent_intent_outcome(
+    pool: &PgPool,
+    agent_id: &str,
+    limit: i64,
+) -> Result<Vec<IntentOutcomeRow>, sqlx::Error> {
+    sqlx::query_as::<_, IntentOutcomeRow>(
+        r#"
+        WITH intent_rows AS (
+            SELECT
+                a.metadata->>'invocation_id' AS invocation_id,
+                a.metadata->>'intended_state_hash' AS intended_state_hash,
+                a.intent_type,
+                a.created_at AS intent_at
+            FROM audit_log a
+            WHERE a.agent_id = $1
+              AND a.decision = 'allow'
+              AND a.metadata ? 'intended_state_hash'
+        ),
+        intents AS (
+            SELECT *, CASE WHEN invocation_id IS NULL THEN 1
+                           ELSE COUNT(*) OVER (PARTITION BY invocation_id) END AS invocation_count
+            FROM intent_rows
+        ),
+        outcome_rows AS (
+            SELECT
+                a.metadata->>'invocation_id' AS invocation_id,
+                a.metadata->>'intended_state_hash' AS intended_state_hash,
+                NULL::text AS tool,
+                a.decision AS outcome,
+                a.created_at AS outcome_at
+            FROM audit_log a
+            WHERE a.agent_id = $1
+              AND a.event_type = 'posttool_effect'
+              AND a.metadata ? 'intended_state_hash'
+            UNION ALL
+            SELECT
+                span->'metadata'->>'invocation_id' AS invocation_id,
+                span->'metadata'->>'intended_state_hash' AS intended_state_hash,
+                span->'metadata'->>'tool' AS tool,
+                span->'metadata'->>'outcome' AS outcome,
+                t.created_at AS outcome_at
+            FROM telemetry_events t,
+                 jsonb_array_elements(COALESCE(t.payload->'otel_spans', '[]'::jsonb)) AS span
+            WHERE t.agent_id = $1
+              AND span->'metadata'->>'event' = 'claude_tool_result'
+              AND span->'metadata' ? 'intended_state_hash'
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM audit_log authoritative
+                  WHERE authoritative.agent_id = $1
+                    AND authoritative.event_type = 'posttool_effect'
+                    AND authoritative.metadata->>'invocation_id' = span->'metadata'->>'invocation_id'
+              )
+        ),
+        outcomes AS (
+            SELECT *, CASE WHEN invocation_id IS NULL THEN 1
+                           ELSE COUNT(*) OVER (PARTITION BY invocation_id) END AS invocation_count
+            FROM outcome_rows
+        )
+        SELECT
+            COALESCE(i.invocation_id, o.invocation_id) AS invocation_id,
+            COALESCE(i.intended_state_hash, o.intended_state_hash) AS intended_state_hash,
+            i.intent_type,
+            i.intent_at,
+            o.tool,
+            o.outcome,
+            o.outcome_at,
+            CASE
+                WHEN COALESCE(i.invocation_id, o.invocation_id) IS NULL
+                    THEN 'legacy_hash_only'
+                WHEN COALESCE(i.invocation_count, 0) > 1 OR COALESCE(o.invocation_count, 0) > 1
+                    THEN 'duplicate_invocation'
+                WHEN i.intended_state_hash IS NOT NULL AND o.intended_state_hash IS NOT NULL
+                     AND i.intended_state_hash <> o.intended_state_hash
+                    THEN 'correlation_conflict'
+                WHEN i.intended_state_hash IS NOT NULL AND o.intended_state_hash IS NOT NULL
+                    THEN 'reconciled'
+                WHEN i.intended_state_hash IS NOT NULL
+                    THEN 'intent_without_outcome'
+                ELSE 'outcome_without_intent'
+            END AS status
+        FROM intents i
+        FULL OUTER JOIN outcomes o
+          ON o.invocation_id IS NOT NULL
+         AND i.invocation_id IS NOT NULL
+         AND o.invocation_id = i.invocation_id
+        ORDER BY COALESCE(o.outcome_at, i.intent_at) DESC
+        LIMIT $2
+        "#,
+    )
+    .bind(agent_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
 }

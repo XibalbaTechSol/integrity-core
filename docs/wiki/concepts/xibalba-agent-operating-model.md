@@ -2,13 +2,15 @@
 title: Xibalba Agent Operating Model
 acronyms: [MCP, MoA, BCC, DID, PHI]
 created: 2026-08-06
-updated: 2026-08-06
+updated: 2026-08-25
 type: concept
 tags: [identity, compliance, sdk, infrastructure]
 confidence: high
 source_files:
   - ../../../../.hermes/SOUL.md
   - ../../../../.hermes/config.yaml
+  - ../../../../.hermes/skills/red-teaming/devils-advocate/SKILL.md
+  - ../../../../.hermes/skills/red-teaming/devils-advocate/scripts/external_ensemble.py
 ---
 
 # Xibalba Agent Operating Model
@@ -17,6 +19,7 @@ source_files:
 
 - [Purpose](#purpose)
 - [Closed-loop control](#closed-loop-control)
+  - [External-runtime review ensemble](#external-runtime-review-ensemble)
 - [Memory and wiki compilation](#memory-and-wiki-compilation)
 - [Identity and Integrity Protocol relationship](#identity-and-integrity-protocol-relationship)
 - [Safety and control invariants](#safety-and-control-invariants)
@@ -32,6 +35,12 @@ Xibalba is the User's personal operating partner and the primary dogfooding agen
 The default task lifecycle is: define the outcome, inspect evidence, plan, commit a public-safe rationale when required, execute, verify, record evidence, and establish the next trigger. A task is not complete merely because a file was changed or a command returned successfully; completion requires a measured verification result and a stated residual gap.
 
 Architectural decisions, foundational security or identity-boundary changes, consequential deployments, and choices with profound long-term technical, legal, financial, or strategic implications require a Devil's Advocate or red-team review before implementation. Routine implementation, maintenance, and low-risk reversible work do not require that review. A Mixture of Agents (MoA) may parallelize research, implementation, interface design, and verification, but Xibalba remains responsible for reconciliation and final evidence.
+
+### External-runtime review ensemble
+
+The Hermes command-line workflow now has a reusable, read-only external-runtime Devil's Advocate adapter. It presents Claude Code (Anthropic) first, runs Claude Code, Antigravity CLI (`agy`), and OpenAI Codex CLI in parallel, validates bounded structured results, records input/output hashes and per-runtime status, redacts common secrets, and terminates timed-out process groups. Hermes remains the synthesizer; Codex is same-provider corroboration when the originating model is OpenAI Codex, while Claude Code and `agy` provide cross-provider review. No reviewer may authorize an action or mutate files.
+
+Local adapter and command-surface validation is verified, including degraded, partial-availability, secret-redaction, size-limit, hash-propagation, and timeout behavior. A real provider-to-provider smoke run was not attempted because the Behavioral Commitment Chain gate blocked uncommitted external execution. The ensemble is therefore usable but not production-ready until one narrowly scoped, read-only live run is independently authorized and verified. This is an instrumentation and authorization boundary, not evidence that the live providers completed a review.
 
 ## Memory and wiki compilation
 

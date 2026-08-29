@@ -37,6 +37,7 @@ import hashlib
 import json
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -56,6 +57,11 @@ def hash_intent_payload(intent_payload: Dict[str, Any]) -> str:
     this becomes `intended_state_hash` (§4.2)."""
     digest = hashlib.sha256(canonical_json_bytes(intent_payload)).hexdigest()
     return "0x" + digest
+
+
+def new_invocation_id() -> str:
+    """Return a canonical, globally unique identifier for one attempted action."""
+    return str(uuid.uuid4())
 
 
 class NonceStore:
@@ -107,6 +113,7 @@ def build_bcc_commitment(
     span_id: Optional[str] = None,
     intent_rationale: Optional[str] = None,
     agent_thought: Optional[str] = None,
+    invocation_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Construct and sign a BCC commitment (§4.2, plus the reconciled
@@ -172,6 +179,14 @@ def build_bcc_commitment(
         "chain_id": chain_id,
         "verifying_contract": verifying_contract,
     }
+    if invocation_id is not None:
+        # Additive v1 extension: present values are signed; absence preserves verification
+        # compatibility for commitments produced before invocation correlation existed.
+        parsed_invocation_id = uuid.UUID(invocation_id)
+        canonical_invocation_id = str(parsed_invocation_id)
+        if invocation_id != canonical_invocation_id or parsed_invocation_id.int == 0:
+            raise ValueError("invocation_id must be a non-nil lowercase canonical UUID")
+        unsigned["invocation_id"] = canonical_invocation_id
     signature_bytes = keypair.sign(canonical_json_bytes(unsigned))
 
     commitment = dict(unsigned)

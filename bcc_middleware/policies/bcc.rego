@@ -219,11 +219,36 @@ tool_runtime := runtime if {
 # Risk classes that require an agent to be verifiable before it may commit to
 # them. Tier >= 1 means the oracle could resolve and verify the DID at all (see
 # the CEILING NOTE above); an agent it cannot resolve falls to 0 and is denied.
+#
+# "financial" added 2026-08-19 for xibalba-quant (autonomous trading agent,
+# PRODUCTION_GAPS.md-adjacent work, see docs/plans/): before this, an
+# `intent_type` of e.g. `hermes_tool:coinbase_trade:financial` matched NO
+# rule in this file at all -- `violation` stayed empty by construction, and
+# the commitment was authorized because nothing looked at it, not because
+# anything approved it. That is the exact "792 logged decisions... denied 0"
+# failure this section's own history above already names once. Kept at
+# tier >= 1, same as every other class here, for the same reason the CEILING
+# NOTE above states: tier 2/3 verification isn't real yet, so requiring it
+# would be an unreachable no-op dressed up as a real policy decision, not an
+# actual stricter gate. Raise this specifically once a real, earnable higher
+# tier exists and there's a reason financial actions should sit above the
+# others.
+#
+# What this rule does NOT and cannot check, stated plainly (per this file's
+# own header note): the commitment schema never carries the actual trade
+# payload across the wire pre-execution, only `intended_state_hash` -- so
+# there is no venue/asset/size/side field here to validate. Trade-level
+# input validation (a well-formed venue, a sane size) is the trade-executor's
+# own job before it ever builds a commitment; this rule only gates identity
+# verifiability and (via `_is_agent_tool` below) requires a real declared
+# trace_id/span_id/intent_rationale for every financial action, same as
+# every other agent-tool commitment.
 high_risk_tool_classes := {
 	"destructive",
 	"credential",
 	"chain_write",
 	"privileged",
+	"financial",
 }
 
 _tool_risk_class := class if {

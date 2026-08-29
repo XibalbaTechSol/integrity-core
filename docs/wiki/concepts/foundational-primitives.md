@@ -14,16 +14,26 @@ source_files:
   - contracts/src/health/SmartBAA.sol
 ---
 
-> **Naming, before anything else.** This repo uses the word *primitive* in two unrelated
+> **Naming, before anything else.** This repo uses the word *primitive* in three unrelated
 > senses, and conflating them is the main source of confusion:
 >
 > - **Foundational primitives** (this page) — the four **concepts** the protocol rests on.
 > - **Agent primitives** ([`agent-primitives.md`](agent-primitives.md)) — the seven
 >   **contracts** each agent owns (`PrimitiveSet`, `AgentPrimitivesFactory`).
+> - **Kernel primitives** (spec v3.2 §4.4, `IntegrityKernel.sol`) — the three **invariants**
+>   (value conservation, monotone rights depletion, replay-domain monotonicity) the
+>   verification kernel supplies so adapter authors don't re-derive them. These are
+>   guarantees the kernel's constraint-evaluation layer bakes in, not a concept from this
+>   page and not one of the seven agent contracts — `IntegrityKernel`/`IntegrityAccount` are
+>   deliberately separate from the `PrimitiveSet`/`XibalbaAgentRegistry` model entirely (see
+>   `docs/plans/2026-08-24-phase1-testnet-deployment-proposal.md`).
 >
-> They are not different views of one list. `ReputationRegistry` is one of the seven
-> contracts *and* the storage for one of the four concepts; `StateAnchor` likewise. The seven
-> are an implementation; the four are the argument.
+> They are not different views of one list. `ReputationRegistry` is one of the seven agent
+> contracts *and* the storage for one of the four foundational concepts; `StateAnchor`
+> likewise. The kernel invariants touch neither — they're a property of the new kernel/hook
+> architecture, evaluated inside `IntegrityAccount`'s `preCheck`, not stored in any agent's
+> `PrimitiveSet`. The seven are an implementation; the four are the argument; the three
+> kernel invariants are guarantees the kernel enforces on adapters' behalf.
 
 ## Table of contents
 

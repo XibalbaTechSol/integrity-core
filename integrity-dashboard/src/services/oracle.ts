@@ -337,6 +337,17 @@ export interface AuditLogEntryDto {
     created_at: string;
 }
 
+export interface IntentOutcomeDto {
+    invocation_id: string | null;
+    intended_state_hash: string | null;
+    intent_type: string | null;
+    intent_at: string | null;
+    tool: string | null;
+    outcome: string | null;
+    outcome_at: string | null;
+    status: 'reconciled' | 'intent_without_outcome' | 'outcome_without_intent' | 'duplicate_invocation' | 'correlation_conflict' | 'legacy_hash_only';
+}
+
 // backend::handlers::get_unregistered_agents — real "shadow AI" discovery: DIDs the
 // oracle has telemetry/audit evidence for that never registered via
 // POST /v1/agent/register. See db::list_unregistered_agents' doc comment.
@@ -549,6 +560,16 @@ export const oracle = {
         const qs = params.toString();
         return get<AuditLogEntryDto[]>(`/v1/audit-log${qs ? `?${qs}` : ''}`);
     },
+    getReconciliation: (agentId: string) =>
+        get<IntentOutcomeDto[]>(`/v1/agent/${encodeURIComponent(agentId)}/reconciliation`),
+
+    // Generic audit-log write, reused by the Guided System Test wizard's cross-system
+    // fan-out (testResults.ts) so a dashboard-triggered test result is durably queryable
+    // via getAuditLog above, the same as any other real audit_log row.
+    ingestAudit: (entry: {
+        agent_id?: string; source: string; event_type: string; decision: string;
+        reason_code?: string; detail?: string; intent_type?: string; metadata?: Record<string, unknown>;
+    }) => post<{ id: string }>('/v1/audit/ingest', entry),
 
     // Real "shadow AI" discovery (Shield vertical) — see UnregisteredAgentDto's comment.
     getUnregisteredAgents: () => get<UnregisteredAgentDto[]>('/v1/shield/unregistered-agents'),
