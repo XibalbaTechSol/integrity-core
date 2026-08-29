@@ -205,13 +205,6 @@ async def me(
 
 _DEV_FAUCET_WEI = 10_000 * 10**18
 
-@app.post(
-    "/api-keys",
-    response_model=ApiKeyCreateResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def create_api_key(
-
 @app.get("/me/wallet", response_model=WalletResponse)
 async def get_wallet(
     user_id: str = Depends(get_current_user_id),
