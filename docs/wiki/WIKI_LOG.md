@@ -3130,3 +3130,40 @@ writeup: PRODUCTION_GAPS.md §18.
 - Recorded that Open Policy Agent (OPA) service reachability and local adapter validation do not establish host-tool dispatch evidence or live provider parity; the external provider smoke path remained blocked by the Behavioral Commitment Chain gate.
 - Updated `index.md` and the retained `WIKI_INDEX.md` date/status summaries. No new page was created.
 - Residual completeness gap: the session finalization summary is partial because `hook_watermark_not_verified`; claims above remain bounded to captured session evidence and are not current deployment proof.
+## [2026-08-19] fix | SDK existing-DID genesis anchoring guard
+
+- Fixed `integrity_sdk.registration.register_agent()`'s already-registered DID path so it reads the existing `StateAnchor` root before the oracle POST, anchors the genesis root when the root is zero, and fails closed with `RegistrationError` without calling the oracle if anchoring fails.
+- Added `integrity-sdk/tests/unit/test_registration_existing_did_genesis.py` covering zero-root anchoring before POST, non-zero-root no-op behavior, and the failure case where anchoring prevents the Oracle POST.
+- Verification: focused regression `uv run pytest tests/unit/test_registration_existing_did_genesis.py` passed with 3 passed; full SDK validation `PATH="/home/xibalba/.foundry/bin:$PATH" uv run pytest` passed with 267 passed, 9 skipped, 1 warning. The first full run without Foundry on `PATH` failed at chain fixture setup because `anvil` was not discoverable; no code failures were observed after using the installed Foundry path.
+## [2026-08-24] fix | default CI contract compile
+
+- Fixed the post-PR #70 Solidity compile break by restoring the 7-field `PrimitiveSet`
+  registry shape, adding registry DID read helpers required by `IntegrityIdentityReadV1`,
+  and correcting ERC20 calldata amount decoding in `ConstraintExecutionPolicy`.
+- Wired `AgentAuthorityResolver` into genesis and incremental `EHRGate` deployment
+  scripts so `EHRGate`'s constructor and deployment-backed Software Development Kit
+  (SDK)/command-line interface (CLI) tests stay on the real authority-resolution path.
+- Updated the contracts and ComplianceGate wiki pages plus the interface contract to
+  document the read-only authority resolver boundary.
+- Verification: focused Foundry resolver/identity/health tests passed 24/24;
+  full contracts `forge test -vvv` passed 330/330; SDK `uv run pytest` passed
+  267 with 9 skipped; CLI `uv run pytest` passed 70 with 1 skipped.
+
+## [2026-08-24] correction | EHRGate incremental resolver boundary
+
+- Corrected `contracts/script/DeployEHRGate.s.sol` so incremental deployments reuse only
+  an existing serialized `singletons.AgentAuthorityResolver` and fail before broadcasting
+  when that key is absent.
+- Documented the residual migration boundary: existing networks with legacy
+  `XibalbaAgentRegistry` bytecode that lacks enterprise-agent reads require a separately
+  approved registry/resolver migration before `EHRGate` can be incrementally deployed.
+- No historical wiki log entries were edited; this entry supersedes the earlier wording
+  that overstated incremental EHR deployment support.
+
+## [2026-08-28] update | Cortex Operations dashboard surface
+
+- Updated `docs/wiki/entities/integrity-dashboard.md` for the implemented `/cortex` operator route and its hybrid-retrieval trace, extraction-review, inference/embedding visibility, and projection checkpoint/reconciliation/rebuild surfaces.
+- Recorded the cross-repository dashboard-to-Cortex HTTP boundary in `docs/INTERFACE_CONTRACT.md`, including `VITE_GRAPH_MEMORY_URL`, per-capability unavailable states, and the local/trusted operator constraint for write endpoints.
+- Disabled extraction-decision and projection-mutation controls when the dashboard is not loopback-hosted; documented that this browser guard is defense in depth, not operator authentication.
+- Preserved authority boundaries: Cortex remains the profile-isolated canonical store for Cortex memory, does not become Integrity protocol authority, and complements rather than replaces Hermes memory.
+- No new wiki page or catalog entry was required; `docs/wiki/index.md` remains unchanged.

@@ -8,6 +8,8 @@ import type {
     Attachment,
     EntityRelation,
     Exchange,
+    ExtractionProposal,
+    HybridRetrieveResult,
     GraphMemoryStats,
     GraphPayload,
     InferenceManifest,
@@ -19,13 +21,18 @@ import type {
     InvocationCorrelation,
     Memory,
     MemoryEvent,
+    MerkleInclusionProof,
     MerkleRoot,
     OtelEvent,
+    ProjectionCheckpoint,
+    ProjectionReconciliation,
     RecordModelExchangePayload,
     RecordModelExchangeResult,
     Session,
     SimilarHit,
     StoreStatus,
+    RetrievalTrace,
+    EmbeddingModel,
     TraversalResult,
 } from '../types/graphMemory';
 
@@ -34,6 +41,8 @@ export type {
     ContextContribution,
     EntityRelation,
     Exchange,
+    ExtractionProposal,
+    HybridRetrieveResult,
     GraphEdge,
     GraphMemoryStats,
     GraphNode,
@@ -49,13 +58,18 @@ export type {
     Memory,
     MemoryEvent,
     MemorySource,
+    MerkleInclusionProof,
     MerkleRoot,
     OtelEvent,
+    ProjectionCheckpoint,
+    ProjectionReconciliation,
     RecordModelExchangePayload,
     RecordModelExchangeResult,
     Session,
     SimilarHit,
     StoreStatus,
+    RetrievalTrace,
+    EmbeddingModel,
     TraversalEdge,
     TraversalResult,
 } from '../types/graphMemory';
@@ -159,4 +173,27 @@ export const graphMemory = {
             output_payload: outputPayload,
             ...(error ? { error } : {}),
         }),
+    extractionProposals: (status = 'proposed', limit = 50) =>
+        getJson<ExtractionProposal[]>(`/api/extraction-proposals?status=${encodeURIComponent(status)}&limit=${limit}`),
+    decideExtractionProposal: (id: string, decision: 'accept' | 'dismiss', decidedBy = 'integrity-dashboard', note?: string) =>
+        postJson<ExtractionProposal>(`/api/extraction-proposals/${encodeURIComponent(id)}/decision`, {
+            decision,
+            decided_by: decidedBy,
+            ...(note ? { note } : {}),
+        }),
+    hybridRetrieve: (payload: { query: string; limit?: number; max_per_source?: number; max_total_chars?: number }) =>
+        postJson<HybridRetrieveResult>('/api/retrieval/hybrid', payload),
+    retrievalTrace: (id: string) =>
+        getJson<RetrievalTrace>(`/api/retrieval/trace/${encodeURIComponent(id)}`),
+    retrievalTraceEvidence: (id: string, rank: number) =>
+        getJson<MerkleInclusionProof>(`/api/retrieval/trace/${encodeURIComponent(id)}/evidence?rank=${rank}`),
+    projectionCheckpoints: (projectionId: string, limit = 20) =>
+        getJson<ProjectionCheckpoint[]>(`/api/projections/${encodeURIComponent(projectionId)}/checkpoints?limit=${limit}`),
+    createProjectionCheckpoint: (projectionId: string) =>
+        postJson<ProjectionCheckpoint>(`/api/projections/${encodeURIComponent(projectionId)}/checkpoint`, {}),
+    reconcileProjectionCheckpoint: (projectionId: string) =>
+        postJson<ProjectionReconciliation>(`/api/projections/${encodeURIComponent(projectionId)}/reconcile`, {}),
+    rebuildProjectionCheckpoint: (projectionId: string) =>
+        postJson<ProjectionCheckpoint & { verified: boolean }>(`/api/projections/${encodeURIComponent(projectionId)}/rebuild`, {}),
+    embeddingModels: () => getJson<EmbeddingModel[]>('/api/embedding/models'),
 };

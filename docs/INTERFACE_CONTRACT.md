@@ -1031,6 +1031,36 @@ contract directly.
 expected to talk to both the Oracle trust domain and `integrity-userapi`
 directly.
 
+### 6.11 Dashboard-to-Cortex operator boundary
+
+`xibalba-cortex` remains an external, profile-isolated cognitive store, not a
+third Integrity trust domain and not an authority for AIS, BCC, chain state,
+or protocol decisions. The dashboard may consume its local API through
+`integrity-dashboard/src/services/graphMemory.ts`; no protocol backend may
+import or depend on Cortex.
+
+The dashboard selects the Cortex base URL with `VITE_GRAPH_MEMORY_URL`
+(development default `http://localhost:8420`). Its `/cortex` operator route
+uses these currently implemented external calls:
+
+| Capability | HTTP surface | Dashboard behavior |
+|---|---|---|
+| Hybrid retrieval evidence | `POST /api/retrieval/hybrid`, `GET /api/retrieval/trace/{id}`, `GET /api/retrieval/trace/{id}/evidence?rank=` | Displays persisted trace/root identifiers, channel status, result signals, and the first result's Merkle inclusion proof without treating recall as protocol authority. |
+| Extraction review | `GET /api/extraction-proposals`, `POST /api/extraction-proposals/{id}/decision` | Lists proposed deterministic extractions; accept/dismiss is an explicit write to Cortex canonical memory state. |
+| Operator status | `GET /api/inference/tasks`, `GET /api/embedding/models` | Displays pending inference work and registered embedding-model availability. |
+| Projection integrity | `GET /api/projections/{id}/checkpoints`, `POST /api/projections/{id}/checkpoint`, `/reconcile`, `/rebuild` | Operates only the `memories`, `entities`, and `relations` derived projections; reconciliation mismatch is not silently promoted to verified state. |
+
+Failures are per-capability: the route presents a partial/unavailable state
+and does not fabricate fallback records. The current browser client has no
+operator authentication layer and labels extraction decisions with
+`decided_by: "integrity-dashboard"`. The page disables mutation controls when
+the dashboard is not loopback-hosted, but that client guard is not an
+authentication boundary; write endpoints remain suitable only for a trusted
+local deployment until Cortex or an authenticated gateway enforces operator
+authorization. Cortex provenance/session evidence
+complements runtime memory systems; it does not replace Hermes memory or
+Integrity protocol evidence.
+
 ## 7. OPA policy integration (must be real, no "assume success" fallback)
 
 - `bcc_middleware/policies/*.rego` holds the real Rego policies (carry over the

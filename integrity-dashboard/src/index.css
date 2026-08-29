@@ -8,6 +8,12 @@ html {
   scroll-behavior: smooth;
 }
 
+@media (max-width: 900px) {
+  .cortex-operations-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
 :root {
   --bg-color: #f8fafc;
   --surface-color: #ffffff;

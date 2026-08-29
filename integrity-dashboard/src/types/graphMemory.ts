@@ -250,9 +250,117 @@ export interface InferenceTask {
     input: Record<string, unknown>;
     output: Record<string, unknown> | null;
     requested_by: string | null;
+    claim_owner: string | null;
+    claim_token: string | null;
+    lease_expires_at: string | null;
+    attempt_count: number;
     error: string | null;
     created_at: string;
     updated_at: string;
+}
+
+export interface ExtractionProposal {
+    id: string;
+    task_id: string;
+    task_type: string;
+    item_index: number;
+    source_memory_id: string;
+    source_content_hash: string;
+    payload: Record<string, unknown>;
+    evidence_quote: string | null;
+    status: 'proposed' | 'accepted' | 'dismissed' | 'stale';
+    decision_note: string | null;
+    decided_by: string | null;
+    created_at: string;
+    decided_at: string | null;
+}
+
+export interface RetrievalTraceResultRecord {
+    rank: number;
+    memory_id: string;
+    score: number;
+    signals: string[];
+    channels: Record<string, { rank: number; raw_score: number | null }>;
+    cosine_similarity: number | null;
+    provenance: { content_hash: string; source_id: string; evidence_class: string; status: string };
+}
+
+export interface RetrievalTrace {
+    id: string;
+    query: string;
+    signals: string[];
+    results: RetrievalTraceResultRecord[];
+    root_hash: string;
+    profile_domain: string;
+    query_vector_hash: string | null;
+    embedding_model_id: string | null;
+    embedding_model_revision: string | null;
+    filters: Record<string, unknown>;
+    candidate_pool_sizes: Record<string, number>;
+    rrf_params: { method: string; k: number; weights: Record<string, number> };
+    graph_evidence: Array<Record<string, unknown>>;
+    leaf_hashes: string[];
+    degraded: Array<Record<string, unknown>>;
+    checkpoint_id: string | null;
+    linked_task_id: string | null;
+    linked_session_id: string | null;
+    created_at: string;
+}
+
+export interface HybridRetrieveResult {
+    trace_id: string;
+    root_hash: string;
+    signals: string[];
+    channel_status: Record<string, string>;
+    degraded: Array<Record<string, unknown>>;
+    results: Memory[];
+}
+
+export interface MerkleInclusionProof {
+    domain: string;
+    index: number;
+    payload_hash: string;
+    siblings: Array<{ hash: string }>;
+    root: string;
+}
+
+export interface ProjectionCheckpoint {
+    id: string;
+    projection_id: string;
+    root_hash: string;
+    leaf_count: number;
+    leaf_hashes: string[];
+    metadata: Record<string, unknown>;
+    status: 'active' | 'degraded' | 'unavailable';
+    created_at: string;
+}
+
+export interface ProjectionReconciliation {
+    id: string;
+    projection_id: string;
+    checkpoint_id: string;
+    canonical_root_hash: string;
+    observed_root_hash: string;
+    equal: boolean;
+    reordered: boolean;
+    missing: string[];
+    extra: string[];
+    action: 'noop' | 'rebuild_projection' | 'mark_degraded' | 'manual_review';
+}
+
+export interface EmbeddingModel {
+    model_key: string;
+    model_id: string;
+    revision: string;
+    dimension: number;
+    distance_metric: string;
+    normalize: boolean;
+    vector_table: string;
+    state: 'active' | 'shadow' | 'deprecated' | 'failed';
+    availability: string;
+    availability_detail: string | null;
+    registered_at: string;
+    checked_at: string | null;
 }
 
 export interface ParaClassification {
