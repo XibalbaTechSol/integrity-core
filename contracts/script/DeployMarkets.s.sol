@@ -91,6 +91,13 @@ contract DeployMarkets is Script {
             singletons, "UltraPlonkVerifier", vm.parseJsonAddress(existingJson, ".singletons.UltraPlonkVerifier")
         );
         vm.serializeAddress(singletons, "XibalbaAgentRegistry", registry);
+        if (vm.keyExistsJson(existingJson, ".singletons.IntegrityIdentityReadV1")) {
+            vm.serializeAddress(
+                singletons,
+                "IntegrityIdentityReadV1",
+                vm.parseJsonAddress(existingJson, ".singletons.IntegrityIdentityReadV1")
+            );
+        }
         vm.serializeAddress(
             singletons, "XibalbaNameService", vm.parseJsonAddress(existingJson, ".singletons.XibalbaNameService")
         );
@@ -98,7 +105,9 @@ contract DeployMarkets is Script {
             singletons, "DomainRegistry", vm.parseJsonAddress(existingJson, ".singletons.DomainRegistry")
         );
         vm.serializeAddress(
-            singletons, "AgentPrimitivesFactory", vm.parseJsonAddress(existingJson, ".singletons.AgentPrimitivesFactory")
+            singletons,
+            "AgentPrimitivesFactory",
+            vm.parseJsonAddress(existingJson, ".singletons.AgentPrimitivesFactory")
         );
         vm.serializeAddress(
             singletons, "CoveredEntityRegistry", vm.parseJsonAddress(existingJson, ".singletons.CoveredEntityRegistry")
@@ -107,14 +116,18 @@ contract DeployMarkets is Script {
             singletons, "SmartBAAFactory", vm.parseJsonAddress(existingJson, ".singletons.SmartBAAFactory")
         );
         vm.serializeAddress(
-            singletons, "HIPAAGuardrailRegistry", vm.parseJsonAddress(existingJson, ".singletons.HIPAAGuardrailRegistry")
+            singletons,
+            "HIPAAGuardrailRegistry",
+            vm.parseJsonAddress(existingJson, ".singletons.HIPAAGuardrailRegistry")
         );
         vm.serializeAddress(singletons, "MarketFactory", address(marketFactory));
         string memory singletonsJson = vm.serializeAddress(singletons, "A2ACapitalPool", address(capitalPool));
 
         string memory cloneTemplates = "cloneTemplates";
         vm.serializeAddress(
-            cloneTemplates, "ReputationRegistry", vm.parseJsonAddress(existingJson, ".cloneTemplates.ReputationRegistry")
+            cloneTemplates,
+            "ReputationRegistry",
+            vm.parseJsonAddress(existingJson, ".cloneTemplates.ReputationRegistry")
         );
         vm.serializeAddress(cloneTemplates, "Slasher", vm.parseJsonAddress(existingJson, ".cloneTemplates.Slasher"));
         vm.serializeAddress(

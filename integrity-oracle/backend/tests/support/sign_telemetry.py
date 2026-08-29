@@ -40,6 +40,9 @@ def main() -> None:
     nonce = int(sys.argv[3])
     entropy, grounding, sacrifice, compliance = (float(x) for x in sys.argv[4:8])
     otel_spans = json.loads(sys.argv[8]) if len(sys.argv) > 8 else []
+    # argv[9], when present, signs the VERSIONED envelope. Omitted => the pre-versioning
+    # shape, which every existing caller relies on and which must keep verifying forever.
+    schema_version = int(sys.argv[9]) if len(sys.argv) > 9 else None
 
     signable = {
         "agent_id": agent_id,
@@ -53,6 +56,8 @@ def main() -> None:
         },
         "zk_proof": None,
     }
+    if schema_version is not None:
+        signable["schema_version"] = schema_version
     message = bcc.canonical_json_bytes(signable)
     signed = Account.sign_message(encode_defunct(message), private_key=private_key)
     signature = "0x" + signed.signature.hex().removeprefix("0x")

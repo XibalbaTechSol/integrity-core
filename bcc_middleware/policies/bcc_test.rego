@@ -15,6 +15,12 @@ _base_commitment := {
 	# min_tier_by_intent_type doc comment) -- the realistic default for a
 	# generic test fixture representing "a normal registered agent."
 	"verification_tier": 1,
+	"trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+	"span_id": "00f067aa0ba902b7",
+	"intent_rationale": "Verifiable public intent rationale validating agent compliance and intent.",
+	# Token budget defaults: 0 spend means no budget violation in existing tests.
+	"token_count": 0,
+	"daily_token_spend": 0,
 }
 
 test_ordinary_payment_is_allowed if {
@@ -137,3 +143,181 @@ test_non_clinical_intent_is_unaffected_by_tier_0 if {
 	commitment := object.union(_base_commitment, {"verification_tier": 0})
 	bcc.allow with input as commitment
 }
+
+# ---------------------------------------------------------------------------
+# Agent-runtime tool intents (bcc.rego §3b)
+# ---------------------------------------------------------------------------
+# Regression guard for the measured failure these rules exist to fix: the Claude
+# Code hook set emitted a CONSTANT `claude_tool:<Tool>` label, which matched no
+# rule, so the gate authorized 715 commitments and denied 0. The first test below
+# pins that unclassified labels still pass (we did not make the shell unusable);
+# the rest pin that a classified one can actually be denied.
+
+test_unclassified_claude_tool_intent_is_allowed if {
+	commitment := object.union(_base_commitment, {"intent_type": "claude_tool:Bash"})
+	bcc.allow with input as commitment
+	# No risk class parsed out of a two-segment label.
+	not bcc.tool_risk_class with input as commitment
+}
+
+test_destructive_tool_class_is_parsed if {
+	commitment := object.union(_base_commitment, {"intent_type": "claude_tool:Bash:destructive"})
+	bcc.tool_risk_class == "destructive" with input as commitment
+}
+
+test_destructive_tool_intent_allowed_for_verified_agent if {
+	# Tier 1 = the oracle resolved and verified this DID. A registered agent is
+	# permitted to commit to destructive work; the value is the COMMITMENT, which
+	# PostToolUse can later be reconciled against.
+	commitment := object.union(_base_commitment, {"intent_type": "claude_tool:Bash:destructive"})
+	bcc.allow with input as commitment
+}
+
+test_destructive_tool_intent_denied_for_unverifiable_agent if {
+	commitment := object.union(_base_commitment, {
+		"intent_type": "claude_tool:Bash:destructive",
+		"verification_tier": 0,
+	})
+	not bcc.allow with input as commitment
+	some msg in bcc.violation with input as commitment
+	contains(msg, "TOOL_RISK_TIER_INSUFFICIENT")
+}
+
+test_credential_and_chain_write_classes_are_high_risk if {
+	cred := object.union(_base_commitment, {
+		"intent_type": "claude_tool:Bash:credential",
+		"verification_tier": 0,
+	})
+	chain := object.union(_base_commitment, {
+		"intent_type": "claude_tool:Bash:chain_write",
+		"verification_tier": 0,
+	})
+	not bcc.allow with input as cred
+	not bcc.allow with input as chain
+}
+
+test_low_risk_tool_class_is_not_tier_gated if {
+	# `network` is classified for audit visibility but is not in
+	# high_risk_tool_classes -- it must not be denied even at tier 0, or routine
+	# curl/git-push calls would brick the shell for any unresolvable agent.
+	commitment := object.union(_base_commitment, {
+		"intent_type": "claude_tool:Bash:network",
+		"verification_tier": 0,
+	})
+	bcc.allow with input as commitment
+}
+
+test_missing_tier_fails_closed_for_high_risk_tool_class if {
+	# Same fail-closed property the clinical rules have: an absent
+	# verification_tier must deny, not silently skip the comparison.
+	commitment := {
+		"agent_id": "did:integrity:some_generic_agent",
+		"intent_type": "claude_tool:Bash:destructive",
+		"intended_state_hash": "0x1111111111111111111111111111111111111111111111111111111111111",
+		"nonce": 1,
+		"timestamp": 1730000000000,
+	}
+	not bcc.allow with input as commitment
+}
+
+test_hermes_tool_namespace_reaches_the_same_rules if {
+	# The Hermes runtime executed entirely ungated while Claude Code was gated,
+	# under the same DID. Both namespaces must hit one ruleset -- if this ever
+	# regresses to a claude-only prefix, Hermes silently goes unpoliced again.
+	commitment := object.union(_base_commitment, {
+		"intent_type": "hermes_tool:terminal:destructive",
+		"verification_tier": 0,
+	})
+	not bcc.allow with input as commitment
+	bcc.tool_risk_class == "destructive" with input as commitment
+	bcc.tool_runtime == "hermes_tool" with input as commitment
+}
+
+test_tool_runtime_is_surfaced_for_both_namespaces if {
+	claude := object.union(_base_commitment, {"intent_type": "claude_tool:Bash:network"})
+	hermes := object.union(_base_commitment, {"intent_type": "hermes_tool:terminal:network"})
+	bcc.tool_runtime == "claude_tool" with input as claude
+	bcc.tool_runtime == "hermes_tool" with input as hermes
+	# Both allowed: `network` is classified for visibility, not gated.
+	bcc.allow with input as claude
+	bcc.allow with input as hermes
+}
+
+test_aos_missing_trace_id_is_denied if {
+	commitment := {
+		"agent_id": "did:integrity:agent_scribe_01",
+		"intent_type": "claude_tool:Bash",
+		"intended_state_hash": "0x1111111111111111111111111111111111111111111111111111111111111",
+		"nonce": 1,
+		"timestamp": 1730000000000,
+		"verification_tier": 1,
+		"span_id": "00f067aa0ba902b7",
+		"intent_rationale": "Reasoning monologue validation.",
+	}
+	not bcc.allow with input as commitment
+	some msg in bcc.violation with input as commitment
+	contains(msg, "AOS_VIOLATION")
+}
+
+test_aos_missing_thought_is_denied if {
+	commitment := {
+		"agent_id": "did:integrity:agent_scribe_01",
+		"intent_type": "claude_tool:Bash",
+		"intended_state_hash": "0x1111111111111111111111111111111111111111111111111111111111111",
+		"nonce": 1,
+		"timestamp": 1730000000000,
+		"verification_tier": 1,
+		"trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+		"span_id": "00f067aa0ba902b7",
+	}
+	not bcc.allow with input as commitment
+	some msg in bcc.violation with input as commitment
+	contains(msg, "AOS_VIOLATION")
+}
+
+# ---------------------------------------------------------------------------
+# Token Budget tests
+# ---------------------------------------------------------------------------
+
+test_token_budget_under_limit_is_allowed if {
+	commitment := object.union(_base_commitment, {
+		"token_count": 5000,
+		"daily_token_spend": 3000,
+		"verification_tier": 0,
+	})
+	# 3000 + 5000 = 8000 < 10000 (tier 0 budget) → allowed
+	bcc.allow with input as commitment
+}
+
+test_token_budget_at_limit_is_denied if {
+	commitment := object.union(_base_commitment, {
+		"token_count": 5000,
+		"daily_token_spend": 6000,
+		"verification_tier": 0,
+	})
+	# 6000 + 5000 = 11000 > 10000 (tier 0 budget) → denied
+	not bcc.allow with input as commitment
+	some msg in bcc.violation with input as commitment
+	contains(msg, "TOKEN_BUDGET_OPA")
+}
+
+test_token_budget_tier1_allows_large_spend if {
+	commitment := object.union(_base_commitment, {
+		"token_count": 50000,
+		"daily_token_spend": 40000,
+		"verification_tier": 1,
+	})
+	# 40000 + 50000 = 90000 < 100000 (tier 1 budget) → allowed
+	bcc.allow with input as commitment
+}
+
+test_token_budget_zero_count_is_not_checked if {
+	commitment := object.union(_base_commitment, {
+		"token_count": 0,
+		"daily_token_spend": 9999,
+		"verification_tier": 0,
+	})
+	# token_count=0 means no usage event → budget rule does not fire
+	bcc.allow with input as commitment
+}
+

@@ -98,19 +98,27 @@ def build_bcc_commitment(
     intent_payload: Dict[str, Any],
     nonce: int,
     keypair: Keypair,
+    chain_id: int,
+    verifying_contract: str,
     timestamp_ms: Optional[int] = None,
     covered_entity_address: Optional[str] = None,
+    token_count: Optional[int] = None,
+    trace_id: Optional[str] = None,
+    span_id: Optional[str] = None,
+    intent_rationale: Optional[str] = None,
+    agent_thought: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Construct and sign a BCC commitment (§4.2, plus the two reconciled
+    Construct and sign a BCC commitment (§4.2, plus the reconciled
     extension fields below):
 
         {agent_id, intent_type, intended_state_hash, nonce, timestamp,
-         covered_entity_address, agent_public_key, signature}
+         covered_entity_address, agent_public_key, chain_id,
+         verifying_contract, signature}
 
     Field names are load-bearing (per the contract) — do not rename them.
 
-    Two fields beyond the frozen §4.2 five are signed over here, and MUST
+    Fields beyond the frozen §4.2 five are signed over here, and MUST
     match `bcc_middleware/app/canonical.py` byte-for-byte or every signature
     fails verification:
 
@@ -128,9 +136,25 @@ def build_bcc_commitment(
         confirms `sha256(decoded_pubkey) == did_fingerprint` (binding the key
         to the DID, so it can't be substituted) and then verifies the
         signature against it. No external DID-resolution round-trip needed.
+
+      - `chain_id` / `verifying_contract`: REQUIRED (docs/plans/2026-08-18-
+        phase1-canonical-intent-encoding-proposal.md). Without these, a
+        commitment signed once was valid, byte-for-byte, against any chain or
+        any deployment of the protocol sharing the signing agent's DID.
+        `chain_id` is the EVM chain ID this commitment is scoped to;
+        `verifying_contract` is the `XibalbaAgentRegistry` address for that
+        chain — the one address every downstream primitive in this
+        architecture already resolves through. `bcc_middleware` denies a
+        commitment whose `chain_id` doesn't match its own configured chain;
+        it denies on a `verifying_contract` mismatch only when it has a
+        configured registry address (see `bcc_middleware/app/main.py`'s
+        deployment-binding check for why that second check is conditional,
+        not unconditional, as a disclosed limitation rather than a silent
+        downgrade).
     """
     timestamp_ms = timestamp_ms if timestamp_ms is not None else int(time.time() * 1000)
     intended_state_hash = hash_intent_payload(intent_payload)
+    rationale = intent_rationale or agent_thought
 
     # The object that gets signed is the commitment MINUS the signature
     # field itself (you can't sign your own signature). Both sender and
@@ -144,11 +168,28 @@ def build_bcc_commitment(
         "timestamp": timestamp_ms,
         "covered_entity_address": covered_entity_address,
         "agent_public_key": public_key_multibase(keypair.public_bytes()),
+        "intent_rationale": rationale,
+        "chain_id": chain_id,
+        "verifying_contract": verifying_contract,
     }
     signature_bytes = keypair.sign(canonical_json_bytes(unsigned))
 
     commitment = dict(unsigned)
     commitment["signature"] = "0x" + signature_bytes.hex()
+
+    # --- AOS Observability fields (post-signing, not part of the signed payload) ---
+    # These are carried as metadata for bcc_middleware's OPA AOS gate and audit trail.
+    # Auto-inject from the active OTel span if the caller didn't supply them.
+    try:
+        from .telemetry.aos_span import get_current_aos_context
+        aos_ctx = get_current_aos_context()
+    except Exception:
+        aos_ctx = {}
+
+    commitment["trace_id"] = trace_id or aos_ctx.get("trace_id")
+    commitment["span_id"] = span_id or aos_ctx.get("span_id")
+    commitment["agent_thought"] = rationale or aos_ctx.get("agent_thought") or aos_ctx.get("intent_rationale")
+    commitment["token_count"] = token_count
     return commitment
 
 
@@ -167,5 +208,41 @@ def verify_bcc_commitment(commitment: Dict[str, Any], pubkey_bytes: bytes) -> bo
     except ValueError:
         return False
 
-    unsigned = {k: v for k, v in commitment.items() if k != "signature"}
+    # The AOS post-signing fields (trace_id, span_id, agent_thought, token_count)
+    # are appended AFTER the signature is computed — they are NOT part of the
+    # signed payload. The public intent_rationale is now signed, while the legacy
+    # agent_thought alias remains post-signing for compatibility.
+    _POST_SIGNING_FIELDS = {"signature", "trace_id", "span_id", "agent_thought", "token_count"}
+    unsigned = {k: v for k, v in commitment.items() if k not in _POST_SIGNING_FIELDS}
     return verify_signature(pubkey_bytes, canonical_json_bytes(unsigned), signature_bytes)
+
+def submit_commitment(commitment: Dict[str, Any], bcc_middleware_url: str) -> Dict[str, Any]:
+    """
+    Submits a signed BCC commitment to bcc_middleware's pre-execution gate and
+    auto-tags the operation with OTel spans for the Fidelity vector (BCC resolution status).
+    """
+    import requests
+    from .telemetry.core import get_tracer
+    from .telemetry.conventions import EconomicAttributes
+
+    tracer = get_tracer("integrity_sdk.bcc")
+    with tracer.start_as_current_span("integrity.bcc.intercept") as span:
+        intent_hash = commitment.get("intended_state_hash", "")
+        if intent_hash:
+            span.set_attribute(EconomicAttributes.BCC_INTENT_HASH, intent_hash)
+            
+        try:
+            resp = requests.post(f"{bcc_middleware_url}/v1/bcc/intercept", json=commitment, timeout=10)
+            resp.raise_for_status()
+            result = resp.json()
+            
+            authorized = result.get("authorized", False)
+            status = "authorized" if authorized else "denied"
+            span.set_attribute(EconomicAttributes.BCC_RESOLUTION_STATUS, status)
+            if not authorized:
+                span.set_attribute("integrity.bcc.denial_reason", result.get("reason", "unknown"))
+            return result
+        except Exception as e:
+            span.set_attribute(EconomicAttributes.BCC_RESOLUTION_STATUS, "error")
+            span.record_exception(e)
+            raise

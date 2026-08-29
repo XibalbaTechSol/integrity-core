@@ -6,9 +6,9 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 /// @title DomainRegistry
 /// @notice Registers namespaces ("domains", e.g. `healthcare.integrity`) that agents
 /// register under, and decides who is allowed to create an agent in a given domain.
-/// @dev Domains exist so verticals (like the HIPAA "shield" stack) can require agents to
+/// @dev Domains exist so verticals (like the HIPAA "Integrity Health" stack) can require agents to
 /// belong to a vetted namespace before they're eligible for domain-specific gating
-/// (see shield/EHRGate.sol, which only trusts a CoveredEntityRegistry entry that in turn
+/// (see health/EHRGate.sol, which only trusts a CoveredEntityRegistry entry that in turn
 /// only makes sense for agents joined to a healthcare-flavoured domain). Domain
 /// membership is intentionally *not* the same thing as reputation/staking — a domain
 /// answers "is this agent claiming to operate in the right vertical", reputation answers

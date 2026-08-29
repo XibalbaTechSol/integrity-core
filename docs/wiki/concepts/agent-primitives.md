@@ -12,12 +12,28 @@ source_files:
   - docs/INTERFACE_CONTRACT.md
 ---
 
+> **Not to be confused with the four foundational primitives.** This page is about the seven
+> **contracts** an agent owns (the `PrimitiveSet`). The four *foundational* primitives —
+> memory, agent-owned contracts, authority, reputation — are **concepts**, documented in
+> [The Four Foundational Primitives](foundational-primitives.md). This page is one of them
+> (#2, Agent-Owned Contracts) expressed in Solidity; the other three are not contracts at all.
+
 The defining architecture of the Integrity Protocol: **an agent owns and
 deploys its own on-chain contracts.** There is no privileged factory that
 registers agents into shared global state on their behalf. On registration, an
 agent comes to own **7 primitive contracts** — and because the agent's own EVM
 wallet signs the deploy transactions for two of them, the chain itself is
 cryptographic proof of who controls the identity.
+
+## Table of contents
+
+- [The 7 primitives](#the-7-primitives)
+- [Call-routing convention (load-bearing)](#call-routing-convention-load-bearing)
+- [Registration sequence](#registration-sequence)
+- [Implications](#implications)
+- [Sovereign vs. Centralized Deployment Topologies](#sovereign-vs-centralized-deployment-topologies)
+  - [1. Sovereign Mode (Agent-Owned Clones)](#1-sovereign-mode-agent-owned-clones)
+  - [2. Centralized Mode (EOA-Owned / DAO-Governed Singletons)](#2-centralized-mode-eoa-owned-dao-governed-singletons)
 
 ## The 7 primitives
 
@@ -91,6 +107,31 @@ sequenceDiagram
   deployments file; consumers resolve them live from `XibalbaAgentRegistry`
   (the [oracle](../entities/integrity-oracle.md) caches them). See
   [Interface Contract §6](../../INTERFACE_CONTRACT.md).
+
+## Sovereign vs. Centralized Deployment Topologies
+
+When developers extend the protocol or deploy new contracts, they must explicitly choose between two deployment topologies depending on the application context:
+
+### 1. Sovereign Mode (Agent-Owned Clones)
+* **Design**: Deploying contracts as EIP-1167 minimal-proxy clones unique to each agent.
+* **Custody**: The admin/owner role is assigned to the agent's `SovereignAgent` contract address. 
+* **Call Routing**: Admin actions (such as declaring compliance flags or updating metadata) must be routed via `SovereignAgent.execute(target, value, data)`.
+* **Use Cases**:
+  * Individual prediction clones (e.g., [IntegrityMarket](integrity-market.md)).
+  * Bespoke agent-to-agent task and service escrows.
+  * Private, agent-specific data attestation vaults.
+* **Implications**: High gas efficiency (cloning avoids full bytecode deployment costs), sandboxed stake/liabilities, and unified controller rotation (compromised EOA keys can be rotated without modifying the individual clones).
+
+### 2. Centralized Mode (EOA-Owned / DAO-Governed Singletons)
+* **Design**: Monolithic global contracts shared across all participating agents on the network.
+* **Custody**: The admin/owner role is held by a platform operator's EOA key or a multi-signature DAO/governance contract.
+* **Call Routing**: Standard direct EOA transactions with the contract.
+* **Use Cases**:
+  * Global allocation and capital venues (e.g., `A2ACapitalPool`).
+  * Identity, name resolvers, and lookup indices (e.g., `XibalbaAgentRegistry`, `DomainRegistry`).
+  * Shared liquidity pools/AMMs.
+  * Regulatory whitelists (e.g., `CoveredEntityRegistry` for verified healthcare institutions).
+* **Implications**: Consolidated liquidity, centralized governance guardrails (auditing covered entities before allowing BAAs), and platform-wide parameters that cannot be manipulated by individual agents.
 
 Related: [contracts](../entities/contracts.md),
 [ComplianceGate](compliance-gate.md), [AIS](ais.md).

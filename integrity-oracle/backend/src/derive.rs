@@ -115,24 +115,28 @@ fn entry_grounding(entry: &Value) -> Option<f64> {
 }
 
 /// Batch-mean stability score across every entry that has a completion text or a
-/// pre-computed value. Returns 1.0 (no evidence of instability) for an empty batch or a
-/// batch with no scoreable entries — an agent that hasn't produced any output yet
-/// shouldn't be penalized as if it had produced erratic output. This is also the same
-/// default an HONEST empty batch produces, so an attacker sending empty `otel_spans`
-/// gains no advantage over simply having nothing to report.
+/// pre-computed value. Returns 0.0 for an empty batch or a batch with no scoreable
+/// entries — spec/integrity-protocol-v3.2.md §3.1.1 requirement N2 ("earned, not
+/// granted"): absence of evidence must score low, not high. The prior default of 1.0
+/// treated "no evidence of instability" as "proof of stability", which is exactly
+/// backwards — it let a submission with no analysable content buy maximal entropy
+/// AND grounding for free, and because `scoring_core::score` is a weighted geometric
+/// mean, a genuinely-absent axis should pull the whole score toward zero, not shield
+/// it. See §3.1.4 implementation-delta rows 1-2.
 pub fn derive_entropy(batch: &[Value]) -> f64 {
     let values: Vec<f64> = batch.iter().filter_map(entry_entropy).collect();
     if values.is_empty() {
-        1.0
+        0.0
     } else {
         values.iter().sum::<f64>() / values.len() as f64
     }
 }
 
+/// See `derive_entropy`'s doc comment — same fail-closed rationale (spec §3.1.1 N2).
 pub fn derive_grounding(batch: &[Value]) -> f64 {
     let values: Vec<f64> = batch.iter().filter_map(entry_grounding).collect();
     if values.is_empty() {
-        1.0
+        0.0
     } else {
         values.iter().sum::<f64>() / values.len() as f64
     }
@@ -148,21 +152,60 @@ pub fn derive_grounding(batch: &[Value]) -> f64 {
 /// not trivially gamed by one session.
 pub const TOKENS_PER_GPU_HOUR_PROXY: f64 = 50_000.0;
 
+/// `source[key]` as a non-negative i64, or 0. Rejects non-numerics and negatives — a
+/// negative count is never legitimate and must not be able to reduce a score input.
+fn positive_i64(source: Option<&Value>, key: &str) -> i64 {
+    source
+        .and_then(|s| s.get(key))
+        .and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|f| f as i64)))
+        .filter(|n| *n > 0)
+        .unwrap_or(0)
+}
+
+/// Total tokens processed for one telemetry entry.
+///
+/// **Must stay equivalent to integrity-sdk's
+/// `integrity_sdk/telemetry/derive.py::entry_token_total`.** Both are pinned by the shared
+/// conformance vectors in `spec/token-accounting/vectors.json`, which both test suites read.
+/// That mechanism exists because these two implementations previously drifted into the *same*
+/// double-counting bug — summing `total_tokens` AND `prompt_tokens` AND `completion_tokens`,
+/// so every OpenAI-shaped entry counted twice — and because both sides were wrong
+/// identically, no reconciliation between them could reveal it. This function is the
+/// authoritative one: the oracle computes AIS, the client's numbers are audit trail only.
+///
+/// Precedence:
+/// 1. Base is the provider-computed `total_tokens` when present, else the sum of the two
+///    halves. Never both: `total_tokens` already equals prompt+completion wherever reported.
+/// 2. Anthropic-style cache tokens are ADDITIONAL to `input_tokens`, so they are added.
+/// 3. OpenAI's `prompt_tokens_details.cached_tokens` and
+///    `completion_tokens_details.reasoning_tokens` are SUBSETS of the halves they belong to,
+///    so they are never added. Rules 2 and 3 use opposite semantics for cache accounting,
+///    which is the whole difficulty here.
+/// 4. Flat top-level `input_tokens`/`output_tokens` are consulted only when `token_usage`
+///    yielded nothing, so one call is never counted twice.
 fn entry_token_total(entry: &Value) -> i64 {
-    let mut total = 0i64;
-    if let Some(metadata) = entry.get("metadata") {
-        if let Some(usage) = metadata.get("token_usage") {
-            for key in ["total_tokens", "prompt_tokens", "completion_tokens"] {
-                if let Some(n) = usage.get(key).and_then(Value::as_i64) {
-                    total += n;
-                }
-            }
-        }
-        for key in ["input_tokens", "output_tokens"] {
-            if let Some(n) = metadata.get(key).and_then(Value::as_i64) {
-                total += n;
-            }
-        }
+    let Some(metadata) = entry.get("metadata") else {
+        return 0;
+    };
+    let usage = metadata.get("token_usage").filter(|v| v.is_object());
+
+    let mut total = positive_i64(usage, "total_tokens");
+    if total == 0 {
+        total = positive_i64(usage, "prompt_tokens")
+            + positive_i64(usage, "completion_tokens")
+            + positive_i64(usage, "input_tokens")
+            + positive_i64(usage, "output_tokens");
+    }
+
+    // Rule 2 — additive cache classes, raw Anthropic and flattened spellings.
+    total += positive_i64(usage, "cache_creation_input_tokens")
+        + positive_i64(usage, "cache_read_input_tokens")
+        + positive_i64(usage, "cache_creation_tokens")
+        + positive_i64(usage, "cache_read_tokens");
+
+    // Rule 4 — flat form only as a fallback.
+    if total == 0 {
+        total = positive_i64(Some(metadata), "input_tokens") + positive_i64(Some(metadata), "output_tokens");
     }
     total
 }
@@ -185,10 +228,12 @@ fn entry_flagged(entry: &Value) -> bool {
 /// Self-reported half of `derive.py::derive_compliance`: fraction of batch entries NOT
 /// flagged as a policy violation. The on-chain "wins" half needs `state.chain` (a live
 /// `ComplianceGate.isHealthcareCompliant` read) and stays in `handlers.rs`, not this
-/// pure module — see `handlers::ingest_telemetry`.
+/// pure module — see `handlers::ingest_telemetry`. Returns 0.0 for an empty batch
+/// (spec/integrity-protocol-v3.2.md §3.1.1 N2) — absence of compliance evidence is not
+/// evidence of compliance, so an agent submitting nothing must not score as "clean".
 pub fn self_reported_compliance(batch: &[Value]) -> f64 {
     if batch.is_empty() {
-        return 1.0;
+        return 0.0;
     }
     let flagged_count = batch.iter().filter(|e| entry_flagged(e)).count();
     1.0 - (flagged_count as f64 / batch.len() as f64)
@@ -229,6 +274,40 @@ pub fn recompute(batch: &[Value]) -> RecomputedSignals {
 
 #[cfg(test)]
 mod tests {
+    /// Cross-language conformance: this function and integrity-sdk's
+    /// `telemetry/derive.py::entry_token_total` must agree on every vector in
+    /// `spec/token-accounting/vectors.json`. Both suites read that one file, so the two
+    /// implementations cannot drift apart silently — which is exactly how they previously
+    /// ended up sharing a double-counting bug that no reconciliation could reveal.
+    #[test]
+    fn token_accounting_matches_shared_conformance_vectors() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("spec/token-accounting/vectors.json");
+        let raw = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("shared conformance vectors must be readable at {path:?}: {e}"));
+        let doc: Value = serde_json::from_str(&raw).expect("vectors.json must be valid JSON");
+        let vectors = doc["vectors"].as_array().expect("vectors must be an array");
+        assert!(!vectors.is_empty(), "vector file must not be empty — a silently empty file would make this test vacuous");
+
+        for v in vectors {
+            let name = v["name"].as_str().unwrap_or("<unnamed>");
+            let expected = v["expected"].as_i64().expect("expected must be an integer");
+            let actual = entry_token_total(&v["entry"]);
+            assert_eq!(
+                actual, expected,
+                "vector '{}' disagrees ({}): expected {}, got {}",
+                name,
+                v["why"].as_str().unwrap_or(""),
+                expected,
+                actual
+            );
+        }
+    }
+
     use super::*;
     use serde_json::json;
 
@@ -311,11 +390,26 @@ mod tests {
     // --- batch defaults / adversarial robustness ---
 
     #[test]
-    fn empty_batch_entropy_and_grounding_default_to_one_not_zero() {
-        // The "nothing to game" fallback: an attacker sending empty otel_spans gets the
-        // same benign default an honest empty batch gets, not an advantage.
-        assert_eq!(derive_entropy(&[]), 1.0);
-        assert_eq!(derive_grounding(&[]), 1.0);
+    fn empty_batch_entropy_and_grounding_fail_closed_to_zero() {
+        // spec §3.1.1 N2: absence of evidence must score low, not high. An attacker
+        // sending empty otel_spans (or spans with no analysable text) must not receive
+        // the same score as an agent who demonstrated real stability/grounding.
+        assert_eq!(derive_entropy(&[]), 0.0);
+        assert_eq!(derive_grounding(&[]), 0.0);
+    }
+
+    #[test]
+    fn content_free_submission_with_token_counts_fails_closed_on_entropy_and_grounding() {
+        // Regression for the attack this fix closes: a submission carrying token counts
+        // (so derive_sacrifice is nonzero) but no analysable text_output/precomputed
+        // entropy-or-grounding value must not read as maximally stable and grounded.
+        // Before this fix, entropy/grounding defaulted to 1.0 here, which combined with
+        // self-reported compliance's own empty-batch default let a content-free
+        // submission outscore an honest agent with real, mediocre telemetry.
+        let batch = vec![json!({"metadata": {"token_usage": {"total_tokens": 5_000_000}}})];
+        assert_eq!(derive_entropy(&batch), 0.0);
+        assert_eq!(derive_grounding(&batch), 0.0);
+        assert!(derive_sacrifice(&batch) > 0.0, "sacrifice should still reflect the claimed tokens");
     }
 
     #[test]
@@ -329,9 +423,11 @@ mod tests {
             json!(null),
             json!(42),
         ];
-        // Must not panic; must fall back to the empty-batch default since nothing is scoreable.
-        assert_eq!(derive_entropy(&batch), 1.0);
-        assert_eq!(derive_grounding(&batch), 1.0);
+        // Must not panic; must fall back to the fail-closed empty-batch default since
+        // nothing here is actually scoreable (`self_reported_compliance` is exempt — it
+        // counts entries, not scoreable content, and this batch is non-empty).
+        assert_eq!(derive_entropy(&batch), 0.0);
+        assert_eq!(derive_grounding(&batch), 0.0);
         assert_eq!(derive_sacrifice(&batch), 0.0);
         assert_eq!(self_reported_compliance(&batch), 1.0);
         assert_eq!(entry_covered_entity_address(&batch), None);
@@ -361,8 +457,9 @@ mod tests {
     }
 
     #[test]
-    fn self_reported_compliance_empty_batch_is_clean() {
-        assert_eq!(self_reported_compliance(&[]), 1.0);
+    fn self_reported_compliance_empty_batch_fails_closed_to_zero() {
+        // spec §3.1.1 N2: absence of compliance evidence is not evidence of compliance.
+        assert_eq!(self_reported_compliance(&[]), 0.0);
     }
 
     // --- entry_covered_entity_address ---

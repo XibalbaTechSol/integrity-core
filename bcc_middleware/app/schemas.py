@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 _HEX32 = re.compile(r"^0x[0-9a-fA-F]{64}$")  # 32 bytes hex, e.g. a sha256 digest
 _HEX_SIG = re.compile(r"^0x[0-9a-fA-F]+$")
@@ -48,7 +48,7 @@ class BCCCommitment(BaseModel):
     # that module for why an unset covered entity is never treated as
     # "compliant"). Deliberately an address, not a DID -- unlike agents,
     # covered entities are registered directly by EVM address in
-    # `contracts/src/shield/CoveredEntityRegistry.sol`, there is no DID layer
+    # `contracts/src/health/CoveredEntityRegistry.sol`, there is no DID layer
     # for them.
     covered_entity_address: str | None = Field(
         default=None,
@@ -69,6 +69,80 @@ class BCCCommitment(BaseModel):
         ...,
         description="Agent's Ed25519 public key, multibase (z-base58btc, multicodec ed25519-pub) — must hash to agent_id's fingerprint",
     )
+
+    # --- AOS-Observability Gating attributes ---
+    trace_id: str | None = Field(
+        default=None,
+        description="W3C trace ID associated with this action's execution context",
+    )
+    span_id: str | None = Field(
+        default=None,
+        description="W3C parent span ID representing the planning/reasoning phase",
+    )
+    intent_rationale: str | None = Field(
+        default=None,
+        description="Public-safe intent rationale for this action; signed and preferred by policy",
+    )
+    agent_thought: str | None = Field(
+        default=None,
+        description="Legacy alias for intent_rationale; retained for backward compatibility",
+    )
+    token_count: int | None = Field(
+        default=None,
+        ge=0,
+        description="Total LLM tokens consumed generating this action (prompt + completion); used for tier-based daily budget enforcement",
+    )
+
+    # --- Canonical intent encoding (docs/plans/2026-08-18-phase1-canonical-
+    # intent-encoding-proposal.md) -------------------------------------------
+    # Before these two fields, a commitment signed once was valid, byte-for-
+    # byte, against any chain or any deployment of the protocol sharing the
+    # signing agent's DID -- neither `nonce` (monotonic per-agent, but not
+    # deployment-scoped) nor anything else in §4.2 bound a commitment to a
+    # specific chain/deployment. Both REQUIRED, both signed (see
+    # canonical.py's canonical_commitment_bytes) so neither can be swapped
+    # post-signature. `app/main.py`'s deployment-binding check enforces
+    # `chain_id` unconditionally (Settings.chain_id always has a value) but
+    # enforces `verifying_contract` only when this deployment has a
+    # configured XibalbaAgentRegistry address -- see that check's own
+    # docstring for why that asymmetry is a disclosed limitation, not a
+    # silent downgrade.
+    chain_id: int = Field(..., gt=0, description="EVM chain ID this commitment is scoped to")
+    verifying_contract: str = Field(
+        ...,
+        description="0x-prefixed XibalbaAgentRegistry address for the target chain -- the root every downstream primitive in this architecture resolves through",
+    )
+
+    @field_validator("verifying_contract")
+    @classmethod
+    def _verifying_contract_shape(cls, v: str) -> str:
+        if not _HEX_ADDR.match(v):
+            raise ValueError("verifying_contract must be 0x-prefixed 20-byte hex (an EVM address)")
+        return v
+
+    @field_validator("trace_id")
+    @classmethod
+    def _trace_id_shape(cls, v: str | None) -> str | None:
+        if v is not None and not re.match(r"^[0-9a-fA-F]{32}$", v):
+            raise ValueError("trace_id must be 32 hex characters")
+        return v
+
+    @field_validator("span_id")
+    @classmethod
+    def _span_id_shape(cls, v: str | None) -> str | None:
+        if v is not None and not re.match(r"^[0-9a-fA-F]{16}$", v):
+            raise ValueError("span_id must be 16 hex characters")
+        return v
+
+    @model_validator(mode="after")
+    def _normalize_rationale(self):
+        if self.intent_rationale and self.agent_thought and self.intent_rationale != self.agent_thought:
+            raise ValueError("intent_rationale and agent_thought must match when both are provided")
+        if not self.intent_rationale and self.agent_thought:
+            self.intent_rationale = self.agent_thought
+        if not self.agent_thought and self.intent_rationale:
+            self.agent_thought = self.intent_rationale
+        return self
 
     @field_validator("covered_entity_address")
     @classmethod
@@ -105,12 +179,56 @@ class BCCCommitment(BaseModel):
 class BCCInterceptResponse(BaseModel):
     authorized: bool
     reason: str | None = None
-    # Only present when authorized=True: an opaque token proving this
-    # middleware evaluated and approved the commitment, plus which pending
-    # merkle batch slot it landed in (useful for callers to later look up
-    # the anchoring transaction once the batch flushes).
+    # --- Shadow (monitor-only) mode signalling (see app/config.py) ---------
+    # `enforced` is False whenever this response was produced in shadow mode --
+    # i.e. `authorized` reflects "what the caller should do" (always True in
+    # shadow) but the decision was NOT gated. `shadow_would_deny` is True when
+    # enforcement WOULD have denied this commitment; `reason` then carries the
+    # would-be denial code/detail even though `authorized` is True. In normal
+    # enforce mode both fields keep their defaults (enforced=True, would_deny
+    # meaningless) and callers that predate shadow mode are unaffected.
+    enforced: bool = True
+    shadow_would_deny: bool = False
+    # Only present when authorized=True: an HMAC-keyed, persisted token
+    # (see app/verification_token.py) proving THIS middleware evaluated and
+    # approved this exact commitment -- checkable via
+    # POST /v1/bcc/verify_token, unlike the plain-sha256-of-public-fields
+    # value this used to be (PRODUCTION_GAPS.md §5), which anyone could
+    # recompute themselves and nothing ever checked. Also carries which
+    # pending merkle batch slot it landed in (useful for callers to later
+    # look up the anchoring transaction once the batch flushes).
     verification_token: str | None = None
     batch_index: int | None = None
+    # Remaining daily token budget for this agent after this request (None if
+    # token_count was not provided or agent is unlimited-tier).
+    token_budget_remaining: int | None = None
+
+
+class VerifyTokenRequest(BaseModel):
+    """Body for POST /v1/bcc/verify_token -- the caller supplies the token
+    it was given plus the commitment fields it claims that token covers;
+    the response says whether this service actually issued that exact
+    combination (see app/verification_token.py)."""
+
+    token: str
+    agent_id: str
+    nonce: int
+    intended_state_hash: str
+
+
+class VerifyTokenResponse(BaseModel):
+    valid: bool
+
+
+class ClinicalAllowlistRequest(BaseModel):
+    """Full replacement list for the runtime clinical-agent allowlist OPA data
+    document (bcc.rego's `data.clinical_allowlist.agents` extension point)."""
+
+    agents: list[str] = Field(default_factory=list)
+
+
+class ClinicalAllowlistResponse(BaseModel):
+    agents: list[str]
 
 
 class HealthResponse(BaseModel):
@@ -118,3 +236,7 @@ class HealthResponse(BaseModel):
     opa_reachable: bool
     chain_reachable: bool
     pending_batch_size: int
+    # "enforce" (denies actually block) or "shadow" (monitor-only; nothing is
+    # blocked, would-be denials are recorded). Lets operators/the dashboard
+    # see at a glance which posture the gate is deployed in.
+    mode: str = "enforce"

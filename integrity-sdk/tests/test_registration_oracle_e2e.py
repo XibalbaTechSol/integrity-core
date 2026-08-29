@@ -90,7 +90,7 @@ def oracle_backend(deployed_chain):
     hand-built, so the oracle resolves the exact same on-chain state the SDK
     registered against), backed by ephemeral, dedicated Postgres + Redis
     Docker containers (never the shared dev-time `docker-compose` services,
-    same reasoning as `integrity-mvp/e2e/global-setup.ts`'s ephemeral
+    same reasoning as `integrity-dashboard/e2e/global-setup.ts`'s ephemeral
     containers). Yields the oracle's base URL; tears everything down after.
     """
     pg_port = _free_port()

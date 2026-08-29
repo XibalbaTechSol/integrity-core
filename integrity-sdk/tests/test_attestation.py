@@ -78,7 +78,13 @@ def test_validity_period_check_against_fixtures_real_window(real_document_bytes)
 
 def test_validity_period_check_passes_at_a_reference_time_inside_the_real_window(real_document_bytes):
     # November 2022, per verify_nitro_attestation's own docstring on this fixture's age.
-    reference_time = datetime(2022, 11, 10, tzinfo=timezone.utc)
+    reference_time = datetime(2022, 11, 9, 23, 0, tzinfo=timezone.utc)
+    # The fixture's leaf/intermediate certs are short-lived (~hours, not
+    # months) -- per test_validity_period_check_against_fixtures_real_window's
+    # own failure output, the tightest window is 2022-11-09T22:51:57Z to
+    # 2022-11-10T01:52:00Z. Picked well inside every cert's window, not just
+    # "sometime in November" (which is outside all of them).
+    reference_time = datetime(2022, 11, 10, 0, 30, tzinfo=timezone.utc)
     result = attestation.verify_nitro_attestation(
         real_document_bytes, enforce_validity_period=True, reference_time=reference_time
     )
@@ -187,8 +193,22 @@ def test_expected_nonce_mismatch_fails_overall_validity(real_document_bytes):
 
 
 def test_not_cbor_raises_attestation_error():
-    with pytest.raises(attestation.AttestationError, match="not valid CBOR|CBOR|Expected a 4-element COSE_Sign1 array"):
+    # These particular bytes happen to still decode as *some* CBOR value (a
+    # short text string, by coincidence of the leading byte) rather than
+    # raising a CBOR decode error -- so the failure mode exercised here is
+    # the array-shape check, not the decoder itself. Use bytes with a CBOR
+    # major-type/length header that can't possibly be satisfied by what
+    # follows to hit an actual decode error instead.
+    with pytest.raises(attestation.AttestationError, match="CBOR|4-element"):
         attestation.verify_nitro_attestation(b"this is definitely not cbor \xff\xfe\x00", enforce_validity_period=False)
+
+
+def test_truncated_cbor_raises_attestation_error():
+    # 0x9f = indefinite-length array start with no break byte (0xff) -- a
+    # genuine CBOR decode error, distinct from the well-formed-but-wrong-shape
+    # case above.
+    with pytest.raises(attestation.AttestationError, match="CBOR"):
+        attestation.verify_nitro_attestation(b"\x9f\x01\x02", enforce_validity_period=False)
 
 
 def test_wrong_array_shape_raises_attestation_error():

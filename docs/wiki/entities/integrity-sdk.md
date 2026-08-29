@@ -1,7 +1,7 @@
 ---
 title: integrity-sdk
 created: 2026-07-07
-updated: 2026-07-11
+updated: 2026-08-19
 type: entity
 tags: [sdk, identity, metrics]
 confidence: high
@@ -12,16 +12,37 @@ source_files:
   - integrity-sdk/integrity_sdk/bcc.py
   - integrity-sdk/integrity_sdk/markets.py
   - integrity-sdk/integrity_sdk/client.py
+  - integrity-sdk/integrity_sdk/batcher.py
   - integrity-sdk/integrity_sdk/telemetry/mlflow_tracing.py
   - integrity-sdk/integrity_sdk/telemetry/derive.py
   - integrity-sdk/integrity_sdk/telemetry/tracing.py
   - integrity-sdk/integrity_sdk/telemetry/intent.py
   - integrity-sdk/integrity_sdk/telemetry/metrics.py
+  - integrity-sdk/integrity_sdk/integrations/openai_integrity.py
+  - integrity-sdk/integrity_sdk/integrations/langchain_callback.py
+  - integrity-sdk/integrity_sdk/integrations/auto_hook.py
   - integrity-sdk/integrity_sdk/security/redactor.py
+  - integrity-sdk/integrity_sdk/mcp_server.py
+  - integrity-sdk/integrity_sdk/memory.py
 ---
+
 
 The agent-facing Python library. It gives an AI agent everything it needs to
 become a self-sovereign, on-chain, reputation-bearing participant.
+
+## Table of contents
+
+- [Two keypairs](#two-keypairs)
+- [Self-sovereign registration](#self-sovereign-registration)
+- [Telemetry: OpenTelemetry + MLflow, unified](#telemetry-opentelemetry-mlflow-unified)
+- [Pre-execution intent capture (telemetry/intent.py, added 2026-07-11)](#pre-execution-intent-capture-telemetry-intent-py-added-2026-07-11)
+- [Two dangling-reference gaps, closed 2026-07-11](#two-dangling-reference-gaps-closed-2026-07-11)
+- [Telemetry integrations widened + redactphi opt-in default, 2026-07-15](#telemetry-integrations-widened-redactphi-opt-in-default-2026-07-15)
+- [PHI/PII redaction](#phi-pii-redaction)
+- [Markets](#markets)
+- [Also](#also)
+- [MCP server (mcpserver.py, added 2026-07-29)](#mcp-server-mcpserver-py-added-2026-07-29)
+- [Persistent Memory Bridge (memory.py, added 2026-07-30)](#persistent-memory-bridge-memory-py-added-2026-07-30)
 
 ## Two keypairs
 
@@ -40,6 +61,15 @@ deploy `SovereignAgent` + `StateAnchor` → grant anchor role via `execute` →
 on-chain re-verification. Proven against a live anvil chain running the real
 `Deploy.s.sol` (`tests/test_registration.py`, `skip_oracle_registration=True`,
 on-chain steps only).
+
+**Fixed 2026-08-19**: the already-registered DID idempotency path now checks
+`StateAnchor.latestRoot()` before posting to the oracle. If the DID resolves but
+the existing StateAnchor has no genesis memory root, `register_agent()` anchors
+the genesis root first; if that anchoring fails, it raises `RegistrationError`
+and does not POST to the oracle, preventing an avoidable oracle-side
+`MemoryNotInitialized` rejection from being reported as a successful SDK
+registration handoff. If the root is already non-zero, the SDK skips re-anchoring
+and proceeds with the idempotent oracle registration POST.
 
 **Fixed 2026-07-09**: the final oracle POST (step 11) used to send
 `{"agent_id": ..., "did_document": ..., "primitives": registration.to_dict()}`,
@@ -113,13 +143,36 @@ itself needed a matching fix, see [integrity-oracle](integrity-oracle.md),
 for non-ASCII content to verify correctly). Without a keypair, flush still
 sends a (now honestly-rejected, not silently-malformed) empty signature.
 
+## Telemetry integrations widened + `redact_phi` opt-in default, 2026-07-15
+
+`integrations/openai_integrity.py` and `integrations/langchain_callback.py`
+both gained real, previously-uncaptured operational metadata the
+underlying provider already returns: `model_requested`/`model_actual`,
+`system_fingerprint`, `service_tier`, `tool_calls` (names only —
+`function.arguments`/tool `args` are never captured, since they can carry
+unredacted caller-supplied content), `conversation_length`, and a
+previously-nonexistent error path for the OpenAI wrapper (`error_taxonomy`
+= `type(exception).__name__`, a real provider-native taxonomy; LangChain's
+`on_llm_error` already existed). Neither integration had any test coverage
+before this — both now do (`tests/unit/test_openai_integrity.py`,
+`tests/unit/test_langchain_callback.py`, 13 new tests).
+
+**Real behavior change**: both integrations' `redact_phi` constructor
+parameter now defaults to `False` (previously redaction ran
+unconditionally — see next section for what that means and its risk).
+Full writeup: [Telemetry Ingestion Pipeline](../concepts/telemetry-ingestion.md).
+
 ## PHI/PII redaction
 
 `security/redactor.py` — targeted, client-side masking (SSNs, emails,
 phone numbers, credit cards, API keys/private keys, medical record
-numbers). Applied in `integrations/openai_integrity.py` and
-`integrations/langchain_callback.py` before a span attribute/telemetry
-field is set (confirmed still true 2026-07-11).
+numbers). `integrations/openai_integrity.py`/`langchain_callback.py` both
+call it before a span attribute/telemetry field is set, but **only when
+constructed with `redact_phi=True`** (default `False` as of 2026-07-15 —
+see above). Any Integrity Health / healthcare-vertical agent must pass that
+flag explicitly; neither wrapper can infer an agent's `compliance_vertical`
+on its own. `telemetry/tracing.py`'s `trace_run`/`traceable` API is
+unaffected by this flag and always redacts.
 
 **Real gap closed 2026-07-11**: the SDK's own documented, *recommended*
 general-purpose tracing API — `telemetry/tracing.py`'s `trace_run`/
@@ -154,14 +207,86 @@ execute-routing. `registration.py`'s `_VERTICALS` extended with
 - `security/attestation.py` — real AWS Nitro attestation *verification* (gen
   needs enclave hardware — honest, documented gap).
 
-**97 tests** (`pytest`, confirmed via a real run — up from 67 with the
-2026-07-11 additions: `test_intent.py` (14), `test_tracing.py` (11, this
-file didn't exist before — `tracing.py` had zero dedicated tests), plus new
-cases in `test_client.py` for the telemetry-signing fix and `invoke_intent`
-convenience method): unit + real-anvil integration, always run. Plus **1
-opt-in test** (`test_registration_oracle_e2e.py`, `ORACLE_E2E=1`) covering
-the real oracle-POST path skipped by every always-run test above.
+**267 tests passed, 9 skipped** (`uv run pytest`, confirmed 2026-08-19 with
+Foundry's `anvil` on `PATH`): unit + real-anvil integration, always run. The
+2026-08-19 regression coverage adds
+`tests/unit/test_registration_existing_did_genesis.py`, including the failure
+case where genesis anchoring raises `RegistrationError` and prevents the oracle
+POST. Plus opt-in oracle e2e tests (`ORACLE_E2E=1`) covering real oracle-POST
+paths skipped by the always-run suite.
 
-Related: [agent primitives](../concepts/agent-primitives.md),
+Related: [Telemetry Ingestion Pipeline](../concepts/telemetry-ingestion.md),
+[agent primitives](../concepts/agent-primitives.md),
 [BCC](../concepts/bcc.md), [AIS](../concepts/ais.md),
 [integrity-cli](integrity-cli.md), [AIS API — Versioned Wire Spec](../concepts/ais-api-spec.md).
+
+## MCP server (`mcp_server.py`, added 2026-07-29)
+
+`integrity_sdk.mcp_server` exposes the SDK's core capabilities as
+[Model Context Protocol](https://modelcontextprotocol.io) tools so any
+MCP-capable agent harness (Claude Desktop, Cursor, Antigravity CLI, custom
+harnesses) can discover and call them over JSON-RPC without a
+framework-specific adapter.
+
+Five tools registered:
+
+| Tool | Description |
+|---|---|
+| `integrity_log_telemetry` | Append one telemetry entry (CoT, tool call, tokens) to the in-memory batch |
+| `integrity_flush_telemetry` | Flush the batch to Oracle `/v1/telemetry/ingest` with Ed25519 signature |
+| `integrity_invoke_intent` | BCC-commit + OPA-gate an intent before execution |
+| `integrity_agent_info` | Read back canonical DID, nonce, keypair status, pending batch size |
+| `integrity_resolve_did` | Look up any DID's on-chain registration record via Oracle |
+| `integrity_register_agent` | [PLANNED partial] Full on-chain registration via `registration.register_agent` |
+| `integrity_commit_memory` | Commit session facts to the TrustVault backend (JSONL by default) and compute/anchor the cryptographic StateRoot |
+
+The server loads the agent's Ed25519 keypair from the standard identity store
+(`~/.integrity-cli/identity/<agent-id>/`) so every flush and intent call is
+correctly signed. If no keypair is found, the server still starts and provides
+logging, but flushes will receive a 401 from the oracle (documented in
+`client.py`'s `flush_telemetry` docstring).
+
+Run standalone:
+
+```
+uv run --with mcp python -m integrity_sdk.mcp_server \
+    --agent-id xibalba \
+    --oracle-url http://localhost:8080
+```
+
+Or add to any MCP-capable harness config under `mcpServers.integrity`.
+
+For example, to configure the Antigravity CLI (`agy`) harness to run all sessions in the context of the `xibalba.integrity` agent, add the following to `~/.gemini/antigravity-cli/settings.json` (under `"mcpServers"`):
+
+```json
+    "integrity": {
+      "command": "/home/xibalba/.local/bin/uv",
+      "args": [
+        "run",
+        "--directory",
+        "/home/xibalba/Projects/integrity-core/integrity-sdk",
+        "python",
+        "-m",
+        "integrity_sdk.mcp_server",
+        "--agent-id",
+        "xibalba.integrity",
+        "--oracle-url",
+        "http://localhost:8080"
+      ]
+    }
+```
+
+Requires `mcp>=1.0.0` (`pip install integrity-sdk[mcp]` — optional dep).
+
+## Persistent Memory Bridge (`memory.py`, added 2026-07-30)
+
+`memory.py` introduces a primitive-level persistent memory architecture based on the `TrustVault` class and a `MemoryBackend` adapter pattern (strategy pattern).
+Instead of treating memory sync as an ad-hoc cron job, agents use the SDK to explicitly commit and cryptographically anchor their state to the `StateAnchor` primitive at the end of a session.
+
+**MemoryBackends**:
+- `JSONLBackend`: The default backend (append-only log).
+- `RAGBackend`: [Stub] For vector databases.
+- `GraphBackend`: [Stub] For relational graph memory.
+
+**Pre-Flight Verification**:
+When `vault.session(platform=...)` begins, the SDK invokes `verify_preflight()`. This queries the `integrity-oracle` for the agent's `StateAnchor` address, reads the `currentRoot()` directly from the EVM (via `web3.py`), and compares it against the local backend's derived `state_root`. If they mismatch, the session panics, protecting the agent from acting on tampered or out-of-sync local memory.

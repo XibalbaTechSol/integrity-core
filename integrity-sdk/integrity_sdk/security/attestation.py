@@ -64,6 +64,14 @@ _TRUST_ROOT_PATH = Path(__file__).parent / "trust_roots" / "aws_nitro_root_g1.pe
 # download and asserted at load time — if the bundled PEM is ever swapped
 # for something else by mistake, `_load_trusted_root` fails loudly instead
 # of silently trusting whatever is on disk.
+#
+# PRODUCTION_GAPS.md: this constant was previously truncated by one trailing
+# hex digit (63 chars, an impossible length for a SHA-256 hexdigest, which is
+# always 64), so `_load_trusted_root` unconditionally raised AttestationError
+# on every call -- attestation verification was completely non-functional.
+# Corrected against the actual SHA-256 of the bundled aws_nitro_root_g1.pem
+# (confirmed genuine: the real fixture document's cert chain validates
+# against it end-to-end in tests/test_attestation.py).
 _EXPECTED_ROOT_FINGERPRINT_SHA256 = (
     "641a0321a3e244efe456463195d606317ed7cdcc3c1756e09893f3c68f79bb5b"
 )
@@ -110,6 +118,20 @@ def _load_trusted_root() -> x509.Certificate:
             f"{_EXPECTED_ROOT_FINGERPRINT_SHA256}, got {actual}."
         )
     return cert
+
+
+def _safe_subject_name(cert: x509.Certificate) -> str:
+    """`cryptography` parses ASN.1 lazily -- a certificate that loaded
+    successfully can still raise when a specific field (like `subject`) is
+    read later, if that field's encoding is malformed. Error-message
+    formatting is exactly the kind of place that would otherwise turn a
+    corrupted/tampered certificate into an unhandled crash instead of a
+    reported `chain_valid = False` -- this is purely for display, so any
+    failure here degrades to a placeholder rather than propagating."""
+    try:
+        return cert.subject.rfc4514_string()
+    except ValueError:
+        return "<unparseable subject>"
 
 
 def _verify_cert_signed_by(subject: x509.Certificate, issuer: x509.Certificate) -> bool:
@@ -236,8 +258,15 @@ def verify_nitro_attestation(
             f"Attestation payload missing required fields: {missing}"
         )
 
-    leaf_cert = x509.load_der_x509_certificate(payload["certificate"])
-    cabundle_certs = [x509.load_der_x509_certificate(c) for c in payload["cabundle"]]
+    try:
+        leaf_cert = x509.load_der_x509_certificate(payload["certificate"])
+        cabundle_certs = [x509.load_der_x509_certificate(c) for c in payload["cabundle"]]
+    except ValueError as exc:
+        # cryptography's ASN.1 parser can accept a byte string as "a
+        # certificate" here yet still raise later on malformed internals —
+        # either way, a cert we can't load is the same "can't even parse"
+        # category as invalid CBOR above, not a valid-but-untrusted document.
+        raise AttestationError(f"Certificate in payload is not valid DER/ASN.1: {exc}") from exc
     full_chain = cabundle_certs + [leaf_cert]  # root ... leaf
 
     # 1. Root pinning: cabundle[0] must be byte-identical to AWS's published root.
@@ -265,6 +294,7 @@ def verify_nitro_attestation(
             except ValueError:
                 pass
             errors.append(
+                f"Chain signature invalid: cert[{i + 1}] not signed by cert[{i}]"
                 f"Chain signature invalid: cert[{i + 1}] "
                 f"({subject_name}) not signed by cert[{i}]"
             )
@@ -289,7 +319,7 @@ def verify_nitro_attestation(
             ):
                 validity_period_valid = False
                 errors.append(
-                    f"cert[{i}] ({cert.subject.rfc4514_string()}) not valid at "
+                    f"cert[{i}] ({_safe_subject_name(cert)}) not valid at "
                     f"{reference_time.isoformat()}: window is "
                     f"{cert.not_valid_before_utc.isoformat()}..{cert.not_valid_after_utc.isoformat()}"
                 )

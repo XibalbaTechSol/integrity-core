@@ -1,0 +1,97 @@
+name: e2e
+
+# Runs the real Playwright suite (e2e/) against a real, fully local backend stack --
+# no route mocking, no Base Sepolia dependency. integrity-mvp is deliberately a
+# separate repo from the core protocol (integrity-core) -- public demo vs. core repo,
+# see PRODUCTION_GAPS.md -- so this workflow checks out integrity-core as a sibling
+# to get its docker-compose.yml/Makefile/contracts, spins up a throwaway local anvil
+# chain + genesis deploy (the well-known anvil default test key baked into
+# integrity-core's own Makefile, never a real secret), and points this repo's dev
+# server at that stack's oracle/bcc_middleware over plain HTTP.
+#
+# Requires one repo secret this workflow cannot provision itself: INTEGRITY_CORE_PAT,
+# a fine-grained GitHub PAT with read-only "Contents" access to
+# XibalbaTechSol/integrity-core (that repo is private). See this file's own
+# checkout-integrity-core step for exactly what it's used for.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout integrity-mvp
+        uses: actions/checkout@v4
+
+      - name: Checkout integrity-core (private sibling repo — needs INTEGRITY_CORE_PAT)
+        uses: actions/checkout@v4
+        with:
+          repository: XibalbaTechSol/integrity-core
+          token: ${{ secrets.INTEGRITY_CORE_PAT }}
+          path: integrity-core
+
+      - name: Install Foundry (forge/anvil)
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Boot local anvil chain + genesis deploy (make chain)
+        working-directory: integrity-core
+        run: |
+          make chain
+          # `make chain` backgrounds anvil and returns once the genesis deploy tx has
+          # landed; confirm it's actually reachable before moving on rather than trusting
+          # that silently.
+          for i in $(seq 1 30); do
+            if cast block-number --rpc-url http://localhost:8545 >/dev/null 2>&1; then
+              echo "anvil is up"; break
+            fi
+            sleep 1
+          done
+          cast block-number --rpc-url http://localhost:8545
+
+      - name: Boot oracle + bcc_middleware stack against the local chain
+        working-directory: integrity-core
+        env:
+          RPC_URL: http://localhost:8545
+          CHAIN_ID: "31337"
+          DOCKER_RPC_URL: http://host.docker.internal:8545
+          DOCKER_DEPLOYMENTS_FILE: /deployments.local.json
+        run: |
+          docker compose up -d --build --wait postgres redis opa oracle-backend bcc-middleware
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install integrity-mvp dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run e2e suite
+        env:
+          VITE_ORACLE_URL: http://localhost:8080
+          VITE_BCC_MIDDLEWARE_URL: http://localhost:8000
+          VITE_CHAIN_ID: "31337"
+          CI: "true"
+        run: npm run test-e2e
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Dump stack logs on failure
+        if: failure()
+        working-directory: integrity-core
+        run: docker compose logs --tail=200 oracle-backend bcc-middleware opa postgres redis

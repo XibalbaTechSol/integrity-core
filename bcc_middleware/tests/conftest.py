@@ -14,6 +14,7 @@ app/baa.py and app/anchor.py doesn't.
 from __future__ import annotations
 
 import json
+import os
 import socket
 import subprocess
 import time
@@ -91,6 +92,18 @@ def anvil_chain():
         _wait_for_rpc(rpc_url)
         w3 = Web3(Web3.HTTPProvider(rpc_url))
         account = Account.from_key(ANVIL_DEV_PRIVATE_KEY)
+
+        # Every `Settings()` constructed in this suite without an explicit
+        # chain_id= falls back to `int(os.getenv("CHAIN_ID", "31337"))` --
+        # correct for a bare shell, but the repo-root .env sets
+        # CHAIN_ID=84532 (Base Sepolia) for other packages' use, and
+        # `Settings.__init__`'s `load_dotenv()` picks that up too. Anvil's
+        # real chain ID is authoritative for every test in this file; force
+        # the env var to match it so `Settings()` call sites throughout this
+        # suite don't each have to remember to pass `chain_id=` explicitly
+        # (most don't, pre-dating this fix) and silently build transactions
+        # for the wrong chain against a real anvil that rejects them.
+        os.environ["CHAIN_ID"] = str(w3.eth.chain_id)
 
         def _deploy(contract_file: str, contract_name: str) -> str:
             artifact = _load_artifact(contract_file, contract_name)

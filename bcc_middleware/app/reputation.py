@@ -41,6 +41,7 @@ from web3.exceptions import Web3Exception
 
 from app.chain import get_w3
 from app.config import Settings
+from app.nonce_lock import send_with_managed_nonce, signer_lock
 
 logger = logging.getLogger("bcc_middleware.reputation")
 
@@ -121,12 +122,12 @@ def push_score(settings: Settings, reputation_registry_address: str, agent_addre
     Signs and submits `updateScore(agent, baseScore)` against one agent's
     ReputationRegistry clone.
 
-    `base_score` MUST be the PRE-boost weighted sum (see
+    `base_score` MUST be the PRE-boost oracle-authoritative AIS (see
     ReputationRegistry.sol's own NatSpec: "oracle pushes baseScore... this
     contract independently earns the right to apply the 1.15x multiplier").
-    Callers must not pass the oracle's already-ZK-boosted `ais` field here
-    -- see app/scoring_loop.py's `_base_score_from_ais_response` for how the
-    real caller derives it.
+    Callers must not pass the oracle's already-ZK-boosted `ais` field here;
+    `app/scoring_loop.py::_base_score_from_ais_response` divides out only the
+    reported boost and never reimplements the geometric formula or tier cap.
     """
     signer_key = _signer_key(settings)
     if not signer_key:
@@ -139,16 +140,17 @@ def push_score(settings: Settings, reputation_registry_address: str, agent_addre
     try:
         account = Account.from_key(signer_key)
         contract = w3.eth.contract(address=w3.to_checksum_address(reputation_registry_address), abi=_REPUTATION_REGISTRY_ABI)
-        tx = contract.functions.updateScore(w3.to_checksum_address(agent_address), base_score).build_transaction(
-            {
-                "from": account.address,
-                "nonce": w3.eth.get_transaction_count(account.address),
-                "chainId": settings.chain_id,
-            }
-        )
-        signed = account.sign_transaction(tx)
-        tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-        receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=30)
+        # See app/nonce_lock.py's module docstring: held for the full
+        # read-nonce -> sign -> broadcast -> mine sequence, since this key
+        # can be the same one app/anchor.py signs with.
+        with signer_lock(account.address):
+            tx_hash, receipt = send_with_managed_nonce(
+                w3,
+                account,
+                lambda nonce: contract.functions.updateScore(
+                    w3.to_checksum_address(agent_address), base_score
+                ).build_transaction({"from": account.address, "nonce": nonce, "chainId": settings.chain_id}),
+            )
     except (Web3Exception, ValueError) as exc:
         logger.warning("updateScore(%s, %d) submission failed: %s", agent_address, base_score, exc)
         return ScorePushResult(submitted=False, detail=f"transaction submission failed: {exc}")
@@ -199,16 +201,15 @@ def raise_dispute(settings: Settings, slasher_address: str, agent_address: str, 
     try:
         account = Account.from_key(signer_key)
         contract = w3.eth.contract(address=w3.to_checksum_address(slasher_address), abi=_SLASHER_ABI)
-        tx = contract.functions.raiseDispute(w3.to_checksum_address(agent_address), amount, reason).build_transaction(
-            {
-                "from": account.address,
-                "nonce": w3.eth.get_transaction_count(account.address),
-                "chainId": settings.chain_id,
-            }
-        )
-        signed = account.sign_transaction(tx)
-        tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-        receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=30)
+        # See app/nonce_lock.py's module docstring.
+        with signer_lock(account.address):
+            tx_hash, receipt = send_with_managed_nonce(
+                w3,
+                account,
+                lambda nonce: contract.functions.raiseDispute(
+                    w3.to_checksum_address(agent_address), amount, reason
+                ).build_transaction({"from": account.address, "nonce": nonce, "chainId": settings.chain_id}),
+            )
     except (Web3Exception, ValueError) as exc:
         logger.warning("raiseDispute(%s, %d, %r) submission failed: %s", agent_address, amount, reason, exc)
         return DisputeResult(submitted=False, detail=f"transaction submission failed: {exc}")

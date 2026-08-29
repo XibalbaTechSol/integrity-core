@@ -1,0 +1,33 @@
+name: Reconcile conflicting Jules PRs
+
+# Conflict handling is repair/supersession, never automatic closure. The local
+# bounded controller owns dispatch, exact-head linkage, retries, and risk gates.
+# This workflow provides a visible GitHub-side signal without destroying work.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  mark-conflicts-for-repair:
+    name: Mark conflicting Jules PRs for bounded repair
+    runs-on: ubuntu-latest
+    steps:
+      - name: Label and comment without closing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          repo="${{ github.repository }}"
+          gh label create "jules-conflict" --repo "$repo" --color "B60205" --description "Jules PR requires exact-branch conflict repair" 2>/dev/null || true
+          numbers=$(gh pr list --repo "$repo" --state open --json number,headRefName,mergeable --jq '.[] | select((.headRefName | test("^jules-[0-9]+-[0-9a-f]+$")) and .mergeable == "CONFLICTING") | .number')
+          for n in $numbers; do
+            gh pr edit "$n" --repo "$repo" --add-label "jules-conflict"
+            gh pr comment "$n" --repo "$repo" --body "Conflict detected. This PR remains open and is queued for bounded exact-branch repair by the Xibalba maintainer controller. No replacement PR will be created and no automatic merge or closure will occur."
+          done
+          echo "Conflicting Jules PRs marked: ${numbers:-none}"

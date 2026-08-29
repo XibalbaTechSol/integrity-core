@@ -106,17 +106,21 @@ def _entry_grounding(entry: Dict[str, Any]) -> Optional[float]:
 
 def derive_entropy(batch: List[Dict[str, Any]]) -> float:
     """Batch-mean stability score across every entry that has a completion
-    text or a pre-computed value. Returns 1.0 (no evidence of instability)
-    for an empty batch or a batch with no scoreable entries — an agent that
-    hasn't produced any output yet shouldn't be penalized as if it had
-    produced erratic output."""
+    text or a pre-computed value. Returns 0.0 for an empty batch or a batch
+    with no scoreable entries — spec/integrity-protocol-v3.2.md §3.1.1
+    requirement N2 ("earned, not granted"): absence of evidence must score
+    low, not high. This mirrors integrity-oracle/backend/src/derive.rs's
+    server-side recomputation, which is what the oracle actually scores on;
+    a client-side default that disagreed would just be a misleading display
+    value."""
     values = [v for v in (_entry_entropy(e) for e in batch) if v is not None]
-    return sum(values) / len(values) if values else 1.0
+    return sum(values) / len(values) if values else 0.0
 
 
 def derive_grounding(batch: List[Dict[str, Any]]) -> float:
+    """See `derive_entropy`'s docstring — same fail-closed rationale (spec §3.1.1 N2)."""
     values = [v for v in (_entry_grounding(e) for e in batch) if v is not None]
-    return sum(values) / len(values) if values else 1.0
+    return sum(values) / len(values) if values else 0.0
 
 
 # Ceiling chosen so a single, realistically-sized agent session (a few dozen
@@ -125,6 +129,73 @@ def derive_grounding(batch: List[Dict[str, Any]]) -> float:
 # not tied to any specific model's context window, since this batch may mix
 # providers/models.
 _SACRIFICE_TOKEN_CEILING = 200_000
+
+
+def _positive_int(source: Any, key: str) -> int:
+    """`source[key]` as a non-negative int, or 0. Rejects bools (a `True` would otherwise
+    count as 1 token), non-numerics, and negatives — a negative count is never legitimate
+    and must not be able to reduce a score input."""
+    if not isinstance(source, dict):
+        return 0
+    value = source.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0
+    return int(value) if value > 0 else 0
+
+
+def entry_token_total(entry: Dict[str, Any]) -> int:
+    """
+    Total tokens processed for one telemetry entry.
+
+    **Must stay byte-for-byte equivalent to integrity-oracle's
+    `backend/src/derive.rs::entry_token_total`.** Both are pinned by the shared conformance
+    vectors in `spec/token-accounting/vectors.json`, which both test suites read. That
+    mechanism exists because these two implementations previously drifted into the *same*
+    double-counting bug — summing `total_tokens` AND `prompt_tokens` AND `completion_tokens`,
+    so every OpenAI-shaped entry counted twice — and because both sides were wrong
+    identically, no reconciliation between them could reveal it.
+
+    Precedence:
+
+    1. Base is the provider-computed `total_tokens` when present, else the sum of the two
+       halves. Never both: `total_tokens` already equals prompt+completion wherever it is
+       reported.
+    2. Anthropic-style cache tokens are **additional** to `input_tokens`, so they are added.
+    3. OpenAI's `prompt_tokens_details.cached_tokens` and
+       `completion_tokens_details.reasoning_tokens` are **subsets** of the halves they belong
+       to, so they are never added. Getting rules 2 and 3 the same way round is the whole
+       difficulty here — the two providers use opposite semantics for cache accounting.
+    4. Flat top-level `input_tokens`/`output_tokens` are consulted only when `token_usage`
+       yielded nothing, so one call is never counted twice.
+    """
+    metadata = entry.get("metadata")
+    if not isinstance(metadata, dict):
+        return 0
+    usage = metadata.get("token_usage")
+    usage = usage if isinstance(usage, dict) else {}
+
+    total = _positive_int(usage, "total_tokens")
+    if total == 0:
+        total = (
+            _positive_int(usage, "prompt_tokens")
+            + _positive_int(usage, "completion_tokens")
+            + _positive_int(usage, "input_tokens")
+            + _positive_int(usage, "output_tokens")
+        )
+
+    # Rule 2 — additive cache classes, in both the raw Anthropic and flattened spellings.
+    total += (
+        _positive_int(usage, "cache_creation_input_tokens")
+        + _positive_int(usage, "cache_read_input_tokens")
+        + _positive_int(usage, "cache_creation_tokens")
+        + _positive_int(usage, "cache_read_tokens")
+    )
+
+    # Rule 4 — flat form only as a fallback.
+    if total == 0:
+        total = _positive_int(metadata, "input_tokens") + _positive_int(metadata, "output_tokens")
+
+    return total
 
 
 def derive_sacrifice(batch: List[Dict[str, Any]]) -> float:
@@ -143,18 +214,7 @@ def derive_sacrifice(batch: List[Dict[str, Any]]) -> float:
     the oracle's own ingestion handler decides how much weight to give a
     client-reported sacrifice signal versus its own server-side evidence.
     """
-    total_tokens = 0
-    for entry in batch:
-        metadata = entry.get("metadata", {})
-        usage = metadata.get("token_usage") or {}
-        if isinstance(usage, dict):
-            total_tokens += int(usage.get("total_tokens", 0) or 0)
-            total_tokens += int(usage.get("prompt_tokens", 0) or 0)
-            total_tokens += int(usage.get("completion_tokens", 0) or 0)
-        for key in ("input_tokens", "output_tokens"):
-            value = metadata.get(key)
-            if isinstance(value, (int, float)):
-                total_tokens += int(value)
+    total_tokens = sum(entry_token_total(entry) for entry in batch)
 
     if total_tokens <= 0:
         return 0.0
@@ -174,7 +234,7 @@ def derive_compliance(
     access is available — **on-chain wins** when both are present, since a
     self-report alone is exactly the kind of unverified claim
     `ComplianceGate.sol`'s own NatSpec warns against trusting for a
-    regulated-vertical agent (see contracts/src/shield/ComplianceGate.sol).
+    regulated-vertical agent (see contracts/src/health/ComplianceGate.sol).
 
     Self-reported signal: fraction of batch entries NOT flagged as a policy
     violation (`metadata.get("policy_violation")` or `metadata.get("flagged")`
@@ -188,7 +248,9 @@ def derive_compliance(
         if metadata.get("policy_violation") or metadata.get("flagged"):
             flagged_count += 1
 
-    self_reported = 1.0 - (flagged_count / total) if total > 0 else 1.0
+    # Empty batch fails closed to 0.0 (spec §3.1.1 N2) — absence of compliance
+    # evidence is not evidence of compliance.
+    self_reported = 1.0 - (flagged_count / total) if total > 0 else 0.0
 
     if compliance_gate_address and covered_entity_address and w3 is not None:
         try:
@@ -216,6 +278,51 @@ def derive_compliance(
     return self_reported
 
 
+# Decimal places every derived signal is quantized to before it is signed.
+#
+# This is a CORRECTNESS requirement of the signature scheme, not cosmetic
+# rounding (FIXED 2026-07-17 — was silently rejecting ~20% of real, correctly
+# signed telemetry with a 400).
+#
+# `client.flush_telemetry` signs the canonical JSON of a payload containing
+# these floats, and integrity-oracle re-serializes the same payload with
+# Rust's `serde_json` to check that signature. Both sides emit the "shortest
+# string that round-trips back to this exact f64" — but when a float has TWO
+# equally-short round-tripping representations, Python's repr (David Gay) and
+# Rust's ryu are each free to pick a different one. Nothing is wrong with
+# either; they simply disagree, the canonical bytes differ, and Ed25519
+# verification fails on a payload that was signed perfectly correctly.
+#
+# Confirmed against the live oracle, not theorised: a real derived entropy of
+# 0.011890908425879365 failed every time while 0.009712883245855508 passed,
+# and in Python BOTH "0.011890908425879365" and "0.011890908425879366"
+# round-trip to that identical f64 (hex 0x1.85a42b6789780p-7) — the exact
+# two-candidate ambiguity above. The oracle's error surfaced as a confusing
+# "eip191 verification error: signature must be 65 bytes, got 64", which is a
+# downstream red herring: `crypto::verify_agent_signature` tries Ed25519
+# first, gets `false` (not an error), and falls through to the EIP-191 branch,
+# which then chokes on a 64-byte Ed25519 signature.
+#
+# The ambiguity is a ~17-significant-digit phenomenon; at 6 decimal places the
+# shortest round-tripping representation is unique, so both languages
+# necessarily agree. 6dp is also far more precision than these heuristics
+# justify (see each derive_* docstring — they are first-pass client-side
+# estimates the oracle independently recomputes anyway), so nothing of value
+# is lost by quantizing.
+#
+# NOTE (real remaining gap, deliberately not papered over): this only fixes the
+# floats the SDK itself generates. A caller passing an arbitrary float through
+# `log_telemetry(metadata=...)` can still land on an ambiguous value and hit
+# the same rejection, since that value is signed verbatim inside `otel_spans`.
+# The general fix is a shared canonicalization standard with a fully specified
+# number format on both sides -- RFC 8785 (JCS) mandates ECMAScript's
+# Number::toString, which is deterministic -- rather than each language's own
+# shortest-repr. Flagged in PRODUCTION_GAPS.md rather than silently assumed
+# away, same as bcc.py's own canonicalization docstring does for a related
+# non-ASCII concern.
+_SIGNAL_DECIMALS = 6
+
+
 def derive_ais_signals(
     batch: List[Dict[str, Any]],
     *,
@@ -225,15 +332,23 @@ def derive_ais_signals(
 ) -> Dict[str, float]:
     """Bundles all four derived signals into the shape
     `POST /v1/telemetry/ingest`'s `derived_signals` field expects (see
-    docs/INTERFACE_CONTRACT.md)."""
+    docs/INTERFACE_CONTRACT.md).
+
+    Every value is quantized to `_SIGNAL_DECIMALS` decimal places — see that
+    constant's comment for why this is load-bearing for signature
+    verification and not a cosmetic choice.
+    """
     return {
-        "entropy": derive_entropy(batch),
-        "grounding": derive_grounding(batch),
-        "sacrifice": derive_sacrifice(batch),
-        "compliance": derive_compliance(
-            batch,
-            compliance_gate_address=compliance_gate_address,
-            covered_entity_address=covered_entity_address,
-            w3=w3,
+        "entropy": round(derive_entropy(batch), _SIGNAL_DECIMALS),
+        "grounding": round(derive_grounding(batch), _SIGNAL_DECIMALS),
+        "sacrifice": round(derive_sacrifice(batch), _SIGNAL_DECIMALS),
+        "compliance": round(
+            derive_compliance(
+                batch,
+                compliance_gate_address=compliance_gate_address,
+                covered_entity_address=covered_entity_address,
+                w3=w3,
+            ),
+            _SIGNAL_DECIMALS,
         ),
     }

@@ -15,6 +15,11 @@ nothing in this repo is mistaken for having built it: a peer-to-peer
 capability-broadcast + bid-negotiation protocol (over a gossip layer like
 libp2p/Waku) landing in a signed on-chain deal.
 
+## Table of contents
+
+- [Not the same thing as today's A2ACapitalPool](#not-the-same-thing-as-today-s-a2acapitalpool)
+- [Old design sketch (not implemented against current contracts)](#old-design-sketch-not-implemented-against-current-contracts)
+
 ## Not the same thing as today's `A2ACapitalPool`
 
 Easy to conflate with the real, live `A2ACapitalPool.sol` — documented in

@@ -38,21 +38,31 @@ def test_next_nonce_is_monotonic_per_agent_and_persists_across_calls():
     assert state == {"agent-1": 3, "agent-2": 1}
 
 
+_TEST_CHAIN_ID = 31337
+_TEST_VERIFYING_CONTRACT = "0x111111111111111111111111111111111111111a"
+
+
 def test_build_commitment_has_contract_pinned_field_names():
     key = Ed25519PrivateKey.generate()
-    commitment = bcc.build_commitment(key, "did:integrity:abc", "payment", {"x": 1})
+    commitment = bcc.build_commitment(
+        key, "did:integrity:abc", "payment", {"x": 1}, _TEST_CHAIN_ID, _TEST_VERIFYING_CONTRACT
+    )
     assert set(commitment.keys()) == {
         "agent_id",
         "intent_type",
         "intended_state_hash",
         "nonce",
         "timestamp",
-        # Reconciled extension fields (see bcc.build_commitment): both signed,
-        # both required for the commitment to verify at bcc_middleware.
+        # Reconciled extension fields (see bcc.build_commitment): all signed,
+        # all required for the commitment to verify at bcc_middleware.
         "covered_entity_address",
         "agent_public_key",
+        "chain_id",
+        "verifying_contract",
         "signature",
     }
+    assert commitment["chain_id"] == _TEST_CHAIN_ID
+    assert commitment["verifying_contract"] == _TEST_VERIFYING_CONTRACT
     assert commitment["agent_id"] == "did:integrity:abc"
     assert commitment["intent_type"] == "payment"
     assert commitment["intended_state_hash"].startswith("0x")
@@ -63,7 +73,9 @@ def test_build_commitment_has_contract_pinned_field_names():
 
 def test_build_commitment_signature_verifies_against_public_key():
     key = Ed25519PrivateKey.generate()
-    commitment = bcc.build_commitment(key, "did:integrity:abc", "data_access", {"x": 1})
+    commitment = bcc.build_commitment(
+        key, "did:integrity:abc", "data_access", {"x": 1}, _TEST_CHAIN_ID, _TEST_VERIFYING_CONTRACT
+    )
 
     signed_fields = {k: v for k, v in commitment.items() if k != "signature"}
     signature_bytes = bytes.fromhex(commitment["signature"][2:])
@@ -78,7 +90,9 @@ def test_build_commitment_signature_rejects_tampering():
     from cryptography.exceptions import InvalidSignature
 
     key = Ed25519PrivateKey.generate()
-    commitment = bcc.build_commitment(key, "did:integrity:abc", "payment", {"x": 1})
+    commitment = bcc.build_commitment(
+        key, "did:integrity:abc", "payment", {"x": 1}, _TEST_CHAIN_ID, _TEST_VERIFYING_CONTRACT
+    )
     signed_fields = {k: v for k, v in commitment.items() if k != "signature"}
     signature_bytes = bytes.fromhex(commitment["signature"][2:])
 

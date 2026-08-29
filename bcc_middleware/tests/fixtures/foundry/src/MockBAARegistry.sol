@@ -5,14 +5,14 @@ pragma solidity ^0.8.24;
 /// This is a TEST FIXTURE, not a production contract: it exists purely so
 /// bcc_middleware's `app/baa.py` on-chain eth_call code path can be proven
 /// against a real deployed contract on a real (local anvil) chain, cheaply
-/// and without spinning up the full shield stack (CoveredEntityRegistry +
+/// and without spinning up the full Integrity Health stack (CoveredEntityRegistry +
 /// SmartBAAFactory + SmartBAA + IntegrityToken collateral -- see
-/// tests/test_baa_shield_integration.py for a test against those real
+/// tests/test_baa_health_integration.py for a test against those real
 /// contracts specifically).
 ///
 /// The function signature below, `isBAAActive(address coveredEntity,
 /// address businessAssociate) returns (bool)`, mirrors the REAL
-/// `contracts/src/shield/SmartBAAFactory.sol::isBAAActive` exactly (fixed
+/// `contracts/src/health/SmartBAAFactory.sol::isBAAActive` exactly (fixed
 /// from an earlier one-argument version of this mock that matched a
 /// one-argument ABI in app/baa.py -- both were wrong the same way, since
 /// this fixture was written before the real contract existed to check

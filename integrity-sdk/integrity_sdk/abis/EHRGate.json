@@ -1,0 +1,335 @@
+{
+  "contractName": "EHRGate",
+  "abi": [
+    {
+      "type": "constructor",
+      "inputs": [
+        {
+          "name": "_registry",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "_baaFactory",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "_minAisThreshold",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "_admin",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "accessGates",
+      "inputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "coveredEntity",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "isUnlocked",
+          "type": "bool",
+          "internalType": "bool"
+        },
+        {
+          "name": "grantedAt",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "admin",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "baaFactory",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "contract SmartBAAFactory"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "checkAccess",
+      "inputs": [
+        {
+          "name": "patient",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "recordHash",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bool",
+          "internalType": "bool"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "grantAccess",
+      "inputs": [
+        {
+          "name": "recordHash",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "agent",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "coveredEntity",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "minAisThreshold",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "registry",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "contract XibalbaAgentRegistry"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "revokeAccess",
+      "inputs": [
+        {
+          "name": "recordHash",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "agent",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "setThreshold",
+      "inputs": [
+        {
+          "name": "newThreshold",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "verifyAndLogAccess",
+      "inputs": [
+        {
+          "name": "patient",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "recordHash",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bool",
+          "internalType": "bool"
+        }
+      ],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "event",
+      "name": "AccessGranted",
+      "inputs": [
+        {
+          "name": "patient",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "recordHash",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "agent",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "coveredEntity",
+          "type": "address",
+          "indexed": false,
+          "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "AccessLogged",
+      "inputs": [
+        {
+          "name": "patient",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "recordHash",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "agent",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "successful",
+          "type": "bool",
+          "indexed": false,
+          "internalType": "bool"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "AccessRevoked",
+      "inputs": [
+        {
+          "name": "patient",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "recordHash",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "agent",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "ThresholdUpdated",
+      "inputs": [
+        {
+          "name": "newThreshold",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "error",
+      "name": "GateAlreadyUnlocked",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "NotAdmin",
+      "inputs": []
+    }
+  ],
+  "bytecode": "0x60c0346100c257601f61092d38819003918201601f19168301916001600160401b038311848410176100c6578084926080946040528339810103126100c257610047816100da565b90610054602082016100da565b6100656060604084015193016100da565b6001600160a01b0393841660805290831660a0525f91909155600180546001600160a01b0319169190921617905560405161083e90816100ef82396080518181816103380152610568015260a051818181610191015261051d0152f35b5f80fd5b634e487b7160e01b5f52604160045260245ffd5b51906001600160a01b03821682036100c25756fe60806040526004361015610011575f80fd5b5f3560e01c80630f53a53c146103b45780634e6522e7146103985780637461f24a146103675780637b103999146103235780638d53b208146102a5578063960bfe041461023f578063afd6bccf146101c0578063b736b12f1461017c578063e789efe8146100b35763f851a44014610087575f80fd5b346100af575f3660031901126100af576001546040516001600160a01b039091168152602090f35b5f80fd5b346100af5760603660031901126100af576004356100cf610434565b906100d861044a565b91335f52600260205260405f20825f5260205260405f2060018060a01b0382165f5260205260405f2080549360ff8560a01c1661016d57600160a01b6001600160a01b039182166001600160a81b031996909616861717825542600190920191909155604051938452169133907fe0c4fe232063fdae6263eddf98388bd108681059bda3f9c7bcd829ce24c4e39090602090a4005b63840fd1a760e01b5f5260045ffd5b346100af575f3660031901126100af576040517f00000000000000000000000000000000000000000000000000000000000000006001600160a01b03168152602090f35b346100af5760603660031901126100af576101d961041e565b6101e161044a565b9060018060a01b03165f52600260205260405f206024355f5260205260405f209060018060a01b03165f52602052606060405f206001815491015460ff6040519260018060a01b038116845260a01c16151560208301526040820152f35b346100af5760203660031901126100af57600154600435906001600160a01b03163303610296576020817fadfa8ecb21b6962ebcd0adbd9ab985b7b4c5b5eb3b0dead683171565c7bfe171925f55604051908152a1005b637bfa4b9f60e01b5f5260045ffd5b346100af5760403660031901126100af576004356102c1610434565b335f81815260026020908152604080832086845282528083206001600160a01b0395909516808452949091528120805460ff60a01b191690559192917f83928fba1f66b90fae7436501aa45b78d05d4447db2c5f8f1cdc4f01edaf83909080a4005b346100af575f3660031901126100af576040517f00000000000000000000000000000000000000000000000000000000000000006001600160a01b03168152602090f35b346100af5760403660031901126100af57602061038e61038561041e565b602435906104b7565b6040519015158152f35b346100af575f3660031901126100af5760205f54604051908152f35b346100af5760403660031901126100af5760206103cf61041e565b602435906103dd82826104b7565b91604051921515928381527f9e9748b512b72c7358b4af36e1a4dc8690cd73471939472981ffb1168e9959b285339460018060a01b031692a4604051908152f35b600435906001600160a01b03821682036100af57565b602435906001600160a01b03821682036100af57565b604435906001600160a01b03821682036100af57565b90601f8019910116810190811067ffffffffffffffff82111761048257604052565b634e487b7160e01b5f52604160045260245ffd5b519081151582036100af57565b51906001600160a01b03821682036100af57565b6001600160a01b03165f9081526002602090815260408083209383529281528282203383529052205460a081901c60ff161561078f57604051636ad0b42160e11b81526001600160a01b03918216600482015233602482015290602090829060449082907f0000000000000000000000000000000000000000000000000000000000000000165afa90811561065c575f916107ce575b50156106265760405163710d9c6960e11b81523360048201527f00000000000000000000000000000000000000000000000000000000000000006001600160a01b031690602081602481855afa90811561065c575f91610794575b501561078f576101606024916040519283809263b5605e2960e01b82523360048301525afa90811561065c575f91610667575b505160409081015190516307a62f1d60e01b815233600482015290602090829060249082906001600160a01b03165afa90811561065c575f9161062a575b505f541161062657600190565b5f90565b90506020813d602011610654575b8161064560209383610460565b810103126100af57515f610619565b3d9150610638565b6040513d5f823e3d90fd5b8091506101603d8111610788575b61067f8183610460565b8101039061016082126100af576040519160a083019083821067ffffffffffffffff8311176104825760e091604052126100af576040519160e083019280841067ffffffffffffffff8511176104825761014060209361077c926024966040526106e8826104a3565b81526106f58683016104a3565b86820152610705604083016104a3565b6040820152610716606083016104a3565b6060820152610727608083016104a3565b608082015261073860a083016104a3565b60a082015261074960c083016104a3565b60c0820152845261075c60e082016104a3565b858501526101008101516040850152610120810151606085015201610496565b608082015291506105db565b503d610675565b505f90565b90506020813d6020116107c6575b816107af60209383610460565b810103126100af576107c090610496565b5f6105a8565b3d91506107a2565b90506020813d602011610800575b816107e960209383610460565b810103126100af576107fa90610496565b5f61054d565b3d91506107dc56fea26469706673582212203e01a3b6b72b75627525cf1b50708a4df9e590325f9e252d09b631477d5b098364736f6c634300081c0033"
+}

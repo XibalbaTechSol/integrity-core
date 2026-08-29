@@ -13,7 +13,7 @@ that pushes oracle-computed reputation scores on-chain and raises slashing
 disputes — the only place in the monorepo that closes that loop (see
 `app/reputation.py`'s module docstring).
 
-Sibling packages: see `/home/xibalba/Projects/INTEGRITY-LATEST/CLAUDE.md` for
+Sibling packages: see `/home/xibalba/Projects/integrity-core/CLAUDE.md` for
 the full monorepo. `docs/INTERFACE_CONTRACT.md` at the repo root is the
 binding cross-package spec (§4.2 commitment schema, §6 deployments file, §7
 OPA integration) — read it before changing any schema/endpoint/env var this
@@ -63,6 +63,9 @@ cheapest-and-most-certain-first:
 2. Ed25519 signature verification (app/canonical.py) -- untrusted agent_id -> hard deny
 3. nonce replay check (app/nonce_store.py)           -- monotonic per-agent nonce
 4. freshness / timestamp window check
+4b. active quarantine check (app/quarantine.py)      -- denies only on a POSITIVELY
+    CONFIRMED locked-stake dispute; fails OPEN (unlike step 6) since it runs on every
+    request, not just a narrow intent class -- see app/quarantine.py's docstring
 5. OPA policy evaluation (app/opa_client.py)         -- FAIL CLOSED if OPA unreachable
 6. on-chain BAA check, only if OPA says requires_baa -- FAIL CLOSED if can't verify
    (app/baa.py, real eth_call via web3.py)
@@ -86,9 +89,9 @@ best-effort.**
 
 Every deny path encodes its reason as `SOME_CODE: detail` in the response
 `reason` field (`BCC_INVALID_SIGNATURE`, `BCC_NONCE_REPLAY`, `BCC_EXPIRED`,
-`BCC_POLICY_ENGINE_UNAVAILABLE`, `OPA_REJECTION`, `BAA_INACTIVE`,
-`BAA_CANNOT_VERIFY`, `CIRCUIT_BREAKER_OPEN`) so callers/tests can pattern-match
-on failure category.
+`AGENT_QUARANTINED`, `BCC_POLICY_ENGINE_UNAVAILABLE`,
+`OPA_REJECTION`, `BAA_INACTIVE`, `BAA_CANNOT_VERIFY`, `CIRCUIT_BREAKER_OPEN`) so
+callers/tests can pattern-match on failure category.
 
 ### Reputation sync loop (`app/reputation.py`, `app/scoring_loop.py`)
 
@@ -106,9 +109,10 @@ disputer, and this service's existing `ANCHOR_SIGNER_PRIVATE_KEY` are the
 same key — see `app/reputation.py`'s module docstring for the full
 reasoning, including why automated dispute-raising is safe (raising only
 *locks* stake; a separate arbiter role is required to actually resolve/burn).
-`base_score` pushed must be the **pre-boost** weighted sum, not the oracle's
-already-ZK-boosted `ais` field — see
-`scoring_loop.py::_base_score_from_ais_response`.
+`base_score` pushed must be the Oracle-authoritative, tier-capped AIS with only
+the response's reported ZK multiplier divided out. Never reconstruct it from
+`components`/`weights`: `integrity-oracle/scoring-core` is the sole geometric
+formula implementation — see `scoring_loop.py::_base_score_from_ais_response`.
 
 ### Config (`app/config.py`)
 

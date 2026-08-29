@@ -22,6 +22,15 @@ Same mechanism throughout — [AIS](ais.md)-gated participation + off-chain
 prediction markets, binary options, and agent-to-agent capital allocation.
 Real, tested, and live on Base Sepolia (not a demo mockup).
 
+## Table of contents
+
+- [IntegrityMarket — agent-owned clone, not a singleton](#integritymarket-agent-owned-clone-not-a-singleton)
+  - [Trust boundary — documented, not hidden](#trust-boundary-documented-not-hidden)
+- [A2ACapitalPool — global singleton, not agent-clonable](#a2acapitalpool-global-singleton-not-agent-clonable)
+- [ComplianceGate.Vertical extension](#compliancegate-vertical-extension)
+- [Deployment](#deployment)
+- [Oracle read API — built](#oracle-read-api-built)
+
 ## `IntegrityMarket` — agent-owned clone, not a singleton
 
 One EIP-1167 clone (via `MarketFactory.deployMarket(...)`) is one market.
@@ -153,8 +162,8 @@ indexed-getter limitation).
 `PositionEntered`/`MarketResolved`/`PayoutClaimed`), and wallet transaction
 history (needs indexing ERC-20 `Transfer` + the above). All three are
 documented gaps in the relevant response fields, not silently omitted. Don't
-assume `integrity-mvp` renders markets data — see
-[integrity-mvp](../entities/integrity-mvp.md), whose "What's built" section
+assume `integrity-dashboard` renders markets data — see
+[integrity-dashboard](../entities/integrity-dashboard.md), whose "What's built" section
 is limited to agent list/detail; no dashboard page consumes these new
 endpoints yet.
 

@@ -14,6 +14,7 @@ POST /v1/reputation/sync trigger for ops/tests.
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass, field
 
 import httpx
@@ -30,6 +31,15 @@ logger = logging.getLogger("bcc_middleware.scoring_loop")
 # state is an accepted scope limitation at this scale, same posture as
 # app/nonce_store.py / app/circuit_breaker.py.
 _last_disputed_at: dict[str, float] = {}
+
+# In-memory per-agent last-successfully-pushed base score. PRODUCTION_GAPS.md
+# §5: without this, `push_score` submitted a real (gas-costing) transaction
+# every single cycle for every agent forever, even ones whose score hasn't
+# moved between cycles -- pure waste for an idle agent. Same process-local
+# scope-limitation posture as the dispute cooldown above (a restart just
+# means one extra redundant push, not a correctness problem: ReputationRegistry.
+# updateScore is idempotent for an unchanged value).
+_last_pushed_score: dict[str, int] = {}
 
 
 @dataclass
@@ -50,25 +60,27 @@ class SyncCycleResult:
 
 def _base_score_from_ais_response(ais: dict) -> int | None:
     """
-    `ReputationRegistry.updateScore` wants the PRE-boost weighted sum (see
-    that contract's own NatSpec), not the oracle's already-ZK-boosted
-    `ais` field. Recomputed directly from `components`/`weights` rather
-    than dividing `ais` by `zk_boost`, to avoid floating-point round-trip
-    error and to keep working cleanly when zk_boost is (correctly) 1.0.
+    Convert the oracle's authoritative final AIS into the PRE-boost base
+    `ReputationRegistry.updateScore` expects.
+
+    Do not recompute the formula from `components`/`weights` here. The Rust
+    oracle is the sole AIS implementation: its `ais` field has already used
+    the weighted geometric mean and applied the effective identity-tier
+    ceiling. Recomputing in Python previously used an arithmetic mean and
+    also discarded that ceiling. Dividing out only the reported ZK multiplier
+    preserves both oracle decisions while leaving the contract to apply a
+    separately earned on-chain ZK boost.
     """
-    components = ais.get("components")
-    weights = ais.get("weights")
-    if not isinstance(components, dict) or not isinstance(weights, dict):
-        return None
     try:
-        total = sum(
-            float(components[key]) * float(weights[key])
-            for key in ("entropy", "grounding", "sacrifice", "compliance")
-            if key in components and key in weights
-        )
-    except (TypeError, ValueError):
+        final_ais = float(ais["ais"])
+        zk_boost = float(ais["zk_boost"])
+    except (KeyError, TypeError, ValueError):
         return None
-    return round(total)
+    if not math.isfinite(final_ais) or final_ais < 0.0:
+        return None
+    if not math.isfinite(zk_boost) or zk_boost <= 0.0:
+        return None
+    return round(final_ais / zk_boost)
 
 
 def _flagged_ratio(volume: list[dict]) -> tuple[int, int]:
@@ -102,10 +114,20 @@ def sync_one_agent(settings: Settings, agent_id: str, *, now: float) -> AgentSyn
 
     base_score = _base_score_from_ais_response(ais)
     if base_score is None:
-        return AgentSyncResult(agent_id=agent_id, score_pushed=False, score_detail="AIS response missing components/weights")
+        return AgentSyncResult(agent_id=agent_id, score_pushed=False, score_detail="AIS response missing valid ais/zk_boost")
 
-    push_result = push_score(settings, reputation_registry, sovereign_agent, base_score)
-    result = AgentSyncResult(agent_id=agent_id, score_pushed=push_result.submitted, score_detail=push_result.detail)
+    if _last_pushed_score.get(agent_id) == base_score:
+        result = AgentSyncResult(
+            agent_id=agent_id, score_pushed=False, score_detail=f"unchanged (base_score={base_score}), skipped"
+        )
+    else:
+        push_result = push_score(settings, reputation_registry, sovereign_agent, base_score)
+        result = AgentSyncResult(agent_id=agent_id, score_pushed=push_result.submitted, score_detail=push_result.detail)
+        if push_result.submitted:
+            # Only cache on a CONFIRMED submission -- a failed push must not
+            # be remembered as "unchanged", or a real pending update would be
+            # skipped forever on every subsequent cycle.
+            _last_pushed_score[agent_id] = base_score
 
     if not slasher or not settings.dispute_enabled:
         return result
