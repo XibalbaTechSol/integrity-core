@@ -34,6 +34,7 @@ from web3.exceptions import Web3Exception
 from app.chain import AgentResolutionError, get_w3, resolve_agent_primitives
 from app.config import Settings
 from app.merkle import BatchLeaf, merkle_root
+from app.nonce_lock import send_with_managed_nonce, signer_lock
 
 logger = logging.getLogger("bcc_middleware.anchor")
 
@@ -53,6 +54,12 @@ class AnchorResult:
     submitted: bool
     detail: str
     tx_hash: str | None = None
+    # The root actually submitted (or attempted) for this agent's sub-tree —
+    # None only when we never got as far as computing one (e.g. the agent's
+    # StateAnchor couldn't be resolved at all). PRODUCTION_GAPS.md §5: callers
+    # used to have no way to learn the REAL per-agent root that was anchored,
+    # since anchoring moved from one global root to per-agent sub-roots.
+    root: bytes | None = None
 
 
 def anchor_root(settings: Settings, root: bytes, *, contract_address: str | None = None) -> AnchorResult:
@@ -78,16 +85,18 @@ def anchor_root(settings: Settings, root: bytes, *, contract_address: str | None
     try:
         account = Account.from_key(settings.anchor_signer_private_key)
         contract = w3.eth.contract(address=w3.to_checksum_address(address), abi=_STATE_ANCHOR_ABI)
-        tx = contract.functions.anchorRoot(root).build_transaction(
-            {
-                "from": account.address,
-                "nonce": w3.eth.get_transaction_count(account.address),
-                "chainId": settings.chain_id,
-            }
-        )
-        signed = account.sign_transaction(tx)
-        tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-        receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=30)
+        # Held for the FULL read-nonce -> sign -> broadcast -> mine sequence
+        # -- see nonce_lock.py's module docstring for why a narrower lock
+        # (e.g. just the nonce read) isn't enough to prevent a race with
+        # app/reputation.py's chain writes when they share a signer key.
+        with signer_lock(account.address):
+            tx_hash, receipt = send_with_managed_nonce(
+                w3,
+                account,
+                lambda nonce: contract.functions.anchorRoot(root).build_transaction(
+                    {"from": account.address, "nonce": nonce, "chainId": settings.chain_id}
+                ),
+            )
     except (Web3Exception, ValueError) as exc:
         logger.warning("anchorRoot(0x%s) submission failed: %s", root.hex(), exc)
         return AnchorResult(submitted=False, detail=f"transaction submission failed: {exc}")
@@ -145,6 +154,7 @@ def anchor_batch_per_agent(settings: Settings, leaves: list[BatchLeaf]) -> dict[
 
         sub_root = merkle_root([leaf.leaf_hash for leaf in agent_leaves])
         result = anchor_root(settings, sub_root, contract_address=state_anchor_address)
+        result.root = sub_root
         results[agent_id] = result
         if result.submitted:
             logger.info("anchored %d leaves for agent %s to StateAnchor %s tx=%s", len(agent_leaves), agent_id, state_anchor_address, result.tx_hash)

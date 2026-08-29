@@ -82,12 +82,15 @@ def build_commitment(
     agent_id: str,
     intent_type: str,
     intent_payload: dict[str, Any],
+    chain_id: int,
+    verifying_contract: str,
     covered_entity_address: str | None = None,
 ) -> dict[str, Any]:
     """Build and sign a BCC Commitment per INTERFACE_CONTRACT.md section 4.2,
-    plus the two reconciled extension fields (`covered_entity_address` and
-    `agent_public_key`) — see integrity-sdk/integrity_sdk/bcc.py and
-    bcc_middleware/app/canonical.py, which this must match byte-for-byte.
+    plus the reconciled extension fields (`covered_entity_address`,
+    `agent_public_key`, `chain_id`, `verifying_contract`) — see
+    integrity-sdk/integrity_sdk/bcc.py and bcc_middleware/app/canonical.py,
+    which this must match byte-for-byte.
 
     Signs over every field except `signature` itself, in the same canonical
     JSON form used for the intended_state_hash -- the signature therefore
@@ -98,6 +101,12 @@ def build_commitment(
     fingerprint is sha256(pubkey), not the raw key, so the verifier can't
     recover the key from `agent_id` alone — the commitment carries it, and
     the middleware binds it by checking sha256(pubkey) == fingerprint.
+
+    `chain_id`/`verifying_contract` are REQUIRED (docs/plans/2026-08-18-
+    phase1-canonical-intent-encoding-proposal.md): without them a commitment
+    signed once was valid against any chain or deployment sharing the
+    signing agent's DID. `verifying_contract` is the target chain's
+    `XibalbaAgentRegistry` address.
     """
     # Imported here (not at module top) purely to avoid any import-order
     # coupling between these two sibling modules; the encoder is a pure
@@ -113,6 +122,8 @@ def build_commitment(
         "timestamp": int(time.time() * 1000),  # unix ms, per contract
         "covered_entity_address": covered_entity_address,
         "agent_public_key": _multibase_encode_pubkey(public_bytes),
+        "chain_id": chain_id,
+        "verifying_contract": verifying_contract,
     }
     signature = private_key.sign(canonical_json_bytes(fields))
     return {**fields, "signature": f"0x{signature.hex()}"}

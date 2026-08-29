@@ -1,0 +1,19 @@
+name: Jules auto-merge (disabled during canary)
+
+# Automatic merging is intentionally disabled. Jules may create or update a
+# pull request, but a human maintainer must review and merge it after the
+# canary period and exact-branch verification are complete.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  guard:
+    name: Confirm auto-merge remains disabled
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Automatic merging is disabled while the Jules controller is in canary mode."

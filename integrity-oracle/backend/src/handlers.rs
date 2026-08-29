@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+use crate::anchor_coverage::{self, AnchorCoverage};
 use crate::chain::{MarketDetail, PrimitiveSet as ChainPrimitiveSet};
 use crate::crypto::{self, AgentVerificationMethods};
 use crate::db;
@@ -111,14 +112,10 @@ pub struct RegisterAgentResponse {
     pub domain_id: String,
 }
 
-/// The only verification tier `register_agent` can legitimately assign today. Per
-/// docs/wiki/concepts/identity-ceiling.md's ladder, Tier 1 ("Sovereign") requires only
-/// proof-of-possession of a software key — which is exactly what that handler's checks
-/// (a supplied key + an independently-confirmed on-chain primitive match) establish.
-/// Tiers 2 ("Linked" — DNS TXT/social attestation) and 3 ("Institutional" — real TEE
-/// attestation) have no verification path implemented anywhere in this codebase yet, so
-/// there is no legitimate way to assign them server-side. When that verification exists,
-/// this becomes a real tier computation instead of a constant.
+/// The registration floor. Tier 1 ("Sovereign") requires proof-of-possession of a
+/// software key plus an independently confirmed on-chain primitive match. Registration
+/// cannot establish a stronger claim, so DNS/GitHub and Nitro evidence raise the effective
+/// tier only through the post-registration verification routes below.
 const SERVER_VERIFIED_TIER: i32 = 1;
 
 /// Registers an agent, but only after independently confirming on-chain that the
@@ -160,6 +157,23 @@ pub async fn register_agent(
         )));
     }
 
+    // Spec v0.3 §7.1 — the persistent-memory gate, checked immediately after the
+    // PrimitiveSet match and with the same posture: read the agent's own StateAnchor
+    // directly from chain rather than trusting anything the client sent. A zero
+    // `latestRoot` means no genesis memory root was ever anchored, so per §4.1/§6 the
+    // agent is not a continuing economic subject and registration is refused outright —
+    // "no half-registered agents". The agent fixes this by anchoring its genesis root
+    // (§7.2: controller or `SovereignAgent.execute`, at epoch 0) and retrying.
+    let (latest_root, latest_epoch) = state.chain.memory_state(record.primitives.state_anchor).await?;
+    if latest_root.is_zero() {
+        return Err(AppError::MemoryNotInitialized(format!(
+            "agent '{}' has no anchored genesis memory root — StateAnchor {:#x} reports \
+             latestRoot=0x0 at epoch {}. Anchor a genesis Trust Vault root through the \
+             agent's own controller (spec v0.3 §7.2) before registering.",
+            req.did, record.primitives.state_anchor, latest_epoch
+        )));
+    }
+
     let ed25519_pubkey = req
         .ed25519_pubkey_hex
         .as_deref()
@@ -193,6 +207,7 @@ pub async fn register_agent(
         &format!("{:#x}", claimed.agent_profile),
         &format!("{:#x}", record.controller),
         &record.domain_id.to_string(),
+        state.chain.chain_id() as i64,
     )
     .await?;
 
@@ -212,18 +227,27 @@ pub async fn register_agent(
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AgentResponse {
     pub id: String,
-    /// RESERVED (partially enforced) — server-verified as of this version (`register_agent`
-    /// computes it independently; a client can no longer self-assert a value), but only
-    /// Tier 1 is currently achievable (no Tier 2/3 verification path is built), and only
-    /// `bcc_middleware`'s policy gate consults it, and only for a subset of intent_types —
-    /// see `spec/bcc/v1/README.md` once that surface exists. Most integrations should
-    /// still treat this as informational rather than build authorization logic on top of
-    /// it directly.
+    /// Effective server-verified tier: registration floor unioned with active, unexpired,
+    /// unrevoked DNS/GitHub/Nitro evidence. Scoring-core uses it as the identity ceiling,
+    /// and BCC policy additionally requires minimum tiers for sensitive intent types.
     pub verification_tier: i32,
     pub last_nonce: i64,
     pub created_at: chrono::DateTime<Utc>,
     pub has_ed25519_key: bool,
     pub has_eth_address: bool,
+    /// True only when this DID has a real row in this oracle's own `agents` table (a real
+    /// `POST /v1/agent/register` call against THIS oracle, at some point in its history).
+    /// **Not** the same question as "does this DID exist" — a DID that resolves live on-chain
+    /// (see `primitives_source: "chain-backfill"` below) but was never registered against
+    /// this specific oracle instance still returns `200` here with `oracle_registered: false`,
+    /// a synthesized `id`/`primitives` and no other real fields. Added because that
+    /// distinction was previously only inferable by checking `primitives_source != "cache"`
+    /// AND `has_ed25519_key`/`has_eth_address`, which every caller had to reverse-engineer —
+    /// `GET /v1/telemetry/ingest` and `GET /v1/agent/{id}/ais` both fail closed
+    /// (`AgentNotFound`) on exactly this same local-row check (`db::get_agent`), so a caller
+    /// deciding "is it safe/worthwhile to send telemetry for this agent" needs this exact
+    /// boolean, not "does the DID exist anywhere."
+    pub oracle_registered: bool,
     pub primitives: Option<PrimitiveSetDto>,
     /// True when this response's `primitives` came from a live chain read performed just
     /// now (cache miss / no local `agents` row), rather than the Postgres cache.
@@ -252,8 +276,15 @@ pub async fn get_agent(State(state): State<AppState>, Path(id): Path<String>) ->
     // chain on miss") and persist it so the next lookup is cheap again. This also covers
     // an agent that registered on-chain directly via integrity-sdk/cli without ever
     // calling this oracle's POST /v1/agent/register.
+    //
+    // E11: a cache row is only trusted if it was resolved against the chain this oracle
+    // is currently configured for. A row from a different chain id (or `NULL`, meaning
+    // "resolved before this column existed") is treated exactly like a cache miss —
+    // never served as-is — so an oracle repointed to a different network can't keep
+    // handing out addresses that belong to the old one.
     let cached = db::get_agent_primitives(&state.pool, &id).await?;
-    let (primitives, source) = match cached {
+    let current_chain_id = state.chain.chain_id() as i64;
+    let (primitives, source) = match cached.filter(|row| row.chain_id == Some(current_chain_id)) {
         Some(row) => (Some(row_to_dto(&row)?), "cache"),
         None => match state.chain.resolve_primitives_by_did(&id).await {
             Ok(record) => {
@@ -269,6 +300,7 @@ pub async fn get_agent(State(state): State<AppState>, Path(id): Path<String>) ->
                     &format!("{:#x}", record.primitives.agent_profile),
                     &format!("{:#x}", record.controller),
                     &record.domain_id.to_string(),
+                    current_chain_id,
                 )
                 .await?;
                 (Some(record.primitives.into()), "chain-backfill")
@@ -276,7 +308,10 @@ pub async fn get_agent(State(state): State<AppState>, Path(id): Path<String>) ->
             // No agents row AND nothing on-chain either: genuinely unknown DID.
             Err(_) if agent_row.is_none() => return Err(AppError::AgentNotFound(id)),
             // Chain lookup failed but we do have a local row — still return what we know
-            // rather than failing the whole request over an on-chain read hiccup.
+            // rather than failing the whole request over an on-chain read hiccup. Note
+            // this deliberately does NOT fall back to a stale-chain cache row (if one
+            // existed, it was already filtered out above) — serving wrong-chain
+            // addresses would be worse than serving none.
             Err(_) => (None, "unavailable"),
         },
     };
@@ -293,6 +328,7 @@ pub async fn get_agent(State(state): State<AppState>, Path(id): Path<String>) ->
                 created_at: Utc::now(),
                 has_ed25519_key: false,
                 has_eth_address: false,
+                oracle_registered: false,
                 primitives,
                 primitives_source: source,
                 did_document: None,
@@ -300,13 +336,27 @@ pub async fn get_agent(State(state): State<AppState>, Path(id): Path<String>) ->
         }
     };
 
+    // EFFECTIVE tier, not the registration column. `agents.verification_tier` is
+    // only the floor registration can establish (a hardcoded 1); rungs 2/3 live in
+    // `identity_verifications`. Reporting the raw column here made this endpoint
+    // lie about every agent that had climbed the ladder -- an agent verified to
+    // tier 2 still showed as tier 1 to the dashboard and to every other consumer,
+    // while its AIS was (correctly) computed against the tier-2 ceiling. A trust
+    // protocol whose own API misreports verification level is worse than one that
+    // has no levels.
+    let effective_tier =
+        db::effective_verification_tier(&state.pool, &agent_row.id, agent_row.verification_tier)
+            .await
+            .unwrap_or(agent_row.verification_tier);
+
     Ok(Json(AgentResponse {
         id: agent_row.id,
-        verification_tier: agent_row.verification_tier,
+        verification_tier: effective_tier,
         last_nonce: agent_row.last_nonce,
         created_at: agent_row.created_at,
         has_ed25519_key: agent_row.ed25519_pubkey.is_some(),
         has_eth_address: agent_row.eth_address.is_some(),
+        oracle_registered: true,
         primitives,
         primitives_source: source,
         did_document: agent_row.did_document,
@@ -332,6 +382,21 @@ fn row_to_dto(row: &db::AgentPrimitivesRow) -> Result<PrimitiveSetDto, AppError>
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AgentSummary {
     pub id: String,
+    /// The agent's primary XNS handle (e.g. `"xibalba.integrity"`), read live from
+    /// `XibalbaNameService.primaryHandle(sovereignAgent)`. This is the protocol's own
+    /// naming authority — self-service and on-chain (see XibalbaNameService.sol's NatSpec
+    /// on why there is deliberately no privileged off-chain registrar) — so consumers
+    /// should prefer it over `name` when displaying an agent.
+    ///
+    /// `None` is a normal, expected outcome, never an error: the agent hasn't claimed a
+    /// handle, XNS isn't deployed on this chain, or the on-chain read failed. See
+    /// `list_agents` on why a chain hiccup must not take the whole fleet list down.
+    pub handle: Option<String>,
+    /// Legacy secondary display name, if the agent's DID document carries an `alsoKnownAs`
+    /// entry. Kept as a last-resort fallback below `handle` — most agents have none, and
+    /// nothing in this system can write it (`register_agent` is an insert with no update
+    /// path), so new naming should go through XNS.
+    pub name: Option<String>,
     pub verification_tier: i32,
     pub created_at: chrono::DateTime<Utc>,
 }
@@ -344,15 +409,50 @@ pub struct AgentSummary {
 )]
 pub async fn list_agents(State(state): State<AppState>) -> Result<Json<Vec<AgentSummary>>, AppError> {
     let rows = db::list_agents(&state.pool).await?;
+    let handles = resolve_primary_handles(&state, &rows).await;
     Ok(Json(
         rows.into_iter()
-            .map(|r| AgentSummary {
+            .enumerate()
+            .map(|(i, r)| AgentSummary {
+                handle: handles.get(i).cloned().flatten(),
+                name: r.did_document.as_ref()
+                    .and_then(|d| d.get("alsoKnownAs"))
+                    .and_then(|a| a.get(0))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
                 id: r.id,
                 verification_tier: r.verification_tier,
                 created_at: r.created_at,
             })
             .collect(),
     ))
+}
+
+/// Best-effort XNS lookup for a whole agent list, returned positionally (one entry per
+/// input row, in the same order).
+///
+/// **Every failure degrades to `None` rather than propagating.** Unlike `get_agent_handle`
+/// — where the handle *is* the response, so a missing XNS singleton rightly surfaces as a
+/// 400 — here the handle is one cosmetic field on the route the entire dashboard fleet list
+/// depends on. Letting a `MissingSingleton` (any chain without XNS deployed, e.g. a local
+/// anvil genesis) or a transient RPC error bubble up would turn "no handles" into "no
+/// agents", which is a far worse failure than an unnamed agent. The reads run concurrently,
+/// same `join_all` pattern as `refresh_leaderboard_if_stale`.
+async fn resolve_primary_handles(state: &AppState, rows: &[db::AgentListRow]) -> Vec<Option<String>> {
+    let Some(xns) = state.chain.xibalba_name_service() else {
+        // XNS not deployed on this chain — skip the chain reads entirely, don't error.
+        return vec![None; rows.len()];
+    };
+    let reads = rows.iter().map(|row| async move {
+        let sovereign_agent = Address::from_str(row.sovereign_agent_address.as_deref()?).ok()?;
+        let handle = state.chain.primary_handle(xns, sovereign_agent).await.ok()?;
+        if handle.is_empty() {
+            None
+        } else {
+            Some(handle)
+        }
+    });
+    futures::future::join_all(reads).await
 }
 
 // ---------------------------------------------------------------------------------
@@ -394,6 +494,22 @@ pub struct AisResponse {
     /// submitted directly to the contract that hasn't shown up in telemetry yet) but is
     /// worth surfacing to an operator.
     pub onchain_zk_boost_consistent: Option<bool>,
+    /// Whether this agent's on-chain `StateAnchor` shows anchoring activity at or after
+    /// `period_start`, given it had telemetry activity in that same window.
+    /// Informational only (see `anchor_coverage.rs`) — never fed into `ais` itself.
+    pub anchor_coverage: AnchorCoverage,
+    /// spec/integrity-protocol-v3.2.md §3.1.1 eq. 4b's `r(ι)`: the normalised, pre-boost,
+    /// tier-ceilinged constraint input in `[0,1]`. Distinct from `ais` above (post-boost,
+    /// unclamped, display-only) — any integration reading a reputation-parameterised bound
+    /// off this response MUST use this field, never `ais`. See `AisBreakdown`'s doc comment.
+    pub constraint_score: f64,
+    /// **Shadow-mode only** (spec §3.1.4 row 5, `PRODUCTION_GAPS.md` §27) — reports what
+    /// the proposed per-component floor + conjunctive gate would decide, using this
+    /// oracle's currently-configured `AisFloors` (provisional defaults unless an operator
+    /// has overridden them). Purely observational: does not affect `ais` or
+    /// `constraint_score`, does not gate anything, and is not consumed by
+    /// `bcc_middleware`'s chain-push or dispute logic.
+    pub shadow_gate: ShadowGate,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -402,6 +518,14 @@ pub struct AisComponents {
     pub grounding: f64,
     pub sacrifice: f64,
     pub compliance: f64,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ShadowGate {
+    pub entropy_pass: bool,
+    pub grounding_pass: bool,
+    pub compliance_pass: bool,
+    pub would_pass: bool,
 }
 
 /// Computes the current AIS breakdown for an agent. The single call site both
@@ -426,11 +550,21 @@ pub(crate) async fn compute_ais_for_agent(state: &AppState, id: &str) -> Result<
         penalty_ratio: aggregate.penalty_ratio,
         zk_verified_this_period: aggregate.zk_verified_this_period,
     };
+    let agent = db::get_agent(&state.pool, id).await?.ok_or_else(|| AppError::AgentNotFound(id.to_string()))?;
 
     let engine = scoring_core::AisEngine::new(state.config.ais_weights).map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
-    let breakdown = engine.score(&inputs);
+    // EFFECTIVE tier, not the registration column: `agents.verification_tier` is only
+    // the floor registration can establish (a hardcoded 1). Rungs 2/3 are evidence-backed
+    // rows in `identity_verifications`, and expiry is applied in that query, so a lapsed
+    // domain lowers the ceiling here automatically. Reading the raw column instead would
+    // permanently cap every agent at 600 no matter what it proved -- which is the bug
+    // this subsystem exists to fix.
+    let tier = db::effective_verification_tier(&state.pool, id, agent.verification_tier).await?;
+    let breakdown = engine.score_with_tier(&inputs, tier);
 
-    let onchain_zk_boost_consistent = match db::get_agent_primitives(&state.pool, id).await? {
+    let primitives_row = db::get_agent_primitives(&state.pool, id).await?;
+
+    let onchain_zk_boost_consistent = match &primitives_row {
         Some(row) => {
             let rep_addr = Address::from_str(&row.reputation_registry_address).ok();
             let sov_addr = Address::from_str(&row.sovereign_agent_address).ok();
@@ -441,6 +575,24 @@ pub(crate) async fn compute_ais_for_agent(state: &AppState, id: &str) -> Result<
         }
         None => None,
     };
+
+    // Best-effort, same posture as the zk-boost cross-check above: an RPC failure or
+    // unset address must not fail the whole AIS response, only leave the on-chain half
+    // of the reading absent (`anchor_coverage::evaluate` treats `None` as "unknown",
+    // never as a false-positive "current").
+    let onchain_anchor_activity = match &primitives_row {
+        Some(row) => match Address::from_str(&row.state_anchor_address) {
+            Ok(state_anchor) => state
+                .chain
+                .latest_anchor_activity(state_anchor)
+                .await
+                .ok()
+                .map(|(epoch, ts)| (epoch.to::<u64>(), ts.to::<u64>() as i64)),
+            Err(_) => None,
+        },
+        None => None,
+    };
+    let anchor_coverage = anchor_coverage::evaluate(aggregate.event_count, period_start, onchain_anchor_activity);
 
     Ok(AisResponse {
         agent_id: id.to_string(),
@@ -458,6 +610,14 @@ pub(crate) async fn compute_ais_for_agent(state: &AppState, id: &str) -> Result<
         period_end,
         event_count: aggregate.event_count,
         onchain_zk_boost_consistent,
+        anchor_coverage,
+        constraint_score: breakdown.constraint_score,
+        shadow_gate: ShadowGate {
+            entropy_pass: breakdown.gate_entropy_pass,
+            grounding_pass: breakdown.gate_grounding_pass,
+            compliance_pass: breakdown.gate_compliance_pass,
+            would_pass: breakdown.gate_would_pass,
+        },
     })
 }
 
@@ -531,8 +691,25 @@ pub struct JudgeEvaluationDto {
     pub rationale_summary: Option<String>,
 }
 
+/// Highest signed-telemetry envelope version this build can interpret. Must move in step
+/// with `integrity-sdk`'s `TELEMETRY_SCHEMA_VERSION`; pinned in
+/// `docs/INTERFACE_CONTRACT.md` §4.2a.
+///
+/// A payload above this is refused rather than parsed on a guess — misreading a future shape
+/// and then storing it as signed evidence is worse than rejecting it.
+pub const MAX_TELEMETRY_SCHEMA_VERSION: i64 = 1;
+
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct TelemetryIngestRequest {
+    /// Version of the signed envelope. Inside the signed object, so it cannot be rewritten
+    /// in transit to make this handler reinterpret a payload under different rules.
+    ///
+    /// `None` means the pre-versioning shape, which stays valid forever — signed payloads
+    /// are evidence and old evidence must remain verifiable. Critically, the signable bytes
+    /// are rebuilt WITHOUT the key when this is `None`: serializing it as `null` would
+    /// change the canonical JSON and break every historical signature.
+    #[serde(default)]
+    pub schema_version: Option<i64>,
     pub agent_id: String,
     pub nonce: i64,
     #[serde(default)]
@@ -560,7 +737,7 @@ pub struct TelemetryIngestResponse {
     pub flagged: bool,
 }
 
-/// Fixed-window rate limiter over Redis: `INCR` a per-agent, per-minute counter (key
+/// Fixed-window Redis rate limiter over Redis: `INCR` a per-agent, per-minute counter (key
 /// includes the current unix-minute bucket, so an old counter can never leak into a new
 /// window) and set it to expire in 60s the first time it's created in that window. This
 /// is the "concrete, real use of Redis" `config.rs`'s doc comment on
@@ -569,6 +746,41 @@ pub struct TelemetryIngestResponse {
 /// bucket (a fixed window is simpler and sufficient for this purpose: the worst case is
 /// bursting up to 2x the limit at a window boundary, which is an acceptable trade for not
 /// needing a token-bucket's extra state).
+
+fn check_oracle_api_key(state: &AppState, headers: &axum::http::HeaderMap) -> Result<(), AppError> {
+    if let Some(expected_key) = &state.config.oracle_api_key {
+        let auth_header = headers.get("authorization").or_else(|| headers.get("Authorization"));
+        match auth_header {
+            Some(value) => {
+                let value_str = value.to_str().unwrap_or("");
+                if value_str != expected_key && value_str != format!("Bearer {}", expected_key) {
+                    return Err(AppError::Unauthorized);
+                }
+            }
+            None => return Err(AppError::Unauthorized),
+        }
+    }
+    Ok(())
+}
+
+async fn check_internal_api_rate_limit(state: &AppState) -> Result<(), AppError> {
+    use redis::AsyncCommands;
+    let window = Utc::now().timestamp() / 60;
+    let key = format!("ratelimit:internal_api:{window}");
+
+    let mut conn = state.redis.clone();
+    let count: i64 = conn.incr(&key, 1).await?;
+    if count == 1 {
+        let _: () = conn.expire(&key, 60).await?;
+    }
+
+    // A simple global limit for internal endpoints, scaled up
+    if count > (state.config.telemetry_rate_limit_per_minute as i64 * 10) {
+        return Err(AppError::RateLimited);
+    }
+    Ok(())
+}
+
 async fn check_telemetry_rate_limit(state: &AppState, agent_id: &str) -> Result<(), AppError> {
     use redis::AsyncCommands;
 
@@ -642,8 +854,29 @@ async fn oracle_compliance(state: &AppState, req: &TelemetryIngestRequest) -> f6
 )]
 pub async fn ingest_telemetry(
     State(state): State<AppState>,
-    Json(req): Json<TelemetryIngestRequest>,
+    body: axum::body::Bytes,
 ) -> Result<Json<TelemetryIngestResponse>, AppError> {
+    let mut payload_value: serde_json::Value = serde_json::from_slice(&body)
+        .map_err(|e| AppError::BadRequest(format!("invalid JSON body: {}", e)))?;
+
+    let req: TelemetryIngestRequest = serde_json::from_value(payload_value.clone())
+        .map_err(|e| AppError::BadRequest(format!("malformed telemetry request: {}", e)))?;
+    // Reject an envelope version this build cannot interpret, rather than parsing it under
+    // the wrong rules and storing a misread payload as signed evidence. Runs before anything
+    // else: if the shape is unknown, no other check on it means anything.
+    //
+    // `None` is accepted deliberately — it is the pre-versioning shape, and those signatures
+    // must keep verifying (see `TelemetryIngestRequest::schema_version`).
+    if let Some(version) = req.schema_version {
+        if version > MAX_TELEMETRY_SCHEMA_VERSION || version < 1 {
+            return Err(AppError::BadRequest(format!(
+                "unsupported telemetry schema_version {version}: this oracle understands \
+                 1..={MAX_TELEMETRY_SCHEMA_VERSION} (or an absent field, meaning the \
+                 pre-versioning envelope). Upgrade the oracle before sending this shape."
+            )));
+        }
+    }
+
     // Defense-in-depth PHI/PII/secret backstop (see crate::phi's doc comment): scan the
     // free-text-bearing parts of the payload for a raw pattern integrity-sdk's
     // client-side Redactor should already have masked. A hit here means that
@@ -659,10 +892,19 @@ pub async fn ingest_telemetry(
             phi::scan_json_value(&judge_value, &mut phi_hits);
         }
     }
-    if !phi_hits.is_empty() {
-        phi_hits.sort_unstable();
-        phi_hits.dedup();
-        return Err(AppError::PhiDetected(phi_hits.into_iter().map(str::to_string).collect()));
+    // Mode-driven: `reject` (default) refuses the payload, `flag` stores it with the matched
+    // categories recorded on the row so the risk stays visible, `off` skips entirely. See
+    // `config::PhiBackstopMode` for why development needs anything other than reject.
+    let phi_flags = match phi::apply_backstop(state.config.phi_backstop_mode, phi_hits) {
+        Ok(flags) => flags,
+        Err(categories) => return Err(AppError::PhiDetected(categories)),
+    };
+    if let Some(categories) = &phi_flags {
+        tracing::warn!(
+            agent_id = %req.agent_id,
+            categories = ?categories,
+            "PHI backstop matched but mode=flag — storing payload with flags rather than rejecting"
+        );
     }
 
     let agent = db::get_agent(&state.pool, &req.agent_id)
@@ -671,18 +913,15 @@ pub async fn ingest_telemetry(
 
     check_telemetry_rate_limit(&state, &req.agent_id).await?;
 
-    // Rebuild exactly the JSON object the client should have signed: every field of the
-    // request except `signature` itself. Re-serializing the typed struct with a
-    // `#[serde(skip_serializing)]`-free copy keeps this in one place rather than hand-
-    // building a parallel `serde_json::Map`.
-    let signable = serde_json::json!({
-        "agent_id": req.agent_id,
-        "nonce": req.nonce,
-        "otel_spans": req.otel_spans,
-        "derived_signals": req.derived_signals,
-        "zk_proof": req.zk_proof,
-    });
-    let message = crypto::canonical_json_bytes(&signable);
+    // We verify the signature against the exact JSON structure sent by the client.
+    // Instead of rebuilding the signable object from the typed struct (which re-serializes
+    // floats and can subtly change byte representation), we simply remove the `signature`
+    // (and optional `judge_evaluation`) from the raw parsed JSON value.
+    if let serde_json::Value::Object(ref mut map) = payload_value {
+        map.remove("signature");
+        map.remove("judge_evaluation");
+    }
+    let message = crypto::canonical_json_bytes(&payload_value);
 
     // `ed25519_pubkey` is stored as raw bytes (BYTEA), but the verification method needs a
     // hex string — hex-encode once here rather than changing the crypto module's signature
@@ -774,6 +1013,7 @@ pub async fn ingest_telemetry(
         zk_verified,
         &leaf_hash,
         &payload_json,
+        phi_flags.as_deref(),
     )
     .await
     .map_err(|e| match e {
@@ -865,7 +1105,12 @@ pub async fn get_compliance(
     Path(id): Path<String>,
     Query(query): Query<ComplianceQuery>,
 ) -> Result<Json<ComplianceResponse>, AppError> {
-    let cached = db::get_agent_primitives(&state.pool, &id).await?;
+    // E11: same chain-id guard as `get_agent`/`resolve_primitives_row` — a cross-chain
+    // cache row must not be trusted for a live compliance-gate read either.
+    let current_chain_id = state.chain.chain_id() as i64;
+    let cached = db::get_agent_primitives(&state.pool, &id)
+        .await?
+        .filter(|row| row.chain_id == Some(current_chain_id));
     let compliance_gate_addr = match cached {
         Some(row) => Address::from_str(&row.compliance_gate_address)
             .map_err(|e| AppError::Internal(anyhow::anyhow!("cached compliance_gate_address is not a valid address: {e}")))?,
@@ -1121,7 +1366,13 @@ pub async fn get_market(
 /// than a hard error, since callers here (leaderboard) want to skip-and-continue, not
 /// fail the whole request over one agent's stale/unresolvable primitives.
 async fn resolve_primitives_row(state: &AppState, agent_id: &str) -> Result<Option<db::AgentPrimitivesRow>, AppError> {
-    if let Some(row) = db::get_agent_primitives(&state.pool, agent_id).await? {
+    // E11: only trust a cache row resolved against this oracle's own chain — see the
+    // matching comment in `get_agent` above for why.
+    let current_chain_id = state.chain.chain_id() as i64;
+    if let Some(row) = db::get_agent_primitives(&state.pool, agent_id)
+        .await?
+        .filter(|row| row.chain_id == Some(current_chain_id))
+    {
         return Ok(Some(row));
     }
     match state.chain.resolve_primitives_by_did(agent_id).await {
@@ -1138,6 +1389,7 @@ async fn resolve_primitives_row(state: &AppState, agent_id: &str) -> Result<Opti
                 &format!("{:#x}", record.primitives.agent_profile),
                 &format!("{:#x}", record.controller),
                 &record.domain_id.to_string(),
+                current_chain_id,
             )
             .await?;
             Ok(db::get_agent_primitives(&state.pool, agent_id).await?)
@@ -1445,6 +1697,819 @@ pub async fn get_traces(
 }
 
 // ---------------------------------------------------------------------------------
+// audit_log: the real, durable event trail behind `/v1/audit-log` (dashboard's Audit
+// Logs panel). `POST /v1/audit/ingest` is called by bcc_middleware (see
+// `bcc_middleware/app/audit.py`) after every intercept decision — allow AND deny —
+// which is what makes this a genuine source of truth rather than a re-hash of data
+// that already had its own page (telemetry_events -> SDK Telemetry, otel_spans ->
+// Trace Analytics). Deliberately unauthenticated, matching the OTLP receiver's
+// existing posture (see otlp.rs) — this is a private-network service-to-service call
+// in the current single-operator topology, not a public-facing endpoint; a forged
+// entry here is a known, documented limitation (PRODUCTION_GAPS.md), not silently
+// claimed to be tamper-proof.
+// ---------------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct AuditLogIngestRequest {
+    pub agent_id: Option<String>,
+    pub source: String,
+    pub event_type: String,
+    pub decision: String,
+    pub reason_code: Option<String>,
+    pub detail: Option<String>,
+    pub intent_type: Option<String>,
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AuditLogIngestResponse {
+    pub id: Uuid,
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/audit/ingest",
+    request_body = AuditLogIngestRequest,
+    responses(
+        (status = 200, description = "Audit event recorded", body = AuditLogIngestResponse),
+    ),
+    tag = "audit",
+)]
+pub async fn ingest_audit_log(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<AuditLogIngestRequest>,
+) -> Result<Json<AuditLogIngestResponse>, AppError> {
+    check_internal_api_rate_limit(&state).await?;
+    check_oracle_api_key(&state, &headers)?;
+
+    let metadata = req.metadata.unwrap_or_else(|| serde_json::json!({}));
+    let id = db::insert_audit_log(
+        &state.pool,
+        req.agent_id.as_deref(),
+        &req.source,
+        &req.event_type,
+        &req.decision,
+        req.reason_code.as_deref(),
+        req.detail.as_deref(),
+        req.intent_type.as_deref(),
+        &metadata,
+    )
+    .await?;
+    Ok(Json(AuditLogIngestResponse { id }))
+}
+
+// ---------------------------------------------------------------------------------
+// Anchor-event ingest (docs/design/evidence-export.md, Lever 4). bcc_middleware
+// posts here after it successfully anchors an agent's Merkle sub-tree on-chain, so
+// each anchored ALLOW decision can be joined to its StateAnchor transaction at
+// export time. Written to its own `anchor_events` table (NOT back-filled onto the
+// audit_log row) specifically so it does not depend on the decision row having
+// been committed first -- see the migration header for the write-ordering race
+// that motivates the JOIN design. Same best-effort, single-operator-trust posture
+// as /v1/audit/ingest (see that handler's note + PRODUCTION_GAPS.md).
+// ---------------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct AnchorEventIngestRequest {
+    pub agent_id: String,
+    /// 0x-prefixed keccak256 Merkle leaves that were committed in this anchor tx.
+    pub leaves: Vec<String>,
+    /// 0x-prefixed per-agent sub-tree root anchored on-chain.
+    pub root: String,
+    /// On-chain StateAnchor.anchorRoot transaction hash.
+    pub tx_hash: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AnchorEventIngestResponse {
+    /// Rows inserted (leaves already recorded are skipped idempotently).
+    pub recorded: u64,
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/audit/anchor",
+    request_body = AnchorEventIngestRequest,
+    responses(
+        (status = 200, description = "Anchor events recorded", body = AnchorEventIngestResponse),
+    ),
+    tag = "audit",
+)]
+pub async fn ingest_anchor_events(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<AnchorEventIngestRequest>,
+) -> Result<Json<AnchorEventIngestResponse>, AppError> {
+    check_internal_api_rate_limit(&state).await?;
+    check_oracle_api_key(&state, &headers)?;
+
+    let recorded =
+        db::insert_anchor_events(&state.pool, &req.agent_id, &req.leaves, &req.root, &req.tx_hash)
+            .await?;
+    Ok(Json(AnchorEventIngestResponse { recorded }))
+}
+
+// Provenance: an agent's on-chain-anchored history (Class B, docs/design/
+// dashboard-wiring.md). Reuses anchor_events + audit_log -- no chain call.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ProvenanceEntryDto {
+    pub id: String,
+    pub agent_id: String,
+    /// The committed intent type (the "action"), when the anchored leaf joins to
+    /// an audit_log decision row.
+    pub intent_type: Option<String>,
+    /// 0x keccak Merkle leaf of the committed intent (the provenance input hash).
+    pub leaf: String,
+    /// 0x per-agent StateAnchor root the leaf was committed under.
+    pub root: String,
+    /// On-chain StateAnchor.anchorRoot transaction hash.
+    pub tx_hash: String,
+    /// The policy decision that produced the leaf (allow / shadow_deny / …), if joined.
+    pub decision: Option<String>,
+    pub anchored_at: String,
+    pub created_at: Option<String>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/agent/{id}/provenance",
+    params(("id" = String, Path, description = "Agent DID")),
+    responses(
+        (status = 200, description = "The agent's on-chain-anchored provenance chain", body = Vec<ProvenanceEntryDto>),
+    ),
+    tag = "audit",
+)]
+pub async fn get_provenance(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<ProvenanceEntryDto>>, AppError> {
+    let rows = db::get_agent_provenance(&state.pool, &id, 100).await?;
+    let entries = rows
+        .into_iter()
+        .map(|r| ProvenanceEntryDto {
+            id: r.id.to_string(),
+            agent_id: r.agent_id,
+            intent_type: r.intent_type,
+            leaf: r.leaf,
+            root: r.root,
+            tx_hash: r.tx_hash,
+            decision: r.decision,
+            anchored_at: r.anchored_at.to_rfc3339(),
+            created_at: r.created_at.map(|t| t.to_rfc3339()),
+        })
+        .collect();
+    Ok(Json(entries))
+}
+
+// Real on-chain stake (Class B, docs/design/dashboard-wiring.md). Reads the
+// agent's own Slasher clone. U256 values are serialized as decimal strings (wei
+// of $ITK) -- same convention as the market DTOs -- since they can exceed a
+// JSON-safe integer.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct StakeDto {
+    pub agent_id: String,
+    pub total_stake: String,
+    pub locked_stake: String,
+    pub available_stake: String,
+    /// Count of the agent's currently-open (unresolved) slashing disputes. The
+    /// dashboard sums this across its agent loop for a real protocol-wide
+    /// `active_disputes` with no extra fan-out (Slashers are per-agent clones with
+    /// no singleton dispute index) — see docs/design/dashboard-wiring.md.
+    pub open_disputes: u64,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/agent/{id}/stake",
+    params(("id" = String, Path, description = "Agent DID")),
+    responses(
+        (status = 200, description = "The agent's on-chain stake accounting", body = StakeDto),
+    ),
+    tag = "agent",
+)]
+pub async fn get_stake(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<StakeDto>, AppError> {
+    // Resolve the agent's own Slasher clone + staker address live from the
+    // registry (never guessed), then read its real stake accounting.
+    let record = state.chain.resolve_primitives_by_did(&id).await?;
+    let stake = state
+        .chain
+        .read_stake(record.primitives.slasher, record.primitives.sovereign_agent)
+        .await?;
+    Ok(Json(StakeDto {
+        agent_id: id,
+        total_stake: stake.total.to_string(),
+        locked_stake: stake.locked.to_string(),
+        available_stake: stake.available.to_string(),
+        open_disputes: stake.open_disputes,
+    }))
+}
+
+// Real capital position (Class B) aggregated from the A2ACapitalPool for the
+// agent. U256 as decimal strings (wei of $ITK). `escrowed` is the agent's live
+// available capital line; `released` has been disbursed.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct CreditDto {
+    pub agent_id: String,
+    pub total_allocated: String,
+    pub escrowed: String,
+    pub released: String,
+    pub clawed_back: String,
+    pub breached: String,
+    pub allocation_count: u64,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/agent/{id}/credit",
+    params(("id" = String, Path, description = "Agent DID")),
+    responses(
+        (status = 200, description = "The agent's aggregated A2ACapitalPool position", body = CreditDto),
+    ),
+    tag = "agent",
+)]
+pub async fn get_credit(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<CreditDto>, AppError> {
+    let pool = state
+        .chain
+        .a2a_capital_pool()
+        .ok_or(crate::chain::ChainError::MissingSingleton("A2ACapitalPool"))?;
+    let record = state.chain.resolve_primitives_by_did(&id).await?;
+    let credit = state
+        .chain
+        .read_credit(pool, record.primitives.sovereign_agent)
+        .await?;
+    Ok(Json(CreditDto {
+        agent_id: id,
+        total_allocated: credit.total_allocated.to_string(),
+        escrowed: credit.escrowed.to_string(),
+        released: credit.released.to_string(),
+        clawed_back: credit.clawed_back.to_string(),
+        breached: credit.breached.to_string(),
+        allocation_count: credit.allocation_count,
+    }))
+}
+
+/// `MarketDetail` (live chain read) -> `MarketSummaryDto`, mirroring
+/// `market_cache_row_to_dto`'s conventions (lowercase 0x-addresses, decimal-string
+/// uint256s, `winning_outcome` only when resolved) so a market looks identical whether
+/// it comes from the cache or a direct read.
+fn market_detail_to_dto(detail: MarketDetail) -> Result<MarketSummaryDto, AppError> {
+    let resolve_deadline = chrono::DateTime::<Utc>::from_timestamp(detail.resolve_deadline.to::<u64>() as i64, 0)
+        .ok_or_else(|| AppError::Internal(anyhow::anyhow!("resolve_deadline out of range")))?;
+    Ok(MarketSummaryDto {
+        address: format!("{:#x}", detail.address),
+        creator: format!("{:#x}", detail.creator),
+        question: detail.question,
+        outcome_count: detail.outcome_count,
+        min_ais_to_enter: detail.min_ais_to_enter.to_string(),
+        resolve_deadline,
+        resolved: detail.resolved,
+        winning_outcome: if detail.resolved { Some(detail.winning_outcome) } else { None },
+        total_staked: detail.total_staked.to_string(),
+        outcome_staked: detail.outcome_staked.iter().map(|v| v.to_string()).collect(),
+    })
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/agent/{id}/contracts",
+    params(("id" = String, Path, description = "Agent DID")),
+    responses((status = 200, description = "IntegrityMarket contracts this agent deployed and owns", body = Vec<MarketSummaryDto>)),
+    tag = "markets",
+)]
+pub async fn get_agent_contracts(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<MarketSummaryDto>>, AppError> {
+    // Real "contracts an agent owns": the IntegrityMarket clones it deployed via
+    // MarketFactory (marketsByCreator, keyed on the agent's SovereignAgent). Read live —
+    // there's no per-agent cache table for this, and the set is small per agent.
+    let record = state.chain.resolve_primitives_by_did(&id).await?;
+    let addresses = state.chain.markets_by_creator(record.primitives.sovereign_agent).await?;
+    let details = state.chain.read_markets(&addresses).await;
+    let dtos: Result<Vec<_>, _> = details.into_iter().map(market_detail_to_dto).collect();
+    Ok(Json(dtos?))
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct BaaDto {
+    pub address: String,
+    pub covered_entity: String,
+    pub business_associate: String,
+    pub agreement_hash: String,
+    /// Decimal string, uint256 wei of $ITK (SmartBAA.requiredCollateral).
+    pub required_collateral: String,
+    /// SmartBAA.Status: Proposed | Active | Disputed | Terminated.
+    pub status: String,
+}
+
+/// Issues a signed W3C Verifiable Credential (AgentIntegrityCredential) for the agent's
+/// current AIS + verification tier. Real Ed25519 proof via the oracle's issuer key — see
+/// `crate::vc`. Returned as a raw JSON-LD credential (no fixed ToSchema, so no utoipa doc).
+pub async fn get_agent_vc(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let ais = compute_ais_for_agent(&state, &id).await?;
+    let tier = db::get_agent(&state.pool, &id)
+        .await?
+        .map(|a| a.verification_tier)
+        .unwrap_or(0);
+    Ok(Json(crate::vc::issue_vc(&id, ais.ais.round() as i64, tier)))
+}
+
+/// Network-wide model/provider stability benchmark (aggregated telemetry per model).
+#[derive(Debug, Serialize, ToSchema)]
+pub struct BenchmarkDto {
+    pub model_name: String,
+    pub provider_name: String,
+    /// Simulated AIS on the 0-1000 scale from this model's stability + grounding.
+    pub simulated_ais: i64,
+    /// Behavioral stability in [0,1] = exp(-1.5 * avg_variance^2) (mirrors the entropy score).
+    pub stability_metric: f64,
+    /// Average grounding (HGI) in [0,1].
+    pub grounding_metric: f64,
+    pub sample_count: i64,
+}
+
+fn provider_for(model: &str) -> &'static str {
+    let m = model.to_lowercase();
+    if m.contains("claude") || m.contains("opus") || m.contains("sonnet") || m.contains("haiku") || m.contains("fable") {
+        "Anthropic"
+    } else if m.contains("gpt") || m.starts_with("o1") || m.starts_with("o3") {
+        "OpenAI"
+    } else if m.contains("gemini") {
+        "Google"
+    } else if m.contains("llama") {
+        "Meta"
+    } else if m.contains("mistral") {
+        "Mistral"
+    } else {
+        "Unknown"
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/benchmarks",
+    responses((status = 200, description = "Model/provider stability benchmarks (network-wide telemetry aggregate)", body = Vec<BenchmarkDto>)),
+    tag = "ais",
+)]
+pub async fn get_benchmarks(State(state): State<AppState>) -> Result<Json<Vec<BenchmarkDto>>, AppError> {
+    let rows = db::benchmark_by_model(&state.pool).await?;
+    let dtos = rows
+        .into_iter()
+        .map(|(model, avg_var, avg_ground, n)| {
+            let stability = (-1.5 * avg_var * avg_var).exp().clamp(0.0, 1.0);
+            let grounding = avg_ground.clamp(0.0, 1.0);
+            BenchmarkDto {
+                provider_name: provider_for(&model).to_string(),
+                model_name: model,
+                simulated_ais: ((stability * 500.0) + (grounding * 500.0)) as i64,
+                stability_metric: stability,
+                grounding_metric: grounding,
+                sample_count: n,
+            }
+        })
+        .collect();
+    Ok(Json(dtos))
+}
+
+fn baa_status_str(s: u8) -> &'static str {
+    match s {
+        0 => "Proposed",
+        1 => "Active",
+        2 => "Disputed",
+        3 => "Terminated",
+        _ => "Unknown",
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/agent/{id}/baas",
+    params(("id" = String, Path, description = "Agent DID")),
+    responses((status = 200, description = "SmartBAA agreements where this agent is the business associate", body = Vec<BaaDto>)),
+    tag = "health",
+)]
+pub async fn get_agent_baas(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<BaaDto>>, AppError> {
+    let factory = state
+        .chain
+        .smart_baa_factory()
+        .ok_or(crate::chain::ChainError::MissingSingleton("SmartBAAFactory"))?;
+    let record = state.chain.resolve_primitives_by_did(&id).await?;
+    let baas = state
+        .chain
+        .read_baas_for_agent(factory, record.primitives.sovereign_agent)
+        .await?;
+    let dtos = baas
+        .into_iter()
+        .map(|b| BaaDto {
+            address: format!("{:#x}", b.address),
+            covered_entity: format!("{:#x}", b.covered_entity),
+            business_associate: format!("{:#x}", b.business_associate),
+            agreement_hash: format!("{:#x}", b.agreement_hash),
+            required_collateral: b.required_collateral.to_string(),
+            status: baa_status_str(b.status).to_string(),
+        })
+        .collect();
+    Ok(Json(dtos))
+}
+
+// ---- XNS (XibalbaNameService) read endpoints -------------------------------------------
+// Handle→SovereignAgent and SovereignAgent→primary-handle resolution, read live from the
+// deployed XibalbaNameService singleton. Returns 400 (MissingSingleton) until the contract is
+// deployed and wired into deployments.*.json — an honest "not yet deployed", not a mock.
+
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct XnsResolveQuery {
+    /// Human-readable handle to resolve (without a leading @), e.g. "atlas".
+    pub handle: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct XnsResolveDto {
+    pub handle: String,
+    /// SovereignAgent address the handle points at, or null if unregistered.
+    pub sovereign_agent: Option<String>,
+    /// DID (did:integrity:<sovereign_agent>) when a reverse mapping exists in the oracle DB.
+    pub did: Option<String>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/xns/resolve",
+    params(XnsResolveQuery),
+    responses((status = 200, description = "Resolve an XNS handle to its SovereignAgent", body = XnsResolveDto)),
+    tag = "identity",
+)]
+pub async fn get_xns_resolve(
+    State(state): State<AppState>,
+    Query(q): Query<XnsResolveQuery>,
+) -> Result<Json<XnsResolveDto>, AppError> {
+    let xns = state
+        .chain
+        .xibalba_name_service()
+        .ok_or(crate::chain::ChainError::MissingSingleton("XibalbaNameService"))?;
+    let handle = q.handle.trim_start_matches('@').to_string();
+    let addr = state.chain.resolve_handle(xns, &handle).await?;
+    let sovereign_agent = if addr.is_zero() {
+        None
+    } else {
+        Some(format!("{addr:#x}"))
+    };
+    // Reverse the SovereignAgent to a known DID via the oracle DB (best-effort).
+    let did = match &sovereign_agent {
+        Some(sa) => db::did_by_sovereign_agent(&state.pool, sa).await?,
+        None => None,
+    };
+    Ok(Json(XnsResolveDto {
+        handle,
+        sovereign_agent,
+        did,
+    }))
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AgentHandleDto {
+    pub did: String,
+    /// Primary handle registered for this agent's SovereignAgent, or null if none.
+    pub handle: Option<String>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/agent/{id}/handle",
+    params(("id" = String, Path, description = "Agent DID")),
+    responses((status = 200, description = "Primary XNS handle for the agent", body = AgentHandleDto)),
+    tag = "identity",
+)]
+pub async fn get_agent_handle(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<AgentHandleDto>, AppError> {
+    let xns = state
+        .chain
+        .xibalba_name_service()
+        .ok_or(crate::chain::ChainError::MissingSingleton("XibalbaNameService"))?;
+    let record = state.chain.resolve_primitives_by_did(&id).await?;
+    let handle = state
+        .chain
+        .primary_handle(xns, record.primitives.sovereign_agent)
+        .await?;
+    let handle = if handle.is_empty() { None } else { Some(handle) };
+    Ok(Json(AgentHandleDto { did: id, handle }))
+}
+
+// ---- Governance read endpoint ----------------------------------------------------------
+// Live enumeration of IntegrityGovernance proposals. Returns 400 (MissingSingleton) until the
+// contract is deployed and wired into deployments.*.json — an honest "governance not live yet",
+// never a fabricated proposal list.
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ProposalDto {
+    pub id: u64,
+    pub proposer: String,
+    pub target: String,
+    /// Decimal string, uint256 wei of native value the action would send (usually "0").
+    pub value: String,
+    pub start_time: u64,
+    pub end_time: u64,
+    /// Timelock ETA (unix seconds); 0 until queued.
+    pub eta: u64,
+    /// Decimal string, wei of ITK locked FOR.
+    pub for_votes: String,
+    /// Decimal string, wei of ITK locked AGAINST.
+    pub against_votes: String,
+    /// Active | Defeated | Succeeded | Queued | Executed | Expired | Canceled.
+    pub state: String,
+    pub description: String,
+}
+
+fn proposal_state_str(s: u8) -> &'static str {
+    match s {
+        0 => "Active",
+        1 => "Defeated",
+        2 => "Succeeded",
+        3 => "Queued",
+        4 => "Executed",
+        5 => "Expired",
+        6 => "Canceled",
+        _ => "Unknown",
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/governance/proposals",
+    responses((status = 200, description = "IntegrityGovernance proposals (newest first)", body = Vec<ProposalDto>)),
+    tag = "governance",
+)]
+pub async fn get_governance_proposals(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<ProposalDto>>, AppError> {
+    let gov = state
+        .chain
+        .integrity_governance()
+        .ok_or(crate::chain::ChainError::MissingSingleton("IntegrityGovernance"))?;
+    let proposals = state.chain.read_proposals(gov).await?;
+    let dtos = proposals
+        .into_iter()
+        .map(|p| ProposalDto {
+            id: p.id,
+            proposer: format!("{:#x}", p.proposer),
+            target: format!("{:#x}", p.target),
+            value: p.value.to_string(),
+            start_time: p.start_time,
+            end_time: p.end_time,
+            eta: p.eta,
+            for_votes: p.for_votes.to_string(),
+            against_votes: p.against_votes.to_string(),
+            state: proposal_state_str(p.state).to_string(),
+            description: p.description,
+        })
+        .collect();
+    Ok(Json(dtos))
+}
+
+// Protocol-wide aggregates (Class B, docs/design/dashboard-wiring.md). Deliberately
+// the *minimal supplement* to what the dashboard already derives client-side from its
+// per-agent loop (`active_nodes`, `aggregate_ais`, `protocol_staked_itk`,
+// `total_contracts`, and — summing StakeDto.open_disputes — `active_disputes`). This
+// endpoint only sources the fields that need a singleton read the dashboard can't cheaply
+// derive: marketplace volume (sum of cached market total_staked) and the A2ACapitalPool
+// totals (one unfiltered scan of the singleton pool). `tvl` is composed client-side as
+// protocol_staked_itk + escrowed_credit + total_marketplace_volume so there is exactly one
+// source of truth for stake. All amounts are decimal-string wei of $ITK.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct StatsDto {
+    /// Number of prediction markets in the cached index.
+    pub market_count: u64,
+    /// Sum of `total_staked` across every market (pari-mutuel volume).
+    pub total_marketplace_volume: String,
+    /// A2ACapitalPool: capital currently escrowed (live available lines) across all agents.
+    pub escrowed_credit: String,
+    /// A2ACapitalPool: capital disbursed ("borrowed") across all agents — the real
+    /// `total_loans_volume`.
+    pub released_credit: String,
+    /// A2ACapitalPool: number of allocations scanned.
+    pub allocation_count: u64,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/stats",
+    responses((status = 200, description = "Protocol-wide singleton aggregates (marketplace + capital pool)", body = StatsDto)),
+    tag = "ais",
+)]
+pub async fn get_stats(State(state): State<AppState>) -> Result<Json<StatsDto>, AppError> {
+    // Marketplace volume from the cached market index (refresh honoring the same
+    // staleness window the market/leaderboard reads use — no per-hit fan-out).
+    refresh_markets_index_if_stale(&state).await?;
+    let markets = db::list_market_cache(&state.pool).await?;
+    let market_count = markets.len() as u64;
+    let total_marketplace_volume: alloy::primitives::U256 = markets
+        .iter()
+        .map(|m| alloy::primitives::U256::from_str(&m.total_staked).unwrap_or_default())
+        .fold(alloy::primitives::U256::ZERO, |acc, v| acc + v);
+
+    // A2ACapitalPool totals: one unfiltered scan of the singleton pool (not an
+    // N-agent fan-out). If the market/capital layer isn't deployed on this network,
+    // the pool contributes zeros rather than failing the whole endpoint.
+    let pool_totals = match state.chain.a2a_capital_pool() {
+        Some(pool) => state.chain.read_pool_totals(pool).await?,
+        None => crate::chain::CreditInfo::default(),
+    };
+
+    Ok(Json(StatsDto {
+        market_count,
+        total_marketplace_volume: total_marketplace_volume.to_string(),
+        escrowed_credit: pool_totals.escrowed.to_string(),
+        released_credit: pool_totals.released.to_string(),
+        allocation_count: pool_totals.allocation_count,
+    }))
+}
+
+/// Real "shadow AI" discovery (Shield vertical): DIDs the oracle has telemetry/policy
+/// evidence for (`otel_spans`, `audit_log`) but that never registered via
+/// `POST /v1/agent/register`. See `db::list_unregistered_agents`'s doc comment for why
+/// this is the correctly-scoped, zero-new-infra version of this feature rather than
+/// literal network/process scanning (out of scope for a web app regardless).
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct UnregisteredAgentDto {
+    pub agent_id: String,
+    /// "otel" | "audit_log" — which table this DID was first observed in.
+    pub source: String,
+    pub first_seen: String,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/shield/unregistered-agents",
+    responses(
+        (status = 200, description = "DIDs with telemetry/audit evidence but no agent registration", body = Vec<UnregisteredAgentDto>),
+    ),
+    tag = "audit",
+)]
+pub async fn get_unregistered_agents(State(state): State<AppState>) -> Result<Json<Vec<UnregisteredAgentDto>>, AppError> {
+    let rows = db::list_unregistered_agents(&state.pool).await?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| UnregisteredAgentDto {
+                agent_id: r.agent_id,
+                source: r.source,
+                first_seen: r.first_seen.to_rfc3339(),
+            })
+            .collect(),
+    ))
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct AuditLogEntryDto {
+    pub id: String,
+    pub agent_id: Option<String>,
+    pub source: String,
+    pub event_type: String,
+    pub decision: String,
+    pub reason_code: Option<String>,
+    pub detail: Option<String>,
+    pub created_at: String,
+    // Evidence-export linkage (docs/design/evidence-export.md): for an ALLOW
+    // decision whose Merkle leaf has been anchored on-chain, these carry the
+    // per-agent StateAnchor root + transaction that committed it (LEFT JOINed
+    // from `anchor_events` on `metadata->>'leaf'`). Absent for un-anchored or
+    // non-BCC rows. Omitted from JSON when null so existing consumers are
+    // unaffected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub anchor_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub anchor_tx_hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub anchored_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AuditLogQuery {
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+/// Merges three real event streams into one time-ordered feed -- the genuine
+/// "everything logged" table a manual-debugging view needs, not just policy
+/// decisions: `audit_log` (BCC intercept decisions -- the only source with an
+/// explicit allow/deny verdict), `telemetry_events` (SDK-submitted telemetry,
+/// surfaced as "flagged"/"recorded" so a compliance operator sees
+/// signature-verified-but-suspicious submissions alongside policy denials),
+/// and `otel_spans` (every real span, flat, `decision` repurposed as the
+/// span's own real status_code). Merged in Rust rather than a single SQL
+/// UNION because the three source tables don't share a column shape and
+/// coercing them into one query would obscure more than it saves — see each
+/// table's own migration for why they're separate to begin with. The
+/// telemetry_events and otel_spans sides only mix in when `agent_id` is
+/// given: neither table has an existing "recent across all agents" query
+/// (both underlying db:: functions are always agent-scoped), so the global
+/// feed (no agent_id) is audit_log only rather than paying for a new
+/// unscoped scan just for this one aggregate view.
+#[utoipa::path(
+    get,
+    path = "/v1/audit-log",
+    params(
+        ("agent_id" = Option<String>, Query, description = "Filter to one agent's DID; omit for the global feed"),
+        ("limit" = Option<i64>, Query, description = "Max entries per source table before merging (default 100)"),
+    ),
+    responses(
+        (status = 200, description = "Real, time-ordered log merging BCC decisions, SDK telemetry, and OTel spans", body = Vec<AuditLogEntryDto>),
+    ),
+    tag = "audit",
+)]
+pub async fn get_audit_log(
+    State(state): State<AppState>,
+    Query(query): Query<AuditLogQuery>,
+) -> Result<Json<Vec<AuditLogEntryDto>>, AppError> {
+    let limit = query.limit.unwrap_or(100).clamp(1, 500);
+    let agent_id = query.agent_id.as_deref();
+
+    let decisions = db::get_recent_audit_log(&state.pool, agent_id, limit).await?;
+    let mut entries: Vec<AuditLogEntryDto> = decisions
+        .into_iter()
+        .map(|r| AuditLogEntryDto {
+            id: r.id.to_string(),
+            agent_id: r.agent_id,
+            source: r.source,
+            event_type: r.event_type,
+            decision: r.decision,
+            reason_code: r.reason_code,
+            detail: r.detail,
+            created_at: r.created_at.to_rfc3339(),
+            anchor_root: r.anchor_root,
+            anchor_tx_hash: r.anchor_tx_hash,
+            anchored_at: r.anchored_at.map(|t| t.to_rfc3339()),
+        })
+        .collect();
+
+    if let Some(aid) = agent_id {
+        let telemetry = db::get_recent_telemetry(&state.pool, aid, limit).await?;
+        entries.extend(telemetry.into_iter().map(|e| AuditLogEntryDto {
+            id: e.id.to_string(),
+            agent_id: Some(e.agent_id),
+            source: "sdk_telemetry".to_string(),
+            event_type: "telemetry_event".to_string(),
+            decision: if e.flagged { "flagged".to_string() } else { "recorded".to_string() },
+            reason_code: None,
+            detail: Some(format!(
+                "nonce={} performance_variance={:.3} hgi_raw={:.3} zk_verified={}",
+                e.nonce, e.performance_variance, e.hgi_raw, e.zk_verified
+            )),
+            created_at: e.created_at.to_rfc3339(),
+            anchor_root: None,
+            anchor_tx_hash: None,
+            anchored_at: None,
+        }));
+
+        // Third real source: OTel spans, flat (not trace-tree-grouped) --
+        // makes this the genuine "everything logged for this agent" feed a
+        // manual-debugging table needs, not just policy decisions and
+        // telemetry submissions. `decision` here isn't an authorization
+        // verdict (spans don't have one) -- it's the span's own real
+        // `status_code` (STATUS_CODE_OK/ERROR/UNSET), which is the closest
+        // real analog: did this unit of work report success or failure.
+        let spans = db::get_recent_spans_flat(&state.pool, aid, limit).await?;
+        entries.extend(spans.into_iter().map(|s| {
+            let duration_ms = (s.end_time - s.start_time).num_milliseconds();
+            AuditLogEntryDto {
+                id: s.id.to_string(),
+                agent_id: Some(s.agent_id),
+                source: "otel_span".to_string(),
+                event_type: s.name,
+                decision: s.status_code,
+                reason_code: s.parent_span_id,
+                detail: Some(format!("trace_id={} duration_ms={}", s.trace_id, duration_ms)),
+                created_at: s.created_at.to_rfc3339(),
+                anchor_root: None,
+                anchor_tx_hash: None,
+                anchored_at: None,
+            }
+        }));
+    }
+
+    entries.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    entries.truncate(limit as usize);
+    Ok(Json(entries))
+}
+
+// ---------------------------------------------------------------------------------
 // Historical/bucketed endpoints (PRODUCTION_GAPS.md §1 items 2-3): AIS trend,
 // telemetry volume, OTLP span volume — the Finance/Intelligence/SdkTelemetry pages'
 // chart data source, backed by migration 0004's `time_bucket` queries.
@@ -1479,6 +2544,122 @@ fn parse_bucket_interval(raw: Option<&str>) -> Result<&'static str, AppError> {
 /// `compute_ais_for_agent`'s 30-day (`AIS_REPORTING_PERIOD_DAYS`) scoring window — the
 /// two are read for different purposes (a chart's default view vs. the score itself)
 /// and don't need to share a constant.
+// ---------------------------------------------------------------------------------
+// GET /v1/agent/{id}/usage  +  /v1/agent/{id}/events  — vendor OTLP telemetry readback
+// ---------------------------------------------------------------------------------
+
+/// Token and cost rollup for an agent, from the OTLP metrics receiver (`otel_metrics`).
+///
+/// `tokens` is keyed by the emitter's token `type` attribute, so Claude Code yields
+/// `input` / `output` / `cacheRead` / `cacheCreation` — the breakdown the signed telemetry
+/// path cannot supply, since providers report cache and reasoning tokens only in their own
+/// usage objects.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AgentUsageDto {
+    pub agent_id: String,
+    /// token type -> summed count over the window.
+    pub tokens: std::collections::BTreeMap<String, f64>,
+    pub total_tokens: f64,
+    /// model -> summed reported cost in USD.
+    pub cost_usd_by_model: std::collections::BTreeMap<String, f64>,
+    pub total_cost_usd: f64,
+    /// Always `"unsigned_vendor"`. This data arrives over the UNAUTHENTICATED OTLP port and
+    /// carries no agent signature, so it is deliberately NOT an AIS input — it is reported
+    /// here for observability and for cross-checking what an agent signs against what its
+    /// runtime reports. Surfaced in the response so a consumer cannot mistake it for
+    /// agent-attested evidence.
+    pub evidence_tier: String,
+    pub since: chrono::DateTime<Utc>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/agent/{id}/usage",
+    params(("id" = String, Path, description = "Agent DID")),
+    responses((status = 200, description = "Token/cost rollup from vendor OTLP metrics", body = AgentUsageDto)),
+    tag = "telemetry",
+)]
+pub async fn get_agent_usage(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<HistoryQuery>,
+) -> Result<Json<AgentUsageDto>, AppError> {
+    let since = query.since.unwrap_or_else(default_history_since);
+
+    let tokens: std::collections::BTreeMap<String, f64> =
+        db::agent_token_usage(&state.pool, &id, since).await?.into_iter().collect();
+    let cost_usd_by_model: std::collections::BTreeMap<String, f64> =
+        db::agent_cost_usage(&state.pool, &id, since).await?.into_iter().collect();
+
+    // Normalize negative zero: summing an empty set can yield -0.0, which serializes as
+    // "-0.0" and renders as "-0.0000" in a cost field. `-0.0 == 0.0` is true, so this
+    // comparison catches it without special-casing the sign bit.
+    fn no_neg_zero(v: f64) -> f64 {
+        if v == 0.0 { 0.0 } else { v }
+    }
+
+    Ok(Json(AgentUsageDto {
+        agent_id: id,
+        total_tokens: no_neg_zero(tokens.values().sum()),
+        total_cost_usd: no_neg_zero(cost_usd_by_model.values().sum()),
+        tokens,
+        cost_usd_by_model,
+        evidence_tier: crate::otlp::EVIDENCE_TIER_UNSIGNED_VENDOR.to_string(),
+        since,
+    }))
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AgentEventDto {
+    pub event_name: Option<String>,
+    pub severity_text: Option<String>,
+    pub body: Option<String>,
+    pub attributes: serde_json::Value,
+    pub trace_id: Option<String>,
+    pub span_id: Option<String>,
+    pub time: chrono::DateTime<Utc>,
+    pub evidence_tier: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema, utoipa::IntoParams)]
+pub struct EventsQuery {
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/agent/{id}/events",
+    params(("id" = String, Path, description = "Agent DID")),
+    responses((status = 200, description = "Recent structured events from vendor OTLP logs", body = Vec<AgentEventDto>)),
+    tag = "telemetry",
+)]
+pub async fn get_agent_events(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<EventsQuery>,
+) -> Result<Json<Vec<AgentEventDto>>, AppError> {
+    // Clamped, not merely defaulted: an unbounded `limit` on a hypertable scan is a trivial
+    // way to make this endpoint expensive from outside.
+    let limit = query.limit.unwrap_or(100).clamp(1, 500);
+
+    let rows = db::recent_otel_logs(&state.pool, &id, limit).await?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| AgentEventDto {
+                event_name: r.event_name,
+                severity_text: r.severity_text,
+                body: r.body,
+                attributes: r.attributes,
+                trace_id: r.trace_id,
+                span_id: r.span_id,
+                time: r.time,
+                evidence_tier: crate::otlp::EVIDENCE_TIER_UNSIGNED_VENDOR.to_string(),
+            })
+            .collect(),
+    ))
+}
+
 fn default_history_since() -> chrono::DateTime<Utc> {
     Utc::now() - chrono::Duration::days(7)
 }
@@ -1515,9 +2696,8 @@ pub async fn get_ais_history(
     Path(id): Path<String>,
     Query(query): Query<HistoryQuery>,
 ) -> Result<Json<Vec<AisHistoryPoint>>, AppError> {
-    if db::get_agent(&state.pool, &id).await?.is_none() {
-        return Err(AppError::AgentNotFound(id));
-    }
+    let agent = db::get_agent(&state.pool, &id).await?.ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+    let tier = agent.verification_tier;
 
     let bucket = parse_bucket_interval(query.bucket.as_deref())?;
     let since = query.since.unwrap_or_else(default_history_since);
@@ -1535,7 +2715,7 @@ pub async fn get_ais_history(
                 penalty_ratio: b.penalty_ratio,
                 zk_verified_this_period: b.zk_verified_this_period,
             };
-            let breakdown = engine.score(&inputs);
+            let breakdown = engine.score_with_tier(&inputs, tier);
             AisHistoryPoint {
                 bucket_start: b.bucket_start,
                 ais: breakdown.ais,
@@ -1632,6 +2812,49 @@ pub async fn get_otel_volume(
     Ok(Json(buckets))
 }
 
+#[derive(Debug, Serialize, ToSchema)]
+pub struct RecentTraceDto {
+    pub trace_id: String,
+    pub name: String,
+    pub start_time: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LimitQuery {
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/agent/{id}/otel/traces",
+    params(
+        ("id" = String, Path, description = "Agent DID"),
+        ("limit" = Option<i64>, Query, description = "Max traces to return (default 20)"),
+    ),
+    responses(
+        (status = 200, description = "Recent trace_ids for this agent (one row per root span, most recent first) — the list-discovery endpoint `GET /v1/traces/{trace_id}` itself never provided.", body = Vec<RecentTraceDto>),
+    ),
+    tag = "telemetry",
+)]
+pub async fn get_recent_traces(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<LimitQuery>,
+) -> Result<Json<Vec<RecentTraceDto>>, AppError> {
+    let limit = query.limit.unwrap_or(20).clamp(1, 200);
+    let rows = db::get_recent_root_spans(&state.pool, &id, limit).await?;
+    let dtos = rows
+        .into_iter()
+        .map(|r| RecentTraceDto {
+            trace_id: r.trace_id,
+            name: r.name,
+            start_time: r.start_time.to_rfc3339(),
+        })
+        .collect();
+    Ok(Json(dtos))
+}
+
 // ---------------------------------------------------------------------------------
 // GET /v1/traces/{trace_id} — LangSmith-style nested run-tree view over the real
 // OTLP spans in `otel_spans` (see `trace_tree.rs` for the tree-building logic).
@@ -1675,3 +2898,797 @@ pub async fn get_trace_tree(State(state): State<AppState>, Path(trace_id): Path<
     }))
 }
 
+
+// ---------------------------------------------------------------------------
+// Verification Ladder: rung 2 (DNS/GitHub) and rung 3 (Nitro TEE)
+// ---------------------------------------------------------------------------
+// `SERVER_VERIFIED_TIER` above is the REGISTRATION floor and stays a constant —
+// registration genuinely cannot establish more than tier 1. Rungs above it are
+// evidence-backed and live in `identity_verifications` (migration 0011), so the
+// tier an agent actually gets is the floor unioned with its active verifications.
+// Because that union is computed from live rows with expiry applied in SQL, a
+// lapsed domain lowers the tier on its own rather than needing a sweep job.
+
+#[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
+pub struct DnsChallengeRequest {
+    /// Domain the agent claims to control, e.g. "xibalbatechsol.com".
+    pub domain: String,
+}
+
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct DnsChallengeResponse {
+    pub domain: String,
+    pub nonce: String,
+    /// The exact string to sign with the agent's Ed25519 key.
+    pub message_to_sign: String,
+    /// Where to publish, and what the value must look like once signed.
+    pub txt_record_name: String,
+    pub txt_record_value_format: String,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Issue a DNS challenge. The nonce is generated SERVER-SIDE and stored; a client
+/// cannot choose it, which is what stops a TXT record published once from
+/// verifying forever.
+pub async fn request_dns_challenge(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<DnsChallengeRequest>,
+) -> Result<Json<DnsChallengeResponse>, AppError> {
+    use crate::verification as v;
+
+    let domain = req.domain.trim().to_lowercase();
+    v::validate_domain(&domain).map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    let agent = db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+    if agent.ed25519_pubkey.is_none() {
+        return Err(AppError::BadRequest(
+            "agent has no Ed25519 key registered; DNS verification signs with that key".to_string(),
+        ));
+    }
+
+    let nonce = uuid::Uuid::new_v4().simple().to_string();
+    let expires_at =
+        db::issue_dns_challenge(&state.pool, &id, &domain, &nonce, v::CHALLENGE_TTL_MINUTES).await?;
+
+    Ok(Json(DnsChallengeResponse {
+        message_to_sign: v::challenge_message(&id, &domain, &nonce),
+        txt_record_name: format!("_integrity.{domain}"),
+        txt_record_value_format: v::expected_txt_record("<hex-ed25519-signature>"),
+        domain,
+        nonce,
+        expires_at,
+    }))
+}
+
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct VerificationResponse {
+    pub agent_id: String,
+    pub method: String,
+    pub subject: String,
+    pub tier_granted: i32,
+    pub effective_tier: i32,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Verify a previously-issued DNS challenge and grant tier 2 on success.
+///
+/// Every input to the verdict is server-held: the nonce came from our DB, the
+/// public key came from registration, and the TXT record is resolved by us over
+/// DoH from two independent resolvers that must agree. The request body only says
+/// *which* domain to look at.
+pub async fn verify_dns(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<DnsChallengeRequest>,
+) -> Result<Json<VerificationResponse>, AppError> {
+    use crate::verification as v;
+
+    let domain = req.domain.trim().to_lowercase();
+    v::validate_domain(&domain).map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    let agent = db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+    let pubkey = agent
+        .ed25519_pubkey
+        .ok_or_else(|| AppError::BadRequest("agent has no Ed25519 key registered".to_string()))?;
+
+    let nonce = db::get_active_dns_challenge(&state.pool, &id, &domain)
+        .await?
+        .ok_or_else(|| {
+            AppError::BadRequest(
+                "no active challenge for this domain — POST /verify/dns/challenge first \
+                 (challenges expire, by design)"
+                    .to_string(),
+            )
+        })?;
+
+    // A dedicated client rather than a shared one on AppState: domain
+    // verification is a rare, human-initiated operation (not a hot path), and the
+    // timeouts it wants are stricter than a general-purpose client's — a DoH
+    // lookup that hangs must fail the verification quickly rather than occupy a
+    // request worker.
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .user_agent("integrity-oracle/domain-verification")
+        .build()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("http client: {e}")))?;
+
+    let records = v::resolve_verification_txt(&http, &domain)
+        .await
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    let signature = v::verify_txt_records(&records, &pubkey, &id, &domain, &nonce)
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    let expires_at = chrono::Utc::now() + chrono::Duration::days(v::DNS_VERIFICATION_TTL_DAYS);
+    let evidence = serde_json::to_value(v::dns_evidence(&domain, &signature, &nonce))
+        .unwrap_or_else(|_| serde_json::json!({"domain": domain}));
+
+    let row = db::record_identity_verification(
+        &state.pool,
+        &id,
+        "dns_txt",
+        v::TIER_DNS_VERIFIED,
+        &domain,
+        evidence,
+        Some(expires_at),
+    )
+    .await?;
+
+    // Consume only AFTER the verification is durably recorded. Consuming first
+    // would burn the nonce on a DB failure and force the operator to re-publish
+    // a new TXT record for a proof that actually succeeded.
+    db::consume_dns_challenge(&state.pool, &id, &domain).await?;
+
+    let effective =
+        db::effective_verification_tier(&state.pool, &id, agent.verification_tier).await?;
+
+    tracing::info!(agent_id = %id, %domain, effective_tier = effective, "DNS verification granted");
+
+    Ok(Json(VerificationResponse {
+        agent_id: id,
+        method: row.method,
+        subject: row.subject,
+        tier_granted: row.tier_granted,
+        effective_tier: effective,
+        expires_at: row.expires_at,
+    }))
+}
+
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct VerificationListResponse {
+    pub agent_id: String,
+    pub registration_tier: i32,
+    pub effective_tier: i32,
+    /// `verified` = earned through registration + unexpired evidence.
+    /// `dev_override` = ASSERTED by local configuration and not proven. Always
+    /// present so a consumer never has to infer which kind of tier this is.
+    pub tier_source: crate::verification::TierSource,
+    /// AIS ceiling implied by `effective_tier` — surfaced because the ceiling
+    /// silently binding is exactly how this whole subsystem's absence went
+    /// unnoticed (raw AIS 704 reported as 600, ZK boost worth nothing).
+    pub ais_ceiling: f64,
+    pub verifications: Vec<db::IdentityVerificationRow>,
+}
+
+pub async fn get_verifications(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<VerificationListResponse>, AppError> {
+    let agent = db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+    let verifications = db::list_identity_verifications(&state.pool, &id).await?;
+    let (effective, tier_source) =
+        db::effective_tier_with_source(&state.pool, &id, agent.verification_tier).await?;
+
+    Ok(Json(VerificationListResponse {
+        agent_id: id,
+        registration_tier: agent.verification_tier,
+        effective_tier: effective,
+        tier_source,
+        ais_ceiling: scoring_core::AisEngine::ceiling_for_tier(effective),
+        verifications,
+    }))
+}
+
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct VerificationRevocationChallengeResponse {
+    pub agent_id: String,
+    pub verification_id: i64,
+    pub nonce: String,
+    /// The reason is chosen when submitting the revocation and is encoded into
+    /// the signed message. This template pins the cross-client wire format.
+    pub message_format: String,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
+pub struct VerificationRevocationRequest {
+    /// Hex Ed25519 signature by the key registered for this DID.
+    pub signature: String,
+    /// Human-readable audit reason. It is part of the signed message and is
+    /// stored on the evidence row; raw credentials or PII do not belong here.
+    #[serde(default = "default_revocation_reason")]
+    pub reason: String,
+}
+
+fn default_revocation_reason() -> String {
+    "agent-requested".to_string()
+}
+
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct VerificationRevocationResponse {
+    pub agent_id: String,
+    pub verification_id: i64,
+    pub revoked_at: chrono::DateTime<chrono::Utc>,
+    pub revoked_reason: String,
+    pub effective_tier: i32,
+}
+
+/// Issue a fresh nonce for revoking one evidence row. Issuing a challenge is
+/// harmless without the agent's private key; the subsequent request is what
+/// authorizes the state change.
+pub async fn request_verification_revocation_challenge(
+    State(state): State<AppState>,
+    Path((id, verification_id)): Path<(String, i64)>,
+) -> Result<Json<VerificationRevocationChallengeResponse>, AppError> {
+    use crate::verification as v;
+
+    let agent = db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+    if agent.ed25519_pubkey.is_none() {
+        return Err(AppError::BadRequest(
+            "agent has no Ed25519 key registered; revocation requires its signature".to_string(),
+        ));
+    }
+    db::get_revocable_identity_verification(&state.pool, &id, verification_id)
+        .await?
+        .ok_or_else(|| AppError::BadRequest(
+            "verification does not exist for this agent or is already revoked".to_string(),
+        ))?;
+
+    let subject = format!("revoke:{verification_id}");
+    let nonce = uuid::Uuid::new_v4().simple().to_string();
+    let expires_at =
+        db::issue_dns_challenge(&state.pool, &id, &subject, &nonce, v::CHALLENGE_TTL_MINUTES).await?;
+
+    Ok(Json(VerificationRevocationChallengeResponse {
+        agent_id: id,
+        verification_id,
+        nonce,
+        message_format: "integrity-verification-revoke:v1:<did>:<verification_id>:<nonce>:<hex-utf8-reason>".to_string(),
+        expires_at,
+    }))
+}
+
+/// Revoke one verification with a fresh, agent-signed challenge. The evidence
+/// is retained, not deleted, and effective tier drops immediately because every
+/// tier read filters `revoked_at IS NULL`.
+pub async fn revoke_verification(
+    State(state): State<AppState>,
+    Path((id, verification_id)): Path<(String, i64)>,
+    Json(req): Json<VerificationRevocationRequest>,
+) -> Result<Json<VerificationRevocationResponse>, AppError> {
+    use crate::verification as v;
+
+    let reason = req.reason.trim();
+    if reason.is_empty() || reason.len() > 500 {
+        return Err(AppError::BadRequest(
+            "revocation reason must contain 1-500 UTF-8 bytes".to_string(),
+        ));
+    }
+    let agent = db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+    let pubkey = agent.ed25519_pubkey.as_deref().ok_or_else(|| {
+        AppError::BadRequest("agent has no Ed25519 key registered".to_string())
+    })?;
+    db::get_revocable_identity_verification(&state.pool, &id, verification_id)
+        .await?
+        .ok_or_else(|| AppError::BadRequest(
+            "verification does not exist for this agent or is already revoked".to_string(),
+        ))?;
+
+    let subject = format!("revoke:{verification_id}");
+    let nonce = db::get_active_dns_challenge(&state.pool, &id, &subject)
+        .await?
+        .ok_or_else(|| AppError::BadRequest(
+            "no active revocation challenge — request one first".to_string(),
+        ))?;
+    v::verify_revocation_signature(pubkey, &id, verification_id, &nonce, reason, &req.signature)
+        .map_err(|_| AppError::Unauthorized)?;
+
+    let row = db::revoke_identity_verification(
+        &state.pool,
+        &id,
+        verification_id,
+        reason,
+        &subject,
+    )
+    .await?
+    .ok_or_else(|| AppError::BadRequest(
+        "verification was already revoked or its challenge expired".to_string(),
+    ))?;
+    let effective =
+        db::effective_verification_tier(&state.pool, &id, agent.verification_tier).await?;
+
+    tracing::info!(agent_id = %id, verification_id, effective_tier = effective, %reason,
+                   "identity verification revoked by agent");
+    let revoked_at = row.revoked_at.ok_or_else(|| {
+        AppError::Internal(anyhow::anyhow!("revocation UPDATE returned no revoked_at"))
+    })?;
+
+    Ok(Json(VerificationRevocationResponse {
+        agent_id: id,
+        verification_id,
+        revoked_at,
+        revoked_reason: reason.to_string(),
+        effective_tier: effective,
+    }))
+}
+
+#[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
+pub struct GithubVerifyRequest {
+    /// GitHub login the agent claims to control.
+    pub login: String,
+    /// Public repo holding `.well-known/integrity-verification.txt`.
+    /// Defaults to `<login>.github.io`. Ownership is re-checked server-side, so
+    /// naming a repo here cannot be used to claim someone else's namespace.
+    #[serde(default)]
+    pub repo: Option<String>,
+}
+
+/// Issue a challenge for GitHub-identity verification.
+///
+/// Same ladder rung as DNS (tier 2, "control of a namespace"), against a namespace
+/// the agent can write to via API — which is what makes the climb automatable with
+/// no operator editing a zone file by hand.
+pub async fn request_github_challenge(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<GithubVerifyRequest>,
+) -> Result<Json<DnsChallengeResponse>, AppError> {
+    use crate::verification as v;
+
+    let login = req.login.trim().to_lowercase();
+    v::validate_github_login(&login).map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    let agent = db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+    if agent.ed25519_pubkey.is_none() {
+        return Err(AppError::BadRequest(
+            "agent has no Ed25519 key registered".to_string(),
+        ));
+    }
+
+    let subject = v::github_subject(&login);
+    let nonce = uuid::Uuid::new_v4().simple().to_string();
+    // Challenges are keyed by (agent, subject); `github:<login>` cannot collide
+    // with a domain, so the same table serves both methods.
+    let expires_at =
+        db::issue_dns_challenge(&state.pool, &id, &subject, &nonce, v::CHALLENGE_TTL_MINUTES).await?;
+
+    Ok(Json(DnsChallengeResponse {
+        message_to_sign: v::challenge_message(&id, &subject, &nonce),
+        txt_record_name: format!("public gist file `{}`", v::GITHUB_MARKER_FILENAME),
+        txt_record_value_format: v::expected_txt_record("<hex-ed25519-signature>"),
+        domain: subject,
+        nonce,
+        expires_at,
+    }))
+}
+
+/// Verify control of a GitHub identity and grant tier 2.
+pub async fn verify_github(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<GithubVerifyRequest>,
+) -> Result<Json<VerificationResponse>, AppError> {
+    use crate::verification as v;
+
+    let login = req.login.trim().to_lowercase();
+    v::validate_github_login(&login).map_err(|e| AppError::BadRequest(e.to_string()))?;
+    let subject = v::github_subject(&login);
+
+    let agent = db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+    let pubkey = agent
+        .ed25519_pubkey
+        .ok_or_else(|| AppError::BadRequest("agent has no Ed25519 key registered".to_string()))?;
+
+    let nonce = db::get_active_dns_challenge(&state.pool, &id, &subject)
+        .await?
+        .ok_or_else(|| {
+            AppError::BadRequest(
+                "no active challenge for this identity — request one first".to_string(),
+            )
+        })?;
+
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .user_agent("integrity-oracle/identity-verification")
+        .build()
+        .map_err(|e| AppError::Internal(anyhow::anyhow!("http client: {e}")))?;
+
+    // Try the repo file first, then gists. Repo-file publication is what a
+    // fine-grained PAT can actually do -- gist creation needs a scope such tokens
+    // frequently cannot grant (`403 Resource not accessible by personal access
+    // token`). Both are equally strong proofs; the fallback exists so an agent
+    // whose token *can* write gists is not forced to create a repo.
+    let repo = req.repo.clone().unwrap_or_else(|| format!("{login}.github.io"));
+    let mut payloads: Vec<String> = Vec::new();
+    let mut attempts: Vec<String> = Vec::new();
+
+    match v::fetch_github_repo_payload(&http, &login, &repo).await {
+        Ok(p) => payloads.push(p),
+        Err(e) => attempts.push(format!("repo {login}/{repo}: {e}")),
+    }
+    if payloads.is_empty() {
+        match v::fetch_github_challenge_payloads(&http, &login).await {
+            Ok(mut p) => payloads.append(&mut p),
+            Err(e) => attempts.push(format!("gists: {e}")),
+        }
+    }
+    if payloads.is_empty() {
+        return Err(AppError::BadRequest(format!(
+            "no signed challenge found -- {}",
+            attempts.join("; ")
+        )));
+    }
+
+    let signature = v::verify_github_payloads(&payloads, &pubkey, &id, &subject, &nonce)
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    // GitHub verifications expire like DNS ones: account control is a claim about
+    // the present, and accounts get transferred, renamed or compromised.
+    let expires_at = chrono::Utc::now() + chrono::Duration::days(v::DNS_VERIFICATION_TTL_DAYS);
+    let evidence = serde_json::json!({
+        "method": "github_gist",
+        "login": login,
+        "signature": signature,
+        "nonce": nonce,
+        "marker_file": v::GITHUB_MARKER_FILENAME,
+        "challenge_format": "integrity-domain-verification:v1:<did>:<subject>:<nonce>",
+    });
+
+    let row = db::record_identity_verification(
+        &state.pool,
+        &id,
+        // Same rung and same proof shape as DNS, but recorded under its own method
+        // name: an audit row claiming `dns_txt` for a proof read from GitHub's API
+        // misdescribes how it was obtained (see migration 0012).
+        "github",
+        v::TIER_DNS_VERIFIED,
+        &subject,
+        evidence,
+        Some(expires_at),
+    )
+    .await?;
+
+    db::consume_dns_challenge(&state.pool, &id, &subject).await?;
+
+    let effective =
+        db::effective_verification_tier(&state.pool, &id, agent.verification_tier).await?;
+
+    tracing::info!(agent_id = %id, %login, effective_tier = effective, "GitHub verification granted");
+
+    Ok(Json(VerificationResponse {
+        agent_id: id,
+        method: row.method,
+        subject: row.subject,
+        tier_granted: row.tier_granted,
+        effective_tier: effective,
+        expires_at: row.expires_at,
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// Verification Ladder rung 3: remote TEE attestation
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
+pub struct TeeVerifyRequest {
+    /// Base64-encoded raw CBOR attestation document, exactly as the Nitro
+    /// Security Module produced it. Not re-encoded or wrapped — the signature
+    /// covers specific bytes and any re-serialization risks changing them.
+    pub attestation_document_b64: String,
+}
+
+/// Issue a challenge nonce for TEE attestation.
+///
+/// The nonce is what binds an attestation to *this agent, now*. Nitro's NSM
+/// embeds a caller-supplied nonce in the signed document, so an attestation
+/// generated for someone else — or captured and replayed later — carries the
+/// wrong nonce and is refused. Without it, any valid Nitro document from any
+/// enclave anywhere would grant tier 3.
+pub async fn request_tee_challenge(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<DnsChallengeResponse>, AppError> {
+    use crate::verification as v;
+
+    db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+
+    let subject = "tee:nitro".to_string();
+    let nonce = uuid::Uuid::new_v4().simple().to_string();
+    let expires_at =
+        db::issue_dns_challenge(&state.pool, &id, &subject, &nonce, v::CHALLENGE_TTL_MINUTES).await?;
+
+    Ok(Json(DnsChallengeResponse {
+        message_to_sign: format!(
+            "supply this nonce to the NSM when generating the attestation document: {nonce}"
+        ),
+        txt_record_name: "AWS Nitro NSM GetAttestationDoc(nonce=...)".to_string(),
+        txt_record_value_format: "base64(raw CBOR attestation document)".to_string(),
+        domain: subject,
+        nonce,
+        expires_at,
+    }))
+}
+
+/// Verify a Nitro attestation document and grant tier 3.
+///
+/// Fails closed at every step. There is no path here that grants a tier without
+/// a cryptographically valid document chaining to AWS's pinned root — generating
+/// such a document requires real enclave hardware, which is the entire point of
+/// the rung.
+pub async fn verify_tee(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<TeeVerifyRequest>,
+) -> Result<Json<VerificationResponse>, AppError> {
+    use base64::Engine;
+
+    use crate::attestation as att;
+    use crate::verification as v;
+
+    let agent = db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+
+    let subject = "tee:nitro".to_string();
+    let nonce = db::get_active_dns_challenge(&state.pool, &id, &subject)
+        .await?
+        .ok_or_else(|| {
+            AppError::BadRequest(
+                "no active TEE challenge — request one first (challenges expire)".to_string(),
+            )
+        })?;
+
+    let document = base64::engine::general_purpose::STANDARD
+        .decode(req.attestation_document_b64.trim())
+        .map_err(|e| AppError::BadRequest(format!("attestation_document_b64 is not base64: {e}")))?;
+
+    // Vendored into this crate on purpose -- see backend/trust_roots/README.md:
+    // the Docker build context is ./integrity-oracle, and a trust anchor should be
+    // owned by the service that pins it, not reached for across packages.
+    let root_pem = include_str!("../trust_roots/aws_nitro_root_g1.pem");
+    let outcome = att::verify_nitro_attestation(&document, root_pem, true)
+        .map_err(|e| AppError::BadRequest(format!("attestation document rejected: {e}")))?;
+
+    if !outcome.valid {
+        return Err(AppError::BadRequest(format!(
+            "attestation did not verify: {}",
+            outcome.errors.join("; ")
+        )));
+    }
+
+    // Bind the document to THIS challenge. A valid attestation from an unrelated
+    // enclave proves that enclave exists; it says nothing about this agent.
+    let doc_nonce = outcome
+        .nonce
+        .as_ref()
+        .map(|n| String::from_utf8_lossy(n).to_string())
+        .unwrap_or_default();
+    if doc_nonce.trim() != nonce {
+        return Err(AppError::BadRequest(
+            "attestation document does not carry this challenge's nonce — \
+             generate a fresh document with the issued nonce"
+                .to_string(),
+        ));
+    }
+
+    // TEE attestations expire fast relative to namespace proofs: an enclave
+    // measurement is a statement about a running instance, and instances are
+    // replaced. 30 days, versus 90 for a domain.
+    let expires_at = chrono::Utc::now() + chrono::Duration::days(30);
+    let evidence = serde_json::json!({
+        "method": "tee_nitro",
+        "module_id": outcome.module_id,
+        "pcrs": outcome.pcrs,
+        "timestamp_ms": outcome.timestamp_ms,
+        "root_pinned_sha256": att::AWS_NITRO_ROOT_SHA256,
+        "nonce": nonce,
+    });
+
+    let row = db::record_identity_verification(
+        &state.pool,
+        &id,
+        "tee_nitro",
+        v::TIER_KYC_VERIFIED, // rung 3
+        &subject,
+        evidence,
+        Some(expires_at),
+    )
+    .await?;
+
+    db::consume_dns_challenge(&state.pool, &id, &subject).await?;
+
+    let effective =
+        db::effective_verification_tier(&state.pool, &id, agent.verification_tier).await?;
+
+    tracing::info!(agent_id = %id, module_id = ?outcome.module_id, effective_tier = effective,
+                   "TEE attestation verified");
+
+    Ok(Json(VerificationResponse {
+        agent_id: id,
+        method: row.method,
+        subject: row.subject,
+        tier_granted: row.tier_granted,
+        effective_tier: effective,
+        expires_at: row.expires_at,
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// Verification Ladder rung 3: provider-neutral signed KYC receipts
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
+pub struct KycChallengeRequest {
+    /// Lowercase provider id configured in `KYC_PROVIDER_KEYS`.
+    pub provider: String,
+}
+
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct KycChallengeResponse {
+    pub agent_id: String,
+    pub provider: String,
+    pub nonce: String,
+    pub assurance_profile: String,
+    pub message_format: String,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Issue a nonce for a trusted KYC verifier. The verifier may be a self-hosted
+/// open-source deployment; authority comes from its operator-configured signing key,
+/// not from a client claiming that checks ran.
+#[utoipa::path(
+    post,
+    path = "/v1/agent/{id}/verify/kyc/challenge",
+    request_body = KycChallengeRequest,
+    responses(
+        (status = 200, description = "KYC receipt challenge issued", body = KycChallengeResponse),
+        (status = 400, description = "Provider is not trusted"),
+        (status = 404, description = "Agent not found"),
+    ),
+    tag = "verification",
+)]
+pub async fn request_kyc_challenge(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<KycChallengeRequest>,
+) -> Result<Json<KycChallengeResponse>, AppError> {
+    use crate::verification as v;
+
+    db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+
+    let provider = req.provider.trim().to_ascii_lowercase();
+    if !state.config.kyc_provider_keys.contains_key(&provider) {
+        return Err(AppError::BadRequest(
+            "KYC provider is not configured as a trusted receipt issuer".to_string(),
+        ));
+    }
+
+    let subject = format!("kyc:{provider}");
+    let nonce = uuid::Uuid::new_v4().simple().to_string();
+    let expires_at =
+        db::issue_dns_challenge(&state.pool, &id, &subject, &nonce, v::CHALLENGE_TTL_MINUTES).await?;
+
+    Ok(Json(KycChallengeResponse {
+        agent_id: id,
+        provider,
+        nonce,
+        assurance_profile: crate::kyc::OPEN_SOURCE_ASSURANCE_PROFILE.to_string(),
+        message_format: "integrity-kyc-receipt:v1:<agent_did>:<provider>:<opaque_subject_reference>:<assurance_profile>:<document_authenticity_0_or_1>:<biometric_liveness_0_or_1>:<sanctions_pep_screening_0_or_1>:<verified_at_unix>:<expires_at_unix>:<nonce>".to_string(),
+        expires_at,
+    }))
+}
+
+/// Verify and persist a minimal KYC receipt. No raw identity attributes enter this
+/// handler: the provider-local opaque reference is the only subject identifier stored.
+#[utoipa::path(
+    post,
+    path = "/v1/agent/{id}/verify/kyc",
+    request_body = crate::kyc::KycReceipt,
+    responses(
+        (status = 200, description = "Trusted KYC receipt verified", body = VerificationResponse),
+        (status = 400, description = "Receipt rejected"),
+        (status = 404, description = "Agent not found"),
+    ),
+    tag = "verification",
+)]
+pub async fn verify_kyc_receipt(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(mut receipt): Json<crate::kyc::KycReceipt>,
+) -> Result<Json<VerificationResponse>, AppError> {
+    use crate::verification as v;
+
+    let agent = db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+    receipt.provider = receipt.provider.trim().to_ascii_lowercase();
+    let provider_key = state
+        .config
+        .kyc_provider_keys
+        .get(&receipt.provider)
+        .ok_or_else(|| {
+            AppError::BadRequest(
+                "KYC provider is not configured as a trusted receipt issuer".to_string(),
+            )
+        })?;
+    let challenge_subject = format!("kyc:{}", receipt.provider);
+    let nonce = db::get_active_dns_challenge(&state.pool, &id, &challenge_subject)
+        .await?
+        .ok_or_else(|| {
+            AppError::BadRequest(
+                "no active KYC challenge for this provider — request one first".to_string(),
+            )
+        })?;
+
+    let receipt_hash = crate::kyc::verify_receipt(
+        &receipt,
+        &id,
+        &nonce,
+        provider_key,
+        chrono::Utc::now(),
+    )
+    .map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    let evidence = serde_json::json!({
+        "provider": &receipt.provider,
+        "assurance_profile": &receipt.assurance_profile,
+        "checks": &receipt.checks,
+        "provider_verified_at": receipt.verified_at,
+        "receipt_sha256": receipt_hash,
+    });
+    let row = db::record_identity_verification(
+        &state.pool,
+        &id,
+        "kyc",
+        v::TIER_KYC_VERIFIED,
+        &receipt.opaque_subject_reference,
+        evidence,
+        Some(receipt.expires_at),
+    )
+    .await?;
+    db::consume_dns_challenge(&state.pool, &id, &challenge_subject).await?;
+
+    let effective =
+        db::effective_verification_tier(&state.pool, &id, agent.verification_tier).await?;
+    tracing::info!(agent_id = %id, provider = %receipt.provider,
+                   receipt_sha256 = %receipt_hash, effective_tier = effective,
+                   "trusted KYC receipt verified");
+
+    Ok(Json(VerificationResponse {
+        agent_id: id,
+        method: row.method,
+        subject: row.subject,
+        tier_granted: row.tier_granted,
+        effective_tier: effective,
+        expires_at: row.expires_at,
+    }))
+}

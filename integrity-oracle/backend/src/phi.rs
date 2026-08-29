@@ -184,3 +184,78 @@ mod tests {
         assert!(found.is_empty(), "already-redacted, non-PHI telemetry must pass: {found:?}");
     }
 }
+
+
+/// Applies the configured backstop mode to a set of scan hits.
+///
+/// Returns `Ok(Some(categories))` when the payload should be STORED WITH FLAGS, `Ok(None)`
+/// when it is clean or the backstop is disabled, and `Err(categories)` when it must be
+/// rejected. Centralized so every ingestion path — signed telemetry and all three OTLP
+/// receivers — applies one policy; four hand-rolled copies would drift.
+pub fn apply_backstop(
+    mode: crate::config::PhiBackstopMode,
+    mut hits: Vec<&'static str>,
+) -> Result<Option<Vec<String>>, Vec<String>> {
+    use crate::config::PhiBackstopMode;
+
+    if mode == PhiBackstopMode::Off || hits.is_empty() {
+        // `Off` returns None rather than an empty Vec: NULL means "not flagged", whereas an
+        // empty array would falsely assert "scanned and found clean".
+        return Ok(None);
+    }
+    hits.sort_unstable();
+    hits.dedup();
+    let categories: Vec<String> = hits.into_iter().map(str::to_string).collect();
+    match mode {
+        PhiBackstopMode::Reject => Err(categories),
+        PhiBackstopMode::Flag => Ok(Some(categories)),
+        PhiBackstopMode::Off => unreachable!("handled above"),
+    }
+}
+
+#[cfg(test)]
+mod backstop_mode_tests {
+    use super::*;
+    use crate::config::PhiBackstopMode;
+
+    fn hits() -> Vec<&'static str> {
+        vec!["SSN", "SSN", "EMAIL"]
+    }
+
+    #[test]
+    fn reject_mode_returns_the_categories_as_an_error() {
+        let err = apply_backstop(PhiBackstopMode::Reject, hits()).unwrap_err();
+        // Deduped and sorted, so the caller's message is stable rather than input-ordered.
+        assert_eq!(err, vec!["EMAIL".to_string(), "SSN".to_string()]);
+    }
+
+    #[test]
+    fn flag_mode_returns_categories_to_store_rather_than_erroring() {
+        let flags = apply_backstop(PhiBackstopMode::Flag, hits()).unwrap();
+        assert_eq!(flags, Some(vec!["EMAIL".to_string(), "SSN".to_string()]));
+    }
+
+    #[test]
+    fn off_mode_stores_nothing_even_when_the_scan_matched() {
+        assert_eq!(apply_backstop(PhiBackstopMode::Off, hits()).unwrap(), None);
+    }
+
+    #[test]
+    fn a_clean_payload_is_never_flagged_in_any_mode() {
+        // None rather than Some(vec![]): NULL means "not flagged", whereas an empty array
+        // would falsely assert "scanned and found clean" on a row.
+        for mode in [PhiBackstopMode::Reject, PhiBackstopMode::Flag, PhiBackstopMode::Off] {
+            assert_eq!(apply_backstop(mode, vec![]).unwrap(), None, "mode {mode:?}");
+        }
+    }
+
+    #[test]
+    fn default_mode_is_reject_so_an_unconfigured_deployment_stays_strict() {
+        let config = crate::config::Config::from_env_for_test(
+            "http://localhost:8545".into(),
+            "postgres://x".into(),
+            "redis://x".into(),
+        );
+        assert_eq!(config.phi_backstop_mode, PhiBackstopMode::Reject);
+    }
+}

@@ -13,6 +13,8 @@ source_files:
   - integrity-sdk/integrity_sdk/telemetry/tracing.py
   - integrity-sdk/tests/unit/test_redactor.py
   - integrity-sdk/tests/unit/test_tracing.py
+  - integrity-sdk/tests/unit/test_openai_integrity.py
+  - integrity-sdk/tests/unit/test_langchain_callback.py
   - integrity-oracle/backend/src/phi.rs
   - integrity-oracle/backend/src/handlers.rs
   - integrity-oracle/backend/migrations/0002_markets_and_judge.sql
@@ -26,6 +28,15 @@ speculative "Verifiable Trust Layer" (`GuardrailEngine`, `StateStore`
 time-travel, a separate `integrity-observability-backend` service, a
 `ReputationLedger`) — **none of that exists in this repo**; see the note at
 the bottom.
+
+## Table of contents
+
+- [The real gap this design fixes](#the-real-gap-this-design-fixes)
+- [Redactor — targeted, not blanket masking (built, tested)](#redactor-targeted-not-blanket-masking-built-tested)
+- [LLM-as-judge evaluation — storage/ingestion plumbing built; rubric [PLANNED]](#llm-as-judge-evaluation-storage-ingestion-plumbing-built-rubric-planned)
+- [Oracle-side defense in depth — built](#oracle-side-defense-in-depth-built)
+- [Dual-mode storage — [PLANNED], bigger roadmap item](#dual-mode-storage-planned-bigger-roadmap-item)
+- [What this page does NOT claim (correcting the old wiki)](#what-this-page-does-not-claim-correcting-the-old-wiki)
 
 ## The real gap this design fixes
 
@@ -59,14 +70,32 @@ common high-confidence cases — not a certified HIPAA Safe Harbor
 structural marker (e.g. a patient's name in free text). This is why the
 oracle-side backstop below exists.
 
-Wired into the two named integrations: `openai_integrity.py` calls
+Wired into the two named integrations, but **as of 2026-07-15, opt-in, not
+unconditional**: both `openai_integrity.py`'s `IntegrityOpenAI` and
+`langchain_callback.py`'s `IntegrityLangChainCallback` accept a
+`redact_phi: bool` constructor parameter that now **defaults to `False`**
+(a real, deliberate behavior change from this section's prior claim that
+redaction ran unconditionally). When `True`, `openai_integrity.py` calls
 `redact_text(...)` on prompt text, completion text (both streaming and
 non-streaming), and streamed chunks *before* any span attribute is set or
 [local-metrology](local-metrology.md) signals are derived from it;
 `langchain_callback.py` redacts `text_output` and `reasoning_content` the
-same way. Tested in `integrity-sdk/tests/unit/test_redactor.py` (clean
-text passes through untouched; SSN/email/phone/credit-card/API-key
-patterns are matched and masked).
+same way. **Any Integrity Health / healthcare-vertical agent MUST pass
+`redact_phi=True` explicitly** — neither wrapper can infer an agent's
+`compliance_vertical` on its own, so nothing auto-enables this for a
+healthcare deployment; leaving it at the default logs a `logger.warning`
+naming the agent, but nothing currently *enforces* the flag being set
+correctly (a real, accepted residual risk — see `PRODUCTION_GAPS.md` §3,
+and [Telemetry Ingestion Pipeline](telemetry-ingestion.md) §2 for the full
+writeup). `telemetry/tracing.py`'s `trace_run`/`traceable` API is
+**unaffected by this flag** — it still redacts every string leaf
+unconditionally, always. Tested in `integrity-sdk/tests/unit/test_redactor.py`
+(clean text passes through untouched; SSN/email/phone/credit-card/API-key
+patterns are matched and masked) and, new for the `redact_phi` behavior
+itself, `tests/unit/test_openai_integrity.py`/`test_langchain_callback.py`
+(default leaves text raw; `redact_phi=True` redacts prompt/completion/
+reasoning text; 13 tests total, neither integration had any coverage
+before this).
 
 **Real gap this page previously overstated, closed 2026-07-11**: this
 section used to claim redaction was "wired into both instrumentation
@@ -110,13 +139,15 @@ formula decision requiring explicit sign-off).
 ```mermaid
 flowchart LR
     Agent["Agent process<br/>(prompt/completion text)"]
-    Redactor["Redactor (SDK, client-side)<br/>SSN / API-key / email / phone / MRN / etc"]
+    Redactor["Redactor (SDK, client-side)<br/>SSN / API-key / email / phone / MRN / etc<br/>-- only if redact_phi=True, default False"]
     Envelope["Signed telemetry envelope<br/>(otel_spans, judge_evaluation)"]
-    PHIrs["oracle phi.rs backstop<br/>(server-side, same categories)"]
+    PHIrs["oracle phi.rs backstop<br/>(server-side, same categories, ALWAYS runs)"]
     DB["Postgres<br/>(telemetry_events, judge_evaluations)"]
     Reject["400 PhiDetected<br/>(before any DB/RPC work)"]
 
-    Agent --> Redactor --> Envelope -->|POST /v1/telemetry/ingest| PHIrs
+    Agent -->|redact_phi=True| Redactor --> Envelope
+    Agent -->|redact_phi=False, default| Envelope
+    Envelope -->|POST /v1/telemetry/ingest| PHIrs
     PHIrs -->|unredacted pattern found| Reject
     PHIrs -->|clean| DB
 ```
@@ -150,7 +181,7 @@ layers).
 
 Mode 1 (transparent): full trace storage for non-regulated verticals,
 prioritizing developer debugging visibility. Mode 2 (Sovereign ZK-mode, for
-Shield/healthcare and any PHI-adjacent vertical): raw content never leaves
+Integrity Health/healthcare and any PHI-adjacent vertical): raw content never leaves
 local hardware at all — only a hash and a [ZK proof](zkp.md) of correct
 measurement leave the agent's process. Not built as a toggle; tracked in
 the root `README.md`'s "Vision & long-term roadmap" section.
@@ -167,8 +198,11 @@ today.** Only the `Redactor` and the (not-yet-built) judge-evaluation
 ingestion path are real/planned per the current design; treat the rest of
 that old page as unbuilt product ideation, not documentation.
 
-Related: [local metrology](local-metrology.md), [AIS](ais.md),
-[ComplianceGate](compliance-gate.md), [integrity-sdk](../entities/integrity-sdk.md),
+Related: [Telemetry Ingestion Pipeline](telemetry-ingestion.md) (the full
+end-to-end collection→batching→signing→oracle-pipeline writeup this page's
+`redact_phi` section is one slice of), [local metrology](local-metrology.md),
+[AIS](ais.md), [ComplianceGate](compliance-gate.md),
+[integrity-sdk](../entities/integrity-sdk.md),
 [AIS API — Versioned Wire Spec](ais-api-spec.md) (the telemetry-envelope
 signing fix that made this pipeline actually reach the oracle for the
 first time is documented there and on [integrity-oracle](../entities/integrity-oracle.md)).

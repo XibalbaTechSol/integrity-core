@@ -1,8 +1,9 @@
 # Integrity Protocol — wire-protocol specs
 
-This directory holds the **versioned, externally-supported wire surfaces** of Integrity
-Protocol — the interfaces third-party tooling/SDKs/agent frameworks can integrate
-against directly, without cloning or reading this whole monorepo.
+This directory holds both the versioned protocol documents and the
+**externally-supported wire surfaces** of Integrity Protocol. Authority depends on the
+document class below; proximity in this directory does not make a proposal, whitepaper,
+or generated PDF normative.
 
 This is deliberately separate from [`docs/INTERFACE_CONTRACT.md`](../docs/INTERFACE_CONTRACT.md),
 which stays exactly what it already is: an internal coordination document for the
@@ -10,12 +11,51 @@ engineers (human or agent) building the packages in this repo. `docs/INTERFACE_C
 can and does change as internals get reworked; the specs here are the promises made to
 people outside this repo.
 
+## The design specification
+
+[`integrity-protocol-v0.4.md`](integrity-protocol-v0.4.md) is the **active normative design
+specification** — foundational primitives, AIS, memory, authority, interop. It supersedes
+`Integrity_Protocol_Specification_v0.3.pdf`.
+
+[`integrity-protocol-v0.5-proposed.md`](integrity-protocol-v0.5-proposed.md) is the **new proposed,
+not-yet-accepted normative amendment** derived from the v3.2 whitepaper. It does not replace
+v0.4 until each clause is reviewed, accepted or rejected, implemented where applicable, and
+recorded in the interface contract, production-gap register, tests, and wiki log.
+
+[`integrity-protocol-v3.2.md`](integrity-protocol-v3.2.md) is the current
+**non-normative explanatory whitepaper**. It may explain and motivate the proposal, but it
+cannot amend the protocol by itself. [`Integrity_Protocol_Whitepaper_v3.2.pdf`](Integrity_Protocol_Whitepaper_v3.2.pdf)
+is a generated release artifact, not a source of truth. Historical v3.1 Markdown and release
+artifacts remain historical evidence and must not be read as the current whitepaper.
+
+| Layer | Current document | Authority |
+|---|---|---|
+| Accepted normative specification | `integrity-protocol-v0.4.md` | Active requirements |
+| Proposed normative amendment | `integrity-protocol-v0.5-proposed.md` | Review candidate only |
+| Explanatory whitepaper | `integrity-protocol-v3.2.md` | Non-normative rationale and roadmap |
+| Compiled publication | `Integrity_Protocol_Whitepaper_v3.2.pdf` | Generated artifact only |
+
+It lives here, in markdown and under version control, deliberately: a specification that
+cannot be diffed, reviewed in a pull request, or kept in step with the code by any mechanism
+other than someone remembering is a coherence problem in a protocol whose premise is
+independently checkable state.
+
+Note it is a different kind of document from the wire surfaces below: the spec states what the
+protocol *is*; the surfaces are the interfaces third parties integrate against.
+
 ## Surfaces
 
 | Surface | Status | Directory |
 |---|---|---|
 | AIS API (read-side: agent identity, AIS score, compliance, markets, wallet) | v1, frozen | [`ais-api/`](ais-api/) |
 | BCC intent schema (write-side: pre-execution intent commitments) | not yet started | `bcc/` (planned) |
+| Xibalba Shield protocol-facing boundary | v1 companion spec | [`xibalba-shield-v1.md`](xibalba-shield-v1.md) |
+
+## Specification ownership
+
+The Integrity Protocol spec owns protocol primitives, invariant rules, and externally-supported wire surfaces. Xibalba Shield is a separate endpoint-security product that consumes those primitives. Its comprehensive implementation specification lives in XibalbaTechSol/xibalba-shield as SPECIFICATION.md; this repo keeps spec/xibalba-shield-v1.md as the protocol-facing companion so the dependency boundary is reviewable with the protocol.
+
+A Shield implementation change that only affects endpoint behavior belongs in the Shield repo. A change that alters BCC, telemetry ingest, AIS computation, Merkle anchoring, delegation, or public wire shape belongs here and must update the relevant Integrity spec/interface docs.
 
 ## Versioning policy
 

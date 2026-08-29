@@ -41,6 +41,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -66,8 +67,41 @@ class WalletPasswordNotSet(RuntimeError):
     own docstring warns against for the DID key's storage posture."""
 
 
+class CorruptedKeystoreError(RuntimeError):
+    """Raised when a keystore file exists but isn't valid JSON (a truncated/
+    torn write from a prior crash, disk corruption, etc). PRODUCTION_GAPS.md
+    §3 -- mirrors integrity-sdk's wallet.py (same bug, duplicated logic, both
+    packages fixed identically per that finding's own "duplicated in both
+    packages" note)."""
+
+
+class WalletDecryptionError(RuntimeError):
+    """Raised when a keystore parses fine but the supplied
+    INTEGRITY_WALLET_PASSWORD doesn't decrypt it. Wraps eth_account's raw
+    ValueError with a clearer, keystore-specific error -- PRODUCTION_GAPS.md
+    §3, mirrors integrity-sdk's wallet.py."""
+
+
 def _wallet_path(name: str) -> Path:
     return identity.IDENTITY_DIR / f"{name}.wallet.json"
+
+
+def _load_keystore(keystore_path: Path, password: str) -> LocalAccount:
+    try:
+        keystore_json = json.loads(keystore_path.read_text())
+    except json.JSONDecodeError as exc:
+        raise CorruptedKeystoreError(
+            f"keystore at {keystore_path} is not valid JSON (truncated write? disk "
+            f"corruption?) -- cannot recover the private key from this file: {exc}"
+        ) from exc
+    try:
+        private_key = Account.decrypt(keystore_json, password)
+    except ValueError as exc:
+        raise WalletDecryptionError(
+            f"could not decrypt keystore at {keystore_path} with the supplied "
+            f"INTEGRITY_WALLET_PASSWORD -- wrong password, or the file is corrupted: {exc}"
+        ) from exc
+    return Account.from_key(private_key)
 
 
 def _wallet_password() -> str:
@@ -94,6 +128,19 @@ def generate_or_load_evm_wallet(name: str = "default") -> LocalAccount:
     Returns an `eth_account.signers.local.LocalAccount` -- has `.address`
     and `.key` (raw private key bytes) and can sign transactions/messages
     directly, or be handed to `chain.py`'s deploy/registration functions.
+
+    Creation is atomic against two concurrent callers for the same `name`
+    (PRODUCTION_GAPS.md §3): the old `.exists()` check then `write_text()`
+    was a check-then-act race where two callers racing to bootstrap the same
+    identity could each generate a DIFFERENT keypair, with whichever wrote
+    last silently winning -- the loser then keeps signing with an in-memory
+    account whose key the persisted file no longer contains. Fixed by
+    writing the new keystore to a per-call temp file first, then claiming
+    the final path with `os.link` (fails atomically with `FileExistsError`
+    if another caller already claimed it, unlike `os.rename`, which would
+    silently overwrite) -- the loser discards its own generated keypair and
+    loads the winner's instead. Mirrors integrity-sdk's wallet.py fix
+    exactly (same bug, duplicated logic, both packages fixed identically).
     """
     identity.IDENTITY_DIR.mkdir(parents=True, exist_ok=True)
     keystore_path = _wallet_path(name)
@@ -101,15 +148,38 @@ def generate_or_load_evm_wallet(name: str = "default") -> LocalAccount:
     password = _wallet_password()
 
     if keystore_path.exists():
-        keystore_json = json.loads(keystore_path.read_text())
-        private_key = Account.decrypt(keystore_json, password)
-        return Account.from_key(private_key)
+        return _load_keystore(keystore_path, password)
 
     account: LocalAccount = Account.create()
     keystore_json = Account.encrypt(account.key, password)
-    keystore_path.write_text(json.dumps(keystore_json, indent=2) + "\n")
+
+    tmp_path = keystore_path.parent / f".{keystore_path.name}.tmp.{os.getpid()}.{uuid.uuid4().hex}"
+    try:
+        fd = os.open(str(tmp_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        try:
+            with os.fdopen(fd, "w") as f:
+                f.write(json.dumps(keystore_json, indent=2) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+        except BaseException:
+            tmp_path.unlink(missing_ok=True)
+            raise
+
+        try:
+            os.link(str(tmp_path), str(keystore_path))
+        except FileExistsError:
+            # Another caller won the race and already created a (possibly
+            # different) keypair between our .exists() check and this claim
+            # -- load THEIRS rather than silently returning a keypair no
+            # persisted file will ever agree with again.
+            return _load_keystore(keystore_path, password)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
     # Keystore JSON is password-encrypted, but owner-only permissions are
     # still the right default posture -- same reasoning as identity.py's PEM.
+    # (Already created 0o600 via os.open above; chmod again defensively in
+    # case umask altered it.)
     os.chmod(str(keystore_path), stat.S_IRUSR | stat.S_IWUSR)
 
     return account
@@ -126,7 +196,12 @@ def load_evm_address(name: str = "default") -> Optional[str]:
     keystore_path = _wallet_path(name)
     if not keystore_path.exists():
         return None
-    keystore_json = json.loads(keystore_path.read_text())
+    try:
+        keystore_json = json.loads(keystore_path.read_text())
+    except json.JSONDecodeError as exc:
+        raise CorruptedKeystoreError(
+            f"keystore at {keystore_path} is not valid JSON (truncated write? disk corruption?): {exc}"
+        ) from exc
     raw_address = keystore_json.get("address")
     if not raw_address:
         return None

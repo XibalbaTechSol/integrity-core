@@ -36,6 +36,7 @@ always a `_hash_pair` call with no special-casing for odd levels.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 
 from eth_utils import keccak
@@ -109,28 +110,47 @@ class MerkleBatcher:
     This class only builds batches and hands roots to the caller -- it does
     NOT submit transactions itself (see anchor.py for that), so it has no
     opinion about chain connectivity and is trivially unit-testable.
+
+    Thread-safe (`threading.Lock` around every mutation/read of `_pending`).
+    This was NOT always necessary: `add`/`flush` used to only ever run
+    sequentially on `run_intercept`'s single-threaded synchronous path. Once
+    `_flush_and_anchor` was moved onto a thread-pool worker via
+    `asyncio.to_thread` (PRODUCTION_GAPS.md §5's blocking-hot-path fix), a
+    second request's `add()` (still running on the event-loop thread) can
+    genuinely interleave with an in-flight `flush()`'s check-then-act
+    sequence -- CPython's GIL makes individual list ops atomic, but NOT the
+    multi-op `batch, self._pending = self._pending, []` swap, so an
+    unguarded interleaving can attach a freshly-added leaf to the batch
+    that's about to be flushed (silently misattributing/losing it from the
+    NEW pending list) or hand back a `batch_index` computed against a list
+    that's about to be swapped out from under it.
     """
 
     def __init__(self, batch_size: int) -> None:
         self.batch_size = batch_size
         self._pending: list[BatchLeaf] = []
+        self._lock = threading.Lock()
 
     def add(self, commitment: BCCCommitment) -> int:
         """Adds a commitment to the pending batch. Returns its index within the batch."""
         entry = BatchLeaf(commitment=commitment, leaf_hash=leaf_hash(commitment))
-        self._pending.append(entry)
-        return len(self._pending) - 1
+        with self._lock:
+            self._pending.append(entry)
+            return len(self._pending) - 1
 
     @property
     def pending_count(self) -> int:
-        return len(self._pending)
+        with self._lock:
+            return len(self._pending)
 
     def is_full(self) -> bool:
-        return len(self._pending) >= self.batch_size
+        with self._lock:
+            return len(self._pending) >= self.batch_size
 
     def reset(self) -> None:
         """Test/admin hook: discards any pending (unflushed) leaves."""
-        self._pending = []
+        with self._lock:
+            self._pending = []
 
     def flush(self) -> tuple[bytes, list[BatchLeaf]] | None:
         """
@@ -139,8 +159,9 @@ class MerkleBatcher:
         that fails to anchor can still know what root it *would* have
         submitted (useful for retry/logging).
         """
-        if not self._pending:
-            return None
-        batch, self._pending = self._pending, []
+        with self._lock:
+            if not self._pending:
+                return None
+            batch, self._pending = self._pending, []
         root = merkle_root([leaf.leaf_hash for leaf in batch])
         return root, batch

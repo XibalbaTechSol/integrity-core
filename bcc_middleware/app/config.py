@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -56,12 +57,38 @@ class Settings:
     # stays valid.
     max_commitment_age_ms: int = field(default_factory=lambda: int(os.getenv("BCC_MAX_AGE_MS", "60000")))
 
+    # --- Shadow (monitor-only) mode ---------------------------------------
+    # The enterprise-adoption on-ramp: when true, run_intercept still runs the
+    # full authorization gauntlet (signature, replay, freshness, OPA, BAA) and
+    # still records every would-be decision to the audit trail, but it NEVER
+    # blocks -- a commitment that would be denied under enforcement returns
+    # `authorized=True, enforced=False, shadow_would_deny=True` with the reason
+    # it *would* have been denied for. This lets an operator deploy the gate in
+    # front of real agent traffic with zero production risk, watch the
+    # "would-have-blocked" report accumulate, and only then flip to enforcement.
+    # In shadow mode the circuit breaker is never tripped (observing, not
+    # enforcing -- locking out a well-behaved agent for a violation we didn't
+    # act on would be wrong). Default false: enforce, matching prior behavior.
+    shadow_mode: bool = field(default_factory=lambda: _bool_env("BCC_SHADOW_MODE", False))
+
     # --- Circuit breaker ---
     circuit_breaker_violation_threshold: int = field(
         default_factory=lambda: int(os.getenv("BCC_CB_VIOLATION_THRESHOLD", "3"))
     )
+    # DEV-TUNED DEFAULT, not a production recommendation: 60s, not the original 900s (15min).
+    # Found live 2026-08-18: this shares one circuit breaker per agent DID across BOTH the
+    # Claude Code hook (pretool_gate.py) and the Hermes/agy runtime (same identity, see that
+    # file's own docstring on why they're deliberately unified) -- so background Hermes
+    # activity tripping a real OPA policy denial (an agent-attributable violation, same as a
+    # bad signature) locks out an unrelated interactive Claude Code session's Bash/Write/Edit
+    # tools too, for however long this is set to. 900s of that during local development is
+    # dead time with no attacker on the other end -- a real, observed adoption/DX cost, not a
+    # hypothetical one. A production deployment facing real adversarial traffic should set
+    # BCC_CB_LOCKOUT_SECONDS explicitly back up (900 or higher) -- this default trades away
+    # containment speed against a genuine attacker for local-dev ergonomics, deliberately,
+    # and that tradeoff is wrong for anything internet-facing.
     circuit_breaker_lockout_seconds: int = field(
-        default_factory=lambda: int(os.getenv("BCC_CB_LOCKOUT_SECONDS", "900"))
+        default_factory=lambda: int(os.getenv("BCC_CB_LOCKOUT_SECONDS", "60"))
     )
 
     # --- On-chain BAA check ---
@@ -72,6 +99,22 @@ class Settings:
     # (bootstrapped by contracts/script/Deploy.s.sol), no longer a §6 gap.
     baa_contract_name: str = field(default_factory=lambda: os.getenv("BAA_CONTRACT_NAME", "SmartBAAFactory"))
     baa_check_timeout_seconds: float = field(default_factory=lambda: float(os.getenv("BAA_CHECK_TIMEOUT_SECONDS", "5.0")))
+
+    # --- Verification token (app/verification_token.py) ---
+    # HMAC key for `POST /v1/bcc/intercept`'s `verification_token`. Unlike
+    # the chain signer keys above, this doesn't custody real value -- it's
+    # what makes the token an unforgeable (rather than trivially
+    # recomputable-by-anyone) proof that THIS process actually evaluated and
+    # approved a specific commitment, checkable later via
+    # `POST /v1/bcc/verify_token` (PRODUCTION_GAPS.md §5). If unset, a random
+    # secret is generated per-process-start: tokens are short-lived
+    # "did this service just approve this" proofs, not long-term credentials,
+    # so not surviving a restart is an accepted tradeoff (same in-memory,
+    # single-process posture as nonce_store.py / circuit_breaker.py) -- set
+    # this explicitly only if tokens need to remain verifiable across restarts.
+    bcc_verification_secret: str = field(
+        default_factory=lambda: os.getenv("BCC_VERIFICATION_SECRET") or secrets.token_hex(32)
+    )
 
     # --- Merkle anchoring ---
     # NOTE: StateAnchor is now a PER-AGENT primitive, not a global singleton, so

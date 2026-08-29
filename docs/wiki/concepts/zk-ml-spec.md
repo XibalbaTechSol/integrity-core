@@ -7,7 +7,7 @@ tags: [cryptography]
 confidence: low
 source_files:
   - README.md
-  - integrity-zkp/src/main.nr
+  - integrity-zkp/circuit/src/main.nr
 ---
 
 **`[PLANNED]` — not built.** The root `README.md`'s "Advanced primitives"
@@ -15,6 +15,11 @@ section names this explicitly: proving an agent's output came from a
 *specific, authorized* model — without revealing the model's weights — via
 a dedicated Noir inference circuit plus a `ZKModelRegistry.sol` contract.
 Neither exists in this repo.
+
+## Table of contents
+
+- [Not the same thing as today's ZK layer](#not-the-same-thing-as-today-s-zk-layer)
+- [Why it's out of scope for now](#why-it-s-out-of-scope-for-now)
 
 ## Not the same thing as today's ZK layer
 

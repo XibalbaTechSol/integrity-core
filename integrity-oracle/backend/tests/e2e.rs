@@ -120,7 +120,11 @@ async fn build_state(rpc_url: &str, deployments_file: &PathBuf, db_url: &str, re
     // `CREATE EXTENSION timescaledb` to succeed — a real environment requirement, not
     // something `cargo test --workspace --lib` needs (that path never touches a live DB).
     sqlx::query(
-        "DROP TABLE IF EXISTS telemetry_events, agent_primitives, merkle_roots, agents, markets_cache, markets_index_sync, judge_evaluations, otel_spans, _sqlx_migrations CASCADE",
+        // Every table any migration creates must be listed here. Omitting one leaves it
+        // behind while `_sqlx_migrations` is dropped, so the next test's re-migrate fails
+        // with "relation already exists" — which shows up as the whole suite failing after
+        // the first test while each test still passes in isolation.
+        "DROP TABLE IF EXISTS telemetry_events, agent_primitives, merkle_roots, agents, markets_cache, markets_index_sync, judge_evaluations, otel_spans, otel_metrics, otel_logs, _sqlx_migrations CASCADE",
     )
     .execute(&pool)
     .await
@@ -306,6 +310,8 @@ async fn oracle_e2e_register_verify_ais_compliance() {
         true, // zk_verified
         &leaf_hash,
         &payload,
+        None, // phi_flags — this fixture is clean, and None means "not flagged" (an empty
+              // array would falsely assert "scanned and found clean")
     )
     .await
     .unwrap();
@@ -1026,4 +1032,553 @@ async fn oracle_e2e_trace_tree_reconstructs_real_span_nesting() {
     // Unknown trace_id must 404, not silently return an empty tree.
     let resp = http.get(format!("{base}/v1/traces/0000000000000000000000000000dead")).send().await.unwrap();
     assert_eq!(resp.status(), 404, "an unknown trace_id must 404");
+}
+
+/// `GET /v1/agents` carries each agent's on-chain XNS handle, and — the part that matters —
+/// degrades to `handle: null` instead of failing the whole request when XNS can't be read.
+///
+/// This is the regression this test exists for: `get_agent_handle` (the single-agent route)
+/// deliberately surfaces a missing `XibalbaNameService` singleton as a 400, since there the
+/// handle *is* the response. `list_agents` must NOT copy that behavior — it's the route the
+/// dashboard's entire fleet list depends on, so a chain without XNS deployed (or a transient
+/// RPC error) turning "no handles" into "no agents" would be a hard regression.
+///
+/// Runs against a real anvil + real `deployments.local.json` with the `XibalbaNameService`
+/// key stripped out — a real deployment shape (XNS post-dates the genesis deploy), not a
+/// mocked chain client.
+#[tokio::test]
+async fn oracle_e2e_agents_list_degrades_without_xns() {
+    if std::env::var("ORACLE_E2E").ok().as_deref() != Some("1") {
+        eprintln!("SKIP oracle_e2e_agents_list_degrades_without_xns (set ORACLE_E2E=1 with Postgres+Redis+anvil to run)");
+        return;
+    }
+    let _ = tracing_subscriber::fmt().with_max_level(tracing::Level::ERROR).try_init();
+
+    let db_url = std::env::var("TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://integrity:integrity_dev_only@127.0.0.1:5434/integrity".to_string());
+    let redis_url = std::env::var("TEST_REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+    let anvil_port = free_port();
+    let rpc_url = format!("http://127.0.0.1:{anvil_port}");
+    let _anvil = start_anvil(anvil_port);
+
+    // Real deployments file, minus the XNS singleton.
+    let mut deployments: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(repo_root().join("deployments.local.json")).unwrap()).unwrap();
+    deployments["singletons"].as_object_mut().unwrap().remove("XibalbaNameService");
+    let stripped = std::env::temp_dir().join(format!("deployments-no-xns-{anvil_port}.json"));
+    std::fs::write(&stripped, serde_json::to_string(&deployments).unwrap()).unwrap();
+
+    let state = build_state(&rpc_url, &stripped, &db_url, &redis_url).await;
+    assert!(
+        state.chain.xibalba_name_service().is_none(),
+        "test setup is wrong if XNS is still configured — it would not exercise the degradation path"
+    );
+
+    // Two agents: one with a cached primitive set (the normal case), one without any
+    // `agent_primitives` row at all (must still appear — the query LEFT JOINs on purpose).
+    let with_primitives = "did:integrity:xns-e2e-with-primitives";
+    let without_primitives = "did:integrity:xns-e2e-without-primitives";
+    let addr_of = |n: u8| format!("0x{:040x}", n);
+    // `eth_address` is required: migration 0001's `agents_has_a_verification_method` check
+    // constraint refuses a row with neither an eth_address nor an ed25519_pubkey.
+    for (i, id) in [with_primitives, without_primitives].into_iter().enumerate() {
+        sqlx::query("INSERT INTO agents (id, eth_address, verification_tier, last_nonce) VALUES ($1, $2, 1, 0)")
+            .bind(id)
+            .bind(addr_of(100 + i as u8))
+            .execute(&state.pool)
+            .await
+            .unwrap();
+    }
+    db::upsert_agent_primitives(
+        &state.pool,
+        with_primitives,
+        &addr_of(1), &addr_of(2), &addr_of(3), &addr_of(4), &addr_of(5), &addr_of(6), &addr_of(7),
+        &addr_of(8),
+        "0",
+        31337,
+    )
+    .await
+    .unwrap();
+
+    let app = backend::build_router(state.clone());
+    let server_port = free_port();
+    let addr: SocketAddr = format!("127.0.0.1:{server_port}").parse().unwrap();
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let http = reqwest::Client::new();
+
+    let resp = http.get(format!("http://127.0.0.1:{server_port}/v1/agents")).send().await.unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "/v1/agents must stay 200 with XNS undeployed, not 400 like the single-agent handle route"
+    );
+    let agents: Vec<serde_json::Value> = resp.json().await.unwrap();
+
+    for id in [with_primitives, without_primitives] {
+        let agent = agents
+            .iter()
+            .find(|a| a["id"] == id)
+            .unwrap_or_else(|| panic!("agent {id} must appear in the fleet list; got {agents:?}"));
+        assert!(
+            agent["handle"].is_null(),
+            "handle must degrade to null when XNS is undeployed, got {:?}",
+            agent["handle"]
+        );
+    }
+
+    let _ = std::fs::remove_file(&stripped);
+}
+
+/// Spec v0.3 §7.1: an agent with no anchored genesis memory root MUST be refused at
+/// registration with `400 MemoryNotInitialized` — persistent memory (§4.1) is a
+/// foundational primitive, and an agent that cannot carry state across sessions is not a
+/// continuing economic subject, so it is not registerable.
+///
+/// The agent under test is deployed through the real on-chain path (real
+/// `SovereignAgent`/`StateAnchor` deploys, real `registerPrimitives`) with exactly one
+/// transaction omitted: the genesis anchor. So this asserts the gate fires on a genuinely
+/// zero-root agent, not on a hand-faked payload — the PrimitiveSet it presents is real and
+/// matches `XibalbaAgentRegistry`, meaning the request gets past the primitive
+/// re-verification and is rejected *specifically* by the memory gate.
+#[tokio::test]
+async fn oracle_e2e_register_rejects_missing_genesis_memory_root() {
+    if std::env::var("ORACLE_E2E").ok().as_deref() != Some("1") {
+        eprintln!("SKIP oracle_e2e_register_rejects_missing_genesis_memory_root (set ORACLE_E2E=1 with Postgres+Redis+anvil+forge+sdk-venv to run)");
+        return;
+    }
+    let _ = tracing_subscriber::fmt().with_max_level(tracing::Level::ERROR).try_init();
+
+    let db_url = std::env::var("TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://integrity:integrity_dev_only@127.0.0.1:5434/integrity".to_string());
+    let redis_url = std::env::var("TEST_REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+    let anvil_port = free_port();
+    let rpc_url = format!("http://127.0.0.1:{anvil_port}");
+    let _anvil = start_anvil(anvil_port);
+    run_deploy(&rpc_url);
+    let deployments_file = repo_root().join("deployments.local.json");
+
+    let wallet_home = std::env::temp_dir().join(format!("integrity-e2e-nogenesis-{anvil_port}"));
+    let sdk_python = repo_root().join("integrity-sdk/.venv/bin/python");
+    let script = repo_root().join("integrity-oracle/backend/tests/support/register_agent_no_genesis.py");
+    let output = Command::new(sdk_python)
+        .args([
+            script.to_str().unwrap(),
+            &rpc_url,
+            deployments_file.to_str().unwrap(),
+            "oracle-e2e-no-genesis",
+        ])
+        .env("FUNDER_PRIVATE_KEY", ANVIL_KEY)
+        .env("INTEGRITY_WALLET_PASSWORD", "oracle-e2e-test-pw")
+        .env("INTEGRITY_WALLET_HOME", format!("{}/wallet", wallet_home.display()))
+        .env("INTEGRITY_DID_HOME", format!("{}/did", wallet_home.display()))
+        .output()
+        .expect("integrity-sdk venv python must exist");
+    assert!(
+        output.status.success(),
+        "no-genesis on-chain registration failed:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let reg: serde_json::Value =
+        serde_json::from_str(String::from_utf8_lossy(&output.stdout).lines().last().unwrap())
+            .expect("support script must print registration JSON on its last stdout line");
+
+    let state = build_state(&rpc_url, &deployments_file, &db_url, &redis_url).await;
+
+    // Precondition, read from chain rather than assumed: this agent really has no root.
+    let anchor: alloy::primitives::Address = reg["state_anchor"].as_str().unwrap().parse().unwrap();
+    let (root, epoch) = state.chain.memory_state(anchor).await.unwrap();
+    assert!(root.is_zero(), "test setup is wrong if the agent already has a genesis root");
+    assert_eq!(epoch, alloy::primitives::U256::ZERO, "no root anchored means epoch 0");
+
+    let app = backend::build_router(state.clone());
+    let server_port = free_port();
+    let addr: SocketAddr = format!("127.0.0.1:{server_port}").parse().unwrap();
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let http = reqwest::Client::new();
+
+    let resp = http
+        .post(format!("http://127.0.0.1:{server_port}/v1/agent/register"))
+        .json(&serde_json::json!({
+            "did": reg["did"],
+            "did_document": {"id": reg["did"]},
+            "primitives": {
+                "sovereign_agent": reg["sovereign_agent"],
+                "state_anchor": reg["state_anchor"],
+                "reputation_registry": reg["reputation_registry"],
+                "slasher": reg["slasher"],
+                "verifier_registry": reg["verifier_registry"],
+                "compliance_gate": reg["compliance_gate"],
+                "agent_profile": reg["agent_profile"],
+            },
+            "eth_address_hex": reg["eth_address"],
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 400, "a zero genesis root must be refused with 400, not accepted");
+    let body = resp.text().await.unwrap();
+    assert!(
+        body.contains("memory not initialized"),
+        "rejection must name the memory gate specifically (not a generic chain mismatch): {body}"
+    );
+
+    // And the refusal must be total — no half-registered agent left behind (§6).
+    let listed = db::list_agents(&state.pool).await.unwrap();
+    assert!(
+        !listed.iter().any(|a| a.id == reg["did"].as_str().unwrap()),
+        "a rejected agent must not be persisted"
+    );
+}
+
+/// The OTLP metrics + logs receivers persist real agent token/cost data.
+///
+/// Shaped as an actual Claude Code export (`claude_code.token.usage` with
+/// `type=cacheRead`, `claude_code.cost.usage` in USD, and a `claude_code.api_request` log
+/// record carrying per-call tokens and `cost_usd`), because that is the emitter this work
+/// exists to receive. Before this, `OtlpMetricsService::export` accepted and discarded, and
+/// no logs service was registered at all.
+///
+/// Asserts the rows land with `evidence_tier = 'unsigned_vendor'` — the OTLP port is
+/// unauthenticated, so this data must stay distinguishable from agent-signed telemetry.
+#[tokio::test]
+async fn oracle_e2e_otlp_metrics_and_logs_persist() {
+    if std::env::var("ORACLE_E2E").ok().as_deref() != Some("1") {
+        eprintln!("SKIP oracle_e2e_otlp_metrics_and_logs_persist (set ORACLE_E2E=1 with Postgres+Redis+anvil to run)");
+        return;
+    }
+    let _ = tracing_subscriber::fmt().with_max_level(tracing::Level::ERROR).try_init();
+
+    use opentelemetry_proto::tonic::collector::logs::v1::logs_service_server::LogsService;
+    use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
+    use opentelemetry_proto::tonic::collector::metrics::v1::metrics_service_server::MetricsService;
+    use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequest;
+    use opentelemetry_proto::tonic::common::v1::{any_value::Value as AnyValueKind, AnyValue, KeyValue};
+    use opentelemetry_proto::tonic::logs::v1::{LogRecord, ResourceLogs, ScopeLogs};
+    use opentelemetry_proto::tonic::metrics::v1::{
+        metric::Data as MetricData, number_data_point::Value as NumberValue, Metric, NumberDataPoint,
+        ResourceMetrics, ScopeMetrics, Sum,
+    };
+    use opentelemetry_proto::tonic::resource::v1::Resource;
+
+    let db_url = std::env::var("TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://integrity:integrity_dev_only@127.0.0.1:5434/integrity".to_string());
+    let redis_url = std::env::var("TEST_REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+    let anvil_port = free_port();
+    let rpc_url = format!("http://127.0.0.1:{anvil_port}");
+    let _anvil = start_anvil(anvil_port);
+    let deployments_file = repo_root().join("deployments.local.json");
+    let state = build_state(&rpc_url, &deployments_file, &db_url, &redis_url).await;
+
+    let agent_id = "did:integrity:otlp-metrics-logs-agent";
+    fn str_kv(key: &str, value: &str) -> KeyValue {
+        KeyValue {
+            key: key.to_string(),
+            value: Some(AnyValue { value: Some(AnyValueKind::StringValue(value.to_string())) }),
+            key_strindex: 0,
+        }
+    }
+    fn int_kv(key: &str, value: i64) -> KeyValue {
+        KeyValue {
+            key: key.to_string(),
+            value: Some(AnyValue { value: Some(AnyValueKind::IntValue(value)) }),
+            key_strindex: 0,
+        }
+    }
+    let resource = |id: &str| Some(Resource { attributes: vec![str_kv("integrity.agent.id", id)], dropped_attributes_count: 0, entity_refs: vec![] });
+
+    let now_nanos = 1_800_000_000_000_000_000u64;
+    let sum_metric = |name: &str, unit: &str, value: NumberValue, attrs: Vec<KeyValue>| Metric {
+        name: name.to_string(),
+        description: String::new(),
+        unit: unit.to_string(),
+        metadata: vec![],
+        data: Some(MetricData::Sum(Sum {
+            data_points: vec![NumberDataPoint {
+                attributes: attrs,
+                start_time_unix_nano: now_nanos,
+                time_unix_nano: now_nanos,
+                exemplars: vec![],
+                flags: 0,
+                value: Some(value),
+            }],
+            aggregation_temporality: 2,
+            is_monotonic: true,
+        })),
+    };
+
+    let metrics_req = ExportMetricsServiceRequest {
+        resource_metrics: vec![ResourceMetrics {
+            resource: resource(agent_id),
+            schema_url: String::new(),
+            scope_metrics: vec![ScopeMetrics {
+                scope: None,
+                schema_url: String::new(),
+                metrics: vec![
+                    sum_metric(
+                        "claude_code.token.usage",
+                        "tokens",
+                        NumberValue::AsInt(15_000),
+                        vec![str_kv("type", "cacheRead"), str_kv("model", "claude-opus-5")],
+                    ),
+                    sum_metric(
+                        "claude_code.cost.usage",
+                        "USD",
+                        NumberValue::AsDouble(0.42),
+                        vec![str_kv("model", "claude-opus-5"), str_kv("query_source", "main")],
+                    ),
+                ],
+            }],
+        }],
+    };
+
+    // Export the SAME cumulative payload TWICE. OTel counters are cumulative by default —
+    // each export carries the running total, not a delta — so a rollup that sums data points
+    // reports 2x after two exports. This caught a real bug: 612,400 cacheRead tokens read
+    // back as 1,224,800. The assertions below require the rollup to stay at the true total.
+    for _ in 0..2 {
+        backend::otlp::OtlpMetricsService::new(state.clone())
+            .export(tonic::Request::new(metrics_req.clone()))
+            .await
+            .expect("metrics export must be accepted");
+    }
+
+    let logs_req = ExportLogsServiceRequest {
+        resource_logs: vec![ResourceLogs {
+            resource: resource(agent_id),
+            schema_url: String::new(),
+            scope_logs: vec![ScopeLogs {
+                scope: None,
+                schema_url: String::new(),
+                log_records: vec![LogRecord {
+                    time_unix_nano: now_nanos,
+                    observed_time_unix_nano: now_nanos,
+                    severity_number: 9,
+                    severity_text: "INFO".to_string(),
+                    body: None,
+                    attributes: vec![
+                        str_kv("event.name", "claude_code.api_request"),
+                        str_kv("model", "claude-opus-5"),
+                        int_kv("input_tokens", 1200),
+                        int_kv("output_tokens", 800),
+                        int_kv("cache_read_tokens", 15_000),
+                        int_kv("cache_creation_tokens", 300),
+                    ],
+                    dropped_attributes_count: 0,
+                    flags: 0,
+                    trace_id: vec![],
+                    span_id: vec![],
+                    event_name: String::new(),
+                }],
+            }],
+        }],
+    };
+
+    backend::otlp::OtlpLogsService::new(state.clone())
+        .export(tonic::Request::new(logs_req))
+        .await
+        .expect("logs export must be accepted");
+
+    // Metrics: the cacheRead token count must be queryable BY its data-point attributes —
+    // that is the whole point of storing them, since token type lives there, not in the name.
+    let (value, tier): (f64, String) = sqlx::query_as(
+        "SELECT MAX(value), MIN(evidence_tier) FROM otel_metrics
+         WHERE agent_id = $1 AND name = 'claude_code.token.usage' AND attributes->>'type' = 'cacheRead'",
+    )
+    .bind(agent_id)
+    .fetch_one(&state.pool)
+    .await
+    .expect("cacheRead token metric must be persisted and queryable by attribute");
+    assert_eq!(value, 15_000.0);
+    assert_eq!(tier, "unsigned_vendor", "OTLP data is unauthenticated and must be tiered as such");
+
+    let (cost,): (f64,) = sqlx::query_as(
+        "SELECT MAX(value) FROM otel_metrics WHERE agent_id = $1 AND name = 'claude_code.cost.usage'",
+    )
+    .bind(agent_id)
+    .fetch_one(&state.pool)
+    .await
+    .expect("cost metric must be persisted");
+    assert!((cost - 0.42).abs() < 1e-9, "real USD cost must survive the round trip, got {cost}");
+
+    // Logs: event identity resolved from the `event.name` attribute, and the per-call token
+    // breakdown preserved.
+    let (event_name, attrs, tier): (Option<String>, serde_json::Value, String) = sqlx::query_as(
+        "SELECT event_name, attributes, evidence_tier FROM otel_logs WHERE agent_id = $1",
+    )
+    .bind(agent_id)
+    .fetch_one(&state.pool)
+    .await
+    .expect("log record must be persisted");
+    assert_eq!(event_name.as_deref(), Some("claude_code.api_request"));
+    assert_eq!(attrs["cache_read_tokens"], serde_json::json!(15_000));
+    assert_eq!(attrs["output_tokens"], serde_json::json!(800));
+    assert_eq!(tier, "unsigned_vendor");
+
+    // Read path: the rollup endpoint must surface what the receivers stored, keyed by the
+    // emitter's token type — that keying is the whole point, since cacheRead/cacheCreation
+    // exist only as data-point attributes, not as separate metric names.
+    let app = backend::build_router(state.clone());
+    let server_port = free_port();
+    let addr: SocketAddr = format!("127.0.0.1:{server_port}").parse().unwrap();
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let http = reqwest::Client::new();
+    let base = format!("http://127.0.0.1:{server_port}");
+
+    let usage: serde_json::Value = http
+        .get(format!("{base}/v1/agent/{agent_id}/usage"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        usage["tokens"]["cacheRead"],
+        serde_json::json!(15000.0),
+        "a cumulative counter exported twice must not double the rollup: {usage}"
+    );
+    assert_eq!(usage["total_tokens"], serde_json::json!(15000.0));
+    assert!(
+        (usage["total_cost_usd"].as_f64().unwrap() - 0.42).abs() < 1e-9,
+        "reported USD must reach the API un-doubled: {usage}"
+    );
+    assert_eq!(
+        usage["evidence_tier"], "unsigned_vendor",
+        "the API must state the tier so a consumer cannot mistake vendor data for signed evidence"
+    );
+
+    let events: Vec<serde_json::Value> = http
+        .get(format!("{base}/v1/agent/{agent_id}/events"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(events.len(), 1, "the api_request event must be readable back");
+    assert_eq!(events[0]["event_name"], "claude_code.api_request");
+    assert_eq!(events[0]["attributes"]["cache_read_tokens"], serde_json::json!(15000));
+
+    // A resource with no integrity.agent.id must be rejected, not stored unattributed —
+    // same posture as the trace receiver.
+    let orphan = ExportLogsServiceRequest {
+        resource_logs: vec![ResourceLogs {
+            resource: Some(Resource { attributes: vec![], dropped_attributes_count: 0, entity_refs: vec![] }),
+            schema_url: String::new(),
+            scope_logs: vec![],
+        }],
+    };
+    let err = backend::otlp::OtlpLogsService::new(state.clone())
+        .export(tonic::Request::new(orphan))
+        .await
+        .expect_err("a log export without integrity.agent.id must be rejected");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+}
+
+/// The signed-telemetry envelope carries a `schema_version` that is INSIDE the signature,
+/// and the pre-versioning shape stays verifiable forever.
+///
+/// Four properties, because getting any one wrong is silently dangerous:
+///  1. an envelope with no `schema_version` is still accepted — signed payloads are evidence,
+///     and every historical signature must keep verifying
+///  2. a `schema_version: 1` envelope is accepted
+///  3. a version this build cannot interpret is REFUSED, not parsed on a guess
+///  4. a version added or altered in transit FAILS the signature — proving the field is
+///     covered by it and cannot be used to make the oracle reinterpret a payload
+#[tokio::test]
+async fn oracle_e2e_telemetry_schema_version_is_signed_and_backward_compatible() {
+    if std::env::var("ORACLE_E2E").ok().as_deref() != Some("1") {
+        eprintln!("SKIP oracle_e2e_telemetry_schema_version_is_signed_and_backward_compatible (set ORACLE_E2E=1)");
+        return;
+    }
+    let _ = tracing_subscriber::fmt().with_max_level(tracing::Level::ERROR).try_init();
+
+    let db_url = std::env::var("TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://integrity:integrity_dev_only@127.0.0.1:5434/integrity".to_string());
+    let redis_url = std::env::var("TEST_REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+    let anvil_port = free_port();
+    let rpc_url = format!("http://127.0.0.1:{anvil_port}");
+    let _anvil = start_anvil(anvil_port);
+    let deployments_file = repo_root().join("deployments.local.json");
+    let state = build_state(&rpc_url, &deployments_file, &db_url, &redis_url).await;
+
+    let sdk_python = repo_root().join("integrity-sdk/.venv/bin/python");
+    let keygen = Command::new(&sdk_python)
+        .args(["-c", "from eth_account import Account; a = Account.create(); print(a.address); print(a.key.hex())"])
+        .output()
+        .expect("integrity-sdk venv python must exist");
+    let keygen_out = String::from_utf8_lossy(&keygen.stdout);
+    let mut lines = keygen_out.lines();
+    let address = lines.next().unwrap().to_string();
+    let private_key = lines.next().unwrap().to_string();
+
+    let agent_id = "did:integrity:schema-version-e2e-agent";
+    sqlx::query("INSERT INTO agents (id, eth_address, verification_tier, last_nonce) VALUES ($1, $2, 1, 0)")
+        .bind(agent_id)
+        .bind(&address)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+    let app = backend::build_router(state.clone());
+    let server_port = free_port();
+    let addr: SocketAddr = format!("127.0.0.1:{server_port}").parse().unwrap();
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let base = format!("http://127.0.0.1:{server_port}");
+    let http = reqwest::Client::new();
+
+    // Signs with argv[9] when `version` is Some — omitted means the pre-versioning shape.
+    let sign = |nonce: i64, version: Option<i64>| {
+        let mut args: Vec<String> = vec![
+            repo_root().join("integrity-oracle/backend/tests/support/sign_telemetry.py").to_string_lossy().into(),
+            private_key.clone(),
+            agent_id.to_string(),
+            nonce.to_string(),
+            "0.2".into(), "0.8".into(), "5.0".into(), "0.0".into(),
+            "[]".into(),
+        ];
+        if let Some(v) = version {
+            args.push(v.to_string());
+        }
+        let out = Command::new(&sdk_python).args(&args).output().expect("signer runs");
+        assert!(out.status.success(), "signer failed: {}", String::from_utf8_lossy(&out.stderr));
+        serde_json::from_str::<serde_json::Value>(String::from_utf8_lossy(&out.stdout).trim())
+            .expect("signer prints JSON")
+    };
+
+    // 1. Pre-versioning envelope: no schema_version member at all.
+    let legacy = sign(1, None);
+    assert!(legacy.get("schema_version").is_none(), "this case must send no schema_version");
+    let resp = http.post(format!("{base}/v1/telemetry/ingest")).json(&legacy).send().await.unwrap();
+    assert_eq!(resp.status(), 200, "a pre-versioning signature must keep verifying: {}", resp.text().await.unwrap());
+
+    // 2. Versioned envelope.
+    let versioned = sign(2, Some(1));
+    assert_eq!(versioned["schema_version"], 1);
+    let resp = http.post(format!("{base}/v1/telemetry/ingest")).json(&versioned).send().await.unwrap();
+    assert_eq!(resp.status(), 200, "a v1 envelope must be accepted: {}", resp.text().await.unwrap());
+
+    // 3. A version this build cannot interpret is refused before anything else is trusted.
+    let future = sign(3, Some(9999));
+    let resp = http.post(format!("{base}/v1/telemetry/ingest")).json(&future).send().await.unwrap();
+    assert_eq!(resp.status(), 400, "an unknown envelope version must be refused, not guessed at");
+    let body = resp.text().await.unwrap();
+    assert!(body.contains("unsupported telemetry schema_version"), "rejection must name the cause: {body}");
+
+    // 4. Tamper: take a validly-signed pre-versioning envelope and inject a version. The
+    //    signature was computed over an object WITHOUT the key, so this must fail — which is
+    //    what proves the version cannot be flipped in transit to change interpretation.
+    let mut tampered = sign(4, None);
+    tampered["schema_version"] = serde_json::json!(1);
+    let resp = http.post(format!("{base}/v1/telemetry/ingest")).json(&tampered).send().await.unwrap();
+    assert_eq!(
+        resp.status(), 401,
+        "injecting schema_version into a signed envelope must fail verification, not be ignored"
+    );
 }

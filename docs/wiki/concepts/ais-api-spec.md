@@ -21,6 +21,12 @@ from `docs/INTERFACE_CONTRACT.md`, which stays an internal package-
 coordination document. This is the surface a third party can integrate
 against without reading the monorepo.
 
+## Table of contents
+
+- [Why this exists, separately from INTERFACECONTRACT.md](#why-this-exists-separately-from-interfacecontract-md)
+- [How it's generated](#how-it-s-generated)
+- [What shipped in v1 (2026-07-11)](#what-shipped-in-v1-2026-07-11)
+
 ## Why this exists, separately from INTERFACE_CONTRACT.md
 
 The project's own founder-level decision (2026-07-10/11 session): "standard"

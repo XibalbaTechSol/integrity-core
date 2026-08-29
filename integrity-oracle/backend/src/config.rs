@@ -8,6 +8,38 @@ use std::path::PathBuf;
 
 use scoring_core::AisWeights;
 
+/// What the PHI/PII backstop does when it finds a match.
+///
+/// The backstop is defense-in-depth: `integrity-sdk`'s collection profiles decide what an
+/// agent *sends*, and this decides what the oracle *accepts*. They are separate on purpose —
+/// the oracle has no way to know whether a client's redaction actually ran.
+///
+/// Default is `Reject`, so a deployment that never configures this keeps the strict behavior.
+/// A development deployment that wants unredacted content sets `Flag`, which stores the
+/// payload **and** records which categories matched, so the data is usable while the risk
+/// stays visible in the row itself. `Off` skips the scan entirely and is the only mode that
+/// loses the signal — it exists because pretending a disabled control is still a control is
+/// worse than naming it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PhiBackstopMode {
+    Reject,
+    Flag,
+    Off,
+}
+
+impl PhiBackstopMode {
+    fn parse(raw: &str) -> Result<Self, String> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "reject" => Ok(Self::Reject),
+            "flag" => Ok(Self::Flag),
+            "off" => Ok(Self::Off),
+            other => Err(format!(
+                "PHI_BACKSTOP_MODE must be one of reject|flag|off (got {other:?})"
+            )),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub database_url: String,
@@ -42,6 +74,16 @@ pub struct Config {
     /// vault — protects Postgres and the ZK verifier subprocess from a
     /// misbehaving/compromised agent hammering the ingestion endpoint.
     pub telemetry_rate_limit_per_minute: u32,
+    pub phi_backstop_mode: PhiBackstopMode,
+
+    /// provider id -> trusted Ed25519 receipt-verification key. A KYC receipt is
+    /// authoritative only when signed by one of these independently configured roots.
+    /// Parsed from `KYC_PROVIDER_KEYS` as `provider=hex-public-key,...`.
+    pub kyc_provider_keys: HashMap<String, [u8; 32]>,
+    
+    /// Optional shared API key to authenticate internal-only endpoints 
+    /// (e.g. /v1/audit/ingest, /v1/audit/anchor, and OTLP receivers).
+    pub oracle_api_key: Option<String>,
 }
 
 impl Config {
@@ -69,9 +111,11 @@ impl Config {
         let reporting_period_days: i64 = env_or("AIS_REPORTING_PERIOD_DAYS", "30")
             .parse()
             .map_err(|_| "AIS_REPORTING_PERIOD_DAYS must be a valid integer".to_string())?;
+        let phi_backstop_mode = PhiBackstopMode::parse(&env_or("PHI_BACKSTOP_MODE", "reject"))?;
         let telemetry_rate_limit_per_minute: u32 = env_or("TELEMETRY_RATE_LIMIT_PER_MINUTE", "60")
             .parse()
             .map_err(|_| "TELEMETRY_RATE_LIMIT_PER_MINUTE must be a valid integer".to_string())?;
+        let kyc_provider_keys = parse_kyc_provider_keys(&env_or("KYC_PROVIDER_KEYS", ""))?;
 
         Ok(Self {
             database_url,
@@ -88,6 +132,9 @@ impl Config {
             ais_weights,
             reporting_period_days,
             telemetry_rate_limit_per_minute,
+            phi_backstop_mode,
+            kyc_provider_keys,
+            oracle_api_key: std::env::var("ORACLE_API_KEY").ok(),
         })
     }
 
@@ -111,8 +158,43 @@ impl Config {
             ais_weights: AisWeights::default(),
             reporting_period_days: 30,
             telemetry_rate_limit_per_minute: 60,
+            // Tests get the strict default; a test that needs Flag/Off sets it explicitly, so a
+            // relaxed backstop can never be inherited silently.
+            phi_backstop_mode: PhiBackstopMode::Reject,
+            kyc_provider_keys: HashMap::new(),
+            oracle_api_key: None,
         }
     }
+}
+
+fn parse_kyc_provider_keys(raw: &str) -> Result<HashMap<String, [u8; 32]>, String> {
+    let mut keys = HashMap::new();
+    if raw.trim().is_empty() {
+        return Ok(keys);
+    }
+    for entry in raw.split(',') {
+        let (provider, key_hex) = entry
+            .trim()
+            .split_once('=')
+            .ok_or_else(|| format!("malformed KYC_PROVIDER_KEYS entry {entry:?}, expected provider=hex-key"))?;
+        let provider = provider.trim().to_ascii_lowercase();
+        if provider.is_empty()
+            || !provider
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
+        {
+            return Err(format!("invalid KYC provider id {provider:?}"));
+        }
+        let decoded = hex::decode(key_hex.trim().trim_start_matches("0x"))
+            .map_err(|_| format!("KYC provider {provider:?} has a non-hex public key"))?;
+        let key: [u8; 32] = decoded
+            .try_into()
+            .map_err(|_| format!("KYC provider {provider:?} key must be exactly 32 bytes"))?;
+        if keys.insert(provider.clone(), key).is_some() {
+            return Err(format!("duplicate KYC provider id {provider:?}"));
+        }
+    }
+    Ok(keys)
 }
 
 fn require_env(key: &str) -> Result<String, String> {
@@ -201,5 +283,14 @@ mod tests {
         assert!(parse_ais_weights(Some("0.5,0.5,0.5,0.5".to_string())).is_err());
         let w = parse_ais_weights(Some("0.4,0.3,0.2,0.1".to_string())).unwrap();
         assert_eq!(w.w_entropy, 0.4);
+    }
+
+    #[test]
+    fn parses_kyc_provider_trust_roots_and_rejects_bad_entries() {
+        let key = "11".repeat(32);
+        let parsed = parse_kyc_provider_keys(&format!("open-kyc={key}")).unwrap();
+        assert_eq!(parsed["open-kyc"], [0x11; 32]);
+        assert!(parse_kyc_provider_keys("Open KYC=00").is_err());
+        assert!(parse_kyc_provider_keys("open-kyc=abcd").is_err());
     }
 }

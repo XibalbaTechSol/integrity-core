@@ -1,0 +1,226 @@
+---
+title: integrity-dashboard
+created: 2026-07-07
+updated: 2026-08-18
+type: entity
+tags: [infrastructure, sdk]
+confidence: high
+source_files:
+  - integrity-dashboard/src/App.tsx
+  - integrity-dashboard/src/Dashboard.tsx
+  - integrity-dashboard/src/pages/AuthPage.tsx
+  - integrity-dashboard/src/pages/SettingsPage.tsx
+  - integrity-dashboard/src/pages/IdentityPage.tsx
+  - integrity-dashboard/src/pages/IntelligencePage.tsx
+  - integrity-dashboard/src/pages/HealthPage.tsx
+  - integrity-dashboard/src/pages/ShieldPage.tsx
+  - integrity-dashboard/src/pages/FinancialsPage.tsx
+  - integrity-dashboard/src/pages/MemoryPage.tsx
+  - integrity-dashboard/src/pages/DeveloperPage.tsx
+  - integrity-dashboard/src/pages/WikiPage.tsx
+  - integrity-dashboard/src/context/DashboardContext.tsx
+  - integrity-dashboard/src/context/SettingsContext.tsx
+  - integrity-dashboard/src/services/oracle.ts
+  - integrity-dashboard/src/services/userapi.ts
+  - integrity-dashboard/src/services/graphMemory.ts
+  - integrity-dashboard/src/components/ui/DIDExplorer.tsx
+  - integrity-dashboard/src/components/tabs/ActuarialHub.tsx
+  - integrity-dashboard/src/components/observability/TraceAnalysisPanel.tsx
+  - integrity-dashboard/playwright.config.ts
+  - integrity-dashboard/e2e
+  - integrity-userapi/app/config.py
+  - docker-compose.yml
+---
+
+**This page was rewritten on 2026-08-13.** The prior content described an
+older, structurally different dashboard (`AgentListPage`, `MarketsPage`,
+`WalletPage`, `wagmi`/`viem`, a Notion-style `react-grid-layout` widget
+dashboard) that no longer exists on disk — it predates the 2026-08-12
+"Reconcile integrity-dashboard with integrity-mvp's current state" commit,
+which replaced the tracked snapshot with `integrity-mvp`'s current,
+independently-developed state. None of the file paths the old version of
+this page cited exist anymore. Per this wiki's "no aspirational content"
+rule, the old content is replaced rather than patched.
+
+## Table of contents
+
+- [What this is](#what-this-is)
+- [Routes](#routes)
+- [2026-08-13 full-site Playwright audit](#2026-08-13-full-site-playwright-audit)
+- [Real bugs found and fixed this pass](#real-bugs-found-and-fixed-this-pass)
+- [Known gaps not fixed this pass](#known-gaps-not-fixed-this-pass)
+- [Local e2e stack](#local-e2e-stack)
+
+## What this is
+
+The lint toolchain declares the `globals` package explicitly in
+`devDependencies`; this keeps the flat ESLint configuration reproducible in
+Continuous Integration (CI) and after a clean `npm ci`.
+
+React 18 + TypeScript + Vite 5 dashboard, `react-router-dom` v7. 16 routes
+(`src/App.tsx`), no route-level auth guard — `MainAppLayout`/`PublicLayout`
+render `<Outlet/>` unconditionally, and individual pages read auth state
+(`getToken()` in `services/userapi.ts`, a JWT in `sessionStorage`) ad hoc.
+Most pages are driven by `DashboardContext`'s `selectedAgent` (populated
+from a real `oracle.listAgents()` call, no mock filter) and read real data
+from three backends: `integrity-oracle` (`services/oracle.ts`),
+`integrity-userapi` (`services/userapi.ts`), and, for a few chain-reading
+components (`StakingPanel`, `CreditPanel`, `PrivacyPanel`, `TokenWallet`,
+`ActuarialHub`, `HealthPage`), direct `ethers.JsonRpcProvider` reads against
+addresses hardcoded from the committed `src/deployments.baseSepolia.json` —
+**those chain reads always target real Base Sepolia**, never whatever
+`RPC_URL` the oracle backend itself is configured with, so an agent
+registered only on a local anvil chain (as in local e2e testing) shows real,
+honest empty states on those specific panels even though oracle-backed
+panels for the same agent show real data. `HealthPage`'s own banner states
+this explicitly: "Smart BAA registry, EHR Gates, and Quarantine are all real
+(Base Sepolia)."
+
+## Routes
+
+| Route | Page component | Backend dependency |
+|---|---|---|
+| `/` | `LandingPage.tsx` | none — static |
+| `/auth` | `pages/AuthPage.tsx` | `userapi` (login/register), `DashboardContext.connectWallet` |
+| `/wiki` | `pages/WikiPage.tsx` (lazy) | none — reads build-time `src/generated/wiki-data.json` |
+| `/docs`, `/privacy`, `/terms` | `pages/{Docs,Privacy,Terms}Page.tsx` | none — static, under `PublicLayout` |
+| `/dashboard` | `Dashboard.tsx` | `oracle` (AIS, stake, history, telemetry, audit log, traces) |
+| `/identity` | `pages/IdentityPage.tsx` | `DashboardContext` only, no direct fetches |
+| `/financials` | `pages/FinancialsPage.tsx` | `oracle` + chain (`TokenWallet`, `StakingPanel`, `CreditPanel`, `ActuarialHub`) |
+| `/intelligence` | `pages/IntelligencePage.tsx` | `DashboardContext`; custom telemetry fields are `localStorage`-only |
+| `/prediction-markets` | `components/tabs/ActuarialHub.tsx` (`mode="markets"`) | `oracle.listMarkets()` + chain writes via `SovereignAgent.execute` |
+| `/health` | `pages/HealthPage.tsx` | `oracle` (NHI governance) + chain (BAAs/EHR gates/quarantine, real Base Sepolia) |
+| `/shield` | `pages/ShieldPage.tsx` | none — self-contained attack-simulation demo, see below |
+| `/memory` | `pages/MemoryPage.tsx` | `xibalba-cortex`'s `local_api.py`, `VITE_GRAPH_MEMORY_URL`, default `:8420` — a separate repo, not started by `make up` |
+| `/developer` | `pages/DeveloperPage.tsx` | `oracle` + chain (IDE/contracts tab), `oracle` (Trace Analysis tab) |
+| `/settings` | `pages/SettingsPage.tsx` | `userapi` (API keys), `DashboardContext` (theme/layout), chain (`PrivacyPanel`) |
+
+**`/shield`** renders `ShieldPage.tsx`, a "Real-Time Defensive Intelligence
+Simulator" — 10 attack-simulation buttons drive a 5-step detection/
+containment pipeline visualization. It calls `http://localhost:5000`, which
+does not exist anywhere in this repo or in `xibalba-shield`; every fetch has
+an explicit try/catch fallback to synthetic data, so "no backend reachable"
+is the always-true, by-design state. Confirmed via `git log` that this page,
+the (now-replaced) old `e2e/shield.spec.ts`, and orphaned real-backend
+client code (`services/shieldBackend.ts` + `components/ShieldEvidenceGraph
+.tsx`, targeting a real `xibalba-shield/shield/backend/api.py` service on
+`:8765` — never imported by any page) all landed in the same
+integration-reconciliation commit without being reconciled with each other.
+Per explicit product direction (2026-08-13), the attack-simulator is the
+current, intended page — Shield's product identity is the AI agent/device
+security platform, broader than an endpoint-sensor framing; wiring up the
+real backend integration is separate, out-of-scope feature work, not a bug.
+
+## 2026-08-13 full-site Playwright audit
+
+Every one of the 16 routes now has a comprehensive Playwright spec under
+`e2e/` (one file per page/route, `landing.spec.ts` through `memory.spec.ts`
+— 140 tests total), written and run against a real local backend stack, no
+mocking, following each spec with a full-page screenshot reviewed before
+moving to the next page. This replaced 5 pre-existing specs
+(`dashboard.spec.ts`, `health.spec.ts`, `shield.spec.ts`, `wiki.spec.ts`,
+plus `memory.spec.ts`) written under a looser discipline, and added 11 new
+ones. `smoke.spec.ts` (all 14 non-wiki/non-memory routes, zero-console-error
+only) is kept as a fast pre-existing cross-check.
+
+## Real bugs found and fixed this pass
+
+Each was caught by a Playwright assertion failing against real rendered
+output, then fixed in the app (never by loosening the assertion):
+
+- **`WikiPage.tsx`** — `inlineMarkup`'s bold-markdown regex matched
+  `\*\*[^*]+\*` (one closing asterisk) instead of `\*\*[^*]+\*\*` (two), so
+  `**bold**` rendered as literal asterisks on every one of the 38 wiki
+  pages. Fixed the regex.
+- **`DIDExplorer.tsx`** — the DID-identifier flex child had no
+  `min-width: 0`, so its un-truncated intrinsic text width (despite its own
+  `text-overflow: ellipsis`) inflated the parent grid's `1fr 1fr` track
+  sizing, squeezing the sibling "Sovereign Node" status-badge column down to
+  ~103px and mashing its label/value pairs together unreadably.
+- **`integrity-userapi/app/config.py`** — `cors_origins` was missing the
+  Playwright dev-server origin (`127.0.0.1:5189`, distinct from
+  `localhost:5189` for CORS purposes), blocking every real login/register
+  test. Added both forms.
+- **`AuthPage.tsx` / `DashboardContext.tsx`** — `handleWalletAuth` navigated
+  to `/dashboard` unconditionally after `connectWallet()`, even when
+  connection failed (no injected wallet) — `connectWallet` swallowed all
+  failures internally and never signaled them to the caller. Changed it to
+  return a `boolean`, and gated the navigation on it.
+- **`IntelligencePage.tsx`** — `FormulaCard`'s formula box used
+  `overflow: hidden` with `justify-content: center`, so a formula wider than
+  its box was clipped on **both** edges — `"AIS = (...)"` rendered as the
+  unreadable `"[S = (...)"`. `overflow-x: auto` alone wasn't sufficient
+  either (a centered flex item inside an auto-overflow container starts
+  pre-scrolled to the midpoint); fixed with `justify-content: flex-start`
+  plus `overflowX: auto`.
+- **`Dashboard.tsx`** — the AIS radar chart mapped `ais.components.*`
+  (0–1000 scale, matching `integrity-oracle/scoring-core`'s
+  `MAX_COMPONENT_SCORE`) with `* 100`, as if it were a 0–1 fraction —
+  producing values like 100,000 against a `fullMark: 100` domain, which made
+  Recharts render a literal `"NaN"` tick/label. Changed to `/ 10`.
+- **`TraceAnalysisPanel.tsx`** — collapsed "genuinely still loading", "no
+  agent selected", and "agent has zero traces" into one
+  `selectedSession === null` check, permanently showing `"Loading
+  session..."` for the common no-telemetry-yet case — indistinguishable
+  from a hang. Added explicit `status` state
+  (`'loading' | 'no-agent' | 'no-traces' | 'ready'`) with honest, distinct
+  copy per case.
+- **`ActuarialHub.tsx`** — `resolve_deadline` is a real ISO 8601 string from
+  the oracle (`services/oracle.ts`'s `MarketSummaryDto`, confirmed live:
+  `"2026-07-09T19:22:04Z"`), but the Live Markets table parsed it with
+  `Number(m.resolve_deadline) * 1000` — `NaN` for an ISO string — rendering
+  the literal text `"Invalid Date"` in the Deadline column, and silently
+  making the derived `past` flag permanently `false` (a `NaN` comparison is
+  always false), which broke the creator-resolve button gate for any market
+  actually past its real deadline. Changed to `Date.parse(...)`.
+
+Infra fixes made to enable this testing, not application bugs: the root
+`docker-compose.yml`'s `mvp` service references `../integrity-mvp`, which no
+longer exists on disk (folded into this directory); worked around by
+starting only the specific services needed (`postgres redis opa
+oracle-backend bcc-middleware userapi-postgres userapi`) rather than the
+full `make up`/`make up-local`.
+
+## Known gaps not fixed this pass
+
+Flagged as findings, left alone per scope (test/bugfix pass, not a feature
+or redesign pass):
+
+- **`HealthPage.tsx`** declares a `TABS` array (Smart BAAs / EHR Gates /
+  Audit & Compliance / Quarantine) and imports `SubTabs`, but never renders
+  `SubTabs` or gates any section behind an active-tab check — every section
+  is unconditionally stacked on one continuous page. Dead code, not a
+  functional bug (nothing crashes or hides content).
+- **`services/shieldBackend.ts`** + **`components/ShieldEvidenceGraph.tsx`**
+  — real client code for a real `xibalba-shield` backend (`:8765`), never
+  imported by any page. See the `/shield` entry above.
+
+## Local e2e stack
+
+`playwright.config.ts`'s `webServer` boots `npm run dev -- --port 5189`
+against whatever `ORACLE_URL`/`USERAPI_URL`/`BCC_MIDDLEWARE_URL` `.env`
+resolves to — it does **not** stand up a backend itself (no
+`e2e/global-setup.ts` exists in this repo, despite `docs/TESTING.md`
+historically describing one; see that page's own update). To run the full
+suite against real data:
+
+```bash
+make chain                    # local anvil + genesis deploy (deployments.local.json)
+docker compose up --build postgres redis opa oracle-backend bcc-middleware userapi-postgres userapi
+                               # `docker-compose` (hyphenated binary) is not installed in every
+                               # environment; `docker compose` (the plugin) is the portable form
+cd integrity-dashboard && npx playwright test
+```
+
+For `/memory`, separately run `xibalba-cortex`'s `local_api.py` (a different
+repo): `uv run python -m xibalba_cortex.local_api --home <profile-dir>
+--allowed-origin http://127.0.0.1:5189`. Point it at a fresh, empty
+`--home` directory for testing rather than a real profile — its own
+background session-capture means even a fresh store won't reliably stay at
+`0` records, so specs should assert real non-fabricated counts, not a
+literal zero.
+
+Related: [integrity-oracle](integrity-oracle.md),
+[integrity-userapi](integrity-userapi.md),
+[AIS API spec](../concepts/ais-api-spec.md) (the field-shape source of
+truth `oracle.ts` is checked against).

@@ -6,14 +6,14 @@
 > pattern into a pluggable, multi-domain one, grounded in what the repo
 > already has: `contracts/src/framework/DomainRegistry.sol` (agents already
 > join a `domainId`), `bcc_middleware`'s OPA integration, and
-> `contracts/src/shield/HIPAAGuardrailRegistry.sol`'s on-chain audit-anchor
+> `contracts/src/health/HIPAAGuardrailRegistry.sol`'s on-chain audit-anchor
 > pattern.
 >
-> Source files read to ground this: `contracts/src/shield/HIPAAGuardrailRegistry.sol`,
+> Source files read to ground this: `contracts/src/health/HIPAAGuardrailRegistry.sol`,
 > `bcc_middleware/policies/bcc.rego`, `bcc_middleware/policies/bcc_test.rego`,
 > `bcc_middleware/app/{main,opa_client,config,schemas,chain}.py`,
 > `contracts/src/framework/{DomainRegistry,AgentPrimitivesFactory,XibalbaAgentRegistry}.sol`,
-> `contracts/src/shield/SmartBAAFactory.sol`, `docs/wiki/concepts/compliance-gate.md`,
+> `contracts/src/health/SmartBAAFactory.sol`, `docs/wiki/concepts/compliance-gate.md`,
 > `docs/INTERFACE_CONTRACT.md` §7, and `integrity-oracle/backend/src/handlers.rs`
 > (confirms `GET /v1/agent/{id}` already returns a server-verified `domain_id`).
 
@@ -147,7 +147,7 @@ Neither reason applies here: a guardrail anchor is just data (a policy hash +
 version + an audit log), and every domain's anchor is governed by the same
 protocol-level admin/oracle roles, not owned per-agent or per-pair. Note also
 that `ComplianceGateFactory` does **not** exist as a real contract in
-`contracts/src/shield/` today (only `script/FixComplianceGateFactory.s.sol`,
+`contracts/src/health/` today (only `script/FixComplianceGateFactory.s.sol`,
 a deploy/ops script) — it isn't precedent to build on here.
 
 The right shape mirrors `DomainRegistry.sol` itself: one registry, keyed by
@@ -156,7 +156,7 @@ hashing convention so a `domainId` means the same thing everywhere in the
 protocol):
 
 ```solidity
-// contracts/src/shield/GuardrailRegistry.sol  (DESIGN ONLY — not implemented)
+// contracts/src/health/GuardrailRegistry.sol  (DESIGN ONLY — not implemented)
 pragma solidity ^0.8.28;
 
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";

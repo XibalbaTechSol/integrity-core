@@ -9,6 +9,12 @@ source_files:
   - docs/INTERFACE_CONTRACT.md
 ---
 
+## Table of contents
+
+- [Overview](#overview)
+
+## Overview
+
 Batches of approved [BCC](bcc.md) commitments are anchored on-chain as a
 single Merkle root, verified by `StateAnchor.sol` in [contracts](../entities/contracts.md).
 

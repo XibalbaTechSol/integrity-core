@@ -155,7 +155,22 @@ def test_agent_ais(httpx_mock):
     assert "87.5" in result.stdout
 
 
-def test_agent_intercept_authorized(httpx_mock):
+def _set_resolvable_deployments_file(tmp_path, monkeypatch) -> None:
+    """`agent intercept` now resolves chain_id/verifying_contract from
+    DEPLOYMENTS_FILE (docs/plans/2026-08-18-phase1-canonical-intent-encoding-
+    proposal.md) -- point it at a throwaway file with just enough shape to
+    resolve, rather than relying on whatever the ambient repo-root .env
+    happens to have configured."""
+    deployments_file = tmp_path / "deployments.local.json"
+    deployments_file.write_text(json.dumps({
+        "chainId": 31337,
+        "singletons": {"XibalbaAgentRegistry": "0x111111111111111111111111111111111111111a"},
+    }))
+    monkeypatch.setenv("DEPLOYMENTS_FILE", str(deployments_file))
+
+
+def test_agent_intercept_authorized(httpx_mock, tmp_path, monkeypatch):
+    _set_resolvable_deployments_file(tmp_path, monkeypatch)
     runner.invoke(app, ["identity", "keygen"])
     httpx_mock.add_response(
         method="POST",
@@ -175,12 +190,15 @@ def test_agent_intercept_authorized(httpx_mock):
     body = json.loads(request.content)
     assert set(body.keys()) == {
         "agent_id", "intent_type", "intended_state_hash", "nonce", "timestamp",
-        "covered_entity_address", "agent_public_key", "signature",
+        "covered_entity_address", "agent_public_key", "chain_id", "verifying_contract", "signature",
     }
     assert body["intent_type"] == "payment"
+    assert body["chain_id"] == 31337
+    assert body["verifying_contract"] == "0x111111111111111111111111111111111111111a"
 
 
-def test_agent_intercept_rejected_exits_nonzero(httpx_mock):
+def test_agent_intercept_rejected_exits_nonzero(httpx_mock, tmp_path, monkeypatch):
+    _set_resolvable_deployments_file(tmp_path, monkeypatch)
     runner.invoke(app, ["identity", "keygen"])
     httpx_mock.add_response(
         method="POST",
@@ -206,9 +224,10 @@ def test_agent_intercept_without_identity_exits_nonzero():
     assert "No identity named 'default'" in result.stdout
 
 
-def test_agent_intercept_middleware_unreachable(httpx_mock):
+def test_agent_intercept_middleware_unreachable(httpx_mock, tmp_path, monkeypatch):
     import httpx as httpx_module
 
+    _set_resolvable_deployments_file(tmp_path, monkeypatch)
     runner.invoke(app, ["identity", "keygen"])
     httpx_mock.add_exception(httpx_module.ConnectError("refused"))
     result = runner.invoke(app, ["agent", "intercept", "-t", "payment", "-p", "{}"])

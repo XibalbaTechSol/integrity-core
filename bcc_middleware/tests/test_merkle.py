@@ -102,3 +102,71 @@ def test_batcher_flushes_at_batch_size_and_computes_a_root():
 def test_batcher_flush_on_empty_batch_returns_none():
     batcher = MerkleBatcher(batch_size=3)
     assert batcher.flush() is None
+
+
+# --- concurrent access (PRODUCTION_GAPS.md §5) ----------------------------------------
+
+
+def test_batcher_concurrent_add_and_flush_never_loses_or_duplicates_a_leaf():
+    """
+    Real regression test for the thread-safety `app/main.py`'s move of
+    `_flush_and_anchor` onto an `asyncio.to_thread` worker made necessary:
+    many threads calling `add()` concurrently with other threads repeatedly
+    calling `flush()` on the SAME batcher. Every leaf that goes in via
+    `add()` must come back out via exactly one `flush()` call (or remain in
+    `pending_count` if never flushed) -- never both lost and never
+    double-counted. batch_size is set impractically high so `add()` never
+    triggers a size-based auto-full state on its own; flushing here is
+    driven entirely by the concurrent `_flusher` thread, which is what
+    exercises the actual race window (add() interleaved with flush()'s
+    check-then-act swap).
+    """
+    import threading
+
+    batcher = MerkleBatcher(batch_size=1_000_000)
+    total_leaves = 400
+    commitments = [_commitment(nonce=i) for i in range(total_leaves)]
+
+    flushed_leaves: list = []
+    flush_lock = threading.Lock()
+    stop_flushing = threading.Event()
+
+    def _adder(chunk: list) -> None:
+        for c in chunk:
+            batcher.add(c)
+
+    def _flusher() -> None:
+        while not stop_flushing.is_set():
+            result = batcher.flush()
+            if result is not None:
+                _, leaves = result
+                with flush_lock:
+                    flushed_leaves.extend(leaves)
+
+    chunk_size = 20
+    chunks = [commitments[i : i + chunk_size] for i in range(0, total_leaves, chunk_size)]
+    adders = [threading.Thread(target=_adder, args=(chunk,)) for chunk in chunks]
+    flushers = [threading.Thread(target=_flusher) for _ in range(4)]
+
+    for f in flushers:
+        f.start()
+    for a in adders:
+        a.start()
+    for a in adders:
+        a.join(timeout=30)
+    stop_flushing.set()
+    for f in flushers:
+        f.join(timeout=30)
+
+    # Whatever's still pending after adders finish and flushers stop counts too.
+    final = batcher.flush()
+    if final is not None:
+        flushed_leaves.extend(final[1])
+
+    recovered_hashes = sorted(leaf.leaf_hash for leaf in flushed_leaves)
+    expected_hashes = sorted(leaf_hash(c) for c in commitments)
+    assert len(recovered_hashes) == total_leaves, (
+        f"expected {total_leaves} leaves recovered across all flushes, got {len(recovered_hashes)} "
+        "-- a leaf was lost or duplicated under concurrent add()/flush()"
+    )
+    assert recovered_hashes == expected_hashes

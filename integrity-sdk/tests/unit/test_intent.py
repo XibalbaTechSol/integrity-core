@@ -92,6 +92,8 @@ def test_invoke_intent_builds_a_real_verifiable_bcc_commitment():
         keypair=keypair,
         nonce=1,
         agent_id="did:integrity:test-agent",
+        chain_id=31337,
+        verifying_contract="0x111111111111111111111111111111111111111a",
     ) as intent:
         commitment = intent.commitment
 
@@ -114,6 +116,8 @@ def test_invoke_intent_id_is_the_commitments_intended_state_hash():
         keypair=keypair,
         nonce=1,
         agent_id="did:integrity:test-agent",
+        chain_id=31337,
+        verifying_contract="0x111111111111111111111111111111111111111a",
     ) as intent:
         assert intent.intent_id == intent.commitment["intended_state_hash"]
 
@@ -127,6 +131,8 @@ def test_invoke_intent_records_trace_run_with_correlated_intent_id():
         keypair=keypair,
         nonce=1,
         agent_id="did:integrity:test-agent",
+        chain_id=31337,
+        verifying_contract="0x111111111111111111111111111111111111111a",
         goal="update patient record",
         client=client,
     ) as intent:
@@ -148,6 +154,8 @@ def test_invoke_intent_reraises_exceptions_from_the_body():
             keypair=keypair,
             nonce=1,
             agent_id="did:integrity:test-agent",
+        chain_id=31337,
+        verifying_contract="0x111111111111111111111111111111111111111a",
         ):
             raise ValueError("action denied downstream")
     except ValueError as e:
@@ -165,6 +173,8 @@ def test_record_outcome_computes_adherence_and_records_metric():
         keypair=keypair,
         nonce=1,
         agent_id="did:integrity:test-agent",
+        chain_id=31337,
+        verifying_contract="0x111111111111111111111111111111111111111a",
         planned_action={"tool": "write_emr", "args": {"patient_id": "p1"}},
         client=client,
     ) as intent:
@@ -187,6 +197,8 @@ def test_record_outcome_detects_a_real_deviation():
         keypair=keypair,
         nonce=1,
         agent_id="did:integrity:test-agent",
+        chain_id=31337,
+        verifying_contract="0x111111111111111111111111111111111111111a",
         planned_action={"tool": "write_emr", "args": {}},
     ) as intent:
         result = intent.record_outcome({"tool": "delete_emr", "args": {}})
@@ -210,6 +222,8 @@ def test_nested_execution_span_correlates_via_parent_run_id():
         keypair=keypair,
         nonce=1,
         agent_id="did:integrity:test-agent",
+        chain_id=31337,
+        verifying_contract="0x111111111111111111111111111111111111111a",
         client=client,
     ) as intent:
         @traceable(name="write_emr", run_type="tool", client=client)

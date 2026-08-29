@@ -30,8 +30,10 @@ from pathlib import Path
 from typing import Optional
 
 from eth_account.signers.local import LocalAccount
+from eth_utils import keccak
 from web3 import Web3
 from web3.contract import Contract
+from web3.exceptions import ContractCustomError
 
 _ABIS_DIR = Path(__file__).resolve().parent / "abis"
 
@@ -158,7 +160,7 @@ def mint_testnet_itk(
 
 
 def deploy_sovereign_agent(
-    w3: Web3, agent: LocalAccount, did: str, oracle_signer: str, chain_id: int
+    w3: Web3, agent: LocalAccount, did: str, oracle_signer: str, chain_id: int, nonce: Optional[int] = None
 ) -> str:
     """
     The agent's own wallet directly deploys its SovereignAgent identity
@@ -168,10 +170,11 @@ def deploy_sovereign_agent(
     Returns the deployed contract's checksummed address.
     """
     factory = _contract(w3, "SovereignAgent")
+    tx_nonce = nonce if nonce is not None else w3.eth.get_transaction_count(agent.address)
     tx = factory.constructor(did, agent.address, oracle_signer, "0x0000000000000000000000000000000000000000").build_transaction(
         {
             "from": agent.address,
-            "nonce": w3.eth.get_transaction_count(agent.address),
+            "nonce": tx_nonce,
             "chainId": chain_id,
         }
     )
@@ -181,7 +184,7 @@ def deploy_sovereign_agent(
     return receipt.contractAddress
 
 
-def deploy_state_anchor(w3: Web3, agent: LocalAccount, sovereign_agent_address: str, chain_id: int) -> str:
+def deploy_state_anchor(w3: Web3, agent: LocalAccount, sovereign_agent_address: str, chain_id: int, nonce: Optional[int] = None) -> str:
     """
     The agent's own wallet directly deploys its StateAnchor instance, with
     `admin` set to the just-deployed SovereignAgent contract address (not
@@ -191,10 +194,11 @@ def deploy_state_anchor(w3: Web3, agent: LocalAccount, sovereign_agent_address: 
     `SovereignAgent.execute`.
     """
     factory = _contract(w3, "StateAnchor")
+    tx_nonce = nonce if nonce is not None else w3.eth.get_transaction_count(agent.address)
     tx = factory.constructor(Web3.to_checksum_address(sovereign_agent_address)).build_transaction(
         {
             "from": agent.address,
-            "nonce": w3.eth.get_transaction_count(agent.address),
+            "nonce": tx_nonce,
             "chainId": chain_id,
         }
     )
@@ -211,6 +215,7 @@ def grant_anchor_role(
     state_anchor_address: str,
     oracle_signer: str,
     chain_id: int,
+    nonce: Optional[int] = None,
 ) -> str:
     """
     Grants the protocol's oracle signer ANCHOR_ROLE on this agent's own
@@ -226,18 +231,136 @@ def grant_anchor_role(
     )["data"]
 
     sovereign_agent = _contract(w3, "SovereignAgent", address=sovereign_agent_address)
+    tx_nonce = nonce if nonce is not None else w3.eth.get_transaction_count(agent.address)
     tx = sovereign_agent.functions.execute(
         Web3.to_checksum_address(state_anchor_address), 0, grant_calldata
     ).build_transaction(
         {
             "from": agent.address,
-            "nonce": w3.eth.get_transaction_count(agent.address),
+            "nonce": tx_nonce,
             "chainId": chain_id,
         }
     )
     signed = agent.sign_transaction(tx)
     tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
     _wait(w3, tx_hash, action="grant_anchor_role")
+    return tx_hash.hex()
+
+
+def has_anchor_role(w3: Web3, state_anchor_address: str, oracle_signer: str) -> bool:
+    """Read-only check for whether `grant_anchor_role` has already succeeded for this
+    StateAnchor -- lets `agent register` skip a redundant (if harmless, since OZ's
+    `grantRole` is itself idempotent) transaction on a retry."""
+    state_anchor = _contract(w3, "StateAnchor", address=state_anchor_address)
+    anchor_role = state_anchor.functions.ANCHOR_ROLE().call()
+    return state_anchor.functions.hasRole(anchor_role, Web3.to_checksum_address(oracle_signer)).call()
+
+
+def itk_balance(w3: Web3, itk_address: str, holder_address: str) -> int:
+    """Read-only ITK balance check -- lets `agent register` skip re-minting on a retry,
+    which (unlike `grantRole`) is NOT idempotent: calling `mint_testnet_itk` twice mints
+    twice."""
+    itk = _contract(w3, "IntegrityToken", address=itk_address)
+    return itk.functions.balanceOf(Web3.to_checksum_address(holder_address)).call()
+
+
+def state_anchor_latest_root(w3: Web3, state_anchor_address: str) -> bytes:
+    """Read-only `StateAnchor.latestRoot()` -- a non-zero return means `anchor_root` has
+    already run for this agent. Lets `agent register` skip re-anchoring on a retry."""
+    state_anchor = _contract(w3, "StateAnchor", address=state_anchor_address)
+    return state_anchor.functions.latestRoot().call()
+
+
+_UNKNOWN_DID_SELECTOR = "0x" + keccak(text="UnknownDID()")[:4].hex()
+
+
+def resolve_did(w3: Web3, registry_address: str, did: str) -> Optional[PrimitivesRegistered]:
+    """
+    Reads `XibalbaAgentRegistry.resolveDID(did)`. Unlike `isRegisteredAgent` (a plain bool
+    getter), `resolveDID` genuinely REVERTS with the custom error `UnknownDID()` for a DID
+    that was never registered (confirmed by reading `XibalbaAgentRegistry.sol` directly:
+    `if (!record.exists) revert UnknownDID();`) -- returns `None` for that case rather than
+    letting the revert propagate; returns the full 7-primitive set (plus controller/domain)
+    if the DID is already registered. Any OTHER revert (unexpected selector, RPC error) is
+    re-raised, not swallowed.
+
+    Ported from `integrity_sdk.chain.resolve_did` -- this CLI previously had NO idempotency
+    check of any kind before `agent register`'s on-chain sequence (unlike the SDK, which at
+    least had this check even before its own deploy-resume fix), so every invocation for an
+    already-registered DID deployed a second, orphaned SovereignAgent/StateAnchor pair.
+    See `main.py`'s `agent_register` and `PRODUCTION_GAPS.md`'s §28 for the full history.
+    """
+    registry = _contract(w3, "XibalbaAgentRegistry", address=registry_address)
+    try:
+        record = registry.functions.resolveDID(did).call()
+    except ContractCustomError as exc:
+        selector = exc.args[0] if exc.args else None
+        if selector == _UNKNOWN_DID_SELECTOR:
+            return None
+        raise
+    # ABI-decoded tuple shape: (primitives_tuple, controller, domainId, registeredAt, exists)
+    primitives, controller, domain_id, _registered_at, exists = record
+    if not exists:
+        return None
+    sovereign_agent, state_anchor, reputation_registry, slasher, verifier_registry, compliance_gate, agent_profile = primitives
+    return PrimitivesRegistered(
+        did_hash=registry.functions.didHash(did).call().hex(),
+        sovereign_agent=sovereign_agent,
+        controller=controller,
+        state_anchor=state_anchor,
+        reputation_registry=reputation_registry,
+        slasher=slasher,
+        verifier_registry=verifier_registry,
+        compliance_gate=compliance_gate,
+        agent_profile=agent_profile,
+        domain_id=domain_id.hex(),
+    )
+
+
+#: Canonical seed string for the genesis vault root. Pinned in docs/INTERFACE_CONTRACT.md
+#: §4.4a -- never copied as a hex literal. Every package that needs this value derives
+#: the same bytes from the same ASCII string.
+GENESIS_VAULT_SEED = "integrity.trust-vault.genesis.v1"
+
+
+def genesis_vault_root() -> bytes:
+    """`keccak256("integrity.trust-vault.genesis.v1")` -- the canonical non-zero root
+    meaning "vault initialized, nothing in it yet" (spec v0.3 §4.1: an
+    empty-but-initialized vault is valid at birth, but `anchorRoot` reverts on
+    `bytes32(0)`, so "empty" needs a defined non-zero representation)."""
+    return keccak(text=GENESIS_VAULT_SEED)
+
+
+def anchor_root(
+    w3: Web3,
+    agent: LocalAccount,
+    sovereign_agent_address: str,
+    state_anchor_address: str,
+    chain_id: int,
+    root: Optional[bytes] = None,
+    nonce: Optional[int] = None,
+) -> str:
+    """
+    Anchors the agent's memory root on its own StateAnchor.
+    """
+    root = root or genesis_vault_root()
+    state_anchor = _contract(w3, "StateAnchor", address=state_anchor_address)
+    anchor_calldata = state_anchor.functions.anchorRoot(root).build_transaction({"gas": 0})["data"]
+
+    sovereign_agent = _contract(w3, "SovereignAgent", address=sovereign_agent_address)
+    tx_nonce = nonce if nonce is not None else w3.eth.get_transaction_count(agent.address)
+    tx = sovereign_agent.functions.execute(
+        Web3.to_checksum_address(state_anchor_address), 0, anchor_calldata
+    ).build_transaction(
+        {
+            "from": agent.address,
+            "nonce": tx_nonce,
+            "chainId": chain_id,
+        }
+    )
+    signed = agent.sign_transaction(tx)
+    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+    _wait(w3, tx_hash, action="anchor_root")
     return tx_hash.hex()
 
 
@@ -266,6 +389,7 @@ def register_primitives(
     vertical: int,
     profile_uri: str,
     chain_id: int,
+    nonce: Optional[int] = None,
 ) -> PrimitivesRegistered:
     """
     Calls `AgentPrimitivesFactory.registerPrimitives`, the step that clones
@@ -280,6 +404,7 @@ def register_primitives(
     authoritative source for what the factory actually deployed.
     """
     factory = _contract(w3, "AgentPrimitivesFactory", address=factory_address)
+    tx_nonce = nonce if nonce is not None else w3.eth.get_transaction_count(agent.address)
     tx = factory.functions.registerPrimitives(
         Web3.to_checksum_address(sovereign_agent_address),
         Web3.to_checksum_address(state_anchor_address),
@@ -290,7 +415,7 @@ def register_primitives(
     ).build_transaction(
         {
             "from": agent.address,
-            "nonce": w3.eth.get_transaction_count(agent.address),
+            "nonce": tx_nonce,
             "chainId": chain_id,
         }
     )

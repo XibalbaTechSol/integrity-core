@@ -1,7 +1,7 @@
 ---
 title: bcc_middleware
 created: 2026-07-07
-updated: 2026-07-14
+updated: 2026-08-13
 type: entity
 tags: [infrastructure, compliance, cryptography, metrics]
 confidence: high
@@ -14,6 +14,10 @@ source_files:
   - bcc_middleware/app/reputation.py
   - bcc_middleware/app/scoring_loop.py
   - bcc_middleware/app/config.py
+  - bcc_middleware/app/nonce_lock.py
+  - bcc_middleware/app/verification_token.py
+  - bcc_middleware/app/audit.py
+  - bcc_middleware/tests/test_shutdown_drain.py
   - bcc_middleware/policies/bcc.rego
 ---
 
@@ -24,6 +28,17 @@ It also runs a second, independent responsibility: a periodic background loop
 that pushes each agent's oracle-computed [AIS](../concepts/ais.md) on-chain and
 raises slashing disputes (see "Reconciled this cycle" below) — the only place
 in the monorepo that closes that loop.
+
+## Table of contents
+
+- [Pipeline](#pipeline)
+- [Hermes runtime gate bridge (2026-08-04)](#hermes-runtime-gate-bridge-2026-08-04)
+- [Reconciled this cycle (2026-07-14)](#reconciled-this-cycle-2026-07-14)
+- [Reconciled 2026-07-11](#reconciled-2026-07-11)
+- [Reconciled previous cycle](#reconciled-previous-cycle)
+- [Async hot-path + hardening fixes, 2026-07-15](#async-hot-path-hardening-fixes-2026-07-15)
+- [State](#state)
+- [Resolved gap (found stale during integrity-dashboard/demo work, 2026-07-09)](#resolved-gap-found-stale-during-integrity-dashboard-demo-work-2026-07-09)
 
 ## Pipeline
 
@@ -38,9 +53,38 @@ check** (if OPA flags `requires_baa`) → admit to
 deny); anchoring happens after authorization and is best-effort. The circuit
 breaker only counts violations attributable to the agent — an OPA/RPC outage
 denies but never trips the breaker (else one outage locks out the whole fleet).
+
+Audit decisions (allow and deny) are reported asynchronously to the oracle so an
+unreachable audit endpoint cannot change the authorization response. The FastAPI
+lifespan now drains in-flight audit-report tasks during shutdown, with a bounded
+10-second wait, a shutdown admission gate, and explicit cleanup/logging when a report
+remains stuck. This closes shutdown cancellation loss, but does not claim delivery
+guarantees: an oracle outage can still lose a report because no local durable spool or
+retry queue exists.
 The reputation-sync loop below follows the same best-effort posture for score
 pushes (a stale on-chain score, not a wrongly-trusted one) but the opposite for
 disputes — see below.
+
+## Hermes runtime gate bridge (2026-08-04)
+
+Hermes' shell-hook adapter now has a real per-session context bridge instead of
+arriving at `pretool_gate.evaluate_tool_intent(...)` empty-handed:
+
+- `integrity_telemetry` persists the latest turn rationale / assistant response in
+  `~/.claude/xibalba/cache/hermes_session_context/<session_id>.json`.
+- `agent/turn_finalizer.py` now forwards `last_reasoning` into `post_llm_call` so
+  the plugin can prefer same-turn reasoning when a provider exposed it.
+- `hermes_gate.py` reads that cache and bridges it into `INTENT_RATIONALE`
+  (with `AGENT_THOUGHT` as a legacy alias) before it calls the shared pretool
+  gate, preserving the single-source-of-truth BCC path.
+- `tools/code_execution_tool.py` now forwards `HERMES_SESSION_ID` into nested
+  sandbox tool dispatch so `execute_code` -> `terminal` keeps the session identity
+  the BCC gate needs to recover trace/span context.
+
+This is an operational repair, not a semantic completion of the protocol: the live
+OPA rule now prefers the signed `intent_rationale` field, while `agent_thought`
+remains a compatibility alias. The long-term contract should keep the rationale
+public-safe and signed, not imply access to private chain-of-thought.
 
 ## Reconciled this cycle (2026-07-14)
 
@@ -48,9 +92,11 @@ disputes — see below.
   `app/scoring_loop.py` add a background asyncio task (started at FastAPI
   `lifespan` startup, `SCORE_SYNC_INTERVAL_SECONDS`, default 300s; also
   triggerable on-demand via `POST /v1/reputation/sync`) that lists every agent
-  the oracle knows about and, per agent: (1) recomputes the **pre-boost**
-  weighted AIS from `GET /v1/agent/{id}/ais`'s `components`/`weights` and
-  signs+submits a real `ReputationRegistry.updateScore(agent, baseScore)`;
+  the oracle knows about and, per agent: (1) treats
+  `GET /v1/agent/{id}/ais`'s geometric, tier-capped `ais` as authoritative,
+  divides out only its reported `zk_boost`, and signs+submits a real
+  `ReputationRegistry.updateScore(agent, baseScore)`; it never reconstructs
+  the formula from `components`/`weights`;
   (2) if the oracle's flagged-telemetry ratio for that agent crosses
   `DISPUTE_FLAGGED_RATIO_THRESHOLD` over a lookback window, signs+submits a
   real `Slasher.raiseDispute(agent, amount, reason)` locking
@@ -132,26 +178,70 @@ sequenceDiagram
   `data.clinical_allowlist.agents`, so a real-DID agent is authorized by a loaded
   data document, no policy edit.
 
+## Async hot-path + hardening fixes, 2026-07-15
+
+`run_intercept` now wraps `resolve_verification_tier`, `check_baa_status`,
+and `_flush_and_anchor` in `asyncio.to_thread(...)` — these were blocking
+synchronous calls (`httpx.get`, `web3.py`, `wait_for_transaction_receipt`)
+running directly inside an async FastAPI handler, stalling the whole event
+loop per request. Making that concurrency real for the first time exposed
+two follow-on gaps, both fixed in the same pass:
+
+- **A genuine, reproduced race**: two concurrent requests using the same
+  signer key (`anchor_root`'s Merkle-anchor tx and `reputation.py`'s
+  `push_score`/`raise_dispute` tx) could both read the same starting nonce
+  and submit conflicting transactions. New `app/nonce_lock.py`
+  (`signer_lock(address) -> threading.Lock`, a process-wide per-address
+  registry) now wraps every signed on-chain call. This one **did** reproduce
+  empirically — 6/8 real `"nonce too low"` RPC failures with the lock
+  temporarily removed, 0/8 with it restored (`test_nonce_lock.py`).
+- **A code-level race, not empirically reproduced**: `MerkleBatcher.add`/
+  `flush` had no lock of their own, and were only ever single-threaded
+  before `asyncio.to_thread` made concurrent access possible. Added a
+  `threading.Lock` around all mutating/reading methods. Honestly
+  documented as based on a direct code-level trace of the unguarded
+  multi-op sequence, not a captured failure — attempted to force it via
+  `sys.setswitchinterval(0.00001)` stress testing and it did not reproduce,
+  unlike the nonce race above.
+- **`verification_token.py`**: replaced an unsigned, publicly-recomputable
+  `sha256(...)` "verification token" (proved nothing) with an HMAC-SHA256
+  keyed token (`issue_token`/`verify_token`, unforgeable without
+  `BCC_VERIFICATION_SECRET`), exposed via a new `POST /v1/bcc/verify_token`
+  endpoint. Bounded to `_MAX_ISSUED_TOKENS = 50_000` with oldest-first
+  eviction to prevent unbounded growth.
+- **`force_flush`** now returns each agent's real per-agent Merkle `root`
+  (from `AnchorResult.root`) instead of the discarded full-batch root.
+- **`scoring_loop.py`** now skips a redundant `push_score` call when an
+  agent's score hasn't changed since the last confirmed submission
+  (`_last_pushed_score` cache).
+- **Test-chain-id fix**: 11 tests were failing with a chain-ID mismatch
+  because the repo-root `.env` sets `CHAIN_ID=84532` (Base Sepolia)
+  globally, silently overriding what local-anvil tests expect (`31337`).
+  Fixed at the source: `tests/conftest.py`'s `anvil_chain` fixture now sets
+  `os.environ["CHAIN_ID"]` from the real connected chain's id, so every
+  `Settings()` constructed in that test session inherits it automatically.
+
 ## State
 
-**75 pytest + 28 OPA tests.** Real coverage: a fail-closed test points at a dead
-OPA port; `test_baa_shield_integration.py` deploys the real
-[Shield contracts](../concepts/compliance-gate.md) on a local anvil and exercises
+**91 pytest + 28 OPA tests** (up from 75 pytest — the hardening pass
+above). Real coverage: a fail-closed test points at a dead
+OPA port; `test_baa_health_integration.py` deploys the real
+[Integrity Health contracts](../concepts/compliance-gate.md) on a local anvil and exercises
 the real two-arg BAA call; `test_reputation.py`/`test_scoring_loop.py` cover the
 reputation-sync loop above, including real `updateScore`/`raiseDispute`
 transactions against `MockReputationRegistry.sol`/`MockSlasher.sol` fixtures.
 
-## Resolved gap (found stale during `integrity-mvp/demo` work, 2026-07-09)
+## Resolved gap (found stale during `integrity-dashboard/demo` work, 2026-07-09)
 
 This page previously said `app/chain.py::agent_id_to_address` derives the
 agent's EVM address with a placeholder `keccak256(pubkey)[-20:]`. Re-read
-against current source while building `integrity-mvp/demo` (2026-07-09): this
+against current source while building `integrity-dashboard/demo` (2026-07-09): this
 is no longer true — `agent_id_to_address` now resolves the real
 `SovereignAgent` contract address via `resolve_agent_primitives(oracle_url,
 agent_id)` (an oracle lookup), matching what `EHRGate.checkAccess`/
 `ComplianceGate` actually treat as `msg.sender`. Not independently re-verified
 end-to-end against a live current-schema oracle this session (see
-[integrity-mvp](integrity-mvp.md)'s demo section: no such oracle instance was
+[integrity-dashboard](integrity-dashboard.md)'s demo section: no such oracle instance was
 running), but the placeholder code path itself is confirmed gone from source.
 
 Related: [BCC](../concepts/bcc.md),

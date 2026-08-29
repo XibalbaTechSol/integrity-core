@@ -1,0 +1,60 @@
+name: Sync Integrity Wiki
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [integrity-wiki-updated]
+  schedule:
+    - cron: '17 * * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: integrity-wiki-sync
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Integrity MVP
+        uses: actions/checkout@v4
+
+      - name: Check out canonical Integrity wiki
+        uses: actions/checkout@v4
+        with:
+          repository: XibalbaTechSol/integrity-core
+          path: .wiki-source
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify canonical article tables of contents
+        run: python3 .wiki-source/scripts/wiki_toc.py --check
+
+      - name: Generate the public wiki snapshot
+        env:
+          INTEGRITY_WIKI_SOURCE: ${{ github.workspace }}/.wiki-source/docs/wiki
+        run: npm run sync-wiki
+
+      - name: Verify the generated app
+        run: npm run build
+
+      - name: Commit a changed snapshot
+        run: |
+          if git diff --quiet -- src/generated/wiki-data.json; then
+            echo "Wiki snapshot is already current."
+            exit 0
+          fi
+          git config user.name "integrity-wiki-sync[bot]"
+          git config user.email "integrity-wiki-sync[bot]@users.noreply.github.com"
+          git add src/generated/wiki-data.json
+          git commit -m "docs(wiki): sync canonical Integrity knowledge"
+          git push

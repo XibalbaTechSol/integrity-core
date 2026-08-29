@@ -1,7 +1,7 @@
 # contracts
 
 The on-chain heart of the Integrity Protocol: the 7 agent primitives, the factory
-that deploys them, the shared registries, the `$ITK` token, the Xibalba Shield
+that deploys them, the shared registries, the `$ITK` token, the Integrity Health
 (HIPAA) stack, and the ZK verifier. Solidity `0.8.28`, built and tested with
 Foundry.
 
@@ -29,7 +29,7 @@ is no privileged factory that registers agents into shared global state. Instead
 | 3 | `ReputationRegistry` | clone | `src/oracle/ReputationRegistry.sol` |
 | 4 | `Slasher` | clone | `src/oracle/Slasher.sol` |
 | 5 | `VerifierRegistry` | clone | `src/oracle/VerifierRegistry.sol` |
-| 6 | `ComplianceGate` | clone | `src/shield/ComplianceGate.sol` |
+| 6 | `ComplianceGate` | clone | `src/health/ComplianceGate.sol` |
 | 7 | `AgentProfile` | clone | `src/framework/AgentProfile.sol` |
 
 The 5 clone contracts are `Initializable` (OpenZeppelin upgradeable): their
@@ -54,10 +54,10 @@ can't be trusted to arbitrate its own slashing dispute.
 ## Singletons (deployed once, shared)
 
 `IntegrityToken` ($ITK), `UltraPlonkVerifier`, `XibalbaAgentRegistry`,
-`DomainRegistry`, plus the Shield stack (`CoveredEntityRegistry`,
+`DomainRegistry`, plus the Integrity Health stack (`CoveredEntityRegistry`,
 `SmartBAAFactory`, `HIPAAGuardrailRegistry`) and the 5 clone *implementations*.
 
-### Xibalba Shield (HIPAA vertical)
+### Integrity Health (HIPAA vertical)
 
 The flagship regulated-industry proof. `EHRGate` enforces all three of: patient
 consent **and** an active on-chain Business Associate Agreement (`SmartBAA`)
@@ -71,7 +71,7 @@ it never fakes a `true`.
 
 ```bash
 forge build
-forge test            # 165 tests
+forge test            # 209 tests verified 2026-08-17
 ```
 
 Tests cover every contract, including full end-to-end coverage of the
@@ -95,7 +95,8 @@ cp .env.example .env   # fill FUNDER_PRIVATE_KEY, BASE_SEPOLIA_RPC_URL
 forge script script/Deploy.s.sol --rpc-url base_sepolia --broadcast
 ```
 
-`Deploy.s.sol` deploys every singleton + the 5 clone implementations +
+`Deploy.s.sol` deploys every singleton (including the local
+`IntegrityIdentityReadV1` facade) + the 5 clone implementations +
 `AgentPrimitivesFactory`, wires `REGISTRAR_ROLE`, bootstraps the
 `general.integrity` and `healthcare.integrity` domains, and writes the deployment
 record to `../deployments.<network>.json`.
@@ -123,9 +124,11 @@ and `deployments.baseSepolia.json` for the full address set.
 
 ## Known gaps (honest)
 
-- `UltraPlonkVerifier.sol` is a **fail-closed placeholder** (`verify()` reverts)
-  until `bb write_solidity_verifier` generates the real ~2465-line UltraHonk
-  verifier from `../integrity-zkp`. It fails *closed*, never open.
+- `UltraPlonkVerifier.sol` is the generated ~2465-line UltraHonk verifier in
+  local source, with real-proof positive and negative Foundry tests. The
+  existing Base Sepolia singleton was deployed from the older fail-closed
+  placeholder and has not been replaced; do not infer deployed behavior from
+  the current source tree.
 - `CCIPReputationBridge.sol` was reworked 2026-07-11 for the per-agent EIP-1167
   clone model: it now resolves each agent's own `ReputationRegistry` clone via
   `XibalbaAgentRegistry` on every call, instead of holding one immutable
@@ -142,8 +145,8 @@ src/
   framework/   XibalbaAgentRegistry, AgentPrimitivesFactory, DomainRegistry, AgentProfile
   oracle/      ReputationRegistry, Slasher, StateAnchor, VerifierRegistry,
                IntegrityToken, UltraPlonkVerifier, CCIPReputationBridge
-  shield/      CoveredEntityRegistry, SmartBAAFactory, SmartBAA,
+  health/      CoveredEntityRegistry, SmartBAAFactory, SmartBAA,
                HIPAAGuardrailRegistry, EHRGate, ComplianceGate
 script/Deploy.s.sol
-test/          one *.t.sol per contract (165 tests)
+test/          focused suites for contracts and deployment invariants (209 tests on 2026-08-17)
 ```

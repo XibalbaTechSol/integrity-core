@@ -13,6 +13,12 @@ source_files:
   - docs/INTERFACE_CONTRACT.md
 ---
 
+## Table of contents
+
+- [Overview](#overview)
+
+## Overview
+
 The intent-locking protocol: before an agent executes an action, it signs a
 commitment to that action's hash and submits it to
 [BCC Middleware](../entities/bcc_middleware.md) for pre-execution policy
@@ -28,6 +34,8 @@ Wire schema (field names are load-bearing across packages):
   "timestamp": "<unix ms>",
   "covered_entity_address": "0x<hospital, for healthcare intents> | null",
   "agent_public_key": "z<multibase Ed25519 pubkey>",
+  "chain_id": "<EVM chain ID, int>",
+  "verifying_contract": "0x<target chain's XibalbaAgentRegistry address>",
   "signature": "0x<Ed25519 sig over the above, canonical JSON>"
 }
 ```
@@ -45,6 +53,19 @@ commitment therefore carries `agent_public_key` (multibase); the middleware
 *binds* it by checking `sha256(pubkey) == fingerprint` before verifying the
 signature, blocking key substitution. `covered_entity_address` is signed so the
 target hospital of a healthcare intent can't be swapped post-signature.
+
+**Canonical intent encoding (2026-08-18).** `chain_id`/`verifying_contract`
+are both required and both signed — without them a commitment signed once
+was valid against any chain or deployment sharing the signing agent's DID.
+`bcc_middleware` denies a `chain_id` mismatch unconditionally; it denies a
+`verifying_contract` mismatch only when it has a configured
+`XibalbaAgentRegistry` address, so local/dev/test topologies with no
+deployments file configured aren't turned into a blanket deny — a disclosed
+limitation, not a silent downgrade. See
+`docs/plans/2026-08-18-phase1-canonical-intent-encoding-proposal.md` for the
+full design and residual gaps (the experimental kernel's own replay-domain
+binding, and the ZK circuit's `intent_commitment` not yet binding `chain_id`
+— both separate, unattempted here).
 
 If the intent passes policy, an [Integrity SDK](../entities/integrity-sdk.md)
 or [integrity-cli](../entities/integrity-cli.md) client can additionally

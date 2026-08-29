@@ -14,6 +14,7 @@ own transaction.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import asyncpg
@@ -21,8 +22,20 @@ import asyncpg
 MIGRATIONS_DIR = Path(__file__).resolve().parents[1] / "migrations"
 
 
+async def _register_jsonb_codec(conn: asyncpg.Connection) -> None:
+    # Without this, asyncpg round-trips `jsonb` columns (demo_runs.result_summary)
+    # as raw text, so callers would have to json.dumps/loads by hand at every
+    # call site instead of passing/receiving plain dicts -- registered once
+    # per connection here instead.
+    await conn.set_type_codec(
+        "jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog", format="text"
+    )
+
+
 async def create_pool(database_url: str) -> asyncpg.Pool:
-    return await asyncpg.create_pool(dsn=database_url, min_size=1, max_size=10)
+    return await asyncpg.create_pool(
+        dsn=database_url, min_size=1, max_size=10, init=_register_jsonb_codec
+    )
 
 
 async def run_migrations(pool: asyncpg.Pool) -> list[str]:

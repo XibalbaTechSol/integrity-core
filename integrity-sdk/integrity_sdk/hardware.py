@@ -67,14 +67,6 @@ def generate_hardware_fingerprint() -> str:
 
 def get_virtualization_env() -> str:
     try:
-        res = subprocess.run(
-            ["systemd-detect-virt"], capture_output=True, text=True, timeout=2
-        )
-        if res.returncode == 0:
-            return res.stdout.strip()
-    except Exception:
-        pass
-    try:
         with open("/proc/cpuinfo", "r") as f:
             for line in f:
                 if "hypervisor" in line.lower():
