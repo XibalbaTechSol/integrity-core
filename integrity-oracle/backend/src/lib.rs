@@ -21,6 +21,7 @@ pub mod vc;
 pub mod otlp;
 pub mod phi;
 pub mod routes;
+pub mod span_schema;
 pub mod stream;
 pub mod trace_tree;
 pub mod verification;
