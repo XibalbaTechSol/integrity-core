@@ -93,6 +93,26 @@ async function installCortexContract(page: Page) {
 }
 
 test.describe('/cortex Operations tab', () => {
+  test('keeps sessions visible when an unrelated Cortex endpoint fails', async ({ page }) => {
+    await page.route('http://localhost:8420/api/**', async route => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === '/api/sessions') return json(route, [{ id: 'session-row-1', external_session_id: 'session-visible-during-partial-failure' }]);
+      if (path === '/api/stats') return json(route, { memories: 1, entities: 0, relations: 0, embedded_memories: 0, sessions: 1 });
+      if (path === '/api/status') return json(route, { schema_version: 1, integrity_check: 'ok' });
+      if (path === '/api/integrity-links') return json(route, { total_memories: 1, linked_records: 0, states: {} });
+      if (path === '/api/graph') return json(route, { nodes: [], edges: [] });
+      if (path === '/api/inference/manifest') return json(route, { error: 'inference worker unavailable' }, 503);
+      if (path.includes('/exchanges')) return json(route, []);
+      if (path.includes('/merkle-root')) return json(route, { root: '', valid: true });
+      return json(route, []);
+    });
+
+    await page.goto('/cortex');
+
+    await expect(page.getByRole('option', { name: 'session-visible-during-partial-failure' })).toBeAttached();
+    await expect(page.getByText(/Partial Cortex data unavailable: inference manifest/)).toBeVisible();
+  });
+
   test('redirects the legacy Memory route into the Cortex workspace', async ({ page }) => {
     await page.route('http://localhost:8420/api/**', route => route.abort('connectionrefused'));
     await page.goto('/memory');

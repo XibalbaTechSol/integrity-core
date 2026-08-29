@@ -21,7 +21,7 @@ import {
     X,
 } from 'lucide-react';
 import { GraphMemoryView, type NodeSizeBy } from '../components/GraphMemoryView';
-import CortexOperationsTab from './CortexOperationsPage';
+import CortexOperationsTab from '../components/cortex/CortexOperationsTab';
 import {
     graphMemory,
     type Attachment,
@@ -283,7 +283,7 @@ function StatusValue({ label, value, good }: { label: string; value: string; goo
     return <div className="memory-status-value"><span>{label}</span><strong className={good === undefined ? '' : good ? 'good' : 'bad'}>{good !== undefined && (good ? <CheckCircle2 size={13} /> : <AlertTriangle size={13} />)}{value}</strong></div>;
 }
 
-export default function MemoryPage() {
+export default function CortexPage() {
     const [activeTab, setActiveTab] = useState<Tab>('timeline');
     const [stats, setStats] = useState<GraphMemoryStats | null>(null);
     const [status, setStatus] = useState<StoreStatus | null>(null);
@@ -312,13 +312,23 @@ export default function MemoryPage() {
     const refresh = async () => {
         setRefreshing(true);
         setApiError(null);
-        try {
-            const [nextStats, nextStatus, nextLinks, nextSessions, nextGraph, nextManifest] = await Promise.all([
-                graphMemory.stats(), graphMemory.status(), graphMemory.integrityLinks(), graphMemory.sessions(), graphMemory.graph(500, similarityThreshold), graphMemory.inferenceManifest(),
-            ]);
-            setStats(nextStats); setStatus(nextStatus); setLinks(nextLinks); setSessions(nextSessions); setGraph(nextGraph); setManifest(nextManifest);
-            if (!selectedSessionId && nextSessions[0]) setSelectedSessionId(nextSessions[0].external_session_id);
-        } catch (error) { setApiError(String(error)); } finally { setRefreshing(false); }
+        const [statsResult, statusResult, linksResult, sessionsResult, graphResult, manifestResult] = await Promise.allSettled([
+            graphMemory.stats(), graphMemory.status(), graphMemory.integrityLinks(), graphMemory.sessions(), graphMemory.graph(500, similarityThreshold), graphMemory.inferenceManifest(),
+        ]);
+        const unavailable: string[] = [];
+        if (statsResult.status === 'fulfilled') setStats(statsResult.value); else unavailable.push('statistics');
+        if (statusResult.status === 'fulfilled') setStatus(statusResult.value); else unavailable.push('store status');
+        if (linksResult.status === 'fulfilled') setLinks(linksResult.value); else unavailable.push('integrity links');
+        if (sessionsResult.status === 'fulfilled') {
+            setSessions(sessionsResult.value);
+            if (!selectedSessionId && sessionsResult.value[0]) setSelectedSessionId(sessionsResult.value[0].external_session_id);
+        } else {
+            unavailable.push('sessions');
+        }
+        if (graphResult.status === 'fulfilled') setGraph(graphResult.value); else unavailable.push('graph');
+        if (manifestResult.status === 'fulfilled') setManifest(manifestResult.value); else unavailable.push('inference manifest');
+        if (unavailable.length > 0) setApiError(`Partial Cortex data unavailable: ${unavailable.join(', ')}`);
+        setRefreshing(false);
     };
 
     useEffect(() => { void refresh(); }, []);
