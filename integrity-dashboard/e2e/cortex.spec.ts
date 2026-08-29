@@ -92,14 +92,24 @@ async function installCortexContract(page: Page) {
   });
 }
 
-test.describe('/cortex (Cortex Operations)', () => {
+test.describe('/cortex Operations tab', () => {
+  test('redirects the legacy Memory route into the Cortex workspace', async ({ page }) => {
+    await page.route('http://localhost:8420/api/**', route => route.abort('connectionrefused'));
+    await page.goto('/memory');
+
+    await expect(page).toHaveURL(/\/cortex$/);
+    await expect(page.getByRole('heading', { name: 'Cortex', exact: true })).toBeVisible();
+  });
+
   test('renders an honest partial view when every Cortex operator endpoint is offline', async ({ page }) => {
     const errors = collectPageErrors(page);
     await page.route('http://localhost:8420/api/**', route => route.abort('connectionrefused'));
 
     await page.goto('/cortex');
+    await expect(page.getByRole('heading', { name: 'Cortex', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Operations' }).click();
 
-    await expect(page.getByRole('heading', { name: 'Cortex Operations' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Operations' })).toBeVisible();
     await expect(page.getByRole('status')).toContainText('Partial view: Cortex APIs unavailable');
     await expect(page.getByRole('status')).toContainText('extraction review');
     await expect(page.getByRole('status')).toContainText('inference queue');
@@ -112,6 +122,7 @@ test.describe('/cortex (Cortex Operations)', () => {
   test('renders deterministic hybrid retrieval evidence from the browser API contract', async ({ page }) => {
     await installCortexContract(page);
     await page.goto('/cortex');
+    await page.getByRole('button', { name: 'Operations' }).click();
     await expect(page.getByText('Cortex operator APIs online.')).toBeVisible();
 
     await page.getByRole('textbox', { name: 'Cortex retrieval query' }).fill('operator controls');
@@ -127,6 +138,7 @@ test.describe('/cortex (Cortex Operations)', () => {
   test('accepts an extraction proposal through the deterministic operator contract', async ({ page }) => {
     await installCortexContract(page);
     await page.goto('/cortex');
+    await page.getByRole('button', { name: 'Operations' }).click();
 
     await expect(page.getByText('Integrity Protocol uses evidence-backed controls.')).toBeVisible();
     await page.getByRole('button', { name: 'Accept' }).click();

@@ -8,10 +8,11 @@ export default function MainAppLayout() {
   const { layoutMode } = useDashboard();
   const location = useLocation();
   const isMobile = useIsMobile(768);
-  const isFullWidth = location.pathname === '/developer' || location.pathname === '/memory';
+  const isCortex = location.pathname === '/cortex';
+  const isFullWidth = location.pathname === '/developer' || isCortex;
 
   return (
-    <div className={location.pathname === '/memory' ? 'main-app-layout memory-route' : 'main-app-layout'} style={{ display: 'flex', flexDirection: layoutMode === 'header' ? 'column' : 'row', minHeight: '100vh', background: 'var(--bg-color)', color: 'var(--text-primary)' }}>
+    <div className={isCortex ? 'main-app-layout memory-route' : 'main-app-layout'} style={{ display: 'flex', flexDirection: layoutMode === 'header' ? 'column' : 'row', minHeight: '100vh', background: 'var(--bg-color)', color: 'var(--text-primary)' }}>
       {layoutMode === 'sidebar' && <div className="memory-sidebar-shell"><Sidebar /></div>}
       {layoutMode === 'header' && <AppHeader />}
       

@@ -33,7 +33,7 @@ const buttonStyle = {
 const shortHash = (value: string) => value.length > 22 ? `${value.slice(0, 12)}…${value.slice(-8)}` : value;
 const isLoopbackHost = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
 
-export default function CortexOperationsPage() {
+export default function CortexOperationsTab() {
   const [query, setQuery] = useState('');
   const [retrieval, setRetrieval] = useState<HybridRetrieveResult | null>(null);
   const [trace, setTrace] = useState<RetrievalTrace | null>(null);
@@ -118,11 +118,11 @@ export default function CortexOperationsPage() {
   };
 
   return (
-    <main style={{ padding: 'var(--space-6)', display: 'grid', gap: 'var(--space-5)', minWidth: 0 }}>
+    <section aria-labelledby="cortex-operations-heading" style={{ padding: 'var(--space-6)', display: 'grid', gap: 'var(--space-5)', minWidth: 0 }}>
       <header>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <BrainCircuit size={28} color="var(--theme-accent)" />
-          <h1 style={{ margin: 0 }}>Cortex Operations</h1>
+          <h2 id="cortex-operations-heading" style={{ margin: 0 }}>Operations</h2>
         </div>
         <p style={{ color: 'var(--text-secondary)', maxWidth: 820 }}>
           Inspect retrieval evidence, approve deterministic extraction proposals, and verify derived projections against Cortex's canonical SQLite store.
@@ -217,6 +217,6 @@ export default function CortexOperationsPage() {
           {checkpoints.length === 0 && <p style={{ color: 'var(--text-muted)' }}>No checkpoints recorded for this projection.</p>}
         </div>
       </section>
-    </main>
+    </section>
   );
 }

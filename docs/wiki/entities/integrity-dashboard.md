@@ -94,8 +94,8 @@ this explicitly: "Smart BAA registry, EHR Gates, and Quarantine are all real
 | `/prediction-markets` | `components/tabs/ActuarialHub.tsx` (`mode="markets"`) | `oracle.listMarkets()` + chain writes via `SovereignAgent.execute` |
 | `/health` | `pages/HealthPage.tsx` | `oracle` (NHI governance) + chain (BAAs/EHR gates/quarantine, real Base Sepolia) |
 | `/shield` | `pages/ShieldPage.tsx` | none — self-contained attack-simulation demo, see below |
-| `/memory` | `pages/MemoryPage.tsx` | `xibalba-cortex`'s `local_api.py`, `VITE_GRAPH_MEMORY_URL`, default `:8420` — a separate repo, not started by `make up` |
-| `/cortex` | `pages/CortexOperationsPage.tsx` | `xibalba-cortex` operator APIs through `services/graphMemory.ts`, using the same `VITE_GRAPH_MEMORY_URL` default `:8420` |
+| `/cortex` | `pages/MemoryPage.tsx` | Unified Cortex workspace: timeline, graph, recall, inference, integrity, and operations tabs backed by `xibalba-cortex`'s `local_api.py`, `VITE_GRAPH_MEMORY_URL`, default `:8420` |
+| `/memory` | compatibility redirect | Redirects to the canonical `/cortex` workspace so existing bookmarks remain valid |
 | `/developer` | `pages/DeveloperPage.tsx` | `oracle` + chain (IDE/contracts tab), `oracle` (Trace Analysis tab) |
 | `/settings` | `pages/SettingsPage.tsx` | `userapi` (API keys), `DashboardContext` (theme/layout), chain (`PrivacyPanel`) |
 
@@ -115,9 +115,9 @@ current, intended page — Shield's product identity is the AI agent/device
 security platform, broader than an endpoint-sensor framing; wiring up the
 real backend integration is separate, out-of-scope feature work, not a bug.
 
-## Cortex Operations boundary
+## Cortex Operations tab boundary
 
-`/cortex` is a focused operator surface over the separate
+The `/cortex` workspace's **Operations** tab is a focused operator surface over the separate
 `xibalba-cortex` local API. It does not move canonical memory ownership into
 `integrity-core`: Cortex's profile-scoped SQLite store remains authoritative
 for Cortex memory, while Integrity protocol packages remain independent of
