@@ -21,6 +21,7 @@ use crate::derive;
 use crate::error::AppError;
 use crate::merkle;
 use crate::phi;
+use crate::span_schema;
 
 // ---------------------------------------------------------------------------------
 // Shared wire types
@@ -746,7 +747,7 @@ pub struct JudgeEvaluationDto {
 ///
 /// A payload above this is refused rather than parsed on a guess — misreading a future shape
 /// and then storing it as signed evidence is worse than rejecting it.
-pub const MAX_TELEMETRY_SCHEMA_VERSION: i64 = 2;
+pub const MAX_TELEMETRY_SCHEMA_VERSION: i64 = 3;
 
 fn default_signed_evidence_tier() -> String {
     "signed_agent".to_string()
@@ -942,6 +943,14 @@ pub async fn ingest_telemetry(
             return Err(AppError::BadRequest(
                 "schema_version 2 telemetry must use evidence_tier=signed_agent".to_string(),
             ));
+        }
+        // Version 3 is the first shape where `otel_spans` is structurally validated
+        // (allowlisted keys, bounded sizes) rather than accepted as fully opaque
+        // JSON — see `span_schema`'s module doc comment. Runs before the PHI scan:
+        // a batch with an unknown/oversized shape is rejected outright rather than
+        // scanned for content it was never going to pass anyway.
+        if version >= 3 {
+            span_schema::validate_batch(&req.otel_spans)?;
         }
     }
 
