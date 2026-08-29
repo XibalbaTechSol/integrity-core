@@ -16,7 +16,7 @@ import AuthPage from './pages/AuthPage';
 import SettingsPage from './pages/SettingsPage';
 import { DeveloperPage } from './pages/DeveloperPage';
 import DocsPage from './pages/DocsPage';
-import MemoryPage from './pages/MemoryPage';
+import CortexPage from './pages/CortexPage';
 import PrivacyPage from './pages/PrivacyPage';
 import TermsPage from './pages/TermsPage';
 import { IntelligencePage } from './pages/IntelligencePage';
@@ -48,7 +48,7 @@ function App() {
             <Route path="/financials" element={<FinancialsPage />} />
             <Route path="/intelligence" element={<IntelligencePage />} />
             <Route path="/correlation" element={<CorrelationPage />} />
-            <Route path="/cortex" element={<MemoryPage />} />
+            <Route path="/cortex" element={<CortexPage />} />
             <Route path="/prediction-markets" element={<ActuarialHub mode="markets" />} />
             <Route path="/health" element={<HealthPage />} />
             <Route path="/shield" element={<ShieldPage />} />

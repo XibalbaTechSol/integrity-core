@@ -15,8 +15,8 @@ source_files:
   - integrity-dashboard/src/pages/HealthPage.tsx
   - integrity-dashboard/src/pages/ShieldPage.tsx
   - integrity-dashboard/src/pages/FinancialsPage.tsx
-  - integrity-dashboard/src/pages/MemoryPage.tsx
-  - integrity-dashboard/src/pages/CortexOperationsPage.tsx
+  - integrity-dashboard/src/pages/CortexPage.tsx
+  - integrity-dashboard/src/components/cortex/CortexOperationsTab.tsx
   - integrity-dashboard/src/pages/DeveloperPage.tsx
   - integrity-dashboard/src/pages/WikiPage.tsx
   - integrity-dashboard/src/context/DashboardContext.tsx
@@ -94,7 +94,7 @@ this explicitly: "Smart BAA registry, EHR Gates, and Quarantine are all real
 | `/prediction-markets` | `components/tabs/ActuarialHub.tsx` (`mode="markets"`) | `oracle.listMarkets()` + chain writes via `SovereignAgent.execute` |
 | `/health` | `pages/HealthPage.tsx` | `oracle` (NHI governance) + chain (BAAs/EHR gates/quarantine, real Base Sepolia) |
 | `/shield` | `pages/ShieldPage.tsx` | none — self-contained attack-simulation demo, see below |
-| `/cortex` | `pages/MemoryPage.tsx` | Unified Cortex workspace: timeline, graph, recall, inference, integrity, and operations tabs backed by `xibalba-cortex`'s `local_api.py`, `VITE_GRAPH_MEMORY_URL`, default `:8420` |
+| `/cortex` | `pages/CortexPage.tsx` | Unified Cortex workspace: timeline, graph, recall, inference, integrity, and operations tabs backed by `xibalba-cortex`'s `local_api.py`, `VITE_GRAPH_MEMORY_URL`, default `:8420` |
 | `/memory` | compatibility redirect | Redirects to the canonical `/cortex` workspace so existing bookmarks remain valid |
 | `/developer` | `pages/DeveloperPage.tsx` | `oracle` + chain (IDE/contracts tab), `oracle` (Trace Analysis tab) |
 | `/settings` | `pages/SettingsPage.tsx` | `userapi` (API keys), `DashboardContext` (theme/layout), chain (`PrivacyPanel`) |
@@ -147,6 +147,11 @@ decisions and projection mutation outside a loopback-hosted dashboard. This
 browser-side guard is defense in depth, not authentication: keep the Cortex
 API itself local or behind an authenticated operator boundary before exposing
 it beyond a trusted development environment.
+
+The workspace's core loader settles statistics, status, integrity links,
+sessions, graph data, and the inference manifest independently. A failure in
+an optional capability therefore produces a named partial-data warning without
+discarding a successful `/api/sessions` response.
 
 ## 2026-08-13 full-site Playwright audit
 
@@ -249,7 +254,7 @@ docker compose up --build postgres redis opa oracle-backend bcc-middleware usera
 cd integrity-dashboard && npx playwright test
 ```
 
-For `/memory`, separately run `xibalba-cortex`'s `local_api.py` (a different
+For `/cortex`, separately run `xibalba-cortex`'s `local_api.py` (a different
 repo): `uv run python -m xibalba_cortex.local_api --home <profile-dir>
 --allowed-origin http://127.0.0.1:5189`. Point it at a fresh, empty
 `--home` directory for testing rather than a real profile — its own

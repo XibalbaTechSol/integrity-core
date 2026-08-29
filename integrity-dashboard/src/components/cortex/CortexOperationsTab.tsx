@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { BrainCircuit, Check, Database, RefreshCw, Search, ShieldAlert, X } from 'lucide-react';
-import { graphMemory } from '../services/graphMemory';
+import { graphMemory } from '../../services/graphMemory';
 import type {
   EmbeddingModel,
   ExtractionProposal,
@@ -10,7 +10,7 @@ import type {
   ProjectionCheckpoint,
   ProjectionReconciliation,
   RetrievalTrace,
-} from '../types/graphMemory';
+} from '../../types/graphMemory';
 
 type ProjectionId = 'memories' | 'entities' | 'relations';
 
