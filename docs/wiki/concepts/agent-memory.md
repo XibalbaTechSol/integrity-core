@@ -2,7 +2,7 @@
 title: Persistent Memory, Genesis Root & Lineage [PARTIALLY BUILT]
 acronyms: []
 created: 2026-07-29
-updated: 2026-07-29
+updated: 2026-08-19
 type: concept
 tags: [identity, cryptography, compliance]
 confidence: high
@@ -11,6 +11,8 @@ source_files:
   - integrity-sdk/integrity_sdk/registration.py
   - integrity-oracle/backend/src/handlers.rs
   - docs/wiki/concepts/agent-primitives.md
+  - Hermes plugin: `xibalba_cortex_memory_provider`
+  - `xibalba-cortex/src/xibalba_cortex/provider_bridge.py`
 ---
 
 **`[PARTIALLY BUILT]`.** Source: *Integrity Protocol — Comprehensive Design &
@@ -32,6 +34,7 @@ actually checked against code, rather than restating the spec's own status claim
 - [Verified status (checked against code 2026-07-29, not inherited from the spec)](#verified-status-checked-against-code-2026-07-29-not-inherited-from-the-spec)
 - [Copying, lineage, and similarity](#copying-lineage-and-similarity)
 - [What memory does not change](#what-memory-does-not-change)
+- [Hermes native provider boundary (verified 2026-08-19)](#hermes-native-provider-boundary-verified-2026-08-19)
 
 ## Persistent Memory is a foundational primitive — not an 8th contract
 
@@ -122,6 +125,30 @@ the score. Anchoring cadence carries the same batching tradeoff documented for
 telemetry in [Merkle Batching](merkle-batching.md): per-entry anchoring is
 prohibitively expensive, and batching leaves a window in which recent memory is
 uncommitted.
+
+## Hermes native provider boundary (verified 2026-08-19)
+
+Hermes now selects `xibalba_cortex_memory_provider` as its external memory
+provider. The adapter runs in Hermes' environment and reaches Cortex through an
+explicit bounded local request/response bridge; it does not import Cortex's
+GraphStore into Hermes and does not expose the bridge as a model-visible tool.
+
+The provider owns session start/end and prompt/response synchronization. The
+existing Cortex observer remains responsible for API, tool, and approval
+telemetry only when the provider is active. A real local tool-call turn verified
+one provider-owned logical turn, one Cortex retrieval tool event, and no second
+prompt/response exchange from the observer.
+
+Storage is profile-scoped: the default Hermes profile and `xibalba-quant` use
+separate Cortex stores. A live initialization probe created the quant profile
+store without sharing the default session.
+
+The provider is bounded and fail-open for local development recall: recalled
+content is provenance-bearing untrusted evidence, bridge failures produce
+degraded empty recall, and deterministic idempotency keys protect repeated turn
+synchronization. The remaining architectural limitation is that the bridge is
+not yet Hermes' shared synchronous Model Context Protocol client; replacing it
+requires a safe provider-facing MCP call boundary in Hermes.
 
 Related: [Agent Primitives](agent-primitives.md) ·
 [BCC](bcc.md) (§4.4 — commitment outcomes SHOULD become vault leaves) ·

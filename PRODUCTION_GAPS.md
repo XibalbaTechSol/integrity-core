@@ -204,7 +204,16 @@ skipped.
   on-chain primitives when the DID already resolves, instead of deploying a second orphaned
   pair. Verified end-to-end: `test_register_agent_is_idempotent_for_an_already_registered_did`
   calls `register_agent()` twice for the same identity and asserts both calls return
-  identical primitive addresses.
+  identical primitive addresses. Follow-up closure, 2026-08-19: the SDK idempotency path now
+  also checks whether the existing `StateAnchor` has a non-zero genesis memory root before
+  calling the oracle. A zero root triggers `anchor_genesis_root`; anchoring failure raises
+  `RegistrationError` and prevents the oracle POST, avoiding a known
+  `MemoryNotInitialized` rejection path. Covered by
+  `tests/unit/test_registration_existing_did_genesis.py`; full `integrity-sdk` validation
+  passed with 267 passed, 9 skipped after running the full SDK pytest suite from
+  `integrity-sdk/` with `/home/xibalba/.foundry/bin` on `PATH`. Residual boundary: this is
+  SDK behavior and local real-anvil/unit evidence, not a fresh live Base Sepolia
+  registration proof.
 * **CLOSED — `EHRGate` ABI + Integrity Health wrapper functions.** `scripts/sync_abis.py` now syncs
   `EHRGate`; new `integrity_sdk/health.py` wraps `CoveredEntityRegistry`/`SmartBAAFactory`/
   `SmartBAA`/`ComplianceGate`/`EHRGate`, reusing `markets._execute_via_agent` for every
@@ -328,6 +337,12 @@ removed. Every finding below is fixed and covered by a new regression test.
   Sepolia** — that's a real, gas-costing, operator-triggered action
   (`forge script script/DeployEHRGate.s.sol --rpc-url base_sepolia --broadcast --verify`
   with `FUNDER_PRIVATE_KEY` set) deliberately left for the account holder to run.
+  Correction (2026-08-24): the incremental script now requires an existing serialized
+  `singletons.AgentAuthorityResolver` and fails before broadcasting if it is absent.
+  Networks whose registry bytecode predates `isEnterpriseAgent` /
+  `registerEnterpriseAgent` need a separately approved registry/resolver migration
+  first; `DeployEHRGate.s.sol` must not deploy a fresh resolver against that legacy
+  registry as a side effect.
 * **CLOSED (deployed 2026-07-26) — XNS is live on Base Sepolia.** `XibalbaNameService` is
   deployed at `0x71f42aC04781c41e007e7f03244235341ce15cc8` (chainId 84532) and written into
   `deployments.baseSepolia.json`, via the new incremental `script/DeployXnsGovernance.s.sol`
