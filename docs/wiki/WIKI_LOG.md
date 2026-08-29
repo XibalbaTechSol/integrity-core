@@ -3189,3 +3189,10 @@ writeup: PRODUCTION_GAPS.md §18.
 - Stale pages refreshed: 3 (Oracle, contracts, and telemetry ingestion source-verified against the 2026-08-29 changes)
 - Aspirational content flagged: 0
 - Verification: `python3 scripts/wiki_linter.py` reports 35 indexed pages, 0 dead links; `python3 scripts/wiki_toc.py --check` passes for 35 wiki pages; dashboard `npm run sync-wiki` regenerated `src/generated/wiki-data.json`.
+
+## [2026-08-29] audit | Living documentation fact check
+
+- Corrected living references to the accepted specification, proposed amendment, and whitepaper after those source files were archived under `docs/archive/2026-08/`.
+- Corrected the wiki landing page's obsolete external absolute-path dependency and linked the repository-local implementation ledger.
+- Updated `repository-implementation-plans.md` source bindings to existing files; historical archive entries remain unchanged.
+- Verification: living documentation link/source checks and wiki TOC validation pass; remaining archive-only historical links are intentionally excluded from the current-state audit.

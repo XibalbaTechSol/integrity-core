@@ -2,18 +2,18 @@
 title: Repository Implementation Plans
 acronyms: [AIS, BCC, DID, MVP]
 created: 2026-08-06
-updated: 2026-08-25
+updated: 2026-08-29
 type: architecture
 tags: [infrastructure, planning, roadmap, documentation]
 confidence: high
 source_files:
-  - IMPLEMENTATION_PLAN.md
-  - SPECIFICATION.md
+  - docs/IMPLEMENTATION_PLAN.md
+  - docs/SPEC.md
   - README.md
   - docs/INTERFACE_CONTRACT.md
-  - spec/integrity-protocol-v0.4.md
-  - spec/integrity-protocol-v0.5-proposed.md
-  - spec/integrity-protocol-v3.2.md
+  - docs/archive/2026-08/integrity-protocol-v0.4.md
+  - docs/archive/2026-08/integrity-protocol-v0.5-proposed.md
+  - docs/archive/2026-08/integrity-protocol-v3.2.md
   - spec/xibalba-shield-v1.md
   - docs/audits/2026-08-06-cross-repository-status.md
 ---
@@ -77,7 +77,7 @@ integrity-core remains the protocol authority. Shield and graph memory do not be
 
 **Role:** Protocol trust backend: contracts, SDK, CLI, BCC middleware, Oracle/AIS, user API, dashboard, ZKP, canonical wiki, and protocol specs.
 
-**Specification authority:** `spec/integrity-protocol-v0.4.md` is accepted normative authority. `spec/integrity-protocol-v0.5-proposed.md` is a proposed, non-authoritative delta. `spec/integrity-protocol-v3.2.md` is explanatory/non-normative. Current implementation evidence is maintained by `README.md`, `SPECIFICATION.md`, `PRODUCTION_GAPS.md`, `docs/INTERFACE_CONTRACT.md`, `docs/MAINNET_READINESS.md`, `HANDOFF.md`, and `docs/wiki/`.
+**Specification authority:** `docs/archive/2026-08/integrity-protocol-v0.4.md` is accepted normative authority. `docs/archive/2026-08/integrity-protocol-v0.5-proposed.md` is a proposed, non-authoritative delta. `docs/archive/2026-08/integrity-protocol-v3.2.md` is explanatory/non-normative. Current implementation evidence is maintained by `README.md`, `SPECIFICATION.md`, `PRODUCTION_GAPS.md`, `docs/INTERFACE_CONTRACT.md`, `docs/MAINNET_READINESS.md`, and `docs/wiki/`.
 
 **Audit checkpoint (2026-08-17):** Phase 0 is locally complete. The Foundry suite passes 209/209; `IntegrityIdentityReadV1` passes its 10 focused tests; the local generated verifier has real-proof negative-control coverage; and package Continuous Integration includes dashboard build/lint rather than a nonexistent unit-test script. Base Sepolia still lacks the identity facade and retains the older fail-closed verifier, so source capability is not deployed capability.
 

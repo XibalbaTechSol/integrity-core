@@ -4,8 +4,8 @@ Status reconciled 2026-08-17. Scope: what stands between the current Base Sepoli
 and a mainnet launch that the protocol's own claims would survive. Every item below is
 either verified against code/chain in this repo or cites where it is recorded.
 
-The accepted normative baseline remains `spec/integrity-protocol-v0.4.md`.
-`spec/integrity-protocol-v0.5-proposed.md` and explanatory Whitepaper v3.2 describe proposed
+The accepted normative baseline remains `docs/archive/2026-08/integrity-protocol-v0.4.md`.
+`docs/archive/2026-08/integrity-protocol-v0.5-proposed.md` and explanatory Whitepaper v3.2 describe proposed
 changes and do not relax any blocker in this document. Phase 0's local
 `IntegrityIdentityReadV1` singleton and the generated local ZK verifier both postdate the
 declared Base Sepolia deployment; source capability is not deployed capability.
@@ -51,7 +51,7 @@ and tests satisfy only the source/test layers of that requirement.
 ### 3. ZK boost is period-wide, not bound to what it proves
 
 > **Note:** if the three-primitive consolidation is adopted
-> ([`docs/design/three-foundational-primitives.md`](design/three-foundational-primitives.md)),
+> ([`three-foundational-primitives.md`](archive/2026-08/three-foundational-primitives.md)),
 > this stops being a scoring detail and becomes a hole in a *foundational* primitive —
 > reputation — and should move up this list accordingly.
 
@@ -150,7 +150,7 @@ the highest-consequence field in the payload.
 
 > This is the same hole as the missing **authority** clause: the field is client-supplied
 > precisely because there is no delegation lookup. Formalized (invariants A1–A5) in
-> [`docs/design/thesis-extensions-formal.md`](design/thesis-extensions-formal.md) — enforcing
+> [`thesis-extensions-formal.md`](archive/2026-08/thesis-extensions-formal.md) — enforcing
 > A1/A2 turns the field from an assertion into a resolution and closes this item.
 
 ---

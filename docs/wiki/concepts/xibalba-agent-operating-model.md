@@ -2,18 +2,21 @@
 title: Xibalba Agent Operating Model
 acronyms: [MCP, MoA, BCC, DID, PHI]
 created: 2026-08-06
-updated: 2026-08-25
+updated: 2026-08-29
 type: concept
 tags: [identity, compliance, sdk, infrastructure]
-confidence: high
+confidence: medium
 source_files:
-  - ../../../../.hermes/SOUL.md
-  - ../../../../.hermes/config.yaml
-  - ../../../../.hermes/skills/red-teaming/devils-advocate/SKILL.md
-  - ../../../../.hermes/skills/red-teaming/devils-advocate/scripts/external_ensemble.py
+  - AGENTS.md
+  - CLAUDE.md
 ---
 
 # Xibalba Agent Operating Model
+
+This page summarizes the repository's documented operating model. Provider-specific Hermes
+configuration and red-team skill files live outside this repository and are not treated as
+locally source-bound evidence; claims about those external files remain medium-confidence
+until independently rechecked in their owning environment.
 
 ## Table of contents
 

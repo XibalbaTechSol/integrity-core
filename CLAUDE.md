@@ -46,9 +46,9 @@ background agents to close test gaps with real tests, not placeholders). Read
 the pinned toolchain/contract source of truth (forge/anvil 1.7.1, cargo/rustc 1.96.0, nargo
 1.0.0-beta.22, bb 5.0.0-nightly, opa 1.18.2, node/npm 22.x/10.x, python/uv 3.12/0.11).
 
-Specification authority is layered: `spec/integrity-protocol-v0.4.md` is the accepted
-normative baseline; `spec/integrity-protocol-v0.5-proposed.md` is the new non-authoritative
-amendment under clause-level review; and `spec/integrity-protocol-v3.2.md` is the current
+Specification authority is layered: `docs/archive/2026-08/integrity-protocol-v0.4.md` is the accepted
+normative baseline; `docs/archive/2026-08/integrity-protocol-v0.5-proposed.md` is the new non-authoritative
+amendment under clause-level review; and `docs/archive/2026-08/integrity-protocol-v3.2.md` is the current
 explanatory, non-normative whitepaper. The v3.2 PDF is generated output. Never implement or
 claim a v0.5/v3.2 surface solely because the whitepaper describes it; check the proposal's
 status, `docs/INTERFACE_CONTRACT.md` §16, `PRODUCTION_GAPS.md`, source, tests, and deployment.
@@ -154,8 +154,8 @@ instrument — and generalizing it is what closes the client-supplied `covered_e
 hole. Termination (how an agent's standing ends) is formalized but deliberately unadopted: it
 needs registry mutability, the same question the upgradeability decision faces.
 
-Normative in `spec/integrity-protocol-v0.4.md` §4 (supersedes the v0.3 PDF). Wiki statement:
-`docs/wiki/concepts/foundational-primitives.md`; derivation: `docs/design/primitive-set-coherence.md`.
+Normative in `docs/archive/2026-08/integrity-protocol-v0.4.md` §4 (supersedes the v0.3 PDF). Wiki statement:
+`docs/wiki/concepts/foundational-primitives.md`; derivation: `docs/archive/2026-08/primitive-set-coherence.md`.
 
 ### Persistent memory (primitive #1) — it gates registration
 
@@ -228,8 +228,8 @@ whose telemetry omits one axis (e.g. reports no token usage, so `sacrifice`
 derives to 0) scores 0.0 even with the other three axes perfect. Absent and
 catastrophic are deliberately indistinguishable here — both resolve to 0, which is
 consistent with proposed N2 ("earned, not granted") in
-`spec/integrity-protocol-v0.5-proposed.md` §4.1 and its explanatory source at
-`spec/integrity-protocol-v3.2.md` §3.1.1. That bounded implementation evidence does not
+`docs/archive/2026-08/integrity-protocol-v0.5-proposed.md` §4.1 and its explanatory source at
+`docs/archive/2026-08/integrity-protocol-v3.2.md` §3.1.1. That bounded implementation evidence does not
 make the full proposal normative or complete; see `PRODUCTION_GAPS.md`.
 
 As of 2026-08-17, `derive_entropy`/`derive_grounding`/`self_reported_compliance`

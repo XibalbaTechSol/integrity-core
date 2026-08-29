@@ -21,7 +21,7 @@ If this README conflicts with code, fix the README or the code in the same chang
 
 ## 2026-08-13 full-site Playwright audit
 
-Every one of the 16 routes now has a dedicated Playwright spec under `e2e/` (one file per page, 140 tests total), run against a real local backend stack (no mocking), each followed by a full-page screenshot reviewed before moving to the next page. The audit found and fixed 7 real bugs (rendering, layout, chart-domain math, date parsing, a stuck-loading state, a CORS misconfiguration blocking auth testing, a false-success wallet-auth navigation) — see [`docs/wiki/entities/integrity-dashboard.md`](https://github.com/XibalbaTechSol/integrity-core/blob/main/docs/wiki/entities/integrity-dashboard.md) in `integrity-core` for the full list and per-page backend-wiring breakdown. Run it yourself with `npx playwright test` (see `docs/TESTING.md` in `integrity-core` for the manual backend-stack steps this needs first).
+The 2026-08-13 audit covered 16 routes and 140 tests. The current tree has 19 Playwright specs and 137 test declarations; `src/App.tsx` currently defines 22 route entries, including redirects and static/legal pages. The audit found and fixed 7 real bugs (rendering, layout, chart-domain math, date parsing, a stuck-loading state, a CORS misconfiguration blocking auth testing, a false-success wallet-auth navigation) — see [`docs/wiki/entities/integrity-dashboard.md`](https://github.com/XibalbaTechSol/integrity-core/blob/main/docs/wiki/entities/integrity-dashboard.md) in `integrity-core` for the historical audit and current wiring. Run it yourself with `npx playwright test` (see `docs/TESTING.md` in `integrity-core` for the manual backend-stack steps this needs first).
 
 ## 2026-08-06 audit status
 
@@ -95,7 +95,7 @@ Built and verified in this repo:
 - Generated wiki browser at `/wiki` backed by `src/generated/wiki-data.json`.
 - Wiki renderer support for canonical Markdown tables, Mermaid diagrams, relative wiki navigation, repository-source links, right-rail article TOC, and ordered left-rail Protocol TOC.
 - Xibalba Solutions logo in the wiki header linked to `/`.
-- Full-site Playwright regression coverage — one spec per route (16 files, 140 tests) — including wiki table rendering, ordered TOC behavior, logo navigation, and mobile search placement.
+- Full-site Playwright regression coverage — 19 specs and 137 test declarations in the current tree — including wiki table rendering, ordered TOC behavior, logo navigation, and mobile search placement.
 
 Still dependent on running backend services:
 
@@ -145,7 +145,7 @@ The dev server defaults to Vite. Backend URLs are configured through `src/config
 | Command | Purpose |
 |---|---|
 | `npm run build` | TypeScript build plus Vite production bundle |
-| `npm run test-e2e` | Full Playwright suite — all 16 route specs (140 tests); needs the backend stack started first, see `docs/TESTING.md` in `integrity-core` |
+| `npm run test-e2e` | Full Playwright suite — current 19 specs / 137 test declarations; needs the backend stack started first, see `docs/TESTING.md` in `integrity-core` |
 | `npm run test-e2e -- e2e/wiki.spec.ts` | Focused browser regression for a single route |
 | `npm run sync-wiki` | Regenerate the read-only wiki snapshot from canonical Markdown |
 | `git diff --check` | Whitespace sanity check before handoff |

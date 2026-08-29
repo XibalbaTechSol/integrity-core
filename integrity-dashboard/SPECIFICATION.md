@@ -1,6 +1,6 @@
 # Integrity Dashboard Specification
 
-**Updated:** 2026-08-12
+**Updated:** 2026-08-29
 **Status:** Presentation and operator-workflow proof of concept; not standalone production.
 
 **Corrected 2026-08-12:** this component was previously developed as a separate `integrity-mvp`

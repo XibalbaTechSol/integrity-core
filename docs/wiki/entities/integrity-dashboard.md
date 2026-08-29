@@ -1,7 +1,7 @@
 ---
 title: integrity-dashboard
 created: 2026-07-07
-updated: 2026-08-28
+updated: 2026-08-29
 type: entity
 tags: [infrastructure, sdk]
 confidence: high
@@ -155,7 +155,10 @@ discarding a successful `/api/sessions` response.
 
 ## 2026-08-13 full-site Playwright audit
 
-Every one of the 16 routes now has a comprehensive Playwright spec under
+The 2026-08-13 audit covered 16 routes and 140 tests. The current tree has 19
+Playwright specs and 137 test declarations, while `src/App.tsx` defines 22 route
+entries including redirects and static/legal pages. The historical audit had a
+comprehensive Playwright spec under
 `e2e/` (one file per page/route, `landing.spec.ts` through `memory.spec.ts`
 — 140 tests total), written and run against a real local backend stack, no
 mocking, following each spec with a full-page screenshot reviewed before

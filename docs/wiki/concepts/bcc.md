@@ -69,7 +69,7 @@ was valid against any chain or deployment sharing the signing agent's DID.
 `XibalbaAgentRegistry` address, so local/dev/test topologies with no
 deployments file configured aren't turned into a blanket deny — a disclosed
 limitation, not a silent downgrade. See
-`docs/plans/2026-08-18-phase1-canonical-intent-encoding-proposal.md` for the
+`docs/archive/2026-08/plans/2026-08-18-phase1-canonical-intent-encoding-proposal.md` for the
 full design and residual gaps (the experimental kernel's own replay-domain
 binding, and the ZK circuit's `intent_commitment` not yet binding `chain_id`
 — both separate, unattempted here).
