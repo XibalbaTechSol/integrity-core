@@ -173,6 +173,22 @@ contract IntegrityKernel is IERC7579Hook {
 
     event ReputationSnapshotRefreshed(uint256 score, bool zkBoosted, uint256 takenAt);
 
+    /// @notice Emitted once per successful `postCheck`, i.e. only on the ALLOW path -- a
+    /// revert in `preCheck` or `postCheck` discards any log the EVM would otherwise have kept,
+    /// so there is no on-chain DENY equivalent of this event; see this contract's own
+    /// `preCheck`/`postCheck` doc comments and `docs/design/` for why that's a real EVM
+    /// constraint, not an oversight. Deliberately emitted from `postCheck`, never `preCheck`:
+    /// every value here (`spent`, the running cumulatives) is only known once `postCheck` runs,
+    /// and `preCheck` is this contract's disclosed gas-constrained hot path (PRODUCTION_GAPS.md
+    /// §55) -- adding a log there would cost gas for numbers this event doesn't have yet anyway.
+    event SpendChecked(
+        address indexed account,
+        uint256 spent,
+        uint256 cumulativeSpentWei,
+        uint256 tokenSpent,
+        uint256 tokenCumulativeSpentWei
+    );
+
     address public immutable boundAccount;
     uint256 public immutable perOpBudgetWei;
     uint256 public immutable cumulativeBudgetWei;
@@ -464,9 +480,10 @@ contract IntegrityKernel is IERC7579Hook {
         }
         cumulativeSpentWei = newCumulative;
 
+        uint256 tokenSpent;
         if (address(trackedToken) != address(0)) {
             uint256 tokenAfter = trackedToken.balanceOf(boundAccount);
-            uint256 tokenSpent = tokenBefore > tokenAfter ? tokenBefore - tokenAfter : 0;
+            tokenSpent = tokenBefore > tokenAfter ? tokenBefore - tokenAfter : 0;
 
             if (tokenSpent > tokenPerOpBudgetWei) {
                 revert TokenPerOperationBudgetExceeded(tokenSpent, tokenPerOpBudgetWei);
@@ -478,5 +495,9 @@ contract IntegrityKernel is IERC7579Hook {
             }
             tokenCumulativeSpentWei = newTokenCumulative;
         }
+
+        // Emitted only here, after every budget check has passed -- see the event's own
+        // doc comment for why there is no revert-path equivalent.
+        emit SpendChecked(boundAccount, spent, cumulativeSpentWei, tokenSpent, tokenCumulativeSpentWei);
     }
 }

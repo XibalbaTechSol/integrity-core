@@ -269,8 +269,9 @@ The signed object of `POST /v1/telemetry/ingest` carries `schema_version`, an in
 **inside the signature**:
 
 ```
-schema_version = 1          # integrity_sdk.client.TELEMETRY_SCHEMA_VERSION
+schema_version = 2          # integrity_sdk.client.TELEMETRY_SCHEMA_VERSION
                             # backend::handlers::MAX_TELEMETRY_SCHEMA_VERSION
+evidence_tier = "signed_agent" # inside the signed object; v1/legacy defaults to this tier
 ```
 
 Both constants must move together. Rules, all load-bearing:
@@ -283,13 +284,16 @@ Both constants must move together. Rules, all load-bearing:
   `null` would change the canonical JSON and reject every historical signature.
 - **A version above `MAX_TELEMETRY_SCHEMA_VERSION` is refused (400), not parsed.** Misreading
   a future shape and storing it as signed evidence is worse than rejecting it.
+- Version 2 carries an optional `derived_signals.billed_cost` object (`amount`, `currency`,
+  `rate_source`) only when the provider reported it. The SDK never estimates a cost from
+  token counts; absent provider data remains absent. The top-level `evidence_tier` is fixed
+  to `signed_agent` for this path, distinguishing it from unauthenticated OTLP telemetry.
 - Bumping the version is therefore a coordinated change: raise the SDK constant, raise the
   oracle's maximum, and deploy the oracle **first** so it can accept the new shape before any
   agent emits it.
 
 Covered by `oracle_e2e_telemetry_schema_version_is_signed_and_backward_compatible`, which
-asserts all four: legacy accepted, v1 accepted, unknown refused, and an injected version
-failing verification.
+asserts legacy/v1 compatibility, unknown-version refusal, and signed-field tamper rejection.
 
 ### 4.4 Merkle tree convention (must match between integrity-oracle and contracts)
 - Hash function: `keccak256` (not SHA-256) — this tree's root gets verified on-chain in

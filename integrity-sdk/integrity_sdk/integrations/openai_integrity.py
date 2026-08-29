@@ -61,7 +61,7 @@ def _usage_to_dict(usage):
     if usage is None:
         return None
     out = {}
-    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+    for key in ("prompt_tokens", "completion_tokens", "total_tokens", "cost_usd", "cost", "currency", "rate_source"):
         value = getattr(usage, key, None)
         if value is not None:
             out[key] = value

@@ -272,6 +272,27 @@ pub fn recompute(batch: &[Value]) -> RecomputedSignals {
     }
 }
 
+/// Names the fail-closed axes for which this batch contained no usable evidence.
+/// This is intentionally separate from checking whether a numeric result happens
+/// to equal zero: a legitimate low score is behavior, while an empty axis is a
+/// telemetry-collection condition that needs a different operational response.
+pub fn zero_axis_reasons(batch: &[Value]) -> Vec<(&'static str, &'static str)> {
+    let mut axes = Vec::new();
+    if !batch.iter().any(|entry| entry_entropy(entry).is_some()) {
+        axes.push(("entropy", "no scoreable text evidence"));
+    }
+    if !batch.iter().any(|entry| entry_grounding(entry).is_some()) {
+        axes.push(("grounding", "no scoreable text evidence"));
+    }
+    if batch.iter().map(entry_token_total).sum::<i64>() <= 0 {
+        axes.push(("sacrifice", "no positive token usage evidence"));
+    }
+    if batch.is_empty() {
+        axes.push(("compliance", "empty telemetry batch"));
+    }
+    axes
+}
+
 #[cfg(test)]
 mod tests {
     /// Cross-language conformance: this function and integrity-sdk's
@@ -396,6 +417,13 @@ mod tests {
         // the same score as an agent who demonstrated real stability/grounding.
         assert_eq!(derive_entropy(&[]), 0.0);
         assert_eq!(derive_grounding(&[]), 0.0);
+    }
+
+    #[test]
+    fn zero_axis_reasons_distinguish_missing_evidence_from_low_scores() {
+        let reasons = zero_axis_reasons(&[json!({"metadata": {"token_usage": {"total_tokens": 10}}})]);
+        assert_eq!(reasons, vec![("entropy", "no scoreable text evidence"), ("grounding", "no scoreable text evidence")]);
+        assert!(zero_axis_reasons(&[]).contains(&("compliance", "empty telemetry batch")));
     }
 
     #[test]

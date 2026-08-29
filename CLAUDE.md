@@ -65,6 +65,7 @@ make up         # docker-compose: postgres, redis, opa, oracle-backend, bcc-midd
 make test       # every package's real test suite (forge/nargo/cargo/pytest x4/npm)
 make test-e2e   # real-browser Playwright e2e against a freshly booted stack (integrity-dashboard)
 make demo       # integrity-dashboard/demo scenario engine against live Base Sepolia by default — needs FUNDER_PRIVATE_KEY + INTEGRITY_WALLET_PASSWORD
+make check-wallets # read-only check that configured operator wallets have native gas
 ```
 
 Per-package, when iterating on one piece:

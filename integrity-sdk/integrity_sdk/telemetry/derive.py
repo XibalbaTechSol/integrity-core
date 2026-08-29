@@ -329,7 +329,7 @@ def derive_ais_signals(
     compliance_gate_address: Optional[str] = None,
     covered_entity_address: Optional[str] = None,
     w3: Optional[Any] = None,
-) -> Dict[str, float]:
+) -> Dict[str, Any]:
     """Bundles all four derived signals into the shape
     `POST /v1/telemetry/ingest`'s `derived_signals` field expects (see
     docs/INTERFACE_CONTRACT.md).
@@ -338,7 +338,7 @@ def derive_ais_signals(
     constant's comment for why this is load-bearing for signature
     verification and not a cosmetic choice.
     """
-    return {
+    result: Dict[str, Any] = {
         "entropy": round(derive_entropy(batch), _SIGNAL_DECIMALS),
         "grounding": round(derive_grounding(batch), _SIGNAL_DECIMALS),
         "sacrifice": round(derive_sacrifice(batch), _SIGNAL_DECIMALS),
@@ -352,3 +352,29 @@ def derive_ais_signals(
             _SIGNAL_DECIMALS,
         ),
     }
+    billed = _derive_billed_cost(batch)
+    if billed is not None:
+        result["billed_cost"] = billed
+    return result
+
+
+def _derive_billed_cost(batch: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Return the first provider-reported cost verbatim, if present.
+
+    Cost is evidence, not an estimate: this deliberately does not calculate a price
+    from token counts or apply a local rate table. Integrations may place a provider
+    response's ``cost_usd``/``cost`` plus ``currency`` and ``rate_source`` in
+    ``metadata.token_usage``.
+    """
+    for entry in batch:
+        usage = entry.get("metadata", {}).get("token_usage", {})
+        if not isinstance(usage, dict):
+            continue
+        amount = usage.get("cost_usd", usage.get("cost"))
+        if not isinstance(amount, (int, float)):
+            continue
+        currency = usage.get("currency")
+        rate_source = usage.get("rate_source")
+        if isinstance(currency, str) and isinstance(rate_source, str):
+            return {"amount": amount, "currency": currency, "rate_source": rate_source}
+    return None

@@ -46,7 +46,7 @@ from .telemetry import core as telemetry_core, derive, intent as intent_module, 
 #: oracle therefore reconstructs the signable bytes WITHOUT the key when a request omits it
 #: — serializing it as `null` instead would change the canonical bytes and break every
 #: historical signature.
-TELEMETRY_SCHEMA_VERSION = 1
+TELEMETRY_SCHEMA_VERSION = 2
 
 
 logger = logging.getLogger("integrity_sdk.client")
@@ -502,6 +502,7 @@ class IntegrityClient:
 
         signable = {
             "schema_version": TELEMETRY_SCHEMA_VERSION,
+            "evidence_tier": "signed_agent",
             "agent_id": self.agent_id,
             "nonce": self._nonce,
             "otel_spans": otel_spans,

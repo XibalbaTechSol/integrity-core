@@ -99,3 +99,12 @@ def test_derive_ais_signals_returns_all_four_keys():
     assert set(signals.keys()) == {"entropy", "grounding", "sacrifice", "compliance"}
     for value in signals.values():
         assert 0.0 <= value <= 1.0
+
+
+def test_derive_ais_signals_preserves_provider_reported_cost_only():
+    batch = [{"metadata": {"token_usage": {
+        "total_tokens": 10, "cost_usd": 0.0123, "currency": "USD", "rate_source": "provider-billing"
+    }}}]
+    assert derive.derive_ais_signals(batch)["billed_cost"] == {
+        "amount": 0.0123, "currency": "USD", "rate_source": "provider-billing"
+    }
