@@ -5,20 +5,24 @@ import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {Nonces} from "@openzeppelin/contracts/utils/Nonces.sol";
+import {IAccount, IEntryPoint, PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
+import {ERC4337Utils} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
 import {IERC6551Account} from "./IERC6551.sol";
 import {ILicenceHook} from "./ILicenceHook.sol";
+import {ILicenceTermsHook, LicenceTermsContext} from "./ILicenceTermsHook.sol";
 import {AdapterRegistry} from "../registry/AdapterRegistry.sol";
 
 /// @title LicenceAccount
 /// @notice Phase II tracer-bullet slice
 /// (`docs/plans/2026-08-24-phase2-licence-account-tracer-bullet-proposal.md`): an ERC-6551
 /// token-bound account representing intellectual property as a live, metered asset
-/// (whitepaper §5.1-5.4). Enforces exactly THREE licence terms from Table 2 -- volume cap
+/// (whitepaper §5.1-5.4). The default account enforces THREE licence terms from Table 2 -- volume cap
 /// (monotone depletion, eq 13), royalty (value conservation, eq 12), and expiry (a plain block-
-/// timestamp bound) -- plus the transfer-drain guard (eq 17). The other six Table 2 terms
-/// (field of use, licensee identity, exclusivity, derivative rights, assurance tier, memory
-/// continuity), ATCP/IP signed intents, the adapter registry, and state channels are all
-/// explicitly deferred -- see the proposal doc's own scope section.
+/// timestamp bound) -- plus the transfer-drain guard (eq 17). Additive ATCP/IP EIP-712 intents,
+/// account-side ERC-4337 validation, an optional licence hook, and the Phase III adapter-registry
+/// hook are implemented as separate layers. `LicenceTermsPolicy` adds the other six Table 2 terms
+/// through the typed hook path; unconfigured accounts retain the narrow default behavior.
+/// State channels, live sponsorship, and production governance remain deferred.
 ///
 /// @dev **Deliberately ONE implementation contract PER LICENCE, not a shared implementation
 /// reused across many licences via bytecode-introspected context-reading** (the more common
@@ -41,7 +45,7 @@ import {AdapterRegistry} from "../registry/AdapterRegistry.sol";
 /// rejected. Matches `IntegrityAccount`'s own single-execution-mode discipline for the identical
 /// reason: a narrower attack surface is easier to reason about completely.
 ///
-/// **Concrete guarantees this slice proves** (60 Foundry tests --
+/// **Concrete guarantees this slice proves** (77 Foundry tests --
 /// `test/licence/LicenceAccount.t.sol`, `test/licence/Erc6551RegistryIntegration.t.sol`,
 /// `test/licence/ConsumeWithIntent.t.sol`, and `test/licence/ProtocolFeeSettlement.t.sol`,
 /// `PRODUCTION_GAPS.md`): unlike `IntegrityKernel`'s four properties, none of the following are
@@ -80,24 +84,29 @@ import {AdapterRegistry} from "../registry/AdapterRegistry.sol";
 ///   volume-cap and transfer-drain guards identically to a directly-constructed instance.
 ///
 /// What this does NOT claim: no Halmos/symbolic verification (unlike `IntegrityKernel.sol`); no
-/// ERC-4337 validation-phase implementation; no adapter registry (terms are
-/// hardcoded per-instance, not compiled from an external payload); no marketplace or escrow
+/// live paymaster/bundler evidence; no permissionless adapter attestation/composition (the
+/// registry hook is present but R1/R5 remain open); no marketplace or escrow
 /// contract (`armTransfer`/`disarmTransfer` are bare owner-gated setters, not integrated with any
-/// actual sale flow); and the other six Table 2 licence terms (field of use, licensee identity,
-/// exclusivity, derivative rights, assurance tier, memory continuity) are unimplemented -- see
-/// `docs/plans/2026-08-24-phase2-licence-account-tracer-bullet-proposal.md`'s own scope section.
+/// actual sale flow). `LicenceTermsPolicy.sol` implements the six additional Table 2 terms through
+/// the typed `consumeWithTerms()` and signed-intent paths; those terms are opt-in per account and
+/// are not asserted for an account whose hook is unset.
 ///
 /// **ATCP/IP signed-intent layer** (`docs/plans/2026-08-24-phase2-atcpip-intent-format-
 /// proposal.md`, `PRODUCTION_GAPS.md` §48): `consumeWithIntent()` lets the owner authorize a
 /// revocable, expiring session key (`authorizeSessionKey`/`revokeSessionKey`) to sign scoped
 /// `ConsumeIntent` structs (EIP-712, via OpenZeppelin's `EIP712`/`Nonces`) that ANY relayer may
-/// submit on-chain -- the signer authorizes the action, not the caller. This is deliberately
-/// NOT the whitepaper's literal §7.1 step-4 claim ("ERC-4337 validation phase, type-1
-/// validator") -- that would require this contract to also be a full ERC-4337 smart account,
-/// the same kernel-hybrid undertaking the base slice's own proposal already declined. This is a
-/// standalone signature-verification layer achieving the same practical goal (root-key-free
-/// scoped authorization) with a materially smaller mechanism, disclosed as such rather than
-/// implied to be the ERC-4337 path.
+/// submit on-chain -- the signer authorizes the action, not the caller. It remains a standalone
+/// EIP-712 relaying path; the separate `validateUserOp()` path below is the literal account-side
+/// ERC-4337 validation route and does not reinterpret `consumeWithIntent()` as a UserOperation.
+///
+/// **ERC-4337 account path:** `validateUserOp()` accepts the canonical EntryPoint v0.9, verifies
+/// an owner or authorized session-key signature over `userOpHash`, pays missing prefund, and binds
+/// the exact `execute()` calldata to a one-transaction hand-off. Owner UserOperations retain the
+/// ERC-6551 CALL surface; session-key UserOperations are restricted to a self-call of
+/// `consume(uint256)`. The nested self-call is the mechanism by which a UserOperation sends the
+/// account's own balance as royalty. This proves account-side validation and execution binding;
+/// A separate `LicencePaymaster` provides allowlisted sponsorship plumbing; neither contract alone
+/// provides a live bundler transaction or production sponsorship evidence.
 ///
 /// **Settlement integration guarantee** (`docs/plans/2026-08-24-phase2-settlement-integration-
 /// proposal.md`, `PRODUCTION_GAPS.md` section 49): this slice implements only eq (12) protocol-fee
@@ -107,8 +116,10 @@ import {AdapterRegistry} from "../registry/AdapterRegistry.sol";
 /// `_consume()` transition used by both `consume()` and `consumeWithIntent()`; if the recipient
 /// transfer fails, the whole call reverts with no consumed-unit state change and no retained
 /// funds. `protocolFeeBps == 0` is a valid no-fee configuration, including a zero recipient.
-/// This does NOT implement adapter-author shares, staking yield, buy-back/burn, treasury
-/// allocation, per-adapter fee variation, or any fee on `execute()` withdrawals.
+/// `LicenceEconomy.sol` provides the separate fee-router layer for adapter-author shares,
+/// staking yield, buy-back/burn, treasury allocation, and delayed fee-share governance. This
+/// account does not force every licence to use that router; its immutable recipient remains an
+/// explicit deployment choice, and no fee applies to `execute()` withdrawals.
 ///
 /// **Kernel hook** (`ILicenceHook.sol`, `PRODUCTION_GAPS.md` §51): an optional, immutable
 /// `hook` -- whitepaper §5.3's "the same [kernel] mechanism serves both" claim, scoped down to
@@ -134,7 +145,7 @@ import {AdapterRegistry} from "../registry/AdapterRegistry.sol";
 /// both additive, both able to independently reject. Reverts with whatever `AdapterRegistry.
 /// evaluate` itself reverts with -- see that contract's own NatSpec for the exact
 /// adapter-rejection-vs-gas-bound-exceeded distinction and its disclosed limitation.
-contract LicenceAccount is IERC6551Account, EIP712, Nonces {
+contract LicenceAccount is IERC6551Account, IAccount, EIP712, Nonces {
     error NotAuthorized(address caller);
     error UnsupportedOperation(uint8 operation);
     error LicenceNotYetActive(uint256 startTime, uint256 currentTime);
@@ -155,6 +166,9 @@ contract LicenceAccount is IERC6551Account, EIP712, Nonces {
     error ZeroFeeRecipient(uint256 feeBps);
     error ZeroRegistryAdapter();
     error ProtocolFeeTransferFailed(bytes returndata);
+    error UserOperationCallDataMismatch();
+    error SessionKeyCannotExecuteArbitraryCall();
+    error PrefundPaymentFailed();
 
     event Consumed(uint256 units, uint256 royaltyPaid, uint256 totalConsumed);
     event TransferArmed(uint256 committedBalance);
@@ -168,11 +182,28 @@ contract LicenceAccount is IERC6551Account, EIP712, Nonces {
     bytes32 public constant CONSUME_INTENT_TYPEHASH =
         keccak256("ConsumeIntent(address account,uint256 units,uint256 nonce,uint256 expiry)");
 
+    bytes32 public constant TERMS_CONSUME_INTENT_TYPEHASH = keccak256(
+        "TermsConsumeIntent(address account,uint256 units,uint256 nonce,uint256 expiry,bytes32 purposeHash,bool derivative,bytes32 priorMemoryHead,bytes32 nextMemoryHead,uint256 memorySequence,bytes32 evidenceHash)"
+    );
+
     struct ConsumeIntent {
         address account;
         uint256 units;
         uint256 nonce;
         uint256 expiry;
+    }
+
+    struct TermsConsumeIntent {
+        address account;
+        uint256 units;
+        uint256 nonce;
+        uint256 expiry;
+        bytes32 purposeHash;
+        bool derivative;
+        bytes32 priorMemoryHead;
+        bytes32 nextMemoryHead;
+        uint256 memorySequence;
+        bytes32 evidenceHash;
     }
 
     // --- ATCP/IP session keys: owner-authorized, revocable, expiring signers scoped to
@@ -215,6 +246,12 @@ contract LicenceAccount is IERC6551Account, EIP712, Nonces {
     // SpendBudgetAdapter's own parameter shape.
     AdapterRegistry public immutable registryHook;
     address public immutable registryAdapter;
+
+    // One-transaction validation-to-execution hand-off for ERC-4337. EntryPoint validation
+    // binds the exact execute calldata and signer before the execution call is accepted.
+    bytes32 private _validatedUserOpCallHash;
+    address private _validatedUserOpSigner;
+    bool private _entryPointExecution;
 
     // --- live state
     uint256 public consumedUnits;
@@ -261,6 +298,55 @@ contract LicenceAccount is IERC6551Account, EIP712, Nonces {
 
     receive() external payable {}
 
+    /// @notice Canonical ERC-4337 v0.9 EntryPoint used by this account.
+    /// @dev Chain-specific EntryPoint deployments require a separately-versioned account.
+    function entryPoint() public pure returns (IEntryPoint) {
+        return ERC4337Utils.ENTRYPOINT_V09;
+    }
+
+    /// @notice Validates an ERC-4337 UserOperation signed by the current NFT owner or an
+    /// authorized session key. Session keys are restricted to a self-call of `consume(uint256)`;
+    /// owner signatures retain the normal ERC-6551 CALL surface.
+    /// @dev Stores only a one-transaction authorization hand-off. `execute()` must be called by
+    /// the canonical EntryPoint with byte-identical calldata, then clears the hand-off.
+    function validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash, uint256 missingAccountFunds)
+        external
+        returns (uint256 validationData)
+    {
+        if (msg.sender != address(entryPoint())) revert NotAuthorized(msg.sender);
+        if (userOp.sender != address(this)) return ERC4337Utils.SIG_VALIDATION_FAILED;
+        if (userOp.callData.length < 4 || bytes4(userOp.callData) != this.execute.selector) {
+            return ERC4337Utils.SIG_VALIDATION_FAILED;
+        }
+
+        (address to, uint256 value, bytes memory data, uint8 operation) = abi.decode(
+            userOp.callData[4:], (address, uint256, bytes, uint8)
+        );
+        (address signer, ECDSA.RecoverError recoverError,) = ECDSA.tryRecover(userOpHash, userOp.signature);
+        if (recoverError != ECDSA.RecoverError.NoError) return ERC4337Utils.SIG_VALIDATION_FAILED;
+
+        bool ownerSigner = signer == owner();
+        bool sessionSigner = _isAuthorizedSessionKey(signer);
+        if (!ownerSigner && !sessionSigner) return ERC4337Utils.SIG_VALIDATION_FAILED;
+
+        if (sessionSigner && !ownerSigner) {
+            if (to != address(this) || operation != 0 || data.length < 4 || bytes4(data) != this.consume.selector) {
+                return ERC4337Utils.SIG_VALIDATION_FAILED;
+            }
+            // `value` is deliberately not trusted here; consume() performs the authoritative
+            // royalty, expiry, and volume checks during execution.
+            value;
+        }
+
+        _validatedUserOpCallHash = keccak256(userOp.callData);
+        _validatedUserOpSigner = signer;
+        if (missingAccountFunds > 0) {
+            (bool prefundSent,) = payable(msg.sender).call{value: missingAccountFunds}("");
+            if (!prefundSent) revert PrefundPaymentFailed();
+        }
+        return ERC4337Utils.SIG_VALIDATION_SUCCESS;
+    }
+
     /// @notice The current licensee -- whoever holds the licence NFT right now. ERC-6551
     /// authority resolves DYNAMICALLY through this, not through any signer this contract stores
     /// itself; transferring the NFT atomically transfers command of everything this account
@@ -289,8 +375,20 @@ contract LicenceAccount is IERC6551Account, EIP712, Nonces {
     /// `test_consumeRevertsBeforeAnyStateChange_*` in the test suite, not merely assumed from
     /// the order these checks are written in.
     function consume(uint256 units) external payable returns (uint256 royaltyPaid) {
+        if (msg.sender == owner()) return _consume(units, msg.sender);
+        if (msg.sender == address(this) && _entryPointExecution) return _consume(units, _validatedUserOpSigner);
+        revert NotAuthorized(msg.sender);
+    }
+
+    /// @notice Typed consumption path for field-of-use, licensee, exclusivity, derivative-rights,
+    /// assurance-tier, and memory-continuity policy enforcement.
+    function consumeWithTerms(uint256 units, LicenceTermsContext calldata context)
+        external
+        payable
+        returns (uint256 royaltyPaid)
+    {
         if (msg.sender != owner()) revert NotAuthorized(msg.sender);
-        return _consume(units, msg.sender);
+        return _consumeWithTerms(units, msg.sender, context);
     }
 
     /// @notice The ATCP/IP entry point: any relayer may submit a `ConsumeIntent` signed off-chain
@@ -323,6 +421,44 @@ contract LicenceAccount is IERC6551Account, EIP712, Nonces {
         return _consume(intent.units, signer);
     }
 
+    /// @notice Open-relay typed-intent route. The owner or an authorized session key signs all
+    /// six licence-term fields; any relayer may submit the intent.
+    function consumeWithTermsIntent(TermsConsumeIntent calldata intent, bytes calldata signature)
+        external
+        payable
+        returns (uint256 royaltyPaid)
+    {
+        if (intent.account != address(this)) revert IntentDomainMismatch(address(this), intent.account);
+        if (block.timestamp > intent.expiry) revert IntentExpired(intent.expiry, block.timestamp);
+        bytes32 structHash = keccak256(
+            abi.encode(
+                TERMS_CONSUME_INTENT_TYPEHASH,
+                intent.account,
+                intent.units,
+                intent.nonce,
+                intent.expiry,
+                intent.purposeHash,
+                intent.derivative,
+                intent.priorMemoryHead,
+                intent.nextMemoryHead,
+                intent.memorySequence,
+                intent.evidenceHash
+            )
+        );
+        address signer = ECDSA.recover(_hashTypedDataV4(structHash), signature);
+        if (signer != owner() && !_isAuthorizedSessionKey(signer)) revert UnauthorizedSigner(signer);
+        _useCheckedNonce(signer, intent.nonce);
+        LicenceTermsContext memory context = LicenceTermsContext({
+            purposeHash: intent.purposeHash,
+            derivative: intent.derivative,
+            priorMemoryHead: intent.priorMemoryHead,
+            nextMemoryHead: intent.nextMemoryHead,
+            memorySequence: intent.memorySequence,
+            evidenceHash: intent.evidenceHash
+        });
+        return _consumeWithTerms(intent.units, signer, context);
+    }
+
     /// @notice Authorizes `key` to sign `ConsumeIntent`s on the owner's behalf until `expiry`.
     /// Owner-gated, dynamically -- only the CURRENT NFT holder may authorize a session key, same
     /// as every other owner-gated function here. A session key can only ever sign consumption
@@ -348,6 +484,21 @@ contract LicenceAccount is IERC6551Account, EIP712, Nonces {
     }
 
     function _consume(uint256 units, address consumer) internal returns (uint256 royaltyPaid) {
+        LicenceTermsContext memory emptyContext;
+        return _consumeCore(units, consumer, false, emptyContext);
+    }
+
+    function _consumeWithTerms(uint256 units, address consumer, LicenceTermsContext memory context)
+        internal
+        returns (uint256 royaltyPaid)
+    {
+        return _consumeCore(units, consumer, true, context);
+    }
+
+    function _consumeCore(uint256 units, address consumer, bool hasTerms, LicenceTermsContext memory context)
+        internal
+        returns (uint256 royaltyPaid)
+    {
         if (units == 0) revert ZeroUnits();
         if (block.timestamp < licenceStartTime) revert LicenceNotYetActive(licenceStartTime, block.timestamp);
         if (block.timestamp > licenceEndTime) revert LicenceExpired(licenceEndTime, block.timestamp);
@@ -362,7 +513,11 @@ contract LicenceAccount is IERC6551Account, EIP712, Nonces {
         // own checks above already passed, BEFORE any state change below. Reverts propagate
         // directly -- no partial consumption, same discipline as every other check here.
         if (address(hook) != address(0)) {
-            hook.preConsume(address(this), consumer, units, royaltyDue);
+            if (hasTerms) {
+                ILicenceTermsHook(address(hook)).preConsumeWithTerms(address(this), consumer, units, royaltyDue, context);
+            } else {
+                hook.preConsume(address(this), consumer, units, royaltyDue);
+            }
         }
 
         // Phase III adapter registry (PRODUCTION_GAPS.md §53): a SECOND, independent additive
@@ -424,8 +579,18 @@ contract LicenceAccount is IERC6551Account, EIP712, Nonces {
         payable
         returns (bytes memory)
     {
-        if (msg.sender != owner()) revert NotAuthorized(msg.sender);
+        bool fromEntryPoint = msg.sender == address(entryPoint());
+        if (!fromEntryPoint && msg.sender != owner()) revert NotAuthorized(msg.sender);
+        if (fromEntryPoint && keccak256(msg.data) != _validatedUserOpCallHash) {
+            revert UserOperationCallDataMismatch();
+        }
         if (operation != 0) revert UnsupportedOperation(operation);
+
+        if (fromEntryPoint && _validatedUserOpSigner != owner()) {
+            if (to != address(this) || data.length < 4 || bytes4(data) != this.consume.selector) {
+                revert SessionKeyCannotExecuteArbitraryCall();
+            }
+        }
 
         if (armed && value > 0) {
             uint256 balanceAfter = address(this).balance - value;
@@ -435,7 +600,13 @@ contract LicenceAccount is IERC6551Account, EIP712, Nonces {
         }
 
         state += 1;
+        if (fromEntryPoint) _entryPointExecution = true;
         (bool success, bytes memory returndata) = to.call{value: value}(data);
+        if (fromEntryPoint) {
+            _entryPointExecution = false;
+            delete _validatedUserOpCallHash;
+            delete _validatedUserOpSigner;
+        }
         if (!success) revert ExecutionFailed(returndata);
         if (value > 0) emit Withdrawn(to, value);
         return returndata;

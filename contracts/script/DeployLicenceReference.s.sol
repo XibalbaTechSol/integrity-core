@@ -9,6 +9,10 @@ import {ILicenceHook} from "../src/licence/ILicenceHook.sol";
 import {IERC6551Registry} from "../src/licence/IERC6551.sol";
 import {LicenceToken} from "../src/licence/LicenceToken.sol";
 import {AdapterRegistry} from "../src/registry/AdapterRegistry.sol";
+import {SpendBudgetAdapter} from "../src/registry/SpendBudgetAdapter.sol";
+import {LicencePaymaster} from "../src/licence/LicencePaymaster.sol";
+import {LicenceEconomy} from "../src/licence/LicenceEconomy.sol";
+import {IEntryPoint} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
 
 /// @title DeployLicenceReference
 /// @notice Phase II reference deployment script for one experimental, non-production licence
@@ -26,12 +30,25 @@ contract DeployLicenceReference is Script {
     uint256 constant ROYALTY_PRICE_PER_UNIT_WEI = 0.0001 ether;
     uint256 constant LICENCE_DURATION = 30 days;
     uint256 constant PROTOCOL_FEE_BPS = 100;
+    uint256 constant ADAPTER_GAS_BOUND = 100_000;
+    uint256 constant ADAPTER_PER_OPERATION_BUDGET = 1 ether;
+    uint256 constant ADAPTER_CUMULATIVE_BUDGET = 10 ether;
+    uint256 constant PAYMASTER_MAX_COST = 0.01 ether;
+    uint256 constant ADAPTER_AUTHOR_BPS = 2_000;
+    uint256 constant STAKER_BPS = 3_000;
+    uint256 constant BUYBACK_BPS = 2_000;
+    uint256 constant TREASURY_BPS = 3_000;
     bytes32 constant SALT = bytes32(0);
+    bytes32 constant ADAPTER_SPEC_HASH = keccak256("integrity.phase2.reference.spend-budget.v1");
 
     address deployer;
     address protocolFeeRecipient;
     LicenceToken licenceToken;
     LicenceAccount implementation;
+    AdapterRegistry adapterRegistry;
+    SpendBudgetAdapter spendBudgetAdapter;
+    LicencePaymaster paymaster;
+    LicenceEconomy economy;
     address tokenBoundAccount;
     uint256 tokenId;
     uint256 licenceStartTime;
@@ -40,6 +57,7 @@ contract DeployLicenceReference is Script {
     string existingJson;
     string network;
     string path;
+    bool writeDeploymentRecord;
 
     function run() external {
         uint256 deployerKey = vm.envUint("FUNDER_PRIVATE_KEY");
@@ -48,9 +66,8 @@ contract DeployLicenceReference is Script {
         network = block.chainid == 84532 ? "baseSepolia" : "local";
         path = string.concat("../deployments.", network, ".json");
         existingJson = vm.readFile(path);
-        protocolFeeRecipient = vm.envOr(
-            "PHASE2_LICENCE_PROTOCOL_FEE_RECIPIENT", vm.parseJsonAddress(existingJson, ".protocolAddresses.governance")
-        );
+        writeDeploymentRecord = vm.envOr("PHASE2_WRITE_DEPLOYMENT_RECORD", false);
+        protocolFeeRecipient = vm.envOr("PHASE2_LICENCE_PROTOCOL_FEE_RECIPIENT", address(0));
 
         licenceStartTime = block.timestamp;
         licenceEndTime = licenceStartTime + LICENCE_DURATION;
@@ -59,6 +76,20 @@ contract DeployLicenceReference is Script {
 
         licenceToken = new LicenceToken(deployer);
         tokenId = licenceToken.mint(deployer);
+        adapterRegistry = new AdapterRegistry();
+        spendBudgetAdapter = new SpendBudgetAdapter(ADAPTER_PER_OPERATION_BUDGET, ADAPTER_CUMULATIVE_BUDGET);
+        adapterRegistry.register(address(spendBudgetAdapter), ADAPTER_GAS_BOUND, ADAPTER_SPEC_HASH);
+        economy = new LicenceEconomy(
+            deployer,
+            vm.parseJsonAddress(existingJson, ".singletons.IntegrityToken"),
+            ADAPTER_AUTHOR_BPS,
+            STAKER_BPS,
+            BUYBACK_BPS,
+            TREASURY_BPS
+        );
+        economy.setAdapterAuthor(address(spendBudgetAdapter), deployer);
+        if (protocolFeeRecipient == address(0)) protocolFeeRecipient = address(economy);
+        paymaster = new LicencePaymaster(IEntryPoint(0x433709009B8330FDa32311DF1C2AFA402eD8D009), deployer, PAYMASTER_MAX_COST);
         implementation = new LicenceAccount(
             address(licenceToken),
             tokenId,
@@ -69,8 +100,8 @@ contract DeployLicenceReference is Script {
             protocolFeeRecipient,
             PROTOCOL_FEE_BPS,
             ILicenceHook(address(0)),
-            AdapterRegistry(address(0)),
-            address(0)
+            adapterRegistry,
+            address(spendBudgetAdapter)
         );
 
         address predicted = ERC6551_REGISTRY.account(
@@ -80,12 +111,18 @@ contract DeployLicenceReference is Script {
             address(implementation), SALT, block.chainid, address(licenceToken), tokenId
         );
         require(tokenBoundAccount == predicted, "ERC-6551 prediction mismatch");
+        paymaster.setSponsoredAccount(tokenBoundAccount, true);
+        economy.bindLicenceAdapter(tokenBoundAccount, address(spendBudgetAdapter));
 
         vm.stopBroadcast();
 
         _assertReferenceAccount();
         _logSummary();
-        _mergeDeploymentsFile();
+        if (writeDeploymentRecord) {
+            _mergeDeploymentsFile();
+        } else {
+            console2.log("Deployment record unchanged (set PHASE2_WRITE_DEPLOYMENT_RECORD=true after broadcast)");
+        }
     }
 
     function _assertReferenceAccount() internal view {
@@ -96,6 +133,14 @@ contract DeployLicenceReference is Script {
         require(LicenceAccount(payable(tokenBoundAccount)).owner() == deployer, "TBA owner mismatch");
         require(LicenceAccount(payable(tokenBoundAccount)).protocolFeeRecipient() == protocolFeeRecipient, "fee recipient mismatch");
         require(LicenceAccount(payable(tokenBoundAccount)).protocolFeeBps() == PROTOCOL_FEE_BPS, "fee bps mismatch");
+        require(address(LicenceAccount(payable(tokenBoundAccount)).registryHook()) == address(adapterRegistry), "registry hook mismatch");
+        require(LicenceAccount(payable(tokenBoundAccount)).registryAdapter() == address(spendBudgetAdapter), "registry adapter mismatch");
+        require(economy.owner() == deployer, "economy owner mismatch");
+        require(economy.licenceAdapter(tokenBoundAccount) == address(spendBudgetAdapter), "economy adapter binding mismatch");
+        require(economy.adapterAuthor(address(spendBudgetAdapter)) == deployer, "adapter author mismatch");
+        require(address(paymaster.entryPoint()) == address(LicenceAccount(payable(tokenBoundAccount)).entryPoint()), "paymaster entry point mismatch");
+        require(paymaster.owner() == deployer, "paymaster owner mismatch");
+        require(paymaster.sponsoredAccount(tokenBoundAccount), "paymaster sponsorship mismatch");
     }
 
     function _logSummary() internal view {
@@ -104,6 +149,11 @@ contract DeployLicenceReference is Script {
         console2.log("deployer / NFT owner:        ", deployer);
         console2.log("LicenceToken:                ", address(licenceToken));
         console2.log("LicenceAccount implementation:", address(implementation));
+        console2.log("AdapterRegistry:             ", address(adapterRegistry));
+        console2.log("SpendBudgetAdapter:          ", address(spendBudgetAdapter));
+        console2.log("LicencePaymaster:            ", address(paymaster));
+        console2.log("LicenceEconomy:              ", address(economy));
+        console2.log("paymaster max cost:          ", PAYMASTER_MAX_COST);
         console2.log("ERC-6551 token-bound account:", tokenBoundAccount);
         console2.log("tokenId:                    ", tokenId);
         console2.log("volumeCapTotal:             ", VOLUME_CAP_TOTAL);
@@ -198,12 +248,25 @@ contract DeployLicenceReference is Script {
         );
         vm.serializeAddress(phase2, "LicenceToken", address(licenceToken));
         vm.serializeAddress(phase2, "LicenceAccountImplementation", address(implementation));
+        vm.serializeAddress(phase2, "AdapterRegistry", address(adapterRegistry));
+        vm.serializeAddress(phase2, "SpendBudgetAdapter", address(spendBudgetAdapter));
+        vm.serializeAddress(phase2, "LicencePaymaster", address(paymaster));
+        vm.serializeAddress(phase2, "LicenceEconomy", address(economy));
+        vm.serializeUint(phase2, "adapterAuthorBps", ADAPTER_AUTHOR_BPS);
+        vm.serializeUint(phase2, "stakerBps", STAKER_BPS);
+        vm.serializeUint(phase2, "buybackBps", BUYBACK_BPS);
+        vm.serializeUint(phase2, "treasuryBps", TREASURY_BPS);
+        vm.serializeBool(phase2, "paymasterAccountAllowlisted", true);
         vm.serializeAddress(phase2, "tokenBoundAccount", tokenBoundAccount);
         vm.serializeAddress(phase2, "owner", deployer);
         vm.serializeAddress(phase2, "protocolFeeRecipient", protocolFeeRecipient);
         vm.serializeUint(phase2, "protocolFeeBps", PROTOCOL_FEE_BPS);
         vm.serializeUint(phase2, "royaltyPricePerUnitWei", ROYALTY_PRICE_PER_UNIT_WEI);
         vm.serializeUint(phase2, "volumeCapTotal", VOLUME_CAP_TOTAL);
+        vm.serializeUint(phase2, "adapterGasBound", ADAPTER_GAS_BOUND);
+        vm.serializeUint(phase2, "adapterPerOperationBudget", ADAPTER_PER_OPERATION_BUDGET);
+        vm.serializeUint(phase2, "adapterCumulativeBudget", ADAPTER_CUMULATIVE_BUDGET);
+        vm.serializeUint(phase2, "paymasterMaxCost", PAYMASTER_MAX_COST);
         vm.serializeUint(phase2, "licenceStartTime", licenceStartTime);
         vm.serializeUint(phase2, "licenceEndTime", licenceEndTime);
         vm.serializeBytes32(phase2, "salt", SALT);

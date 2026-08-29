@@ -3648,3 +3648,103 @@ profile (still governed by §54's unchanged `(30_000, 40_000)`-bounded test). No
 the registry-enabled configuration (same gap §54 already disclosed, unchanged by this entry). No
 change to `AdapterRegistry.sol` itself, `LicenceAccount`'s own registry wiring (§53), or
 `postCheck`. Not deployed to any live network as part of this entry.
+
+## 56. Phase II ERC-4337 account path (2026-08-28)
+
+*Current State:* `LicenceAccount` now implements the account-side ERC-4337 `IAccount` surface in
+addition to ERC-6551. `validateUserOp()` accepts only the canonical EntryPoint v0.9, verifies an
+owner or currently authorized session-key signature over `userOpHash`, pays missing prefund, and
+binds the exact `execute()` calldata to a one-transaction hand-off. Owner UserOperations retain
+the ordinary ERC-6551 CALL surface; session-key UserOperations are restricted to a self-call of
+`consume(uint256)`, allowing the account's own balance to fund royalty payment through the existing
+atomic consumption/settlement path.
+
+`contracts/test/licence/LicenceAccount4337.t.sol` covers owner execution, session-key restriction,
+invalid signatures, and byte-identical call-data binding. The focused suite passes 4/4. The
+paymaster suite passes 4/4 and the typed six-term policy suite passes 6/6; the full Solidity suite
+passes 458/458 after these implementation changes.
+
+**What this does NOT claim:** a live bundler or EntryPoint transaction, funded paymaster sponsorship,
+chain-specific EntryPoint support, or production readiness. The account uses the OpenZeppelin-
+pinned canonical v0.9 EntryPoint address; a different EntryPoint version requires a separately
+versioned deployment. The broader six licence terms, licence economy, external-adoption gate,
+independent audit, monitoring, rollback, and production parameter governance remain open.
+
+## 57. Phase II allowlisted paymaster (2026-08-28)
+
+*Current State:* `contracts/src/licence/LicencePaymaster.sol` implements an owner-funded,
+allowlisted ERC-4337 paymaster for the canonical EntryPoint v0.9. It requires the sender to be
+explicitly approved and rejects UserOperations whose maximum gas cost exceeds the immutable
+configured cap. Validation is stateless and the EntryPoint deposit is the sponsorship balance;
+`LicenceAccount.validateUserOp()` remains authoritative for account signatures and call-data
+authorization. Four focused tests cover the allowlist, cost cap, and EntryPoint-only validation and
+post-operation paths.
+
+The deployment script now deploys the paymaster, binds it to the same EntryPoint as the account,
+and allowlists the newly created reference token-bound account. It intentionally does not deposit
+funds automatically. A live sponsored UserOperation, bundler integration, deposit funding,
+paymaster stake, rate limits beyond the per-operation cap, and production sponsorship policy
+remain open. This is testnet infrastructure, not a claim of production gas sponsorship.
+
+## 58. Phase II typed licence terms policy (2026-08-28)
+
+*Current State:* `LicenceTermsPolicy.sol` implements the six additional Table 2 terms—field of
+use, licensee identity, exclusivity, derivative rights, assurance tier, and memory continuity—
+behind the immutable `ILicenceHook` slot. Accounts with this policy installed must use the typed
+`consumeWithTerms()` route or its EIP-712 relayed equivalent; untyped `consume()` fails closed.
+The policy binds the purpose, consumer, evidence hash, prior memory head, next memory head, and
+sequence number, and checks assurance tier through an explicit provider interface.
+
+`LicenceTermsPolicy.t.sol` passes 6/6, including positive-path enforcement, negative cases for
+each term, and the shared `ILicenceDelegationView` read model. This closes the implementation gap
+for the six terms and their common read surface, but not the broader licence economy,
+external-counterparty adoption evidence, or production audit.
+
+## 59. Phase II/III licence economy router (2026-08-28)
+
+*Current State:* `LicenceEconomy.sol` adds the missing settlement-economy layer as a separately
+owned contract compatible with `LicenceAccount`'s existing zero-data native fee transfer. It
+routes received fees to adapter authors, native-denominated staker rewards, a buyback reserve,
+and a treasury reserve. Adapter authorship and licence-to-adapter attribution are explicit and
+auditable mappings. ITK staking/unstaking and reward claims are implemented; buyback execution is
+an owner-selected external call protected by a minimum ITK output and burns only ITK newly received
+by the router. Fee-share changes require a two-day activation delay.
+
+`LicenceEconomy.t.sol` covers routing, missing-author fallback, author/staker claims, buyback burn,
+delayed governance, and invalid-share rejection. The reference deployment script now deploys the
+router, maps the spend-budget adapter author, binds the new token-bound account, and uses the router
+as the default protocol-fee recipient. This remains unaudited; no DEX price oracle, slashing
+policy, or production multi-party governance is claimed by this slice.
+
+## 60. Phase II external-adoption evidence validator (2026-08-28)
+
+*Current State:* `scripts/validate_phase2_adoption.py` and
+`docs/runbooks/phase2-adoption-evidence.md` define an auditable input path for the actual Phase
+II gate. The validator rejects empty, malformed, duplicate, non-external, contributor-owned, or
+below-threshold ledgers and requires explicit operator-supplied thresholds for distinct
+counterparties, consumed units, and observation-window duration. It does not manufacture
+counterparties or independently establish organizational independence; live receipts and a
+human-reviewed counterparty evidence record remain required.
+
+## 61. Final Phase II/III reference stack redeployed to Base Sepolia (2026-08-28)
+
+*Current State:* `DeployLicenceReference.s.sol` was rehearsed non-broadcast first, then broadcast
+successfully on Base Sepolia. The read-only `VerifyLicenceReference.s.sol` verifier passed against
+chain ID `84532`, confirming deployed bytecode and cross-contract bindings for the final
+`LicenceAccount`, `AdapterRegistry`, `SpendBudgetAdapter`, `LicencePaymaster`, and `LicenceEconomy`
+stack. Replacement addresses and broadcast receipts are recorded in
+`docs/evidence/phase2/2026-08-28-live-consume.md` and the deployment JSON.
+
+This remains an experimental, unaudited testnet deployment. The paymaster deposit is zero and
+the reference licence uses illustrative parameters.
+
+## 62. Live Phase II consumption and settlement evidence (2026-08-28)
+
+*Current State:* transaction
+`0x1573d80423209da211730cbcc3728dcdf8e211b10885bff9fc0ff71a1eee3112` succeeded in Base Sepolia
+block `46100906` and executed `consume(1)` for `100000000000000` wei. The receipt and post-state
+reconciliation are archived in `docs/evidence/phase2/2026-08-28-live-consume.md`: consumed units
+incremented `0 -> 1`, the adapter recorded the full royalty, the account retained the royalty less
+the 1% protocol fee, and the economy reserves split the fee exactly into author, treasury, and
+buyback allocations. This closes the live consumption/settlement demonstration for the project
+funder only; it does not close external adoption or sponsored UserOperation evidence.
