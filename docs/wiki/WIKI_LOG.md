@@ -3160,9 +3160,10 @@ writeup: PRODUCTION_GAPS.md §18.
 - No historical wiki log entries were edited; this entry supersedes the earlier wording
   that overstated incremental EHR deployment support.
 
-## [2026-08-28] update | Cortex Operations dashboard surface
+## [2026-08-28] update | Unified Cortex dashboard workspace
 
-- Updated `docs/wiki/entities/integrity-dashboard.md` for the implemented `/cortex` operator route and its hybrid-retrieval trace, extraction-review, inference/embedding visibility, and projection checkpoint/reconciliation/rebuild surfaces.
+- Consolidated the former Memory and Cortex Operations destinations under the canonical `/cortex` workspace. Existing memory views remain tabs, Operations is a new tab, the sidebar label is Cortex, and `/memory` redirects for bookmark compatibility.
+- Updated `docs/wiki/entities/integrity-dashboard.md` for the unified route and its hybrid-retrieval trace, extraction-review, inference/embedding visibility, and projection checkpoint/reconciliation/rebuild surfaces.
 - Recorded the cross-repository dashboard-to-Cortex HTTP boundary in `docs/INTERFACE_CONTRACT.md`, including `VITE_GRAPH_MEMORY_URL`, per-capability unavailable states, and the local/trusted operator constraint for write endpoints.
 - Disabled extraction-decision and projection-mutation controls when the dashboard is not loopback-hosted; documented that this browser guard is defense in depth, not operator authentication.
 - Preserved authority boundaries: Cortex remains the profile-isolated canonical store for Cortex memory, does not become Integrity protocol authority, and complements rather than replaces Hermes memory.

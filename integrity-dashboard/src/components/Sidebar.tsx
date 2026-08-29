@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { NavLink, Link } from 'react-router-dom';
-import { LayoutDashboard, Key, DollarSign, Activity, ShieldCheck, Code, BrainCircuit, BookOpen, ChevronLeft, ChevronRight, User, Settings, LogIn, LogOut, Database, TrendingUp, FileText, Cpu, GitCompare, GitMerge } from 'lucide-react';
+import { LayoutDashboard, Key, DollarSign, Activity, ShieldCheck, Code, BrainCircuit, BookOpen, ChevronLeft, ChevronRight, User, Settings, LogIn, LogOut, TrendingUp, FileText, Cpu, GitCompare, GitMerge } from 'lucide-react';
 import { useDashboard } from '../context/DashboardContext';
 import { useIsMobile } from '../utils/useIsMobile';
 
@@ -57,8 +57,7 @@ export function Sidebar() {
     {
       section: 'System',
       items: [
-        { to: '/memory', label: 'Memory', icon: <Database size={20} /> },
-        { to: '/cortex', label: 'Cortex Operations', icon: <BrainCircuit size={20} /> },
+        { to: '/cortex', label: 'Cortex', icon: <BrainCircuit size={20} /> },
         { to: '/prediction-markets', label: 'Prediction Markets', icon: <DollarSign size={20} /> },
         { to: '/developer', label: 'Developer', icon: <Code size={20} /> },
         { to: '/wiki', label: 'Wiki', icon: <BookOpen size={20} /> },

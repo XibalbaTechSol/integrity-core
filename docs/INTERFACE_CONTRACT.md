@@ -1031,7 +1031,7 @@ contract directly.
 expected to talk to both the Oracle trust domain and `integrity-userapi`
 directly.
 
-### 6.11 Dashboard-to-Cortex operator boundary
+### 6.11 Dashboard-to-Cortex Operations tab boundary
 
 `xibalba-cortex` remains an external, profile-isolated cognitive store, not a
 third Integrity trust domain and not an authority for AIS, BCC, chain state,

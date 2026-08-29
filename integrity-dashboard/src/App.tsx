@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Navigate, Routes, Route } from 'react-router-dom';
 import 'katex/dist/katex.min.css';
 import './index.css';
 import LandingPage from './LandingPage';
@@ -21,7 +21,6 @@ import PrivacyPage from './pages/PrivacyPage';
 import TermsPage from './pages/TermsPage';
 import { IntelligencePage } from './pages/IntelligencePage';
 import CorrelationPage from './pages/CorrelationPage';
-import CortexOperationsPage from './pages/CortexOperationsPage';
 import { ActuarialHub } from './components/tabs/ActuarialHub';
 import { DashboardProvider } from './context/DashboardContext';
 import { SettingsProvider } from './context/SettingsContext';
@@ -49,7 +48,7 @@ function App() {
             <Route path="/financials" element={<FinancialsPage />} />
             <Route path="/intelligence" element={<IntelligencePage />} />
             <Route path="/correlation" element={<CorrelationPage />} />
-            <Route path="/cortex" element={<CortexOperationsPage />} />
+            <Route path="/cortex" element={<MemoryPage />} />
             <Route path="/prediction-markets" element={<ActuarialHub mode="markets" />} />
             <Route path="/health" element={<HealthPage />} />
             <Route path="/shield" element={<ShieldPage />} />
@@ -57,7 +56,7 @@ function App() {
             <Route path="/licence" element={<LicencePage />} />
             <Route path="/kernel" element={<KernelPage />} />
             <Route path="/kernel-intent" element={<KernelIntentPage />} />
-            <Route path="/memory" element={<MemoryPage />} />
+            <Route path="/memory" element={<Navigate to="/cortex" replace />} />
             <Route path="/developer" element={<DeveloperPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
