@@ -149,6 +149,33 @@ async def test_opa_missing_result_key_fails_closed():
 
 
 @pytest.mark.asyncio
+async def test_intercept_denies_malformed_opa_decision_with_safe_diagnostic():
+    """An indeterminate OPA result must become an explicit denial, not an exception or implicit allow."""
+    with respx.mock(assert_all_called=True) as mock:
+        mock.get(url__regex=r"http://oracle\.invalid/v1/agent/.+").mock(
+            return_value=Response(404, json={"detail": "agent not indexed"})
+        )
+        mock.post("http://opa.invalid/v1/data/integrity/bcc").mock(
+            return_value=Response(200, json={"result": {"allow": "yes"}})
+        )
+        settings = Settings(
+            opa_url="http://opa.invalid",
+            oracle_url="http://oracle.invalid",
+            merkle_batch_size=999,
+        )
+        agent_id, private_key = new_agent()
+        payload = sign_commitment(private_key, agent_id=agent_id, intent_type="payment", nonce=1)
+        commitment = make_commitment_model(**payload)
+
+        response = await run_intercept(commitment, settings)
+
+    assert response.authorized is False
+    assert response.reason is not None
+    assert response.reason.startswith("BCC_POLICY_ENGINE_UNAVAILABLE:")
+    assert "missing boolean 'allow' field" in response.reason
+
+
+@pytest.mark.asyncio
 async def test_opa_connection_error_fails_closed():
     with respx.mock(assert_all_called=True) as mock:
         mock.post("http://opa.invalid/v1/data/integrity/bcc").mock(side_effect=ConnectError("refused"))
