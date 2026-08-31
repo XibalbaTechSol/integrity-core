@@ -3830,3 +3830,26 @@ already-shipped step toward it, not a claim of v1-required status.
 publication, permissionless publication making an adapter installable, idempotent republication,
 conflicting-republication revert, the emitted event carrying the registration's own `specHash`,
 and per-adapter independence). Full suite 492/492, zero regressions.
+
+## 65. Policy-hook test coverage gap closed: reverting policies and setter access control (2026-08-31)
+
+*Current State:* the `feat/role-split-policy-hooks` branch's original test file
+(`PolicyHookInvariants.t.sol`, 11 tests) never made it to `main` when its interfaces landed under
+`contracts/test/PolicyHooks.t.sol` (7 tests, a renamed, evolved rewrite). Diffed the two directly
+(recovered the old file from git's unreachable-object store after the source branch was deleted)
+rather than guessing at the delta: two real gaps, not redundant with anything the 7 existing
+tests already covered.
+
+`docs/SPEC.md` §5.3 (added this session, see #entry above on the same date) requires "a `false`
+return OR a revert" from `IExecutionPolicy`/`IAnchorPolicy` to both fail closed identically --
+nothing in the suite exercised the revert half. Added `RevertingExecutionPolicy`/
+`RevertingAnchorPolicy` test-only mocks and two tests confirming a reverting policy leaves
+`executionNonce`/`latestEpoch`/`latestRoot` completely unchanged, not just that the call reverts.
+
+Also untested anywhere in the repo: `setExecutionPolicy`/`setAnchorPolicy` are real
+access-controlled setters (`onlyController` / `onlyRole(DEFAULT_ADMIN_ROLE)` respectively,
+confirmed by reading `SovereignAgent.sol`/`StateAnchor.sol` directly before writing the tests,
+not assumed) with zero test coverage anywhere in `contracts/test/`. Added two tests confirming a
+non-controller/non-admin stranger cannot install a policy.
+
+4 new tests, full suite 496/496, zero regressions.
