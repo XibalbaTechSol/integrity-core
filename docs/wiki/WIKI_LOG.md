@@ -3180,6 +3180,53 @@ writeup: PRODUCTION_GAPS.md §18.
 - Disabled extraction-decision and projection-mutation controls when the dashboard is not loopback-hosted; documented that this browser guard is defense in depth, not operator authentication.
 - Preserved authority boundaries: Cortex remains the profile-isolated canonical store for Cortex memory, does not become Integrity protocol authority, and complements rather than replaces Hermes memory.
 - No new wiki page or catalog entry was required; `docs/wiki/index.md` remains unchanged.
+## [2026-08-29] lint | Wiki Sync Loop
+
+- Pages created: 0
+- Pages updated: 4 (`WIKI_INDEX.md`, `entities/integrity-oracle.md`, `entities/contracts.md`, `concepts/telemetry-ingestion.md`)
+- Dead links fixed: 0
+- Orphans resolved: 2 (added `architecture/ecosystem-dependencies.md` and `architecture/repository-implementation-plans.md` to the catalog)
+- Stale pages refreshed: 3 (Oracle, contracts, and telemetry ingestion source-verified against the 2026-08-29 changes)
+- Aspirational content flagged: 0
+- Verification: `python3 scripts/wiki_linter.py` reports 35 indexed pages, 0 dead links; `python3 scripts/wiki_toc.py --check` passes for 35 wiki pages; dashboard `npm run sync-wiki` regenerated `src/generated/wiki-data.json`.
+
+## [2026-08-29] audit | Living documentation fact check
+
+- Corrected living references to the accepted specification, proposed amendment, and whitepaper after those source files were archived under `docs/archive/2026-08/`.
+- Corrected the wiki landing page's obsolete external absolute-path dependency and linked the repository-local implementation ledger.
+- Updated `repository-implementation-plans.md` source bindings to existing files; historical archive entries remain unchanged.
+- Verification: living documentation link/source checks and wiki TOC validation pass; remaining archive-only historical links are intentionally excluded from the current-state audit.
+
+## [2026-08-29] audit | Individual review of remaining older articles
+
+- Source-reviewed the remaining 22 stale articles against their bound implementation, specification, test, and script files; the telemetry article had already been refreshed in the preceding pass.
+- Corrected the AIS inventory from the historical 10-route snapshot to the current generated OpenAPI inventory of 38 `/v1/*` paths.
+- Marked the SDK RAG and Graph memory adapters as planned stubs because the current implementations raise `NotImplementedError`.
+- Removed the unsubstantiated claim that market contracts are currently live on Base Sepolia; local code/tests and live-network evidence are now explicitly separated.
+- Regenerated the gas-tracking query from the current SDK gas log and refreshed all 22 reviewed pages.
+- Verification: 35 indexed pages, 0 stale pages, 0 orphans, 0 dead index links, and wiki TOC check passes.
+
+## [2026-08-29] update | Hermes development boundary and runtime separation
+
+- Updated `docs/wiki/concepts/xibalba-agent-operating-model.md` with the verified runtime boundary: Hermes uses the Cortex memory provider and Hermes gate; explicit Development Mode is a bounded, operator-selected local fallback only when the policy dependency is unavailable; signing-class actions remain fail-closed; and decisions are labeled `not_opa_verified`.
+- Recorded the observed separation in which Claude Code Integrity hooks and telemetry are disabled while Hermes enforcement remains configured. External runtime files are explicitly treated as runtime evidence rather than repository-source authority.
+- Preserved the session-finalization limitation: session `20260818_203629_21cb28` was partial because `hook_watermark_not_verified` was not verified.
+- Verification: `/home/xibalba/.claude/xibalba/dev_mode.py`, `/home/xibalba/.claude/settings.json`, and `/home/xibalba/.hermes/config.yaml` were read back; the source-bound canonical wiki page was updated. The requested `/home/xibalba/Projects/INTEGRITY-LATEST/docs/wiki/` path was absent; the active repository wiki at `/home/xibalba/Projects/integrity-core/docs/wiki/` was used.
+
+## [2026-08-29] correction | Shield dashboard source reconciliation
+
+- Updated `entities/integrity-dashboard.md` to reflect that `/shield` now defaults to the real `ShieldFleetOverview` backend evidence surface, while `Live Attack Demo` remains explicitly synthetic/local.
+- Removed the obsolete orphan-client claim and bound the page to `ShieldFleetOverview.tsx` and `services/shieldBackend.ts`.
+- Preserved remaining external evidence gates: production registration, sensor coverage, Oracle readback, and burn-in.
+- Verification: source inspection and dashboard build remain green; no live-chain or production claim was added.
+
+## [2026-08-29] update | Whitepaper authority normalization
+
+- Promoted Whitepaper v3.2 to the canonical `docs/WHITEPAPER.md` source.
+- Preserved the former v1 narrative at `docs/archive/2026-08/integrity-protocol-v1.md` and retained the archived v3.2 copy as historical release evidence.
+- Added `docs/DOCUMENT_STATUS.yaml` as the machine-readable authority manifest: `docs/SPEC.md` is normative; v3.2 is current explanatory whitepaper; controls and implementation plan remain informative.
+- Updated current README/spec/readiness/interface/wiki pointers and regenerated the dashboard wiki projection.
+- Historical handoffs and dated audit entries remain unchanged.
 
 ## [2026-08-30] test | Malformed OPA decision fails closed at intercept boundary
 

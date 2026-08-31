@@ -2,7 +2,7 @@
 title: AIS API — Versioned Wire Spec
 acronyms: [AIS]
 created: 2026-07-11
-updated: 2026-07-11
+updated: 2026-08-29
 type: concept
 tags: [metrics, sdk, infrastructure]
 confidence: high
@@ -61,7 +61,9 @@ where "generated, not hand-authored" has a narrow, documented exception.
 
 ## What shipped in v1 (2026-07-11)
 
-- All 10 real `/v1/*` routes + `/healthz`.
+- The current generated OpenAPI contains 38 `/v1/*` paths. This is the maintained
+  v1 surface; the earlier “10 routes” count was a historical snapshot and is no longer
+  an accurate inventory.
 - Fixed a real gap in the same pass: `GET /v1/agent/{id}` previously accepted
   `did_document` on registration and silently dropped it (no DB column, never
   returned). Now persisted (`migrations/0003_agent_did_document.sql`) and

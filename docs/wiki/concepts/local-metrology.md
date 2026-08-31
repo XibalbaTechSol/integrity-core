@@ -1,7 +1,7 @@
 ---
 title: Local Metrology (Client-Side AIS Signal Derivation)
 created: 2026-07-09
-updated: 2026-07-09
+updated: 2026-08-29
 type: concept
 tags: [metrics, sdk]
 confidence: high

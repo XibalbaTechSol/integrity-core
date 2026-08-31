@@ -80,7 +80,7 @@ evidence, non-compensable component floors, a conjunctive gate, and a separate
 pre-boost normalized accessor for constraint use. Current server-side
 recomputation reduces client tampering but does not make self-asserted span
 content independently true. See the proposed clauses in
-[`spec/integrity-protocol-v0.5-proposed.md`](../../../spec/integrity-protocol-v0.5-proposed.md).
+[`integrity-protocol-v0.5-proposed.md`](../../archive/2026-08/integrity-protocol-v0.5-proposed.md).
 
 `AIS_final = min(S_calculated, Tier_ceiling)` — an identity-verification
 ceiling clamp — is **`[BUILT]`** and enforced in `integrity-oracle/scoring-core`

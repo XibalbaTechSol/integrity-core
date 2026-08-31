@@ -1,7 +1,7 @@
 ---
 title: Integrity Market (Prediction Markets, Binary Options, A2A Capital Allocation)
 created: 2026-07-09
-updated: 2026-07-15
+updated: 2026-08-29
 type: concept
 tags: [layer-2, tokenomics, metrics]
 confidence: high
@@ -20,7 +20,9 @@ contracts" thesis beyond identity, up to markets and capital allocation.
 Same mechanism throughout — [AIS](ais.md)-gated participation + off-chain
 [BCC](bcc.md)-committed intent bound to an on-chain action — applied to
 prediction markets, binary options, and agent-to-agent capital allocation.
-Real, tested, and live on Base Sepolia (not a demo mockup).
+The contracts and local test coverage are real, but this article does not treat a local
+deployment or repository configuration as proof of a currently live Base Sepolia deployment.
+Live-network status requires independently captured deployment evidence.
 
 ## Table of contents
 

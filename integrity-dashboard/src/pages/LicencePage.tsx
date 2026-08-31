@@ -4,16 +4,18 @@ import { ethers } from 'ethers';
 import { FileText, ShieldAlert, Search, RefreshCw, Wallet, Lock, Unlock } from 'lucide-react';
 import { Panel } from '../components/shared/Panel';
 import { LICENCE_ACCOUNT_ABI } from '../chain/licence';
-import { RPC_URL } from '../constants';
+import { withRetry } from '../chain/retry';
+import { RPC_URL, LICENCE_REFERENCE } from '../constants';
 
 // Read-only viewer for a LicenceAccount (contracts/src/licence/LicenceAccount.sol) --
 // the Phase II tracer-bullet ERC-6551 licence account. Deployed ONE PER LICENCE (no
-// factory singleton, no fixed address in deployments.baseSepolia.json), and not yet
-// deployed to Base Sepolia at all as of this page's authorship -- see
-// docs/plans/2026-08-24-phase2-licence-account-tracer-bullet-proposal.md and
-// PRODUCTION_GAPS.md. So this page takes an address directly rather than resolving
-// one from constants.ts, and its empty/error states are real, not decorative --
-// there is nothing to silently fall back to.
+// factory singleton), so this page still takes an address directly rather than
+// resolving one purely from constants.ts -- but `deployments.baseSepolia.json` DOES
+// record one real reference deployment (`experimentalPhase2LicenceReference`,
+// `LICENCE_REFERENCE` below), so the page defaults to that address on first visit
+// (before anything is saved to localStorage) instead of starting blank. A user can
+// still paste any other LicenceAccount address; empty/error states past that default
+// are real, not decorative.
 const LAST_ADDRESS_KEY = 'licencePage.lastAddress';
 
 interface LicenceState {
@@ -95,7 +97,9 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 export default function LicencePage() {
-  const [address, setAddress] = useState(() => localStorage.getItem(LAST_ADDRESS_KEY) ?? '');
+  const [address, setAddress] = useState(
+    () => localStorage.getItem(LAST_ADDRESS_KEY) ?? LICENCE_REFERENCE?.tokenBoundAccount ?? ''
+  );
   const [queried, setQueried] = useState<string | null>(null);
   const [licence, setLicence] = useState<LicenceState | null>(null);
   const [loading, setLoading] = useState(false);
@@ -110,6 +114,7 @@ export default function LicencePage() {
     setLoading(true);
     setError(null);
     try {
+      await withRetry(async () => {
       const provider = new ethers.JsonRpcProvider(RPC_URL);
       const code = await provider.getCode(addr);
       if (code === '0x') {
@@ -158,6 +163,7 @@ export default function LicencePage() {
       });
       setQueried(addr);
       localStorage.setItem(LAST_ADDRESS_KEY, addr);
+      });
     } catch (e) {
       setLicence(null);
       setError(

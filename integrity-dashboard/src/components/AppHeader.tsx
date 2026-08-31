@@ -1,14 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
 import { NavLink, Link } from 'react-router-dom';
-import { LayoutDashboard, Key, DollarSign, Activity, ShieldCheck, Code, BrainCircuit, User, Settings, LogIn, LogOut, TrendingUp, FileText, Cpu, GitMerge } from 'lucide-react';
+import { User, Settings, LogIn, LogOut } from 'lucide-react';
 import { useDashboard } from '../context/DashboardContext';
 import { useServiceHealth } from '../services/health';
+import { NAVIGATION_ITEMS } from '../navigation';
 
 export function AppHeader() {
   const { selectedAgent, setSelectedAgent, agents, user } = useDashboard();
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-  // Header only ever showed oracle/bcc/memory/shield -- keep that footprint, the wizard's
-  // own Kernel entry is additive there, not something the header needs to surface too.
   const serviceChecks = useServiceHealth().filter((s) => s.key !== 'kernel');
   const profileRef = useRef<HTMLDivElement>(null);
 
@@ -21,21 +20,6 @@ export function AppHeader() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-
-  const navItems = [
-    { to: '/dashboard', label: 'Dashboard', icon: <LayoutDashboard size={18} /> },
-    { to: '/identity', label: 'Identity', icon: <Key size={18} /> },
-    { to: '/kernel', label: 'Kernel', icon: <Cpu size={18} /> },
-    { to: '/licence', label: 'Licence', icon: <FileText size={18} /> },
-    { to: '/financials', label: 'Financials', icon: <DollarSign size={18} /> },
-    { to: '/intelligence', label: 'Intelligence', icon: <BrainCircuit size={18} /> },
-    { to: '/correlation', label: 'Correlation', icon: <GitMerge size={18} /> },
-    { to: '/health', label: 'Health', icon: <Activity size={18} /> },
-    { to: '/shield', label: 'Shield', icon: <ShieldCheck size={18} /> },
-    { to: '/quant', label: 'Quant', icon: <TrendingUp size={18} /> },
-    { to: '/prediction-markets', label: 'Prediction Markets', icon: <DollarSign size={18} /> },
-    { to: '/developer', label: 'Developer', icon: <Code size={18} /> },
-  ];
 
   return (
     <header style={{ 
@@ -57,8 +41,8 @@ export function AppHeader() {
       </Link>
 
       {/* Center: Navigation Links */}
-      <nav style={{ display: 'flex', gap: '0.5rem', height: '100%' }}>
-        {navItems.map((item) => (
+      <nav aria-label="Primary navigation" style={{ display: 'flex', gap: '0.5rem', height: '100%', overflowX: 'auto', minWidth: 0 }}>
+        {NAVIGATION_ITEMS.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
@@ -77,7 +61,7 @@ export function AppHeader() {
               boxSizing: 'border-box'
             })}
           >
-            {item.icon}
+            <item.icon size={18} />
             <span>{item.label}</span>
           </NavLink>
         ))}

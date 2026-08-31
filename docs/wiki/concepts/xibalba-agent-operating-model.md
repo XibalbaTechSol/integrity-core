@@ -2,18 +2,21 @@
 title: Xibalba Agent Operating Model
 acronyms: [MCP, MoA, BCC, DID, PHI]
 created: 2026-08-06
-updated: 2026-08-25
+updated: 2026-08-29
 type: concept
 tags: [identity, compliance, sdk, infrastructure]
-confidence: high
+confidence: medium
 source_files:
-  - ../../../../.hermes/SOUL.md
-  - ../../../../.hermes/config.yaml
-  - ../../../../.hermes/skills/red-teaming/devils-advocate/SKILL.md
-  - ../../../../.hermes/skills/red-teaming/devils-advocate/scripts/external_ensemble.py
+  - AGENTS.md
+  - CLAUDE.md
 ---
 
 # Xibalba Agent Operating Model
+
+This page summarizes the repository's documented operating model. Provider-specific Hermes
+configuration and red-team skill files live outside this repository and are not treated as
+locally source-bound evidence; claims about those external files remain medium-confidence
+until independently rechecked in their owning environment.
 
 ## Table of contents
 
@@ -21,6 +24,7 @@ source_files:
 - [Closed-loop control](#closed-loop-control)
   - [External-runtime review ensemble](#external-runtime-review-ensemble)
 - [Memory and wiki compilation](#memory-and-wiki-compilation)
+  - [Runtime development boundary](#runtime-development-boundary)
 - [Identity and Integrity Protocol relationship](#identity-and-integrity-protocol-relationship)
 - [Safety and control invariants](#safety-and-control-invariants)
 - [Interface design standard](#interface-design-standard)
@@ -49,6 +53,14 @@ The local graph memory Model Context Protocol (MCP) server is the canonical pers
 The repository wiki is the canonical compiled knowledge layer for the Integrity Protocol. Xibalba's Hermes observer already captures session text, tool calls, application programming interface telemetry, approval decisions, and subagent delegation into local graph memory. A significant-task compilation worker is configured and queue-backed, but continuous execution remains dependent on the Hermes Gateway being live; startup reconciliation, deterministic redaction, and independent promotion review remain [PLANNED].
 
 A result is significant when it changes architecture, policy, identity, protocol behavior, a reusable workflow, public product direction, business operations, or Integrity Protocol evidence coverage; or when it resolves a non-obvious failure or creates a durable decision. Trivial lookups and routine edits should not create wiki pages.
+
+### Runtime development boundary
+
+The observed Hermes runtime uses the `xibalba_cortex_memory_provider` provider and routes its pre-tool calls through `/home/xibalba/.claude/xibalba/hermes_gate.py`, as configured in `/home/xibalba/.hermes/config.yaml`. This is runtime configuration evidence, not repository-source evidence, and must be rechecked before being treated as current deployment state.
+
+An operator-selected `XIBALBA_INTEGRITY_MODE=development` activates a deterministic local fallback only when the normal policy dependency is unavailable. The observed fallback in `/home/xibalba/.claude/xibalba/dev_mode.py` allows bounded local reversible work inside approved repository roots, denies network writes, credentials, deployments, blockchain, financial, identity, destructive, and control-plane actions, and labels decisions `not_opa_verified`. Signing-class actions remain fail-closed. This is a development escape hatch, not production authorization or evidence that Open Policy Agent (OPA) approved an action.
+
+The session evidence also records that Claude Code Integrity hooks and telemetry were removed from `/home/xibalba/.claude/settings.json` while Hermes enforcement remained configured. That separation is runtime-specific and does not establish parity across other agent runtimes. The associated session-finalization record was partial because `hook_watermark_not_verified` remained unresolved.
 
 ## Identity and Integrity Protocol relationship
 

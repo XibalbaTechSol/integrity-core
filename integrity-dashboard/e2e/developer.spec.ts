@@ -1,10 +1,11 @@
 import { test, expect } from '@playwright/test';
 import { collectPageErrors } from './test-utils';
 
-// DeveloperPage (src/pages/DeveloperPage.tsx, route "/developer") has three sub-tabs:
+// DeveloperPage (src/pages/DeveloperPage.tsx, route "/developer") has four sub-tabs:
 // IDE/Smart Contracts (FactoryPanel — a full in-browser IDE with file explorer, editor,
-// AI copilot), Trace Analysis (TraceAnalysisPanel — real oracle.getTraceTree data), and
-// Sandbox Console (SandboxConsole — client-side AIS simulation). No route/fetch mocking.
+// AI copilot), Trace Analysis (TraceAnalysisPanel — real oracle.getTraceTree data), Sandbox
+// Console (SandboxConsole — client-side AIS simulation), and Guided System Test. No
+// route/fetch mocking.
 
 test.describe('/developer (DeveloperPage)', () => {
   test('loads with no uncaught JS errors, defaults to the IDE tab', async ({ page }) => {

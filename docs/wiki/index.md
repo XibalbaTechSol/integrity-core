@@ -17,12 +17,12 @@ gates registration), then [AIS](concepts/ais.md) (the trust score) and
 [Telemetry Ingestion Pipeline](concepts/telemetry-ingestion.md) (how
 agent behavior becomes that score).
 
-## Specification authority — 2026-08-25
+## Specification authority — 2026-08-29
 
-- [Integrity Protocol v0.4](../../spec/integrity-protocol-v0.4.md) is the accepted normative baseline.
-- [Integrity Protocol v0.5 proposed](../../spec/integrity-protocol-v0.5-proposed.md) is the new non-authoritative amendment under review.
-- [Whitepaper v3.2](../../spec/integrity-protocol-v3.2.md) is explanatory and non-normative.
-- The v3.2 PDF is generated publication output; code, tests, and deployments are separate implementation evidence layers.
+- [Integrity Protocol v0.4](../archive/2026-08/integrity-protocol-v0.4.md) is the accepted normative baseline.
+- [Integrity Protocol v0.5 proposed](../archive/2026-08/integrity-protocol-v0.5-proposed.md) is the new non-authoritative amendment under review.
+- [Whitepaper v3.2](../WHITEPAPER.md) is the current explanatory and non-normative whitepaper.
+- The v3.2 PDF is generated publication output from the archived v3.2 source; code, tests, and deployments are separate implementation evidence layers.
 
 ## Current cross-repository audit — 2026-08-25
 
@@ -31,7 +31,9 @@ below as a dated historical pointer) has been superseded by `integrity-dashboard
 repository; see [Ecosystem Dependencies](architecture/ecosystem-dependencies.md) for the current
 correction. The list below is left as-recorded from the 2026-08-06 audit, not rewritten.
 
-The four-repository implementation plan and audit ledger are maintained outside the generated wiki at `/home/xibalba/Documents/INTEGRITY — Cross-Repository Audit and Implementation Plan.md`. Repository-local status pages are:
+The cross-repository implementation plan and audit ledger are maintained in
+[Repository Implementation Plans](architecture/repository-implementation-plans.md).
+Repository-local status pages are:
 
 - [`integrity-core` audit status](../audits/2026-08-06-cross-repository-status.md): strong testnet prototype; SDK has 2 failing tests; production readiness not established.
 - [`integrity-mvp` audit status](https://github.com/XibalbaTechSol/integrity-mvp/blob/main/docs/audits/2026-08-06-status.md): frontend build and unit tests pass; lint and dependency-security gaps remain.

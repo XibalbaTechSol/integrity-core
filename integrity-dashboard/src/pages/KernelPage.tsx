@@ -4,6 +4,7 @@ import { ethers } from 'ethers';
 import { ShieldAlert, Search, RefreshCw, Cpu, Users, Wallet, Gauge } from 'lucide-react';
 import { Panel } from '../components/shared/Panel';
 import { INTEGRITY_ACCOUNT_ABI, INTEGRITY_KERNEL_ABI } from '../chain/kernel';
+import { withRetry } from '../chain/retry';
 import { RPC_URL, KERNEL_REFERENCE } from '../constants';
 
 // Read-only viewer for a Phase I IntegrityAccount + its currently-bound IntegrityKernel
@@ -127,6 +128,7 @@ export default function KernelPage() {
     setLoading(true);
     setError(null);
     try {
+      await withRetry(async () => {
       const provider = new ethers.JsonRpcProvider(RPC_URL);
       const accountCode = await provider.getCode(addr);
       if (accountCode === '0x') {
@@ -246,6 +248,7 @@ export default function KernelPage() {
         epochLengthSeconds,
       });
       localStorage.setItem(LAST_ADDRESS_KEY, addr);
+      });
     } catch (e) {
       setKernel(null);
       setError(

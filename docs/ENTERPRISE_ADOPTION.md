@@ -156,7 +156,7 @@ EDR/XDR like CrowdStrike/SentinelOne/Microsoft don't produce cryptographically a
 decisions). One name, two unrelated products, was a standing collision risk.
 
 **Decision (executed).** Xibalba Shield split into two things, recorded normatively in
-[`spec/integrity-protocol-v0.4.md`](../spec/integrity-protocol-v0.4.md) §14.1:
+[`integrity-protocol-v0.4.md`](archive/2026-08/integrity-protocol-v0.4.md) §14.1:
 1. The existing HIPAA vertical — renamed **Integrity Health** throughout this repo (code and
    docs) to remove the collision; unchanged in function, see Lever 6.
 2. A **new product in a new repository**, `XibalbaTechSol/xibalba-shield` — an endpoint agent
@@ -195,7 +195,7 @@ an agent pays; none of them decide *whether it's allowed to*, under whose author
 regulator-grade evidence that it did. That gap is structurally the same gap Integrity Protocol
 already closes for every other action type via Delegation (§4.3/§12) and BCC (§11) — full
 mapping and a financial `intent_type` taxonomy now live in
-[`spec/integrity-protocol-v0.4.md`](../spec/integrity-protocol-v0.4.md) §21.
+[`integrity-protocol-v0.4.md`](archive/2026-08/integrity-protocol-v0.4.md) §21.
 
 **Implementation surface.** The financial `intent_type` taxonomy (protocol spec §21.2,
 `docs/INTERFACE_CONTRACT.md` §15.1) requires **zero schema change** to start using — `BCC

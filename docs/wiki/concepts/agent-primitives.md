@@ -1,7 +1,7 @@
 ---
 title: Agent Primitives (Self-Sovereign Identity)
 created: 2026-07-07
-updated: 2026-07-15
+updated: 2026-08-29
 type: concept
 tags: [identity, layer-2, tokenomics]
 confidence: high

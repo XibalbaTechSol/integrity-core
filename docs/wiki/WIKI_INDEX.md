@@ -3,7 +3,7 @@
 > Canonical machine-readable catalog for `docs/wiki/`. The landing page is
 > `index.md` is the landing page; this file lists every article page for linting.
 
-Last updated: 2026-08-29 | Total pages: 33
+Last updated: 2026-08-29 | Total pages: 35
 
 ## Concepts
 
@@ -46,3 +46,8 @@ Last updated: 2026-08-29 | Total pages: 33
 ## Queries
 
 - [Gas tracking](queries/gas-tracking.md)
+
+## Architecture
+
+- [Ecosystem dependencies](architecture/ecosystem-dependencies.md)
+- [Repository implementation plans](architecture/repository-implementation-plans.md)

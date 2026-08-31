@@ -1,7 +1,7 @@
 ---
 title: Cross-Chain Reputation Sync [PLANNED]
 created: 2026-07-09
-updated: 2026-07-09
+updated: 2026-08-29
 type: concept
 tags: [layer-2]
 confidence: low

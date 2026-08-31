@@ -544,3 +544,57 @@ def xns_primary_handle(w3: Web3, xns_address: str, sovereign_agent: str) -> str:
     """Read-only: the agent's primary handle, or "" if it has none registered."""
     xns = _contract(w3, "XibalbaNameService", address=xns_address)
     return xns.functions.primaryHandle(Web3.to_checksum_address(sovereign_agent)).call()
+
+
+def factory_has_registrar_role(w3: Web3, registry_address: str, factory_address: str) -> bool:
+    """Read-only check for whether `factory_address` holds `REGISTRAR_ROLE` on
+    `XibalbaAgentRegistry` -- a fixed precondition `AgentPrimitivesFactory.
+    registerPrimitives` depends on for `registry.registerPrimitives`/
+    `domainRegistry.recordJoin` to succeed. See main.py's `agent_register`."""
+    from eth_utils import keccak
+
+    registrar_role = keccak(text="REGISTRAR_ROLE")
+    registry = _contract(w3, "XibalbaAgentRegistry", address=registry_address)
+    return registry.functions.hasRole(registrar_role, Web3.to_checksum_address(factory_address)).call()
+
+
+def domain_exists(w3: Web3, domain_registry_address: str, domain_id: bytes) -> bool:
+    """Read-only check for whether `domain_id` has ever been claimed via
+    `DomainRegistry.registerDomain` -- the third element of the `domains` struct
+    getter's tuple (owner, mode, exists, memberCount)."""
+    registry = _contract(w3, "DomainRegistry", address=domain_registry_address)
+    _owner, _mode, exists, _member_count = registry.functions.domains(domain_id).call()
+    return exists
+
+
+def can_join_domain(w3: Web3, domain_registry_address: str, domain_id: bytes, caller: str) -> bool:
+    """Read-only mirror of the exact check `AgentPrimitivesFactory.registerPrimitives`
+    makes before deploying anything -- `False` here is what reverts as
+    `DomainJoinNotApproved()` deep in a real registration attempt, after gas for the
+    SovereignAgent/StateAnchor deploy has already been spent. Always check this BEFORE
+    signing anything -- see main.py's `agent_register`."""
+    registry = _contract(w3, "DomainRegistry", address=domain_registry_address)
+    return registry.functions.canJoin(domain_id, Web3.to_checksum_address(caller)).call()
+
+
+def register_domain(w3: Web3, signer: LocalAccount, domain_registry_address: str, name: str, chain_id: int, *, open_mode: bool = True) -> str:
+    """
+    Claims domain `name` in `DomainRegistry`, owned by `signer` -- permissionless,
+    first-come-first-served, same trust model as ENS second-level names (see
+    `DomainRegistry.sol`'s own NatSpec). `open_mode=True` sets `JoinMode.Open`, so
+    `canJoin` returns `True` for any caller afterward -- appropriate for a personal,
+    self-owned per-agent domain. Reverts `DomainAlreadyExists()` if the name is already
+    claimed; callers should check `domain_exists` first rather than relying on the
+    revert for control flow.
+    """
+    registry = _contract(w3, "DomainRegistry", address=domain_registry_address)
+    mode = 0 if open_mode else 1  # DomainRegistry.JoinMode: Open=0, Permissioned=1
+    tx = registry.functions.registerDomain(name, mode).build_transaction({
+        "from": signer.address,
+        "nonce": w3.eth.get_transaction_count(signer.address),
+        "chainId": chain_id,
+    })
+    signed = signer.sign_transaction(tx)
+    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+    _wait(w3, tx_hash, action="register_domain")
+    return tx_hash.hex()

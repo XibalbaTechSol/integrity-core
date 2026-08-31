@@ -16,7 +16,7 @@ source_files:
   - contracts/src/oracle/VerifierRegistry.sol
   - contracts/src/oracle/ReputationRegistry.sol
   - contracts/script/Deploy.s.sol
-  - integrity_sdk/prover.py
+  - integrity-sdk/integrity_sdk/prover.py
   - integrity-sdk/circuits/poc_commitment/src/main.nr
   - integrity-oracle/backend/src/handlers.rs
   - integrity-oracle/backend/src/chain.rs

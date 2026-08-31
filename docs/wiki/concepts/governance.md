@@ -2,7 +2,7 @@
 title: On-Chain Governance
 acronyms: [ITK]
 created: 2026-07-25
-updated: 2026-07-25
+updated: 2026-08-29
 type: concept
 tags: [tokenomics, layer-2]
 confidence: high

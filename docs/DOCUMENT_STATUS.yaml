@@ -1,0 +1,29 @@
+# Single source for document authority and current-version pointers.
+# Consumers may render this metadata, but must not promote archived documents.
+updated: 2026-08-29
+
+normative:
+  path: docs/SPEC.md
+  version: v1.0.0-draft
+
+whitepaper:
+  path: docs/WHITEPAPER.md
+  version: v3.2
+  status: current
+  authority: informative
+
+auditor_controls:
+  path: docs/CONTROLS_MATRIX.md
+  status: current
+  authority: informative
+
+implementation_plan:
+  path: docs/IMPLEMENTATION_PLAN.md
+  status: current
+  authority: sequencing-only
+
+archived:
+  - docs/archive/2026-08/integrity-protocol-v1.md
+  - docs/archive/2026-08/integrity-protocol-v0.4.md
+  - docs/archive/2026-08/integrity-protocol-v0.5-proposed.md
+  - docs/archive/2026-08/integrity-protocol-v3.2.md

@@ -6,9 +6,9 @@ Repo documentation precedence is:
 
 1. `README.md` defines repo-level ownership, current package status, and source-of-truth pointers.
 2. This file defines internal schemas, ports, env vars, service boundaries, and cross-package call conventions inside integrity-core.
-3. `spec/integrity-protocol-v0.4.md` is the accepted normative protocol;
-   `spec/integrity-protocol-v0.5-proposed.md` is a non-authoritative review candidate;
-   `spec/integrity-protocol-v3.2.md` is the explanatory, non-normative whitepaper; and
+3. `docs/archive/2026-08/integrity-protocol-v0.4.md` is the accepted normative protocol;
+   `docs/archive/2026-08/integrity-protocol-v0.5-proposed.md` is a non-authoritative review candidate;
+   `docs/WHITEPAPER.md` (v3.2) is the current explanatory, non-normative whitepaper; and
    the remaining `spec/` subtrees define externally-supported wire surfaces. A generated
    PDF is publication output, not an interface contract.
 4. `docs/wiki/` is the compiled long-term knowledge layer generated out to the GitHub Wiki and `integrity-dashboard/`'s browser wiki.
@@ -208,7 +208,7 @@ included in the signed payload, so neither can be swapped post-signature:
   mirror it only if they need backwards compatibility.
 
 - `chain_id` / `verifying_contract` — **both required**
-  (docs/plans/2026-08-18-phase1-canonical-intent-encoding-proposal.md).
+  (docs/archive/2026-08/plans/2026-08-18-phase1-canonical-intent-encoding-proposal.md).
   Before these, a commitment signed once was valid, byte-for-byte, against
   any chain or any deployment of the protocol sharing the signing agent's
   DID — `nonce` is monotonic per-agent but not deployment-scoped, so it
@@ -269,7 +269,7 @@ The signed object of `POST /v1/telemetry/ingest` carries `schema_version`, an in
 **inside the signature**:
 
 ```
-schema_version = 2          # integrity_sdk.client.TELEMETRY_SCHEMA_VERSION
+schema_version = 3          # integrity_sdk.client.TELEMETRY_SCHEMA_VERSION
                             # backend::handlers::MAX_TELEMETRY_SCHEMA_VERSION
 evidence_tier = "signed_agent" # inside the signed object; v1/legacy defaults to this tier
 ```
@@ -288,6 +288,11 @@ Both constants must move together. Rules, all load-bearing:
   `rate_source`) only when the provider reported it. The SDK never estimates a cost from
   token counts; absent provider data remains absent. The top-level `evidence_tier` is fixed
   to `signed_agent` for this path, distinguishing it from unauthenticated OTLP telemetry.
+- Version 3 adds structural validation for the signed `otel_spans` array before the PHI
+  backstop or persistence layer runs. The oracle rejects unknown top-level/metadata keys,
+  malformed covered-entity addresses, invalid numeric ranges, oversized text/properties,
+  and batches above the configured span limit. This is shape validation only; it does not
+  make the unauthenticated OTLP path part of AIS scoring.
 - Bumping the version is therefore a coordinated change: raise the SDK constant, raise the
   oracle's maximum, and deploy the oracle **first** so it can accept the new shape before any
   agent emits it.
@@ -1363,7 +1368,7 @@ states this as a real, visible gap rather than fabricating live pool data.
 
 ## 15. Financial action, session integrity & Xibalba Shield wire-format additions (2026-08-01)
 
-Normative source: [`spec/integrity-protocol-v0.4.md`](../spec/integrity-protocol-v0.4.md) §21–§22
+Normative source: [`integrity-protocol-v0.4.md`](archive/2026-08/integrity-protocol-v0.4.md) §21–§22
 and [`spec/xibalba-shield-v1.md`](../spec/xibalba-shield-v1.md). Everything in this section is
 `[PLANNED]` — no package implements any of it yet. Recorded here because these are exactly the
 kind of cross-package schema facts this document exists to pin *before* two packages drift into
@@ -1422,7 +1427,7 @@ telemetry-ingest paths (§2, §4.2 above) like any other agent's traffic.
 
 ## 16. Whitepaper v3.2 / proposed v0.5 interface status (2026-08-17)
 
-Normative status: [`spec/integrity-protocol-v0.5-proposed.md`](../spec/integrity-protocol-v0.5-proposed.md)
+Normative status: [`integrity-protocol-v0.5-proposed.md`](archive/2026-08/integrity-protocol-v0.5-proposed.md)
 is a review candidate, not an active interface version. No package may emit a v0.5 profile
 identifier or claim v3.2 conformance merely because a related local mechanism exists.
 

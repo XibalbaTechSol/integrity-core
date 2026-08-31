@@ -89,6 +89,14 @@ CONTRACTS = [
     # directly on-chain (e.g. to confirm a connected wallet's EOA is the
     # `controller` of the agent it's about to act as) — added for that.
     ("XibalbaAgentRegistry", "XibalbaAgentRegistry"),
+    # DomainRegistry: was missing entirely until 2026-08-31, which is exactly why
+    # neither the SDK nor the CLI could read domain state -- registerPrimitives()
+    # reverts DomainJoinNotApproved() if the domain a new agent wants to join was
+    # never registered on-chain, and with no synced ABI there was no way to check
+    # that (or self-register a fresh per-agent domain) before spending gas on a
+    # deploy that then failed at the last step. See registration.py's
+    # preflight_register_agent()/register_domain().
+    ("DomainRegistry", "DomainRegistry"),
 ]
 
 
