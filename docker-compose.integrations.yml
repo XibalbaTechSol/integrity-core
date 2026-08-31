@@ -1,0 +1,52 @@
+# Optional cross-repository integration overlay.
+#
+# The base compose file remains focused on the core protocol stack. This
+# overlay adds the two HTTP services consumed by the dashboard: Cortex's local
+# API and Shield's control-plane/readback API. Use it with:
+#   docker compose -f docker-compose.yml -f docker-compose.integrations.yml up --build
+
+services:
+  cortex:
+    build:
+      context: ..
+      dockerfile: xibalba-cortex/Dockerfile
+    environment:
+      XIBALBA_CORTEX_HOME: /data/cortex
+    volumes:
+      - cortex-data:/data/cortex
+    ports: ["8420:8420"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8420/healthz').read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  shield-backend:
+    build:
+      context: ..
+      dockerfile: xibalba-shield/Dockerfile
+    entrypoint: ["python", "-m", "shield.backend.api"]
+    command: ["--host", "0.0.0.0", "--port", "8765", "--admin-token", "${SHIELD_BACKEND_TOKEN:-dev-shield-admin}"]
+    volumes:
+      - shield-backend-data:/root/.xibalba-shield
+    ports: ["8765:8765"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8765/api/shield/health').read()"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  dashboard:
+    depends_on:
+      cortex: {condition: service_healthy}
+      shield-backend: {condition: service_healthy}
+    environment:
+      VITE_GRAPH_MEMORY_URL: http://localhost:8420
+      VITE_SHIELD_BACKEND_URL: http://localhost:8765
+      VITE_SHIELD_BACKEND_TOKEN: ${SHIELD_BACKEND_TOKEN:-dev-shield-admin}
+
+volumes:
+  cortex-data:
+  shield-backend-data:
