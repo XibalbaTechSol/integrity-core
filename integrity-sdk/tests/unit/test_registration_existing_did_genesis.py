@@ -57,6 +57,7 @@ def existing_did_harness(tmp_path, monkeypatch):
                 "AgentPrimitivesFactory": "0xf000000000000000000000000000000000000001",
                 "IntegrityToken": "0xf000000000000000000000000000000000000002",
                 "XibalbaAgentRegistry": "0xf000000000000000000000000000000000000003",
+                "DomainRegistry": "0xf000000000000000000000000000000000000005",
             },
             "protocolAddresses": {"oracleSigner": "0xf000000000000000000000000000000000000004"},
         },
