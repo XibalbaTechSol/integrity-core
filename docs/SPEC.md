@@ -30,6 +30,7 @@ A tag applies to the nearest heading or bullet. Untagged text is definitional.
 | Implementing the hook, oracle, SDK, or a pack | This file, in order. §4–§7 are the contract. |
 | Mapping a control to HIPAA / NIST / OWASP | `CONTROLS_MATRIX.md`. It does not add requirements. |
 | Sequencing the work | `IMPLEMENTATION_PLAN.md`. It does not add requirements. |
+| Tracking what this file names but doesn't yet define | [`docs/design/spec-open-definitions.md`](design/spec-open-definitions.md). It does not add requirements either — it proposes fills for gaps this file already discloses (e.g. `scope` in §4.5). |
 
 ---
 
@@ -319,6 +320,14 @@ n_{k+1} > n_k,\qquad d(a) = d_{\text{declared}}
 **Delegation / license (`delegation_active`).** A principal-to-agent grant: `(principal, agent, scope_hash) → {active, expires, meter}`. The hook MUST treat a missing, expired, revoked, or out-of-scope grant as \(V = 0\) when the installed pack requires one. Integrity Health's `SmartBAA` is the first on-chain body of this family (covered entity = principal, business associate = agent, PHI class = scope). An IP-license pack is the same family with a different principal and scope. Packs MUST NOT each invent a second `checkAccess` idiom that bypasses this family.
 
 Status: `[PARTIAL]` — `SmartBAA` is `[BUILT]`; a kernel-level view `(principal, agent, scope_hash)` that both Health and IP consume is `[PLANNED]`. `covered_entity_address` is still client-supplied on the BCC path today; resolving it through this view is P0.
+
+**`scope` is not yet defined — a known hole, not an omission by oversight.** This section
+requires an "out-of-scope grant" check and a "PHI class = scope" / "IP-license = same family,
+different scope" reading, but never says what a scope *is* beyond an opaque `scope_hash`.
+Containment against an opaque value is undecidable, so today's enforcement is exactly what
+`SmartBAA` hard-codes, not a general capability check. A typed capability algebra is proposed in
+[`docs/design/spec-open-definitions.md`](design/spec-open-definitions.md) §1 and must land
+before the `[PLANNED]` kernel-level view above is implementable.
 
 ### 4.6 Gas bound
 
