@@ -88,22 +88,14 @@ class PreflightCheck:
 
 @dataclass
 class PreflightResult:
-    """The full checklist from `preflight_register_agent`. `ok` is True iff every
-    check that actually gates an on-chain revert passed -- matching `register_agent`'s
-    own inline preconditions (it duplicates these checks rather than calling this
-    function, so this must track what THAT gating logic checks, not just what this
-    function happens to report). `oracle_reachable` is deliberately excluded: it is
-    diagnostic-only (nothing about it mirrors a revert condition, unlike every other
-    check here -- see `preflight_register_agent`'s own docstring), and `register_agent`
-    never refuses to spend gas because the oracle is briefly unreachable -- only
-    `skip_oracle_registration` controls whether the post-registration oracle POST runs
-    at all. Folding it into `ok` would report a safe-to-register agent as unsafe
-    whenever the oracle happens to be down."""
+    """The full checklist from `preflight_register_agent`. `ok` is True only
+    if every check passed; `register_agent` refuses to spend any gas unless
+    this is True (see its own preflight call, right before step 4)."""
     checks: list
 
     @property
     def ok(self) -> bool:
-        return all(c.passed for c in self.checks if c.name != "oracle_reachable")
+        return all(c.passed for c in self.checks)
 
     def failures(self):
         return [c for c in self.checks if not c.passed]
