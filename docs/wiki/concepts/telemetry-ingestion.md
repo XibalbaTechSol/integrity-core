@@ -2,7 +2,7 @@
 title: Telemetry Ingestion Pipeline
 acronyms: []
 created: 2026-07-15
-updated: 2026-07-15
+updated: 2026-08-29
 type: concept
 tags: [sdk, metrics, infrastructure, compliance]
 confidence: high
@@ -57,6 +57,19 @@ are unrelated — the field is the SDK's own batched `log_telemetry`/
 page. Metrics export on the OTLP path is accepted but not yet parsed or
 persisted (`OtlpMetricsService::export`'s own doc comment) — traces are.
 
+## Table of contents
+
+- [1. Collection surfaces (SDK side)](#1-collection-surfaces-sdk-side)
+- [2. Redaction gate (redactphi) — real behavior change, 2026-07-15](#2-redaction-gate-redactphi-real-behavior-change-2026-07-15)
+- [3. Signal derivation](#3-signal-derivation)
+- [4. Client-side batching (batcher.py)](#4-client-side-batching-batcher-py)
+- [5. Nonce lifecycle](#5-nonce-lifecycle)
+- [6. Signing & wire format](#6-signing-wire-format)
+- [7. Oracle ingestion pipeline (handlers::ingesttelemetry)](#7-oracle-ingestion-pipeline-handlers-ingesttelemetry)
+- [8. AIS computation](#8-ais-computation)
+- [9. Read-side API surface](#9-read-side-api-surface)
+- [10. Known gaps (honest, not silently assumed fine)](#10-known-gaps-honest-not-silently-assumed-fine)
+
 ## 1. Collection surfaces (SDK side)
 
 Every surface below ultimately calls `IntegrityClient.log_telemetry(metadata, *, entropy=None, grounding=None)`, which just appends `{"metadata": ..., "entropy": ..., "grounding": ...}` to an in-memory queue — no network call, no blocking of the agent's hot path.
@@ -75,8 +88,8 @@ Every surface below ultimately calls `IntegrityClient.log_telemetry(metadata, *,
 
 **As of 2026-07-15, both `IntegrityOpenAI` and `IntegrityLangChainCallback` accept a `redact_phi: bool` constructor param that defaults to `False`.** This is a real, deliberate behavior change from the prior posture (redaction ran unconditionally in both integrations). The decision:
 
-- Redaction is now opt-in, scoped to Xibalba Shield / healthcare-vertical agents — a trading/prediction-market/capital-allocation agent has no PHI exposure at all, and defaulting to redaction everywhere cost fidelity on captured text project-wide with no compliance benefit for those verticals.
-- **Any Shield / healthcare-vertical agent MUST pass `redact_phi=True` explicitly.** Neither wrapper has any way to know an agent's `compliance_vertical` on its own (that's registered separately, via `registration.py`) — nothing here can safely auto-detect "this needs redaction."
+- Redaction is now opt-in, scoped to Integrity Health / healthcare-vertical agents — a trading/prediction-market/capital-allocation agent has no PHI exposure at all, and defaulting to redaction everywhere cost fidelity on captured text project-wide with no compliance benefit for those verticals.
+- **Any Integrity Health / healthcare-vertical agent MUST pass `redact_phi=True` explicitly.** Neither wrapper has any way to know an agent's `compliance_vertical` on its own (that's registered separately, via `registration.py`) — nothing here can safely auto-detect "this needs redaction."
 - Both wrappers log a `logger.warning(...)` naming the agent at construction time whenever `redact_phi` is left at its default `False`, so a misconfigured deployment is at least loud about it.
 - **There is no runtime enforcement.** Nothing currently prevents a healthcare-vertical agent from being constructed without `redact_phi=True` — this is a real, accepted residual risk from the chosen default, tracked in `PRODUCTION_GAPS.md` §3, not an oversight. `telemetry/tracing.py`'s `traceable`/`trace_run` API is unaffected by this flag and always redacts (see §1's table) — only the two named integrations gained the toggle.
 - The oracle-side PHI backstop (`phi.rs`, §7 step 1 below) is unconditional regardless of `redact_phi` — it will `400` a payload carrying an unredacted pattern either way, whether or not the client opted into client-side redaction. This is the actual safety net for a misconfigured `redact_phi=False` healthcare deployment today, not a substitute for fixing the SDK-side default.
@@ -129,6 +142,12 @@ payload = {**signable, "signature": signature}
 Optional args to `flush_telemetry(zk_proof=, compliance_gate_address=, covered_entity_address=, w3=)` thread through to `derive_compliance`'s on-chain "wins" check (§3) when the caller has chain access available.
 
 ## 7. Oracle ingestion pipeline (`handlers::ingest_telemetry`)
+
+Schema version 3 adds a fail-closed structural validator for the signed
+`otel_spans` array. It runs before the PHI backstop and persistence, enforcing
+the allowlisted shape, bounded batch/text/property sizes, numeric ranges, and
+covered-entity address format. Unknown or oversized entries are rejected;
+unauthenticated OTLP spans remain a separate evidence tier and never feed AIS.
 
 `POST /v1/telemetry/ingest` runs a fixed, ordered sequence — cheapest/most-certain-to-reject-fast first, matching this monorepo's general pipeline-ordering convention (same shape as `bcc_middleware`'s `run_intercept`):
 

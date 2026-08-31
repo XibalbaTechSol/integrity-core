@@ -1,0 +1,402 @@
+export interface GraphNode {
+    id: string;
+    type: 'memory' | 'entity';
+    label: string;
+    status?: string;
+    evidence_class?: string;
+    source_kind?: string;
+    entity_type?: string;
+}
+
+export interface GraphEdge {
+    source: string;
+    target: string;
+    type: 'relation' | 'similarity' | 'contradiction';
+    predicate?: string;
+    cosine_similarity?: number;
+    evidence_memory_id?: string;
+    reason?: string;
+}
+
+export interface GraphPayload {
+    nodes: GraphNode[];
+    edges: GraphEdge[];
+}
+
+export interface MemorySource {
+    kind: string;
+    locator?: string | null;
+    role?: string | null;
+    session_id?: string | null;
+    prompt_id?: string | null;
+    metadata: Record<string, unknown>;
+}
+
+export interface Memory {
+    id: string;
+    content: string;
+    content_hash: string;
+    status: string;
+    source: MemorySource;
+    quarantine_reasons: string[];
+    supersedes_id: string | null;
+    evidence_class: string;
+    cosine_similarity?: number;
+}
+
+export interface SimilarHit {
+    memory: Memory;
+    cosine_similarity: number;
+}
+
+export interface EntityRelation {
+    subject: string;
+    predicate: string;
+    object: string;
+    evidence_memory_id?: string;
+}
+
+export interface TraversalEdge {
+    predicate: string;
+    object: string;
+    evidence_memory_id?: string;
+}
+
+export interface TraversalResult {
+    truncated?: boolean;
+    edges: TraversalEdge[];
+}
+
+export interface GraphMemoryStats {
+    memories: number;
+    entities: number;
+    relations: number;
+    sessions: number;
+    embedded_memories: number;
+}
+
+export interface StoreStatus {
+    schema_version: number;
+    journal_mode: string;
+    foreign_keys: boolean;
+    fts5: boolean;
+    integrity_check: string;
+    identity_mode: string;
+    db_path: string;
+    memory_count: number;
+    backup_ready: boolean;
+    backup_method: string;
+}
+
+export interface IntegrityLinkRecord {
+    memory_id: string;
+    node_id: string | null;
+    verification_state: string;
+    expected_content_hash: string | null;
+    failure_reason: string | null;
+    verified_at: string | null;
+}
+
+export interface IntegrityLinksStatus {
+    total_memories: number;
+    linked_records: number;
+    states: Record<string, number>;
+    sample: IntegrityLinkRecord[];
+}
+
+export interface Session {
+    id: string;
+    external_session_id: string;
+    retention_tier: string;
+    started_at: string;
+    ended_at: string | null;
+    summary_memory_id: string | null;
+}
+
+export interface MemoryEvent {
+    id: number;
+    event_type: string;
+    detail: Record<string, unknown>;
+    node_id: string;
+    parent_event_id: string | null;
+    created_at: string;
+}
+
+export interface OtelEvent {
+    id: string;
+    session_id: string;
+    kind: string;
+    name: string;
+    trace_id: string | null;
+    span_id: string | null;
+    parent_span_id: string | null;
+    prompt_id: string | null;
+    memory_id: string | null;
+    value: number | null;
+    unit: string | null;
+    start_time: string | null;
+    end_time: string | null;
+    attributes: Record<string, unknown>;
+    created_at: string;
+}
+
+export interface Attachment {
+    id: string;
+    memory_id: string;
+    media_type: string;
+    content_hash: string;
+    byte_size: number;
+    storage_locator: string;
+    created_at: string;
+}
+
+export interface ContextContribution {
+    memory: Memory;
+    contribution_id: string;
+    context_kind: string;
+    relevance: number | null;
+    metadata: Record<string, unknown>;
+}
+
+export interface Exchange {
+    id: string;
+    session_id: string;
+    sequence_number: number;
+    prompt_id: string | null;
+    prompt_time: string | null;
+    response_time: string | null;
+    latency_ms: number | null;
+    node_id: string;
+    parent_node_id: string | null;
+    prompt_memories: Memory[];
+    response_memories: Memory[];
+    context_contributions: ContextContribution[];
+    tool_calls: OtelEvent[];
+}
+
+export interface MerkleRoot {
+    session_id: string;
+    root_node_id: string | null;
+    exchange_count: number;
+    valid: boolean;
+    root_kind: string;
+}
+
+// Kernel-first intent-vs-outcome bridge (~/.claude/plans/iridescent-stirring-kettle.md).
+// Mirrors GraphStore.kernel_bridge_intents()'s return shape exactly.
+export interface KernelDecision {
+    tool_name: string | null;
+    user_op_hash?: string;
+    success?: boolean;
+    actual_gas_cost?: number;
+    revert_reason_hex?: string | null;
+    adapter_note?: string;
+    error?: string;
+}
+
+export interface KernelIntentTriple {
+    tool_call_id: string;
+    tool_name: string | null;
+    declared_intent: {
+        intent_rationale: string | null;
+        tool_input_hash: string | null;
+    };
+    kernel_decision: KernelDecision;
+    actual_outcome: {
+        outcome: string | null;
+        result: unknown;
+        duration_ms: number | null;
+    } | null;
+    diverges: boolean;
+}
+
+export interface InvocationCorrelation {
+    invocation_id: string;
+    session_id: string;
+    runtime: string | null;
+    tool_name: string | null;
+    tool_call_id: string | null;
+    first_seen_at: string;
+    last_seen_at: string;
+    runtime_status: 'complete' | 'awaiting_outcome' | 'orphan_outcome';
+    pre_tool: {
+        intent_rationale: string | null;
+        tool_input_hash: string | null;
+        policy_reason: string | null;
+        kernel_decision: Record<string, unknown> | null;
+    } | null;
+    post_tool: {
+        outcome: string | null;
+        result: unknown;
+        duration_ms: number | null;
+    } | null;
+}
+
+export interface InferenceManifest {
+    name: string;
+    role: string;
+    input_rule: string;
+    output_rule: string;
+    task_types: string[];
+    tools: string[];
+}
+
+export interface InferenceTask {
+    id: string;
+    task_type: string;
+    status: string;
+    subject_type: string;
+    subject_id: string;
+    input: Record<string, unknown>;
+    output: Record<string, unknown> | null;
+    requested_by: string | null;
+    claim_owner: string | null;
+    claim_token: string | null;
+    lease_expires_at: string | null;
+    attempt_count: number;
+    error: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface ExtractionProposal {
+    id: string;
+    task_id: string;
+    task_type: string;
+    item_index: number;
+    source_memory_id: string;
+    source_content_hash: string;
+    payload: Record<string, unknown>;
+    evidence_quote: string | null;
+    status: 'proposed' | 'accepted' | 'dismissed' | 'stale';
+    decision_note: string | null;
+    decided_by: string | null;
+    created_at: string;
+    decided_at: string | null;
+}
+
+export interface RetrievalTraceResultRecord {
+    rank: number;
+    memory_id: string;
+    score: number;
+    signals: string[];
+    channels: Record<string, { rank: number; raw_score: number | null }>;
+    cosine_similarity: number | null;
+    provenance: { content_hash: string; source_id: string; evidence_class: string; status: string };
+}
+
+export interface RetrievalTrace {
+    id: string;
+    query: string;
+    signals: string[];
+    results: RetrievalTraceResultRecord[];
+    root_hash: string;
+    profile_domain: string;
+    query_vector_hash: string | null;
+    embedding_model_id: string | null;
+    embedding_model_revision: string | null;
+    filters: Record<string, unknown>;
+    candidate_pool_sizes: Record<string, number>;
+    rrf_params: { method: string; k: number; weights: Record<string, number> };
+    graph_evidence: Array<Record<string, unknown>>;
+    leaf_hashes: string[];
+    degraded: Array<Record<string, unknown>>;
+    checkpoint_id: string | null;
+    linked_task_id: string | null;
+    linked_session_id: string | null;
+    created_at: string;
+}
+
+export interface HybridRetrieveResult {
+    trace_id: string;
+    root_hash: string;
+    signals: string[];
+    channel_status: Record<string, string>;
+    degraded: Array<Record<string, unknown>>;
+    results: Memory[];
+}
+
+export interface MerkleInclusionProof {
+    domain: string;
+    index: number;
+    payload_hash: string;
+    siblings: Array<{ hash: string }>;
+    root: string;
+}
+
+export interface ProjectionCheckpoint {
+    id: string;
+    projection_id: string;
+    root_hash: string;
+    leaf_count: number;
+    leaf_hashes: string[];
+    metadata: Record<string, unknown>;
+    status: 'active' | 'degraded' | 'unavailable';
+    created_at: string;
+}
+
+export interface ProjectionReconciliation {
+    id: string;
+    projection_id: string;
+    checkpoint_id: string;
+    canonical_root_hash: string;
+    observed_root_hash: string;
+    equal: boolean;
+    reordered: boolean;
+    missing: string[];
+    extra: string[];
+    action: 'noop' | 'rebuild_projection' | 'mark_degraded' | 'manual_review';
+}
+
+export interface EmbeddingModel {
+    model_key: string;
+    model_id: string;
+    revision: string;
+    dimension: number;
+    distance_metric: string;
+    normalize: boolean;
+    vector_table: string;
+    state: 'active' | 'shadow' | 'deprecated' | 'failed';
+    availability: string;
+    availability_detail: string | null;
+    registered_at: string;
+    checked_at: string | null;
+}
+
+export interface ParaClassification {
+    task_id: string;
+    memory_id: string;
+    source_content_hash: string;
+    category: 'project' | 'area' | 'resource' | 'archive';
+    confidence: number;
+    rationale: string;
+    signals: string[];
+    alternatives: Array<Record<string, unknown>>;
+    status: 'proposed' | 'accepted' | 'dismissed' | 'kept_original' | 'stale';
+    decision_note: string | null;
+    created_at: string;
+    decided_at: string | null;
+}
+
+
+export interface RecordModelExchangePayload {
+    external_session_id: string;
+    user_prompt: string;
+    model_response: string;
+    context?: Array<Record<string, unknown>>;
+    runtime?: string;
+    agent_id?: string;
+    prompt_id?: string;
+    prompt_time?: string;
+    response_time?: string;
+    metadata?: Record<string, unknown>;
+    idempotency_key?: string;
+}
+
+export interface RecordModelExchangeResult {
+    session: Session;
+    exchange: Exchange;
+    prompt_memory: Memory;
+    response_memory: Memory;
+    context_memory_ids: string[];
+}

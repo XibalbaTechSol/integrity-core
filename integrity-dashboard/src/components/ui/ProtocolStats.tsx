@@ -2,7 +2,7 @@
 import React from 'react';
 import { ShieldCheck, Activity, BarChart3, Database, Layers } from 'lucide-react';
 import { useIsMobile } from '../../utils/useIsMobile';
-import { useDashboard } from '../../context/useDashboard';
+import { useDashboard } from '../../context/DashboardContext';
 
 export const ProtocolStats: React.FC = () => {
     const isMobile = useIsMobile();
@@ -20,13 +20,17 @@ export const ProtocolStats: React.FC = () => {
 
     return (
         <div style={{ marginBottom: 'var(--space-8)' }}>
-            <div className="dash-grid-4" style={{ gap: 'var(--space-4)' }}>
-                <StatCard 
-                    label="Network AIS" 
-                    value={s.aggregateAis.toFixed(1)} 
-                    icon={BarChart3} 
-                    color="var(--gold)" 
-                    trend="+4.2% WK"
+            {/* .dash-grid-4 was referenced here but never defined anywhere in the codebase
+                (confirmed: no CSS file, no Tailwind config, defines it) -- the class was a
+                no-op, so these 4 cards silently stacked full-width instead of forming a
+                4-up grid. Inline grid instead of relying on an undefined utility class. */}
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, 1fr)', gap: 'var(--space-4)' }}>
+                <StatCard
+                    label="Network AIS"
+                    value={s.aggregateAis.toFixed(1)}
+                    icon={BarChart3}
+                    color="var(--theme-accent)"
+                    subLabel="AGGREGATE, LIVE AGENTS"
                     loading={loading}
                     isMobile={isMobile}
                 />
@@ -39,21 +43,21 @@ export const ProtocolStats: React.FC = () => {
                     loading={loading}
                     isMobile={isMobile}
                 />
-                <StatCard 
-                    label="Integrity" 
-                    value={`${(s.networkIntegrity * 100).toFixed(1)}%`} 
-                    icon={ShieldCheck} 
-                    color="var(--emerald)" 
-                    subLabel="CONSENSUS"
+                <StatCard
+                    label="Network AIS (% of scale)"
+                    value={`${(s.networkIntegrity * 100).toFixed(1)}%`}
+                    icon={ShieldCheck}
+                    color="var(--emerald)"
+                    subLabel="SAME AGGREGATE, AS % OF 1000"
                     loading={loading}
                     isMobile={isMobile}
                 />
-                <StatCard 
-                    label="Active Nodes" 
-                    value={s.totalNodes} 
-                    icon={Database} 
-                    color="var(--gold)" 
-                    trend="↑ 12%"
+                <StatCard
+                    label="Active Nodes"
+                    value={s.totalNodes}
+                    icon={Database}
+                    color="var(--theme-accent)"
+                    subLabel="REGISTERED AGENTS"
                     loading={loading}
                     isMobile={isMobile}
                 />
@@ -82,7 +86,7 @@ const StatCard = ({ label, value, icon: Icon, color, trend, subLabel, loading, i
             </div>
         ) : (
             <div>
-                <h3 className="mono" style={{ fontSize: isMobile ? '1.8rem' : '2.2rem', fontWeight: 700, color: color === 'var(--gold)' ? 'var(--gold)' : 'white', margin: 0 }}>
+                <h3 className="mono" style={{ fontSize: isMobile ? '1.8rem' : '2.2rem', fontWeight: 700, color: color === 'var(--theme-accent)' ? 'var(--theme-accent)' : 'white', margin: 0 }}>
                     {value}
                 </h3>
                 <p style={{ fontSize: '0.65rem', color: trend?.startsWith('+') || trend?.includes('↑') ? 'var(--emerald)' : 'var(--text-muted)', fontWeight: 700, marginTop: '8px', display: 'flex', alignItems: 'center', gap: '4px', margin: '6px 0 0' }}>

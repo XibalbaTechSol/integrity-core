@@ -66,11 +66,23 @@ def canonical_commitment_bytes(commitment: BCCCommitment) -> bytes:
         # get an unrelated hospital's BAA status used to authorize access
         # against a hospital the agent never agreed to.
         "covered_entity_address": commitment.covered_entity_address,
+        # Public-safe rationale used by AOS policy; signed so the policy gate
+        # receives the same declared intent the signer committed to.
+        "intent_rationale": commitment.intent_rationale,
         # Also signed: the self-certifying public key (see schemas.py). Signing
         # it means an attacker can't swap in a different (but validly-hashing?
         # — no: sha256 makes that infeasible) key AND re-use the signature.
         "agent_public_key": commitment.agent_public_key,
+        # Canonical intent encoding (docs/plans/2026-08-18-phase1-canonical-
+        # intent-encoding-proposal.md) -- signed so a captured commitment
+        # can't be replayed against a different chain/deployment by simply
+        # swapping these two fields and leaving the rest (and the signature)
+        # untouched.
+        "chain_id": commitment.chain_id,
+        "verifying_contract": commitment.verifying_contract,
     }
+    if commitment.invocation_id is not None:
+        payload["invocation_id"] = commitment.invocation_id
     # ensure_ascii=True to match integrity-sdk's canonical_json_bytes byte-for-byte
     # (its module docstring pins ensure_ascii=True as the cross-language protocol
     # rule). For the ASCII-only fields here the two are identical, but they MUST

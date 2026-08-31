@@ -1,142 +1,107 @@
 import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Activity, Brain, GitBranch, Zap, TrendingUp, FlaskConical } from 'lucide-react';
+import { Activity, Brain, Zap, CheckCircle2, Sigma, Shield, Clock } from 'lucide-react';
 import { Panel } from '../components/shared/Panel';
 import { TelemetryPanel } from '../components/tabs/TelemetryPanel';
-import { TraceAnalysisPanel } from '../components/tabs/TraceAnalysisPanel';
 import { IntegrityRadar } from '../components/shared/IntegrityRadar';
-import { useDashboard } from '../context/useDashboard';
-
-// ... (keep existing types and sub-components)
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-type IntelTab = 'telemetry' | 'reasoning' | 'trajectory';
-
-interface StatCardProps {
-  label: string;
-  value: number | string;
-  icon: React.ReactNode;
-  accent?: string;
-}
+import { AisSimulator } from '../components/shared/AisSimulator';
+import { useDashboard } from '../context/DashboardContext';
+import { useIsMobile } from '../utils/useIsMobile';
+import 'katex/dist/katex.min.css';
+import { BlockMath, InlineMath } from 'react-katex';
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
-const LiveBadge = () => (
-  <span
-    style={{
-      display: 'inline-flex',
-      alignItems: 'center',
-      gap: '6px',
-      padding: '3px 10px',
-      background: 'rgba(34, 197, 94, 0.12)',
-      border: '1px solid var(--success)',
-      borderRadius: '999px',
-      fontSize: '0.65rem',
-      fontWeight: 700,
-      letterSpacing: '0.1em',
-      color: 'var(--success)',
-      textTransform: 'uppercase' as const,
-    }}
-  >
-    <span
-      style={{
-        width: '6px',
-        height: '6px',
-        borderRadius: '50%',
-        background: 'var(--success)',
-        display: 'inline-block',
-        animation: 'intel-pulse 1.4s ease-in-out infinite',
-      }}
-    />
-    LIVE
-  </span>
-);
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{
+      fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-muted)',
+      textTransform: 'uppercase', letterSpacing: '0.1em',
+      display: 'flex', alignItems: 'center', gap: '10px',
+    }}>
+      {children}
+      <span style={{ flex: 1, height: '1px', background: 'var(--glass-border)' }} />
+    </div>
+  );
+}
 
-const StatCard = ({ label, value, icon, accent = 'var(--primary)' }: StatCardProps) => (
+const FormulaCard = ({ title, description, formula, icon, accent = 'var(--primary)', span = false }: any) => (
   <div
     style={{
-      flex: 1,
+      gridColumn: span ? '1 / -1' : undefined,
       display: 'flex',
-      alignItems: 'center',
+      flexDirection: 'column',
       gap: 'var(--space-4)',
-      padding: 'var(--space-4)',
+      padding: 'var(--space-6)',
       background: 'var(--bg-secondary)',
       border: '1px solid var(--glass-border)',
       borderRadius: 'var(--radius-md)',
-      minWidth: 0,
+      transition: 'transform 0.2s, box-shadow 0.2s',
+      cursor: 'default',
+    }}
+    onMouseEnter={(e) => {
+      e.currentTarget.style.transform = 'translateY(-2px)';
+      e.currentTarget.style.boxShadow = '0 10px 30px rgba(0,0,0,0.2)';
+    }}
+    onMouseLeave={(e) => {
+      e.currentTarget.style.transform = 'none';
+      e.currentTarget.style.boxShadow = 'none';
     }}
   >
+    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+      <div
+        style={{
+          width: '36px',
+          height: '36px',
+          borderRadius: 'var(--radius-md)',
+          background: `color-mix(in srgb, ${accent} 15%, transparent)`,
+          border: `1px solid color-mix(in srgb, ${accent} 35%, transparent)`,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: accent,
+          flexShrink: 0,
+        }}
+      >
+        {icon}
+      </div>
+      <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.3 }}>{title}</h3>
+    </div>
+
+    <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: 1.5 }}>
+      {description}
+    </div>
+
     <div
+      className="thin-scrollbar-x"
       style={{
-        width: '40px',
-        height: '40px',
-        borderRadius: 'var(--radius-md)',
-        background: `color-mix(in srgb, ${accent} 15%, transparent)`,
-        border: `1px solid color-mix(in srgb, ${accent} 35%, transparent)`,
+        marginTop: 'auto',
+        padding: '14px 16px',
+        background: 'var(--bg-card)',
+        borderRadius: 'var(--radius-sm)',
+        border: '1px dashed var(--glass-border)',
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'center',
-        flexShrink: 0,
-        color: accent,
+        // overflow: hidden clipped BOTH edges of formulas wider than the card (centered
+        // content clips symmetrically) — "AIS = (...)" rendered as "[S = (...)" with the
+        // leading "A" and "I" cut away. justify-content: flex-start keeps the formula's
+        // start flush left and fully visible; only genuine excess width scrolls, and the
+        // slim .thin-scrollbar-x styling keeps that scroll affordance from reading as a
+        // stray, unfinished widget in a small card.
+        justifyContent: 'flex-start',
+        overflowX: 'auto',
+        overflowY: 'hidden',
       }}
     >
-      {icon}
-    </div>
-    <div style={{ minWidth: 0 }}>
-      <div
-        style={{
-          fontSize: '1.5rem',
-          fontWeight: 700,
-          lineHeight: 1,
-          fontFamily: 'monospace',
-          color: accent,
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-        }}
-      >
-        {value}
-      </div>
-      <div
-        style={{
-          fontSize: '0.7rem',
-          color: 'var(--text-muted)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.08em',
-          marginTop: '4px',
-        }}
-      >
-        {label}
-      </div>
+      <BlockMath math={formula} />
     </div>
   </div>
 );
 
-// ─── Tab config ───────────────────────────────────────────────────────────────
-
-const TABS: { id: IntelTab; label: string; icon: React.ReactNode }[] = [
-  { id: 'telemetry',  label: 'Telemetry',        icon: <Activity size={14} /> },
-  { id: 'reasoning',  label: 'Reasoning Traces',  icon: <Brain size={14} /> },
-  { id: 'trajectory', label: 'Diagnostics',        icon: <GitBranch size={14} /> },
-];
-
-// ─── Section animation variants ──────────────────────────────────────────────
-
-const sectionVariants = {
-  initial: { opacity: 0, y: 18 },
-  animate: { opacity: 1, y: 0, transition: { duration: 0.3, ease: 'easeOut' } },
-  exit:    { opacity: 0, y: -12, transition: { duration: 0.2, ease: 'easeIn' } },
-} as any;
-
 // ─── IntelligencePage ────────────────────────────────────────────────────────
 
 export function IntelligencePage() {
-  const { stats, agents, selectedAgent, selectAgent } = useDashboard();
-
-  const activeNodes    = stats?.active_nodes    ?? 0;
-  const aggregateAis   = stats?.aggregate_ais   ?? 0;
-  const activeDisputes = stats?.active_disputes ?? 0;
+  const { stats, selectedAgent } = useDashboard() as any;
+  const isMobile = useIsMobile();
 
   // Customization States: control visibility of different panels
   const [showTelemetry, setShowTelemetry] = useState(true);
@@ -146,14 +111,11 @@ export function IntelligencePage() {
   const [isAddTelemetryOpen, setIsAddTelemetryOpen] = useState(false);
   const [newFieldName, setNewFieldName] = useState('');
   const [newFieldValue, setNewFieldValue] = useState('');
-  // User-defined annotations only. Previously seeded with two fabricated defaults
-  // ("Semantic Drift 0.8%", "Enclave Memory 412 MB") that had no oracle source and read as
-  // real system metrics next to the live ones — removed (no silent mocks).
+  
   const [customFields, setCustomFields] = useState<any[]>(() => {
     const saved = localStorage.getItem('integrity_custom_telemetry');
     if (!saved) return [];
     try {
-      // Drop the legacy fabricated defaults if an older build cached them.
       return JSON.parse(saved).filter((f: any) => f?.id !== 'drift' && f?.id !== 'memory');
     } catch {
       return [];
@@ -177,25 +139,8 @@ export function IntelligencePage() {
     setIsAddTelemetryOpen(false);
   };
 
-  // Radar Data calculation for the selected agent
-  const radarData = selectedAgent ? [
-    { subject: 'Stability (1-E)', value: (selectedAgent.entropy_score || 0) / 10 },
-    { subject: 'Grounding', value: (selectedAgent.grounding_score || 0) / 10 },
-    { subject: 'Sacrifice', value: (selectedAgent.sacrifice_score || 0) / 10 },
-    { subject: 'Identity Tier', value: (selectedAgent.verification_tier || 1) * 33.3 },
-    { subject: 'Compliance', value: selectedAgent.compliance_score || 0 },
-  ] : [];
-
   return (
     <>
-      {/* Keyframe for the LIVE pulse dot */}
-      <style>{`
-        @keyframes intel-pulse {
-          0%, 100% { opacity: 1; transform: scale(1); }
-          50%       { opacity: 0.4; transform: scale(0.7); }
-        }
-      `}</style>
-
       <div
         style={{
           display: 'flex',
@@ -206,6 +151,119 @@ export function IntelligencePage() {
         }}
       >
 
+        <div style={{ marginBottom: '1rem' }}>
+          <h1 style={{ margin: '0 0 8px 0', fontSize: '2rem' }}>Intelligence & Alignment</h1>
+          <p style={{ margin: 0, color: 'var(--text-secondary)' }}>
+            Transparent oversight into mathematical formulas driving the Agent Integrity Score (AIS) and multi-dimensional behavior tracking.
+          </p>
+        </div>
+
+        {/* ── Mathematical Definitions Section ──
+            Formulas verbatim from integrity-oracle/scoring-core/src/lib.rs -- the ONLY
+            place AIS is computed anywhere in the protocol (see that file's own top
+            docstring). Every consumer, including this page, reads the oracle's
+            GET /v1/agent/{id}/ais rather than re-deriving this math independently.
+            A single grid (not a 4-card grid plus a separately-styled sibling) so the
+            "Overall AIS" formula reads as the section's conclusion, not a bolted-on
+            afterthought -- it spans both columns via `span`. Explicit 2 columns (not
+            auto-fit) so 4 cards never orphan a lone card on its own half-empty row. */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+          <SectionLabel>AIS Component Formulas</SectionLabel>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, 1fr)', gap: 'var(--space-6)' }}>
+            <FormulaCard
+              title="Stability (Entropy)"
+              description={<span>Gaussian-style decay over reported task-performance variance <InlineMath math="v" />. Small variance barely moves the score; unbounded variance saturates toward 0.</span>}
+              formula="S_{\text{entropy}}(v) = 1000 \cdot e^{-1.5 v^2}"
+              icon={<Sigma size={20} />}
+              accent="#2196f3"
+            />
+            <FormulaCard
+              title="Grounding (Human Oversight)"
+              description={<span>Linear in the Human Grounding Index <InlineMath math="h \in [0,1]" /> -- the fraction of the agent's actions in the period checked against real human-in-the-loop feedback.</span>}
+              formula="S_{\text{grounding}}(h) = 1000 \cdot \text{clamp}(h, 0, 1)"
+              icon={<CheckCircle2 size={20} />}
+              accent="#4caf50"
+            />
+            <FormulaCard
+              title="Sacrifice (Compute Commitment)"
+              description={<span>Log-scale over the oracle's re-derived verified compute-hours proxy <InlineMath math="g" />, saturating at 1000 hours so a whale can't simply out-spend a trust signal.</span>}
+              formula="S_{\text{sacrifice}}(g) = 1000 \cdot \min\!\left(\frac{\log_{10}(g+1)}{3}, 1\right)"
+              icon={<Clock size={20} />}
+              accent="#f59e0b"
+            />
+            <FormulaCard
+              title="Compliance"
+              description={<span>Linear inverse of the policy-flagged action ratio <InlineMath math="p \in [0,1]" /> from the BCC/OPA pipeline -- 0 flags scores 1000, every action flagged scores 0.</span>}
+              formula="S_{\text{compliance}}(p) = 1000 \cdot (1 - p)"
+              icon={<Zap size={20} />}
+              accent="#8b5cf6"
+            />
+            <FormulaCard
+              span
+              title="Overall Agent Integrity Score -- a weighted GEOMETRIC mean, not arithmetic"
+              description={
+                <span>
+                  Default weights <InlineMath math="w_E{=}0.30, w_G{=}0.30, w_S{=}0.20, w_C{=}0.20" /> (sum to 1.0).{' '}
+                  <InlineMath math="\gamma_{\text{ZK}} = 1.15" /> only when a real Barretenberg proof verified this
+                  period, else <InlineMath math="1.0" />. Because it's a product of powers, not a sum, any single
+                  zero component raises the whole product to zero -- a strong entropy/grounding/compliance score
+                  cannot compensate for sacrifice never being reported. That's the exact reason the network's own
+                  dogfooding agent read AIS 0.0 for weeks (see scoring-core's own regression test,{' '}
+                  <code style={{ fontSize: '0.7rem' }}>any_single_zero_component_annihilates_ais</code>).
+                </span>
+              }
+              formula="\text{AIS} = S_{\text{entropy}}^{\,w_E} \cdot S_{\text{grounding}}^{\,w_G} \cdot S_{\text{sacrifice}}^{\,w_S} \cdot S_{\text{compliance}}^{\,w_C} \cdot \gamma_{\text{ZK}}"
+              icon={<Shield size={20} />}
+              accent="var(--theme-accent)"
+            />
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+          <SectionLabel>Interactive Explorer</SectionLabel>
+          <AisSimulator />
+        </div>
+
+        {/* ── Interactive Radar Section (Conditional) ───────────────── */}
+        {showRadar && selectedAgent && (
+          <Panel title={`${selectedAgent.name || selectedAgent.alias || 'Agent'} // Multi-Dimensional Integrity Radar`} icon={<Brain size={18} />}>
+            <div className="grid-cols-2" style={{ gap: 'var(--space-6)', alignItems: 'center' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                  This multi-dimensional radar chart displays the normalized performance indices of the focused agent. 
+                  Reputation checks analyze alignment margins across stability (entropy control), human-in-the-loop validation (grounding), TEE checks, and economic commitments.
+                </div>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', padding: '6px 0', borderBottom: '1px solid var(--glass-border)' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Focused Agent Alias</span>
+                    <span style={{ fontWeight: 600 }}>{selectedAgent.name || selectedAgent.alias || 'Agent'}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', padding: '6px 0', borderBottom: '1px solid var(--glass-border)' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Cryptographic Address</span>
+                    <span className="mono" style={{ fontSize: '0.7rem' }}>{selectedAgent.eth_address}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', padding: '6px 0', borderBottom: '1px solid var(--glass-border)' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Agent Integrity Score (AIS)</span>
+                    <span style={{ fontWeight: 700, color: 'var(--theme-accent)' }}>{selectedAgent?.current_ais != null ? `${selectedAgent.current_ais.toFixed(1)} / 1000` : 'No reading yet'}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', padding: '6px 0', borderBottom: '1px solid var(--glass-border)' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>ZK Proof Boost</span>
+                    <span style={{ color: selectedAgent.tee_verified ? 'var(--success)' : 'var(--text-muted)' }}>
+                      {selectedAgent.tee_verified ? 'VERIFIED (bb)' : 'NOT BOOSTED'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'center', minWidth: 0, minHeight: 0, background: 'rgba(0,0,0,0.2)', border: '1px solid var(--glass-border)', padding: 'var(--space-6)', borderRadius: 'var(--radius-md)' }}>
+                <div style={{ width: '100%', height: '240px', minWidth: 0, minHeight: 0, position: 'relative' }}>
+                  <IntegrityRadar agent={selectedAgent} />
+                </div>
+              </div>
+            </div>
+          </Panel>
+        )}
 
         {/* ── Intelligence Customization Console Toolbar ── */}
         <div 
@@ -221,7 +279,6 @@ export function IntelligencePage() {
             gap: '12px'
           }}
         >
-          {/* Left: Label + Quick Toggles */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', borderRight: '1px solid var(--glass-border)', paddingRight: '16px' }}>
               <Activity size={16} style={{ color: 'var(--primary)' }} />
@@ -252,7 +309,6 @@ export function IntelligencePage() {
                 </button>
               ))}
 
-              {/* Dynamic custom telemetry filters */}
               {customFields.map(field => (
                 <button
                   key={field.id}
@@ -260,9 +316,9 @@ export function IntelligencePage() {
                   style={{
                     padding: '6px 12px',
                     borderRadius: 'var(--radius-sm)',
-                    border: `1px solid ${field.active ? 'var(--gold)' : 'var(--glass-border)'}`,
+                    border: `1px solid ${field.active ? 'var(--theme-accent)' : 'var(--glass-border)'}`,
                     background: field.active ? 'rgba(212, 175, 55, 0.1)' : 'transparent',
-                    color: field.active ? 'var(--gold)' : 'var(--text-muted)',
+                    color: field.active ? 'var(--theme-accent)' : 'var(--text-muted)',
                     fontSize: '0.7rem',
                     fontWeight: 700,
                     cursor: 'pointer',
@@ -285,91 +341,6 @@ export function IntelligencePage() {
             </button>
           </div>
         </div>
-
-        {/* ── Stat Strip ──────────────────────────────────────────── */}
-        <div
-          style={{
-            display: 'flex',
-            gap: 'var(--space-4)',
-            flexWrap: 'wrap',
-          }}
-        >
-          <StatCard
-            label="Active Nodes"
-            value={activeNodes}
-            icon={<Activity size={18} />}
-            accent="var(--primary)"
-          />
-          <StatCard
-            label="Aggregate AIS"
-            value={aggregateAis.toLocaleString()}
-            icon={<Brain size={18} />}
-            accent="var(--gold)"
-          />
-          <StatCard
-            label="Active Disputes"
-            value={activeDisputes}
-            icon={<GitBranch size={18} />}
-            accent={activeDisputes > 0 ? 'var(--warning, #f59e0b)' : 'var(--success)'}
-          />
-
-          {/* Render active custom telemetries as config cards */}
-          {customFields.filter(f => f.active).map(f => (
-            <StatCard
-              key={f.id}
-              label={f.label}
-              value={f.value}
-              icon={<Zap size={18} />}
-              accent="var(--emerald)"
-            />
-          ))}
-        </div>
-
-        {/* ── Interactive Radar Section (Conditional) ───────────────── */}
-        {showRadar && selectedAgent && (
-          <Panel title={`${selectedAgent.alias} // Multi-Dimensional Integrity Radar`} icon={<Brain size={18} />}>
-            <div className="grid-cols-2" style={{ gap: 'var(--space-6)', alignItems: 'center' }}>
-              {/* Left Column: Legend / Info */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
-                  This multi-dimensional radar chart displays the normalized performance indices of the focused agent. 
-                  Reputation checks analyze alignment margins across stability (entropy control), human-in-the-loop validation (grounding), TEE checks, and economic commitments.
-                </div>
-                
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', padding: '6px 0', borderBottom: '1px solid var(--glass-border)' }}>
-                    <span style={{ color: 'var(--text-muted)' }}>Focused Agent Alias</span>
-                    <span style={{ fontWeight: 600 }}>{selectedAgent.alias}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', padding: '6px 0', borderBottom: '1px solid var(--glass-border)' }}>
-                    <span style={{ color: 'var(--text-muted)' }}>Cryptographic Address</span>
-                    <span className="mono" style={{ fontSize: '0.7rem' }}>{selectedAgent.eth_address}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', padding: '6px 0', borderBottom: '1px solid var(--glass-border)' }}>
-                    <span style={{ color: 'var(--text-muted)' }}>Agent Integrity Score (AIS)</span>
-                    <span style={{ fontWeight: 700, color: 'var(--gold)' }}>{selectedAgent.current_ais.toFixed(1)} / 1000</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', padding: '6px 0', borderBottom: '1px solid var(--glass-border)' }}>
-                    {/* `tee_verified` is sourced from the oracle's zk_proof_verified — a real ZK-boost
-                        signal, NOT hardware TEE attestation (which this protocol does not implement).
-                        Label it as what it actually is. */}
-                    <span style={{ color: 'var(--text-muted)' }}>ZK Proof Boost</span>
-                    <span style={{ color: selectedAgent.tee_verified ? 'var(--success)' : 'var(--text-muted)' }}>
-                      {selectedAgent.tee_verified ? 'VERIFIED (bb)' : 'NOT BOOSTED'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Right Column: Dynamic Radar Chart */}
-              <div style={{ display: 'flex', justifyContent: 'center', minWidth: 0, minHeight: 0, background: 'rgba(0,0,0,0.2)', border: '1px solid var(--glass-border)', padding: 'var(--space-6)', borderRadius: 'var(--radius-md)' }}>
-                <div style={{ width: '100%', height: '240px', minWidth: 0, minHeight: 0, position: 'relative' }}>
-                  <IntegrityRadar agent={selectedAgent} />
-                </div>
-              </div>
-            </div>
-          </Panel>
-        )}
 
         {/* ── Section content (Stacked) ─────────────────────────────────── */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)', marginTop: 'var(--space-4)' }}>

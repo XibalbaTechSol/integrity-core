@@ -5,10 +5,15 @@
 *.pem
 *.key
 deployments.local.json
+deployments.local.kernel-bridge.json
 !.env.example
 # Real, public AWS Nitro root CA cert (not a secret) — attestation.py pins its SHA-256
 # fingerprint and needs the file present to verify real Nitro attestation documents.
 !integrity-sdk/integrity_sdk/security/trust_roots/aws_nitro_root_g1.pem
+# Same cert, vendored into the oracle so its Docker build context (./integrity-oracle) doesn't
+# need a ../../integrity-sdk include_str! path — attestation.rs's build fails without it (the
+# blanket *.pem rule above was silently excluding this one too, breaking CI on a fresh checkout).
+!integrity-oracle/backend/trust_roots/aws_nitro_root_g1.pem
 
 # --- node / dashboard ---
 node_modules/
@@ -40,6 +45,13 @@ contracts/broadcast/**/run-*.json
 **/target/
 Prover.toml
 Verifier.toml
+# integrity-zkp/circuit/Prover.toml is a real, checked-in test fixture (see
+# integrity-zkp/README.md "Fixture values") — not a per-developer secret
+# file. Discovered 2026-08-18 that the blanket `Prover.toml` rule above had
+# silently kept it untracked this whole time despite the README calling it
+# "checked-in"; this exception makes that claim true rather than editing
+# the claim to match the bug.
+!integrity-zkp/circuit/Prover.toml
 
 # --- misc ---
 .DS_Store
@@ -55,3 +67,15 @@ Verifier.toml
 # machine against THIS tree, not a property of the repository — committing it would let one
 # developer's run vouch for everyone's commits.
 .integrity-test-status
+
+# --- generated dashboard validation artifacts ---
+integrity-dashboard/e2e/screenshots/
+integrity-dashboard/playwright-report/
+integrity-dashboard/test-results/
+integrity-dashboard/validation_reports/screenshots/
+
+# Nested checkout used only during manual cross-repo audits.
+integrity-mvp/
+
+# Playwright output at repo root (dashboard copy already ignored above)
+test-results/

@@ -38,6 +38,11 @@ class Settings:
     deployments_file: str = field(
         default_factory=lambda: os.getenv("DEPLOYMENTS_FILE", str(Path(__file__).resolve().parents[2] / "deployments.local.json"))
     )
+    # CORS origins for browser callers (e.g. the dashboard's health checks / Guided System
+    # Test wizard) -- comma-separated, or "*". Without this, a browser fetch from a
+    # different origin is blocked before it ever reaches an endpoint, even though a plain
+    # curl (no CORS enforcement) works fine -- this was a real, previously-silent gap.
+    cors_allowed_origins: str = field(default_factory=lambda: os.getenv("CORS_ALLOWED_ORIGINS", "*"))
 
     # --- OPA policy document coordinates (§7) ---
     # We evaluate the whole `integrity/bcc` package document in one call rather
@@ -75,8 +80,20 @@ class Settings:
     circuit_breaker_violation_threshold: int = field(
         default_factory=lambda: int(os.getenv("BCC_CB_VIOLATION_THRESHOLD", "3"))
     )
+    # DEV-TUNED DEFAULT, not a production recommendation: 60s, not the original 900s (15min).
+    # Found live 2026-08-18: this shares one circuit breaker per agent DID across BOTH the
+    # Claude Code hook (pretool_gate.py) and the Hermes/agy runtime (same identity, see that
+    # file's own docstring on why they're deliberately unified) -- so background Hermes
+    # activity tripping a real OPA policy denial (an agent-attributable violation, same as a
+    # bad signature) locks out an unrelated interactive Claude Code session's Bash/Write/Edit
+    # tools too, for however long this is set to. 900s of that during local development is
+    # dead time with no attacker on the other end -- a real, observed adoption/DX cost, not a
+    # hypothetical one. A production deployment facing real adversarial traffic should set
+    # BCC_CB_LOCKOUT_SECONDS explicitly back up (900 or higher) -- this default trades away
+    # containment speed against a genuine attacker for local-dev ergonomics, deliberately,
+    # and that tradeoff is wrong for anything internet-facing.
     circuit_breaker_lockout_seconds: int = field(
-        default_factory=lambda: int(os.getenv("BCC_CB_LOCKOUT_SECONDS", "900"))
+        default_factory=lambda: int(os.getenv("BCC_CB_LOCKOUT_SECONDS", "60"))
     )
 
     # --- On-chain BAA check ---

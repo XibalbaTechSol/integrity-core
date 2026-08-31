@@ -75,6 +75,15 @@ pub struct Config {
     /// misbehaving/compromised agent hammering the ingestion endpoint.
     pub telemetry_rate_limit_per_minute: u32,
     pub phi_backstop_mode: PhiBackstopMode,
+
+    /// provider id -> trusted Ed25519 receipt-verification key. A KYC receipt is
+    /// authoritative only when signed by one of these independently configured roots.
+    /// Parsed from `KYC_PROVIDER_KEYS` as `provider=hex-public-key,...`.
+    pub kyc_provider_keys: HashMap<String, [u8; 32]>,
+    
+    /// Optional shared API key to authenticate internal-only endpoints 
+    /// (e.g. /v1/audit/ingest, /v1/audit/anchor, and OTLP receivers).
+    pub oracle_api_key: Option<String>,
 }
 
 impl Config {
@@ -106,6 +115,7 @@ impl Config {
         let telemetry_rate_limit_per_minute: u32 = env_or("TELEMETRY_RATE_LIMIT_PER_MINUTE", "60")
             .parse()
             .map_err(|_| "TELEMETRY_RATE_LIMIT_PER_MINUTE must be a valid integer".to_string())?;
+        let kyc_provider_keys = parse_kyc_provider_keys(&env_or("KYC_PROVIDER_KEYS", ""))?;
 
         Ok(Self {
             database_url,
@@ -123,6 +133,8 @@ impl Config {
             reporting_period_days,
             telemetry_rate_limit_per_minute,
             phi_backstop_mode,
+            kyc_provider_keys,
+            oracle_api_key: std::env::var("ORACLE_API_KEY").ok(),
         })
     }
 
@@ -149,8 +161,40 @@ impl Config {
             // Tests get the strict default; a test that needs Flag/Off sets it explicitly, so a
             // relaxed backstop can never be inherited silently.
             phi_backstop_mode: PhiBackstopMode::Reject,
+            kyc_provider_keys: HashMap::new(),
+            oracle_api_key: None,
         }
     }
+}
+
+fn parse_kyc_provider_keys(raw: &str) -> Result<HashMap<String, [u8; 32]>, String> {
+    let mut keys = HashMap::new();
+    if raw.trim().is_empty() {
+        return Ok(keys);
+    }
+    for entry in raw.split(',') {
+        let (provider, key_hex) = entry
+            .trim()
+            .split_once('=')
+            .ok_or_else(|| format!("malformed KYC_PROVIDER_KEYS entry {entry:?}, expected provider=hex-key"))?;
+        let provider = provider.trim().to_ascii_lowercase();
+        if provider.is_empty()
+            || !provider
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
+        {
+            return Err(format!("invalid KYC provider id {provider:?}"));
+        }
+        let decoded = hex::decode(key_hex.trim().trim_start_matches("0x"))
+            .map_err(|_| format!("KYC provider {provider:?} has a non-hex public key"))?;
+        let key: [u8; 32] = decoded
+            .try_into()
+            .map_err(|_| format!("KYC provider {provider:?} key must be exactly 32 bytes"))?;
+        if keys.insert(provider.clone(), key).is_some() {
+            return Err(format!("duplicate KYC provider id {provider:?}"));
+        }
+    }
+    Ok(keys)
 }
 
 fn require_env(key: &str) -> Result<String, String> {
@@ -239,5 +283,14 @@ mod tests {
         assert!(parse_ais_weights(Some("0.5,0.5,0.5,0.5".to_string())).is_err());
         let w = parse_ais_weights(Some("0.4,0.3,0.2,0.1".to_string())).unwrap();
         assert_eq!(w.w_entropy, 0.4);
+    }
+
+    #[test]
+    fn parses_kyc_provider_trust_roots_and_rejects_bad_entries() {
+        let key = "11".repeat(32);
+        let parsed = parse_kyc_provider_keys(&format!("open-kyc={key}")).unwrap();
+        assert_eq!(parsed["open-kyc"], [0x11; 32]);
+        assert!(parse_kyc_provider_keys("Open KYC=00").is_err());
+        assert!(parse_kyc_provider_keys("open-kyc=abcd").is_err());
     }
 }

@@ -1,263 +1,256 @@
-import { useDashboard } from '../context/useDashboard';
-import { useSettings } from '../context/SettingsProvider';
-import { useState, useEffect } from 'react';
-import axios from 'axios';
-import { auth } from '../firebase';
-import { Settings, Save, Shield, Cpu, Network, Database, Loader2, Info } from 'lucide-react';
-import { API_BASE } from '../constants';
-import { APIKeyPanel } from '../components/tabs/APIKeyPanel';
-import { userapi } from '../services/userapi';
+import React, { useState } from 'react';
+import { useSettings } from '../context/SettingsContext';
+import { useDashboard } from '../context/DashboardContext';
+import { Settings, Key, Palette, Type, Layout, Trash2, Plus, Copy, CheckCircle, Shield } from 'lucide-react';
+import { PrivacyPanel } from '../components/tabs/PrivacyPanel';
+import { SubTabs } from '../components/ui/SubTabs';
 
-export function SettingsPage() {
-  const { fetchData } = useDashboard();
-  const { theme, font, setTheme, setFont } = useSettings();
-  const [mockMode, setMockMode] = useState(() => localStorage.getItem('integrity_mock_mode') === 'true');
-  const [settings, setProtocolSettings] = useState({
-      wallet_mode: 'SELF_CUSTODIAL',
-      rpc_endpoint: 'https://sepolia.base.org',
-      itk_token_address: '0xF448c05074D435d256D6fbc1fC059019B86A5408',
-      enable_hardware_bridge: false,
-      kms_provider: 'LOCAL'
-  });
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
+export default function SettingsPage() {
+  const { theme, font, fontSize, appName, headerStyle, apiKeys, apiKeysAuthed, updateSettings, createApiKey, deleteApiKey } = useSettings();
+  const { layoutMode, setLayoutMode } = useDashboard();
+  const [activeTab, setActiveTab] = useState<'appearance' | 'api' | 'branding' | 'privacy'>('appearance');
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
-  const fetchSettings = async () => {
-      try {
-          const res = await axios.get(`${API_BASE}/v1/protocol/settings`);
-          setProtocolSettings(res.data);
-      } catch (e) {
-          console.error("Failed to fetch settings:", e);
-      } finally {
-          setIsLoading(false);
-      }
+  const handleCopy = (key: string) => {
+    navigator.clipboard.writeText(key);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 2000);
   };
 
-  useEffect(() => {
-      fetchSettings();
-  }, []);
-
-  const handleSave = async () => {
-      setIsSaving(true);
-      try {
-          const user = auth.currentUser;
-          if (!user) {
-            alert("You must be logged in.");
-            return;
-          }
-          const token = await user.getIdToken();
-          await axios.post(`${API_BASE}/v1/protocol/settings`, settings, {
-              headers: { Authorization: `Bearer ${token}` }
-          });
-          alert("Protocol configuration updated successfully.");
-      } catch (e) {
-          console.error("Save failed:", e);
-          alert("Failed to update settings.");
-      } finally {
-          setIsSaving(false);
-      }
+  const handleCreateKey = async () => {
+    setCreating(true);
+    setCreateError(null);
+    try {
+      await createApiKey();
+    } catch (err) {
+      setCreateError('Failed to create key — sign in first.');
+    } finally {
+      setCreating(false);
+    }
   };
 
   return (
-    <div className="dash-section" style={{ padding: '40px' }}>
-
-      
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '32px', maxWidth: '900px' }}>
-        <div className="enterprise-card p-6" style={{ padding: '32px' }}>
-          <h3 className="heading-md mb-6 text-gold">Appearance</h3>
-          
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
+      <SubTabs 
+        tabs={[
+          { id: 'appearance', label: 'Appearance', icon: <Palette size={16} /> },
+          { id: 'branding', label: 'Branding & Layout', icon: <Layout size={16} /> },
+          { id: 'api', label: 'Developer API', icon: <Key size={16} /> },
+          { id: 'privacy', label: 'Privacy & Security', icon: <Shield size={16} /> }
+        ]} 
+        activeTab={activeTab} 
+        setActiveTab={setActiveTab as any} 
+      />
+{/* Settings Content */}
+      <div style={{ flex: 1 }} className="card">
+        {activeTab === 'appearance' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+            <h3 style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '1rem' }}>Appearance Settings</h3>
+            
             <div>
-              <label className="text-sm font-bold mb-4" style={{ display: 'block' }}>Dashboard Theme</label>
-              <div style={{ display: 'flex', gap: '16px' }}>
-                {['dark', 'light', 'system'].map(t => (
-                  <button
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, marginBottom: '1rem' }}>
+                <Palette size={16} /> Color Theme
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
+                {(['light', 'dark', 'cyber', 'xibalba'] as const).map(t => (
+                  <button 
                     key={t}
-                    className={`btn ${theme === t ? 'btn-primary' : 'btn-outline'}`}
-                    onClick={() => setTheme(t as any)}
-                    style={{ textTransform: 'capitalize', padding: '12px 24px' }}
+                    onClick={() => updateSettings({ theme: t })}
+                    style={{ 
+                      padding: '1.5rem', 
+                      borderRadius: '8px', 
+                      border: theme === t ? '2px solid var(--text-primary)' : '1px solid var(--border-color)',
+                      background: t === 'light' ? '#f5f5f5' : (t === 'cyber' ? '#261447' : (t === 'xibalba' ? '#050d18' : '#1a1a1a')),
+                      color: t === 'light' ? '#111' : (t === 'cyber' ? '#00FFCC' : (t === 'xibalba' ? '#f59e0b' : '#fff')),
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                      textTransform: 'capitalize'
+                    }}
                   >
-                    {t}
+                    {t} Mode
                   </button>
                 ))}
               </div>
             </div>
-            
-            <hr style={{ borderTop: '1px solid var(--border)' }} />
-            
+
             <div>
-              <label className="text-sm font-bold mb-4" style={{ display: 'block' }}>Typography Font Family</label>
-              <div style={{ display: 'flex', gap: '16px' }}>
-                {['Raleway', 'Inter', 'Outfit'].map(f => (
-                  <button
-                    key={f}
-                    className={`btn ${font === f ? 'btn-primary' : 'btn-outline'}`}
-                    onClick={() => setFont(f as any)}
-                    style={{ padding: '12px 24px', fontFamily: f }}
-                  >
-                    {f}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="enterprise-card p-6" style={{ padding: '32px' }}>
-          <h3 className="heading-md mb-6 text-gold">Dashboard Configurations</h3>
-          <p className="text-muted" style={{ fontSize: '0.85rem', marginBottom: '16px' }}>
-            Configure dashboard state and data mode options.
-          </p>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 0', borderTop: '1px solid var(--border)' }}>
-            <div>
-              <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>Enable Mock Mode</div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Load seeded mock agents instead of only the local Xibalba agent.</div>
-            </div>
-            <input
-              type="checkbox"
-              checked={mockMode}
-              onChange={async (e) => { 
-                const checked = e.target.checked;
-                setMockMode(checked); 
-                localStorage.setItem('integrity_mock_mode', String(checked)); 
-                if (checked) {
-                  try {
-                    const res = await fetch('/integrity/__/run-demo', { method: 'POST' });
-                    if (!res.ok) throw new Error("Failed to trigger demo on host");
-                    alert("Demo mode seeded successfully!");
-                  } catch (e) {
-                    console.error("Failed to seed demo mode:", e);
-                    alert("Failed to seed demo mode.");
-                  }
-                }
-                if (fetchData) fetchData(); 
-              }}
-              style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-            />
-          </div>
-        </div>
-
-        <div className="enterprise-card p-6" style={{ padding: '32px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '32px' }}>
-              <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(212, 175, 55, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--gold)', flexShrink: 0 }}>
-                  <Settings size={24} />
-              </div>
-              <div style={{ overflow: 'hidden' }}>
-                  <h3 style={{ fontSize: '1.25rem', fontWeight: 900, margin: 0, color: 'var(--text-primary)' }}>Protocol Config</h3>
-                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>Manage infrastructure and storage parameters.</p>
-              </div>
-          </div>
-
-          {isLoading ? (
-            <div style={{ padding: '40px', textAlign: 'center' }}><Loader2 className="animate-spin" /></div>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>
-                {/* Left: Security & Wallet */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                    <section>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                            <Shield size={14} style={{ color: 'var(--gold)' }} />
-                            <label style={{ fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Storage Strategy</label>
-                        </div>
-                        <select 
-                            value={settings.wallet_mode}
-                            onChange={(e) => setProtocolSettings({...settings, wallet_mode: e.target.value})}
-                            style={{ width: '100%', padding: '12px', borderRadius: '8px', background: 'var(--glass-surface)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
-                        >
-                            <option value="SELF_CUSTODIAL">MetaMask / Browser (Self-Custodial)</option>
-                            <option value="APP_MANAGED">Xibalba Secure Vault (App-Managed)</option>
-                            <option value="HARDWARE_COLD">Hardware Cold Storage (Ledger/Trezor)</option>
-                        </select>
-                        <p style={{ fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: '8px' }}>
-                            Defines the primary signature provider for agent interactions.
-                        </p>
-                    </section>
-
-                    <section>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                            <Cpu size={14} style={{ color: 'var(--gold)' }} />
-                            <label style={{ fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.1em' }}>KMS Provider</label>
-                        </div>
-                        <select 
-                            value={settings.kms_provider}
-                            onChange={(e) => setProtocolSettings({...settings, kms_provider: e.target.value})}
-                            style={{ width: '100%', padding: '12px', borderRadius: '8px', background: 'var(--glass-surface)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
-                        >
-                            <option value="LOCAL">Local Encrypted (Development)</option>
-                            <option value="AWS_KMS">AWS KMS (Institutional)</option>
-                            <option value="FIREBLOCKS">Fireblocks (Enterprise)</option>
-                        </select>
-                    </section>
-
-                    <section style={{ padding: '16px', background: 'rgba(212, 175, 55, 0.05)', borderRadius: '12px', border: '1px solid rgba(212, 175, 55, 0.1)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <input 
-                                type="checkbox" 
-                                checked={settings.enable_hardware_bridge}
-                                onChange={(e) => setProtocolSettings({...settings, enable_hardware_bridge: e.target.checked})}
-                            />
-                            <span style={{ fontSize: '0.8rem', fontWeight: 700 }}>Enable Direct Hardware Bridge</span>
-                        </div>
-                        <p style={{ fontSize: '0.6rem', color: 'rgba(212, 175, 55, 0.6)', marginTop: '4px' }}>
-                            Required for direct HID communication with Ledger/Trezor devices via WebUSB.
-                        </p>
-                    </section>
-                </div>
-
-                {/* Right: Network & Token */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                    <section>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                            <Network size={14} style={{ color: 'var(--gold)' }} />
-                            <label style={{ fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.1em' }}>RPC Endpoint</label>
-                        </div>
-                        <input 
-                            type="text"
-                            value={settings.rpc_endpoint}
-                            onChange={(e) => setProtocolSettings({...settings, rpc_endpoint: e.target.value})}
-                            style={{ width: '100%', padding: '12px', borderRadius: '8px', background: 'var(--glass-surface)', border: '1px solid var(--border)', color: 'var(--text-primary)', fontFamily: 'monospace', fontSize: '0.75rem' }}
-                        />
-                    </section>
-
-                    <section>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                            <Database size={14} style={{ color: 'var(--gold)' }} />
-                            <label style={{ fontSize: '0.65rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.1em' }}>ITK Token Contract</label>
-                        </div>
-                        <input 
-                            type="text"
-                            value={settings.itk_token_address}
-                            onChange={(e) => setProtocolSettings({...settings, itk_token_address: e.target.value})}
-                            style={{ width: '100%', padding: '12px', borderRadius: '8px', background: 'var(--glass-surface)', border: '1px solid var(--border)', color: 'var(--text-primary)', fontFamily: 'monospace', fontSize: '0.75rem' }}
-                        />
-                    </section>
-
-                    <div style={{ marginTop: 'auto', padding: '16px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', display: 'flex', gap: '12px' }}>
-                        <Info size={16} style={{ color: 'var(--gold)', flexShrink: 0 }} />
-                        <p style={{ fontSize: '0.65rem', color: 'var(--text-muted)', margin: 0 }}>
-                            Global settings apply to the entire protocol fleet. Changing the Storage Strategy will affect how new agent identities are generated and anchored.
-                        </p>
-                    </div>
-                </div>
-            </div>
-          )}
-
-          <div style={{ marginTop: '40px', borderTop: '1px solid var(--border)', paddingTop: '24px', display: 'flex', justifyContent: 'flex-end' }}>
-              <button 
-                  onClick={handleSave}
-                  disabled={isSaving}
-                  className="btn btn-primary"
-                  style={{ padding: '12px 32px', display: 'flex', alignItems: 'center', gap: '8px' }}
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, marginBottom: '1rem' }}>
+                <Type size={16} /> Typography
+              </label>
+              <select 
+                value={font} 
+                onChange={e => updateSettings({ font: e.target.value as any })}
+                className="button"
+                style={{ width: '100%', padding: '1rem', textAlign: 'left', marginBottom: '1rem' }}
               >
-                  {isSaving ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
-                  Save Infrastructure Config
-              </button>
+                <option value="System Default">System Default</option>
+                <option value="Inter">Inter (Sans-serif)</option>
+                <option value="Roboto">Roboto (Sans-serif)</option>
+                <option value="Fira Code">Fira Code (Monospace)</option>
+                <option value="Playfair Display">Playfair Display (Serif)</option>
+              </select>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Font Size: {fontSize}px</span>
+                <input 
+                  type="range" 
+                  min="12" 
+                  max="24" 
+                  value={fontSize} 
+                  onChange={e => updateSettings({ fontSize: parseInt(e.target.value) })}
+                  style={{ flex: 1, accentColor: 'var(--text-primary)' }}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, marginBottom: '1rem' }}>
+                <Layout size={16} /> Effects
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                <input 
+                  type="checkbox" 
+                  checked={useSettings().animationsEnabled} 
+                  onChange={e => updateSettings({ animationsEnabled: e.target.checked })} 
+                  style={{ accentColor: 'var(--text-primary)' }} 
+                /> 
+                Enable Landing Page Scroll Animations
+              </label>
+            </div>
           </div>
-        </div>
-      </div>
-      
-      <div style={{ marginTop: '24px' }}>
-        <APIKeyPanel />
+        )}
+
+        {activeTab === 'branding' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+            <h3 style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '1rem' }}>Branding & Layout</h3>
+            
+            <div>
+              <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem' }}>Global App Name / Title</label>
+              <input 
+                type="text" 
+                value={appName} 
+                onChange={e => updateSettings({ appName: e.target.value })}
+                style={{ width: '100%', padding: '1rem', borderRadius: '4px', border: '1px solid var(--border-color)', background: 'var(--bg-color)', color: 'var(--text-primary)', fontFamily: 'inherit' }}
+              />
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.5rem' }}>This title appears in headers and notifications.</p>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontWeight: 600, marginBottom: '1rem' }}>Navigation Layout</label>
+              <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
+                {(['sidebar', 'header'] as const).map(mode => (
+                  <button 
+                    key={mode}
+                    onClick={() => setLayoutMode(mode)}
+                    className="button"
+                    style={{ 
+                      flex: 1, 
+                      padding: '1rem',
+                      background: layoutMode === mode ? 'var(--text-primary)' : 'transparent',
+                      color: layoutMode === mode ? 'var(--bg-color)' : 'var(--text-primary)',
+                      border: layoutMode === mode ? 'none' : '1px solid var(--border-color)',
+                      textTransform: 'capitalize'
+                    }}
+                  >
+                    {mode} Navigation
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontWeight: 600, marginBottom: '1rem' }}>Header Style</label>
+              <div style={{ display: 'flex', gap: '1rem' }}>
+                {(['solid', 'transparent', 'blur'] as const).map(s => (
+                  <button 
+                    key={s}
+                    onClick={() => updateSettings({ headerStyle: s })}
+                    className="button"
+                    style={{ 
+                      flex: 1, 
+                      padding: '1rem',
+                      background: headerStyle === s ? 'var(--text-primary)' : 'transparent',
+                      color: headerStyle === s ? 'var(--bg-color)' : 'var(--text-primary)',
+                      border: headerStyle === s ? 'none' : '1px solid var(--border-color)',
+                      textTransform: 'capitalize'
+                    }}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'api' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+            <h3 style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '1rem' }}>Developer API Keys</h3>
+
+            {!apiKeysAuthed ? (
+              <div style={{ padding: '2rem', textAlign: 'center', border: '1px dashed var(--border-color)', borderRadius: '8px', color: 'var(--text-secondary)' }}>
+                Sign in to manage real userapi-issued API keys.
+              </div>
+            ) : (
+              <div style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '8px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <h4 style={{ margin: 0 }}>Create New Key</h4>
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>
+                  Keys are issued by userapi with a fixed AIS trust ceiling — there's no per-key name or scoped permissions on the backend yet.
+                </p>
+                {createError && <div style={{ color: '#f44336', fontSize: '0.85rem' }}>{createError}</div>}
+                <button onClick={handleCreateKey} disabled={creating} className="button primary" style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Plus size={16} /> {creating ? 'Generating…' : 'Generate Key'}</button>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <h4 style={{ margin: 0 }}>Active Keys</h4>
+              {apiKeys.length === 0 ? (
+                <div style={{ padding: '2rem', textAlign: 'center', border: '1px dashed var(--border-color)', borderRadius: '8px', color: 'var(--text-secondary)' }}>
+                  No API keys generated yet.
+                </div>
+              ) : (
+                apiKeys.map(key => (
+                  <div key={key.id} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '1rem', border: '1px solid var(--border-color)', borderRadius: '8px', background: 'var(--bg-color)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div>
+                        <strong style={{ fontSize: '1.1rem', fontFamily: 'monospace' }}>{key.id}</strong>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
+                          Created: {new Date(key.createdAt).toLocaleDateString()}
+                          {key.revokedAt && ` • Revoked: ${new Date(key.revokedAt).toLocaleDateString()}`}
+                          {` • Trust ceiling: ${key.aisTrustCeiling}`}
+                        </div>
+                      </div>
+                      {!key.revokedAt && (
+                        <button onClick={() => deleteApiKey(key.id)} style={{ background: 'transparent', border: 'none', color: '#f44336', cursor: 'pointer', padding: '0.5rem' }} title="Revoke Key">
+                          <Trash2 size={18} />
+                        </button>
+                      )}
+                    </div>
+
+                    {key.rawKey && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'var(--surface-color)', padding: '0.5rem 1rem', borderRadius: '4px', border: '1px solid var(--border-color)' }}>
+                        <code style={{ flex: 1, fontFamily: 'monospace' }}>{key.rawKey}</code>
+                        <button onClick={() => handleCopy(key.rawKey!)} style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Copy">
+                          {copiedKey === key.rawKey ? <CheckCircle size={16} color="#4caf50" /> : <Copy size={16} />}
+                        </button>
+                      </div>
+                    )}
+                    {!key.rawKey && <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Secret shown only at creation time.</div>}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'privacy' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+            <h3 style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '1rem' }}>Privacy & Security Options</h3>
+            <PrivacyPanel />
+          </div>
+        )}
       </div>
     </div>
   );

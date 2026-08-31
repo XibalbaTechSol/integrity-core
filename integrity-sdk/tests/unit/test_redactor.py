@@ -1,4 +1,4 @@
-from integrity_sdk.security.redactor import Redactor, redact_text
+from integrity_sdk.security.redactor import Redactor, classify_metadata, redact_text
 
 
 def test_clean_text_untouched():
@@ -82,3 +82,47 @@ def test_redactor_instance_is_reusable_and_stateless():
     second = r.redact("clean text, no secrets here")
     assert first.had_redactions
     assert not second.had_redactions
+
+
+def test_classify_metadata_with_nothing_supplied_is_low_risk():
+    result = classify_metadata()
+    assert result.categories == []
+    assert result.risk_level == "low"
+
+
+def test_classify_metadata_flags_secret_paths_as_critical():
+    result = classify_metadata(file_paths=["/home/user/.ssh/id_rsa"])
+    assert "secret" in result.categories
+    assert result.risk_level == "critical"
+
+
+def test_classify_metadata_flags_phi_data_sources_as_high():
+    result = classify_metadata(data_sources=["clinical_notes_db"])
+    assert "phi" in result.categories
+    assert result.risk_level == "high"
+
+
+def test_classify_metadata_flags_external_endpoints_as_medium():
+    result = classify_metadata(model_endpoint="https://api.openai.com/v1/chat/completions")
+    assert "external_model" in result.categories
+    assert result.risk_level == "medium"
+
+
+def test_classify_metadata_takes_the_highest_risk_across_matches():
+    result = classify_metadata(
+        file_paths=["/secrets/api_key.pem"],
+        model_endpoint="https://api.example.com",
+    )
+    assert {"secret", "external_model"} <= set(result.categories)
+    assert result.risk_level == "critical"  # secret's severity, not external_model's
+
+
+def test_classify_metadata_preserves_explicitly_supplied_categories():
+    result = classify_metadata(supplied_categories=["custom_tag"])
+    assert result.categories == ["custom_tag"]
+    assert result.risk_level == "low"  # supplied categories don't imply a risk bump on their own
+
+
+def test_classify_metadata_glob_matching_is_case_insensitive():
+    result = classify_metadata(file_paths=["/Home/User/.SSH/ID_RSA"])
+    assert "secret" in result.categories

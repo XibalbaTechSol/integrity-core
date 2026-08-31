@@ -175,6 +175,7 @@ def test_flush_with_keypair_produces_a_real_verifiable_signature(captured_posts)
     # convention) and confirm the signature verifies against it.
     signable = {
         "schema_version": payload["schema_version"],
+        "evidence_tier": payload["evidence_tier"],
         "agent_id": payload["agent_id"],
         "nonce": payload["nonce"],
         "otel_spans": payload["otel_spans"],
@@ -215,14 +216,20 @@ def test_flush_drains_custom_metrics_into_otel_spans(captured_posts):
 def test_invoke_intent_without_keypair_raises_clear_error():
     client = IntegrityClient("agent-a", auto_flush=False)
     with pytest.raises(RuntimeError, match="keypair"):
-        with client.invoke_intent(intent_type="EMR_WRITE", intent_payload={}):
+        with client.invoke_intent(
+            intent_type="EMR_WRITE", intent_payload={},
+            chain_id=31337, verifying_contract="0x111111111111111111111111111111111111111a",
+        ):
             pass
 
 
 def test_invoke_intent_without_nonce_store_raises_clear_error(tmp_path):
     client = IntegrityClient("agent-a", auto_flush=False, keypair=Keypair.generate())
     with pytest.raises(RuntimeError, match="bcc_nonce_store"):
-        with client.invoke_intent(intent_type="EMR_WRITE", intent_payload={}):
+        with client.invoke_intent(
+            intent_type="EMR_WRITE", intent_payload={},
+            chain_id=31337, verifying_contract="0x111111111111111111111111111111111111111a",
+        ):
             pass
 
 
@@ -231,7 +238,10 @@ def test_invoke_intent_convenience_pulls_nonce_from_store_and_rides_along_on_flu
     nonce_store = bcc.NonceStore(tmp_path / "bcc_nonce.txt")
     client = IntegrityClient("agent-a", auto_flush=False, keypair=keypair, bcc_nonce_store=nonce_store)
 
-    with client.invoke_intent(intent_type="EMR_WRITE", intent_payload={"a": 1}, planned_action={"tool": "write_emr"}) as intent:
+    with client.invoke_intent(
+        intent_type="EMR_WRITE", intent_payload={"a": 1}, planned_action={"tool": "write_emr"},
+        chain_id=31337, verifying_contract="0x111111111111111111111111111111111111111a",
+    ) as intent:
         intent.record_outcome({"tool": "write_emr"})
 
     client.flush_telemetry()
@@ -248,7 +258,7 @@ def test_invoke_intent_convenience_pulls_nonce_from_store_and_rides_along_on_flu
 
 def test_first_flush_syncs_nonce_from_oracle_before_posting(monkeypatch, captured_posts):
     monkeypatch.setattr(
-        "integrity_sdk.client.requests.get", lambda *a, **k: _FakeResponse(payload={"last_nonce": 41})
+        "integrity_sdk.client.requests.get", lambda *a, **k: _FakeResponse(payload={"last_nonce": 41, "oracle_registered": True})
     )
     client = IntegrityClient("agent-a", auto_flush=False)
     client.log_telemetry({"text_output": "hi"})
@@ -267,7 +277,7 @@ def test_subsequent_flush_does_not_resync_nonce(monkeypatch, captured_posts):
     get_calls = []
     monkeypatch.setattr(
         "integrity_sdk.client.requests.get",
-        lambda *a, **k: get_calls.append(1) or _FakeResponse(payload={"last_nonce": 5}),
+        lambda *a, **k: get_calls.append(1) or _FakeResponse(payload={"last_nonce": 5, "oracle_registered": True}),
     )
     client = IntegrityClient("agent-a", auto_flush=False)
     client.log_telemetry({"text_output": "first"})
@@ -289,7 +299,7 @@ def test_409_response_resyncs_nonce_instead_of_rolling_back(monkeypatch):
     get_calls = []
     monkeypatch.setattr(
         "integrity_sdk.client.requests.get",
-        lambda *a, **k: get_calls.append(1) or _FakeResponse(payload={"last_nonce": 15}),
+        lambda *a, **k: get_calls.append(1) or _FakeResponse(payload={"last_nonce": 15, "oracle_registered": True}),
     )
 
     client = IntegrityClient("agent-a", auto_flush=False)
@@ -322,6 +332,61 @@ def test_non_409_failure_still_rolls_back_nonce_for_retry(monkeypatch):
     assert client.flush_telemetry() is False
     assert get_calls == []  # non-409 failure does not trigger a re-sync
     assert client._nonce == 10  # rolled back from 11
+
+
+# --- Default-deny: refuse to send telemetry for an oracle-confirmed-unregistered agent ---
+
+
+def test_flush_refuses_to_send_when_oracle_confirms_agent_unregistered(monkeypatch):
+    monkeypatch.setattr(
+        "integrity_sdk.client.requests.get", lambda *a, **k: _FakeResponse(status_code=404)
+    )
+    posts = []
+    monkeypatch.setattr(
+        "integrity_sdk.client.requests.post",
+        lambda url, json=None, timeout=None: posts.append(json) or _FakeResponse(True),
+    )
+
+    client = IntegrityClient("unregistered-agent", auto_flush=False)
+    client.log_telemetry({"text_output": "should not leave the process"})
+
+    assert client.flush_telemetry() is False
+    assert posts == []  # the payload was never POSTed, not merely rejected server-side
+    assert client._registered is False
+
+
+def test_flush_requeues_and_succeeds_once_the_agent_becomes_registered(monkeypatch):
+    get_responses = iter([_FakeResponse(status_code=404), _FakeResponse(payload={"last_nonce": 0, "oracle_registered": True})])
+    monkeypatch.setattr("integrity_sdk.client.requests.get", lambda *a, **k: next(get_responses))
+    posts = []
+    monkeypatch.setattr(
+        "integrity_sdk.client.requests.post",
+        lambda url, json=None, timeout=None: posts.append(json) or _FakeResponse(True),
+    )
+
+    client = IntegrityClient("agent-a", auto_flush=False)
+    client.log_telemetry({"text_output": "buffered before registration"})
+    assert client.flush_telemetry() is False
+    assert posts == []
+
+    # A later flush re-checks (nonce sync is one-shot per client, so this simulates a
+    # fresh client instance after the agent registers — the realistic restart path).
+    client._nonce_synced = False
+    assert client.flush_telemetry() is True
+    assert len(posts) == 1
+    assert len([s for s in posts[0]["otel_spans"] if s["kind"] == "telemetry"]) == 1
+
+
+def test_flush_proceeds_when_registration_check_is_inconclusive(captured_posts):
+    # The autouse fixture simulates an unreachable oracle (ConnectionError), which must
+    # leave `_registered` at None (unknown) — telemetry stays best-effort, not gated
+    # shut, on a transient failure that says nothing about registration either way.
+    client = IntegrityClient("agent-a", auto_flush=False)
+    client.log_telemetry({"text_output": "hi"})
+
+    assert client.flush_telemetry() is True
+    assert client._registered is None
+    assert len(captured_posts) == 1
 
 
 # --- OTel wiring: client.traceable()/trace_run() must actually export spans ---

@@ -3,8 +3,8 @@
 Compiled knowledge base for the Integrity Protocol monorepo — a trust/
 compliance layer for AI agents on Base L2. This page is the map; every
 section below links to the real page. Governance/conventions:
-`WIKI_SCHEMA.md` (page format), `WIKI_INDEX.md` (the full catalog with
-one-line descriptions — the canonical index this page summarizes),
+`WIKI_SCHEMA.md` (page format), this `index.md` (the canonical catalog),
+`WIKI_INDEX.md` (a retained legacy catalog),
 `WIKI_LOG.md` (chronological history, append-only). Cross-package
 decisions live in `../INTERFACE_CONTRACT.md`; how this wiki gets kept in
 sync with the code is `../../.agents/AGENTS.md`.
@@ -16,6 +16,33 @@ sync with the code is `../../.agents/AGENTS.md`.
 gates registration), then [AIS](concepts/ais.md) (the trust score) and
 [Telemetry Ingestion Pipeline](concepts/telemetry-ingestion.md) (how
 agent behavior becomes that score).
+
+## Specification authority — 2026-08-29
+
+- [Integrity Protocol v0.4](../archive/2026-08/integrity-protocol-v0.4.md) is the accepted normative baseline.
+- [Integrity Protocol v0.5 proposed](../archive/2026-08/integrity-protocol-v0.5-proposed.md) is the new non-authoritative amendment under review.
+- [Whitepaper v3.2](../WHITEPAPER.md) is the current explanatory and non-normative whitepaper.
+- The v3.2 PDF is generated publication output from the archived v3.2 source; code, tests, and deployments are separate implementation evidence layers.
+
+## Current cross-repository audit — 2026-08-25
+
+**Note, 2026-08-12:** the ecosystem is a three-repository model now — `integrity-mvp` (linked
+below as a dated historical pointer) has been superseded by `integrity-dashboard/` inside this
+repository; see [Ecosystem Dependencies](architecture/ecosystem-dependencies.md) for the current
+correction. The list below is left as-recorded from the 2026-08-06 audit, not rewritten.
+
+The cross-repository implementation plan and audit ledger are maintained in
+[Repository Implementation Plans](architecture/repository-implementation-plans.md).
+Repository-local status pages are:
+
+- [`integrity-core` audit status](../audits/2026-08-06-cross-repository-status.md): strong testnet prototype; SDK has 2 failing tests; production readiness not established.
+- [`integrity-mvp` audit status](https://github.com/XibalbaTechSol/integrity-mvp/blob/main/docs/audits/2026-08-06-status.md): frontend build and unit tests pass; lint and dependency-security gaps remain.
+- [`xibalba-shield` audit status](https://github.com/XibalbaTechSol/xibalba-shield/blob/main/docs/audits/2026-08-06-status.md): Linux-first prototype; 2 of 3 eBPF probes verified; TCP-connect blocked.
+- [`xibalba-cortex` audit status](https://github.com/XibalbaTechSol/xibalba-cortex/blob/main/docs/audits/2026-08-06-status.md): local MCP memory prototype; tests pass with Drive extras; active worktree changes require review.
+
+These pages distinguish `DONE`, `PARTIAL`, `PLANNED`, `BLOCKED`, `UNVERIFIED`, and `REQUIRES REVIEW`. Historical wiki log entries and design records remain historical evidence.
+
+The latest compiled session evidence keeps Phase I contract work and Hermes/BCC live dispatch in `PARTIAL`/`BLOCKED` status; local adapter validation and policy-service reachability do not establish live provider parity or host-tool execution.
 
 ## System at a glance
 
@@ -77,11 +104,12 @@ flowchart TB
 
 ### Concepts — behavioral gating & cryptography
 - [Behavioral Commitment Chain (BCC)](concepts/bcc.md) — the pre-execution signed-intent gate
+- [Invocation Correlation Profile v1](../../spec/invocation-id-v1.md) — canonical per-attempt UUID joining intent, policy, execution, and effect without content-hash ambiguity
 - [Merkle Batching & Anchoring Convention](concepts/merkle-batching.md)
 - [Zero-Knowledge Proving Pipeline (ZKP)](concepts/zkp.md)
 
 ### Concepts — compliance & markets
-- [ComplianceGate & Xibalba Shield](concepts/compliance-gate.md) — the HIPAA/healthcare vertical
+- [ComplianceGate & Integrity Health](concepts/compliance-gate.md) — the HIPAA/healthcare vertical
 - [Smart BAA](concepts/smart-baa.md) — on-chain Business Associate Agreement escrow
 - [Integrity Market](concepts/integrity-market.md) — prediction markets, binary options, A2A capital allocation
 
@@ -96,7 +124,7 @@ flowchart TB
 - [ZK-ML Model-Inference Verification](concepts/zk-ml-spec.md) — `[PLANNED]`
 
 ### Entities — one page per real package
-- [contracts](entities/contracts.md) — Solidity/Foundry: the 7 primitives, factory, registries, XNS, Shield, market layer, $ITK
+- [contracts](entities/contracts.md) — Solidity/Foundry: the 7 primitives, factory, registries, XNS, Integrity Health, market layer, $ITK
 - [integrity-oracle](entities/integrity-oracle.md) — Rust/Axum: AIS scoring, server-side telemetry re-derivation, on-chain reads, markets/leaderboard
 - [integrity-sdk](entities/integrity-sdk.md) — Python agent library: identity, BCC, markets, telemetry, PHI redaction
 - [integrity-cli](entities/integrity-cli.md) — developer CLI, independent reimplementation of the SDK's core flows
@@ -104,6 +132,10 @@ flowchart TB
 - [integrity-userapi](entities/integrity-userapi.md) — FastAPI + Postgres user accounts/auth, strictly non-chain
 - [integrity-dashboard](entities/integrity-dashboard.md) — the React/Vite dashboard + `demo/` scenario engine
 - [integrity-zkp](entities/integrity-zkp.md) — the real Noir/Barretenberg circuit
+
+### Architecture
+- [Ecosystem Dependencies](architecture/ecosystem-dependencies.md) — cross-repository ownership and dependency direction for integrity-core (including its integrity-dashboard/ component), Xibalba Cortex, and Xibalba Shield.
+- [Repository Implementation Plans](architecture/repository-implementation-plans.md) — closed/planned/blocked implementation ledger for integrity-core, integrity-dashboard/, Xibalba Shield, and Xibalba Cortex.
 
 ### Guides
 - [Smart Contract Development](../guides/smart-contract-development.md) — writing/testing/deploying a new contract

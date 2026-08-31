@@ -2,22 +2,28 @@
 title: Smart BAA (On-Chain Business Associate Agreement Escrow)
 acronyms: [BAA]
 created: 2026-07-09
-updated: 2026-07-15
+updated: 2026-08-29
 type: concept
 tags: [compliance, tokenomics]
 confidence: high
 source_files:
-  - contracts/src/shield/SmartBAA.sol
-  - contracts/src/shield/SmartBAAFactory.sol
+  - contracts/src/health/SmartBAA.sol
+  - contracts/src/health/SmartBAAFactory.sol
 ---
 
 This page merges and corrects the old wiki's `hybrid-escrow.md` and
 `smart-baa-technical-guide.md` — both described the same subject
 (HIPAA Business Associate Agreements represented on-chain) with
 overlapping and, in places, aspirational detail. This page documents only
-what `contracts/src/shield/SmartBAA.sol` actually implements; the
+what `contracts/src/health/SmartBAA.sol` actually implements; the
 "what's not built" section at the bottom lists the old pages' extras
 explicitly so nothing here is silently dropped.
+
+## Table of contents
+
+- [The real mechanism](#the-real-mechanism)
+- [The closed loop with BCC/OPA](#the-closed-loop-with-bcc-opa)
+- [What's NOT built (correcting the old wiki's extras)](#what-s-not-built-correcting-the-old-wiki-s-extras)
 
 ## The real mechanism
 

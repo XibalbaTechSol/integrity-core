@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-    Fingerprint, ShieldCheck, FileText, ExternalLink, 
+import { ethers } from 'ethers';
+import {
+    Fingerprint, ShieldCheck, FileText, ExternalLink,
     Copy, Search, CheckCircle2, Key, Globe, Shield, Zap, Download
 } from 'lucide-react';
 import { useIsMobile } from '../../utils/useIsMobile';
 import { oracle } from '../../services/oracle';
+import { STATE_ANCHOR_ABI } from '../../chain/bytecode';
+import { RPC_URL } from '../../constants';
 
 interface DIDExplorerProps {
     agent: any;
@@ -17,6 +20,10 @@ export const DIDExplorer: React.FC<DIDExplorerProps> = ({ agent }) => {
     const [vc, setVc] = useState<any>(null);
     const [handle, setHandle] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    // Real StateAnchor.latestRoot() read -- integrity-core's own CLAUDE.md documents that
+    // every agent registered before the memory-gating change still reports latestRoot == 0
+    // (unanchored), so this must never be hardcoded true. null = not checked yet/unknown.
+    const [anchored, setAnchored] = useState<boolean | null>(null);
     // eth_address already holds the agent's DID, so never re-wrap an already-qualified DID
     // (that produced a malformed did:xibalba:did:integrity:… string).
     // Optional-chained on `agent` too: this runs on every render, including the one where
@@ -57,10 +64,25 @@ export const DIDExplorer: React.FC<DIDExplorerProps> = ({ agent }) => {
                 setDidDoc(detail.did_document || { id: agent.eth_address, note: 'No DID document on record for this agent.' });
                 setVc(vcDoc || { note: 'Verifiable Credential unavailable.' });
                 setHandle(handleDoc?.handle ?? null);
+
+                const stateAnchorAddr = detail.primitives?.state_anchor;
+                if (stateAnchorAddr) {
+                    try {
+                        const provider = new ethers.JsonRpcProvider(RPC_URL);
+                        const anchorContract = new ethers.Contract(stateAnchorAddr, STATE_ANCHOR_ABI, provider);
+                        const root: string = await anchorContract.latestRoot();
+                        setAnchored(root !== ethers.ZeroHash);
+                    } catch {
+                        setAnchored(null); // couldn't read the chain -- show "unknown", never assume anchored
+                    }
+                } else {
+                    setAnchored(null);
+                }
             } catch (e) {
                 console.error("Identity fetch error:", e);
                 setDidDoc({ id: agent.eth_address, note: 'DID document unavailable (oracle unreachable).' });
                 setVc(null);
+                setAnchored(null);
             } finally {
                 setIsLoading(false);
             }
@@ -88,7 +110,7 @@ export const DIDExplorer: React.FC<DIDExplorerProps> = ({ agent }) => {
             {/* Header / Tabs */}
             <div style={{ padding: 'var(--space-6) var(--space-8)', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: 'center', background: 'var(--glass-surface-light)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-                    <Fingerprint size={22} style={{ color: 'var(--gold)' }} />
+                    <Fingerprint size={22} style={{ color: 'var(--theme-accent)' }} />
                     <h3 style={{ fontSize: '1.25rem', fontWeight: 800, margin: 0, color: 'white', fontFamily: 'Playfair Display, serif' }}>Sovereign Identity Explorer</h3>
                 </div>
                 
@@ -101,8 +123,8 @@ export const DIDExplorer: React.FC<DIDExplorerProps> = ({ agent }) => {
                                 padding: '8px 16px',
                                 borderRadius: 'var(--r-sm)',
                                 border: 'none',
-                                background: activeView === view ? 'var(--gold-muted)' : 'transparent',
-                                color: activeView === view ? 'var(--gold)' : 'var(--text-muted)',
+                                background: activeView === view ? 'var(--theme-accent-muted)' : 'transparent',
+                                color: activeView === view ? 'var(--theme-accent)' : 'var(--text-muted)',
                                 fontSize: '0.65rem',
                                 fontWeight: 800,
                                 cursor: 'pointer',
@@ -127,11 +149,16 @@ export const DIDExplorer: React.FC<DIDExplorerProps> = ({ agent }) => {
                         >
                             <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 'var(--space-10)' }}>
                                 {/* DID Document Visualization */}
-                                <div>
+                                {/* minWidth: 0 overrides the grid item's default auto min-width, which
+                                    otherwise sizes this track to the DID string's full un-truncated
+                                    intrinsic width (nowrap text ignores its own text-overflow:ellipsis
+                                    for min-content purposes) and starves the sibling "Sovereign Node"
+                                    column down to near-zero. */}
+                                <div style={{ minWidth: 0 }}>
                                     <div style={{ marginBottom: 'var(--space-8)' }}>
                                         <div style={{ fontSize: '0.6rem', fontWeight: 900, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.2em', marginBottom: '8px' }}>Global DID Identifier</div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', background: 'rgba(0,0,0,0.3)', padding: '16px', borderRadius: 'var(--r-md)', border: '1px solid var(--border)' }}>
-                                            <span className="mono" style={{ fontSize: '0.85rem', color: 'var(--gold)', wordBreak: 'break-all', flex: 1 }}>{canonicalDid}</span>
+                                            <span className="mono" style={{ fontSize: '0.85rem', color: 'var(--theme-accent)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>{canonicalDid}</span>
                                             <div style={{ display: 'flex', gap: '8px' }}>
                                                 <button onClick={() => navigator.clipboard.writeText(canonicalDid)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center' }} title="Copy to Clipboard"><Copy size={14} /></button>
                                                 <button onClick={downloadDID} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center' }} title="Download DID document (.json)" id="did-download-btn-did"><Download size={14} /></button>
@@ -172,25 +199,28 @@ export const DIDExplorer: React.FC<DIDExplorerProps> = ({ agent }) => {
                                 {/* Identity Schematic */}
                                 <div style={{ background: 'linear-gradient(225deg, rgba(201, 168, 76, 0.05) 0%, rgba(5, 13, 24, 0.8) 100%)', borderRadius: 'var(--r-lg)', padding: '40px', position: 'relative', overflow: 'hidden', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                                     <div style={{ position: 'absolute', top: '0', left: '0', width: '100%', height: '100%', opacity: 0.1, pointerEvents: 'none' }}>
-                                        <div className="pulse-gold" style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '200px', height: '200px', border: '1px solid var(--gold)', borderRadius: '50%' }} />
+                                        <div className="pulse-gold" style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '200px', height: '200px', border: '1px solid var(--theme-accent)', borderRadius: '50%' }} />
                                         <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '300px', height: '300px', border: '1px dashed rgba(255,255,255,0.2)', borderRadius: '50%' }} />
                                     </div>
                                     
                                     <div style={{ position: 'relative', zIndex: 1, textAlign: 'center', width: '100%' }}>
-                                        <div style={{ width: '100px', height: '100px', borderRadius: '24px', background: 'rgba(201, 168, 76, 0.15)', border: '2px solid var(--gold)', margin: '0 auto 24px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--gold)', boxShadow: '0 0 40px rgba(201, 168, 76, 0.2)' }}>
+                                        <div style={{ width: '100px', height: '100px', borderRadius: '24px', background: 'rgba(201, 168, 76, 0.15)', border: '2px solid var(--theme-accent)', margin: '0 auto 24px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--theme-accent)', boxShadow: '0 0 40px rgba(201, 168, 76, 0.2)' }}>
                                             <Fingerprint size={48} />
                                         </div>
                                         <h4 style={{ fontSize: '1.25rem', fontWeight: 800, margin: '0 0 8px', fontFamily: 'Playfair Display, serif' }}>{agent.alias || "Sovereign Node"}</h4>
-                                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 16px', background: 'var(--gold-muted)', borderRadius: 'var(--r-xl)', border: '1px solid var(--border)', marginBottom: '32px' }}>
-                                            <Shield size={12} style={{ color: 'var(--gold)' }} />
-                                            <span style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--gold)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Tier {agent.verification_tier} Guardian</span>
+                                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '6px 16px', background: 'var(--theme-accent-muted)', borderRadius: 'var(--r-xl)', border: '1px solid var(--border)', marginBottom: '32px' }}>
+                                            <Shield size={12} style={{ color: 'var(--theme-accent)' }} />
+                                            <span style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--theme-accent)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Tier {agent.verification_tier} Guardian</span>
                                         </div>
                                         
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', width: '100%' }}>
                                             {[
-                                                { label: 'XNS_RESOLVE', value: (handle ? `${handle.includes('.') ? handle : `${handle}.intg`}` : agent.xns_handle) || "UNANCHORED", active: !!(handle || agent.xns_handle) },
+                                                { label: 'XNS_RESOLVE', value: (handle ? `${handle.includes('.') ? handle : `${handle}.intg`}` : agent.xns_handle) || "UNRESOLVED", active: !!(handle || agent.xns_handle) },
                                                 { label: 'PROTO_VER', value: 'INTG_V1.0', active: true },
-                                                { label: 'STATUS', value: 'ANCHORED', active: true },
+                                                // Real StateAnchor.latestRoot() != 0x0 check -- never hardcode this. Most agents
+                                                // registered before the memory-gating change genuinely report unanchored (see
+                                                // integrity-core's own CLAUDE.md), so this must be able to show that honestly.
+                                                { label: 'STATUS', value: anchored === null ? 'UNKNOWN' : anchored ? 'ANCHORED' : 'NOT ANCHORED', active: anchored === true },
                                             ].map((item, i) => (
                                                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: 'rgba(255,255,255,0.02)', borderRadius: 'var(--r-md)', border: '1px solid var(--border)' }}>
                                                     <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 800 }}>{item.label}</span>
@@ -226,7 +256,7 @@ export const DIDExplorer: React.FC<DIDExplorerProps> = ({ agent }) => {
                                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 'var(--space-6)', marginBottom: 'var(--space-10)' }}>
                                     {[
                                         { label: 'AIS_METRIC', value: vc?.credentialSubject?.ais_score || agent.current_ais, color: 'white' },
-                                        { label: 'TRUST_TIER', value: vc?.credentialSubject?.trust_level || 'AAA', color: 'var(--gold)' },
+                                        { label: 'TRUST_TIER', value: vc?.credentialSubject?.trust_level || 'AAA', color: 'var(--theme-accent)' },
                                         { label: 'SECURITY', value: `LEVEL_${agent.verification_tier}`, color: '#60a5fa' },
                                         { label: 'TTL', value: '2592000s', color: 'var(--text-muted)' },
                                     ].map((stat, i) => (
@@ -239,7 +269,7 @@ export const DIDExplorer: React.FC<DIDExplorerProps> = ({ agent }) => {
 
                                 <div style={{ padding: '24px', background: 'rgba(5, 13, 24, 0.6)', borderRadius: 'var(--r-md)', border: '1px dashed var(--border)', marginBottom: 'var(--space-10)' }}>
                                     <div style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-muted)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <Zap size={14} style={{ color: 'var(--gold)' }} /> CRYPTOGRAPHIC PROOF STRING (JWS/EDDSA)
+                                        <Zap size={14} style={{ color: 'var(--theme-accent)' }} /> CRYPTOGRAPHIC PROOF STRING (JWS/EDDSA)
                                     </div>
                                     <div className="mono" style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', wordBreak: 'break-all', lineHeight: 1.6 }}>
                                         {vc?.proof?.jws || "eyJhbGciOiJFZERTQSIsImI2NCI6ZmFsc2UsImNyaXQiOlsidW51c2VkIl19..zk_proof_auth_0x71c7"}

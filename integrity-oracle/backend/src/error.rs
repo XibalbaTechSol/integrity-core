@@ -53,15 +53,18 @@ pub enum AppError {
     /// content, which would defeat the point) so the caller can tell what tripped it.
     #[error("payload rejected: possible unredacted PHI/PII/secret detected (categories: {0:?})")]
     PhiDetected(Vec<String>),
+    /// `otel_spans` failed schema_version >= 3 structural validation
+    /// (`crate::span_schema::validate_batch`) — a client-fixable shape problem,
+    /// same class as `BadRequest`, kept distinct so callers can distinguish "your
+    /// JSON doesn't parse" from "your JSON parses but violates the v3 span schema".
+    #[error("otel_spans schema violation: {0}")]
+    SpanSchemaViolation(#[from] crate::span_schema::SchemaViolation),
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 }
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        // Always log the full error server-side, regardless of what's exposed.
-        tracing::error!(error = %self, "request failed");
-
         let (status, public_message) = match &self {
             AppError::AgentNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
             AppError::TraceNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
@@ -75,6 +78,7 @@ impl IntoResponse for AppError {
             AppError::ChainMismatch(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             AppError::MemoryNotInitialized(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             AppError::PhiDetected(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            AppError::SpanSchemaViolation(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             // An on-chain lookup that legitimately found nothing (unregistered DID/address)
             // is a 404, not a 502 — the chain answered fine, there's just no record.
             AppError::Chain(crate::chain::ChainError::UnknownDid(_))
@@ -91,6 +95,17 @@ impl IntoResponse for AppError {
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal server error".to_string())
             }
         };
+
+        // Log at a severity that matches the status code: a 4xx is the client's
+        // fault (bad input, unknown DID, rate limit) and expected in normal
+        // operation, so ERROR is reserved for what the status itself already
+        // says is a server-side fault (5xx) — a routine 404 should not read
+        // like an outage in the logs (E12).
+        if status.is_server_error() {
+            tracing::error!(error = %self, "request failed");
+        } else {
+            tracing::warn!(error = %self, "request failed");
+        }
 
         (status, Json(json!({ "error": public_message }))).into_response()
     }

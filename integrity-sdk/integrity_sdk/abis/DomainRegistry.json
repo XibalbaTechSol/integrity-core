@@ -1,0 +1,608 @@
+{
+  "contractName": "DomainRegistry",
+  "abi": [
+    {
+      "type": "constructor",
+      "inputs": [
+        {
+          "name": "admin",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "DEFAULT_ADMIN_ROLE",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "REGISTRAR_ROLE",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "approveJoiner",
+      "inputs": [
+        {
+          "name": "id",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "joiner",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "approvedJoiners",
+      "inputs": [
+        {
+          "name": "",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bool",
+          "internalType": "bool"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "canJoin",
+      "inputs": [
+        {
+          "name": "id",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "caller",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bool",
+          "internalType": "bool"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "domainId",
+      "inputs": [
+        {
+          "name": "name",
+          "type": "string",
+          "internalType": "string"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "stateMutability": "pure"
+    },
+    {
+      "type": "function",
+      "name": "domains",
+      "inputs": [
+        {
+          "name": "",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "owner",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "mode",
+          "type": "uint8",
+          "internalType": "enum DomainRegistry.JoinMode"
+        },
+        {
+          "name": "exists",
+          "type": "bool",
+          "internalType": "bool"
+        },
+        {
+          "name": "memberCount",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "getRoleAdmin",
+      "inputs": [
+        {
+          "name": "role",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "grantRole",
+      "inputs": [
+        {
+          "name": "role",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "account",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "hasRole",
+      "inputs": [
+        {
+          "name": "role",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "account",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bool",
+          "internalType": "bool"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "isMember",
+      "inputs": [
+        {
+          "name": "",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bool",
+          "internalType": "bool"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "recordJoin",
+      "inputs": [
+        {
+          "name": "id",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "approvedAs",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "member",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "registerDomain",
+      "inputs": [
+        {
+          "name": "name",
+          "type": "string",
+          "internalType": "string"
+        },
+        {
+          "name": "mode",
+          "type": "uint8",
+          "internalType": "enum DomainRegistry.JoinMode"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "id",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "renounceRole",
+      "inputs": [
+        {
+          "name": "role",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "callerConfirmation",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "revokeJoiner",
+      "inputs": [
+        {
+          "name": "id",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "joiner",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "revokeRole",
+      "inputs": [
+        {
+          "name": "role",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "account",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "setJoinMode",
+      "inputs": [
+        {
+          "name": "id",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "mode",
+          "type": "uint8",
+          "internalType": "enum DomainRegistry.JoinMode"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "supportsInterface",
+      "inputs": [
+        {
+          "name": "interfaceId",
+          "type": "bytes4",
+          "internalType": "bytes4"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bool",
+          "internalType": "bool"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "event",
+      "name": "DomainModeChanged",
+      "inputs": [
+        {
+          "name": "domainId",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "newMode",
+          "type": "uint8",
+          "indexed": false,
+          "internalType": "enum DomainRegistry.JoinMode"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "DomainRegistered",
+      "inputs": [
+        {
+          "name": "domainId",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "indexed": false,
+          "internalType": "string"
+        },
+        {
+          "name": "owner",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "mode",
+          "type": "uint8",
+          "indexed": false,
+          "internalType": "enum DomainRegistry.JoinMode"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "JoinerApproved",
+      "inputs": [
+        {
+          "name": "domainId",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "joiner",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "JoinerRevoked",
+      "inputs": [
+        {
+          "name": "domainId",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "joiner",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "MemberJoined",
+      "inputs": [
+        {
+          "name": "domainId",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "member",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "RoleAdminChanged",
+      "inputs": [
+        {
+          "name": "role",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "previousAdminRole",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "newAdminRole",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "RoleGranted",
+      "inputs": [
+        {
+          "name": "role",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "account",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "sender",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "event",
+      "name": "RoleRevoked",
+      "inputs": [
+        {
+          "name": "role",
+          "type": "bytes32",
+          "indexed": true,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "account",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "sender",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "error",
+      "name": "AccessControlBadConfirmation",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "AccessControlUnauthorizedAccount",
+      "inputs": [
+        {
+          "name": "account",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "neededRole",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ]
+    },
+    {
+      "type": "error",
+      "name": "DomainAlreadyExists",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "DomainDoesNotExist",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "JoinNotApproved",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "NotDomainOwner",
+      "inputs": []
+    }
+  ],
+  "bytecode": "0x60803461006857601f610d7438819003918201601f19168301916001600160401b0383118484101761006c5780849260209460405283398101031261006857516001600160a01b03811681036100685761005890610080565b50604051610c4a908161010a8239f35b5f80fd5b634e487b7160e01b5f52604160045260245ffd5b6001600160a01b0381165f9081525f516020610d545f395f51905f52602052604090205460ff16610104576001600160a01b03165f8181525f516020610d545f395f51905f5260205260408120805460ff191660011790553391907f2f8788117e7eff1d82e926ec794901d17c78024a50270940304540a733656f0d8180a4600190565b505f9056fe6080806040526004361015610012575f80fd5b5f3560e01c90816301ffc9a7146109635750806310ad56b31461091a57806316b19caf14610854578063248a9ca3146108225780632f2ff15d146107e5578063363c72e4146107b557806336568abe146107715780635147a66b14610728578063753afc6a14610562578063769f1b9b1461040f57806391d14854146103c7578063a217fddf146103ad578063b6d8e2aa1461035b578063c722f177146102fe578063d547741f146102ba578063d57dd87b146101f1578063f3aab462146101205763f68e9553146100e2575f80fd5b3461011c575f36600319011261011c5760206040517fedcc084d3dcd65a1f7f23c65c46722faca6953d28e43150a467cf43e5c3092388152f35b5f80fd5b3461011c57604036600319011261011c57600435602435600281101561011c57815f52600160205260405f20805460ff8160a81c16156101e2576001600160a01b0316331415806101bd575b6101ae578161019e7f987e2cd92a8337711a73495ee3cf8df0595535c7fa9b495af08d077e728bc8e693602093610a90565b6101ab6040518092610a24565ba2005b6326fdee4b60e11b5f5260045ffd5b50335f9081525f516020610bf55f395f51905f52602052604090205460ff161561016c565b6346d49cdd60e01b5f5260045ffd5b3461011c57604036600319011261011c5760043561020d6109b6565b815f52600160205260405f205460ff8160a81c16156101e2576001600160a01b031633141580610295575b6101ae575f8281526002602090815260408083206001600160a01b0394909416808452939091528120805460ff191660011790559091907fe6a72cdfbfd6f50ab3c206dce1bf6f2523423cdcf953fd5c3098408fb8ee71a49080a3005b50335f9081525f516020610bf55f395f51905f52602052604090205460ff1615610238565b3461011c57604036600319011261011c576102fc6004356102d96109b6565b906102f76102f2825f525f602052600160405f20015490565b610ab4565b610b74565b005b3461011c57602036600319011261011c576004355f526001602052608060405f206001815491015460ff6040519260018060a01b038116845261034960208501838360a01c16610a24565b60a81c16151560408301526060820152f35b3461011c57602036600319011261011c5760043567ffffffffffffffff811161011c573660238201121561011c5761039f60209136906024816004013591016109cc565b818151910120604051908152f35b3461011c575f36600319011261011c5760206040515f8152f35b3461011c57604036600319011261011c576103e06109b6565b6004355f525f60205260405f209060018060a01b03165f52602052602060ff60405f2054166040519015158152f35b3461011c57606036600319011261011c5760043561042b6109b6565b6044356001600160a01b03811692919083900361011c57335f9081525f516020610bf55f395f51905f52602052604090205460ff161561052b57815f52600160205260405f209060ff825460a81c16156101e2576104899083610a31565b1561051c57815f52600360205260405f20835f5260205260ff60405f205416156104af57005b600190825f52600360205260405f20845f5260205260405f208260ff19825416179055018054906001820180921161050857557fdabee0b25f35888f14428f2369f0d67a033a857623827e3efa07eb83471170aa5f80a3005b634e487b7160e01b5f52601160045260245ffd5b638275a1df60e01b5f5260045ffd5b63e2517d3f60e01b5f52336004527fedcc084d3dcd65a1f7f23c65c46722faca6953d28e43150a467cf43e5c30923860245260445ffd5b3461011c57604036600319011261011c5760043567ffffffffffffffff811161011c573660238201121561011c57806004013567ffffffffffffffff811161011c576024820191602482369201011161011c5760243590600282101561011c576105cd3682856109cc565b6020815191012091825f52600160205260ff60405f205460a81c1661071957604051936080850185811067ffffffffffffffff821117610705576040523385526020850190828252604086016001815260608701925f8452865f52600160205260405f209760018060a01b039051166bffffffffffffffffffffffff60a01b895416178855519360028510156106f1578760017fcda98a97f4970302b513d651a8b3ac000040da79ce978bde5cafd13451de8144956106d6946106938b9960209d610a90565b51835460ff60a81b191690151560a81b60ff60a81b16178355519101556040805181815290810187905292869060608501375f6060878501015287830190610a24565b3393601f01601f1916810181900360600190a3604051908152f35b634e487b7160e01b5f52602160045260245ffd5b634e487b7160e01b5f52604160045260245ffd5b63bd45fcaf60e01b5f5260045ffd5b3461011c57604036600319011261011c576107416109b6565b6004355f52600260205260405f209060018060a01b03165f52602052602060ff60405f2054166040519015158152f35b3461011c57604036600319011261011c5761078a6109b6565b336001600160a01b038216036107a6576102fc90600435610b74565b63334bd91960e11b5f5260045ffd5b3461011c57604036600319011261011c5760206107db6107d36109b6565b600435610a31565b6040519015158152f35b3461011c57604036600319011261011c576102fc6004356108046109b6565b9061081d6102f2825f525f602052600160405f20015490565b610aec565b3461011c57602036600319011261011c57602061084c6004355f525f602052600160405f20015490565b604051908152f35b3461011c57604036600319011261011c576004356108706109b6565b815f52600160205260405f205460ff8160a81c16156101e2576001600160a01b0316331415806108f5575b6101ae575f8281526002602090815260408083206001600160a01b0394909416808452939091528120805460ff191690559091907f070753b2e4a52b133f9aa6152bc9ac858e11eed6d0a136f12d9652686fe032bd9080a3005b50335f9081525f516020610bf55f395f51905f52602052604090205460ff161561089b565b3461011c57604036600319011261011c576109336109b6565b6004355f52600360205260405f209060018060a01b03165f52602052602060ff60405f2054166040519015158152f35b3461011c57602036600319011261011c576004359063ffffffff60e01b821680920361011c57602091637965db0b60e01b81149081156109a5575b5015158152f35b6301ffc9a760e01b1490508361099e565b602435906001600160a01b038216820361011c57565b92919267ffffffffffffffff82116107055760405191601f8101601f19908116603f0116830167ffffffffffffffff8111848210176107055760405282948184528183011161011c578281602093845f960137010152565b9060028210156106f15752565b805f52600160205260405f205460ff8160a81c1615610a895760a01c60ff1660028110156106f15715610a82575f52600260205260405f209060018060a01b03165f5260205260ff60405f20541690565b5050600190565b5050505f90565b9060028110156106f157815460ff60a01b191660a09190911b60ff60a01b16179055565b5f8181526020818152604080832033845290915290205460ff1615610ad65750565b63e2517d3f60e01b5f523360045260245260445ffd5b5f818152602081815260408083206001600160a01b038616845290915290205460ff16610b6e575f818152602081815260408083206001600160a01b0395909516808452949091528120805460ff19166001179055339291907f2f8788117e7eff1d82e926ec794901d17c78024a50270940304540a733656f0d9080a4600190565b50505f90565b5f818152602081815260408083206001600160a01b038616845290915290205460ff1615610b6e575f818152602081815260408083206001600160a01b0395909516808452949091528120805460ff19169055339291907ff6391f5c32d9c69d2a47ea670b442974b53935d1edc7fd64eb21e047a839171b9080a460019056fe01ddc098da42acdf4176da08ec75800bc0fb2bce2be978b2037bcb0ae6966519a2646970667358221220bf3fc034355da5bbc234da27e9088ac944099b56e27bf61105103297210e142f64736f6c634300081c0033ad3228b676f7d3cd4284a5443f17f1962b36e491b30a40b2405849e597ba5fb5"
+}

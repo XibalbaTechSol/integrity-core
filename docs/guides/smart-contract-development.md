@@ -30,7 +30,7 @@ built and tested with [Foundry](https://github.com/foundry-rs/foundry)
 cd contracts
 npm install          # pulls node_modules/@openzeppelin, @chainlink/contracts-ccip, etc. — see remappings.txt
 forge build
-forge test            # 165 tests as of this writing
+forge test            # 209 tests verified 2026-08-17
 ```
 
 `via_ir = true` is set in `contracts/foundry.toml` — required because
@@ -50,11 +50,11 @@ contracts/
                  AgentProfile, XibalbaNameService
     oracle/      ReputationRegistry, Slasher, StateAnchor, VerifierRegistry,
                  IntegrityToken, UltraPlonkVerifier, CCIPReputationBridge
-    shield/      CoveredEntityRegistry, SmartBAAFactory, SmartBAA,
+    health/      CoveredEntityRegistry, SmartBAAFactory, SmartBAA,
                  HIPAAGuardrailRegistry, EHRGate, ComplianceGate
     markets/     IntegrityMarket, MarketFactory, A2ACapitalPool
   test/          one *.t.sol per contract (mirrors src/ subdirectory names,
-                 e.g. test/shield/, test/markets/)
+                 e.g. test/health/, test/markets/)
   script/        Deploy.s.sol, DeployMarkets.s.sol, FixComplianceGateFactory.s.sol
   foundry.toml
   remappings.txt

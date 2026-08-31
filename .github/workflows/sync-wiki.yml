@@ -1,7 +1,8 @@
 name: Sync GitHub Wiki
 
-# Keeps the separate <repo>.wiki.git repo (the actual rendered GitHub Wiki)
-# in sync with docs/wiki/ (this repo's compiled "memory" wiki, see
+# Publishes the separate <repo>.wiki.git repo (the rendered GitHub Wiki) as a
+# downstream mirror of docs/wiki/, the only canonical authoring source. Direct
+# edits in GitHub Wiki are overwritten on the next publication.
 # .agents/AGENTS.md) whenever it changes on main. Runs scripts/sync_wiki.py,
 # which flattens docs/wiki/'s concepts/entities/ subdirectories into a single
 # directory -- GitHub Wiki only generates a rendered page URL for files at
@@ -32,7 +33,7 @@ permissions:
 
 jobs:
   sync-wiki:
-    name: Flatten docs/wiki/ into the wiki repo
+    name: Publish canonical docs/wiki/ to the wiki repo
     runs-on: ubuntu-latest
     steps:
       - name: Checkout main repo
@@ -44,6 +45,9 @@ jobs:
           repository: ${{ github.repository }}.wiki
           path: .wiki-checkout
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify canonical article tables of contents
+        run: python3 scripts/wiki_toc.py --check
 
       - name: Run sync
         run: python3 scripts/sync_wiki.py "${{ github.workspace }}/.wiki-checkout"

@@ -2,7 +2,7 @@
 title: Observability & PHI Safety Pipeline
 acronyms: [VTL]
 created: 2026-07-09
-updated: 2026-07-15
+updated: 2026-08-29
 type: concept
 tags: [sdk, compliance, infrastructure]
 confidence: high
@@ -28,6 +28,15 @@ speculative "Verifiable Trust Layer" (`GuardrailEngine`, `StateStore`
 time-travel, a separate `integrity-observability-backend` service, a
 `ReputationLedger`) — **none of that exists in this repo**; see the note at
 the bottom.
+
+## Table of contents
+
+- [The real gap this design fixes](#the-real-gap-this-design-fixes)
+- [Redactor — targeted, not blanket masking (built, tested)](#redactor-targeted-not-blanket-masking-built-tested)
+- [LLM-as-judge evaluation — storage/ingestion plumbing built; rubric [PLANNED]](#llm-as-judge-evaluation-storage-ingestion-plumbing-built-rubric-planned)
+- [Oracle-side defense in depth — built](#oracle-side-defense-in-depth-built)
+- [Dual-mode storage — [PLANNED], bigger roadmap item](#dual-mode-storage-planned-bigger-roadmap-item)
+- [What this page does NOT claim (correcting the old wiki)](#what-this-page-does-not-claim-correcting-the-old-wiki)
 
 ## The real gap this design fixes
 
@@ -71,7 +80,7 @@ redaction ran unconditionally). When `True`, `openai_integrity.py` calls
 non-streaming), and streamed chunks *before* any span attribute is set or
 [local-metrology](local-metrology.md) signals are derived from it;
 `langchain_callback.py` redacts `text_output` and `reasoning_content` the
-same way. **Any Xibalba Shield / healthcare-vertical agent MUST pass
+same way. **Any Integrity Health / healthcare-vertical agent MUST pass
 `redact_phi=True` explicitly** — neither wrapper can infer an agent's
 `compliance_vertical` on its own, so nothing auto-enables this for a
 healthcare deployment; leaving it at the default logs a `logger.warning`
@@ -172,7 +181,7 @@ layers).
 
 Mode 1 (transparent): full trace storage for non-regulated verticals,
 prioritizing developer debugging visibility. Mode 2 (Sovereign ZK-mode, for
-Shield/healthcare and any PHI-adjacent vertical): raw content never leaves
+Integrity Health/healthcare and any PHI-adjacent vertical): raw content never leaves
 local hardware at all — only a hash and a [ZK proof](zkp.md) of correct
 measurement leave the agent's process. Not built as a toggle; tracked in
 the root `README.md`'s "Vision & long-term roadmap" section.

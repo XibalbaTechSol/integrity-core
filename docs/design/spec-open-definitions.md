@@ -1,9 +1,19 @@
-# Spec v0.4 — open definitions
+# Spec — open definitions
 
 What remains to **define**, as distinct from what remains to **build**. Most `[PLANNED]`
 markers in the spec are fully specified and merely unimplemented; the six below are places the
 spec names something without saying what it is, so no implementation could be checked against
 it.
+
+**Retargeted 2026-08-31** from `spec/integrity-protocol-v0.4.md` (now archived,
+non-normative — see `docs/SPEC.md` §16) to the current normative `docs/SPEC.md` v1.0.0-draft.
+Gap 1 (scope algebra) below was re-verified against `docs/SPEC.md` §4.5 directly — the
+`delegation_active` primitive family still names `scope`/`scope_hash` without defining it, so
+the gap and proposal are unchanged. **Gaps 2–6 still cite `spec/integrity-protocol-v0.4.md`'s
+section numbers and have NOT been re-verified against `docs/SPEC.md`'s restructured sections**
+(trust tiers, AIS, and governance all moved and changed shape between the two documents) —
+treat those five as needing a fresh look against `docs/SPEC.md` before acting on them, not as
+current claims about §11 Trust tiers / §10 AIS / governance-over-primitives as it stands today.
 
 Ordered by whether they block work already approved.
 
@@ -22,17 +32,22 @@ Ordered by whether they block work already approved.
 
 ### The problem
 
-Spec v0.4 §4.3 defines authorization as `a ⊑ D.scope` and A5 requires `D'.scope ⊑ D.scope`
-for subdelegation — **and never defines what a scope is.** It is a plain omission there.
+`docs/SPEC.md` §4.5's `delegation_active` primitive family defines a grant as
+`(principal, agent, scope_hash) → {active, expires, meter}` and requires the hook to treat an
+"out-of-scope grant" as `V = 0` — **and never defines what a scope is**, only an opaque hash of
+one. It is a plain omission there, same as it was in the archived v0.4 §4.3 formalism
+(`a ⊑ D.scope`) this proposal originally targeted.
 
 The design note behind it goes further and makes the omission an inconsistency:
-[`thesis-extensions-formal.md`](thesis-extensions-formal.md) §1.1 calls scope "a
+[`thesis-extensions-formal.md`](../archive/2026-08/thesis-extensions-formal.md) §1.1 calls scope "a
 domain-specific capability set … the protocol treats it as opaque and only enforces
 containment." Containment over an opaque value is undecidable — you cannot check `⊑` on
 something you refuse to interpret.
 
-Either way the consequence is the same: A2 cannot be implemented and A5 cannot be verified, so
-authority has no enforceable meaning beyond what `SmartBAA` hard-codes.
+Either way the consequence is the same: `[PLANNED]` items that depend on scope (§4.5's
+kernel-level `(principal, agent, scope_hash)` view, IP-license packs distinguishing themselves
+from `SmartBAA` by scope alone) cannot be implemented or verified against anything more precise
+than `SmartBAA`'s own hard-coded PHI-class check.
 
 ### Proposal — typed capability tuples
 

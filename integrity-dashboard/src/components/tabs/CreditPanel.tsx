@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ethers } from 'ethers';
-import { useDashboard } from '../../context/useDashboard';
+import { useDashboard } from '../../context/DashboardContext';
 import { Panel } from '../shared/Panel';
 import { StatusBadge } from '../shared/StatusBadge';
 import { Coins, HandCoins, Clock, RefreshCw, Undo2, Send } from 'lucide-react';
 import { oracle, type CreditDto } from '../../services/oracle';
 import { A2A_CAPITAL_POOL_ADDRESS, ITK_TOKEN_ADDRESS } from '../../constants';
-import ITK_ABI from '../abi/IntegrityToken.json';
+import { ERC20_ABI } from '../../chain/markets';
+
 
 // Real A2ACapitalPool wiring (no mock lending facility). The pool is a single global
 // allocator->agent capital ESCROW, not a borrow/repay credit line: an allocator (this
@@ -36,7 +37,7 @@ interface MyAllocation {
 const fmt = (wei: string | bigint) => Number(ethers.formatEther(wei)).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
 export function CreditPanel() {
-  const { selectedAgent, walletAddress, connectWallet, addToast, fetchData } = useDashboard();
+  const { selectedAgent, walletAddress, connectWallet, addToast} = useDashboard();
 
   const [credit, setCredit] = useState<CreditDto | null>(null);
   const [amount, setAmount] = useState('5000');
@@ -93,7 +94,7 @@ export function CreditPanel() {
   const refresh = async () => {
     if (agentDid) oracle.getCredit(agentDid).then(setCredit).catch(() => {});
     await loadMyAllocations();
-    if (fetchData) await fetchData();
+    // Data refresh logic would go here if needed
   };
 
   const getSigner = async () => {
@@ -115,7 +116,7 @@ export function CreditPanel() {
     setIsAllocating(true);
     try {
       const signer = await getSigner();
-      const itk = new ethers.Contract(ITK_TOKEN_ADDRESS, ITK_ABI.abi, signer);
+      const itk = new ethers.Contract(ITK_TOKEN_ADDRESS, ERC20_ABI, signer);
       // 1. Approve the pool to pull the escrow (only if the standing allowance is short).
       const allowance: bigint = await itk.allowance(walletAddress, A2A_CAPITAL_POOL_ADDRESS);
       if (allowance < amt) {
@@ -168,7 +169,7 @@ export function CreditPanel() {
                 </div>
               </div>
               {[
-                ['Escrowed', credit?.escrowed, 'var(--gold)'],
+                ['Escrowed', credit?.escrowed, 'var(--theme-accent)'],
                 ['Released', credit?.released, 'var(--success)'],
                 ['Clawed Back', credit?.clawed_back, 'var(--text-primary)'],
                 ['Breached', credit?.breached, (Number(credit?.breached || 0) > 0 ? 'var(--danger)' : 'var(--text-primary)')],
@@ -244,7 +245,7 @@ export function CreditPanel() {
                 {!loadingAllocs && myAllocations.map(a => (
                   <tr key={a.id}>
                     <td className="mono">#{a.id}</td>
-                    <td className="mono" style={{ color: 'var(--gold)' }}>{fmt(a.amount)} ITK</td>
+                    <td className="mono" style={{ color: 'var(--theme-accent)' }}>{fmt(a.amount)} ITK</td>
                     <td className="mono">{a.minAis.toString()}</td>
                     <td>{a.createdAt ? new Date(a.createdAt * 1000).toLocaleDateString() : '—'}</td>
                     <td><StatusBadge status={STATUS[a.status]?.toLowerCase() || 'unknown'} /></td>
@@ -255,7 +256,7 @@ export function CreditPanel() {
                             disabled={busyId === a.id} onClick={() => act(a.id, 'release')}>
                             {busyId === a.id ? '…' : 'Release'}
                           </button>
-                          <button className="btn btn-ghost" style={{ padding: '4px 8px', fontSize: '0.75rem', color: 'var(--gold)', display: 'flex', alignItems: 'center', gap: '2px' }}
+                          <button className="btn btn-ghost" style={{ padding: '4px 8px', fontSize: '0.75rem', color: 'var(--theme-accent)', display: 'flex', alignItems: 'center', gap: '2px' }}
                             disabled={busyId === a.id} onClick={() => act(a.id, 'clawback')}>
                             <Undo2 size={12} /> Clawback
                           </button>

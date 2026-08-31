@@ -10,8 +10,9 @@ different name would read better in isolation.
 from __future__ import annotations
 
 import re
+import uuid
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 _HEX32 = re.compile(r"^0x[0-9a-fA-F]{64}$")  # 32 bytes hex, e.g. a sha256 digest
 _HEX_SIG = re.compile(r"^0x[0-9a-fA-F]+$")
@@ -48,7 +49,7 @@ class BCCCommitment(BaseModel):
     # that module for why an unset covered entity is never treated as
     # "compliant"). Deliberately an address, not a DID -- unlike agents,
     # covered entities are registered directly by EVM address in
-    # `contracts/src/shield/CoveredEntityRegistry.sol`, there is no DID layer
+    # `contracts/src/health/CoveredEntityRegistry.sol`, there is no DID layer
     # for them.
     covered_entity_address: str | None = Field(
         default=None,
@@ -69,6 +70,98 @@ class BCCCommitment(BaseModel):
         ...,
         description="Agent's Ed25519 public key, multibase (z-base58btc, multicodec ed25519-pub) — must hash to agent_id's fingerprint",
     )
+
+    # --- AOS-Observability Gating attributes ---
+    trace_id: str | None = Field(
+        default=None,
+        description="W3C trace ID associated with this action's execution context",
+    )
+    span_id: str | None = Field(
+        default=None,
+        description="W3C parent span ID representing the planning/reasoning phase",
+    )
+    intent_rationale: str | None = Field(
+        default=None,
+        description="Public-safe intent rationale for this action; signed and preferred by policy",
+    )
+    agent_thought: str | None = Field(
+        default=None,
+        description="Legacy alias for intent_rationale; retained for backward compatibility",
+    )
+    token_count: int | None = Field(
+        default=None,
+        ge=0,
+        description="Total LLM tokens consumed generating this action (prompt + completion); used for tier-based daily budget enforcement",
+    )
+
+    # --- Canonical intent encoding (docs/plans/2026-08-18-phase1-canonical-
+    # intent-encoding-proposal.md) -------------------------------------------
+    # Before these two fields, a commitment signed once was valid, byte-for-
+    # byte, against any chain or any deployment of the protocol sharing the
+    # signing agent's DID -- neither `nonce` (monotonic per-agent, but not
+    # deployment-scoped) nor anything else in §4.2 bound a commitment to a
+    # specific chain/deployment. Both REQUIRED, both signed (see
+    # canonical.py's canonical_commitment_bytes) so neither can be swapped
+    # post-signature. `app/main.py`'s deployment-binding check enforces
+    # `chain_id` unconditionally (Settings.chain_id always has a value) but
+    # enforces `verifying_contract` only when this deployment has a
+    # configured XibalbaAgentRegistry address -- see that check's own
+    # docstring for why that asymmetry is a disclosed limitation, not a
+    # silent downgrade.
+    chain_id: int = Field(..., gt=0, description="EVM chain ID this commitment is scoped to")
+    verifying_contract: str = Field(
+        ...,
+        description="0x-prefixed XibalbaAgentRegistry address for the target chain -- the root every downstream primitive in this architecture resolves through",
+    )
+    invocation_id: str | None = Field(
+        default=None,
+        description="Canonical UUID identifying one attempted action; signed when present",
+    )
+
+    @field_validator("invocation_id")
+    @classmethod
+    def _invocation_id_shape(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        try:
+            parsed = uuid.UUID(v)
+            canonical = str(parsed)
+        except (ValueError, AttributeError) as exc:
+            raise ValueError("invocation_id must be a canonical UUID") from exc
+        if v != canonical or parsed.int == 0:
+            raise ValueError("invocation_id must be a non-nil lowercase canonical UUID")
+        return v
+
+    @field_validator("verifying_contract")
+    @classmethod
+    def _verifying_contract_shape(cls, v: str) -> str:
+        if not _HEX_ADDR.match(v):
+            raise ValueError("verifying_contract must be 0x-prefixed 20-byte hex (an EVM address)")
+        return v
+
+    @field_validator("trace_id")
+    @classmethod
+    def _trace_id_shape(cls, v: str | None) -> str | None:
+        if v is not None and not re.match(r"^[0-9a-fA-F]{32}$", v):
+            raise ValueError("trace_id must be 32 hex characters")
+        return v
+
+    @field_validator("span_id")
+    @classmethod
+    def _span_id_shape(cls, v: str | None) -> str | None:
+        if v is not None and not re.match(r"^[0-9a-fA-F]{16}$", v):
+            raise ValueError("span_id must be 16 hex characters")
+        return v
+
+    @model_validator(mode="after")
+    def _normalize_rationale(self):
+        if self.intent_rationale and self.agent_thought and self.intent_rationale != self.agent_thought:
+            raise ValueError("intent_rationale and agent_thought must match when both are provided")
+        if not self.intent_rationale and self.agent_thought:
+            self.intent_rationale = self.agent_thought
+        if not self.agent_thought and self.intent_rationale:
+            self.agent_thought = self.intent_rationale
+        return self
 
     @field_validator("covered_entity_address")
     @classmethod
@@ -104,6 +197,7 @@ class BCCCommitment(BaseModel):
 
 class BCCInterceptResponse(BaseModel):
     authorized: bool
+    invocation_id: str | None = None
     reason: str | None = None
     # --- Shadow (monitor-only) mode signalling (see app/config.py) ---------
     # `enforced` is False whenever this response was produced in shadow mode --
@@ -125,6 +219,9 @@ class BCCInterceptResponse(BaseModel):
     # look up the anchoring transaction once the batch flushes).
     verification_token: str | None = None
     batch_index: int | None = None
+    # Remaining daily token budget for this agent after this request (None if
+    # token_count was not provided or agent is unlimited-tier).
+    token_budget_remaining: int | None = None
 
 
 class VerifyTokenRequest(BaseModel):
@@ -141,6 +238,17 @@ class VerifyTokenRequest(BaseModel):
 
 class VerifyTokenResponse(BaseModel):
     valid: bool
+
+
+class ClinicalAllowlistRequest(BaseModel):
+    """Full replacement list for the runtime clinical-agent allowlist OPA data
+    document (bcc.rego's `data.clinical_allowlist.agents` extension point)."""
+
+    agents: list[str] = Field(default_factory=list)
+
+
+class ClinicalAllowlistResponse(BaseModel):
+    agents: list[str]
 
 
 class HealthResponse(BaseModel):

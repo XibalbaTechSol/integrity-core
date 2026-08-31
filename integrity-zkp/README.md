@@ -23,9 +23,13 @@ Given:
 - a public `nonce` (the same per-agent monotonic nonce from that BCC
   object — already public on the wire, not a secret),
 - a public `agent_id_commitment` (the agent's long-lived ZK identity
-  commitment, published once at DID-creation time), and
+  commitment, published once at DID-creation time),
 - a public `intent_commitment` (the specific, per-action public commitment
-  this proof must reproduce),
+  this proof must reproduce), and
+- as of 2026-08-18, a public `chain_id` and public `verifying_contract` (the
+  EVM chain and `XibalbaAgentRegistry` deployment this proof is valid
+  for — see "CHAIN / CONTRACT BINDING" in `circuit/src/main.nr`, mirroring
+  the same binding already required for the non-ZK BCC commitment object),
 
 the circuit asserts:
 
@@ -33,23 +37,26 @@ the circuit asserts:
    — the prover holds the exact secret behind this agent's published
    identity, not just anyone who saw a public commitment. Prevents
    proof-of-identity spoofing.
-2. `pedersen_hash([DOMAIN_INTENT, secret_key, intent_payload_hash, nonce]) == intent_commitment`
+2. `pedersen_hash([DOMAIN_INTENT, secret_key, intent_payload_hash, nonce, chain_id, verifying_contract]) == intent_commitment`
    — the prover actually knows the intent payload that was locked in for
-   *this specific* nonce/action, not a fabricated or substituted one.
-   Binding the nonce in prevents a valid proof for one action being
-   replayed as if it covered a different action.
+   *this specific* nonce/action, not a fabricated or substituted one, on
+   *this specific* chain and deployment. Binding the nonce in prevents a
+   valid proof for one action being replayed as if it covered a different
+   action; binding `chain_id`/`verifying_contract` prevents a valid proof
+   for one deployment being replayed verbatim against another.
 3. `nonce != 0` — defensive rejection of an uninitialized/sentinel nonce.
 
 Both `assert`s are real constraints on real Pedersen hash gates — not
-`assert(true)`. See `src/main.nr` for the fully commented source (the
-comments explain the *why* — what attack each constraint stops — per
+`assert(true)`. See `circuit/src/main.nr` for the fully commented source
+(the comments explain the *why* — what attack each constraint stops — per
 INTERFACE_CONTRACT.md §10).
 
-Four `#[test]` functions in `src/main.nr` exercise this: one valid binding,
-and three invalid ones (wrong secret / substituted payload / zero nonce)
-that must each fail to satisfy the constraints — run with `nargo test`
-(output pasted below; all four pass, including the three `should_fail`
-cases correctly failing).
+Six `#[test]` functions in `circuit/src/main.nr` exercise this: one valid
+binding, and five invalid ones (wrong secret / substituted payload / zero
+nonce / wrong `chain_id` / wrong `verifying_contract`) that must each fail
+to satisfy the constraints — run with `nargo test --workspace` (output
+pasted below; all six pass, including the five `should_fail` cases
+correctly failing).
 
 ## Hash function choice — the one thing sibling packages MUST match
 
@@ -89,7 +96,8 @@ underlying data is "the same"):
 ```
 agent_id_commitment = pedersen_hash([DOMAIN_IDENTITY, secret_key])            // DOMAIN_IDENTITY = 1
 intent_commitment   = pedersen_hash([DOMAIN_INTENT, secret_key,
-                                      intent_payload_hash, nonce])             // DOMAIN_INTENT = 2
+                                      intent_payload_hash, nonce,
+                                      chain_id, verifying_contract])           // DOMAIN_INTENT = 2
 ```
 
 **Converting bytes to a Field** (needed for both `secret_key` and
@@ -112,6 +120,12 @@ secret_key_field = bytes_be_to_field_mod_r(blake2s(ed25519_seed).digest())
 # intent_payload_hash: the BCC object's own intended_state_hash bytes
 intent_payload_hash_field = bytes_be_to_field_mod_r(bytes.fromhex(intended_state_hash[2:]))
 ```
+
+**`chain_id`/`verifying_contract` need no reduction** — an EVM chain ID and
+address are both well under the ~254-bit BN254 scalar field, so packing is
+just `int(chain_id)` and `int(verifying_contract_address_hex, 16)`, lossless
+and injective (no keccak, no padding, no truncation). This differs from the
+SHA-256 packing above, which IS lossy — don't conflate the two conversions.
 
 **Domain separation** (`DOMAIN_IDENTITY = 1`, `DOMAIN_INTENT = 2`): both
 hashes start with the same `secret_key` element; without a domain tag, a
@@ -143,20 +157,29 @@ honesty rule the interface contract sets for TEE attestation (§8): say
 plainly what's real and what's out of scope, rather than silently
 pretending the boundary isn't there.
 
-## Fixture values (`Prover.toml`)
+## Fixture values (`circuit/Prover.toml`)
 
-The checked-in `Prover.toml` fixture uses `secret_key = 0xf00d`,
-`intent_payload_hash = 0xc0ffee`, `nonce = 7` (as 32-byte hex strings), with
-`agent_id_commitment` / `intent_commitment` precomputed to match via
-Pedersen hash. These were derived by adding a temporary `#[test]` that
-called `std::hash::pedersen_hash` on the fixture inputs and printed the
-results with `std::println` (via `nargo test --show-output`), then
-transcribing the printed Field values into `Prover.toml`. To regenerate for
-different inputs, do the same: temporarily add a test that prints
-`pedersen_hash([DOMAIN_IDENTITY, secret_key])` and
-`pedersen_hash([DOMAIN_INTENT, secret_key, intent_payload_hash, nonce])`
-for your chosen values, run `nargo test --show-output <name>`, copy the
-output into `Prover.toml`, then delete the temporary test.
+The checked-in `circuit/Prover.toml` fixture uses `secret_key = 0xf00d`,
+`intent_payload_hash = 0xc0ffee`, `nonce = 7`, `chain_id = 31337` (local
+anvil), `verifying_contract = 0x5FC8...875707` (the `XibalbaAgentRegistry`
+singleton address from `deployments.local.json`) — as 32-byte hex strings —
+with `agent_id_commitment` / `intent_commitment` precomputed to match via
+Pedersen hash. As of 2026-08-18, regenerating these no longer needs a
+temporary `#[test]`+`println` round-trip: `tools/commitment_calc` (a second
+workspace member — see "Directory layout" below) computes both commitments
+directly. Run:
+
+```
+cd tools/commitment_calc
+# write a Prover.toml with secret_key/intent_payload_hash/nonce/chain_id/
+# verifying_contract for your chosen values, then:
+nargo execute out
+```
+
+and read the two Field values off the printed `Circuit output: (0x.., 0x..)`
+line — this is also exactly what `integrity-sdk`'s `prover.py` does
+programmatically at proof-generation time (see "`integrity-sdk` handoff"
+below).
 
 ## Exact commands run (real output)
 
@@ -166,21 +189,29 @@ Ethereum/Solidity-compatible proving configuration (Keccak transcript) so
 the same circuit's proof/vk can be verified both natively via `bb verify`
 and, once contracts/ consumes `generated/UltraPlonkVerifier.sol`, on-chain.
 
-### 1. `nargo test` — constraint unit tests
+### 1. `nargo test --workspace` — constraint unit tests, both workspace members
 
 ```
-$ nargo test
-[integrity_zkp] Running 4 test functions
+$ nargo test --workspace
+[commitment_calc] Running 1 test function
+[commitment_calc] Testing test_matches_main_circuit_fixture ... ok
+[commitment_calc] 1 test passed
+[integrity_zkp] Running 6 test functions
 [integrity_zkp] Testing test_invalid_binding_wrong_secret ... ok
-[integrity_zkp] Testing test_valid_binding ... ok
-[integrity_zkp] Testing test_invalid_binding_zero_nonce ... ok
+[integrity_zkp] Testing test_invalid_binding_wrong_verifying_contract ... ok
 [integrity_zkp] Testing test_invalid_binding_wrong_payload ... ok
-[integrity_zkp] 4 tests passed
+[integrity_zkp] Testing test_invalid_binding_wrong_chain_id ... ok
+[integrity_zkp] Testing test_invalid_binding_zero_nonce ... ok
+[integrity_zkp] Testing test_valid_binding ... ok
+[integrity_zkp] 6 tests passed
 ```
 
-All three `should_fail` tests (wrong secret, substituted payload, zero
-nonce) correctly fail to satisfy the circuit's constraints; the valid
-binding correctly succeeds.
+All five `should_fail` tests (wrong secret, substituted payload, zero
+nonce, wrong `chain_id`, wrong `verifying_contract`) correctly fail to
+satisfy the circuit's constraints; the valid binding correctly succeeds.
+`commitment_calc`'s one test cross-checks its output against
+`circuit/Prover.toml`'s checked-in fixture — see "Directory layout" below
+for why that package exists.
 
 ### 2. `nargo compile` — produce ACIR bytecode
 
@@ -253,7 +284,10 @@ Produces `generated/UltraPlonkVerifier.sol` — **2465 lines**, a real
 generated Solidity verifier contract (not a stub), keyed to the exact
 verification key computed above (`VK_HASH` constant in the file equals the
 contents of `target/vk/vk_hash`,
-`29631cc6d55f5411f83b65121192f9f932a6b66067848cc8f8cc1ad191ab8394`).
+`285b392aa3c3050313f432ce1a71562d8e2145e6d0a1475780705a68860e6b5f` as of the
+2026-08-18 chain_id/verifying_contract binding — this changes every time the
+circuit's public-input shape changes, so treat any specific hash value here
+as a snapshot, not a pin).
 
 **Naming note for `contracts/`:** the file is named
 `UltraPlonkVerifier.sol` to match the placeholder path
@@ -263,12 +297,17 @@ INTERFACE_CONTRACT.md §5.3/§9, but `bb`'s printed scheme is
 system is **UltraHonk**, not the older UltraPlonk. The generated contract
 is a real Honk verifier; treat "UltraPlonkVerifier.sol" as the *filename
 contracts/ is expecting*, not a claim about the underlying proof system.
-The contract also declares `NUMBER_OF_PUBLIC_INPUTS = 11`, not 3 — Honk
-verifiers append internal protocol accumulator/pairing-point public inputs
-after this circuit's own 3 (`agent_id_commitment`, `nonce`,
-`intent_commitment`); `contracts/` must pass through whatever `bb`'s
-`public_inputs` output contains verbatim to the verifier's `verify()`
-call rather than assuming a 3-element array.
+The contract also declares `NUMBER_OF_PUBLIC_INPUTS = 13`, not 5 — Honk
+verifiers append 8 internal protocol accumulator/pairing-point public
+inputs after this circuit's own 5 (`agent_id_commitment`, `nonce`,
+`intent_commitment`, `chain_id`, `verifying_contract`); `contracts/` must
+pass through whatever `bb`'s `public_inputs` output contains verbatim to
+the verifier's `verify()` call rather than assuming a 5-element array. Note
+`bb prove`'s own `public_inputs` output file only ever contains the
+circuit's real public inputs (160 bytes = 5 × 32 for this circuit) — the 8
+pairing-point words are carried inside the proof bytes themselves, not
+this file; `NUMBER_OF_PUBLIC_INPUTS = 13` describes what the Solidity
+verifier's `verify()` expects internally, not the shape of `public_inputs`.
 
 ## Handoff to `contracts/`
 
@@ -287,17 +326,31 @@ call rather than assuming a 3-element array.
 
 ## `integrity-sdk` handoff (`prover.py`)
 
-`integrity-sdk`'s `prover.py` is expected to shell out to this package's
-toolchain per §5 item 4:
-1. Compute `secret_key_field` and `intent_payload_hash_field` per the
-   Python snippet above.
-2. Write a `Prover.toml` with those two as private inputs and
-   `agent_id_commitment` / `nonce` / `intent_commitment` as public inputs
-   (computed the same way `Prover.toml`'s fixture was derived here).
-3. Run `nargo execute <name>` (from this package's directory, or
-   `nargo execute --program-dir <path-to-integrity-zkp>`), then `bb prove`
-   / optionally `bb verify` locally before submitting the proof to
-   `integrity-oracle` or on-chain, exactly as run above.
+As of 2026-08-18, `integrity-sdk`'s `prover.py` (`NoirProver.generate_proof`)
+actually drives this package's real toolchain — it is not a placeholder and
+does not point at any other circuit:
+1. Compute `secret_key_field` (KDF'd from the agent's Ed25519 seed) and
+   `intent_payload_hash_field` (reduced SHA-256 `intended_state_hash`) per
+   the Python snippet above; pack `nonce`/`chain_id` as plain ints and
+   `verifying_contract` as `int(address, 16)` (lossless — see
+   `circuit/src/main.nr`'s "CHAIN / CONTRACT BINDING").
+2. Run `tools/commitment_calc` (via `nargo execute`, parsing its
+   `Circuit output: (0x.., 0x..)` stdout line) to get
+   `agent_id_commitment` / `intent_commitment` — see "Fixture values" above
+   for why this goes through the real toolchain instead of a Python
+   Pedersen-hash reimplementation.
+3. Write `circuit/Prover.toml` with all 7 named fields (2 private, 5
+   public) and run `nargo execute` there, then `bb prove -t evm` / `bb
+   verify -t evm` — `-t evm` (not `-t noir-recursive-no-zk`, an earlier
+   default this module used before it was wired to a real circuit) is
+   required for on-chain compatibility with `contracts/src/oracle/
+   UltraPlonkVerifier.sol`, which is generated with the same target.
+
+Both `circuit/` and `tools/commitment_calc/` are members of one Nargo
+workspace, so `prover.py` only ever needs to know the workspace root
+(`integrity-sdk/../integrity-zkp`) — build output for every member lands in
+one shared `<workspace_root>/target/`, confirmed empirically (see
+"Directory layout" below).
 
 ## Makefile targets (CI-runnable)
 
@@ -318,13 +371,28 @@ sequence of commands transcribed above, not a separate/looser check.
 
 ## Directory layout
 
+As of 2026-08-18 this is a two-member Nargo workspace, not a single
+package — `circuit` is the real proving circuit (`default-member`, so
+plain `nargo compile`/`test`/`execute` run from the workspace root target
+it without `--package`); `tools/commitment_calc` is a small sibling package
+that exists purely so `integrity-sdk`'s `prover.py` (and anyone else who
+needs `agent_id_commitment`/`intent_commitment` before writing
+`circuit/Prover.toml`) can compute those two Pedersen hashes through the
+real toolchain instead of a second, divergence-prone implementation — see
+`tools/commitment_calc/src/main.nr`'s own docstring.
+
 ```
 integrity-zkp/
-  Nargo.toml
-  Prover.toml           # checked-in real fixture (see "Fixture values")
+  Nargo.toml                    # [workspace] members = ["circuit", "tools/commitment_calc"]
   Makefile
-  src/main.nr           # the circuit + its #[test]s
-  target/                # nargo/bb build artifacts (gitignored, regenerate with `make build`)
+  circuit/
+    Nargo.toml                  # package "integrity_zkp"
+    Prover.toml                 # checked-in real fixture (see "Fixture values")
+    src/main.nr                 # the circuit + its #[test]s
+  tools/commitment_calc/
+    Nargo.toml                  # package "commitment_calc"
+    src/main.nr                 # offline agent_id_commitment/intent_commitment calculator + cross-check test
+  target/                       # nargo/bb build artifacts for EVERY workspace member (gitignored, regenerate with `make build`)
   generated/
-    UltraPlonkVerifier.sol   # hand-off artifact for contracts/ (checked in)
+    UltraPlonkVerifier.sol      # hand-off artifact for contracts/ (checked in)
 ```

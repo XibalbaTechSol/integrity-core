@@ -1,26 +1,37 @@
 import { USERAPI_URL } from '../config';
 
 // Mirrors integrity-userapi/app/schemas.py. JWT is kept in sessionStorage,
-// not localStorage — deliberately short-lived, cleared when the tab closes,
-// consistent with how the SDK/CLI treat credentials as ephemeral rather than
-// durably persisted secrets.
+// not localStorage — deliberately short-lived, cleared when the tab closes.
 const TOKEN_KEY = 'integrity_userapi_jwt';
 
-// Fired on every auth transition (login, register, logout) so the app shell
-// (Sidebar's real-session profile) can refresh without a full reload.
-// sessionStorage's native 'storage' event only fires in OTHER tabs, never the
-// one that made the change, so this same-tab custom event is required.
 const emitAuthChanged = () => {
     if (typeof window !== 'undefined') window.dispatchEvent(new Event('integrity-auth-changed'));
 };
 
-export const getToken = (): string | null => sessionStorage.getItem(TOKEN_KEY);
+// Some browser/embedding contexts throw on any Storage access rather than returning null --
+// getToken() is called directly from SettingsContext's render body (apiKeysAuthed), so an
+// unguarded throw here takes down every route that provider wraps, not just an auth check.
+export const getToken = (): string | null => {
+    try {
+        return sessionStorage.getItem(TOKEN_KEY);
+    } catch {
+        return null;
+    }
+};
 const setToken = (token: string) => {
-    sessionStorage.setItem(TOKEN_KEY, token);
+    try {
+        sessionStorage.setItem(TOKEN_KEY, token);
+    } catch {
+        // Best-effort only -- see getToken's comment.
+    }
     emitAuthChanged();
 };
 export const clearToken = () => {
-    sessionStorage.removeItem(TOKEN_KEY);
+    try {
+        sessionStorage.removeItem(TOKEN_KEY);
+    } catch {
+        // Best-effort only -- see getToken's comment.
+    }
     emitAuthChanged();
 };
 
@@ -100,13 +111,22 @@ export const userapi = {
     logout: () => clearToken(),
     me: async () => {
         const u = await request<UserResponse>('/me', {}, true);
-        const localName = localStorage.getItem(`integrity_name_${u.id}`);
+        let localName: string | null = null;
+        try {
+            localName = localStorage.getItem(`integrity_name_${u.id}`);
+        } catch {
+            // Best-effort only -- see getToken's comment.
+        }
         if (localName) u.name = localName;
         return u;
     },
     updateProfile: async (data: { name: string }) => {
         const u = await request<UserResponse>('/me', {}, true);
-        localStorage.setItem(`integrity_name_${u.id}`, data.name);
+        try {
+            localStorage.setItem(`integrity_name_${u.id}`, data.name);
+        } catch {
+            // Best-effort only -- see getToken's comment.
+        }
         return { ...u, name: data.name };
     },
     listApiKeys: () => request<ApiKeyResponse[]>('/api-keys', {}, true),
@@ -118,14 +138,12 @@ export const userapi = {
             method: 'POST',
             body: JSON.stringify({ agent_did: agentDid }),
         }, true),
-    // Custodial app wallet (real internal $ITK ledger).
     getWallet: () => request<{ app_wallet_address: string; balance: number }>('/me/wallet', {}, true),
     walletTransfer: (recipient_address: string, amount: number) =>
         request<{ status: string; new_balance: number }>('/me/wallet/transfer', {
             method: 'POST',
             body: JSON.stringify({ recipient_address, amount }),
         }, true),
-    startDemoRun: () => request<any>('/demo/run', { method: 'POST' }, true),
 };
 
 export { UserApiError };

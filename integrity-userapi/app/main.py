@@ -11,6 +11,7 @@ stores only a DID pointer, never a cache of full agent state.
 
 from __future__ import annotations
 
+import asyncio
 import secrets
 
 import asyncpg
@@ -46,10 +47,16 @@ from app.security import (
     hash_password,
     verify_password,
 )
+from app.security import (
+    create_access_token,
+    generate_api_key,
+    hash_password,
+    verify_password,
+)
 
 app = FastAPI(title="integrity-userapi", version="0.1.0")
 
-# integrity-mvp (the browser dashboard, task #21) is a cross-origin caller by
+# integrity-dashboard (the browser dashboard, task #21) is a cross-origin caller by
 # construction -- it's served by Vite on its own port (5173 dev / 5190 e2e),
 # never the same origin as this API. To ensure security, CORS origins are explicitly
 # restricted to trusted frontend domains instead of using a wildcard '*'.
@@ -197,7 +204,6 @@ async def me(
 # faked number. New wallets get a dev faucet grant so the app-wallet flow is usable locally.
 
 _DEV_FAUCET_WEI = 10_000 * 10**18
-
 
 @app.get("/me/wallet", response_model=WalletResponse)
 async def get_wallet(
@@ -347,9 +353,12 @@ async def list_my_agents(
         "SELECT agent_did, added_at FROM user_agents WHERE user_id = $1 ORDER BY added_at DESC",
         UUID(user_id),
     )
+    lookups = await asyncio.gather(
+        *(oracle_client.fetch_agent(row["agent_did"], settings) for row in rows)
+    )
+
     results: list[OwnedAgentResponse] = []
-    for row in rows:
-        lookup = await oracle_client.fetch_agent(row["agent_did"], settings)
+    for row, lookup in zip(rows, lookups):
         results.append(
             OwnedAgentResponse(
                 agent_did=row["agent_did"],
@@ -440,7 +449,7 @@ async def update_demo_run(
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> DemoRunResponse:
     """The completion-callback side of the demo_runs bridge: an actual
-    executor (integrity-mvp/demo's scenario engine, see its `main.py`
+    executor (integrity-dashboard/demo's scenario engine, see its `main.py`
     module docstring) reports real status/result transitions back here.
     `finished_at` is stamped only on a terminal status (completed/failed);
     it stays null while transitioning through 'running'. Scoped to the

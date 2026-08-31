@@ -71,3 +71,13 @@ tonic = "0.14"
 prost = "0.14"
 opentelemetry-proto = { version = "0.32.0", features = ["gen-tonic", "trace", "metrics"] }
 tokio-stream = { version = "0.1.18", features = ["sync"] }
+ciborium = "0.2.2"
+p384 = "0.14.0"
+p256 = "0.14.0"
+x509-cert = "0.3.0"
+
+[dev-dependencies]
+# `alloy`'s own `rpc::json_rpc` re-export is gated behind a meta-crate feature "full"
+# doesn't turn on, so chain.rs's error-classification unit tests depend on the
+# underlying crate directly -- test-only, doesn't touch the production alloy feature set.
+alloy-json-rpc = "2.1"

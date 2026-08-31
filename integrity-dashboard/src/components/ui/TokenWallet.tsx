@@ -1,29 +1,196 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ethers } from 'ethers';
-import { getToken, userapi } from '../../services/userapi';
+import QRCode from 'qrcode';
+
 import {
     Coins, ArrowDownLeft, Loader2,
-    Copy, ShieldCheck, Landmark, X, ArrowUpRight, ArrowDownRight, Fingerprint
+    Copy, ShieldCheck, Landmark, X, ArrowUpRight, ArrowDownRight, Fingerprint, Flame
 } from 'lucide-react';
 import { ITK_TOKEN_ADDRESS, RPC_URL } from '../../constants';
-import ITK_ABI from '../abi/IntegrityToken.json';
-import { useDashboard } from '../../context/useDashboard';
-import { oracle } from '../../services/oracle';
+import { ERC20_ABI, executeAsAgent } from '../../chain/markets';
+
+import { useDashboard } from '../../context/DashboardContext';
+import { oracle, TransactionDto, CreditDto } from '../../services/oracle';
+import { userapi, getToken } from '../../services/userapi';
+
+function CreditSummary({ agentId }: { agentId?: string }) {
+    const [credit, setCredit] = useState<CreditDto | null>(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        if (!agentId) { setLoading(false); return; }
+        let active = true;
+        oracle.getCredit(agentId)
+            .then(c => { if (active) setCredit(c); })
+            .catch(() => { if (active) setCredit(null); })
+            .finally(() => { if (active) setLoading(false); });
+        return () => { active = false; };
+    }, [agentId]);
+
+    return (
+        <div style={{ textAlign: 'center' }}>
+            <Landmark size={48} style={{ color: 'var(--theme-accent)', marginBottom: 'var(--space-6)' }} />
+            <h3 style={{ marginTop: 0, marginBottom: 'var(--space-4)', fontSize: '1.5rem', fontWeight: 800, fontFamily: 'Playfair Display, serif' }}>Capital Allocation</h3>
+            <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 'var(--space-8)' }}>
+                Real A2ACapitalPool credit position for this agent — allocation-based, not an interest-bearing loan.
+            </p>
+            {loading ? (
+                <div className="skeleton" style={{ height: '80px', borderRadius: 'var(--r-md)' }} />
+            ) : !credit ? (
+                <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No credit allocations for this agent yet.</div>
+            ) : (
+                <div style={{ background: 'var(--glass-surface-light)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', padding: 'var(--space-6)', textAlign: 'left' }}>
+                    {[
+                        ['Total Allocated', credit.total_allocated],
+                        ['Escrowed', credit.escrowed],
+                        ['Released', credit.released],
+                        ['Clawed Back', credit.clawed_back],
+                        ['Breached', credit.breached],
+                    ].map(([label, value]) => (
+                        <div key={label} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 'var(--space-2)' }}>
+                            <span style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-muted)' }}>{(label as string).toUpperCase()}</span>
+                            <span style={{ fontSize: '0.7rem', fontWeight: 800, color: 'white' }}>{Number(ethers.formatEther(value)).toLocaleString()} ITK</span>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
 
 interface Transaction {
     hash: string;
-    from: string;
-    to: string;
+    type: string;
     value: string;
     isOut: boolean;
     status: string;
 }
 
+function toTransaction(t: TransactionDto): Transaction {
+    const isOut = /send|withdraw|out|transfer_out|debit/i.test(t.type);
+    // t.amount is a raw wei string (see oracle backend TransactionDto) — format for display.
+    let value = t.amount;
+    try { value = ethers.formatEther(t.amount); } catch { /* not a valid wei string, show as-is */ }
+    return { hash: t.id, type: t.type, value, isOut, status: t.status };
+}
+
+// The oracle's own GET /v1/agent/{id}/wallet always returns transaction_history: null --
+// its own doc comment says building a real history requires indexing on-chain Transfer
+// events, which that pass never built (see integrity-oracle/backend/src/handlers.rs). No
+// backend indexer exists, so this reads the REAL ERC-20 Transfer log directly from Base
+// Sepolia instead of leaving Activity permanently empty.
+//
+// The dashboard's configured RPC (constants.ts's RPC_URL, currently sepolia.base.org --
+// confirmed live, NOT the base-sepolia-rpc.publicnode.com endpoint this comment
+// originally assumed) hard-caps a single eth_getLogs call at 10,000 blocks ("eth_getLogs
+// is limited to a 10,000 range", error -32614). Base Sepolia is well past block 45M, so
+// this paginates backward from the chain tip in 9,500-block windows, fired with limited
+// concurrency rather than one at a time (a fully sequential loop at this chunk size would
+// need ~200 round-trips to cover MAX_LOOKBACK_BLOCKS and take well over a minute). Bounded
+// by MAX_LOOKBACK_BLOCKS so a very old agent doesn't trigger unbounded RPC load on every
+// page load; hitting that bound is surfaced honestly as `truncated`, never silently
+// presented as complete history.
+const CHUNK_BLOCKS = 9_500; // stay under the RPC's confirmed 10,000-block cap
+const MAX_LOOKBACK_BLOCKS = 1_500_000; // ~35 days at Base Sepolia's ~2s block time
+const CONCURRENCY = 12;
+async function fetchOnChainTransferHistory(
+    provider: ethers.JsonRpcProvider,
+    sovereignAgent: string,
+): Promise<{ transactions: Transaction[]; truncated: boolean }> {
+    const itk = new ethers.Contract(ITK_TOKEN_ADDRESS, ERC20_ABI, provider);
+    const incoming = itk.filters.Transfer(null, sovereignAgent);
+    const outgoing = itk.filters.Transfer(sovereignAgent, null);
+
+    const latest = await provider.getBlockNumber();
+    const genesisBound = Math.max(0, latest - MAX_LOOKBACK_BLOCKS);
+
+    const ranges: Array<[number, number]> = [];
+    for (let toBlock = latest; toBlock >= genesisBound; toBlock -= CHUNK_BLOCKS) {
+        const fromBlock = Math.max(genesisBound, toBlock - CHUNK_BLOCKS + 1);
+        ranges.push([fromBlock, toBlock]);
+        if (fromBlock === genesisBound) break;
+    }
+
+    const logs: ethers.EventLog[] = [];
+    let truncated = genesisBound > 0; // MAX_LOOKBACK_BLOCKS may have cut off real history
+
+    for (let i = 0; i < ranges.length; i += CONCURRENCY) {
+        const batch = ranges.slice(i, i + CONCURRENCY);
+        const results = await Promise.allSettled(
+            batch.flatMap(([fromBlock, toBlock]) => [
+                itk.queryFilter(incoming, fromBlock, toBlock),
+                itk.queryFilter(outgoing, fromBlock, toBlock),
+            ]),
+        );
+        for (const r of results) {
+            if (r.status === 'fulfilled') logs.push(...(r.value as ethers.EventLog[]));
+            else truncated = true; // a failed chunk (rate limit, transient error) truncates just that window
+        }
+    }
+
+    logs.sort((a, b) => (b.blockNumber - a.blockNumber) || (b.index ?? 0) - (a.index ?? 0));
+
+    const transactions = logs.map((log): Transaction => {
+        const from = (log.args?.from as string) ?? '';
+        const to = (log.args?.to as string) ?? '';
+        const value = (log.args?.value as bigint) ?? 0n;
+        const isOut = from.toLowerCase() === sovereignAgent.toLowerCase();
+        return {
+            hash: log.transactionHash,
+            type: isOut ? `transfer_out -> ${to.slice(0, 10)}...` : `transfer_in <- ${from.slice(0, 10)}...`,
+            value: ethers.formatEther(value),
+            isOut,
+            status: 'confirmed',
+        };
+    });
+
+    return { transactions, truncated };
+}
+
+// Every mount was re-running the full ~130-chunk paginated RPC fetch from scratch (10-15s),
+// even just switching tabs and back -- there's no backend indexer to ask instead (see
+// fetchOnChainTransferHistory's own comment), so the only way to make it not feel like it
+// "doesn't persist" is to cache the real result client-side. sessionStorage (not just an
+// in-memory Map) so it survives a full page reload within the same browser tab, not just a
+// React remount. Short TTL because new transfers can arrive at any time -- this is a
+// snappy-reload cache, not a replacement for the real chain being the source of truth.
+const HISTORY_CACHE_TTL_MS = 2 * 60 * 1000;
+function loadCachedHistory(sovereignAgent: string): { transactions: Transaction[]; truncated: boolean } | null {
+    try {
+        const raw = sessionStorage.getItem(`itk-tx-history:${sovereignAgent.toLowerCase()}`);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (Date.now() - parsed.cachedAt > HISTORY_CACHE_TTL_MS) return null;
+        return { transactions: parsed.transactions, truncated: parsed.truncated };
+    } catch {
+        return null;
+    }
+}
+function saveCachedHistory(sovereignAgent: string, transactions: Transaction[], truncated: boolean): void {
+    try {
+        sessionStorage.setItem(
+            `itk-tx-history:${sovereignAgent.toLowerCase()}`,
+            JSON.stringify({ transactions, truncated, cachedAt: Date.now() }),
+        );
+    } catch {
+        // Best-effort only -- a full sessionStorage quota just means no caching, not a crash.
+    }
+}
+function clearCachedHistory(sovereignAgent: string): void {
+    try {
+        sessionStorage.removeItem(`itk-tx-history:${sovereignAgent.toLowerCase()}`);
+    } catch {
+        // Best-effort only.
+    }
+}
+
 export const TokenWallet = () => {
-    const { selectedAgent, agents } = useDashboard() as any;
+    const { selectedAgent, agents, addToast, walletAddress, connectWallet } = useDashboard() as any;
     const [balance, setBalance] = useState<string>('0.0');
-    const [profileBalance, setProfileBalance] = useState<number>(0);
+    const [gasBalance, setGasBalance] = useState<string>('0.0');
+    const [profileBalance, setProfileBalance] = useState<number | null>(null);
     const [appWalletAddress, setAppWalletAddress] = useState<string | null>(null);
     const [address, setAddress] = useState<string>('');
     const [recipient, setRecipient] = useState('');
@@ -32,163 +199,128 @@ export const TokenWallet = () => {
     const [isFetching, setIsFetching] = useState(true);
     const [isProfileLoading, setIsProfileLoading] = useState(true);
     const [txHistory, setTxHistory] = useState<Transaction[]>([]);
+    const [historyTruncated, setHistoryTruncated] = useState(false);
     const [activeTab, setActiveTab] = useState<'assets' | 'activity'>('assets');
     const [activeModal, setActiveModal] = useState<'send' | 'receive' | 'loan' | 'stake' | null>(null);
+    const [connecting, setConnecting] = useState(false);
+    const qrCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
+    // Real custodial app wallet (userapi's internal $ITK ledger) — only present once
+    // the user has a session; there's no fabricated fallback balance otherwise.
     const fetchProfileData = useCallback(async () => {
-        // Real custodial app wallet from userapi (per-user internal $ITK ledger). Only when
-        // signed in; the self-custodial on-chain balance below is independent.
-        if (!getToken()) { setIsProfileLoading(false); return; }
+        setIsProfileLoading(true);
+        if (!getToken()) {
+            setProfileBalance(null);
+            setAppWalletAddress(null);
+            setIsProfileLoading(false);
+            return;
+        }
         try {
             const w = await userapi.getWallet();
             setProfileBalance(w.balance);
             setAppWalletAddress(w.app_wallet_address);
         } catch {
-            /* userapi unreachable — leave app-wallet unset */
+            setProfileBalance(null);
+            setAppWalletAddress(null);
         } finally {
             setIsProfileLoading(false);
         }
     }, []);
 
     const fetchWalletData = useCallback(async () => {
+        if (!selectedAgent) { setIsFetching(false); return; }
         setIsFetching(true);
         try {
-            let activeAddr = '';
-            let activeProvider: ethers.BrowserProvider | ethers.JsonRpcProvider | null = null;
-            const ethereum = (window as Window & typeof globalThis & { ethereum?: any }).ethereum;
-
-            // Agent treasury FIRST. This dashboard is agent-centric: the headline
-            // "ITK BALANCE (TESTNET)" is the selected agent's on-chain treasury, held by its
-            // SovereignAgent contract. Previously any connected browser wallet won this
-            // race, so the panel showed the operator EOA's balance (typically 0) while the
-            // agent's real ITK sat invisible.
-            //
-            // `eth_address` carries the agent's DID, NOT an EVM address (see
-            // DashboardProvider's mapOracleAgent), so it can never go to `balanceOf`
-            // directly — resolve the real SovereignAgent through the oracle, which reads
-            // `IntegrityToken.balanceOf(sovereignAgent)` on-chain itself.
-            if (selectedAgent?.eth_address) {
+            const w = await oracle.getWallet(selectedAgent.eth_address);
+            setAddress(w.sovereign_agent);
+            // w.itk_balance is a raw wei string straight off the chain (U256::to_string()).
+            setBalance(ethers.formatEther(w.itk_balance));
+            // Native ETH the SovereignAgent holds for its own gas -- oracle.getWallet doesn't
+            // report this, so read it directly the same way LicencePage reads a contract's
+            // native balance.
+            const provider = new ethers.JsonRpcProvider(RPC_URL);
+            const eth = await provider.getBalance(w.sovereign_agent);
+            setGasBalance(ethers.formatEther(eth));
+            // The oracle's own transaction_history is always null (no indexer built yet --
+            // see fetchOnChainTransferHistory's comment) -- read the real ERC-20 Transfer
+            // log directly instead of showing a permanently-empty Activity tab. Cached in
+            // sessionStorage (see loadCachedHistory) so switching agents/pages and coming
+            // back doesn't re-run the full multi-chunk fetch every time.
+            const cached = loadCachedHistory(w.sovereign_agent);
+            if (cached) {
+                setTxHistory(cached.transactions.length > 0 ? cached.transactions : (w.transaction_history || []).map(toTransaction));
+                setHistoryTruncated(cached.truncated);
+            } else {
                 try {
-                    const wallet = await oracle.getWallet(selectedAgent.eth_address);
-                    activeAddr = wallet.sovereign_agent;
-                    activeProvider = new ethers.JsonRpcProvider(RPC_URL);
-                } catch (e) {
-                    console.error('Could not resolve the agent SovereignAgent address', e);
+                    const { transactions, truncated } = await fetchOnChainTransferHistory(provider, w.sovereign_agent);
+                    setTxHistory(transactions.length > 0 ? transactions : (w.transaction_history || []).map(toTransaction));
+                    setHistoryTruncated(truncated);
+                    saveCachedHistory(w.sovereign_agent, transactions, truncated);
+                } catch {
+                    setTxHistory((w.transaction_history || []).map(toTransaction));
+                    setHistoryTruncated(false);
                 }
             }
-
-            if (!activeAddr && ethereum) {
-                try {
-                    const provider = new ethers.BrowserProvider(ethereum);
-                    const accounts = await provider.listAccounts();
-                    if (accounts.length > 0) {
-                        activeAddr = accounts[0].address;
-                        activeProvider = provider;
-                    }
-                } catch (e) { console.log("MetaMask fetch skipped", e); }
-            }
-
-            if (!activeAddr && appWalletAddress) {
-                activeAddr = appWalletAddress;
-                activeProvider = new ethers.JsonRpcProvider(RPC_URL);
-            }
-
-            setAddress(activeAddr);
-            
-            if (activeProvider && activeAddr) {
-                // Real on-chain ITK balance + Transfer history for whichever address is active
-                // (connected wallet, app wallet, or the selected agent). No mock /v1/wallet
-                // balance, no /v1/ledger/history, no hardcoded 10000 fallback.
-                try {
-                    const itkContract = new ethers.Contract(ITK_TOKEN_ADDRESS, ITK_ABI.abi, activeProvider);
-                    const bal = await itkContract.balanceOf(activeAddr);
-                    setBalance(ethers.formatEther(bal));
-
-                    try {
-                        const outFilter = await itkContract.filters.Transfer(activeAddr, null);
-                        const outEvents = await itkContract.queryFilter(outFilter, -5000);
-                        const inFilter = await itkContract.filters.Transfer(null, activeAddr);
-                        const inEvents = await itkContract.queryFilter(inFilter, -5000);
-
-                        const allEvents = [...(outEvents as any[]), ...(inEvents as any[])]
-                            .sort((a: any, b: any) => b.blockNumber - a.blockNumber)
-                            .slice(0, 10)
-                            .map((event: any) => ({
-                                hash: event.transactionHash,
-                                from: event.args[0],
-                                to: event.args[1],
-                                value: ethers.formatEther(event.args[2]),
-                                isOut: event.args[0].toLowerCase() === activeAddr.toLowerCase(),
-                                status: 'FINALIZED'
-                            }));
-                        setTxHistory(allEvents);
-                    } catch { setTxHistory([]); }
-                } catch (e) {
-                    setBalance("0.0");
-                    setTxHistory([]);
-                }
-            }
-        } catch (e) { console.error("Wallet fetch error:", e); }
-        finally { setIsFetching(false); }
-    }, [appWalletAddress, selectedAgent?.eth_address]);
-
-    useEffect(() => {
-        let mounted = true;
-        if (getToken()) {
-            const load = async () => {
-                if (mounted) await fetchProfileData();
-            };
-            load();
-        } else {
-            setIsProfileLoading(false);
+        } catch {
+            setAddress('');
+            setBalance('0.0');
+            setGasBalance('0.0');
+            setTxHistory([]);
+        } finally {
+            setIsFetching(false);
         }
-        return () => { mounted = false; };
-    }, [fetchProfileData]);
+    }, [selectedAgent?.eth_address]);
 
+    useEffect(() => { fetchProfileData(); }, [fetchProfileData]);
+    useEffect(() => { fetchWalletData(); }, [fetchWalletData]);
+
+    // Renders the receive QR whenever the modal opens and we know the address -- can't
+    // render into the canvas before the modal (and its <canvas>) actually mounts.
     useEffect(() => {
-        let mounted = true;
-        const ethereum = (window as Window & typeof globalThis & { ethereum?: any }).ethereum;
-        if (appWalletAddress || ethereum || selectedAgent?.eth_address) {
-            const load = async () => {
-                if (mounted) await fetchWalletData();
-            };
-            load();
-        }
-        return () => { mounted = false; };
-    }, [fetchWalletData, appWalletAddress, selectedAgent?.eth_address]);
+        if (activeModal !== 'receive' || !address || !qrCanvasRef.current) return;
+        QRCode.toCanvas(qrCanvasRef.current, address, { width: 200, margin: 1 }).catch(() => {});
+    }, [activeModal, address]);
 
+    // The balance shown on this card is the SovereignAgent CONTRACT's ITK, not the connected
+    // browser wallet's own EOA balance -- so a plain `itk.transfer` signed by the browser
+    // wallet would silently move ZERO of what's displayed here (it'd try to spend the EOA's
+    // own, almost certainly empty, ITK balance instead). Every agent-owned asset in this
+    // protocol moves through SovereignAgent.execute (see chain/markets.ts's executeAsAgent,
+    // the same pattern HealthPage/LicencePage use) -- so this must too. The connected wallet
+    // must be this agent's registered controller, or SovereignAgent.execute reverts with
+    // NotController; there's no client-side way to pre-check that (the oracle only returns
+    // an agent's controller once, at registration time), so a revert here surfaces as a real,
+    // honest on-chain error rather than being silently pre-blocked.
     const handleTransfer = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!amount || !recipient) return;
-        setIsLoading(true);
-
-        try {
-            let signer;
-            const ethereum = (window as Window & typeof globalThis & { ethereum?: any }).ethereum;
-            if (ethereum) {
-                const provider = new ethers.BrowserProvider(ethereum);
-                signer = await provider.getSigner();
-            } else if (appWalletAddress) {
-                // Real custodial transfer through userapi's internal $ITK ledger.
-                await userapi.walletTransfer(recipient, parseFloat(amount));
-                setActiveModal(null);
-                fetchProfileData();
-                setIsLoading(false);
-                return;
-            }
-
-            if (signer) {
-                const itkContract = new ethers.Contract(ITK_TOKEN_ADDRESS, ITK_ABI.abi, signer);
-                const tx = await itkContract.transfer(recipient, ethers.parseEther(amount));
-                await tx.wait();
-                setActiveModal(null);
-                fetchWalletData();
-            }
-        } catch (e: any) { 
-            console.warn("Transfer failed:", e.message);
-            alert(`Error: ${e.response?.data?.message || e.message}`);
+        if (!address) {
+            addToast?.('error', 'No SovereignAgent resolved for this agent yet.');
+            return;
         }
-        finally { setIsLoading(false); }
+        const ethereum = (window as any).ethereum;
+        if (!ethereum) {
+            addToast?.('error', 'No Ethereum wallet found.');
+            return;
+        }
+        setIsLoading(true);
+        try {
+            const provider = new ethers.BrowserProvider(ethereum);
+            const signer = await provider.getSigner();
+            const itkInterface = new ethers.Interface(ERC20_ABI as any);
+            const data = itkInterface.encodeFunctionData('transfer', [recipient, ethers.parseEther(amount)]);
+            const receipt = await executeAsAgent(signer, address, ITK_TOKEN_ADDRESS, data);
+            addToast?.('success', `Sent ${amount} ITK from the agent's SovereignAgent — tx ${receipt.hash.substring(0, 10)}...`);
+            setActiveModal(null);
+            setAmount('');
+            setRecipient('');
+            if (address) clearCachedHistory(address); // the send just changed real history -- don't serve the stale cached version
+            fetchWalletData();
+        } catch (err: any) {
+            addToast?.('error', `Transfer failed: ${err.shortMessage || err.reason || err.message}`);
+        } finally {
+            setIsLoading(false);
+        }
     };
 
 
@@ -210,34 +342,53 @@ export const TokenWallet = () => {
                 }}
             >
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-2)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', background: 'var(--gold-muted)', padding: '6px 12px', borderRadius: 'var(--r-xl)', border: '1px solid var(--border)' }}>
-                        <Fingerprint size={12} style={{ color: 'var(--gold)' }} />
-                        <span style={{ fontSize: '0.6rem', fontWeight: 800, color: 'var(--gold)', letterSpacing: '0.2em', textTransform: 'uppercase' }}>
-                            {parseFloat(balance) > 0 ? 'Protocol_L2_Vault' : 'Total Balance'}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', background: 'var(--theme-accent-muted)', padding: '6px 12px', borderRadius: 'var(--r-xl)', border: '1px solid var(--border)' }}>
+                        <Fingerprint size={12} style={{ color: 'var(--theme-accent)' }} />
+                        <span style={{ fontSize: '0.6rem', fontWeight: 800, color: 'var(--theme-accent)', letterSpacing: '0.2em', textTransform: 'uppercase' }}>
+                            Agent SovereignAgent Balance
                         </span>
                     </div>
-                    
+
                     <div style={{ margin: 'var(--space-6) 0' }}>
-                        {(isFetching || isProfileLoading) ? (
+                        {isFetching ? (
                             <div className="skeleton" style={{ height: '80px', width: '280px', margin: '0 auto var(--space-4)', borderRadius: 'var(--r-md)' }} />
                         ) : (
                             <div style={{ fontSize: '4.5rem', fontWeight: 700, color: 'white', fontFamily: 'Playfair Display, serif', lineHeight: 1 }}>
-                                {(parseFloat(balance) > 0 ? parseFloat(balance) : profileBalance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                {parseFloat(balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </div>
                         )}
-                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--gold)', letterSpacing: '0.4em', textTransform: 'uppercase', marginTop: 'var(--space-4)' }}>
+                        <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--theme-accent)', letterSpacing: '0.4em', textTransform: 'uppercase', marginTop: 'var(--space-4)' }}>
                             ITK Balance (Testnet)
                         </div>
                     </div>
 
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', marginBottom: 'var(--space-4)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                            <Flame size={13} style={{ color: '#f59e0b' }} />
+                            {isFetching ? '—' : `${parseFloat(gasBalance).toFixed(4)} ETH gas`}
+                        </div>
+                        <span style={{ fontSize: '0.65rem', color: 'var(--theme-accent)', fontWeight: 800, letterSpacing: '0.05em' }}>BASE SEPOLIA</span>
+                    </div>
+
                     <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', padding: '12px 20px', background: 'var(--glass-surface-light)', borderRadius: 'var(--r-md)', border: '1px solid var(--border)', cursor: 'pointer' }} onClick={() => { if(address) navigator.clipboard.writeText(address); }}>
                         <span className="mono" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{address ? `${address.substring(0, 12)}...${address.substring(34)}` : 'No Sovereign Agent Anchored'}</span>
-                        <Copy size={14} style={{ color: 'var(--gold)', opacity: 0.6 }} />
+                        <Copy size={14} style={{ color: 'var(--theme-accent)', opacity: 0.6 }} />
                     </div>
                     {selectedAgent && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', padding: '12px 20px', background: 'rgba(212, 175, 55, 0.05)', borderRadius: 'var(--r-md)', border: '1px solid var(--gold)', cursor: 'pointer' }} onClick={() => { navigator.clipboard.writeText(selectedAgent.eth_address); }}>
-                            <span className="mono" style={{ fontSize: '0.8rem', color: 'var(--gold)' }}>Agent {selectedAgent.alias}: {`${selectedAgent.eth_address.substring(0, 12)}...${selectedAgent.eth_address.substring(34)}`}</span>
-                            <Copy size={14} style={{ color: 'var(--gold)', opacity: 0.6 }} />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', padding: '12px 20px', background: 'rgba(212, 175, 55, 0.05)', borderRadius: 'var(--r-md)', border: '1px solid var(--theme-accent)', cursor: 'pointer' }} onClick={() => { navigator.clipboard.writeText(selectedAgent.eth_address); }}>
+                            <span className="mono" style={{ fontSize: '0.8rem', color: 'var(--theme-accent)' }}>Agent {selectedAgent.alias}: {`${selectedAgent.eth_address.substring(0, 12)}...${selectedAgent.eth_address.substring(34)}`}</span>
+                            <Copy size={14} style={{ color: 'var(--theme-accent)', opacity: 0.6 }} />
+                        </div>
+                    )}
+                    {!isProfileLoading && profileBalance !== null && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '12px 20px', marginTop: 'var(--space-2)', background: 'rgba(255,255,255,0.02)', borderRadius: 'var(--r-md)', border: '1px dashed var(--border)', width: '100%', maxWidth: '360px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-2)' }}>
+                                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Your custodial app-wallet balance (separate ledger, not this agent's on-chain ITK)</span>
+                                <span className="mono" style={{ fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{profileBalance.toLocaleString()} ITK</span>
+                            </div>
+                            {appWalletAddress && (
+                                <span className="mono" style={{ fontSize: '0.65rem', color: 'var(--text-muted)', opacity: 0.7, wordBreak: 'break-all' }}>{appWalletAddress}</span>
+                            )}
                         </div>
                     )}
                 </div>
@@ -255,7 +406,7 @@ export const TokenWallet = () => {
                             onClick={() => setActiveModal(btn.id as any)}
                             style={{ background: 'none', border: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-3)', cursor: 'pointer' }}
                         >
-                            <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: 'var(--gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'black', boxShadow: '0 8px 16px rgba(201, 168, 76, 0.2)' }}>
+                            <div style={{ width: '56px', height: '56px', borderRadius: '50%', background: 'var(--theme-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'black', boxShadow: '0 8px 16px rgba(201, 168, 76, 0.2)' }}>
                                 <btn.icon size={24} strokeWidth={2.5} />
                             </div>
                             <span style={{ fontSize: '0.7rem', fontWeight: 800, color: 'white', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{btn.label}</span>
@@ -271,7 +422,7 @@ export const TokenWallet = () => {
                         <button 
                             key={tab}
                             onClick={() => setActiveTab(tab as any)}
-                            style={{ flex: 1, padding: 'var(--space-4)', background: 'none', border: 'none', color: activeTab === tab ? 'var(--gold)' : 'var(--text-muted)', borderBottom: activeTab === tab ? '2px solid var(--gold)' : '2px solid transparent', fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.15em', cursor: 'pointer' }}
+                            style={{ flex: 1, padding: 'var(--space-4)', background: 'none', border: 'none', color: activeTab === tab ? 'var(--theme-accent)' : 'var(--text-muted)', borderBottom: activeTab === tab ? '2px solid var(--theme-accent)' : '2px solid transparent', fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.15em', cursor: 'pointer' }}
                         >
                             {tab}
                         </button>
@@ -280,33 +431,60 @@ export const TokenWallet = () => {
 
                 <div style={{ padding: 'var(--space-6)' }}>
                     {activeTab === 'assets' ? (
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--space-4)', background: 'var(--glass-surface-light)', borderRadius: 'var(--r-md)', border: '1px solid var(--border)' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
-                                <div style={{ width: '48px', height: '48px', background: 'var(--gold)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'black' }}>
-                                    <Coins size={24} />
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--space-4)', background: 'var(--glass-surface-light)', borderRadius: 'var(--r-md)', border: '1px solid var(--border)' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
+                                    <div style={{ width: '48px', height: '48px', background: 'var(--theme-accent)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'black' }}>
+                                        <Coins size={24} />
+                                    </div>
+                                    <div>
+                                        <div style={{ fontWeight: 800, color: 'white', fontSize: '1rem' }}>Integrity Token</div>
+                                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>ITK // ERC-20 · Agent SovereignAgent</div>
+                                    </div>
                                 </div>
-                                <div>
-                                    <div style={{ fontWeight: 800, color: 'white', fontSize: '1rem' }}>Integrity Token</div>
-                                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>ITK // ERC-20</div>
+                                <div style={{ textAlign: 'right' }}>
+                                    <div style={{ fontWeight: 800, color: 'white', fontSize: '1.2rem' }}>{parseFloat(balance).toLocaleString()}</div>
+                                    <div style={{ fontSize: '0.65rem', color: 'var(--theme-accent)', fontWeight: 800, letterSpacing: '0.05em' }}>BASE_SEPOLIA</div>
                                 </div>
                             </div>
-                            <div style={{ textAlign: 'right' }}>
-                                <div style={{ fontWeight: 800, color: 'white', fontSize: '1.2rem' }}>{(parseFloat(balance) > 0 ? parseFloat(balance) : profileBalance).toLocaleString()}</div>
-                                <div style={{ fontSize: '0.65rem', color: 'var(--gold)', fontWeight: 800, letterSpacing: '0.05em' }}>BASE_SEPOLIA</div>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--space-4)', background: 'var(--glass-surface-light)', borderRadius: 'var(--r-md)', border: '1px solid var(--border)' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
+                                    <div style={{ width: '48px', height: '48px', background: 'rgba(245,158,11,0.15)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f59e0b' }}>
+                                        <Flame size={22} />
+                                    </div>
+                                    <div>
+                                        <div style={{ fontWeight: 800, color: 'white', fontSize: '1rem' }}>Ether (gas)</div>
+                                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>ETH · native, pays SovereignAgent.execute gas</div>
+                                    </div>
+                                </div>
+                                <div style={{ textAlign: 'right' }}>
+                                    <div style={{ fontWeight: 800, color: 'white', fontSize: '1.2rem' }}>{parseFloat(gasBalance).toFixed(4)}</div>
+                                    <div style={{ fontSize: '0.65rem', color: 'var(--theme-accent)', fontWeight: 800, letterSpacing: '0.05em' }}>BASE_SEPOLIA</div>
+                                </div>
                             </div>
                         </div>
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+                            {!isFetching && (
+                                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                                    Real ITK Transfer events for this SovereignAgent, queried directly from Base Sepolia (no backend indexer exists yet -- see integrity-oracle's own wallet handler).
+                                    {historyTruncated && ` This dashboard's configured public RPC endpoint caps a single lookup at 50,000 blocks and does not reliably serve log history beyond a limited recent window even when paginated -- a dedicated/archive RPC endpoint (Alchemy, Infura, QuickNode) would be needed for guaranteed complete history.`}
+                                    {!historyTruncated && txHistory.length === 0 && ' No transfers found in the queried range.'}
+                                </div>
+                            )}
                             {isFetching ? (
                                 [1, 2, 3].map(i => <div key={i} className="skeleton" style={{ height: '70px', borderRadius: 'var(--r-md)' }} />)
-                            ) : txHistory.length > 0 ? txHistory.map((tx, i) => (
-                                <a key={i} href={`https://sepolia.basescan.org/tx/${tx.hash}`} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--space-4)', background: 'rgba(255,255,255,0.02)', borderRadius: 'var(--r-md)', border: '1px solid var(--border)', textDecoration: 'none' }}>
+                            ) : txHistory.length > 0 ? txHistory.map((tx, i) => {
+                                const isHash = /^0x[0-9a-fA-F]{64}$/.test(tx.hash);
+                                const Wrapper = isHash ? 'a' : 'div';
+                                return (
+                                <Wrapper key={i} {...(isHash ? { href: `https://sepolia.basescan.org/tx/${tx.hash}`, target: '_blank', rel: 'noreferrer' } : {})} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--space-4)', background: 'rgba(255,255,255,0.02)', borderRadius: 'var(--r-md)', border: '1px solid var(--border)', textDecoration: 'none' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
                                         <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: tx.isOut ? 'rgba(244, 63, 94, 0.1)' : 'rgba(16, 185, 129, 0.1)', color: tx.isOut ? '#f43f5e' : 'var(--emerald)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                             {tx.isOut ? <ArrowUpRight size={18} /> : <ArrowDownRight size={18} />}
                                         </div>
                                         <div>
-                                            <div style={{ fontWeight: 800, color: 'white', fontSize: '0.85rem' }}>{tx.isOut ? 'Asset Outbound' : 'Asset Inbound'}</div>
+                                            <div style={{ fontWeight: 800, color: 'white', fontSize: '0.85rem' }}>{tx.type}</div>
                                             <div className="mono" style={{ fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: '2px' }}>{tx.hash.substring(0, 16)}...</div>
                                         </div>
                                     </div>
@@ -314,10 +492,11 @@ export const TokenWallet = () => {
                                         <div style={{ fontWeight: 800, color: tx.isOut ? 'white' : 'var(--emerald)', fontSize: '1rem' }}>
                                             {tx.isOut ? '-' : '+'}{parseFloat(tx.value).toLocaleString()}
                                         </div>
-                                        <div style={{ fontSize: '0.6rem', color: 'var(--gold)', fontWeight: 800, marginTop: '4px' }}>FINALIZED</div>
+                                        <div style={{ fontSize: '0.6rem', color: 'var(--theme-accent)', fontWeight: 800, marginTop: '4px' }}>{tx.status}</div>
                                     </div>
-                                </a>
-                            )) : (
+                                </Wrapper>
+                                );
+                            }) : (
                                 <div style={{ textAlign: 'center', padding: 'var(--space-12)', color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 600 }}>No transaction history found.</div>
                             )}
                         </div>
@@ -343,7 +522,24 @@ export const TokenWallet = () => {
                                 <X size={20} />
                             </button>
 
-                            {activeModal === 'send' && (
+                            {activeModal === 'send' && !walletAddress && (
+                                <div style={{ textAlign: 'center' }}>
+                                    <h3 style={{ marginTop: 0, marginBottom: 'var(--space-6)', fontSize: '1.5rem', fontWeight: 800, fontFamily: 'Playfair Display, serif' }}>Connect a wallet first</h3>
+                                    <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 'var(--space-8)' }}>
+                                        Sending moves ITK out of this agent's own SovereignAgent contract via <code>execute()</code> --
+                                        only the agent's registered controller wallet can authorize that.
+                                    </p>
+                                    <button
+                                        onClick={async () => { setConnecting(true); try { await connectWallet(); } finally { setConnecting(false); } }}
+                                        disabled={connecting}
+                                        className="btn btn-primary"
+                                        style={{ width: '100%', padding: '16px' }}
+                                    >
+                                        {connecting ? <Loader2 className="animate-spin" size={20} /> : 'Connect Wallet'}
+                                    </button>
+                                </div>
+                            )}
+                            {activeModal === 'send' && walletAddress && (
                                 <form onSubmit={handleTransfer}>
                                     <h3 style={{ marginTop: 0, marginBottom: 'var(--space-8)', fontSize: '1.5rem', fontWeight: 800, fontFamily: 'Playfair Display, serif' }}>Initiate Transfer</h3>
                                     <div style={{ marginBottom: 'var(--space-6)' }}>
@@ -383,35 +579,22 @@ export const TokenWallet = () => {
                             {activeModal === 'receive' && (
                                 <div style={{ textAlign: 'center' }}>
                                     <h3 style={{ marginTop: 0, marginBottom: 'var(--space-8)', fontSize: '1.5rem', fontWeight: 800, fontFamily: 'Playfair Display, serif' }}>Receive Assets</h3>
-                                    <div style={{ background: 'white', padding: 'var(--space-6)', borderRadius: 'var(--r-md)', display: 'inline-block', marginBottom: 'var(--space-8)', boxShadow: '0 0 30px rgba(201, 168, 76, 0.2)' }}>
-                                        <div style={{ width: '200px', height: '200px', background: '#f8fafc', borderRadius: 'var(--r-sm)' }} />
-                                    </div>
+                                    {address ? (
+                                        <div style={{ background: 'white', padding: 'var(--space-6)', borderRadius: 'var(--r-md)', display: 'inline-block', marginBottom: 'var(--space-8)', boxShadow: '0 0 30px rgba(201, 168, 76, 0.2)' }}>
+                                            <canvas ref={qrCanvasRef} width={200} height={200} />
+                                        </div>
+                                    ) : (
+                                        <div style={{ padding: 'var(--space-8)', color: 'var(--text-muted)', fontSize: '0.85rem' }}>No SovereignAgent resolved for this agent yet.</div>
+                                    )}
                                     <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', padding: 'var(--space-4)', marginBottom: 'var(--space-8)' }}>
-                                        <div className="mono" style={{ fontSize: '0.85rem', color: 'white', wordBreak: 'break-all' }}>{address}</div>
+                                        <div className="mono" style={{ fontSize: '0.85rem', color: 'white', wordBreak: 'break-all' }}>{address || '—'}</div>
                                     </div>
-                                    <button onClick={() => { navigator.clipboard.writeText(address); alert("Copied!"); }} className="btn btn-primary" style={{ width: '100%', padding: '16px' }}>COPY ADDRESS</button>
+                                    <button disabled={!address} onClick={() => { navigator.clipboard.writeText(address); addToast?.('success', 'Address copied'); }} className="btn btn-primary" style={{ width: '100%', padding: '16px' }}>COPY ADDRESS</button>
                                 </div>
                             )}
 
                             {activeModal === 'loan' && (
-                                <div style={{ textAlign: 'center' }}>
-                                    <Landmark size={48} style={{ color: 'var(--gold)', marginBottom: 'var(--space-6)' }} />
-                                    <h3 style={{ marginTop: 0, marginBottom: 'var(--space-4)', fontSize: '1.5rem', fontWeight: 800, fontFamily: 'Playfair Display, serif' }}>Reputation Loan</h3>
-                                    <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 'var(--space-8)' }}>
-                                        Unlock uncollateralized lending capacity based on your current AIS Reputation Score.
-                                    </p>
-                                    <div style={{ background: 'var(--glass-surface-light)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', padding: 'var(--space-6)', textAlign: 'left', marginBottom: 'var(--space-8)' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 'var(--space-2)' }}>
-                                            <span style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-muted)' }}>AVAIL_LIQUIDITY</span>
-                                            <span style={{ fontSize: '0.7rem', fontWeight: 800, color: 'white' }}>5,000.00 ITK</span>
-                                        </div>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                            <span style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-muted)' }}>EST_INTEREST</span>
-                                            <span style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--emerald)' }}>2.4% APR</span>
-                                        </div>
-                                    </div>
-                                    <button className="btn btn-primary" style={{ width: '100%', padding: '16px' }}>INITIATE ASSESSMENT</button>
-                                </div>
+                                <CreditSummary agentId={selectedAgent?.eth_address} />
                             )}
 
                             {activeModal === 'stake' && (
@@ -419,9 +602,9 @@ export const TokenWallet = () => {
                                     <ShieldCheck size={48} style={{ color: 'var(--emerald)', marginBottom: 'var(--space-6)' }} />
                                     <h3 style={{ marginTop: 0, marginBottom: 'var(--space-4)', fontSize: '1.5rem', fontWeight: 800, fontFamily: 'Playfair Display, serif' }}>Protocol Staking</h3>
                                     <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 'var(--space-8)' }}>
-                                        Lock ITK to increase your Sacrifice Score and harden your agent's reputation ceiling.
+                                        Lock ITK to increase your Sacrifice Score and harden your agent's reputation ceiling. Use the Staking panel in Financials to broadcast a real bond — this quick action is a shortcut there, not a separate flow.
                                     </p>
-                                    <button className="btn btn-primary" style={{ width: '100%', padding: '16px', background: 'var(--emerald)', borderColor: 'var(--emerald)' }}>STAKE ASSETS</button>
+                                    <Link to="/financials" className="btn btn-primary" style={{ width: '100%', padding: '16px', background: 'var(--emerald)', borderColor: 'var(--emerald)', display: 'block', textAlign: 'center', textDecoration: 'none' }} onClick={() => setActiveModal(null)}>GO TO STAKING</Link>
                                 </div>
                             )}
                         </motion.div>

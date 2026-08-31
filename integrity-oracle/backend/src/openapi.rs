@@ -38,6 +38,7 @@ use crate::handlers;
         handlers::get_agent,
         handlers::list_agents,
         handlers::get_ais,
+        handlers::get_ais_zero_axis_counts,
         handlers::get_ais_history,
         handlers::get_telemetry_history,
         handlers::get_telemetry_volume,
@@ -62,6 +63,8 @@ use crate::handlers;
         handlers::VolumeBucket,
         handlers::OtelVolumeBucket,
         handlers::DerivedSignals,
+        handlers::BilledCost,
+        handlers::AxisZeroCount,
         handlers::ZkProofDto,
         handlers::JudgeEvaluationDto,
         handlers::TelemetryIngestRequest,
@@ -76,7 +79,7 @@ use crate::handlers;
         (name = "agents", description = "Agent identity, registration, and on-chain primitive resolution"),
         (name = "ais", description = "Agent Integrity Score and leaderboard"),
         (name = "telemetry", description = "Telemetry ingestion (feeds AIS computation)"),
-        (name = "compliance", description = "HIPAA/Shield vertical compliance status"),
+        (name = "compliance", description = "HIPAA/Integrity Health vertical compliance status"),
         (name = "markets", description = "IntegrityMarket prediction-market reads"),
         (name = "wallet", description = "$ITK balance and open market positions"),
     ),
@@ -87,7 +90,7 @@ pub struct ApiDocCore;
 /// the 16-item limit goes here instead. See this module's doc comment.
 #[derive(OpenApi)]
 #[openapi(
-    paths(handlers::get_wallet, handlers::get_trace_tree, handlers::ingest_audit_log, handlers::ingest_anchor_events, handlers::get_provenance, handlers::get_stake, handlers::get_credit, handlers::get_agent_contracts, handlers::get_agent_baas, handlers::get_benchmarks, handlers::get_xns_resolve, handlers::get_agent_handle, handlers::get_governance_proposals, handlers::get_stats, handlers::get_audit_log, handlers::get_recent_traces),
+    paths(handlers::get_wallet, handlers::get_trace_tree, handlers::ingest_audit_log, handlers::ingest_anchor_events, handlers::get_provenance, handlers::get_stake, handlers::get_credit, handlers::get_agent_contracts, handlers::get_agent_baas, handlers::get_benchmarks, handlers::get_xns_resolve, handlers::get_agent_handle, handlers::get_governance_proposals, handlers::get_stats, handlers::get_audit_log, handlers::get_recent_traces, handlers::submit_audit_effect, handlers::get_audit_intent_join, handlers::get_audit_invocation_join),
     components(schemas(
         handlers::WalletPositionDto,
         handlers::WalletResponse,
@@ -107,6 +110,8 @@ pub struct ApiDocCore;
         handlers::XnsResolveDto,
         handlers::AgentHandleDto,
         handlers::ProposalDto,
+        crate::anchor_coverage::AnchorCoverage,
+        crate::anchor_coverage::AnchorCoverageStatus,
         handlers::StatsDto,
         handlers::AuditLogEntryDto,
         handlers::RecentTraceDto,
@@ -123,8 +128,26 @@ pub struct ApiDocExtra;
 /// module's doc comment). New endpoints go here until this list reaches 16 too.
 #[derive(OpenApi)]
 #[openapi(
-    paths(handlers::get_agent_usage, handlers::get_agent_events),
-    components(schemas(handlers::AgentUsageDto, handlers::AgentEventDto)),
+    paths(
+        handlers::get_agent_usage,
+        handlers::get_agent_events,
+        handlers::get_unregistered_agents,
+        handlers::request_kyc_challenge,
+        handlers::verify_kyc_receipt,
+    ),
+    components(schemas(
+        handlers::AgentUsageDto,
+        handlers::AgentEventDto,
+        handlers::UnregisteredAgentDto,
+        handlers::KycChallengeRequest,
+        handlers::KycChallengeResponse,
+        handlers::VerificationResponse,
+        crate::kyc::KycReceipt,
+        crate::kyc::KycChecks,
+    )),
+    tags(
+        (name = "verification", description = "Evidence-backed identity verification ladder"),
+    ),
 )]
 pub struct ApiDocUsage;
 

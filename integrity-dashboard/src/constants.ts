@@ -14,10 +14,19 @@ export const ITK_TOKEN_ADDRESS = S.IntegrityToken;
 export const XIBALBA_AGENT_REGISTRY_ADDRESS = S.XibalbaAgentRegistry;
 // EIP-1167 factory that clones + registers an agent's 7-primitive set.
 export const AGENT_PRIMITIVES_FACTORY_ADDRESS = S.AgentPrimitivesFactory;
+// Domain membership -- AgentPrimitivesFactory.registerPrimitives reverts
+// DomainJoinNotApproved() if canJoin(domainId, controller) is false here. See
+// RegisterAgentModal.tsx's preflight check, which reads this before any gas is spent.
+export const DOMAIN_REGISTRY_ADDRESS = S.DomainRegistry;
 export const MARKET_FACTORY_ADDRESS = S.MarketFactory;
 export const A2A_CAPITAL_POOL_ADDRESS = S.A2ACapitalPool;
 export const SMART_BAA_FACTORY_ADDRESS = S.SmartBAAFactory;
 export const COVERED_ENTITY_REGISTRY_ADDRESS = S.CoveredEntityRegistry;
+export const XNS_ADDRESS = (S as Record<string, string>).XibalbaNameService;
+export const GOVERNANCE_ADDRESS = (S as Record<string, string>).IntegrityGovernance;
+// undefined until DeployEHRGate.s.sol runs against Base Sepolia (only ever run
+// locally so far — see PRODUCTION_GAPS.md). Consumers must check for this before use.
+export const EHR_GATE_ADDRESS = (S as Record<string, string>).EHRGate;
 
 // Protocol-held signer that every agent grants StateAnchor ANCHOR_ROLE to (and the
 // SovereignAgent `oracle_` constructor arg). Single-operator testnet setup.
@@ -37,11 +46,48 @@ export const BASE_SEPOLIA_CHAIN_ID = deployments.chainId;
 export const RPC_URL = deployments.rpcUrl;
 export const EXPLORER_URL = deployments.explorerUrl;
 
-export const IS_PRODUCTION = false; // Set to false to route to the local backend for session telemetry
+// The real, on-chain registered agent used to attribute every dashboard-triggered test
+// action (Guided System Test wizard) -- NOT XIBALBA_AGENT_ADDRESS above (that's the
+// AgentRegistry contract's own address, a different thing). Confirmed live via the
+// Oracle's own GET /v1/agents: handle "xibalba.integrity", registered 2026-08-12. Every
+// system's test-event log (Oracle audit_log, Cortex otel_events, Shield test_events) is
+// tagged with this same DID so a test run is queryable by the same identity everywhere.
+export const XIBALBA_TEST_AGENT_ID = 'did:integrity:68fed1331613937555a59398223e8e87520a87dd0305aac4fd7ecdc32a14a861';
 
-const envApiBase = import.meta.env.VITE_API_BASE;
-export const API_BASE = (envApiBase && envApiBase.startsWith('http'))
-  ? envApiBase
-  : (IS_PRODUCTION
-      ? "https://integrity-protocol-backend.onrender.com"
-      : "http://127.0.0.1:9000");
+// Phase I's guardian-governed IntegrityAccount + its bound IntegrityKernel (the three
+// reference adapters -- budget, reputation-floor, assurance-tier -- live inside the
+// kernel). Real bytecode on Base Sepolia, unlike LicenceAccount -- but explicitly marked
+// experimental at the deploy record itself; KERNEL_REFERENCE.disclosure is that exact
+// string, surfaced verbatim by KernelPage rather than paraphrased.
+export const KERNEL_REFERENCE = (
+  deployments as unknown as {
+    experimentalPhase1Reference?: {
+      IntegrityAccount: string;
+      IntegrityKernel: string;
+      ReputationRegistry: string;
+      deployedFromCommit: string;
+      disclosure: string;
+    };
+  }
+).experimentalPhase1Reference;
+
+export const LICENCE_REFERENCE = (
+  deployments as unknown as {
+    experimentalPhase2LicenceReference?: {
+      LicenceAccountImplementation: string;
+      LicenceToken: string;
+      deployedFromCommit: string;
+      disclosure: string;
+      licenceEndTime: number;
+      licenceStartTime: number;
+      owner: string;
+      protocolFeeBps: number;
+      protocolFeeRecipient: string;
+      royaltyPricePerUnitWei: number;
+      salt: string;
+      tokenBoundAccount: string;
+      tokenId: number;
+      volumeCapTotal: number;
+    };
+  }
+).experimentalPhase2LicenceReference;

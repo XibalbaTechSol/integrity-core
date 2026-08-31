@@ -1,65 +1,77 @@
 ---
-title: Identity Ceiling & Verification Ladder [PARTIALLY BUILT]
+title: Identity Ceiling & Verification Ladder [BUILT]
 created: 2026-07-09
-updated: 2026-07-11
+updated: 2026-08-29
 type: concept
 tags: [identity, metrics, compliance]
 confidence: high
 source_files:
   - README.md
+  - integrity-oracle/scoring-core/src/lib.rs
   - integrity-oracle/backend/src/handlers.rs
+  - integrity-oracle/backend/src/verification.rs
+  - integrity-oracle/backend/src/attestation.rs
+  - integrity-oracle/backend/src/kyc.rs
+  - integrity-oracle/backend/migrations/0011_identity_verifications.sql
   - bcc_middleware/app/chain.py
   - bcc_middleware/policies/bcc.rego
 ---
 
-**`[PARTIALLY BUILT]`** — updated 2026-07-11: this page previously said
-nothing below gates anything in the running code. That's no longer fully
-true. Two real pieces now exist:
+**`[BUILT]`** — tier is server-derived from evidence and enforced in both AIS
+scoring and sensitive BCC policy decisions.
 
-1. **Tier assignment is server-verified, not client-asserted.**
-   `integrity-oracle`'s `register_agent` handler (`SERVER_VERIFIED_TIER`
-   constant) always computes the tier itself — a client can no longer send
-   `verification_tier: 3` and have it stored as-is. Today the constant is
-   always `1`, because Tier 1 is the only tier with a real verification path
-   (see the ladder table below); this becomes a real per-agent computation
-   once Tier 2/3 verification exists.
+1. **Tier assignment is server-verified, not client-asserted.** Registration
+   establishes tier 1. Active, unexpired, unrevoked evidence raises the effective
+   tier; the compatibility request field is ignored.
 2. **`bcc_middleware`'s OPA policy consults tier for a subset of actions.**
    `bcc.rego`'s `min_tier_by_intent_type` rule denies clinical intent-types
    (`EMR_WRITE`, `DISPENSE_MEDICATION`, `BILLING_SUBMISSION`,
    `SECURE_EMR_WRITE`, `CLINICAL_DATA_ACCESS`) from any agent whose
-   server-verified tier is below the required minimum — currently 1 for all
-   of them, since (as below) nothing higher is achievable yet. This is
-   defense-in-depth on top of the existing clinical allowlist, not a
-   replacement for it: an unresolvable/unregistered agent (tier resolves to
-   0 on lookup failure, see `app/chain.py::resolve_verification_tier`) is
-   denied even if it somehow ended up on the allowlist.
+   server-verified tier is below the required minimum.
+3. **The AIS identity ceiling is enforced.**
+   `scoring-core` provides `AisEngine::ceiling_for_tier` and `AisEngine::score_with_tier`
+   which cap calculated scores per tier: Tier 0 (300), Tier 1 (600), and Tier 2 (850).
+   Tier 3 returns the raw post-boost score without an additional clamp.
+   `handlers::compute_ais_for_agent` passes `agent.verification_tier` into `score_with_tier`.
 
-**Still not built:** the `AIS_final = min(S_calculated, Tier_ceiling)` clamp
-below, Tier 2/3 verification paths themselves, and — because of that — any
-tier requirement above 1 would either be a permanent no-op or a policy that
-looks enforced but can never actually be satisfied. Raise thresholds only
-once real Tier 2/3 verification exists.
+## Table of contents
+
+- [The design](#the-design)
+- [Evidence lifecycle](#evidence-lifecycle)
+- [Correcting the old wiki's mechanism](#correcting-the-old-wiki-s-mechanism)
+- [EIP-712 legal-controller binding ([PLANNED])](#eip-712-legal-controller-binding-planned)
 
 ## The design
 
 The idea: an agent's [AIS](ais.md) *ceiling* (not just its measured score)
-should be tied to how strongly its identity is verified, so a freshly
+is tied to how strongly its identity is verified, so a freshly
 created, unverified agent can never simply out-score a hardware-attested
 institutional one.
 
 | Tier | Verification | AIS ceiling | Status |
 |---|---|---|---|
-| 1 — Sovereign | Proof-of-possession of a software key (what every agent has today) | 600 | **Server-verified and assigned at registration** (`SERVER_VERIFIED_TIER`); **consulted by `bcc_middleware`'s OPA gate** for clinical intent-types — but the AIS *ceiling* clamp itself is still not enforced |
-| 2 — Linked | DNS TXT record or social-account attestation | 850 | Not built |
-| 3 — Institutional | Remote TEE attestation + institutional audit | 1000 (uncapped credit) | Not built |
-| Developer API key (testnet convenience) | Issued by `integrity-userapi` (in progress, no wiki entity page yet — see [WIKI_INDEX.md](../WIKI_INDEX.md)) | Capped at 300 | Planned — its `ais_trust_ceiling` column exists in the schema today but isn't consulted by any live gate yet |
+| 1 — Sovereign | Software-key possession plus on-chain primitive match | 600 | Assigned at registration |
+| 2 — Linked | Dual-resolver DNS TXT proof or GitHub repository proof | 850 | Built; evidence expires after 90 days |
+| 3 — Institutional | Nonce-bound AWS Nitro attestation with AWS-root certificate validation | No post-boost cap | Built; evidence expires after 30 days |
+| 3 — Institutional KYC | Trusted receipt asserting document authenticity, liveness, and sanctions/PEP screening | No post-boost cap | Built; provider-neutral and expiring |
+| Developer API key (testnet convenience) | Issued by `integrity-userapi` | Capped at 300 | Score ceiling enforced in `scoring-core` (300) |
 
-`AIS_final = min(S_calculated, Tier_ceiling)` — this clamp is not
-implemented anywhere in `scoring-core` today; the formula
-(`concepts/ais.md`) has no ceiling term. Note this is a **separate** gap from
-the `bcc_middleware` tier gate above: that gate checks "is this agent's tier
-high enough to attempt this *action*," which is now real; this clamp would
-cap the agent's *score* itself, which is still unbuilt.
+KYC uses a provider-neutral signed-receipt boundary. A commercial provider or
+self-hosted open-source verifier holds an Ed25519 key configured independently in
+`KYC_PROVIDER_KEYS`. The `open_source_kyc_v1` profile grants Tier 3 only when the
+signed receipt affirms document authenticity, biometric liveness, and sanctions/PEP
+screening. The Oracle stores only the provider, opaque reference, check flags,
+timestamps, and receipt hash—never raw PII. This records technical assurance; legal
+equivalence still depends on deployment jurisdiction and operator policy.
+
+## Evidence lifecycle
+
+DNS, GitHub, TEE, and KYC proofs are challenge-bound and stored in
+`identity_verifications`. Agents can revoke one row through a fresh Ed25519-signed
+challenge; the signed message binds DID, row ID, nonce, and UTF-8 reason. Evidence
+is retained with `revoked_at` and `revoked_reason` for auditability. Because every
+tier read filters expired and revoked rows, revocation immediately lowers the
+effective tier and its AIS ceiling.
 
 ## Correcting the old wiki's mechanism
 
@@ -75,19 +87,18 @@ credible mechanism: keys tethered to a real TEE/SGX enclave or an HSM (AWS
 KMS, FIPS 140-2 Level 3), verified via genuine remote attestation
 (AWS Nitro/Intel SGX), not a locally-computed hardware hash a host could
 freely fabricate. [integrity-sdk](../entities/integrity-sdk.md)'s
-`security/attestation.py` already implements real *verification* of AWS
-Nitro attestation documents against a published test fixture — proof
-*generation* needs real enclave hardware this environment doesn't have,
-which is why the ladder above is entirely unenforced today. Treat any
+`security/attestation.py` and the Oracle's `attestation.rs` implement real AWS
+Nitro document and certificate-chain verification — proof *generation* needs
+real enclave hardware this environment doesn't have. Treat any
 mention of MAC-address/CPU-serial hashing as never-built product ideation,
 not a superseded-but-once-real mechanism.
 
-## EIP-712 binding (design detail, not implemented)
+## EIP-712 legal-controller binding (`[PLANNED]`)
 
 The old wiki proposed an `EntityBinding` EIP-712 typed-data schema binding
 an agent's wallet to a named legal `controller`. No such schema or
 verification code exists in `contracts/` or `integrity-sdk/` today — noted
-here only because it's a plausible future shape for Tier 2/3 binding, not
+here only because it is a plausible additional institutional binding, not
 because it's built.
 
 Related: [DID](did.md), [AIS](ais.md), [agent primitives](agent-primitives.md).

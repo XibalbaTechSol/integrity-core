@@ -1,7 +1,7 @@
 ---
 title: integrity-sdk
 created: 2026-07-07
-updated: 2026-07-29
+updated: 2026-08-19
 type: entity
 tags: [sdk, identity, metrics]
 confidence: high
@@ -30,6 +30,20 @@ source_files:
 The agent-facing Python library. It gives an AI agent everything it needs to
 become a self-sovereign, on-chain, reputation-bearing participant.
 
+## Table of contents
+
+- [Two keypairs](#two-keypairs)
+- [Self-sovereign registration](#self-sovereign-registration)
+- [Telemetry: OpenTelemetry + MLflow, unified](#telemetry-opentelemetry-mlflow-unified)
+- [Pre-execution intent capture (telemetry/intent.py, added 2026-07-11)](#pre-execution-intent-capture-telemetry-intent-py-added-2026-07-11)
+- [Two dangling-reference gaps, closed 2026-07-11](#two-dangling-reference-gaps-closed-2026-07-11)
+- [Telemetry integrations widened + redactphi opt-in default, 2026-07-15](#telemetry-integrations-widened-redactphi-opt-in-default-2026-07-15)
+- [PHI/PII redaction](#phi-pii-redaction)
+- [Markets](#markets)
+- [Also](#also)
+- [MCP server (mcpserver.py, added 2026-07-29)](#mcp-server-mcpserver-py-added-2026-07-29)
+- [Persistent Memory Bridge (memory.py, added 2026-07-30)](#persistent-memory-bridge-memory-py-added-2026-07-30)
+
 ## Two keypairs
 
 - **DID key** (`did.py`) — Ed25519, `did:integrity:<sha256(pubkey)>`, signs
@@ -47,6 +61,15 @@ deploy `SovereignAgent` + `StateAnchor` → grant anchor role via `execute` →
 on-chain re-verification. Proven against a live anvil chain running the real
 `Deploy.s.sol` (`tests/test_registration.py`, `skip_oracle_registration=True`,
 on-chain steps only).
+
+**Fixed 2026-08-19**: the already-registered DID idempotency path now checks
+`StateAnchor.latestRoot()` before posting to the oracle. If the DID resolves but
+the existing StateAnchor has no genesis memory root, `register_agent()` anchors
+the genesis root first; if that anchoring fails, it raises `RegistrationError`
+and does not POST to the oracle, preventing an avoidable oracle-side
+`MemoryNotInitialized` rejection from being reported as a successful SDK
+registration handoff. If the root is already non-zero, the SDK skips re-anchoring
+and proceeds with the idempotent oracle registration POST.
 
 **Fixed 2026-07-09**: the final oracle POST (step 11) used to send
 `{"agent_id": ..., "did_document": ..., "primitives": registration.to_dict()}`,
@@ -146,7 +169,7 @@ phone numbers, credit cards, API keys/private keys, medical record
 numbers). `integrations/openai_integrity.py`/`langchain_callback.py` both
 call it before a span attribute/telemetry field is set, but **only when
 constructed with `redact_phi=True`** (default `False` as of 2026-07-15 —
-see above). Any Xibalba Shield / healthcare-vertical agent must pass that
+see above). Any Integrity Health / healthcare-vertical agent must pass that
 flag explicitly; neither wrapper can infer an agent's `compliance_vertical`
 on its own. `telemetry/tracing.py`'s `trace_run`/`traceable` API is
 unaffected by this flag and always redacts.
@@ -184,13 +207,13 @@ execute-routing. `registration.py`'s `_VERTICALS` extended with
 - `security/attestation.py` — real AWS Nitro attestation *verification* (gen
   needs enclave hardware — honest, documented gap).
 
-**135 tests, 1 skipped** (`pytest tests/`, confirmed via a real run — up
-from 97: the 2026-07-15 additions are `test_openai_integrity.py` (7),
-`test_langchain_callback.py` (6), plus attestation/shield/wallet-race
-coverage added earlier the same session): unit + real-anvil integration,
-always run. Plus **1 opt-in test** (`test_registration_oracle_e2e.py`,
-`ORACLE_E2E=1`) covering the real oracle-POST path skipped by every
-always-run test above.
+**267 tests passed, 9 skipped** (`uv run pytest`, confirmed 2026-08-19 with
+Foundry's `anvil` on `PATH`): unit + real-anvil integration, always run. The
+2026-08-19 regression coverage adds
+`tests/unit/test_registration_existing_did_genesis.py`, including the failure
+case where genesis anchoring raises `RegistrationError` and prevents the oracle
+POST. Plus opt-in oracle e2e tests (`ORACLE_E2E=1`) covering real oracle-POST
+paths skipped by the always-run suite.
 
 Related: [Telemetry Ingestion Pipeline](../concepts/telemetry-ingestion.md),
 [agent primitives](../concepts/agent-primitives.md),
@@ -241,7 +264,7 @@ For example, to configure the Antigravity CLI (`agy`) harness to run all session
       "args": [
         "run",
         "--directory",
-        "/home/xibalba/Projects/INTEGRITY-LATEST/integrity-sdk",
+        "/home/xibalba/Projects/integrity-core/integrity-sdk",
         "python",
         "-m",
         "integrity_sdk.mcp_server",
@@ -267,5 +290,3 @@ Instead of treating memory sync as an ad-hoc cron job, agents use the SDK to exp
 
 **Pre-Flight Verification**:
 When `vault.session(platform=...)` begins, the SDK invokes `verify_preflight()`. This queries the `integrity-oracle` for the agent's `StateAnchor` address, reads the `currentRoot()` directly from the EVM (via `web3.py`), and compares it against the local backend's derived `state_root`. If they mismatch, the session panics, protecting the agent from acting on tampered or out-of-sync local memory.
-
-

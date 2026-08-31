@@ -1,18 +1,19 @@
 ---
-title: ComplianceGate & Xibalba Shield
+title: ComplianceGate & Integrity Health
 created: 2026-07-07
-updated: 2026-07-15
+updated: 2026-08-24
 type: concept
 tags: [compliance, layer-2]
 confidence: high
 source_files:
-  - contracts/src/shield/ComplianceGate.sol
-  - contracts/src/shield/EHRGate.sol
-  - contracts/src/shield/SmartBAAFactory.sol
-  - contracts/src/shield/CoveredEntityRegistry.sol
+  - contracts/src/health/ComplianceGate.sol
+  - contracts/src/health/EHRGate.sol
+  - contracts/src/framework/AgentAuthorityResolver.sol
+  - contracts/src/health/SmartBAAFactory.sol
+  - contracts/src/health/CoveredEntityRegistry.sol
 ---
 
-**Xibalba Shield** is the HIPAA/healthcare vertical — the flagship proof that
+**Integrity Health** is the HIPAA/healthcare vertical — the flagship proof that
 the Integrity Protocol works in the most heavily regulated industry there is. It
 is not a side feature; it is the demonstration that makes the rest of the
 protocol credible.
@@ -20,12 +21,18 @@ protocol credible.
 `ComplianceGate` is the per-agent [primitive](agent-primitives.md) (an EIP-1167
 clone) that connects a single agent to that vertical.
 
+## Table of contents
+
+- [What it does](#what-it-does)
+- [The Integrity Health stack (shared singletons)](#the-integrity-health-stack-shared-singletons)
+- [The closed loop](#the-closed-loop)
+
 ## What it does
 
 Each agent's `ComplianceGate` declares its regulated vertical
 (`None` | `Healthcare`) and exposes one live read the
 [oracle](../entities/integrity-oracle.md) and
-[dashboard](../entities/integrity-dashboard.md) can call without knowing Shield's
+[dashboard](../entities/integrity-dashboard.md) can call without knowing Integrity Health's
 internals:
 
 ```solidity
@@ -39,7 +46,7 @@ flags (mirroring the SDK's `integrity.compliance.*` telemetry attributes) are
 stored separately and are *never* consulted by this live-verified boolean — a
 dishonest agent cannot self-declare its way to compliance.
 
-## The Shield stack (shared singletons)
+## The Integrity Health stack (shared singletons)
 
 - `CoveredEntityRegistry` — registry of HIPAA covered entities and business
   associates (admin-vetted; being listed is a claim of real legal status).
@@ -53,11 +60,12 @@ dishonest agent cannot self-declare its way to compliance.
   access decision.
 - `EHRGate` — the real PHI-access enforcement boundary: requires patient consent
   **and** an active `SmartBAA` **and** a minimum [AIS](ais.md), resolving the
-  agent's own `ReputationRegistry` clone live via `XibalbaAgentRegistry`.
+  agent's authority and AIS through `AgentAuthorityResolver`.
 
 `ComplianceGate` does **not** replace `EHRGate` as the enforcement point — it is
 the read-optimized summary surface. `EHRGate` still performs its own live checks
-at access time.
+at access time through patient grants, active BAAs, and the shared authority
+resolver.
 
 ## The closed loop
 
@@ -79,7 +87,7 @@ flowchart TB
     CG --> BAA
     EHR --> BAA
     EHR -->|also checks| Consent["patient consent"]
-    EHR -->|also checks| AIS["minimum AIS<br/>(live ReputationRegistry read)"]
+    EHR -->|also checks| AIS["minimum AIS<br/>(authority resolver read)"]
 ```
 
 All three consult the same underlying `isBAAActive` read rather than caching

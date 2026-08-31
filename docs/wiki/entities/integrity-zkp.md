@@ -1,15 +1,21 @@
 ---
 title: integrity-zkp
 created: 2026-07-07
-updated: 2026-07-15
+updated: 2026-08-29
 type: entity
 tags: [cryptography]
 confidence: high
 source_files:
-  - integrity-zkp/src/main.nr
+  - integrity-zkp/circuit/src/main.nr
   - integrity-zkp/README.md
   - integrity-zkp/Makefile
 ---
+
+## Table of contents
+
+- [Overview](#overview)
+
+## Overview
 
 The zero-knowledge attestation circuit: proves an agent knows the secret
 behind its published identity commitment, and that it committed to a

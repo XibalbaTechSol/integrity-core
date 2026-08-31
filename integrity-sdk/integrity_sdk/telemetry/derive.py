@@ -106,17 +106,21 @@ def _entry_grounding(entry: Dict[str, Any]) -> Optional[float]:
 
 def derive_entropy(batch: List[Dict[str, Any]]) -> float:
     """Batch-mean stability score across every entry that has a completion
-    text or a pre-computed value. Returns 1.0 (no evidence of instability)
-    for an empty batch or a batch with no scoreable entries — an agent that
-    hasn't produced any output yet shouldn't be penalized as if it had
-    produced erratic output."""
+    text or a pre-computed value. Returns 0.0 for an empty batch or a batch
+    with no scoreable entries — spec/integrity-protocol-v3.2.md §3.1.1
+    requirement N2 ("earned, not granted"): absence of evidence must score
+    low, not high. This mirrors integrity-oracle/backend/src/derive.rs's
+    server-side recomputation, which is what the oracle actually scores on;
+    a client-side default that disagreed would just be a misleading display
+    value."""
     values = [v for v in (_entry_entropy(e) for e in batch) if v is not None]
-    return sum(values) / len(values) if values else 1.0
+    return sum(values) / len(values) if values else 0.0
 
 
 def derive_grounding(batch: List[Dict[str, Any]]) -> float:
+    """See `derive_entropy`'s docstring — same fail-closed rationale (spec §3.1.1 N2)."""
     values = [v for v in (_entry_grounding(e) for e in batch) if v is not None]
-    return sum(values) / len(values) if values else 1.0
+    return sum(values) / len(values) if values else 0.0
 
 
 # Ceiling chosen so a single, realistically-sized agent session (a few dozen
@@ -230,7 +234,7 @@ def derive_compliance(
     access is available — **on-chain wins** when both are present, since a
     self-report alone is exactly the kind of unverified claim
     `ComplianceGate.sol`'s own NatSpec warns against trusting for a
-    regulated-vertical agent (see contracts/src/shield/ComplianceGate.sol).
+    regulated-vertical agent (see contracts/src/health/ComplianceGate.sol).
 
     Self-reported signal: fraction of batch entries NOT flagged as a policy
     violation (`metadata.get("policy_violation")` or `metadata.get("flagged")`
@@ -244,7 +248,9 @@ def derive_compliance(
         if metadata.get("policy_violation") or metadata.get("flagged"):
             flagged_count += 1
 
-    self_reported = 1.0 - (flagged_count / total) if total > 0 else 1.0
+    # Empty batch fails closed to 0.0 (spec §3.1.1 N2) — absence of compliance
+    # evidence is not evidence of compliance.
+    self_reported = 1.0 - (flagged_count / total) if total > 0 else 0.0
 
     if compliance_gate_address and covered_entity_address and w3 is not None:
         try:
@@ -323,7 +329,7 @@ def derive_ais_signals(
     compliance_gate_address: Optional[str] = None,
     covered_entity_address: Optional[str] = None,
     w3: Optional[Any] = None,
-) -> Dict[str, float]:
+) -> Dict[str, Any]:
     """Bundles all four derived signals into the shape
     `POST /v1/telemetry/ingest`'s `derived_signals` field expects (see
     docs/INTERFACE_CONTRACT.md).
@@ -332,7 +338,7 @@ def derive_ais_signals(
     constant's comment for why this is load-bearing for signature
     verification and not a cosmetic choice.
     """
-    return {
+    result: Dict[str, Any] = {
         "entropy": round(derive_entropy(batch), _SIGNAL_DECIMALS),
         "grounding": round(derive_grounding(batch), _SIGNAL_DECIMALS),
         "sacrifice": round(derive_sacrifice(batch), _SIGNAL_DECIMALS),
@@ -346,3 +352,29 @@ def derive_ais_signals(
             _SIGNAL_DECIMALS,
         ),
     }
+    billed = _derive_billed_cost(batch)
+    if billed is not None:
+        result["billed_cost"] = billed
+    return result
+
+
+def _derive_billed_cost(batch: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Return the first provider-reported cost verbatim, if present.
+
+    Cost is evidence, not an estimate: this deliberately does not calculate a price
+    from token counts or apply a local rate table. Integrations may place a provider
+    response's ``cost_usd``/``cost`` plus ``currency`` and ``rate_source`` in
+    ``metadata.token_usage``.
+    """
+    for entry in batch:
+        usage = entry.get("metadata", {}).get("token_usage", {})
+        if not isinstance(usage, dict):
+            continue
+        amount = usage.get("cost_usd", usage.get("cost"))
+        if not isinstance(amount, (int, float)):
+            continue
+        currency = usage.get("currency")
+        rate_source = usage.get("rate_source")
+        if isinstance(currency, str) and isinstance(rate_source, str):
+            return {"amount": amount, "currency": currency, "rate_source": rate_source}
+    return None

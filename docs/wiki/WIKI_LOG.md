@@ -1,7 +1,90 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-08-28] update | Invocation correlation profile v1
+
+- Added the accepted `spec/invocation-id-v1.md` cross-repository profile and updated the BCC
+  interface contract.
+- New SDK commitments sign a canonical UUID `invocation_id`; middleware validates and records it;
+  Oracle effect ingest and reconciliation use it instead of treating repeated content hashes as
+  unique attempts.
+- Legacy rows remain readable as `legacy_hash_only`. The identifier proves correlation only, not
+  execution, truth, authorization, or completeness.
+
+## [2026-08-13] update | Real UltraPlonk verifier coverage
+
+- Added retained binary proof/public-input fixtures and `contracts/test/UltraPlonkVerifier.t.sol` without editing generated verifier Solidity.
+- The direct generated verifier test covers valid proof acceptance, tampered proof rejection, tampered public-input rejection, and malformed-proof rejection.
+- Fixture lengths and hashes are asserted; the public-input conversion passes exactly three `bytes32` values required by the generated ABI.
+- Verification: `forge test --match-path test/UltraPlonkVerifier.t.sol -vvv` -> 4 passed, 0 failed.
+- Residual limits: registry forwarding, clean proof regeneration, deployed/on-chain verification, and external anchoring remain open.
+
+
+## [2026-08-13] update | Test-status tree binding
+
+- Added `concepts/test-status-tree-binding.md` and indexed it in `WIKI_INDEX.md`.
+- Documented the shared `scripts/tree_hash.py` implementation used by
+  `record_test_status.py` and `vault_commit_leaf.py`.
+- Recorded measured verification: `python3 scripts/tree_hash.py --self-test` -> 4/4 passed.
+- Preserved the boundary that this proves local source-tree binding only, not external anchoring
+  or successful delivery of every historical leaf.
+
+
 > Chronological record of wiki actions. Append-only — never edit past entries.
 > Actions: ingest, create, update, lint, query, archive
+
+## [2026-08-29] lint | Wiki Sync Loop
+
+- Pages created: 0
+- Pages updated: 0
+- Dead links fixed: 0
+- Orphans resolved: 33 by restoring the canonical machine-readable `WIKI_INDEX.md`
+- Stale pages refreshed: 0
+- Aspirational content flagged: 0
+- The historical archived catalog remains separate; `docs/wiki/index.md` and this index are
+  the active canonical documentation map.
+
+## [2026-08-13] update | BCC audit-report shutdown drain verified
+
+- Closed the documented shutdown-loss gap for `bcc_middleware` audit reports.
+- Verified that `lifespan()` waits for in-flight asynchronous audit-report tasks, bounded by 10 seconds, while preserving non-blocking request handling.
+- Evidence: `bcc_middleware/tests/test_shutdown_drain.py` and `test_evidence_linkage.py` passed 6/6; the full package suite passed 122/122 with `uv run python -m pytest -q`.
+- Preserved the residual limitation: oracle unavailability can still lose reports because the path remains best-effort and has no local durable spool or retry queue.
+
+## [2026-08-06] create | Cross-repository audit status ledger
+
+- Added `docs/audits/2026-08-06-cross-repository-status.md` as the current Integrity Protocol repository audit pointer.
+- Linked the consolidated four-repository implementation plan and status vocabulary from the wiki index.
+- Recorded verified default-branch test evidence and open findings for `integrity-core`, `integrity-mvp`, `xibalba-shield`, and `xibalba-cortex`.
+- Preserved historical wiki entries and marked the audit as `AUDIT IN PROGRESS`; no production-readiness claim was promoted.
+
+## [2026-08-06] update | Scoped Devil's Advocate and Red-Team Reviews
+
+- Limited mandatory adversarial review to architectural decisions, foundational security or identity-boundary changes, consequential deployments, and decisions with profound long-term implications.
+- Explicitly excluded routine implementation, maintenance, and low-risk reversible work.
+
+## [2026-08-06] update | Xibalba Agent Safety and Control Invariants
+
+- Expanded `/home/xibalba/.hermes/SOUL.md` and `concepts/xibalba-agent-operating-model.md` with authority ordering, untrusted-memory rules, risk-tiered Behavioral Commitment Chain approval requirements, postcondition verification, degraded-mode behavior, shadow-provider restrictions, identity-language distinctions, and draft-first external operations.
+- Marked cryptographic origin binding, replay checks, deterministic redaction, stale-claim recovery, dead-letter handling, restart reconciliation, and adversarial automation tests as `[PLANNED]` because they are not yet fully implemented and verified.
+
+## [2026-08-06] create | Xibalba Agent Operating Model
+
+- Added `concepts/xibalba-agent-operating-model.md` documenting the configured Xibalba identity, closed-loop task lifecycle, graph-memory posture, significance gate, user-interface design influences, and approval boundaries.
+- Recorded the significant-task wiki compilation worker as `[PLANNED]`; the existing Hermes observer currently captures source evidence into local graph memory, but automatic semantic compilation is not yet wired.
+
+## [2026-07-31] update | AOS Observability Gating — Python pytest coverage completed
+
+- Added `test_intercept_aos_gating` to `bcc_middleware/tests/test_intercept.py` covering the full HTTP-layer round-trip for AOS-gated agent tool calls.
+- Fixed OPA null-safety bug in `bcc_middleware/policies/bcc.rego`: replaced `not input.<field>` with `object.get(input, "<field>", null)` + `_has_value()` helper so absent vs. `null` fields are handled uniformly.
+- AOS gating rules block `claude_tool:*` and `hermes_tool:*` calls missing `trace_id`, `span_id`, or `agent_thought` (≥15 chars) with `AOS_VIOLATION` reason codes.
+- Full suite green: **100/100 Python tests** (`uv run pytest`) + **39/39 OPA tests** (`opa test policies/`).
+
+## [2026-07-31] update | Visual Node-Graph and Interactive ZK Prover UI redesign
+
+- Overhauled `integrity-dashboard/src/pages/ContractsPage.tsx` to integrate a top-level tab switcher and a visual contract primitives connection map.
+- Created `integrity-dashboard/src/components/ui/VisualTopologyMap.tsx` rendering the 7 protocol smart contract primitives as a reactive, nodes-and-links SVG topology chart with side-panel variable inspections.
+- Refactored `integrity-dashboard/src/components/tabs/ZKProverPanel.tsx` into an interactive proves-and-verifies console matching Noir/UltraHonk execution steps.
+- Re-ran the dashboard vitest unit test suite with 100% pass (68/68 tests green).
 
 ## [2026-07-30] create+update | Persistent Memory Guide and Reimagined Dashboard Landing Page
 - Created `docs/wiki/concepts/persistent-memory.md` to document how developers and agents can configure `TrustVault`, `JSONLBackend`, `RAGBackend`, and `GraphBackend` for cryptographic state anchoring.
@@ -40,7 +123,7 @@
 
 ## [2026-07-07] create | Wiki initialized for the from-scratch rewrite
 
-- Rebuilding the Integrity Protocol monorepo at `INTEGRITY-LATEST/` from
+- Rebuilding the Integrity Protocol monorepo at `integrity-core/` from
   scratch, after an audit of the old `INTEGRITY/` prototype found working
   code alongside protocol-critical pieces (ZK proving, TEE attestation, OPA
   evaluation, on-chain BAA checks, Merkle anchoring) that were explicit,
@@ -1069,7 +1152,7 @@
 
 - Next item in the user-directed queue after the AIS spec/tier-gate work
   above. Legacy `INTEGRITY` had a real, tested `XibalbaNameService.sol` +
-  dashboard UI; it was never carried into `INTEGRITY-LATEST`'s rewrite
+  dashboard UI; it was never carried into `integrity-core`'s rewrite
   (confirmed earlier this session — no XNS contract anywhere in
   `contracts/src/`, only a `[PLANNED]` wiki stub at
   `docs/wiki/concepts/xns.md` referencing the root README's roadmap table).
@@ -1514,7 +1597,7 @@
   not just response-shape inspection)**: brought up a real local anvil +
   `forge script Deploy.s.sol` + a real `cargo run oracle-backend` +
   Postgres/Redis (a throwaway `integrity-verify-pg` Docker container was
-  used instead of the pre-existing `integrity-latest-postgres-1`, whose
+  used instead of the pre-existing `integrity-core-postgres-1`, whose
   password didn't match its own `docker-compose.yml` — root cause found:
   host port 5432 is already bound by an unrelated native Postgres
   process, so the compose container's port was never actually reaching
@@ -2753,3 +2836,408 @@ writeup: PRODUCTION_GAPS.md §18.
 - **Verification Tier Score Ceilings**: Extended `scoring-core::AisEngine` with `ceiling_for_tier` and `score_with_tier`, capping AIS scores based on identity verification strength: Tier 0 (Dev API Key) $\rightarrow$ 300, Tier 1 (Sovereign Software Key) $\rightarrow$ 600, Tier 2 (Linked Attestation) $\rightarrow$ 850, Tier 3 (Institutional TEE/Audit) $\rightarrow$ 1000.
 - **Oracle Backend Enforcement**: Updated `handlers::compute_ais_for_agent` and `handlers::get_agent_ais_history` in `integrity-oracle` to look up `agent.verification_tier` and pass it to `score_with_tier`.
 - **Test Suite**: Added `verification_ladder_tier_ceilings_enforced` test to `scoring-core`. All 100 lib/e2e tests in `integrity-oracle` passing (`cargo test --workspace`).
+
+## [2026-08-04] fix | Geometric AIS made authoritative end-to-end
+
+- Corrected `spec/integrity-protocol-v0.4.md` and root `README.md`, which still carried the
+  superseded arithmetic dot product, to match `integrity-oracle/scoring-core`'s weighted
+  geometric mean and built identity-tier ceiling. The spec records this as a normative
+  coherence correction rather than silently rewriting its revision history.
+- Fixed `bcc_middleware/app/scoring_loop.py` so the on-chain signer no longer reconstructs
+  AIS arithmetically from `components`/`weights`. It now accepts the Oracle's geometric,
+  tier-capped `ais` as authoritative and removes only the reported ZK multiplier before
+  calling `ReputationRegistry.updateScore`, leaving the contract's independently earned
+  boost separate.
+- Added discriminating middleware tests with unequal components, ZK removal, and a tier-capped
+  response. These cases prevent equal-component fixtures from hiding an arithmetic regression.
+- Reconciled `docs/INTERFACE_CONTRACT.md`, the AIS and middleware wiki pages, package guidance,
+  `PRODUCTION_GAPS.md`, and the standalone AIS equation visual with the propagation rule.
+
+## [2026-08-04] feature | Agent-signed verification evidence revocation
+
+- Added challenge/submit routes that let an agent revoke one DNS, GitHub, or Nitro evidence
+  row using its registered Ed25519 key. The signed bytes bind DID, evidence ID, nonce, and
+  reason; the row is retained with revocation metadata and the effective tier drops immediately.
+- Reconciled the README, v0.4 spec, interface contract, Oracle entity page, identity-ceiling
+  concept page, and production-gap ledger with the already-built DNS/GitHub/Nitro ladder.
+- Kept KYC explicitly `[PLANNED]`: it needs a real provider and must never store raw PII.
+
+## [2026-08-04] feature | Provider-neutral open-source KYC receipt path
+
+- Added `backend/src/kyc.rs` and KYC challenge/verification routes. Receipts are bound to
+  the agent and a fresh nonce, signed by an Ed25519 key configured in
+  `KYC_PROVIDER_KEYS`, time-limited, and hashed for audit.
+- The `open_source_kyc_v1` profile requires document authenticity, biometric liveness,
+  and sanctions/PEP screening; incomplete or self-asserted results cannot grant Tier 3.
+- The Oracle stores no raw PII—only a provider id, opaque subject reference, explicit
+  checks, validity timestamps, and receipt hash. Commercial and self-hosted providers
+  share the same boundary without implying universal regulatory equivalence.
+
+## [2026-08-04] update | Hermes BCC gate context bridge repaired
+
+- Added `~/.claude/xibalba/hermes_context_store.py`: an atomic per-session context cache that lets Hermes persist the latest tool-rationale text for the shell-hook gate without scraping transcripts.
+- Patched `~/.hermes/plugins/integrity_telemetry/__init__.py` to write `{session_id, turn_id, reasoning, assistant_response}` into that cache on `post_llm_call`.
+- Patched `~/.hermes/hermes-agent/agent/turn_finalizer.py` so `post_llm_call` hooks receive `last_reasoning` from the just-finished turn.
+- Patched `~/.claude/xibalba/hermes_gate.py` to bridge cached rationale into `AGENT_THOUGHT` for the shared `pretool_gate.evaluate_tool_intent(...)` path.
+- Patched `~/.hermes/hermes-agent/tools/code_execution_tool.py` so nested `execute_code` remote/local RPC tool calls forward `HERMES_SESSION_ID` into `handle_function_call(...)`, restoring the BCC gate's session-based trace/span recovery path for nested terminal calls.
+- Verification: new focused pytest coverage passed (`4 passed` for the gate/context-store bridge, `2 passed` for `execute_code` session propagation), modified files compiled cleanly with `python -m py_compile`, and a fresh temporary `bcc_middleware` instance allowed a synthetic Hermes `terminal` payload when rationale context existed while still denying the same payload without rationale with `AOS_VIOLATION`.
+- Important caveat: the current OPA contract still names the field `agent_thought`; Hermes is now feeding a persisted, public action rationale / turn reasoning bridge into that field. This restores fail-closed execution, but the protocol should still evolve toward a first-class signed `intent_rationale` field rather than implying access to private chain-of-thought.
+
+## [2026-08-04] update | Signed intent_rationale migration completed
+
+- Extended the BCC commitment schema so `intent_rationale` is now a first-class signed field, while `agent_thought` remains a normalized compatibility alias.
+- Updated `integrity-sdk` to sign `intent_rationale` inside `build_bcc_commitment(...)` and to preserve the legacy alias post-signing.
+- Updated `bcc_middleware` schema, canonicalization, OPA policy, and intercept response shaping to prefer `intent_rationale` while still accepting `agent_thought` for older callers.
+- Updated Hermes bridge plumbing so the shell hook propagates `INTENT_RATIONALE` end-to-end, with `AGENT_THOUGHT` retained only as a compatibility mirror.
+- Updated repo docs and wiki pages to describe the signed rationale contract and the legacy aliasing boundary.
+
+## [2026-08-04] docs | Ecosystem dependency boundaries documented
+
+- Added `docs/architecture/ecosystem-dependencies.md` as the canonical map across
+  integrity-core, Xibalba Shield, and Integrity MVP.
+- Clarified that Integrity MVP presents both backend layers, Xibalba Shield is built on
+  integrity-core's public SDK/BCC/Oracle trust substrate, and dependency direction never
+  flows back from integrity-core into either application.
+- Reconciled the Shield specification's stale claim that its implementation repository did
+  not yet exist; implementation status remains owned by the Shield README.
+
+## [2026-08-04] docs | Integrity specification published in the user-facing wiki
+
+- Added the Integrity Protocol Specification concept page and indexed it, increasing the
+  wiki catalog from 31 to 32 pages.
+- Identified the version-controlled Markdown specification v0.4 as the current normative
+  source and linked it to the protocol's foundational concepts.
+- Preserved the supplied comprehensive specification PDF as an explicitly archived v0.3
+  artifact for in-browser viewing and download without presenting it as current.
+
+## [2026-08-04] docs | Canonical wiki publication contract enforced
+
+- Declared `integrity-core/docs/wiki/` as the sole authoring source of truth;
+  Integrity MVP and GitHub Wiki are downstream, read-only projections.
+- Extended the GitHub Wiki publisher to include architecture and query pages.
+- Made GitHub Wiki sidebar and footer generation deterministic from the canonical
+  page set, eliminating the remaining hand-maintained mirror-only content path.
+
+## [2026-08-04] docs | Canonical article tables of contents
+
+- Added deterministic TOC generation for every canonical concept, entity,
+  architecture, and query article.
+- Added publication-time drift validation so GitHub Wiki cannot publish after a
+  heading change until the canonical TOC is regenerated.
+- Kept the MVP's dynamic right rail derived from the same headings while rendering
+  the canonical nested TOC in the article body on both downstream surfaces.
+
+## [2026-08-04] fix | Functional master wiki contents
+
+- Replaced the MVP left rail's inert category labels and decorative chevrons with
+  accessible expand/collapse controls over the complete 32-article catalog.
+- Added article counts, active-page semantics, desktop/mobile selection behavior,
+  and automatic expansion of the selected article's category.
+- Changed the generated GitHub Wiki sidebar from one flat list to the same
+  canonical concept, entity, architecture, and open-query grouping.
+
+## [2026-08-04] fix | MVP wiki link integrity and update provenance
+
+- Added a visible Last updated timestamp sourced from the canonical snapshot's
+  Git commit time.
+- Resolved relative wiki links into stable `/wiki?page=...` navigation and
+  repository-document links into canonical GitHub source URLs.
+- Unified MVP and canonical heading slug rules after a full Playwright crawl
+  found one `<h>`-fragment mismatch in the Oracle XNS section.
+- Exhaustive browser validation covered all 32 master entries, 199 unique
+  rendered destinations, 153 inline anchors, and 156 right-rail TOC targets
+  with no remaining failures.
+
+## [2026-08-05] fix | Master TOC expanded into a true outline tree
+
+- Corrected the MVP left rail from a category/article index into a three-level
+  master outline: category → article → article section.
+- Added independent article-outline expand/collapse controls and section links
+  that open the correct article at the selected canonical heading.
+- Kept the active article and active section visibly synchronized across
+  desktop and mobile navigation.
+
+## [2026-08-05] fix | MVP wiki now opens on the canonical Wiki home
+
+- Added `docs/wiki/index.md` to the generated MVP snapshot as the `home` page
+  instead of skipping the same page GitHub Wiki uses as its landing view.
+- `/wiki` now defaults to the canonical Integrity Protocol Wiki overview,
+  system map, start-here guidance, and master table of contents; direct article
+  URLs remain unchanged.
+
+## [2026-08-05] feat | Mermaid charts render in the MVP browser wiki
+
+- Added lazy-loaded Mermaid rendering for canonical `mermaid` code fences so
+  system and protocol diagrams display as themed SVG charts in the MVP wiki.
+- Added responsive horizontal scrolling on narrow screens plus explicit loading
+  and source-preserving error fallbacks for invalid diagrams.
+
+## [2026-08-06] fix | MVP wiki professional rendering regressions repaired
+
+- Fixed the MVP wiki Markdown renderer so canonical pipe tables render as accessible HTML tables instead of being silently dropped.
+- Fixed the mobile wiki search trigger so it docks at the bottom of the viewport instead of overlapping the top header grid.
+- Added Playwright regression coverage for table rendering and mobile search placement.
+- Clarified the canonical contract-documentation policy: `entities/contracts.md` remains the default aggregate owner for the contract suite; per-contract pages are reserved for contracts that need standalone API documentation.
+- Regenerated the MVP wiki snapshot from `integrity-core/docs/wiki/` after the canonical metadata update, and fixed the MVP sync path so canonical `docs/guides/*.md` pages appear under the Guides rail instead of falling out of navigation.
+
+## [2026-08-06] update | Cross-repo wiki coverage and MVP browser TOC
+
+- Added `docs/wiki/architecture/ecosystem-dependencies.md` so the canonical wiki exposes the verified dependency boundary across integrity-core, Xibalba Shield, and Integrity MVP, instead of leaving it only in `docs/architecture/ecosystem-dependencies.md`.
+- Updated `WIKI_INDEX.md` and the wiki home page from 33 to 34 pages, adding one architecture page.
+- Recorded the Integrity MVP `/wiki` browser changes: the header uses the official Xibalba Solutions logo linked to `/`, and the left rail is now an ordered protocol TOC with functional article and section navigation.
+- Verification performed in `integrity-mvp`: focused Playwright wiki suite passed (4 tests), production build passed, whitespace check passed, and desktop/mobile screenshots were saved under `~/Pictures/`.
+
+## [2026-08-06] docs | Repository README source-of-truth pass
+
+- Updated the three top-level repository READMEs so each explicitly states its source-of-truth role, definitions, current status, ownership boundaries, plans, and documentation map.
+- Expanded `integrity-mvp/README.md` from a short project note into a full app source-of-truth document covering the three-repo stack, generated wiki, current UI surfaces, commands, testing, and roadmap.
+- Updated `integrity-core/README.md` package-status language to align with the current wiki and added explicit README/interface/spec/wiki precedence.
+- Added source-of-truth and documentation-map sections to `xibalba-shield/README.md`, preserving its implementation-status dashboard as the Shield truth ledger.
+- Updated `docs/INTERFACE_CONTRACT.md` to describe current internal scope and explicitly keep `integrity-mvp` and `xibalba-shield` outside integrity-core's dependency graph.
+
+## [2026-08-06] spec | Specification expansion and Shield spec ownership
+
+- Expanded `spec/integrity-protocol-v0.4.md` with §23 conformance profiles, status vocabulary, source-of-truth precedence, and no-silent-capability-transfer rules.
+- Updated `spec/README.md` to document Shield specification ownership and protocol-facing boundaries.
+- Updated `spec/xibalba-shield-v1.md` to point implementation details to the Shield repo while retaining the Integrity-facing evidence boundary.
+- Updated the wiki concept page for the Integrity specification with the new conformance and Shield-boundary rules.
+
+## [2026-08-06] docs | Cross-repository implementation plans
+
+- Added root `IMPLEMENTATION_PLAN.md` files to integrity-core, integrity-mvp, xibalba-shield, and xibalba-cortex.
+- Added `docs/wiki/architecture/repository-implementation-plans.md` as the canonical wiki rollup for closed/planned/blocked work across the four repositories.
+- Updated the wiki home page and WIKI_INDEX architecture section from one to two architecture pages.
+
+## [2026-08-06] docs | Audit evidence merged into implementation plans
+
+- Merged the permanent cross-repository audit ledger and repo-local audit status pages into the four root `IMPLEMENTATION_PLAN.md` files.
+- Updated `docs/wiki/architecture/repository-implementation-plans.md` with audit evidence boundaries, CI/deployment blockers, and non-duplicated repo task additions.
+- Kept clean-main evidence, active-branch evidence, and dirty-worktree evidence explicitly labeled rather than merging them into one production claim.
+
+## [2026-08-06] docs | Root specifications and archive cleanup
+
+- Added detailed root `SPECIFICATION.md` files for integrity-core, integrity-mvp, and xibalba-cortex, and updated xibalba-shield `SPECIFICATION.md` with the current audit boundary.
+- Archived superseded historical planning/handoff files into dated `docs/archive/2026-08-06/` folders in integrity-mvp, xibalba-shield, and xibalba-cortex.
+- Updated `docs/wiki/architecture/repository-implementation-plans.md` so specifications, implementation plans, audit evidence, and archived historical records are represented without duplicate task entries.
+
+## [2026-08-06] cleanup | Repository generated-artifact cleanup
+
+- Removed reproducible generated artifacts and caches from integrity-core, integrity-mvp, xibalba-shield, and xibalba-cortex.
+- Kept source files, audits, docs, `.env`, `.venv`, `node_modules`, local deployment state, and active worktree changes intact.
+- Archived superseded historical plan/handoff documents under dated `docs/archive/2026-08-06/` folders rather than deleting them.
+
+## [2026-08-13] update | integrity-dashboard full-site Playwright audit
+
+- Rewrote `entities/integrity-dashboard.md` from scratch — the prior content described a structurally different, pre-2026-08-12-reconciliation dashboard (`AgentListPage`/`MarketsPage`/`WalletPage`, `wagmi`/`viem`, a `react-grid-layout` widget dashboard) whose files no longer exist on disk.
+- Documented the current 16-route dashboard, its per-page backend wiring (oracle/userapi/direct-chain-to-Base-Sepolia/xibalba-cortex local_api), and the `/shield` page's identity as a self-contained attack-simulation demo (confirmed via `git log` that its real-backend integration code, `services/shieldBackend.ts` + `components/ShieldEvidenceGraph.tsx`, is orphaned, never imported by any page).
+- Recorded a full-site Playwright audit (16 specs, 140 tests, one spec per route, real backend stack, no mocking, screenshot-verified per page) that found and fixed 7 real bugs: `WikiPage.tsx` bold-markdown regex, `DIDExplorer.tsx` grid-collapse layout bug, `integrity-userapi` CORS missing the e2e origin, `AuthPage.tsx`/`DashboardContext.tsx` false-success wallet-auth navigation, `IntelligencePage.tsx` formula-box double-edge clipping, `Dashboard.tsx` radar-chart NaN from a 0-1 vs 0-1000 scaling mismatch, `TraceAnalysisPanel.tsx` stuck-loading state, and `ActuarialHub.tsx` Invalid-Date/resolve-gating bug from parsing an ISO string as a Unix-seconds number.
+- Updated `WIKI_INDEX.md`'s `integrity-dashboard` entry and `docs/TESTING.md`'s Layer 2 section (the previously-documented `e2e/global-setup.ts`/`global-teardown.ts` do not exist in this repo; corrected to the actual manual-stack-then-`npx playwright test` workflow).
+- Corrected `CLAUDE.md`'s stale "Known gaps" claims that `integrity-dashboard/e2e/` doesn't exist and that `package.json` defines a `vitest`-backed `"test"` script (it doesn't — no vitest dependency, no unit-test layer, Playwright e2e is the only test surface).
+
+## [2026-08-17] create | Integrity Protocol Whitepaper v3.1 PDF
+
+- Generated `docs/releases/Integrity_Protocol_Whitepaper_v3.1.pdf` from the authoritative `spec/integrity-protocol-v3.1.md` working draft.
+- Preserved the source's explicit boundaries around implemented components, planned execution-firewall architecture, unaudited examples, and residual risks; no deployed v3 capability was promoted by the typesetting step.
+- Verification: Headless Chrome generated a 34-page A4 PDF; `pdfinfo` reported the expected title and unencrypted output; `pdftotext` recovered 127,514 bytes and retained Version 3.1 and all six `SPEC CHANGE` markers; first-page rendering was visually inspected.
+- Artifact SHA-256: `11e72f0d7d4e0ba671f5bdae8712799b4c29924f71206170efe1a6586cb12221`.
+
+## [2026-08-17] update | Designed Whitepaper v3.1 release
+
+- Replaced the basic text PDF with `docs/releases/Integrity_Protocol_Whitepaper_v3.1_designed.pdf`, following the v3 cover language: Xibalba logo, centered navy title, teal subtitle, divider, metadata, shaded ground-rule box, and footer branding.
+- Added local MathJax SVG rendering so display and inline mathematics are embedded in the PDF rather than shown as raw LaTeX source.
+- Verification: Headless Chrome generated a 35-page US Letter PDF; `pdfinfo` confirmed the title, page size, and unencrypted output; text extraction succeeded; cover and equation-bearing pages were visually inspected; the Downloads copy was read back and matched byte-for-byte.
+- Final artifact SHA-256: `cad533cf5952ef7626fb780a11410a1155bb0e010df0ae1017c64dc9e8b5cfeb`.
+
+## [2026-08-17] update | Equation and cover refinement
+
+- Increased display-equation scale and spacing to more closely match the v3 LaTeX presentation: centered formulas, embedded SVG math glyphs, visible fractions/subscripts, and right-aligned equation tags.
+- Enlarged the exact Xibalba Solutions black logo mark on page 1 while retaining the v3 cover hierarchy.
+- Verification: final output is a 35-page US Letter PDF; cover and equation page were visually inspected; repository and Downloads copies match byte-for-byte.
+- Final SHA-256: `5dd9e628091d98729fe4b9bdecf405506ce78cc44c4be4ab021b2a538fa18c45`.
+
+## [2026-08-17] update | PDF chrome and equation weight correction
+
+- Removed Chromium's automatic date/title print header so pages begin with the whitepaper content and retain only the designed footer.
+- Reduced equation visual weight with a lighter embedded SVG treatment while preserving centered LaTeX-style formulas, fractions, subscripts, symbols, and equation tags.
+- Verification: extracted text contains no automatic `4:18 AM` header; final PDF and Downloads copy match byte-for-byte; equation page was visually inspected.
+- Final SHA-256: `403805498e7a29524c1a1415e7de68880e2d46fe7de91b5daf8b1b8b205bab5a`.
+
+## [2026-08-17] update | Specification and whitepaper authority reconciliation
+
+- Added `spec/integrity-protocol-v0.5-proposed.md` as a traceable proposed normative amendment derived from Whitepaper v3.1. It does not replace active normative baseline `spec/integrity-protocol-v0.4.md` until clause-by-clause review, implementation evidence, tests, and acceptance are recorded.
+- Reclassified `spec/integrity-protocol-v3.1.md` as explanatory and non-normative; changed inline `SPEC CHANGE` markers to `PROPOSED NORMATIVE CHANGE`; added an explicit relationship-to-specification section.
+- Updated `spec/README.md` with the authority hierarchy and proposal status.
+- Verification: consistency checks passed for active-baseline, proposal existence, whitepaper status, proposal linkage, marker replacement, and PDF inclusion; regenerated 35-page unencrypted United States Letter PDF; repository and Downloads copies match byte-for-byte.
+- Reconciled PDF SHA-256: `de48ad9787f214a56b4984df75a0753a1b3394df90da8a4bfd1d5f7599608b44`.
+
+## [2026-08-17] update | Adversarial authority and compatibility hardening
+
+- Incorporated review findings without promoting the proposal to active protocol authority.
+- Split v0.4 §23.3 precedence into normative requirements versus observed implementation, explicitly preventing proposals, whitepapers, READMEs, wikis, or deployed defects from silently changing the normative contract.
+- Added explicit AIS profile/migration requirements (`ais/v0.5-gated-geometric-1`) and memory commitment profile/migration requirements (`memory/v0.5-injective-1`) to the proposed amendment.
+- Marked the whitepaper memory-continuity snippet as non-conforming pseudocode that reverts as not implemented; changed audience language so proposed sections are not presented as active specifications.
+- Verification: consistency checks passed; regenerated 35-page unencrypted United States Letter PDF; automatic browser header remains absent; repository and Downloads copies match byte-for-byte.
+- Final PDF SHA-256: `ab285c706ec8f533c4827e3f23d6b8b040ad576ce20a07b1f9ebff789a77935e`.
+
+## [2026-08-17] update | v3 equation-style correction
+
+- Compared the actual v3 PDF equation treatment and corrected v3.1 to use light, left-aligned monospace formula bars on a light-gray background rather than bold SVG/LaTeX typesetting.
+- Normalized escaped LaTeX source into readable v3-style formula text, including Greek symbols, operators, subscripts, and parenthetical labels.
+- Verification: equation page was visually inspected against v3; no raw LaTeX backslashes or automatic browser header remain; regenerated 35-page unencrypted United States Letter PDF; repository and Downloads copies match byte-for-byte.
+- Final PDF SHA-256: `7aff28317b8fd2afb2309135ab7272b15f750c974b8309edc472277da344043c`.
+
+## [2026-08-17] update | Phase 0 Integrity identity read profile
+
+- Added `contracts/src/kernel/IntegrityIdentityReadV1.sol`, a read-only discovery facade over `XibalbaAgentRegistry`, and wired it into future genesis deployments as `singletons.IntegrityIdentityReadV1`.
+- A primary-source ERC-8004 review and focused Devil's Advocate pass rejected false compatibility: the facade pins the reviewed Draft revision, returns `isERC8004Conformant() == false`, and exposes no ERC-721 token, ownership, transfer, approval, wallet-proof, metadata-write, reputation-feedback, validation, event, or ERC-165 surface.
+- Identity resolution fails closed when forward/reverse registry mappings disagree, when `SovereignAgent.agentDID()` is unavailable, or when its declared DID does not match the registered hash. Current controller candidates are checked against live account roles rather than the registry's registration-time snapshot.
+- Agent Integrity Score (AIS) remains separate and authoritative through the existing Integrity Oracle and per-agent `ReputationRegistry`; the facade does not compute or translate reputation.
+- Verification: `forge test --match-contract IntegrityIdentityReadV1Test -vvv` returned 10 passed/0 failed; full `forge test` returned **209 passed/0 failed/0 skipped**; the touched Solidity files pass scoped `forge fmt --check`; no Base Sepolia transaction was broadcast. Fixed identity resolution remains available when the separate agent-controlled profile URI read reverts.
+- Residual gaps: native ERC-8004 convergence, an incremental Base Sepolia deployment, and prevention (rather than facade-level detection) of duplicate-agent/DID mismatches remain open in `PRODUCTION_GAPS.md` §28.
+- Reconciled the proposed v0.5 amendment, the explanatory v3.2 source, the Phase 0 plan, and the ecosystem-adoption draft: all now distinguish an Integrity identity obligation from ERC-8004 compatibility and correct the stale no-deployment claim about the Validation component without rewriting historical v3.1 release artifacts.
+
+## [2026-08-17] update | Whitepaper v3.2 and complete proposed-spec reconciliation
+
+- Reconciled the repository authority chain across the root README/specification/implementation plan, `spec/README.md`, `docs/INTERFACE_CONTRACT.md`, `docs/MAINNET_READINESS.md`, `PRODUCTION_GAPS.md`, developer guidance, plans, and the canonical wiki: v0.4 remains accepted normative authority; v0.5-proposed is a non-authoritative review candidate; Whitepaper v3.2 is explanatory; its PDF is generated output.
+- Expanded `spec/integrity-protocol-v0.5-proposed.md` to map the full substantive v3.2 amendment set: telemetry-prover decentralization, stake-secured memory availability, monotone grace modes with AIS-floor precedence, high-frequency channel/compiler trust, and the hybrid attested-host boundary. Comparative-architecture and enabler framing remain explanatory rather than fabricated implementation requirements.
+- Preserved implementation honesty: Phase 0 identity discovery and bounded fail-closed AIS defaults are local evidence; the execution firewall and all five expanded v3.2 profiles remain `[PLANNED]`. Source capability, test evidence, and Base Sepolia deployment are separate layers.
+- Added `scripts/build_whitepaper_v32.py`, using pinned Mermaid 11.16.1 and KaTeX 0.16.47 browser assets from the user cache. The build rendered all 13 Mermaid diagrams and regenerated `spec/Integrity_Protocol_Whitepaper_v3.2.pdf` from the reconciled Markdown.
+- PDF verification: 59 A4 pages, unencrypted, title `Integrity Protocol v3.2`; extracted text retained the non-normative notice, v0.5-proposed linkage, and `PROPOSED NORMATIVE CHANGE` markers while containing no stale `SPEC CHANGE` marker. Cover and technical/equation/diagram page 16 were visually inspected with no clipping, overlap, browser header, broken glyph, or raw-markup defect.
+- Regenerated PDF SHA-256: `9d3a990e1d684080a9dda274e876071cc6ee79169ca72c12dac3698e9ae4169b`.
+
+## [2026-08-17] update | delayed documentation-audit reconciliation and final v3.2 rebuild
+
+- Reconciled the delayed three-lane documentation audit against the post-audit worktree. Corrected remaining living drift in developer/testing guidance, package READMEs, the AIS and ZKP concept pages, the repository implementation ledger, the production-gap register, and the external Phase 0 plan.
+- Removed the invented dashboard Vitest/component-test layer. The root `make test` contract and GitHub Actions dashboard job now run the manifest-backed `npm run build && npm run lint`; Playwright remains separate and requires a separately prepared backend stack.
+- Corrected Whitepaper v3.2's remaining internal ambiguity: sections 2–7 are proposed architecture rather than accepted implementer authority; Validation deployment claims are bounded to the cited audit cutoff; the AIS baseline is partial; and identity constraints resolve through a selected Integrity identity profile rather than assuming native ERC-8004.
+- Reconciled proof-pipeline documentation with source: local generated verifier + real-proof Foundry coverage, Oracle-side `bb verify` with server-controlled verification keys, SDK proof-of-concept circuit mismatch, absent runtime on-chain submission, and the older fail-closed Base Sepolia verifier are now separate explicit states.
+- Fixed `scripts/wiki_linter.py` so the legacy `WIKI_INDEX.md` catalog may link to canonical `index.md` without counting the landing page as an article or falsely reporting it dead.
+- Verification: dashboard build/lint passed with 0 errors (56 existing warnings); Foundry passed **209/209**; wiki TOCs are current for 36 pages; wiki linter reports 0 orphans and 0 dead catalog links; 108 living Markdown files exposed 544 local links with 0 missing; Python compilation and `git diff --check` passed.
+- Final Whitepaper v3.2 artifact: 59 A4 pages, 13/13 Mermaid diagrams, extracted authority/identity assertions passed. SHA-256: `01d1312f36a3826432759d01faaa1ae7b2d38e2efd26fa0f8a2c62046432cdb0`.
+
+## [2026-08-17] correction | final adversarial clause-mapping closure
+
+- Dispositioned the delayed independent final review, which correctly rejected the prior closure despite otherwise sound v0.4/v0.5/v3.2 and Phase 0 identity boundaries.
+- Removed residual local-authority wording from the non-normative whitepaper, marked complete mediation as a `PROPOSED NORMATIVE CHANGE`, relabeled adapter rules as proposed, and corrected the Phase III and enabler cross-references to §10.3 and §10.4 respectively.
+- Expanded v0.5-proposed without changing its non-authoritative status: added verified-evidence monotonicity; exposure-scaled availability escrow, anti-grief challenge deposits, AIS reduction, deterministic redress, and burn; hard classification for all value movement plus typed degradation events; locked-budget state channels with highest-mutually-signed state, monotone depletion, value conservation, and unilateral settlement; and per-transaction enclave binding with explicit side-channel/rollback/microarchitectural residual risk.
+- Verification: focused source assertions passed; prohibited authority phrases and broken references are absent; the proposed clause mapping contains every reviewed load-bearing requirement; wiki TOCs and linter passed; `git diff --check` passed.
+- Rebuilt Whitepaper v3.2: 59 A4 pages, unencrypted, 13/13 Mermaid diagrams; normalized extracted-text assertions and visual inspection of pages 10, 18, 31, and 59 passed. Superseding SHA-256: `d7d3135007f118f174be3a5bcde247198a8fb6f5dbf821c2825fca8508c63552`.
+## [2026-08-18] fix | CI dependency resolution
+
+- Added the explicit OpenZeppelin 5.3.0 remapping required by Chainlink CCIP imports; this restores clean deployment-script compilation for the contracts, Software Development Kit (SDK), and command-line interface (CLI) validation paths.
+- Declared the dashboard's `globals` ESLint dependency and refreshed `package-lock.json`, so `npm ci` followed by `npm run lint` has a complete dependency graph.
+- Verification is recorded in the implementation branch: Foundry unit tests and dashboard lint pass locally; deployment-backed package tests remain the next CI confirmation after the branch is pushed.
+
+## [2026-08-25] update | External-runtime Devil's Advocate ensemble
+
+- Updated `docs/wiki/concepts/xibalba-agent-operating-model.md` to record the verified local external-runtime review adapter: Claude Code (Anthropic), Antigravity CLI (`agy`), and OpenAI Codex CLI execute in bounded read-only parallel review with Hermes synthesis, provider-independence labeling, secret redaction, hashes, per-runtime status, and timeout process-group cleanup.
+- Evidence source: `/home/xibalba/.hermes/skills/red-teaming/devils-advocate/scripts/external_ensemble.py` and its `SKILL.md`, as captured in session `20260818_175703_6b87e8`; local adapter and command-surface validation passed in that session.
+- Residual gap preserved: the real provider-to-provider smoke run was not attempted because the Behavioral Commitment Chain gate blocked uncommitted external execution; this workflow is usable but not production-ready until a narrowly scoped live run is separately authorized and verified.
+- Wiki validation: `python3 scripts/wiki_toc.py --check` was run and reports one pre-existing unrelated drift in `docs/wiki/entities/contracts.md`; no broad regeneration was applied.
+
+## [2026-08-25] update | Hermes/Cortex and Phase I session evidence compiled
+
+- Updated `architecture/repository-implementation-plans.md` with the 2026-08-19 session's material but partial evidence: reported green eight-job Continuous Integration, incomplete Phase I contract work with no deployment, and the remaining Hermes/BCC dispatch boundary failure for missing `intent_rationale`.
+- Recorded that Open Policy Agent (OPA) service reachability and local adapter validation do not establish host-tool dispatch evidence or live provider parity; the external provider smoke path remained blocked by the Behavioral Commitment Chain gate.
+- Updated `index.md` and the retained `WIKI_INDEX.md` date/status summaries. No new page was created.
+- Residual completeness gap: the session finalization summary is partial because `hook_watermark_not_verified`; claims above remain bounded to captured session evidence and are not current deployment proof.
+## [2026-08-19] fix | SDK existing-DID genesis anchoring guard
+
+- Fixed `integrity_sdk.registration.register_agent()`'s already-registered DID path so it reads the existing `StateAnchor` root before the oracle POST, anchors the genesis root when the root is zero, and fails closed with `RegistrationError` without calling the oracle if anchoring fails.
+- Added `integrity-sdk/tests/unit/test_registration_existing_did_genesis.py` covering zero-root anchoring before POST, non-zero-root no-op behavior, and the failure case where anchoring prevents the Oracle POST.
+- Verification: focused regression `uv run pytest tests/unit/test_registration_existing_did_genesis.py` passed with 3 passed; full SDK validation `PATH="/home/xibalba/.foundry/bin:$PATH" uv run pytest` passed with 267 passed, 9 skipped, 1 warning. The first full run without Foundry on `PATH` failed at chain fixture setup because `anvil` was not discoverable; no code failures were observed after using the installed Foundry path.
+## [2026-08-24] fix | default CI contract compile
+
+- Fixed the post-PR #70 Solidity compile break by restoring the 7-field `PrimitiveSet`
+  registry shape, adding registry DID read helpers required by `IntegrityIdentityReadV1`,
+  and correcting ERC20 calldata amount decoding in `ConstraintExecutionPolicy`.
+- Wired `AgentAuthorityResolver` into genesis and incremental `EHRGate` deployment
+  scripts so `EHRGate`'s constructor and deployment-backed Software Development Kit
+  (SDK)/command-line interface (CLI) tests stay on the real authority-resolution path.
+- Updated the contracts and ComplianceGate wiki pages plus the interface contract to
+  document the read-only authority resolver boundary.
+- Verification: focused Foundry resolver/identity/health tests passed 24/24;
+  full contracts `forge test -vvv` passed 330/330; SDK `uv run pytest` passed
+  267 with 9 skipped; CLI `uv run pytest` passed 70 with 1 skipped.
+
+## [2026-08-24] correction | EHRGate incremental resolver boundary
+
+- Corrected `contracts/script/DeployEHRGate.s.sol` so incremental deployments reuse only
+  an existing serialized `singletons.AgentAuthorityResolver` and fail before broadcasting
+  when that key is absent.
+- Documented the residual migration boundary: existing networks with legacy
+  `XibalbaAgentRegistry` bytecode that lacks enterprise-agent reads require a separately
+  approved registry/resolver migration before `EHRGate` can be incrementally deployed.
+- No historical wiki log entries were edited; this entry supersedes the earlier wording
+  that overstated incremental EHR deployment support.
+
+## [2026-08-28] update | Unified Cortex dashboard workspace
+
+- Consolidated the former Memory and Cortex Operations destinations under the canonical `/cortex` workspace. Existing memory views remain tabs, Operations is a new tab, the sidebar label is Cortex, and `/memory` redirects for bookmark compatibility.
+- Renamed the implementation to `CortexPage.tsx`, moved operator controls into `components/cortex/CortexOperationsTab.tsx`, and changed core loading to preserve successful session results when unrelated Cortex capabilities are unavailable.
+- Updated `docs/wiki/entities/integrity-dashboard.md` for the unified route and its hybrid-retrieval trace, extraction-review, inference/embedding visibility, and projection checkpoint/reconciliation/rebuild surfaces.
+- Recorded the cross-repository dashboard-to-Cortex HTTP boundary in `docs/INTERFACE_CONTRACT.md`, including `VITE_GRAPH_MEMORY_URL`, per-capability unavailable states, and the local/trusted operator constraint for write endpoints.
+- Disabled extraction-decision and projection-mutation controls when the dashboard is not loopback-hosted; documented that this browser guard is defense in depth, not operator authentication.
+- Preserved authority boundaries: Cortex remains the profile-isolated canonical store for Cortex memory, does not become Integrity protocol authority, and complements rather than replaces Hermes memory.
+- No new wiki page or catalog entry was required; `docs/wiki/index.md` remains unchanged.
+## [2026-08-29] lint | Wiki Sync Loop
+
+- Pages created: 0
+- Pages updated: 4 (`WIKI_INDEX.md`, `entities/integrity-oracle.md`, `entities/contracts.md`, `concepts/telemetry-ingestion.md`)
+- Dead links fixed: 0
+- Orphans resolved: 2 (added `architecture/ecosystem-dependencies.md` and `architecture/repository-implementation-plans.md` to the catalog)
+- Stale pages refreshed: 3 (Oracle, contracts, and telemetry ingestion source-verified against the 2026-08-29 changes)
+- Aspirational content flagged: 0
+- Verification: `python3 scripts/wiki_linter.py` reports 35 indexed pages, 0 dead links; `python3 scripts/wiki_toc.py --check` passes for 35 wiki pages; dashboard `npm run sync-wiki` regenerated `src/generated/wiki-data.json`.
+
+## [2026-08-29] audit | Living documentation fact check
+
+- Corrected living references to the accepted specification, proposed amendment, and whitepaper after those source files were archived under `docs/archive/2026-08/`.
+- Corrected the wiki landing page's obsolete external absolute-path dependency and linked the repository-local implementation ledger.
+- Updated `repository-implementation-plans.md` source bindings to existing files; historical archive entries remain unchanged.
+- Verification: living documentation link/source checks and wiki TOC validation pass; remaining archive-only historical links are intentionally excluded from the current-state audit.
+
+## [2026-08-29] audit | Individual review of remaining older articles
+
+- Source-reviewed the remaining 22 stale articles against their bound implementation, specification, test, and script files; the telemetry article had already been refreshed in the preceding pass.
+- Corrected the AIS inventory from the historical 10-route snapshot to the current generated OpenAPI inventory of 38 `/v1/*` paths.
+- Marked the SDK RAG and Graph memory adapters as planned stubs because the current implementations raise `NotImplementedError`.
+- Removed the unsubstantiated claim that market contracts are currently live on Base Sepolia; local code/tests and live-network evidence are now explicitly separated.
+- Regenerated the gas-tracking query from the current SDK gas log and refreshed all 22 reviewed pages.
+- Verification: 35 indexed pages, 0 stale pages, 0 orphans, 0 dead index links, and wiki TOC check passes.
+
+## [2026-08-29] update | Hermes development boundary and runtime separation
+
+- Updated `docs/wiki/concepts/xibalba-agent-operating-model.md` with the verified runtime boundary: Hermes uses the Cortex memory provider and Hermes gate; explicit Development Mode is a bounded, operator-selected local fallback only when the policy dependency is unavailable; signing-class actions remain fail-closed; and decisions are labeled `not_opa_verified`.
+- Recorded the observed separation in which Claude Code Integrity hooks and telemetry are disabled while Hermes enforcement remains configured. External runtime files are explicitly treated as runtime evidence rather than repository-source authority.
+- Preserved the session-finalization limitation: session `20260818_203629_21cb28` was partial because `hook_watermark_not_verified` was not verified.
+- Verification: `/home/xibalba/.claude/xibalba/dev_mode.py`, `/home/xibalba/.claude/settings.json`, and `/home/xibalba/.hermes/config.yaml` were read back; the source-bound canonical wiki page was updated. The requested `/home/xibalba/Projects/INTEGRITY-LATEST/docs/wiki/` path was absent; the active repository wiki at `/home/xibalba/Projects/integrity-core/docs/wiki/` was used.
+
+## [2026-08-29] correction | Shield dashboard source reconciliation
+
+- Updated `entities/integrity-dashboard.md` to reflect that `/shield` now defaults to the real `ShieldFleetOverview` backend evidence surface, while `Live Attack Demo` remains explicitly synthetic/local.
+- Removed the obsolete orphan-client claim and bound the page to `ShieldFleetOverview.tsx` and `services/shieldBackend.ts`.
+- Preserved remaining external evidence gates: production registration, sensor coverage, Oracle readback, and burn-in.
+- Verification: source inspection and dashboard build remain green; no live-chain or production claim was added.
+
+## [2026-08-29] update | Whitepaper authority normalization
+
+- Promoted Whitepaper v3.2 to the canonical `docs/WHITEPAPER.md` source.
+- Preserved the former v1 narrative at `docs/archive/2026-08/integrity-protocol-v1.md` and retained the archived v3.2 copy as historical release evidence.
+- Added `docs/DOCUMENT_STATUS.yaml` as the machine-readable authority manifest: `docs/SPEC.md` is normative; v3.2 is current explanatory whitepaper; controls and implementation plan remain informative.
+- Updated current README/spec/readiness/interface/wiki pointers and regenerated the dashboard wiki projection.
+- Historical handoffs and dated audit entries remain unchanged.
+
+## [2026-08-30] test | Malformed OPA decision fails closed at intercept boundary
+
+- Added a full `run_intercept` regression for an indeterminate Open Policy Agent (OPA)
+  response where `result.allow` is not boolean.
+- Verified the externally visible outcome is `authorized=false` with an inspectable
+  `BCC_POLICY_ENGINE_UNAVAILABLE` reason; malformed policy output cannot become an implicit
+  allow or escape as an unhandled exception.
+- Verification: `uv run pytest -q tests/test_opa_fail_closed.py` passed 11/11;
+  `PATH="$HOME/.foundry/bin:$PATH" uv run pytest -q` passed 131 with 4 skipped;
+  `opa test policies/ -v` passed 48/48.
+- The initial full-suite attempt without Foundry on `PATH` produced 37 fixture-setup errors
+  because `forge` was not discoverable; the installed Foundry 1.7.1 binaries completed the
+  canonical suite when their directory was added to `PATH`.

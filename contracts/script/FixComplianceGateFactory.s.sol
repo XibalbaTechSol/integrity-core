@@ -5,7 +5,7 @@ import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 import {VmSafe} from "forge-std/Vm.sol";
 
-import {ComplianceGate} from "../src/shield/ComplianceGate.sol";
+import {ComplianceGate} from "../src/health/ComplianceGate.sol";
 import {AgentPrimitivesFactory} from "../src/framework/AgentPrimitivesFactory.sol";
 import {XibalbaAgentRegistry} from "../src/framework/XibalbaAgentRegistry.sol";
 import {DomainRegistry} from "../src/framework/DomainRegistry.sol";
@@ -130,7 +130,8 @@ contract FixComplianceGateFactory is Script {
         // dry run therefore silently overwrites the real deployments file with
         // addresses that were only ever simulated, never actually deployed.
         // Guard against that: only merge when this is a real broadcast.
-        if (vmSafe.isContext(VmSafe.ForgeContext.ScriptBroadcast) || vmSafe.isContext(VmSafe.ForgeContext.ScriptResume)) {
+        if (vmSafe.isContext(VmSafe.ForgeContext.ScriptBroadcast) || vmSafe.isContext(VmSafe.ForgeContext.ScriptResume))
+        {
             _mergeDeploymentsFile();
         } else {
             console2.log("Dry run (no --broadcast) -- skipping deployments file write.");
@@ -153,6 +154,13 @@ contract FixComplianceGateFactory is Script {
         vm.serializeAddress(singletons, "IntegrityToken", itk);
         vm.serializeAddress(singletons, "UltraPlonkVerifier", initialZkVerifier);
         vm.serializeAddress(singletons, "XibalbaAgentRegistry", registry);
+        if (vm.keyExistsJson(existingJson, ".singletons.IntegrityIdentityReadV1")) {
+            vm.serializeAddress(
+                singletons,
+                "IntegrityIdentityReadV1",
+                vm.parseJsonAddress(existingJson, ".singletons.IntegrityIdentityReadV1")
+            );
+        }
         vm.serializeAddress(
             singletons, "XibalbaNameService", vm.parseJsonAddress(existingJson, ".singletons.XibalbaNameService")
         );
@@ -161,11 +169,11 @@ contract FixComplianceGateFactory is Script {
         vm.serializeAddress(singletons, "CoveredEntityRegistry", entityRegistry);
         vm.serializeAddress(singletons, "SmartBAAFactory", baaFactory);
         vm.serializeAddress(
-            singletons, "HIPAAGuardrailRegistry", vm.parseJsonAddress(existingJson, ".singletons.HIPAAGuardrailRegistry")
+            singletons,
+            "HIPAAGuardrailRegistry",
+            vm.parseJsonAddress(existingJson, ".singletons.HIPAAGuardrailRegistry")
         );
-        vm.serializeAddress(
-            singletons, "MarketFactory", vm.parseJsonAddress(existingJson, ".singletons.MarketFactory")
-        );
+        vm.serializeAddress(singletons, "MarketFactory", vm.parseJsonAddress(existingJson, ".singletons.MarketFactory"));
         string memory singletonsJson = vm.serializeAddress(
             singletons, "A2ACapitalPool", vm.parseJsonAddress(existingJson, ".singletons.A2ACapitalPool")
         );

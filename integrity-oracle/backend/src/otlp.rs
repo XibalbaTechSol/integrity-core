@@ -77,6 +77,22 @@ async fn check_otlp_rate_limit(state: &AppState, agent_id: &str) -> Result<(), T
     Ok(())
 }
 
+fn check_otlp_auth<T>(state: &AppState, request: &Request<T>) -> Result<(), TonicStatus> {
+    if let Some(expected_key) = &state.config.oracle_api_key {
+        let auth_header = request.metadata().get("authorization");
+        match auth_header {
+            Some(value) => {
+                let value_str = value.to_str().unwrap_or("");
+                if value_str != expected_key && value_str != format!("Bearer {}", expected_key) {
+                    return Err(TonicStatus::unauthenticated("invalid or missing api key"));
+                }
+            }
+            None => return Err(TonicStatus::unauthenticated("invalid or missing api key")),
+        }
+    }
+    Ok(())
+}
+
 /// The OTel resource attribute an agent's SDK must set so an incoming span can be
 /// attributed to it — mirrors the `agent_id` field every other ingestion path
 /// (`POST /v1/telemetry/ingest`) requires. A span whose resource lacks this attribute
@@ -311,6 +327,7 @@ fn nanos_to_datetime(nanos: u64) -> DateTime<Utc> {
 #[tonic::async_trait]
 impl TraceService for OtlpTraceService {
     async fn export(&self, request: Request<ExportTraceServiceRequest>) -> Result<Response<ExportTraceServiceResponse>, TonicStatus> {
+        check_otlp_auth(&self.state, &request)?;
         let req = request.into_inner();
 
         for resource_spans in &req.resource_spans {
@@ -388,6 +405,7 @@ impl MetricsService for OtlpMetricsService {
     /// and the payload carries no agent signature, so it must never feed AIS (see
     /// migration 0008's header).
     async fn export(&self, request: Request<ExportMetricsServiceRequest>) -> Result<Response<ExportMetricsServiceResponse>, TonicStatus> {
+        check_otlp_auth(&self.state, &request)?;
         let req = request.into_inner();
 
         for resource_metrics in &req.resource_metrics {
@@ -449,6 +467,7 @@ impl LogsService for OtlpLogsService {
     ///
     /// Same `evidence_tier = "unsigned_vendor"` caveat as metrics.
     async fn export(&self, request: Request<ExportLogsServiceRequest>) -> Result<Response<ExportLogsServiceResponse>, TonicStatus> {
+        check_otlp_auth(&self.state, &request)?;
         let req = request.into_inner();
 
         for resource_logs in &req.resource_logs {

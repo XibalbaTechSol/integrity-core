@@ -1,0 +1,156 @@
+{
+  "schema": "integrity.drive-document-manifest.v1",
+  "frozen_at": "2026-08-05T03:38:57Z",
+  "policy": "Original bodies are immutable archival sources. Phase 1 permits metadata renames only. Material reconciliation receives a new file ID.",
+  "phase1_applied_at": "2026-08-05T03:45:58Z",
+  "index": {
+    "file_id": "1dcdNWWykuizUOi6TsFAjh_jO5ZyChs0b2VfPuywZ9vw",
+    "name": "INDEX — Integrity and Shield Documents",
+    "url": "https://docs.google.com/document/d/1dcdNWWykuizUOi6TsFAjh_jO5ZyChs0b2VfPuywZ9vw/edit",
+    "parent": "0AEpiZ7yOvArYUk9PVA"
+  },
+  "phase1_result": {
+    "renamed_file_count": 6,
+    "body_edits": 0,
+    "blocked": [
+      {
+        "file_id": "19_MsiCzWKlemM22uNPhP_zqcWz1nwOW0",
+        "current_name": "Integrity_Protocol_Specification_v0.3.pdf",
+        "intended_name": "ARCHIVED — Integrity Protocol Specification v0.3.pdf",
+        "reason": "The authorized Workspace account has read access but insufficient edit permission."
+      }
+    ]
+  },
+  "normative_repository": {
+    "path": "/home/xibalba/Projects/INTEGRITY-LATEST",
+    "git_head_at_audit": "059f99c6d8848eb74dc0191e00abeed20bf94654",
+    "integrity_spec_source": "spec/integrity-protocol-v0.4.md",
+    "integrity_spec_blob": "f168965032cf9348200d1ab34e5fd1c5b1b4a677",
+    "shield_design_source": "spec/xibalba-shield-v1.md",
+    "shield_design_blob": "b6bf13bffb8d75b81067eca7f06c4ec42fc59337"
+  },
+  "originals": [
+    {
+      "key": "spec_v03",
+      "file_id": "19_MsiCzWKlemM22uNPhP_zqcWz1nwOW0",
+      "original_name": "Integrity_Protocol_Specification_v0.3.pdf",
+      "mime_type": "application/pdf",
+      "modified_time_before_phase1": "2026-07-29T10:35:47.815Z",
+      "web_view_link": "https://drive.google.com/file/d/19_MsiCzWKlemM22uNPhP_zqcWz1nwOW0/view?usp=drivesdk",
+      "parents": [],
+      "owners": [
+        {
+          "emailAddress": "xibalbasolutions@gmail.com"
+        }
+      ],
+      "archive_path": "/home/xibalba/.hermes/archives/integrity-drive-phase1-originals/spec_v03.pdf",
+      "archive_sha256": "7b43cead66a5bdd6d3142a0b665029661586e612fe34044717beeb3a96d5b60b"
+    },
+    {
+      "key": "otel",
+      "file_id": "164S9vtGCcjSRS4eDHsWQMaoc6l_VgA42YgTSfZFEq90",
+      "original_name": "Okay, so in the context of the integrity protocol,...",
+      "mime_type": "application/vnd.google-apps.document",
+      "modified_time_before_phase1": "2026-07-31T09:05:31.557Z",
+      "web_view_link": "https://docs.google.com/document/d/164S9vtGCcjSRS4eDHsWQMaoc6l_VgA42YgTSfZFEq90/edit?usp=drivesdk",
+      "parents": [
+        "0AEpiZ7yOvArYUk9PVA"
+      ],
+      "owners": [
+        {
+          "emailAddress": "jacob.v.universe@gmail.com"
+        }
+      ],
+      "archive_path": "/home/xibalba/.hermes/archives/integrity-drive-phase1-originals/otel.pdf",
+      "archive_sha256": "bfd8aecae61f915e1584910a3005cc2c33ba075525218af03fd007430d4687b6"
+    },
+    {
+      "key": "strategy",
+      "file_id": "1N0G7e4rO_88TAWcY0w7YgVVPdrtUt0HEE7ytH_YUW10",
+      "original_name": "Integrity Protocol Strategy Analysis",
+      "mime_type": "application/vnd.google-apps.document",
+      "modified_time_before_phase1": "2026-05-20T22:01:57.947Z",
+      "web_view_link": "https://docs.google.com/document/d/1N0G7e4rO_88TAWcY0w7YgVVPdrtUt0HEE7ytH_YUW10/edit?usp=drivesdk",
+      "parents": [
+        "0AEpiZ7yOvArYUk9PVA"
+      ],
+      "owners": [
+        {
+          "emailAddress": "jacob.v.universe@gmail.com"
+        }
+      ],
+      "archive_path": "/home/xibalba/.hermes/archives/integrity-drive-phase1-originals/strategy.pdf",
+      "archive_sha256": "60717d4653d1c798c68aa138df3d08cd92c7a54e94cd7e26207cd5a7173daafd"
+    },
+    {
+      "key": "compliance",
+      "file_id": "1xcUSaPkAE1hCNDndMWLv3G65M4ZDobaKiVT6iqLCHRU",
+      "original_name": "Architecting Immutable Compliance for Regulated AI Agents",
+      "mime_type": "application/vnd.google-apps.document",
+      "modified_time_before_phase1": "2026-06-04T03:46:56.173Z",
+      "web_view_link": "https://docs.google.com/document/d/1xcUSaPkAE1hCNDndMWLv3G65M4ZDobaKiVT6iqLCHRU/edit?usp=drivesdk",
+      "parents": [
+        "0AEpiZ7yOvArYUk9PVA"
+      ],
+      "owners": [
+        {
+          "emailAddress": "jacob.v.universe@gmail.com"
+        }
+      ],
+      "archive_path": "/home/xibalba/.hermes/archives/integrity-drive-phase1-originals/compliance.pdf",
+      "archive_sha256": "89a891ada2c3054b5178bb784902fc8f6652a91da1b17adc6f643357e120dc56"
+    },
+    {
+      "key": "shield_vision",
+      "file_id": "1cxK-BuoiXRw9SrBAk9cl-ZG9M69PYtdR",
+      "original_name": "xibalba-shield-spec.md",
+      "mime_type": "text/markdown",
+      "modified_time_before_phase1": "2026-08-02T00:30:57.083Z",
+      "web_view_link": "https://drive.google.com/file/d/1cxK-BuoiXRw9SrBAk9cl-ZG9M69PYtdR/view?usp=drivesdk",
+      "parents": [],
+      "owners": [
+        {
+          "emailAddress": "xibalbasolutions@gmail.com"
+        }
+      ],
+      "archive_path": "/home/xibalba/.hermes/archives/integrity-drive-phase1-originals/shield_vision.md",
+      "archive_sha256": "f3cbd08c13b1983f589b6ae195b15fb4bd5749a5c579d7f51c6b2c4acc54b17a"
+    },
+    {
+      "key": "endpoint_a",
+      "file_id": "12flDAYsESSInw6eaZ1oSRqTjbxhYBaZV20Npt-Tgx0g",
+      "original_name": "Building an AI-Era Endpoint Security Platform: Technical Architecture & Implementation Guide",
+      "mime_type": "application/vnd.google-apps.document",
+      "modified_time_before_phase1": "2026-08-01T08:46:47.942Z",
+      "web_view_link": "https://docs.google.com/document/d/12flDAYsESSInw6eaZ1oSRqTjbxhYBaZV20Npt-Tgx0g/edit?usp=drivesdk",
+      "parents": [
+        "0AEpiZ7yOvArYUk9PVA"
+      ],
+      "owners": [
+        {
+          "emailAddress": "jacob.v.universe@gmail.com"
+        }
+      ],
+      "archive_path": "/home/xibalba/.hermes/archives/integrity-drive-phase1-originals/endpoint_a.pdf",
+      "archive_sha256": "ee93d84c01cfc2216d107d9c5209121fd6dfd9bc45e637dad5369058cce16d9b"
+    },
+    {
+      "key": "endpoint_b",
+      "file_id": "1My4PDw6OM2PVdutw3qGiJmdbcVGzm3VgWujzijcfcmw",
+      "original_name": "AI-Native Endpoint Protection Platform: Engineering Architecture & Implementation Blueprint (2026)",
+      "mime_type": "application/vnd.google-apps.document",
+      "modified_time_before_phase1": "2026-08-01T08:27:13.414Z",
+      "web_view_link": "https://docs.google.com/document/d/1My4PDw6OM2PVdutw3qGiJmdbcVGzm3VgWujzijcfcmw/edit?usp=drivesdk",
+      "parents": [
+        "0AEpiZ7yOvArYUk9PVA"
+      ],
+      "owners": [
+        {
+          "emailAddress": "jacob.v.universe@gmail.com"
+        }
+      ],
+      "archive_path": "/home/xibalba/.hermes/archives/integrity-drive-phase1-originals/endpoint_b.pdf",
+      "archive_sha256": "a8a1d8b359c9ba7908cb0171cb629d8da13751220c4ee676024611c6ebd12f0f"
+    }
+  ]
+}

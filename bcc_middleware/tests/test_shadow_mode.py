@@ -32,6 +32,7 @@ def _fresh_state(monkeypatch, settings: Settings) -> None:
     shared batcher/breaker/nonce singletons don't leak across tests."""
     monkeypatch.setattr(main_module, "default_settings", settings)
     monkeypatch.setattr(main_module, "batcher", MerkleBatcher(batch_size=999))
+    monkeypatch.setattr(main_module, "_audit_shutdown_started", False)
     main_module.circuit_breaker.reset()
     main_module.nonce_store.reset()
     # Audit reporting is best-effort fire-and-forget over HTTP; with no oracle

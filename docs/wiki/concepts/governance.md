@@ -2,7 +2,7 @@
 title: On-Chain Governance
 acronyms: [ITK]
 created: 2026-07-25
-updated: 2026-07-25
+updated: 2026-08-29
 type: concept
 tags: [tokenomics, layer-2]
 confidence: high
@@ -19,6 +19,15 @@ protocol's token-weighted, timelocked governance over on-chain parameters. It
 implements the exact lifecycle the dashboard's `GovernancePanel` had long
 documented as roadmap: **propose → vote → queue → execute**, with voter funds
 reclaimable once a proposal is terminal.
+
+## Table of contents
+
+- [Lock-to-vote (not ERC20Votes)](#lock-to-vote-not-erc20votes)
+- [Lifecycle & states](#lifecycle-states)
+- [The execute leg (the dangerous surface, constrained hard)](#the-execute-leg-the-dangerous-surface-constrained-hard)
+- [Read surface (designed for the oracle)](#read-surface-designed-for-the-oracle)
+- [Genesis params & deploy status](#genesis-params-deploy-status)
+- [Deferred by design](#deferred-by-design)
 
 ## Lock-to-vote (not `ERC20Votes`)
 

@@ -12,7 +12,7 @@
 //! Interface fragments below are hand-transcribed from the real, compiled ABIs at
 //! `contracts/out/{XibalbaAgentRegistry,ReputationRegistry,ComplianceGate}.sol/*.json`
 //! (cross-checked field-for-field against `contracts/src/framework/XibalbaAgentRegistry.sol`,
-//! `contracts/src/oracle/ReputationRegistry.sol`, `contracts/src/shield/ComplianceGate.sol`)
+//! `contracts/src/oracle/ReputationRegistry.sol`, `contracts/src/health/ComplianceGate.sol`)
 //! rather than generated from the JSON artifact at build time: `sol!`'s `#[sol(rpc)]` over
 //! a hand-written interface produces the exact same ABI-encoding/decoding code as loading
 //! the JSON would, without making this crate's build depend on `contracts/` having been
@@ -65,6 +65,27 @@ sol! {
 }
 
 sol! {
+    // ERC-8004 ("Trustless Agents") Identity Registry — a third-party, external
+    // deployment this repo does not own or compile, so unlike every other `sol!` block
+    // in this file these three signatures are NOT cross-checked against a local
+    // `contracts/out/*.json` artifact. They're transcribed from the published interface
+    // description in https://github.com/erc-8004/erc-8004-contracts/blob/master/ERC8004SPEC.md
+    // (`ownerOf`/`tokenURI` are the standard ERC-721 URIStorage extension the registry is
+    // built on; `getAgentWallet` is the registry's own optional payment-address accessor,
+    // which reverts or returns address(0) for a token with no wallet set — treated as
+    // "no wallet asserted", not an error, by `ChainClient::read_erc8004_identity`).
+    // Deliberately no deployment address is pinned anywhere in this repo: the caller
+    // supplies `registry`, and this module only ever reads what's actually on chain at
+    // that address, per `PRODUCTION_GAPS.md`'s "never invent a contract address" rule.
+    #[sol(rpc)]
+    interface IErc8004IdentityRegistry {
+        function ownerOf(uint256 agentId) external view returns (address);
+        function tokenURI(uint256 agentId) external view returns (string memory);
+        function getAgentWallet(uint256 agentId) external view returns (address);
+    }
+}
+
+sol! {
     // Per-agent StateAnchor (contracts/src/oracle/StateAnchor.sol). Only the two
     // fields the registration memory gate needs: spec v0.3 §7.1 requires the oracle
     // to independently read `latestRoot` and reject a zero root at registration.
@@ -74,6 +95,7 @@ sol! {
     interface IStateAnchor {
         function latestRoot() external view returns (bytes32);
         function latestEpoch() external view returns (uint256);
+        function latestTimestamp() external view returns (uint256);
     }
 }
 
@@ -127,7 +149,7 @@ sol! {
 }
 
 sol! {
-    // Shield vertical. SmartBAAFactory (contracts/src/shield/SmartBAAFactory.sol) deploys
+    // Integrity Health vertical. SmartBAAFactory (contracts/src/health/SmartBAAFactory.sol) deploys
     // one SmartBAA escrow per (coveredEntity, businessAssociate) pair and emits BAACreated;
     // there is no reverse index from a business-associate agent to its BAAs, so the oracle
     // enumerates them from the BAACreated event log and reads each SmartBAA's live status.
@@ -425,8 +447,8 @@ struct Singletons {
     /// endpoint reports "capital pool not deployed" cleanly if it's absent.
     #[serde(rename = "A2ACapitalPool", default)]
     a2a_capital_pool: Option<Address>,
-    /// `Option` — the Shield vertical's SmartBAAFactory. Absent on non-Shield or
-    /// genesis-only deployments; shield read endpoints report it cleanly if missing.
+    /// `Option` — the Integrity Health vertical's SmartBAAFactory. Absent on non-Integrity-Health or
+    /// genesis-only deployments; Integrity Health read endpoints report it cleanly if missing.
     #[serde(rename = "SmartBAAFactory", default)]
     smart_baa_factory: Option<Address>,
     /// `Option` — XibalbaNameService (XNS). Absent until deployed; resolve endpoints report
@@ -450,9 +472,21 @@ struct Singletons {
 /// `DynProvider` is alloy's purpose-built answer for "erase the concrete provider type
 /// but stay usable with the generated bindings". It's `Clone` and internally `Arc`-backed,
 /// so cloning stays cheap.
+/// Result of a live `read_erc8004_identity` call — the on-chain half of an ERC-8004
+/// binding. The off-chain half (fetching and validating `uri`'s content) is the caller's
+/// job (`erc8004::validate_registration`), since it needs an HTTP client this read-only
+/// chain module deliberately doesn't own.
+#[derive(Debug, Clone)]
+pub struct Erc8004OnChainIdentity {
+    pub owner: Address,
+    pub uri: String,
+    pub wallet: Option<Address>,
+}
+
 #[derive(Clone)]
 pub struct ChainClient {
     provider: DynProvider,
+    chain_id: u64,
     registry_address: Address,
     market_factory_address: Option<Address>,
     integrity_token_address: Option<Address>,
@@ -460,6 +494,18 @@ pub struct ChainClient {
     smart_baa_factory_address: Option<Address>,
     xibalba_name_service_address: Option<Address>,
     integrity_governance_address: Option<Address>,
+}
+
+/// True iff a failed contract `.call()` reverted with `UnknownDID()`
+/// (selector `0x4c2a24b3`, `cast sig "UnknownDID()"`) rather than some other failure
+/// (RPC unreachable, malformed response, an unrelated revert). Extracted as a pure
+/// function, separate from `resolve_primitives_by_did`'s tracing call, specifically so
+/// this classification is unit-testable without a live provider — see the test module
+/// at the end of this file.
+fn is_unknown_did_revert(err: &alloy::contract::Error) -> bool {
+    const UNKNOWN_DID_SELECTOR: [u8; 4] = [0x4c, 0x2a, 0x24, 0xb3];
+    err.as_revert_data()
+        .is_some_and(|data| data.get(..4) == Some(UNKNOWN_DID_SELECTOR.as_slice()))
 }
 
 impl ChainClient {
@@ -482,9 +528,14 @@ impl ChainClient {
             source: anyhow::anyhow!(e),
         })?;
         let provider = ProviderBuilder::new().connect_http(url);
+        // Read once at connect time rather than per-request: this process only ever
+        // talks to the one RPC named in config, so the chain id it reports cannot
+        // change mid-run.
+        let chain_id = provider.get_chain_id().await.map_err(ChainError::Transport)?;
 
         Ok(Self {
             provider: provider.erased(),
+            chain_id,
             registry_address: parsed.singletons.xibalba_agent_registry,
             market_factory_address: parsed.singletons.market_factory,
             integrity_token_address: parsed.singletons.integrity_token,
@@ -498,9 +549,14 @@ impl ChainClient {
     /// Constructs a client directly from an already-known registry address, bypassing the
     /// deployments file. Used by tests that deploy their own registry against a local
     /// anvil instance and don't want to round-trip through a JSON file on disk.
-    pub fn with_registry_address(provider: impl Provider + 'static, registry_address: Address) -> Self {
-        Self {
+    pub async fn with_registry_address(
+        provider: impl Provider + 'static,
+        registry_address: Address,
+    ) -> Result<Self, ChainError> {
+        let chain_id = provider.get_chain_id().await.map_err(ChainError::Transport)?;
+        Ok(Self {
             provider: provider.erased(),
+            chain_id,
             registry_address,
             market_factory_address: None,
             integrity_token_address: None,
@@ -508,20 +564,22 @@ impl ChainClient {
             smart_baa_factory_address: None,
             xibalba_name_service_address: None,
             integrity_governance_address: None,
-        }
+        })
     }
 
     /// Same as [`Self::with_registry_address`], but also wires the market/token
     /// singletons — used by tests that need `GET /v1/markets`-family endpoints against
     /// a locally-deployed `MarketFactory`/`IntegrityToken`.
-    pub fn with_market_layer(
+    pub async fn with_market_layer(
         provider: impl Provider + 'static,
         registry_address: Address,
         market_factory_address: Address,
         integrity_token_address: Address,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, ChainError> {
+        let chain_id = provider.get_chain_id().await.map_err(ChainError::Transport)?;
+        Ok(Self {
             provider: provider.erased(),
+            chain_id,
             registry_address,
             market_factory_address: Some(market_factory_address),
             integrity_token_address: Some(integrity_token_address),
@@ -529,7 +587,13 @@ impl ChainClient {
             smart_baa_factory_address: None,
             xibalba_name_service_address: None,
             integrity_governance_address: None,
-        }
+        })
+    }
+
+    /// The EVM chain id this client is connected to (E11) — an `agent_primitives` cache
+    /// row is only trustworthy if it was resolved against this same chain.
+    pub fn chain_id(&self) -> u64 {
+        self.chain_id
     }
 
     fn registry(&self) -> IXibalbaAgentRegistry::IXibalbaAgentRegistryInstance<DynProvider> {
@@ -547,7 +611,21 @@ impl ChainClient {
             .call()
             .await
             .map_err(|err| {
-                tracing::error!("resolveDID contract call failed for DID {}: {:?}", did, err);
+                // `UnknownDID()` (selector 0x4c2a24b3, `cast sig "UnknownDID()"`) is the
+                // registry's ordinary response to a DID that was never registered on
+                // THIS chain -- e.g. an anvil-era row queried against a Sepolia-configured
+                // oracle (PRODUCTION_GAPS.md §24, audit E11/E12). That is not an infra
+                // problem, so it does not belong at ERROR: hundreds of routine "not
+                // found" lookups logging at ERROR is exactly what made a fully healthy
+                // service read as a total outage during the 2026-07-31 incident -- the
+                // polling itself, not any real fault, is what filled the log. Anything
+                // else here (RPC unreachable, malformed response, an unexpected revert)
+                // still logs at ERROR, because that IS actionable.
+                if is_unknown_did_revert(&err) {
+                    tracing::warn!("resolveDID: DID {} not registered on this chain", did);
+                } else {
+                    tracing::error!("resolveDID contract call failed for DID {}: {:?}", did, err);
+                }
                 ChainError::UnknownDid(did.to_string())
             })?;
         if !record.exists {
@@ -696,7 +774,7 @@ impl ChainClient {
         Ok(contract.isHealthcareCompliant(covered_entity).call().await?)
     }
 
-    /// The Shield SmartBAAFactory singleton, if deployed. `None` -> handler reports it cleanly.
+    /// The Integrity Health SmartBAAFactory singleton, if deployed. `None` -> handler reports it cleanly.
     pub fn smart_baa_factory(&self) -> Option<Address> {
         self.smart_baa_factory_address
     }
@@ -717,6 +795,32 @@ impl ChainClient {
         Ok(c.resolve(handle.to_string()).call().await?)
     }
 
+    /// Live ERC-8004 identity read: current NFT owner, `agentURI`, and the optional
+    /// payment `agentWallet` for `agentId` at `registry`. `registry` is caller-supplied
+    /// per call rather than a `ChainClient` field — unlike Integrity's own singletons,
+    /// an ERC-8004 registry is a third-party deployment an agent chooses to register
+    /// with, and this oracle does not maintain a canonical address for one.
+    ///
+    /// `getAgentWallet` reverting (no wallet ever set for this token) is treated as
+    /// `wallet: None`, not a read failure — an agent with no declared payment wallet is
+    /// a valid, common state per the ERC-8004 spec, not a broken one.
+    pub async fn read_erc8004_identity(
+        &self,
+        registry: Address,
+        agent_id: U256,
+    ) -> Result<Erc8004OnChainIdentity, ChainError> {
+        let c = IErc8004IdentityRegistry::new(registry, self.provider.clone());
+        let owner = c.ownerOf(agent_id).call().await?;
+        let uri = c.tokenURI(agent_id).call().await?;
+        let wallet = c
+            .getAgentWallet(agent_id)
+            .call()
+            .await
+            .ok()
+            .filter(|w| *w != Address::ZERO);
+        Ok(Erc8004OnChainIdentity { owner, uri, wallet })
+    }
+
     /// The agent's own memory state: `(latestRoot, latestEpoch)` from its `StateAnchor`.
     ///
     /// Spec v0.3 §4.1/§7.1: an agent's Trust Vault commitment is its persistent-memory
@@ -729,6 +833,21 @@ impl ChainClient {
         let root = c.latestRoot().call().await?;
         let epoch = c.latestEpoch().call().await?;
         Ok((root, epoch))
+    }
+
+    /// `(latestEpoch, latestTimestamp)` from the agent's own `StateAnchor` — the
+    /// anchor-coverage signal's on-chain half (see `anchor_coverage.rs`). `latestEpoch`
+    /// is a monotonic count of every `anchorRoot` call this contract has ever accepted
+    /// (from any submitter, not just `bcc_middleware` — the same value `memory_state`
+    /// reads for the registration gate); `latestTimestamp` is that call's block
+    /// timestamp. Read directly from chain for the same reason `memory_state` is: an
+    /// agent (or a compromised anchoring signer) claiming "I anchored" off-chain proves
+    /// nothing, only the contract's own state does.
+    pub async fn latest_anchor_activity(&self, state_anchor: Address) -> Result<(U256, U256), ChainError> {
+        let c = IStateAnchor::new(state_anchor, self.provider.clone());
+        let epoch = c.latestEpoch().call().await?;
+        let timestamp = c.latestTimestamp().call().await?;
+        Ok((epoch, timestamp))
     }
 
     /// The agent's chosen primary handle ("" if none).
@@ -930,5 +1049,75 @@ impl ChainClient {
         let addr = self.integrity_token_address.ok_or(ChainError::MissingSingleton("IntegrityToken"))?;
         let contract = IERC20Balance::new(addr, self.provider.clone());
         Ok(contract.balanceOf(account).call().await?)
+    }
+}
+
+#[cfg(test)]
+mod resolve_did_error_classification_tests {
+    //! Unit tests for `is_unknown_did_revert`, the discriminator that decides whether a
+    //! failed `resolveDID` call logs at `warn` (an ordinary "not registered on this
+    //! chain" outcome) or `error` (something actually wrong). Constructed directly from
+    //! JSON-RPC error payloads rather than through a live provider, matching the shape
+    //! observed in real production logs (audit E12,
+    //! docs/design/e2e-audit-2026-07-31.md): `ErrorResp(ErrorPayload { code: 3, message:
+    //! "execution reverted", data: Some(RawValue("0x4c2a24b3")) })`.
+
+    use super::is_unknown_did_revert;
+    use alloy::transports::TransportError;
+    use alloy_json_rpc::ErrorPayload;
+
+    fn contract_error_from_revert_data_hex(hex: &str) -> alloy::contract::Error {
+        let json = format!(r#"{{"code":3,"message":"execution reverted","data":"{hex}"}}"#);
+        let payload: ErrorPayload = serde_json::from_str(&json).expect("valid ErrorPayload JSON");
+        TransportError::ErrorResp(payload).into()
+    }
+
+    #[test]
+    fn recognizes_the_real_unknown_did_selector() {
+        // 0x4c2a24b3 == cast sig "UnknownDID()", confirmed against the live registry
+        // this session (docs/design/e2e-audit-2026-07-31.md).
+        let err = contract_error_from_revert_data_hex("0x4c2a24b3");
+        assert!(is_unknown_did_revert(&err));
+    }
+
+    #[test]
+    fn does_not_match_a_different_four_byte_selector() {
+        // AlreadyRegistered() on the same registry -- a real selector, just not this one.
+        let err = contract_error_from_revert_data_hex("0x2ca69173");
+        assert!(!is_unknown_did_revert(&err));
+    }
+
+    #[test]
+    fn does_not_match_the_right_selector_with_extra_trailing_bytes_absent_wrong_prefix() {
+        // A selector that merely CONTAINS the same bytes elsewhere must not match --
+        // only a match at the start (the actual selector position) counts.
+        let err = contract_error_from_revert_data_hex("0xdeadbeef4c2a24b3");
+        assert!(!is_unknown_did_revert(&err));
+    }
+
+    #[test]
+    fn does_not_match_when_there_is_no_revert_data_at_all() {
+        let json = r#"{"code":-32000,"message":"connection refused"}"#;
+        let payload: ErrorPayload = serde_json::from_str(json).unwrap();
+        let err: alloy::contract::Error = TransportError::ErrorResp(payload).into();
+        assert!(!is_unknown_did_revert(&err));
+    }
+
+    #[test]
+    fn does_not_match_a_non_revert_transport_error() {
+        // A message that doesn't even mention "revert" -- ErrorPayload::as_revert_data
+        // itself refuses to interpret unrelated errors (e.g. rate limiting) as revert
+        // data, and this discriminator must not accidentally bypass that.
+        let err = contract_error_from_revert_data_hex_with_message(
+            "rate limited, try again in 4ms",
+            "0x4c2a24b3",
+        );
+        assert!(!is_unknown_did_revert(&err));
+    }
+
+    fn contract_error_from_revert_data_hex_with_message(message: &str, hex: &str) -> alloy::contract::Error {
+        let json = format!(r#"{{"code":-32005,"message":"{message}","data":"{hex}"}}"#);
+        let payload: ErrorPayload = serde_json::from_str(&json).expect("valid ErrorPayload JSON");
+        TransportError::ErrorResp(payload).into()
     }
 }

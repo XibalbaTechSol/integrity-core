@@ -1,7 +1,7 @@
 ---
 title: integrity-cli
 created: 2026-07-07
-updated: 2026-07-15
+updated: 2026-08-29
 type: entity
 tags: [sdk, identity]
 confidence: high
@@ -16,6 +16,12 @@ source_files:
   - integrity-cli/tests/test_register_oracle_e2e.py
   - integrity-cli/tests/test_chain.py
 ---
+
+## Table of contents
+
+- [Overview](#overview)
+
+## Overview
 
 Developer CLI (Python/Typer) — the human-driven counterpart to
 [integrity-sdk](integrity-sdk.md), carrying its own copy of the identity/wallet/

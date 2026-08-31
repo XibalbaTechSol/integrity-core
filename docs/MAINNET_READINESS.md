@@ -1,8 +1,12 @@
 # Mainnet readiness — what must be done first
 
-Status as of 2026-07-29. Scope: what stands between the current Base Sepolia deployment
+Status reconciled 2026-08-17. Scope: what stands between the current Base Sepolia deployment
 and a mainnet launch that the protocol's own claims would survive. Every item below is
 either verified against code/chain in this repo or cites where it is recorded.
+
+The accepted normative baseline remains `docs/archive/2026-08/integrity-protocol-v0.4.md`; the current explanatory whitepaper is `docs/WHITEPAPER.md` (v3.2). The proposed amendment remains non-authoritative and does not relax any blocker in this document. Phase 0's local
+`IntegrityIdentityReadV1` singleton and the generated local ZK verifier both postdate the
+declared Base Sepolia deployment; source capability is not deployed capability.
 
 Ordering is by consequence-if-ignored, not by effort.
 
@@ -30,23 +34,22 @@ everything.
 a documented rotation path; no single key can both mint and score. Verify by reading the
 roles back from chain post-deploy, not from the deploy script.
 
-### 2. The ZK verifier is a placeholder that always reverts
+### 2. The deployed ZK verifier is older placeholder bytecode that always reverts
 
-`contracts/src/oracle/UltraPlonkVerifier.sol:50` — `revert PlaceholderVerifierNotYetGenerated()`,
-unconditionally. It fails *closed*, which is the right default, but it means the entire ZK
-reputation-boost path is non-functional. Any mainnet material describing ZK-boosted
-reputation would be describing something that cannot execute.
+The current local `contracts/src/oracle/UltraPlonkVerifier.sol` is generated verifier source
+and has local proof-path coverage. The verifier address in the existing Base Sepolia deployment,
+however, still contains the earlier fail-closed placeholder bytecode. That deployment cannot
+execute the ZK reputation-boost path. A local source replacement does not update deployed code.
 
-**Done when:** `make generate-verifier` has replaced the file wholesale from the real
-`bb write_solidity_verifier` pipeline, a real proof verifies on-chain in a forge test
-against the generated contract, and the generated verifier has been reviewed (it is
-machine-generated but it is still the thing standing between a fake proof and a score
-boost).
+**Done when:** the generated verifier is independently reviewed, deployed through an approved
+incremental migration, a real proof and an invalid proof are exercised against the deployed
+address, and deployment records plus direct bytecode/behavior readback agree. Local generation
+and tests satisfy only the source/test layers of that requirement.
 
 ### 3. ZK boost is period-wide, not bound to what it proves
 
 > **Note:** if the three-primitive consolidation is adopted
-> ([`docs/design/three-foundational-primitives.md`](design/three-foundational-primitives.md)),
+> ([`three-foundational-primitives.md`](archive/2026-08/three-foundational-primitives.md)),
 > this stops being a scoring detail and becomes a hole in a *foundational* primitive —
 > reputation — and should move up this list accordingly.
 
@@ -133,7 +136,7 @@ register (Appendix A gap 3), so an agent can hold a score while risking nothing.
 
 **Done when:** registration enforces a minimum bond, and tier elevation requires more.
 
-### 8. `covered_entity_address` is client-supplied (Shield / HIPAA)
+### 8. `covered_entity_address` is client-supplied (Integrity Health / HIPAA)
 
 Spec §9.4 names this as a spoof residual. In the healthcare vertical, the field asserting
 which covered entity an action falls under is taken from the caller. Under HIPAA this is
@@ -145,7 +148,7 @@ the highest-consequence field in the payload.
 
 > This is the same hole as the missing **authority** clause: the field is client-supplied
 > precisely because there is no delegation lookup. Formalized (invariants A1–A5) in
-> [`docs/design/thesis-extensions-formal.md`](design/thesis-extensions-formal.md) — enforcing
+> [`thesis-extensions-formal.md`](archive/2026-08/thesis-extensions-formal.md) — enforcing
 > A1/A2 turns the field from an assertion into a resolution and closes this item.
 
 ---
@@ -185,7 +188,7 @@ the highest-consequence field in the payload.
     somewhere regularly rather than never.
 17. **Monitoring and alerting** on: oracle liveness, RPC failure rate, anchor-submission
     failures, score-update failures, and BCC deny rate.
-18. **PHI handling review** for Shield: retention, backups, the redaction backstop's false-negative
+18. **PHI handling review** for Integrity Health: retention, backups, the redaction backstop's false-negative
     rate, and breach procedure. This is a legal obligation, not an engineering preference.
 19. **Key custody and rotation runbook** for every signer from item 1, including what
     happens when the oracle signer is compromised at 3am.

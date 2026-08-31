@@ -1,0 +1,6 @@
+[package]
+name = "integrity_zkp"
+type = "bin"
+authors = [""]
+
+[dependencies]

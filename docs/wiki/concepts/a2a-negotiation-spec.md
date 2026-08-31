@@ -1,7 +1,7 @@
 ---
 title: A2A Negotiation Protocol [PLANNED]
 created: 2026-07-09
-updated: 2026-07-09
+updated: 2026-08-29
 type: concept
 tags: [infrastructure]
 confidence: low
@@ -14,6 +14,11 @@ section names this explicitly so it's tracked, not forgotten, and so
 nothing in this repo is mistaken for having built it: a peer-to-peer
 capability-broadcast + bid-negotiation protocol (over a gossip layer like
 libp2p/Waku) landing in a signed on-chain deal.
+
+## Table of contents
+
+- [Not the same thing as today's A2ACapitalPool](#not-the-same-thing-as-today-s-a2acapitalpool)
+- [Old design sketch (not implemented against current contracts)](#old-design-sketch-not-implemented-against-current-contracts)
 
 ## Not the same thing as today's `A2ACapitalPool`
 

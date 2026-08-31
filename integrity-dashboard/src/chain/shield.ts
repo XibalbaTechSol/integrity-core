@@ -27,3 +27,19 @@ export const COVERED_ENTITY_REGISTRY_ABI = [
 
 // CoveredEntityRegistry.EntityType: 0 Unregistered, 1 CoveredEntity, 2 BusinessAssociate.
 export const ENTITY_TYPE_COVERED_ENTITY = 1;
+
+// Real on-chain consent (contracts/src/health/EHRGate.sol) — grantAccess/revokeAccess
+// are patient-wallet-signed; checkAccess/verifyAndLogAccess are called by the
+// requesting agent contract itself. Written against the real ABI ahead of the actual
+// deploy: EHRGate has only ever been deployed to local anvil (chain id 31337), never
+// to Base Sepolia — see PRODUCTION_GAPS.md. EHR_GATE_ADDRESS in constants.ts is
+// undefined until that deploy runs and merges an address into
+// deployments.baseSepolia.json.
+export const EHR_GATE_ABI = [
+  'function grantAccess(bytes32 recordHash, address agent, address coveredEntity)',
+  'function revokeAccess(bytes32 recordHash, address agent)',
+  'function checkAccess(address patient, bytes32 recordHash) view returns (bool)',
+  'function verifyAndLogAccess(address patient, bytes32 recordHash, address agent) returns (bool)',
+  'function accessGates(address patient, bytes32 recordHash, address agent) view returns (address coveredEntity, bool isUnlocked, uint256 grantedAt)',
+  'event AccessLogged(address indexed patient, bytes32 indexed recordHash, address indexed agent, bool granted)',
+] as const;

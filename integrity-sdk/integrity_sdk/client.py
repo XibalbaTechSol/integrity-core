@@ -46,7 +46,7 @@ from .telemetry import core as telemetry_core, derive, intent as intent_module, 
 #: oracle therefore reconstructs the signable bytes WITHOUT the key when a request omits it
 #: — serializing it as `null` instead would change the canonical bytes and break every
 #: historical signature.
-TELEMETRY_SCHEMA_VERSION = 1
+TELEMETRY_SCHEMA_VERSION = 2
 
 
 logger = logging.getLogger("integrity_sdk.client")
@@ -138,6 +138,14 @@ class IntegrityClient:
         # every flush forever (PRODUCTION_GAPS.md Sec3).
         self._nonce = 0
         self._nonce_synced = False
+        # Tri-state, set by `_sync_nonce_from_oracle`'s same GET: `None` = not yet
+        # checked or the check was inconclusive (oracle unreachable — best-effort,
+        # matches this class's existing posture), `True` = oracle confirmed this
+        # agent_id exists, `False` = oracle returned 404 (confirmed unregistered).
+        # `flush_telemetry` refuses to send anything while this is `False` — by
+        # default, no telemetry payload leaves the process for an agent the oracle
+        # has positively told us it doesn't know about.
+        self._registered: Optional[bool] = None
         # Escape-hatch metric recording (telemetry/metrics.py) — was fully
         # built but never actually wired into this client (see flush_telemetry's
         # docstring on where its drained output now goes). Fixed here rather
@@ -280,6 +288,8 @@ class IntegrityClient:
         *,
         intent_type: str,
         intent_payload: Dict[str, Any],
+        chain_id: int,
+        verifying_contract: str,
         goal: Optional[str] = None,
         plan: Optional[List[str]] = None,
         planned_action: Optional[Dict[str, Any]] = None,
@@ -295,6 +305,10 @@ class IntegrityClient:
         client wasn't constructed with both `keypair` and `bcc_nonce_store` —
         BCC commitments cannot be built or nonce-tracked without them, and
         this fails loudly rather than silently skipping the intent gate.
+
+        `chain_id`/`verifying_contract` are REQUIRED (docs/plans/2026-08-18-
+        phase1-canonical-intent-encoding-proposal.md) — see bcc.py's
+        `build_bcc_commitment` for why.
         """
         if self._keypair is None or self._bcc_nonce_store is None:
             raise RuntimeError(
@@ -307,6 +321,8 @@ class IntegrityClient:
             keypair=self._keypair,
             nonce=self._bcc_nonce_store.next(),
             agent_id=self.agent_id,
+            chain_id=chain_id,
+            verifying_contract=verifying_contract,
             goal=goal,
             plan=plan,
             planned_action=planned_action,
@@ -329,12 +345,34 @@ class IntegrityClient:
         telemetry (see module docstring). Always marks `_nonce_synced = True`
         regardless of outcome, so a persistently-unreachable oracle doesn't
         make every single flush pay a redundant GET.
+
+        Also sets `self._registered` from this same response, rather than issuing
+        a second GET purely to check registration: a 404 here means the oracle has
+        no row for `self.agent_id` at all, which is exactly what `flush_telemetry`
+        needs to know before it sends anything (see that method and `self._registered`'s
+        own docstring in `__init__`).
+
+        **Must read the response's `oracle_registered` field, not just the HTTP status.**
+        `GET /v1/agent/{id}` returns a real `200` for a DID that resolves live on-chain
+        even when it has never been registered against THIS oracle (`backend::handlers
+        ::get_agent`'s chain-backfill fallback, `primitives_source: "chain-backfill"`) —
+        that DID still gets `AgentNotFound` from `ingest_telemetry`/`compute_ais_for_agent`,
+        which check a strict local `agents`-table row (`db::get_agent`), no chain fallback.
+        A client-side gate keyed on bare HTTP status would therefore wrongly treat a
+        chain-known-but-oracle-unregistered agent as clear to send — confirmed empirically
+        against a live oracle instance with exactly such an agent (on-chain primitives
+        resolve; `oracle_registered: false`) before this field existed to check.
         """
         self._nonce_synced = True
         try:
             resp = requests.get(f"{self.oracle_url}/v1/agent/{self.agent_id}", timeout=10)
+            if resp.status_code == 404:
+                self._registered = False
+                return
             resp.raise_for_status()
-            last_nonce = resp.json().get("last_nonce")
+            body = resp.json()
+            self._registered = bool(body.get("oracle_registered", False))
+            last_nonce = body.get("last_nonce")
             if isinstance(last_nonce, int) and last_nonce > self._nonce:
                 self._nonce = last_nonce
         except requests.RequestException as exc:
@@ -430,6 +468,23 @@ class IntegrityClient:
         if not self._nonce_synced:
             self._sync_nonce_from_oracle()
 
+        if self._registered is False:
+            # Confirmed-unregistered default-deny: the oracle already rejects this
+            # server-side (AgentNotFound), but that happens *after* the payload —
+            # completion text, token usage, everything `derive.py` reads — has
+            # already left the process. Refusing here means an unregistered agent's
+            # telemetry never gets transmitted in the first place, not just never
+            # stored. Batch is re-queued (same as the network-failure path below) so
+            # a later flush succeeds once the agent registers, rather than losing it.
+            logger.warning(
+                "agent %s is not registered with oracle %s (confirmed via GET /v1/agent/%s) — "
+                "refusing to send telemetry by default; batch re-queued for a later flush",
+                self.agent_id, self.oracle_url, self.agent_id,
+            )
+            for entry in batch:
+                self._batcher.add_telemetry(entry)
+            return False
+
         self._nonce += 1
         derived = derive.derive_ais_signals(
             batch,
@@ -447,6 +502,7 @@ class IntegrityClient:
 
         signable = {
             "schema_version": TELEMETRY_SCHEMA_VERSION,
+            "evidence_tier": "signed_agent",
             "agent_id": self.agent_id,
             "nonce": self._nonce,
             "otel_spans": otel_spans,

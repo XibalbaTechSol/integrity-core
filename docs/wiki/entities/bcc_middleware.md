@@ -1,7 +1,7 @@
 ---
 title: bcc_middleware
 created: 2026-07-07
-updated: 2026-07-15
+updated: 2026-08-30
 type: entity
 tags: [infrastructure, compliance, cryptography, metrics]
 confidence: high
@@ -16,6 +16,9 @@ source_files:
   - bcc_middleware/app/config.py
   - bcc_middleware/app/nonce_lock.py
   - bcc_middleware/app/verification_token.py
+  - bcc_middleware/app/audit.py
+  - bcc_middleware/tests/test_shutdown_drain.py
+  - bcc_middleware/tests/test_opa_fail_closed.py
   - bcc_middleware/policies/bcc.rego
 ---
 
@@ -26,6 +29,17 @@ It also runs a second, independent responsibility: a periodic background loop
 that pushes each agent's oracle-computed [AIS](../concepts/ais.md) on-chain and
 raises slashing disputes (see "Reconciled this cycle" below) — the only place
 in the monorepo that closes that loop.
+
+## Table of contents
+
+- [Pipeline](#pipeline)
+- [Hermes runtime gate bridge (2026-08-04)](#hermes-runtime-gate-bridge-2026-08-04)
+- [Reconciled this cycle (2026-07-14)](#reconciled-this-cycle-2026-07-14)
+- [Reconciled 2026-07-11](#reconciled-2026-07-11)
+- [Reconciled previous cycle](#reconciled-previous-cycle)
+- [Async hot-path + hardening fixes, 2026-07-15](#async-hot-path-hardening-fixes-2026-07-15)
+- [State](#state)
+- [Resolved gap (found stale during integrity-dashboard/demo work, 2026-07-09)](#resolved-gap-found-stale-during-integrity-dashboard-demo-work-2026-07-09)
 
 ## Pipeline
 
@@ -40,9 +54,44 @@ check** (if OPA flags `requires_baa`) → admit to
 deny); anchoring happens after authorization and is best-effort. The circuit
 breaker only counts violations attributable to the agent — an OPA/RPC outage
 denies but never trips the breaker (else one outage locks out the whole fleet).
+
+The HTTP-layer regression suite also exercises an indeterminate OPA response
+whose `result.allow` value is not boolean. The middleware returns
+`authorized=false` with the inspectable
+`BCC_POLICY_ENGINE_UNAVAILABLE` diagnostic; it does not leak the malformed
+decision into an implicit allow or an unhandled exception.
+
+Audit decisions (allow and deny) are reported asynchronously to the oracle so an
+unreachable audit endpoint cannot change the authorization response. The FastAPI
+lifespan now drains in-flight audit-report tasks during shutdown, with a bounded
+10-second wait, a shutdown admission gate, and explicit cleanup/logging when a report
+remains stuck. This closes shutdown cancellation loss, but does not claim delivery
+guarantees: an oracle outage can still lose a report because no local durable spool or
+retry queue exists.
 The reputation-sync loop below follows the same best-effort posture for score
 pushes (a stale on-chain score, not a wrongly-trusted one) but the opposite for
 disputes — see below.
+
+## Hermes runtime gate bridge (2026-08-04)
+
+Hermes' shell-hook adapter now has a real per-session context bridge instead of
+arriving at `pretool_gate.evaluate_tool_intent(...)` empty-handed:
+
+- `integrity_telemetry` persists the latest turn rationale / assistant response in
+  `~/.claude/xibalba/cache/hermes_session_context/<session_id>.json`.
+- `agent/turn_finalizer.py` now forwards `last_reasoning` into `post_llm_call` so
+  the plugin can prefer same-turn reasoning when a provider exposed it.
+- `hermes_gate.py` reads that cache and bridges it into `INTENT_RATIONALE`
+  (with `AGENT_THOUGHT` as a legacy alias) before it calls the shared pretool
+  gate, preserving the single-source-of-truth BCC path.
+- `tools/code_execution_tool.py` now forwards `HERMES_SESSION_ID` into nested
+  sandbox tool dispatch so `execute_code` -> `terminal` keeps the session identity
+  the BCC gate needs to recover trace/span context.
+
+This is an operational repair, not a semantic completion of the protocol: the live
+OPA rule now prefers the signed `intent_rationale` field, while `agent_thought`
+remains a compatibility alias. The long-term contract should keep the rationale
+public-safe and signed, not imply access to private chain-of-thought.
 
 ## Reconciled this cycle (2026-07-14)
 
@@ -50,9 +99,11 @@ disputes — see below.
   `app/scoring_loop.py` add a background asyncio task (started at FastAPI
   `lifespan` startup, `SCORE_SYNC_INTERVAL_SECONDS`, default 300s; also
   triggerable on-demand via `POST /v1/reputation/sync`) that lists every agent
-  the oracle knows about and, per agent: (1) recomputes the **pre-boost**
-  weighted AIS from `GET /v1/agent/{id}/ais`'s `components`/`weights` and
-  signs+submits a real `ReputationRegistry.updateScore(agent, baseScore)`;
+  the oracle knows about and, per agent: (1) treats
+  `GET /v1/agent/{id}/ais`'s geometric, tier-capped `ais` as authoritative,
+  divides out only its reported `zk_boost`, and signs+submits a real
+  `ReputationRegistry.updateScore(agent, baseScore)`; it never reconstructs
+  the formula from `components`/`weights`;
   (2) if the oracle's flagged-telemetry ratio for that agent crosses
   `DISPUTE_FLAGGED_RATIO_THRESHOLD` over a lookback window, signs+submits a
   real `Slasher.raiseDispute(agent, amount, reason)` locking
@@ -179,10 +230,10 @@ two follow-on gaps, both fixed in the same pass:
 
 ## State
 
-**91 pytest + 28 OPA tests** (up from 75 pytest — the hardening pass
-above). Real coverage: a fail-closed test points at a dead
-OPA port; `test_baa_shield_integration.py` deploys the real
-[Shield contracts](../concepts/compliance-gate.md) on a local anvil and exercises
+**131 pytest passed, 4 skipped + 48 OPA tests passed** (verified 2026-08-30).
+Real coverage: a fail-closed test points at a dead
+OPA port; `test_baa_health_integration.py` deploys the real
+[Integrity Health contracts](../concepts/compliance-gate.md) on a local anvil and exercises
 the real two-arg BAA call; `test_reputation.py`/`test_scoring_loop.py` cover the
 reputation-sync loop above, including real `updateScore`/`raiseDispute`
 transactions against `MockReputationRegistry.sol`/`MockSlasher.sol` fixtures.

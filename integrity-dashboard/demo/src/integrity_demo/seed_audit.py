@@ -91,7 +91,7 @@ class Agent:
 
 
 # The 5 audit agents — real registered identities, curated for a full behavior + vertical
-# spectrum (high→low AIS, plus a healthcare agent for the Shield panels).
+# spectrum (high→low AIS, plus a healthcare agent for the Integrity Health panels).
 AGENTS: list[Agent] = [
     Agent("Atlas Trading",     "did/trading_agent",             0, "stellar"),
     Agent("Sentinel Health",   "did/healthcare_agent",          1, "compliant"),
@@ -290,7 +290,7 @@ def seed_traces(cur, a: Agent) -> None:
 
 
 def seed_audit(cur, a: Agent) -> None:
-    """BCC/compliance decisions -> audit_log (Shield interactions + audit page)."""
+    """BCC/compliance decisions -> audit_log (Integrity Health interactions + audit page)."""
     prof = PROFILES[a.profile]
     now = datetime.now(timezone.utc)
     n = random.randint(30, 55)

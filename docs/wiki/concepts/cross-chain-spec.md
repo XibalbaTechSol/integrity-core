@@ -1,7 +1,7 @@
 ---
 title: Cross-Chain Reputation Sync [PLANNED]
 created: 2026-07-09
-updated: 2026-07-09
+updated: 2026-08-29
 type: concept
 tags: [layer-2]
 confidence: low
@@ -19,6 +19,11 @@ step, not a current capability. This page replaces the old wiki's
 `ReputationRegistry` model — that model is gone (see
 [agent primitives](agent-primitives.md)), so the old design doesn't apply
 as written.
+
+## Table of contents
+
+- [Current state: an honest, documented gap](#current-state-an-honest-documented-gap)
+- [What a real design would need to solve](#what-a-real-design-would-need-to-solve)
 
 ## Current state: an honest, documented gap
 

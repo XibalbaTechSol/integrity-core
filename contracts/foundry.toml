@@ -14,7 +14,8 @@ optimizer_runs = 200
 via_ir = true
 fs_permissions = [
   { access = "read-write", path = "../deployments.local.json" },
-  { access = "read-write", path = "/home/runner/work/integrity-latest/integrity-latest/deployments.local.json" },
+  { access = "read-write", path = "../deployments.local.kernel-bridge.json" },
+  { access = "read-write", path = "/home/runner/work/integrity-core/integrity-core/deployments.local.json" },
   { access = "read-write", path = "../deployments.baseSepolia.json" },
   { access = "read", path = "./" },
   { access = "read", path = "../contracts" },
@@ -28,9 +29,11 @@ remappings = [
   "@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/",
   "@openzeppelin/contracts-upgradeable/=node_modules/@openzeppelin/contracts-upgradeable/",
   "@chainlink/contracts-ccip/=node_modules/@chainlink/contracts-ccip/",
+  "@openzeppelin/contracts@5.3.0/=node_modules/@openzeppelin/contracts/",
   "@openzeppelin/contracts@5.0.2/=node_modules/@openzeppelin/contracts-5.0.2/",
   "@openzeppelin/contracts@4.8.3/=node_modules/@openzeppelin/contracts-4.8.3/",
-  "forge-std/=lib/forge-std/src/"
+  "forge-std/=lib/forge-std/src/",
+  "account-abstraction/=lib/account-abstraction/contracts/"
 ]
 
 # ── Local anvil chain (see docs/INTERFACE_CONTRACT.md §1-2) ──────────────────

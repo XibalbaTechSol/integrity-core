@@ -91,3 +91,35 @@ def test_health_endpoint_reports_opa_and_chain_status(client, monkeypatch):
     assert body["status"] == "online"
     assert body["opa_reachable"] is False
     assert body["chain_reachable"] is False
+
+
+def test_intercept_aos_gating(client, real_opa_server, monkeypatch):
+    test_settings = Settings(opa_url=real_opa_server, merkle_batch_size=999)
+    monkeypatch.setattr(main_module, "default_settings", test_settings)
+    monkeypatch.setattr(main_module, "batcher", MerkleBatcher(batch_size=999))
+    main_module.circuit_breaker.reset()
+    main_module.nonce_store.reset()
+
+    agent_id, private_key = new_agent()
+
+    # 1. Deny when trace_id/span_id/intent_rationale are missing on agent tool call
+    payload_missing = sign_commitment(private_key, agent_id=agent_id, intent_type="claude_tool:Bash", nonce=1)
+    resp_missing = client.post("/v1/bcc/intercept", json=payload_missing)
+    assert resp_missing.status_code == 200
+    assert resp_missing.json()["authorized"] is False
+    assert "AOS_VIOLATION" in resp_missing.json()["reason"]
+
+    # 2. Allow when trace_id/span_id/intent_rationale are present
+    payload_valid = sign_commitment(
+        private_key,
+        agent_id=agent_id,
+        intent_type="claude_tool:Bash",
+        nonce=2,
+        intent_rationale="Verifiable public intent rationale explaining the action.",
+    )
+    payload_valid["trace_id"] = "4bf92f3577b34da6a3ce929d0e0e4736"
+    payload_valid["span_id"] = "00f067aa0ba902b7"
+    payload_valid["agent_thought"] = payload_valid["intent_rationale"]
+    resp_valid = client.post("/v1/bcc/intercept", json=payload_valid)
+    assert resp_valid.status_code == 200
+    assert resp_valid.json()["authorized"] is True

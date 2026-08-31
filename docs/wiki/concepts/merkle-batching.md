@@ -1,13 +1,19 @@
 ---
 title: Merkle Batching & Anchoring Convention
 created: 2026-07-07
-updated: 2026-07-07
+updated: 2026-08-29
 type: concept
 tags: [cryptography, layer-2]
 confidence: high
 source_files:
   - docs/INTERFACE_CONTRACT.md
 ---
+
+## Table of contents
+
+- [Overview](#overview)
+
+## Overview
 
 Batches of approved [BCC](bcc.md) commitments are anchored on-chain as a
 single Merkle root, verified by `StateAnchor.sol` in [contracts](../entities/contracts.md).

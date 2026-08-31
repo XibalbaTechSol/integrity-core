@@ -14,6 +14,8 @@ only the oracle HTTP boundary is faked, not the on-chain behavior.
 
 from __future__ import annotations
 
+import math
+
 import respx
 from eth_account import Account
 from httpx import Response
@@ -27,10 +29,19 @@ from tests.helpers import new_agent
 _ORACLE_URL = "http://oracle.test"
 
 
-def _ais_response(*, entropy=800.0, grounding=700.0, sacrifice=600.0, compliance=1000.0, zk_boost=1.0) -> dict:
+def _ais_response(
+    *,
+    entropy=800.0,
+    grounding=700.0,
+    sacrifice=600.0,
+    compliance=1000.0,
+    zk_boost=1.0,
+    final_ais: float | None = None,
+) -> dict:
+    geometric = entropy**0.30 * grounding**0.30 * sacrifice**0.20 * compliance**0.20
     return {
         "agent_id": "unused",
-        "ais": (entropy * 0.30 + grounding * 0.30 + sacrifice * 0.20 + compliance * 0.20) * zk_boost,
+        "ais": geometric * zk_boost if final_ais is None else final_ais,
         "components": {"entropy": entropy, "grounding": grounding, "sacrifice": sacrifice, "compliance": compliance},
         "weights": {"entropy": 0.30, "grounding": 0.30, "sacrifice": 0.20, "compliance": 0.20},
         "zk_boost": zk_boost,
@@ -89,15 +100,35 @@ def _settings(anvil_chain, **overrides) -> Settings:
 # --- _base_score_from_ais_response ------------------------------------------------
 
 
-def test_base_score_recomputed_from_components_and_weights():
-    ais = _ais_response(entropy=1000.0, grounding=1000.0, sacrifice=1000.0, compliance=1000.0, zk_boost=1.15)
-    # weighted sum of an all-1000 agent is 1000 regardless of the boost.
-    assert _base_score_from_ais_response(ais) == 1000
+def test_base_score_preserves_oracle_geometric_mean_for_unequal_components():
+    ais = _ais_response(entropy=800.0, grounding=600.0, sacrifice=400.0, compliance=900.0)
+    geometric = 800.0**0.30 * 600.0**0.30 * 400.0**0.20 * 900.0**0.20
+    arithmetic = 800.0 * 0.30 + 600.0 * 0.30 + 400.0 * 0.20 + 900.0 * 0.20
+
+    assert abs(geometric - arithmetic) > 5.0
+    assert _base_score_from_ais_response(ais) == round(geometric)
 
 
-def test_base_score_none_when_components_missing():
-    assert _base_score_from_ais_response({"weights": {}}) is None
-    assert _base_score_from_ais_response({"components": {}}) is None
+def test_base_score_removes_only_oracle_zk_boost():
+    ais = _ais_response(entropy=800.0, grounding=600.0, sacrifice=400.0, compliance=900.0, zk_boost=1.15)
+    geometric = 800.0**0.30 * 600.0**0.30 * 400.0**0.20 * 900.0**0.20
+
+    assert _base_score_from_ais_response(ais) == round(geometric)
+
+
+def test_base_score_preserves_oracle_tier_ceiling():
+    # The Oracle clamps after applying its 1.15 ZK boost. Dividing out only
+    # that boost produces the base which reaches the same capped value if the
+    # contract independently verifies and activates its own boost.
+    ais = _ais_response(zk_boost=1.15, final_ais=600.0)
+    assert _base_score_from_ais_response(ais) == round(600.0 / 1.15)
+
+
+def test_base_score_rejects_missing_or_invalid_authoritative_fields():
+    assert _base_score_from_ais_response({"zk_boost": 1.0}) is None
+    assert _base_score_from_ais_response({"ais": 500.0}) is None
+    assert _base_score_from_ais_response({"ais": 500.0, "zk_boost": 0.0}) is None
+    assert _base_score_from_ais_response({"ais": math.nan, "zk_boost": 1.0}) is None
 
 
 # --- sync_one_agent: score push ----------------------------------------------------
@@ -355,5 +386,6 @@ def test_sync_one_agent_pushes_again_when_score_changes(anvil_chain):
     w3 = anvil_chain["w3"]
     contract = w3.eth.contract(address=anvil_chain["reputation_registry_address"], abi=anvil_chain["reputation_registry_abi"])
     on_chain_score = contract.functions.baseScoreOf(sovereign_agent).call()
-    assert on_chain_score == round(200.0 * 0.30 + 700.0 * 0.30 + 600.0 * 0.20 + 1000.0 * 0.20)
+    expected_geometric = 200.0**0.30 * 700.0**0.30 * 600.0**0.20 * 1000.0**0.20
+    assert on_chain_score == round(expected_geometric)
     _last_pushed_score.pop(agent_id, None)

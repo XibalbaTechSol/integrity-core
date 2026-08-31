@@ -29,7 +29,10 @@ def check_wiki():
     linked_pages = [os.path.normpath(p) for p in linked_pages]
     
     orphans = [p for p in all_md_files if p not in linked_pages]
-    dead_links = [p for p in linked_pages if p not in all_md_files and not p.startswith('../')]
+    # WIKI_INDEX.md is the legacy catalog and intentionally links to the canonical
+    # landing page, index.md. index.md is excluded from the article inventory/count,
+    # so exclude that one deliberate catalog link from dead-article detection too.
+    dead_links = [p for p in linked_pages if p != 'index.md' and p not in all_md_files and not p.startswith('../')]
 
     print(f"\nOrphans (in dir but not in index): {len(orphans)}")
     for o in orphans:

@@ -1,7 +1,5 @@
-// @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
-import { Cpu, Zap, Activity, Shield, Calculator, Code, Save, Play } from 'lucide-react';
+import { Cpu, Zap, Code } from 'lucide-react';
 
 export const SandboxConsole = () => {
     const [performanceVariance, setPerformanceVariance] = useState(0.1);
@@ -18,28 +16,25 @@ export const SandboxConsole = () => {
     const calculateScores = () => {
         const MAX_SCORE = 1000;
         
-        // Metric 1: Entropy
         const entropyScore = Math.round(Math.exp(-1.5 * Math.pow(performanceVariance, 2)) * MAX_SCORE);
         const stabilityDrag = entropyScore / MAX_SCORE;
 
-        // Metric 2: Grounding
         const groundingScore = Math.round(hgiRaw * MAX_SCORE);
         const groundingBoost = 1.0 + (hgiRaw * 0.2);
 
-        // Metric 3: Base Integrity Components
         const trustflowIdx = Math.min(1.0, avgPartnerAIS / 1000.0);
-        const auditIdx = 0.95; // Xibalba Audit Score (Simulated)
+        const auditIdx = 0.95; 
         const sacrificeIdx = Math.min(1.0, Math.log10(gpuHours + 1) / 3.0);
         const ageIdx = Math.min(1.0, Math.log10(agentAge + 1) / 2.56);
         const stakingAgeIdx = (0.5 * stakedRatio) + (0.5 * ageIdx);
         const volumeIdx = Math.min(1.0, Math.log10(volume + 1) / 6.0);
 
         const baseIntegrity = (
-            (0.25 * trustflowIdx) +   // W_TRUSTFLOW
-            (0.25 * auditIdx) +      // W_XIBALBA
-            (0.20 * sacrificeIdx) +  // W_SACRIFICE
-            (0.15 * stakingAgeIdx) + // W_STAKING_AGE
-            (0.15 * volumeIdx)       // W_VOLUME
+            (0.25 * trustflowIdx) +   
+            (0.25 * auditIdx) +      
+            (0.20 * sacrificeIdx) +  
+            (0.15 * stakingAgeIdx) + 
+            (0.15 * volumeIdx)       
         );
 
         let finalAis = baseIntegrity * stabilityDrag * groundingBoost * MAX_SCORE;
@@ -63,53 +58,58 @@ export const SandboxConsole = () => {
     }, [performanceVariance, hgiRaw, avgPartnerAIS, gpuHours, stakedRatio, agentAge, volume, tier]);
 
     return (
-        <div className="enterprise-card" style={{ padding: '40px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '32px' }}>
-                <Code className="text-gold" size={24} />
+        <div className="card" style={{ width: '100%', minWidth: 0, boxSizing: 'border-box', padding: 'clamp(1rem, 3vw, 2rem)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '2rem' }}>
+                <Code color="var(--text-secondary)" size={24} />
                 <h2 style={{ fontSize: '1.5rem', fontWeight: 800, margin: 0 }}>Protocol Sandbox</h2>
                 <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
-                    <span className="badge-gold">v8.3 TRI-METRIC</span>
+                    <span style={{ padding: '0.25rem 0.75rem', background: 'var(--text-primary)', color: 'var(--bg-color)', borderRadius: '16px', fontSize: '0.75rem', fontWeight: 700 }}>v8.3 TRI-METRIC</span>
                 </div>
             </div>
 
-            <div className="dash-grid-2">
-                {/* Inputs */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                    <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Simulation Parameters</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(280px, 100%), 1fr))', gap: '2rem', minWidth: 0, overflowX: 'hidden' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                    <h3 style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>Simulation Parameters</h3>
                     
-                    <div className="input-group">
-                        <label>Performance Variance (Entropy)</label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Performance Variance (Entropy)</label>
                         <input 
                             type="range" min="0" max="1" step="0.01" 
                             value={performanceVariance} 
                             onChange={(e) => setPerformanceVariance(parseFloat(e.target.value))} 
+                            style={{ accentColor: 'var(--text-primary)' }}
                         />
-                        <div className="input-footer">Variance: {performanceVariance} | Entropy: {results?.entropy}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Variance: {performanceVariance} | Entropy: {results?.entropy}</div>
                     </div>
 
-                    <div className="input-group">
-                        <label>Human Grounding Index (HGI)</label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Human Grounding Index (HGI)</label>
                         <input 
                             type="range" min="0" max="1" step="0.01" 
                             value={hgiRaw} 
                             onChange={(e) => setHgiRaw(parseFloat(e.target.value))} 
+                            style={{ accentColor: 'var(--text-primary)' }}
                         />
-                        <div className="input-footer">HGI: {hgiRaw} | Grounding: {results?.grounding}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>HGI: {hgiRaw} | Grounding: {results?.grounding}</div>
                     </div>
 
-                    <div className="input-group">
-                        <label>Verified GPU Hours (Sacrifice)</label>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Verified GPU Hours (Sacrifice)</label>
                         <input 
                             type="number" 
                             value={gpuHours} 
                             onChange={(e) => setGpuHours(parseInt(e.target.value))} 
+                            style={{ padding: '0.5rem', background: 'var(--bg-color)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: '4px' }}
                         />
-                        <div className="input-footer">Logarithmic scale applied</div>
                     </div>
 
-                    <div className="input-group">
-                        <label>Identity Verification Tier</label>
-                        <select value={tier} onChange={(e) => setTier(parseInt(e.target.value))}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Identity Verification Tier</label>
+                        <select 
+                            value={tier} 
+                            onChange={(e) => setTier(parseInt(e.target.value))}
+                            style={{ padding: '0.5rem', background: 'var(--bg-color)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: '4px' }}
+                        >
                             <option value={1}>Tier 1: Sovereign (600 Max)</option>
                             <option value={2}>Tier 2: Linked (850 Max)</option>
                             <option value={3}>Tier 3: Institutional (1000 Max)</option>
@@ -117,45 +117,39 @@ export const SandboxConsole = () => {
                     </div>
                 </div>
 
-                {/* Live Output */}
-                <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '24px', padding: '32px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                    <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '32px' }}>Real-Time AIS Result</h3>
+                <div style={{ background: 'var(--surface-color)', borderRadius: '8px', padding: '2rem', border: '1px solid var(--border-color)' }}>
+                    <h3 style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '2rem', margin: 0 }}>Real-Time AIS Result</h3>
                     
-                    <div style={{ textAlign: 'center', marginBottom: '40px' }}>
-                        <motion.div 
-                            key={results?.ais}
-                            initial={{ scale: 0.8, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            style={{ fontSize: '5rem', fontWeight: 900, color: 'var(--gold)', fontFamily: 'Playfair Display, serif' }}
-                        >
+                    <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
+                        <div style={{ fontSize: '5rem', fontWeight: 900, fontFamily: 'serif', transition: 'all 0.3s ease' }}>
                             {results?.ais}
-                        </motion.div>
-                        <div style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.2em' }}>
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
                             Comprehensive Integrity Score
                         </div>
                     </div>
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                        <div className="result-row">
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
                             <span>Stability Drag</span>
-                            <span className="text-gold">× {results?.drag}</span>
+                            <span style={{ fontWeight: 600 }}>× {results?.drag}</span>
                         </div>
-                        <div className="result-row">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
                             <span>Grounding Boost</span>
-                            <span className="text-gold">× {results?.boost}</span>
+                            <span style={{ fontWeight: 600 }}>× {results?.boost}</span>
                         </div>
-                        <div className="result-row">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem' }}>
                             <span>Base Integrity</span>
-                            <span className="text-gold">{results?.base}</span>
+                            <span style={{ fontWeight: 600 }}>{results?.base}</span>
                         </div>
-                        <div className="result-row" style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '16px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', borderTop: '1px solid var(--border-color)', paddingTop: '1rem', marginTop: '0.5rem' }}>
                             <span>Identity Ceiling</span>
-                            <span>{results?.ceiling}</span>
+                            <span style={{ fontWeight: 600 }}>{results?.ceiling}</span>
                         </div>
                     </div>
 
-                    <div style={{ marginTop: '40px', padding: '16px', background: 'rgba(212, 175, 55, 0.05)', borderRadius: '12px', border: '1px solid rgba(212, 175, 55, 0.1)', fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)', lineHeight: 1.6 }}>
-                        <Zap size={14} style={{ color: 'var(--gold)', marginRight: '8px', verticalAlign: 'middle' }} />
+                    <div style={{ marginTop: '2.5rem', padding: '1rem', background: 'var(--bg-color)', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                        <Zap size={14} style={{ marginRight: '8px', verticalAlign: 'middle', color: '#f59e0b' }} />
                         <strong>Dev Tip:</strong> Increasing <strong>Grounding</strong> by 0.1 provides a 2% boost to the final AIS, while high <strong>Variance</strong> exponentially drags the score down.
                     </div>
                 </div>

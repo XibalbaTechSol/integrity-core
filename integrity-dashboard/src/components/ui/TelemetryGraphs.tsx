@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import axios from 'axios';
+
 import {
   AreaChart,
   Area,
@@ -11,7 +11,7 @@ import {
   Legend
 } from 'recharts';
 import { useIsMobile } from '../../utils/useIsMobile';
-import { useDashboard } from '../../context/useDashboard';
+import { useDashboard } from '../../context/DashboardContext';
 import { oracle } from '../../services/oracle';
 import { Activity, Filter } from 'lucide-react';
 
@@ -35,14 +35,18 @@ export const TelemetryGraphs = () => {
     const fetchTelemetry = async () => {
       try {
         const perAgent = await Promise.all(
-          agents.map((a) =>
-            oracle
+          agents.map((a) => {
+            // alias can be null (agent has no XNS handle or DID-document name yet) —
+            // fall back to the DID itself rather than let a null flow into the chart
+            // series key/label, which crashed on `agent.split(' ')` below.
+            const label = a.alias || a.name || a.id;
+            return oracle
               .getTelemetry(a.eth_address)
               .then((events) =>
-                events.map((e) => ({ e, agent: a.alias })),
+                events.map((e) => ({ e, agent: label })),
               )
-              .catch(() => [] as { e: any; agent: string }[]),
-          ),
+              .catch(() => [] as { e: any; agent: string }[]);
+          }),
         );
         const sorted = perAgent
           .flat()
@@ -65,7 +69,7 @@ export const TelemetryGraphs = () => {
         if (cancelled) return;
         setData(formatted);
         const unique = Array.from(new Set(formatted.map((d) => d.agent)));
-        setSelectedAgents((prev) => (prev.length === 0 ? unique : prev));
+        setSelectedAgents((prev) => (prev.length === 0 ? (unique as string[]) : prev));
       } catch (e) {
         console.error('Telemetry fetch error:', e);
       } finally {
@@ -279,7 +283,13 @@ export const TelemetryGraphs = () => {
                 {activeSeries.map(s => (
                   <Area
                     key={s.id}
-                    type="monotone"
+                    // "monotone" cubic-interpolates a smooth curve between points, implying a
+                    // gradual real-world transition -- but these are discrete telemetry
+                    // readings that genuinely jump between two values with no ramp (e.g. one
+                    // agent's performance_variance flipping 1.0<->0.0 within milliseconds
+                    // across two different real emitters). "stepAfter" draws the actual
+                    // step-function shape instead of fabricating a curve that never happened.
+                    type="stepAfter"
                     dataKey={s.dataKey}
                     stroke={s.color}
                     strokeWidth={2}

@@ -4,17 +4,19 @@
 //! --exit-code` the spec dir) so a handler change without a matching spec regeneration
 //! fails the build instead of silently drifting.
 
-use std::path::Path;
+use std::path::PathBuf;
 
 use backend::openapi::combined_openapi;
 
 fn main() {
     let yaml = combined_openapi().to_yaml().expect("OpenApi -> YAML serialization should never fail");
 
-    // Path is relative to `integrity-oracle/backend/` (this binary's crate root), three
-    // levels up to the monorepo root, then into the versioned spec directory.
-    let out_dir = Path::new("../../spec/ais-api/v1");
-    std::fs::create_dir_all(out_dir).expect("failed to create spec/ais-api/v1");
+    // Anchor to the crate manifest, not the caller's current directory. Cargo can run
+    // this binary from the workspace root or backend crate; both must update the same
+    // in-repository specification.
+    let out_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../spec/ais-api/v1");
+    std::fs::create_dir_all(&out_dir).expect("failed to create spec/ais-api/v1");
     let out_path = out_dir.join("openapi.yaml");
     std::fs::write(&out_path, yaml).expect("failed to write openapi.yaml");
 

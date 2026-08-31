@@ -1,6 +1,8 @@
 # Production Architecture Gap Analysis & Codebase Audit
 
-Following a deep audit of the `INTEGRITY-LATEST` codebase, the following outlines the specific, technical gaps required to connect the `integrity-dashboard` UI to the backend production systems.
+> **Current pointer — 2026-08-29:** Phase 0 identity closure and the Whitepaper v3.2/specification reconciliation are recorded in the archived handoff and the canonical wiki implementation ledger. The accepted normative baseline remains [`docs/archive/2026-08/integrity-protocol-v0.4.md`](docs/archive/2026-08/integrity-protocol-v0.4.md); the current explanatory whitepaper is [`docs/WHITEPAPER.md`](docs/WHITEPAPER.md) (v3.2); [`docs/archive/2026-08/integrity-protocol-v0.5-proposed.md`](docs/archive/2026-08/integrity-protocol-v0.5-proposed.md) is not accepted, and Whitepaper v3.2 is current explanatory documentation. This document remains the detailed append-style gap register; dated entries below are not silently rewritten.
+
+Following a deep audit of the `integrity-core` codebase, the following outlines the specific, technical gaps required to connect the `integrity-dashboard` UI to the backend production systems.
 
 ## 1. Oracle (`integrity-oracle/backend`)
 *Current State:* Streaming, real OTLP ingestion, and time-bucketed historical queries
@@ -91,9 +93,9 @@ again) — both fixed at the `derive.rs` call site, no `scoring-core` changes ne
   introduced here.
 * **Oracle-to-chain score push — CLOSED.** `bcc_middleware/app/reputation.py` +
   `app/scoring_loop.py` now periodically (`SCORE_SYNC_INTERVAL_SECONDS`, default 300s)
-  list every agent the oracle knows about, recompute each one's pre-boost weighted AIS
-  from `GET /v1/agent/{id}/ais`'s `components`/`weights` (deliberately not
-  `ais / zk_boost`, to avoid float round-trip error), and sign+submit a real
+  list every agent the oracle knows about, accept each one's geometric, tier-capped
+  `ais` from `GET /v1/agent/{id}/ais` as authoritative, remove only the response's
+  reported ZK multiplier, and sign+submit a real
   `ReputationRegistry.updateScore(agent, baseScore)` transaction per agent. Also raises
   a real `Slasher.raiseDispute` when an agent's oracle-computed flagged-telemetry ratio
   (`GET /v1/agent/{id}/telemetry/volume`) crosses `DISPUTE_FLAGGED_RATIO_THRESHOLD`
@@ -202,12 +204,21 @@ skipped.
   on-chain primitives when the DID already resolves, instead of deploying a second orphaned
   pair. Verified end-to-end: `test_register_agent_is_idempotent_for_an_already_registered_did`
   calls `register_agent()` twice for the same identity and asserts both calls return
-  identical primitive addresses.
-* **CLOSED — `EHRGate` ABI + Shield wrapper functions.** `scripts/sync_abis.py` now syncs
-  `EHRGate`; new `integrity_sdk/shield.py` wraps `CoveredEntityRegistry`/`SmartBAAFactory`/
+  identical primitive addresses. Follow-up closure, 2026-08-19: the SDK idempotency path now
+  also checks whether the existing `StateAnchor` has a non-zero genesis memory root before
+  calling the oracle. A zero root triggers `anchor_genesis_root`; anchoring failure raises
+  `RegistrationError` and prevents the oracle POST, avoiding a known
+  `MemoryNotInitialized` rejection path. Covered by
+  `tests/unit/test_registration_existing_did_genesis.py`; full `integrity-sdk` validation
+  passed with 267 passed, 9 skipped after running the full SDK pytest suite from
+  `integrity-sdk/` with `/home/xibalba/.foundry/bin` on `PATH`. Residual boundary: this is
+  SDK behavior and local real-anvil/unit evidence, not a fresh live Base Sepolia
+  registration proof.
+* **CLOSED — `EHRGate` ABI + Integrity Health wrapper functions.** `scripts/sync_abis.py` now syncs
+  `EHRGate`; new `integrity_sdk/health.py` wraps `CoveredEntityRegistry`/`SmartBAAFactory`/
   `SmartBAA`/`ComplianceGate`/`EHRGate`, reusing `markets._execute_via_agent` for every
   agent-routed call. Verified against real anvil-deployed contracts in
-  `tests/test_shield.py`: a full happy path (register covered entity → create BAA → agent
+  `tests/test_health.py`: a full happy path (register covered entity → create BAA → agent
   signs it → self-declared compliance → patient grants EHR access → AIS pushed above
   threshold → access check passes → `verifyAndLogAccess` succeeds) plus a negative case
   proving the on-chain AIS-threshold gate is real, not decorative (access stays denied when
@@ -267,7 +278,7 @@ skipped.
   **Real behavior change, explicitly requested and confirmed:** both integrations' `redact_phi`
   parameter now defaults to **`False`** (previously, `redact_text()` ran unconditionally on
   every prompt/completion/reasoning-trace/tool-call string in both files). Per explicit
-  decision: PHI/PII redaction is now opt-in, scoped to Xibalba Shield / healthcare-vertical
+  decision: PHI/PII redaction is now opt-in, scoped to Integrity Health / healthcare-vertical
   agents, who **must** pass `redact_phi=True` when constructing `IntegrityOpenAI` /
   `IntegrityLangChainCallback` — neither wrapper has any way to know an agent's
   `compliance_vertical` on its own (that's registered separately), so nothing here can safely
@@ -276,13 +287,13 @@ skipped.
   healthcare deployment is at least loud about it rather than silent — but there is **no
   runtime enforcement** preventing a healthcare-vertical agent from being built without
   `redact_phi=True`. This is a real, accepted residual risk from the chosen default, not an
-  oversight: flagged here so it isn't lost track of, and worth a `shield.py`-level guard (e.g.
+  oversight: flagged here so it isn't lost track of, and worth a `health.py`-level guard (e.g.
   refusing to proceed, or checking `compliance_vertical` against a resolvable registry) as a
   real follow-up rather than relying on every integrator remembering the flag.
 
 ## 4. Smart Contracts (`contracts/src`) — findings from a full-package audit, ALL CLOSED
 
-*Current State:* 172 Foundry tests passing (up from 165), 66%+ line coverage. Web3 wallet
+*Current State:* 209 Foundry tests passing as of 2026-08-17. Web3 wallet
 connectivity and real on-chain writes from the frontend already exist (see §7) — the
 prior version of this section's "zero Web3 connectivity" claim was stale and has been
 removed. Every finding below is fixed and covered by a new regression test.
@@ -295,7 +306,7 @@ removed. Every finding below is fixed and covered by a new regression test.
   re-formation once the existing BAA's `status()` reaches `Terminated`, while still
   blocking a duplicate while `Proposed`/`Active`/`Disputed`. Three new tests
   (`test_canReformBAAAfterRevoke`, `test_canReformBAAAfterSlash`,
-  `test_cannotReformBAAWhileDisputed`) in `test/shield/SmartBAA.t.sol`.
+  `test_cannotReformBAAWhileDisputed`) in `test/health/SmartBAA.t.sol`.
 * **CLOSED — `IntegrityMarket.resolve()` to a zero-stake outcome permanently locked the
   whole pool.** No check that `outcomeStaked[_winningOutcome] > 0`; an honest resolver
   reporting a genuinely zero-stake true outcome made every position hit `LosingPosition`
@@ -326,13 +337,21 @@ removed. Every finding below is fixed and covered by a new regression test.
   Sepolia** — that's a real, gas-costing, operator-triggered action
   (`forge script script/DeployEHRGate.s.sol --rpc-url base_sepolia --broadcast --verify`
   with `FUNDER_PRIVATE_KEY` set) deliberately left for the account holder to run.
+  Correction (2026-08-24): the incremental script now requires an existing serialized
+  `singletons.AgentAuthorityResolver` and fails before broadcasting if it is absent.
+  Networks whose registry bytecode predates `isEnterpriseAgent` /
+  `registerEnterpriseAgent` need a separately approved registry/resolver migration
+  first; `DeployEHRGate.s.sol` must not deploy a fresh resolver against that legacy
+  registry as a side effect.
 * **CLOSED (deployed 2026-07-26) — XNS is live on Base Sepolia.** `XibalbaNameService` is
   deployed at `0x71f42aC04781c41e007e7f03244235341ce15cc8` (chainId 84532) and written into
   `deployments.baseSepolia.json`, via the new incremental `script/DeployXnsGovernance.s.sol`
   ("funder signs, agent owns": funder `0x67bA…D556` paid gas, the Xibalba agent
   `0xabfeEaCbA00F38810E697b2970399fE03080FBeB` holds `DEFAULT_ADMIN_ROLE`/`REGISTRAR_ROLE`).
   Verified live: `GET /v1/xns/resolve` now returns 200 (was 400 MissingSingleton). The
-  register-handle *write* flow in the dashboard remains a deliberate deferral (CLI/SDK for now).
+  register-handle *write* flow is now wired into the dashboard as of 2026-08-02 (see the
+  correction at the end of this entry) — the "deliberate deferral, CLI/SDK for now" framing
+  below is the original, now-superseded record.
   Historical note (pre-deploy): `deployments.baseSepolia.json` previously had no
   `XibalbaNameService` key. What's now real: the `XibalbaNameService.sol`
   contract (14 forge tests passing), the oracle's read path — `ChainClient::{resolve_handle,
@@ -346,10 +365,17 @@ removed. Every finding below is fixed and covered by a new regression test.
   remaining step is the operator-run, gas-costing deploy of `XibalbaNameService` to Base
   Sepolia + writing its address into `deployments.baseSepolia.json`; `DeployEHRGate.s.sol`
   already tolerates the missing key via a `keyExistsJson` guard so no other singleton is
-  disturbed until then. **Read-only in the UI by design:** handle *lookup* (resolve) is wired;
-  the *register-handle* write flow (`XibalbaNameService.register`, a wallet-signed tx) is
-  deliberately not in the dashboard yet — an explicit deferral, done via CLI/SDK, not a silent
-  omission.
+  disturbed until then. Originally recorded here as **read-only in the UI by design** (handle
+  lookup wired, register-handle deferred to CLI/SDK). **Correction (2026-08-02): the write is
+  now wired too.** New `chain/xns.ts` + `components/ui/XNSRegisterForm.tsx` (mounted in
+  `IdentityPanel`) call `XibalbaNameService.register(handle)` routed through the agent's own
+  `SovereignAgent.execute` — the same `executeAsAgent` convention every other on-chain write
+  in this dashboard already uses (`chain/markets.ts`), required because `register` checks
+  `agentRegistry.isRegisteredAgent(msg.sender)`, so a direct wallet-EOA call would always
+  revert. Also fixed in the same pass: `src/deployments.baseSepolia.json` (the dashboard's
+  own mirror of the root deployments file) was missing the `XibalbaNameService` **and**
+  `IntegrityGovernance` singleton entries entirely, despite both being live on Base Sepolia —
+  the write flow could not have been wired without that fix regardless of UI code.
 * **CLOSED (deployed 2026-07-26) — on-chain governance is live on Base Sepolia.**
   `IntegrityGovernance` is deployed at `0x62ef8A3B42b07FDee7498199696dae31AC2A9255` (chainId
   84532), guardian/owner = the Xibalba agent `0xabfeEaCbA00F38810E697b2970399fE03080FBeB`
@@ -357,8 +383,9 @@ removed. Every finding below is fixed and covered by a new regression test.
   threshold / 10,000 ITK quorum — verified via `quorumVotes()` on-chain). Deployed via the
   incremental `script/DeployXnsGovernance.s.sol` + written into `deployments.baseSepolia.json`.
   Verified live: `GET /v1/governance/proposals` now returns 200 `[]` (was 400 MissingSingleton);
-  `GovernancePanel`/`GuardianPilot` now render the live (currently empty) proposal set. The
-  propose/vote *write* flow in the dashboard remains a deliberate deferral (CLI/SDK for now).
+  `GovernancePanel`/`GuardianPilot` now render the live (currently empty) proposal set. Voting
+  is now wired into the dashboard as of 2026-08-02 (see the correction below); propose/queue/
+  execute remain a deliberate CLI/SDK-only deferral, for a narrower reason than voting was.
   Historical note (pre-deploy): originally a full gap (no Governance contract existed, and the
   panels honestly showed a roadmap + "not live" notice). Now real: `IntegrityGovernance.sol`
   — lock-to-vote (ITK locked to propose/vote; flash-loan/sybil resistant precisely because
@@ -375,10 +402,24 @@ removed. Every finding below is fixed and covered by a new regression test.
   is absent (Base Sepolia today; also the current `deployments.local.json`, deliberately NOT
   regenerated because a fresh local deploy would remint every address and invalidate the seeded
   audit DB's agent DIDs). Remaining: the operator-run, gas-costing Base Sepolia deploy +
-  `deployments.baseSepolia.json` entry. **Read-only in the UI by design:** the panels render
-  live proposals + tallies; the *write* half (propose / castVote / queue / execute — all
-  wallet-signed txs) is deliberately not wired into the dashboard yet (an inline note in
-  `GovernancePanel` says so), done via CLI/SDK for now — an explicit deferral, not a silent gap.
+  `deployments.baseSepolia.json` entry. Originally recorded here as **read-only in the UI by
+  design**, with the write half deferred "done via CLI/SDK for now" — that CLI/SDK claim was
+  never actually true: `integrity-cli/integrity_cli/main.py`'s own module docstring records
+  that a `governance` sub-app existed in the old prototype and was deliberately NOT rebuilt in
+  this rewrite ("Re-add it once/if a real backend contract for it exists" — one now does, but
+  the CLI was never updated). Nothing anywhere could vote until this pass.
+  **Correction (2026-08-02): `castVote` is now wired into the dashboard, `propose`/`queue`/
+  `execute` remain deferred, deliberately and for a different reason than before.** New
+  `chain/governance.ts` + `GovernancePanel`'s vote form call `IntegrityGovernance.castVote(id,
+  support, amount)`, routed through `executeAsAgent` exactly like the XNS write above, with the
+  same approve-then-act ITK flow `ActuarialHub`'s market-entry code already established
+  (top up the SovereignAgent's ITK balance if short, approve the Governance contract for the
+  vote amount, then cast). `propose`/`queue`/`execute` are excluded on purpose, not from time
+  pressure: `propose` accepts an arbitrary `(target, value, callData)` and `execute` runs it
+  verbatim after the timelock — exposing that through a generic UI without a security review
+  of what actions a proposal could carry is real governance/financial risk, not a UI gap. They
+  stay CLI/SDK-only until a real CLI/SDK governance path is built (see the correction above:
+  none exists yet either).
 * **CLOSED — `CCIPReputationBridge.bridgeReputation` had no refund for overpaid native
   fee.** `msg.value - fee` was permanently trapped (no `receive()`/`withdraw()`/sweep
   anywhere). Fixed: the excess is now refunded to `msg.sender` via a low-level call
@@ -459,11 +500,21 @@ items, all closed in the same pass:*
   a failed push is retried, never permanently skipped). Verified against real anvil: a second
   sync cycle with an identical score submits no transaction; a cycle with a genuinely
   different score does, confirmed by reading the new value back on-chain.
-* **Gap - Active Quarantine Enforcement (confirmed still open).** Nothing reads back
-  on-chain slash/dispute state to affect a future `run_intercept` decision — OPA
-  evaluation and the circuit breaker are still driven purely by this service's own request
-  history. `scoring_loop.py` can now *raise* a dispute but nothing closes the loop back
-  into policy enforcement.
+* **CLOSED — Active Quarantine Enforcement.** New `app/quarantine.py` + a new step 4b in
+  `run_intercept` (`app/main.py`): every commitment now reads `Slasher.lockedStakeOf(agent)`
+  on the agent's own Slasher clone before OPA evaluation, and denies (`AGENT_QUARANTINED`) if
+  it's nonzero — i.e. the agent has stake locked under an unresolved dispute
+  `scoring_loop.py::raise_dispute` raised. No separate un-quarantine step was needed:
+  `Slasher.resolveDispute` always decrements `lockedStakeOf` back to zero regardless of
+  outcome, so the gate clears itself the moment governance resolves the dispute.
+  **Deliberately fails OPEN, not closed, on an unverifiable check** — this is the one place
+  this service's stated fail-closed posture is inverted, and on purpose: unlike the BAA check
+  (scoped to a narrow healthcare intent class), this gate runs on *every* request, so failing
+  closed would mean one oracle/RPC hiccup denies all traffic from every agent. Only a
+  positively confirmed locked dispute denies; a check that can't be completed logs a warning
+  and lets the request continue to OPA. First implementation failed closed here too and broke
+  15 of the suite's pre-existing tests that don't stand up an oracle/anvil fixture — caught
+  by running the full suite, not by review, and corrected before landing.
 * **Merkle anchoring is still batch-size-triggered only (confirmed, see §1a)** — no
   periodic equivalent to the score-sync loop exists for it yet.
 * **In-memory `nonce_store`/`circuit_breaker` are safe today but block horizontal
@@ -560,11 +611,11 @@ tests hit a real local `ThreadingHTTPServer`, matching this package's existing
 ## 7. Frontend (`integrity-dashboard`) — findings from a full-package audit, ALL CLOSED
 
 *Current State:* real backend wiring landed this session for `ChainOfThoughtPage`,
-`SdkTelemetryPage`, `IntelligencePage`, `CompareTracesPage`, `ShieldPage`'s Stability
+`SdkTelemetryPage`, `IntelligencePage`, `CompareTracesPage`, `HealthPage`'s Stability
 Certification tab, and the dashboard's `throughput`/`events`/`radar` widgets.
 `AgentContext.tsx` is confirmed real (calls `oracle.listAgents()`) — this doc previously,
 incorrectly, listed it as mock; that was stale. Two real on-chain write paths already
-exist via wagmi (`ShieldPage.tsx`'s BAA sign/revoke, `ExchangePage.tsx`'s market entry) —
+exist via wagmi (`HealthPage.tsx`'s BAA sign/revoke, `ExchangePage.tsx`'s market entry) —
 the prior "zero Web3 connectivity" claim in this doc was also stale and has been removed.
 `npm run build` (`tsc -b && vite build`) now succeeds cleanly — verified end-to-end,
 including the 3 unrelated pre-existing unused-import errors that were silently failing
@@ -583,7 +634,7 @@ the production build before anyone had run it locally.
   more (`--bg-card`, `--shadow`/`--shadow-lg`, `--glass-*`, `--r-xs/sm/md`, status/brand
   aliases) found by a full `var(...)`-reference sweep, not just the originally-named
   ones. All added to `:root` as aliases of existing theme tokens. Verified visually
-  across Dashboard/Contracts/Exchange/CompareTraces/Shield/Documents/Finance/Identity.
+  across Dashboard/Contracts/Exchange/CompareTraces/Health/Documents/Finance/Identity.
 * **CLOSED — `AuditPage.tsx` made a specific, false security claim with no mock-data
   disclosure.** Its copy asserted actions are "cryptographically hashed and anchored to
   Base L2" and "cannot be tampered with by the agent, host, or hypervisor," backed by 3
@@ -592,7 +643,7 @@ the production build before anyone had run it locally.
   DOES batch-anchor approved intents, best-effort, not yet per-event) versus what this
   specific page shows (a simulated local event feed, now `SeededDataBadge`-marked, no
   real audit-trail query endpoint exists yet).
-* **CLOSED — `ShieldPage.tsx`'s consent/slash actions were theater, not disclosed
+* **CLOSED — `HealthPage.tsx`'s consent/slash actions were theater, not disclosed
   stubs.** `handleSlashViolation` showed a native `alert()` claiming "Locked ITK Stake
   Slashed" with no contract call at all. Neither action can honestly be wired to a real
   transaction from this dashboard (EHRGate.grantAccess/revokeAccess are PATIENT-signed;
@@ -616,7 +667,7 @@ the production build before anyone had run it locally.
   (`oracle.getAis()`) — the dashboard widget for the selected agent, the Intelligence
   page for the top 2 real leaderboard agents — with an honest "select an agent" /
   "needs 2+ leaderboard agents" fallback instead of ever showing a fabricated number.
-* **CLOSED — `ShieldPage.tsx`'s "Stability Certification" tab was hardcoded despite
+* **CLOSED — `HealthPage.tsx`'s "Stability Certification" tab was hardcoded despite
   sibling tabs on the same page already proving the live oracle+on-chain-read pattern.**
   The tier badge is now derived from the real AIS score; the BAA Compliance Ratio from
   the real per-agent BAA data this same page already fetches via `getLogs`/
@@ -673,7 +724,7 @@ the production build before anyone had run it locally.
   anywhere in this protocol (same conclusion independently reached for ActuarialHub
   earlier this session), and no network-wide index of staked BAA collateral exists either
   — `SmartBAA.requiredCollateral()` is only readable per-BAA-address today (confirmed via
-  `ShieldPage.tsx`), there's no "list every active BAA" capability to sum across. Building
+  `HealthPage.tsx`), there's no "list every active BAA" capability to sum across. Building
   that real aggregate would need a new oracle-side indexing endpoint — logged as a genuine
   follow-up, not fabricated here. Fabricated sparklines were removed rather than kept
   under the now-real numbers (a fake trend line under a real value would itself be
@@ -751,7 +802,7 @@ the production build before anyone had run it locally.
 * **CLOSED (2026-07-16) — `IdentityPage.tsx` fabricated an AIS score and a false
   hardware-attestation claim for every agent, undisclosed.** `ais = selectedAgent ? 9.5
   : null` was a hardcoded constant (never a real fetch, despite `oracle.getAis()`
-  already being the proven pattern on `ShieldPage`'s Stability Certification tab);
+  already being the proven pattern on `HealthPage`'s Stability Certification tab);
   `tier` was derived from the coarse `ACTIVE`/`IDLE` status boolean and always showed
   `'AAA'` regardless of real score; worse, `teeVerified = true` was hardcoded
   unconditionally, rendering "TEE Status: Verified (Nitro)" for every agent with no
@@ -759,7 +810,7 @@ the production build before anyone had run it locally.
   `NotImplementedError` everywhere else in this codebase (this same page's own disabled
   "Regenerate Attestation Document" button already discloses that honestly). Fixed:
   real `oracle.getAis()` fetch + the same `stabilityTier()` score-banding function
-  `ShieldPage` already uses, `teeVerified` set to `false` (renders the page's own
+  `HealthPage` already uses, `teeVerified` set to `false` (renders the page's own
   pre-existing honest "Not Attested" branch), and the "TEE Measurements" panel's
   hardcoded PCR0/PCR1 hashes now carry a `SeededDataBadge`. Re-verified live: AIS Score
   "500.0 / 1000", Verification Tier "B" (both matching this agent's real score
@@ -821,7 +872,7 @@ the production build before anyone had run it locally.
     `TRANSACTIONS` fallback array, same technique the `TriMetricWidget` fix already
     used for `AgentContext`-driven fallback detection).
   - Confirmed clean by the same sweep, no changes needed: `SettingsPage.tsx`
-    (real `userapi.*` calls or already-disclosed toggles), `ShieldPage.tsx`'s Smart
+    (real `userapi.*` calls or already-disclosed toggles), `HealthPage.tsx`'s Smart
     BAAs/PHI Access Gates/Audit & Compliance/Quarantine Zone tabs (real chain reads
     or already `SeededDataBadge`-marked), `FinancePage.tsx`'s "A2A Markets &
     Escrow" tab (`MarketsEscrowPanel.tsx` — real oracle reads, already-disclosed
@@ -832,25 +883,25 @@ the production build before anyone had run it locally.
     one; not fixed in this pass).
   - `npm run build`/`tsc -b --noEmit`/`npm run lint` clean, 13/13 Playwright e2e
     green, all re-verified live against the real local stack.
-* **(2026-07-16) `DocumentsPage.tsx` merged into `ShieldPage.tsx` as a new "Documents"
+* **(2026-07-16) `DocumentsPage.tsx` merged into `HealthPage.tsx` as a new "Documents"
   tab, then removed as a standalone route.** Per explicit request: the page's own
   content was always HIPAA/clinical-document-flavored (`HIPAA_Compliance_Guidelines_
   2026.pdf`, `Patient_Onboarding_Protocol.docx`, `Clinical_Trial_Results_Q3.pdf`), so
   it belongs on the compliance page its filenames are about rather than a separate
   top-level nav item. Moved verbatim (banner, 3 stat cards, trend chart, document
-  table) into a new `Documents` entry in `ShieldPage.tsx`'s `SUB_TABS`, keeping the
+  table) into a new `Documents` entry in `HealthPage.tsx`'s `SUB_TABS`, keeping the
   exact same honest disclosure (`SeededDataBadge`, "Not yet implemented" banner, no
   document/RAG-indexing backend exists anywhere in this monorepo — nothing was
   silently upgraded to "real" in the move). Removed `DocumentsPage.tsx`, the
   `/documents` route (`App.tsx`), and the Sidebar nav entry; `e2e/smoke.spec.ts`'s
   `ROUTES` updated to 10 entries (was 11). `npm run build`/`tsc -b --noEmit`/
   `npm run lint` clean, 12/12 Playwright e2e green, re-verified live: the merged
-  "Documents" tab renders correctly under Shield, `/documents` no longer resolves to
+  "Documents" tab renders correctly under Integrity Health, `/documents` no longer resolves to
   anything.
 
 ## 8. CI / Autonomous Fix-Forward (`.github/workflows/ci.yml`)
 *Current State:* A real CI workflow now runs every package's test suite (mirroring the root `Makefile`'s `test` target) as separate per-package jobs on push/PR to `main`. The `notify-jules-on-failure` job makes a real call to the Jules API (`POST https://jules.googleapis.com/v1alpha/sessions`, `X-Goog-Api-Key` auth, `AUTOMATION_MODE_AUTO_CREATE_PR`) — verified against `@google/jules-sdk`'s actual published source, not guessed.
-* **Gap - One-time repo-owner authorization still required:** the workflow will fail loudly (not silently no-op) until (1) Jules is authorized for `XibalbaTechSol/integrity-latest` at jules.google.com (grants its GitHub App repo access), and (2) a `JULES_API_KEY` secret (from jules.google.com/settings/api) is added under repo Settings → Secrets and variables → Actions. Both are account-holder actions no automation can complete on the owner's behalf.
+* **Gap - One-time repo-owner authorization still required:** the workflow will fail loudly (not silently no-op) until (1) Jules is authorized for `XibalbaTechSol/integrity-core` at jules.google.com (grants its GitHub App repo access), and (2) a `JULES_API_KEY` secret (from jules.google.com/settings/api) is added under repo Settings → Secrets and variables → Actions. Both are account-holder actions no automation can complete on the owner's behalf.
 * **CLOSED (2026-07-16) — `auto-merge-jules.yml`'s own actor filter never actually matched anything.** Confirmed via the API: every PR in this repo, including ones on `jules-<id>-<hash>` branches, is attributed to user `XibalbaTechSol` (type `User`), not a distinct `jules-google[bot]` identity `github.actor == 'jules-google[bot]'` checks for. The workflow has likely never fired. Also confirmed `allow_auto_merge` was `false` at the repo level — a documented prerequisite in that workflow's own setup comments that was never actually done; fixed via `gh api` PATCH. `auto-merge-jules.yml` itself was not rewritten (not this pass's file to unilaterally edit) — flagged here so the mismatch isn't lost.
 * **CLOSED (2026-07-16) — 21 stale branches, 5 of 8 open PRs in real CONFLICTING state.** Root cause: `auto-merge-jules.yml` only re-evaluates a PR on `opened`/`synchronize`/`reopened`, never when `main` itself advances past it — several Jules branches cut from a similar base drifted into genuine git conflicts as earlier ones merged serially, then sat forever (GitHub won't auto-merge a conflicting PR regardless of how long auto-merge stays "enabled" on it). Verified directly: `gh pr view --json mergeable` showed `CONFLICTING` for #12/14/18/19/24/26. Separately, 18 of 26 total PRs were already merged but their branches were never deleted (no "automatically delete head branches" repo setting). **GitHub Merge Queue is unavailable for this repo** — a `merge_queue` ruleset rule is rejected by the API while an otherwise-identical `required_status_checks` rule succeeds; likely a personal-account plan restriction (org-owned repos get merge queue, and this repo's owner returns `404` on `/orgs/{owner}`). Fix applied instead: a `required_status_checks` ruleset naming the 8 real CI job names from `ci.yml` (verified against the workflow source, not guessed), plus a new hourly workflow (`.github/workflows/close-conflicting-jules-prs.yml`) that finds Jules-branch PRs (matched by branch-name pattern, not the broken actor check) sitting in `CONFLICTING` state and closes them with an explanatory comment — if the underlying CI failure is still real, the next failure on `main` has Jules open a fresh PR against current `main`. **Note:** an earlier attempt also added `required_status_checks` alone (without `merge_queue`) directly to `main`'s branch protection and discovered empirically that it blocks *direct* pushes to `main`, not just PR merges — removed again since that conflicts with this repo's established direct-push workflow; only the auto-close-conflicting-PRs workflow was kept.
 
@@ -865,6 +916,40 @@ the production build before anyone had run it locally.
   1. **Every span was silently dropped on process exit, 100% of the time, for as long as this fix has existed.** `main.py` never called `force_flush()`/`shutdown()` on any of its per-agent `TracerProvider`s before the process exited. `BatchSpanProcessor` buffers spans and only exports on a timer/batch-size threshold — a short-lived CLI script that exits immediately after its work is exactly the shape of process this silently loses spans for. Confirmed for real: ran the engine, then queried `otel_spans` directly and found zero rows for any of the 4 just-registered agents, despite the spans genuinely being created in-process (confirmed via a minimal isolated repro of the same `TracerProvider`/`BatchSpanProcessor`/`force_flush` pattern, which worked once the flush call was added). Fixed by tracking every created `TracerProvider` (not just the `Tracer` handles `_tracer_for` previously kept) and flushing+shutting down all of them in a `finally` block around `main()`'s scenario run, so telemetry is exported whether the run succeeds or fails partway.
   2. **Every span was tagged with the internal persona short-name (`"capital_allocation_agent"`) instead of the agent's real DID, making it permanently invisible to any per-agent frontend view.** The oracle's telemetry/trace endpoints and every frontend consumer (`AgentContext`, `TraceAnalyticsPage`, `SystemDiagnosticsPage`) key exclusively by DID (`GET /v1/agent/{did}/...`) — a span resource attribute of `"capital_allocation_agent"` instead of `"did:integrity:..."` meant `GET /v1/agent/{did}/otel/volume` would return `[]` forever for that agent, even though the spans were sitting right there in the table under the wrong key. Fixed by resolving the real DID via `load_or_create_did(a["id"])` (a pure local keypair load/create, no chain call, and `register_agent()` calls the same function internally with an identical result) *before* opening each agent's registration span, and threading that real DID through to the capital-allocator's tool-call and conversation spans too (previously hardcoded to the short-name in both the `_tracer_for()` key and the `agent.id` span attribute). Verified for real: `GET /v1/agent/{did}/otel/volume` and `GET /v1/traces/{trace_id}` both now return the correct span data keyed by the real DID, confirmed against a fresh local run with 4 newly-registered agents (fresh `~/.integrity/wallet`/`~/.integrity/did` identities — the prior session's persona keystores were reset for this verification pass, see `docs/wiki/WIKI_LOG.md` for why).
   Also confirmed, not a bug: a freshly-registered agent with zero telemetry history legitimately fails `A2ACapitalPool`'s `AisTooLow(50, 0)` gate when another agent tries to allocate it capital — `bcc_middleware`'s `scoring_loop.py` continuously re-syncs each agent's real oracle-computed score on-chain (`Settings.score_sync_interval_seconds`), so a manual `updateScore` seed gets overwritten by the next real sync cycle within seconds. This is the reputation-sync safety mechanism working exactly as designed, not a demo bug — earning a real score requires real telemetry/compliant activity over time, same as any other agent.
+* **Partially closed (2026-08-14) — sequential agent-signed transactions in `integrity_sdk/chain.py` raced `get_transaction_count` against a load-balanced public RPC.** Found running `xibalba-shield/scripts/register_with_oracle.py` against real Base Sepolia via `base-sepolia-rpc.publicnode.com`: `deploy_sovereign_agent` → `deploy_state_anchor` → `grant_anchor_role` → `anchor_genesis_root` are four separate transactions signed by the same freshly-created agent wallet, each fetching its own nonce via `w3.eth.get_transaction_count(agent.address)`. Even with `_wait()` genuinely blocking on `wait_for_transaction_receipt` (confirmed by reading it directly, not assumed) before the next call, the very next `get_transaction_count` could still be answered by a different backend node in the RPC's pool that hadn't yet converged on the just-mined tx, returning a stale nonce and getting the resend rejected outright with `nonce too low` — reproduced three times in a row, at three different points in the sequence (`next nonce 1, tx nonce 0` → `next nonce 2, tx nonce 1` → `next nonce 3, tx nonce 2`), confirming this is systemic to the sequence rather than one flaky call. Each failed attempt orphaned a real `SovereignAgent`/`StateAnchor` pair on Base Sepolia (see `register_with_oracle.py`'s corrected docstring — re-running before full completion is not idempotent). Ruled out before fixing, not assumed: `_wait` (read directly, blocks correctly, no swallowed timeout) and client-side caching (`get_w3` only `lru_cache`s the `Web3`/`HTTPProvider` instance itself, no request-level caching middleware is attached). Fixed two ways: (1) all 9 nonce-fetch call sites in `chain.py` now query the `"pending"` block tag instead of the default `"latest"`, which includes the node's own mempool view; (2) all 9 now go through a new shared `_send_signed` helper that retries once or twice with a short backoff and a fresh nonce fetch specifically on a `"nonce too low"` rejection (never on any other error) — a real, standard mitigation for this exact multi-node-RPC race, not a broader nonce-tracking refactor (that would need to change signatures shared with `markets.py`/tests, and wasn't justified without first confirming — via the two ruled-out causes above — that the race is genuinely RPC-side). **Marked partially closed, not closed:** a live re-run after this fix got substantially further (all the way to the final `registerPrimitives` step, no nonce errors at all) but then hit a different failure — see the next entry — so this fix is confirmed to have resolved the specific nonce race but registration as a whole is still not verified end-to-end. Covered by the full `integrity-sdk` test suite (259 passed, 3 skipped, no regressions).
+* **Root-caused and CLOSED (2026-08-14) — `deployments.baseSepolia.json`'s `AgentPrimitivesFactory` address has had NO deployed bytecode since 2026-08-13, and `REGISTRAR_ROLE` on `XibalbaAgentRegistry` has been granted only to that empty address since the same date — registration has been completely broken for every agent, not an SDK bug.** The earlier entry in this file (now corrected) speculated about an SDK-side event-filtering bug; that was wrong. The real chain, confirmed via two independent RPC providers (`sepolia.base.org` and Blockscout's indexed log API, cross-checked against raw `eth_getTransactionByHash`/`eth_getCode`/`eth_call` reads, not trusted from any JSON file or broadcast label):
+  1. `contracts/broadcast/RotateOperatorKeyGrant.s.sol/84532/run-latest.json` records a `CREATE` of a new `AgentPrimitivesFactory` at `0x219109961c1c9bB8e9f27a37757a5d426e1f91Ec` with `hash: null` — this transaction, and 12 others after it in the same run, were never actually broadcast (only the first 3 of 22 transactions have real tx hashes; `receipts: []` is empty). `deployments.baseSepolia.json` was updated with this address anyway, as if the rotation had completed. `eth_getCode` confirms zero bytecode at that address today.
+  2. Despite the deploy never happening, `REGISTRAR_ROLE` was later granted to this same empty address at block 44942495, and revoked from the real, working factory (`0xC19fc9cB2cB87297EfDF11DA7e211e44A6C1181D`, real bytecode confirmed, 6/6 transactions in `broadcast/FixComplianceGateFactory.s.sol/84532/run-latest.json` genuinely broadcast and verified via on-chain logs) at block 44942506 — both via a `cast send` or similar not captured in any `broadcast/` JSON, presumably trusting the same wrong `deployments.baseSepolia.json` record. Full `RoleGranted`/`RoleRevoked` history for `REGISTRAR_ROLE`, confirmed via Blockscout's log API (`base-sepolia.blockscout.com/api?module=logs&action=getLogs`): genesis factory `0x215f39C8a2Cea2F8c6976fA10bbf48479825aD6e` (block 43837743) → `0xC19fc9cB2cB87297EfDF11DA7e211e44A6C1181D` (granted block 43927267, revoked block 44942506) → the empty phantom address (granted block 44942495, still current).
+  3. A call to an address with no bytecode always trivially "succeeds" with empty return data (`0x`) regardless of calldata — this is why every `registerPrimitives` call this session returned `status: 1` with `gasUsed` far too low for the real function (29,270 gas for something that should cost several hundred thousand) and zero logs: it never reached any real contract logic. Confirmed by replaying the exact failing call via `eth_call` against the pre-transaction block, which also returned bare `0x`.
+  **Fix**: grant `REGISTRAR_ROLE` back to the real, working factory `0xC19fc9cB2cB87297EfDF11DA7e211e44A6C1181D` (`0x7530bd7Cb142C50d5cC742EdF02263f368e89E2f`, controlled by `.env`'s `ORACLE_SIGNER_PRIVATE_KEY`, confirmed to hold `DEFAULT_ADMIN_ROLE` on the registry today and can do this). This is a stopgap using the existing factory (still has the old shared-key `governance`/`oracleSigner`/`disputer`) — properly redeploying a new factory with the new Safe/EOA roles (see `docs/signer-role-rotation-2026-08.md`) will supersede it once that work completes; this time verify `eth_getCode` on any newly-deployed factory address before writing it to `deployments.baseSepolia.json` or granting any role to it, precisely to avoid repeating this exact class of bug. The SDK-side defensive fixes from the (incorrect) earlier diagnosis — checksummed address comparison, tx-hash/log diagnostics in the error message — are harmless and were kept; they just weren't the actual fix. **Orphaned on-chain from failed attempts against the broken factory, real testnet gas spent, no cleanup path:** at least four `SovereignAgent`/`StateAnchor` pairs, including `0x95e2390D4b826DBCb7A7C3d56F7838bBE5F1087C`/`0xFa4EdF80B9B14D484B9905924D683461803c6292`, `0x9366595315BF23c7e6eEb28B43286D2D43e367cd`/`0x9290e91ea80bBa5E99c2C46eF496670B17Cf020d`, `0x3B3a46507A0029EF205A26cfA81435594350A911`/`0xFC78af016870E0373Fcca675699f02E98e71624D`, `0x4459d17Cc6FFC1BCCFd327584309A4231755667b`/`0x9cBc8A8930E2e86a01921B8d94C19B84949CB584`.
+  4. **After granting `REGISTRAR_ROLE` back (verified via `sepolia.base.org`), a registration attempt against the running stack still reverted** with `AccessControlUnauthorizedAccount(0xC19fc9cB..., REGISTRAR_ROLE)` — a real, correctly-decoded custom-error revert this time (`0xe2517d3f`, not a phantom-address silent success), meaning the stack's own view of chain state was stale relative to the grant. Root cause: `.env`'s `DOCKER_RPC_URL` (what `oracle-backend`/`shield` actually use) was still `base-sepolia-rpc.publicnode.com`, the same load-balanced third-party endpoint responsible for the nonce race earlier in this file — evidently also inconsistent for role-state reads, not just nonces. Switched `DOCKER_RPC_URL` to `https://sepolia.base.org` (Base's own official endpoint, already used for all the verification reads in this entry) and restarted `oracle-backend`/`shield` to pick it up.
+  5. **Even after switching to the official RPC, two more read-after-write lag instances hit**, confirming this class of issue isn't specific to any one provider — it's inherent to reading state moments after writing it: (a) `fund_agent_wallet`'s transfer confirmed (`_wait` returned a real mined receipt) but `deploy_sovereign_agent`'s very next balance-implied check reported `insufficient funds ... have 0` — verified transient by directly reading the agent wallet's on-chain balance afterward (`0.01 ETH`, exactly the expected amount, nonce still 0) — the funds were there, just not yet visible to whatever backend/view answered the failing check. (b) `grant_anchor_role`'s `StateAnchor.ANCHOR_ROLE().call()`, reading a contract `deploy_state_anchor` had just deployed and `_wait`-confirmed moments earlier, failed with `BadFunctionCallOutput` ("is contract deployed correctly and chain synced?") — verified transient the same way (a manual `cast call` for the same function on the same address, seconds later, returned real data). Fixed generally this time instead of case-by-case: `chain.py` gained `_call_with_retry`, a backoff-retry wrapper specifically for `BadFunctionCallOutput` on read-only `.call()`s, mirroring `_send_signed`'s existing retry-on-stale-nonce pattern for writes — applied to `grant_anchor_role`'s `ANCHOR_ROLE()` read (the confirmed failure site). Covered by the full test suite (259 passed, 3 skipped, no regressions).
+  6. **The same lag hit a third form**: a later live attempt failed at `deploy_sovereign_agent` itself with `insufficient funds for gas * price + value: have 0` straight from `send_raw_transaction` — again verified transient (the agent wallet genuinely held 0.02 ETH and nonce 2 immediately after, proving the funds were real and prior sends had gone through). `_send_signed`'s retry condition, previously only "nonce too low", now also catches "insufficient funds" — same reasoning: a rejection at submission never enters any mempool, so retrying costs nothing, and a genuinely-out-of-funds condition still correctly fails after `max_attempts` since it won't resolve on retry. Covered by the full test suite (259 passed, 3 skipped, no regressions). Not yet re-verified with a fresh live registration attempt end-to-end.
+  7. **RESOLVED (2026-08-17) — item 4's diagnosis was incomplete, and there was a SECOND missing role grant, not RPC staleness.** Re-ran `xibalba-shield/scripts/register_with_oracle.py` for real against the live stack. It got all the way through step 8b (genesis root anchored, confirmed via `StateAnchor.latestRoot()` returning non-zero) and deployed a real `SovereignAgent`
+    (`0x0C24806C751A04B785F1aF3A9E915FE4d4313A77`) and `StateAnchor`
+    (`0x4131ccebaA186A95B51f7017f99fF8E55c87B358`) — then failed at step 9 with the exact same `AccessControlUnauthorizedAccount(0xC19fc9cB..., REGISTRAR_ROLE)` revert item 4 already saw, decoded fresh (`0xe2517d3f`, confirmed against `sepolia.base.org` directly, not inferred). **Item 4 was wrong to attribute this to RPC staleness.** `AgentPrimitivesFactory.registerPrimitives` (`contracts/src/framework/AgentPrimitivesFactory.sol`) calls into **two** registries requiring `REGISTRAR_ROLE` — its own NatSpec says so explicitly ("Holds `REGISTRAR_ROLE` on both registries") — `XibalbaAgentRegistry.registerPrimitives` (which the earlier fix correctly re-granted) **and** `DomainRegistry.recordJoin` (`onlyRole(REGISTRAR_ROLE)`), which never got re-granted after the same phantom-factory rotation incident. Confirmed live, no ambiguity: `DomainRegistry.hasRole(REGISTRAR_ROLE, 0xC19fc9cB...)` returned `false` against `sepolia.base.org` — the same canonical endpoint item 4 already trusted — ruling out staleness as the explanation this time. (The `DOCKER_RPC_URL` switch in item 4 may still have been a real, separate fix for the nonce/balance-read lag documented in items 5-6; it just wasn't sufficient for *this* revert, which was a genuinely-missing grant, not a stale read of a genuinely-present one.)
+
+     **Fix**: granted `REGISTRAR_ROLE` to the real factory on `DomainRegistry`
+     (`0xC1aee61b8826d79c21a335Fb1777cA372Bea1Ba0`) from the funder/governance wallet
+     (confirmed to hold `DEFAULT_ADMIN_ROLE` there), tx
+     `0xd40ac7e2586b3aca21d2d36c015385b07650202c3efe61e5b9d962e2b2ccb979`, verified via
+     `hasRole` returning `true` afterward. **Registration then completed successfully without
+     creating a new orphan** — rather than re-running the non-idempotent script from scratch
+     (which would have deployed a *fifth* orphaned pair on top of the four already listed
+     above), resumed from the already-deployed `SovereignAgent`/`StateAnchor` directly via a
+     one-off script calling `integrity_sdk.chain.register_primitives` with those existing
+     addresses. `resolveDID` now returns the full real 7-primitive set;
+     `GET /v1/agent/{id}` confirms `oracle_registered: true` and the agent no longer appears
+     in `GET /v1/shield/unregistered-agents`. Milestone 2 of
+     `docs/demo-shield-integration.md` is genuinely complete for the Shield agent's DID as of
+     this entry — see that doc's own updated status section.
+
+     **Still open**: `DomainRegistry` should get the same `docs/signer-role-rotation-2026-08.md`
+     treatment eventually noted for `XibalbaAgentRegistry` in item 3's fix — both registries'
+     `REGISTRAR_ROLE` currently point at the same stopgap factory with the old shared-key
+     roles. The four orphaned `SovereignAgent`/`StateAnchor` pairs listed in item 3 remain
+     orphaned; this entry didn't create a fifth, but it also didn't clean up the existing four
+     — no cleanup path exists for any of them.
 
 ## 10. SDK tracing → oracle → frontend trace-tree pipeline (LangSmith-style spans/traces)
 
@@ -880,7 +965,7 @@ the production build before anyone had run it locally.
 * **CLOSED — added `audit_log`, a new durable Postgres table (`integrity-oracle/backend/migrations/0006_audit_log.sql`).** `agent_id` deliberately has no FK to `agents(id)` (mirrors `otel_spans`' same choice, migration 0004) — a forged-signature or unknown-agent deny is exactly the kind of event worth keeping, and may reference an `agent_id` that never resolves to a real row.
 * **CLOSED — `bcc_middleware` now reports every intercept decision, allow AND deny, not just approved ones.** New module `bcc_middleware/app/audit.py`, called from `run_intercept`'s `_deny()` helper (parses the existing `"CODE: detail"` reason string into `reason_code`/`detail`) and from the final approval path. Fire-and-forget via `asyncio.ensure_future` (task references held in a module-level set so they aren't garbage-collected mid-flight) POSTing to a new `POST /v1/audit/ingest` oracle endpoint — best-effort, same documented asymmetry as `anchor.py`'s on-chain anchoring: by the time this runs, `run_intercept` has already decided allow/deny, so a slow/unreachable oracle can never add latency or change the response, only mean that one decision is missing from the audit trail until the next successful report. Both `/v1/audit/ingest` and the receiving oracle endpoint are deliberately unauthenticated, matching the OTLP receiver's (`otlp.rs`) existing posture for this single-operator dev/demo topology — a forged entry is a known, documented limitation, not silently claimed to be tamper-proof. 91/91 `bcc_middleware` pytest suite still green after the `_deny()` signature change.
 * **CLOSED — new oracle endpoints: `POST /v1/audit/ingest`, `GET /v1/audit-log`.** The GET side (`backend::handlers::get_audit_log`) merges two real sources: the new `audit_log` table (BCC intercept decisions — the only source with an explicit allow/deny verdict) and, when `agent_id` is given, that agent's `telemetry_events` rows surfaced as `flagged`/`recorded` (there's no existing "recent across all agents" query for `telemetry_events`, so the global/no-agent feed is `audit_log` only — documented in `get_audit_log`'s own doc comment rather than silently omitted). Merged in Rust, not a SQL UNION — the two source tables don't share a column shape. Both endpoints added to `ApiDocExtra` in `openapi.rs` (utoipa's 15-paths-per-struct limit meant `ApiDocCore` was already full). `cargo build --workspace` and `cargo test --workspace --lib` (80 tests) clean.
-* **CLOSED — `AuditLogsPanel.tsx` rewritten to query the real endpoint, reactive to the global agent selector.** Per an explicit follow-up ("agent selector should be working to determine which data to display"): the panel now calls `oracle.getAuditLog(selectedAgent?.id, 200)` from `AgentContext`'s `selectedAgent` (the same global TopBar picker `SystemDiagnosticsPage`'s sibling "SDK Telemetry" tab already reacts to), refetching on agent change. Removed the `SeededDataBadge`/"Simulated event feed" disclosure entirely — this data source is now real, not merely honestly-disclosed-fake. `LoggerContext.tsx` was left in place, not deleted: it's still a legitimate (if minor) dependency of `ActuarialHub.tsx`'s own mock marketplace flow, which is out of this pass's scope; only `AuditLogsPanel`'s use of it was removed. `ShieldPage.tsx`'s separate "Medical Record Interaction Logs" table (`MOCK_AUDIT_LOGS`, a different, EHR-action-shaped concept) was left as-is — already honestly disclosed via its own `SeededDataBadge`, and wiring it to the new generic `audit_log` feed would misrepresent it as PHI-specific interaction logging it isn't.
+* **CLOSED — `AuditLogsPanel.tsx` rewritten to query the real endpoint, reactive to the global agent selector.** Per an explicit follow-up ("agent selector should be working to determine which data to display"): the panel now calls `oracle.getAuditLog(selectedAgent?.id, 200)` from `AgentContext`'s `selectedAgent` (the same global TopBar picker `SystemDiagnosticsPage`'s sibling "SDK Telemetry" tab already reacts to), refetching on agent change. Removed the `SeededDataBadge`/"Simulated event feed" disclosure entirely — this data source is now real, not merely honestly-disclosed-fake. `LoggerContext.tsx` was left in place, not deleted: it's still a legitimate (if minor) dependency of `ActuarialHub.tsx`'s own mock marketplace flow, which is out of this pass's scope; only `AuditLogsPanel`'s use of it was removed. `HealthPage.tsx`'s separate "Medical Record Interaction Logs" table (`MOCK_AUDIT_LOGS`, a different, EHR-action-shaped concept) was left as-is — already honestly disclosed via its own `SeededDataBadge`, and wiring it to the new generic `audit_log` feed would misrepresent it as PHI-specific interaction logging it isn't.
 * **Verified for real, end-to-end, live:** rebuilt and restarted the dockerized `oracle-backend`/`bcc-middleware` images (both `COPY` source at build time, same trap documented in §10 for the `dashboard` container — a `docker compose up -d` restart alone would not have picked up any of this), confirmed migration `0006_audit_log` applied via the oracle's boot log, then sent a real malformed-signature commitment straight to `POST /v1/bcc/intercept` (`curl`, no test harness) and confirmed via `GET /v1/audit-log?agent_id=...` that a `BCC_INVALID_SIGNATURE` deny row appeared with the correct `reason_code`/`detail` split. Then browser-verified live (`npm run dev`, not the stale Docker dashboard image) at `/diagnostics` → Audit Logs: the exact same real deny row rendered correctly for the probed agent, and switching the TopBar agent selector to a different, never-probed agent correctly showed an empty table (not stale or fabricated data) — confirming the agent-selector reactivity explicitly requested. Zero console errors.
 
 ## 12. Dashboard/Trace Analytics rendered empty despite real backend data (2026-07-16)
@@ -905,7 +990,7 @@ Full regression after all six fixes: `npm run build`/`npm run lint` clean (only 
 
 *Current State:* Explicit request: "keep going" (continuing the mock sweep). Three parallel investigation passes covered every remaining unaudited surface: `SettingsPage.tsx`/`SystemDiagnosticsPage.tsx` (beyond their prior `SeededDataBadge` instances), `LandingPage.tsx`/`ContactModal.tsx`/`CommandPalette.tsx`, and `NotionDatabase.tsx`/`MermaidDiagram.tsx`/`Toast.tsx`/`MarketsEscrowPanel.tsx`. Four of these seven files came back completely clean (`NotionDatabase.tsx`, `MermaidDiagram.tsx`, `Toast.tsx`, `MarketsEscrowPanel.tsx` — the last already fully badged from a prior pass, its order-placement flow confirmed calling real `readContract`/`writeContract` against real ABIs/deployments, not faking success) and `SystemDiagnosticsPage.tsx` and `ContactModal.tsx` had no findings (`ContactModal.tsx` genuinely POSTs to a real backend and surfaces real errors). Five real findings, fixed:
 * **CLOSED — `SettingsPage.tsx`'s TopBar had a global "Save Changes" button whose only behavior was `window.alert('Settings saved to volatile memory.')` — no real persistence, and nothing on the page actually needed a manual save step (theme/font persist live via `ThemeContext` on change, API keys are created/revoked via real `userapi` calls immediately, the Network panel is separately disclosed as non-functional).** Removed the button entirely rather than relabel it — there was no real save action to disclose-and-keep. A second, narrower finding in the same file: "Save Network Settings" (inside the already-`SeededDataBadge`-disclosed Network panel) had no `onClick` handler at all, a silent no-op rather than a visibly inert control — fixed by adding `disabled` + a `title` tooltip so the non-functionality is visible, not just discoverable by clicking and observing nothing happen.
-* **CLOSED — three separate landing-page/header buttons (`HeroSection.tsx`'s "Launch Dashboard", `CinematicHeader.tsx`'s desktop+mobile "Launch Dashboard" and "Sign In", `CoreFeatures.tsx`'s "OPEN ESCROWS") all navigated to `/integrity`, which is not and has never been a route in `App.tsx`** (real routes: `/`, `/landing`, `/identity`, `/contracts`, `/settings`, `/finance`, `/traces`, `/diagnostics`, `/shield`, `/agents`) — every one of these was a dead link rendering a blank page. Fixed by pointing each at the real destination its label promises: "Launch Dashboard" → `/` (the real Intelligence Command dashboard), "Sign In" → `/settings` (where the real `userapi` email/password login form already lives), "OPEN ESCROWS" → `/finance` (real `MarketsEscrowPanel.tsx`). `CinematicHeader.tsx`'s "Sign In" button additionally fired `alert("Google Sign-In flow initiated.")` before navigating — a fake OAuth flow with no real Google/any-provider integration anywhere in this monorepo — removed entirely along with the dead-route fix, not just disclosed, since a real login path already exists one click away.
+* **CLOSED — three separate landing-page/header buttons (`HeroSection.tsx`'s "Launch Dashboard", `CinematicHeader.tsx`'s desktop+mobile "Launch Dashboard" and "Sign In", `CoreFeatures.tsx`'s "OPEN ESCROWS") all navigated to `/integrity`, which is not and has never been a route in `App.tsx`** (real routes: `/`, `/landing`, `/identity`, `/contracts`, `/settings`, `/finance`, `/traces`, `/diagnostics`, `/health`, `/agents`) — every one of these was a dead link rendering a blank page. Fixed by pointing each at the real destination its label promises: "Launch Dashboard" → `/` (the real Intelligence Command dashboard), "Sign In" → `/settings` (where the real `userapi` email/password login form already lives), "OPEN ESCROWS" → `/finance` (real `MarketsEscrowPanel.tsx`). `CinematicHeader.tsx`'s "Sign In" button additionally fired `alert("Google Sign-In flow initiated.")` before navigating — a fake OAuth flow with no real Google/any-provider integration anywhere in this monorepo — removed entirely along with the dead-route fix, not just disclosed, since a real login path already exists one click away.
 * **CLOSED — `LandingPage.tsx`'s "Agent XNS Lookup" search box was fully uncontrolled (no `value`/`onChange`) — typing an agent DID and clicking "Lookup" silently discarded the input and opened `RegistryExplorer.tsx`'s modal with its own independent, always-blank `query` state.** `RegistryExplorer.tsx` didn't accept an initial-query prop at all, so this wasn't fixable from the landing page alone. Added `initialQuery?: string` to `RegistryExplorerProps`, plus a `useEffect` keyed on `[isOpen, initialQuery]` (needed because the component self-guards on `isOpen` via `if (!isOpen) return null` rather than being conditionally mounted by its parent — a plain `useState` initializer would only ever apply `initialQuery` once, on first mount, not on every re-open) — then wired the landing page's input through it. Verified live: typing a real registered DID and clicking Lookup now opens the modal with that exact DID pre-filled, and Resolve returns that agent's real on-chain data.
 * **CLOSED — `CommandPalette.tsx`'s "Toggle Theme" command only ever called `addToast('info', 'Theme toggled')` — it never touched the real `ThemeContext` (`setTheme`), so the toast claimed success while nothing on screen changed.** `ThemeContext.tsx` already exposes 4 real themes (`default`/`navy-gold`/`clinical-light`/`notion`) wired live elsewhere (`SettingsPage.tsx`'s Appearance panel). Fixed by importing `useTheme`/`Theme` and cycling through the same 4-theme list for real, with the toast message reporting the actual theme now active rather than a generic claim. Verified live in a fresh browser tab: invoking the command visibly re-themes the entire app (confirmed dark → light background swap matching the `clinical-light` theme).
 Full regression: `npm run build`/`npm run lint` clean (zero new errors; only the same pre-existing unrelated warnings remain), every fix browser-verified live. One unrelated hazard discovered during verification, not caused by this pass: clicking on `DashboardPage.tsx`'s react-grid-layout widget area can trigger a pre-existing library bug (`react-grid-layout`'s dev-mode `log()` helper references bare `process.env` with no browser shim, throwing `ReferenceError: process is not defined` on drag-start and wedging that browser tab's renderer) — a fresh tab was unaffected and confirmed the app itself was healthy throughout. Not fixed in this pass (out of scope for a mock-disclosure sweep), flagged here so it's not mistaken for a regression next time someone hits it.
@@ -954,9 +1039,9 @@ Full regression after all of the above: frontend `npm run build`/`npm run lint` 
 
 * **CLOSED — oracle memory gate (§7.1).** `ChainClient::memory_state` reads `(latestRoot, latestEpoch)` directly from the agent's own `StateAnchor`; `POST /v1/agent/register` returns the new `AppError::MemoryNotInitialized` → **400** on a zero root, checked immediately after the PrimitiveSet match with the same independent-read posture (chain is the source of truth, never the client's claim). Verified by a real e2e (`oracle_e2e_register_rejects_missing_genesis_memory_root`) that deploys a genuine on-chain agent with *only* the genesis anchor omitted, and empirically against live Base Sepolia.
 * **CLOSED — SDK anchors genesis at registration (§6 ordering).** `chain.anchor_genesis_root()` routes `anchorRoot` through `SovereignAgent.execute`; `registration.register_agent` calls it as step 8b, before `registerPrimitives`. **No Solidity change was required for §7.2's "genesis MUST be agent-authorized"** — `StateAnchor`'s admin *is* the `SovereignAgent` contract, which the constructor also grants `ANCHOR_ROLE`.
-* **OPEN — all 7 existing agents have `latestRoot == 0`,** including the flagship `xibalba.integrity` (`StateAnchor 0x09DCBBd0D7B0f39db315a8C4f913C162D73Cc68b`, verified on Base Sepolia). They predate step 8b and remain registered, because the gate only runs at registration — so **the protocol currently has registered agents that do not satisfy its own §4.1**. Each needs one controller-signed `anchorRoot` tx to become compliant. Not a latent bug so much as a migration nobody has run; stated here so the fleet's state isn't mistaken for spec-conformant.
+* **CLOSED — decision recorded (2026-08-02): the 7 legacy agents' non-compliance is accepted, not a pending migration.** Previously stated as "each needs one controller-signed `anchorRoot` tx" as if that were merely un-run housekeeping. It is not: `xibalba.integrity`'s own genesis anchoring (§7.2, closed above) already proves the *mechanism* works — every agent registered from this point forward is spec-conformant by construction. Retroactively anchoring the 7 pre-existing agents would require either (a) their controllers running the tx individually, which is outside this protocol's control and cannot be forced, or (b) the protocol doing it on their behalf, which would mean anchoring a genesis root the agent's own controller never signed — precisely the "protocol may never author a genesis root" invariant §7.2 exists to enforce. There is no compliant path to close this retroactively; a `latestRoot == 0` legacy agent is a permanent, structural fact about agents registered before this gate existed, not a to-do. Decision: document it as such (this entry) rather than carry it as an open action item nobody can complete. **Superseded, not solved, by termination/re-registration** (§7.6 rules termination explicitly out of scope for the same registry-mutability reason — see the coherence derivation in `docs/design/primitive-set-coherence.md`), which is the only mechanism that could ever let a legacy agent re-establish itself as a fresh, spec-conformant registration.
 * **OPEN — §7.2 enforcement (Appendix A gap 2) is genuinely unbuildable for existing agents.** Gating `anchorRoot` to `latestEpoch >= 1` would stop the protocol's `ANCHOR_ROLE` signer from anchoring epoch 1, but `StateAnchor` is deployed **per agent, not cloned** — every already-deployed anchor keeps its current bytecode forever, so a contract change reaches only future agents. Any such gate must also leave `DEFAULT_ADMIN_ROLE` able to perform genesis at any epoch-0 moment, or an agent on new bytecode that skipped genesis could never recover. Deferred until that migration question is answered, not silently skipped.
-* **OPEN — Appendix A gaps 3–8, untouched:** uniform minimum stake at registration; tighter ZK-boost binding (per-event / public inputs) — today it is a period-wide `BOOL_OR`; identity-ceiling clamp in scoring (`AIS_final = min(AIS, Tier_ceiling)`); lineage attestation + on-chain record (§7.4); optional ERC-8004 discovery adapter; silence-as-signal for the observability obligation.
+* **OPEN — Appendix A gaps 3–8, status reconciled:** uniform minimum stake at registration; tighter ZK-boost binding (per-event / public inputs) — today it is a period-wide `BOOL_OR`; lineage attestation + on-chain record (§7.4); optional ERC-8004 discovery adapter; silence-as-signal for the observability obligation. The identity-ceiling clamp formerly listed here is now **CLOSED** (`AIS_final = min(AIS, Tier_ceiling)` in `score_with_tier`).
 * **Spec drift, confirmed:** §16's package map lists `integrity-mvp/`, which was **replaced by** `integrity-dashboard/`. The package was deleted on disk during that consolidation but the deletion sat uncommitted until 2026-07-29 (944 files), which is why the tree appeared to contain both. The spec should say `integrity-dashboard/`.
 
 ## 20. ITK testnet liquidity moved to the agent; Finance wallet + Cognition traces fixed (2026-07-29)
@@ -972,3 +1057,2709 @@ Full regression after all of the above: frontend `npm run build`/`npm run lint` 
   * **Diagnosis note, because the record briefly said otherwise:** this fix was first written off as disproved, because a retest froze afterwards. That retest was run in a tab loaded before Vite HMR applied the change. Re-verified properly by bisecting with the page's own module toggles (all four off → select agent → re-enable one at a time) and then repeating the original path: 4 agent selections with all four panels mounted, including the trace-bearing agent, all responsive. Reading the code alone did not find this; the toggle bisect did.
 * **CLOSED — default target network is now Base Sepolia, not local anvil.** Root `.env` set to `RPC_URL=https://base-sepolia-rpc.publicnode.com`, `CHAIN_ID=84532`, `DEPLOYMENTS_FILE=deployments.baseSepolia.json`, plus the `DOCKER_*` equivalents, so a bare `docker compose up` targets the real deployed protocol — verified by a `--force-recreate` with no overrides connecting to `/deployments.baseSepolia.json` with XNS handles resolving. `make up-local` is the anvil escape hatch. The root `.env`'s `FUNDER_PRIVATE_KEY` is anvil's account #0 and is useless on Sepolia; that is now called out in the file itself, with a pointer to `contracts/.env` for the real funder key.
 * **Environment footgun worth knowing:** `docker compose` auto-loads the root `.env`, which pins `CHAIN_ID=31337` and `DOCKER_RPC_URL=http://host.docker.internal:8545` (local anvil). Any `docker compose up` for `oracle-backend` **without** the Base Sepolia overrides silently repoints the oracle at a dead anvil — every chain read then fails, XNS handles degrade to `null`, and the dashboard quietly reverts to `Agent <fingerprint>` labels. Correct invocation: `DOCKER_RPC_URL=https://base-sepolia-rpc.publicnode.com CHAIN_ID=84532 DOCKER_DEPLOYMENTS_FILE=/deployments.baseSepolia.json docker compose up -d oracle-backend`.
+
+## 21. The Claude Code hook set was measured against itself: gate blind, AIS pinned at 0, memory unanchored (2026-07-30)
+
+*Method:* the harness was tested end-to-end rather than reasoned about — `~/.claude/xibalba/tests/probe_loop.py` captures the whole loop as a diffable report (OPA truth table, AIS recomputation, vault census, per-runtime instrumentation matrix, log census). Every claim below is a measurement, not a code reading.
+
+* **CLOSED — the BCC gate was structurally incapable of denying any tool call.** Across 792 logged decisions: **715 authorized, 0 denied, 77 fail-open**. Not luck. Every rule in `policies/bcc.rego` keys on `intent_type`, and `pretool_gate.py` emitted the *constant* label `claude_tool:<ToolName>`, hashing the real command into `intended_state_hash` per §4.2. A constant matches no rule, so `violation` was always `[]` and `allow` always `true`. Direct OPA probes proved the engine was healthy the whole time (`claude_tool_bypass` → `POLICY_VIOLATION`, `EMR_WRITE` → `HIPAA_ACCESS_CONTROL_VIOLATION`); it was simply unreachable. The gate was verifying identity, replay and freshness — real, but not behavioral policy, while logging the word "authorized" as if it were. Fixed by appending a coarse risk class to the label (`claude_tool:Bash:destructive`) derived from the payload, with the payload itself still crossing the wire only as a hash — §4.2's plaintext-never-leaves property is preserved. New `bcc.rego` §3b gates `destructive`/`credential`/`chain_write`/`privileged` on `verification_tier >= 1`; 7 new OPA tests (28 → 35).
+  * **Scope stated honestly:** the classifier is a lossy one-way *signal*, trivially evadable by an adversarial agent (base64, indirection, aliasing). It is not a sandbox and must not be described as one. What it buys is a policy surface that is no longer structurally blind, plus a signed commitment ("this agent asserted it was about to do something destructive") that PostToolUse can now be reconciled against.
+
+* **CLOSED — the agent's own AIS was pinned at exactly 0.0, and the cause was the dogfooding gap itself.** `GET /v1/agent/{did}/ais` returned `ais: 0.0` with components `{entropy: 1000, grounding: 1000, sacrifice: 0, compliance: 1000}`. `scoring-core` computes a weighted **geometric** mean, so `0^0.2` annihilates the product regardless of the other three axes. `sacrifice` derives from `metadata.token_usage.total_tokens`; the hooks emitted `{"event": ..., "source": "claude-code"}` and nothing else. **The protocol scored its own construction at zero because the harness never reported the work it did.** Fixed: `_common.work_metadata()` now carries real `token_usage` and `text_output` read from the session transcript. Measured live: `sacrifice` 0.0 → 1.0, `entropy` 1.0 → 0.075 (a real Shannon measurement rather than a default).
+  * **Accounting decision, documented not buried:** `cache_read_input_tokens` is **excluded** from the token total. It counts context re-read every turn (~200k/turn), so summing it would report tens of millions of tokens for an afternoon and saturate the sacrifice curve (50k tokens = 1 proxy hour, saturating near 1000).
+  * **Double-count hazard found during implementation:** `derive_sacrifice` *sums* `total_tokens` across batch entries, and a per-tool-call hook reading the whole transcript reports a monotonically growing cumulative figure. Reporting it raw would have the oracle add ~1M, then ~1.05M, ... for the same work — exactly the failure `derive.rs`'s own comment warns about. A per-session cursor (`~/.claude/xibalba/cursors/`) now reports deltas; a cursor that can't be persisted omits `token_usage` entirely rather than risk double-counting.
+
+* **CLOSED — three of four AIS axes were fabricated-by-default.** The signed SessionStart envelope carried `derived_signals: {compliance: 1.0, entropy: 1.0, grounding: 1.0, sacrifice: 0.0}`. With no `text_output` in the payload there is nothing to compute entropy or grounding over, and `lexical_stability_score` returns a perfect `1.0` for empty text by design — so a **perfect score was being derived from no evidence**, inside a signed envelope, which is precisely the failure class this repo's no-silent-mocks rule exists to prevent. Both adapters now send real text or omit the key; `work_metadata` omits rather than defaults, so an absent signal stays absent all the way to `derive.rs`.
+
+* **CLOSED — decision recorded (2026-08-02): the fix belongs at the signal layer, not the formula.** Considered and rejected: adding a third state (e.g. `Option<f64>`/null-vs-zero) to `AisComponentInputs` and special-casing it in `scoring-core`'s geometric mean. Rejected for two reasons. First, `scoring-core`'s own docstring already states the geometric mean's zero-annihilates behavior is intentional, not a defect — "a strong axis must not compensate for a wholly absent one" is exactly the property a trust score needs, and a null-aware formula would have to decide what an "unscoreable" AIS even returns to callers (`bcc_middleware`'s tier-gating, the dashboard, `ReputationRegistry.updateScore`) that all currently assume a single `f64`. That's a breaking API change to every consumer, not a formula tweak. Second — and this is the part the original framing missed — §21's own two CLOSED entries immediately above this one show the *actual* bug was never in the formula: `sacrifice = 0` for the dogfooding agent was caused by the harness never reporting `token_usage` at all, and `lexical_stability_score` returning a fabricated perfect `1.0` for empty text was a signal-derivation bug, not a scoring one. Both are now fixed at the source (real `token_usage`, real `text_output`, an absent signal stays absent all the way to `derive.rs` rather than defaulting). The remaining "absent vs. zero" ambiguity is a genuine completeness question, but the honest place to answer it is telemetry-submission validation (flag/reject a submission missing an expected signal class before it ever reaches scoring, distinct future work) — not by teaching the AIS formula a third value that every downstream consumer would need to learn to handle. No `scoring-core` change; keeping the current two-value (reported/not) representation is the decision.
+
+* **CLOSED — the AIS formula had no test pinning its shape.** Replacing the weighted geometric mean with an arithmetic one left **all 9 scoring-core tests passing** (demonstrated, not surmised: patched a scratch copy and ran it). Every existing case sat either at a corner where the two agree (all components equal → both reduce to the same value) or above a tier ceiling that clipped the difference away. Two new tests close this: one asserts the geometric result on deliberately unequal components (geometric ≈653.5 vs arithmetic 680.0), one pins the single-zero annihilation property. Both **fail** under the arithmetic swap; suite 9 → 11.
+
+* **CLOSED — doc drift on the formula, in the two files agents actually read.** `scoring-core/src/lib.rs`'s header quoted the interface contract "verbatim" and stated the **arithmetic** sum; root `CLAUDE.md` did the same. `docs/INTERFACE_CONTRACT.md` §4.3 (normative) has the geometric form, which is what the code does. `CLAUDE.md` is loaded into every agent session, so every session was reasoning about AIS with a model that would not predict the zero-annihilation behavior. Both corrected, both now state the consequence rather than just the formula.
+
+* **CLOSED — the loop recorded intent and never outcome.** Only `SessionStart`/`PreToolUse`/`SessionEnd` were configured: the agent committed to intents it never reported the results of. That is the gap `bcc.rego` §4 names directly ("needs a *second* call after execution"). New `posttool_report.py` (`PostToolUse`) reports outcome, result size, and the **same** `intended_state_hash` the gate committed to, so intent and effect share a key and can be reconciled.
+
+* **CLOSED — vault anchoring silently stopped, and the honest-logging design did not catch it.** 10 commit leaves exist; `anchors.jsonl` records one anchor at `leaves_through: 1`; **9 leaves have been pending since 2026-07-30T08:42Z**. More telling, `session.log` contains exactly **one** `vault:` line in its entire history, though `session_stop.py` logs on *every* branch — the 14:01Z session-end logged its telemetry and then nothing. Reading the vault is not the problem (`session_root()` measured at 0.035s). The hook is being killed before or during the chain write, producing no record at all. Fixed by moving the chain write out of the hook lifetime entirely: `anchor_vault.py` runs detached (`start_new_session=True`, the pattern the Hermes plugin already relies on to outlive a turn), spawned from BOTH `session_stop.py` (session_end) and `session_start.py` (backlog drain). The latter is what finally makes the documented retry real — the old code said "a later session retries rather than losing the evidence", but the later session died at the same step, so a backlog once formed only grew. A per-agent lock prevents two runs racing the same EOA nonce.
+  * **Corrected diagnosis:** the first hypothesis was a timeout on the chain write. Measured wrong — the real anchor of all 11 backlogged leaves took **3.3s**. The hook is killed *between* the telemetry flush and the anchor call, not during it. SessionEnd now returns in **0.5s** because it only spawns; there is nothing left to kill. Backlog drained: 11 leaves anchored, tx `b189215d8a38118bb2…`.
+
+* **CLOSED (2026-08-03) — all anchored evidence was empty; root cause was a formula bug, not a discipline gap.** All 48 leaves in the vault's history carried `test_result_hash: "unverified"` or `"unverified:stale"` — including leaves committed *after* `record_test_status.py`/`vault_commit_leaf.py`/`tree_hash.py` were built same-day as the original audit to fix exactly this. The tree-mismatch check they share, `tree_hash()`, hashed `rev-parse HEAD + diff HEAD + untracked-file contents` — and `git commit` necessarily changes both `HEAD` (new SHA) and `diff HEAD` (collapses to empty) even when zero file bytes change. A status stamped immediately pre-commit could never structurally match what the post-commit hook computed one command later, so the match rate was never going to be anything but 0%. Fixed in `scripts/tree_hash.py` by hashing the actual bytes of every tracked file (`git ls-files`) instead of a commit-relative diff — `git commit` snapshots the index into a new commit object without touching working-tree files, so this hash is byte-identical immediately before and after a commit that changes nothing further. Verified two ways: a `--self-test` harness pinning the invariance property (4/4: stable across a commit, unaffected by untracked-file churn, changes on a real staged edit, stable across a second commit), and live — the fix's own commit (`acdae8b`) is the first leaf in the vault's history to carry a real hash (`0xf14dce3e…`, attesting to 43/43 `bcc_middleware` OPA policy tests run against that exact tree) instead of `unverified`.
+  * **Note, not re-opened:** all leaves anchored before this fix remain permanently `unverified`/`unverified:stale` — the vault is append-only, so this closes the mechanism going forward, not retroactively. A second, smaller honesty gap surfaced while verifying this: `record_test_status.py --finalize` re-stamps `tree_hash` to the *current* tree but does not check that every already-recorded suite entry in `.integrity-test-status` is still current — a suite result recorded hours earlier, before intervening commits, can get silently re-vouched-for by a fresh `tree_hash` at finalize time if a caller invokes `record_test_status.py` for one new suite without re-running the others. Not fixed this pass; noted for whoever picks up test-status hygiene next.
+
+* **OPEN (architectural) — three runtimes, one DID, three incompatible partial loops.** `xibalba` telemetry is a blend of three adapters with different instrumentation levels, distinguishable only by a metadata field:
+
+  | Runtime | Lifecycle | Pre-exec gate | Per-action telemetry | Anchors memory |
+  |---|---|---|---|---|
+  | Claude Code | yes | **yes** | yes *(new)* | yes |
+  | Hermes | yes | **no** | yes | no |
+  | agy | start only | no | no | no |
+
+  Between them every part exists; in no single runtime do they compose. Claude Code committed to intents without outcomes; Hermes reports outcomes it never committed to. `identity.report_action()` now makes `runtime` a mandatory, always-recorded discriminator so a blended `event_count` can be partitioned instead of being read as one agent's uniform behavior — but the oracle does not yet *group* by it, and the oracle does not yet *group* by it. **Hermes tool calls are now gated** (`hermes_gate.py`, registered as a Hermes `pre_tool_call` shell hook): the runtime executed entirely ungated for its whole existence while Claude Code was gated — one DID, two different behavioral guarantees decided by which shell the operator opened. The policy logic is NOT duplicated: `pretool_gate.evaluate_tool_intent()` is the single implementation and `hermes_gate.py` is a wire adapter, because per-runtime duplication is precisely how the two diverged. Labels are namespaced (`hermes_tool:` / `claude_tool:`) and `bcc.rego` §3b matches the risk class positionally, so both reach one ruleset; `tool_runtime` is surfaced for audit. OPA tests 35 → 37.
+  * **Bug found by testing rather than review:** the risk classifier keyed on `tool_name == "Bash"`, so every Hermes `terminal` command classified as risk-free even when destructive. Extraction is now keyed on the *field* (`command`/`path`/`content`…), not the tool name, which has no such blind spot across vocabularies.
+
+* **CLOSED — the Hermes adapter discarded the payload the oracle scores on.** `integrity_telemetry`'s `on_post_llm` had the full response text in hand and sent `response_chars: len(resp)` — a length. It now sends `text_output`, capped at 4000 chars to match the Claude side so both runtimes' scores stay comparable.
+  * **OPEN, upstream:** Hermes' `post_llm_call` hook does not pass token usage at all (`agent/turn_finalizer.py` forwards only session/task/turn ids, messages, model, platform), so `sacrifice` is still absent for Hermes-attributed work. Deliberately **not** estimated from character count — a fabricated measurement is worse than an absent one, and `sacrifice` is a multiplicative factor. Closing this needs usage plumbed into the hook upstream.
+
+* **Ratified, not fixed — the PreToolUse hook is deliberately fail-open** while `bcc_middleware` steps 5–6 are deliberately fail-closed. The middleware guards production actions where a missed denial is a compliance failure; the hook sits in a developer shell where bricking every Bash call on a container restart gets the hook set disabled wholesale — trading a partial guarantee for none. Operator-confirmed. The mitigation is accounting: `session_stop.py` now logs a lifetime fail-open ratio, because the real risk was never the individual unchecked call but the 77 that accumulated unnoticed inside an 800-line log nobody re-reads.
+
+* **CLOSED — the Verification Ladder ceiling existed in source but was not running.** `GET /v1/agent/{did}/ais` returned **839.41** for a tier-1 agent whose ceiling is 600, even though `handlers.rs` correctly calls `score_with_tier(&inputs, agent.verification_tier)` and the DB held tier 1. Cause was not a code bug: the `oracle-backend` image was built at **03:18:46**, and the ceiling commit `1c6b4d8` landed at **03:22:18** — 3.5 minutes later. The control was documented, tested, committed, and absent from the running binary. Rebuilt and redeployed; AIS now reports exactly **600.0** (raw geometric ≈770, clipped). Both the weighted geometric mean and the tier ceiling are live only as of this audit.
+  * **OPEN — nothing detects this class of drift.** The dashboard image has the same problem (`integrity-mvp@0.0.0`/Vite 8.1.4 vs source `integrity-dashboard@0.0.0`/Vite 8.0.16). A security-relevant control that exists in source but not in the deployed system is *worse* than one that doesn't exist, because the tests pass and the docs are true. `make up` should compare image build time against `git log -1` and refuse or warn. Every other finding in §21 was measured against a system that might not have been the one in the tree.
+
+* **CLOSED — dashboard down from two independent faults.** (1) `CoreFeatures.tsx` opened a `<motion.div>` and closed it with `</div>`, so Vite returned **503** for that module and the render died. (2) The real outage: two Vite servers competing for `:5173`. A stale host process running since Jul 29 held `127.0.0.1:5173` and shadowed the container; because it predated `public/XibalbaSolutionsLogo.png`, it served the SPA fallback — `index.html` **with HTTP 200** — for every logo request, so the browser got HTML where a PNG belonged.
+  * **Environment footgun:** the container builds as `integrity-mvp@0.0.0` / Vite 8.1.4 while the source tree is `integrity-dashboard@0.0.0` / Vite 8.0.16. The image is stale relative to the directory it builds from, `make up` and the host dev server are **not** interchangeable, and running both silently produces the failure above.
+
+## 22. Deployed-vs-source drift is now detectable (2026-07-30)
+
+`make check-deploy` (`scripts/check_deploy_freshness.py`) compares each service image's build timestamp against the last commit touching the source **baked into that image**, and fails if any image predates its code. Added because §21's oracle finding was undetectable by every other signal: the tests passed, the docs were accurate, the handler was correct, and the control still wasn't running. `make up` runs it in `--warn-only` mode afterwards so an already-running stale container can't hide behind a partial rebuild.
+
+* **Precision was the design constraint, not coverage.** Bind-mounted paths are deliberately excluded: `bcc_middleware/policies` is mounted read-only into the `opa` container, so a `.rego` edit takes effect on an `opa` restart with no rebuild, and listing it would fire a false positive on every policy change. `deployments.*.json` likewise. A checker that cries wolf gets ignored within a week, and an ignored checker is exactly how the original drift survived.
+* **First run found three genuinely stale images** (`oracle-backend`, `bcc-middleware` 13h behind an app change, `userapi`), which is the point.
+* **Two false positives were found and fixed by using the tool, not by reading it.** (1) Its timestamp parser trimmed fractional seconds by counting digit characters, which also counted the digits inside `-05:00` and silently dropped the offset — shifting local times 5 hours and reporting a freshly built image as STALE. Fixed and pinned with `--self-test`. (2) Comparing image build time against *commit* time flagged the ordinary edit → build → test → commit ordering as stale on every commit; it now compares against source file mtime.
+* **CLOSED — content-hash comparison replaces the mtime approximation as the primary signal.** `scripts/service_content_hash.py` hashes each service's tracked source (`git rev-parse HEAD:<path>` per path, keccak256'd — a real content address, not a timing proxy). Every Dockerfile now declares `ARG SOURCE_HASH` + `LABEL source.hash=$SOURCE_HASH`; `docker-compose.yml`'s `build.args` and the root `Makefile`'s `up` target compute and pass it fresh before every `--build`. `check_deploy_freshness.py` now compares the running image's label against a fresh recomputation and reports an exact match/mismatch. The mtime path is kept only as a fallback for images built before this label existed (labeled `(approximate — image predates content-hash labeling)` in the output, so the distinction stays visible rather than silently claiming the same guarantee).
+
+## 23. The tier ceiling made good behavior unrewardable, and voided the ZK boost (2026-07-30)
+
+Found immediately after §21 fixed AIS reporting. While the score was pinned at 0.0 this was invisible; once the loop reported real work it became the binding constraint.
+
+* **The measured problem.** `scoring_core::score_with_tier` clamps AIS to a per-tier ceiling (0→300, 1→600, 2→850, 3→1000). `handlers::SERVER_VERIFIED_TIER` is a hardcoded `1`, and tiers 2/3 "have no verification path implemented anywhere in this codebase" — so tier 1 was not where an agent happened to sit, it was the only value the system could produce. For `xibalba`: raw AIS **704**, reported **600**. Even with all four components perfect (raw 1000) the reported score stays 600. **No amount of good behavior could move the number.**
+  * **Worse, the ZK boost was worth exactly zero.** The boost is applied *before* the clamp: 704 × 1.15 = 810 → still clipped to 600. The real Noir/Barretenberg proving pipeline, `submitZkAttestation`, the 7-day `zkBoostExpiry` — the protocol's flagship cryptographic feature bought **0 points**, and an operator running it had no way to notice.
+
+* **CLOSED — rung 2 (DNS TXT) is built and real.** New `backend/src/verification.rs` + migration `0011_identity_verifications.sql` + three routes (`POST /v1/agent/{id}/verify/dns/challenge`, `POST .../verify/dns`, `GET .../verify`). The oracle issues its own nonce, resolves the record itself, and checks the signature with the pubkey it holds from registration — the request body only names *which* domain to inspect. Verified live: with no record published, verification fails with `no TXT record starting with 'integrity-verification=' found`, after genuinely querying both `_integrity.<domain>` and the bare domain.
+  * **DNS is resolved over DoH from two independent resolvers (Cloudflare + Google) that must agree.** Plain UDP DNS from inside a container is trivially spoofable by anything on the path, and a single resolver is a single point of compromise for a check whose entire purpose is establishing trust. Disagreement is a hard refusal. It also avoids adding a DNS resolver crate for one endpoint.
+  * **The signed message binds DID + domain + nonce** (`integrity-domain-verification:v1:<did>:<domain>:<nonce>`). Dropping any one weakens it materially: without the DID one agent's record verifies another; without the domain a proof replays across domains; without the nonce a record published once verifies forever. Each has a regression test.
+  * **DNS verifications expire (90 days).** Namespace control is a claim about the *present* — domains lapse and change hands. Expiry is applied in the SQL that computes the tier, so a lapsed domain lowers the ceiling automatically rather than needing a sweep job.
+  * **Effective tier is derived, never cached:** `agents.verification_tier` remains the registration floor, and the tier the system uses is that floor unioned with active verifications. A cached column would drift from its evidence.
+
+* **CLOSED — the ladder is now climbable UNATTENDED, which DNS alone never was.** DNS TXT proves control but requires a human to edit a zone file, so an agent could never raise its own tier. GitHub identity proves the same thing (`control of a namespace`) against a namespace the agent can WRITE TO via API, so challenge → publish → verify runs in one command. Proven end to end on the live agent: **effective tier 1 → 2, ceiling 600 → 850, AIS 600 → 679 and no longer clamped** (raw == reported). The ZK boost is worth ~102 points again instead of zero.
+  * **WHOIS was requested and deliberately not built.** WHOIS is a *public record lookup* — anyone can read any domain's WHOIS, so its existence is not evidence that a particular agent controls the domain; this oracle could "verify" `google.com` from a laptop. A proof of control requires doing something only the controller can do, and reading public data never qualifies regardless of how authoritative the source. WHOIS is also widely redacted post-GDPR. It can corroborate an already-proven claim; it cannot establish one.
+  * **Repo file, not gist, after hitting a real constraint.** The first implementation published a gist and failed against the live token: `403 Resource not accessible by personal access token` — fine-grained PATs frequently cannot grant gist scope at all. Writing `.well-known/integrity-verification.txt` to a public repo the account owns is the ordinary case, is equally strong (both are namespaces only the holder can write to, and GitHub's API — not the client — is the authority on ownership), and follows the RFC 8615 convention. Gists remain a fallback. Ownership and public-visibility are both re-checked server-side, so naming someone else's repo cannot claim their namespace, and a private repo is refused because a proof nobody else can re-check defeats the purpose.
+  * **Method naming was corrected before shipping** (migration 0012). GitHub proofs were initially recorded as `method='dns_txt'` because the proof *shape* is identical, producing self-contradictory audit rows (`method='dns_txt', subject='github:…'`). In a system whose product is verifiable claims, a verification record that misdescribes how it was obtained is precisely the wrong thing to ship.
+
+* **CLOSED — rung 3 is built: real AWS Nitro TEE attestation verification.** `docs/wiki/concepts/identity-ceiling.md` specifies rung 3 as "Remote TEE attestation", and explicitly rejects the old `did:xibalba:<hardware_hash>` idea (CPU model + MAC + machine-id) as never-built ideation a host can freely fabricate. New `backend/src/attestation.rs` parses the real COSE_Sign1/CBOR wire format, verifies the ES384 signature against the embedded leaf certificate, walks the certificate chain, and pins AWS's published Nitro root by SHA-256. Routes: `POST /v1/agent/{id}/verify/tee/challenge` and `POST .../verify/tee`.
+  * **Rungs 2 and 3 differ in KIND, not degree.** Rung 2 proves control of an *identifier* — a domain or GitHub account, both transferable and phishable. Rung 3 proves the agent's key lives in *measured enclave hardware* (PCRs record the exact code image), which cannot be forged without breaking the hardware root.
+  * **Validated against a genuine captured document**, not a hand-crafted fixture: `integrity-sdk/tests/fixtures/aws_nitro_document.cbor`, a real Nitro document from November 2022, shared with the Python reference implementation so both are checked against identical ground truth. Six tests: verifies the real document; rejects a tampered payload; rejects a tampered signature; rejects a chain not rooted at AWS's root; asserts the bundled PEM matches the pinned fingerprint; and confirms expiry enforcement actually fires.
+  * **Generation is impossible outside a real enclave and is NOT stubbed.** Producing an attestation document requires running inside a Nitro Enclave with NSM access — a hardware requirement, not a missing feature. `generate_attestation_unsupported()` exists so callers get that message rather than discovering the absence by finding nothing.
+  * **Nonce binding is what makes it a proof about *this* agent.** The oracle issues a nonce; the NSM embeds it in the signed document. Without it, any valid Nitro document from any enclave anywhere would grant tier 3. Verified live: the real fixture is refused because it carries the wrong nonce *and* because production enforces certificate validity (its 2022 certs are expired) — two independent refusals, both correct.
+  * **The trust root is vendored into the oracle** (`backend/trust_roots/`) rather than reached for across packages: the Docker build context is `./integrity-oracle`, so a `../../../integrity-sdk/...` `include_str!` fails at image build — and more importantly, a service should own the trust anchor it pins rather than depend on a sibling package's directory layout.
+
+* **CLOSED — the whole ladder is validated as a system, not rung by rung.** The ladder's real failure mode was never "a rung is broken", it was "the rungs don't compose" — the ceiling silently bound at tier 1 for every agent, the ZK boost was entirely absorbed, and nothing in the suite noticed. Eight new tests in `verification::ladder_tests` assert: every tier enforces its documented ceiling (300/600/850/1000); climbing strictly increases the reported score; **the ZK boost is provably wasted below tier 3 for a strong agent** (pinned as a known property rather than left to be rediscovered); a badly-behaved tier-3 agent cannot out-score a good tier-1 one (the ceiling is a cap, never a floor); tiers compose to the maximum rather than summing; losing every proof returns to the registration floor; ceilings are strictly increasing; and an out-of-range tier clamps rather than bypassing.
+  * **Live end-to-end validation against the running oracle**, with all state restored afterwards: tier 2 → ceiling 850, AIS 672.6 uncapped; revoke → tier 1, ceiling 600, AIS clipped to 600.0; grant tier 3 → ceiling 1000, uncapped again; expire → excluded from the tier query, back to the floor automatically. One result worth recording because it contradicted the expectation written into the test label: a *tier-0* verification did **not** drop the ceiling to 300 — the registration floor held at tier 1, which is correct (a weak proof must never pull an agent below its floor) and matches `effective_tier(2, &[0]) == 2`.
+
+* **OPEN — KYC (the other rung-3 method) remains schema-only, deliberately.** `identity_verifications.method` accepts `'kyc'` and the tier math handles it, but **no provider adapter is implemented** and none is faked. Building one requires a real provider account (Persona/Stripe Identity/Sumsub); a stubbed "verified" would be exactly the silent mock this repo exists not to repeat. The schema comment pins the constraint that matters when it is built: **no raw PII in this database** — store the provider name, an opaque reference, and a receipt hash only. The oracle is already HIPAA-adjacent (see the PHI backstop in 0010) and must not acquire a second class of regulated data by accident.
+
+* **CLOSED (2026-08-04) — evidence revocation lifecycle.** An agent can request a fresh 60-minute nonce for one owned evidence row, sign a message binding its DID, the row ID, nonce, and hex-encoded UTF-8 reason with its registered Ed25519 key, then revoke the row without deleting its audit history. Effective-tier queries already filter `revoked_at`, so the tier and AIS ceiling fall immediately. Signatures cannot be replayed across agents, evidence rows, nonces, or reasons.
+
+* **CLOSED (2026-08-04) — provider-neutral KYC receipt verification supersedes the schema-only gap above.** `backend/src/kyc.rs` verifies nonce-bound Ed25519 receipts against operator-configured `KYC_PROVIDER_KEYS`. The initial `open_source_kyc_v1` profile requires document authenticity, biometric liveness, and sanctions/PEP screening together; a partial result cannot grant Tier 3. The Oracle persists only an opaque subject reference, provider id, check flags, validity timestamps, and receipt hash. This permits a self-hosted open-source verifier without pretending its result has identical legal effect in every jurisdiction.
+
+* **CLOSED — decision recorded (2026-08-02): keep the hard clamp.** The alternative (scale weight, or cap only the ZK boost rather than the final score) was considered and rejected. Reasoning: `score_with_tier` exists to answer "how much can this AIS number be trusted," and a soft clamp lets an agent with a *weak, unverified* identity claim scores statistically indistinguishable from a verified one — the ceiling's entire job is to prevent exactly that, and softening it reopens the sybil/self-attestation problem the Verification Ladder was built to close. The "ZK boost worth zero below tier 3" consequence is real but is priced into the ladder's own design: `verification::ladder_tests` (`integrity-oracle/backend`) already asserts this as a deliberate, pinned property — "the ZK boost is provably wasted below tier 3 for a strong agent" — not a bug discovered after the fact. Changing the clamp now would mean rewriting eight tests that were written specifically to encode this behavior as correct, and would move every sub-tier-3 agent's live on-chain score on the next `scoring_loop.py` sync cycle — a production change this scope doesn't carry the regression coverage to make safely. The honest fix for "good behavior should be rewarded before tier 3" is **lowering the bar to reach tier 2/3** (more verification methods, e.g. finishing the schema-only KYC rung, see the OPEN item above), not softening what the ceiling means once tiers exist. No code change; the prior "open design question" framing is resolved to "current design is correct, kept as-is."
+
+* **CLOSED — decision recorded (2026-08-02): confirmed mis-specified; NOT fixed this pass, deliberately.** `derive::lexical_stability_score` is `1 − normalized_Shannon_entropy` over word frequency, so maximally repetitive text scores 1.0 and varied text scores near 0.0 (empty text also scores a perfect 1.0 — see §21's F3, now fixed at the signal layer so empty text no longer reaches this function at all). The metric conflates two different things — "stable/predictable" and "repetitive" are not the same property, and the S_entropy axis wants the former but `lexical_stability_score` measures the latter. A genuinely correct replacement (e.g. scoring semantic/task-outcome consistency across a period rather than lexical word-frequency entropy of a single completion) is real design work this pass didn't do.
+
+  **Why this stays open as a documented decision rather than a quick patch:** this function is implemented twice — `integrity_sdk/telemetry/derive.py` (Python, client-side re-derivation) and `integrity-oracle/backend/src/derive.rs` (Rust, the oracle's independent server-side re-check that's the actual scoring input, per `derive.rs`'s own docstring on why client-claimed signals aren't trusted). Both must change together and stay bit-identical in behavior, the same cross-implementation discipline the BCC canonicalization and token-accounting vectors already enforce elsewhere in this repo. Changing it also moves every live agent's `s_entropy` component immediately, which `bcc_middleware/app/scoring_loop.py` pushes on-chain via `ReputationRegistry.updateScore` on its next sync cycle — a formula change here is a production score change on Base Sepolia, not a local edit, and shipping one without dedicated before/after validation against real agent history (at minimum, confirming `xibalba.integrity`'s own score moves in an explicable direction) is exactly the kind of rushed change this repo's "no silent mocks, no undocumented gaps" discipline argues against. Recorded as a confirmed, scoped, two-file fix for a dedicated follow-up session — not silently dropped, not patched in a hurry.
+
+## 24. The protocol silently failed to anchor its own development evidence for days (2026-07-31)
+
+Found while recovering from a two-day outage in which the root filesystem went
+`emergency_ro` and the previous session ran with **no shell at all** — it could write files
+but never execute one. That session's findings were browser-measured and partly wrong; this
+entry records what survived verification and what did not. Full detail:
+`docs/design/e2e-audit-2026-07-31.md` (resolution pass, findings E10–E16).
+
+* **The measured problem — `bcc-middleware` signed every transaction for chain 31337 while
+  connected to Base Sepolia (84532).** Every `anchorRoot` and `updateScore` it attempted was
+  rejected by the node. The anchor path logs the failure and returns — *"retained in logs
+  only"* — so **a protocol whose entire premise is anchored, non-forgeable evidence was
+  failing to anchor its own construction**, for days, while `make test` passed and `/healthz`
+  answered `ok`. This is the exact class of gap the dogfooding mandate exists to catch, and
+  nothing except reading container logs would have caught it.
+  * **Root cause was a missing env var, not the deployments file.** `app/config.py:37` reads
+    `CHAIN_ID` and defaults to `31337`. `oracle-backend` sets `CHAIN_ID` in
+    `docker-compose.yml`; **`bcc-middleware` never did** — it was the one service taking
+    `RPC_URL` from env without taking its chain id from the same place. After the 2026-07-29
+    switch to Base Sepolia it kept signing for anvil.
+  * A second, independent misconfiguration sat behind it: `DEPLOYMENTS_FILE` was hardcoded to
+    `/deployments.local.json` with only that file mounted, so even with the chain id fixed the
+    service would have used **anvil contract addresses on Sepolia**. Both are fixed; both were
+    required. Fixing either alone would have looked like progress and produced nothing.
+  * **CLOSED — proven by on-chain state change, not by absence of errors.** Container env now
+    reports `CHAIN_ID=84532 DEPLOY=/deployments.baseSepolia.json` and the chain-id error is
+    gone, but that alone would only show transactions were *submitted*. The evidence that they
+    **succeed**:
+    * **`anchorRoot` landed.** The agent's `StateAnchor.latestRoot` moved
+      `0xdecb860c63dae118…` → `0x946387f7fab3a87c…`, `isAnchoredRoot(0x946387f7…) == true`,
+      and `pending_batch_size` dropped to 0 on flush. The previous root still reports
+      `true`, confirming the append-only property held across the write.
+    * **`updateScore` landed.** `ReputationRegistry.scores(0x360e2a56…).lastUpdated` is a
+      timestamp from this session (`1785484478`), which only an accepted transaction sets.
+    * Nonce advancement (260 → 275) was *not* treated as proof — a reverting transaction
+      consumes its nonce too. It is corroborating, not load-bearing.
+  * Both roles were confirmed **before** wiring the key in, rather than discovered through a
+    failed transaction: `hasRole(ANCHOR_ROLE, 0x67bA5D72…) == true` on the agent's own
+    `StateAnchor`, and `hasRole(ORACLE_ROLE, …) == true` on its `ReputationRegistry` — these
+    are different contracts and different roles, and `updateScore` needs the second.
+  * `BCC_MERKLE_BATCH_SIZE` is now surfaced in `docker-compose.yml` (it was only reachable as
+    a `config.py` default). Setting it to 1 is what made the anchor path provable in one
+    commitment instead of eight — and the rarity of flushes is precisely why this defect
+    stayed invisible: **the failure only manifests on flush.**
+
+* **The test harness could record a pass and could not record a failure.** Every line of
+  `make test` read `cd pkg && pytest && cd .. && $(TEST_STATUS) pkg pass || $(TEST_STATUS) pkg fail`.
+  On failure `&&` short-circuits, so `cd ..` never runs and the `||` branch execs the recorder
+  *from inside the package directory*, where it does not exist — it crashes. **The mechanism
+  that feeds test outcomes into the anchored evidence chain could only ever write `pass`.**
+  That crash then aborted the whole target at the first failing package, so one
+  `bcc_middleware` failure silently skipped `integrity-userapi` and `integrity-dashboard`
+  entirely.
+  * An evidence system that can record success and cannot record failure does not have a
+    logging gap, it has a **bias** — and it is a direct contributing cause of §19/F5's
+    "every leaf says `unverified`".
+  * **The trap in fixing it:** repairing only the path makes `|| … fail` exit 0, so `make test`
+    would report **success on a red suite** — strictly worse than the crash. Fixed as
+    `|| { $(TEST_STATUS) pkg fail; false; }` with `$(CURDIR)` on the recorder: record the
+    outcome, then still fail.
+
+* **CLOSED (2026-08-13) — test-status tree fingerprints now survive the commit boundary.**
+  `scripts/tree_hash.py` is the shared implementation imported by both
+  `record_test_status.py` and `vault_commit_leaf.py`; it hashes tracked file bytes rather than
+  `HEAD` plus a commit-relative diff. The deterministic self-test passed **4/4**: stable across
+  a commit, unaffected by untracked files, changed by a staged tracked edit, and stable across a
+  second commit. This closes the algorithmic stale-status defect. It does not prove that a test
+  status was externally anchored or that every future leaf will be submitted; those remain
+  separate delivery and anchoring observations.
+
+* **CLOSED — the vault-leaf importer would have written a false lineage, caught before its
+  first real run.** `scripts/import_memory_dag.py` chained each leaf to its predecessor in
+  file order. Measured against the real 21-leaf vault, that assumption is *half* right: leaf
+  timestamps are strictly monotonic, so file order is chronological — but **chronological
+  order is not ancestry**. Of 20 consecutive pairs, 19 are true git ancestor pairs and one is
+  not: `6c0c9bf → d7e4deb` are *siblings* off merge-base `354c6b5` (one on
+  `docs/spec-open-definitions`, one on `main`) because the developer switched branches.
+  * In a recall system that is a harmless approximation. In an **evidence** system whose whole
+    claim is non-forgeable lineage, an edge that is merely plausible is worse than no edge — it
+    is a false statement that verifies. The importer now resolves each parent via a real
+    `git merge-base --is-ancestor` check and records a second root rather than inventing a
+    parent. Corrected import: `d7e4deb → 36e23d9b` (the true fork point), with `6c0c9bf` left
+    as what it actually is — an unmerged branch tip.
+  * Known limitation, recorded rather than hidden: `root_of_heads` folds only *named* refs, and
+    only `head` is named, so it commits to the main line and not to the full frontier.
+
+* **OPEN — the oracle serves stale anvil primitives as authoritative.** `GET /v1/agent/{did}`
+  for an agent that does not exist on the configured chain returns **200**, not 404, carrying
+  anvil-era addresses and `"blockchainAccountId": "eip155:31337:…"` from a Sepolia-configured
+  oracle. The chain read correctly reverts `UnknownDID()`; the handler then falls back to the
+  DB cache. The fallback itself is defensible — a transient RPC failure should not blank the
+  dashboard — but it is **chain-agnostic**, so it will serve addresses from a *different chain*
+  without saying so beyond `"primitives_source": "cache"`. For a system whose stated invariant
+  is "the chain is the source of truth", that is a false answer, not a degraded one. The cache
+  should record the chain id it was populated from and refuse to serve across a mismatch.
+  **Do not close this by deleting the five stale rows** — that silences the symptom and
+  destroys evidence.
+
+* **CLOSED — audit reports are fire-and-forget during requests but drained on shutdown.**
+  `main._report_decision_background` still schedules the audit write as
+  `ensure_future(to_thread(report_decision, …))` and nothing ever awaits it during the
+  request, preserving non-blocking authorization responses. `lifespan()` now retains the
+  task and waits for a snapshot of all in-flight audit reports before the ASGI shutdown
+  event returns. The wait is bounded at 10 seconds; reports still in flight are logged as
+  a residual degraded-mode finding rather than blocking shutdown indefinitely. Surfaced
+  because `test_evidence_linkage.py` was accidentally reproducing exactly that: its bare
+  `TestClient(app)` tore down a fresh event loop per request and cancelled the pending task,
+  giving 1 pass / 3 fail across four consecutive runs with no code change. The test is fixed
+  (context-managed client), and `test_shutdown_drain.py` now proves both successful draining
+  and bounded give-up logging. This closes shutdown cancellation loss, not oracle delivery
+  guarantees: an oracle outage can still lose a report because the audit path remains
+  best-effort and has no local durable spool or retry queue.
+
+* **OPEN — the nonce race survives its own documented lock.** After the chain-id fix,
+  `updateScore` still failed with `nonce too low: next nonce 261, tx nonce 260`, despite
+  `nonce_lock.py` holding a process-wide lock across the full read → sign → broadcast → receipt
+  sequence specifically to prevent it (§5). The lock being process-wide makes an in-process
+  race unlikely; the leading hypothesis is a **stale nonce read from the load-balanced public
+  RPC** — `contracts/.env` itself warns that `publicnode.com` rate-limits aggressively.
+  **Explicitly unconfirmed**: separating the two requires a dedicated endpoint.
+
+* **CLOSED — compose healthchecks now probe a data path, not liveness.** No service declared a
+  `healthcheck:` at all. Five now do; the oracle's hits **`/v1/agents` (which touches Postgres),
+  deliberately not `/healthz`** — a bare `-> "ok"` handler that answers 200 from a service that
+  cannot serve a single real request. Wiring a healthcheck to it would have reproduced the
+  original bug with more ceremony. Database `depends_on` were converted to
+  `{condition: service_healthy}` so the oracle waits for readiness rather than start.
+
+* **A correction to the record, kept deliberately.** The prior session's headline finding —
+  "every `/v1` route returns HTTP 500" — **did not reproduce**. All routes return 200 with real
+  data; the oracle's boot log is clean and contains zero sqlx errors across its whole history;
+  and both named suspects (Postgres/Redis, and the uncommitted `db.rs` query) were wrong — the
+  query is type-safe and demonstrably works. What the 500s actually were is **not established**,
+  because the container that served them was replaced before a shell existed to inspect it. The
+  honest statement is that the evidence was destroyed, not that the problem was solved. That is
+  itself the argument for the healthchecks above: `/healthz` returning `ok` preserved no
+  information that could distinguish "broken" from "briefly broken" after the fact.
+
+* **OPEN — the dashboard Docker image cannot be rebuilt.** `docker compose build dashboard`
+  fails at `npm install` with `Cannot read properties of null (reading 'edgesOut')` — an npm
+  arborist crash, not a dependency conflict. Consequence: the running dashboard image dates
+  from **2026-07-18** while its source is current, so `make check-deploy` reports it STALE and
+  *cannot be made fresh*. The dashboard's own suite passes on the host (`vitest run`, 20 files
+  / 68 tests), so this is a container-build problem, not broken code. Untouched by this
+  session's changes — `package.json`/`package-lock.json` are unmodified. Worth noting that the
+  freshness check (§22) is doing exactly its job here: it converted an invisible 13-day drift
+  into a visible, actionable failure.
+
+## 25. `integrity_sdk/mcp_server.py` exposed signing/on-chain-write tools with zero coverage from the one gate anyone trusted (2026-08-05)
+
+Found while reviewing a *proposed, not-yet-built* idea in a different project
+(`xibalba-cortex`) — an MCP server that would wrap the SDK's signing capabilities as
+agent-callable tools. A Devil's Advocate review commissioned to evaluate that proposal checked
+whether anything like it already existed before assessing the hypothetical, and found this
+module already shipped exactly the gap the review was there to prevent. Full narrative:
+`xibalba-cortex/docs/session-log/2026-08-05-integrity-coupling-session.md`. Design and
+fix: `docs/design/mcp-signing-boundary.md`.
+
+* **The measured problem — `integrity_register_agent` was a live, callable MCP tool that loaded
+  a real Ed25519 identity key and could run a full on-chain registration**, triggered by
+  whatever an LLM's own tool-selection reasoning decided, with no confirmation step and no
+  policy gate in the path. Three more tools in the same file — `integrity_flush_telemetry`,
+  `integrity_invoke_intent`, `integrity_commit_memory` — sign or write with the same lack of
+  gating.
+* **`~/.claude/xibalba/pretool_gate.py`'s `RISKY_TOOLS` set had zero MCP-tool-name coverage.**
+  It matches five fixed strings (`Bash`, `Write`, `Edit`, `MultiEdit`, `NotebookEdit`); any
+  `mcp__<server>__<tool>` call was never even evaluated, let alone gated. Confirmed by direct
+  inspection, not inferred — `RISKY_TOOLS` contains no `mcp__` pattern at all.
+  * Compounding factor: `pretool_gate.py`'s existing coverage is deliberately **fail-open** —
+    a considered, ratified tradeoff for the Bash/Write/Edit developer-shell class (documented at
+    length in its own module docstring), never intended to extend to a real signature.
+* **Verified independently before any fix, not taken on the review's word:** confirmed
+  `integrity_register_agent`'s handler directly (loads a PEM from
+  `~/.integrity-cli/identity/<agent>/`, calls `registration.register_agent`), confirmed
+  `pretool_gate.py`'s `RISKY_TOOLS` line and its fail-open comment directly, confirmed
+  `bcc_middleware/app/opa_client.py`'s fail-closed posture directly, confirmed MCP's
+  elicitation primitive is *not* a guaranteed human-in-the-loop block by reading its own
+  docstring ("might... automatically generat[e] a response"). Also confirmed the server was
+  **not currently wired into any running MCP client config on this machine** — a real,
+  reachable gap, not an active incident.
+* **CLOSED — fixed at two layers, not one.**
+  * `integrity_sdk/mcp_server.py`: the four signing/writing tools are disabled by default at
+    both discovery (`_on_list_tools` filters them out) and dispatch (`_on_call_tool` refuses to
+    execute them even if called directly) — defense in depth, not one control. Gated behind
+    `INTEGRITY_MCP_ALLOW_SIGNING_TOOLS=1` for supervised local experimentation only. Read-only
+    tools (`integrity_agent_info`, `integrity_resolve_did`) and the local-queue-only
+    `integrity_log_telemetry` remain enabled — they were never the problem.
+  * `pretool_gate.py`: added `MCP_SIGNING_TOOL_NAMES` (mirrors `mcp_server.py`'s
+    `_SIGNING_TOOLS`), matched by tool-name suffix so a renamed server alias doesn't evade it,
+    with a new `fail_closed` parameter on `evaluate_tool_intent()` — this new coverage denies on
+    every pre-verdict failure path instead of allowing, while the existing Bash/Write/Edit
+    class's fail-open behavior is completely untouched.
+  * New tests: `integrity-sdk/tests/test_mcp_server_signing_boundary.py` (7 tests — tools
+    undiscoverable and unexecutable by default, env-var opt-in works, safe tools still
+    advertised) and `~/.claude/xibalba/tests/test_pretool_gate.py` (4 tests — suffix matching,
+    fail-closed denial on identity-unavailable and middleware-unreachable). Full SDK suite (252
+    tests) and hooks suite (8 tests) both still pass — no regressions from either fix.
+  * **Explicitly not fixed by adding a confirmation dialog.** MCP elicitation was considered and
+    rejected as the mechanism — it's a structured-input request either side of the session can
+    answer, not a safety property. The actual fix removes the capability from the tool surface
+    entirely; a human runs `integrity-cli` directly for anything that signs.
+
+## 26. `UltraPlonkVerifier` generated-verifier adoption and proof coverage (2026-08-12; updated 2026-08-17)
+
+Found while triaging an uncommitted, dirty working tree on `audit/harness-loop-2026-07-30` ahead
+of a repo-wide rename/stabilization pass. `contracts/src/oracle/UltraPlonkVerifier.sol` was
+initially suspected to be accidental damage — its interface conformance to `IZkVerifier` had been
+dropped, and `contracts/test/UltraPlonkVerifier.t.sol` was deleted in the same uncommitted diff.
+
+* **Not damage — this is the real `bb`-generated verifier, correctly wired.** The working-tree
+  contract has an actual `verify()` implementation (no more
+  `PlaceholderVerifierNotYetGenerated` revert), matches `integrity-zkp/generated/UltraPlonkVerifier.sol`
+  plus hand-added `assembly ("memory-safe")` annotations, and compiles clean
+  (`forge build` succeeds with only pre-existing lint warnings from the generated code).
+* **Dropping the `IZkVerifier` conformance was necessary, not accidental.** The generated file
+  already carries Barretenberg's own baked-in `interface IVerifier` with an identical
+  `verify(bytes,bytes32[]) external view returns (bool)` signature. Attempting
+  `contract UltraPlonkVerifier is BaseZKHonkVerifier(...), IZkVerifier` fails to compile
+  (Solidity error 6480 — diamond conflict, two base declarations of the same function). This was
+  verified directly, not assumed: re-adding the explicit conformance and running `forge build`
+  reproduced the compile error, then reverting confirmed clean compilation. `IZkVerifier` was
+  deliberately designed (see its own docstring) to be satisfied via ABI-compatible low-level
+  dispatch (`IZkVerifier(impl).verify(...)` in `VerifierRegistry.sol`), not formal inheritance —
+  this is exactly what lets a reviewed generated-verifier handoff swap the placeholder for the real contract
+  without touching any calling contract.
+* **The deleted test file is correctly obsolete, not a regression.** It only asserted
+  placeholder-only behavior (`vm.expectRevert(UltraPlonkVerifier.PlaceholderVerifierNotYetGenerated.selector)`
+  on every input, including a fuzz test) — assertions that no longer hold now that `verify()` does
+  real work. Restoring it as-is would fail.
+* **CLOSED (2026-08-13) — direct generated-verifier real-proof coverage.** Retained fixtures live at
+  `contracts/test/fixtures/ultraplonk/proof.bin` (8,000 bytes) and
+  `contracts/test/fixtures/ultraplonk/public_inputs.bin` (96 bytes). The Foundry test
+  `contracts/test/UltraPlonkVerifier.t.sol` reads the binary proof and exactly three caller-supplied
+  `bytes32` public inputs, matching the generated ABI's `publicInputs.length == 3` requirement.
+  It asserts fixture lengths and hashes, then exercises the actual generated verifier with a valid
+  proof, a tampered proof, tampered public inputs, and malformed proof bytes.
+  `forge test --match-path test/UltraPlonkVerifier.t.sol -vvv` returned **4 passed, 0 failed**.
+  This closes direct verifier coverage only; registry forwarding, proof regeneration from a clean
+  environment, and deployed/on-chain verification remain separate gaps.
+
+## 27. AIS scoring — fail-open empty-evidence defaults inverted (2026-08-17)
+
+Found while implementing `spec/integrity-protocol-v3.2.md` §3.1.1's AIS redefinition
+(requirement N2, "earned, not granted") against the reference implementation. Verified
+numerically before touching any code, not assumed from the spec's description.
+
+* **CLOSED (rows 1–2 of §3.1.4's implementation-delta table) — `derive_entropy`,
+  `derive_grounding` (`integrity-oracle/backend/src/derive.rs`, mirrored in
+  `integrity_sdk/telemetry/derive.py`) and `self_reported_compliance`
+  (`derive.rs` only — `derive.py`'s `derive_compliance` had the same defect inline) all
+  returned **1.0 (maximum)** for an empty batch or a batch with no scoreable content.
+  Missing evidence therefore read as *perfect* evidence on three of the four AIS axes —
+  only `derive_sacrifice` failed closed to 0. Because `scoring-core::score` is a weighted
+  **geometric** mean (`AIS = S_entropy^0.3 · S_grounding^0.3 · S_sacrifice^0.2 ·
+  S_compliance^0.2`), this meant a submission carrying token counts but **no analysable
+  content** — maximal entropy/grounding/compliance by default, plus a self-reported
+  `sacrifice` claim — scored **r = 0.923** at 100 claimed GPU-hours, while an honest agent
+  reporting real-but-mediocre telemetry across all four axes scored **0.465**. The
+  content-free agent outscored the honest one roughly two-to-one, inverting the incentive
+  the metric exists to create.
+* **Fix:** all three now return `0.0` on empty/no-evidence input. Verified: the same
+  content-free-but-token-bearing submission now scores entropy=0 and grounding=0
+  regardless of claimed sacrifice — `scoring-core`'s existing geometric-mean annihilation
+  (any single exact zero zeroes the product; see its own
+  `any_single_zero_component_annihilates_ais` test) does the rest without needing rows
+  5–6 below. New regression tests:
+  `integrity-oracle/backend/src/derive.rs::content_free_submission_with_token_counts_fails_closed_on_entropy_and_grounding`
+  and
+  `integrity-sdk/tests/unit/test_derive.py::test_content_free_submission_with_token_counts_fails_closed_on_entropy_and_grounding`.
+  Full suites green: oracle workspace 137/137 (`cargo test --workspace --lib`), SDK 262
+  passed/3 skipped (`uv run pytest tests/`).
+* **Still open (§3.1.4 rows 3–6, none landed in code) — do not consider this gap fully
+  closed.** Compliance still falls back to the agent's own self-reported
+  `policy_violation`/`flagged` metadata for every non-healthcare agent (row 3);
+  `derive_sacrifice` still divides self-reported token counts by a proxy constant instead
+  of requiring validator/TEE attestation (row 4); there is no declared per-component floor
+  or conjunctive Θ gate (row 5) — a 90%-violation agent still reaches r≈0.631 under the
+  bare geometric mean, since only an *exact* zero annihilates the product, not a small
+  positive value; and the oracle's published `ais` field is still post-boost and unclamped
+  (up to 1150) rather than exposing the pre-boost, `[0,1]`-clamped accessor §3.1.1 eq. 4b
+  requires as the actual constraint input (row 6). Rows 3–4 are blocked on attestation
+  infrastructure the whitepaper proposes for Phase III (§10.3); rows 5–6 are not code-complex but
+  change AIS's output for every currently-registered agent, and this repo pushes AIS to
+  chain automatically (`bcc_middleware/app/scoring_loop.py`, default 300s) and can raise a
+  real `Slasher.raiseDispute` off the resulting score — landing rows 5–6 needs a dry-run
+  against the live agent set first, not a direct edit. See `HANDOFF.md`'s 2026-08-17
+  section (and its later addendum) for the full priority ordering.
+
+## 28. Phase 0 identity discovery facade — local implementation closed, deployment and native ERC-8004 convergence open (2026-08-17)
+
+The v3 rollout plan's Phase 0 originally called for an "ERC-8004-shaped" read adapter over
+`XibalbaAgentRegistry`. Primary-source review and a focused Devil's Advocate pass established
+that a read-only DID projection cannot honestly implement the current draft's ERC-721 token
+identity, ownership, transfer, approval, wallet-proof, metadata-write, event, Reputation
+Registry, or Validation Registry semantics.
+
+* **CLOSED — bounded Integrity-native read profile.**
+  `contracts/src/kernel/IntegrityIdentityReadV1.sol` provides DID, DID-hash, and
+  `SovereignAgent` resolution, all seven primitive addresses, domain and registration metadata,
+  the live agent-controlled `AgentProfile.profileURI`, and candidate-controller verification
+  against the account's current `DEFAULT_ADMIN_ROLE`. It pins the reviewed ERC-8004 draft
+  revision and returns `isERC8004Conformant() == false`.
+* **CLOSED — mapping inconsistencies fail closed.** The facade verifies the registry's
+  DID-to-agent and agent-to-DID mappings agree and that `SovereignAgent.agentDID()` hashes to
+  the registered DID. This prevents the existing registry's duplicate-agent overwrite edge
+  case from being silently projected as a valid identity.
+* **CLOSED — AIS authority remains separate.** The facade returns the agent's
+  `ReputationRegistry` primitive address but exposes no score or ERC-8004 feedback method.
+  Agent Integrity Score (AIS) remains authoritative only through the existing Integrity
+  Oracle and per-agent reputation primitive paths.
+* **CLOSED — no agent migration.** The facade is read-only and projects existing registry
+  records. Future genesis deployments include it as `singletons.IntegrityIdentityReadV1`;
+  existing agents and primitive addresses are unchanged.
+* **VERIFIED LOCALLY.** `forge test --match-contract IntegrityIdentityReadV1Test -vvv`
+  returned **10 passed, 0 failed**. Coverage includes negative conformance probing, controller
+  rotation, mutable/empty profile URIs, duplicate-agent stale mappings, declared-DID mismatch,
+  missing DID read surfaces, unknown records, zero dependency rejection, and proof that a
+  reverting profile cannot block fixed identity resolution.
+* **OPEN — existing Base Sepolia deployment.** No broadcast or deployment-file mutation was
+  performed. Deploying the facade against the existing registry is a separate gas-costing
+  external write requiring exact approval and post-deployment bytecode/readback verification.
+* **OPEN — native ERC-8004 convergence.** Exact conformance requires a separately reviewed
+  registry design with version-pinned token identifiers, ownership/transfer semantics, events,
+  historical treatment, wallet proof, and a selector-by-selector compatibility matrix. The
+  current facade must not be marketed to generic ERC-8004/ERC-721 tooling as compatible.
+* **OPEN — source-registry invariant.** `XibalbaAgentRegistry` still permits the same
+  `SovereignAgent` to be registered under multiple DIDs and the factory does not enforce that
+  its DID argument matches `SovereignAgent.agentDID()`. The facade detects and rejects this
+  state; it does not repair the underlying registry or retroactively change deployed code.
+
+## 29. Whitepaper v3.2 proposed-spec implementation delta (2026-08-17)
+
+`spec/integrity-protocol-v0.5-proposed.md` now maps every substantive v3.2 semantic amendment.
+It remains non-authoritative. The mapping closes a documentation gap; it does not close these
+implementation gaps:
+
+* **PARTIAL — identity and AIS defaults.** Phase 0's custom identity profile is locally tested,
+  and missing entropy/grounding plus empty self-reported compliance now fail closed to zero.
+  Native ERC-8004 convergence, the AIS floor gate, admissibility enforcement, pre-boost
+  constraint score, versioned profile, migration, and conformance vectors remain open.
+* **PLANNED — federated telemetry prover.** The current AIS Oracle remains a Trusted,
+  single-operator component. No threshold validator profile or general ZK-telemetry prover exists.
+* **PLANNED — stake-secured memory availability.** No accepted availability stake,
+  challenge/production contract, deadline enforcement, or deterministic slashing path exists.
+* **PLANNED — circuit-breaker grace modes.** No execution kernel, hard/soft constraint
+  partition, monotone contraction adapter, AIS-floor precedence implementation, or bounded
+  settlement staging path exists.
+* **PLANNED — high-frequency channels and compiler.** No ATCP/IP channel profile,
+  injective channel-head settlement implementation, or `integrity-dsl` compiler exists.
+* **PLANNED — hybrid attested-host profile.** No production deployment binds attestation to
+  the specific transaction with freshness and measured egress. Existing host/TEE evidence must
+  not be described as extending on-chain complete mediation.
+
+Whitepaper §1.5 (comparative architecture) and §10.4 (enabler framing) remain explanatory rather
+than independent protocol clauses. Acceptance requires clause-level review, interface schemas,
+tests, migration/conformance evidence, and explicit incorporation into the active specification.
+
+### §27 addendum (2026-08-17) — real dry-run against the one live registered agent
+
+Per §27's own "still open" note: rows 5-6 (floors/gate, pre-boost accessor) need a dry-run
+against the live agent set before landing, since this repo auto-pushes AIS to chain with
+slashing consequences. Ran that dry-run for real against the actually-running local stack
+(`docker ps` showed `oracle-backend`/`postgres`/`bcc-middleware` etc. already up for days,
+not started for this check) rather than synthetic data.
+
+**Only one agent is registered**: `did:integrity:68fed1331613937555a59398223e8e87520a87dd0305aac4fd7ecdc32a14a861`
+(`xibalba.integrity`, verification_tier 1) — this repo's own dogfooding agent. `GET /v1/agent/{id}/ais`:
+
+| Component | Value (of 1000) |
+|---|---|
+| entropy | 268.45 |
+| grounding | 950.17 |
+| sacrifice | 861.34 |
+| compliance | 1000.0 |
+
+Reported `ais: 600.0` is **not** the raw geometric mean (`268.45^0.3 * 950.17^0.3 * 861.34^0.2
+* 1000^0.2 ≈ 645`, computed by hand) — it's `scoring-core::ceiling_for_tier(1) == 600.0`
+clamping it down, confirmed by reading `lib.rs`'s tier-ceiling match arms directly. The
+Verification Ladder tier ceiling and the proposed AIS floor/gate (§3.1.1) are two independent
+capping mechanisms; this agent is already capped by the former regardless of the latter.
+
+**What this means for the still-unmade floor-value decision (§3.1.4 row 5):** entropy is this
+agent's weakest axis by a wide margin (268 vs. 950-1000 on the other three). Under the proposed
+conjunctive Θ gate, **any entropy floor set above ~268 would zero this repo's own dogfooding
+agent's entire score** — not a hypothetical edge case, a concrete real number from the only
+agent currently live. This doesn't argue for or against any specific floor value (that decision
+is explicitly not this document's to make), but it's the number a floor-value decision needs to
+be checked against before landing, and it's now on record rather than needing to be re-derived.
+
+No chain writes, no code changes, no floor values chosen. Read-only against the already-running
+local stack.
+
+**Decision (2026-08-17, explicit user call):** wait for more agents before picking floor
+values or flipping enforcement on. Shadow mode (above) stays purely observational — no
+numbers chosen, no code change, no chain-behavior change. Revisit trigger: a second real
+agent registers (so there's an actual distribution instead of N=1), or the decision is
+explicitly revisited regardless of agent count. Options considered and declined: setting
+provisional floors and enforcing now anyway (rejected — an agent failing a floor zeroes
+`ais`/`constraint_score`, which can trigger `Slasher.raiseDispute` via
+`bcc_middleware/app/scoring_loop.py` and drop PHI-gate access via `EHRGate`/
+`ComplianceGate`, too consequential to base on one data point).
+
+## 28. Registration non-idempotency — CLOSED in both `integrity-sdk` and `integrity-cli`
+
+**Heading corrected 2026-08-19** — this section's title previously read "fixed in
+`integrity-sdk`, still open in `integrity-cli`", written before the `integrity-cli` fix (the
+second bullet below) landed and never updated afterward. Verified directly against current
+source before changing this line, not assumed from the body text alone: both `integrity-cli`'s
+`chain.py` (`resolve_did`/`has_anchor_role`/`itk_balance`/`state_anchor_latest_root`) and
+`main.py` (`_registration_progress_path`/`_load_registration_progress`/
+`_save_registration_progress`) exist and match what the second bullet below describes. Nothing
+left to build here — this was a stale label, not open work.
+
+*Current State:* `integrity_sdk/registration.py`'s `register_agent()` deploys a
+`SovereignAgent`/`StateAnchor` pair (steps 5-6), then mints testnet ITK, grants `ANCHOR_ROLE`,
+and anchors a genesis root (steps 7-8b) before the final `registerPrimitives` (step 9). Its
+only idempotency check — `resolve_did()` against `XibalbaAgentRegistry` — only starts matching
+once step 9 has *already* succeeded, so every retry after a failure anywhere in steps 4-8b
+deployed a fresh, throwaway pair. This is not hypothetical: it's the exact shape of five
+separate real incidents on Base Sepolia across two sessions (2026-08-14, 2026-08-17 — see the
+registration entry above, items 3/4/7), each leaving a real, orphaned, gas-paid
+`SovereignAgent`/`StateAnchor` pair with no cleanup path.
+
+* **CLOSED in `integrity-sdk`** — `register_agent()` now persists a
+  `registration_progress.json` next to the DID's `document.json` immediately after
+  `SovereignAgent`/`StateAnchor` deploy succeeds (steps 5-6), and checks it (verifying real
+  bytecode via `eth_getCode` before trusting it — the same lesson the phantom-factory incident
+  taught about blindly trusting a recorded address) before attempting a fresh deploy on any
+  subsequent call. Steps 7 (ITK mint — NOT idempotent, a retry would double-mint) and 8b
+  (genesis root anchor — re-running against an already-anchored `StateAnchor` was previously
+  unverified territory, not actually protected by the `resolve_did` short-circuit the old
+  comment claimed) are now also checked before re-running, via two new `chain.py` read helpers
+  (`itk_balance`, `state_anchor_latest_root`). Step 8 (`grant_anchor_role`) was already safe —
+  OZ's `grantRole` no-ops if already held — but is now checked first too, to skip the
+  redundant transaction rather than just tolerate it. The progress file is cleared once
+  `registerPrimitives` succeeds (the point `resolve_did`'s own check takes over) or once an
+  early idempotent return confirms the DID is already fully registered. Two new regression
+  tests against a real local anvil chain (`tests/test_registration.py`): one simulates
+  `registerPrimitives` failing on the first call and succeeding on a retry, asserting the
+  SAME `SovereignAgent`/`StateAnchor` addresses are reused; the other asserts a progress file
+  pointing at bytecode-less addresses is discarded rather than trusted. Full suite green (264
+  passed / 3 skipped, up from 262 by exactly the 2 new tests).
+* **CLOSED — `integrity-cli` had its own, independent copy of this registration flow**
+  (`integrity_cli/main.py`/`chain.py`, doesn't import `integrity-sdk` at all — see
+  `CLAUDE.md`'s "SDK vs CLI" section) that turned out to have **no idempotency protection
+  of any kind**, not even the basic `resolve_did` check the SDK had before its own fix —
+  every `integrity agent register` invocation unconditionally deployed a fresh
+  `SovereignAgent`/`StateAnchor` pair, even for an already-registered DID. Ported the same
+  two layers from the SDK fix: `chain.py` gained `resolve_did`/`has_anchor_role`/
+  `itk_balance`/`state_anchor_latest_root` (identical shape to the SDK's versions,
+  duplicated per this package's existing "no sibling dependency" convention, not imported);
+  `main.py`'s `agent_register` now checks `resolve_did` first (short-circuits with the
+  existing registration, matching the SDK's early-return branch) and persists/resumes
+  deploy progress via a new `<identity>.registration_progress.json`, with the same
+  bytecode-verification-before-trusting-a-recorded-address discipline. Also factored the
+  previously-duplicated oracle-POST logic (~50 lines inline, twice) into one shared
+  `_post_registration_to_oracle` helper used by both the early-return and full-registration
+  paths. Two new regression tests against a real local anvil chain
+  (`tests/test_register_resume.py`, no Docker/cargo/oracle-backend needed unlike the
+  existing `ORACLE_E2E=1` oracle test): one simulates `register_primitives` failing on the
+  first `integrity agent register` invocation and succeeding on a retry, asserting the CLI
+  reuses the same addresses; the other asserts a second invocation for an already-registered
+  identity is a genuine no-op. Full suite green (70 passed, up from 68 by exactly the 2 new
+  tests; the Docker-gated oracle e2e test was not re-run, unrelated to this change).
+
+## 29. Phase I tracer-bullet slice — built, tested, NOT deployed (2026-08-17)
+
+*Current State:* per explicit user authorization of
+`docs/plans/2026-08-17-phase1-tracer-bullet-proposal.md`, built the minimal slice the proposal
+scoped: `contracts/src/kernel/IntegrityAccountV1Experimental.sol` +
+`IntegrityKernelV1Experimental.sol`. Non-upgradeable, non-deployed (not referenced by
+`Deploy.s.sol` or any script), single `CALLTYPE_SINGLE`/`EXECTYPE_DEFAULT` execution mode only,
+module mutation permanently disabled after the one atomic constructor-time kernel install, one
+conserved quantity (a native-value spend budget, per-operation and cumulative). Full precise
+guarantee statement and what it does NOT prove:
+`docs/design/phase1-tracer-bullet-slice-2026-08-17.md`.
+
+12 new Foundry tests (`contracts/test/IntegrityAccountV1Experimental.t.sol`), covering: in/out-of
+per-op-budget, exact cumulative-budget boundary vs. one-wei-over, all three rejected execution
+modes, both module-mutation entry points disabled (including against the real already-installed
+kernel, not a hypothetical), the hook rejecting non-account callers and out-of-sequence calls,
+and a genuine self-call reentrancy attempt against the `armed` guard. The reentrancy test was
+mutation-tested, not just written and trusted: temporarily removing the `armed` check makes the
+same test fail with a *different* error (`NotArmed` instead of `AlreadyArmed`), demonstrating the
+nested call's `postCheck` silently corrupts the outer call's own armed state without the guard —
+real evidence the guard does work, not decoration. `preCheck` gas measured live under the
+whitepaper's own Table 4 budget (`<=40k`), as a regression test, not a one-off number. Full repo
+suite green: 221/221 (up from 209 before this slice).
+
+**Extended same day with a second reference adapter (reputation floor)**, per separate
+authorization of `docs/plans/2026-08-17-phase1-reputation-adapter-proposal.md`. The kernel now
+enforces two conjunctive conditions: the existing native-value budget, and
+`ReputationRegistry.effectiveScore(boundAccount) >= minEffectiveScore` (a precondition gate
+checked once in `preCheck`, not a conserved quantity needing `postCheck` involvement). Real
+multiplexing inside the one hook module the base OZ contract allows, not a second hook. Tested
+against a real, standalone `ReputationRegistry` EIP-1167 clone (its implementation disables
+direct initialization, confirmed by reading the constructor — deployed via `Clones.clone` the
+same way `AgentPrimitivesFactory` does in production, not a bare `new`). 3 new tests: below-floor
+reverts even when in-budget, the exact floor boundary succeeds, and an above-floor account is
+still independently bound by the budget check. The reputation check was also mutation-tested —
+removing it makes the below-floor test wrongly pass, confirmed and reverted before landing.
+`preCheck` gas re-measured (the real reason the gas test is a regression test, not a one-off
+number): 27,131 → 35,505, still under the 40k Table 4 budget but a real, caught increase. Full
+repo suite green: 224/224. Explicitly independent of the still-deferred AIS floor/shadow-gate
+decision (§27) — reads the existing oracle-pushed `effectiveScore`, doesn't touch `scoring-core`
+or pick any floor value there.
+
+**Extended again same day with the third and final named reference adapter (assurance tier)**,
+per `docs/plans/2026-08-17-phase1-assurance-tier-adapter-proposal.md`. `preCheck` gains a third
+conjunctive condition: `ReputationRegistry.isZkBoosted(boundAccount)` must be true. No new
+external dependency (reuses the same `reputationRegistry` immutable the reputation-floor adapter
+already wired in). 2 new tests (non-boosted reverts even when budget+reputation pass; an expired
+boost — a genuine `block.timestamp` boundary, not a static flag — is treated as not-boosted),
+both mutation-tested. Net +2 tests (added 2, removed 1 redundant test the new work made
+unnecessary). Full repo suite: 226/226.
+
+**Real, disclosed finding from this extension, not silently resolved:** with all three checks
+live, `preCheck` measures ~40,129 gas — over the whitepaper's own Table 4 budget (`<=40k`). The
+Phase I plan itself named this exact pressure point before this slice existed ("reputation
+should be cached/snapshotted per epoch rather than read live on every call") — now confirmed
+live. Per this session's own stated commitment, the gas test was renamed to document the finding
+honestly (`test_preCheckGasExceedsPaperTable4BudgetWithThreeUncachedChecks`, asserting the cost
+is both genuinely over 40k and hasn't regressed past a documented 42k ceiling) rather than having
+its threshold quietly raised. The real fix (per-epoch score snapshotting) is out of scope for a
+reference-adapter slice and would need its own proposal if pursued. Full detail:
+`docs/design/phase1-tracer-bullet-slice-2026-08-17.md`'s "Known limitation" section.
+
+**What this explicitly does not close:** any of the rest of the real Phase I plan (module
+governance, canonical intent encoding, the BCC `chain_id`/verifier-binding gap, the gas-budget
+finding above) remains unbuilt/unresolved. No external audit has occurred — this slice does not
+clear the Devil's Advocate review's own stated gate to Phase II. Not deployed to Base Sepolia or
+anywhere else, and completing this slice is not itself grounds to deploy it — that would be a
+separate, later, separately-approved decision.
+
+**Extended same day with timelocked, atomic kernel-swap module governance — this REVERSES the
+"module mutation permanently disabled" claim made above.** Per
+`docs/plans/2026-08-17-phase1-module-governance-proposal.md` (which states the reversal
+plainly), `installModule`/`uninstallModule` still always revert directly, but a new
+`proposeKernelSwap`/`executeKernelSwap`/`cancelKernelSwap` path now reaches the same underlying
+`_installModule`/`_uninstallModule` internals through a timelocked, atomic swap: propose a new
+kernel, wait out a mandatory delay, then atomically uninstall the old kernel and install the new
+one in one transaction (never a reachable state with zero hook modules installed). Explicitly
+**single-signer-timelocked, not the plan's full "timelocked + multi-party"** — this account has
+exactly one ECDSA signer, so a compromised key can still eventually force a swap, just not
+instantly or silently.
+
+A dedicated Devil's Advocate review (independent subagent, full diff + OZ base source + test
+suite) ran before landing, attacking six named risk areas. Top-line verdict: add code-level
+mitigations before shipping (not ship-as-is, not revert). Two real gaps were fixed in code, not
+just documented: (1) the constructor accepted a zero timelock with no validation, which would
+have silently voided the entire mechanism (instant swap in one transaction) — now reverts
+`ZeroTimelock()`, matching the same input-validation discipline the sibling
+`IntegrityKernelV1Experimental` constructor already applies; (2) `proposeKernelSwap` accepted any
+non-zero address with zero interface validation, so a non-conforming address only failed after
+the timelock elapsed — now probes `newKernel.isModuleType(MODULE_TYPE_HOOK)` and fails fast.
+Both fixes are mutation-tested. A third, more severe finding is disclosed rather than code-fixed
+because it is genuinely unfixable at this scope: a kernel that passes the interface probe but
+reverts unconditionally in `preCheck` installs cleanly, then permanently bricks every future
+`execute()` AND blocks every rescue swap too (the rescue's own uninstall half must call the
+broken kernel's `preCheck` first) — worse than simply re-enabling `installModule` outright, since
+a bad kernel there fails instantly and visibly rather than catastrophically later with no way
+back. This is now a permanent regression fixture
+(`test_brokenKernelPreCheckPermanentlyBricksAccountWithNoRescuePath`), not just a documented
+claim, and corrects an earlier, incomplete "locked out until it requalifies" framing (that
+describes only the separate, recoverable reputation-floor lockout case). The review also
+confirmed and sharpened: the swap is asymmetrically mediated (removal of the old kernel is
+content-gated via reputation/assurance checks; installation of the new kernel is gated only by
+the interface probe and elapsed time, never by a security-content check) — so this mechanism
+satisfies the whitepaper's condition (iii) for removal, not installation; and named two
+reentrancy windows (both swap halves run with `_hook` storage already updated before the
+module's own `onInstall`/`onUninstall` lifecycle hook fires) that remain open, disclosed rather
+than closed.
+
+14 new Foundry tests total for this extension (10 for the mechanism itself, +4 from the review's
+findings and their regressions), all mutation-tested where they assert a security-relevant
+guard. Full suite for this file: 31/31 (up from 17). Full repo suite: 240/240 (up from 226).
+Full findings, the six-area review, and the fix-by-fix response:
+`docs/plans/2026-08-17-phase1-module-governance-proposal.md`'s "Devil's Advocate review and
+response" section. Still not deployed, still not externally audited, still does not clear the
+Phase II gate; multi-party governance, canonical intent encoding, the BCC binding gap, and the
+gas-budget finding remain open — **except the gas-budget finding, closed same day, below.**
+
+**Extended same day with reputation epoch-snapshotting — this RESOLVES the gas-budget finding
+above, for real, not just a documented mitigation.** Per
+`docs/plans/2026-08-17-phase1-reputation-snapshot-proposal.md`, `IntegrityKernelV1Experimental`
+no longer reads `effectiveScore`/`isZkBoosted` live on every `preCheck` call. Instead,
+`refreshReputationSnapshot()` (permissionless — anyone may call it, not only the bound account)
+reads `reputationRegistry.scores(boundAccount)` once and caches both derived values;
+`preCheck` reads the cache and fails closed (`SnapshotStale`) if it is older than an immutable
+`epochLengthSeconds` (capped at `MAX_EPOCH_LENGTH_SECONDS = 7 days`). Measured, not estimated:
+**`preCheck` now costs 33,321 gas** in the steady state — under the whitepaper's own `<=40k`
+Table 4 ceiling, down from the previously-measured 40,129.
+
+**This closes the finding but does not make it free — the tradeoff is a real, disclosed one.**
+Within an epoch, reputation is not merely "possibly stale," it is completely unenforced — only
+the budget check still bounds behavior during that window. The design also introduces a new
+liveness dependency the live-read design never had: `execute()` can now revert purely because
+nobody refreshed the cache in time, for any call. And it creates a genuine interaction with the
+kernel-swap mechanism above: if `moduleActionTimelockSeconds` (governance timelock) exceeds
+`epochLengthSeconds` (reputation freshness window), a fully-vested swap can revert `SnapshotStale`
+for a reason unrelated to reputation, and a freshly-installed kernel can be stale-on-arrival,
+rejecting the account's first post-swap call. Both contracts' NatSpec now state
+`epochLengthSeconds >= moduleActionTimelockSeconds` as an explicit deployment invariant — neither
+contract enforces this on its own; it is operator/deploy-script discipline, not a code guarantee.
+
+A dedicated Devil's Advocate review (independent subagent, full diff + `ReputationRegistry.sol` +
+the kernel-swap mechanism + test suite) ran before landing. Two real gaps fixed in code: (1) the
+kernel's local `ZK_BOOST_BPS`/`BPS_DENOMINATOR` constants (duplicated for gas efficiency) were
+"verified" only by a test comparing two hardcoded literals against each other — since the
+constants are `private` on the kernel, the test never actually touched the kernel at all, so a
+future `ReputationRegistry` redeployment with different constants would have silently produced
+wrong cached scores forever, undetected; now the constructor cross-checks against the real
+registry's own values at deploy time and reverts `BoostConstantsMismatch` on divergence,
+mutation-tested, plus a genuine differential test (`test_refreshedSnapshotMatchesALiveEffectiveScoreRead`)
+asserting the cache equals a live read. (2) `epochLengthSeconds` had no upper bound, so "epoch-
+snapshotted reputation" could be truthfully claimed by a deployment meaning, in practice, "never
+re-checked"; now capped at `MAX_EPOCH_LENGTH_SECONDS = 7 days`, mutation-tested. A third gap —
+zero events anywhere, undermining the keeper-refresh pattern the whole mechanism depends on — was
+also closed: `ReputationSnapshotRefreshed` now emits on every refresh.
+
+10 new Foundry tests for the mechanism itself, +4 from the review's findings and their
+regressions (14 total this extension). Full suite for this file: 41/41 (up from 17 before any of
+today's kernel work). Full repo suite: 250/250 (up from 209 before this slice began). Full
+findings and the fix-by-fix response:
+`docs/plans/2026-08-17-phase1-reputation-snapshot-proposal.md`'s "Devil's Advocate review and
+response" section.
+
+**What remains open, restated:** multi-party governance (still single-signer-timelocked),
+canonical intent encoding / the BCC `chain_id`/verifier-binding gap, the two disclosed reentrancy
+windows from the kernel-swap review, the no-recovery-path broken-kernel-brick class, and the new
+`epochLengthSeconds`-vs-`moduleActionTimelockSeconds` deployment invariant (unenforced across the
+two contracts) all remain unbuilt/unresolved. No external audit. Not deployed to Base Sepolia or
+anywhere else, and none of today's work is grounds to deploy it — that remains a separate, later,
+separately-approved decision.
+
+## 30. BCC `chain_id`/`verifying_contract` binding — closes the general-purpose half of the
+canonical intent encoding gap (2026-08-18)
+
+*Current State:* per `docs/plans/2026-08-18-phase1-canonical-intent-encoding-proposal.md`, the
+BCC commitment schema (§4.2) now requires and signs two new fields: `chain_id` (EVM chain ID) and
+`verifying_contract` (the target chain's `XibalbaAgentRegistry` address). Before this, a
+commitment signed once was valid, byte-for-byte, against any chain or any deployment of the
+protocol sharing the signing agent's DID — `nonce` is monotonic per-agent but not
+deployment-scoped, so it didn't close this. Implemented identically across `integrity-sdk/bcc.py`,
+`integrity-cli/bcc.py`, and `bcc_middleware/app/{schemas,canonical}.py`; every real production
+call site updated (`integrity-sdk/markets.py`'s three BCC-integrated market flows,
+`integrity-sdk/telemetry/intent.py`'s `invoke_intent`, `integrity-cli/main.py`'s `agent intercept`
+command, `integrity-dashboard/demo/heartbeat.py`).
+
+`bcc_middleware/app/main.py` gained a new deployment-binding check (step 1b, before signature
+verification — cheapest, no crypto, no I/O). **A real, disclosed design adjustment from the
+proposal's original framing:** the proposal described both fields as an unconditional hard deny.
+In implementation, `chain_id` IS enforced unconditionally (`Settings.chain_id` always has a
+value). `verifying_contract` is enforced only when this deployment has a configured
+`XibalbaAgentRegistry` address (`Settings.contract_address("XibalbaAgentRegistry")` returns
+non-`None`) — most of the existing local/dev/test topology runs with no deployments file
+configured at all (`bcc_middleware/tests/conftest.py`'s `deployments.local.json` is `touch()`ed
+empty; several tests explicitly point at a nonexistent deployments file, e.g.
+`test_chain_baa_anchor.py`'s "Explicit, nonexistent deployments_file" case), and making
+`verifying_contract` an unconditional fail-closed check would have turned that whole existing
+posture into a blanket deny — a materially larger blast radius than this slice's own proposal
+disclosed ("pure Python wire-schema + middleware validation... lower blast radius"). Stated
+plainly here rather than silently shipped as the originally-described unconditional check.
+
+**What this does NOT close**, matching the proposal's own explicit deferrals: the experimental
+kernel's own hook-frame replay-domain binding (account, kernel/profile, execution depth, action
+digest, pre-state digest, configuration epoch — `CLAUDE_HANDOFF_2026-08-17.md` §9) is untouched,
+separate, contract-side, larger scope. Binding `chain_id` into the ZK circuit's
+`intent_commitment` (`integrity-zkp/src/main.nr`) is untouched — the Pedersen hash still covers
+only `secret_key`, `intent_payload_hash`, `agent_id_commitment`, `nonce`; adding a public input
+means a circuit change, verifying-key regen, and `UltraPlonkVerifier` regen, real cross-package
+work not attempted here. A `verifying_contract` mismatch against an *unconfigured* registry is
+never enforced by this slice — a real, disclosed residual, not a silent gap: an operator relying
+on this binding for a production deployment must confirm `DEPLOYMENTS_FILE` actually resolves a
+`XibalbaAgentRegistry` entry, or the check silently no-ops for that field.
+
+Tests: `bcc_middleware/tests/test_deployment_binding.py` (new) covers chain_id mismatch denied,
+verifying_contract mismatch denied when configured, verifying_contract NOT enforced when
+unconfigured, and schema-level rejection of missing/malformed fields. `bcc_middleware/tests/
+helpers.py`'s `sign_commitment` gained defaulted `chain_id`/`verifying_contract` params (sourced
+from `default_settings.chain_id` and a placeholder address respectively) so the existing ~75-test
+suite continues to exercise the same behavior it did before this change, without per-test edits.
+`integrity-cli/tests/test_bcc.py` updated for the new required positional params and field-set
+assertion. Cross-repo: `xibalba-shield/shield/integrity_exporter` calls
+`integrity_sdk.bcc.build_bcc_commitment` directly and needed a matching update — see that repo's
+own history for the corresponding change, tracked separately from this repo's scope.
+
+## 31. Guardian M-of-N quorum on kernel-swap execution — closes unilateral swap *execution*, not
+unilateral swap *denial* (2026-08-19)
+
+*Current State:* per `docs/plans/2026-08-18-phase1-multiparty-kernel-governance-proposal.md`,
+`IntegrityAccountV1Experimental` gained an immutable guardian set (`address[] guardians()`) and
+threshold (`guardianThreshold`), set once at construction (no rotation mechanism in this slice).
+`proposeKernelSwap`/`cancelKernelSwap` remain unchanged, single-signer (`onlyEntryPointOrSelf`)
+— proposing/cancelling stays low-stakes by design, deliberately not gated, to avoid making swap
+*denial* itself a multi-party negotiation. `executeKernelSwap` gained a fourth precondition:
+`kernelSwapApprovalCount[kernelSwapNonce] >= guardianThreshold`, checked after the pre-existing
+three (pending exists, address match, timelock elapsed) and before the uninstall/install
+sequence — verified independently gating alongside, not instead of, those three
+(`test_existingSingleSignerPreconditionsStillGateAlongsideQuorum`). A new
+`approveKernelSwap(uint256 expectedNonce, address newKernel)` entry point is guardian-only,
+nonce-scoped (`kernelSwapNonce` bumped once per `proposeKernelSwap`, so a stale approval from a
+cancelled or already-executed proposal can never silently count toward a later one —
+`test_approvalFromACancelledProposalDoesNotCountTowardARepropose`), and idempotent per guardian
+per nonce (`test_approveKernelSwapDoesNotDoubleCountTheSameGuardianUnderTheSameNonce`).
+
+**What this closes, precisely:** before this slice, a single compromised signer key, waiting out
+the timelock, could force any kernel swap alone. After it, that same key can still *propose* and
+start the clock, but cannot *execute* without independently convincing `guardianThreshold`
+guardians — distinct keys, not derived from the account signer — to each submit their own
+on-chain approval.
+
+**What this does NOT close, disclosed and accepted, not solved:**
+- **Unilateral swap denial.** `proposeKernelSwap`/`cancelKernelSwap` stay signer-only; a
+  compromised or uncooperative signer can park an unwanted proposal in the single pending-swap
+  slot indefinitely (never cancelling, never letting guardians act on anything), denying the
+  account — including a legitimate rescue swap — for as long as the signer withholds a cancel.
+  Letting guardians cancel at threshold would close this but reintroduces a stuck-negotiation
+  failure mode this proposal deliberately rejected for `cancelKernelSwap`.
+- **Guardian collusion or guardian-key compromise at or above threshold.** An M-of-N quorum is
+  only as strong as the independence of the M keys, which the contract cannot verify or enforce
+  — an operational/deployment discipline, not a code guarantee.
+- **Guardian-set rotation.** The set is immutable forever at construction — simple to reason
+  about, but an unreachable or permanently-departed guardian permanently raises the effective bar
+  toward "impossible," never toward "insecure." A future slice would need a second, probably
+  also-guardian-gated rotation mechanism if this is adopted further.
+- **The two pre-existing reentrancy windows and the broken-kernel brick scenario from §29's
+  tracer-bullet entry.** A malicious or buggy `newKernel` that passes the `isModuleType` probe
+  can still brick the account after a fully-guardian-approved swap; quorum raises the bar for
+  *who* can propose a bad swap and get it through, not whether the swap itself is safe once
+  approved.
+- **A second, permanent break of the "hook mediates every reachable state-changing path" claim.**
+  `approveKernelSwap` is guardian-callable directly, deliberately not routed through
+  `execute()`/`withHook` (gating a guardian behind the account's own hook would be circular).
+  Proven empirically, not just asserted, by `test_approveKernelSwapIsNotMediatedByTheInstalledHook`
+  (installs a permanently-`preCheck`-reverting kernel, shows guardian approvals still succeed).
+  Both `docs/design/phase1-tracer-bullet-slice-2026-08-17.md` and this contract's own NatSpec now
+  disclose this, alongside the pre-existing swap install/uninstall mediation asymmetry.
+- **A genuinely new failure mode, not a restated one: quorum-gathering can itself stale the
+  reputation snapshot.** Guardian approval-gathering takes real elapsed time (the timelock, then
+  M separate guardian transactions), which can exhaust the outgoing kernel's `epochLengthSeconds`
+  even when the snapshot was fresh at the moment gathering began — not just via the pre-existing
+  timelock-vs-epoch collision every other success-path test already routes around with a single
+  upfront refresh. Regression-tested end to end, not left as a restated theoretical risk:
+  `test_quorumGatheringCanStaleTheSnapshotBetweenApprovals` assembles quorum with a warp *between*
+  the two guardian approvals, confirms `executeKernelSwap` reverts `SnapshotStale` (not
+  `InsufficientGuardianApprovals` — full quorum was genuinely reached), then confirms the
+  permissionless `refreshReputationSnapshot()` recovers it.
+
+**Verification discipline applied:** strict red→green TDD per the proposal's process section.
+Mutation-tested both new security-relevant guards — temporarily removed the
+`InsufficientGuardianApprovals` threshold check (caught by
+`test_executeKernelSwapRevertsBelowGuardianThreshold` and, incidentally,
+`test_approvalFromACancelledProposalDoesNotCountTowardARepropose`) and the nonce-equality check in
+`approveKernelSwap` (caught by `test_approveKernelSwapRevertsOnWrongNonce` — the cancelled-nonce
+replay test does NOT catch this mutation, since approvals are indexed by the *current* nonce
+regardless of what a guardian claims, so that guard protects intent-matching, not storage
+isolation; both guards restored after confirming detection). Constructor edge cases covered:
+threshold 0, threshold > guardian count, duplicate guardian address, zero-address guardian
+(`test_constructorRevertsOnZeroGuardianThreshold`, `test_constructorRevertsWhenThresholdExceedsGuardianCount`,
+`test_constructorRevertsOnDuplicateGuardian`, `test_constructorRevertsOnZeroAddressGuardian`).
+The proposal's third named adversarial-pass item — "interaction with the existing reentrancy
+windows (does a reentrant call during onInstall/onUninstall see stale or fresh approval state?)"
+— is answered empirically, not left open, by `test_reentrancyDuringInstallAndUninstallObservesFreshApprovalsAndEmptyPending`:
+a `ReentrancyObserverKernel` fixture plays "new kernel" (onInstall) in one swap and "old kernel"
+(onUninstall) in a following one. Answer: `pendingKernelSwap` is already cleared (empty) at BOTH
+callback points (`delete pendingKernelSwap` runs before either half), but
+`kernelSwapApprovalCount` for the just-consumed nonce is NOT cleared alongside it — a reentrant
+reader sees the full, fresh approval count next to an empty pending slot. Separately proves this
+window cannot be used to *mutate* quorum state: a reentrant `proposeKernelSwap` call from inside
+the callback reverts (`msg.sender` there is the kernel contract itself, neither `self` nor the
+entry point) and a reentrant `approveKernelSwap` call reverts (that same address is not a
+registered guardian). The two pre-existing reentrancy windows this test exercises remain open and
+disclosed, per §29's tracer-bullet entry — this only closes the *quorum-specific* question the
+proposal asked, not the windows themselves.
+
+Gas measured directly from call traces, not assumed unchanged: `proposeKernelSwap` 67,886 (cold);
+`approveKernelSwap` 49,771 first guardian / 27,871 second guardian (cold vs. one-less-cold slot);
+`executeKernelSwap` 41,268. `IntegrityAccountV1ExperimentalTest` suite: 41 → 55 tests (+14: 9
+scope-enumerated guardian-quorum tests, 4 constructor edge cases, 1 reentrancy-window
+observation), all passing; full repo suite 264/264 (up from 250 before this slice). The 5
+pre-existing tests that call `executeKernelSwap` on a success path were updated to gather
+guardian approval first, not left broken.
+
+**Not deployed anywhere.** Foundry-test-only, local, uncommitted at time of writing, same
+standing rule as every prior Phase I slice — no push/commit/deploy without separate explicit
+authorization.
+
+## 32. Guardian emergency action — closes unilateral swap *denial*, both forms (2026-08-18)
+
+*Current State:* per `docs/plans/2026-08-18-phase1-guardian-swap-denial-proposal.md` (Option B,
+user-selected), `IntegrityAccountV1Experimental` gained a third, fully signer-independent
+governance path: `guardianProposeAction(bool isCancel, address newKernel)` /
+`approveGuardianAction(uint256 expectedNonce)` / `executeGuardianAction()`. Unlike
+`approveKernelSwap` (§31, gates an already signer-initiated swap's *execution*), this path
+requires no signer action anywhere — a guardian starts it, and it is gated by **unanimous**
+approval (all of `_guardians`, not merely `guardianThreshold`), deliberately the highest bar in
+the contract, since this is the one path where the signer's cooperation is never required.
+
+**What this closes, precisely:** §31 left two denial gaps open, both now closed by one mechanism:
+(1) a signer who proposes a swap and then refuses to cancel can no longer park it forever —
+guardians unanimously force-cancel (`isCancel: true`); (2) a signer who is gone entirely (lost
+key, unresponsive) previously left guardians with *nothing to act on at all*, since only the
+signer could call `proposeKernelSwap` — guardians can now unanimously force-propose a new swap
+from scratch (`isCancel: false`), with no pending swap required first.
+
+**A real design gap found and fixed during implementation, not assumed away:** a force-proposed
+swap still has to pass through the *existing* `executeKernelSwap` to actually land — and that
+function was `onlyEntryPointOrSelf`, signer-only, unconditionally. An absent signer could never
+call it, so the rescue would have stalled at the last step even with full guardian consensus and
+an elapsed timelock. Fixed, with the user's explicit sign-off on the tradeoff (asked and answered
+plainly, not decided silently): `executeKernelSwap`'s caller check now accepts the entry point,
+the account itself, **or any single guardian** — `if (msg.sender != address(this) && msg.sender
+!= address(entryPoint()) && !_isGuardian[msg.sender]) revert AccountUnauthorized(msg.sender);`.
+This widens *who may submit* the call; it does not weaken *what is required to succeed* — the
+four existing preconditions (pending exists, address match, timelock elapsed,
+`kernelSwapApprovalCount[kernelSwapNonce] >= guardianThreshold`) are untouched and still
+independently gate every caller. Proven, not assumed:
+`test_executeKernelSwapCallableByGuardian_StillEnforcesExecutionQuorum` (a guardian calling before
+quorum still hits `InsufficientGuardianApprovals`) and
+`test_executeKernelSwapRevertsForUnrelatedCaller_EvenAtFullQuorum` (a non-guardian, non-signer
+stranger is rejected even once every other precondition, including quorum, is satisfied).
+
+**Deliberate design choice: force-propose requires nothing already pending, not an atomic
+override.** If a swap is stuck (case 1 above) and guardians also want a different kernel
+installed (case 2), they must force-cancel first, then force-propose — two separate unanimous
+actions, not one combined one. Keeps each guardian action's blast radius to exactly one state
+transition; `test_guardianForcePropose_RevertsIfSwapAlreadyPending` proves this is enforced, not
+merely intended.
+
+**A force-proposed swap is indistinguishable from a signer-proposed one once created** — it bumps
+`kernelSwapNonce` exactly as `proposeKernelSwap` does (proven by
+`test_guardianForcePropose_UnresponsiveSigner_FullRescueWithNoSignerInvolvement`, which asserts
+the nonce increment directly), so it needs the *same* `guardianThreshold` M-of-N execution quorum
+via the pre-existing `approveKernelSwap`, and is subject to the same timelock — no shortcut for
+either. This was a deliberate design choice (share the existing bookkeeping rather than invent
+parallel machinery) specifically to avoid reopening the class of bug `kernelSwapNonce` already
+solved once for proposal-to-proposal replay.
+
+**What this does NOT close, disclosed and accepted, not solved:**
+- **Guardian collusion or compromise at unanimity.** Raising the bar from `guardianThreshold` to
+  N-of-N raises the cost of an attack, it does not make the guardian set's honesty verifiable
+  on-chain — same standing caveat as §31's own execution quorum, at a stricter threshold.
+- **Guardian-set rotation.** Still absent (tracked separately,
+  `docs/plans/2026-08-18-phase1-guardian-rotation-proposal.md`). An unreachable guardian now
+  raises TWO bars toward impossible instead of one: the existing M-of-N execution threshold, and
+  this slice's new N-of-N emergency threshold — losing even one guardian permanently makes the
+  emergency path unusable, a real, disclosed cost of choosing unanimity.
+- **The broken-kernel brick scenario.** A force-proposed swap's uninstall half still calls the
+  outgoing kernel's `preCheck` (unchanged — `executeKernelSwap`'s uninstall/install mediation
+  asymmetry from §29 is untouched by this slice). A kernel that reverts unconditionally there
+  remains unrescuable by this mechanism alone; see
+  `docs/plans/2026-08-18-phase1-broken-kernel-rescue-proposal.md`, which explicitly builds on this
+  slice's guardian-origination machinery rather than duplicating it.
+- **The two pre-existing reentrancy windows from §29.** Orthogonal — unrelated to who originates
+  or authorizes a swap.
+- **A third, permanent exception to "hook mediates every reachable path."** Alongside
+  `approveKernelSwap` (§31), `guardianProposeAction`/`approveGuardianAction`/`executeGuardianAction`
+  are guardian-callable directly, never routed through `execute()`/`withHook` — gating an
+  emergency, signer-independent path behind the account's own hook would be circular. Both
+  `IntegrityAccountV1Experimental.sol`'s own NatSpec and
+  `docs/design/phase1-tracer-bullet-slice-2026-08-17.md` (pending amendment — see Scope: in below)
+  must disclose this as the third exception, not a silent extension of the second.
+
+**Verification discipline applied:** mutation-tested all three security-relevant guards this
+slice adds/changes, restored after confirming each was caught: (1) the unanimity check in
+`executeGuardianAction` weakened to `guardianThreshold` instead of `_guardians.length` — caught by
+`test_executeGuardianActionRevertsBelowUnanimity` failing with a different error
+(`NoSwapPending()` instead of the expected `InsufficientGuardianActionApprovals`, since a
+weakened-to-2 threshold let a force-cancel with no real pending swap slip past the approval gate
+and hit the next, unrelated check instead); (2) the nonce-mismatch check in `approveGuardianAction`
+removed — caught by `test_approveGuardianActionRevertsOnWrongNonce`; (3) the widened caller check
+on `executeKernelSwap` removed entirely — caught by
+`test_executeKernelSwapRevertsForUnrelatedCaller_EvenAtFullQuorum`. Strict red→green TDD was not
+followed test-by-test for this slice (implementation and tests were written together, not
+failing-test-first per function), a real deviation from this codebase's stated discipline,
+disclosed here rather than silently omitted — the mutation-testing pass after the fact is what
+substitutes for it, not a replacement for having done TDD, but real evidence the guards work.
+
+Gas measured directly from call traces, not assumed unchanged. Force-cancel path:
+`guardianProposeAction(true, address(0))` 49,282 (cold); `approveGuardianAction` 49,256 first
+guardian / 25,356 second / 27,356 third (unanimity, so all three guardians pay, unlike
+`approveKernelSwap`'s two-of-three); `executeGuardianAction` (force-cancel) 5,262 (cheap — only
+clears two storage slots). Force-propose path: `guardianProposeAction(false, newKernel)` 50,310
+(cold, includes the `isModuleType` probe); `approveGuardianAction` 47,256 / 27,356 / 27,356;
+`executeGuardianAction` (force-propose) 65,566 (writes `pendingKernelSwap`, bumps
+`kernelSwapNonce`); the subsequent `executeKernelSwap` called by a guardian (not the signer)
+41,625 — matching §31's own signer-called measurement (41,268) closely, confirming the widened
+caller check adds negligible cost to the already-measured function.
+
+`IntegrityAccountV1ExperimentalTest` suite: 55 → 71 tests (+16: guardian-action propose/approve/
+execute validation, both denial scenarios end-to-end with zero signer involvement, the
+already-pending and nothing-pending negative cases for each action type, and two tests confirming
+`executeKernelSwap`'s widened caller set doesn't weaken its existing guards). Full repo suite:
+280/280 (up from 264/264 before this slice).
+
+**Scope: in, not yet done —** `docs/design/phase1-tracer-bullet-slice-2026-08-17.md` still needs
+the same disclosure this entry gives; `IntegrityAccountV1Experimental.sol`'s own NatSpec was
+amended at implementation time (see the contract's guardian-emergency-action paragraph) but the
+design doc was not yet updated to match, per this codebase's own standing discipline that both
+must agree.
+
+**Not deployed anywhere.** Foundry-test-only, local, uncommitted at time of writing, same
+standing rule as every prior Phase I slice — no push/commit/deploy without separate explicit
+authorization.
+
+## 33. Guardian-set rotation, plus a real liveness bug found in §32's emergency path (2026-08-18)
+
+*Current State:* per `docs/plans/2026-08-18-phase1-guardian-rotation-proposal.md`, the guardian
+set is no longer permanently fixed at construction. `proposeGuardianRotation(bool isAddition,
+address guardian)` / `approveGuardianRotation(uint256 expectedNonce)` /
+`executeGuardianRotation()` let the CURRENT guardians add or remove one guardian at a time —
+never both in a single rotation — gated by UNANIMOUS approval, same bar as §32's emergency
+action. Two user decisions fixed the design, both explained in plain language before being asked
+(per the user's own standing preference — see the session's earlier exchange): (1)
+`guardianThreshold` itself is NEVER rotatable, immutable forever, closing off "guardians vote the
+bar down toward 1" as an attack surface; (2) rotation requires unanimous approval, not the
+ordinary `guardianThreshold`, since changing who the guardians ARE is at least as sensitive as
+using an emergency action.
+
+**Removal safety:** a removal that would drop the guardian count below the immutable
+`guardianThreshold` is rejected outright (`GuardianRemovalWouldBreakThreshold`), tested at the
+exact boundary (3 guardians, threshold 2 — first removal to exactly 2 succeeds, a second removal
+to 1 reverts), not just an interior case.
+
+**Cross-mechanism lock, enforced symmetrically:** at most one guardian-relevant governance
+process may be in flight at a time. `proposeGuardianRotation` is blocked while a kernel swap or
+guardian action is pending; `proposeKernelSwap` and `guardianProposeAction` are both blocked
+while a rotation is pending. This is what makes it safe to keep the removal-during-a-pending-swap
+question simple (block rotation entirely rather than needing to invalidate a removed guardian's
+stale approval mid-swap) — by construction, a swap can never be proposed while a rotation is
+pending, so the interaction the original proposal doc's "Trap 2" worried about cannot occur.
+Proven in both directions by `test_crossMechanismLock_HoldsInBothDirections`, not just asserted
+for one.
+
+**A real, previously-undiscovered liveness bug in §32's mechanism was found while writing this
+slice's tests, and fixed, not left disclosed-and-broken.** `executeGuardianAction` deletes
+`pendingGuardianAction` and only afterward checks whether the action can actually proceed
+(`NoSwapPending` for a force-cancel whose target was already cleared, `SwapAlreadyPending` for a
+force-propose whose slot was filled by something else in the meantime) — but a Solidity `revert`
+unwinds every state change made earlier in the SAME call, so on that revert path the earlier
+`delete` never actually took effect. There was no other way to clear a pending guardian action.
+Concretely: guardians unanimously agree to force-cancel a stuck swap; before they call
+`executeGuardianAction`, the signer independently (and perfectly legitimately) cancels the swap
+themselves. The guardian action can now never execute, and — discovered only once rotation's own
+cross-mechanism lock made the consequence concrete — it permanently blocks every future
+`guardianProposeAction`/`proposeGuardianRotation` call (both correctly check
+`pendingGuardianAction.active`), from an entirely ordinary race, not an attack.
+`proposeKernelSwap` itself is unaffected (it was never gated on guardian-action state), so this
+was "guardian-side governance permanently disabled," not a full brick, but still a real,
+uncaught defect in code that had already been through a mutation-testing pass. **Mutation testing
+checks that guards reject bad input; it does not check that legitimate recovery paths exist for
+every reachable stuck state** — a real limit of the technique worth remembering, not just a
+one-off miss.
+
+Fixed with two small, low-risk, permissionless functions: `cancelPendingGuardianAction()` (the
+actual fix — closes the liveness gap) and `cancelPendingGuardianRotation()` (added for parity/
+usability, not required for correctness, since rotation's own cross-mechanism lock makes its
+`executeGuardianRotation` preconditions unreachable in practice). Both simply clear pending state
+and never advance anything, so — same reasoning as `executeGuardianAction`/
+`refreshReputationSnapshot` — there is no manipulation surface in leaving them permissionless.
+The exact bug scenario is now a permanent regression fixture, not just a documented claim:
+`test_cancelPendingGuardianAction_RecoversFromSignerRaceThatWouldOtherwiseBrickGovernance` drives
+the signer/guardian race end to end, confirms `guardianProposeAction`/`proposeGuardianRotation`
+are genuinely stuck without the fix, then confirms `cancelPendingGuardianAction` restores normal
+operation.
+
+**What this does NOT close, disclosed and accepted, not solved:**
+- **Guardian collusion or compromise at unanimity threshold.** An attacker controlling every
+  current guardian key can rotate itself into a permanent, self-perpetuating set the same way any
+  legitimate unanimous quorum could — rotation changes WHO is trusted, it cannot make the
+  underlying trust model stronger than "the guardian keys are genuinely independent," the same
+  caveat every guardian mechanism in this contract already carries.
+- **No batch rotation.** One add XOR one remove per rotation cycle, by design — keeps each
+  rotation's blast radius to exactly one state transition, matching this contract's standing
+  single-pending-slot philosophy, at the cost of needing multiple full unanimous cycles to
+  replace several guardians at once.
+- **Initial guardian selection at registration time** remains SDK/CLI/dashboard scope, not
+  contract scope — noted in the rotation proposal doc's own "Related, deferred" section and saved
+  to project memory for whenever that registration wiring happens.
+
+**Verification discipline applied:** mutation-tested three security-relevant guards, all caught,
+all restored: the unanimity check in `executeGuardianRotation` (weakened to `guardianThreshold`
+— caught by `test_executeGuardianRotationRevertsBelowUnanimity`); the threshold-breaking removal
+check in `proposeGuardianRotation` (removed — caught by
+`test_proposeGuardianRotationRemoval_RevertsWhenItWouldDropBelowThreshold`); the cross-mechanism
+lock in `proposeKernelSwap` (removed — caught by `test_crossMechanismLock_HoldsInBothDirections`).
+
+Gas measured directly from call traces. Addition path: `proposeGuardianRotation(true, guardian)`
+56,231 (cold, includes duplicate/zero-address checks); `approveGuardianRotation` 47,377 first
+guardian / 27,477 second / 27,477 third (unanimity — all three pay, same shape as §32's emergency
+action); `executeGuardianRotation` 50,954 (array push). Removal path:
+`proposeGuardianRotation(false, guardian)` 58,395; `approveGuardianRotation` 47,377 / 27,477 /
+25,477; `executeGuardianRotation` 20,976 (swap-and-pop, cheaper than a push). The liveness fix:
+`cancelPendingGuardianAction()` 965 (a single `delete`).
+
+`IntegrityAccountV1ExperimentalTest` suite: 71 → 86 tests (+15: propose/approve/execute
+validation for both addition and removal, the threshold boundary, the cross-mechanism lock in
+both directions, full addition/removal lifecycles proving a newly-added guardian can immediately
+act and a removed one immediately cannot, and the liveness-bug regression). Full repo suite:
+295/295 (up from 280/280 before this slice).
+
+**Not deployed anywhere.** Foundry-test-only, local, uncommitted at time of writing, same
+standing rule as every prior Phase I slice — no push/commit/deploy without separate explicit
+authorization.
+
+## 34. Kernel-swap reentrancy guard — closes the reentrant-call half of §29's disclosed window, corrects an imprecise prior claim (2026-08-18)
+
+*Current State:* per `docs/plans/2026-08-18-phase1-swap-reentrancy-guard-proposal.md`, a new
+`bool public swapInProgress` is set `true` around `executeKernelSwap`'s uninstall/install pair and
+checked in both `_execute` and a newly-added `_fallback` override, reverting `ReentrantDuringSwap`
+unconditionally while a swap is mid-flight, regardless of what `_hook` transiently points at.
+
+**A real correction to a claim this contract had carried since §29, found while implementing, not
+assumed correct because it was already written down:** the account's own NatSpec (and
+`docs/design/phase1-tracer-bullet-slice-2026-08-17.md`) described the reentrancy risk as "a
+hostile `newKernel.onInstall` that reenters `execute()`." This is imprecise — `execute()` is
+`onlyEntryPointOrSelf`-gated by the base OZ contract, and a kernel contract's `onInstall`/
+`onUninstall` callback has caller identity equal to its OWN address (neither `self` nor the entry
+point) from the account's perspective, so it could never call `execute()` directly in the first
+place; that path was never actually reachable as described. The GENUINELY reachable path is
+`AccountERC7579.fallback(bytes calldata)`, which — unlike `execute()` — carries NO access
+restriction at all and routes through the same `withHook`-wrapped `_fallback` internal function.
+This is what the guard actually closes.
+
+**A second honest nuance, disclosed rather than glossed over:** in THIS account's current
+configuration, a reentrant fallback call fails closed either way, guard or not — the account never
+installs a fallback-handler module (`TYPE_FALLBACK` isn't part of this experimental account's
+model, only `TYPE_HOOK`), so `AccountERC7579._fallback` always reverts
+`ERC7579MissingFallbackHandler` regardless. The guard's value is proven by the REVERT REASON
+changing, not by success vs. failure: without the guard, a hostile kernel's own `preCheck` still
+runs (self-mediated, attacker-controlled) before the call ultimately fails for the unrelated
+missing-handler reason; with the guard, the call is rejected immediately, before `preCheck` is
+ever invoked. Concretely closes a currently-latent risk that becomes concrete the moment this
+account (or a descendant of it) ever legitimately installs a fallback handler — forward-looking
+hardening, not a fix for an exploit reachable in the account's PRESENT configuration.
+
+**Deliberately does NOT reorder or reimplement OZ's own `_installModule`/`_uninstallModule`** —
+that was the rejected, more expensive Shape A in the proposal doc (forking a vendored security
+contract's internal ordering for behavior this codebase doesn't own). The guard instead makes the
+actual attacker-reachable harm — a reentrant call mediated by whichever kernel `_hook` happens to
+point at mid-swap — revert unconditionally, independent of `_hook`'s value.
+
+**What this does NOT close:** a non-reentrant observation of `_hook`'s transient mid-swap state
+(reading, not calling back in) is unaffected and was never the risk this closes — see the
+pre-existing `test_reentrancyDuringInstallAndUninstallObservesFreshApprovalsAndEmptyPending`,
+which continues to pass unchanged. The broken-kernel brick scenario, guardian collusion at
+unanimity, and every other disclosed §29/§32/§33 gap are untouched — orthogonal to reentrancy.
+
+**Verification discipline applied:** mutation-tested the guard by removing it from `_fallback` and
+re-running both new tests — caught: the revert selector observed changes from
+`ReentrantDuringSwap` to `ERC7579MissingFallbackHandler`, concretely proving `preCheck` genuinely
+runs (self-mediated) when the guard is absent, not merely that "some revert still happens either
+way." Restored after confirming detection.
+
+Gas measured directly, diffed against an identical pre-fix build on the same test (not assumed
+unchanged): no observable increase in `executeKernelSwap`'s cost at call-trace granularity (the
+two `SSTORE`s toggling `swapInProgress` true then back to false within the same transaction are
+cheap enough not to register at this measurement resolution).
+
+`IntegrityAccountV1ExperimentalTest` suite: 86 → 88 tests (+2:
+`test_reentrantFallbackDuringInstallIsRejected`, `test_reentrantFallbackDuringUninstallIsRejected`),
+both driving a real two-swap sequence with a `ReentrantFallbackKernel` fixture playing both the
+new-kernel and old-kernel role, not a hypothetical. Full repo suite: 297/297 (up from 295/295
+before this slice).
+
+**Not deployed anywhere.** Foundry-test-only, local, uncommitted at time of writing, same
+standing rule as every prior Phase I slice — no push/commit/deploy without separate explicit
+authorization.
+
+## 35. Guardian emergency funds-recovery sweep — a true kernel-swap rescue is architecturally impossible; this recovers funds instead (2026-08-18)
+
+*Current State:* per `docs/plans/2026-08-18-phase1-broken-kernel-rescue-proposal.md`, this slice
+set out to close §29's broken-kernel brick scenario the way the proposal doc originally sketched
+— a guardian path that bypasses the outgoing kernel's `preCheck` to force a rescue swap through.
+**That approach was investigated and found genuinely impossible to build at this architectural
+layer, not merely difficult, before any code was written for it — surfaced and disclosed to the
+user before proceeding, not discovered partway through and quietly worked around.**
+`AccountERC7579Hooked`'s `_hook` storage is `private` to that base contract; its only two
+mutation paths, `_installModule`/`_uninstallModule`, are unconditionally wrapped by the `withHook`
+modifier IN THEIR OWN FUNCTION BODIES — there is no override point in a subclass that can reach
+`_hook` without triggering `preCheck` on whatever is currently installed. A true rescue would
+require forking and reimplementing `AccountERC7579Hooked` itself, the same class of undertaking
+Shape A explicitly rejected at much smaller scale for the reentrancy guard (§34) — not pursued
+here either, per explicit user decision after the tradeoff was explained plainly.
+
+**What was built instead, with the user's explicit, informed sign-off:** a guardian-unanimous
+emergency funds-recovery sweep — `proposeGuardianRescueSweep(address payable to, uint256 amount,
+bool sweepFullBalance)` / `approveGuardianRescueSweep(uint256 expectedNonce)` /
+`executeGuardianRescueSweep()` — that performs a raw low-level native-value transfer, **never
+touching `_hook`, `_installModule`, `_uninstallModule`, `execute()`, `_execute`, or `withHook` at
+all.** This sidesteps the architectural wall entirely rather than attempting to defeat it. The
+account itself remains permanently unable to `execute()` after this — the sweep recovers FUNDS,
+it does not repair the account. Proven against the exact scenario the normal rescue-swap machinery
+cannot save, not just asserted:
+`test_guardianRescueSweep_RecoversFundsFromAPermanentlyBrickedAccount` installs a real
+`AlwaysRevertingKernel`, confirms `execute()` is bricked, confirms a normal
+propose/approve/execute rescue-swap attempt still reverts on the broken `preCheck`, then confirms
+the sweep succeeds and fully drains the account's balance to a guardian-chosen recipient — the
+account remains bricked for `execute()` afterward, confirmed by a final assertion, not left
+implicit.
+
+**Two real design decisions, both explained in plain language and made explicitly by the user
+before implementation, not defaulted:**
+
+1. **A separate, independently configurable `rescueTimelockSeconds` immutable**, distinct from
+   `moduleActionTimelockSeconds`, and — unlike every other timelock in this contract — deliberately
+   permitted to be ZERO. Reasoning surfaced to the user, not assumed: an already-bricked account
+   has no normal activity a delay could interfere with, so a delay costs nothing operationally, but
+   different deployments (the user specifically named different market verticals) may have
+   genuinely different risk tolerances for how long a bricked account's funds should sit
+   unrecoverable before a sweep can fire. This reverses this slice's own first-draft
+   recommendation (the original scoping doc suggested no timelock at all) after the user pushed
+   back on the reasoning — a real instance of the advisor-reconciliation discipline this session
+   has applied throughout: re-examine a recommendation when new information (here, a request for
+   configurability) surfaces, rather than defending the original framing.
+2. **The severity of the sweep power was surfaced explicitly, not softened, before the user
+   authorized it.** Because no on-chain check can distinguish "genuinely, permanently broken" from
+   "reverted on some past calls," this cannot be scoped to only-when-bricked — it is disclosed as a
+   general guardian-unanimous power to drain the account's ENTIRE native balance to an address of
+   the guardians' choosing, reachable at ANY time, not only during a genuine emergency. This is
+   the first guardian mechanism in this contract that directly moves value rather than only
+   affecting governance (who is in charge, which kernel is installed) — a materially larger blast
+   radius than §31/§32/§33's mechanisms, named as such before building it. Accepted by the user as
+   the same tradeoff real-world social-recovery wallets make for their own backup-key quorums.
+
+**A third, smaller decision from the original scoping doc turned out to be moot, disclosed rather
+than silently dropped:** the proposal asked whether a rescue should still attempt a best-effort,
+try/catch notification to the broken kernel before removing it. The user chose "try, but ignore
+failure" — but the final design (a value-transfer sweep that never touches the kernel/hook system
+at all) has no interaction with the outgoing kernel whatsoever, so this decision does not apply to
+what was actually built. Recorded here so the decision isn't misread as having been silently
+reversed.
+
+**What this does NOT close:** the account itself is never repaired — `execute()` remains
+permanently bricked after a sweep, by construction, not as an oversight. Does not close guardian
+collusion/compromise at unanimity (same standing caveat as every other guardian mechanism). Does
+not add any ERC-20 or other token recovery — scoped to native value only, matching this
+account/kernel pair's own existing budget model (native-value-only throughout). Does not change
+`proposeKernelSwap`/`executeKernelSwap` at all — the sweep is a fully independent, parallel
+mechanism, deliberately NOT added to the cross-mechanism lock §33 introduced (rotation vs.
+kernel-swap vs. guardian-action), since the sweep never touches `_hook`/`pendingKernelSwap`/
+guardian-set state and has no correctness interaction with any of them to guard against.
+
+**Verification discipline applied:** mutation-tested three security-relevant guards, all caught,
+all restored: the unanimity check (weakened to `guardianThreshold` — caught by
+`test_executeGuardianRescueSweepRevertsBelowUnanimity`); the timelock check (removed — caught by
+`test_executeGuardianRescueSweepRevertsBeforeTimelockElapses`); the explicit
+exceeds-balance check (removed — caught by
+`test_executeGuardianRescueSweepRevertsWhenPartialAmountExceedsBalance`, which surfaced a real,
+minor finding worth recording: the raw `.call` would have failed regardless due to insufficient
+balance, so this specific guard's actual value is a clearer, named revert reason rather than being
+the only thing preventing an overdraft — the mutation still proves the guard does something real,
+just not what a first read might assume).
+
+Gas measured directly from call traces: `proposeGuardianRescueSweep` 94,600 (cold, full-balance
+sweep target); `approveGuardianRescueSweep` 47,035 first guardian / 25,135 second / 27,135 third
+(unanimity — all three pay, same shape as every other unanimous mechanism in this contract);
+`executeGuardianRescueSweep` 40,614.
+
+`IntegrityAccountV1ExperimentalTest` suite: 88 → 101 tests (+13: propose/approve/execute
+validation, the partial-vs-full-balance distinction, the exceeds-balance boundary, the
+cancel-and-repropose escape hatch, and the definitive brick-recovery end-to-end test). Full repo
+suite: 297/297 → 310/310.
+
+**Not deployed anywhere.** Foundry-test-only, local, uncommitted at time of writing, same
+standing rule as every prior Phase I slice — no push/commit/deploy without separate explicit
+authorization.
+
+## 36. ZK circuit `chain_id`/`verifying_contract` binding, plus `prover.py` wired to the real circuit for the first time (2026-08-18/19)
+
+**Closes:** the ZK-proof half of the cross-deployment replay gap §30 already closed for the
+non-ZK BCC commitment object. Before this, a `submitZkAttestation` proof built against one
+`ReputationRegistry`/`XibalbaAgentRegistry` deployment (e.g. a local anvil instance, or one
+testnet fork) could be replayed verbatim against any other deployment sharing the same agent's
+`agent_id_commitment` — nothing in the circuit tied a proof to where it would be submitted. The
+user explicitly chose to bind **both** `chain_id` and `verifying_contract` (not chain_id alone),
+matching §30's precedent.
+
+**What changed, concretely:**
+- `integrity-zkp/circuit/src/main.nr` (formerly `integrity-zkp/src/main.nr` — see workspace
+  restructure below): `chain_id: pub Field` and `verifying_contract: pub Field` added as new
+  public inputs, folded into the `intent_commitment` Pedersen hash alongside the existing
+  `DOMAIN_INTENT, secret_key, intent_payload_hash, nonce` array. `agent_id_commitment` is
+  unaffected (identity is deployment-independent by design — an agent's ZK identity doesn't
+  change across chains, only its per-action intent proofs do). Address/chain-ID packing is
+  `Field(uint256(value))` — lossless and injective, since both are well under the BN254 scalar
+  field's ~254 bits (no truncation, unlike the SHA-256-to-Field packing elsewhere in this
+  circuit, which IS lossy and disclosed as such).
+- 6 `#[test]` functions now (was 4): the existing valid/wrong-secret/wrong-payload/zero-nonce
+  cases updated for the new ABI, plus two new `should_fail` cases
+  (`test_invalid_binding_wrong_chain_id`, `test_invalid_binding_wrong_verifying_contract`)
+  proving the new binding actually rejects a mismatched chain/deployment.
+- `contracts/src/oracle/UltraPlonkVerifier.sol` regenerated end-to-end via the real
+  `make build` pipeline (`nargo` 1.0.0-beta.22, `bb` 5.0.0-nightly.20260522 — pinned versions
+  per `docs/INTERFACE_CONTRACT.md` §1, not assumed): `NUMBER_OF_PUBLIC_INPUTS` 11 → 13 (5 real
+  public inputs + 8 UltraHonk pairing-point words, confirmed both by the generated constant and
+  independently by `public_inputs.bin` growing from 96 to 160 bytes = 5 × 32), new `VK_HASH`.
+  The manual patch step applied to every regenerated copy (add `("memory-safe")` to 5 `assembly`
+  blocks, rename `HonkVerifier` → `UltraPlonkVerifier`, add the `IZkVerifier` import) was
+  extracted by diffing the pre-change generated/deployed copies against each other first, not
+  reconstructed from memory.
+- `contracts/test/fixtures/ultraplonk/{proof.bin,public_inputs.bin}` and
+  `contracts/test/UltraPlonkVerifier.t.sol`'s hardcoded length/keccak assertions and the
+  hand-unrolled `bytes32[]` assembly copy (3 words → 5) all regenerated/updated from a real,
+  freshly-proven fixture — not hand-edited numbers. All 4 verifier tests (valid/tampered-proof/
+  tampered-input/malformed) pass against the real 5-input circuit.
+- **`integrity-zkp` restructured into a two-member Nargo workspace** (`circuit/` = the real
+  proving circuit, `tools/commitment_calc/` = a new small sibling package) — required because
+  `integrity-sdk`'s `prover.py` needs `agent_id_commitment`/`intent_commitment` *before* it can
+  write `Prover.toml` for the real circuit (that circuit takes both as public inputs to be
+  checked, not computed as outputs), and this repo has no Python Pedersen-hash implementation
+  anywhere. Reimplementing Barretenberg's Pedersen hash from scratch in Python was rejected as
+  exactly the "two hashes, both look canonical" divergence risk `circuit/src/main.nr`'s own
+  docstring warns against; `commitment_calc` instead runs the *identical* hash computation
+  through the real Noir/Barretenberg toolchain (`nargo execute`'s return-value stdout line,
+  `Circuit output: (0x.., 0x..)`), and its own `#[test]` pins that output against
+  `circuit/Prover.toml`'s checked-in fixture. **Precisely, not overstated:** this test catches
+  drift in `commitment_calc`'s *own* logic (e.g. someone reorders its array without updating the
+  pinned constants) — a Noir `#[test]` cannot read another package's `Prover.toml` or call into
+  another package's functions, so it does NOT by itself catch `circuit/src/main.nr`'s hash shape
+  changing out from under it. What does catch that: `make build`'s `nargo execute` step against
+  `circuit/`'s own checked-in `Prover.toml` fails if that fixture no longer satisfies the
+  circuit's constraints — but only once `circuit/Prover.toml` is itself updated to match a hash
+  change, which is a same-commit discipline (documented in README.md "Fixture values"), not a
+  single CI-enforced invariant spanning both packages. Confirmed empirically (not assumed) that
+  both workspace members' build output lands in one shared `<workspace_root>/target/`, which is
+  what lets `prover.py` treat the workspace root as its one entry point.
+- **`integrity-sdk/integrity_sdk/prover.py` rewritten to actually drive the real circuit —
+  this had never happened before this session.** It previously pointed at
+  `circuits/poc_commitment/`, a smaller stand-in circuit with a different ABI, and — per a
+  background survey run before implementation started — was not called from anywhere else in
+  the repo (no call sites, no tests). Both facts are now different: `generate_proof` shells out
+  to the real `integrity-zkp` workspace (`circuit` + `commitment_calc`), and
+  `integrity-sdk/tests/unit/test_prover.py` is new, real, end-to-end coverage (6 tests, no
+  mocking of `nargo`/`bb`, skipped rather than faked when the toolchain isn't on PATH) — the
+  first tests this module has ever had. Also fixed in the same pass: the module's
+  `DEFAULT_VERIFIER_TARGET` was `"noir-recursive-no-zk"`, which uses a different internal hash
+  function than the `"evm"` target `contracts/src/oracle/UltraPlonkVerifier.sol` is generated
+  against — a proof built against the wrong target verifies fine locally via `bb verify` (same
+  wrong vk) but would never verify on-chain. This was a latent bug in unexercised code, not
+  something that had produced a bad proof in production, but is exactly the class of error that
+  only surfaces once code goes from "written" to "actually run."
+- `circuits/poc_commitment/` itself is now fully unreferenced by any code in this repo (dead,
+  not deleted — left in place as a historical artifact per CLAUDE.md's existing framing of it as
+  "an earlier placeholder"; `prover.py`'s docstring says plainly that nothing points at it
+  anymore rather than leaving an orphaned circuit undisclosed).
+- `.gitignore` fix (found, not introduced, by this work): a blanket `Prover.toml` rule had
+  silently kept `integrity-zkp`'s real, checked-in fixture untracked by git this whole time,
+  contradicting the package's own README ("The checked-in `Prover.toml` fixture..."). Added a
+  scoped `!integrity-zkp/circuit/Prover.toml` exception rather than editing the README's claim
+  to match the bug.
+- `.github/workflows/ci.yml`'s `zkp` job updated from `nargo test` to `nargo test --workspace` —
+  otherwise CI would silently stop running `commitment_calc`'s test entirely after the workspace
+  restructure (nargo's un-flagged default only builds/tests the workspace's `default-member`).
+  Stale `integrity-zkp/src/main.nr` path references (now `circuit/src/main.nr`) also corrected in
+  `docs/INTERFACE_CONTRACT.md` §5 (which also had its "chain_id not yet bound into the ZK
+  circuit" residual-gap note flipped to reflect that it's now closed) and `CLAUDE.md`'s "ZK proof
+  pipeline" section — found by grepping the whole repo for the old path after the restructure,
+  not left for the next session to discover as drift.
+
+**What this does NOT close:**
+- Does not change `integrity-oracle`'s verification path at all — the oracle still needs to
+  independently recompute or validate `intent_commitment` against the BCC record it has on file
+  for a given (agent, nonce) pair; this slice only changed what the circuit and `prover.py`
+  produce, not what the oracle checks it against. Not in scope for this slice. **Verified, not
+  assumed:** `integrity-oracle/backend/src/zk.rs`/`handlers.rs` treat `proof`/`public_inputs` as
+  opaque byte blobs passed through to `bb verify` — no hardcoded element count anywhere in the
+  oracle crate — and the oracle's own ZK test fixture (`backend/tests/fixtures/zk_smoke/`) is a
+  separate, smaller Noir circuit unaffected by this circuit's ABI change. Full oracle workspace
+  suite re-run after this change: 144/144 passed (126 backend + 18 scoring-core), zero
+  regressions.
+- Does not add a `VerifierRegistry` migration mechanism. Deliberately: nothing is deployed
+  anywhere against the old (3-public-input) circuit shape, and no real proofs exist against it
+  (confirmed via deployments-file inspection before this work started), so there is no live
+  population to migrate. If/when this is deployed, register the new verifier as a new version;
+  do not build migration machinery for zero live agents.
+- Does not close the disclosed `secret_key`-is-KDF'd-not-full-Ed25519 scope limitation
+  (unchanged, orthogonal to this binding) or the SHA-256-truncation lossy-packing disclosure
+  (unchanged, pre-existing, orthogonal).
+- Does not touch `integrity-cli`, which has no ZK code path at all (confirmed via survey: its
+  one `zk`-adjacent string match is an unrelated mocked JSON field in a test).
+
+**Verification discipline applied:** every circuit test re-run after each edit (`nargo test
+--workspace`, 6/6 then re-confirmed after the workspace restructure); full `make build` pipeline
+actually executed against the real toolchain (not assumed) — `nargo compile` → `execute` →
+`bb write_vk` → `bb prove` → `bb verify` (real proof, real verification, both succeeded) →
+`bb write_solidity_verifier`; the regenerated verifier's manual-patch transformation was
+extracted by diffing the *pre-change* generated/deployed file pair, then re-diffed against the
+freshly patched output to confirm the exact same transformation applied cleanly; `forge build` +
+full `forge test` re-run after the verifier/fixture swap (310/310, zero regressions); the new
+`integrity-sdk` prover tests actually generate and verify real UltraHonk proofs end-to-end
+(not mocked) and include a negative control (tampered proof byte → `verify_proof` returns
+`False`) and a binding-distinctness check (same keypair/payload, different `chain_id` →
+different `intent_commitment`, same `agent_id_commitment`); full `integrity-sdk` suite re-run
+(270 passed, 3 skipped, zero regressions).
+
+**Not deployed anywhere.** Every artifact above (circuit, verifier, fixtures, `prover.py`) is
+local and uncommitted at time of writing — no push/commit/deploy without separate explicit
+authorization, same standing rule as every prior Phase I slice.
+
+## 37. Epoch/timelock deployment invariant — Option B (fail-open for non-snapshotting kernels), (2026-08-19)
+
+**Closes:** the deployment invariant both `IntegrityAccountV1Experimental` and
+`IntegrityKernelV1Experimental` independently documented but neither enforced — that a kernel's
+`epochLengthSeconds` must be `>= moduleActionTimelockSeconds` on the account, or a fully-vested
+kernel swap can revert `SnapshotStale` for a reason unrelated to reputation, and a freshly-
+installed replacement kernel can be stale-on-arrival, rejecting the account's first post-swap
+`execute()` call. Previously "a deploy-time discipline, not a code-level guarantee" (both
+contracts' own words); now code-level, at every point a mismatched kernel could actually enter
+the account, not just genesis.
+
+**The decision, made explicitly, not defaulted:** the proposal doc named a real fork —
+Option A (require every future kernel to implement `epochLengthSeconds()`, fail closed, but
+permanently narrows what kinds of kernels this account can ever hold) vs. Option B (probe via
+`try`/`catch`, skip the check entirely for a kernel with no epoch concept — weaker, since
+Solidity's `try`/`catch` cannot distinguish "doesn't implement this" from "implements it but is
+currently reverting," but preserves generality for a legitimate future non-snapshotting kernel).
+Explained in plain language, then asked directly rather than defaulted to the proposal's own
+recommendation. The user chose **Option B**, matching the recommendation.
+
+**What changed, concretely:**
+- `IEpochSnapshotting` — a minimal marker interface (`epochLengthSeconds() external view returns
+  (uint256)`) — added to `IntegrityAccountV1Experimental.sol`. Deliberately not a requirement
+  every hook module implements.
+- `_checkEpochCompatibility(address newKernel)` — a private helper that probes
+  `newKernel.epochLengthSeconds()` via `try`/`catch` and reverts `EpochTooShortForTimelock` if
+  the kernel implements it and its value is less than `moduleActionTimelockSeconds`; silently
+  skips the check (does nothing) if the call reverts or the target has no such function.
+- Called from three places: the constructor (genesis kernel — closes the case a constructor-only
+  check would have missed everything BUT), `proposeKernelSwap` (the signer's normal path), and
+  `guardianProposeAction`'s force-propose branch (the guardian emergency path from §32) — a
+  constructor-only check would have left every subsequently swapped-in kernel unchecked, which
+  defeats the point given `executeKernelSwap` exists specifically to install a *different* kernel
+  later. All three probe the SAME helper, not three independent copies.
+- Both contracts' NatSpec corrected precisely, not just extended: the "deploy-time discipline,
+  not a code-level guarantee" line is now false for a kernel that implements the selector, and
+  still true for one that doesn't — both cases stated explicitly rather than picking one to be
+  accurate about.
+
+**A significant discovery made mid-implementation, not anticipated in the scoping doc:** the
+entire existing 101-test suite's shared `setUp()` fixture deliberately constructed its default
+account/kernel pair with `MODULE_ACTION_TIMELOCK = 3 days` and `REPUTATION_EPOCH_LENGTH = 1 days`
+— i.e., the EXACT invariant-violating configuration this feature exists to reject — because
+several existing tests use that mismatch to demonstrate the pre-existing `SnapshotStale`
+interaction bug this proposal's own "Why this slice" section cites as the motivation. Once the
+constructor-time check landed, this fixture would have made `setUp()` itself revert on every
+single test in the file. Resolved by raising `REPUTATION_EPOCH_LENGTH` to `3 days` (matching
+`MODULE_ACTION_TIMELOCK` — the shared fixture is now a compliant pair) and auditing every test
+that depended on the old mismatch: all of their `kernel.refreshReputationSnapshot()` calls turned
+out to already sit at an exact timestamp boundary (kept as disclosed defense-in-depth rather than
+removed, verified empirically, not by hand-checking the arithmetic, by actually removing them
+first and confirming nothing failed, then restoring them with corrected comments rather than
+leaving the file in a "probably fine" state); comments that specifically claimed "the epoch is
+shorter than the timelock" as their rationale were rewritten to state the accurate current reason
+(mostly: pulling a freshly-updated score into the cache, not staleness) rather than left
+describing a configuration that no longer exists. Zero test logic was weakened to make this
+land — every one of the 101 pre-existing tests in this file still passes unchanged in behavior,
+only the shared constant and a handful of comments changed.
+`test_quorumGatheringCanStaleTheSnapshotBetweenApprovals` (the proposal's own named regression to
+preserve) needed no changes at all — it demonstrates staleness caused by elapsed
+*quorum-gathering* time between guardian approvals, which is independent of the epoch/timelock
+relationship and remains fully reachable regardless of the two values.
+
+**New fixture, new tests:** `NonSnapshottingKernel` — a fully-conforming, working hook module
+(`isModuleType` returns true for `MODULE_TYPE_HOOK`, `preCheck`/`postCheck`/`onInstall`/
+`onUninstall` all succeed) that deliberately does NOT implement `epochLengthSeconds()` at all —
+representing a legitimate future kernel with no reputation-epoch concept. 4 new tests: genesis
+construction reverts for a mismatched pair; `proposeKernelSwap` reverts for a mismatched
+`newKernel`; `guardianProposeAction`'s force-propose branch reverts identically; and a full
+propose→approve→execute round trip against `NonSnapshottingKernel` succeeds end-to-end — Option
+B's fail-open case proven as an explicit, asserted test outcome, not left as an accident nobody
+checked.
+
+**What this does NOT close:**
+- Retroactive enforcement against an already-installed, already-violating kernel — out of scope
+  by design (per the proposal doc): this only prevents *installing* a mismatched pair going
+  forward.
+- The Option B fail-open gap itself — disclosed, not closed: a kernel that reverts on the
+  `epochLengthSeconds()` probe for a transient, unrelated reason (rather than genuinely not
+  implementing it) silently skips the check rather than failing closed. Solidity's `try`/`catch`
+  cannot distinguish the two cases.
+- Any change to `epochLengthSeconds`' own value, `MAX_EPOCH_LENGTH_SECONDS`, or any guardian
+  mechanism (§32/§33/§34/§35) — fully independent of those; this item had no dependency chain.
+
+**Verification discipline applied:** mutation-tested `_checkEpochCompatibility`'s core comparison
+(neutralized with `false && ...`, leaving the `try`/`catch` structure intact) — all three revert
+tests (`test_deployingMismatchedGenesisPairRevertsAtConstruction`,
+`test_proposeKernelSwapRevertsWhenNewKernelEpochShorterThanTimelock`,
+`test_guardianProposeActionRevertsWhenNewKernelEpochShorterThanTimelock`) failed with distinct,
+meaningful failures (a different revert reason or "did not revert as expected"), confirming the
+guard does real work; restored and re-confirmed 105/105. `IntegrityAccountV1ExperimentalTest`
+suite: 101 → 105 tests (+4). Full repo suite: 310/310 → 314/314.
+
+**Not deployed anywhere.** Foundry-test-only, local, uncommitted at time of writing, same
+standing rule as every prior Phase I slice — no push/commit/deploy without separate explicit
+authorization.
+
+This closes the sixth and final item of the six originally scoped. Item 7 (external audit /
+deployment) remains a gate, not actionable work — nothing in this repo's own discipline
+substitutes for it.
+
+## 38. `bcc.rego` had no "financial" risk class — an unrecognized intent authorized by matching nothing, not by policy (2026-08-19)
+
+**Context:** found while building `xibalba-quant`, a real autonomous trading agent meant to
+stress-test this protocol's own mediation pipeline (separate initiative, tracked outside this
+repo — see `~/.claude/plans/velvet-gathering-rivest.md`). Before building the trade executor,
+its BCC (Behavioral Commitment Chain) commitments were checked against the live policy, and it
+turned out `bcc_middleware/policies/bcc.rego` had zero rules for any trading/financial
+`intent_type` — exactly the same failure `bcc.rego` §3b already names and fixed once before for
+Claude Code's own tool calls (that section's own comment: *"792 logged decisions... authorized
+715, denied 0... A gate that cannot express an opinion is not a gate"*).
+
+**Closed:** added `"financial"` to `high_risk_tool_classes` (§3b's existing mechanism —
+`agent_tool_prefixes := {"claude_tool", "hermes_tool"}`), so an intent shaped
+`hermes_tool:<venue>_trade:financial` is now genuinely evaluated: it requires
+`verification_tier >= 1` (same threshold as the existing destructive/credential/chain_write
+classes — kept there deliberately, not raised, per the CEILING NOTE already in this file: Tier
+2/3 verification isn't real yet, so a higher threshold would be an unreachable no-op dressed up
+as a real policy decision) and, via `_is_agent_tool`, automatically inherits the AOS
+observability requirement (real `trace_id`/`span_id`/`intent_rationale` >= 15 chars, no
+exceptions). 5 new OPA tests in `bcc_test.rego`, including a regression anchor that pins the
+OLD failure mode (an unclassified two-segment `hermes_tool:coinbase_trade` label still passes
+through matching nothing — proving the gap was real, not assumed). Mutation-tested: removing
+`"financial"` from the set makes `test_financial_intent_denied_for_unverifiable_agent` fail with
+a real, distinct failure. `opa test policies/ -v`: 43 → 48 passing.
+
+**What this does NOT check, stated plainly (per this file's own header note):** the BCC
+commitment schema never carries the actual trade payload across the wire pre-execution — only
+`intended_state_hash` does — so this policy cannot and does not validate venue, asset, size, or
+side. That validation is the trade-executor's own job before it ever builds a commitment. This
+rule only gates identity verifiability and the observability/rationale requirement, same as
+every other class in this section.
+
+**A second, separate finding from verifying this against the real running stack, not just the
+OPA test suite:** the `opa` container (`docker-compose.yml`'s `opa` service) does **not
+hot-reload** its policy files. It bind-mounts `bcc_middleware/policies/` but loads them once at
+container start (`opa run --server ... policies/`, no `-w`/`--watch` flag) — editing the `.rego`
+files on disk has no effect on a running container until it's restarted. Confirmed by querying
+OPA's own `GET /v1/policies` admin endpoint directly: it kept serving the pre-edit policy
+(`"financial" in raw` → `False`) for several manual test calls after the file was already
+saved, which briefly produced a false-positive `authorized: true` result during verification —
+caught by cross-checking the admin endpoint rather than trusting the HTTP verdict alone, not
+shipped as a false "it works." `docker compose restart opa` picks up the change. Not fixed here
+(no code change needed, this is expected behavior for a file-loaded OPA server) — but worth
+knowing for anyone editing this policy locally: **restart `opa` after every `.rego` edit, or the
+change silently doesn't apply**, and don't trust a single manual verdict without also confirming
+via `/v1/policies` that the running server actually has the edit loaded.
+
+**Also found and fixed in the same pass, unrelated to the policy itself:** `xibalba-cortex`'s
+own venv (`/home/xibalba/Projects/xibalba-cortex/.venv`) had a stale, non-editable, frozen copy
+of `integrity-sdk` installed in `site-packages` despite `xibalba-cortex/pyproject.toml`
+declaring it as a `path` dependency (which should track the live local source) — meaning it
+predated this session's own `chain_id`/`verifying_contract` binding work on
+`build_bcc_commitment()` and would have raised `TypeError: unexpected keyword argument
+'chain_id'` for any real caller. `uv sync` alone did not detect/fix this (the resolved lock
+apparently didn't consider the path dependency stale); fixed with an explicit `uv pip install
+--reinstall --no-deps -e ../integrity-core/integrity-sdk`, confirmed editable and current
+afterward. Not integrity-core's own bug, but directly blocked integrity-core's own protocol
+change from reaching a real downstream consumer, so recorded here rather than left silently
+discovered-and-forgotten.
+
+**Not deployed anywhere beyond this local dev stack.** Local Docker Compose only, not committed
+at time of writing.
+
+## 39. Two real bugs found registering `xibalba-quant` for real on Base Sepolia (2026-08-19)
+
+**Context:** `xibalba-quant`'s DID already had real, live on-chain primitives deployed from
+2026-07-29 (a prior, undocumented session/attempt — not part of any work tracked in this repo's
+history) but was never fully registered with the oracle. Completing that registration, using the
+same funded operator key already used for the Health/Shield agent, surfaced two real, distinct
+bugs, neither hypothetical.
+
+* **`docker-compose.yml`'s Docker-facing RPC endpoint was pointed at an unhealthy public RPC.**
+  `.env`'s `DOCKER_RPC_URL` (consumed by `oracle-backend` and `bcc-middleware`) was
+  `https://sepolia.base.org`, while the host-facing `RPC_URL` (used by `integrity-sdk` scripts
+  run directly, outside Docker) was already correctly set to
+  `https://base-sepolia-rpc.publicnode.com`. The former was failing with `"no backend is
+  currently healthy to serve traffic"` — confirmed directly in `oracle-backend`'s own logs, not
+  inferred — causing every `resolveDID`-dependent oracle read (including the registration
+  endpoint) to silently degrade. **Fixed:** `DOCKER_RPC_URL` now matches the working
+  `RPC_URL`. This was a live infra misconfiguration, not a code bug — flagged here because it
+  would have equally broken any other agent's real registration or the periodic reputation-sync
+  loop against Base Sepolia, not just this one.
+* **`register_agent()`'s `resolve_did` short-circuit can skip genesis memory anchoring
+  entirely, leaving a real but oracle-unregistrable agent.** The short-circuit at the top of
+  `register_agent()` (added for the orphaned-pair problem §28/§18 already document) treats "the
+  agent's primitives are already deployed on-chain" as "registration already fully completed,"
+  and returns straight to the oracle POST — it does NOT re-check `StateAnchor.latestRoot`
+  before doing so, unlike the main (non-short-circuited) path, which the code's own comment
+  says explicitly should not be trusted to be automatic ("Idempotence: NOT guaranteed solely by
+  step 0's resolve_did short-circuit, despite what this comment used to claim"). This is exactly
+  the gap that comment already warns about, just not closed for the short-circuit branch itself.
+  `xibalba-quant`'s on-chain identity was a live instance of it: primitives fully deployed, zero
+  genesis root, oracle correctly refusing with `400 MemoryNotInitialized` on every registration
+  attempt. **Worked around manually for this one agent** (called `chain.anchor_genesis_root()`
+  directly, confirmed the root changed from `0x00...00` to a real non-zero value via
+  `state_anchor_latest_root`, then re-ran `register_agent()`, which succeeded). **Not fixed in
+  the SDK itself** — the short-circuit branch (`registration.py` lines ~214-243) should check
+  `state_anchor_latest_root` and anchor if zero, the same way the main path already does, before
+  this is considered closed. Left open rather than patched under time pressure while a live
+  registration was blocked on it; a real fix belongs in its own reviewed change, not folded
+  silently into an unrelated trading-agent registration.
+
+**Verified for real, not assumed:** `GET /v1/agent/<did>` now returns `verification_tier: 1`,
+`oracle_registered: true`, `has_ed25519_key: true`, `has_eth_address: true`; `GET /v1/agent/<did>
+/ais` returns a real (zero-activity) score. A separate, pre-existing cosmetic issue noticed while
+verifying: the returned `did_document.verificationMethod` array contains the same `#evm-1` EVM
+verification method duplicated 5 times — likely a byproduct of the same partial-registration
+history above (repeated `attach_evm_account` calls across multiple incomplete attempts) — not
+investigated further here, noted for whoever picks up the short-circuit fix above.
+
+**Not committed.** Both the `.env` fix and this write-up are local, uncommitted changes at time
+of writing.
+
+## 40. Phase I kernel slice promoted from `...V1Experimental` to production names — rename only, no logic change (2026-08-24)
+
+*Current State:* per `docs/plans/2026-08-24-phase1-promotion-decision-proposal.md` (Option A,
+authorized), `contracts/src/kernel/IntegrityAccountV1Experimental.sol` and
+`IntegrityKernelV1Experimental.sol` are renamed to `IntegrityAccount.sol` and `IntegrityKernel.sol`
+respectively (contract names, file names, and internal NatSpec cross-references — every
+occurrence verified by grep before and after, none remaining). `contracts/test/
+IntegrityAccountV1Experimental.t.sol` → `IntegrityAccount.t.sol`, its 146 references to the old
+names mechanically replaced. **Zero logic change**: `git mv` + `sed` only, no lines of behavior
+touched. Verified, not assumed: `Experimental` never appeared in any `error`/`event` identifier in
+either contract (only in contract names and comments), so this is not an ABI-shape change; `forge
+build` compiles clean (warnings only, pre-existing lint categories unrelated to this change); full
+repo suite re-run after the rename: 314/314 passing, zero regressions, `IntegrityAccountTest`
+(renamed from `IntegrityAccountV1ExperimentalTest`) itself at 105/105.
+
+**What this does NOT change:** the contracts remain exactly as un-deployed, un-audited, and
+un-formally-verified as before — promotion is a naming decision only, made because the
+2026-08-24 Phase I audit found the artifact had outgrown its original "tracer bullet" framing
+(six governance-hardening slices and a ZK-circuit binding since the name was chosen) with no
+technical defect motivating a rebuild under the production names instead. See the proposal doc
+for the full go/no-go reasoning, including why a from-scratch rebuild (Option B) was declined:
+it would have discarded 314 tests and six rounds of Devil's Advocate review with no named
+architectural justification, which is exactly the kind of divergence-prone path this repo's own
+history (§21 above) warns against.
+
+**Historical documents intentionally NOT rewritten:** `HANDOFF.md`, `CLAUDE_HANDOFF_2026-08-19.md`,
+`docs/design/phase1-tracer-bullet-slice-2026-08-17.md`, and every dated `docs/plans/2026-08-1[78]-
+phase1-*.md` proposal still refer to `IntegrityAccountV1Experimental`/`IntegrityKernelV1Experimental`
+— correct as dated logs of what was true when written. Only current-state documents (this file,
+README.md) were updated forward. Anyone grepping for the old names in a historical doc should not
+read that as the rename having failed to land — check `contracts/src/kernel/` directly.
+
+**What remains open for Phase I, restated from the 2026-08-24 audit — unaffected by this rename
+either way:** no Base Sepolia (or any) deployment, no external/independent audit, no
+machine-checked invariance argument, and the still-undecided general-value-conservation scope
+question (only native ETH is conserved today; ERC-20/721/arbitrary calldata inside a zero-ETH
+call remains unconstrained).
+
+## 41. Declared multi-asset value conservation built, tested, and found genuinely over the Table 4 gas budget — real finding, not resolved (2026-08-24)
+
+*Current State:* per `docs/plans/2026-08-24-phase1-declared-asset-conservation-proposal.md`
+(authorized, "full scoped slice at once"), `IntegrityKernel` gained a single additional declared
+conserved asset — an immutable `trackedToken` (ERC-20, `address(0)` disables the feature
+entirely, preserving prior behavior byte-for-byte), with its own `tokenPerOpBudgetWei`/
+`tokenCumulativeBudgetWei` two-tier budget, checked exactly like the existing native-ETH budget:
+a live `balanceOf` snapshot in `preCheck`, a live re-read and conjunctive revert in `postCheck`.
+7 new Foundry tests (in-budget transfer succeeds, per-op and cumulative reverts at their exact
+boundaries, native/token budget independence in both directions, a zero-token-budget constructor
+guard, the disabled-path pin), all passing; the two new guard checks (per-op, cumulative)
+mutation-tested — removing either makes its own test fail differently (wrongly succeeds), both
+restored before landing. Full repo suite: 321/321 (up from 314 at the promotion commit), zero
+regressions to any pre-existing test.
+
+**The gas checkpoint the proposal named as a precondition was run for real, and the finding is
+genuinely negative — reported, not absorbed.** `preCheck` with `trackedToken` enabled measures
+**~41,056 gas** against a genuinely COLD token-balance read — over the whitepaper's own Table 4
+`<=40k` ceiling. This is real, not an estimate: `test_preCheckGasExceedsPaperTable4BudgetWithTrackedTokenLiveRead`
+asserts it directly (`>40_000` and `<45_000`, a regression window matching the discipline the
+earlier three-reference-adapter over-budget finding used before ITS resolution). **A first
+measurement (~25,829 gas) looked like it fit — that number was wrong, an artifact of minting the
+tracked token inside the same test-body transaction as the `preCheck` call, which left the
+balance slot warm.** Restructured the test fixture (`tokenAccount`/`tokenKernel`/`token` now
+deployed in `setUp`, mirroring exactly how `reputation`'s own storage is cold-read from every
+test body) to get the representative, production-equivalent measurement before trusting any
+number — the corrected, cold figure is the one reported above. This is exactly the risk the
+proposal doc's own dependency-inventory section named before any Solidity existed: value
+conservation is a **hard invariant** per the whitepaper's own §4.7.1 ("never enter grace...
+fail-closed in every state"), so this slice cannot reuse the epoch-snapshotting cache that
+rescued the reputation/assurance-tier checks from their own, earlier crossing — caching a
+conserved-quantity balance would silently misstate the invariant itself, not merely widen a
+staleness window on a soft precondition.
+
+**No mitigation has been attempted within this slice's scope.** Both the kernel's contract-level
+NatSpec and the guarantee-statement doc comment are updated to state the crossing plainly rather
+than imply Table 4 compliance. Options for whoever picks this up next, none chosen here: (a)
+accept the crossing as a disclosed Phase I boundary (ERC-4337 bundler simulation limits are a
+policy question, not a hard on-chain revert, so an over-budget `preCheck` degrades UserOp
+inclusion economics rather than breaking correctness — a real cost, not a safety failure); (b)
+attempt a to-be-scoped mitigation (e.g., a keeper-refreshed cache with a MUCH shorter staleness
+window than reputation's, if a bounded-staleness value-conservation design can be shown not to
+violate §4.7.1's own hard-invariant framing — non-trivial, not attempted here); (c) drop the
+tracked-token feature and treat native-ETH-only as Phase I's permanent scope after all (reverts
+this slice, does not delete evidence — `IntegrityKernel`'s git history keeps this work available).
+
+**Decision (2026-08-24): option (a), accepted as a disclosed, permanent Phase I boundary.** The
+crossing is not being mitigated or reverted — `IntegrityKernel` keeps the `trackedToken` feature
+exactly as built and measured above. Reasoning, stated plainly rather than left implicit: this
+kernel is still Foundry-test-only and un-deployed (workstream 4, testnet deployment, remains
+separately gated), so no live UserOp is affected today; the crossing's actual cost is bundler
+simulation/inclusion economics under real ERC-4337 gas limits, not an on-chain correctness or
+safety failure (the value-conservation guarantee itself holds regardless of `preCheck`'s exact gas
+figure — a call either passes both budget checks or reverts, correctly, at 41k gas same as it
+would at 33k). Matches the same "document it, don't silently absorb it" posture this repo already
+applied to the earlier three-reference-adapter crossing before that one *was* resolved by
+caching — the difference here is that no equivalent resolution is available (§4.7.1's hard-
+invariant framing forecloses it), so this crossing is accepted rather than chased. Whoever
+proceeds to workstream 3 (formal verification) or workstream 5 (external audit) should treat
+this Table 4 crossing as a known, disclosed, in-scope finding to hand the auditor — not a
+regression to fix first. `IntegrityKernel`'s NatSpec is not being softened to reflect
+"acceptance"; the crossing stays stated as a crossing, only the decision about what to do with it
+is now closed.
+
+## 42. Halmos symbolic-verification harness built — real kernel installed via governance swap, two real cheatcode gaps found and worked around (2026-08-24)
+
+*Current State:* per `docs/plans/2026-08-24-phase1-formal-verification-proposal.md` (workstream
+3: machine-checked invariance argument, Table 8's Phase I gate) and its two follow-up scoping
+docs, a working Halmos harness now exists at `contracts/test/halmos/KernelSwapHarness.t.sol`,
+runnable reproducibly via `make verify-kernel`. This closes the dependency-inventory and
+harness-design steps; the four target properties (native-ETH budget containment, declared-token
+budget containment, reputation/assurance-tier fail-closed gating, reentrancy-guard soundness) are
+the next, separately-scoped step, not attempted in this entry.
+
+**Two of the three considered address-prediction approaches were tried and found genuinely
+infeasible, not just inconvenient — real findings, reported rather than routed around:**
+- **CREATE-nonce prediction:** Halmos 0.3.3 does not model plain `CREATE` addresses via real
+  RLP/nonce semantics at all — confirmed by reading `halmos/sevm.py`'s `create()`, which assigns
+  addresses from an internal synthetic counter unrelated to any real-world-computable formula. A
+  hand-written RLP predictor, cross-validated correct against `vm.computeCreateAddress` and a real
+  deployment under plain `forge test` (nonces 0–20), failed unconditionally under Halmos.
+- **CREATE2-salt prediction:** Halmos's CREATE2 addressing genuinely DOES match the standard
+  formula (verified directly, unbounded, symbolic salt) — the tool was never the problem here.
+  The problem is structural and tool-independent: `IntegrityKernel` and `IntegrityAccount` each
+  need the other's real final address embedded in their own constructor args, so both contracts'
+  CREATE2 addresses depend on each other through a one-way hash — an unsolvable two-variable fixed
+  point, true on real Ethereum as much as under Halmos, not something any salt choice fixes.
+
+**The working approach (placeholder-genesis-kernel, then a real governance swap) needs no address
+prediction at all**, which is exactly why it sidesteps both dead ends above. A trivial
+`AlwaysPassingPlaceholderKernel` (no `boundAccount` restriction) is genesis-installed on a real,
+unmodified `IntegrityAccount`; the real `IntegrityKernel` — bound to `address(account)`, already
+concrete by the time it's deployed, never predicted — is installed for real through the account's
+actual `proposeKernelSwap` → two guardian `approveKernelSwap` calls → `vm.warp` past the timelock
+→ `executeKernelSwap` path, completely unmodified production code. Two `check_` functions, both
+passing **unbounded** (Halmos's own `bounds: []`, meaning proven for literally all reachable
+symbolic values, not a sampled subset) in under 1.1s combined.
+
+**Two more real, disclosed Halmos/cheatcode compatibility gaps found and fixed, each
+cross-validated against plain `forge test` before being trusted under Halmos:**
+- `stdStorage`'s `checked_write` (the concrete test suite's own technique for writing
+  `AgentScore.zkBoostExpiry`, no other setter exists short of a real ZK attestation) depends on
+  `vm.record()`, confirmed unsupported. Fixed by writing the storage slot directly: `forge inspect
+  ReputationRegistry storage-layout` gives `scores` at slot 1 (its OZ v5 `Initializable`/
+  `AccessControlUpgradeable` bases use ERC-7201 namespaced storage, not the linear slot space, so
+  there's no inherited-storage offset to account for); a `mapping(address => AgentScore)` entry's
+  base slot is `keccak256(abi.encode(subject, uint256(1)))`, and `zkBoostExpiry` is the struct's
+  third `uint256` field, so `+2`. Verified against the real `scores(address)` getter under
+  concrete `forge test`, not asserted blind.
+- `vm.prank`/`vm.warp`/`vm.store`/`vm.load` are all confirmed **supported** under Halmos, each
+  checked directly rather than assumed — this is what makes the governance-swap sequence and the
+  manual storage write both viable.
+- Unrelated build-config gap: Halmos requires `forge build --ast`; without it every contract's
+  artifact is silently skipped (`KeyError: 'ast'`) rather than erroring, which reads exactly like
+  "no tests exist" if not caught. `Makefile`'s `verify-kernel` target always passes it.
+
+**Toolchain:** Halmos 0.3.3, pinned in `docs/INTERFACE_CONTRACT.md`, isolated in
+`contracts/.venv-halmos` (created on first `make verify-kernel` run, never installed globally) —
+matches this repo's existing per-package Python isolation convention. Full repo suite unaffected:
+321/321, zero regressions (the new harness files use Halmos's `check_` naming convention, which
+`forge test`'s own `test`-prefix matcher never picks up).
+
+**What remains for workstream 3:** the four target properties themselves (not attempted here);
+Halmos's actual scaling behavior against a property that exercises the reputation/assurance-tier
+gating logic (the harness above only proves installation succeeds, not any of the four named
+guarantees); and, per the parent proposal's own acceptance criteria, a precise, bound-stated
+guarantee summary added to `IntegrityKernel`'s NatSpec once properties are actually proven —
+premature to write until they exist.
+
+## 43. All four target Halmos properties proven, unbounded — workstream 3's own scaling risk resolved favorably (2026-08-24)
+
+*Current State:* `contracts/test/halmos/KernelProperties.t.sol` now machine-checks all four
+properties `docs/plans/2026-08-24-phase1-formal-verification-proposal.md` named, against the
+REAL, unmodified `IntegrityKernel`/`IntegrityAccount`, installed via the real governance-swap
+harness (`PRODUCTION_GAPS.md` §42). All six `check_` functions (property 1 has a second, cumulative-
+sequence variant; property 2 has a second, conjunction-with-native variant) pass **unbounded**
+(Halmos's own `bounds: []`) in ~7.6s combined — the scaling risk the parent proposal's own "real
+risk" section named ("Halmos may not scale to this kernel's cross-contract-call-heavy code") did
+not materialize. Every property is mutation-tested: the corresponding guard was disabled directly
+in `IntegrityKernel.sol`, confirmed to make the property fail, then restored — full repo suite
+re-verified at 321/321 after every restoration.
+
+- **Property 1 (native-ETH budget containment).** `check_nativeBudgetContainment`: single call,
+  any recipient/amount, succeeds iff within both budgets, exact balance delta. Two real scoping
+  findings from the FIRST Halmos run, both fixed by narrowing the property's own domain, not by
+  changing the kernel: (a) a fully symbolic recipient can legitimately be a contract that
+  unconditionally reverts on any call (excluded via `code.length == 0`, matching the concrete
+  suite's own `makeAddr` convention); (b) `target == address(0)` is ERC-7579's own "call self"
+  convention (`ERC7579Utils.sol` remaps it to `address(this)`), not a literal zero-address
+  transfer, and changes the balance-delta math entirely (excluded explicitly).
+  `check_cumulativeBudgetContainmentAcrossTwoCalls`: extends to a genuine two-call sequence, since
+  the single-call property structurally cannot exercise the cumulative check when
+  `PER_OP_BUDGET < CUMULATIVE_BUDGET`. Needed its OWN kernel with a wider per-op-to-cumulative
+  ratio (2 ether / 3 ether) — even generalizing the *ratio itself* was tried first and found
+  insufficient (two 1-ether-capped calls can never sum past 3 ether, so the cumulative branch was
+  silently unreachable in an earlier draft — a real scoping bug, caught before trusting the
+  property, not assumed away).
+- **Property 2 (declared-token budget containment + conjunction).**
+  `check_tokenBudgetContainmentAndNativeConjunction` and
+  `check_nativeBudgetStillEnforcedOnTokenTrackingKernel`: an ERC-20 transfer via a token-tracking
+  kernel succeeds iff within the token's own per-op budget; a pure-native call on the SAME kernel
+  is still independently bound by the native check, proving neither check masks the other.
+- **Property 3 (reputation/assurance-tier gating cannot be bypassed while stale or below floor).**
+  `check_reputationAndAssuranceTierGating`: for a symbolic base score, boost expiry, and elapsed
+  time, a trivial call succeeds iff the cached snapshot is fresh, above floor, and boosted —
+  generalizing four separate concrete boundary tests to every reachable combination. Found and
+  fixed a genuinely surprising Solidity/Foundry interaction while scoping this, tracked down via a
+  debug-revert bisection rather than assumed: caching `uint256 x = block.timestamp;` before a
+  later `vm.warp(...)` and reading `x` afterward returns the POST-warp value, not the value at the
+  point of assignment, in this codebase's `via_ir = true` build — reading the timestamp back from
+  real contract storage (`kernel.snapshotTakenAt()`) instead sidesteps it and is more
+  ground-truth-correct regardless. Worth remembering for any future property that warps forward
+  after capturing a timestamp.
+- **Property 4 (the `armed` reentrancy guard is sound).** `check_reentrancyGuardIsSound`:
+  generalizes the single concrete self-reentrancy test
+  (`test_reentrantExecuteDuringAnInFlightCallIsRejected`) to every combination of two in-budget
+  amounts. Mutation-testing this one surfaced a genuinely interesting result, recorded in the
+  property's own code comment: disabling only `preCheck`'s `AlreadyArmed` check does NOT make the
+  property fail — the reentrant call still reverts, on `postCheck`'s own separate `NotArmed`
+  check instead, since the nested call's `postCheck` clears `armed` before the outer call's
+  `postCheck` runs. Containment genuinely still holds under that single mutation; the property (by
+  design) proves the outcome, not which specific line catches it. Demonstrating the property has
+  real teeth required disabling BOTH `armed` checks at once — only then does the reentrant call
+  actually succeed and move funds, and only then does the property correctly fail.
+
+**Toolchain, harness, and dependency-inventory work:** all already recorded in §42 and unaffected
+by this entry — same pinned Halmos 0.3.3, same `contracts/.venv-halmos`, same `make verify-kernel`
+reproducibility (not yet updated to include this file's checks explicitly by name; still runs
+`--contract KernelSwapHarnessTest` only, a known small gap for whoever extends the Makefile target
+next).
+
+**What remains for workstream 3, restated:** a precise, bound-stated guarantee summary added to
+`IntegrityKernel`'s own NatSpec (each property's exact claim and that it's bounded, not
+unconditional, per Halmos's own `bounds: []` reporting convention) has NOT been written yet — the
+parent proposal's own acceptance criteria named this explicitly and it remains open. Workstream 3
+as a whole is not yet closed: this closes the "four target properties" deliverable specifically,
+not the NatSpec documentation deliverable alongside it.
+
+**Update (2026-08-24, same day): the NatSpec deliverable above is now also closed.**
+`IntegrityKernel`'s contract-level doc comment gained a "Machine-checked properties" section
+stating each of the four claims precisely, with the same bound/scope caveats this entry names
+(precompile/code-length/address(0)-means-self exclusions), and correcting a now-stale line that
+had called the Table 4 gas crossing (§41) "an open finding requiring its own decision" after that
+decision was actually made. `make verify-kernel` now runs both `KernelSwapHarnessTest` and
+`KernelPropertiesTest` (previously only the harness proof), closing the small gap this entry
+itself named. Workstream 3 is fully closed as of this update.
+
+## 44. Phase I kernel reference deploy script built and dry-run verified — not broadcast to any live network (2026-08-24)
+
+*Current State:* per `docs/plans/2026-08-24-phase1-testnet-deployment-proposal.md` (workstream 4,
+authorized 2026-08-24 after weighing its own four open design questions), `contracts/script/
+DeployKernelReference.s.sol` deploys ONE experimental, non-production reference instance of the
+promoted `IntegrityKernel`/`IntegrityAccount` (§40) -- explicitly NOT integrated with any real
+registered agent, `XibalbaAgentRegistry` entry, or `PrimitiveSet`. Four design decisions made
+explicitly, not defaulted: (1) a fresh `ReputationRegistry` clone, cloned from the network's
+already-deployed, real implementation (not a redundant new implementation, not bound to any real
+agent's actual reputation); (2) reuses `IntegrityAccountTest`'s own budget constants exactly, so
+this deployment is provably the same configuration already exercised by 321 concrete tests and
+six Halmos properties (§43), not a fresh unverified one; (3) `trackedToken` disabled, avoiding
+conflating this deployment with the already-disclosed Table 4 gas crossing (§41); (4) guardian
+addresses are REQUIRED env vars with no default -- this repo's existing protocol role addresses
+mostly collapse to the same deployer address (verified against the live
+`deployments.baseSepolia.json` before writing the script: only 2 of 6 `protocolAddresses` entries
+are actually distinct), not viable for a constructor that rejects duplicate guardians, and
+inventing placeholder addresses nobody controls would defeat the point of a multi-party mechanism
+even for a reference deployment.
+
+**Two real bugs found and fixed via a local dry run (anvil, chain 31337) before this was trusted,
+neither caught by compilation alone:**
+- **A genuine off-by-one in the CREATE-nonce address prediction**, caught only by actually running
+  the script: `updateScore` is itself a separate broadcast transaction that consumes a nonce
+  between the prediction read and the kernel deployment, which an early draft didn't count --
+  the KERNEL ended up deployed at the address predicted for the ACCOUNT, and the reputation score
+  was set for the wrong address entirely (the kernel's, not the account's -- `preCheck` checks
+  `effectiveScore(boundAccount)`, where `boundAccount` is the account). Fixed by reading the
+  deployer's nonce exactly once, before any further broadcast transaction, and predicting two
+  nonces ahead (`updateScore`, then the kernel deployment, both precede the account's own).
+- **A JSON re-serialization bug in the `domains` merge helper**, inherited uncritically from
+  `DeployEHRGate.s.sol`'s own `_rawDomains` pattern: dot-path concatenation
+  (`.domains.` + key) breaks when the key itself contains a literal dot (e.g.
+  `"general.integrity"`), which this repo's real domain names do -- `vm.parseJsonBytes32` treats
+  each embedded dot as a further path-traversal segment and reverts. Never caught before because
+  `DeployEHRGate.s.sol` was written and run when the real Base Sepolia `domains` section was still
+  empty (`{}`); this script's own local dry run has real domain entries and exercised the bug for
+  the first time. Fixed with bracket notation (`.domains["general.integrity"]`), which addresses
+  the key literally.
+
+**Verified beyond "the script didn't revert":** after the dry run, `cast call` confirmed the
+deployed account's `hook()` returns the kernel's address and the kernel's `boundAccount()` returns
+the account's address -- both directions of the binding, not assumed from the absence of a
+revert. Full local repo suite re-verified at 321/321 after the dry run and a clean rebuild.
+`deployments.local.json` is gitignored; the dry run's local addresses are not committed anywhere,
+and the local anvil instance used for it was stopped, not left running.
+
+**Not done, and not attempted here:** any broadcast to Base Sepolia or any other live network.
+Per the proposal's own scope ("this proposal covers scoping and building the script only, not
+running it"), actual broadcast execution -- which spends real (if low-value) testnet ETH from the
+real `FUNDER_PRIVATE_KEY` and creates a permanent public record -- requires its own separate,
+explicit authorization, not granted by this entry.
+
+**A third real finding, this one repo-wide, not specific to this script: `forge script` without
+`--broadcast` still executes `vm.writeJson`.** Simulating `DeployKernelReference.s.sol` against
+the REAL Base Sepolia RPC (to get a live gas estimate before requesting broadcast authorization)
+silently overwrote the real, tracked `deployments.baseSepolia.json` with fictitious addresses
+that were never actually deployed -- the simulation still runs `_mergeDeploymentsFile()` because
+Solidity/forge-std cheatcodes like `vm.writeJson` are local filesystem operations, not on-chain
+actions gated by `--broadcast`. Caught and reverted immediately (`git checkout --
+deployments.baseSepolia.json`) before it could be committed or mistaken for a real deployment
+record. **This is not unique to this script** -- `Deploy.s.sol`, `DeployEHRGate.s.sol`,
+`DeployMarkets.s.sol`, and `DeployXnsGovernance.s.sol` all write their deployments file
+unconditionally too, with no check for whether a broadcast actually happened. Anyone simulating
+any of them against a live RPC (e.g. to sanity-check gas before a real run, exactly what this
+entry was doing) would corrupt the same file the same way. Not fixed here -- a real, disclosed,
+pre-existing gap surfaced by this session's own workflow, worth its own scoped fix (e.g. gating
+the write behind `vm.isContext(VmSafe.ForgeContext.ScriptBroadcast)` or an explicit
+`--sig`-passed flag) rather than folded silently into this entry.
+
+**Real cost, measured against the live network, not estimated:** simulating against Base
+Sepolia's real RPC (`https://base-sepolia-rpc.publicnode.com`) reports 5,374,892 gas at ~0.011
+gwei, ~0.000059 ETH total. The real funder wallet (`cast wallet address` from the real
+`FUNDER_PRIVATE_KEY`, `0x7530bd7C...`) holds ~0.0625 ETH on Base Sepolia as of this check --
+`FAUCET_INFO.md`'s own balance figures are stale and describe different addresses entirely, not
+the actual deploying key. Broadcast cost is not a real constraint; authorization is the only
+remaining gate.
+
+**Update (2026-08-24, same day): broadcast, authorized explicitly.** `DeployKernelReference.s.sol`
+ran for real against Base Sepolia (`--broadcast`, real `FUNDER_PRIVATE_KEY`). Deployed addresses,
+recorded under `deployments.baseSepolia.json`'s `experimentalPhase1Reference` key (commit
+`9e7c9586c0fc081f4287f08a79ffa412c2a65a4b`):
+- `ReputationRegistry` (fresh clone): `0x1Ff487b0c568bF88Ae67789b8e891E3f9861a374`
+- `IntegrityKernel`: `0xb910cA020EB0ED18eb27e9eb2eedC4adeAdA6C57`
+- `IntegrityAccount`: `0xE1a31947A18f20F5Cb38122be4Cf37B4cFA9F1aD`
+
+Verified against the live chain, not assumed from the absence of a revert: `cast call` confirmed
+`account.hook() == kernel address` and `kernel.boundAccount() == account address`, both
+directions; `cast code` confirmed real, non-empty bytecode at both addresses (25,907 and 5,957
+bytes respectively, hex-string length including the `0x` prefix). Whitepaper Table 8's Phase I
+"testnet deployment" deliverable is now genuinely satisfied, not merely built-and-dry-run.
+
+**A `deployedFromCommit: "unknown"` gap, caught and fixed post-deploy:** the broadcast ran without
+`GIT_COMMIT_SHA` set, so the JSON record initially said "unknown" for that field -- corrected by
+hand to the real deploying commit SHA afterward (a local JSON edit, not an on-chain action, so
+safe to fix without redeploying). The script's own `vm.envOr("GIT_COMMIT_SHA", ...)` support was
+already correct; this was an invocation omission, not a script defect. Worth remembering for any
+future run of this or a similar script: pass `GIT_COMMIT_SHA=$(git rev-parse HEAD)` explicitly.
+
+**Remaining, explicitly not this entry's scope:** Etherscan/Basescan source verification
+(`BASESCAN_API_KEY` is unset in `contracts/.env`, so `--verify` was not attempted) -- the deployed
+bytecode is real and on-chain, but its source is not yet publicly linked/readable on Basescan.
+A separate, low-effort follow-up, not a blocker to anything else in this entry.
+
+## 45. Devil's Advocate review (governance + EntryPoint) — two real bugs fixed, EntryPoint gap closed for signature validation (2026-08-24)
+
+*Current State:* per `docs/plans/2026-08-24-phase1-devils-advocate-governance-entrypoint-proposal.md`
+(user's own explicit decision: no external auditor available, so internal adversarial review is
+substituted for Phase I hardening -- **explicitly NOT claimed to satisfy Table 8's "independent
+audit" gate**, which requires genuine outside review), an independent subagent reviewed
+`IntegrityAccount.sol`'s fully-assembled governance state machine (kernel-swap, guardian
+emergency action, guardian rotation, rescue sweep together -- no prior review had looked at all
+four together) and the never-before-reviewed ERC-4337 EntryPoint integration gap. Six findings;
+two real bugs fixed and mutation-verified, one NatSpec overstatement corrected, one already-open
+finding (EntryPoint address never verified) checked and resolved favorably, one gap
+(`validateUserOp` had zero test coverage) closed with real tests, one (prefund/live-bundler path)
+disclosed as still open. Full repo suite: 330/330 (up from 321 before this entry), zero
+regressions. All six Halmos properties re-verified unbounded after the fixes.
+
+**Finding A1 (High, FIXED) — guardian rotation, emergency action, and rescue sweep all
+permanently deadlock if any one guardian's key is genuinely lost.** `executeGuardianRotation`
+required unanimity of `_guardians.length` -- which still counted the DEPARTING guardian's own
+vote, since they remain in `_guardians` until the rotation executes. A guardian who has lost their
+key can never cast that vote, so their own removal -- the exact real-world scenario rotation
+exists to handle -- was permanently unreachable, not merely harder. Because
+`executeGuardianAction` and `executeGuardianRescueSweep` require unanimity of the same
+`_guardians.length`, the same lost key froze both of them too: the two mechanisms built
+specifically as "works even without signer cooperation" safety nets, disabled by exactly the
+failure they were meant to survive. No existing test constructed this scenario.
+
+Fixed by excluding the removal target's own vote entirely, not merely lowering the required
+count: `approveGuardianRotation` now reverts `CannotApproveOwnRemoval` if the target tries to
+approve their own removal, and `executeGuardianRotation`'s required-approvals computation is
+`isAddition ? _guardians.length : _guardians.length - 1`. Three new tests
+(`test_guardianCannotApproveOwnRemoval`, `test_removalSucceedsWithoutTheDepartingGuardiansOwnApproval`,
+`test_guardianActionReachableAgainAfterRemovingTheUnreachableGuardian` -- the last one proving the
+downstream unblock, not just the rotation fix itself), all mutation-tested (reverting the
+`required` computation makes the removal test fail with `InsufficientGuardianRotationApprovals`,
+confirmed and restored before landing). Writing the third test surfaced a real, separate bug in
+the TEST itself, same class already found twice this session: `_deployKernel(...)` evaluated
+inline as a `proposeKernelSwap` argument consumed the single-shot `vm.prank` meant for the
+subsequent call -- fixed by evaluating it into a local first.
+
+**Finding A2 (Medium, FIXED) — guardian force-cancel had no binding to which specific pending
+swap it was approving.** `GuardianAction` carried no target for a cancel action; `executeGuardianAction`'s
+cancel branch only checked "something is pending," not "the SAME swap guardians observed when
+they started approving." A signer could `cancelKernelSwap()` then `proposeKernelSwap(decoy)`
+mid-approval, and guardians finishing an unrelated unanimous approval would silently cancel the
+decoy swap they never saw or agreed to kill. Every other approval path in this contract
+(`approveKernelSwap`'s `expectedNonce`, force-propose's own stored `newKernel`) fails safe against
+this substitution class; force-cancel was the one exception, and it failed unsafe (silently acted
+on whatever was there) rather than reverting. Capped severity: cannot cause fund loss or a
+malicious kernel install, since `executeKernelSwap` still independently requires real
+`guardianThreshold` approvals regardless of what force-cancel does -- worst case is griefing
+(a wanted swap gets cancelled) or an uncooperative signer repeatedly evading a targeted
+force-cancel.
+
+Fixed by adding `targetKernelSwapNonce` to the `GuardianAction` struct, captured from the live
+`kernelSwapNonce` at `guardianProposeAction(true, ...)` time, and checked against the current
+`kernelSwapNonce` in `executeGuardianAction`'s cancel branch (`GuardianActionSwapTargetChanged`
+if mismatched, recoverable via the existing `cancelPendingGuardianAction`). One new test
+(`test_guardianForceCancel_RevertsIfTheTargetedSwapWasReplacedWithADecoy`), mutation-tested
+(disabling the check makes the decoy swap get silently cancelled instead of the revert being
+asserted, confirmed and restored).
+
+**Documentation-precision fix, not a bug:** the contract's own NatSpec previously claimed "at
+most one guardian-relevant governance process is ever in flight" -- false as written across all
+four mechanisms (kernel-swap and guardian-action are explicitly designed to coexist; rescue-sweep
+was always meant to run independently). Corrected to state the actual, narrower enforced
+invariant: rotation is mutually exclusive with (kernel-swap OR guardian-action); rescue-sweep is
+exclusive with nothing.
+
+**Everything else in the governance review checked and found sound:** the four nonce/approval
+namespaces are fully independent storage, so a bump in one can never make a stale approval from a
+different mechanism count toward anything; the kernel-swap↔rotation lock is genuinely symmetric
+and bidirectional as claimed; the three previously-disclosed classes (broken-kernel brick, the two
+reentrancy windows, unilateral swap denial) remain correctly closed/disclosed -- full assembly did
+not reopen any of them; rescue-sweep's live `_guardians.length` re-read during a concurrent
+rotation was checked for exploitability and found safe (a guardian added mid-flight only raises
+the bar; a guardian removed mid-flight requires that guardian's own consent per A1's fix, so it
+cannot be abused to strand a stale approval below the new count).
+
+**Finding B1 (High for usability, RESOLVED FAVORABLY, not a bug) — `entryPoint()` was never
+overridden and resolves to OZ's hardcoded default, previously unverified against anything.**
+Checked live, not assumed: `cast call 0x433709009B8330FDa32311DF1C2AFA402eD8D009
+"getNonce(address,uint192)" ... --rpc-url https://base-sepolia-rpc.publicnode.com` returns
+cleanly (`0`), confirming genuine, functional ERC-4337 EntryPoint v0.9 bytecode really is deployed
+at the address this account's `entryPoint()` resolves to, on the exact network this account is
+live on. This was a real, disclosed, previously-unverified assumption -- now verified correct, a
+favorable resolution rather than a fix. Pinned as a permanent regression check:
+`test_entryPointResolvesToTheRealCanonicalAddress` (the address side, checkable locally; the live
+bytecode check itself is this paragraph's own record, not repeatable inside a local Foundry test
+without a forked RPC).
+
+**Finding B2 (High, FIXED) — `validateUserOp` had zero test coverage anywhere in the repo.**
+The signature-validation path (`Account.validateUserOp` → `_validateUserOp` →
+`_signableUserOpHash` → `SignerECDSA._rawSignatureValidation`, resolved via `IntegrityAccount`'s
+own diamond-override in favor of the real ECDSA check) was plausible by inspection but had never
+actually been exercised. Four new tests: a genuine signer signature validates
+(`test_validateUserOpAcceptsAGenuineSignerSignature`), a wrong-key signature fails validation
+(not reverts -- ERC-4337's own convention is a nonzero return value)
+(`test_validateUserOpRejectsASignatureFromAWrongKey`), a valid signature over the WRONG hash
+fails (`test_validateUserOpRejectsAValidSignatureOverTheWrongHash`), and `validateUserOp` itself
+is `onlyEntryPoint` (not `onlyEntryPointOrSelf` like `execute()`), confirmed by reverting on a
+self-call (`test_validateUserOpRevertsWhenCalledBySelfNotEntryPoint`). Mutation-tested: forcing
+`_rawSignatureValidation`'s diamond resolution to `return false` unconditionally makes the
+accept-case test fail with the exact expected mismatch, confirmed and restored.
+
+**Finding B3 (High for usability, DISCLOSED, not fully closed) — sharper than the account's own
+prior NatSpec stated: the "self" branch every test in this file uses has NO production
+equivalent at all.** Every test authorizing `execute()`/the governance functions does
+`vm.prank(address(account))` -- a Foundry-only capability. No real caller, including this
+account's own signer, can make an external call where `msg.sender == address(this)`; that
+identity is only reachable by the contract calling itself, which requires an already-authorized
+call to bootstrap from, and this account has none (no installed executor module, module mutation
+disabled except the hook-swap path). Concretely: on the live deployment, `execute()`/
+`proposeKernelSwap()`/`cancelKernelSwap()` have exactly ONE reachable caller in production -- the
+real ERC-4337 `EntryPoint`, via a genuine UserOp/bundler flow. The account's own NatSpec is
+corrected to state this precisely rather than let a reader infer a "direct call" option exists in
+production that in fact does not. **Still genuinely open, not attempted here:** no real bundler
+has ever been driven against the live Base Sepolia deployment; the prefund/gas-sponsorship path
+(`missingAccountFunds > 0`) remains unexercised, matching the tracer-bullet slice's own original,
+still-accurate scope disclosure on that specific point.
+
+**What this entry does NOT claim:** satisfying Table 8's "independent audit complete" gate. This
+was internal review, by design (no external auditor engaged), and is documented as such throughout
+this entry and the proposal doc it came from -- the distinction matters and is deliberately not
+blurred.
+
+## 46. Fixed governance logic redeployed to Base Sepolia — the §44 deployment is superseded, not deleted (2026-08-24)
+
+*Current State:* per direct user instruction ("redeploy the fixed version to Base Sepolia"),
+`DeployKernelReference.s.sol` ran again for real, from commit `10ff4ad44d087f589f6e305e08c925ab6d0feaa7`
+(the Devil's Advocate fixes, §45) -- this time with `GIT_COMMIT_SHA` correctly passed, closing
+the "unknown" gap §44 disclosed. New addresses (`deployments.baseSepolia.json`'s
+`experimentalPhase1Reference` key, overwriting the §44 entry):
+
+- `ReputationRegistry` (fresh clone): `0x5f235388aD02bc7c5426B7f8d2773a17DeB9A616`
+- `IntegrityKernel`: `0x3e05E67Fb6dd3eE382eD24150141ffcBE2C9c338`
+- `IntegrityAccount`: `0x25858C53818E777C5569163F2e05570314fC947d`
+
+Verified live, not assumed: `cast call` confirmed both directions of the account/kernel binding;
+`cast code` confirmed real bytecode at both addresses (26,371 bytes for the account -- larger
+than §44's 25,907, consistent with the added `CannotApproveOwnRemoval`/
+`GuardianActionSwapTargetChanged` checks and the new `GuardianAction.targetKernelSwapNonce`
+field). Cost: ~5,440,035 gas (marginally more than §44's 5,374,892, same reason), ~0.00006 ETH,
+from the same funder wallet, balance still ~0.0624 ETH before this run.
+
+**The §44 deployment is NOT deleted or reachable through this repo's own records anymore (the
+JSON key was overwritten), but it still exists as real, immutable, deployed bytecode on Base
+Sepolia** at its own addresses (`IntegrityAccount` `0xE1a31947A18f20F5Cb38122be4Cf37B4cFA9F1aD`,
+`IntegrityKernel` `0xb910cA020EB0ED18eb27e9eb2eedC4adeAdA6C57`) -- contracts cannot be un-deployed.
+That instance still carries the two bugs §45 found and fixed (the guardian-key-loss deadlock and
+the force-cancel decoy-substitution gap) and should not be used or referenced going forward.
+Recorded here explicitly so it isn't silently forgotten: anyone who indexed or bookmarked the §44
+addresses is now looking at superseded, known-buggy bytecode, not the current reference instance.
+
+## 47. Phase II tracer-bullet slice: ERC-6551 licence account with volume cap, royalty, expiry, and the transfer-drain guard (2026-08-24)
+
+*Current State:* per `docs/plans/2026-08-24-phase2-licence-account-tracer-bullet-proposal.md`
+(authorized as scoped, with one addition mid-scoping -- the user added expiry as a third licence
+term alongside the original volume-cap/royalty pair, and confirmed the bespoke-account-not-hybrid
+architectural recommendation and the explicit `armTransfer`/`disarmTransfer` design for the
+transfer-drain guard), the first buildable piece of whitepaper Phase II ("Metered IP" — Table 8)
+now exists. Confirmed before writing any code: **zero prior ERC-6551/licence/ATCP code anywhere
+in this repo** (`grep` across `contracts/src/`, `integrity-sdk/`, `node_modules` came back empty)
+-- genuine greenfield, not an extension of Phase I's kernel/account primitives.
+
+New files, all under `contracts/`:
+- `src/licence/IERC6551.sol` -- hand-written `IERC6551Registry`/`IERC6551Account` interfaces (no
+  vendored ERC-6551 package exists in `node_modules`). The `account(...)` view signature was
+  cross-validated against the REAL, live canonical registry
+  (`0x000000006551c19487814612e58FE06813775758`, the same address on every EVM chain by EIP-6551
+  design) via a direct `cast call` on Base Sepolia before being trusted -- returned a clean
+  address, confirming the hand-written ABI matches what's actually deployed, not merely what the
+  EIP text says it should be.
+- `src/licence/LicenceToken.sol` -- minimal owner-gated-mint ERC-721, no marketplace logic, just
+  enough to attach a token-bound account to.
+- `src/licence/LicenceAccount.sol` -- the core slice. Enforces exactly three Table 2 terms
+  (volume cap / monotone depletion eq 13, royalty / value conservation eq 12, expiry) plus the
+  transfer-drain guard (eq 17). Deliberately **one implementation contract per licence** (terms
+  `immutable`, baked into bytecode at construction), not the more gas-efficient
+  shared-implementation-with-bytecode-introspection pattern real-world ERC-6551 tooling typically
+  uses -- disclosed in the contract's own NatSpec as a scope simplification, matching Phase I's
+  own "prove it narrow first, generalize later" precedent. Royalty balance ($b_I$, eq 16) is
+  `address(this).balance` directly, no separate accounting variable. `execute()` supports only
+  `operation == 0` (CALL).
+- `test/licence/LicenceAccount.t.sol` -- 25 tests, all boundary-tested (exact cap, one-over;
+  exact royalty, one-under; exact start/end timestamps, one-second-outside; exact committed
+  balance, one-under), not just interior cases.
+- `test/licence/Erc6551RegistryIntegration.t.sol` -- 6 tests, forking Base Sepolia against the
+  REAL canonical registry (not a mock): `account()`'s prediction matches what `createAccount()`
+  actually deploys, `createAccount()` is idempotent, and the deployed minimal-proxy enforces the
+  volume-cap and transfer-drain guards identically to a directly-constructed instance. Skips
+  cleanly (not fails) if no fork RPC is reachable, matching this repo's own
+  network-dependent-but-not-default posture for deploy scripts.
+
+**Total: 31/31 tests passing.** All three hard guards (volume cap, royalty, transfer-drain) were
+mutation-tested -- each temporarily disabled directly in `LicenceAccount.sol`, confirmed the
+corresponding test then fails, then restored and the full suite re-confirmed green -- same
+discipline as every Phase I kernel guard.
+
+**Explicitly deferred, matching the proposal's own scope section:** ATCP/IP signed intents
+(`consume()` is called directly via `vm.prank`/a real EOA, not through a signed-intent decode
+path -- matching how Phase I's own first tracer-bullet slice worked before EntryPoint
+integration existed); the adapter registry (terms are hardcoded per-instance); state channels;
+the other six Table 2 terms (field of use, licensee identity, exclusivity, derivative rights,
+assurance tier, memory continuity); any marketplace/escrow integration for `armTransfer`/
+`disarmTransfer` (bare owner-gated setters today, not wired to an actual sale flow); and any
+unification with `IntegrityKernel`/`IntegrityAccount`'s ERC-7579 hook pattern, despite the
+whitepaper's own "the same mechanism serves both" language (§5.3) -- a real, separately-scoped
+later undertaking, not attempted here for the same reason Phase I's original proposal declined
+the equivalent scope-creep risk in its own first slice.
+
+**No Halmos work done on this contract** -- unlike `IntegrityKernel.sol`'s four
+symbolic-verification properties (§43), `LicenceAccount.sol`'s guarantees rest on the 31 concrete
+Foundry tests described above, not an unbounded proof. Recorded as an open gap, not silently
+implied otherwise, in the contract's own NatSpec guarantee-statement section.
+
+This slice does not and cannot close the Phase II→III gate on its own -- Table 8's stated gate is
+"sustained real licensing volume from counterparties who are not the protocol's own
+contributors," an adoption metric no amount of building satisfies alone. Not deployed to any live
+network as part of this slice; that remains a separate, later decision.
+
+## 48. ATCP/IP signed-intent layer for `LicenceAccount.consume()` -- session keys, EIP-712 intents, open relaying (2026-08-24)
+
+*Current State:* per `docs/plans/2026-08-24-phase2-atcpip-intent-format-proposal.md` (authorized
+as scoped: open relaying, no per-session-key spending sub-limits, sequential OZ `Nonces`), the
+second Phase II workstream ("ATCP/IP intent format" -- Table 8). Whitepaper §7.1's transaction
+lifecycle names step 4 ("Validate: signature, session, domain") as happening in the "ERC-4337
+validation phase" via a "type-1 validator" -- this slice deliberately does NOT build that; making
+`LicenceAccount` a full ERC-4337 smart account is the same kernel-hybrid undertaking the base
+slice's own proposal already declined. Instead, `LicenceAccount.sol` gained a standalone EIP-712
+signature-verification layer achieving the same practical goal (root-key-free scoped
+authorization) with a materially smaller mechanism -- disclosed as such, not implied to be the
+ERC-4337 path, in the contract's own NatSpec.
+
+Added directly to `contracts/src/licence/LicenceAccount.sol` (now inherits OpenZeppelin's
+`EIP712` and `Nonces`, both already vendored, no new dependency):
+- `authorizeSessionKey(address key, uint256 expiry)` / `revokeSessionKey(address key)` --
+  owner-gated (dynamic `ownerOf` check, same as every other owner-gated function here). A session
+  key can only ever sign `ConsumeIntent`s -- it is never checked against `execute()`,
+  `armTransfer()`, or `disarmTransfer()`, proven directly
+  (`test_sessionKeyCannotCallExecuteOrArmTransferDirectly`).
+- `ConsumeIntent { address account; uint256 units; uint256 nonce; uint256 expiry; }`, an EIP-712
+  typed struct.
+- `consumeWithIntent(ConsumeIntent calldata intent, bytes calldata signature)` -- verifies, in
+  order: domain binding (`intent.account` must be THIS contract), intent expiry, signer
+  authorization (the owner or a currently-unexpired, non-revoked session key), and nonce
+  replay-protection (`Nonces.useCheckedNonce`, keyed to the recovered SIGNER, not `msg.sender`) --
+  before falling through to the exact same volume-cap/royalty/expiry enforcement `consume()`
+  itself uses. Deliberately callable by ANY relayer -- the signer authorizes the action, not the
+  caller, matching the whitepaper's own intent model. `consume()` itself is unchanged and remains
+  valid.
+
+New file `contracts/test/licence/ConsumeWithIntent.t.sol`: 20 tests covering owner-signed intents
+submitted by an unrelated relayer, session-key authorization/expiry/revocation (each at its exact
+boundary), domain-mismatch rejection, intent-expiry rejection (exact boundary and one-second-over),
+nonce reuse and out-of-order rejection, sequential intents from the same signer, and confirmation
+that `consumeWithIntent` still enforces the base slice's volume-cap and royalty checks. **Total:
+381/381 tests passing** across the full `contracts/` suite. All four new guards (domain binding,
+intent expiry, signer authorization, session-key past-expiry rejection) were mutation-tested --
+each temporarily disabled directly in `LicenceAccount.sol`, confirmed the corresponding test then
+fails, then restored and the full suite re-confirmed green.
+
+**A real, disclosed via_ir/solc 0.8.28 miscompilation was found and worked around while writing
+these tests, not silently patched over:** this repo's `foundry.toml` sets `via_ir = true`
+(required elsewhere for stack-too-deep reasons -- see this doc's own architecture notes). Under
+that setting, when the identical literal expression `block.timestamp + 1 hours` appears twice
+within one Solidity test function with a `vm.warp` call between them, the second evaluation
+silently reuses the FIRST evaluation's cached result instead of recomputing against the
+post-warp timestamp -- confirmed via isolated repro (`console2.log` before/after
+`vm.warp`), and confirmed NOT to occur when either (a) only one occurrence of the expression
+exists per function, or (b) the two occurrences use different literal offsets (e.g. `+ 1 hours`
+vs. `+ 2 hours`). This is consistent with an overly aggressive common-subexpression-elimination
+pass treating `TIMESTAMP()` as invariant within a function body -- true on a real chain (a
+contract's own external call cannot change `block.timestamp` mid-transaction) but false under
+Foundry's `vm.warp` cheatcode, which is exactly what the two affected tests
+(`test_expiredSessionKeyIntentReverts`, `test_sessionKeyValidExactlyAtItsOwnExpiryBoundary`)
+needed to exercise. Worked around locally in those two tests only (reordering the expression --
+literal first, `1 hours + nowAfterWarp` rather than `nowAfterWarp + 1 hours` -- confirmed to
+compile correctly), with the reasoning documented inline. **Not fixed at the repo level and not
+audited for other occurrences across the existing test suite** -- any OTHER test file that
+reuses an identical `block.timestamp + <literal>` expression twice around a `vm.warp` could be
+silently exercising the wrong timestamp and getting a false-positive pass. This is a real,
+disclosed gap in confidence in any such existing test, not something this slice attempted to
+sweep for across the whole repo.
+
+## 49. Settlement integration for `LicenceAccount.consume()` -- atomic protocol fee split (2026-08-24)
+
+*Current State:* per `docs/plans/2026-08-24-phase2-settlement-integration-proposal.md`, the third
+named Phase II workstream ("settlement integration" -- Table 8) now exists locally in
+`contracts/src/licence/LicenceAccount.sol`. This closes only eq (12) fee term phi for the existing
+licence-account consumption path; it does not implement the larger section 8.3 tokenomics system.
+
+Implemented directly on the same `_consume()` path shared by `consume()` and
+`consumeWithIntent()`:
+- `protocolFeeRecipient` and `protocolFeeBps` are immutable per-account terms, matching the rest
+  of this slice's one-implementation-per-licence design.
+- A nonzero `protocolFeeBps` with `protocolFeeRecipient == address(0)` reverts at construction;
+  `protocolFeeBps == 0` is a valid no-fee configuration, including a zero recipient, so prior
+  no-fee behavior remains representable.
+- The fee is computed from `royaltyDue` (`units * royaltyPricePerUnitWei`), not `msg.value`; any
+  overpayment continues to land in the licence account's own balance and does not inflate the
+  protocol fee.
+- The fee transfer is settled inside the same transaction as the meter decrement. If the
+  recipient call fails, the entire consumption reverts: no consumed units, no retained funds, no
+  partial settlement.
+
+New concrete coverage in `contracts/test/licence/ProtocolFeeSettlement.t.sol` proves the split on
+both `consume()` and `consumeWithIntent()`, constructor validation, exact no-fee regression
+behavior, overpayment behavior, and recipient-failure rollback. This is still concrete Foundry
+coverage only, not a Halmos/symbolic proof. `LicenceAccount.sol`'s top-level NatSpec now states the
+settlement guarantee alongside the earlier volume-cap, royalty, expiry, transfer-drain, and
+ATCP/IP intent claims.
+
+Explicitly still not built: adapter-author revenue share, staking yield, buy-back/burn, treasury
+allocation, per-adapter/per-term fee variation, a real economic parameter-setting process, and any
+fee on `execute()` withdrawals. A misconfigured recipient that reverts can deny all consumption on
+that licence by design; this slice prefers eq (12)'s no-partial-settlement invariant over a
+fee-bypass escape hatch.
+
+
+## 50. Phase II licence reference deployed to Base Sepolia -- experimental only (2026-08-24)
+
+*Current State:* the Phase II reference deployment in
+`docs/plans/2026-08-24-phase2-licence-testnet-deployment-proposal.md` was first dry-run against
+an Anvil fork of Base Sepolia, then broadcast after explicit authorization. All four transactions
+were mined successfully in Base Sepolia block `45930892`:
+- `LicenceToken`: `0x6B915ABC6e90B6E500b127EeFE4Ec616537A722C`
+  (`0xb64f5c3a9e748e3be91350153b33bccd3aa87dce621b5ed0b8ed67a716441c8e`)
+- Mint token ID `1`: `0x84bf753dee29f83a5b7e5c55cf44842b5c514206231deedb79f4fa7e7be17360`
+- `LicenceAccount` implementation: `0xf2394f0763288981Eb64077507a732B560093B3B`
+  (`0xcaf36d9f79ccb288264011acea2996b41db66d7b2d772e101bf5fa9886b94045`)
+- ERC-6551 token-bound account: `0xDBb7828137d3F44c8331c1E45Ba9416C7Ab9D2B7`
+  (`0x4d5e5235add8244a805b9eea29604e77aa43500570cfb20b4cd9c01de547b731`)
+
+The account binds `(84532, LicenceToken, 1)` and reports the minted NFT holder, its configured
+fee recipient, and `protocolFeeBps = 100` on live readback. The `LicenceToken` and
+`LicenceAccount` implementation are Sourcify exact matches. The ERC-6551 account is registry
+created proxy bytecode, so it has no standalone source-verification match. Actual total gas used
+was `2,322,660`; the combined L2 and L1 data fee was `0.000014327185348083 ETH`.
+
+This is an experimental, unaudited, illustrative reference only: volume cap `1000`, royalty price
+`0.0001 ETH` per unit, 30-day duration, zero ERC-6551 salt, and 100 bps protocol fee. It is not a
+commercial licence offer, does not establish production readiness, and received no live
+`consume()` or settlement call. A live consumption demonstration remains a separately authorized
+external action.
+
+## 51. Kernel hook on `LicenceAccount` -- a single additive precondition, not the ERC-7579/whitepaper §6 adapter registry (2026-08-25)
+
+*Current State:* whitepaper §5.3 states "the same [kernel] mechanism serves both" agent accounts
+and licence accounts. The base Phase II proposal
+(`docs/plans/2026-08-24-phase2-licence-account-tracer-bullet-proposal.md`) explicitly declined
+combining `IntegrityKernel`'s ERC-4337/ERC-7579 hook architecture with `LicenceAccount`'s
+ERC-6551 standard in one contract, naming it separate, later, scoped work. This entry is that
+slice, built directly to user request without a separate pre-authorization proposal round-trip
+(scope confirmed via chat instead) -- kept intentionally narrow, matching every prior Phase I/II
+precedent of proving a mechanism narrow before generalizing.
+
+New files, all under `contracts/src/licence/`:
+- `ILicenceHook.sol` -- a bespoke, NOT ERC-7579, single-method interface: `preConsume(address
+  account, address consumer, uint256 units, uint256 royaltyPaid)`, revert-to-reject (no bool/
+  hookData return), no `postConsume` (there is no balance-delta postcondition analogous to
+  `IntegrityKernel`'s spend-budget check -- `LicenceAccount.consume()`'s outcome is already fully
+  determined by its own inputs before the hook runs).
+- `ReputationFloorLicenceHook.sol` -- the one reference implementation: rejects a consumer whose
+  `ReputationRegistry.effectiveScore` is below a declared floor. Reads the score LIVE on every
+  call, no epoch-snapshot cache -- a disclosed, deliberate divergence from `IntegrityKernel`'s own
+  reputation check, which caches specifically to stay under the whitepaper's Table 4 ERC-4337
+  bundler-simulation gas ceiling. `LicenceAccount.consume()` is not an ERC-4337 validation-phase
+  call, so that ceiling does not apply here.
+
+`LicenceAccount.sol` changes: a new immutable constructor parameter, `ILicenceHook hook` (9th
+positional arg; `address(0)` disables it, matching `IntegrityKernel.trackedToken`'s own
+zero-disables convention). `_consume()` gained a `consumer` parameter (the resolved actor --
+`owner()` for `consume()`, the recovered EIP-712 signer for `consumeWithIntent()`, never merely
+`msg.sender`) and calls `hook.preConsume(address(this), consumer, units, royaltyDue)` after this
+contract's own volume-cap/royalty/expiry checks already passed, before any state mutation. All 8
+existing constructor call sites across `test/licence/*.sol` and
+`script/DeployLicenceReference.s.sol` updated to pass `ILicenceHook(address(0))`, preserving
+identical behavior -- verified: the full pre-existing 60-test licence suite still passes
+unchanged.
+
+New test file `test/licence/LicenceAccountHook.t.sol`, two suites:
+- `LicenceAccountHookTest` (a `MockLicenceHook`): hook disabled reproduces prior behavior exactly;
+  hook is called with correct `(account, consumer, units, royaltyPaid)` context on `consume()`;
+  hook rejection reverts the whole call with zero state change; a call that fails
+  `LicenceAccount`'s OWN checks never reaches the hook at all (`callCount` stays zero); the hook
+  sees the recovered SIGNER, not `msg.sender`, for `consumeWithIntent()`'s open-relay path.
+- `ReputationFloorLicenceHookTest` (real `ReputationRegistry`, EIP-1167 clone, same pattern
+  `IntegrityAccount.t.sol` already uses): reverts below the floor, succeeds exactly at the floor,
+  succeeds above it, and a same-block score change is reflected immediately (proving the live-read
+  design choice, not merely asserting it in prose).
+
+**Total: 9/9 new tests passing, 399/399 across the full `contracts/` suite.** The hook call site
+was mutation-tested (temporarily commented out, confirmed 5 of the 9 new tests then fail for the
+expected reasons, restored, full suite re-confirmed green) -- same discipline as every other guard
+in this file.
+
+**What this does NOT claim:** not swappable or composable (one immutable hook, not
+`IntegrityAccount`'s timelocked kernel-swap governance and not whitepaper §6's permissionless,
+staked, many-adapters registry); no declared/enforced gas bound (whitepaper §6.2 obligation R2 is
+not implemented -- an unbounded or misbehaving hook can make `consume()` arbitrarily expensive);
+no Halmos/symbolic verification (concrete Foundry tests only, same disclosed gap as the rest of
+`LicenceAccount.sol`); applies to `consume()`/`consumeWithIntent()` only, not `execute()` or
+`armTransfer()`/`disarmTransfer()`. Not deployed to any live network as part of this entry.
+
+## 52. `AdapterRegistry.sol` -- Phase III tracer-bullet slice, R3 (bounded cost) real, R1/R5 explicitly not attempted (2026-08-27)
+
+*Current State:* per `docs/plans/2026-08-25-phase3-adapter-registry-tracer-bullet-proposal.md`
+(authorized as revised, after `docs/design/phase3-adapter-encoding-strategy-2026-08-25.md`'s own
+design pass moved the encoding decision from a packed constraint-vector enum to bespoke-contract
+adapters), the first buildable piece of whitepaper Phase III ("Registry" -- §6). Confirmed before
+writing any code: zero prior `AdapterRegistry`/`IAdapter`/generic-constraint-vector code anywhere
+in this repo -- genuine greenfield, building on top of Phase I's `IntegrityKernel` and Phase II's
+`ReputationFloorLicenceHook` shapes (§51) without touching either.
+
+New files, all under `contracts/src/registry/`:
+- `IAdapter.sol` -- the minimal shared interface every registered adapter implements:
+  `check(address subject, uint256 amount)`, revert-to-reject, no bool/status return. Typed
+  parameters, not opaque `bytes calldata` -- the proposal's own open question, resolved here in
+  favor of the cheaper, clearer option sufficient for both seed adapters.
+- `AdapterRegistry.sol` -- permissionless `register(adapter, declaredGasBound, specHash)`,
+  idempotent on an exact repeat, reverting on a conflicting re-registration (no update path
+  exists in this slice); `evaluate(adapter, subject, amount)`, which calls
+  `adapter.check{gas: declaredGasBound}(subject, amount)` via Solidity's native `try`/`catch` and
+  distinguishes an adapter's own typed rejection (bubbled up UNCHANGED, exact revert data) from a
+  genuine gas-bound violation (`AdapterExceededGasBound`, fired when the failure carries
+  zero-length returndata); `isInstallable(address)` always returns `false` -- R5 is not
+  implemented, and this function says so honestly rather than defaulting to `true` in the absence
+  of a staking mechanism.
+- `SpendBudgetAdapter.sol` -- reference adapter mirroring `IntegrityKernel`'s per-op/cumulative
+  native-value check, generalized to track `cumulativeSpentWei` independently per `subject` (one
+  deployed instance can serve many subjects, unlike `IntegrityKernel`'s one-bound-account model).
+  **Disclosed, real weakening relative to `IntegrityKernel`:** trusts the caller-supplied `amount`
+  directly -- `IAdapter.check` is a single synchronous call, not `IntegrityKernel`'s pre/post
+  balance-snapshot pair, so there is no way to independently measure a real balance delta here.
+- `ReputationFloorAdapter.sol` -- reference adapter mirroring `ReputationFloorLicenceHook`'s
+  `effectiveScore` floor check (§51), same live (uncached) read for the same reason (not subject
+  to `IntegrityKernel`'s ERC-4337 validation-phase gas ceiling). Deliberately a separate contract
+  from `ReputationFloorLicenceHook`, not a shared base -- `IAdapter` and `ILicenceHook` are
+  different interfaces by design; whether they should ever merge is recorded as an open question
+  in the design note, not resolved here.
+
+New test files under `contracts/test/registry/`: `AdapterRegistry.t.sol` (13 tests -- zero-address/
+zero-gas-bound registration guards, permissionless registration, idempotent-vs-conflicting
+re-registration, `isInstallable` always false, an adapter's own rejection bubbled up unchanged,
+and -- the one mechanism this slice trusts to make R3 real -- a genuinely gas-burning adapter
+(`GasBurnerAdapter`, an unbounded loop) correctly reported as `AdapterExceededGasBound`, alongside
+a DIRECT PROOF of the disclosed heuristic limitation: a bare `revert()` with plenty of gas
+remaining is indistinguishable from true out-of-gas and is ALSO reported as
+`AdapterExceededGasBound`, not silently glossed over in prose); `SpendBudgetAdapter.t.sol` (9
+tests, boundary-tested at the exact per-op and cumulative caps, one-unit-over each, and
+independent per-subject tracking, plus registry-integration coverage); `ReputationFloorAdapter.
+t.sol` (6 tests, mirroring `ReputationFloorLicenceHookTest`'s own boundary/live-read discipline
+exactly, plus registry-integration coverage).
+
+**Total: 28/28 new tests passing, 427/427 across the full `contracts/` suite.** The gas-bound
+distinguishing guard (`AdapterRegistry.evaluate`'s `if (reason.length == 0)` branch) was
+mutation-tested: temporarily replaced with `if (false)`, confirmed exactly the two tests that
+should catch it then failed (`test_evaluateReportsGasBoundExceededForARealOutOfGasAdapter`,
+`test_bareRevertIsIndistinguishableFromGasBoundExceeded`) for the expected reason (`AlwaysAllowAdapter`,
+`AlwaysRejectAdapter`, and every boundary test elsewhere were unaffected, proving the mutation's
+blast radius was exactly the guard under test), restored, full suite re-confirmed green.
+
+**What this does NOT claim:** R1 (determinism) -- no differential-replay admission suite exists;
+this registry cannot and does not verify that a registered adapter is actually deterministic. R4
+(conservatism) -- structural only, by construction, IF a future caller only ever ANDs multiple
+adapters together; this registry evaluates exactly one adapter per call and has no composition
+logic of its own. R5 (attestation/staking) -- `isInstallable` always `false`, no `stakedITK`, no
+slashing, no ERC-7484-style vetting record, no fee routing (§8.3's `μ_ad` split). Not wired into
+`IntegrityKernel` or `LicenceAccount`'s actual gate path -- this slice proves the registry's own
+admission/metered-call machinery in isolation, nothing more. The gas-bound-exceeded heuristic
+(zero-length returndata) is explicitly disclosed as imperfect, not proven -- a bare `revert()`
+from an otherwise well-behaved adapter is indistinguishable from real out-of-gas, and this entry's
+own mutation test proves that limitation directly rather than only describing it. Not deployed to
+any live network as part of this entry.
+
+## 53. `AdapterRegistry` wired into `LicenceAccount` as a second, independent hook slot (2026-08-27)
+
+*Current State:* `LicenceAccount` gains a second, immutable, additive precondition slot --
+`registryHook` (`AdapterRegistry`) and `registryAdapter` (the specific adapter to evaluate) --
+alongside the existing `hook` (`ILicenceHook`) slot from §51. `address(registryHook) == address(0)`
+disables it, matching every other `address(0)`-disables convention in this codebase. When enabled,
+`_consume()` calls `registryHook.evaluate(registryAdapter, consumer, royaltyDue)` AFTER `hook` (if
+also set) and after this contract's own volume-cap/royalty/expiry checks, before any state change
+-- both slots are genuinely independent and additive, proven directly (`test_bothHookSlotsAreIndependentAndAdditive`
+installs both an always-allow `ILicenceHook` and a rejecting registry adapter simultaneously, and
+confirms the always-allow hook's own `callCount` only increments on the call that ACTUALLY
+succeeds, not the one that reverted from the other slot).
+
+Deliberately NOT a replacement for `hook` and NOT a merge of `ILicenceHook`/`IAdapter` -- that
+question remains open per `docs/design/phase3-adapter-encoding-strategy-2026-08-25.md`'s own
+unresolved-questions section, not decided by this entry. All 8 existing `LicenceAccount`
+constructor call sites (tests + `DeployLicenceReference.s.sol`) updated to pass
+`AdapterRegistry(address(0)), address(0)` for the two new trailing params, preserving identical
+behavior -- the full pre-existing licence suite (69 tests as of §51/§52) passes unchanged.
+
+New tests in `test/licence/LicenceAccountHook.t.sol` (`LicenceAccountRegistryHookTest`, 4 tests):
+constructor reverts when the registry is set but the adapter address is zero
+(`ZeroRegistryAdapter`); `consume()` reverts with the registered adapter's own reason when the
+consumer fails the registry check; succeeds when the consumer passes; both slots installed
+simultaneously are proven genuinely independent. The new guard in `_consume()` was
+mutation-tested (temporarily disabled, confirmed exactly the 2 tests that exercise it then failed,
+restored). Full `contracts/` suite: 431/431.
+
+## 54. `AdapterRegistry` wired into `IntegrityKernel.preCheck` -- Halmos re-verified for the disabled configuration only (2026-08-27)
+
+*Current State:* per explicit user direction to wire the Phase III registry into both
+`LicenceAccount` (§53) and `IntegrityKernel`, with two decisions made in chat before any code was
+written (this repo's own proposal-authorization discipline, exercised as a conversational
+check-in rather than a written document given the narrow, mechanical nature of the change): (1)
+run Halmos against a draft before committing to the approach, stopping if any of the kernel's six
+machine-checked properties broke; (2) add the registry to `LicenceAccount` as a SECOND, separate
+slot alongside `hook`, not a replacement.
+
+`IntegrityKernel` gains the identical pattern: immutable `registryHook`/`registryAdapter` (10th/
+11th constructor params, after the existing 9), `address(0)` disables. `preCheck` calls
+`registryHook.evaluate(registryAdapter, boundAccount, value)` (`value` is the wrapped call's own
+native value, the same `IERC7579Hook.preCheck` parameter the existing budget checks ultimately
+measure a delta against in `postCheck`) AFTER the existing cached reputation/assurance-tier
+checks, before `armed = true`. All 3 real constructor call sites (`HalmosKernelFixture.sol`,
+10 sites in `IntegrityAccount.t.sol`, `DeployKernelReference.s.sol`) updated to pass
+`AdapterRegistry(address(0)), address(0)`.
+
+**Halmos baseline, unmodified kernel:** 6 passed, 0 failed, 8.16s (`KernelPropertiesTest`, all six
+properties from `PRODUCTION_GAPS.md` §43). **Halmos against the draft wiring:** 6 passed, 0
+failed, 6.90s (first placement, check before the reputation checks) and again 6 passed, 0 failed,
+7.67s (final placement, check after the reputation checks, matching this entry's own described
+call order). **This is a real, disclosed limitation, not a clean bill of health:**
+`HalmosKernelFixture.sol` always constructs the kernel with `AdapterRegistry(address(0))`, so the
+new `if (address(registryHook) != address(0))` branch was UNREACHABLE in every symbolic path
+Halmos explored across all three runs. What this proves: adding the feature does not regress the
+six properties for any deployment that leaves it disabled (the only configuration Halmos actually
+exercised). What it does NOT prove: that the properties hold with the registry actually enabled
+and a symbolic/arbitrary adapter installed -- that configuration has zero Halmos coverage.
+
+Gas, disabled configuration: `preCheck`'s existing regression-bounded test
+(`test_preCheckGasIsUnderPaperTable4BudgetWithCachedReputation`, asserted range `(30_000, 40_000)`
+gas) still passes unchanged with the new field present but disabled -- consistent with `registryHook`
+being an `immutable` (inlined into runtime bytecode at deploy time via `CODECOPY`, not read via
+`SLOAD`), so the disabled-branch check costs a few gas, not a storage read.
+
+**Gas, ENABLED configuration -- measured end-to-end, real, disclosed finding (2026-08-27):**
+`test_preCheckGasCostWithRegistryEnabled` (`IntegrityKernelRegistryHookGasTest`, its own dedicated
+`setUp()` specifically so the reputation score is set BEFORE the measured call, not inline in the
+test body -- the same same-transaction-warm-read pitfall §41 and #48 both already named, avoided
+here rather than repeated) measures a genuinely cold, live `preCheck` call with the registry
+enabled at **~59.2k gas, pinned to a `(50_000, 65_000)` regression range**. This is well OVER the
+whitepaper's own Table 4 `preCheck` ceiling (`<=40k`) -- a THIRD crossing in this codebase's
+history, same category as `IntegrityKernel`'s tracked-token check (§41). A supplementary spot-check
+(not a pinned test, an equivalent fresh account/kernel pair with the registry disabled) measured
+~24.9k gas for the same call shape, isolating a real ~34k-gas delta attributable to exactly two
+extra cold external `CALL`s: `preCheck` -> `AdapterRegistry.evaluate` ->
+`ReputationFloorAdapter.check` -> `ReputationRegistry.effectiveScore`, each paying EIP-2929's
+cold-access surcharge once. No mitigation attempted -- the registry-enabled configuration is not
+deployed anywhere; this measurement exists so that decision is made with the real number in hand,
+not an assumed-cheap one.
+
+New test file `test/kernel/IntegrityKernelRegistryHook.t.sol` (4 tests, concrete Foundry only):
+constructor reverts on a set-registry-zero-adapter misconfiguration; `execute()` reverts with the
+registry adapter's own reason when the account clears the kernel's OWN reputation floor but not
+the registry adapter's independently-configured (deliberately higher) floor, isolating that the
+NEW check is what actually fired; `execute()` succeeds when both floors are cleared; and the
+end-to-end gas measurement above, in its own dedicated `IntegrityKernelRegistryHookGasTest`
+contract. The new guard was mutation-tested (temporarily disabled, confirmed the one test that
+exercises it then failed for the expected reason, restored). Full `contracts/` suite: 435/435.
+
+**What this does NOT claim:** Halmos coverage for the registry-ENABLED configuration (see above --
+the single largest disclosed gap in this entry). No wiring of the registry into `postCheck` --
+only `preCheck` was touched; a hypothetical adapter needing a balance-delta postcondition (the way
+the kernel's own spend-budget check works) is not supported by this slice. No change to
+`IntegrityAccount`'s own governance/timelock/guardian logic -- untouched. Not deployed to any live
+network as part of this entry.
+
+## 55. `IntegrityKernel.preCheck` registry gas mitigation -- crossing reduced, not eliminated (2026-08-27)
+
+*Current State:* per explicit user direction to "mitigate the gas crossing" measured and
+disclosed in §54 (~59.2k gas for the registry-ENABLED `preCheck` path, against the whitepaper's
+Table 4 `<=40k` ceiling). Before writing any code, the whitepaper's own §6.4 was re-read and
+re-interpreted: "R5 gates installability... without operator override" describes the registry as
+an INSTALL-TIME gate, not a per-transaction dispatcher. §54's wiring had `preCheck` call
+`AdapterRegistry.evaluate(...)` on every single invocation -- paying `AdapterRegistry`'s own
+external-call and dispatch overhead on top of the adapter's own cold read, every time. That
+per-call registry hop is not required by the spec; only confirming the adapter IS registered is,
+and that can happen once.
+
+**Mechanism:** `IntegrityKernel` gains a new immutable, `registryAdapterGasBound`. The
+constructor, when `registryHook_ != address(0)`, reads `registryHook_.adapters(registryAdapter_)`
+ONCE -- the same public-mapping getter tuple `(uint256 declaredGasBound, bytes32 specHash, bool
+registered)` `AdapterRegistry.sol` (§52) already exposes -- reverts `RegistryAdapterNotRegistered`
+if the adapter was never registered, and otherwise mirrors `declaredGasBound` into the new
+immutable (this repo's existing "verify once at construction, use forever" pattern, already used
+for `ZK_BOOST_BPS`/`BPS_DENOMINATOR`). `preCheck` no longer calls `registryHook.evaluate(...)` at
+all; it calls the adapter directly -- `IAdapter(registryAdapter).check{gas: registryAdapterGasBound}
+(boundAccount, value)` -- inside a try/catch that replicates `AdapterRegistry.evaluate`'s own
+zero-length-returndata heuristic locally: empty `reason` reverts the kernel's own new
+`RegistryAdapterExceededGasBound`, anything else re-reverts the adapter's original reason via
+inline assembly. `registryHook` itself is retained as a field (read in the constructor, otherwise
+unused at runtime) purely so `preCheck` still knows whether the registry integration is enabled at
+all -- the object of the address(0) check that gates the whole block.
+
+**Real, measured result:** `test_preCheckGasCostWithRegistryEnabled` re-measured cold (same
+dedicated-`setUp()` methodology as §54, warming the reputation score outside the measured call) at
+**49,290 gas**, down from §54's pinned ~59,167 -- a genuine **~9,877 gas / ~16.7% reduction**,
+re-pinned to a tightened `(44_000, 54_000)` regression range. **This does not close the gap
+against the whitepaper's `<=40k` ceiling** -- the registry-enabled configuration is still ~9.3k
+gas over. What was eliminated is exactly the registry's own external-call/dispatch overhead
+(`preCheck -> AdapterRegistry.evaluate -> adapter.check`, now `preCheck -> adapter.check`
+directly); what remains is the adapter's own inherent cold read, which no per-transaction
+mitigation touches -- shrinking that further would mean either accepting a shallower adapter
+(cheaper `check()` body) or reworking `AdapterRegistry`'s installability semantics so registration
+denotes something stronger than "callable," neither of which was in scope for this entry.
+
+**Halmos re-verified against the final mitigated code:** `forge build --ast` followed by
+`.venv-halmos/bin/halmos --contract KernelPropertiesTest --root .` -- **6 passed, 0 failed,
+7.90s**, identical property count to §54's baseline. Same disclosed limitation as §54:
+`HalmosKernelFixture.sol` still constructs the kernel with `AdapterRegistry(address(0))`, so
+every branch touched by this entry (the constructor's registry-read block, `preCheck`'s new
+direct-adapter try/catch) remains UNREACHABLE to Halmos across all six properties -- this run
+proves the mitigation does not regress the six properties when the registry is left disabled; it
+proves nothing about the registry-enabled configuration, which still has zero Halmos coverage.
+
+**Test coverage -- two real gaps found and closed via mutation testing, not merely asserted:**
+`IntegrityKernelRegistryHook.t.sol` gained a `KernelGasBurnerAdapter` mock (an infinite loop, to
+force a genuine out-of-gas) and a `KernelBareRevertAdapter` mock (a bare `revert()`, zero
+returndata by construction) alongside three new tests --
+`test_constructorRevertsWhenAdapterWasNeverRegistered`,
+`test_executeReportsRegistryAdapterExceededGasBoundForARealOutOfGasAdapter`, and
+`test_bareRevertFromRegistryAdapterIsIndistinguishableFromGasBoundExceeded` (the last of these
+DELIBERATELY demonstrates the disclosed heuristic weakness: a bare revert and a real
+out-of-gas both surface as the same `RegistryAdapterExceededGasBound` error, since both produce
+zero-length returndata -- this is not a bug, it is the documented limitation made concrete in a
+passing test). Mutation testing on the new constructor guard (`if (!registered) revert
+RegistryAdapterNotRegistered(...)` mutated to `if (false)`) and on `preCheck`'s zero-length-
+returndata branch (`if (reason.length == 0)` mutated to `if (false)`) initially passed ALL
+existing tests unmodified -- exposing that neither guard had real coverage before these three
+tests existed. Both gaps closed; both mutations, once the new tests were added, were then
+correctly caught. Full `contracts/` suite: 438/438.
+
+**What this does NOT claim:** that the `<=40k` Table 4 ceiling is met in the registry-enabled
+configuration -- it is not, by ~9.3k gas. No change to the registry-DISABLED configuration's gas
+profile (still governed by §54's unchanged `(30_000, 40_000)`-bounded test). No Halmos coverage of
+the registry-enabled configuration (same gap §54 already disclosed, unchanged by this entry). No
+change to `AdapterRegistry.sol` itself, `LicenceAccount`'s own registry wiring (§53), or
+`postCheck`. Not deployed to any live network as part of this entry.
+
+## 56. Phase II ERC-4337 account path (2026-08-28)
+
+*Current State:* `LicenceAccount` now implements the account-side ERC-4337 `IAccount` surface in
+addition to ERC-6551. `validateUserOp()` accepts only the canonical EntryPoint v0.9, verifies an
+owner or currently authorized session-key signature over `userOpHash`, pays missing prefund, and
+binds the exact `execute()` calldata to a one-transaction hand-off. Owner UserOperations retain
+the ordinary ERC-6551 CALL surface; session-key UserOperations are restricted to a self-call of
+`consume(uint256)`, allowing the account's own balance to fund royalty payment through the existing
+atomic consumption/settlement path.
+
+`contracts/test/licence/LicenceAccount4337.t.sol` covers owner execution, session-key restriction,
+invalid signatures, and byte-identical call-data binding. The focused suite passes 4/4. The
+paymaster suite passes 4/4 and the typed six-term policy suite passes 6/6; the full Solidity suite
+passes 458/458 after these implementation changes.
+
+**What this does NOT claim:** a live bundler or EntryPoint transaction, funded paymaster sponsorship,
+chain-specific EntryPoint support, or production readiness. The account uses the OpenZeppelin-
+pinned canonical v0.9 EntryPoint address; a different EntryPoint version requires a separately
+versioned deployment. The broader six licence terms, licence economy, external-adoption gate,
+independent audit, monitoring, rollback, and production parameter governance remain open.
+
+## 57. Phase II allowlisted paymaster (2026-08-28)
+
+*Current State:* `contracts/src/licence/LicencePaymaster.sol` implements an owner-funded,
+allowlisted ERC-4337 paymaster for the canonical EntryPoint v0.9. It requires the sender to be
+explicitly approved and rejects UserOperations whose maximum gas cost exceeds the immutable
+configured cap. Validation is stateless and the EntryPoint deposit is the sponsorship balance;
+`LicenceAccount.validateUserOp()` remains authoritative for account signatures and call-data
+authorization. Four focused tests cover the allowlist, cost cap, and EntryPoint-only validation and
+post-operation paths.
+
+The deployment script now deploys the paymaster, binds it to the same EntryPoint as the account,
+and allowlists the newly created reference token-bound account. It intentionally does not deposit
+funds automatically. A live sponsored UserOperation, bundler integration, deposit funding,
+paymaster stake, rate limits beyond the per-operation cap, and production sponsorship policy
+remain open. This is testnet infrastructure, not a claim of production gas sponsorship.
+
+## 58. Phase II typed licence terms policy (2026-08-28)
+
+*Current State:* `LicenceTermsPolicy.sol` implements the six additional Table 2 terms—field of
+use, licensee identity, exclusivity, derivative rights, assurance tier, and memory continuity—
+behind the immutable `ILicenceHook` slot. Accounts with this policy installed must use the typed
+`consumeWithTerms()` route or its EIP-712 relayed equivalent; untyped `consume()` fails closed.
+The policy binds the purpose, consumer, evidence hash, prior memory head, next memory head, and
+sequence number, and checks assurance tier through an explicit provider interface.
+
+`LicenceTermsPolicy.t.sol` passes 6/6, including positive-path enforcement, negative cases for
+each term, and the shared `ILicenceDelegationView` read model. This closes the implementation gap
+for the six terms and their common read surface, but not the broader licence economy,
+external-counterparty adoption evidence, or production audit.
+
+## 59. Phase II/III licence economy router (2026-08-28)
+
+*Current State:* `LicenceEconomy.sol` adds the missing settlement-economy layer as a separately
+owned contract compatible with `LicenceAccount`'s existing zero-data native fee transfer. It
+routes received fees to adapter authors, native-denominated staker rewards, a buyback reserve,
+and a treasury reserve. Adapter authorship and licence-to-adapter attribution are explicit and
+auditable mappings. ITK staking/unstaking and reward claims are implemented; buyback execution is
+an owner-selected external call protected by a minimum ITK output and burns only ITK newly received
+by the router. Fee-share changes require a two-day activation delay.
+
+`LicenceEconomy.t.sol` covers routing, missing-author fallback, author/staker claims, buyback burn,
+delayed governance, and invalid-share rejection. The reference deployment script now deploys the
+router, maps the spend-budget adapter author, binds the new token-bound account, and uses the router
+as the default protocol-fee recipient. This remains unaudited; no DEX price oracle, slashing
+policy, or production multi-party governance is claimed by this slice.
+
+## 60. Phase II external-adoption evidence validator (2026-08-28)
+
+*Current State:* `scripts/validate_phase2_adoption.py` and
+`docs/runbooks/phase2-adoption-evidence.md` define an auditable input path for the actual Phase
+II gate. The validator rejects empty, malformed, duplicate, non-external, contributor-owned, or
+below-threshold ledgers and requires explicit operator-supplied thresholds for distinct
+counterparties, consumed units, and observation-window duration. It does not manufacture
+counterparties or independently establish organizational independence; live receipts and a
+human-reviewed counterparty evidence record remain required.
+
+## 61. Final Phase II/III reference stack redeployed to Base Sepolia (2026-08-28)
+
+*Current State:* `DeployLicenceReference.s.sol` was rehearsed non-broadcast first, then broadcast
+successfully on Base Sepolia. The read-only `VerifyLicenceReference.s.sol` verifier passed against
+chain ID `84532`, confirming deployed bytecode and cross-contract bindings for the final
+`LicenceAccount`, `AdapterRegistry`, `SpendBudgetAdapter`, `LicencePaymaster`, and `LicenceEconomy`
+stack. Replacement addresses and broadcast receipts are recorded in
+`docs/evidence/phase2/2026-08-28-live-consume.md` and the deployment JSON.
+
+This remains an experimental, unaudited testnet deployment. The paymaster deposit is zero and
+the reference licence uses illustrative parameters.
+
+## 62. Live Phase II consumption and settlement evidence (2026-08-28)
+
+*Current State:* transaction
+`0x1573d80423209da211730cbcc3728dcdf8e211b10885bff9fc0ff71a1eee3112` succeeded in Base Sepolia
+block `46100906` and executed `consume(1)` for `100000000000000` wei. The receipt and post-state
+reconciliation are archived in `docs/evidence/phase2/2026-08-28-live-consume.md`: consumed units
+incremented `0 -> 1`, the adapter recorded the full royalty, the account retained the royalty less
+the 1% protocol fee, and the economy reserves split the fee exactly into author, treasury, and
+buyback allocations. This closes the live consumption/settlement demonstration for the project
+funder only; it does not close external adoption or sponsored UserOperation evidence.

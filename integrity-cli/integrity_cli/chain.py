@@ -33,6 +33,7 @@ from eth_account.signers.local import LocalAccount
 from eth_utils import keccak
 from web3 import Web3
 from web3.contract import Contract
+from web3.exceptions import ContractCustomError
 
 _ABIS_DIR = Path(__file__).resolve().parent / "abis"
 
@@ -244,6 +245,76 @@ def grant_anchor_role(
     tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
     _wait(w3, tx_hash, action="grant_anchor_role")
     return tx_hash.hex()
+
+
+def has_anchor_role(w3: Web3, state_anchor_address: str, oracle_signer: str) -> bool:
+    """Read-only check for whether `grant_anchor_role` has already succeeded for this
+    StateAnchor -- lets `agent register` skip a redundant (if harmless, since OZ's
+    `grantRole` is itself idempotent) transaction on a retry."""
+    state_anchor = _contract(w3, "StateAnchor", address=state_anchor_address)
+    anchor_role = state_anchor.functions.ANCHOR_ROLE().call()
+    return state_anchor.functions.hasRole(anchor_role, Web3.to_checksum_address(oracle_signer)).call()
+
+
+def itk_balance(w3: Web3, itk_address: str, holder_address: str) -> int:
+    """Read-only ITK balance check -- lets `agent register` skip re-minting on a retry,
+    which (unlike `grantRole`) is NOT idempotent: calling `mint_testnet_itk` twice mints
+    twice."""
+    itk = _contract(w3, "IntegrityToken", address=itk_address)
+    return itk.functions.balanceOf(Web3.to_checksum_address(holder_address)).call()
+
+
+def state_anchor_latest_root(w3: Web3, state_anchor_address: str) -> bytes:
+    """Read-only `StateAnchor.latestRoot()` -- a non-zero return means `anchor_root` has
+    already run for this agent. Lets `agent register` skip re-anchoring on a retry."""
+    state_anchor = _contract(w3, "StateAnchor", address=state_anchor_address)
+    return state_anchor.functions.latestRoot().call()
+
+
+_UNKNOWN_DID_SELECTOR = "0x" + keccak(text="UnknownDID()")[:4].hex()
+
+
+def resolve_did(w3: Web3, registry_address: str, did: str) -> Optional[PrimitivesRegistered]:
+    """
+    Reads `XibalbaAgentRegistry.resolveDID(did)`. Unlike `isRegisteredAgent` (a plain bool
+    getter), `resolveDID` genuinely REVERTS with the custom error `UnknownDID()` for a DID
+    that was never registered (confirmed by reading `XibalbaAgentRegistry.sol` directly:
+    `if (!record.exists) revert UnknownDID();`) -- returns `None` for that case rather than
+    letting the revert propagate; returns the full 7-primitive set (plus controller/domain)
+    if the DID is already registered. Any OTHER revert (unexpected selector, RPC error) is
+    re-raised, not swallowed.
+
+    Ported from `integrity_sdk.chain.resolve_did` -- this CLI previously had NO idempotency
+    check of any kind before `agent register`'s on-chain sequence (unlike the SDK, which at
+    least had this check even before its own deploy-resume fix), so every invocation for an
+    already-registered DID deployed a second, orphaned SovereignAgent/StateAnchor pair.
+    See `main.py`'s `agent_register` and `PRODUCTION_GAPS.md`'s §28 for the full history.
+    """
+    registry = _contract(w3, "XibalbaAgentRegistry", address=registry_address)
+    try:
+        record = registry.functions.resolveDID(did).call()
+    except ContractCustomError as exc:
+        selector = exc.args[0] if exc.args else None
+        if selector == _UNKNOWN_DID_SELECTOR:
+            return None
+        raise
+    # ABI-decoded tuple shape: (primitives_tuple, controller, domainId, registeredAt, exists)
+    primitives, controller, domain_id, _registered_at, exists = record
+    if not exists:
+        return None
+    sovereign_agent, state_anchor, reputation_registry, slasher, verifier_registry, compliance_gate, agent_profile = primitives
+    return PrimitivesRegistered(
+        did_hash=registry.functions.didHash(did).call().hex(),
+        sovereign_agent=sovereign_agent,
+        controller=controller,
+        state_anchor=state_anchor,
+        reputation_registry=reputation_registry,
+        slasher=slasher,
+        verifier_registry=verifier_registry,
+        compliance_gate=compliance_gate,
+        agent_profile=agent_profile,
+        domain_id=domain_id.hex(),
+    )
 
 
 #: Canonical seed string for the genesis vault root. Pinned in docs/INTERFACE_CONTRACT.md
@@ -473,3 +544,57 @@ def xns_primary_handle(w3: Web3, xns_address: str, sovereign_agent: str) -> str:
     """Read-only: the agent's primary handle, or "" if it has none registered."""
     xns = _contract(w3, "XibalbaNameService", address=xns_address)
     return xns.functions.primaryHandle(Web3.to_checksum_address(sovereign_agent)).call()
+
+
+def factory_has_registrar_role(w3: Web3, registry_address: str, factory_address: str) -> bool:
+    """Read-only check for whether `factory_address` holds `REGISTRAR_ROLE` on
+    `XibalbaAgentRegistry` -- a fixed precondition `AgentPrimitivesFactory.
+    registerPrimitives` depends on for `registry.registerPrimitives`/
+    `domainRegistry.recordJoin` to succeed. See main.py's `agent_register`."""
+    from eth_utils import keccak
+
+    registrar_role = keccak(text="REGISTRAR_ROLE")
+    registry = _contract(w3, "XibalbaAgentRegistry", address=registry_address)
+    return registry.functions.hasRole(registrar_role, Web3.to_checksum_address(factory_address)).call()
+
+
+def domain_exists(w3: Web3, domain_registry_address: str, domain_id: bytes) -> bool:
+    """Read-only check for whether `domain_id` has ever been claimed via
+    `DomainRegistry.registerDomain` -- the third element of the `domains` struct
+    getter's tuple (owner, mode, exists, memberCount)."""
+    registry = _contract(w3, "DomainRegistry", address=domain_registry_address)
+    _owner, _mode, exists, _member_count = registry.functions.domains(domain_id).call()
+    return exists
+
+
+def can_join_domain(w3: Web3, domain_registry_address: str, domain_id: bytes, caller: str) -> bool:
+    """Read-only mirror of the exact check `AgentPrimitivesFactory.registerPrimitives`
+    makes before deploying anything -- `False` here is what reverts as
+    `DomainJoinNotApproved()` deep in a real registration attempt, after gas for the
+    SovereignAgent/StateAnchor deploy has already been spent. Always check this BEFORE
+    signing anything -- see main.py's `agent_register`."""
+    registry = _contract(w3, "DomainRegistry", address=domain_registry_address)
+    return registry.functions.canJoin(domain_id, Web3.to_checksum_address(caller)).call()
+
+
+def register_domain(w3: Web3, signer: LocalAccount, domain_registry_address: str, name: str, chain_id: int, *, open_mode: bool = True) -> str:
+    """
+    Claims domain `name` in `DomainRegistry`, owned by `signer` -- permissionless,
+    first-come-first-served, same trust model as ENS second-level names (see
+    `DomainRegistry.sol`'s own NatSpec). `open_mode=True` sets `JoinMode.Open`, so
+    `canJoin` returns `True` for any caller afterward -- appropriate for a personal,
+    self-owned per-agent domain. Reverts `DomainAlreadyExists()` if the name is already
+    claimed; callers should check `domain_exists` first rather than relying on the
+    revert for control flow.
+    """
+    registry = _contract(w3, "DomainRegistry", address=domain_registry_address)
+    mode = 0 if open_mode else 1  # DomainRegistry.JoinMode: Open=0, Permissioned=1
+    tx = registry.functions.registerDomain(name, mode).build_transaction({
+        "from": signer.address,
+        "nonce": w3.eth.get_transaction_count(signer.address),
+        "chainId": chain_id,
+    })
+    signed = signer.sign_transaction(tx)
+    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+    _wait(w3, tx_hash, action="register_domain")
+    return tx_hash.hex()

@@ -4,6 +4,15 @@ All notable wire-visible changes to this surface are documented here. Format loo
 follows [Keep a Changelog](https://keepachangelog.com/) — one entry per change an
 integrator would actually observe, not one per commit.
 
+## Unreleased
+
+- Added provider-neutral KYC challenge and receipt-verification endpoints. The
+  `open_source_kyc_v1` receipt is nonce-bound, Ed25519-signed by a configured provider,
+  time-limited, and explicitly records document, liveness, and sanctions/PEP checks
+  without transmitting raw PII to the Oracle.
+- Fixed the OpenAPI generator so output is anchored to `CARGO_MANIFEST_DIR`; invoking it
+  from the workspace root or backend crate now updates the same repository file.
+
 ## v1.0.0 — initial published surface
 
 - First versioned, generated spec for the AIS API, covering all 10 `/v1/*` endpoints

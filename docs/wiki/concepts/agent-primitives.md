@@ -1,7 +1,7 @@
 ---
 title: Agent Primitives (Self-Sovereign Identity)
 created: 2026-07-07
-updated: 2026-07-15
+updated: 2026-08-29
 type: concept
 tags: [identity, layer-2, tokenomics]
 confidence: high
@@ -12,11 +12,16 @@ source_files:
   - docs/INTERFACE_CONTRACT.md
 ---
 
-> **Not to be confused with the four foundational primitives.** This page is about the seven
-> **contracts** an agent owns (the `PrimitiveSet`). The four *foundational* primitives —
-> memory, agent-owned contracts, authority, reputation — are **concepts**, documented in
-> [The Four Foundational Primitives](foundational-primitives.md). This page is one of them
-> (#2, Agent-Owned Contracts) expressed in Solidity; the other three are not contracts at all.
+> **Not to be confused with the four foundational primitives — or the kernel's three.** This
+> page is about the seven **contracts** an agent owns (the `PrimitiveSet`). The four
+> *foundational* primitives — memory, agent-owned contracts, authority, reputation — are
+> **concepts**, documented in [The Four Foundational Primitives](foundational-primitives.md).
+> This page is one of them (#2, Agent-Owned Contracts) expressed in Solidity; the other
+> three are not contracts at all. A third, unrelated sense also exists: the **kernel
+> primitives** (spec v3.2 §4.4) — value conservation, metered-rights depletion, and
+> replay-domain monotonicity — are invariants `IntegrityKernel` enforces for adapters, live
+> in `contracts/src/kernel/`, and are not part of this page's `PrimitiveSet` at all (see the
+> naming box in [The Four Foundational Primitives](foundational-primitives.md)).
 
 The defining architecture of the Integrity Protocol: **an agent owns and
 deploys its own on-chain contracts.** There is no privileged factory that
@@ -24,6 +29,16 @@ registers agents into shared global state on their behalf. On registration, an
 agent comes to own **7 primitive contracts** — and because the agent's own EVM
 wallet signs the deploy transactions for two of them, the chain itself is
 cryptographic proof of who controls the identity.
+
+## Table of contents
+
+- [The 7 primitives](#the-7-primitives)
+- [Call-routing convention (load-bearing)](#call-routing-convention-load-bearing)
+- [Registration sequence](#registration-sequence)
+- [Implications](#implications)
+- [Sovereign vs. Centralized Deployment Topologies](#sovereign-vs-centralized-deployment-topologies)
+  - [1. Sovereign Mode (Agent-Owned Clones)](#1-sovereign-mode-agent-owned-clones)
+  - [2. Centralized Mode (EOA-Owned / DAO-Governed Singletons)](#2-centralized-mode-eoa-owned-dao-governed-singletons)
 
 ## The 7 primitives
 

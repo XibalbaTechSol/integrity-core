@@ -1,0 +1,13 @@
+-- E11: the `agent_primitives` cache had no notion of which chain its addresses were
+-- resolved against. An oracle repointed from anvil (31337) to Base Sepolia (84532) kept
+-- serving anvil-era cached addresses for DIDs it had previously resolved, because the
+-- cache read in handlers.rs only checked "does a row exist for this DID", never "was it
+-- resolved against the chain this oracle is currently configured for". Five anvil-era
+-- rows surfaced this during the 2026-07-31 incident (docs/design/e2e-audit-2026-07-31.md).
+--
+-- NULL for pre-existing rows on purpose: we don't actually know which chain they came
+-- from (the column didn't exist yet), and guessing would just move the bug rather than
+-- fix it. The application layer treats NULL the same as a chain_id mismatch -- refuses
+-- to trust it, and re-resolves live from chain -- so old rows self-heal on next read
+-- instead of silently continuing to serve unverified addresses.
+ALTER TABLE agent_primitives ADD COLUMN chain_id BIGINT;

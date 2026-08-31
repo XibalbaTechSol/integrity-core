@@ -115,24 +115,28 @@ fn entry_grounding(entry: &Value) -> Option<f64> {
 }
 
 /// Batch-mean stability score across every entry that has a completion text or a
-/// pre-computed value. Returns 1.0 (no evidence of instability) for an empty batch or a
-/// batch with no scoreable entries — an agent that hasn't produced any output yet
-/// shouldn't be penalized as if it had produced erratic output. This is also the same
-/// default an HONEST empty batch produces, so an attacker sending empty `otel_spans`
-/// gains no advantage over simply having nothing to report.
+/// pre-computed value. Returns 0.0 for an empty batch or a batch with no scoreable
+/// entries — spec/integrity-protocol-v3.2.md §3.1.1 requirement N2 ("earned, not
+/// granted"): absence of evidence must score low, not high. The prior default of 1.0
+/// treated "no evidence of instability" as "proof of stability", which is exactly
+/// backwards — it let a submission with no analysable content buy maximal entropy
+/// AND grounding for free, and because `scoring_core::score` is a weighted geometric
+/// mean, a genuinely-absent axis should pull the whole score toward zero, not shield
+/// it. See §3.1.4 implementation-delta rows 1-2.
 pub fn derive_entropy(batch: &[Value]) -> f64 {
     let values: Vec<f64> = batch.iter().filter_map(entry_entropy).collect();
     if values.is_empty() {
-        1.0
+        0.0
     } else {
         values.iter().sum::<f64>() / values.len() as f64
     }
 }
 
+/// See `derive_entropy`'s doc comment — same fail-closed rationale (spec §3.1.1 N2).
 pub fn derive_grounding(batch: &[Value]) -> f64 {
     let values: Vec<f64> = batch.iter().filter_map(entry_grounding).collect();
     if values.is_empty() {
-        1.0
+        0.0
     } else {
         values.iter().sum::<f64>() / values.len() as f64
     }
@@ -224,10 +228,12 @@ fn entry_flagged(entry: &Value) -> bool {
 /// Self-reported half of `derive.py::derive_compliance`: fraction of batch entries NOT
 /// flagged as a policy violation. The on-chain "wins" half needs `state.chain` (a live
 /// `ComplianceGate.isHealthcareCompliant` read) and stays in `handlers.rs`, not this
-/// pure module — see `handlers::ingest_telemetry`.
+/// pure module — see `handlers::ingest_telemetry`. Returns 0.0 for an empty batch
+/// (spec/integrity-protocol-v3.2.md §3.1.1 N2) — absence of compliance evidence is not
+/// evidence of compliance, so an agent submitting nothing must not score as "clean".
 pub fn self_reported_compliance(batch: &[Value]) -> f64 {
     if batch.is_empty() {
-        return 1.0;
+        return 0.0;
     }
     let flagged_count = batch.iter().filter(|e| entry_flagged(e)).count();
     1.0 - (flagged_count as f64 / batch.len() as f64)
@@ -264,6 +270,27 @@ pub fn recompute(batch: &[Value]) -> RecomputedSignals {
         grounding: derive_grounding(batch),
         sacrifice: derive_sacrifice(batch),
     }
+}
+
+/// Names the fail-closed axes for which this batch contained no usable evidence.
+/// This is intentionally separate from checking whether a numeric result happens
+/// to equal zero: a legitimate low score is behavior, while an empty axis is a
+/// telemetry-collection condition that needs a different operational response.
+pub fn zero_axis_reasons(batch: &[Value]) -> Vec<(&'static str, &'static str)> {
+    let mut axes = Vec::new();
+    if !batch.iter().any(|entry| entry_entropy(entry).is_some()) {
+        axes.push(("entropy", "no scoreable text evidence"));
+    }
+    if !batch.iter().any(|entry| entry_grounding(entry).is_some()) {
+        axes.push(("grounding", "no scoreable text evidence"));
+    }
+    if batch.iter().map(entry_token_total).sum::<i64>() <= 0 {
+        axes.push(("sacrifice", "no positive token usage evidence"));
+    }
+    if batch.is_empty() {
+        axes.push(("compliance", "empty telemetry batch"));
+    }
+    axes
 }
 
 #[cfg(test)]
@@ -384,11 +411,33 @@ mod tests {
     // --- batch defaults / adversarial robustness ---
 
     #[test]
-    fn empty_batch_entropy_and_grounding_default_to_one_not_zero() {
-        // The "nothing to game" fallback: an attacker sending empty otel_spans gets the
-        // same benign default an honest empty batch gets, not an advantage.
-        assert_eq!(derive_entropy(&[]), 1.0);
-        assert_eq!(derive_grounding(&[]), 1.0);
+    fn empty_batch_entropy_and_grounding_fail_closed_to_zero() {
+        // spec §3.1.1 N2: absence of evidence must score low, not high. An attacker
+        // sending empty otel_spans (or spans with no analysable text) must not receive
+        // the same score as an agent who demonstrated real stability/grounding.
+        assert_eq!(derive_entropy(&[]), 0.0);
+        assert_eq!(derive_grounding(&[]), 0.0);
+    }
+
+    #[test]
+    fn zero_axis_reasons_distinguish_missing_evidence_from_low_scores() {
+        let reasons = zero_axis_reasons(&[json!({"metadata": {"token_usage": {"total_tokens": 10}}})]);
+        assert_eq!(reasons, vec![("entropy", "no scoreable text evidence"), ("grounding", "no scoreable text evidence")]);
+        assert!(zero_axis_reasons(&[]).contains(&("compliance", "empty telemetry batch")));
+    }
+
+    #[test]
+    fn content_free_submission_with_token_counts_fails_closed_on_entropy_and_grounding() {
+        // Regression for the attack this fix closes: a submission carrying token counts
+        // (so derive_sacrifice is nonzero) but no analysable text_output/precomputed
+        // entropy-or-grounding value must not read as maximally stable and grounded.
+        // Before this fix, entropy/grounding defaulted to 1.0 here, which combined with
+        // self-reported compliance's own empty-batch default let a content-free
+        // submission outscore an honest agent with real, mediocre telemetry.
+        let batch = vec![json!({"metadata": {"token_usage": {"total_tokens": 5_000_000}}})];
+        assert_eq!(derive_entropy(&batch), 0.0);
+        assert_eq!(derive_grounding(&batch), 0.0);
+        assert!(derive_sacrifice(&batch) > 0.0, "sacrifice should still reflect the claimed tokens");
     }
 
     #[test]
@@ -402,9 +451,11 @@ mod tests {
             json!(null),
             json!(42),
         ];
-        // Must not panic; must fall back to the empty-batch default since nothing is scoreable.
-        assert_eq!(derive_entropy(&batch), 1.0);
-        assert_eq!(derive_grounding(&batch), 1.0);
+        // Must not panic; must fall back to the fail-closed empty-batch default since
+        // nothing here is actually scoreable (`self_reported_compliance` is exempt — it
+        // counts entries, not scoreable content, and this batch is non-empty).
+        assert_eq!(derive_entropy(&batch), 0.0);
+        assert_eq!(derive_grounding(&batch), 0.0);
         assert_eq!(derive_sacrifice(&batch), 0.0);
         assert_eq!(self_reported_compliance(&batch), 1.0);
         assert_eq!(entry_covered_entity_address(&batch), None);
@@ -434,8 +485,9 @@ mod tests {
     }
 
     #[test]
-    fn self_reported_compliance_empty_batch_is_clean() {
-        assert_eq!(self_reported_compliance(&[]), 1.0);
+    fn self_reported_compliance_empty_batch_fails_closed_to_zero() {
+        // spec §3.1.1 N2: absence of compliance evidence is not evidence of compliance.
+        assert_eq!(self_reported_compliance(&[]), 0.0);
     }
 
     // --- entry_covered_entity_address ---

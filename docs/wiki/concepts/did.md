@@ -2,7 +2,7 @@
 title: Decentralized Identifier (DID)
 acronyms: [DID]
 created: 2026-07-07
-updated: 2026-07-07
+updated: 2026-08-29
 type: concept
 tags: [identity, cryptography]
 confidence: high
@@ -10,6 +10,12 @@ source_files:
   - docs/INTERFACE_CONTRACT.md
   - integrity-cli/integrity_cli/identity.py
 ---
+
+## Table of contents
+
+- [Overview](#overview)
+
+## Overview
 
 An agent's on-protocol identity: a real Ed25519 keypair (no HMAC
 pseudo-signature fallback — the old prototype had one, explicitly documented

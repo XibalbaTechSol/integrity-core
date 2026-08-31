@@ -4,7 +4,7 @@ import axios from 'axios';
 import { Activity, Radio, ChevronDown, ChevronUp, Shield, Lock, FileCode, CheckCircle, AlertTriangle, Cpu, Terminal } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useIsMobile } from '../../utils/useIsMobile';
-import { useDashboard } from '../../context/useDashboard';
+import { useDashboard } from '../../context/DashboardContext';
 import { oracle } from '../../services/oracle';
 
 // Xibalba Solutions: Live Telemetry Stream Visualizer (v2.0)
@@ -103,7 +103,7 @@ export const TelemetryStream = () => {
             {/* Header */}
             <div className="card-header" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', padding: isMobile ? '16px' : '24px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: 'rgba(212, 175, 55, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--gold)' }}>
+                    <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: 'rgba(212, 175, 55, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--theme-accent)' }}>
                         <Activity size={20} />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -163,7 +163,7 @@ export const TelemetryStream = () => {
                         type="checkbox"
                         checked={showAlertsOnly}
                         onChange={e => setShowAlertsOnly(e.target.checked)}
-                        style={{ accentColor: 'var(--gold)', cursor: 'pointer' }}
+                        style={{ accentColor: 'var(--theme-accent)', cursor: 'pointer' }}
                     />
                     <span>Flagged Only</span>
                 </label>
@@ -171,7 +171,7 @@ export const TelemetryStream = () => {
 
             <div style={{ padding: isMobile ? '16px' : '16px 24px', fontSize: '0.65rem', color: 'rgba(255,255,255,0.5)', lineHeight: 1.5, borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span>Real-time ingestion of active node performance metrics. Click on any record to inspect cryptographic proofs, full payloads, and security policies.</span>
-                <span style={{ fontWeight: 800, color: 'var(--gold)' }}>{filteredStream.length} displayed</span>
+                <span style={{ fontWeight: 800, color: 'var(--theme-accent)' }}>{filteredStream.length} displayed</span>
             </div>
 
             {/* SCROLLING WINDOW */}
@@ -264,7 +264,7 @@ export const TelemetryStream = () => {
                                                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px' }}>
                                                     {/* Cryptographic Provenance */}
                                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.03)', borderRadius: '8px', padding: '12px' }}>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.7rem', color: 'var(--gold)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.7rem', color: 'var(--theme-accent)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                                                             <Lock size={12} /> Cryptographic Provenance
                                                         </div>
                                                         {/* Real fields from the signed TelemetryEventDetailDto — the Merkle leaf that gets

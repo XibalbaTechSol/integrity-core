@@ -55,6 +55,12 @@ logger = logging.getLogger("integrity_demo.heartbeat")
 ORACLE_URL = os.getenv("ORACLE_URL", "http://localhost:8080")
 BCC_MIDDLEWARE_URL = os.getenv("BCC_MIDDLEWARE_URL", "http://localhost:8000")
 OTLP_ENDPOINT = os.getenv("OTLP_ENDPOINT", "http://localhost:4317")
+# docs/plans/2026-08-18-phase1-canonical-intent-encoding-proposal.md: every BCC
+# commitment now binds the chain/registry it was signed against. This demo runs
+# against live Base Sepolia by default (see root Makefile's `make demo`), so the
+# defaults below match `deployments.baseSepolia.json`'s chainId/XibalbaAgentRegistry.
+CHAIN_ID = int(os.getenv("CHAIN_ID", "84532"))
+VERIFYING_CONTRACT = os.getenv("VERIFYING_CONTRACT", "0x72e21e44AdD6d6e7CAa02eaedF078630afC40819")
 
 PERSONAS = [
     "healthcare_agent",
@@ -215,6 +221,8 @@ def _submit_bcc_intercept(persona: str, agent_did: str, keypair) -> None:
         intent_payload={"task": random.choice(_TASK_TEMPLATES[persona]), "nonce": nonce},
         nonce=nonce,
         keypair=keypair,
+        chain_id=CHAIN_ID,
+        verifying_contract=VERIFYING_CONTRACT,
     )
     try:
         resp = requests.post(f"{BCC_MIDDLEWARE_URL}/v1/bcc/intercept", json=commitment, timeout=10)

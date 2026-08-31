@@ -1,7 +1,7 @@
 ---
 title: integrity-oracle
 created: 2026-07-07
-updated: 2026-07-30
+updated: 2026-08-29
 type: entity
 tags: [infrastructure, metrics, layer-2, tokenomics]
 confidence: high
@@ -14,6 +14,9 @@ source_files:
   - integrity-oracle/backend/src/db.rs
   - integrity-oracle/backend/src/phi.rs
   - integrity-oracle/backend/src/vc.rs
+  - integrity-oracle/backend/src/verification.rs
+  - integrity-oracle/backend/src/attestation.rs
+  - integrity-oracle/backend/src/kyc.rs
   - integrity-oracle/backend/src/crypto/mod.rs
   - integrity-oracle/backend/src/openapi.rs
   - integrity-oracle/backend/migrations/0001_init.sql
@@ -27,6 +30,29 @@ independently verifies agents' on-chain state — including, as of this pass, th
 [market/application layer](../concepts/agent-primitives.md) (§6.9) — so nothing
 downstream has to trust an agent's own word. Per §6.10 of the interface contract,
 this is the **only** backend that ever reads on-chain state.
+
+## Table of contents
+
+- [Workspace](#workspace)
+- [HTTP API](#http-api)
+  - [GET /v1/agent/{id}/telemetry, GET /v1/agent/{id}/traces](#get-v1-agent-id-telemetry-get-v1-agent-id-traces)
+  - [GET /v1/markets, GET /v1/markets/{id} (§6.9)](#get-v1-markets-get-v1-markets-id-6-9)
+  - [GET /v1/leaderboard](#get-v1-leaderboard)
+  - [Contract-ownership + Integrity Health reads: GET /v1/agent/{id}/contracts, /baas](#contract-ownership-integrity-health-reads-get-v1-agent-id-contracts-baas)
+  - [Verifiable Credentials: GET /v1/agent/{id}/vc](#verifiable-credentials-get-v1-agent-id-vc)
+  - [Network benchmarks + protocol stats: GET /v1/benchmarks, /v1/stats](#network-benchmarks-protocol-stats-get-v1-benchmarks-v1-stats)
+  - [XNS resolution: GET /v1/xns/resolve?handle=, GET /v1/agent/{id}/handle](#xns-resolution-get-v1-xns-resolve-handle-get-v1-agent-id-handle)
+  - [Governance: GET /v1/governance/proposals](#governance-get-v1-governance-proposals)
+  - [GET /v1/agent/{id}/wallet](#get-v1-agent-id-wallet)
+  - [Server-side telemetry-signal re-derivation (derive.rs)](#server-side-telemetry-signal-re-derivation-derive-rs)
+  - [Signed telemetry schema v3 (handlers.rs + spanschema.rs)](#signed-telemetry-schema-v3-handlers-rs-spanschema-rs)
+  - [The OTLP/gRPC path (otlp.rs) — separate from telemetryevents, unauthenticated](#the-otlp-grpc-path-otlp-rs-separate-from-telemetryevents-unauthenticated)
+  - [PHI backstop on POST /v1/telemetry/ingest](#phi-backstop-on-post-v1-telemetry-ingest)
+  - [Judge evaluations (storage only — no judge implementation)](#judge-evaluations-storage-only-no-judge-implementation)
+- [On-chain client (chain.rs)](#on-chain-client-chain-rs)
+- [Anchoring](#anchoring)
+- [Canonical JSON signing — real cross-language bug fixed 2026-07-11](#canonical-json-signing-real-cross-language-bug-fixed-2026-07-11)
+- [State](#state)
 
 ## Workspace
 
@@ -54,6 +80,17 @@ GET  /v1/agent/{id}/contracts
 GET  /v1/agent/{id}/baas
 GET  /v1/agent/{id}/vc
 GET  /v1/agent/{id}/handle
+POST /v1/agent/{id}/verify/dns/challenge
+POST /v1/agent/{id}/verify/dns
+POST /v1/agent/{id}/verify/github/challenge
+POST /v1/agent/{id}/verify/github
+POST /v1/agent/{id}/verify/tee/challenge
+POST /v1/agent/{id}/verify/tee
+POST /v1/agent/{id}/verify/kyc/challenge
+POST /v1/agent/{id}/verify/kyc
+GET  /v1/agent/{id}/verify
+POST /v1/agent/{id}/verify/{verification_id}/revoke/challenge
+POST /v1/agent/{id}/verify/{verification_id}/revoke
 GET  /v1/traces/{trace_id}
 POST /v1/telemetry/ingest
 GET  /v1/markets
@@ -134,14 +171,14 @@ every market, out of scope for this pass. An honestly-incomplete ranking, not a 
 mock. Only agents with a resolvable on-chain `PrimitiveSet` (cached, or live-resolved
 and cached on the fly) appear.
 
-### Contract-ownership + Shield reads: `GET /v1/agent/{id}/contracts`, `/baas`
+### Contract-ownership + Integrity Health reads: `GET /v1/agent/{id}/contracts`, `/baas`
 
 `/contracts` returns the `IntegrityMarket` clones an agent deployed and owns
 (`MarketFactory.getMarketsByCreator` on its `SovereignAgent`, then live per-market
 reads). `/baas` enumerates the `SmartBAA` escrows where the agent is the business
 associate, from `SmartBAAFactory.BAACreated` logs (no reverse index exists on-chain,
 so the event log is the only enumeration path) + each escrow's live status. Both are
-real on-chain reads; `/baas` returns a clean `MissingSingleton` (400) where the Shield
+real on-chain reads; `/baas` returns a clean `MissingSingleton` (400) where the Integrity Health
 `SmartBAAFactory` isn't deployed.
 
 ### Verifiable Credentials: `GET /v1/agent/{id}/vc`
@@ -215,6 +252,19 @@ rate limit, and signature verification all run first):
 [Telemetry Ingestion Pipeline](../concepts/telemetry-ingestion.md). Formula
 and trust-model detail: [AIS](../concepts/ais.md).
 
+### Signed telemetry schema v3 (`handlers.rs` + `span_schema.rs`)
+
+The signed `POST /v1/telemetry/ingest` envelope currently accepts schema versions 1 through
+3. Version 3 is the first version whose `otel_spans` array is structurally validated before
+the PHI scan and persistence path: the allowlisted shape, metadata/property counts, text
+and batch bounds, numeric ranges, and covered-entity address format are checked. Unknown or
+oversized shapes fail closed with a client-visible bad request. The validator does not apply
+to the separate unauthenticated OTLP receiver and does not make OTLP data eligible for AIS.
+
+The SDK and oracle version constants must move together. Historical envelopes without a
+`schema_version` remain valid, while future versions are rejected until the oracle is
+upgraded. See `docs/INTERFACE_CONTRACT.md` §4.2a for the wire-level contract.
+
 ### The OTLP/gRPC path (`otlp.rs`) — separate from telemetry_events, unauthenticated
 
 Lights up the SDK's already-real `OTLPSpanExporter`/`OTLPMetricExporter`
@@ -260,14 +310,14 @@ Read-only via `alloy` (stored as `DynProvider` so `sol!` bindings work): resolve
 an agent's `PrimitiveSet`, reads `ReputationRegistry.effectiveScore`/`isZkBoosted`,
 `ComplianceGate.vertical`/`isHealthcareCompliant`, `MarketFactory` enumeration,
 per-market `IntegrityMarket` view state, `getPosition`, `IntegrityToken.balanceOf`,
-`SmartBAAFactory`/`SmartBAA` (Shield), and — new — `XibalbaNameService`
+`SmartBAAFactory`/`SmartBAA` (Integrity Health), and — new — `XibalbaNameService`
 (`resolve_handle`/`primary_handle`) and `IntegrityGovernance` (`read_proposals`).
 Optional singleton addresses (`MarketFactory`, `IntegrityToken`, `A2ACapitalPool`,
 `SmartBAAFactory`, `XibalbaNameService`, `IntegrityGovernance`) are `Option<Address>`
 in the deployments-file parse (`Singletons`), not required: a deployments file that
 predates any of them still parses, and handlers needing an absent one return a clean
 `ChainError::MissingSingleton` — mapped to **HTTP 400** in `error.rs` (a deployment-shape
-fact, not a transient RPC failure), shared across the market/shield/XNS/governance
+fact, not a transient RPC failure), shared across the market/health/XNS/governance
 endpoints — instead of this client failing to even connect.
 
 ## Anchoring

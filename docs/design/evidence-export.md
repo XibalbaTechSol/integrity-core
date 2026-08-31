@@ -5,6 +5,13 @@ anchor linkage via the JOIN design); Phases B (control mapping) and C (export en
 🔨 not built. Decisions locked: **join** (not back-fill), **multi-framework** control map,
 **oracle-signed** report.
 
+**2026-08-13 — competitive reprioritization flag:** Semantica (a direct competitor sharing the
+same compliance-buyer persona) already ships a PROV-O-shaped fact-provenance export with no
+cryptographic backing. `xibalba-cortex/docs/plans/2026-08-13-semantica-parity.md` scopes a
+stronger, tamper-evident fact-provenance export there; this document's Phase C (action-lineage
+export) is the complementary half of the same competitive answer and is recommended for
+reprioritization alongside it. See that plan's "Cross-reference" section.
+
 > **Phase A shipped:** ALLOW rows carry `metadata.leaf` (`bcc_middleware/app/main.py`); anchored
 > sub-trees are reported to `POST /v1/audit/anchor` → `anchor_events` table (oracle migration
 > 0007); `/v1/audit-log` LEFT JOINs them onto each decision (`anchor_root`/`anchor_tx_hash`/
@@ -17,7 +24,7 @@ anchor linkage via the JOIN design); Phases B (control mapping) and C (export en
 Turn the real, existing audit trail into an **auditor-ready, control-mapped, verifiable evidence
 report** for a date range — the artifact a compliance officer hands an auditor to prove "every
 agent action was policy-checked, and here's cryptographic proof it wasn't tampered with after the
-fact." This is the enterprise buying trigger (Lever 6 / Shield wedge), built on primitives that
+fact." This is the enterprise buying trigger (Lever 6 / Integrity Health wedge), built on primitives that
 already exist rather than new crypto.
 
 **Non-goal (v1):** making the audit-log DB row itself tamper-proof. The code already documents
@@ -90,7 +97,7 @@ The DB is a convenience index; the on-chain `verifyLeaf` is the trust anchor.
   control, its leaf, and (if anchored) `{root, tx_hash, anchored_at}` + verify instructions;
   plus a summary (counts by control, % anchored, would-be-blocks if shadow).
 - Sign the report payload (oracle signer) so the export file itself is attributable.
-- Dashboard: an "Export evidence" action on `ShieldPage` / diagnostics that downloads JSON now,
+- Dashboard: an "Export evidence" action on `HealthPage` / diagnostics that downloads JSON now,
   PDF later. Reuse `AuditLogsPanel`'s existing query plumbing.
 
 ## Files to touch
@@ -99,7 +106,7 @@ The DB is a convenience index; the on-chain `verifyLeaf` is the trust anchor.
 - `integrity-oracle/backend/src/handlers.rs`, `db.rs`, `openapi.rs` (Phase B/C) — plus backend
   tests; keep `spec/ais-api/v1/openapi.yaml` in sync.
 - `integrity-dashboard/src/services/oracle.ts` (+ DTO), a new `EvidenceExport` component, wired into
-  `ShieldPage`.
+  `HealthPage`.
 
 ## Test plan (real, no mocks)
 - Middleware: an ALLOW decision persists `metadata.leaf` matching a recomputed keccak leaf; after
@@ -112,6 +119,6 @@ The DB is a convenience index; the on-chain `verifyLeaf` is the trust anchor.
 ## Open questions for sign-off
 1. **Anchor back-fill vs. export-time join** for decision→tx linkage (Phase A) — back-fill is
    simpler to query and render; join avoids a second write path. Lean back-fill.
-2. **v1 control map scope** — ship HIPAA-only (Shield wedge) first, or a thin multi-framework
+2. **v1 control map scope** — ship HIPAA-only (Integrity Health wedge) first, or a thin multi-framework
    stub? Lean HIPAA-only, real and deep.
 3. **Report signing** — oracle signer is fine for v1; revisit when key-separation lands (Lever 5).

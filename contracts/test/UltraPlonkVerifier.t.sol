@@ -1,45 +1,62 @@
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.28;
+// SPDX-License-Identifier: Apache-2.0
+pragma solidity ^0.8.21;
 
 import {Test} from "forge-std/Test.sol";
 import {UltraPlonkVerifier} from "../src/oracle/UltraPlonkVerifier.sol";
-import {IZkVerifier} from "../src/oracle/IZkVerifier.sol";
 
-/// @notice The one and only job of the placeholder is to fail closed, unconditionally —
-/// this test is the guardrail against ever accidentally reintroducing the old
-/// prototype's "always returns true" mock.
 contract UltraPlonkVerifierTest is Test {
-    UltraPlonkVerifier verifier;
+    UltraPlonkVerifier private verifier;
 
     function setUp() public {
         verifier = new UltraPlonkVerifier();
     }
 
-    function test_implementsIZkVerifier() public view {
-        // Compile-time proof it satisfies the shared interface swapped in by
-        // `make generate-verifier`.
-        IZkVerifier asInterface = IZkVerifier(address(verifier));
-        assertEq(address(asInterface), address(verifier));
+    function test_valid_fixture_is_accepted() public view {
+        (bytes memory proof, bytes32[] memory publicInputs) = _fixture();
+        assertTrue(verifier.verify(proof, publicInputs));
     }
 
-    function test_verifyAlwaysRevertsOnEmptyProof() public {
-        vm.expectRevert(UltraPlonkVerifier.PlaceholderVerifierNotYetGenerated.selector);
-        verifier.verify("", new bytes32[](0));
+    function test_tampered_proof_is_rejected() public view {
+        (bytes memory proof, bytes32[] memory publicInputs) = _fixture();
+        proof[0] = bytes1(uint8(proof[0]) ^ 1);
+        assertFalse(_verifyNoRevert(proof, publicInputs));
     }
 
-    function test_verifyAlwaysRevertsOnNonEmptyProof() public {
-        bytes32[] memory inputs = new bytes32[](2);
-        inputs[0] = bytes32(uint256(1));
-        inputs[1] = bytes32(uint256(2));
-
-        vm.expectRevert(UltraPlonkVerifier.PlaceholderVerifierNotYetGenerated.selector);
-        verifier.verify(hex"deadbeef", inputs);
+    function test_tampered_public_input_is_rejected() public view {
+        (bytes memory proof, bytes32[] memory publicInputs) = _fixture();
+        publicInputs[0] = bytes32(uint256(publicInputs[0]) ^ 1);
+        assertFalse(_verifyNoRevert(proof, publicInputs));
     }
 
-    /// @notice Fuzz: no proof bytes whatsoever can make this return `true` — unlike the
-    /// old mock, which returned true for any non-empty input.
-    function testFuzz_neverReturnsTrue(bytes calldata proof, bytes32[] calldata publicInputs) public {
-        vm.expectRevert(UltraPlonkVerifier.PlaceholderVerifierNotYetGenerated.selector);
-        verifier.verify(proof, publicInputs);
+    function test_malformed_proof_is_rejected() public view {
+        (bytes memory proof, bytes32[] memory publicInputs) = _fixture();
+        bytes memory malformed = new bytes(proof.length - 1);
+        for (uint256 i; i < malformed.length; ++i) malformed[i] = proof[i];
+        assertFalse(_verifyNoRevert(malformed, publicInputs));
+    }
+
+    function _fixture() private view returns (bytes memory proof, bytes32[] memory publicInputs) {
+        proof = vm.readFileBinary("test/fixtures/ultraplonk/proof.bin");
+        assertEq(proof.length, 8000);
+        assertEq(keccak256(proof), 0x8301001eea7884326f420c791dd937c2577065fedf7819061bf58b1fc43999f0);
+        bytes memory rawInputs = vm.readFileBinary("test/fixtures/ultraplonk/public_inputs.bin");
+        assertEq(rawInputs.length, 160);
+        assertEq(keccak256(rawInputs), 0x1963fb18178d4e305ba37b8ae4e610e5a673af74f94fae4306bc8ba8dcd1f028);
+        publicInputs = new bytes32[](5);
+        assembly {
+            mstore(add(publicInputs, 0x20), mload(add(rawInputs, 0x20)))
+            mstore(add(publicInputs, 0x40), mload(add(rawInputs, 0x40)))
+            mstore(add(publicInputs, 0x60), mload(add(rawInputs, 0x60)))
+            mstore(add(publicInputs, 0x80), mload(add(rawInputs, 0x80)))
+            mstore(add(publicInputs, 0xa0), mload(add(rawInputs, 0xa0)))
+        }
+    }
+
+    function _verifyNoRevert(bytes memory proof, bytes32[] memory publicInputs) private view returns (bool) {
+        try verifier.verify(proof, publicInputs) returns (bool verified) {
+            return verified;
+        } catch {
+            return false;
+        }
     }
 }
