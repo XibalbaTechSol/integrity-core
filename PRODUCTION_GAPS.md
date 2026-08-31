@@ -1242,7 +1242,7 @@ entry records what survived verification and what did not. Full detail:
   * Known limitation, recorded rather than hidden: `root_of_heads` folds only *named* refs, and
     only `head` is named, so it commits to the main line and not to the full frontier.
 
-* **OPEN — the oracle serves stale anvil primitives as authoritative.** `GET /v1/agent/{did}`
+* **CLOSED (2026-08-31) — the oracle served stale anvil primitives as authoritative.** `GET /v1/agent/{did}`
   for an agent that does not exist on the configured chain returns **200**, not 404, carrying
   anvil-era addresses and `"blockchainAccountId": "eip155:31337:…"` from a Sepolia-configured
   oracle. The chain read correctly reverts `UnknownDID()`; the handler then falls back to the
@@ -1250,9 +1250,17 @@ entry records what survived verification and what did not. Full detail:
   dashboard — but it is **chain-agnostic**, so it will serve addresses from a *different chain*
   without saying so beyond `"primitives_source": "cache"`. For a system whose stated invariant
   is "the chain is the source of truth", that is a false answer, not a degraded one. The cache
-  should record the chain id it was populated from and refuse to serve across a mismatch.
-  **Do not close this by deleting the five stale rows** — that silences the symptom and
-  destroys evidence.
+  now reads through chain-scoped database helpers only. Direct primitive lookup, fleet-list
+  enrichment, Agent Integrity Score (AIS) computation, compliance reads, leaderboard refresh,
+  telemetry compliance, and sovereign-agent reverse lookup all require the oracle's configured
+  chain id at query time. Rows from another chain and legacy rows with `chain_id IS NULL` fail
+  closed as cache misses; agent identity rows still remain listable. The derived leaderboard
+  snapshot and freshness marker are also keyed by chain and replaced atomically, so network
+  switches cannot reuse a fresh marker or retain unresolved rows. No primitive evidence rows
+  were deleted; only rebuildable leaderboard cache rows without chain provenance are cleared by
+  migration `0017`.
+  The real Postgres + Redis + anvil regression test passed with current-chain, wrong-chain,
+  NULL-chain, and absent primitive rows.
 
 * **CLOSED — audit reports are fire-and-forget during requests but drained on shutdown.**
   `main._report_decision_background` still schedules the audit write as

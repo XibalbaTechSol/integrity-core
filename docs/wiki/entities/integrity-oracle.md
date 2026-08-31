@@ -130,6 +130,16 @@ note).
 
 On 2026-07-16, we enhanced `chain.rs` (`resolve_primitives_by_did`) to log the actual RPC contract call error details when `resolveDID` fails instead of silently mapping them to `UnknownDid`. This resolves a major diagnostic visibility gap during stack startup and network resolution.
 
+As of 2026-08-31, every cached primitive read is explicitly scoped to the Oracle's configured
+chain. The database module intentionally exposes no unscoped primitive-read helper: direct agent
+reads, fleet enrichment, AIS and compliance calculation, leaderboard refresh, and reverse
+SovereignAgent-to-DID lookup all require `chain_id`. Cache rows from another network and legacy
+rows with `chain_id IS NULL` are treated as misses rather than evidence about the active chain;
+the underlying agent identity remains listable. Leaderboard snapshots and freshness markers are
+keyed by chain and each refresh atomically replaces that chain's derived rows, preventing stale
+entries from surviving a partial current-chain resolution. This is a cache-isolation property,
+not proof that a matching-chain cached row is fresh or that the chain itself is available.
+
 ### `GET /v1/markets`, `GET /v1/markets/{id}` (§6.9)
 
 Real reads of every `IntegrityMarket` clone via `MarketFactory`. Enumeration is

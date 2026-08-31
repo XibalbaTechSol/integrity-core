@@ -127,18 +127,21 @@ pub async fn get_agent(pool: &PgPool, id: &str) -> Result<Option<AgentRow>, sqlx
 /// Reverse a SovereignAgent address to its owning agent DID via the cached primitive set.
 /// Case-insensitive on the hex address. Best-effort: returns None when the agent's primitives
 /// have never been resolved into the oracle DB.
-pub async fn did_by_sovereign_agent(
+pub async fn did_by_sovereign_agent_on_chain(
     pool: &PgPool,
     sovereign_agent: &str,
+    chain_id: i64,
 ) -> Result<Option<String>, sqlx::Error> {
     let row: Option<(String,)> = sqlx::query_as(
         r#"
         SELECT agent_id FROM agent_primitives
         WHERE lower(sovereign_agent_address) = lower($1)
+          AND chain_id = $2
         LIMIT 1
         "#,
     )
     .bind(sovereign_agent)
+    .bind(chain_id)
     .fetch_optional(pool)
     .await?;
     Ok(row.map(|(id,)| id))
@@ -163,7 +166,10 @@ pub struct AgentListRow {
     pub erc8004_binding_status: Option<String>,
 }
 
-pub async fn list_agents(pool: &PgPool) -> Result<Vec<AgentListRow>, sqlx::Error> {
+pub async fn list_agents_with_primitives_on_chain(
+    pool: &PgPool,
+    chain_id: i64,
+) -> Result<Vec<AgentListRow>, sqlx::Error> {
     sqlx::query_as::<_, AgentListRow>(
         r#"
         -- EFFECTIVE tier, computed in one pass rather than N+1 round trips.
@@ -186,11 +192,12 @@ pub async fn list_agents(pool: &PgPool) -> Result<Vec<AgentListRow>, sqlx::Error
                p.sovereign_agent_address,
                e.binding_status AS erc8004_binding_status
         FROM agents a
-        LEFT JOIN agent_primitives p ON p.agent_id = a.id
+        LEFT JOIN agent_primitives p ON p.agent_id = a.id AND p.chain_id = $1
         LEFT JOIN erc8004_identity_bindings e ON e.agent_id = a.id
         ORDER BY a.created_at DESC
         "#,
     )
+    .bind(chain_id)
     .fetch_all(pool)
     .await
 }
@@ -311,19 +318,24 @@ pub async fn upsert_agent_primitives(
     Ok(())
 }
 
-pub async fn get_agent_primitives(
+/// Returns cached primitives only when they were resolved on the caller's explicitly
+/// selected chain. There is intentionally no unscoped read helper: cache consumers must
+/// not accidentally use addresses from a previous network or a legacy NULL-chain row.
+pub async fn get_agent_primitives_on_chain(
     pool: &PgPool,
     agent_id: &str,
+    chain_id: i64,
 ) -> Result<Option<AgentPrimitivesRow>, sqlx::Error> {
     sqlx::query_as::<_, AgentPrimitivesRow>(
         r#"
         SELECT agent_id, sovereign_agent_address, state_anchor_address, reputation_registry_address,
                slasher_address, verifier_registry_address, compliance_gate_address, agent_profile_address,
                controller_address, domain_id, resolved_at, chain_id
-        FROM agent_primitives WHERE agent_id = $1
+        FROM agent_primitives WHERE agent_id = $1 AND chain_id = $2
         "#,
     )
     .bind(agent_id)
+    .bind(chain_id)
     .fetch_optional(pool)
     .await
 }
@@ -710,36 +722,62 @@ pub struct LeaderboardCacheRow {
     pub refreshed_at: DateTime<Utc>,
 }
 
-pub async fn upsert_leaderboard_cache(
+/// Atomically replaces one chain's derived leaderboard snapshot and advances only that
+/// chain's freshness marker. A failed refresh leaves the previous snapshot intact.
+pub async fn replace_leaderboard_cache_for_chain(
     pool: &PgPool,
-    agent_id: &str,
-    sovereign_agent_address: &str,
-    effective_score: &str,
+    chain_id: i64,
+    rows: &[(String, String, String)],
+    agent_count: i32,
+    synced_at: DateTime<Utc>,
 ) -> Result<(), sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("DELETE FROM leaderboard_cache WHERE chain_id = $1")
+        .bind(chain_id)
+        .execute(&mut *tx)
+        .await?;
+    for (agent_id, sovereign_agent_address, effective_score) in rows {
+        sqlx::query(
+            r#"
+            INSERT INTO leaderboard_cache
+                (agent_id, chain_id, sovereign_agent_address, effective_score, refreshed_at)
+            VALUES ($1, $2, $3, $4, $5)
+            "#,
+        )
+        .bind(agent_id)
+        .bind(chain_id)
+        .bind(sovereign_agent_address)
+        .bind(effective_score)
+        .bind(synced_at)
+        .execute(&mut *tx)
+        .await?;
+    }
     sqlx::query(
         r#"
-        INSERT INTO leaderboard_cache (agent_id, sovereign_agent_address, effective_score, refreshed_at)
-        VALUES ($1, $2, $3, now())
-        ON CONFLICT (agent_id) DO UPDATE SET
-            sovereign_agent_address = EXCLUDED.sovereign_agent_address,
-            effective_score = EXCLUDED.effective_score,
-            refreshed_at = now()
+        INSERT INTO leaderboard_sync (id, chain_id, agent_count, synced_at)
+        VALUES (TRUE, $1, $2, $3)
+        ON CONFLICT (chain_id) DO UPDATE SET
+            agent_count = EXCLUDED.agent_count,
+            synced_at = EXCLUDED.synced_at
         "#,
     )
-    .bind(agent_id)
-    .bind(sovereign_agent_address)
-    .bind(effective_score)
-    .execute(pool)
+    .bind(chain_id)
+    .bind(agent_count)
+    .bind(synced_at)
+    .execute(&mut *tx)
     .await?;
+    tx.commit().await?;
     Ok(())
 }
 
-pub async fn list_leaderboard_cache(
+pub async fn list_leaderboard_cache_on_chain(
     pool: &PgPool,
+    chain_id: i64,
 ) -> Result<Vec<LeaderboardCacheRow>, sqlx::Error> {
     sqlx::query_as::<_, LeaderboardCacheRow>(
-        "SELECT agent_id, sovereign_agent_address, effective_score, refreshed_at FROM leaderboard_cache",
+        "SELECT agent_id, sovereign_agent_address, effective_score, refreshed_at FROM leaderboard_cache WHERE chain_id = $1",
     )
+    .bind(chain_id)
     .fetch_all(pool)
     .await
 }
@@ -750,32 +788,16 @@ pub struct LeaderboardSyncRow {
     pub synced_at: DateTime<Utc>,
 }
 
-pub async fn get_leaderboard_sync(
+pub async fn get_leaderboard_sync_on_chain(
     pool: &PgPool,
+    chain_id: i64,
 ) -> Result<Option<LeaderboardSyncRow>, sqlx::Error> {
     sqlx::query_as::<_, LeaderboardSyncRow>(
-        "SELECT agent_count, synced_at FROM leaderboard_sync WHERE id = TRUE",
+        "SELECT agent_count, synced_at FROM leaderboard_sync WHERE chain_id = $1",
     )
+    .bind(chain_id)
     .fetch_optional(pool)
     .await
-}
-
-pub async fn upsert_leaderboard_sync(
-    pool: &PgPool,
-    agent_count: i32,
-    synced_at: DateTime<Utc>,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r#"
-        INSERT INTO leaderboard_sync (id, agent_count, synced_at) VALUES (TRUE, $1, $2)
-        ON CONFLICT (id) DO UPDATE SET agent_count = EXCLUDED.agent_count, synced_at = EXCLUDED.synced_at
-        "#,
-    )
-    .bind(agent_count)
-    .bind(synced_at)
-    .execute(pool)
-    .await?;
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------------

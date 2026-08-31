@@ -3241,3 +3241,15 @@ writeup: PRODUCTION_GAPS.md §18.
 - The initial full-suite attempt without Foundry on `PATH` produced 37 fixture-setup errors
   because `forge` was not discoverable; the installed Foundry 1.7.1 binaries completed the
   canonical suite when their directory was added to `PATH`.
+
+## [2026-08-31] update | Oracle primitive-cache chain isolation
+
+- Removed unscoped cached-primitive read helpers and required the configured chain ID across
+  agent, fleet, AIS, compliance, telemetry, and sovereign-agent reverse lookups; leaderboard
+  snapshots and freshness markers are now chain-keyed and atomically replaced.
+- Wrong-chain and legacy `chain_id IS NULL` rows now fail closed as cache misses without deleting
+  the historical rows or hiding the agent identity.
+- Verification: the focused real Postgres + Redis + anvil regression passed 1/1; the Rust
+  workspace passed 177 tests plus documentation tests with Barretenberg (`bb`) on `PATH`.
+- Boundary: matching-chain cache isolation does not prove cache freshness or live-chain
+  availability.
