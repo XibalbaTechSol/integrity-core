@@ -7,7 +7,7 @@
 **Date:** August 2026
 **Author:** Jacob S. Vickers, Xibalba Solutions, LLC
 
-Implementations claim conformance only against this file. Whitepaper v3, specification v0.3/v0.4, and v0.5-proposed are archive.
+Implementations claim conformance only against this file. The current explanatory whitepaper is `WHITEPAPER.md` (v3.2); older v3, v0.3, v0.4, and v0.5-proposed documents are archived.
 
 The key words MUST, MUST NOT, SHOULD, MAY are RFC 2119.
 

@@ -14,6 +14,8 @@ source_files:
   - integrity-dashboard/src/pages/IntelligencePage.tsx
   - integrity-dashboard/src/pages/HealthPage.tsx
   - integrity-dashboard/src/pages/ShieldPage.tsx
+  - integrity-dashboard/src/components/shield/ShieldFleetOverview.tsx
+  - integrity-dashboard/src/services/shieldBackend.ts
   - integrity-dashboard/src/pages/FinancialsPage.tsx
   - integrity-dashboard/src/pages/CortexPage.tsx
   - integrity-dashboard/src/components/cortex/CortexOperationsTab.tsx
@@ -93,27 +95,13 @@ this explicitly: "Smart BAA registry, EHR Gates, and Quarantine are all real
 | `/intelligence` | `pages/IntelligencePage.tsx` | `DashboardContext`; custom telemetry fields are `localStorage`-only |
 | `/prediction-markets` | `components/tabs/ActuarialHub.tsx` (`mode="markets"`) | `oracle.listMarkets()` + chain writes via `SovereignAgent.execute` |
 | `/health` | `pages/HealthPage.tsx` | `oracle` (NHI governance) + chain (BAAs/EHR gates/quarantine, real Base Sepolia) |
-| `/shield` | `pages/ShieldPage.tsx` | none — self-contained attack-simulation demo, see below |
+| `/shield` | `pages/ShieldPage.tsx` | `ShieldFleetOverview` reads the real Shield backend; `Live Attack Demo` is a separate synthetic/local simulator tab |
 | `/cortex` | `pages/CortexPage.tsx` | Unified Cortex workspace: timeline, graph, recall, inference, integrity, and operations tabs backed by `xibalba-cortex`'s `local_api.py`, `VITE_GRAPH_MEMORY_URL`, default `:8420` |
 | `/memory` | compatibility redirect | Redirects to the canonical `/cortex` workspace so existing bookmarks remain valid |
 | `/developer` | `pages/DeveloperPage.tsx` | `oracle` + chain (IDE/contracts tab), `oracle` (Trace Analysis tab) |
 | `/settings` | `pages/SettingsPage.tsx` | `userapi` (API keys), `DashboardContext` (theme/layout), chain (`PrivacyPanel`) |
 
-**`/shield`** renders `ShieldPage.tsx`, a "Real-Time Defensive Intelligence
-Simulator" — 10 attack-simulation buttons drive a 5-step detection/
-containment pipeline visualization. It calls `http://localhost:5000`, which
-does not exist anywhere in this repo or in `xibalba-shield`; every fetch has
-an explicit try/catch fallback to synthetic data, so "no backend reachable"
-is the always-true, by-design state. Confirmed via `git log` that this page,
-the (now-replaced) old `e2e/shield.spec.ts`, and orphaned real-backend
-client code (`services/shieldBackend.ts` + `components/ShieldEvidenceGraph
-.tsx`, targeting a real `xibalba-shield/shield/backend/api.py` service on
-`:8765` — never imported by any page) all landed in the same
-integration-reconciliation commit without being reconciled with each other.
-Per explicit product direction (2026-08-13), the attack-simulator is the
-current, intended page — Shield's product identity is the AI agent/device
-security platform, broader than an endpoint-sensor framing; wiring up the
-real backend integration is separate, out-of-scope feature work, not a bug.
+**`/shield`** renders two explicit surfaces: `ShieldFleetOverview` is the default real-backend evidence view, reading dashboard summaries, detection quality, enforcement outcomes, exporter status, device state, integrations, and the 3D evidence graph through `services/shieldBackend.ts`; the `Live Attack Demo` tab is a separate synthetic/local demonstration of the Tier-2 escalation path. Backend data is not replaced by simulator data when the service is unavailable; the fleet view shows an unavailable or partial state. The local integration overlay exposes the backend on `:8765`, but healthy local responses remain development evidence and do not establish production sensor, Oracle, or live-chain proof.
 
 ## Cortex Operations tab boundary
 
@@ -236,9 +224,7 @@ or redesign pass):
   `SubTabs` or gates any section behind an active-tab check — every section
   is unconditionally stacked on one continuous page. Dead code, not a
   functional bug (nothing crashes or hides content).
-- **`services/shieldBackend.ts`** + **`components/ShieldEvidenceGraph.tsx`**
-  — real client code for a real `xibalba-shield` backend (`:8765`), never
-  imported by any page. See the `/shield` entry above.
+- The Shield fleet surface is locally wired to the real backend client, but production registration, sensor coverage, Oracle readback, and burn-in remain external/runtime evidence gates.
 
 ## Local e2e stack
 

@@ -8,7 +8,7 @@ Repo documentation precedence is:
 2. This file defines internal schemas, ports, env vars, service boundaries, and cross-package call conventions inside integrity-core.
 3. `docs/archive/2026-08/integrity-protocol-v0.4.md` is the accepted normative protocol;
    `docs/archive/2026-08/integrity-protocol-v0.5-proposed.md` is a non-authoritative review candidate;
-   `docs/archive/2026-08/integrity-protocol-v3.2.md` is the explanatory, non-normative whitepaper; and
+   `docs/WHITEPAPER.md` (v3.2) is the current explanatory, non-normative whitepaper; and
    the remaining `spec/` subtrees define externally-supported wire surfaces. A generated
    PDF is publication output, not an interface contract.
 4. `docs/wiki/` is the compiled long-term knowledge layer generated out to the GitHub Wiki and `integrity-dashboard/`'s browser wiki.

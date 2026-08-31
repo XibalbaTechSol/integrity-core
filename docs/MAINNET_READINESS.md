@@ -4,9 +4,7 @@ Status reconciled 2026-08-17. Scope: what stands between the current Base Sepoli
 and a mainnet launch that the protocol's own claims would survive. Every item below is
 either verified against code/chain in this repo or cites where it is recorded.
 
-The accepted normative baseline remains `docs/archive/2026-08/integrity-protocol-v0.4.md`.
-`docs/archive/2026-08/integrity-protocol-v0.5-proposed.md` and explanatory Whitepaper v3.2 describe proposed
-changes and do not relax any blocker in this document. Phase 0's local
+The accepted normative baseline remains `docs/archive/2026-08/integrity-protocol-v0.4.md`; the current explanatory whitepaper is `docs/WHITEPAPER.md` (v3.2). The proposed amendment remains non-authoritative and does not relax any blocker in this document. Phase 0's local
 `IntegrityIdentityReadV1` singleton and the generated local ZK verifier both postdate the
 declared Base Sepolia deployment; source capability is not deployed capability.
 

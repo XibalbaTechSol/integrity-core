@@ -21,8 +21,9 @@ import {IAdapter} from "./IAdapter.sol";
 /// structural only, by construction, IF a future caller only ever ANDs multiple adapters
 /// together; this registry evaluates exactly ONE adapter per call and has no composition logic
 /// of its own. R5 (attestation/staking) -- `isInstallable` always returns `false`; see its own
-/// doc comment. Not wired into `IntegrityKernel` or `LicenceAccount`'s actual gate path -- this
-/// slice proves the registry's own admission/metered-call machinery in isolation.
+/// doc comment. Wired into `IntegrityKernel` and `LicenceAccount` as an optional additive precondition, with
+/// enabled-path coverage in their focused Foundry suites. This does not make adapters installable:
+/// `isInstallable` remains false until the R5 attestation/staking obligations are implemented.
 contract AdapterRegistry {
     error AdapterAlreadyRegisteredWithDifferentParams(
         address adapter, uint256 existingGasBound, bytes32 existingSpecHash

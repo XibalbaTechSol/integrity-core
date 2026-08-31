@@ -21,8 +21,8 @@ agent behavior becomes that score).
 
 - [Integrity Protocol v0.4](../archive/2026-08/integrity-protocol-v0.4.md) is the accepted normative baseline.
 - [Integrity Protocol v0.5 proposed](../archive/2026-08/integrity-protocol-v0.5-proposed.md) is the new non-authoritative amendment under review.
-- [Whitepaper v3.2](../archive/2026-08/integrity-protocol-v3.2.md) is explanatory and non-normative.
-- The v3.2 PDF is generated publication output; code, tests, and deployments are separate implementation evidence layers.
+- [Whitepaper v3.2](../WHITEPAPER.md) is the current explanatory and non-normative whitepaper.
+- The v3.2 PDF is generated publication output from the archived v3.2 source; code, tests, and deployments are separate implementation evidence layers.
 
 ## Current cross-repository audit — 2026-08-25
 

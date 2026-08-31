@@ -13,6 +13,7 @@ source_files:
   - docs/INTERFACE_CONTRACT.md
   - docs/archive/2026-08/integrity-protocol-v0.4.md
   - docs/archive/2026-08/integrity-protocol-v0.5-proposed.md
+  - docs/WHITEPAPER.md
   - docs/archive/2026-08/integrity-protocol-v3.2.md
   - spec/xibalba-shield-v1.md
   - docs/audits/2026-08-06-cross-repository-status.md
@@ -77,7 +78,7 @@ integrity-core remains the protocol authority. Shield and graph memory do not be
 
 **Role:** Protocol trust backend: contracts, SDK, CLI, BCC middleware, Oracle/AIS, user API, dashboard, ZKP, canonical wiki, and protocol specs.
 
-**Specification authority:** `docs/archive/2026-08/integrity-protocol-v0.4.md` is accepted normative authority. `docs/archive/2026-08/integrity-protocol-v0.5-proposed.md` is a proposed, non-authoritative delta. `docs/archive/2026-08/integrity-protocol-v3.2.md` is explanatory/non-normative. Current implementation evidence is maintained by `README.md`, `SPECIFICATION.md`, `PRODUCTION_GAPS.md`, `docs/INTERFACE_CONTRACT.md`, `docs/MAINNET_READINESS.md`, and `docs/wiki/`.
+**Specification authority:** `docs/archive/2026-08/integrity-protocol-v0.4.md` is accepted normative authority. `docs/archive/2026-08/integrity-protocol-v0.5-proposed.md` is a proposed, non-authoritative delta. `docs/WHITEPAPER.md` is the current v3.2 explanatory/non-normative whitepaper. Current implementation evidence is maintained by `README.md`, `SPECIFICATION.md`, `PRODUCTION_GAPS.md`, `docs/INTERFACE_CONTRACT.md`, `docs/MAINNET_READINESS.md`, and `docs/wiki/`.
 
 **Audit checkpoint (2026-08-17):** Phase 0 is locally complete. The Foundry suite passes 209/209; `IntegrityIdentityReadV1` passes its 10 focused tests; the local generated verifier has real-proof negative-control coverage; and package Continuous Integration includes dashboard build/lint rather than a nonexistent unit-test script. Base Sepolia still lacks the identity facade and retains the older fail-closed verifier, so source capability is not deployed capability.
 
@@ -160,7 +161,7 @@ integrity-core remains the protocol authority. Shield and graph memory do not be
 
 **Specification authority:** `SPECIFICATION.md`, `README.md`, `SECURITY.md`, `docs/audits/2026-08-06-status.md`, `shield/sensors/ebpf/README.md`, and integrity-core protocol specs.
 
-**Audit checkpoint:** Root-free tests pass at 103 passed and 7 skipped. Process-exec and file-write eBPF verification are historical documented evidence; the audit did not reproduce live eBPF/exporter verification. TCP-connect remains blocked.
+**Audit checkpoint (updated 2026-08-29):** Root-free Shield validation passes with 154 passed and 10 skipped. Root TCP-connect eBPF verification passed on the development kernel, and the live BCC exporter submission test passed against the running middleware. DID registration/readback and broader kernel-matrix evidence remain open.
 
 **Closed:**
 
@@ -171,7 +172,7 @@ integrity-core remains the protocol authority. Shield and graph memory do not be
   **Regressed 2026-08-07 (uncommitted) — replaced with unconditional OTel spans that
   `bcc_middleware` doesn't ingest; not currently true. See xibalba-shield's
   `IMPLEMENTATION_PLAN.md` "Known gap — 2026-08-12".**
-- [x] Exporter has historically documented live-stack proof against `bcc_middleware`; current audit did not reproduce the live exporter path.
+- [x] Live BCC exporter submission path has been reproduced against the running `bcc_middleware`; the test accepts a structured authorized or denied response and does not imply DID registration.
 - [x] Six guardrail hooks exist and are tested.
 - [x] CLI supports status, events, validate, and run commands.
 - [x] Process-exec and file-write Linux eBPF sensors are live-verified.
@@ -179,10 +180,10 @@ integrity-core remains the protocol authority. Shield and graph memory do not be
 
 **Planned / todo:**
 
-- [ ] Unblock TCP-connect eBPF verification.
+- [x] Unblock TCP-connect eBPF verification on the development kernel; expand to every supported kernel before pilot release.
 - [ ] Design DNS observation via uprobe or packet parsing.
 - [ ] Add config-loadable sensitive-path filtering.
-- [ ] Register Shield exporter DID with Integrity Oracle.
+- [ ] Register Shield exporter DID with Integrity Oracle and archive readback evidence.
 - [ ] Verify Shield decisions through the intended evidence/audit surface.
 - [ ] Design signed policy bundle format, managed service packaging, and pilot runbooks.
 - [ ] Plan Windows ETW, macOS endpoint, and SIEM/SOAR integrations.
