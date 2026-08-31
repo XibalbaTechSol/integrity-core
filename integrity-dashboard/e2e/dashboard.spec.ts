@@ -80,7 +80,9 @@ test.describe('/dashboard (Dashboard)', () => {
     const noAudit = page.getByText('No audit events recorded yet.');
     await expect(noAudit).toBeVisible().catch(async () => {
       // Real audit rows present instead — just confirm at least one DENY/ALLOW-style entry.
-      await expect(page.getByText(/^(DENY|ALLOW):/)).toBeVisible();
+      // .first() -- a real feed has multiple entries, so the bare locator is a strict-mode
+      // violation once more than one DENY/ALLOW row is present.
+      await expect(page.getByText(/^(DENY|ALLOW):/).first()).toBeVisible();
     });
   });
 

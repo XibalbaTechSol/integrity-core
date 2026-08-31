@@ -50,8 +50,13 @@ test.describe('/health (HealthPage)', () => {
     // exact: true — a substring match would also hit the hero banner's "Smart BAA
     // authoring, EHR access gates, and agent quarantine" copy.
     await expect(page.getByText('Smart BAA Registry', { exact: true })).toBeVisible();
-    const noBaas = page.getByText('No BAAs found for this agent.');
-    const baaRows = page.locator('table tbody tr td.mono');
+    // Scoped to the Smart BAA Registry panel specifically -- an unscoped `table tbody tr
+    // td.mono` also matches unrelated tables further down the page (e.g. EHR Gates/Audit),
+    // which made the .or() resolve to 2 elements and fail Playwright's strict mode even
+    // though the real empty state ("No BAAs found for this agent.") was correctly showing.
+    const baaPanel = page.locator('.panel', { has: page.getByText('Smart BAA Registry', { exact: true }) });
+    const noBaas = baaPanel.getByText('No BAAs found for this agent.');
+    const baaRows = baaPanel.locator('table tbody tr td.mono');
     await expect(noBaas.or(baaRows.first())).toBeVisible();
   });
 
@@ -65,8 +70,11 @@ test.describe('/health (HealthPage)', () => {
   test('Patient Consent Contracts (EHR Gates): real table or honest empty state', async ({ page }) => {
     await page.goto('/health');
     await expect(page.getByText('Patient Consent Contracts (EHR Gates)')).toBeVisible();
-    const noGates = page.getByText('No known gates for this browser yet — grant one below.');
-    const gateRows = page.locator('table tbody tr td.mono');
+    // Scoped to this panel -- see the Smart BAA Registry test above for why an unscoped
+    // `table tbody tr td.mono` is a strict-mode violation on this page (multiple tables).
+    const gatePanel = page.locator('.panel', { has: page.getByText('Patient Consent Contracts (EHR Gates)', { exact: true }) });
+    const noGates = gatePanel.getByText('No known gates for this browser yet — grant one below.');
+    const gateRows = gatePanel.locator('table tbody tr td.mono');
     await expect(noGates.or(gateRows.first())).toBeVisible();
   });
 
@@ -93,8 +101,11 @@ test.describe('/health (HealthPage)', () => {
   test('Quarantine Zone: real table or honest "no agents quarantined" state', async ({ page }) => {
     await page.goto('/health');
     await expect(page.getByText('Agent Circuit Breakers (Quarantine Zone)')).toBeVisible();
-    const noQuarantine = page.getByText('No agents currently quarantined.');
-    const quarantineRows = page.locator('table tbody tr td.mono');
+    // Scoped to this panel -- see the Smart BAA Registry test above for why an unscoped
+    // `table tbody tr td.mono` is a strict-mode violation on this page (multiple tables).
+    const quarantinePanel = page.locator('.panel', { has: page.getByText('Agent Circuit Breakers (Quarantine Zone)', { exact: true }) });
+    const noQuarantine = quarantinePanel.getByText('No agents currently quarantined.');
+    const quarantineRows = quarantinePanel.locator('table tbody tr td.mono');
     await expect(noQuarantine.or(quarantineRows.first())).toBeVisible({ timeout: 15000 });
   });
 

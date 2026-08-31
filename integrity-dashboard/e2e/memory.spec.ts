@@ -58,7 +58,24 @@ test.describe('/memory (MemoryPage)', () => {
     await expect(page.getByRole('button', { name: 'Record exchange' })).toBeVisible();
   });
 
-  test('Timeline tab: recording a real exchange against the live local_api creates a real, visible exchange', async ({ page }) => {
+  test('Timeline tab: recording a real exchange against the live local_api creates a real, visible exchange', async ({ page, request }) => {
+    // Guard against the exact mistake this spec is built to avoid (see the file-header
+    // comment): if local_api's store lives under a real Hermes profile rather than a
+    // throwaway --home, this test would write fabricated [e2e-*] memories into someone's
+    // actual persistent memory. `~/.hermes/` is that real profile's documented default
+    // location (xibalba-cortex/CLAUDE.md's "Storage defaults to ~/.hermes/xibalba-cortex")
+    // -- refuse to write against it rather than silently polluting real data.
+    const graphMemoryUrl = process.env.VITE_GRAPH_MEMORY_URL || 'http://localhost:8420';
+    const statusResponse = await request.get(`${graphMemoryUrl}/api/status`);
+    const status = await statusResponse.json();
+    const dbPath = String(status.db_path || '');
+    test.skip(
+      dbPath.includes('/.hermes/'),
+      `local_api's store (${dbPath}) looks like a real Hermes profile, not a throwaway ` +
+      `--home -- refusing to write test data into it. Start local_api with --home pointed ` +
+      `at a fresh, empty directory instead (see docs/TESTING.md).`
+    );
+
     await page.goto('/memory');
     const before = await page.getByText(/^\d+ memories$/).innerText();
     const beforeCount = parseInt(before, 10);
@@ -81,9 +98,15 @@ test.describe('/memory (MemoryPage)', () => {
     await expect(page.getByText(response)).toBeVisible();
     // The header's live memory count must reflect the real write — strictly greater
     // than whatever the real baseline was, not a specific fabricated number.
-    await expect(page.getByText(/^\d+ memories$/)).toBeVisible();
-    const after = await page.getByText(/^\d+ memories$/).innerText();
-    expect(parseInt(after, 10)).toBeGreaterThan(beforeCount);
+    //
+    // The badge text always matches /^\d+ memories$/ (even a stale "0"), so a single
+    // toBeVisible() + one-shot innerText() read races ahead of CortexPage's async
+    // post-write refresh() -- poll until the count actually reflects the write instead
+    // of asserting on a single snapshot.
+    await expect(async () => {
+      const after = await page.getByText(/^\d+ memories$/).innerText();
+      expect(parseInt(after, 10)).toBeGreaterThan(beforeCount);
+    }).toPass({ timeout: 10000 });
   });
 
   test('Graph tab: filter controls render; graph stage shows real (now non-empty) data or its empty state', async ({ page }) => {
@@ -132,7 +155,9 @@ test.describe('/memory (MemoryPage)', () => {
     const errors = collectPageErrors(page);
     await page.goto('/memory');
     await page.waitForLoadState('networkidle');
-    await page.getByRole('button', { name: 'Refresh memory data' }).click();
+    // CortexPage.tsx's refresh button aria-label is "Refresh Cortex data" -- stale here
+    // from before the /memory -> /cortex rename (see App.tsx's compatibility redirect).
+    await page.getByRole('button', { name: 'Refresh Cortex data' }).click();
     await page.waitForTimeout(500);
     expect(errors).toEqual([]);
   });

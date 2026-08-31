@@ -239,16 +239,21 @@ const Dashboard: React.FC = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
             {notifications.length === 0 ? (
               <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No audit events recorded yet.</div>
-            ) : notifications.map(n => (
-              <div key={n.id} style={{
-                padding: '12px 16px',
-                background: n.decision === 'DENY' ? 'var(--danger-dim)' : 'var(--success-dim)',
-                borderLeft: `3px solid ${n.decision === 'DENY' ? 'var(--danger)' : 'var(--success)'}`,
-                borderRadius: '0 6px 6px 0', fontSize: '0.9rem'
-              }}>
-                <strong style={{ color: n.decision === 'DENY' ? 'var(--danger)' : 'var(--success)' }}>{n.decision}:</strong> {n.event_type} {n.reason_code ? `(${n.reason_code})` : ''}
-              </div>
-            ))}
+            ) : notifications.map(n => {
+              // bcc_middleware reports decision as lowercase ("deny" / "allow" / "shadow_deny"),
+              // not the uppercase "DENY"/"ALLOW" this panel used to compare against.
+              const isDeny = n.decision.toLowerCase().includes('deny');
+              return (
+                <div key={n.id} style={{
+                  padding: '12px 16px',
+                  background: isDeny ? 'var(--danger-dim)' : 'var(--success-dim)',
+                  borderLeft: `3px solid ${isDeny ? 'var(--danger)' : 'var(--success)'}`,
+                  borderRadius: '0 6px 6px 0', fontSize: '0.9rem'
+                }}>
+                  <strong style={{ color: isDeny ? 'var(--danger)' : 'var(--success)' }}>{n.decision.toUpperCase()}:</strong> {n.event_type} {n.reason_code ? `(${n.reason_code})` : ''}
+                </div>
+              );
+            })}
           </div>
         </Panel>
       </div>
