@@ -3227,3 +3227,17 @@ writeup: PRODUCTION_GAPS.md §18.
 - Added `docs/DOCUMENT_STATUS.yaml` as the machine-readable authority manifest: `docs/SPEC.md` is normative; v3.2 is current explanatory whitepaper; controls and implementation plan remain informative.
 - Updated current README/spec/readiness/interface/wiki pointers and regenerated the dashboard wiki projection.
 - Historical handoffs and dated audit entries remain unchanged.
+
+## [2026-08-30] test | Malformed OPA decision fails closed at intercept boundary
+
+- Added a full `run_intercept` regression for an indeterminate Open Policy Agent (OPA)
+  response where `result.allow` is not boolean.
+- Verified the externally visible outcome is `authorized=false` with an inspectable
+  `BCC_POLICY_ENGINE_UNAVAILABLE` reason; malformed policy output cannot become an implicit
+  allow or escape as an unhandled exception.
+- Verification: `uv run pytest -q tests/test_opa_fail_closed.py` passed 11/11;
+  `PATH="$HOME/.foundry/bin:$PATH" uv run pytest -q` passed 131 with 4 skipped;
+  `opa test policies/ -v` passed 48/48.
+- The initial full-suite attempt without Foundry on `PATH` produced 37 fixture-setup errors
+  because `forge` was not discoverable; the installed Foundry 1.7.1 binaries completed the
+  canonical suite when their directory was added to `PATH`.

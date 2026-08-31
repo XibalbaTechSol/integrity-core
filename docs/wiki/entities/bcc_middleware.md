@@ -1,7 +1,7 @@
 ---
 title: bcc_middleware
 created: 2026-07-07
-updated: 2026-08-29
+updated: 2026-08-30
 type: entity
 tags: [infrastructure, compliance, cryptography, metrics]
 confidence: high
@@ -18,6 +18,7 @@ source_files:
   - bcc_middleware/app/verification_token.py
   - bcc_middleware/app/audit.py
   - bcc_middleware/tests/test_shutdown_drain.py
+  - bcc_middleware/tests/test_opa_fail_closed.py
   - bcc_middleware/policies/bcc.rego
 ---
 
@@ -53,6 +54,12 @@ check** (if OPA flags `requires_baa`) → admit to
 deny); anchoring happens after authorization and is best-effort. The circuit
 breaker only counts violations attributable to the agent — an OPA/RPC outage
 denies but never trips the breaker (else one outage locks out the whole fleet).
+
+The HTTP-layer regression suite also exercises an indeterminate OPA response
+whose `result.allow` value is not boolean. The middleware returns
+`authorized=false` with the inspectable
+`BCC_POLICY_ENGINE_UNAVAILABLE` diagnostic; it does not leak the malformed
+decision into an implicit allow or an unhandled exception.
 
 Audit decisions (allow and deny) are reported asynchronously to the oracle so an
 unreachable audit endpoint cannot change the authorization response. The FastAPI
@@ -223,8 +230,8 @@ two follow-on gaps, both fixed in the same pass:
 
 ## State
 
-**91 pytest + 28 OPA tests** (up from 75 pytest — the hardening pass
-above). Real coverage: a fail-closed test points at a dead
+**131 pytest passed, 4 skipped + 48 OPA tests passed** (verified 2026-08-30).
+Real coverage: a fail-closed test points at a dead
 OPA port; `test_baa_health_integration.py` deploys the real
 [Integrity Health contracts](../concepts/compliance-gate.md) on a local anvil and exercises
 the real two-arg BAA call; `test_reputation.py`/`test_scoring_loop.py` cover the
