@@ -392,9 +392,17 @@ Independent audit plus a machine-checked argument is the named gate for non-draf
 
 The kernel MUST be an ERC-7579 type-4 hook. `preCheck` / `postCheck` MUST run on every execution path named in §6, including `executeFromExecutor` and module install/remove.
 
-Live production `SovereignAgent.execute()` does **not** currently dispatch through such a hook. An experimental, non-deployed instance exists at `contracts/src/kernel/` and MUST NOT be referenced by deployment scripts.
+Live production `SovereignAgent.execute()` does **not** dispatch through this full ERC-7579 hook. A disclosed, non-production reference instance exists at `contracts/src/kernel/` and is deployed to Base Sepolia (`deployments.baseSepolia.json` → `experimentalPhase1Reference`, `PRODUCTION_GAPS.md` §44) for its own research purposes (Halmos-verified invariants). It MUST NOT be wired to any real registered agent, and MUST NOT be referenced by *production* deployment tooling. §5.3 describes the narrower mechanism actually live in production accounts today.
 
 A companion type-1 validator MAY enforce session keys. Rich policy that reads foreign account state MUST NOT be placed only in the ERC-4337 validation phase.
+
+### 5.3 Live execution/anchor policy hooks `[PARTIAL]`
+
+Distinct from, and narrower than, §5.2's full ERC-7579 kernel hook: live `SovereignAgent.execute()` and `StateAnchor.anchorRoot()` each consult a swappable, fail-closed policy contract set by the controller -- `IExecutionPolicy` / `IAnchorPolicy` (`contracts/src/core/`), installed via `setExecutionPolicy` / `setAnchorPolicy`. `address(0)` on the host is the skip path (no policy installed, matching today's already-registered agents). Once a policy is set, a `false` return or a revert from it MUST fail closed: no value movement, no root write, no nonce consumption.
+
+This is real and already live in `SovereignAgent.sol` / `StateAnchor.sol`'s deployed-going-forward source, not a proposal. `ConstraintExecutionPolicy.sol` (AIS floor, native-value cap, target allowlist, ERC-20/721 caps) and `AllowlistAnchorPolicy.sol` are working reference implementations, covered by `contracts/test/PolicyHooks.t.sol`.
+
+**Deployed-vs-live gap, disclosed, not glossed over:** `SovereignAgent` / `StateAnchor` are deployed directly per agent, not behind a shared upgradeable proxy (§16's file-authority table's own upgradeability item; `docs/design/upgradeability-decision.md`; `MAINNET_READINESS.md` P0-6). This hook therefore only reaches an agent whose registration happened after the hook landed in the bytecode that registration deployed. Verified directly on-chain 2026-08-31: `executionPolicy()` reverts against all three currently-registered real agents on Base Sepolia (`xibalba.integrity`, `xibalba-health` -- registered 2026-08-30, still predates this -- and `xibalba-quant`), while a genuinely-supported call (`ais()`) succeeds against the same contracts, confirming the gap is "feature absent from that deployment," not a network or ABI-mismatch artifact. A new registration going forward gets the hook automatically; an already-registered agent cannot, short of resolving the open upgradeability decision.
 
 ---
 
