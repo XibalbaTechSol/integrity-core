@@ -40,6 +40,7 @@ Cargo.lock.bak
 contracts/out/
 contracts/cache/
 contracts/broadcast/**/run-*.json
+contracts/script/adapter-admission-vectors/last-report.json
 
 # --- noir ---
 **/target/

@@ -17,6 +17,7 @@ fs_permissions = [
   { access = "read-write", path = "../deployments.local.kernel-bridge.json" },
   { access = "read-write", path = "/home/runner/work/integrity-core/integrity-core/deployments.local.json" },
   { access = "read-write", path = "../deployments.baseSepolia.json" },
+  { access = "read-write", path = "script/adapter-admission-vectors" },
   { access = "read", path = "./" },
   { access = "read", path = "../contracts" },
   # Shared cross-implementation vectors (spec/vault-merkle, spec/token-accounting). Read-only

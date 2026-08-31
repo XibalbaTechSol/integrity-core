@@ -1,0 +1,15 @@
+{
+  "_comment": "Example R1 admission-suite vectors for SpendBudgetAdapter. Distinct subjects per vector -- each subject's cumulativeSpentWei starts at 0, so these are independent, not sequential against one running total. Sized against the reference constructor (perOpBudgetWei = 1 ether, cumulativeBudgetWei = 3 ether) used by both IntegrityAccountTest and DeployKernelReference.s.sol.",
+  "subjects": [
+    "0x1111111111111111111111111111111111111111",
+    "0x2222222222222222222222222222222222222222",
+    "0x3333333333333333333333333333333333333333",
+    "0x4444444444444444444444444444444444444444"
+  ],
+  "amounts": [
+    500000000000000000,
+    1000000000000000000,
+    1000000000000000001,
+    0
+  ]
+}
