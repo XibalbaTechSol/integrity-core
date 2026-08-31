@@ -14,6 +14,10 @@ export const ITK_TOKEN_ADDRESS = S.IntegrityToken;
 export const XIBALBA_AGENT_REGISTRY_ADDRESS = S.XibalbaAgentRegistry;
 // EIP-1167 factory that clones + registers an agent's 7-primitive set.
 export const AGENT_PRIMITIVES_FACTORY_ADDRESS = S.AgentPrimitivesFactory;
+// Domain membership -- AgentPrimitivesFactory.registerPrimitives reverts
+// DomainJoinNotApproved() if canJoin(domainId, controller) is false here. See
+// RegisterAgentModal.tsx's preflight check, which reads this before any gas is spent.
+export const DOMAIN_REGISTRY_ADDRESS = S.DomainRegistry;
 export const MARKET_FACTORY_ADDRESS = S.MarketFactory;
 export const A2A_CAPITAL_POOL_ADDRESS = S.A2ACapitalPool;
 export const SMART_BAA_FACTORY_ADDRESS = S.SmartBAAFactory;

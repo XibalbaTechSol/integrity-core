@@ -7,6 +7,9 @@ import {
   AGENT_PRIMITIVES_FACTORY_ADDRESS,
   ORACLE_SIGNER_ADDRESS,
   DOMAINS,
+  DOMAIN_REGISTRY_ADDRESS,
+  XIBALBA_AGENT_REGISTRY_ADDRESS,
+  RPC_URL,
   EXPLORER_URL,
 } from '../../constants';
 import {
@@ -34,6 +37,14 @@ const FACTORY_ABI = [
   'event PrimitivesRegistered(bytes32 indexed didHash, address indexed sovereignAgent, address indexed controller, address stateAnchor, address reputationRegistry, address slasher, address verifierRegistry, address complianceGate, address agentProfile, bytes32 domainId)',
 ] as const;
 
+// Read-only preflight ABI: the exact two checks AgentPrimitivesFactory.registerPrimitives
+// makes before deploying anything (REGISTRAR_ROLE on the registry, canJoin on the domain).
+// See this modal's preflight check below -- run BEFORE step 1, not discovered at step 4
+// after three real wallet-signed transactions already succeeded.
+const DOMAIN_REGISTRY_ABI = ['function canJoin(bytes32 id, address caller) view returns (bool)'] as const;
+const AGENT_REGISTRY_ROLE_ABI = ['function hasRole(bytes32 role, address account) view returns (bool)'] as const;
+const REGISTRAR_ROLE = ethers.id('REGISTRAR_ROLE');
+
 type StepState = 'idle' | 'busy' | 'done';
 
 interface Props {
@@ -59,6 +70,51 @@ export function RegisterAgentModal({ onClose, onSuccess }: Props) {
 
   const [busyStep, setBusyStep] = React.useState<number | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+
+  // Preflight: the two on-chain preconditions AgentPrimitivesFactory.registerPrimitives
+  // depends on, checked read-only (no wallet signature) before step 1 is enabled --
+  // a registration that would fail at step 4 (DomainJoinNotApproved / missing
+  // REGISTRAR_ROLE) previously only surfaced that after 3 real wallet-signed
+  // transactions already succeeded. See integrity-sdk's registration.py
+  // preflight_register_agent() for the same checks on the SDK/CLI side.
+  const [preflight, setPreflight] = React.useState<'checking' | 'ok' | { error: string } | null>(null);
+  const domainId = vertical === 1 ? DOMAINS['healthcare.integrity'] : DOMAINS['general.integrity'];
+
+  React.useEffect(() => {
+    if (!walletAddress) {
+      setPreflight(null);
+      return;
+    }
+    let cancelled = false;
+    setPreflight('checking');
+    (async () => {
+      try {
+        const provider = new ethers.JsonRpcProvider(RPC_URL);
+        const registry = new ethers.Contract(XIBALBA_AGENT_REGISTRY_ADDRESS, AGENT_REGISTRY_ROLE_ABI, provider);
+        const hasRole: boolean = await registry.hasRole(REGISTRAR_ROLE, AGENT_PRIMITIVES_FACTORY_ADDRESS);
+        if (!hasRole) {
+          if (!cancelled) setPreflight({
+            error: 'AgentPrimitivesFactory does not hold REGISTRAR_ROLE on XibalbaAgentRegistry -- ' +
+              'registration would revert at the final step. This is a protocol-level configuration ' +
+              'issue, not something fixable here.',
+          });
+          return;
+        }
+        if (!domainId) {
+          if (!cancelled) setPreflight({ error: `No domain configured for this vertical.` });
+          return;
+        }
+        const domainRegistry = new ethers.Contract(DOMAIN_REGISTRY_ADDRESS, DOMAIN_REGISTRY_ABI, provider);
+        const canJoin: boolean = await domainRegistry.canJoin(domainId, walletAddress);
+        if (!cancelled) setPreflight(
+          canJoin ? 'ok' : { error: `Your wallet cannot join the ${vertical === 1 ? "healthcare.integrity" : "general.integrity"} domain right now -- registration would revert at the final step (DomainJoinNotApproved).` }
+        );
+      } catch (err: any) {
+        if (!cancelled) setPreflight({ error: `Could not verify registration preconditions: ${err?.message || err}` });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [walletAddress, vertical, domainId]);
 
   const stepState = (n: number): StepState => {
     if (busyStep === n) return 'busy';
@@ -182,7 +238,7 @@ export function RegisterAgentModal({ onClose, onSuccess }: Props) {
   });
 
   const STEPS = [
-    { n: 1, label: 'Deploy SovereignAgent', action: deploySovereignAgent, ready: true },
+    { n: 1, label: 'Deploy SovereignAgent', action: deploySovereignAgent, ready: preflight === 'ok' },
     { n: 2, label: 'Deploy StateAnchor', action: deployStateAnchor, ready: !!sovereignAgent },
     { n: 3, label: 'Grant ANCHOR_ROLE to oracle', action: grantAnchorRole, ready: !!stateAnchor },
     { n: 4, label: 'Register 7 primitives (factory)', action: registerPrimitives, ready: anchorGranted },
@@ -226,6 +282,17 @@ export function RegisterAgentModal({ onClose, onSuccess }: Props) {
               <label className="form-label" htmlFor="ra-uri">Profile URI (optional)</label>
               <input id="ra-uri" className="input" value={profileURI} onChange={(e) => setProfileURI(e.target.value)} placeholder="ipfs://…" />
             </div>
+
+            {preflight === 'checking' && (
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Loader2 size={13} className="animate-spin" /> Verifying registration preconditions…
+              </div>
+            )}
+            {preflight && typeof preflight === 'object' && (
+              <div role="alert" style={{ fontSize: '0.75rem', color: 'var(--danger)', background: 'var(--danger-dim)', padding: 'var(--space-2) var(--space-3)', borderRadius: 'var(--radius-sm)' }}>
+                {preflight.error}
+              </div>
+            )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
               {STEPS.map((s) => {
