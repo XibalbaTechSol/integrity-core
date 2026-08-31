@@ -104,13 +104,13 @@ def test_tampered_leaf_certificate_fails_chain_validation(real_document_bytes):
     protected, unprotected, payload_bstr, signature = _load_cose_array(real_document_bytes)
     payload = cbor2.loads(payload_bstr)
 
-    # Corrupt the leaf certificate's DER bytes (flip a byte in the middle,
-    # well past the ASN.1 header, so it still round-trips through
-    # x509.load_der_x509_certificate without raising a parse error — the
-    # point is a WRONG certificate, not an unparseable one).
+    # Corrupt the leaf certificate's DER bytes (flip a byte in the signature
+    # at the end, well past the ASN.1 header and subject fields, so it still
+    # round-trips through x509.load_der_x509_certificate without raising a
+    # parse error when reading subject string — the point is a WRONG certificate,
+    # not an unparseable one).
     original_cert = bytearray(payload["certificate"])
-    mid = len(original_cert) // 2
-    original_cert[mid] ^= 0xFF
+    original_cert[-20] ^= 0xFF
     payload["certificate"] = bytes(original_cert)
 
     tampered_payload_bstr = cbor2.dumps(payload)

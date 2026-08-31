@@ -50,6 +50,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.baa import BAAStatus, check_baa_status
 from app.canonical import SignatureVerificationError, verify_commitment_signature
@@ -159,6 +160,14 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="BCC Middleware", version="3.0.0", lifespan=lifespan)
+
+_cors_origins = default_settings.cors_allowed_origins
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"] if _cors_origins == "*" else [o.strip() for o in _cors_origins.split(",") if o.strip()],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
+)
 
 # Process-local state. See nonce_store.py / circuit_breaker.py docstrings
 # for why in-memory is an accepted scope limitation for this service today
@@ -493,7 +502,18 @@ async def _run_intercept_inner(
         decision="allow",
         detail=f"admitted to merkle batch index {batch_index}",
         intent_type=commitment.intent_type,
-        metadata={"leaf": leaf_hex, "batch_index": batch_index, "verification_token": token},
+        # `intended_state_hash` is the join key `posttool_report.py` recomputes and reports
+        # against after execution (see its module docstring: "a later verifier can line
+        # intent up against effect") — until this line, that verifier was structurally
+        # impossible, because the durable ALLOW row never carried the hash to join on at
+        # all. It only ever lived in the in-memory `commitment` object here.
+        metadata={
+            "leaf": leaf_hex,
+            "batch_index": batch_index,
+            "verification_token": token,
+            "intended_state_hash": commitment.intended_state_hash,
+            "invocation_id": commitment.invocation_id,
+        },
     )
     # `enforced` mirrors the deployment posture even on the allow path so a
     # caller/dashboard can tell a genuinely-gated approval from a shadow-mode
@@ -504,7 +524,12 @@ async def _run_intercept_inner(
 
 @app.post("/v1/bcc/intercept", response_model=BCCInterceptResponse)
 async def intercept(commitment: BCCCommitment) -> BCCInterceptResponse:
-    return await run_intercept(commitment, default_settings)
+    response = await run_intercept(commitment, default_settings)
+    # Echo the signed correlation key on every allow/deny response. This is not a new
+    # authorization proof; it lets callers verify that the response belongs to the
+    # commitment they submitted instead of correlating by content hash.
+    response.invocation_id = commitment.invocation_id
+    return response
 
 
 @app.post("/v1/reputation/sync")

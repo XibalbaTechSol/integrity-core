@@ -44,7 +44,7 @@ services:
     command: ["run", "--server", "--addr=0.0.0.0:8181", "/policies", "/shield-policies/selected.rego"]
     volumes:
       - ./bcc_middleware/policies:/policies:ro
-      - ../xibalba-shield/policies/rego/smb.rego:/shield-policies/selected.rego:ro
+      - ../xibalba-shield/shield/policies/rego/smb.rego:/shield-policies/selected.rego:ro
     ports: ["8181:8181"]
 
   oracle-backend:

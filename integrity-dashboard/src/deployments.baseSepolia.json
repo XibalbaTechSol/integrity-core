@@ -27,5 +27,28 @@
     "general.integrity": "0x595cceb222da8b2d14f13ddd254b38c4c99285925da5d4f854461514dad57e00",
     "healthcare.integrity": "0x83064d690f7098fe67923a009c2f7ee6651571d8fbf9071c0c0a340c1ebf63a7"
   },
-  "_synced_from_commit": "5ac4bac"
+  "_synced_from_commit": "1aaf1f9",
+  "experimentalPhase1Reference": {
+    "IntegrityAccount": "0x25858C53818E777C5569163F2e05570314fC947d",
+    "IntegrityKernel": "0x3e05E67Fb6dd3eE382eD24150141ffcBE2C9c338",
+    "ReputationRegistry": "0x5f235388aD02bc7c5426B7f8d2773a17DeB9A616",
+    "deployedFromCommit": "10ff4ad44d087f589f6e305e08c925ab6d0feaa7",
+    "disclosure": "EXPERIMENTAL, NOT AUDITED, NOT integrated with XibalbaAgentRegistry or any real agent. See PRODUCTION_GAPS.md and README.md before treating as production."
+  },
+  "experimentalPhase2LicenceReference": {
+    "LicenceAccountImplementation": "0x168b31620f535ff6B33Fd4Abff92b1427eb55beE",
+    "LicenceToken": "0x9d6d2F3F7CE910DaE6E66E36e5c6437A985d4dA4",
+    "deployedFromCommit": "unknown",
+    "disclosure": "EXPERIMENTAL, NOT AUDITED, illustrative terms only, not a commercial licence offer. See PRODUCTION_GAPS.md before treating as production.",
+    "licenceEndTime": 1790561944,
+    "licenceStartTime": 1787969944,
+    "owner": "0x7530bd7Cb142C50d5cC742EdF02263f368e89E2f",
+    "protocolFeeBps": 100,
+    "protocolFeeRecipient": "0x8E0E480275c030542108eb38d24cD24D985aDd97",
+    "royaltyPricePerUnitWei": 100000000000000,
+    "salt": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "tokenBoundAccount": "0x62526e8B67F04A5ea3F09Bd48C171A7e1dBA7373",
+    "tokenId": 1,
+    "volumeCapTotal": 1000
+  }
 }

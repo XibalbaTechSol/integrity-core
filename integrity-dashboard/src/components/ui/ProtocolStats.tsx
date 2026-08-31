@@ -20,13 +20,17 @@ export const ProtocolStats: React.FC = () => {
 
     return (
         <div style={{ marginBottom: 'var(--space-8)' }}>
-            <div className="dash-grid-4" style={{ gap: 'var(--space-4)' }}>
-                <StatCard 
-                    label="Network AIS" 
-                    value={s.aggregateAis.toFixed(1)} 
-                    icon={BarChart3} 
-                    color="var(--theme-accent)" 
-                    trend="+4.2% WK"
+            {/* .dash-grid-4 was referenced here but never defined anywhere in the codebase
+                (confirmed: no CSS file, no Tailwind config, defines it) -- the class was a
+                no-op, so these 4 cards silently stacked full-width instead of forming a
+                4-up grid. Inline grid instead of relying on an undefined utility class. */}
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, 1fr)', gap: 'var(--space-4)' }}>
+                <StatCard
+                    label="Network AIS"
+                    value={s.aggregateAis.toFixed(1)}
+                    icon={BarChart3}
+                    color="var(--theme-accent)"
+                    subLabel="AGGREGATE, LIVE AGENTS"
                     loading={loading}
                     isMobile={isMobile}
                 />
@@ -39,21 +43,21 @@ export const ProtocolStats: React.FC = () => {
                     loading={loading}
                     isMobile={isMobile}
                 />
-                <StatCard 
-                    label="Integrity" 
-                    value={`${(s.networkIntegrity * 100).toFixed(1)}%`} 
-                    icon={ShieldCheck} 
-                    color="var(--emerald)" 
-                    subLabel="CONSENSUS"
+                <StatCard
+                    label="Network AIS (% of scale)"
+                    value={`${(s.networkIntegrity * 100).toFixed(1)}%`}
+                    icon={ShieldCheck}
+                    color="var(--emerald)"
+                    subLabel="SAME AGGREGATE, AS % OF 1000"
                     loading={loading}
                     isMobile={isMobile}
                 />
-                <StatCard 
-                    label="Active Nodes" 
-                    value={s.totalNodes} 
-                    icon={Database} 
-                    color="var(--theme-accent)" 
-                    trend="↑ 12%"
+                <StatCard
+                    label="Active Nodes"
+                    value={s.totalNodes}
+                    icon={Database}
+                    color="var(--theme-accent)"
+                    subLabel="REGISTERED AGENTS"
                     loading={loading}
                     isMobile={isMobile}
                 />

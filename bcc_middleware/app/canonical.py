@@ -81,6 +81,8 @@ def canonical_commitment_bytes(commitment: BCCCommitment) -> bytes:
         "chain_id": commitment.chain_id,
         "verifying_contract": commitment.verifying_contract,
     }
+    if commitment.invocation_id is not None:
+        payload["invocation_id"] = commitment.invocation_id
     # ensure_ascii=True to match integrity-sdk's canonical_json_bytes byte-for-byte
     # (its module docstring pins ensure_ascii=True as the cross-language protocol
     # rule). For the ASCII-only fields here the two are identical, but they MUST

@@ -23,6 +23,7 @@ export const ERC20_ABI = [
   'function allowance(address owner, address spender) view returns (uint256)',
   'function balanceOf(address) view returns (uint256)',
   'function transfer(address to, uint256 amount) returns (bool)',
+  'event Transfer(address indexed from, address indexed to, uint256 value)',
 ] as const;
 
 export const AGENT_PROFILE_ABI = [

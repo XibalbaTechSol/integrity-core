@@ -11,6 +11,7 @@ stores only a DID pointer, never a cache of full agent state.
 
 from __future__ import annotations
 
+import asyncio
 import secrets
 
 import asyncpg
@@ -41,6 +42,12 @@ from app.schemas import (
 )
 from app.security import (
     DecodedToken,
+    create_access_token,
+    generate_api_key,
+    hash_password,
+    verify_password,
+)
+from app.security import (
     create_access_token,
     generate_api_key,
     hash_password,
@@ -198,7 +205,6 @@ async def me(
 
 _DEV_FAUCET_WEI = 10_000 * 10**18
 
-
 @app.get("/me/wallet", response_model=WalletResponse)
 async def get_wallet(
     user_id: str = Depends(get_current_user_id),
@@ -347,9 +353,12 @@ async def list_my_agents(
         "SELECT agent_did, added_at FROM user_agents WHERE user_id = $1 ORDER BY added_at DESC",
         UUID(user_id),
     )
+    lookups = await asyncio.gather(
+        *(oracle_client.fetch_agent(row["agent_did"], settings) for row in rows)
+    )
+
     results: list[OwnedAgentResponse] = []
-    for row in rows:
-        lookup = await oracle_client.fetch_agent(row["agent_did"], settings)
+    for row, lookup in zip(rows, lookups):
         results.append(
             OwnedAgentResponse(
                 agent_did=row["agent_did"],

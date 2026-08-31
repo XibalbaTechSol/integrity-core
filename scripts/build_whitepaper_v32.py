@@ -19,7 +19,7 @@ from pathlib import Path
 from markdown_it import MarkdownIt
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "spec" / "integrity-protocol-v3.2.md"
+SOURCE = ROOT / "docs" / "WHITEPAPER.md"
 PDF_OUT = ROOT / "spec" / "Integrity_Protocol_Whitepaper_v3.2.pdf"
 EXPECTED_ASSET_VERSIONS = {"mermaid": "11.16.1", "katex": "0.16.47"}
 CACHE = Path(os.environ.get("INTEGRITY_WHITEPAPER_CACHE", "~/.cache/integrity-whitepaper-v32")).expanduser()
@@ -103,7 +103,7 @@ def run() -> None:
     katex = NODE_MODULES / "katex" / "dist"
     require(mermaid, "pinned Mermaid browser bundle")
     require(katex / "katex.min.js", "pinned KaTeX browser bundle")
-    require(SOURCE, "v3.2 Markdown source")
+    require(SOURCE, "canonical v3.2 Markdown source")
 
     for package, expected in EXPECTED_ASSET_VERSIONS.items():
         metadata = NODE_MODULES / package / "package.json"

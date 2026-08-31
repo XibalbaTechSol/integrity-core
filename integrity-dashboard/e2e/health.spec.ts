@@ -24,27 +24,40 @@ test.describe('/health (HealthPage)', () => {
     expect(errors, `Uncaught errors: ${errors.map(e => e.message).join('; ')}`).toEqual([]);
   });
 
-  test('hero bar: Health Protocol heading, real BAA stats strip', async ({ page }) => {
+  test('hero bar: Integrity Health heading, HIPAA-aligned badge, real BAA stats strip', async ({ page }) => {
+    // Rebranded from "Health Protocol" to "Integrity Health" with a HIPAA-aligned badge,
+    // as part of reimagining the page around a HIPAA-clinical identity.
     await page.goto('/health');
-    await expect(page.getByText('Health Protocol')).toBeVisible();
-    await expect(page.getByText(/Smart BAA registry, EHR Gates, and Quarantine are all real/)).toBeVisible();
+    await expect(page.getByText('Integrity Health', { exact: true })).toBeVisible();
+    await expect(page.getByText('HIPAA-aligned')).toBeVisible();
+    await expect(page.getByText(/Smart BAA authoring, EHR access gates, and agent quarantine/)).toBeVisible();
     await expect(page.getByText('Active BAAs')).toBeVisible();
     await expect(page.getByText('Disputed BAAs')).toBeVisible();
   });
 
-  test('Smart BAA Registry: real table or honest empty state, Propose BAA opens a real modal', async ({ page }) => {
+  test('Draft a Business Associate Agreement: guided authoring panel replaces the old Propose BAA modal', async ({ page }) => {
+    // The old "+ Propose BAA Contract" button + modal was replaced with an always-visible,
+    // inline, step-labeled authoring panel (components/health/BaaAuthoringPanel.tsx) --
+    // every field is a real SmartBAAFactory.createBAA constructor argument, shown as it's
+    // filled in rather than hidden behind a popup.
     await page.goto('/health');
-    // exact: true — a substring match would also hit the hero banner's "Smart BAA
-    // registry, EHR Gates, and Quarantine are all real" copy.
-    await expect(page.getByText('Smart BAA Registry', { exact: true })).toBeVisible();
-    const noBaas = page.getByText('No BAAs found for this agent.');
-    const baaRows = page.locator('table tbody tr td.mono');
-    await expect(noBaas.or(baaRows.first())).toBeVisible();
+    await expect(page.getByText('Draft a Business Associate Agreement')).toBeVisible();
+    await expect(page.getByText('Parties')).toBeVisible();
+    await expect(page.getByText('Agreement document')).toBeVisible();
+    await expect(page.getByText('Collateral terms')).toBeVisible();
+    await expect(page.getByRole('button', { name: /Write & Deploy SmartBAA/ })).toBeVisible();
 
-    await page.getByRole('button', { name: '+ Propose BAA Contract' }).click();
-    await expect(page.getByRole('heading', { name: 'Propose Smart BAA' })).toBeVisible();
-    await page.mouse.click(10, 10);
-    await expect(page.getByRole('heading', { name: 'Propose Smart BAA' })).not.toBeVisible();
+    // exact: true — a substring match would also hit the hero banner's "Smart BAA
+    // authoring, EHR access gates, and agent quarantine" copy.
+    await expect(page.getByText('Smart BAA Registry', { exact: true })).toBeVisible();
+    // Scoped to the Smart BAA Registry panel specifically -- an unscoped `table tbody tr
+    // td.mono` also matches unrelated tables further down the page (e.g. EHR Gates/Audit),
+    // which made the .or() resolve to 2 elements and fail Playwright's strict mode even
+    // though the real empty state ("No BAAs found for this agent.") was correctly showing.
+    const baaPanel = page.locator('.panel', { has: page.getByText('Smart BAA Registry', { exact: true }) });
+    const noBaas = baaPanel.getByText('No BAAs found for this agent.');
+    const baaRows = baaPanel.locator('table tbody tr td.mono');
+    await expect(noBaas.or(baaRows.first())).toBeVisible();
   });
 
   test('HIPAA Gateway, Clinical Allowlist, and NHI Access Governance panels render', async ({ page }) => {
@@ -57,8 +70,11 @@ test.describe('/health (HealthPage)', () => {
   test('Patient Consent Contracts (EHR Gates): real table or honest empty state', async ({ page }) => {
     await page.goto('/health');
     await expect(page.getByText('Patient Consent Contracts (EHR Gates)')).toBeVisible();
-    const noGates = page.getByText('No known gates for this browser yet — grant one below.');
-    const gateRows = page.locator('table tbody tr td.mono');
+    // Scoped to this panel -- see the Smart BAA Registry test above for why an unscoped
+    // `table tbody tr td.mono` is a strict-mode violation on this page (multiple tables).
+    const gatePanel = page.locator('.panel', { has: page.getByText('Patient Consent Contracts (EHR Gates)', { exact: true }) });
+    const noGates = gatePanel.getByText('No known gates for this browser yet — grant one below.');
+    const gateRows = gatePanel.locator('table tbody tr td.mono');
     await expect(noGates.or(gateRows.first())).toBeVisible();
   });
 
@@ -85,8 +101,11 @@ test.describe('/health (HealthPage)', () => {
   test('Quarantine Zone: real table or honest "no agents quarantined" state', async ({ page }) => {
     await page.goto('/health');
     await expect(page.getByText('Agent Circuit Breakers (Quarantine Zone)')).toBeVisible();
-    const noQuarantine = page.getByText('No agents currently quarantined.');
-    const quarantineRows = page.locator('table tbody tr td.mono');
+    // Scoped to this panel -- see the Smart BAA Registry test above for why an unscoped
+    // `table tbody tr td.mono` is a strict-mode violation on this page (multiple tables).
+    const quarantinePanel = page.locator('.panel', { has: page.getByText('Agent Circuit Breakers (Quarantine Zone)', { exact: true }) });
+    const noQuarantine = quarantinePanel.getByText('No agents currently quarantined.');
+    const quarantineRows = quarantinePanel.locator('table tbody tr td.mono');
     await expect(noQuarantine.or(quarantineRows.first())).toBeVisible({ timeout: 15000 });
   });
 

@@ -87,7 +87,7 @@ contract ConstraintExecutionPolicy is AccessControl, IExecutionPolicy {
         bytes4 sel = bytes4(data);
         if (sel == SEL_TRANSFER || sel == SEL_APPROVE) {
             if (data.length < 68) return (true, type(uint256).max);
-            amount = abi.decode(data[4:], (address, uint256));
+            (, amount) = abi.decode(data[4:], (address, uint256));
             return (true, amount);
         }
         if (sel == SEL_TRANSFER_FROM || sel == SEL_SAFE_TRANSFER_FROM || sel == SEL_SAFE_TRANSFER_FROM_DATA) {

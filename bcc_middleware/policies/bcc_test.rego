@@ -220,6 +220,54 @@ test_missing_tier_fails_closed_for_high_risk_tool_class if {
 	not bcc.allow with input as commitment
 }
 
+test_financial_intent_with_no_class_previously_passed_by_matching_nothing if {
+	# Regression anchor for the exact gap this class closes: before "financial"
+	# existed in high_risk_tool_classes, this intent_type matched zero rules in
+	# the whole file -- authorized because nothing evaluated it, not because
+	# anything approved it. Kept here (unclassified, two-segment label) to prove
+	# the OLD failure mode is real and would recur if the class were ever removed.
+	commitment := object.union(_base_commitment, {"intent_type": "hermes_tool:coinbase_trade"})
+	bcc.allow with input as commitment
+	not bcc.tool_risk_class with input as commitment
+}
+
+test_financial_tool_class_is_parsed if {
+	commitment := object.union(_base_commitment, {"intent_type": "hermes_tool:coinbase_trade:financial"})
+	bcc.tool_risk_class == "financial" with input as commitment
+}
+
+test_financial_intent_allowed_for_verified_agent if {
+	commitment := object.union(_base_commitment, {"intent_type": "hermes_tool:coinbase_trade:financial"})
+	bcc.allow with input as commitment
+}
+
+test_financial_intent_denied_for_unverifiable_agent if {
+	# The actual gap this class closes: an unresolvable/unregistered DID must
+	# not be able to commit to a financial action just because no rule used to
+	# recognize the label.
+	commitment := object.union(_base_commitment, {
+		"intent_type": "hermes_tool:coinbase_trade:financial",
+		"verification_tier": 0,
+	})
+	not bcc.allow with input as commitment
+	some msg in bcc.violation with input as commitment
+	contains(msg, "TOOL_RISK_TIER_INSUFFICIENT")
+}
+
+test_financial_intent_still_requires_aos_observability_fields if {
+	# "financial" intents go through the same agent-tool namespace as
+	# destructive/credential/etc, so they inherit the AOS trace_id/span_id/
+	# intent_rationale requirement automatically -- a trade with no declared
+	# rationale must be denied, not silently authorized.
+	commitment := object.union(_base_commitment, {
+		"intent_type": "hermes_tool:coinbase_trade:financial",
+		"intent_rationale": "",
+	})
+	not bcc.allow with input as commitment
+	some msg in bcc.violation with input as commitment
+	contains(msg, "AOS_VIOLATION")
+}
+
 test_hermes_tool_namespace_reaches_the_same_rules if {
 	# The Hermes runtime executed entirely ungated while Claude Code was gated,
 	# under the same DID. Both namespaces must hit one ruleset -- if this ever

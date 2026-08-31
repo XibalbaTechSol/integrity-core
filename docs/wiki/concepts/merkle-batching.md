@@ -1,7 +1,7 @@
 ---
 title: Merkle Batching & Anchoring Convention
 created: 2026-07-07
-updated: 2026-07-07
+updated: 2026-08-29
 type: concept
 tags: [cryptography, layer-2]
 confidence: high

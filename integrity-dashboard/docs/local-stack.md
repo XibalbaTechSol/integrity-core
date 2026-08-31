@@ -1,3 +1,19 @@
+# Integrated stack
+
+To run Cortex, the Shield backend, and the dashboard wiring together with the
+canonical Integrity services, use the core repository launcher:
+
+```bash
+cd ..
+./scripts/dev-integrated-stack.sh
+```
+
+This applies `docker-compose.integrations.yml`, exposes Cortex on `:8420`, the
+Shield backend on `:8765`, and the dashboard on `:5173`. It keeps Cortex and
+Shield data in separate named volumes. This remains a local development
+workflow; healthy HTTP endpoints do not establish live-chain or production
+security evidence.
+
 # Local Stack
 
 The MVP can run against the real local Integrity services and the graph-memory

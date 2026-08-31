@@ -1,24 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
 import { NavLink, Link } from 'react-router-dom';
-import { LayoutDashboard, Key, DollarSign, Activity, ShieldCheck, Code, BrainCircuit, User, Settings, LogIn, LogOut } from 'lucide-react';
+import { User, Settings, LogIn, LogOut } from 'lucide-react';
 import { useDashboard } from '../context/DashboardContext';
-import { BCC_MIDDLEWARE_URL, GRAPH_MEMORY_URL, ORACLE_URL, SHIELD_BACKEND_URL } from '../config';
-
-type ServiceState = 'checking' | 'online' | 'offline';
-
-const serviceChecks = [
-  { key: 'oracle', label: 'Oracle', url: `${ORACLE_URL}/healthz` },
-  { key: 'bcc', label: 'BCC', url: `${BCC_MIDDLEWARE_URL}/health` },
-  { key: 'memory', label: 'Memory', url: `${GRAPH_MEMORY_URL}/api/status` },
-  { key: 'shield', label: 'Shield', url: `${SHIELD_BACKEND_URL}/api/shield/health` },
-] as const;
+import { useServiceHealth } from '../services/health';
+import { NAVIGATION_ITEMS } from '../navigation';
 
 export function AppHeader() {
   const { selectedAgent, setSelectedAgent, agents, user } = useDashboard();
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-  const [serviceStates, setServiceStates] = useState<Record<string, ServiceState>>(
-    Object.fromEntries(serviceChecks.map((service) => [service.key, 'checking'])) as Record<string, ServiceState>,
-  );
+  const serviceChecks = useServiceHealth().filter((s) => s.key !== 'kernel');
   const profileRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -30,40 +20,6 @@ export function AppHeader() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const checkServices = async () => {
-      const results = await Promise.all(
-        serviceChecks.map(async (service) => {
-          try {
-            const response = await fetch(service.url, { signal: AbortSignal.timeout(2500) });
-            return [service.key, response.ok ? 'online' : 'offline'] as const;
-          } catch {
-            return [service.key, 'offline'] as const;
-          }
-        }),
-      );
-      if (!cancelled) setServiceStates(Object.fromEntries(results));
-    };
-    void checkServices();
-    const interval = window.setInterval(checkServices, 15000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, []);
-  
-  const navItems = [
-    { to: '/dashboard', label: 'Dashboard', icon: <LayoutDashboard size={18} /> },
-    { to: '/identity', label: 'Identity', icon: <Key size={18} /> },
-    { to: '/financials', label: 'Financials', icon: <DollarSign size={18} /> },
-    { to: '/health', label: 'Health', icon: <Activity size={18} /> },
-    { to: '/shield', label: 'Shield', icon: <ShieldCheck size={18} /> },
-    { to: '/intelligence', label: 'Intelligence', icon: <BrainCircuit size={18} /> },
-    { to: '/prediction-markets', label: 'Prediction Markets', icon: <DollarSign size={18} /> },
-    { to: '/developer', label: 'Developer', icon: <Code size={18} /> },
-  ];
 
   return (
     <header style={{ 
@@ -85,8 +41,8 @@ export function AppHeader() {
       </Link>
 
       {/* Center: Navigation Links */}
-      <nav style={{ display: 'flex', gap: '0.5rem', height: '100%' }}>
-        {navItems.map((item) => (
+      <nav aria-label="Primary navigation" style={{ display: 'flex', gap: '0.5rem', height: '100%', overflowX: 'auto', minWidth: 0 }}>
+        {NAVIGATION_ITEMS.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
@@ -105,7 +61,7 @@ export function AppHeader() {
               boxSizing: 'border-box'
             })}
           >
-            {item.icon}
+            <item.icon size={18} />
             <span>{item.label}</span>
           </NavLink>
         ))}
@@ -117,8 +73,8 @@ export function AppHeader() {
           {serviceChecks.map((service) => (
             <span
               key={service.key}
-              className={`app-service-indicator ${serviceStates[service.key]}`}
-              title={`${service.label}: ${serviceStates[service.key]}`}
+              className={`app-service-indicator ${service.status}`}
+              title={`${service.label}: ${service.status}`}
             >
               <span aria-hidden="true" />
               {service.label}

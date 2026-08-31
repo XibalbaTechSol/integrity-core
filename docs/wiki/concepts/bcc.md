@@ -2,7 +2,7 @@
 title: Behavioral Commitment Chain (BCC)
 acronyms: [BCC]
 created: 2026-07-07
-updated: 2026-07-15
+updated: 2026-08-28
 type: concept
 tags: [compliance, cryptography]
 confidence: high
@@ -12,6 +12,13 @@ source_files:
   - bcc_middleware/app/canonical.py
   - docs/INTERFACE_CONTRACT.md
 ---
+
+New protected tool calls carry a canonical UUID `invocation_id` following
+[`spec/invocation-id-v1.md`](../../../spec/invocation-id-v1.md). Unlike the content-addressed
+`intended_state_hash`, it remains unique when identical tool/input bytes repeat. The SDK signs it
+when present, middleware records it on ALLOW audit metadata, and the Oracle uses it for
+intent/effect reconciliation. Legacy rows without it remain readable but are classified
+`legacy_hash_only`, not fully reconciled.
 
 ## Table of contents
 
@@ -62,7 +69,7 @@ was valid against any chain or deployment sharing the signing agent's DID.
 `XibalbaAgentRegistry` address, so local/dev/test topologies with no
 deployments file configured aren't turned into a blanket deny — a disclosed
 limitation, not a silent downgrade. See
-`docs/plans/2026-08-18-phase1-canonical-intent-encoding-proposal.md` for the
+`docs/archive/2026-08/plans/2026-08-18-phase1-canonical-intent-encoding-proposal.md` for the
 full design and residual gaps (the experimental kernel's own replay-domain
 binding, and the ZK circuit's `intent_commitment` not yet binding `chain_id`
 — both separate, unattempted here).

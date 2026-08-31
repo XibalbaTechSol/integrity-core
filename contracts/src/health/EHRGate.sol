@@ -1,32 +1,20 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {ReputationRegistry} from "../oracle/ReputationRegistry.sol";
 import {SmartBAAFactory} from "./SmartBAAFactory.sol";
 import {XibalbaAgentRegistry} from "../framework/XibalbaAgentRegistry.sol";
+import {IAgentAuthorityResolver} from "../framework/IAgentAuthorityResolver.sol";
 
 /// @title EHRGate
 /// @notice Patient-controlled access gate for AI agents requesting PHI (Protected Health
-/// Information), with two additional institutional-level checks layered on top of raw
-/// patient consent: an active Business Associate Agreement between the record's covered
-/// entity and the requesting agent, and a minimum on-chain reputation score.
-/// @dev The old prototype's EHRGate only ever checked patient consent — it never
-/// actually enforced the BAA or reputation side of HIPAA compliance on-chain, so a
-/// patient who consented had no real protection against a low-reputation or
-/// contractually-unbound agent. All three checks are now required simultaneously
-/// (patient consent AND active BAA AND AIS >= threshold): consent alone is necessary
-/// but not sufficient — a patient can be tricked into granting access, but they cannot
-/// grant access to an agent lacking institutional accountability.
-///
-/// Reputation used to be read from one immutable, global `ReputationRegistry`. Now that
-/// every agent owns its own `ReputationRegistry` clone (see AgentPrimitivesFactory),
-/// there is no single address to point at — this contract instead holds the shared
-/// `XibalbaAgentRegistry` index and resolves `msg.sender`'s own clone address on every
-/// call. That resolution is itself a meaningful check: an address that was never
-/// registered through AgentPrimitivesFactory has no entry in the registry, so
-/// `checkAccess` reverts before it can even reach the reputation check, closing off any
-/// attempt to gate access using a hand-rolled contract that only pretends to be a
-/// Sovereign Agent.
+/// Information). A patient grants a specific agent access to a specific record hash; the
+/// agent may only actually read it if three independent checks all pass: the patient's
+/// grant is still unlocked, the covered entity has an active BAA with that agent, and the
+/// agent's current AIS clears the configured floor.
+/// @dev AIS is resolved through IAgentAuthorityResolver (Stream 2 / SPEC.md §3.4) rather
+/// than reading registry.resolveAgent(...).primitives.reputationRegistry directly, so this
+/// gate serves both sovereign clone-set agents and enterprise (StateAnchor-only) agents
+/// without EHRGate needing to know which profile a given agent used at registration.
 contract EHRGate {
     struct Gate {
         address coveredEntity;
@@ -36,6 +24,7 @@ contract EHRGate {
 
     XibalbaAgentRegistry public immutable registry;
     SmartBAAFactory public immutable baaFactory;
+    IAgentAuthorityResolver public immutable resolver;
 
     /// @notice Minimum effective AIS (post ZK-boost) an agent must hold to access PHI.
     /// Mutable (not immutable) because the AIS scale/formula weights are configurable
@@ -59,9 +48,10 @@ contract EHRGate {
         _;
     }
 
-    constructor(address _registry, address _baaFactory, uint256 _minAisThreshold, address _admin) {
+    constructor(address _registry, address _baaFactory, address _resolver, uint256 _minAisThreshold, address _admin) {
         registry = XibalbaAgentRegistry(_registry);
         baaFactory = SmartBAAFactory(_baaFactory);
+        resolver = IAgentAuthorityResolver(_resolver);
         minAisThreshold = _minAisThreshold;
         admin = _admin;
     }
@@ -71,9 +61,8 @@ contract EHRGate {
         emit ThresholdUpdated(newThreshold);
     }
 
-    /// @notice The patient explicitly grants a specific agent access to a specific
-    /// record, scoped to the covered entity that holds it (so the BAA check below has
-    /// something concrete to check against).
+    /// @notice Patient grants `agent` access to `recordHash`, recording which covered
+    /// entity vouches for that agent (checked against SmartBAAFactory at read time).
     function grantAccess(bytes32 recordHash, address agent, address coveredEntity) external {
         Gate storage g = accessGates[msg.sender][recordHash][agent];
         if (g.isUnlocked) revert GateAlreadyUnlocked();
@@ -88,23 +77,19 @@ contract EHRGate {
         emit AccessRevoked(msg.sender, recordHash, agent);
     }
 
-    /// @notice Checks all three gating conditions for `msg.sender` (expected to be the
-    /// requesting SovereignAgent contract) against `patient`'s record. Returns `false`
-    /// (does not revert) if `msg.sender` was never registered through
-    /// AgentPrimitivesFactory, so that `verifyAndLogAccess` can still emit an auditable
+    /// @notice Three independent checks, evaluated in order, each returning false (a
     /// "denied" entry for a rogue caller instead of the whole call reverting and leaving
     /// no on-chain trace of the attempt.
     function checkAccess(address patient, bytes32 recordHash) public view returns (bool) {
         Gate storage g = accessGates[patient][recordHash][msg.sender];
         if (!g.isUnlocked) return false;
         if (!baaFactory.isBAAActive(g.coveredEntity, msg.sender)) return false;
-        if (!registry.isRegisteredAgent(msg.sender)) return false;
-        address reputationRegistry = registry.resolveAgent(msg.sender).primitives.reputationRegistry;
-        if (ReputationRegistry(reputationRegistry).effectiveScore(msg.sender) < minAisThreshold) return false;
+        if (!resolver.isAuthorityRegistered(msg.sender)) return false;
+        if (resolver.getAis(msg.sender) < minAisThreshold) return false;
         return true;
     }
 
-    /// @notice Same check as `checkAccess`, but emits an auditable log either way —
+    /// @notice Same check as `checkAccess`, but emits an auditable log either way --
     /// intended to be called immediately before an agent performs off-chain inference
     /// over PHI, so there's an on-chain record of every access attempt (granted or
     /// denied) that integrity-oracle/bcc_middleware can correlate with the OPA policy

@@ -5,6 +5,7 @@ import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 
 import {EHRGate} from "../src/health/EHRGate.sol";
+import {AgentAuthorityResolver} from "../src/framework/AgentAuthorityResolver.sol";
 
 /// @title DeployEHRGate
 /// @notice Incremental deploy: adds `EHRGate` -- the actual PHI-access enforcement
@@ -13,15 +14,15 @@ import {EHRGate} from "../src/health/EHRGate.sol";
 /// added to `Deploy.s.sol` (PRODUCTION_GAPS.md §4: EHRGate was never deployed anywhere,
 /// including on live Base Sepolia, despite being real and fully tested in isolation).
 /// Same incremental-deploy convention as `DeployMarkets.s.sol`: reads the existing
-/// `../deployments.<network>.json`, deploys only the new contract against the existing
-/// `XibalbaAgentRegistry`/`SmartBAAFactory` addresses, and merges the new address into
+/// `../deployments.<network>.json`, deploys only the new EHRGate contract against the existing
+/// `XibalbaAgentRegistry`/`SmartBAAFactory`/`AgentAuthorityResolver` addresses, and merges the new address into
 /// that SAME file rather than overwriting or re-running full genesis (which would
 /// orphan every already-registered agent).
 /// @dev Run against Base Sepolia with:
 ///   forge script script/DeployEHRGate.s.sol --rpc-url base_sepolia --broadcast --verify
 /// Requires `../deployments.<network>.json` to already exist (i.e. `Deploy.s.sol` has
-/// already run once against this network) and to have both `XibalbaAgentRegistry` and
-/// `SmartBAAFactory` singleton addresses. Deliberately NOT run automatically as part of
+/// already run once against this network) and to have `XibalbaAgentRegistry`,
+/// `SmartBAAFactory`, and `AgentAuthorityResolver` singleton addresses. Deliberately NOT run automatically as part of
 /// this change -- deploying to a live network is a real, gas-costing, operator-triggered
 /// action, not something a code change should do on its own.
 contract DeployEHRGate is Script {
@@ -33,11 +34,15 @@ contract DeployEHRGate is Script {
     address registry;
     address baaFactory;
 
+    AgentAuthorityResolver authorityResolver;
     EHRGate ehrGate;
 
     string existingJson;
     string network;
     string path;
+
+    string constant REGISTRY_MIGRATION_REQUIRED =
+        "DeployEHRGate: registry migration required; .singletons.AgentAuthorityResolver is missing";
 
     function run() external {
         uint256 deployerKey = vm.envUint("FUNDER_PRIVATE_KEY");
@@ -50,8 +55,14 @@ contract DeployEHRGate is Script {
         registry = vm.parseJsonAddress(existingJson, ".singletons.XibalbaAgentRegistry");
         baaFactory = vm.parseJsonAddress(existingJson, ".singletons.SmartBAAFactory");
 
+        if (!vm.keyExistsJson(existingJson, ".singletons.AgentAuthorityResolver")) {
+            revert(REGISTRY_MIGRATION_REQUIRED);
+        }
+        authorityResolver =
+            AgentAuthorityResolver(vm.parseJsonAddress(existingJson, ".singletons.AgentAuthorityResolver"));
+
         vm.startBroadcast(deployerKey);
-        ehrGate = new EHRGate(registry, baaFactory, EHR_GATE_MIN_AIS_THRESHOLD, deployer);
+        ehrGate = new EHRGate(registry, baaFactory, address(authorityResolver), EHR_GATE_MIN_AIS_THRESHOLD, deployer);
         vm.stopBroadcast();
 
         _logSummary();
@@ -63,6 +74,7 @@ contract DeployEHRGate is Script {
         console2.log("network:               ", network);
         console2.log("existing AgentRegistry:", registry);
         console2.log("existing SmartBAAFactory:", baaFactory);
+        console2.log("AgentAuthorityResolver:", address(authorityResolver));
         console2.log("EHRGate:               ", address(ehrGate));
     }
 
@@ -83,6 +95,7 @@ contract DeployEHRGate is Script {
             singletons, "UltraPlonkVerifier", vm.parseJsonAddress(existingJson, ".singletons.UltraPlonkVerifier")
         );
         vm.serializeAddress(singletons, "XibalbaAgentRegistry", registry);
+        vm.serializeAddress(singletons, "AgentAuthorityResolver", address(authorityResolver));
         if (vm.keyExistsJson(existingJson, ".singletons.IntegrityIdentityReadV1")) {
             vm.serializeAddress(
                 singletons,

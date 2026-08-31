@@ -3,12 +3,17 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {StdStorage, stdStorage} from "forge-std/StdStorage.sol";
-import {IntegrityAccountV1Experimental} from "../src/kernel/IntegrityAccountV1Experimental.sol";
-import {IntegrityKernelV1Experimental} from "../src/kernel/IntegrityKernelV1Experimental.sol";
+import {IntegrityAccount} from "../src/kernel/IntegrityAccount.sol";
+import {IntegrityKernel} from "../src/kernel/IntegrityKernel.sol";
+import {AdapterRegistry} from "../src/registry/AdapterRegistry.sol";
 import {ReputationRegistry} from "../src/oracle/ReputationRegistry.sol";
+import {IntegrityToken} from "../src/oracle/IntegrityToken.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {Account as ERC4337Account} from "@openzeppelin/contracts/account/Account.sol";
 import {MODULE_TYPE_HOOK} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
+import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
+import {ERC4337Utils} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
 import {
     ERC7579Utils,
     Mode,
@@ -59,7 +64,7 @@ contract AlwaysRevertingKernel {
 /// inside the callback -- `msg.sender` there is this contract's own address, which is neither
 /// `address(account)` nor a registered guardian.
 contract ReentrancyObserverKernel {
-    IntegrityAccountV1Experimental public immutable account;
+    IntegrityAccount public immutable account;
 
     bool public onInstallCalled;
     address public observedPendingKernelAtInstall;
@@ -72,7 +77,7 @@ contract ReentrancyObserverKernel {
     address public observedPendingKernelAtUninstall;
     uint256 public observedApprovalCountAtUninstall;
 
-    constructor(IntegrityAccountV1Experimental account_) {
+    constructor(IntegrityAccount account_) {
         account = account_;
     }
 
@@ -126,7 +131,7 @@ contract ReentrancyObserverKernel {
 /// account's perspective is the kernel's own address) from both `onInstall` (playing "new kernel")
 /// and `onUninstall` (playing "old kernel"), recording whether each attempt was rejected.
 contract ReentrantFallbackKernel {
-    IntegrityAccountV1Experimental public immutable account;
+    IntegrityAccount public immutable account;
 
     // Both the guarded and unguarded paths ultimately revert the reentrant call (the account
     // never installs a fallback handler, so `_fallback` fails closed regardless) -- the REVERT
@@ -135,7 +140,7 @@ contract ReentrantFallbackKernel {
     bytes4 public installReentrantRevertSelector;
     bytes4 public uninstallReentrantRevertSelector;
 
-    constructor(IntegrityAccountV1Experimental account_) {
+    constructor(IntegrityAccount account_) {
         account = account_;
     }
 
@@ -169,7 +174,7 @@ contract ReentrantFallbackKernel {
 /// @dev Adversarial fixture for the constant-drift finding a Devil's Advocate review surfaced:
 /// exposes the same `scores`/`ZK_BOOST_BPS`/`BPS_DENOMINATOR` shape as the real
 /// `ReputationRegistry`, but with DIFFERENT boost constants, to prove
-/// `IntegrityKernelV1Experimental`'s constructor-time cross-check genuinely rejects a mismatch
+/// `IntegrityKernel`'s constructor-time cross-check genuinely rejects a mismatch
 /// rather than silently trusting its own local mirror.
 contract MismatchedBoostRegistry {
     uint256 public constant ZK_BOOST_BPS = 20_000;
@@ -207,7 +212,7 @@ contract NonSnapshottingKernel {
 /// Non-deployable, non-upgradeable, single CALL mode only, two conjunctive conditions (a
 /// native-value spend budget and a reputation floor). See both proposal docs for full scope
 /// boundaries -- this test file only proves what those documents claim, nothing more.
-contract IntegrityAccountV1ExperimentalTest is Test {
+contract IntegrityAccountTest is Test {
     using stdStorage for StdStorage;
 
     address signer;
@@ -230,13 +235,25 @@ contract IntegrityAccountV1ExperimentalTest is Test {
     uint256 constant REPUTATION_EPOCH_LENGTH = 3 days;
     uint256 constant GUARDIAN_THRESHOLD = 2;
 
-    IntegrityKernelV1Experimental kernel;
-    IntegrityAccountV1Experimental account;
+    IntegrityKernel kernel;
+    IntegrityAccount account;
     ReputationRegistry reputation;
     address[] guardianSet;
     address guardian1;
     address guardian2;
     address guardian3;
+
+    /// @dev A SECOND account+kernel pair with `trackedToken` enabled, deployed here (not lazily
+    /// inside a test body) specifically so its storage is in the same cold/warm state relative to
+    /// each test body as the shared `kernel`/`account` pair above -- deploying it inside a test
+    /// body instead would leave the token's balance slot warm from the same-transaction mint,
+    /// understating the real (first-touch-per-transaction) gas cost `preCheck` pays in production.
+    /// See `docs/plans/2026-08-24-phase1-declared-asset-conservation-proposal.md`.
+    uint256 constant TOKEN_PER_OP_BUDGET = 10 ether;
+    uint256 constant TOKEN_CUMULATIVE_BUDGET = 25 ether;
+    IntegrityKernel tokenKernel;
+    IntegrityAccount tokenAccount;
+    IntegrityToken token;
 
     function setUp() public {
         (signer, signerKey) = makeAddrAndKey("signer");
@@ -268,19 +285,57 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         // for reaching state that's real production state but not reachable through a simple
         // mock call.
         _setZkBoostExpiry(predictedAccount, block.timestamp + 7 days);
-        kernel = new IntegrityKernelV1Experimental(
+        kernel = new IntegrityKernel(
             predictedAccount,
             PER_OP_BUDGET,
             CUMULATIVE_BUDGET,
             address(reputation),
             MIN_EFFECTIVE_SCORE,
-            REPUTATION_EPOCH_LENGTH
-        );
-        account = new IntegrityAccountV1Experimental(
+            REPUTATION_EPOCH_LENGTH,
+            address(0),
+            0,
+            0
+        , AdapterRegistry(address(0)), address(0));
+        account = new IntegrityAccount(
             signer, address(kernel), MODULE_ACTION_TIMELOCK, guardianSet, GUARDIAN_THRESHOLD, RESCUE_TIMELOCK
         );
         assertEq(address(account), predictedAccount, "CREATE address prediction must match actual deployment");
         vm.deal(address(account), 10 ether);
+
+        // Second pair, token-tracking enabled -- same CREATE-prediction dance, same reputation
+        // registry (a fresh score entry keyed by the new predicted address).
+        token = new IntegrityToken(address(this), 0);
+        address predictedTokenAccount = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1);
+        reputation.updateScore(predictedTokenAccount, ABOVE_FLOOR_SCORE);
+        _setZkBoostExpiry(predictedTokenAccount, block.timestamp + 7 days);
+        tokenKernel = new IntegrityKernel(
+            predictedTokenAccount,
+            PER_OP_BUDGET,
+            CUMULATIVE_BUDGET,
+            address(reputation),
+            MIN_EFFECTIVE_SCORE,
+            REPUTATION_EPOCH_LENGTH,
+            address(token),
+            TOKEN_PER_OP_BUDGET,
+            TOKEN_CUMULATIVE_BUDGET
+        , AdapterRegistry(address(0)), address(0));
+        tokenAccount = new IntegrityAccount(
+            signer, address(tokenKernel), MODULE_ACTION_TIMELOCK, guardianSet, GUARDIAN_THRESHOLD, RESCUE_TIMELOCK
+        );
+        assertEq(
+            address(tokenAccount), predictedTokenAccount, "CREATE address prediction must match actual deployment"
+        );
+        vm.deal(address(tokenAccount), 10 ether);
+        // Minted here, in setUp -- NOT in the test body -- specifically so the token's balance
+        // storage slot for tokenAccount is genuinely COLD when a test body first reads it via
+        // `preCheck`. Foundry treats setUp() and the test function as separate top-level calls,
+        // so EIP-2929 access-list warmth does NOT carry over between them -- exactly why
+        // `reputation`'s storage (also written in setUp, read cold in every test body) cost ~2.6k
+        // for its first cross-contract read, per this kernel's own contract-level doc comment.
+        // Minting inside a test body instead would make the SAME transaction's later `preCheck`
+        // read see a WARM slot, understating the real first-touch-per-transaction cost a
+        // production `preCheck` call actually pays.
+        token.mint(address(tokenAccount), 100 ether);
     }
 
     /// @dev Gathers exactly enough guardian approvals (2-of-3) for `nonce` to satisfy
@@ -317,6 +372,8 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         // satisfy outside of an external call boundary.
         bytes memory executionCalldata = abi.encodePacked(recipient, sendAmount, bytes(""));
 
+        vm.expectEmit(address(kernel));
+        emit IntegrityKernel.SpendChecked(address(account), sendAmount, sendAmount, 0, 0);
         vm.prank(address(account));
         account.execute(_singleCallMode(), executionCalldata);
 
@@ -334,7 +391,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityKernelV1Experimental.PerOperationBudgetExceeded.selector, overBudgetAmount, PER_OP_BUDGET
+                IntegrityKernel.PerOperationBudgetExceeded.selector, overBudgetAmount, PER_OP_BUDGET
             )
         );
         vm.prank(address(account));
@@ -365,7 +422,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         uint256 recipientBalanceBeforeFourthCall = recipient.balance;
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityKernelV1Experimental.CumulativeBudgetExceeded.selector,
+                IntegrityKernel.CumulativeBudgetExceeded.selector,
                 CUMULATIVE_BUDGET,
                 fourthCallAmount,
                 CUMULATIVE_BUDGET
@@ -390,7 +447,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         );
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityAccountV1Experimental.UnsupportedExecutionMode.selector,
+                IntegrityAccount.UnsupportedExecutionMode.selector,
                 ERC7579Utils.CALLTYPE_BATCH,
                 ERC7579Utils.EXECTYPE_DEFAULT
             )
@@ -405,7 +462,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         );
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityAccountV1Experimental.UnsupportedExecutionMode.selector,
+                IntegrityAccount.UnsupportedExecutionMode.selector,
                 ERC7579Utils.CALLTYPE_DELEGATECALL,
                 ERC7579Utils.EXECTYPE_DEFAULT
             )
@@ -420,7 +477,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         );
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityAccountV1Experimental.UnsupportedExecutionMode.selector,
+                IntegrityAccount.UnsupportedExecutionMode.selector,
                 ERC7579Utils.CALLTYPE_SINGLE,
                 ERC7579Utils.EXECTYPE_TRY
             )
@@ -430,7 +487,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
     }
 
     function test_moduleInstallIsUnconditionallyDisabled() public {
-        vm.expectRevert(IntegrityAccountV1Experimental.ModuleMutationDisabled.selector);
+        vm.expectRevert(IntegrityAccount.ModuleMutationDisabled.selector);
         vm.prank(address(account));
         account.installModule(4, address(0xBEEF), "");
     }
@@ -438,7 +495,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
     function test_moduleUninstallIsUnconditionallyDisabled() public {
         // Even an attempt to uninstall the ALREADY-installed real kernel must be rejected --
         // this is what makes the kernel binding permanent, not just "nobody happens to call it".
-        vm.expectRevert(IntegrityAccountV1Experimental.ModuleMutationDisabled.selector);
+        vm.expectRevert(IntegrityAccount.ModuleMutationDisabled.selector);
         vm.prank(address(account));
         account.uninstallModule(4, address(kernel), "");
     }
@@ -446,18 +503,18 @@ contract IntegrityAccountV1ExperimentalTest is Test {
     // --- (d): the hook frame's armed guard actually does its job ------------------------------
 
     function test_postCheckCannotBeCalledDirectlyWithoutAPrecedingPreCheck() public {
-        vm.expectRevert(IntegrityKernelV1Experimental.NotArmed.selector);
+        vm.expectRevert(IntegrityKernel.NotArmed.selector);
         vm.prank(address(account));
         kernel.postCheck(abi.encode(address(account).balance));
     }
 
     function test_preCheckAndPostCheckRejectCallersOtherThanTheBoundAccount() public {
         address stranger = makeAddr("stranger");
-        vm.expectRevert(abi.encodeWithSelector(IntegrityKernelV1Experimental.Unauthorized.selector, stranger));
+        vm.expectRevert(abi.encodeWithSelector(IntegrityKernel.Unauthorized.selector, stranger));
         vm.prank(stranger);
         kernel.preCheck(stranger, 0, "");
 
-        vm.expectRevert(abi.encodeWithSelector(IntegrityKernelV1Experimental.Unauthorized.selector, stranger));
+        vm.expectRevert(abi.encodeWithSelector(IntegrityKernel.Unauthorized.selector, stranger));
         vm.prank(stranger);
         kernel.postCheck(abi.encode(uint256(0)));
     }
@@ -484,7 +541,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         bytes memory outerCalldata = abi.encodePacked(address(account), uint256(0), nestedExecuteCall);
 
         vm.prank(address(account));
-        vm.expectRevert(IntegrityKernelV1Experimental.AlreadyArmed.selector);
+        vm.expectRevert(IntegrityKernel.AlreadyArmed.selector);
         account.execute(_singleCallMode(), outerCalldata);
 
         assertEq(
@@ -494,6 +551,106 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         );
         assertEq(recipient.balance, recipientBalanceBefore);
         assertFalse(kernel.armed(), "armed must be false again once the whole transaction has unwound");
+    }
+
+    // --- ERC-4337 validateUserOp / EntryPoint integration (Devil's Advocate review, 2026-08-24 --
+    // --- docs/plans/2026-08-24-phase1-devils-advocate-governance-entrypoint-proposal.md, finding
+    // --- B2: this path had ZERO test coverage anywhere in the repo before this) -----------------
+
+    function _minimalUserOp(bytes memory signature) internal view returns (PackedUserOperation memory) {
+        // Every field except `signature` is irrelevant to `_signableUserOpHash` (the default
+        // implementation just returns the passed-in `userOpHash` untouched, ignoring `userOp`
+        // entirely -- confirmed by reading Account.sol's own `_signableUserOpHash` before writing
+        // this, not assumed) or to `_payPrefund` (a no-op when `missingAccountFunds == 0`, which
+        // every call below passes). Zeroed/empty for everything not under test.
+        return PackedUserOperation({
+            sender: address(account),
+            nonce: 0,
+            initCode: "",
+            callData: "",
+            accountGasLimits: bytes32(0),
+            preVerificationGas: 0,
+            gasFees: bytes32(0),
+            paymasterAndData: "",
+            signature: signature
+        });
+    }
+
+    /// @notice The real, previously-never-exercised signature-validation path: a genuine
+    /// signature from the account's own signer, over an arbitrary userOpHash, called as the real
+    /// `entryPoint()` address (not `vm.prank(address(account))`, the "self" branch every other
+    /// test in this file uses) must validate successfully.
+    function test_validateUserOpAcceptsAGenuineSignerSignature() public {
+        bytes32 userOpHash = keccak256("a real user operation");
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, userOpHash);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        vm.prank(address(account.entryPoint()));
+        uint256 validationData = account.validateUserOp(_minimalUserOp(signature), userOpHash, 0);
+
+        assertEq(validationData, ERC4337Utils.SIG_VALIDATION_SUCCESS, "a genuine signer signature must validate");
+    }
+
+    /// @notice The negative case: a signature from a DIFFERENT key must fail validation, not
+    /// revert and not silently succeed -- ERC-4337's own convention is a nonzero return value,
+    /// not a revert, so this must be checked as a return value, not `vm.expectRevert`.
+    function test_validateUserOpRejectsASignatureFromAWrongKey() public {
+        (, uint256 wrongKey) = makeAddrAndKey("not-the-signer");
+        bytes32 userOpHash = keccak256("a real user operation");
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(wrongKey, userOpHash);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        vm.prank(address(account.entryPoint()));
+        uint256 validationData = account.validateUserOp(_minimalUserOp(signature), userOpHash, 0);
+
+        assertEq(validationData, ERC4337Utils.SIG_VALIDATION_FAILED, "a wrong-key signature must fail validation");
+    }
+
+    /// @notice A signature valid for a DIFFERENT hash than the one actually passed must also
+    /// fail -- proves the hash itself is what's being checked, not merely "is this calldata
+    /// well-formed."
+    function test_validateUserOpRejectsAValidSignatureOverTheWrongHash() public {
+        bytes32 signedHash = keccak256("the hash that was actually signed");
+        bytes32 differentUserOpHash = keccak256("a different user operation entirely");
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, signedHash);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        vm.prank(address(account.entryPoint()));
+        uint256 validationData = account.validateUserOp(_minimalUserOp(signature), differentUserOpHash, 0);
+
+        assertEq(
+            validationData, ERC4337Utils.SIG_VALIDATION_FAILED, "a signature over the wrong hash must fail validation"
+        );
+    }
+
+    /// @notice `validateUserOp` is `onlyEntryPoint`, NOT `onlyEntryPointOrSelf` like `execute()`
+    /// and the governance functions -- confirms this real access-control distinction by reverting
+    /// for a self-call, not just for an arbitrary stranger.
+    function test_validateUserOpRevertsWhenCalledBySelfNotEntryPoint() public {
+        bytes32 userOpHash = keccak256("a real user operation");
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, userOpHash);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        vm.prank(address(account));
+        vm.expectRevert();
+        account.validateUserOp(_minimalUserOp(signature), userOpHash, 0);
+    }
+
+    /// @notice Confirms the real, canonical EntryPoint v0.9 address this account's un-overridden
+    /// `entryPoint()` resolves to (finding B1: never previously verified against anything) DOES
+    /// carry genuine EntryPoint bytecode on the network this account is actually deployed to --
+    /// `getNonce(address,uint192)` cleanly returns 0 for a fresh address at
+    /// `0x433709009B8330FDa32311DF1C2AFA402eD8D009` on Base Sepolia (chain 84532), checked live via
+    /// `cast call` before this test was written, not assumed. This test pins the ADDRESS the
+    /// account resolves to, which is checkable locally; the live bytecode check itself is
+    /// recorded in `PRODUCTION_GAPS.md`, not repeatable inside a local Foundry test without a
+    /// forked RPC.
+    function test_entryPointResolvesToTheRealCanonicalAddress() public view {
+        assertEq(
+            address(account.entryPoint()),
+            0x433709009B8330FDa32311DF1C2AFA402eD8D009,
+            "entryPoint() must resolve to the real, canonical EntryPoint v0.9 address -- verified live on Base Sepolia"
+        );
     }
 
     // --- reputation-floor adapter (docs/plans/2026-08-17-phase1-reputation-adapter-proposal.md)
@@ -520,7 +677,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityKernelV1Experimental.ReputationBelowFloor.selector, boostedScore, MIN_EFFECTIVE_SCORE
+                IntegrityKernel.ReputationBelowFloor.selector, boostedScore, MIN_EFFECTIVE_SCORE
             )
         );
         vm.prank(address(account));
@@ -567,7 +724,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityKernelV1Experimental.PerOperationBudgetExceeded.selector, overBudgetAmount, PER_OP_BUDGET
+                IntegrityKernel.PerOperationBudgetExceeded.selector, overBudgetAmount, PER_OP_BUDGET
             )
         );
         vm.prank(address(account));
@@ -585,7 +742,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         bytes memory executionCalldata = abi.encodePacked(recipient, uint256(0.1 ether), bytes(""));
 
         vm.expectRevert(
-            abi.encodeWithSelector(IntegrityKernelV1Experimental.AssuranceTierNotMet.selector, address(account))
+            abi.encodeWithSelector(IntegrityKernel.AssuranceTierNotMet.selector, address(account))
         );
         vm.prank(address(account));
         account.execute(_singleCallMode(), executionCalldata);
@@ -611,7 +768,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
 
         bytes memory executionCalldata = abi.encodePacked(recipient, uint256(0.1 ether), bytes(""));
         vm.expectRevert(
-            abi.encodeWithSelector(IntegrityKernelV1Experimental.AssuranceTierNotMet.selector, address(account))
+            abi.encodeWithSelector(IntegrityKernel.AssuranceTierNotMet.selector, address(account))
         );
         vm.prank(address(account));
         account.execute(_singleCallMode(), executionCalldata);
@@ -653,7 +810,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         // test that happens to run after this one in the same suite (Foundry gives each test
         // function a fresh contract deployment via setUp, so this is defensive, not required).
         vm.prank(address(account));
-        kernel.postCheck(abi.encode(address(account).balance));
+        kernel.postCheck(abi.encode(address(account).balance, uint256(0)));
     }
 
     /// @dev The gas this design defers rather than eliminates -- makes the "amortized, not free"
@@ -711,7 +868,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         bytes memory executionCalldata = abi.encodePacked(recipient, uint256(0.1 ether), bytes(""));
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityKernelV1Experimental.SnapshotStale.selector, 1, block.timestamp, REPUTATION_EPOCH_LENGTH
+                IntegrityKernel.SnapshotStale.selector, 1, block.timestamp, REPUTATION_EPOCH_LENGTH
             )
         );
         vm.prank(address(account));
@@ -734,10 +891,11 @@ contract IntegrityAccountV1ExperimentalTest is Test {
     }
 
     function test_constructorRevertsOnZeroEpochLength() public {
-        vm.expectRevert(IntegrityKernelV1Experimental.ZeroEpochLength.selector);
-        new IntegrityKernelV1Experimental(
-            address(account), PER_OP_BUDGET, CUMULATIVE_BUDGET, address(reputation), MIN_EFFECTIVE_SCORE, 0
-        );
+        vm.expectRevert(IntegrityKernel.ZeroEpochLength.selector);
+        new IntegrityKernel(
+            address(account), PER_OP_BUDGET, CUMULATIVE_BUDGET, address(reputation), MIN_EFFECTIVE_SCORE, 0,
+            address(0), 0, 0
+        , AdapterRegistry(address(0)), address(0));
     }
 
     /// @dev SUPERSEDES an earlier version of this test that only compared two hardcoded literals
@@ -763,38 +921,42 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         MismatchedBoostRegistry mismatched = new MismatchedBoostRegistry();
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityKernelV1Experimental.BoostConstantsMismatch.selector,
+                IntegrityKernel.BoostConstantsMismatch.selector,
                 11_500,
                 mismatched.ZK_BOOST_BPS(),
                 10_000,
                 mismatched.BPS_DENOMINATOR()
             )
         );
-        new IntegrityKernelV1Experimental(
+        new IntegrityKernel(
             address(account),
             PER_OP_BUDGET,
             CUMULATIVE_BUDGET,
             address(mismatched),
             MIN_EFFECTIVE_SCORE,
-            REPUTATION_EPOCH_LENGTH
-        );
+            REPUTATION_EPOCH_LENGTH,
+            address(0),
+            0,
+            0
+        , AdapterRegistry(address(0)), address(0));
     }
 
     function test_constructorRevertsOnEpochLengthTooLong() public {
         uint256 tooLong = kernel.MAX_EPOCH_LENGTH_SECONDS() + 1;
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityKernelV1Experimental.EpochLengthTooLong.selector, tooLong, kernel.MAX_EPOCH_LENGTH_SECONDS()
+                IntegrityKernel.EpochLengthTooLong.selector, tooLong, kernel.MAX_EPOCH_LENGTH_SECONDS()
             )
         );
-        new IntegrityKernelV1Experimental(
-            address(account), PER_OP_BUDGET, CUMULATIVE_BUDGET, address(reputation), MIN_EFFECTIVE_SCORE, tooLong
-        );
+        new IntegrityKernel(
+            address(account), PER_OP_BUDGET, CUMULATIVE_BUDGET, address(reputation), MIN_EFFECTIVE_SCORE, tooLong,
+            address(0), 0, 0
+        , AdapterRegistry(address(0)), address(0));
     }
 
     function test_refreshReputationSnapshotEmitsEvent() public {
         vm.expectEmit(address(kernel));
-        emit IntegrityKernelV1Experimental.ReputationSnapshotRefreshed(
+        emit IntegrityKernel.ReputationSnapshotRefreshed(
             reputation.effectiveScore(address(account)), reputation.isZkBoosted(address(account)), block.timestamp
         );
         kernel.refreshReputationSnapshot();
@@ -838,53 +1000,56 @@ contract IntegrityAccountV1ExperimentalTest is Test {
 
     // --- kernel-swap governance (timelocked, atomic, single-signer) ---------------------------
 
-    function _deployKernel(uint256 minEffectiveScore) internal returns (IntegrityKernelV1Experimental) {
-        return new IntegrityKernelV1Experimental(
+    function _deployKernel(uint256 minEffectiveScore) internal returns (IntegrityKernel) {
+        return new IntegrityKernel(
             address(account),
             PER_OP_BUDGET,
             CUMULATIVE_BUDGET,
             address(reputation),
             minEffectiveScore,
-            REPUTATION_EPOCH_LENGTH
-        );
+            REPUTATION_EPOCH_LENGTH,
+            address(0),
+            0,
+            0
+        , AdapterRegistry(address(0)), address(0));
     }
 
     function test_proposeKernelSwapRevertsOnZeroKernel() public {
-        vm.expectRevert(IntegrityAccountV1Experimental.ZeroKernel.selector);
+        vm.expectRevert(IntegrityAccount.ZeroKernel.selector);
         vm.prank(address(account));
         account.proposeKernelSwap(address(0));
     }
 
     function test_proposeKernelSwapRevertsIfAlreadyPending() public {
-        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
         vm.startPrank(address(account));
         account.proposeKernelSwap(address(newKernel));
-        vm.expectRevert(IntegrityAccountV1Experimental.SwapAlreadyPending.selector);
+        vm.expectRevert(IntegrityAccount.SwapAlreadyPending.selector);
         account.proposeKernelSwap(address(newKernel));
         vm.stopPrank();
     }
 
     function test_cancelKernelSwapRevertsWhenNothingPending() public {
-        vm.expectRevert(IntegrityAccountV1Experimental.NoSwapPending.selector);
+        vm.expectRevert(IntegrityAccount.NoSwapPending.selector);
         vm.prank(address(account));
         account.cancelKernelSwap();
     }
 
     function test_executeKernelSwapRevertsWhenNothingPending() public {
-        vm.expectRevert(IntegrityAccountV1Experimental.NoSwapPending.selector);
+        vm.expectRevert(IntegrityAccount.NoSwapPending.selector);
         vm.prank(address(account));
         account.executeKernelSwap(address(0xBEEF));
     }
 
     function test_executeKernelSwapRevertsOnParameterMismatch() public {
-        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
         address otherKernel = address(0xBEEF);
         vm.startPrank(address(account));
         account.proposeKernelSwap(address(newKernel));
         vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityAccountV1Experimental.SwapMismatch.selector, address(newKernel), otherKernel
+                IntegrityAccount.SwapMismatch.selector, address(newKernel), otherKernel
             )
         );
         account.executeKernelSwap(otherKernel);
@@ -892,21 +1057,21 @@ contract IntegrityAccountV1ExperimentalTest is Test {
     }
 
     function test_executeKernelSwapRevertsBeforeTimelockElapses() public {
-        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
         vm.startPrank(address(account));
         account.proposeKernelSwap(address(newKernel));
         (, uint256 readyAt) = account.pendingKernelSwap();
         vm.warp(readyAt - 1);
         vm.expectRevert(
-            abi.encodeWithSelector(IntegrityAccountV1Experimental.TimelockNotElapsed.selector, readyAt, readyAt - 1)
+            abi.encodeWithSelector(IntegrityAccount.TimelockNotElapsed.selector, readyAt, readyAt - 1)
         );
         account.executeKernelSwap(address(newKernel));
         vm.stopPrank();
     }
 
     function test_cancelKernelSwapThenReproposeSucceeds() public {
-        IntegrityKernelV1Experimental firstProposed = _deployKernel(MIN_EFFECTIVE_SCORE);
-        IntegrityKernelV1Experimental secondProposed = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel firstProposed = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel secondProposed = _deployKernel(MIN_EFFECTIVE_SCORE);
         vm.startPrank(address(account));
         account.proposeKernelSwap(address(firstProposed));
         account.cancelKernelSwap();
@@ -931,7 +1096,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
     }
 
     function test_kernelSwapSucceedsAfterTimelockElapsesAndInstallsTheNewKernel() public {
-        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
         vm.startPrank(address(account));
         account.proposeKernelSwap(address(newKernel));
         vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
@@ -967,7 +1132,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
     /// wrapped by `withHook` while `_hook` still points at the OLD kernel, so the old kernel's
     /// own `preCheck` genuinely fires and can genuinely block the swap.
     function test_executeKernelSwapUninstallHalfIsMediatedByOldKernel() public {
-        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
         vm.prank(address(account));
         account.proposeKernelSwap(address(newKernel));
         vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
@@ -994,7 +1159,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityKernelV1Experimental.ReputationBelowFloor.selector, boostedScore, MIN_EFFECTIVE_SCORE
+                IntegrityKernel.ReputationBelowFloor.selector, boostedScore, MIN_EFFECTIVE_SCORE
             )
         );
         vm.prank(address(account));
@@ -1016,7 +1181,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         // An unreachably high floor guarantees the account could never pass this new kernel's
         // own preCheck if it were actually invoked during the swap.
         uint256 unreachableFloor = 1_000_000;
-        IntegrityKernelV1Experimental strictKernel = _deployKernel(unreachableFloor);
+        IntegrityKernel strictKernel = _deployKernel(unreachableFloor);
 
         vm.prank(address(account));
         account.proposeKernelSwap(address(strictKernel));
@@ -1048,7 +1213,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         bytes memory executionCalldata = abi.encodePacked(recipient, uint256(0.1 ether), bytes(""));
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityKernelV1Experimental.ReputationBelowFloor.selector, boostedAboveFloorScore, unreachableFloor
+                IntegrityKernel.ReputationBelowFloor.selector, boostedAboveFloorScore, unreachableFloor
             )
         );
         vm.prank(address(account));
@@ -1058,14 +1223,14 @@ contract IntegrityAccountV1ExperimentalTest is Test {
     // --- Devil's Advocate review findings (2026-08-17): code-level fixes and their regressions ---
 
     function test_constructorRevertsOnZeroTimelock() public {
-        vm.expectRevert(IntegrityAccountV1Experimental.ZeroTimelock.selector);
-        new IntegrityAccountV1Experimental(signer, address(kernel), 0, guardianSet, GUARDIAN_THRESHOLD, RESCUE_TIMELOCK);
+        vm.expectRevert(IntegrityAccount.ZeroTimelock.selector);
+        new IntegrityAccount(signer, address(kernel), 0, guardianSet, GUARDIAN_THRESHOLD, RESCUE_TIMELOCK);
     }
 
     function test_proposeKernelSwapRevertsOnNonConformingKernel() public {
         NonHookModule notAHook = new NonHookModule();
         vm.expectRevert(
-            abi.encodeWithSelector(IntegrityAccountV1Experimental.NewKernelNotAHookModule.selector, address(notAHook))
+            abi.encodeWithSelector(IntegrityAccount.NewKernelNotAHookModule.selector, address(notAHook))
         );
         vm.prank(address(account));
         account.proposeKernelSwap(address(notAHook));
@@ -1075,27 +1240,29 @@ contract IntegrityAccountV1ExperimentalTest is Test {
 
     function test_deployingMismatchedGenesisPairRevertsAtConstruction() public {
         uint256 shortEpoch = MODULE_ACTION_TIMELOCK - 1;
-        IntegrityKernelV1Experimental mismatchedKernel = new IntegrityKernelV1Experimental(
-            address(this), PER_OP_BUDGET, CUMULATIVE_BUDGET, address(reputation), MIN_EFFECTIVE_SCORE, shortEpoch
-        );
+        IntegrityKernel mismatchedKernel = new IntegrityKernel(
+            address(this), PER_OP_BUDGET, CUMULATIVE_BUDGET, address(reputation), MIN_EFFECTIVE_SCORE, shortEpoch,
+            address(0), 0, 0
+        , AdapterRegistry(address(0)), address(0));
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityAccountV1Experimental.EpochTooShortForTimelock.selector, shortEpoch, MODULE_ACTION_TIMELOCK
+                IntegrityAccount.EpochTooShortForTimelock.selector, shortEpoch, MODULE_ACTION_TIMELOCK
             )
         );
-        new IntegrityAccountV1Experimental(
+        new IntegrityAccount(
             signer, address(mismatchedKernel), MODULE_ACTION_TIMELOCK, guardianSet, GUARDIAN_THRESHOLD, RESCUE_TIMELOCK
         );
     }
 
     function test_proposeKernelSwapRevertsWhenNewKernelEpochShorterThanTimelock() public {
         uint256 shortEpoch = MODULE_ACTION_TIMELOCK - 1;
-        IntegrityKernelV1Experimental mismatchedKernel = new IntegrityKernelV1Experimental(
-            address(account), PER_OP_BUDGET, CUMULATIVE_BUDGET, address(reputation), MIN_EFFECTIVE_SCORE, shortEpoch
-        );
+        IntegrityKernel mismatchedKernel = new IntegrityKernel(
+            address(account), PER_OP_BUDGET, CUMULATIVE_BUDGET, address(reputation), MIN_EFFECTIVE_SCORE, shortEpoch,
+            address(0), 0, 0
+        , AdapterRegistry(address(0)), address(0));
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityAccountV1Experimental.EpochTooShortForTimelock.selector, shortEpoch, MODULE_ACTION_TIMELOCK
+                IntegrityAccount.EpochTooShortForTimelock.selector, shortEpoch, MODULE_ACTION_TIMELOCK
             )
         );
         vm.prank(address(account));
@@ -1104,12 +1271,13 @@ contract IntegrityAccountV1ExperimentalTest is Test {
 
     function test_guardianProposeActionRevertsWhenNewKernelEpochShorterThanTimelock() public {
         uint256 shortEpoch = MODULE_ACTION_TIMELOCK - 1;
-        IntegrityKernelV1Experimental mismatchedKernel = new IntegrityKernelV1Experimental(
-            address(account), PER_OP_BUDGET, CUMULATIVE_BUDGET, address(reputation), MIN_EFFECTIVE_SCORE, shortEpoch
-        );
+        IntegrityKernel mismatchedKernel = new IntegrityKernel(
+            address(account), PER_OP_BUDGET, CUMULATIVE_BUDGET, address(reputation), MIN_EFFECTIVE_SCORE, shortEpoch,
+            address(0), 0, 0
+        , AdapterRegistry(address(0)), address(0));
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityAccountV1Experimental.EpochTooShortForTimelock.selector, shortEpoch, MODULE_ACTION_TIMELOCK
+                IntegrityAccount.EpochTooShortForTimelock.selector, shortEpoch, MODULE_ACTION_TIMELOCK
             )
         );
         vm.prank(guardian1);
@@ -1144,7 +1312,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
 
     function test_governanceFunctionsRevertForNonSelfNonEntryPointCaller() public {
         address stranger = makeAddr("stranger");
-        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
 
         vm.expectRevert(abi.encodeWithSelector(ERC4337Account.AccountUnauthorized.selector, stranger));
         vm.prank(stranger);
@@ -1202,7 +1370,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         // And there is no rescue: proposing and waiting out the timelock for a real, healthy
         // replacement kernel still fails, because executeKernelSwap's uninstall half must call
         // the broken kernel's preCheck first.
-        IntegrityKernelV1Experimental rescueKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel rescueKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
         vm.prank(address(account));
         account.proposeKernelSwap(address(rescueKernel));
         // This is a genuine second vm.warp call within this test function. An independent
@@ -1226,40 +1394,40 @@ contract IntegrityAccountV1ExperimentalTest is Test {
     function test_constructorRevertsOnZeroGuardianThreshold() public {
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityAccountV1Experimental.InvalidGuardianThreshold.selector, 0, guardianSet.length
+                IntegrityAccount.InvalidGuardianThreshold.selector, 0, guardianSet.length
             )
         );
-        new IntegrityAccountV1Experimental(signer, address(kernel), MODULE_ACTION_TIMELOCK, guardianSet, 0, RESCUE_TIMELOCK);
+        new IntegrityAccount(signer, address(kernel), MODULE_ACTION_TIMELOCK, guardianSet, 0, RESCUE_TIMELOCK);
     }
 
     function test_constructorRevertsWhenThresholdExceedsGuardianCount() public {
         uint256 tooHigh = guardianSet.length + 1;
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityAccountV1Experimental.InvalidGuardianThreshold.selector, tooHigh, guardianSet.length
+                IntegrityAccount.InvalidGuardianThreshold.selector, tooHigh, guardianSet.length
             )
         );
-        new IntegrityAccountV1Experimental(signer, address(kernel), MODULE_ACTION_TIMELOCK, guardianSet, tooHigh, RESCUE_TIMELOCK);
+        new IntegrityAccount(signer, address(kernel), MODULE_ACTION_TIMELOCK, guardianSet, tooHigh, RESCUE_TIMELOCK);
     }
 
     function test_constructorRevertsOnDuplicateGuardian() public {
         address[] memory dup = new address[](2);
         dup[0] = guardian1;
         dup[1] = guardian1;
-        vm.expectRevert(abi.encodeWithSelector(IntegrityAccountV1Experimental.DuplicateGuardian.selector, guardian1));
-        new IntegrityAccountV1Experimental(signer, address(kernel), MODULE_ACTION_TIMELOCK, dup, 1, RESCUE_TIMELOCK);
+        vm.expectRevert(abi.encodeWithSelector(IntegrityAccount.DuplicateGuardian.selector, guardian1));
+        new IntegrityAccount(signer, address(kernel), MODULE_ACTION_TIMELOCK, dup, 1, RESCUE_TIMELOCK);
     }
 
     function test_constructorRevertsOnZeroAddressGuardian() public {
         address[] memory withZero = new address[](2);
         withZero[0] = guardian1;
         withZero[1] = address(0);
-        vm.expectRevert(IntegrityAccountV1Experimental.ZeroGuardian.selector);
-        new IntegrityAccountV1Experimental(signer, address(kernel), MODULE_ACTION_TIMELOCK, withZero, 1, RESCUE_TIMELOCK);
+        vm.expectRevert(IntegrityAccount.ZeroGuardian.selector);
+        new IntegrityAccount(signer, address(kernel), MODULE_ACTION_TIMELOCK, withZero, 1, RESCUE_TIMELOCK);
     }
 
     function test_executeKernelSwapRevertsBelowGuardianThreshold() public {
-        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
         vm.startPrank(address(account));
         account.proposeKernelSwap(address(newKernel));
         vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
@@ -1273,7 +1441,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityAccountV1Experimental.InsufficientGuardianApprovals.selector, 1, GUARDIAN_THRESHOLD
+                IntegrityAccount.InsufficientGuardianApprovals.selector, 1, GUARDIAN_THRESHOLD
             )
         );
         vm.prank(address(account));
@@ -1281,7 +1449,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
     }
 
     function test_executeKernelSwapSucceedsAtExactGuardianThreshold() public {
-        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
         vm.startPrank(address(account));
         account.proposeKernelSwap(address(newKernel));
         vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
@@ -1296,7 +1464,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
     }
 
     function test_approveKernelSwapDoesNotDoubleCountTheSameGuardianUnderTheSameNonce() public {
-        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
         vm.prank(address(account));
         account.proposeKernelSwap(address(newKernel));
         uint256 nonce = account.kernelSwapNonce();
@@ -1304,7 +1472,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         vm.startPrank(guardian1);
         account.approveKernelSwap(nonce, address(newKernel));
         vm.expectRevert(
-            abi.encodeWithSelector(IntegrityAccountV1Experimental.GuardianAlreadyApproved.selector, guardian1, nonce)
+            abi.encodeWithSelector(IntegrityAccount.GuardianAlreadyApproved.selector, guardian1, nonce)
         );
         account.approveKernelSwap(nonce, address(newKernel));
         vm.stopPrank();
@@ -1313,19 +1481,19 @@ contract IntegrityAccountV1ExperimentalTest is Test {
     }
 
     function test_approveKernelSwapRevertsForNonGuardian() public {
-        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
         vm.prank(address(account));
         account.proposeKernelSwap(address(newKernel));
 
         address stranger = makeAddr("stranger");
         uint256 nonce = account.kernelSwapNonce();
-        vm.expectRevert(abi.encodeWithSelector(IntegrityAccountV1Experimental.NotAGuardian.selector, stranger));
+        vm.expectRevert(abi.encodeWithSelector(IntegrityAccount.NotAGuardian.selector, stranger));
         vm.prank(stranger);
         account.approveKernelSwap(nonce, address(newKernel));
     }
 
     function test_approveKernelSwapRevertsOnWrongNonce() public {
-        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
         vm.prank(address(account));
         account.proposeKernelSwap(address(newKernel));
         uint256 realNonce = account.kernelSwapNonce();
@@ -1333,7 +1501,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityAccountV1Experimental.GuardianNonceMismatch.selector, realNonce, wrongNonce
+                IntegrityAccount.GuardianNonceMismatch.selector, realNonce, wrongNonce
             )
         );
         vm.prank(guardian1);
@@ -1360,7 +1528,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
 
         // Propose a rescue swap. The broken kernel's own preCheck now reverts unconditionally, so
         // if approveKernelSwap ran through the hook, EVERY approval below would revert too.
-        IntegrityKernelV1Experimental rescueKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel rescueKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
         vm.prank(address(account));
         account.proposeKernelSwap(address(rescueKernel));
         uint256 nonce = account.kernelSwapNonce();
@@ -1377,7 +1545,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
     /// SAME `newKernel` address is proposed again under a fresh nonce -- the nonce, not the
     /// (newKernel) pair, is what scopes an approval.
     function test_approvalFromACancelledProposalDoesNotCountTowardARepropose() public {
-        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
         vm.startPrank(address(account));
         account.proposeKernelSwap(address(newKernel));
         uint256 firstNonce = account.kernelSwapNonce();
@@ -1406,7 +1574,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         account.approveKernelSwap(secondNonce, address(newKernel));
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityAccountV1Experimental.InsufficientGuardianApprovals.selector, 1, GUARDIAN_THRESHOLD
+                IntegrityAccount.InsufficientGuardianApprovals.selector, 1, GUARDIAN_THRESHOLD
             )
         );
         vm.prank(address(account));
@@ -1418,7 +1586,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
     /// by it -- proven by satisfying full quorum up front and confirming each of those checks
     /// still fires first, exactly as before this slice.
     function test_existingSingleSignerPreconditionsStillGateAlongsideQuorum() public {
-        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
         vm.startPrank(address(account));
         account.proposeKernelSwap(address(newKernel));
         vm.stopPrank();
@@ -1427,7 +1595,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
 
         (, uint256 readyAt) = account.pendingKernelSwap();
         vm.expectRevert(
-            abi.encodeWithSelector(IntegrityAccountV1Experimental.TimelockNotElapsed.selector, readyAt, block.timestamp)
+            abi.encodeWithSelector(IntegrityAccount.TimelockNotElapsed.selector, readyAt, block.timestamp)
         );
         vm.prank(address(account));
         account.executeKernelSwap(address(newKernel));
@@ -1435,7 +1603,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         vm.warp(readyAt);
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityAccountV1Experimental.SwapMismatch.selector, address(newKernel), address(0xBEEF)
+                IntegrityAccount.SwapMismatch.selector, address(newKernel), address(0xBEEF)
             )
         );
         vm.prank(address(account));
@@ -1492,7 +1660,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         // Swap 2: observerKernel -> a plain new kernel. Its onUninstall fires during this swap.
         // observerKernel's own preCheck is an unconditional no-op (no reputation check), so no
         // refresh is needed before this swap's uninstall half mediates it.
-        IntegrityKernelV1Experimental finalKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel finalKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
         vm.prank(address(account));
         account.proposeKernelSwap(address(finalKernel));
         // Warp to the pending swap's exact readyAt rather than `block.timestamp + X` a second
@@ -1527,7 +1695,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
     /// approvals, after a refresh, so `_approveWithTwoGuardians` (which casts both approvals
     /// back-to-back with no warp between) cannot be reused for this test.
     function test_quorumGatheringCanStaleTheSnapshotBetweenApprovals() public {
-        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
         vm.prank(address(account));
         account.proposeKernelSwap(address(newKernel));
         vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
@@ -1551,7 +1719,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         // to "reputation snapshot too old" once quorum-gathering itself consumed the epoch.
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityKernelV1Experimental.SnapshotStale.selector,
+                IntegrityKernel.SnapshotStale.selector,
                 block.timestamp - (REPUTATION_EPOCH_LENGTH + 1),
                 block.timestamp,
                 REPUTATION_EPOCH_LENGTH
@@ -1582,13 +1750,13 @@ contract IntegrityAccountV1ExperimentalTest is Test {
     }
 
     function test_guardianProposeActionRevertsForNonGuardian() public {
-        vm.expectRevert(abi.encodeWithSelector(IntegrityAccountV1Experimental.NotAGuardian.selector, address(this)));
+        vm.expectRevert(abi.encodeWithSelector(IntegrityAccount.NotAGuardian.selector, address(this)));
         account.guardianProposeAction(true, address(0));
     }
 
     function test_guardianProposeActionForcePropose_RevertsOnZeroKernel() public {
         vm.prank(guardian1);
-        vm.expectRevert(IntegrityAccountV1Experimental.ZeroKernel.selector);
+        vm.expectRevert(IntegrityAccount.ZeroKernel.selector);
         account.guardianProposeAction(false, address(0));
     }
 
@@ -1597,7 +1765,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         vm.prank(guardian1);
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityAccountV1Experimental.NewKernelNotAHookModule.selector, address(notAHook)
+                IntegrityAccount.NewKernelNotAHookModule.selector, address(notAHook)
             )
         );
         account.guardianProposeAction(false, address(notAHook));
@@ -1607,7 +1775,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         vm.prank(guardian1);
         account.guardianProposeAction(true, address(0));
         vm.prank(guardian2);
-        vm.expectRevert(IntegrityAccountV1Experimental.GuardianActionAlreadyPending.selector);
+        vm.expectRevert(IntegrityAccount.GuardianActionAlreadyPending.selector);
         account.guardianProposeAction(true, address(0));
     }
 
@@ -1615,13 +1783,13 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         vm.prank(guardian1);
         account.guardianProposeAction(true, address(0));
         uint256 nonce = account.guardianActionNonce();
-        vm.expectRevert(abi.encodeWithSelector(IntegrityAccountV1Experimental.NotAGuardian.selector, address(this)));
+        vm.expectRevert(abi.encodeWithSelector(IntegrityAccount.NotAGuardian.selector, address(this)));
         account.approveGuardianAction(nonce);
     }
 
     function test_approveGuardianActionRevertsWhenNothingPending() public {
         vm.prank(guardian1);
-        vm.expectRevert(IntegrityAccountV1Experimental.NoGuardianActionPending.selector);
+        vm.expectRevert(IntegrityAccount.NoGuardianActionPending.selector);
         account.approveGuardianAction(0);
     }
 
@@ -1633,7 +1801,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         vm.prank(guardian2);
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityAccountV1Experimental.GuardianActionNonceMismatch.selector, currentNonce, wrongNonce
+                IntegrityAccount.GuardianActionNonceMismatch.selector, currentNonce, wrongNonce
             )
         );
         account.approveGuardianAction(wrongNonce);
@@ -1648,14 +1816,14 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         vm.prank(guardian1);
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityAccountV1Experimental.GuardianActionAlreadyApproved.selector, guardian1, nonce
+                IntegrityAccount.GuardianActionAlreadyApproved.selector, guardian1, nonce
             )
         );
         account.approveGuardianAction(nonce);
     }
 
     function test_executeGuardianActionRevertsWhenNothingPending() public {
-        vm.expectRevert(IntegrityAccountV1Experimental.NoGuardianActionPending.selector);
+        vm.expectRevert(IntegrityAccount.NoGuardianActionPending.selector);
         account.executeGuardianAction();
     }
 
@@ -1673,7 +1841,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         account.approveGuardianAction(nonce);
 
         vm.expectRevert(
-            abi.encodeWithSelector(IntegrityAccountV1Experimental.InsufficientGuardianActionApprovals.selector, 2, 3)
+            abi.encodeWithSelector(IntegrityAccount.InsufficientGuardianActionApprovals.selector, 2, 3)
         );
         account.executeGuardianAction();
     }
@@ -1681,7 +1849,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
     /// @notice The narrower denial case: signer proposes a swap, then goes dark (never cancels).
     /// Guardians force-cancel it, unanimously, with zero signer involvement.
     function test_guardianForceCancel_StuckSignerProposal() public {
-        IntegrityKernelV1Experimental unwantedKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel unwantedKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
         vm.prank(address(account));
         account.proposeKernelSwap(address(unwantedKernel));
         (, uint256 readyAtBefore) = account.pendingKernelSwap();
@@ -1699,12 +1867,53 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         assertEq(account.hook(), address(kernel), "force-cancel must not itself touch the installed kernel");
     }
 
+    /// @notice Real finding, fixed 2026-08-24 (Devil's Advocate review): force-cancel previously
+    /// had NO binding to which specific swap guardians were agreeing to kill. A signer could
+    /// substitute a different (decoy) swap underneath an in-flight, already-unanimous force-cancel
+    /// approval, and the old code would silently cancel the decoy instead of reverting. Proves the
+    /// fix: guardians approve a force-cancel targeting `unwantedKernel`'s swap; the signer then
+    /// cancels it and proposes a DIFFERENT swap (`decoyKernel`) before guardians finish executing;
+    /// `executeGuardianAction` must revert rather than silently cancelling the decoy.
+    function test_guardianForceCancel_RevertsIfTheTargetedSwapWasReplacedWithADecoy() public {
+        IntegrityKernel unwantedKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        vm.prank(address(account));
+        account.proposeKernelSwap(address(unwantedKernel));
+        uint256 originalSwapNonce = account.kernelSwapNonce();
+
+        vm.prank(guardian2);
+        account.guardianProposeAction(true, address(0));
+        uint256 actionNonce = account.guardianActionNonce();
+        _approveGuardianActionUnanimously(actionNonce);
+
+        // The signer substitutes the target UNDERNEATH the guardians' already-complete approval,
+        // before anyone calls executeGuardianAction.
+        vm.prank(address(account));
+        account.cancelKernelSwap();
+        IntegrityKernel decoyKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        vm.prank(address(account));
+        account.proposeKernelSwap(address(decoyKernel));
+        assertGt(
+            account.kernelSwapNonce(), originalSwapNonce, "sanity: the decoy swap is genuinely a different proposal"
+        );
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IntegrityAccount.GuardianActionSwapTargetChanged.selector, originalSwapNonce, account.kernelSwapNonce()
+            )
+        );
+        account.executeGuardianAction();
+
+        // The decoy swap must survive untouched -- guardians never agreed to cancel it.
+        (address stillPendingKernel,) = account.pendingKernelSwap();
+        assertEq(stillPendingKernel, address(decoyKernel), "the decoy swap must NOT have been silently cancelled");
+    }
+
     /// @notice The wider denial case: signer never proposes anything at all (key lost/absent).
     /// Guardians force-propose a swap themselves, with zero signer involvement anywhere in the
     /// flow -- including the final `executeKernelSwap` call, which a guardian (not the signer)
     /// submits, per the executeKernelSwap access-control widening this proposal also required.
     function test_guardianForcePropose_UnresponsiveSigner_FullRescueWithNoSignerInvolvement() public {
-        IntegrityKernelV1Experimental rescueKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel rescueKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
         (, uint256 readyAtBefore) = account.pendingKernelSwap();
         assertEq(readyAtBefore, 0, "sanity: nothing pending before the rescue -- the harder denial case");
 
@@ -1744,17 +1953,17 @@ contract IntegrityAccountV1ExperimentalTest is Test {
     /// guardians must force-cancel first, a separate unanimous action, rather than atomically
     /// overriding an in-flight proposal.
     function test_guardianForcePropose_RevertsIfSwapAlreadyPending() public {
-        IntegrityKernelV1Experimental signerProposed = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel signerProposed = _deployKernel(MIN_EFFECTIVE_SCORE);
         vm.prank(address(account));
         account.proposeKernelSwap(address(signerProposed));
 
-        IntegrityKernelV1Experimental guardianWanted = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel guardianWanted = _deployKernel(MIN_EFFECTIVE_SCORE);
         vm.prank(guardian1);
         account.guardianProposeAction(false, address(guardianWanted));
         uint256 nonce = account.guardianActionNonce();
         _approveGuardianActionUnanimously(nonce);
 
-        vm.expectRevert(IntegrityAccountV1Experimental.SwapAlreadyPending.selector);
+        vm.expectRevert(IntegrityAccount.SwapAlreadyPending.selector);
         account.executeGuardianAction();
     }
 
@@ -1766,7 +1975,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         uint256 nonce = account.guardianActionNonce();
         _approveGuardianActionUnanimously(nonce);
 
-        vm.expectRevert(IntegrityAccountV1Experimental.NoSwapPending.selector);
+        vm.expectRevert(IntegrityAccount.NoSwapPending.selector);
         account.executeGuardianAction();
     }
 
@@ -1774,7 +1983,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
     /// NOT lower what is required to succeed -- a guardian submitting the call before quorum is
     /// reached still hits the exact same `InsufficientGuardianApprovals` guard a signer would.
     function test_executeKernelSwapCallableByGuardian_StillEnforcesExecutionQuorum() public {
-        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
         vm.prank(address(account));
         account.proposeKernelSwap(address(newKernel));
         vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
@@ -1782,7 +1991,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         // Zero execution approvals gathered -- a guardian submitting the call is still bound by
         // the same quorum check any other caller would be.
         vm.expectRevert(
-            abi.encodeWithSelector(IntegrityAccountV1Experimental.InsufficientGuardianApprovals.selector, 0, GUARDIAN_THRESHOLD)
+            abi.encodeWithSelector(IntegrityAccount.InsufficientGuardianApprovals.selector, 0, GUARDIAN_THRESHOLD)
         );
         vm.prank(guardian1);
         account.executeKernelSwap(address(newKernel));
@@ -1792,7 +2001,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
     /// `executeKernelSwap` even once every substantive precondition (including quorum) is
     /// satisfied -- the widened caller set is exactly {entry point, self, guardians}, not "anyone."
     function test_executeKernelSwapRevertsForUnrelatedCaller_EvenAtFullQuorum() public {
-        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
         vm.prank(address(account));
         account.proposeKernelSwap(address(newKernel));
         vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
@@ -1807,31 +2016,115 @@ contract IntegrityAccountV1ExperimentalTest is Test {
 
     // --- guardian-set rotation (2026-08-18 proposal) -------------------------------------------
 
-    /// @dev Gathers unanimous approval from the CURRENT 3-guardian set for the pending rotation.
+    /// @dev Gathers unanimous approval from the CURRENT guardian set for the pending rotation --
+    /// EXCLUDING the removal target's own vote for a removal rotation, since it can no longer
+    /// cast one (real deadlock found and fixed 2026-08-24, see `approveGuardianRotation`'s own
+    /// doc comment in the contract). For an addition, all three approve as before.
     function _approveGuardianRotationUnanimously(uint256 nonce) internal {
+        (, bool isAddition, address target) = account.pendingGuardianRotation();
+        address[3] memory allGuardians = [guardian1, guardian2, guardian3];
+        for (uint256 i = 0; i < allGuardians.length; i++) {
+            if (!isAddition && allGuardians[i] == target) continue;
+            vm.prank(allGuardians[i]);
+            account.approveGuardianRotation(nonce);
+        }
+    }
+
+    // --- lost-guardian-key deadlock fix (Devil's Advocate review, 2026-08-24) -------------------
+
+    /// @notice The removal target cannot approve their own removal -- a real, deliberate
+    /// restriction (not an oversight): counting the target's own vote toward its own removal
+    /// would reopen the deadlock this fix exists to close (see the contract's own doc comment).
+    function test_guardianCannotApproveOwnRemoval() public {
+        vm.prank(guardian1);
+        account.proposeGuardianRotation(false, guardian3);
+        uint256 nonce = account.guardianRotationNonce();
+
+        vm.prank(guardian3);
+        vm.expectRevert(abi.encodeWithSelector(IntegrityAccount.CannotApproveOwnRemoval.selector, guardian3));
+        account.approveGuardianRotation(nonce);
+    }
+
+    /// @notice THE deadlock fix, proven end-to-end: a guardian whose key is permanently lost
+    /// (never calls approve, ever) does NOT block their own removal -- the other two guardians'
+    /// approval alone is sufficient. Before this fix, `executeGuardianRotation` required
+    /// `_guardians.length` (3) approvals including the target's own, making this scenario
+    /// permanently unreachable.
+    function test_removalSucceedsWithoutTheDepartingGuardiansOwnApproval() public {
+        vm.prank(guardian1);
+        account.proposeGuardianRotation(false, guardian3);
+        uint256 nonce = account.guardianRotationNonce();
+
+        // guardian3 (the departing guardian, whose key is modeled as permanently lost) never
+        // approves anything. Only guardian1 and guardian2 do.
         vm.prank(guardian1);
         account.approveGuardianRotation(nonce);
         vm.prank(guardian2);
         account.approveGuardianRotation(nonce);
+
+        account.executeGuardianRotation();
+
+        assertEq(account.guardians().length, 2, "removal must succeed with only the two non-target guardians");
         vm.prank(guardian3);
-        account.approveGuardianRotation(nonce);
+        vm.expectRevert(abi.encodeWithSelector(IntegrityAccount.NotAGuardian.selector, guardian3));
+        account.approveGuardianRotation(0);
+    }
+
+    /// @notice The fixed deadlock's own downstream consequence, proven: once the unreachable
+    /// guardian is removed (via the fix above), the OTHER unanimity-gated mechanisms
+    /// (guardian emergency action, rescue sweep) become reachable again with the smaller,
+    /// all-cooperative guardian set -- they were never touched by this fix directly, but were
+    /// transitively unblocked by it, since they too require `_guardians.length` unanimity of
+    /// whatever the CURRENT set is.
+    function test_guardianActionReachableAgainAfterRemovingTheUnreachableGuardian() public {
+        vm.prank(guardian1);
+        account.proposeGuardianRotation(false, guardian3);
+        uint256 rotationNonce = account.guardianRotationNonce();
+        vm.prank(guardian1);
+        account.approveGuardianRotation(rotationNonce);
+        vm.prank(guardian2);
+        account.approveGuardianRotation(rotationNonce);
+        account.executeGuardianRotation();
+        assertEq(account.guardians().length, 2);
+
+        // A guardian emergency action (force-cancel) now only needs unanimity of the remaining
+        // TWO guardians -- both cooperative, so it succeeds where it would have been permanently
+        // stuck (needing guardian3's vote) before the removal above.
+        // `_deployKernel` is evaluated into a local BEFORE pranking -- calling it inline as an
+        // argument would itself be the "next call" vm.prank affects (it deploys a contract, a
+        // state-changing operation), consuming the prank before it ever reaches
+        // proposeKernelSwap. The same class of bug this session already found and fixed once in
+        // the Halmos harness work.
+        address freshKernel = address(_deployKernel(MIN_EFFECTIVE_SCORE));
+        vm.prank(address(account));
+        account.proposeKernelSwap(freshKernel);
+        vm.prank(guardian1);
+        account.guardianProposeAction(true, address(0));
+        uint256 actionNonce = account.guardianActionNonce();
+        vm.prank(guardian1);
+        account.approveGuardianAction(actionNonce);
+        vm.prank(guardian2);
+        account.approveGuardianAction(actionNonce);
+        account.executeGuardianAction();
+        (, uint256 readyAt) = account.pendingKernelSwap();
+        assertEq(readyAt, 0, "force-cancel must have succeeded with the reduced, fully-cooperative guardian set");
     }
 
     function test_proposeGuardianRotationRevertsForNonGuardian() public {
-        vm.expectRevert(abi.encodeWithSelector(IntegrityAccountV1Experimental.NotAGuardian.selector, address(this)));
+        vm.expectRevert(abi.encodeWithSelector(IntegrityAccount.NotAGuardian.selector, address(this)));
         account.proposeGuardianRotation(true, makeAddr("newGuardian"));
     }
 
     function test_proposeGuardianRotationAddition_RevertsOnZeroAddress() public {
         vm.prank(guardian1);
-        vm.expectRevert(IntegrityAccountV1Experimental.ZeroGuardian.selector);
+        vm.expectRevert(IntegrityAccount.ZeroGuardian.selector);
         account.proposeGuardianRotation(true, address(0));
     }
 
     function test_proposeGuardianRotationAddition_RevertsIfAlreadyAGuardian() public {
         vm.prank(guardian1);
         vm.expectRevert(
-            abi.encodeWithSelector(IntegrityAccountV1Experimental.DuplicateGuardian.selector, guardian2)
+            abi.encodeWithSelector(IntegrityAccount.DuplicateGuardian.selector, guardian2)
         );
         account.proposeGuardianRotation(true, guardian2);
     }
@@ -1840,7 +2133,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         address notAGuardian = makeAddr("notAGuardian");
         vm.prank(guardian1);
         vm.expectRevert(
-            abi.encodeWithSelector(IntegrityAccountV1Experimental.GuardianNotFound.selector, notAGuardian)
+            abi.encodeWithSelector(IntegrityAccount.GuardianNotFound.selector, notAGuardian)
         );
         account.proposeGuardianRotation(false, notAGuardian);
     }
@@ -1860,7 +2153,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         vm.prank(guardian1);
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityAccountV1Experimental.GuardianRemovalWouldBreakThreshold.selector, 1, GUARDIAN_THRESHOLD
+                IntegrityAccount.GuardianRemovalWouldBreakThreshold.selector, 1, GUARDIAN_THRESHOLD
             )
         );
         account.proposeGuardianRotation(false, guardian2);
@@ -1870,7 +2163,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         vm.prank(guardian1);
         account.proposeGuardianRotation(true, makeAddr("newGuardian"));
         vm.prank(guardian2);
-        vm.expectRevert(IntegrityAccountV1Experimental.GuardianRotationAlreadyPending.selector);
+        vm.expectRevert(IntegrityAccount.GuardianRotationAlreadyPending.selector);
         account.proposeGuardianRotation(true, makeAddr("anotherNewGuardian"));
     }
 
@@ -1882,7 +2175,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         vm.prank(guardian2);
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityAccountV1Experimental.GuardianRotationNonceMismatch.selector, currentNonce, wrongNonce
+                IntegrityAccount.GuardianRotationNonceMismatch.selector, currentNonce, wrongNonce
             )
         );
         account.approveGuardianRotation(wrongNonce);
@@ -1897,7 +2190,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         vm.prank(guardian1);
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityAccountV1Experimental.GuardianRotationAlreadyApproved.selector, guardian1, nonce
+                IntegrityAccount.GuardianRotationAlreadyApproved.selector, guardian1, nonce
             )
         );
         account.approveGuardianRotation(nonce);
@@ -1916,14 +2209,14 @@ contract IntegrityAccountV1ExperimentalTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityAccountV1Experimental.InsufficientGuardianRotationApprovals.selector, 2, 3
+                IntegrityAccount.InsufficientGuardianRotationApprovals.selector, 2, 3
             )
         );
         account.executeGuardianRotation();
     }
 
     function test_executeGuardianRotationRevertsWhenNothingPending() public {
-        vm.expectRevert(IntegrityAccountV1Experimental.NoGuardianRotationPending.selector);
+        vm.expectRevert(IntegrityAccount.NoGuardianRotationPending.selector);
         account.executeGuardianRotation();
     }
 
@@ -1947,7 +2240,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         assertTrue(found, "the newly-added address must appear in guardians()");
 
         // The new guardian can immediately participate in an ordinary kernel-swap quorum.
-        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
         vm.prank(address(account));
         account.proposeKernelSwap(address(newKernel));
         vm.warp(block.timestamp + MODULE_ACTION_TIMELOCK);
@@ -1974,11 +2267,11 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         assertEq(account.guardians().length, 2, "guardian count must shrink by one");
 
         vm.prank(guardian3);
-        vm.expectRevert(abi.encodeWithSelector(IntegrityAccountV1Experimental.NotAGuardian.selector, guardian3));
+        vm.expectRevert(abi.encodeWithSelector(IntegrityAccount.NotAGuardian.selector, guardian3));
         account.approveKernelSwap(0, address(0));
 
         vm.prank(guardian3);
-        vm.expectRevert(abi.encodeWithSelector(IntegrityAccountV1Experimental.NotAGuardian.selector, guardian3));
+        vm.expectRevert(abi.encodeWithSelector(IntegrityAccount.NotAGuardian.selector, guardian3));
         account.proposeGuardianRotation(true, guardian3);
     }
 
@@ -1991,7 +2284,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
     function test_cancelPendingGuardianAction_RecoversFromSignerRaceThatWouldOtherwiseBrickGovernance()
         public
     {
-        IntegrityKernelV1Experimental someKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel someKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
         vm.prank(address(account));
         account.proposeKernelSwap(address(someKernel));
 
@@ -2005,7 +2298,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         account.cancelKernelSwap();
 
         // The guardian action can no longer execute -- the world moved on.
-        vm.expectRevert(IntegrityAccountV1Experimental.NoSwapPending.selector);
+        vm.expectRevert(IntegrityAccount.NoSwapPending.selector);
         account.executeGuardianAction();
 
         // Without the fix, pendingGuardianAction would now be permanently stuck, blocking every
@@ -2014,10 +2307,10 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         // guardianProposeAction/proposeGuardianRotation check pendingGuardianAction.active).
         // Confirm that's genuinely what would happen without the escape hatch.
         vm.prank(guardian1);
-        vm.expectRevert(IntegrityAccountV1Experimental.GuardianActionAlreadyPending.selector);
+        vm.expectRevert(IntegrityAccount.GuardianActionAlreadyPending.selector);
         account.guardianProposeAction(true, address(0));
         vm.prank(guardian1);
-        vm.expectRevert(IntegrityAccountV1Experimental.GuardianActionAlreadyPending.selector);
+        vm.expectRevert(IntegrityAccount.GuardianActionAlreadyPending.selector);
         account.proposeGuardianRotation(true, makeAddr("newGuardian"));
 
         // The fix: anyone can clear the stuck slot, and the guardian-side paths resume working.
@@ -2031,12 +2324,12 @@ contract IntegrityAccountV1ExperimentalTest is Test {
     /// @notice Rotation cannot be proposed while a kernel swap is pending -- must be force- or
     /// signer-cancelled first, per the "only one governance process in flight" invariant.
     function test_proposeGuardianRotationRevertsWhileKernelSwapPending() public {
-        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
         vm.prank(address(account));
         account.proposeKernelSwap(address(newKernel));
 
         vm.prank(guardian1);
-        vm.expectRevert(IntegrityAccountV1Experimental.SwapAlreadyPending.selector);
+        vm.expectRevert(IntegrityAccount.SwapAlreadyPending.selector);
         account.proposeGuardianRotation(true, makeAddr("newGuardian"));
     }
 
@@ -2047,7 +2340,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         vm.prank(guardian1);
         account.guardianProposeAction(true, address(0));
         vm.prank(guardian2);
-        vm.expectRevert(IntegrityAccountV1Experimental.GuardianActionAlreadyPending.selector);
+        vm.expectRevert(IntegrityAccount.GuardianActionAlreadyPending.selector);
         account.proposeGuardianRotation(true, makeAddr("newGuardian"));
         // Clean up the guardian action so the next part of this test starts from a clean slate --
         // via the dedicated cancel escape hatch, not by relying on executeGuardianAction to revert
@@ -2057,13 +2350,13 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         vm.prank(guardian1);
         account.proposeGuardianRotation(true, makeAddr("newGuardian"));
 
-        IntegrityKernelV1Experimental newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel newKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
         vm.prank(address(account));
-        vm.expectRevert(IntegrityAccountV1Experimental.GuardianRotationInProgress.selector);
+        vm.expectRevert(IntegrityAccount.GuardianRotationInProgress.selector);
         account.proposeKernelSwap(address(newKernel));
 
         vm.prank(guardian2);
-        vm.expectRevert(IntegrityAccountV1Experimental.GuardianRotationInProgress.selector);
+        vm.expectRevert(IntegrityAccount.GuardianRotationInProgress.selector);
         account.guardianProposeAction(true, address(0));
     }
 
@@ -2088,7 +2381,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
 
         assertEq(
             reentrantKernel.installReentrantRevertSelector(),
-            IntegrityAccountV1Experimental.ReentrantDuringSwap.selector,
+            IntegrityAccount.ReentrantDuringSwap.selector,
             "a hostile new kernel's onInstall reentrant attempt must be blocked by the swap-in-progress guard"
         );
     }
@@ -2106,7 +2399,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
 
         // A second swap away from the now-installed reentrant fixture -- its onUninstall fires
         // as the OLD kernel this time.
-        IntegrityKernelV1Experimental finalKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel finalKernel = _deployKernel(MIN_EFFECTIVE_SCORE);
         vm.prank(address(account));
         account.proposeKernelSwap(address(finalKernel));
         // Warp to the pending swap's exact readyAt rather than `block.timestamp + X` a second
@@ -2120,7 +2413,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
 
         assertEq(
             reentrantKernel.uninstallReentrantRevertSelector(),
-            IntegrityAccountV1Experimental.ReentrantDuringSwap.selector,
+            IntegrityAccount.ReentrantDuringSwap.selector,
             "a hostile old kernel's onUninstall reentrant attempt must be blocked by the swap-in-progress guard"
         );
     }
@@ -2139,13 +2432,13 @@ contract IntegrityAccountV1ExperimentalTest is Test {
     }
 
     function test_proposeGuardianRescueSweepRevertsForNonGuardian() public {
-        vm.expectRevert(abi.encodeWithSelector(IntegrityAccountV1Experimental.NotAGuardian.selector, address(this)));
+        vm.expectRevert(abi.encodeWithSelector(IntegrityAccount.NotAGuardian.selector, address(this)));
         account.proposeGuardianRescueSweep(payable(rescueRecipient), 1 ether, false);
     }
 
     function test_proposeGuardianRescueSweepRevertsOnZeroRecipient() public {
         vm.prank(guardian1);
-        vm.expectRevert(IntegrityAccountV1Experimental.ZeroRescueRecipient.selector);
+        vm.expectRevert(IntegrityAccount.ZeroRescueRecipient.selector);
         account.proposeGuardianRescueSweep(payable(address(0)), 1 ether, false);
     }
 
@@ -2153,7 +2446,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         vm.prank(guardian1);
         account.proposeGuardianRescueSweep(payable(rescueRecipient), 1 ether, false);
         vm.prank(guardian2);
-        vm.expectRevert(IntegrityAccountV1Experimental.RescueSweepAlreadyPending.selector);
+        vm.expectRevert(IntegrityAccount.RescueSweepAlreadyPending.selector);
         account.proposeGuardianRescueSweep(payable(rescueRecipient), 1 ether, false);
     }
 
@@ -2165,7 +2458,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         vm.prank(guardian2);
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityAccountV1Experimental.RescueSweepNonceMismatch.selector, currentNonce, wrongNonce
+                IntegrityAccount.RescueSweepNonceMismatch.selector, currentNonce, wrongNonce
             )
         );
         account.approveGuardianRescueSweep(wrongNonce);
@@ -2180,7 +2473,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         vm.prank(guardian1);
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityAccountV1Experimental.RescueSweepAlreadyApproved.selector, guardian1, nonce
+                IntegrityAccount.RescueSweepAlreadyApproved.selector, guardian1, nonce
             )
         );
         account.approveGuardianRescueSweep(nonce);
@@ -2199,7 +2492,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
 
         vm.warp(block.timestamp + RESCUE_TIMELOCK);
         vm.expectRevert(
-            abi.encodeWithSelector(IntegrityAccountV1Experimental.InsufficientRescueSweepApprovals.selector, 2, 3)
+            abi.encodeWithSelector(IntegrityAccount.InsufficientRescueSweepApprovals.selector, 2, 3)
         );
         account.executeGuardianRescueSweep();
     }
@@ -2213,14 +2506,14 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         (,,,, uint256 readyAt) = account.pendingRescueSweep();
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityAccountV1Experimental.RescueTimelockNotElapsed.selector, readyAt, block.timestamp
+                IntegrityAccount.RescueTimelockNotElapsed.selector, readyAt, block.timestamp
             )
         );
         account.executeGuardianRescueSweep();
     }
 
     function test_executeGuardianRescueSweepRevertsWhenNothingPending() public {
-        vm.expectRevert(IntegrityAccountV1Experimental.NoRescueSweepPending.selector);
+        vm.expectRevert(IntegrityAccount.NoRescueSweepPending.selector);
         account.executeGuardianRescueSweep();
     }
 
@@ -2234,7 +2527,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                IntegrityAccountV1Experimental.RescueSweepAmountExceedsBalance.selector,
+                IntegrityAccount.RescueSweepAmountExceedsBalance.selector,
                 tooMuch,
                 address(account).balance
             )
@@ -2320,7 +2613,7 @@ contract IntegrityAccountV1ExperimentalTest is Test {
 
         // ...and a normal rescue swap cannot save it either (the uninstall half must call the
         // broken preCheck first).
-        IntegrityKernelV1Experimental normalRescueAttempt = _deployKernel(MIN_EFFECTIVE_SCORE);
+        IntegrityKernel normalRescueAttempt = _deployKernel(MIN_EFFECTIVE_SCORE);
         vm.prank(address(account));
         account.proposeKernelSwap(address(normalRescueAttempt));
         (, uint256 normalRescueReadyAt) = account.pendingKernelSwap();
@@ -2349,5 +2642,159 @@ contract IntegrityAccountV1ExperimentalTest is Test {
         vm.expectRevert(AlwaysRevertingKernel.AlwaysReverts.selector);
         vm.prank(address(account));
         account.execute(_singleCallMode(), executionCalldata);
+    }
+
+    // --- declared multi-asset value conservation (docs/plans/2026-08-24-phase1-declared-asset- -
+    // --- conservation-proposal.md) -------------------------------------------------------------
+    // Uses the `tokenAccount`/`tokenKernel`/`token` fixture deployed in `setUp` above (see that
+    // deployment's own comment for why it lives in setUp rather than lazily per-test).
+
+    function _tokenTransferCalldata(address token_, address to, uint256 amount)
+        internal
+        pure
+        returns (bytes memory)
+    {
+        bytes memory data = abi.encodeWithSelector(IERC20.transfer.selector, to, amount);
+        return abi.encodePacked(token_, uint256(0), data);
+    }
+
+    function test_constructorRevertsOnZeroTokenBudgetWithNonZeroTrackedToken() public {
+        vm.expectRevert(IntegrityKernel.ZeroTokenBudget.selector);
+        new IntegrityKernel(
+            address(account),
+            PER_OP_BUDGET,
+            CUMULATIVE_BUDGET,
+            address(reputation),
+            MIN_EFFECTIVE_SCORE,
+            REPUTATION_EPOCH_LENGTH,
+            address(token),
+            0,
+            TOKEN_CUMULATIVE_BUDGET
+        , AdapterRegistry(address(0)), address(0));
+    }
+
+    function test_zeroTokenBudgetsAreAllowedWhenTrackedTokenIsDisabled() public {
+        // The shared fixture's `kernel` already does exactly this (address(0), 0, 0) -- this
+        // test pins that construction path as a deliberately supported, not accidental, case.
+        assertEq(address(kernel.trackedToken()), address(0));
+        assertEq(kernel.tokenPerOpBudgetWei(), 0);
+        assertEq(kernel.tokenCumulativeBudgetWei(), 0);
+    }
+
+    function test_inBudgetTokenTransferSucceedsAndCommits() public {
+        uint256 sendAmount = 4 ether;
+        uint256 recipientBefore = token.balanceOf(recipient);
+
+        vm.prank(address(tokenAccount));
+        tokenAccount.execute(_singleCallMode(), _tokenTransferCalldata(address(token), recipient, sendAmount));
+
+        assertEq(token.balanceOf(recipient), recipientBefore + sendAmount, "recipient must receive the token transfer");
+    }
+
+    function test_overTokenPerOpBudgetCallReverts() public {
+        uint256 overBudgetAmount = TOKEN_PER_OP_BUDGET + 1;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IntegrityKernel.TokenPerOperationBudgetExceeded.selector, overBudgetAmount, TOKEN_PER_OP_BUDGET
+            )
+        );
+        vm.prank(address(tokenAccount));
+        tokenAccount.execute(_singleCallMode(), _tokenTransferCalldata(address(token), recipient, overBudgetAmount));
+    }
+
+    function test_overTokenCumulativeBudgetCallRevertsEvenWhenEachCallIsIndividuallyInBudget() public {
+        // 3 x 9 ether = 27 ether > 25 ether cumulative budget, each individually under the
+        // 10 ether per-op budget -- exact boundary discipline matching the native-ETH budget's
+        // own equivalent test.
+        vm.prank(address(tokenAccount));
+        tokenAccount.execute(_singleCallMode(), _tokenTransferCalldata(address(token), recipient, 9 ether));
+        vm.prank(address(tokenAccount));
+        tokenAccount.execute(_singleCallMode(), _tokenTransferCalldata(address(token), recipient, 9 ether));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IntegrityKernel.TokenCumulativeBudgetExceeded.selector, 18 ether, 9 ether, TOKEN_CUMULATIVE_BUDGET
+            )
+        );
+        vm.prank(address(tokenAccount));
+        tokenAccount.execute(_singleCallMode(), _tokenTransferCalldata(address(token), recipient, 9 ether));
+    }
+
+    function test_tokenAndNativeBudgetsAreIndependentlyEnforced() public {
+        // Above the (shared-fixture-sized) native per-op budget, but the token budget is
+        // untouched by a pure-native call -- must revert on the NATIVE check, proving the token
+        // check does not somehow mask or substitute for it.
+        uint256 overNativeBudget = PER_OP_BUDGET + 1;
+        bytes memory nativeCalldata = abi.encodePacked(recipient, overNativeBudget, bytes(""));
+        vm.expectRevert(
+            abi.encodeWithSelector(IntegrityKernel.PerOperationBudgetExceeded.selector, overNativeBudget, PER_OP_BUDGET)
+        );
+        vm.prank(address(tokenAccount));
+        tokenAccount.execute(_singleCallMode(), nativeCalldata);
+
+        // A within-budget native call still succeeds on this same token-tracking kernel --
+        // proves the token check's presence does not itself block ordinary native transfers.
+        uint256 inBudgetNative = 0.5 ether;
+        uint256 recipientNativeBefore = recipient.balance;
+        vm.prank(address(tokenAccount));
+        tokenAccount.execute(_singleCallMode(), abi.encodePacked(recipient, inBudgetNative, bytes("")));
+        assertEq(recipient.balance, recipientNativeBefore + inBudgetNative);
+
+        // And an above-token-budget call on the SAME account still correctly reverts on the
+        // TOKEN check, independent of the native counters just exercised above.
+        uint256 overTokenBudget = TOKEN_PER_OP_BUDGET + 1;
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IntegrityKernel.TokenPerOperationBudgetExceeded.selector, overTokenBudget, TOKEN_PER_OP_BUDGET
+            )
+        );
+        vm.prank(address(tokenAccount));
+        tokenAccount.execute(_singleCallMode(), _tokenTransferCalldata(address(token), recipient, overTokenBudget));
+    }
+
+    /// @dev Live regression measurement, not estimated -- the gas checkpoint
+    /// `docs/plans/2026-08-24-phase1-declared-asset-conservation-proposal.md` named as a
+    /// precondition before this feature could be considered complete. `preCheck` alone, with the
+    /// token check ENABLED, measured with a genuinely COLD token-balance read (the setUp-deployed
+    /// `tokenAccount`/`tokenKernel` fixture exists specifically so minting doesn't warm the slot
+    /// within the same transaction as this test's own `preCheck` call -- see that fixture's own
+    /// comment for why a warm measurement would understate the real, production-representative
+    /// cost).
+    ///
+    /// **Real, disclosed finding, not silently absorbed: this measures OVER the whitepaper's own
+    /// Table 4 `preCheck` ceiling (`<=40k`).** Exactly the risk
+    /// `docs/plans/2026-08-24-phase1-declared-asset-conservation-proposal.md`'s own dependency-
+    /// inventory section named before any code existed -- value conservation is a hard invariant
+    /// (whitepaper §4.7.1) and cannot use the epoch-snapshotting cache that rescued the
+    /// reputation/assurance-tier checks from their own, earlier over-budget crossing, so this
+    /// slice has no equivalent mitigation available within its own scope. Per that proposal's own
+    /// process discipline ("if it doesn't fit... report that finding and stop"), this test is
+    /// named and asserted to document the crossing honestly, not to hide it -- matching how
+    /// `test_preCheckGasExceedsPaperTable4BudgetWithThreeUncachedChecks` handled the earlier,
+    /// since-resolved crossing before this one.
+    function test_preCheckGasExceedsPaperTable4BudgetWithTrackedTokenLiveRead() public {
+        vm.prank(address(tokenAccount));
+        uint256 gasBefore = gasleft();
+        tokenKernel.preCheck(address(tokenAccount), 0, "");
+        uint256 gasUsed = gasBefore - gasleft();
+
+        assertGt(
+            gasUsed,
+            40_000,
+            "this test's OWN name asserts an over-budget finding -- if this assertion now fails, "
+            "the crossing may have been resolved (e.g. by a future caching/mitigation slice) and "
+            "this test should be replaced with an under-budget assertion, not left stale"
+        );
+        assertLt(
+            gasUsed,
+            45_000,
+            "regression ceiling -- a further, unexplained rise could mean something other than the "
+            "named, understood cost (one cold ERC-20 balanceOf read) is now driving this number"
+        );
+
+        // Clean up armed state, matching the equivalent native-only test's own discipline.
+        vm.prank(address(tokenAccount));
+        tokenKernel.postCheck(abi.encode(address(tokenAccount).balance, 100 ether));
     }
 }

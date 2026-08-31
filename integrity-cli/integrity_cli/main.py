@@ -64,6 +64,9 @@ app.add_typer(auth_app, name="auth")
 xns_app = typer.Typer(help="XibalbaNameService (XNS): human-readable handles for registered agents")
 app.add_typer(xns_app, name="xns")
 
+domain_app = typer.Typer(help="DomainRegistry: the namespace an agent joins via `agent register --domain`")
+app.add_typer(domain_app, name="domain")
+
 vault_app = typer.Typer(help="Trust Vault (Persistent Memory) commands")
 app.add_typer(vault_app, name="vault")
 
@@ -331,6 +334,12 @@ def agent_register(
     skip_oracle: bool = typer.Option(
         False, "--skip-oracle", help="Run only the on-chain registration sequence; skip the final Oracle POST"
     ),
+    auto_register_domain: bool = typer.Option(
+        True, "--auto-register-domain/--no-auto-register-domain",
+        help="Self-register --domain in DomainRegistry (Open mode) if it doesn't exist yet -- "
+             "ONLY when --domain is exactly '<identity>.integrity', the personal-domain convention. "
+             "A missing non-personal domain is always a hard error regardless of this flag.",
+    ),
 ):
     """
     Run the real self-sovereign on-chain registration sequence for a local
@@ -394,6 +403,7 @@ def agent_register(
         factory_address = deployments["singletons"]["AgentPrimitivesFactory"]
         itk_address = deployments["singletons"]["IntegrityToken"]
         registry_address = deployments["singletons"]["XibalbaAgentRegistry"]
+        domain_registry_address = deployments["singletons"]["DomainRegistry"]
         oracle_signer = deployments["protocolAddresses"]["oracleSigner"]
     except (chain.DeploymentsFileMissing, KeyError) as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
@@ -445,6 +455,46 @@ def agent_register(
         console.print(f"\n[bold green]Already registered:[/bold green] {agent_did}")
         return
 
+    # Precondition checks -- fail fast, before any gas is spent, rather than deep inside
+    # the deploy sequence. Regression guard for the 2026-08-30 incident: a real
+    # SovereignAgent/StateAnchor pair got orphaned on Base Sepolia because
+    # registerPrimitives reverted DomainJoinNotApproved() at the very last step, after
+    # the deploy gas was already spent, and nothing checked DomainRegistry beforehand
+    # (its ABI wasn't even synced to this package until this fix).
+    if not chain.factory_has_registrar_role(w3, registry_address, factory_address):
+        console.print(
+            f"[bold red]Error:[/bold red] AgentPrimitivesFactory {factory_address} does not hold "
+            f"REGISTRAR_ROLE on XibalbaAgentRegistry {registry_address} -- registerPrimitives would "
+            f"revert. This is a protocol-level misconfiguration, not something this command can fix."
+        )
+        raise typer.Exit(1)
+
+    personal_domain_name = f"{identity_name}.integrity"
+    domain_id = keccak(text=domain)
+    domain_needs_registration = False
+    if chain.domain_exists(w3, domain_registry_address, domain_id):
+        if not chain.can_join_domain(w3, domain_registry_address, domain_id, evm_account.address):
+            console.print(
+                f"[bold red]Error:[/bold red] domain {domain!r} exists but is Permissioned and "
+                f"{evm_account.address} is not an approved joiner -- ask the domain's owner to call "
+                f"DomainRegistry.approveJoiner, or choose a different --domain."
+            )
+            raise typer.Exit(1)
+    else:
+        if domain == personal_domain_name and auto_register_domain:
+            domain_needs_registration = True  # registered below, once the wallet is funded
+        else:
+            console.print(
+                f"[bold red]Error:[/bold red] domain {domain!r} does not exist in DomainRegistry "
+                f"{domain_registry_address}. "
+                + (f"Pass --auto-register-domain to self-register it (it matches {identity_name}'s own "
+                   f"personal-domain convention)." if domain == personal_domain_name else
+                   f"This is not {identity_name}'s own personal domain ({personal_domain_name!r}), so it "
+                   f"will never be auto-registered -- run `integrity domain register {domain!r}` "
+                   f"explicitly if you intend to claim this name, or use the correct existing shared domain.")
+            )
+            raise typer.Exit(1)
+
     try:
         _MIN_OPERATING_BALANCE_WEI = Web3.to_wei(0.001, "ether")
         current_balance = w3.eth.get_balance(evm_account.address)
@@ -465,6 +515,16 @@ def agent_register(
                 f"  [dim]skip[/dim] agent wallet already funded "
                 f"({Web3.from_wei(current_balance, 'ether'):.4f} ETH)"
             )
+
+        # Self-register the personal domain now that the agent's own wallet is funded and
+        # can pay for (and own) the DomainRegistry.registerDomain transaction itself --
+        # doing this before funding would either fail (empty wallet) or require the
+        # funder to pay and thus become the domain's owner, which is wrong for a domain
+        # meant to be agent-controlled.
+        if domain_needs_registration:
+            with console.status(f"[bold blue]Registering domain {domain!r}..."):
+                chain.register_domain(w3, evm_account, domain_registry_address, domain, chain_id, open_mode=True)
+            console.print(f"  [green]done[/green] self-registered domain {domain!r} (Open), owned by {evm_account.address}")
 
         next_nonce = w3.eth.get_transaction_count(evm_account.address)
 
@@ -552,7 +612,8 @@ def agent_register(
             next_nonce += 1
             time.sleep(3)
 
-        domain_id = keccak(text=domain)
+        # domain_id was already computed above, in the precondition-check block that ran
+        # before any gas was spent.
         with console.status("[bold blue]Registering primitives..."):
             result = chain.register_primitives(
                 w3,
@@ -735,6 +796,111 @@ def agent_intercept(
 
 
 # --------------------------------------------------------------------------
+# domain
+# --------------------------------------------------------------------------
+
+_RPC_URL_OPTION = typer.Option(None, "--rpc-url", help="EVM RPC endpoint (env RPC_URL, default http://localhost:8545)")
+_DEPLOYMENTS_FILE_OPTION = typer.Option(
+    None, "--deployments-file", help="Path to deployments.local.json (env DEPLOYMENTS_FILE)"
+)
+
+
+def _domain_setup(rpc_url: Optional[str], deployments_file: Optional[str]) -> tuple[Web3, str, int]:
+    """Shared connect/resolve-address logic for domain_app commands, mirroring _xns_setup below."""
+    rpc_url = rpc_url or os.getenv("RPC_URL", "http://localhost:8545")
+    deployments_file = deployments_file or os.getenv("DEPLOYMENTS_FILE", "../deployments.local.json")
+
+    try:
+        w3 = chain.get_w3(rpc_url)
+        if not w3.is_connected():
+            console.print(f"[bold red]Error:[/bold red] RPC {rpc_url} is unreachable.")
+            raise typer.Exit(1)
+        chain_id = w3.eth.chain_id
+    except typer.Exit:
+        raise
+    except Exception as e:  # noqa: BLE001
+        console.print(f"[bold red]Error:[/bold red] could not connect to RPC {rpc_url}: {e}")
+        raise typer.Exit(1)
+
+    try:
+        deployments = chain.load_deployments(deployments_file)
+        domain_registry_address = deployments["singletons"]["DomainRegistry"]
+    except (chain.DeploymentsFileMissing, KeyError) as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+        raise typer.Exit(1)
+
+    return w3, domain_registry_address, chain_id
+
+
+@domain_app.command("status")
+def domain_status(
+    name: str = typer.Argument(..., help="Domain name, e.g. 'my-agent.integrity'"),
+    identity_name: str = typer.Option(
+        "default", "--identity", help="Whose wallet address to check canJoin for (no signing, read-only)"
+    ),
+    rpc_url: Optional[str] = _RPC_URL_OPTION,
+    deployments_file: Optional[str] = _DEPLOYMENTS_FILE_OPTION,
+):
+    """Read-only: does `name` exist in DomainRegistry, and can --identity's wallet join it?
+    Run this before `agent register --domain <name>` for any domain you haven't already
+    verified -- see `agent register`'s own precondition checks, which run this same logic
+    automatically but only report a problem after computing everything else."""
+    w3, domain_registry_address, _chain_id = _domain_setup(rpc_url, deployments_file)
+    domain_id = keccak(text=name)
+    exists = chain.domain_exists(w3, domain_registry_address, domain_id)
+    if not exists:
+        console.print(f"[yellow]does not exist[/yellow]  domain {name!r} has not been registered in DomainRegistry")
+        raise typer.Exit(1)
+
+    evm_account = wallet.generate_or_load_evm_wallet(identity_name)
+    can_join = chain.can_join_domain(w3, domain_registry_address, domain_id, evm_account.address)
+    status_text = "[green]can join[/green]" if can_join else "[red]cannot join[/red]"
+    console.print(f"{status_text}  domain {name!r} exists; {identity_name}'s wallet {evm_account.address} {'can' if can_join else 'cannot'} join it")
+    if not can_join:
+        raise typer.Exit(1)
+
+
+@domain_app.command("register")
+def domain_register(
+    name: str = typer.Argument(..., help="Domain name to claim, e.g. 'my-agent.integrity'"),
+    identity_name: str = typer.Option(
+        "default", "--identity", help="Whose wallet signs and becomes the domain's owner"
+    ),
+    permissioned: bool = typer.Option(
+        False, "--permissioned", help="Restrict joining to addresses the owner explicitly approves "
+                                       "(default: Open -- anyone can join, appropriate for a personal per-agent domain)"
+    ),
+    rpc_url: Optional[str] = _RPC_URL_OPTION,
+    deployments_file: Optional[str] = _DEPLOYMENTS_FILE_OPTION,
+):
+    """
+    Claims `name` in DomainRegistry, owned by --identity's wallet -- permissionless,
+    first-come-first-served, same trust model as ENS second-level names. `agent register`
+    does this automatically (Open mode) for an identity's own '<identity>.integrity'
+    domain when it's missing (see its --auto-register-domain flag, default on) -- use this
+    command directly for any other domain name, or to register --permissioned.
+    """
+    w3, domain_registry_address, chain_id = _domain_setup(rpc_url, deployments_file)
+    domain_id = keccak(text=name)
+    if chain.domain_exists(w3, domain_registry_address, domain_id):
+        console.print(f"[bold red]Error:[/bold red] domain {name!r} already exists in DomainRegistry.")
+        raise typer.Exit(1)
+
+    try:
+        evm_account = wallet.generate_or_load_evm_wallet(identity_name)
+    except wallet.WalletPasswordNotSet as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+        raise typer.Exit(1)
+
+    with console.status(f"[bold blue]Registering domain {name!r}..."):
+        tx_hash = chain.register_domain(w3, evm_account, domain_registry_address, name, chain_id, open_mode=not permissioned)
+    console.print(
+        f"[bold green]Registered:[/bold green] {name!r} ({'Permissioned' if permissioned else 'Open'}), "
+        f"owned by {evm_account.address} (tx {tx_hash})"
+    )
+
+
+# --------------------------------------------------------------------------
 # xns
 # --------------------------------------------------------------------------
 
@@ -773,10 +939,6 @@ def _xns_setup(rpc_url: Optional[str], deployments_file: Optional[str]) -> tuple
     return w3, xns_address, chain_id
 
 
-_RPC_URL_OPTION = typer.Option(None, "--rpc-url", help="EVM RPC endpoint (env RPC_URL, default http://localhost:8545)")
-_DEPLOYMENTS_FILE_OPTION = typer.Option(
-    None, "--deployments-file", help="Path to deployments.local.json (env DEPLOYMENTS_FILE)"
-)
 
 
 def _resolve_own_sovereign_agent(identity_name: str) -> str:

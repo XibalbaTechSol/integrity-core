@@ -71,15 +71,21 @@ test.describe('/financials (FinancialsPage)', () => {
     await expect(page.getByText('Integrity Token')).toBeVisible();
     await expect(page.getByText('ITK // ERC-20')).toBeVisible();
 
+    // Send now routes through the agent's own SovereignAgent.execute (a real fix — sending
+    // used to silently move ITK out of the connected EOA's own, almost always empty,
+    // balance instead of the SovereignAgent balance actually shown on screen). That means
+    // Send requires a connected controller wallet; no extension is available in headless
+    // Chromium, so the real, correct state here is the "Connect a wallet first" gate, not
+    // the transfer form — same principle the Credit tab test above already asserts.
     await page.getByRole('button', { name: 'Send' }).click();
-    await expect(page.getByRole('heading', { name: 'Initiate Transfer' })).toBeVisible();
-    await expect(page.getByPlaceholder('0x...')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Connect a wallet first' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Connect Wallet' })).toBeVisible();
     // The modal has no Escape-key handler — only clicking its backdrop (the fixed
     // full-screen overlay behind the card, which stops propagation on the card itself)
     // or its X button closes it. Click the corner of the viewport, safely outside the
     // centered card, to hit the backdrop.
     await page.mouse.click(10, 10);
-    await expect(page.getByRole('heading', { name: 'Initiate Transfer' })).not.toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Connect a wallet first' })).not.toBeVisible();
 
     await page.getByRole('button', { name: 'Receive' }).click();
     await expect(page.getByRole('heading', { name: 'Receive Assets' })).toBeVisible();

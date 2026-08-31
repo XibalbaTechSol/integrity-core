@@ -1,265 +1,229 @@
-import React, { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ethers } from 'ethers';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from 'recharts';
-import { COTPlatform } from './components/COTPlatform';
-import { LayoutDashboard, Bell, Activity, Zap, Lock, AlertTriangle } from 'lucide-react';
-import { Panel } from './components/shared/Panel';
+import { Line, LineChart, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from 'recharts';
+import {
+  Activity, ArrowRight, BadgeCheck, BrainCircuit, CircleDollarSign, Database,
+  ExternalLink, Fingerprint, Landmark, Network, RefreshCw, ShieldCheck,
+  TriangleAlert, Users, WalletCards,
+} from 'lucide-react';
 import { useDashboard } from './context/DashboardContext';
-import { oracle, AisHistoryPoint, AuditLogEntryDto, RecentTraceDto, AisResponse } from './services/oracle';
+import { ControlHeader } from './components/control/ControlHeader';
+import { COTPlatform } from './components/COTPlatform';
+import { oracle, type AisHistoryPoint, type AisResponse, type AuditLogEntryDto, type IntentOutcomeDto, type StatsDto } from './services/oracle';
+import { graphMemory, type GraphMemoryStats, type InvocationCorrelation } from './services/graphMemory';
+import { shieldBackend, type ShieldDashboardSummary } from './services/shieldBackend';
 
-interface ActivityRow {
-  id: string;
-  task: string;
-  status: string;
-  latency: string;
-  time: string;
+type ServiceState = { state: 'checking' | 'online' | 'degraded' | 'offline'; detail: string };
+type FleetRow = { id: string; label: string; tier: number; ais: number | null; balance: number | null; staked: number | null; onchain: boolean | null };
+
+const initialService: ServiceState = { state: 'checking', detail: 'Checking connection' };
+
+function fromWei(value?: string | null): number | null {
+  if (!value) return null;
+  try { return Number(ethers.formatEther(value)); } catch { return null; }
 }
 
-const Dashboard: React.FC = () => {
-  const { selectedAgent, agentsLoading } = useDashboard();
-  const [ais, setAis] = useState<AisResponse | null>(null);
-  const [stakedItk, setStakedItk] = useState<number | null>(null);
-  const [history, setHistory] = useState<AisHistoryPoint[]>([]);
-  const [flaggedRate, setFlaggedRate] = useState<number | null>(null);
-  const [activity, setActivity] = useState<ActivityRow[]>([]);
-  const [notifications, setNotifications] = useState<AuditLogEntryDto[]>([]);
+function formatItk(value: number | null) {
+  return value == null ? '—' : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+function shortId(value: string) {
+  return value.length > 30 ? `${value.slice(0, 14)}…${value.slice(-10)}` : value;
+}
+
+export default function Dashboard() {
+  const { agents, agentsLoading, selectedAgent, setSelectedAgent, stats, walletAddress, connectWallet } = useDashboard();
+  const [services, setServices] = useState<Record<'core' | 'shield' | 'cortex', ServiceState>>({ core: initialService, shield: initialService, cortex: initialService });
+  const [fleet, setFleet] = useState<FleetRow[]>([]);
+  const [protocol, setProtocol] = useState<StatsDto | null>(null);
+  const [knowledge, setKnowledge] = useState<GraphMemoryStats | null>(null);
+  const [invocations, setInvocations] = useState<InvocationCorrelation[]>([]);
+  const [audit, setAudit] = useState<AuditLogEntryDto[]>([]);
+  const [reconciliation, setReconciliation] = useState<IntentOutcomeDto[]>([]);
+  const [shieldSummary, setShieldSummary] = useState<ShieldDashboardSummary | null>(null);
+  const [selectedAis, setSelectedAis] = useState<AisResponse | null>(null);
+  const [aisHistory, setAisHistory] = useState<AisHistoryPoint[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadOverview = useCallback(async () => {
+    setRefreshing(true);
+    const [coreResult, shieldResult, cortexStatusResult, cortexStatsResult, invocationResult] = await Promise.allSettled([
+      oracle.getStats(), shieldBackend.health(), graphMemory.status(), graphMemory.stats(), graphMemory.invocations(8),
+    ]);
+    setServices({
+      core: coreResult.status === 'fulfilled' ? { state: 'online', detail: 'Oracle and on-chain read model responding' } : { state: 'offline', detail: 'Oracle API unavailable' },
+      shield: shieldResult.status === 'fulfilled' && shieldResult.value.ok ? { state: 'online', detail: 'Endpoint control plane responding' } : { state: 'offline', detail: 'Shield backend unavailable' },
+      cortex: cortexStatusResult.status === 'fulfilled'
+        ? { state: cortexStatusResult.value.integrity_check === 'ok' ? 'online' : 'degraded', detail: `${cortexStatusResult.value.memory_count} memories · integrity ${cortexStatusResult.value.integrity_check}` }
+        : { state: 'offline', detail: 'Cortex local API unavailable' },
+    });
+    setProtocol(coreResult.status === 'fulfilled' ? coreResult.value : null);
+    setKnowledge(cortexStatsResult.status === 'fulfilled' ? cortexStatsResult.value : null);
+    setInvocations(invocationResult.status === 'fulfilled' ? invocationResult.value : []);
+
+    if (agents.length) {
+      const rows = await Promise.all(agents.map(async (agent): Promise<FleetRow> => {
+        const [wallet, ais, stake, detail] = await Promise.allSettled([
+          oracle.getWallet(agent.eth_address), oracle.getAis(agent.eth_address), oracle.getStake(agent.eth_address), oracle.getAgent(agent.eth_address),
+        ]);
+        return {
+          id: agent.id,
+          label: agent.alias || agent.name || agent.id,
+          tier: agent.verification_tier,
+          ais: ais.status === 'fulfilled' ? ais.value.ais : agent.current_ais ?? null,
+          balance: wallet.status === 'fulfilled' ? fromWei(wallet.value.itk_balance) : null,
+          staked: stake.status === 'fulfilled' ? fromWei(stake.value.total_stake) : agent.staked_itk ?? null,
+          onchain: detail.status === 'fulfilled' ? Boolean(detail.value.primitives) : null,
+        };
+      }));
+      setFleet(rows);
+    } else setFleet([]);
+    setRefreshing(false);
+  }, [agents]);
+
+  useEffect(() => { void loadOverview(); }, [loadOverview]);
 
   useEffect(() => {
-    if (!selectedAgent) return;
+    if (!selectedAgent) { setAudit([]); setReconciliation([]); setShieldSummary(null); setSelectedAis(null); setAisHistory([]); return; }
     let active = true;
-    const id = selectedAgent.eth_address;
-
-    oracle.getAis(id).then(r => { if (active) setAis(r); }).catch(() => { if (active) setAis(null); });
-    oracle.getStake(id).then(r => { if (active) setStakedItk(Number(ethers.formatEther(r.total_stake))); }).catch(() => { if (active) setStakedItk(null); });
-    oracle.getAisHistory(id, '1h').then(r => { if (active) setHistory(r); }).catch(() => { if (active) setHistory([]); });
-    oracle.getTelemetry(id).then(events => {
+    Promise.allSettled([
+      oracle.getAuditLog(selectedAgent.id, 8), oracle.getReconciliation(selectedAgent.id), shieldBackend.dashboardSummary(selectedAgent.eth_address), oracle.getAis(selectedAgent.id), oracle.getAisHistory(selectedAgent.id, '1h'),
+    ]).then(([auditResult, reconciliationResult, shieldResult, aisResult, historyResult]) => {
       if (!active) return;
-      setFlaggedRate(events.length ? events.filter(e => e.flagged).length / events.length : 0);
-    }).catch(() => { if (active) setFlaggedRate(null); });
-    oracle.getAuditLog(id, 5).then(r => { if (active) setNotifications(r); }).catch(() => { if (active) setNotifications([]); });
-
-    oracle.getRecentTraces(id, 3).then(async (traces: RecentTraceDto[]) => {
-      if (!active) return;
-      const rows = await Promise.all(traces.map(async t => {
-        try {
-          const tree = await oracle.getTraceTree(t.trace_id);
-          const root = tree.roots[0];
-          return {
-            id: t.trace_id.substring(0, 12),
-            task: t.name,
-            status: root?.status_code || 'UNSET',
-            latency: root ? `${root.duration_ms}ms` : '-',
-            time: new Date(t.start_time).toLocaleTimeString(),
-          };
-        } catch {
-          return { id: t.trace_id.substring(0, 12), task: t.name, status: 'UNSET', latency: '-', time: new Date(t.start_time).toLocaleTimeString() };
-        }
-      }));
-      setActivity(rows);
-    }).catch(() => { if (active) setActivity([]); });
-
+      setAudit(auditResult.status === 'fulfilled' ? auditResult.value : []);
+      setReconciliation(reconciliationResult.status === 'fulfilled' ? reconciliationResult.value : []);
+      setShieldSummary(shieldResult.status === 'fulfilled' ? shieldResult.value : null);
+      setSelectedAis(aisResult.status === 'fulfilled' ? aisResult.value : null);
+      setAisHistory(historyResult.status === 'fulfilled' ? historyResult.value : []);
+    });
     return () => { active = false; };
-  }, [selectedAgent?.id]);
+  }, [selectedAgent?.id, selectedAgent?.eth_address]);
 
-  if (agentsLoading) {
-    return <div style={{ padding: 'var(--space-8)', color: 'var(--text-muted)' }}>Loading agent fleet from the oracle…</div>;
-  }
-  if (!selectedAgent) {
-    return (
-      <div style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--text-muted)' }}>
-        No registered agents found on this network. Register an agent under Identity to populate the dashboard.
-      </div>
-    );
-  }
-
-  // ais.components.* are on a 0-1000 scale (integrity-oracle scoring-core's
-  // MAX_COMPONENT_SCORE = 1000, matching AIS itself), not a 0-1 fraction — dividing by
-  // 10 maps it onto this radar's 0-100 domain. The previous `* 100` treated it as a
-  // fraction, producing values like 100,000 for a perfect score: wildly outside
-  // fullMark: 100, which made Recharts render a literal "NaN" tick/label on this chart.
-  const radarData = ais ? [
-    { subject: 'Entropy', A: (ais.components.entropy || 0) / 10, fullMark: 100 },
-    { subject: 'Grounding', A: (ais.components.grounding || 0) / 10, fullMark: 100 },
-    { subject: 'Sacrifice', A: (ais.components.sacrifice || 0) / 10, fullMark: 100 },
-    { subject: 'Compliance', A: (ais.components.compliance || 0) / 10, fullMark: 100 },
-    { subject: 'ZK-Boost', A: ais.zk_boost > 1 ? 100 : 0, fullMark: 100 },
-  ] : [];
+  const totalFleetBalance = useMemo(() => fleet.reduce((sum, row) => sum + (row.balance ?? 0), 0), [fleet]);
+  const registeredOnchain = fleet.filter((row) => row.onchain).length;
+  const deniedActions = audit.filter((entry) => entry.decision.toLowerCase().includes('deny'));
+  const unresolved = reconciliation.filter((entry) => entry.status !== 'reconciled');
+  const shieldDenials = shieldSummary?.decisions_by_action?.deny ?? shieldSummary?.decisions_by_action?.block ?? 0;
+  const pendingActions = deniedActions.length + unresolved.length;
+  const onlineServices = Object.values(services).filter((service) => service.state === 'online').length;
+  const reconciledCount = reconciliation.filter((entry) => entry.status === 'reconciled').length;
+  const aisComponents = selectedAis ? [
+    ['Entropy', selectedAis.components.entropy],
+    ['Grounding', selectedAis.components.grounding],
+    ['Sacrifice', selectedAis.components.sacrifice],
+    ['Compliance', selectedAis.components.compliance],
+  ] as const : [];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <h2 style={{ fontSize: '1.75rem', fontWeight: 700, margin: '0 0 var(--space-2) 0' }}>Dashboard</h2>
-          <p style={{ color: 'var(--text-muted)', margin: 0 }}>Live telemetry for {selectedAgent.alias || selectedAgent.name || selectedAgent.id}.</p>
+    <div className="control-page command-center">
+      <ControlHeader
+        eyebrow="Xibalba control plane"
+        title="Command Overview"
+        description="One operational view across Integrity Core, Shield enforcement, Cortex knowledge, agent identities, and on-chain capital."
+        actions={<><button className="control-secondary-action" onClick={() => void loadOverview()} disabled={refreshing}><RefreshCw size={15} className={refreshing ? 'spin' : undefined} /> Refresh</button><Link className="control-primary-action" to="/agents"><Users size={15} /> Manage agents</Link></>}
+      />
+
+      <div className="command-status-bar" aria-label="System service status">
+        {(['core', 'shield', 'cortex'] as const).map((name) => {
+          const Icon = name === 'core' ? Network : name === 'shield' ? ShieldCheck : BrainCircuit;
+          const label = name === 'core' ? 'Integrity Core' : name === 'shield' ? 'Shield' : 'Cortex';
+          const service = services[name];
+          return <div className="service-status" key={name}><span className={`service-icon ${service.state}`}><Icon size={16} /></span><div><strong>{label}</strong><small>{service.detail}</small></div><span className={`control-state ${service.state}`}>{service.state}</span></div>;
+        })}
+        <div className="service-summary"><strong>{onlineServices}/3</strong><small>systems online</small></div>
+      </div>
+
+      <div className="control-page-body">
+        <section className="control-metric-grid">
+          <article className="control-metric"><span><Users size={14} /> Registered agents</span><strong>{agentsLoading ? '—' : agents.length}</strong><small>{registeredOnchain} with on-chain primitives</small></article>
+          <article className="control-metric"><span><CircleDollarSign size={14} /> Fleet ITK balance</span><strong>{formatItk(totalFleetBalance)}</strong><small>{formatItk(stats?.protocol_staked_itk ?? null)} ITK staked</small></article>
+          <article className="control-metric"><span><Activity size={14} /> Network AIS</span><strong>{stats ? stats.aggregate_ais.toFixed(1) : '—'}</strong><small>Live aggregate across registered agents</small></article>
+          <article className={`control-metric${pendingActions ? ' attention' : ''}`}><span><TriangleAlert size={14} /> Review queue</span><strong>{pendingActions}</strong><small>{deniedActions.length} policy denials · {unresolved.length} evidence gaps</small></article>
+        </section>
+
+        <div className="command-grid-primary">
+          <section className="control-section fleet-section">
+            <div className="control-section-heading"><div><span className="control-eyebrow">Fleet</span><h2>Agents under management</h2></div><Link to="/agents">Open fleet <ArrowRight size={14} /></Link></div>
+            {fleet.length === 0 ? <div className="control-empty">{agentsLoading ? 'Loading the registered fleet…' : 'No registered agents. Open Agents & Identity to enroll one.'}</div> : (
+              <div className="fleet-table-wrap"><table className="fleet-table"><thead><tr><th>Agent / DID</th><th>Identity</th><th>AIS</th><th>ITK balance</th><th>Staked</th><th /></tr></thead><tbody>{fleet.map((row) => <tr key={row.id} className={selectedAgent?.id === row.id ? 'selected' : undefined}><td><strong title={row.label}>{row.label}</strong><code title={row.id}>{shortId(row.id)}</code></td><td><span className={`control-state ${row.onchain ? 'online' : row.onchain === false ? 'degraded' : 'checking'}`}>{row.onchain ? 'On-chain' : row.onchain === false ? 'DID only' : 'Unknown'}</span></td><td>{row.ais?.toFixed(0) ?? '—'}</td><td>{formatItk(row.balance)}</td><td>{formatItk(row.staked)}</td><td><button onClick={() => { const match = agents.find((agent) => agent.id === row.id); if (match) setSelectedAgent(match); }}>Select</button></td></tr>)}</tbody></table></div>
+            )}
+          </section>
+
+          <aside className="control-section attention-section">
+            <div className="control-section-heading"><div><span className="control-eyebrow">Operator attention</span><h2>Gated actions</h2></div><Link to="/security">Review <ArrowRight size={14} /></Link></div>
+            <div className="attention-summary"><span className={pendingActions ? 'warn' : 'good'}>{pendingActions}</span><div><strong>{pendingActions ? 'Items require review' : 'No blocked actions'}</strong><small>Selected agent: {selectedAgent ? selectedAgent.alias || selectedAgent.name || shortId(selectedAgent.id) : 'none'}</small></div></div>
+            <div className="attention-list">
+              {deniedActions.slice(0, 3).map((entry) => <article key={entry.id}><span className="attention-dot danger" /><div><strong>{entry.event_type}</strong><small>{entry.reason_code || entry.detail || 'Policy denied this action'}</small></div><time>{new Date(entry.created_at).toLocaleTimeString()}</time></article>)}
+              {unresolved.slice(0, 2).map((entry, index) => <article key={entry.invocation_id || index}><span className="attention-dot warn" /><div><strong>{entry.intent_type || 'Invocation evidence'}</strong><small>{entry.status.replace(/_/g, ' ')}</small></div></article>)}
+              {!pendingActions && <div className="control-empty compact"><BadgeCheck size={18} /> Current policy and evidence queues are clear.</div>}
+            </div>
+            {shieldSummary && <div className="attention-footer"><ShieldCheck size={14} /> {shieldSummary.device_count} Shield devices · {shieldDenials} denied actions recorded</div>}
+          </aside>
         </div>
-      </div>
 
-      {/* ── Top Stats Row ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 'var(--space-4)' }}>
-        <Panel>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-2)' }}>
-            <div style={{ padding: '8px', background: 'var(--primary-dim)', color: 'var(--primary)', borderRadius: '8px' }}>
-              <Activity size={18} />
-            </div>
-            <h3 style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Live AIS Score</h3>
-          </div>
-          <div style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-            {ais ? ais.ais.toFixed(1) : '—'}
-          </div>
-        </Panel>
-
-        <Panel>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-2)' }}>
-            <div style={{ padding: '8px', background: 'var(--primary-dim)', color: 'var(--primary)', borderRadius: '8px' }}>
-              <Lock size={18} />
-            </div>
-            <h3 style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>$ITK Staked</h3>
-          </div>
-          <div style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text-primary)' }}>{stakedItk !== null ? stakedItk.toLocaleString() : '—'}</div>
-        </Panel>
-
-        <Panel>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-2)' }}>
-            <div style={{ padding: '8px', background: 'var(--primary-dim)', color: 'var(--primary)', borderRadius: '8px' }}>
-              <Zap size={18} />
-            </div>
-            <h3 style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>ZK Boost</h3>
-          </div>
-          <div style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text-primary)' }}>{ais ? (ais.zk_boost > 1 ? 'ACTIVE' : 'NONE') : '—'}</div>
-        </Panel>
-
-        <Panel>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-2)' }}>
-            <div style={{ padding: '8px', background: 'var(--danger-dim)', color: 'var(--danger)', borderRadius: '8px' }}>
-              <AlertTriangle size={18} />
-            </div>
-            <h3 style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Flagged Telemetry Rate</h3>
-          </div>
-          <div style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text-primary)' }}>{flaggedRate !== null ? `${(flaggedRate * 100).toFixed(2)}%` : '—'}</div>
-        </Panel>
-      </div>
-
-      {/* ── Charts Row ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 'var(--space-4)' }}>
-        <Panel>
-          <h3 style={{ margin: '0 0 var(--space-4) 0', fontSize: '1.1rem' }}>AIS Trend (Last Hour Buckets)</h3>
-          <div style={{ height: '280px' }}>
-            {history.length === 0 ? (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)' }}>No history yet for this window.</div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={history.map(h => ({ time: new Date(h.bucket_start).toLocaleTimeString(), ais: h.ais }))}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
-                  <XAxis dataKey="time" stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis stroke="var(--text-muted)" fontSize={12} tickLine={false} axisLine={false} />
-                  <RechartsTooltip
-                    contentStyle={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-color)', borderRadius: '8px', color: 'var(--text-primary)' }}
-                    itemStyle={{ color: 'var(--primary)' }}
-                  />
-                  <Line type="monotone" dataKey="ais" stroke="var(--primary)" strokeWidth={3} dot={{ r: 4, fill: 'var(--primary)' }} activeDot={{ r: 6 }} />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </Panel>
-
-        <Panel>
-          <h3 style={{ margin: '0 0 var(--space-4) 0', fontSize: '1.1rem' }}>AIS Components (Radar)</h3>
-          <div style={{ height: '280px' }}>
-            {!ais ? (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)' }}>No AIS reading yet.</div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <RadarChart cx="50%" cy="50%" outerRadius="75%" data={radarData}>
-                  <PolarGrid stroke="var(--border-color)" />
-                  <PolarAngleAxis dataKey="subject" tick={{ fill: 'var(--text-secondary)', fontSize: 12 }} />
-                  <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
-                  <Radar name="Agent" dataKey="A" stroke="var(--primary)" fill="var(--primary)" fillOpacity={0.3} />
-                  <RechartsTooltip
-                    contentStyle={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-color)', borderRadius: '8px' }}
-                  />
-                </RadarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </Panel>
-      </div>
-
-      {/* ── Tables Row ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 'var(--space-4)', alignItems: 'start' }}>
-        <Panel>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
-            <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Recent Agent Activity</h3>
-            <Link to="/intelligence" className="button" style={{ padding: '6px 12px', fontSize: '0.85rem', textDecoration: 'none' }}>View All</Link>
-          </div>
-          <div style={{ overflowX: 'auto' }}>
-            {activity.length === 0 ? (
-              <div style={{ padding: 'var(--space-6)', textAlign: 'center', color: 'var(--text-muted)' }}>No recent traces.</div>
-            ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontSize: '0.85rem', textTransform: 'uppercase' }}>
-                    <th style={{ padding: '12px 0', fontWeight: 600 }}>Trace ID</th>
-                    <th style={{ padding: '12px 0', fontWeight: 600 }}>Task</th>
-                    <th style={{ padding: '12px 0', fontWeight: 600 }}>Status</th>
-                    <th style={{ padding: '12px 0', fontWeight: 600 }}>Latency</th>
-                    <th style={{ padding: '12px 0', fontWeight: 600 }}>Time</th>
-                  </tr>
-                </thead>
-                <tbody style={{ fontSize: '0.95rem' }}>
-                  {activity.map((row, idx) => (
-                    <tr key={idx} style={{ borderBottom: '1px solid var(--border-color)' }}>
-                      <td style={{ padding: '16px 0', fontFamily: 'monospace', color: 'var(--text-primary)' }}>{row.id}</td>
-                      <td style={{ padding: '16px 0', color: 'var(--text-secondary)' }}>{row.task}</td>
-                      <td style={{ padding: '16px 0' }}>
-                        <span style={{
-                          padding: '4px 8px', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 600,
-                          background: row.status === 'OK' ? 'var(--success-dim)' : 'var(--primary-dim)',
-                          color: row.status === 'OK' ? 'var(--success)' : 'var(--primary)'
-                        }}>
-                          {row.status}
-                        </span>
-                      </td>
-                      <td style={{ padding: '16px 0', color: 'var(--text-secondary)' }}>{row.latency}</td>
-                      <td style={{ padding: '16px 0', color: 'var(--text-muted)' }}>{row.time}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </Panel>
-
-        <Panel>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-4)' }}>
-            <Bell size={18} color="var(--primary)" />
-            <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Policy Audit Feed</h3>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-            {notifications.length === 0 ? (
-              <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>No audit events recorded yet.</div>
-            ) : notifications.map(n => (
-              <div key={n.id} style={{
-                padding: '12px 16px',
-                background: n.decision === 'DENY' ? 'var(--danger-dim)' : 'var(--success-dim)',
-                borderLeft: `3px solid ${n.decision === 'DENY' ? 'var(--danger)' : 'var(--success)'}`,
-                borderRadius: '0 6px 6px 0', fontSize: '0.9rem'
-              }}>
-                <strong style={{ color: n.decision === 'DENY' ? 'var(--danger)' : 'var(--success)' }}>{n.decision}:</strong> {n.event_type} {n.reason_code ? `(${n.reason_code})` : ''}
+        <div className="command-grid-secondary">
+          <section className="control-section ais-section">
+            <div className="control-section-heading"><div><span className="control-eyebrow">Integrity metrics</span><h2>Agent Integrity Score</h2></div><Link to="/intelligence">Full intelligence <ArrowRight size={14} /></Link></div>
+            <div className="ais-control-body">
+              <div className="ais-primary-score"><span>Current AIS</span><strong>{selectedAis ? selectedAis.ais.toFixed(1) : '—'}</strong><small>{selectedAgent ? selectedAgent.alias || selectedAgent.name || shortId(selectedAgent.id) : 'No agent selected'} · {selectedAis?.event_count ?? 0} scored events</small></div>
+              <div className="ais-mini-chart" aria-label="AIS trend graph">
+                {aisHistory.length ? <ResponsiveContainer width="100%" height="100%"><LineChart data={aisHistory}><XAxis dataKey="bucket_start" hide /><YAxis domain={[0, 1000]} hide /><ChartTooltip contentStyle={{ background: 'var(--bg-color)', border: '1px solid var(--border-color)', borderRadius: 5, fontSize: 11 }} labelFormatter={(value) => new Date(String(value)).toLocaleTimeString()} formatter={(value) => [Number(value).toFixed(1), 'AIS']} /><Line type="monotone" dataKey="ais" stroke="var(--success)" strokeWidth={2} dot={false} activeDot={{ r: 3 }} /></LineChart></ResponsiveContainer> : <div className="chart-empty">AIS trend appears after scored history is recorded.</div>}
               </div>
-            ))}
-          </div>
-        </Panel>
-      </div>
+              <div className="ais-component-list">
+                {aisComponents.map(([label, value]) => <div key={label}><div><span>{label}</span><strong>{value.toFixed(0)}</strong></div><span className="ais-track"><i style={{ width: `${Math.min(100, Math.max(0, value / 10))}%` }} /></span></div>)}
+                {!selectedAis && <div className="control-empty compact">No AIS reading is available for the selected agent.</div>}
+              </div>
+              <div className="ais-flags"><span className={`control-state ${selectedAis?.zk_proof_verified ? 'online' : 'checking'}`}>ZK proof {selectedAis?.zk_proof_verified ? 'verified' : 'not verified'}</span><span className={`control-state ${selectedAis?.onchain_zk_boost_consistent === true ? 'online' : selectedAis?.onchain_zk_boost_consistent === false ? 'offline' : 'checking'}`}>On-chain boost {selectedAis?.onchain_zk_boost_consistent == null ? 'unknown' : selectedAis.onchain_zk_boost_consistent ? 'consistent' : 'mismatch'}</span></div>
+            </div>
+          </section>
 
-      {/* ── COT Explorer ── */}
-      <Panel>
-        <h3 style={{ margin: '0 0 var(--space-4) 0', fontSize: '1.1rem' }}>Observability: Chain-of-Thought Explorer</h3>
-        <COTPlatform />
-      </Panel>
+          <section className="control-section evidence-section">
+            <div className="control-section-heading"><div><span className="control-eyebrow">Correlation</span><h2>Intent → policy → outcome</h2></div><Link to="/knowledge">Open evidence <ArrowRight size={14} /></Link></div>
+            <div className="evidence-stats"><div><strong>{reconciledCount}</strong><span>Reconciled</span></div><div><strong>{unresolved.length}</strong><span>Evidence gaps</span></div><div><strong>{invocations.length}</strong><span>Runtime intents</span></div><div><strong>{shieldSummary?.latest_decisions.length ?? '—'}</strong><span>Shield decisions</span></div></div>
+            <div className="evidence-flow" aria-label="Evidence correlation flow">
+              <div><span className={`flow-node ${services.cortex.state}`}><BrainCircuit size={15} /></span><strong>Cortex</strong><small>{invocations.length} intents</small></div><i />
+              <div><span className={`flow-node ${services.shield.state}`}><ShieldCheck size={15} /></span><strong>Shield</strong><small>{shieldSummary?.latest_decisions.length ?? '—'} decisions</small></div><i />
+              <div><span className={`flow-node ${services.core.state}`}><Network size={15} /></span><strong>BCC / Kernel</strong><small>{reconciliation.length} records</small></div><i />
+              <div><span className={`flow-node ${unresolved.length ? 'degraded' : 'online'}`}><BadgeCheck size={15} /></span><strong>Outcome</strong><small>{reconciledCount} reconciled</small></div>
+            </div>
+            <div className="invocation-list">
+              {invocations.slice(0, 4).map((item) => <article key={`evidence-${item.invocation_id}`}><span className={`attention-dot ${item.runtime_status === 'complete' ? 'good' : 'warn'}`} /><div><strong>{item.tool_name || 'Agent action'}</strong><code>{item.pre_tool?.intent_rationale || shortId(item.invocation_id)}</code></div><span>{item.runtime_status.replace(/_/g, ' ')}</span></article>)}
+              {!invocations.length && <div className="control-empty compact">No correlated runtime intents were returned by Cortex.</div>}
+            </div>
+          </section>
+
+          <section className="control-section">
+            <div className="control-section-heading"><div><span className="control-eyebrow">Knowledge</span><h2>Cortex operating context</h2></div><Link to="/knowledge">Explore <ArrowRight size={14} /></Link></div>
+            <div className="knowledge-stats"><div><strong>{knowledge?.memories ?? '—'}</strong><span>Memories</span></div><div><strong>{knowledge?.entities ?? '—'}</strong><span>Entities</span></div><div><strong>{knowledge?.relations ?? '—'}</strong><span>Relations</span></div><div><strong>{knowledge?.sessions ?? '—'}</strong><span>Sessions</span></div></div>
+            <div className="invocation-list">
+              {invocations.slice(0, 4).map((item) => <article key={item.invocation_id}><span className={`attention-dot ${item.runtime_status === 'complete' ? 'good' : 'warn'}`} /><div><strong>{item.tool_name || 'Agent invocation'}</strong><code>{shortId(item.invocation_id)}</code></div><span>{item.runtime_status.replace(/_/g, ' ')}</span></article>)}
+              {!invocations.length && <div className="control-empty compact">No recent Cortex invocations were returned.</div>}
+            </div>
+          </section>
+
+          <section className="control-section">
+            <div className="control-section-heading"><div><span className="control-eyebrow">On-chain</span><h2>ITK network position</h2></div><Link to="/treasury">Manage funds <ArrowRight size={14} /></Link></div>
+            <div className="chain-position">
+              <div className="wallet-context"><span><WalletCards size={18} /></span><div><small>Connected operator wallet</small><strong>{walletAddress ? shortId(walletAddress) : 'Not connected'}</strong></div>{walletAddress ? <a href={`https://sepolia.basescan.org/address/${walletAddress}`} target="_blank" rel="noreferrer" aria-label="Open wallet on BaseScan"><ExternalLink size={15} /></a> : <button onClick={() => void connectWallet()}>Connect</button>}</div>
+              <div className="chain-stat-grid"><div><span>Markets</span><strong>{protocol?.market_count ?? '—'}</strong></div><div><span>Marketplace volume</span><strong>{formatItk(fromWei(protocol?.total_marketplace_volume))} ITK</strong></div><div><span>Credit escrowed</span><strong>{formatItk(fromWei(protocol?.escrowed_credit))} ITK</strong></div><div><span>Allocations</span><strong>{protocol?.allocation_count ?? '—'}</strong></div></div>
+              <div className="chain-note"><Landmark size={15} /><span>Balances and protocol positions are read from the Oracle’s Base Sepolia on-chain view. Missing reads remain explicit.</span></div>
+            </div>
+          </section>
+        </div>
+
+        <section className="control-section cot-section">
+          <div className="control-section-heading"><div><span className="control-eyebrow">Reasoning observability</span><h2>Chain-of-Thought Explorer</h2></div><Link to="/knowledge">Knowledge & evidence <ArrowRight size={14} /></Link></div>
+          <div className="cot-control-body"><COTPlatform /></div>
+        </section>
+
+        <section className="control-shortcuts" aria-label="Control panel shortcuts">
+          <Link to="/agents"><Fingerprint size={18} /><span><strong>Identity</strong><small>DID, verification, XNS</small></span><ArrowRight size={15} /></Link>
+          <Link to="/treasury"><Landmark size={18} /><span><strong>Funds & access</strong><small>ITK, stake, credit, allowances</small></span><ArrowRight size={15} /></Link>
+          <Link to="/security"><ShieldCheck size={18} /><span><strong>Security</strong><small>Shield, policies, gated actions</small></span><ArrowRight size={15} /></Link>
+          <Link to="/knowledge"><Database size={18} /><span><strong>Knowledge</strong><small>Cortex, intelligence, evidence</small></span><ArrowRight size={15} /></Link>
+        </section>
+      </div>
     </div>
   );
-};
-
-export default Dashboard;
+}

@@ -1,0 +1,262 @@
+services:
+  # timescale/timescaledb, not plain postgres: integrity-oracle's migration 0004
+  # (see integrity-oracle/backend/migrations/0004_timescale_and_otel_spans.sql) runs
+  # `CREATE EXTENSION timescaledb` and converts `otel_spans` into a hypertable for the
+  # real OTLP receiver's storage (PRODUCTION_GAPS.md §1). `timescale/timescaledb` images
+  # are themselves Postgres (same wire protocol/data directory layout as postgres:16),
+  # just with the extension preinstalled -- a drop-in replacement, not a second database
+  # engine. `userapi-postgres` below stays plain `postgres:16-alpine`, unmodified: it's a
+  # separate trust domain that never touches oracle telemetry (§6.10/§13).
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_DB: integrity
+      POSTGRES_USER: integrity
+      POSTGRES_PASSWORD: integrity_dev_only
+    ports: ["5436:5432"]
+    command: ["postgres", "-c", "shared_preload_libraries=timescaledb"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U integrity -d integrity"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  opa:
+    image: openpolicyagent/opa:1.1.0
+    # Shared sidecar for both bcc_middleware (package integrity.*) and xibalba-shield
+    # (package shield.policy, queried at /v1/data/shield/policy) — no package-name
+    # collision between the two, so one OPA instance serves both. Was previously
+    # bcc_middleware-only: shield's PolicyEngine got a real HTTP 200 back with no
+    # `result` key at all (data path never existed), which its own client code
+    # correctly treated as OPA-unavailable/fail-closed — silent-looking but never unsafe,
+    # just permanently unable to evaluate any real rule.
+    command: ["run", "--server", "--addr=0.0.0.0:8181", "/policies", "/shield-policies"]
+    volumes:
+      - ./bcc_middleware/policies:/policies:ro
+      - ../xibalba-shield/policies/rego:/shield-policies:ro
+    ports: ["8181:8181"]
+
+  oracle-backend:
+    build:
+      context: ./integrity-oracle
+      args:
+        SOURCE_HASH: ${ORACLE_SOURCE_HASH:-unknown}
+    # Waits for Postgres/Redis to be READY, not merely started: migrations run at boot,
+    # and a plain `depends_on` list only guarantees container start order.
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    environment:
+      # DEV ONLY -- asserts a verification tier that has NOT been proven.
+      # Rung 3 requires a real AWS Nitro attestation, which needs enclave hardware
+      # a dev machine does not have. This lets local work exercise tier-3 paths.
+      # It is applied at read time, never persisted, and every response carrying an
+      # overridden tier reports `tier_source: dev_override` so it can never be
+      # mistaken for a real proof. MUST NOT be set in production.
+      INTEGRITY_ALLOW_DEV_TIER_OVERRIDE: "${INTEGRITY_ALLOW_DEV_TIER_OVERRIDE:-0}"
+      INTEGRITY_DEV_TIER_OVERRIDES: "${INTEGRITY_DEV_TIER_OVERRIDES:-}"
+      DATABASE_URL: postgres://integrity:integrity_dev_only@postgres:5432/integrity
+      REDIS_URL: redis://redis:6379
+      RPC_URL: ${DOCKER_RPC_URL:-http://host.docker.internal:8545}
+      CHAIN_ID: ${CHAIN_ID:-31337}
+      DEPLOYMENTS_FILE: ${DOCKER_DEPLOYMENTS_FILE:-/deployments.local.json}
+      OTLP_GRPC_ADDR: 0.0.0.0:4317
+      # reject | flag | off. Defaults to `reject` in code; `flag` here so development
+      # collection (redaction off by operator decision) is STORED WITH the matched categories
+      # recorded on the row rather than refused at the boundary. Production must not inherit
+      # this — set it explicitly per deployment.
+      PHI_BACKSTOP_MODE: ${PHI_BACKSTOP_MODE:-flag}
+      KYC_PROVIDER_KEYS: ${KYC_PROVIDER_KEYS:-}
+    ports: ["8080:8080", "4317:4317"]
+    volumes:
+      - ./deployments.baseSepolia.json:/deployments.baseSepolia.json
+      - ./deployments.local.json:/deployments.local.json
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Probes a REAL DATA PATH (/v1/agents hits Postgres), deliberately NOT /healthz.
+    # /healthz is a bare `-> "ok"` handler that touches no dependency, so it answers 200
+    # from a service that cannot serve a single real request -- audit finding E2, and the
+    # reason a total outage went unnoticed for hours while the one signal an orchestrator
+    # would consult reported healthy. A healthcheck wired to /healthz would reproduce that
+    # bug with more ceremony. `start_period` covers migrations on first boot.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/v1/agents -o /dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  bcc-middleware:
+    build:
+      context: ./bcc_middleware
+      args:
+        SOURCE_HASH: ${BCC_MIDDLEWARE_SOURCE_HASH:-unknown}
+    depends_on: [opa, oracle-backend]
+    environment:
+      OPA_URL: http://opa:8181
+      ORACLE_URL: http://oracle-backend:8080
+      RPC_URL: ${DOCKER_RPC_URL:-http://host.docker.internal:8545}
+      # THE direct cause of the silent anchoring failure: this service was the only one
+      # reading RPC_URL without also being told CHAIN_ID, so `config.py`'s default of
+      # 31337 stood while RPC_URL pointed at Base Sepolia. web3 signs for the declared
+      # chain, so every tx was rejected: "declared chain ID 31337, connected node is on
+      # 84532". Mirrors oracle-backend's line above -- any service that takes an RPC URL
+      # from env must take its chain id from the same place.
+      CHAIN_ID: ${CHAIN_ID:-31337}
+      # Leaves per Merkle batch before an anchorRoot flush. Surfaced here (it was only
+      # readable from `config.py`'s default) so an operator can set it to 1 to prove the
+      # anchor path end-to-end without waiting for 8 real commitments to accumulate --
+      # which is exactly how the chain-id defect above stayed invisible: the failure only
+      # appears on flush, and flushes are rare.
+      BCC_MERKLE_BATCH_SIZE: ${BCC_MERKLE_BATCH_SIZE:-8}
+      ANCHOR_SIGNER_PRIVATE_KEY: ${ORACLE_SIGNER_PRIVATE_KEY:-0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80}
+      # Follows the SAME env indirection as oracle-backend above, deliberately: this was
+      # hardcoded to /deployments.local.json while RPC_URL came from DOCKER_RPC_URL, so
+      # after the 2026-07-29 switch to Base Sepolia this service kept signing for chain
+      # 31337 against an 84532 node. Every anchorRoot/updateScore failed with "transaction
+      # declared chain ID 31337, but the connected node is on 84532" -- and because the
+      # anchor path only logs on failure, the protocol was silently failing to anchor its
+      # own development evidence ("retained in logs only"). Both files are mounted so the
+      # two services can never drift onto different chains again.
+      DEPLOYMENTS_FILE: ${DOCKER_DEPLOYMENTS_FILE:-/deployments.local.json}
+    volumes:
+      - ./deployments.baseSepolia.json:/deployments.baseSepolia.json
+      - ./deployments.local.json:/deployments.local.json
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports: ["8000:8000"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8000/health').read()\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  dashboard:
+    build:
+      context: ./integrity-dashboard
+      args:
+        SOURCE_HASH: ${DASHBOARD_SOURCE_HASH:-unknown}
+    depends_on: [oracle-backend, bcc-middleware]
+    environment:
+      VITE_ORACLE_URL: http://localhost:8080
+      VITE_BCC_MIDDLEWARE_URL: http://localhost:8000
+      VITE_USERAPI_URL: http://localhost:8090
+      VITE_CHAIN_ID: "84532"
+    ports: ["5173:5173"]
+
+  # Sibling repo (../xibalba-shield). Long-lived endpoint-agent daemon, not a web service --
+  # exposes no ports, only exports outbound to bcc-middleware/oracle-backend. `--sensor dev`
+  # is the synthetic, safe-default sensor (no eBPF/root capabilities); the real
+  # process-exec/file-write eBPF sensors need a host PID namespace + kernel headers and are
+  # an explicit follow-up, not wired here. `./xibalba-shield-config` is the control surface
+  # (rules.json/device-config.json), hot-reloadable per shield/config/hot_reload.py, so an
+  # operator/subagent can edit policy without restarting the container. NOTE (corrected
+  # 2026-08-14): shield/cli.py's `_run()` previously loaded device-config.json's
+  # bcc_middleware_url/oracle_url but never applied them to the exporter -- only the raw
+  # --bcc-middleware-url/--oracle-url flags below reached it, making a bare `--device-config`
+  # invocation (without these flags) silently ignore that file's URLs. Fixed: an explicit flag
+  # here still wins (so these two lines below remain load-bearing, not a no-op), but omitting
+  # them now falls back to whatever xibalba-shield-config/device-config.json specifies.
+  shield:
+    build:
+      # Context widened from ../xibalba-shield to the shared parent: shield's
+      # pyproject.toml pins integrity-sdk via an absolute host path
+      # (file:///home/xibalba/Projects/integrity-core/integrity-sdk, see that file's own
+      # comment on why) which a build context scoped to xibalba-shield alone cannot see —
+      # `pip install .` failed with ENOENT on that path with the old context. The
+      # Dockerfile below recreates that exact path inside the image instead of editing
+      # the dependency URL, so a non-Docker/local editable install of xibalba-shield is
+      # unaffected.
+      context: ..
+      dockerfile: xibalba-shield/Dockerfile
+    depends_on: [bcc-middleware, oracle-backend, opa]
+    command:
+      - --sensor
+      - dev
+      - --bcc-middleware-url
+      - http://bcc-middleware:8000
+      - --oracle-url
+      - http://oracle-backend:8080
+      # PolicyEngine's opa_url previously had no CLI/env override at all (hardcoded
+      # http://localhost:8181, meaningless inside a container where OPA is a separate
+      # service) — every policy evaluation failed closed with "OPA unavailable" until
+      # shield/cli.py grew this flag.
+      - --opa-url
+      - http://opa:8181
+      - --device-config
+      - /config/device-config.json
+      - --rules
+      - /config/rules.json
+      - --agent-label
+      - xibalba-shield
+    environment:
+      INTEGRITY_DID_HOME: /identity
+      # Only consumed by the one-off `docker compose exec shield python
+      # scripts/register_with_oracle.py` registration step (Phase 4) -- `shield run` itself
+      # never touches the chain directly, only bcc-middleware/oracle-backend over HTTP.
+      RPC_URL: ${DOCKER_RPC_URL:-http://host.docker.internal:8545}
+      # Was hardcoded to /deployments.local.json regardless of DOCKER_RPC_URL/DOCKER_DEPLOYMENTS_FILE,
+      # so pointing RPC_URL at Base Sepolia (via .env's DOCKER_RPC_URL) while this stayed on the
+      # local-anvil deployments file made resolveDID() calls against a real-chain address that
+      # only exists in the local file -- BadFunctionCallOutput ("only got 0 bytes"), not a chain
+      # outage. Now follows the same override the oracle-backend/bcc-middleware services already use.
+      DEPLOYMENTS_FILE: ${DOCKER_DEPLOYMENTS_FILE:-/deployments.local.json}
+    volumes:
+      - ./xibalba-shield-config:/config
+      - shield-identity:/identity
+      - ./deployments.local.json:/deployments.local.json
+      - ./deployments.baseSepolia.json:/deployments.baseSepolia.json
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # Separate Postgres instance/trust-domain from `postgres` above (which is
+  # integrity-oracle's) -- see docs/INTERFACE_CONTRACT.md §6.10 and §13:
+  # integrity-userapi never shares a database with the oracle, by design.
+  userapi-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: integrity_userapi
+      POSTGRES_USER: integrity
+      POSTGRES_PASSWORD: integrity_dev_only
+    ports: ["5435:5432"]
+    volumes: ["userapi_pgdata:/var/lib/postgresql/data"]
+    # NOTE: `make test` runs integrity-userapi's pytest against this instance on :5435
+    # but does not start it -- a fresh checkout running `make test` without `make up`
+    # fails with ConnectionRefusedError on 5435, which reads as a broken test suite
+    # rather than a missing dependency. Observed 2026-07-31.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U integrity -d integrity_userapi"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  userapi:
+    build:
+      context: ./integrity-userapi
+      args:
+        SOURCE_HASH: ${USERAPI_SOURCE_HASH:-unknown}
+    depends_on:
+      userapi-postgres: {condition: service_healthy}
+      oracle-backend: {condition: service_started}
+    environment:
+      DATABASE_URL: postgres://integrity:integrity_dev_only@userapi-postgres:5432/integrity_userapi
+      ORACLE_URL: http://oracle-backend:8080
+    ports: ["8090:8090"]
+
+volumes:
+  pgdata:
+  userapi_pgdata:
+  shield-identity:

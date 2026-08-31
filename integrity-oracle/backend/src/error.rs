@@ -53,6 +53,12 @@ pub enum AppError {
     /// content, which would defeat the point) so the caller can tell what tripped it.
     #[error("payload rejected: possible unredacted PHI/PII/secret detected (categories: {0:?})")]
     PhiDetected(Vec<String>),
+    /// `otel_spans` failed schema_version >= 3 structural validation
+    /// (`crate::span_schema::validate_batch`) — a client-fixable shape problem,
+    /// same class as `BadRequest`, kept distinct so callers can distinguish "your
+    /// JSON doesn't parse" from "your JSON parses but violates the v3 span schema".
+    #[error("otel_spans schema violation: {0}")]
+    SpanSchemaViolation(#[from] crate::span_schema::SchemaViolation),
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 }
@@ -72,6 +78,7 @@ impl IntoResponse for AppError {
             AppError::ChainMismatch(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             AppError::MemoryNotInitialized(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             AppError::PhiDetected(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            AppError::SpanSchemaViolation(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             // An on-chain lookup that legitimately found nothing (unregistered DID/address)
             // is a 404, not a 502 — the chain answered fine, there's just no record.
             AppError::Chain(crate::chain::ChainError::UnknownDid(_))

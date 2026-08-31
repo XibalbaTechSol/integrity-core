@@ -12,7 +12,7 @@ source_files:
   - .github/workflows/ci.yml
   - integrity-dashboard/package.json
   - integrity-dashboard/playwright.config.ts
-  - integrity-dashboard/e2e/constants.ts
+  - integrity-dashboard/e2e/test-utils.ts
 ---
 
 The full package, browser, and hosted Continuous Integration (CI) boundaries

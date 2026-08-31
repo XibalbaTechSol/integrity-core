@@ -2,7 +2,7 @@
 title: Test-Status Tree Binding and Vault Evidence
 acronyms: []
 created: 2026-08-13
-updated: 2026-08-13
+updated: 2026-08-29
 type: concept
 tags: [provenance, compliance, infrastructure]
 confidence: high
@@ -37,7 +37,7 @@ evidence.
 
 ## Verification and limits
 
-The deterministic self-test on 2026-08-13 passed 4/4:
+The deterministic self-test recorded on 2026-08-13 passed 4/4:
 
 ```text
 python3 scripts/tree_hash.py --self-test

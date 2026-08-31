@@ -2,7 +2,7 @@
 title: Decentralized Identifier (DID)
 acronyms: [DID]
 created: 2026-07-07
-updated: 2026-07-07
+updated: 2026-08-29
 type: concept
 tags: [identity, cryptography]
 confidence: high

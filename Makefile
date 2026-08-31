@@ -1,4 +1,4 @@
-.PHONY: setup chain chain-reset up down test test-e2e sync-abis demo check-deploy
+.PHONY: setup chain chain-reset up down test test-e2e sync-abis demo check-deploy verify-kernel
 
 setup:
 	cd contracts && npm install
@@ -47,6 +47,22 @@ sync-abis:
 	cd contracts && forge build
 	python3 scripts/sync_abis.py
 
+# Halmos (0.3.3, pinned) symbolic/bounded-model-checking pass over the Phase I kernel slice --
+# workstream 3 of docs/plans/2026-08-24-phase1-formal-verification-proposal.md. Isolated in its
+# own uv-managed venv (contracts/.venv-halmos), never installed globally, matching this repo's
+# existing per-package Python isolation. --ast is required: without it Halmos silently skips
+# every contract's build artifact ("KeyError: 'ast'") rather than erroring loudly. Creates the
+# venv on first run if missing. Runs both the harness proof (KernelSwapHarnessTest -- the real
+# kernel installs via governance swap, PRODUCTION_GAPS.md §42) and the four target properties
+# (KernelPropertiesTest -- PRODUCTION_GAPS.md §43); previously only ran the former, a known gap
+# now closed.
+verify-kernel:
+	cd contracts && [ -d .venv-halmos ] || uv venv .venv-halmos --python 3.12
+	cd contracts && uv pip install --python .venv-halmos/bin/python "halmos==0.3.3"
+	cd contracts && forge build --ast
+	cd contracts && .venv-halmos/bin/halmos --contract KernelSwapHarnessTest --root .
+	cd contracts && .venv-halmos/bin/halmos --contract KernelPropertiesTest --root .
+
 # Is the running stack actually built from the code in this tree? On 2026-07-30 the
 # oracle image was three minutes older than the commit adding the Verification Ladder
 # ceiling, so a live security control was documented, tested, committed — and not
@@ -92,7 +108,7 @@ down:
 # $(CURDIR), not a bare relative path — and `{ ...; false; }` on the failure branch.
 # Both are load-bearing; the previous form was
 #
-#     cd pkg && uv run pytest && cd .. && $(TEST_STATUS) pkg pass || $(TEST_STATUS) pkg fail
+#     cd pkg && uv run python -m pytest && cd .. && $(TEST_STATUS) pkg pass || $(TEST_STATUS) pkg fail
 #
 # which had two compounding bugs (found 2026-07-31 by actually running a failing suite):
 #
@@ -116,10 +132,10 @@ test:
 	cd contracts && forge test && $(TEST_STATUS) contracts pass || { $(TEST_STATUS) contracts fail; false; }
 	cd integrity-zkp && nargo test && $(TEST_STATUS) zkp pass || { $(TEST_STATUS) zkp fail; false; }
 	cd integrity-oracle && cargo test && $(TEST_STATUS) oracle pass || { $(TEST_STATUS) oracle fail; false; }
-	cd integrity-sdk && uv run pytest && $(TEST_STATUS) sdk pass || { $(TEST_STATUS) sdk fail; false; }
-	cd integrity-cli && uv run pytest && $(TEST_STATUS) cli pass || { $(TEST_STATUS) cli fail; false; }
-	cd bcc_middleware && uv run pytest && $(TEST_STATUS) bcc pass || { $(TEST_STATUS) bcc fail; false; }
-	cd integrity-userapi && uv run pytest && $(TEST_STATUS) userapi pass || { $(TEST_STATUS) userapi fail; false; }
+	cd integrity-sdk && uv run python -m pytest && $(TEST_STATUS) sdk pass || { $(TEST_STATUS) sdk fail; false; }
+	cd integrity-cli && uv run python -m pytest && $(TEST_STATUS) cli pass || { $(TEST_STATUS) cli fail; false; }
+	cd bcc_middleware && uv run python -m pytest && $(TEST_STATUS) bcc pass || { $(TEST_STATUS) bcc fail; false; }
+	cd integrity-userapi && uv run python -m pytest && $(TEST_STATUS) userapi pass || { $(TEST_STATUS) userapi fail; false; }
 	cd integrity-dashboard && npm run build && npm run lint && $(TEST_STATUS) dashboard pass || { $(TEST_STATUS) dashboard fail; false; }
 	$(TEST_STATUS) --finalize
 
@@ -145,4 +161,3 @@ test-e2e:
 # `RPC_URL=http://localhost:8545 CHAIN_ID=31337 DEPLOYMENTS_FILE=../../deployments.local.json make demo`.
 demo:
 	cd integrity-dashboard/demo && uv sync && uv run integrity-demo
-

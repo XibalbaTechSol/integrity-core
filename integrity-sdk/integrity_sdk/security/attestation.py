@@ -288,10 +288,15 @@ def verify_nitro_attestation(
         issuer, subject = full_chain[i], full_chain[i + 1]
         if not _verify_cert_signed_by(subject, issuer):
             chain_valid = False
+            subject_name = "unknown subject"
+            try:
+                subject_name = subject.subject.rfc4514_string()
+            except ValueError:
+                pass
             errors.append(
                 f"Chain signature invalid: cert[{i + 1}] not signed by cert[{i}]"
                 f"Chain signature invalid: cert[{i + 1}] "
-                f"({_safe_subject_name(subject)}) not signed by cert[{i}]"
+                f"({subject_name}) not signed by cert[{i}]"
             )
 
     # 3. COSE signature over the payload, checked against the LEAF cert's key

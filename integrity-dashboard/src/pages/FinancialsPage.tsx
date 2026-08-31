@@ -14,6 +14,7 @@ import { StakingPanel } from '../components/tabs/StakingPanel';
 import { CreditPanel } from '../components/tabs/CreditPanel';
 import { ActuarialHub } from '../components/tabs/ActuarialHub';
 import { TokenWallet } from '../components/ui/TokenWallet';
+import { FleetWalletOverview } from '../components/ui/FleetWalletOverview';
 import { SubTabs } from '../components/ui/SubTabs';
 
 // ─── Sub-nav tabs ─────────────────────────────────────────────────────────────
@@ -143,7 +144,12 @@ export default function FinancialsPage() {
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.18 }}
           >
-            {activeTab === 'wallet' && <TokenWallet />}
+            {activeTab === 'wallet' && (
+              <>
+                <FleetWalletOverview />
+                <TokenWallet />
+              </>
+            )}
             {activeTab === 'staking' && <StakingPanel />}
             {activeTab === 'credit' && <CreditPanel />}
             {activeTab === 'markets' && <ActuarialHub mode="markets" />}

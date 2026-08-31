@@ -46,9 +46,9 @@ background agents to close test gaps with real tests, not placeholders). Read
 the pinned toolchain/contract source of truth (forge/anvil 1.7.1, cargo/rustc 1.96.0, nargo
 1.0.0-beta.22, bb 5.0.0-nightly, opa 1.18.2, node/npm 22.x/10.x, python/uv 3.12/0.11).
 
-Specification authority is layered: `spec/integrity-protocol-v0.4.md` is the accepted
-normative baseline; `spec/integrity-protocol-v0.5-proposed.md` is the new non-authoritative
-amendment under clause-level review; and `spec/integrity-protocol-v3.2.md` is the current
+Specification authority is layered: `docs/archive/2026-08/integrity-protocol-v0.4.md` is the accepted
+normative baseline; `docs/archive/2026-08/integrity-protocol-v0.5-proposed.md` is the new non-authoritative
+amendment under clause-level review; and `docs/archive/2026-08/integrity-protocol-v3.2.md` is the current
 explanatory, non-normative whitepaper. The v3.2 PDF is generated output. Never implement or
 claim a v0.5/v3.2 surface solely because the whitepaper describes it; check the proposal's
 status, `docs/INTERFACE_CONTRACT.md` §16, `PRODUCTION_GAPS.md`, source, tests, and deployment.
@@ -65,6 +65,7 @@ make up         # docker-compose: postgres, redis, opa, oracle-backend, bcc-midd
 make test       # every package's real test suite (forge/nargo/cargo/pytest x4/npm)
 make test-e2e   # real-browser Playwright e2e against a freshly booted stack (integrity-dashboard)
 make demo       # integrity-dashboard/demo scenario engine against live Base Sepolia by default — needs FUNDER_PRIVATE_KEY + INTEGRITY_WALLET_PASSWORD
+make check-wallets # read-only check that configured operator wallets have native gas
 ```
 
 Per-package, when iterating on one piece:
@@ -139,15 +140,22 @@ Concepts, not contracts: **memory** (continuity), **agent-owned contracts** (cap
 consequence — stake lives here), **authority** (delegated permission the agent cannot
 self-grant), **reputation** (earned, non-forgeable standing). Beware the word: the *seven*
 per-agent contracts (`PrimitiveSet`) are a different sense, and only the second concept is a
-contract at all. AIS is a score over reputation, not a primitive.
+contract at all. A third sense also exists as of the kernel/adapter work (spec v3.2 §4.4,
+`contracts/src/kernel/`): **kernel primitives** — value conservation, metered-rights
+depletion, and replay-domain monotonicity, the invariants `IntegrityKernel` enforces so
+adapter authors don't re-derive them. These belong to neither the four concepts nor the
+seven-contract `PrimitiveSet`; `IntegrityKernel`/`IntegrityAccount` are a deliberately
+separate architecture from `PrimitiveSet`/`XibalbaAgentRegistry`. See the naming box in
+`docs/wiki/concepts/foundational-primitives.md` for all three spelled out together. AIS is a
+score over reputation, not a primitive.
 
 Authority is built only in the Integrity Health vertical so far — `SmartBAA` is already a delegation
 instrument — and generalizing it is what closes the client-supplied `covered_entity_address`
 hole. Termination (how an agent's standing ends) is formalized but deliberately unadopted: it
 needs registry mutability, the same question the upgradeability decision faces.
 
-Normative in `spec/integrity-protocol-v0.4.md` §4 (supersedes the v0.3 PDF). Wiki statement:
-`docs/wiki/concepts/foundational-primitives.md`; derivation: `docs/design/primitive-set-coherence.md`.
+Normative in `docs/archive/2026-08/integrity-protocol-v0.4.md` §4 (supersedes the v0.3 PDF). Wiki statement:
+`docs/wiki/concepts/foundational-primitives.md`; derivation: `docs/archive/2026-08/primitive-set-coherence.md`.
 
 ### Persistent memory (primitive #1) — it gates registration
 
@@ -220,8 +228,8 @@ whose telemetry omits one axis (e.g. reports no token usage, so `sacrifice`
 derives to 0) scores 0.0 even with the other three axes perfect. Absent and
 catastrophic are deliberately indistinguishable here — both resolve to 0, which is
 consistent with proposed N2 ("earned, not granted") in
-`spec/integrity-protocol-v0.5-proposed.md` §4.1 and its explanatory source at
-`spec/integrity-protocol-v3.2.md` §3.1.1. That bounded implementation evidence does not
+`docs/archive/2026-08/integrity-protocol-v0.5-proposed.md` §4.1 and its explanatory source at
+`docs/archive/2026-08/integrity-protocol-v3.2.md` §3.1.1. That bounded implementation evidence does not
 make the full proposal normative or complete; see `PRODUCTION_GAPS.md`.
 
 As of 2026-08-17, `derive_entropy`/`derive_grounding`/`self_reported_compliance`

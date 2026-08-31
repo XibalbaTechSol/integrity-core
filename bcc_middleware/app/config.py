@@ -38,6 +38,11 @@ class Settings:
     deployments_file: str = field(
         default_factory=lambda: os.getenv("DEPLOYMENTS_FILE", str(Path(__file__).resolve().parents[2] / "deployments.local.json"))
     )
+    # CORS origins for browser callers (e.g. the dashboard's health checks / Guided System
+    # Test wizard) -- comma-separated, or "*". Without this, a browser fetch from a
+    # different origin is blocked before it ever reaches an endpoint, even though a plain
+    # curl (no CORS enforcement) works fine -- this was a real, previously-silent gap.
+    cors_allowed_origins: str = field(default_factory=lambda: os.getenv("CORS_ALLOWED_ORIGINS", "*"))
 
     # --- OPA policy document coordinates (§7) ---
     # We evaluate the whole `integrity/bcc` package document in one call rather

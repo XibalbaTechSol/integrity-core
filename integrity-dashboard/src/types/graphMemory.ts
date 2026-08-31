@@ -182,6 +182,56 @@ export interface MerkleRoot {
     root_kind: string;
 }
 
+// Kernel-first intent-vs-outcome bridge (~/.claude/plans/iridescent-stirring-kettle.md).
+// Mirrors GraphStore.kernel_bridge_intents()'s return shape exactly.
+export interface KernelDecision {
+    tool_name: string | null;
+    user_op_hash?: string;
+    success?: boolean;
+    actual_gas_cost?: number;
+    revert_reason_hex?: string | null;
+    adapter_note?: string;
+    error?: string;
+}
+
+export interface KernelIntentTriple {
+    tool_call_id: string;
+    tool_name: string | null;
+    declared_intent: {
+        intent_rationale: string | null;
+        tool_input_hash: string | null;
+    };
+    kernel_decision: KernelDecision;
+    actual_outcome: {
+        outcome: string | null;
+        result: unknown;
+        duration_ms: number | null;
+    } | null;
+    diverges: boolean;
+}
+
+export interface InvocationCorrelation {
+    invocation_id: string;
+    session_id: string;
+    runtime: string | null;
+    tool_name: string | null;
+    tool_call_id: string | null;
+    first_seen_at: string;
+    last_seen_at: string;
+    runtime_status: 'complete' | 'awaiting_outcome' | 'orphan_outcome';
+    pre_tool: {
+        intent_rationale: string | null;
+        tool_input_hash: string | null;
+        policy_reason: string | null;
+        kernel_decision: Record<string, unknown> | null;
+    } | null;
+    post_tool: {
+        outcome: string | null;
+        result: unknown;
+        duration_ms: number | null;
+    } | null;
+}
+
 export interface InferenceManifest {
     name: string;
     role: string;
@@ -200,9 +250,117 @@ export interface InferenceTask {
     input: Record<string, unknown>;
     output: Record<string, unknown> | null;
     requested_by: string | null;
+    claim_owner: string | null;
+    claim_token: string | null;
+    lease_expires_at: string | null;
+    attempt_count: number;
     error: string | null;
     created_at: string;
     updated_at: string;
+}
+
+export interface ExtractionProposal {
+    id: string;
+    task_id: string;
+    task_type: string;
+    item_index: number;
+    source_memory_id: string;
+    source_content_hash: string;
+    payload: Record<string, unknown>;
+    evidence_quote: string | null;
+    status: 'proposed' | 'accepted' | 'dismissed' | 'stale';
+    decision_note: string | null;
+    decided_by: string | null;
+    created_at: string;
+    decided_at: string | null;
+}
+
+export interface RetrievalTraceResultRecord {
+    rank: number;
+    memory_id: string;
+    score: number;
+    signals: string[];
+    channels: Record<string, { rank: number; raw_score: number | null }>;
+    cosine_similarity: number | null;
+    provenance: { content_hash: string; source_id: string; evidence_class: string; status: string };
+}
+
+export interface RetrievalTrace {
+    id: string;
+    query: string;
+    signals: string[];
+    results: RetrievalTraceResultRecord[];
+    root_hash: string;
+    profile_domain: string;
+    query_vector_hash: string | null;
+    embedding_model_id: string | null;
+    embedding_model_revision: string | null;
+    filters: Record<string, unknown>;
+    candidate_pool_sizes: Record<string, number>;
+    rrf_params: { method: string; k: number; weights: Record<string, number> };
+    graph_evidence: Array<Record<string, unknown>>;
+    leaf_hashes: string[];
+    degraded: Array<Record<string, unknown>>;
+    checkpoint_id: string | null;
+    linked_task_id: string | null;
+    linked_session_id: string | null;
+    created_at: string;
+}
+
+export interface HybridRetrieveResult {
+    trace_id: string;
+    root_hash: string;
+    signals: string[];
+    channel_status: Record<string, string>;
+    degraded: Array<Record<string, unknown>>;
+    results: Memory[];
+}
+
+export interface MerkleInclusionProof {
+    domain: string;
+    index: number;
+    payload_hash: string;
+    siblings: Array<{ hash: string }>;
+    root: string;
+}
+
+export interface ProjectionCheckpoint {
+    id: string;
+    projection_id: string;
+    root_hash: string;
+    leaf_count: number;
+    leaf_hashes: string[];
+    metadata: Record<string, unknown>;
+    status: 'active' | 'degraded' | 'unavailable';
+    created_at: string;
+}
+
+export interface ProjectionReconciliation {
+    id: string;
+    projection_id: string;
+    checkpoint_id: string;
+    canonical_root_hash: string;
+    observed_root_hash: string;
+    equal: boolean;
+    reordered: boolean;
+    missing: string[];
+    extra: string[];
+    action: 'noop' | 'rebuild_projection' | 'mark_degraded' | 'manual_review';
+}
+
+export interface EmbeddingModel {
+    model_key: string;
+    model_id: string;
+    revision: string;
+    dimension: number;
+    distance_metric: string;
+    normalize: boolean;
+    vector_table: string;
+    state: 'active' | 'shadow' | 'deprecated' | 'failed';
+    availability: string;
+    availability_detail: string | null;
+    registered_at: string;
+    checked_at: string | null;
 }
 
 export interface ParaClassification {

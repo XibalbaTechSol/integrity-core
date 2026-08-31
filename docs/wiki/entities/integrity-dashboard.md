@@ -1,7 +1,7 @@
 ---
 title: integrity-dashboard
 created: 2026-07-07
-updated: 2026-08-18
+updated: 2026-08-29
 type: entity
 tags: [infrastructure, sdk]
 confidence: high
@@ -14,8 +14,11 @@ source_files:
   - integrity-dashboard/src/pages/IntelligencePage.tsx
   - integrity-dashboard/src/pages/HealthPage.tsx
   - integrity-dashboard/src/pages/ShieldPage.tsx
+  - integrity-dashboard/src/components/shield/ShieldFleetOverview.tsx
+  - integrity-dashboard/src/services/shieldBackend.ts
   - integrity-dashboard/src/pages/FinancialsPage.tsx
-  - integrity-dashboard/src/pages/MemoryPage.tsx
+  - integrity-dashboard/src/pages/CortexPage.tsx
+  - integrity-dashboard/src/components/cortex/CortexOperationsTab.tsx
   - integrity-dashboard/src/pages/DeveloperPage.tsx
   - integrity-dashboard/src/pages/WikiPage.tsx
   - integrity-dashboard/src/context/DashboardContext.tsx
@@ -23,6 +26,7 @@ source_files:
   - integrity-dashboard/src/services/oracle.ts
   - integrity-dashboard/src/services/userapi.ts
   - integrity-dashboard/src/services/graphMemory.ts
+  - integrity-dashboard/src/types/graphMemory.ts
   - integrity-dashboard/src/components/ui/DIDExplorer.tsx
   - integrity-dashboard/src/components/tabs/ActuarialHub.tsx
   - integrity-dashboard/src/components/observability/TraceAnalysisPanel.tsx
@@ -46,6 +50,7 @@ rule, the old content is replaced rather than patched.
 
 - [What this is](#what-this-is)
 - [Routes](#routes)
+- [Cortex Operations tab boundary](#cortex-operations-tab-boundary)
 - [2026-08-13 full-site Playwright audit](#2026-08-13-full-site-playwright-audit)
 - [Real bugs found and fixed this pass](#real-bugs-found-and-fixed-this-pass)
 - [Known gaps not fixed this pass](#known-gaps-not-fixed-this-pass)
@@ -57,7 +62,7 @@ The lint toolchain declares the `globals` package explicitly in
 `devDependencies`; this keeps the flat ESLint configuration reproducible in
 Continuous Integration (CI) and after a clean `npm ci`.
 
-React 18 + TypeScript + Vite 5 dashboard, `react-router-dom` v7. 16 routes
+React 18 + TypeScript + Vite 8 dashboard, `react-router-dom` v7. 22 routes
 (`src/App.tsx`), no route-level auth guard — `MainAppLayout`/`PublicLayout`
 render `<Outlet/>` unconditionally, and individual pages read auth state
 (`getToken()` in `services/userapi.ts`, a JWT in `sessionStorage`) ad hoc.
@@ -90,30 +95,58 @@ this explicitly: "Smart BAA registry, EHR Gates, and Quarantine are all real
 | `/intelligence` | `pages/IntelligencePage.tsx` | `DashboardContext`; custom telemetry fields are `localStorage`-only |
 | `/prediction-markets` | `components/tabs/ActuarialHub.tsx` (`mode="markets"`) | `oracle.listMarkets()` + chain writes via `SovereignAgent.execute` |
 | `/health` | `pages/HealthPage.tsx` | `oracle` (NHI governance) + chain (BAAs/EHR gates/quarantine, real Base Sepolia) |
-| `/shield` | `pages/ShieldPage.tsx` | none — self-contained attack-simulation demo, see below |
-| `/memory` | `pages/MemoryPage.tsx` | `xibalba-cortex`'s `local_api.py`, `VITE_GRAPH_MEMORY_URL`, default `:8420` — a separate repo, not started by `make up` |
+| `/shield` | `pages/ShieldPage.tsx` | `ShieldFleetOverview` reads the real Shield backend; `Live Attack Demo` is a separate synthetic/local simulator tab |
+| `/cortex` | `pages/CortexPage.tsx` | Unified Cortex workspace: timeline, graph, recall, inference, integrity, and operations tabs backed by `xibalba-cortex`'s `local_api.py`, `VITE_GRAPH_MEMORY_URL`, default `:8420` |
+| `/memory` | compatibility redirect | Redirects to the canonical `/cortex` workspace so existing bookmarks remain valid |
 | `/developer` | `pages/DeveloperPage.tsx` | `oracle` + chain (IDE/contracts tab), `oracle` (Trace Analysis tab) |
 | `/settings` | `pages/SettingsPage.tsx` | `userapi` (API keys), `DashboardContext` (theme/layout), chain (`PrivacyPanel`) |
 
-**`/shield`** renders `ShieldPage.tsx`, a "Real-Time Defensive Intelligence
-Simulator" — 10 attack-simulation buttons drive a 5-step detection/
-containment pipeline visualization. It calls `http://localhost:5000`, which
-does not exist anywhere in this repo or in `xibalba-shield`; every fetch has
-an explicit try/catch fallback to synthetic data, so "no backend reachable"
-is the always-true, by-design state. Confirmed via `git log` that this page,
-the (now-replaced) old `e2e/shield.spec.ts`, and orphaned real-backend
-client code (`services/shieldBackend.ts` + `components/ShieldEvidenceGraph
-.tsx`, targeting a real `xibalba-shield/shield/backend/api.py` service on
-`:8765` — never imported by any page) all landed in the same
-integration-reconciliation commit without being reconciled with each other.
-Per explicit product direction (2026-08-13), the attack-simulator is the
-current, intended page — Shield's product identity is the AI agent/device
-security platform, broader than an endpoint-sensor framing; wiring up the
-real backend integration is separate, out-of-scope feature work, not a bug.
+**`/shield`** renders two explicit surfaces: `ShieldFleetOverview` is the default real-backend evidence view, reading dashboard summaries, detection quality, enforcement outcomes, exporter status, device state, integrations, and the 3D evidence graph through `services/shieldBackend.ts`; the `Live Attack Demo` tab is a separate synthetic/local demonstration of the Tier-2 escalation path. Backend data is not replaced by simulator data when the service is unavailable; the fleet view shows an unavailable or partial state. The local integration overlay exposes the backend on `:8765`, but healthy local responses remain development evidence and do not establish production sensor, Oracle, or live-chain proof.
+
+## Cortex Operations tab boundary
+
+The `/cortex` workspace's **Operations** tab is a focused operator surface over the separate
+`xibalba-cortex` local API. It does not move canonical memory ownership into
+`integrity-core`: Cortex's profile-scoped SQLite store remains authoritative
+for Cortex memory, while Integrity protocol packages remain independent of
+that external repository.
+
+The page exposes four implemented groups from `services/graphMemory.ts`:
+
+- evidence-backed hybrid retrieval (`POST /api/retrieval/hybrid`) followed by
+  persisted trace readback (`GET /api/retrieval/trace/{id}`), including
+  channel state, root hash, result signals, the first result's Merkle inclusion
+  proof (`GET /api/retrieval/trace/{id}/evidence?rank=1`), and an optional
+  projection checkpoint link;
+- proposed extraction review (`GET /api/extraction-proposals`) with explicit
+  accept/dismiss decisions (`POST /api/extraction-proposals/{id}/decision`);
+- pending inference-task and embedding-model visibility
+  (`GET /api/inference/tasks`, `GET /api/embedding/models`); and
+- checkpoint list/create, reconciliation, and rebuild for the `memories`,
+  `entities`, and `relations` projections under `/api/projections/{id}`.
+
+The surface shows a partial-view warning when any operator API is unavailable
+and does not synthesize placeholder records. Retrieval can explicitly report
+degraded channels. Extraction acceptance and projection rebuild are real
+writes to the configured Cortex service; the dashboard currently supplies
+`decided_by: "integrity-dashboard"` but adds no user authentication or
+operator authorization of its own. The page therefore disables extraction
+decisions and projection mutation outside a loopback-hosted dashboard. This
+browser-side guard is defense in depth, not authentication: keep the Cortex
+API itself local or behind an authenticated operator boundary before exposing
+it beyond a trusted development environment.
+
+The workspace's core loader settles statistics, status, integrity links,
+sessions, graph data, and the inference manifest independently. A failure in
+an optional capability therefore produces a named partial-data warning without
+discarding a successful `/api/sessions` response.
 
 ## 2026-08-13 full-site Playwright audit
 
-Every one of the 16 routes now has a comprehensive Playwright spec under
+The 2026-08-13 audit covered 16 routes and 140 tests. The current tree has 19
+Playwright specs and 137 test declarations, while `src/App.tsx` defines 22 route
+entries including redirects and static/legal pages. The historical audit had a
+comprehensive Playwright spec under
 `e2e/` (one file per page/route, `landing.spec.ts` through `memory.spec.ts`
 — 140 tests total), written and run against a real local backend stack, no
 mocking, following each spec with a full-page screenshot reviewed before
@@ -191,9 +224,7 @@ or redesign pass):
   `SubTabs` or gates any section behind an active-tab check — every section
   is unconditionally stacked on one continuous page. Dead code, not a
   functional bug (nothing crashes or hides content).
-- **`services/shieldBackend.ts`** + **`components/ShieldEvidenceGraph.tsx`**
-  — real client code for a real `xibalba-shield` backend (`:8765`), never
-  imported by any page. See the `/shield` entry above.
+- The Shield fleet surface is locally wired to the real backend client, but production registration, sensor coverage, Oracle readback, and burn-in remain external/runtime evidence gates.
 
 ## Local e2e stack
 
@@ -212,7 +243,7 @@ docker compose up --build postgres redis opa oracle-backend bcc-middleware usera
 cd integrity-dashboard && npx playwright test
 ```
 
-For `/memory`, separately run `xibalba-cortex`'s `local_api.py` (a different
+For `/cortex`, separately run `xibalba-cortex`'s `local_api.py` (a different
 repo): `uv run python -m xibalba_cortex.local_api --home <profile-dir>
 --allowed-origin http://127.0.0.1:5189`. Point it at a fresh, empty
 `--home` directory for testing rather than a real profile — its own

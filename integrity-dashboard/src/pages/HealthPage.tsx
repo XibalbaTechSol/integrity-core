@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { ethers } from 'ethers';
 import {
   Shield,
@@ -10,27 +9,29 @@ import {
   Key,
   Users,
   Lock,
-  Unlock,
   AlertTriangle,
-  Gavel,
-  RefreshCw,
   X,
-  Search,
-  ArrowRight,
-  Database,
-  Loader2,
   Info,
   Trash2
 } from 'lucide-react';
 import { Panel } from '../components/shared/Panel';
 import { StatusBadge } from '../components/shared/StatusBadge';
 import { useDashboard } from '../context/DashboardContext';
-import { SubTabs } from '../components/ui/SubTabs';
 import { bccMiddleware } from '../services/bccMiddleware';
 import { oracle, type BaaDto, type AuditLogEntryDto } from '../services/oracle';
-import { SMART_BAA_FACTORY_ADDRESS, COVERED_ENTITY_REGISTRY_ADDRESS, ITK_TOKEN_ADDRESS, ARBITRATOR_ADDRESS, EHR_GATE_ADDRESS, RPC_URL } from '../constants';
-import { SMART_BAA_FACTORY_ABI, SMART_BAA_ABI, COVERED_ENTITY_REGISTRY_ABI, ENTITY_TYPE_COVERED_ENTITY, EHR_GATE_ABI } from '../chain/shield';
+import { ITK_TOKEN_ADDRESS, ARBITRATOR_ADDRESS, EHR_GATE_ADDRESS, RPC_URL, XIBALBA_TEST_AGENT_ID } from '../constants';
+import { SMART_BAA_ABI, EHR_GATE_ABI } from '../chain/shield';
 import { ERC20_ABI, executeAsAgent } from '../chain/markets';
+import { usePinnedAgent } from '../hooks/usePinnedAgent';
+import { BaaAuthoringPanel } from '../components/health/BaaAuthoringPanel';
+
+// No dedicated xibalba-health identity is registered on-chain yet (its
+// registration was attempted 2026-08-28 and blocked -- the protocol funder
+// wallet has no Base Sepolia ETH left; see FAUCET_INFO.md). Until it's
+// funded and registered, this page pins to xibalba.integrity, the network's
+// only currently-handled agent, rather than showing whatever's globally
+// selected elsewhere in the dashboard.
+const HEALTH_AGENT_ID = XIBALBA_TEST_AGENT_ID;
 
 // EHRGate has no on-chain enumeration of gates (accessGates is keyed by a specific
 // (patient, recordHash, agent) triplet, no "list all" getter) -- this browser-local
@@ -96,14 +97,9 @@ interface QuarantinedAgent {
 
 
 export default function HealthPage() {
+  usePinnedAgent(HEALTH_AGENT_ID);
   const { selectedAgent, addToast } = useDashboard() as any;
 
-  const TABS = [
-    { id: 'governance', label: 'Smart BAAs', icon: <FileText size={14} /> },
-    { id: 'shield', label: 'EHR Gates', icon: <Lock size={14} /> },
-    { id: 'compliance', label: 'Audit & Compliance', icon: <ShieldCheck size={14} /> },
-    { id: 'quarantine', label: 'Quarantine', icon: <AlertTriangle size={14} /> },
-  ];
   const { walletAddress, agentsLoading, agents } = useDashboard() as any;
   const [baas, setBaas] = useState<BaaDto[]>([]);
   const [saAddr, setSaAddr] = useState<string | null>(null);
@@ -120,14 +116,7 @@ export default function HealthPage() {
   const [busyBaa, setBusyBaa] = useState<string | null>(null);
 
   // Modal / Inputs
-  const [isProposeOpen, setIsProposeOpen] = useState(false);
   const [selectedBAA, setSelectedBAA] = useState<BaaDto | null>(null);
-
-  // New BAA Inputs — a real content commitment (keccak256 of the uploaded PDF's
-  // bytes), not a random/typed-in hash, mirroring integrity-dashboard's HealthPanel.
-  // The covered entity is the connected wallet itself, not a typed-in address.
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
-  const [newStake, setNewStake] = useState('5000');
 
   // New Consent Inputs — real EHRGate.grantAccess args. Patient defaults to the
   // connected wallet since grantAccess is patient-wallet-signed (msg.sender).
@@ -299,53 +288,8 @@ export default function HealthPage() {
   useEffect(() => { refreshConsents(); }, [refreshConsents]);
 
   // ─── Handlers ──────────────────────────────────────────────────────────────
-
-  // Real SmartBAAFactory.createBAA. The caller is the covered entity (the connected
-  // wallet), which must be an active Covered Entity in CoveredEntityRegistry —
-  // registration is REGISTRAR_ROLE-gated, not self-service, so if the wallet isn't
-  // registered we say so plainly, and only self-register if it actually holds
-  // REGISTRAR_ROLE (mirrors integrity-dashboard's HealthPanel.ProposeBAAModal).
-  const handleProposeBAA = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedAgent) { addToast('error', 'Select an agent first.'); return; }
-    if (!walletAddress) { addToast('error', 'Connect the covered-entity wallet first.'); return; }
-    if (!pdfFile) { addToast('error', 'Attach the BAA document.'); return; }
-
-    setBusyBaa('propose');
-    try {
-      const businessAssociate = await oracle.resolveSovereignAgent(selectedAgent.eth_address);
-      const signer = await getSigner();
-
-      const registry = new ethers.Contract(COVERED_ENTITY_REGISTRY_ADDRESS, COVERED_ENTITY_REGISTRY_ABI, signer);
-      const isActive: boolean = await registry.isActiveCoveredEntity(walletAddress);
-      if (!isActive) {
-        const registrarRole: string = await registry.REGISTRAR_ROLE();
-        const canRegister: boolean = await registry.hasRole(registrarRole, walletAddress);
-        if (!canRegister) {
-          throw new Error('Your wallet is not a registered Covered Entity. Registration requires the protocol registrar (REGISTRAR_ROLE).');
-        }
-        addToast('info', 'Registering your wallet as a Covered Entity…');
-        await (await registry.registerEntity(walletAddress, ENTITY_TYPE_COVERED_ENTITY, 'ipfs://covered-entity')).wait();
-      }
-
-      const bytes = new Uint8Array(await pdfFile.arrayBuffer());
-      const agreementHash = ethers.keccak256(bytes);
-      const requiredCollateral = ethers.parseEther(newStake || '0');
-
-      const factory = new ethers.Contract(SMART_BAA_FACTORY_ADDRESS, SMART_BAA_FACTORY_ABI, signer);
-      addToast('info', 'Creating the SmartBAA on-chain…');
-      await (await factory.createBAA(businessAssociate, agreementHash, requiredCollateral)).wait();
-
-      addToast('success', 'Smart BAA created. The agent must sign to activate it.');
-      setIsProposeOpen(false);
-      setPdfFile(null);
-      fetchHealthData();
-    } catch (err: any) {
-      addToast('error', `Failed to create BAA: ${err.shortMessage || err.reason || err.message}`);
-    } finally {
-      setBusyBaa(null);
-    }
-  };
+  // (BAA authoring/deployment itself now lives in components/health/BaaAuthoringPanel.tsx --
+  // the guided, HIPAA-clinical-styled flow that replaced this page's old propose-BAA modal.)
 
   // The agent (business associate) activates a Proposed BAA by posting its required
   // collateral — pulled from its SovereignAgent, so we top the SA up + approve, then
@@ -545,8 +489,19 @@ export default function HealthPage() {
         }}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-          <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--theme-accent)' }}>Health Protocol</div>
-          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Smart BAA registry, EHR Gates, and Quarantine are all real (Base Sepolia).</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--theme-accent)' }}>Integrity Health</div>
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.6rem', fontWeight: 800,
+              padding: '2px 8px', borderRadius: '999px', textTransform: 'uppercase', letterSpacing: '0.05em',
+              color: '#10b981', background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)',
+            }}>
+              HIPAA-aligned
+            </span>
+          </div>
+          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+            Smart BAA authoring, EHR access gates, and agent quarantine -- all real, on-chain (Base Sepolia).
+          </span>
         </div>
 
         {/* ─── HIPAA Stats Strip ─── */}
@@ -581,17 +536,18 @@ export default function HealthPage() {
         {/* TAB 1: Smart BAAs */}
         
           <div className="flex-col gap-6" style={{ background: "rgba(0,0,0,0.2)", padding: "24px", borderRadius: "12px", border: "1px solid var(--glass-border)" }}>
-            <div className="grid-cols-2" style={{ gap: 'var(--space-6)' }}>
-              
+            <BaaAuthoringPanel
+              walletAddress={walletAddress}
+              selectedAgent={selectedAgent}
+              addToast={addToast}
+              onDeployed={fetchHealthData}
+            />
+            <div className="grid-cols-2" style={{ gap: 'var(--space-6)', marginTop: 'var(--space-6)' }}>
+
               {/* Active BAAs */}
-              <Panel 
-                title="Smart BAA Registry" 
+              <Panel
+                title="Smart BAA Registry"
                 icon={<FileText size={18} color="var(--theme-accent)" />}
-                action={
-                  <button className="btn btn-primary btn-sm" onClick={() => setIsProposeOpen(true)}>
-                    + Propose BAA Contract
-                  </button>
-                }
               >
                 <div className="flex-col gap-4">
                   <p className="text-muted" style={{ fontSize: '0.85rem' }}>
@@ -1006,60 +962,6 @@ export default function HealthPage() {
       </div>
 
       {/* ─── Modals ─── */}
-
-      {/* Propose BAA Modal */}
-      {isProposeOpen && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
-          <div onClick={() => setIsProposeOpen(false)} style={{ position: 'absolute', inset: 0, background: 'var(--navy-deep)', opacity: 0.85, backdropFilter: 'blur(8px)' }} />
-          <form 
-            onSubmit={handleProposeBAA}
-            style={{ 
-              position: 'relative', width: '100%', maxWidth: '450px', background: 'var(--bg-card)', 
-              border: '1px solid var(--theme-accent)', borderRadius: 'var(--radius-lg)', padding: '24px', 
-              display: 'flex', flexDirection: 'column', gap: '16px', boxShadow: '0 20px 50px rgba(0,0,0,0.6)'
-            }}
-          >
-            <h3 style={{ margin: 0, color: 'white', fontSize: '1.1rem', fontWeight: 700 }}>Propose Smart BAA</h3>
-
-            <div className="form-group">
-              <label className="form-label">Covered Entity (your connected wallet)</label>
-              {walletAddress ? (
-                <div className="input mono" style={{ opacity: 0.8 }}>{walletAddress}</div>
-              ) : (
-                <div style={{ fontSize: '0.75rem', color: 'var(--danger)' }}>Connect a wallet first.</div>
-              )}
-              <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-                You create the BAA as the covered entity; <span className="mono">{selectedAgent?.alias || 'the selected agent'}</span> is the business associate.
-              </div>
-            </div>
-            <div className="form-group">
-              <label className="form-label">BAA Document (PDF)</label>
-              <div style={{ position: 'relative' }}>
-                <input
-                  type="file"
-                  accept=".pdf"
-                  style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }}
-                  onChange={(e) => setPdfFile(e.target.files?.[0] || null)}
-                />
-                <div className="input flex items-center gap-2" style={{ background: 'var(--bg-secondary)', borderStyle: 'dashed' }}>
-                  <FileText size={16} /> {pdfFile ? pdfFile.name : 'Upload BAA...'}
-                </div>
-              </div>
-              <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Hashed client-side (keccak256) as the on-chain agreement commitment — the file itself is never uploaded anywhere.</div>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Staked ITK Collateral Amount</label>
-              <input
-                type="number" className="input" value={newStake}
-                onChange={e => setNewStake(e.target.value)} required
-              />
-            </div>
-            <button type="submit" className="btn btn-primary" disabled={busyBaa === 'propose' || !walletAddress || !pdfFile}>
-              {busyBaa === 'propose' ? 'Creating BAA…' : 'Deploy Smart BAA'}
-            </button>
-          </form>
-        </div>
-      )}
 
       {/* Explore BAA Modal */}
       {selectedBAA && (

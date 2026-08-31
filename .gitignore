@@ -5,6 +5,7 @@
 *.pem
 *.key
 deployments.local.json
+deployments.local.kernel-bridge.json
 !.env.example
 # Real, public AWS Nitro root CA cert (not a secret) — attestation.py pins its SHA-256
 # fingerprint and needs the file present to verify real Nitro attestation documents.

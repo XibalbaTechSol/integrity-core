@@ -13,26 +13,25 @@ people outside this repo.
 
 ## The design specification
 
-[`integrity-protocol-v0.4.md`](integrity-protocol-v0.4.md) is the **active normative design
+[`integrity-protocol-v0.4.md`](../docs/archive/2026-08/integrity-protocol-v0.4.md) is the **active normative design
 specification** — foundational primitives, AIS, memory, authority, interop. It supersedes
 `Integrity_Protocol_Specification_v0.3.pdf`.
 
-[`integrity-protocol-v0.5-proposed.md`](integrity-protocol-v0.5-proposed.md) is the **new proposed,
+[`integrity-protocol-v0.5-proposed.md`](../docs/archive/2026-08/integrity-protocol-v0.5-proposed.md) is the **new proposed,
 not-yet-accepted normative amendment** derived from the v3.2 whitepaper. It does not replace
 v0.4 until each clause is reviewed, accepted or rejected, implemented where applicable, and
 recorded in the interface contract, production-gap register, tests, and wiki log.
 
-[`integrity-protocol-v3.2.md`](integrity-protocol-v3.2.md) is the current
+[`WHITEPAPER.md`](../docs/WHITEPAPER.md) (v3.2) is the current
 **non-normative explanatory whitepaper**. It may explain and motivate the proposal, but it
 cannot amend the protocol by itself. [`Integrity_Protocol_Whitepaper_v3.2.pdf`](Integrity_Protocol_Whitepaper_v3.2.pdf)
-is a generated release artifact, not a source of truth. Historical v3.1 Markdown and release
-artifacts remain historical evidence and must not be read as the current whitepaper.
+is a generated release artifact, not a source of truth. The archived v3.1 and v3.2 copies are historical release evidence; the canonical source is `docs/WHITEPAPER.md`.
 
 | Layer | Current document | Authority |
 |---|---|---|
-| Accepted normative specification | `integrity-protocol-v0.4.md` | Active requirements |
-| Proposed normative amendment | `integrity-protocol-v0.5-proposed.md` | Review candidate only |
-| Explanatory whitepaper | `integrity-protocol-v3.2.md` | Non-normative rationale and roadmap |
+| Accepted normative specification | `docs/archive/2026-08/integrity-protocol-v0.4.md` | Active requirements |
+| Proposed normative amendment | `docs/archive/2026-08/integrity-protocol-v0.5-proposed.md` | Review candidate only |
+| Explanatory whitepaper | `docs/WHITEPAPER.md` (v3.2) | Current non-normative rationale and roadmap |
 | Compiled publication | `Integrity_Protocol_Whitepaper_v3.2.pdf` | Generated artifact only |
 
 It lives here, in markdown and under version control, deliberately: a specification that

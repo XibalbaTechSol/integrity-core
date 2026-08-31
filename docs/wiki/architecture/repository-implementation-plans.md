@@ -2,18 +2,19 @@
 title: Repository Implementation Plans
 acronyms: [AIS, BCC, DID, MVP]
 created: 2026-08-06
-updated: 2026-08-17
+updated: 2026-08-29
 type: architecture
 tags: [infrastructure, planning, roadmap, documentation]
 confidence: high
 source_files:
-  - IMPLEMENTATION_PLAN.md
-  - SPECIFICATION.md
+  - docs/IMPLEMENTATION_PLAN.md
+  - docs/SPEC.md
   - README.md
   - docs/INTERFACE_CONTRACT.md
-  - spec/integrity-protocol-v0.4.md
-  - spec/integrity-protocol-v0.5-proposed.md
-  - spec/integrity-protocol-v3.2.md
+  - docs/archive/2026-08/integrity-protocol-v0.4.md
+  - docs/archive/2026-08/integrity-protocol-v0.5-proposed.md
+  - docs/WHITEPAPER.md
+  - docs/archive/2026-08/integrity-protocol-v3.2.md
   - spec/xibalba-shield-v1.md
   - docs/audits/2026-08-06-cross-repository-status.md
 ---
@@ -77,9 +78,11 @@ integrity-core remains the protocol authority. Shield and graph memory do not be
 
 **Role:** Protocol trust backend: contracts, SDK, CLI, BCC middleware, Oracle/AIS, user API, dashboard, ZKP, canonical wiki, and protocol specs.
 
-**Specification authority:** `spec/integrity-protocol-v0.4.md` is accepted normative authority. `spec/integrity-protocol-v0.5-proposed.md` is a proposed, non-authoritative delta. `spec/integrity-protocol-v3.2.md` is explanatory/non-normative. Current implementation evidence is maintained by `README.md`, `SPECIFICATION.md`, `PRODUCTION_GAPS.md`, `docs/INTERFACE_CONTRACT.md`, `docs/MAINNET_READINESS.md`, `HANDOFF.md`, and `docs/wiki/`.
+**Specification authority:** `docs/archive/2026-08/integrity-protocol-v0.4.md` is accepted normative authority. `docs/archive/2026-08/integrity-protocol-v0.5-proposed.md` is a proposed, non-authoritative delta. `docs/WHITEPAPER.md` is the current v3.2 explanatory/non-normative whitepaper. Current implementation evidence is maintained by `README.md`, `SPECIFICATION.md`, `PRODUCTION_GAPS.md`, `docs/INTERFACE_CONTRACT.md`, `docs/MAINNET_READINESS.md`, and `docs/wiki/`.
 
 **Audit checkpoint (2026-08-17):** Phase 0 is locally complete. The Foundry suite passes 209/209; `IntegrityIdentityReadV1` passes its 10 focused tests; the local generated verifier has real-proof negative-control coverage; and package Continuous Integration includes dashboard build/lint rather than a nonexistent unit-test script. Base Sepolia still lacks the identity facade and retains the older fail-closed verifier, so source capability is not deployed capability.
+
+**Session evidence checkpoint (2026-08-19, partial):** The queued Hermes session made material progress but did not close the next security-sensitive phase. Main Continuous Integration was reported green across all eight package jobs, but the local Phase I contract slice remained incomplete: constructor-call updates and post-change contract verification were still outstanding, compilation was expected to remain red, and no deployment was performed. The session also restored a healthy Open Policy Agent (OPA) service, then isolated the remaining Behavioral Commitment Chain (BCC) boundary failure as a missing `intent_rationale` in the Hermes dispatch envelope; policy reachability is therefore distinct from host-tool dispatch evidence. The external-runtime review adapter passed local validation, while its real provider-to-provider smoke run was blocked by the BCC gate. These are session observations, not proof of current branch or deployment state.
 
 **Closed:**
 
@@ -114,6 +117,7 @@ integrity-core remains the protocol authority. Shield and graph memory do not be
 - [ ] Shield evidence scoring is blocked until Oracle-side mapping is designed.
 - [ ] Compliance evidence export polish is blocked until Phase B/C are built.
 - [ ] Mainnet launch remains blocked by open readiness items.
+- [ ] Hermes/BCC live dispatch and provider-to-provider review remain blocked until the supported `intent_rationale` envelope path is exercised and independently verified.
 
 ## Integrity MVP
 
@@ -157,7 +161,7 @@ integrity-core remains the protocol authority. Shield and graph memory do not be
 
 **Specification authority:** `SPECIFICATION.md`, `README.md`, `SECURITY.md`, `docs/audits/2026-08-06-status.md`, `shield/sensors/ebpf/README.md`, and integrity-core protocol specs.
 
-**Audit checkpoint:** Root-free tests pass at 103 passed and 7 skipped. Process-exec and file-write eBPF verification are historical documented evidence; the audit did not reproduce live eBPF/exporter verification. TCP-connect remains blocked.
+**Audit checkpoint (updated 2026-08-29):** Root-free Shield validation passes with 154 passed and 10 skipped. Root TCP-connect eBPF verification passed on the development kernel, and the live BCC exporter submission test passed against the running middleware. DID registration/readback and broader kernel-matrix evidence remain open.
 
 **Closed:**
 
@@ -168,7 +172,7 @@ integrity-core remains the protocol authority. Shield and graph memory do not be
   **Regressed 2026-08-07 (uncommitted) — replaced with unconditional OTel spans that
   `bcc_middleware` doesn't ingest; not currently true. See xibalba-shield's
   `IMPLEMENTATION_PLAN.md` "Known gap — 2026-08-12".**
-- [x] Exporter has historically documented live-stack proof against `bcc_middleware`; current audit did not reproduce the live exporter path.
+- [x] Live BCC exporter submission path has been reproduced against the running `bcc_middleware`; the test accepts a structured authorized or denied response and does not imply DID registration.
 - [x] Six guardrail hooks exist and are tested.
 - [x] CLI supports status, events, validate, and run commands.
 - [x] Process-exec and file-write Linux eBPF sensors are live-verified.
@@ -176,10 +180,10 @@ integrity-core remains the protocol authority. Shield and graph memory do not be
 
 **Planned / todo:**
 
-- [ ] Unblock TCP-connect eBPF verification.
+- [x] Unblock TCP-connect eBPF verification on the development kernel; expand to every supported kernel before pilot release.
 - [ ] Design DNS observation via uprobe or packet parsing.
 - [ ] Add config-loadable sensitive-path filtering.
-- [ ] Register Shield exporter DID with Integrity Oracle.
+- [ ] Register Shield exporter DID with Integrity Oracle and archive readback evidence.
 - [ ] Verify Shield decisions through the intended evidence/audit surface.
 - [ ] Design signed policy bundle format, managed service packaging, and pilot runbooks.
 - [ ] Plan Windows ETW, macOS endpoint, and SIEM/SOAR integrations.
@@ -200,6 +204,8 @@ integrity-core remains the protocol authority. Shield and graph memory do not be
 **Specification authority:** `SPECIFICATION.md`, `spec/xibalba-cortex-v1.md`, `README.md`, `docs/audits/2026-08-06-status.md`, archived historical plans under `docs/archive/2026-08-06/`, `docs/architecture/runtime-controller-contract.md`, `docs/architecture/event-hash-chain.md`, and `docs/integrity/xibalba-cortex-crypto-profile-v1.md`.
 
 **Audit checkpoint:** The suite passes with `uv sync --extra drive && uv run pytest -q`; plain default test collection fails because Drive tests import optional Google dependencies without the Drive extra. Runtime adapters, controller/session synchronization, tests, and viewer changes are present in the dirty worktree and require separate review.
+
+**Session evidence checkpoint (2026-08-19, partial):** The Hermes/Cortex integration work was locally validated at the adapter and command-surface level, but the real cross-provider review smoke path was not attempted because the BCC gate blocked uncommitted external execution. The session explicitly preserved the distinction between usable configuration, local adapter evidence, and production readiness; no live provider parity claim was promoted.
 
 **Closed:**
 

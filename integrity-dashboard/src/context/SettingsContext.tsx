@@ -1,6 +1,26 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { userapi, getToken } from '../services/userapi';
 
+// Some browser/embedding contexts throw on any localStorage access rather than returning
+// null -- see DashboardContext.tsx's identical helper for why this must never be unguarded
+// (this provider's useState initializer runs during initial render, so an unguarded throw
+// here takes down every route this provider wraps).
+function safeLocalStorageGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeLocalStorageSet(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Best-effort only.
+  }
+}
+
 export type Theme = 'light' | 'dark' | 'cyber' | 'xibalba';
 export type Font = 'Inter' | 'Roboto' | 'Fira Code' | 'Playfair Display' | 'System Default';
 
@@ -36,7 +56,7 @@ const defaultSettings: Omit<SettingsState, 'apiKeys'> = {
   theme: 'dark',
   font: 'System Default',
   fontSize: 16,
-  appName: 'Xibalba MVP',
+  appName: 'Integrity MVP', // matches index.html's static <title> so applying it on mount is a no-op, not a flash
   headerStyle: 'solid',
   animationsEnabled: true,
 };
@@ -45,18 +65,21 @@ const SettingsContext = createContext<SettingsContextType | undefined>(undefined
 
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [settings, setSettings] = useState<Omit<SettingsState, 'apiKeys'>>(() => {
-    const saved = localStorage.getItem('appSettings');
+    const saved = safeLocalStorageGet('appSettings');
     return saved ? { ...defaultSettings, ...JSON.parse(saved) } : defaultSettings;
   });
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
 
   useEffect(() => {
-    localStorage.setItem('appSettings', JSON.stringify(settings));
+    safeLocalStorageSet('appSettings', JSON.stringify(settings));
     document.documentElement.setAttribute('data-theme', settings.theme);
     document.documentElement.style.setProperty('--font-family',
       settings.font === 'System Default' ? 'system-ui, -apple-system, sans-serif' : `"${settings.font}", sans-serif`
     );
     document.documentElement.style.setProperty('--base-font-size', `${settings.fontSize}px`);
+    // SettingsPage's own caption claims "This title appears in headers and notifications" --
+    // that was never true (appName was stored but nothing read it back). Actually apply it.
+    document.title = settings.appName || 'Xibalba MVP';
   }, [settings]);
 
   const refreshApiKeys = useCallback(() => {

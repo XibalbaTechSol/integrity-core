@@ -9,7 +9,7 @@ import {ERC7579Utils, Mode, CallType, ExecType} from "@openzeppelin/contracts/ac
 
 /// @dev Minimal marker interface for the epoch-length deployment-invariant probe (see
 /// `_checkEpochCompatibility` below). Deliberately NOT a requirement every hook module must
-/// implement -- only `IntegrityKernelV1Experimental` (and any future kernel that opts into the
+/// implement -- only `IntegrityKernel` (and any future kernel that opts into the
 /// same epoch-snapshotting pattern) implements this; a `newKernel` that doesn't is not rejected,
 /// just not checked. See the account's own `moduleActionTimelockSeconds` doc comment for the
 /// full disclosed fail-open caveat this implies.
@@ -17,7 +17,7 @@ interface IEpochSnapshotting {
     function epochLengthSeconds() external view returns (uint256);
 }
 
-/// @title IntegrityAccountV1Experimental
+/// @title IntegrityAccount
 /// @notice Phase I tracer-bullet slice (docs/plans/2026-08-17-phase1-tracer-bullet-proposal.md),
 /// extended with a timelocked, atomic kernel-swap governance mechanism
 /// (docs/plans/2026-08-17-phase1-module-governance-proposal.md). **This reverses a previously
@@ -117,9 +117,30 @@ interface IEpochSnapshotting {
 ///    than trying to make the swap path itself unbrickable.
 ///  - `execute()` accepts ONLY `(CALLTYPE_SINGLE, EXECTYPE_DEFAULT)`. Batch, delegatecall, and
 ///    try-execution modes are rejected before reaching the base class's dispatch logic.
-///  - This slice never exercises the ERC-4337 EntryPoint/UserOp/prefund path. `execute()` and
-///    the governance functions below are reachable only via `onlyEntryPointOrSelf`'s "self"
-///    branch in this slice's own test suite.
+///  - **The ERC-4337 EntryPoint/UserOp/prefund path was never exercised until the 2026-08-24
+///    Devil's Advocate review (docs/plans/2026-08-24-phase1-devils-advocate-governance-
+///    entrypoint-proposal.md) -- now closed for the signature-validation path specifically.**
+///    Precision correction to this line's own prior wording: every test authorizing `execute()`/
+///    the governance functions via `onlyEntryPointOrSelf`'s "self" branch uses
+///    `vm.prank(address(account))` -- a Foundry-only capability with **no production
+///    equivalent**. No real caller, including this account's own signer, can make an external
+///    call where `msg.sender == address(this)`; that identity is only reachable by the contract
+///    calling itself, which requires an already-authorized call to bootstrap from, and this
+///    account has none (no installed executor module, module mutation disabled except the
+///    hook-swap path). Concretely: on a real deployment, `execute()`/`proposeKernelSwap()`/
+///    `cancelKernelSwap()` have exactly ONE reachable caller -- the real ERC-4337 `EntryPoint`
+///    contract, via a genuine UserOp/bundler flow. This account never overrides `entryPoint()`,
+///    so it resolves to OZ's hardcoded default (`ERC4337Utils.ENTRYPOINT_V09`,
+///    `0x433709009B8330FDa32311DF1C2AFA402eD8D009`) -- confirmed, not assumed, to carry real
+///    EntryPoint bytecode on Base Sepolia (`cast call ... "getNonce(address,uint192)"` returns
+///    cleanly; `test_entryPointResolvesToTheRealCanonicalAddress` pins the address side of this).
+///    `validateUserOp`'s signature-validation path itself (`_validateUserOp` →
+///    `_signableUserOpHash` → `SignerECDSA._rawSignatureValidation`, resolved via this contract's
+///    own diamond override near the end of this file) is now covered by
+///    `test_validateUserOpAcceptsAGenuineSignerSignature` and its three sibling negative-case
+///    tests -- genuinely exercised for the first time, not merely plausible by inspection.
+///    Still NOT exercised: the prefund/gas-sponsorship path itself (`missingAccountFunds > 0`),
+///    and no real bundler has ever actually been driven against this account's live deployment.
 ///  - **Guardian quorum gates `executeKernelSwap`, extended
 ///    (docs/plans/2026-08-18-phase1-multiparty-kernel-governance-proposal.md).** This is a
 ///    SECOND reversal of the "hook fires on every reachable state-changing path" guarantee,
@@ -174,21 +195,30 @@ interface IEpochSnapshotting {
 ///    immutability already uses. A removal that would drop the guardian count below the immutable
 ///    threshold is rejected outright. Rotation is blocked while a kernel swap or guardian action
 ///    is pending, and neither of those may be proposed while a rotation is pending -- enforced
-///    symmetrically in all three propose functions, so at most one guardian-relevant governance
-///    process is ever in flight, which is what makes it safe to block rather than needing to
-///    invalidate stale approvals on removal (the class of bug `kernelSwapNonce` already solved
-///    once for proposal replay). This does NOT make the guardian mechanism resistant to key
+///    symmetrically in all three propose functions. **Precision correction (Devil's Advocate
+///    review, 2026-08-24): this does NOT mean "at most one guardian-relevant process is ever in
+///    flight" across all four mechanisms** -- that was this doc comment's own prior, overstated
+///    claim. Kernel-swap and guardian-action are explicitly designed to coexist (force-cancel
+///    targets a live swap by construction); rescue-sweep is deliberately exempt from this lock
+///    entirely (see its own proposal doc). The actual enforced invariant is narrower: rotation is
+///    mutually exclusive with (kernel-swap OR guardian-action); rescue-sweep is exclusive with
+///    nothing. This narrower lock is still what makes rotation safe to block rather than needing
+///    to invalidate stale approvals on removal (the class of bug `kernelSwapNonce` already solved
+///    once for proposal replay) -- see `GuardianAction.targetKernelSwapNonce` for the SEPARATE
+///    fix this review found was still needed for guardian-action itself, since that mechanism's
+///    coexistence with kernel-swap is exactly where an unbound target became exploitable. This
+///    does NOT make the guardian mechanism resistant to key
 ///    compromise at unanimity threshold -- an attacker controlling every current guardian key can
 ///    rotate itself into a permanent, self-perpetuating set the same way any legitimate unanimous
 ///    quorum could; rotation changes WHO is trusted, it cannot make the underlying trust model
 ///    stronger than "the guardian keys are genuinely independent," the same caveat every guardian
 ///    mechanism in this contract already carries.
 ///
-/// See `IntegrityKernelV1Experimental` for exactly what guarantee the installed hook provides --
+/// See `IntegrityKernel` for exactly what guarantee the installed hook provides --
 /// this account only guarantees that the hook fires on every reachable state-changing path
 /// EXCEPT `approveKernelSwap` (and, for the swap's uninstall half, that the outgoing kernel's
 /// hook fires on the governance path too), not what the hook itself checks.
-contract IntegrityAccountV1Experimental is AccountERC7579Hooked, SignerECDSA {
+contract IntegrityAccount is AccountERC7579Hooked, SignerECDSA {
     using ERC7579Utils for Mode;
 
     error ModuleMutationDisabled();
@@ -218,6 +248,8 @@ contract IntegrityAccountV1Experimental is AccountERC7579Hooked, SignerECDSA {
     error GuardianRotationNonceMismatch(uint256 expected, uint256 provided);
     error GuardianRotationAlreadyApproved(address guardian, uint256 nonce);
     error InsufficientGuardianRotationApprovals(uint256 approvals, uint256 required);
+    error CannotApproveOwnRemoval(address guardian);
+    error GuardianActionSwapTargetChanged(uint256 targetNonce, uint256 currentNonce);
     error GuardianNotFound(address guardian);
     error GuardianRemovalWouldBreakThreshold(uint256 remainingGuardians, uint256 threshold);
     error ReentrantDuringSwap();
@@ -236,7 +268,7 @@ contract IntegrityAccountV1Experimental is AccountERC7579Hooked, SignerECDSA {
     /// cannot be shortened or lengthened after deployment, closing off "govern the governance"
     /// as an attack surface.
     ///
-    /// **Deployment invariant with `IntegrityKernelV1Experimental.epochLengthSeconds`, if the
+    /// **Deployment invariant with `IntegrityKernel.epochLengthSeconds`, if the
     /// bound kernel uses reputation epoch-snapshotting** (see that contract's own doc comment):
     /// this value should be `<= epochLengthSeconds` on the currently-installed kernel. If the
     /// timelock outlives the epoch, `executeKernelSwap`'s uninstall half (mediated by the
@@ -322,6 +354,18 @@ contract IntegrityAccountV1Experimental is AccountERC7579Hooked, SignerECDSA {
         bool active;
         bool isCancel;
         address newKernel;
+        // Real finding, not hypothetical (Devil's Advocate review, 2026-08-24, cross-mechanism
+        // pass -- docs/plans/2026-08-24-phase1-devils-advocate-governance-entrypoint-proposal.md):
+        // for a cancel action, this is `kernelSwapNonce` AS OBSERVED AT PROPOSE TIME, so
+        // `executeGuardianAction` can confirm the swap guardians are unanimously approving to
+        // kill is still the SAME swap by the time they finish approving. Before this field
+        // existed, force-cancel bound to no target at all -- only "something is pending" was
+        // checked at execute time, not "the thing WE agreed to cancel is still pending". A signer
+        // could `cancelKernelSwap()` then `proposeKernelSwap(decoy)` mid-approval, and guardians
+        // finishing their (unrelated) unanimous approval would silently cancel the DECOY swap,
+        // never having seen or agreed to it. Unused (left 0) for a force-propose action, which
+        // has no such target to bind.
+        uint256 targetKernelSwapNonce;
     }
 
     /// @dev Single pending-action slot, mirroring `pendingKernelSwap`'s own single-slot
@@ -418,7 +462,7 @@ contract IntegrityAccountV1Experimental is AccountERC7579Hooked, SignerECDSA {
         // A zero timelock would make executeKernelSwap immediately callable in the same
         // transaction as proposeKernelSwap, silently voiding this mechanism's entire value
         // proposition over the tracer-bullet slice's original "permanently unreachable" design --
-        // this is exactly the class of parameter IntegrityKernelV1Experimental's own constructor
+        // this is exactly the class of parameter IntegrityKernel's own constructor
         // already rejects for its analogous immutables (ZeroBudget, ZeroMinEffectiveScore).
         if (moduleActionTimelockSeconds_ == 0) revert ZeroTimelock();
         moduleActionTimelockSeconds = moduleActionTimelockSeconds_;
@@ -500,6 +544,10 @@ contract IntegrityAccountV1Experimental is AccountERC7579Hooked, SignerECDSA {
     /// @dev The same `isModuleType` probe and `_checkEpochCompatibility` check `proposeKernelSwap`
     /// uses are applied here too, so a non-conforming or epoch-incompatible `newKernel` fails
     /// fast at proposal time rather than after gathering unanimous approval for nothing.
+    /// For a cancel action, `kernelSwapNonce` AS OBSERVED NOW is captured and bound into the
+    /// action -- see `GuardianAction.targetKernelSwapNonce`'s own doc comment for why (a real
+    /// finding from the 2026-08-24 Devil's Advocate review: force-cancel previously had no target
+    /// binding at all).
     function guardianProposeAction(bool isCancel, address newKernel) external {
         if (!_isGuardian[msg.sender]) revert NotAGuardian(msg.sender);
         if (pendingGuardianAction.active) revert GuardianActionAlreadyPending();
@@ -512,7 +560,12 @@ contract IntegrityAccountV1Experimental is AccountERC7579Hooked, SignerECDSA {
             _checkEpochCompatibility(newKernel);
         }
         guardianActionNonce += 1;
-        pendingGuardianAction = GuardianAction({active: true, isCancel: isCancel, newKernel: newKernel});
+        pendingGuardianAction = GuardianAction({
+            active: true,
+            isCancel: isCancel,
+            newKernel: newKernel,
+            targetKernelSwapNonce: isCancel ? kernelSwapNonce : 0
+        });
         emit GuardianActionProposed(guardianActionNonce, isCancel, newKernel);
     }
 
@@ -566,9 +619,14 @@ contract IntegrityAccountV1Experimental is AccountERC7579Hooked, SignerECDSA {
     /// `guardianThreshold`) has approved it. Permissionless -- like `refreshReputationSnapshot`,
     /// there is no manipulation surface over WHAT gets enacted once unanimity is genuinely
     /// reached, only a gas cost anyone may pay. A force-cancel clears `pendingKernelSwap` exactly
-    /// as `cancelKernelSwap` does; a force-propose creates a brand-new proposal exactly as
-    /// `proposeKernelSwap` does, including bumping `kernelSwapNonce`, so the guardian-originated
-    /// proposal is indistinguishable from a signer-originated one to every downstream check.
+    /// as `cancelKernelSwap` does -- but ONLY if the currently pending swap's nonce still matches
+    /// what guardians agreed to cancel at propose time (`action.targetKernelSwapNonce`); a real
+    /// finding, fixed 2026-08-24 (Devil's Advocate review): without this check, a signer could
+    /// `cancelKernelSwap()` then `proposeKernelSwap(decoy)` mid-approval, and guardians finishing
+    /// an unrelated unanimous approval would silently cancel the DECOY swap they never saw. A
+    /// force-propose creates a brand-new proposal exactly as `proposeKernelSwap` does, including
+    /// bumping `kernelSwapNonce`, so the guardian-originated proposal is indistinguishable from a
+    /// signer-originated one to every downstream check.
     function executeGuardianAction() external {
         GuardianAction memory action = pendingGuardianAction;
         if (!action.active) revert NoGuardianActionPending();
@@ -580,6 +638,9 @@ contract IntegrityAccountV1Experimental is AccountERC7579Hooked, SignerECDSA {
 
         if (action.isCancel) {
             if (pendingKernelSwap.readyAt == 0) revert NoSwapPending();
+            if (kernelSwapNonce != action.targetKernelSwapNonce) {
+                revert GuardianActionSwapTargetChanged(action.targetKernelSwapNonce, kernelSwapNonce);
+            }
             delete pendingKernelSwap;
         } else {
             if (pendingKernelSwap.readyAt != 0) revert SwapAlreadyPending();
@@ -620,11 +681,29 @@ contract IntegrityAccountV1Experimental is AccountERC7579Hooked, SignerECDSA {
     /// @notice A guardian's independent approval of the currently pending rotation.
     /// `expectedNonce` must match `guardianRotationNonce` exactly, same replay protection every
     /// other nonce-scoped approval mapping in this contract applies.
+    /// @dev Real finding, not hypothetical (Devil's Advocate review, 2026-08-24, cross-mechanism
+    /// pass -- `docs/plans/2026-08-24-phase1-devils-advocate-governance-entrypoint-proposal.md`):
+    /// a removal rotation's own target CANNOT approve their own removal. Before this fix,
+    /// `executeGuardianRotation` required unanimity of `_guardians.length` -- which STILL
+    /// INCLUDED the departing guardian, since they remain in `_guardians` until the rotation
+    /// executes. If that guardian's key is genuinely lost (the exact real-world scenario rotation
+    /// exists to handle), they can never cast that vote, and removal becomes PERMANENTLY
+    /// unreachable -- not merely harder, unlike every other "unreachable guardian raises the bar"
+    /// caveat already disclosed elsewhere in this contract. Because `executeGuardianAction` and
+    /// `executeGuardianRescueSweep` require unanimity of the SAME `_guardians.length`, a
+    /// permanently-stuck rotation freezes those two mechanisms too -- the two built specifically
+    /// as "works even without signer cooperation" safety nets. Fixed by requiring unanimity of
+    /// every OTHER current guardian (excluding the removal target entirely, not merely lowering
+    /// the threshold while still letting their vote count) -- see `executeGuardianRotation`'s own
+    /// updated `required` computation.
     function approveGuardianRotation(uint256 expectedNonce) external {
         if (!_isGuardian[msg.sender]) revert NotAGuardian(msg.sender);
         if (!pendingGuardianRotation.active) revert NoGuardianRotationPending();
         if (expectedNonce != guardianRotationNonce) {
             revert GuardianRotationNonceMismatch(guardianRotationNonce, expectedNonce);
+        }
+        if (!pendingGuardianRotation.isAddition && msg.sender == pendingGuardianRotation.guardian) {
+            revert CannotApproveOwnRemoval(msg.sender);
         }
         if (_guardianRotationApprovals[guardianRotationNonce][msg.sender]) {
             revert GuardianRotationAlreadyApproved(msg.sender, guardianRotationNonce);
@@ -635,15 +714,18 @@ contract IntegrityAccountV1Experimental is AccountERC7579Hooked, SignerECDSA {
     }
 
     /// @notice Enacts the pending rotation once every CURRENT guardian has approved it
-    /// (unanimous -- same bar as the emergency guardian action). Permissionless, same reasoning
-    /// as `executeGuardianAction`/`refreshReputationSnapshot`. Re-checks that no kernel swap or
-    /// guardian action is pending even though the propose-time check already makes this
-    /// unreachable by construction (defense in depth, matching this codebase's standing style).
+    /// (unanimous -- same bar as the emergency guardian action), EXCEPT the removal target
+    /// itself, which can never vote on its own removal (see `approveGuardianRotation`'s own doc
+    /// comment for why -- this is the fix for a real deadlock, not the original design).
+    /// Permissionless, same reasoning as `executeGuardianAction`/`refreshReputationSnapshot`.
+    /// Re-checks that no kernel swap or guardian action is pending even though the propose-time
+    /// check already makes this unreachable by construction (defense in depth, matching this
+    /// codebase's standing style).
     function executeGuardianRotation() external {
         GuardianRotation memory rotation = pendingGuardianRotation;
         if (!rotation.active) revert NoGuardianRotationPending();
         uint256 approvals = guardianRotationApprovalCount[guardianRotationNonce];
-        uint256 required = _guardians.length;
+        uint256 required = rotation.isAddition ? _guardians.length : _guardians.length - 1;
         if (approvals < required) revert InsufficientGuardianRotationApprovals(approvals, required);
         if (pendingKernelSwap.readyAt != 0) revert SwapAlreadyPending();
         if (pendingGuardianAction.active) revert GuardianActionAlreadyPending();

@@ -6,9 +6,9 @@ Repo documentation precedence is:
 
 1. `README.md` defines repo-level ownership, current package status, and source-of-truth pointers.
 2. This file defines internal schemas, ports, env vars, service boundaries, and cross-package call conventions inside integrity-core.
-3. `spec/integrity-protocol-v0.4.md` is the accepted normative protocol;
-   `spec/integrity-protocol-v0.5-proposed.md` is a non-authoritative review candidate;
-   `spec/integrity-protocol-v3.2.md` is the explanatory, non-normative whitepaper; and
+3. `docs/archive/2026-08/integrity-protocol-v0.4.md` is the accepted normative protocol;
+   `docs/archive/2026-08/integrity-protocol-v0.5-proposed.md` is a non-authoritative review candidate;
+   `docs/WHITEPAPER.md` (v3.2) is the current explanatory, non-normative whitepaper; and
    the remaining `spec/` subtrees define externally-supported wire surfaces. A generated
    PDF is publication output, not an interface contract.
 4. `docs/wiki/` is the compiled long-term knowledge layer generated out to the GitHub Wiki and `integrity-dashboard/`'s browser wiki.
@@ -46,6 +46,7 @@ and in that package's README — don't fake the check silently.
 | `opa` | 1.18.2 | bcc_middleware, integrity-sdk |
 | `node` / `npm` | 22.x / 10.x | integrity-dashboard, contracts (npm-based deps) |
 | `python` / `uv` | 3.12 / 0.11 | integrity-sdk, integrity-cli, bcc_middleware |
+| `halmos` | 0.3.3 | contracts (`make verify-kernel`, Phase I kernel symbolic verification, isolated in `contracts/.venv-halmos`) |
 
 All of these are on `PATH` (added to `~/.bashrc`). Use them for real — compile
 the circuits, run `bb prove`/`bb verify`, run `forge test`, run `opa eval`
@@ -147,11 +148,18 @@ against real policies. Don't write code you haven't run.
 Real Ed25519 only (via the `cryptography` library) — no HMAC pseudo-signature fallback.
 
 ### 4.2 BCC Commitment (the "Behavioral Commitment Chain" intent-lock object)
+
+Per-action correlation follows [`spec/invocation-id-v1.md`](../spec/invocation-id-v1.md).
+`invocation_id` is a canonical UUID identifying one attempted action. It is signed when present
+and is distinct from the content-addressed `intended_state_hash`; new protected tool calls MUST
+carry it. Legacy commitments without it remain readable but cannot support an unambiguous
+intent/outcome reconciliation claim.
 ```json
 {
   "agent_id": "did:integrity:...",
   "intent_type": "string, e.g. 'payment' | 'data_access' | 'contract_call'",
   "intended_state_hash": "0x<32-byte hex, sha256 of the canonical intent payload>",
+  "invocation_id": "lowercase canonical UUID; required for new protected tool calls",
   "nonce": "monotonic per-agent integer",
   "timestamp": "<unix ms>",
   "agent_public_key": "z<multibase base58btc, multicodec ed25519-pub || raw 32-byte pubkey>",
@@ -200,7 +208,7 @@ included in the signed payload, so neither can be swapped post-signature:
   mirror it only if they need backwards compatibility.
 
 - `chain_id` / `verifying_contract` — **both required**
-  (docs/plans/2026-08-18-phase1-canonical-intent-encoding-proposal.md).
+  (docs/archive/2026-08/plans/2026-08-18-phase1-canonical-intent-encoding-proposal.md).
   Before these, a commitment signed once was valid, byte-for-byte, against
   any chain or any deployment of the protocol sharing the signing agent's
   DID — `nonce` is monotonic per-agent but not deployment-scoped, so it
@@ -261,8 +269,9 @@ The signed object of `POST /v1/telemetry/ingest` carries `schema_version`, an in
 **inside the signature**:
 
 ```
-schema_version = 1          # integrity_sdk.client.TELEMETRY_SCHEMA_VERSION
+schema_version = 3          # integrity_sdk.client.TELEMETRY_SCHEMA_VERSION
                             # backend::handlers::MAX_TELEMETRY_SCHEMA_VERSION
+evidence_tier = "signed_agent" # inside the signed object; v1/legacy defaults to this tier
 ```
 
 Both constants must move together. Rules, all load-bearing:
@@ -275,13 +284,21 @@ Both constants must move together. Rules, all load-bearing:
   `null` would change the canonical JSON and reject every historical signature.
 - **A version above `MAX_TELEMETRY_SCHEMA_VERSION` is refused (400), not parsed.** Misreading
   a future shape and storing it as signed evidence is worse than rejecting it.
+- Version 2 carries an optional `derived_signals.billed_cost` object (`amount`, `currency`,
+  `rate_source`) only when the provider reported it. The SDK never estimates a cost from
+  token counts; absent provider data remains absent. The top-level `evidence_tier` is fixed
+  to `signed_agent` for this path, distinguishing it from unauthenticated OTLP telemetry.
+- Version 3 adds structural validation for the signed `otel_spans` array before the PHI
+  backstop or persistence layer runs. The oracle rejects unknown top-level/metadata keys,
+  malformed covered-entity addresses, invalid numeric ranges, oversized text/properties,
+  and batches above the configured span limit. This is shape validation only; it does not
+  make the unauthenticated OTLP path part of AIS scoring.
 - Bumping the version is therefore a coordinated change: raise the SDK constant, raise the
   oracle's maximum, and deploy the oracle **first** so it can accept the new shape before any
   agent emits it.
 
 Covered by `oracle_e2e_telemetry_schema_version_is_signed_and_backward_compatible`, which
-asserts all four: legacy accepted, v1 accepted, unknown refused, and an injected version
-failing verification.
+asserts legacy/v1 compatibility, unknown-version refusal, and signed-field tamper rejection.
 
 ### 4.4 Merkle tree convention (must match between integrity-oracle and contracts)
 - Hash function: `keccak256` (not SHA-256) — this tree's root gets verified on-chain in
@@ -699,25 +716,26 @@ Evidence revocation is agent-authorized and audit-preserving:
    and `revoked_reason`, consumes the nonce, and returns the newly derived
    `effective_tier`; it never deletes the evidence row.
 
-### 6.4 `EHRGate` reputation resolution (was: one immutable global registry)
+### 6.4 `EHRGate` authority resolution (was: one immutable global registry)
 
 `health/EHRGate.sol` used to hold one immutable global `ReputationRegistry`
-address, read once at construction. Now that every agent owns its own
-`ReputationRegistry` clone, there is no single address to point at.
-`EHRGate` instead holds the shared `XibalbaAgentRegistry` and resolves
-`msg.sender`'s own clone on every call:
+address, read once at construction. Now that sovereign agents own their own
+`ReputationRegistry` clone and enterprise agents use a StateAnchor-only profile,
+there is no single address to point at. `EHRGate` instead holds the shared
+`XibalbaAgentRegistry` plus an `AgentAuthorityResolver` read adapter and resolves
+`msg.sender` on every call:
 ```solidity
-if (!registry.isRegisteredAgent(msg.sender)) return false;
-address reputationRegistry = registry.resolveAgent(msg.sender).primitives.reputationRegistry;
-if (ReputationRegistry(reputationRegistry).effectiveScore(msg.sender) < minAisThreshold) return false;
+if (!resolver.isAuthorityRegistered(msg.sender)) return false;
+if (resolver.getAis(msg.sender) < minAisThreshold) return false;
 ```
-This resolution is itself a meaningful check, not just plumbing: an address
-that was never registered through `AgentPrimitivesFactory` has no entry in
-`XibalbaAgentRegistry`, so `checkAccess` returns `false` before it can even
-reach the reputation check — closing off any hand-rolled contract that only
-pretends to be a Sovereign Agent. All three of `EHRGate`'s gates (patient
-consent, active BAA, AIS ≥ `minAisThreshold`) are required simultaneously;
-consent alone is necessary but not sufficient.
+For sovereign clone-set agents, the resolver reads AIS from the agent's own
+`ReputationRegistry` primitive. For enterprise StateAnchor-only agents, it reads
+the registered account's `ais()` cache. This resolution is itself a meaningful
+check, not just plumbing: an address with no sovereign or enterprise registry
+entry returns `false` before the AIS check. All three of `EHRGate`'s gates
+(patient consent, active BAA, AIS >= `minAisThreshold`) are required
+simultaneously; consent alone is necessary but not sufficient. The resolver is
+read-only and does not introduce an AIS write path.
 
 ### 6.5 Known gap: `CCIPReputationBridge` is unwired
 
@@ -747,6 +765,7 @@ singletons:
     "IntegrityGovernance": "0x...",
     "UltraPlonkVerifier": "0x...",
     "XibalbaAgentRegistry": "0x...",
+    "AgentAuthorityResolver": "0x...",
     "IntegrityIdentityReadV1": "0x...",
     "XibalbaNameService": "0x...",
     "DomainRegistry": "0x...",
@@ -801,12 +820,22 @@ only the new contracts against the existing `IntegrityToken`/
 file (every pre-existing field is re-serialized unchanged). This is now the
 general pattern for any future protocol-layer addition after genesis: a new,
 narrowly-scoped incremental script, never a re-run of `Deploy.s.sol` against
-a live network.
+a live network. This pattern does not imply arbitrary schema migration: an
+incremental script may only bind to singleton addresses whose deployed bytecode
+already satisfies the new contract's interface assumptions.
+
+**Integrity Health incremental boundary (§6.7)**: `DeployEHRGate.s.sol` does
+not deploy `AgentAuthorityResolver` as a side effect. It reuses an existing
+serialized `singletons.AgentAuthorityResolver` address and fails before
+`startBroadcast` when that key is absent. Existing networks whose registry
+bytecode predates enterprise-agent reads (`isEnterpriseAgent` /
+`registerEnterpriseAgent`) require a separately approved registry/resolver
+migration before `EHRGate` can be incrementally deployed.
 - `singletons` — protocol-level contracts that exist exactly once, deployed
   by governance, unchanged from before except for the removal of
   `AgentFactory` (deleted) and `ReputationRegistry`/`Slasher`/`StateAnchor`
   (no longer singletons — see below) and the addition of
-  `AgentPrimitivesFactory`.
+  `AgentPrimitivesFactory` and `AgentAuthorityResolver`.
 - `cloneTemplates` — the 5 shared implementation contracts every agent's
   EIP-1167 clones delegatecall into (§6.1, #3–#7). These are deployed once
   with `_disableInitializers()` already called, so they can never be
@@ -1022,6 +1051,36 @@ contract directly.
 `integrity-dashboard` (the one dashboard/landing app, §9) is the only client
 expected to talk to both the Oracle trust domain and `integrity-userapi`
 directly.
+
+### 6.11 Dashboard-to-Cortex Operations tab boundary
+
+`xibalba-cortex` remains an external, profile-isolated cognitive store, not a
+third Integrity trust domain and not an authority for AIS, BCC, chain state,
+or protocol decisions. The dashboard may consume its local API through
+`integrity-dashboard/src/services/graphMemory.ts`; no protocol backend may
+import or depend on Cortex.
+
+The dashboard selects the Cortex base URL with `VITE_GRAPH_MEMORY_URL`
+(development default `http://localhost:8420`). Its `/cortex` operator route
+uses these currently implemented external calls:
+
+| Capability | HTTP surface | Dashboard behavior |
+|---|---|---|
+| Hybrid retrieval evidence | `POST /api/retrieval/hybrid`, `GET /api/retrieval/trace/{id}`, `GET /api/retrieval/trace/{id}/evidence?rank=` | Displays persisted trace/root identifiers, channel status, result signals, and the first result's Merkle inclusion proof without treating recall as protocol authority. |
+| Extraction review | `GET /api/extraction-proposals`, `POST /api/extraction-proposals/{id}/decision` | Lists proposed deterministic extractions; accept/dismiss is an explicit write to Cortex canonical memory state. |
+| Operator status | `GET /api/inference/tasks`, `GET /api/embedding/models` | Displays pending inference work and registered embedding-model availability. |
+| Projection integrity | `GET /api/projections/{id}/checkpoints`, `POST /api/projections/{id}/checkpoint`, `/reconcile`, `/rebuild` | Operates only the `memories`, `entities`, and `relations` derived projections; reconciliation mismatch is not silently promoted to verified state. |
+
+Failures are per-capability: the route presents a partial/unavailable state
+and does not fabricate fallback records. The current browser client has no
+operator authentication layer and labels extraction decisions with
+`decided_by: "integrity-dashboard"`. The page disables mutation controls when
+the dashboard is not loopback-hosted, but that client guard is not an
+authentication boundary; write endpoints remain suitable only for a trusted
+local deployment until Cortex or an authenticated gateway enforces operator
+authorization. Cortex provenance/session evidence
+complements runtime memory systems; it does not replace Hermes memory or
+Integrity protocol evidence.
 
 ## 7. OPA policy integration (must be real, no "assume success" fallback)
 
@@ -1309,7 +1368,7 @@ states this as a real, visible gap rather than fabricating live pool data.
 
 ## 15. Financial action, session integrity & Xibalba Shield wire-format additions (2026-08-01)
 
-Normative source: [`spec/integrity-protocol-v0.4.md`](../spec/integrity-protocol-v0.4.md) §21–§22
+Normative source: [`integrity-protocol-v0.4.md`](archive/2026-08/integrity-protocol-v0.4.md) §21–§22
 and [`spec/xibalba-shield-v1.md`](../spec/xibalba-shield-v1.md). Everything in this section is
 `[PLANNED]` — no package implements any of it yet. Recorded here because these are exactly the
 kind of cross-package schema facts this document exists to pin *before* two packages drift into
@@ -1368,7 +1427,7 @@ telemetry-ingest paths (§2, §4.2 above) like any other agent's traffic.
 
 ## 16. Whitepaper v3.2 / proposed v0.5 interface status (2026-08-17)
 
-Normative status: [`spec/integrity-protocol-v0.5-proposed.md`](../spec/integrity-protocol-v0.5-proposed.md)
+Normative status: [`integrity-protocol-v0.5-proposed.md`](archive/2026-08/integrity-protocol-v0.5-proposed.md)
 is a review candidate, not an active interface version. No package may emit a v0.5 profile
 identifier or claim v3.2 conformance merely because a related local mechanism exists.
 

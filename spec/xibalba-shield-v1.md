@@ -3,7 +3,7 @@
 **Version 1.0** · Device & Network Security · Agentic Guardrails · Integrity-Backed Evidence
 Xibalba Solutions — a Trust Layer consumer, not a trust layer of its own
 
-Companion to [`spec/integrity-protocol-v0.4.md`](integrity-protocol-v0.4.md) §14. That document
+Companion to [`integrity-protocol-v0.4.md`](../docs/archive/2026-08/integrity-protocol-v0.4.md) §14. That document
 is normative for Integrity Protocol; this document is normative for **Xibalba Shield**, a
 separate product that consumes Integrity Protocol as its evidence and trust substrate (§14.1 of
 the protocol spec explains why they are separate repositories).
@@ -65,7 +65,7 @@ see §12.
 
 ## 2. Repository and Package Strategy
 
-**Decision (2026-08-01), recorded in [`spec/integrity-protocol-v0.4.md`](integrity-protocol-v0.4.md) §14.1:**
+**Decision (2026-08-01), recorded in [`integrity-protocol-v0.4.md`](../docs/archive/2026-08/integrity-protocol-v0.4.md) §14.1:**
 Xibalba Shield lives in the separate `XibalbaTechSol/xibalba-shield` repository, not as a
 package inside `integrity-core`. It is built on integrity-core's public SDK and service
 interfaces, while remaining independently deployable.
@@ -172,7 +172,7 @@ Hook points: ingress (prompt, requesting identity), retrieval/context (data sour
 model routing (which model/endpoint), output (content classification — PHI, secrets, risk
 level), tool execution (which tools/actions), and post-action verification (did the expected
 state change actually occur — the "semantic–physical gap" check that
-[`spec/integrity-protocol-v0.4.md`](integrity-protocol-v0.4.md) §22.4 also defines at the
+[`integrity-protocol-v0.4.md`](../docs/archive/2026-08/integrity-protocol-v0.4.md) §22.4 also defines at the
 session level; Shield's guardrail hooks are one of the concrete instrumentation points that
 feeds that broader session-integrity model when Shield sessions are Integrity-monitored
 sessions).
@@ -186,7 +186,7 @@ Each guarded action emits a structured `AgentEvent` (§5) and, where policy fire
 primitives with no privileged shortcut.
 
 - Wraps `integrity-sdk`: DID assignment per device/agent, BCC commitment signing
-  ([`spec/integrity-protocol-v0.4.md`](integrity-protocol-v0.4.md) §11), Merkle batching over
+  ([`integrity-protocol-v0.4.md`](../docs/archive/2026-08/integrity-protocol-v0.4.md) §11), Merkle batching over
   the SDK's existing Trust Vault path.
 - A `PolicyDecision` becomes a BCC commitment whose `intent_type` is a security-event type
   (§5.6) and whose `intended_state_hash` commits to the decision's structured detail.
@@ -286,7 +286,7 @@ commitment shape.
 ```
 
 This record is what the Integrity Exporter (§4.5) turns into a signed BCC commitment. It is
-also the record referenced by [`spec/integrity-protocol-v0.4.md`](integrity-protocol-v0.4.md)
+also the record referenced by [`integrity-protocol-v0.4.md`](../docs/archive/2026-08/integrity-protocol-v0.4.md)
 §21.4's Action Receipt formalization once anchored — no field renaming happens at that boundary.
 
 ### 5.6 Security-event `intent_type` namespace
@@ -308,7 +308,7 @@ spec §21.2):
 ## 6. Privacy and HIPAA Posture
 
 **This section is Shield's own design obligation** — Integrity Protocol's PHI backstop
-(`spec/integrity-protocol-v0.4.md` §9.6) governs what the *oracle* accepts in a telemetry
+(`../docs/archive/2026-08/integrity-protocol-v0.4.md` §9.6) governs what the *oracle* accepts in a telemetry
 payload; it does not and cannot govern what a device agent is permitted to *observe*. Stating
 this explicitly matters because conflating the two would itself be a silent-mock claim.
 
@@ -330,7 +330,7 @@ downstream.
   de-identified, consented behavioral labels ("PHI-bearing resource accessed under role X"),
   never raw clinical text — enforced at the point telemetry is generated, not as a downstream
   filter, matching the same "redact at source" principle
-  [`spec/integrity-protocol-v0.4.md`](integrity-protocol-v0.4.md) §9.6 already applies to
+  [`integrity-protocol-v0.4.md`](../docs/archive/2026-08/integrity-protocol-v0.4.md) §9.6 already applies to
   oracle ingest.
 
 **Deployment posture in regulated environments.** Where Shield is deployed against ePHI-bearing
@@ -366,7 +366,7 @@ JSON, table-driven, evaluated by the Policy Engine (§4.3):
 
 `ais_impact` is a **hint** consumed by §8's mapping layer, not a direct write to AIS — the
 oracle's `scoring-core` remains the sole computer of any score
-([`spec/integrity-protocol-v0.4.md`](integrity-protocol-v0.4.md) §8.1).
+([`integrity-protocol-v0.4.md`](../docs/archive/2026-08/integrity-protocol-v0.4.md) §8.1).
 
 ---
 
