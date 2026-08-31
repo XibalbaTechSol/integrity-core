@@ -3763,3 +3763,70 @@ incremented `0 -> 1`, the adapter recorded the full royalty, the account retaine
 the 1% protocol fee, and the economy reserves split the fee exactly into author, treasury, and
 buyback allocations. This closes the live consumption/settlement demonstration for the project
 funder only; it does not close external adoption or sponsored UserOperation evidence.
+
+## 63. Phase III R1 differential-replay admission suite (2026-08-31)
+
+*Current State:* `AdapterRegistry.sol`'s own NatSpec named R1 (determinism) as needing "an
+off-chain differential-replay admission suite this repo has never built, not a contract-level
+check." `contracts/script/AdapterAdmissionSuite.s.sol` is that tool: for each `(subject, amount)`
+vector it snapshots chain state, calls `AdapterRegistry.evaluate(adapter, subject, amount)`,
+reverts the snapshot, calls again identically, and compares the (success, revert-data) pair.
+Runnable as a `forge script` CLI (`ADAPTER_REGISTRY`/`ADAPTER`/`VECTORS_FILE` env vars, writes a
+JSON report) or via a reusable `runFor()` any Foundry test can call directly.
+
+7 new tests in `contracts/test/registry/AdapterAdmissionSuite.t.sol`: the comparison logic
+(`isDeterministic`) is proven directly against hand-crafted mismatched inputs, a positive-control
+integration test against the real `SpendBudgetAdapter` also asserts the snapshot/revert
+bookkeeping leaves the adapter's own persistent state completely unchanged (proof the harness
+isn't a no-op), and a JSON-vectors round-trip. Also verified with a real `forge script` CLI run
+against a locally deployed `AdapterRegistry`+`SpendBudgetAdapter` on anvil, producing a real
+report file.
+
+**Disclosed, not glossed over:** within a single script/test execution frame, two calls at
+byte-identical global state are guaranteed by the EVM's own execution model to produce identical
+results -- there is no way to construct a real adapter whose `runFor`-driven replay pair
+disagrees, short of a source of true non-determinism this tool's execution environment does not
+have. This is not a weakness of the tool; it is what "differential replay at identical state" is.
+The tool's actual contribution is the mechanical, repeatable per-adapter check R1's own text asks
+for, backed by comparison-logic tests proving the detector itself would catch a real mismatch if
+one existed, not a vacuous always-pass.
+
+## 64. Phase III R5 corrected from staking to Identity, and closed (2026-08-31)
+
+*Current State:* `AdapterRegistry.sol`'s NatSpec and `isInstallable()`'s own doc comment described
+R5 as whitepaper §6.2's staking/independent-audit-attestation obligation, and `isInstallable()`
+always returned `false` pending that economics layer. This predates `docs/SPEC.md`'s spec
+cutover: the current normative source (`docs/DOCUMENT_STATUS.yaml`) redefines R5 in §7.2 as
+**Identity** -- "published with source, machine-readable semantics, and a version hash the
+account pins" -- no bonds, no audit attestation.
+
+`AdapterRegistry.publishIdentity(adapter, metadataURI)` closes this: permissionless (same posture
+as `register()` itself), it records a claimed location for the adapter's published,
+machine-readable source, tied to the SAME `specHash` already pinned immutably at registration
+(deliberately not a second, parallel hash -- every consuming account, `IntegrityKernel` and
+`LicenceAccount`, already trusts that exact `specHash` forever). `isInstallable(adapter)` now
+returns `true` iff the adapter is registered AND has a published identity -- the two halves of R5
+this registry can express on-chain.
+
+**Disclosed limitation, inherent to on-chain hash commitments, not unique to this function:** the
+registry cannot and does not fetch `metadataURI` or verify its content actually hashes to
+`specHash` -- the same "commitments on-chain, content off-chain" posture BCC commitments and pack
+content hashes (`docs/SPEC.md` §7.1) already use throughout this protocol. A caller relying on
+`isInstallable() == true` should independently verify `keccak256(fetch(metadataURI)) ==
+specHash` before trusting it.
+
+`docs/SPEC.md` §16 ("disagreement... MUST be repaired in the same change") repair done in the
+same commit: `AdapterRegistry.sol`'s header/`isInstallable`'s doc comment now cite §7.2 R5
+directly instead of the stale whitepaper framing, and `LicenceAccount.sol`'s "R1/R5 remain open"
+claim is corrected to name what actually exists now (admission-suite tooling that must be run per
+adapter; per-adapter identity publication) rather than implying nothing does. Also noted, not
+silently ignored: `docs/SPEC.md` §7.1 states "No on-chain adapter registry is required for v1" --
+`AdapterRegistry.sol` remains genuinely optional (`address(0)` disables it in both consuming
+accounts) and is not itself the `[PLANNED]` "attested registry" §7.1 names; it is a smaller,
+already-shipped step toward it, not a claim of v1-required status.
+
+9 new/replaced tests in `contracts/test/registry/AdapterRegistry.t.sol` (the stale
+`test_isInstallableAlwaysReturnsFalse` removed, replaced with coverage for both-false-before-
+publication, permissionless publication making an adapter installable, idempotent republication,
+conflicting-republication revert, the emitted event carrying the registration's own `specHash`,
+and per-adapter independence). Full suite 492/492, zero regressions.

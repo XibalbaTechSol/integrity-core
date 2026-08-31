@@ -84,8 +84,12 @@ import {AdapterRegistry} from "../registry/AdapterRegistry.sol";
 ///   volume-cap and transfer-drain guards identically to a directly-constructed instance.
 ///
 /// What this does NOT claim: no Halmos/symbolic verification (unlike `IntegrityKernel.sol`); no
-/// live paymaster/bundler evidence; no permissionless adapter attestation/composition (the
-/// registry hook is present but R1/R5 remain open); no marketplace or escrow
+/// live paymaster/bundler evidence; no permissionless adapter composition (this account wires to
+/// exactly one registry adapter, set at construction -- R1 has off-chain differential-replay
+/// tooling now, `AdapterAdmissionSuite.s.sol`, but it must be RUN per adapter, it is not a
+/// standing guarantee; R5 ("Identity", `docs/SPEC.md` §7.2) is closeable per-adapter via
+/// `AdapterRegistry.publishIdentity` but is not automatically satisfied just because the hook is
+/// wired); no marketplace or escrow
 /// contract (`armTransfer`/`disarmTransfer` are bare owner-gated setters, not integrated with any
 /// actual sale flow). `LicenceTermsPolicy.sol` implements the six additional Table 2 terms through
 /// the typed `consumeWithTerms()` and signed-intent paths; those terms are opt-in per account and

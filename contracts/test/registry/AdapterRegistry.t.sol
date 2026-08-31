@@ -118,12 +118,75 @@ contract AdapterRegistryTest is Test {
         registry.register(address(allowAdapter), GAS_BOUND, keccak256("different-spec"));
     }
 
-    // --- isInstallable -------------------------------------------------------------------------
+    // --- publishIdentity / isInstallable (R5) ---------------------------------------------------
 
-    function test_isInstallableAlwaysReturnsFalse() public {
+    string constant METADATA_URI = "ipfs://bafy-example-adapter-identity-v1";
+
+    function test_isInstallableFalseBeforeIdentityPublished() public {
         registry.register(address(allowAdapter), GAS_BOUND, SPEC_HASH);
         assertFalse(registry.isInstallable(address(allowAdapter)));
-        assertFalse(registry.isInstallable(address(0xdead))); // even an unregistered address
+    }
+
+    function test_isInstallableFalseForUnregisteredAdapter() public {
+        assertFalse(registry.isInstallable(address(0xdead)));
+    }
+
+    function test_publishIdentityRevertsForUnregisteredAdapter() public {
+        vm.expectRevert(abi.encodeWithSelector(AdapterRegistry.AdapterNotRegistered.selector, address(allowAdapter)));
+        registry.publishIdentity(address(allowAdapter), METADATA_URI);
+    }
+
+    function test_publishIdentityRevertsOnEmptyURI() public {
+        registry.register(address(allowAdapter), GAS_BOUND, SPEC_HASH);
+        vm.expectRevert(AdapterRegistry.EmptyMetadataURI.selector);
+        registry.publishIdentity(address(allowAdapter), "");
+    }
+
+    function test_publishIdentityIsPermissionlessAndMakesAdapterInstallable() public {
+        registry.register(address(allowAdapter), GAS_BOUND, SPEC_HASH);
+
+        vm.prank(makeAddr("anyone"));
+        registry.publishIdentity(address(allowAdapter), METADATA_URI);
+
+        assertEq(registry.identityMetadataURI(address(allowAdapter)), METADATA_URI);
+        assertTrue(registry.isInstallable(address(allowAdapter)));
+    }
+
+    function test_republishingIdenticalURIIsANoOp() public {
+        registry.register(address(allowAdapter), GAS_BOUND, SPEC_HASH);
+        registry.publishIdentity(address(allowAdapter), METADATA_URI);
+        registry.publishIdentity(address(allowAdapter), METADATA_URI); // should not revert
+
+        assertEq(registry.identityMetadataURI(address(allowAdapter)), METADATA_URI);
+    }
+
+    function test_republishingDifferentURIReverts() public {
+        registry.register(address(allowAdapter), GAS_BOUND, SPEC_HASH);
+        registry.publishIdentity(address(allowAdapter), METADATA_URI);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                AdapterRegistry.IdentityAlreadyPublishedWithDifferentURI.selector, address(allowAdapter), METADATA_URI
+            )
+        );
+        registry.publishIdentity(address(allowAdapter), "ipfs://a-different-cid");
+    }
+
+    function test_publishIdentityEmitsSpecHashFromRegistration() public {
+        registry.register(address(allowAdapter), GAS_BOUND, SPEC_HASH);
+
+        vm.expectEmit(true, false, false, true);
+        emit AdapterRegistry.AdapterIdentityPublished(address(allowAdapter), METADATA_URI, SPEC_HASH);
+        registry.publishIdentity(address(allowAdapter), METADATA_URI);
+    }
+
+    function test_isInstallableIndependentPerAdapter() public {
+        registry.register(address(allowAdapter), GAS_BOUND, SPEC_HASH);
+        registry.register(address(rejectAdapter), GAS_BOUND, keccak256("reject-spec"));
+        registry.publishIdentity(address(allowAdapter), METADATA_URI);
+
+        assertTrue(registry.isInstallable(address(allowAdapter)));
+        assertFalse(registry.isInstallable(address(rejectAdapter))); // registered, but no identity published
     }
 
     // --- evaluate --------------------------------------------------------------------------
