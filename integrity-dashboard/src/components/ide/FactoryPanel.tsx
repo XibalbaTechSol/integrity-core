@@ -303,7 +303,7 @@ export function FactoryPanel() {
   const lineCount = code.split('\n').length;
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+    <div style={{ flex: 1, minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
       {/* Visual Assertions for Testing Compatibility */}
       <span style={{ display: 'none' }}>Contract Logic Template</span>
 
@@ -311,10 +311,13 @@ export function FactoryPanel() {
       <div 
         style={{ 
           display: 'grid', 
-          gridTemplateColumns: isMobile ? '1fr' : '240px 1fr 340px', 
+          gridTemplateColumns: isMobile ? '1fr' : '240px minmax(0, 1fr) 340px',
+          gridTemplateRows: isMobile ? 'auto minmax(0, 1fr) auto' : 'minmax(0, 1fr)',
           background: '#141417', 
           flex: 1,
-          overflow: 'hidden'
+          minHeight: 0,
+          minWidth: 0,
+          overflow: isMobile ? 'auto' : 'hidden'
         }}
       >
         {/* SIDEBAR 1: Explorer Tree */}
@@ -428,10 +431,11 @@ export function FactoryPanel() {
               borderBottom: '1px solid var(--glass-border)', 
               display: 'flex', 
               justifyContent: 'space-between', 
-              alignItems: 'center', 
+              alignItems: 'center',
               padding: '8px 16px',
               minHeight: '45px',
-              gap: '12px'
+              gap: '12px',
+              flexWrap: isMobile ? 'wrap' : 'nowrap'
             }}
           >
             {/* Open File Tab */}
@@ -456,7 +460,7 @@ export function FactoryPanel() {
             </div>
 
             {/* AI Copilot Input */}
-            <div style={{ flex: '1 1 auto', display: 'flex', gap: '8px', padding: '0 8px', minWidth: '100px', maxWidth: '500px' }}>
+            <div style={{ flex: isMobile ? '1 1 100%' : '1 1 240px', display: 'flex', gap: '8px', padding: '0 8px', minWidth: isMobile ? 0 : '180px', maxWidth: isMobile ? 'none' : '500px', order: isMobile ? 3 : 0 }}>
               <input
                 type="text"
                 placeholder="AI Contract Copilot (Powered by SDK Telemetry) - e.g. 'Add a function to withdraw funds'"
@@ -492,7 +496,7 @@ export function FactoryPanel() {
                 onClick={handleBuild}
                 disabled={isCompiling || isDeploying}
                 className="btn btn-ghost"
-                style={{ padding: '5px 12px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                style={{ padding: '5px 12px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px', color: '#f8fafc', border: '1px solid #3b3b45', background: '#24242b' }}
               >
                 {isCompiling ? <RefreshCw className="animate-spin" size={12} /> : <Hammer size={12} />}
                 <span>Build Source</span>

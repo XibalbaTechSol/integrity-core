@@ -127,6 +127,7 @@ test.describe('/cortex Operations tab', () => {
 
     await page.goto('/cortex');
     await expect(page.getByRole('heading', { name: 'Cortex', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Control' }).click();
     await page.getByRole('button', { name: 'Operations' }).click();
 
     await expect(page.getByRole('heading', { name: 'Operations' })).toBeVisible();
@@ -142,6 +143,7 @@ test.describe('/cortex Operations tab', () => {
   test('renders deterministic hybrid retrieval evidence from the browser API contract', async ({ page }) => {
     await installCortexContract(page);
     await page.goto('/cortex');
+    await page.getByRole('button', { name: 'Control' }).click();
     await page.getByRole('button', { name: 'Operations' }).click();
     await expect(page.getByText('Cortex operator APIs online.')).toBeVisible();
 
@@ -158,6 +160,7 @@ test.describe('/cortex Operations tab', () => {
   test('accepts an extraction proposal through the deterministic operator contract', async ({ page }) => {
     await installCortexContract(page);
     await page.goto('/cortex');
+    await page.getByRole('button', { name: 'Control' }).click();
     await page.getByRole('button', { name: 'Operations' }).click();
 
     await expect(page.getByText('Integrity Protocol uses evidence-backed controls.')).toBeVisible();

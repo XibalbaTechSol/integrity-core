@@ -76,7 +76,7 @@ function ActionStep({
 }) {
   return (
     <Panel title={title} icon={icon} action={<StatusIcon status={status} />}>
-      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0 0 var(--space-3)' }}>{description}</p>
+      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0 0 var(--space-3)', overflowWrap: 'anywhere' }}>{description}</p>
       {disabledReason ? (
         <div style={{ color: 'var(--danger, #e5484d)', fontSize: '0.8rem', marginBottom: 'var(--space-2)' }}>{disabledReason}</div>
       ) : (

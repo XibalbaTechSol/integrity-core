@@ -26,6 +26,10 @@ import { DashboardProvider } from './context/DashboardContext';
 import { SettingsProvider } from './context/SettingsContext';
 import MainAppLayout from './layouts/MainAppLayout';
 import PublicLayout from './layouts/PublicLayout';
+import AgentsPage from './pages/AgentsPage';
+import SecurityControlPage from './pages/SecurityControlPage';
+import KnowledgeControlPage from './pages/KnowledgeControlPage';
+import TreasuryControlPage from './pages/TreasuryControlPage';
 
 const WikiPage = lazy(() => import('./pages/WikiPage'));
 
@@ -36,7 +40,6 @@ function App() {
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/auth" element={<AuthPage />} />
-          <Route path="/wiki" element={<Suspense fallback={<div style={{ minHeight: '100vh', background: '#07111d' }} />}><WikiPage /></Suspense>} />
           <Route element={<PublicLayout />}>
             <Route path="/docs" element={<DocsPage />} />
             <Route path="/privacy" element={<PrivacyPage />} />
@@ -44,6 +47,10 @@ function App() {
           </Route>
           <Route element={<MainAppLayout />}>
             <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/agents" element={<AgentsPage />} />
+            <Route path="/treasury" element={<TreasuryControlPage />} />
+            <Route path="/security" element={<SecurityControlPage />} />
+            <Route path="/knowledge" element={<KnowledgeControlPage />} />
             <Route path="/identity" element={<IdentityPage />} />
             <Route path="/financials" element={<FinancialsPage />} />
             <Route path="/intelligence" element={<IntelligencePage />} />
@@ -59,6 +66,7 @@ function App() {
             <Route path="/memory" element={<Navigate to="/cortex" replace />} />
             <Route path="/developer" element={<DeveloperPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/wiki" element={<Suspense fallback={<div style={{ minHeight: '100vh', background: '#07111d' }} />}><WikiPage /></Suspense>} />
           </Route>
         </Routes>
       </DashboardProvider>

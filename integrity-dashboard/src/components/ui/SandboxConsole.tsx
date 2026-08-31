@@ -58,7 +58,7 @@ export const SandboxConsole = () => {
     }, [performanceVariance, hgiRaw, avgPartnerAIS, gpuHours, stakedRatio, agentAge, volume, tier]);
 
     return (
-        <div className="card" style={{ padding: '2rem' }}>
+        <div className="card" style={{ width: '100%', minWidth: 0, boxSizing: 'border-box', padding: 'clamp(1rem, 3vw, 2rem)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '2rem' }}>
                 <Code color="var(--text-secondary)" size={24} />
                 <h2 style={{ fontSize: '1.5rem', fontWeight: 800, margin: 0 }}>Protocol Sandbox</h2>
@@ -67,7 +67,7 @@ export const SandboxConsole = () => {
                 </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(280px, 100%), 1fr))', gap: '2rem', minWidth: 0, overflowX: 'hidden' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                     <h3 style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>Simulation Parameters</h3>
                     

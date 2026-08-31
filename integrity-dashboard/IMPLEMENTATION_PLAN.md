@@ -86,7 +86,7 @@ Current observed status is [`docs/audits/2026-08-06-status.md`](docs/audits/2026
 
 ## Blocked
 
-- [ ] Full live Shield evidence display is blocked until Shield exports with a registered DID and integrity-core exposes stable readback/reporting paths.
+- [~] Shield fleet evidence display is wired to the real backend and validated in Chromium; successful Integrity-anchored readback remains dependent on registering the Shield DID.
 - [ ] Full graph-memory parity is blocked until the runtime controller/adapter contract is finalized and service endpoint is stable.
 - [ ] Production deployment automation is blocked until backend service availability and environment contracts are stable.
 

@@ -1,14 +1,17 @@
 import { useState, useRef, useEffect } from 'react';
-import { NavLink, Link } from 'react-router-dom';
-import { LayoutDashboard, Key, DollarSign, Activity, ShieldCheck, Code, BrainCircuit, BookOpen, ChevronLeft, ChevronRight, User, Settings, LogIn, LogOut, TrendingUp, FileText, Cpu, GitCompare, GitMerge } from 'lucide-react';
+import { NavLink, Link, useLocation } from 'react-router-dom';
+import { ChevronLeft, ChevronRight, User, Settings, LogIn, LogOut } from 'lucide-react';
 import { useDashboard } from '../context/DashboardContext';
 import { useIsMobile } from '../utils/useIsMobile';
+import { NAVIGATION_GROUPS } from '../navigation';
 
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const isMobile = useIsMobile(768);
   const effectiveCollapsed = collapsed || isMobile;
   const { selectedAgent, setSelectedAgent, agents, user } = useDashboard();
+  const location = useLocation();
+  const navRef = useRef<HTMLElement>(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
 
@@ -21,50 +24,18 @@ export function Sidebar() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      navRef.current?.querySelector<HTMLElement>('[aria-current="page"]')?.scrollIntoView({ block: 'center', inline: 'nearest' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [location.pathname, effectiveCollapsed]);
   
   // Grouped around the real architecture: Phase I agent primitives (identity, the
   // kernel/guardian system, reputation-adjacent markets, scoring), Phase II licensing,
   // unrelated verticals/demos, and system-level pages. Flat list before this was just
   // route-arrival order, not a reflection of what these pages actually are.
-  const navGroups: { section: string; items: { to: string; label: string; icon: React.ReactNode }[] }[] = [
-    {
-      section: 'Overview',
-      items: [{ to: '/dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20} /> }],
-    },
-    {
-      section: 'Agent primitives',
-      items: [
-        { to: '/identity', label: 'Identity', icon: <Key size={20} /> },
-        { to: '/kernel', label: 'Kernel & Guardians', icon: <Cpu size={20} /> },
-        { to: '/kernel-intent', label: 'Kernel Intent', icon: <GitCompare size={20} /> },
-        { to: '/financials', label: 'Financials', icon: <DollarSign size={20} /> },
-        { to: '/intelligence', label: 'Intelligence', icon: <BrainCircuit size={20} /> },
-        { to: '/correlation', label: 'Correlation', icon: <GitMerge size={20} /> },
-      ],
-    },
-    {
-      section: 'Licensing',
-      items: [{ to: '/licence', label: 'Licence', icon: <FileText size={20} /> }],
-    },
-    {
-      section: 'Verticals',
-      items: [
-        { to: '/health', label: 'Health', icon: <Activity size={20} /> },
-        { to: '/shield', label: 'Shield', icon: <ShieldCheck size={20} /> },
-        { to: '/quant', label: 'Quant', icon: <TrendingUp size={20} /> },
-      ],
-    },
-    {
-      section: 'System',
-      items: [
-        { to: '/cortex', label: 'Cortex', icon: <BrainCircuit size={20} /> },
-        { to: '/prediction-markets', label: 'Prediction Markets', icon: <DollarSign size={20} /> },
-        { to: '/developer', label: 'Developer', icon: <Code size={20} /> },
-        { to: '/wiki', label: 'Wiki', icon: <BookOpen size={20} /> },
-      ],
-    },
-  ];
-
   return (
     <div style={{
       width: effectiveCollapsed ? '72px' : '260px',
@@ -75,7 +46,8 @@ export function Sidebar() {
       transition: 'width 0.3s ease',
       height: '100vh',
       position: 'sticky',
-      top: 0
+      top: 0,
+      overflow: 'hidden'
     }}>
       <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center', borderBottom: '1px solid var(--border-color)', position: 'relative' }}>
         <Link to="/" style={{ display: 'block', textDecoration: 'none' }}>
@@ -110,8 +82,8 @@ export function Sidebar() {
         </div>
       )}
 
-      <nav style={{ flex: 1, padding: '1.5rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-        {navGroups.map((group) => (
+      <nav ref={navRef} aria-label="Primary navigation" style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '1.5rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+        {NAVIGATION_GROUPS.map((group) => (
           <div key={group.section} style={{ marginBottom: '0.5rem' }}>
             {!effectiveCollapsed && (
               <div
@@ -135,10 +107,10 @@ export function Sidebar() {
                   alignItems: 'center',
                   justifyContent: effectiveCollapsed ? 'center' : 'flex-start',
                   padding: effectiveCollapsed ? '1rem 0' : '1rem 1.25rem',
-                  background: isActive ? 'var(--theme-accent-muted)' : 'transparent',
-                  color: isActive ? 'var(--theme-accent)' : 'var(--text-secondary)',
+                  background: 'transparent',
+                  color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
                   border: 'none',
-                  borderLeft: isActive ? '4px solid var(--theme-accent)' : '4px solid transparent',
+                  borderLeft: isActive ? '4px solid var(--text-primary)' : '4px solid transparent',
                   borderRadius: effectiveCollapsed ? '4px' : '0 4px 4px 0',
                   textDecoration: 'none',
                   fontWeight: isActive ? 600 : 400,
@@ -146,7 +118,7 @@ export function Sidebar() {
                 })}
                 title={effectiveCollapsed ? item.label : undefined}
               >
-                {item.icon}
+                <item.icon size={20} />
                 {!effectiveCollapsed && <span style={{ marginLeft: '1rem' }}>{item.label}</span>}
               </NavLink>
             ))}

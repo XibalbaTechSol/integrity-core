@@ -41,15 +41,20 @@ export interface ShieldDashboardSummary {
     latest_decisions: ShieldDecision[];
     latest_metrics: Record<string, unknown> | null;
     integrations: ShieldIntegration[];
-    exporter_status: Array<{ device_id: string; status: { did_registered?: boolean; oracle_readback?: unknown } }>;
+    exporter_status: ShieldExporterStatus[];
 }
 
 export interface ShieldExporterStatus {
     device_id: string;
-    did_registered: boolean;
-    bcc_middleware: string;
-    oracle_readback: string;
-    synthetic?: boolean;
+    status: {
+        did_registered?: boolean;
+        bcc_middleware?: string;
+        oracle_readback?: string;
+        synthetic?: boolean;
+        opa?: { healthy?: boolean; last_checked_at?: string | null; last_error?: string | null };
+        policy?: { healthy?: boolean; active_policy_version?: string; active_policy_hash?: string; last_error?: string | null };
+        endpoint_posture?: 'compliant' | 'noncompliant' | 'unknown' | string;
+    };
     updated_at?: string;
 }
 

@@ -6,7 +6,8 @@ import { collectPageErrors } from './test-utils';
 // entirely outside integrity-core and NOT started by `make up`. For this audit it's run
 // against a fresh, isolated, empty profile home (not the real Hermes memory data) so the
 // real empty-state paths are what's under test, and no real personal/session content
-// leaks into test screenshots. Five tabs: Timeline, Graph, Recall, Inference, Integrity.
+// leaks into test screenshots. Cortex is organized into three primary workspaces with
+// contextual views: Activity, Evidence, and Control.
 // No route/fetch mocking — real HTTP calls to a real local_api instance throughout.
 
 test.describe('/memory (MemoryPage)', () => {
@@ -32,26 +33,32 @@ test.describe('/memory (MemoryPage)', () => {
     expect(errors, `Uncaught errors: ${errors.map(e => e.message).join('; ')}`).toEqual([]);
   });
 
-  test('all 5 tab buttons render and switch the active view', async ({ page }) => {
+  test('primary workspaces and contextual views render and switch', async ({ page }) => {
     // Scoped to data-memory-tab, not text content — real recorded memory content (e.g.
     // "...Integrity Score...") can otherwise collide with a tab's own label text.
     await page.goto('/memory');
-    for (const tab of ['timeline', 'graph', 'recall', 'inference', 'integrity']) {
-      const button = page.locator(`[data-memory-tab="${tab}"]`);
+    for (const [primary, secondary] of [['activity', 'timeline'], ['evidence', 'graph'], ['activity', 'recall'], ['control', 'inference'], ['evidence', 'integrity']]) {
+      await page.locator(`[data-memory-tab="${primary}"]`).click();
+      const button = page.locator(`[data-memory-tab="${secondary}"]`);
       await button.click();
       await expect(button).toHaveClass(/active/);
     }
   });
 
-  test('Timeline tab: real record-exchange form present; shows real exchanges or the honest empty state', async ({ page }) => {
+  test('Timeline tab: reconstructs sessions and keeps manual capture secondary', async ({ page }) => {
     await page.goto('/memory');
+    await page.locator('[data-memory-tab="activity"]').click();
+    await page.locator('[data-memory-tab="timeline"]').click();
     // MemoryPage auto-selects the first real session on load (refresh() sets
     // selectedSessionId to nextSessions[0]) — with xibalba-cortex's own background
     // capture active, that session can already have real exchanges, so both the
     // populated and empty timeline are legitimate states here, not just the empty one.
-    const empty = page.getByText('No exchanges found');
+    const empty = page.getByText('No reconstructed events');
     const exchange = page.locator('.memory-exchange');
     await expect(empty.or(exchange.first())).toBeVisible();
+    await expect(page.getByText('Sessions', { exact: true })).toBeVisible();
+    await expect(page.getByText('Capture an exchange manually')).toBeVisible();
+    await page.getByText('Capture an exchange manually').click();
     await expect(page.getByPlaceholder('Session id')).toBeVisible();
     await expect(page.getByPlaceholder('User prompt')).toBeVisible();
     await expect(page.getByPlaceholder('Full model response')).toBeVisible();
@@ -77,6 +84,9 @@ test.describe('/memory (MemoryPage)', () => {
     );
 
     await page.goto('/memory');
+    await page.locator('[data-memory-tab="activity"]').click();
+    await page.locator('[data-memory-tab="timeline"]').click();
+    await page.getByText('Capture an exchange manually').click();
     const before = await page.getByText(/^\d+ memories$/).innerText();
     const beforeCount = parseInt(before, 10);
 
@@ -111,7 +121,10 @@ test.describe('/memory (MemoryPage)', () => {
 
   test('Graph tab: filter controls render; graph stage shows real (now non-empty) data or its empty state', async ({ page }) => {
     await page.goto('/memory');
+    await page.locator('[data-memory-tab="evidence"]').click();
     await page.locator('[data-memory-tab="graph"]').click();
+    await expect(page.locator('.memory-shell-graph')).toBeVisible();
+    await expect(page.locator('.memory-shell-graph .memory-inspector')).toHaveCount(0);
     await expect(page.getByText('Filters & Controls')).toBeVisible();
     await expect(page.getByRole('button', { name: 'All edges' })).toBeVisible();
     const unavailable = page.getByText('Graph data is unavailable.');
@@ -121,6 +134,7 @@ test.describe('/memory (MemoryPage)', () => {
 
   test('Recall tab: initial empty prompt state, then a real search against local_api', async ({ page }) => {
     await page.goto('/memory');
+    await page.locator('[data-memory-tab="activity"]').click();
     await page.locator('[data-memory-tab="recall"]').click();
     await expect(page.getByText('Search the local memory store')).toBeVisible();
 
@@ -132,6 +146,7 @@ test.describe('/memory (MemoryPage)', () => {
 
   test('Inference tab: automatic-capture copy and review queue render with real empty state', async ({ page }) => {
     await page.goto('/memory');
+    await page.locator('[data-memory-tab="control"]').click();
     await page.locator('[data-memory-tab="inference"]').click();
     await expect(page.getByText('Automatic capture')).toBeVisible();
     await expect(page.getByText(/Hermes automatically records prompts/)).toBeVisible();
@@ -142,6 +157,7 @@ test.describe('/memory (MemoryPage)', () => {
 
   test('Integrity tab: real store-status and integrity-links panels render live values', async ({ page }) => {
     await page.goto('/memory');
+    await page.locator('[data-memory-tab="evidence"]').click();
     await page.locator('[data-memory-tab="integrity"]').click();
     await expect(page.getByText('Store status')).toBeVisible();
     await expect(page.getByText('Integrity links')).toBeVisible();

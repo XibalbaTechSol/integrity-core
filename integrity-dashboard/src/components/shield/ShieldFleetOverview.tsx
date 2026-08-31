@@ -109,6 +109,7 @@ export default function ShieldFleetOverview() {
   const blockedCount = (decisionCounts['contain'] ?? 0) + (decisionCounts['deny'] ?? 0);
   const escalateCount = decisionCounts['escalate'] ?? 0;
   const allowCount = (decisionCounts['allow'] ?? 0) + (decisionCounts['log_only'] ?? 0);
+  const exporterByDevice = new Map((summary?.exporter_status ?? []).map((item) => [item.device_id, item]));
 
   // What kind of raw machine activity Shield actually classified each decision's triggering
   // event as -- real tally over event_ref.class from summary.latest_decisions, not a
@@ -396,20 +397,35 @@ export default function ShieldFleetOverview() {
         </Panel>
       )}
 
-      {summary && summary.exporter_status.length > 0 && (
-        <Panel title="Exporter status" icon={<FileCheck2 size={16} />}>
+      {summary && summary.devices.length > 0 && (
+        <Panel title="Trust & evidence status" icon={<FileCheck2 size={16} />}>
           <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0 0 var(--space-3)' }}>
-            Per-device DID registration and Oracle audit-log readback -- proof a device's decisions are actually reaching the chain-anchored audit trail, not just this backend's own DB.
+            Separate trust and evidence states. Backend enrollment does not imply DID registration, endpoint compliance, or successful anchoring of every event.
           </p>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {summary.exporter_status.map((e) => (
-              <div key={e.device_id} style={{ display: 'flex', gap: 'var(--space-4)', padding: 'var(--space-2) 0', borderBottom: '1px solid var(--glass-border)', fontSize: '0.82rem' }}>
-                <span style={{ fontFamily: 'var(--font-mono, monospace)', flex: 1 }}>{e.device_id}</span>
-                <span style={{ color: e.status.did_registered ? '#10b981' : 'var(--text-muted)' }}>
-                  {e.status.did_registered ? 'DID registered' : 'DID not registered'}
-                </span>
-              </div>
-            ))}
+            {summary.devices.map((device) => {
+              const reported = exporterByDevice.get(device.device_id)?.status;
+              const state = (value: string | boolean | undefined, unknown = 'unknown') => value === undefined ? unknown : typeof value === 'boolean' ? (value ? 'verified' : 'not verified') : value;
+              const stateColor = (value: string | boolean | undefined) => value === undefined ? 'var(--text-muted)' : value === true || value === 'connected' || value === 'verified' || value === 'compliant' ? '#10b981' : value === false || value === 'failed' || value === 'unavailable' || value === 'noncompliant' ? '#f43f5e' : 'var(--text-muted)';
+              const online = device.last_seen_at ? Date.now() - new Date(device.last_seen_at).getTime() <= STALE_MS : false;
+              return (
+                <div key={device.device_id} style={{ padding: 'var(--space-3) 0', borderBottom: '1px solid var(--glass-border)', fontSize: '0.82rem' }}>
+                  <div style={{ display: 'flex', gap: 'var(--space-4)', alignItems: 'center', flexWrap: 'wrap', marginBottom: 'var(--space-2)' }}>
+                    <span style={{ fontFamily: 'var(--font-mono, monospace)', fontWeight: 700 }}>{device.device_id}</span>
+                    <span style={{ color: '#10b981' }}>Backend enrolled</span>
+                    <span style={{ color: online ? '#10b981' : '#f59e0b' }}>{online ? 'online' : 'stale'}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 'var(--space-3)', flexWrap: 'wrap', color: 'var(--text-muted)' }}>
+                    <span style={{ color: stateColor(reported?.did_registered) }}>DID {state(reported?.did_registered)}</span>
+                    <span style={{ color: stateColor(reported?.opa?.healthy) }}>OPA {state(reported?.opa?.healthy)}</span>
+                    <span style={{ color: stateColor(reported?.policy?.healthy ?? (device.policy_hash ? true : undefined)) }}>Policy {state(reported?.policy?.healthy ?? (device.policy_hash ? true : undefined))}</span>
+                    <span>Evidence export {state(reported?.bcc_middleware)}</span>
+                    <span>Oracle readback {state(reported?.oracle_readback)}</span>
+                    <span>Endpoint posture {state(reported?.endpoint_posture)}</span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </Panel>
       )}
