@@ -45,6 +45,7 @@ from cryptography.hazmat.primitives import serialization
 DEFAULT_DATABASE_URL = "postgres://integrity:integrity_dev_only@localhost:5436/integrity"
 HOME = Path.home()
 N_DAYS = 30  # AIS reporting window; history spans this so scores + history views fill.
+CHAIN_ID = int(os.getenv("CHAIN_ID", "84532"))
 
 # bytes32 domain ids from deployments.baseSepolia.json (general / healthcare verticals).
 DOMAIN_GENERAL = "0x595cceb222da8b2d14f13ddd254b38c4c99285925da5d4f854461514dad57e00"
@@ -141,7 +142,7 @@ def load_identity(agent: Agent) -> bool:
 
 # ────────────────────────── identity tables ──────────────────────────
 
-def seed_identity(cur, a: Agent) -> None:
+def seed_identity(cur, a: Agent, chain_id: int = CHAIN_ID) -> None:
     did_doc = {
         "id": a.did,
         "controller": a.did,
@@ -172,30 +173,35 @@ def seed_identity(cur, a: Agent) -> None:
         """
         INSERT INTO agent_primitives (agent_id, sovereign_agent_address, state_anchor_address,
             reputation_registry_address, slasher_address, verifier_registry_address,
-            compliance_gate_address, agent_profile_address, controller_address, domain_id, resolved_at)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, now())
+            compliance_gate_address, agent_profile_address, controller_address, domain_id,
+            chain_id, resolved_at)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, now())
         ON CONFLICT (agent_id) DO UPDATE SET
             sovereign_agent_address = EXCLUDED.sovereign_agent_address,
             slasher_address = EXCLUDED.slasher_address,
             compliance_gate_address = EXCLUDED.compliance_gate_address,
             agent_profile_address = EXCLUDED.agent_profile_address,
-            domain_id = EXCLUDED.domain_id
+            domain_id = EXCLUDED.domain_id,
+            chain_id = EXCLUDED.chain_id
         """,
         (a.did, p["sovereign_agent"], p["state_anchor"], p["reputation_registry"],
          p["slasher"], p["verifier_registry"], p["compliance_gate"], p["agent_profile"],
          a.eth_address or p["sovereign_agent"],
-         DOMAIN_HEALTHCARE if a.vertical == 1 else DOMAIN_GENERAL),
+         DOMAIN_HEALTHCARE if a.vertical == 1 else DOMAIN_GENERAL, chain_id),
     )
 
 
-def purge(cur, dids: list[str]) -> None:
+def purge(cur, dids: list[str], chain_id: int = CHAIN_ID) -> None:
     """Idempotency: drop this run's prior seeded rows for these DIDs (labeled test data)."""
     cur.execute("DELETE FROM judge_evaluations WHERE agent_id = ANY(%s)", (dids,))
     cur.execute("DELETE FROM telemetry_events WHERE agent_id = ANY(%s)", (dids,))
     cur.execute("DELETE FROM otel_spans WHERE agent_id = ANY(%s)", (dids,))
     cur.execute("DELETE FROM audit_log WHERE agent_id = ANY(%s)", (dids,))
     cur.execute("DELETE FROM anchor_events WHERE agent_id = ANY(%s)", (dids,))
-    cur.execute("DELETE FROM leaderboard_cache WHERE agent_id = ANY(%s)", (dids,))
+    cur.execute(
+        "DELETE FROM leaderboard_cache WHERE agent_id = ANY(%s) AND chain_id = %s",
+        (dids, chain_id),
+    )
 
 
 # ────────────────────────── time-series backfill ──────────────────────────
@@ -363,18 +369,25 @@ def compute_ais(a: Agent) -> int:
     return int(base * (1.15 if p.zk else 1.0))
 
 
-def seed_leaderboard(cur, agents: list[Agent]) -> None:
+def seed_leaderboard(cur, agents: list[Agent], chain_id: int = CHAIN_ID) -> None:
     for a in agents:
         cur.execute(
-            """INSERT INTO leaderboard_cache (agent_id, sovereign_agent_address, effective_score, refreshed_at)
-               VALUES (%s,%s,%s, now())
-               ON CONFLICT (agent_id) DO UPDATE SET effective_score = EXCLUDED.effective_score, refreshed_at = now()""",
-            (a.did, a.primitives["sovereign_agent"], str(compute_ais(a))),
+            """INSERT INTO leaderboard_cache
+                   (agent_id, chain_id, sovereign_agent_address, effective_score, refreshed_at)
+               VALUES (%s,%s,%s,%s, now())
+               ON CONFLICT (agent_id, chain_id) DO UPDATE SET
+                   sovereign_agent_address = EXCLUDED.sovereign_agent_address,
+                   effective_score = EXCLUDED.effective_score,
+                   refreshed_at = now()""",
+            (a.did, chain_id, a.primitives["sovereign_agent"], str(compute_ais(a))),
         )
     cur.execute(
-        """INSERT INTO leaderboard_sync (id, agent_count, synced_at) VALUES (TRUE, %s, now())
-           ON CONFLICT (id) DO UPDATE SET agent_count = EXCLUDED.agent_count, synced_at = now()""",
-        (len(agents),),
+        """INSERT INTO leaderboard_sync (id, chain_id, agent_count, synced_at)
+           VALUES (TRUE, %s, %s, now())
+           ON CONFLICT (chain_id) DO UPDATE SET
+               agent_count = EXCLUDED.agent_count,
+               synced_at = now()""",
+        (chain_id, len(agents)),
     )
 
 

@@ -3253,3 +3253,17 @@ writeup: PRODUCTION_GAPS.md §18.
   workspace passed 177 tests plus documentation tests with Barretenberg (`bb`) on `PATH`.
 - Boundary: matching-chain cache isolation does not prove cache freshness or live-chain
   availability.
+
+## [2026-08-31] fix | Dashboard audit seeder chain provenance
+
+- Updated the labeled dashboard-audit seeder to write explicit `CHAIN_ID` provenance for
+  primitive-cache rows and to use migration `0017`'s chain-scoped leaderboard and freshness
+  conflict keys.
+- Added regressions that inspect the operational SQL parameters and conflict targets for both
+  primitive and leaderboard seed paths, including chain-scoped purge behavior that preserves
+  other chains' cached rows and freshness state.
+- Added the demo pytest suite to both root `make test` and the hosted dashboard Continuous
+  Integration job so operational seeder drift is no longer outside the canonical gates.
+- Verification: `uv run pytest -q` in `integrity-dashboard/demo` passed 9/9; an isolated
+  Postgres database migrated through `0017` accepted the real seed writes and returned the
+  expected chain provenance. Broader repository validation is recorded in pull request #85.

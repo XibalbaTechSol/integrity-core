@@ -1,7 +1,7 @@
 ---
 title: integrity-dashboard
 created: 2026-07-07
-updated: 2026-08-29
+updated: 2026-08-31
 type: entity
 tags: [infrastructure, sdk]
 confidence: high
@@ -32,6 +32,8 @@ source_files:
   - integrity-dashboard/src/components/observability/TraceAnalysisPanel.tsx
   - integrity-dashboard/playwright.config.ts
   - integrity-dashboard/e2e
+  - integrity-dashboard/demo/src/integrity_demo/seed_audit.py
+  - integrity-dashboard/demo/tests/test_seed_audit_chain_scope.py
   - integrity-userapi/app/config.py
   - docker-compose.yml
 ---
@@ -227,6 +229,12 @@ or redesign pass):
 - The Shield fleet surface is locally wired to the real backend client, but production registration, sensor coverage, Oracle readback, and burn-in remain external/runtime evidence gates.
 
 ## Local e2e stack
+
+The labeled dashboard-audit seeder writes Oracle primitive and leaderboard cache rows with
+the explicit `CHAIN_ID` selected for the run (Base Sepolia `84532` by default). Its
+leaderboard rows and freshness marker use the chain-scoped conflict keys introduced by
+Oracle migration `0017`; rerunning the seeder therefore cannot create unknown-provenance
+primitive rows or fail against the migrated composite leaderboard key.
 
 `playwright.config.ts`'s `webServer` boots `npm run dev -- --port 5189`
 against whatever `ORACLE_URL`/`USERAPI_URL`/`BCC_MIDDLEWARE_URL` `.env`

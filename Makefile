@@ -136,7 +136,7 @@ test:
 	cd integrity-cli && uv run python -m pytest && $(TEST_STATUS) cli pass || { $(TEST_STATUS) cli fail; false; }
 	cd bcc_middleware && uv run python -m pytest && $(TEST_STATUS) bcc pass || { $(TEST_STATUS) bcc fail; false; }
 	cd integrity-userapi && uv run python -m pytest && $(TEST_STATUS) userapi pass || { $(TEST_STATUS) userapi fail; false; }
-	cd integrity-dashboard && npm run build && npm run lint && $(TEST_STATUS) dashboard pass || { $(TEST_STATUS) dashboard fail; false; }
+	cd integrity-dashboard && npm run build && npm run lint && cd demo && uv run pytest && $(TEST_STATUS) dashboard pass || { $(TEST_STATUS) dashboard fail; false; }
 	$(TEST_STATUS) --finalize
 
 # Real browser (Playwright) end-to-end tests — a separate, slower layer from
