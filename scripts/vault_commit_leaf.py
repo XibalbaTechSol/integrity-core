@@ -63,16 +63,56 @@ def _test_result_hash() -> str:
         return "unverified"
 
     from eth_utils import keccak
+    from test_status_schema import ROOT_SUITE_PROFILE, ROOT_SUITES
 
     try:
-        recorded = json.loads(TEST_STATUS_FILE.read_text()).get("tree_hash")
+        status_bytes = TEST_STATUS_FILE.read_bytes()
+        doc = json.loads(status_bytes)
     except Exception:  # noqa: BLE001
         return "unverified"
 
-    if recorded != _current_tree_hash():
-        return "unverified:stale"
+    if not isinstance(doc, dict):
+        return "unverified"
+    recorded = doc.get("tree_hash")
+    current = _current_tree_hash()
+    if recorded == "unknown" or current == "unknown":
+        return "unverified"
+    if recorded != current:
+        return "unverified:stale" if isinstance(recorded, str) else "unverified"
 
-    return "0x" + keccak(TEST_STATUS_FILE.read_bytes()).hex()
+    expected = doc.get("expected_suites")
+    suites = doc.get("suites")
+    if (
+        doc.get("schema_version") != 2
+        or doc.get("finalized") is not True
+        or doc.get("suite_profile") != ROOT_SUITE_PROFILE
+        or not isinstance(doc.get("run_id"), str)
+        or not doc["run_id"]
+        or not isinstance(expected, list)
+        or not expected
+        or not all(isinstance(name, str) and name for name in expected)
+        or tuple(expected) != ROOT_SUITES
+        or len(expected) != len(set(expected))
+        or not isinstance(suites, dict)
+        or set(suites) != set(expected)
+    ):
+        return "unverified"
+
+    outcomes = []
+    for name in expected:
+        entry = suites.get(name)
+        if (
+            not isinstance(entry, dict)
+            or entry.get("outcome") not in {"pass", "fail"}
+            or entry.get("tree_hash") != recorded
+        ):
+            return "unverified"
+        outcomes.append(entry["outcome"])
+    computed_overall = "pass" if all(value == "pass" for value in outcomes) else "fail"
+    if doc.get("overall") != computed_overall:
+        return "unverified"
+
+    return "0x" + keccak(status_bytes).hex()
 
 
 def main() -> int:
