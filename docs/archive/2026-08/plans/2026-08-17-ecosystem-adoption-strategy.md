@@ -234,3 +234,79 @@ community-reported rather than staked/slashable, no compliance-gating component;
 seed, 2026-06-04) and SecureAuth Agentic Authority Platform (2026-05) — enterprise agent-IAM
 governance plays, no staking/slashing or compliance-vertical gating. None meet this doc's
 specific competitor bar.
+
+### 2026-09-01 — Ecosystem watch: possible direct-combination entrant found (Observer Protocol), KYA stake/slash question partly resolved, everything else unchanged
+
+Automated research sweep (scheduled tracking run, ~4 days after the prior run; branch
+`audit/harness-loop-2026-07-30` had been merged into `main` and deleted since the last run, so
+this run recreated it from `main` before continuing — the tracked file itself has also moved
+from `docs/plans/` to `docs/archive/2026-08/plans/` since 2026-08-17, note for future runs).
+Re-swept all nine named §3 players plus both §4 fact-checks; both are unchanged since
+2026-08-28 (ERC-8004 Identity/Reputation live on 40+ EVM networks, Validation Registry still
+under active spec revision, no new mainnet address; EU AI Act Annex III deadline still
+2027-12-02 per the 2026-08-28 correction, nothing newer surfaced). One likely-material finding
+and one partial resolution, both **lower-confidence than usual** because this session's network
+egress proxy blocked direct fetches of every primary source involved
+(`observerprotocol.org`, `agentecon.ai`, `kya.link` all returned `EGRESS_BLOCKED`) — everything
+below is secondary-source-only and needs a primary-source check from an unrestricted session
+before being treated as settled, more so than this doc's usual standard.
+
+1. **Possible new named entrant: "Observer Protocol"** (`observerprotocol.org`), not previously
+   in §3. Multiple independent secondary sources (its own GitHub org, an arXiv agent-trust-models
+   survey, and a third-party "Agent Payments Stack" directory) describe it consistently as:
+   agent identity tied to legal-entity verification via W3C-compliant "Verifiable Agent
+   Credentials," an "Agent Interaction Protocol" governing delegation and bilateral attestation,
+   and — the part that matters here — observers must stake collateral with slashing on false
+   attestation, explicitly marketed as "the compliance layer" for enterprises delegating economic
+   authority to agents, with KYB linkage and compliance audit trails. If accurate, this is
+   identity + staked/slashable reputation + compliance gating in one stack — the exact
+   combination this doc's brief asks to watch for as a direct competitor, not adjacent like most
+   of the §3 KYA-adjacent entries. Not added to §3 this run: could not independently confirm
+   deployment status (live mainnet vs. spec/whitepaper-stage), funding, or team from a primary
+   source (site fetch blocked), and no funding/founding-date signal turned up in a separate
+   search either. Flagging here rather than adding a table row so a future run (or a session
+   without this network restriction) can verify `observerprotocol.org` directly before this
+   is treated as a confirmed competitor.
+   Sources: [Observer Protocol · GitHub](https://github.com/observer-protocol),
+   [Observer Protocol · Trust Infrastructure for the Agentic Economy](https://observerprotocol.org/),
+   [Observer Protocol · Architecture](https://observerprotocol.org/architecture),
+   [Observer Protocol - The Agent Payments Stack](https://agentpaymentsstack.com/observer-protocol),
+   [Inter-Agent Trust Models: A Comparative Study of Brief, Claim, Proof, Stake, Reputation and
+   Constraint in Agentic Web Protocol Design (arXiv)](https://arxiv.org/html/2511.03434).
+
+2. **§3's existing KYA row's open question ("may or may not have stake/slashing") — partial,
+   unverified signal that the answer is yes.** Search results for the already-tracked "Know
+   Your Agent (KYA), built on AWP protocol, live on Base" row surfaced a "KYA Protocol"
+   whitepaper at `agentecon.ai` and a `kya.link` site describing (consistently across several
+   secondary sources) an ERC-8004-compliant, Base-deployed identity protocol where "AWP stake"
+   is a verified per-agent attribute and staked assets are slashed on guardrail violations —
+   i.e., staking tied to compliance enforcement, not just Sybil resistance. **Caveat, stronger
+   than usual:** it is not fully clear from secondary sources alone whether `agentecon.ai`'s
+   "KYA Protocol" and the `kya.link` "Know Your Agent" are the same project (the "KYA" initialism
+   is now used by at least half a dozen unrelated efforts — Trulioo/Worldpay's framework,
+   Vouched's directory, AstraSync AI, `knowyouragent.network`, `kyapay.org` — see prior
+   changelog entries for some of these already ruled out separately). One search also attributed
+   a "$30M from Polychain Capital, Coinbase Ventures, Polygon Labs, July-August 2025" raise to
+   "KYA Protocol," which predates this doc's original 2026-08-17 dateline by a year and was not
+   independently confirmed — not repeating that figure as fact, flagging it only so a future
+   verification pass knows to check it. Net: worth a primary-source visit to `kya.link` and
+   `agentecon.ai/whitepaper` (both blocked from this session) before updating the §3 table's KYA
+   relevance note from "may or may not have stake/slashing" to confirmed.
+   Sources: [KYA — Know Your Agent](https://kya.link/),
+   [KYA Protocol - Know Your Agent (whitepaper)](https://agentecon.ai/whitepaper),
+   [Every Company Building AI Agent Identity in 2026](https://knowyouragent.network/every-company-building-ai-agent-identity-in-2026),
+   [Know Your Agent (KYA): Establishing the Standard for AI Agent Identity and Trust (AstraSync AI, Medium)](https://medium.com/@astrasyncai/know-your-agent-kya-establishing-the-standard-for-ai-agent-identity-and-trust-d0fb779fc657).
+
+Not material / considered and not added: Cloudflare+GoDaddy's AI Crawl Control default-blocking
+change (effective 2026-09-15, Agent Name Service + Web Bot Auth support) — coverage of this
+dates to July 2026, predates this doc's 2026-08-26 tracking start, not new this sweep, and it's
+already the tracked §3 row's "distribution chokepoint" characterization rather than a
+compliance/reputation competitor; the newly-formed "Agentic Payments Alliance" (Rain, 26
+members including Visa/Mastercard/Circle/Solana/Fiserv, announced 2026-08-18, Fiserv joining
+reported 2026-08-31) — payment-rail standards consolidation, adjacent to the already-tracked
+Visa TAP/Mastercard Agent Pay row per its existing "track for interop only" framing, not an
+identity/reputation/compliance play; Oasis Security's $120M Series B (non-human identity/agentic
+access governance) plus ModelCop and Securden's AI-agent security/governance platform launches —
+enterprise agent-IAM plays, same category as Offroad/SecureAuth already ruled out in the
+2026-08-28 entry, no staking/slashing or compliance-vertical gating disclosed. None meet this
+doc's specific competitor bar with the confidence needed to add them.
