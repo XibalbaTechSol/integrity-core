@@ -3241,3 +3241,18 @@ writeup: PRODUCTION_GAPS.md §18.
 - The initial full-suite attempt without Foundry on `PATH` produced 37 fixture-setup errors
   because `forge` was not discoverable; the installed Foundry 1.7.1 binaries completed the
   canonical suite when their directory was added to `PATH`.
+
+## [2026-09-01] fix | Reproducible dashboard container build
+
+- Added `integrity-dashboard/.dockerignore` so host dependencies, build/test output, local
+  environment files, caches, and repository metadata cannot enter the dashboard image context.
+- Changed the dashboard Dockerfile from mutable `npm install` to lockfile-exact `npm ci`.
+- Reconciled the historical production-gap entry: the old npm arborist failure no longer
+  reproduced, but the previously absent ignore boundary sent 717.42 MB and could overwrite the
+  image's dependency installation with host `node_modules`.
+- Verification: cold `docker compose build --no-cache dashboard` passed with a 4.88 MB context,
+  451 packages installed, and 0 vulnerabilities; host `npm ci` and `npm run build` passed;
+  `npm run lint` completed with 37 existing warnings and 0 errors. A container launched from the
+  image reached Vite readiness in 713 ms and served a 990-byte application shell containing the
+  root mount and Vite client over HTTP; the smoke container was then removed.
+- Evidence boundary: no persistent container or remote deployment was replaced.

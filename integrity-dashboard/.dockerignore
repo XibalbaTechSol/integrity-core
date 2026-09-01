@@ -1,0 +1,23 @@
+# Dependency and build outputs must come from the image's locked install,
+# never from the host checkout. In particular, host node_modules can be
+# hundreds of megabytes and may target a different operating system.
+node_modules
+dist
+playwright-report
+test-results
+coverage
+
+# Local configuration, caches, logs, and editor metadata are not image input.
+.env
+.env.*
+!.env.example
+*.log
+.npm
+.vite
+.DS_Store
+.vscode
+.idea
+
+# Repository metadata is not needed by the Vite development container.
+.git
+.gitignore
