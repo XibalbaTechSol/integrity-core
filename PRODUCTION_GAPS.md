@@ -1299,9 +1299,9 @@ entry records what survived verification and what did not. Full detail:
   `docker compose build dashboard` completed successfully. The build still had a live packaging
   defect, however: no `.dockerignore` existed, so a checkout with host `node_modules` sent a
   **717.42 MB** context and copied host dependencies into the image after the container install.
-  Added `integrity-dashboard/.dockerignore` to exclude host dependencies, build/test output,
-  local environment files, caches, and repository metadata; changed the Dockerfile install to
-  lockfile-exact `npm ci`. A cold `docker compose build --no-cache dashboard` then completed
+  Added `integrity-dashboard/.dockerignore` to exclude host Node/Python dependencies,
+  build/test output, local environment files, caches, and repository metadata; changed the
+  Dockerfile install to lockfile-exact `npm ci`. A cold `docker compose build --no-cache dashboard` then completed
   successfully with a **4.88 MB** context and a fresh in-image install of 451 packages reporting
   0 vulnerabilities. Host `npm ci`, `npm run build`, and `npm run lint` also passed (37 existing
   warnings, 0 errors). A container started from the built image reached Vite readiness in 713 ms;

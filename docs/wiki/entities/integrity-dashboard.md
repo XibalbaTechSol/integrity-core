@@ -89,9 +89,9 @@ this explicitly: "Smart BAA registry, EHR Gates, and Quarantine are all real
 The Compose `dashboard` service builds from `integrity-dashboard/` using
 `node:22-alpine`. Its Dockerfile installs the exact committed dependency graph with
 `npm ci`, then runs the Vite development server on `0.0.0.0`. The build context excludes
-host `node_modules`, `dist`, Playwright/test output, local environment files, caches, and
-repository metadata through `.dockerignore`; host dependencies therefore cannot overwrite
-the clean in-image install during `COPY . .`.
+host `node_modules`, demo `.venv`/Python caches, `dist`, Playwright/test output, local
+environment files, caches, and repository metadata through `.dockerignore`; host dependencies
+therefore cannot overwrite the clean in-image install during `COPY . .`.
 
 On 2026-09-01, a cold `docker compose build --no-cache dashboard` completed with a
 4.88 MB context and installed 451 packages with 0 reported vulnerabilities. A baseline
