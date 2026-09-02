@@ -310,3 +310,54 @@ access governance) plus ModelCop and Securden's AI-agent security/governance pla
 enterprise agent-IAM plays, same category as Offroad/SecureAuth already ruled out in the
 2026-08-28 entry, no staking/slashing or compliance-vertical gating disclosed. None meet this
 doc's specific competitor bar with the confidence needed to add them.
+
+### 2026-09-02 — Ecosystem watch: Observer Protocol upgraded to primary-source-confirmed (still pre-mainnet); everything else unchanged since 2026-09-01
+
+Automated research sweep (scheduled tracking run, ~1 day after the prior run). Re-swept all
+nine named §3 players, both §4 fact-checks, and did a general sweep for a new entrant combining
+identity + staked reputation + compliance gating; only one item advanced past what the
+2026-09-01 entry already recorded.
+
+1. **Observer Protocol (flagged 2026-09-01, previously secondary-source-only) — primary source
+   now reachable, confirms it's a real, actively-developed project, still explicitly pre-mainnet.**
+   Unlike the prior run, this session's network egress was *not* blocked for
+   `github.com/observer-protocol` (it was still blocked for `observerprotocol.org`,
+   `agentecon.ai`, and `kya.link` — same as 2026-09-01). Fetching the GitHub org directly shows
+   active repos updated as recently as 2026-08-31 (`op-policy-engine`, "delegation-scoped
+   enforcement for agentic wallets," referencing an "AIP v0.8" spec) and 2026-08-26
+   (`op-verify-service`, a hosted credential-verification service; `observerprotocol-website`).
+   Several other repos (`ap2-op-authorize`, `x402-op-authorize`, `aqua`) are archived as
+   reference implementations rather than live production code. No mainnet contract address
+   appears anywhere in the org's visible content, and the org's own documentation is explicit
+   that adapters carry tiered "support" rather than uniform production readiness. Net: this is
+   not vaporware — it's a real, currently-maintained project matching the identity +
+   staked/slashable-attestation + compliance-layer combination this doc watches for — but it is
+   confirmed, now from a primary source rather than secondary coverage, to still be at
+   spec/reference-implementation stage, not a deployed competitor. Still not added to §3 for
+   that reason; re-check `observerprotocol.org`/GitHub again next sweep for a mainnet
+   announcement, since active weekly commits suggest this could ship soon.
+   Sources: [Observer Protocol · GitHub org](https://github.com/observer-protocol),
+   [op-policy-engine](https://github.com/observer-protocol/op-policy-engine),
+   [op-verify-service](https://github.com/observer-protocol/op-verify-service).
+
+2. **§4 fact-checks: no change.** ERC-8004 Validation Registry — re-confirmed directly against
+   the primary `erc-8004/erc-8004-contracts` README (reachable this session): still "under
+   active update and discussion with the TEE community," still no mainnet address, identical
+   language to the 2026-08-26/08-28 findings. EU AI Act — general sweep found nothing past the
+   already-recorded 2027-12-02 (Annex III) / 2028-08-02 (Annex I) dates; no new enforcement
+   action or amendment surfaced.
+
+3. **KYA (`agentecon.ai`/`kya.link`) open stake/slash question — unchanged, still open.**
+   Both primary sites remained blocked from this session (same as 2026-09-01). Secondary
+   sources continue to describe a stake/slash mechanism consistent with the 2026-09-01 entry,
+   but add nothing new beyond it, and the multiple-unrelated-projects-share-the-"KYA"-name
+   caveat from that entry still applies. Not repeating as a separate finding since it doesn't
+   advance past what's already recorded.
+
+Not material / considered and not added: ChaosChain/Genesis Studio, FIDO Alliance's Agentic
+Authentication TWG, and Trulioo+Worldpay's Digital Agent Passport all have routine coverage this
+week (SDK/adapter updates, working-group-formation recaps, an AP2 partnership recap) but nothing
+past what's already tracked in §3 — no new staking/slashing or compliance-gating mechanism, no
+status change. General sweep for a new named entrant combining identity + staked reputation +
+compliance gating surfaced nothing beyond Observer Protocol (already tracked above, not new
+this run). No changes to the §3 table this run.
