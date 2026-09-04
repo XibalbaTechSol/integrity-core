@@ -68,6 +68,7 @@ Verifier.toml
 # machine against THIS tree, not a property of the repository — committing it would let one
 # developer's run vouch for everyone's commits.
 .integrity-test-status
+.integrity-test-status.lock
 
 # --- generated dashboard validation artifacts ---
 integrity-dashboard/e2e/screenshots/
