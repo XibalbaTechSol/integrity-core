@@ -1,7 +1,7 @@
 ---
 title: integrity-dashboard
 created: 2026-07-07
-updated: 2026-08-29
+updated: 2026-09-01
 type: entity
 tags: [infrastructure, sdk]
 confidence: high
@@ -32,6 +32,8 @@ source_files:
   - integrity-dashboard/src/components/observability/TraceAnalysisPanel.tsx
   - integrity-dashboard/playwright.config.ts
   - integrity-dashboard/e2e
+  - integrity-dashboard/Dockerfile
+  - integrity-dashboard/.dockerignore
   - integrity-userapi/app/config.py
   - docker-compose.yml
 ---
@@ -49,6 +51,7 @@ rule, the old content is replaced rather than patched.
 ## Table of contents
 
 - [What this is](#what-this-is)
+- [Container packaging](#container-packaging)
 - [Routes](#routes)
 - [Cortex Operations tab boundary](#cortex-operations-tab-boundary)
 - [2026-08-13 full-site Playwright audit](#2026-08-13-full-site-playwright-audit)
@@ -80,6 +83,22 @@ honest empty states on those specific panels even though oracle-backed
 panels for the same agent show real data. `HealthPage`'s own banner states
 this explicitly: "Smart BAA registry, EHR Gates, and Quarantine are all real
 (Base Sepolia)."
+
+## Container packaging
+
+The Compose `dashboard` service builds from `integrity-dashboard/` using
+`node:22-alpine`. Its Dockerfile installs the exact committed dependency graph with
+`npm ci`, then runs the Vite development server on `0.0.0.0`. The build context excludes
+host `node_modules`, demo `.venv`/Python caches, `dist`, Playwright/test output, local
+environment files, caches, and repository metadata through `.dockerignore`; host dependencies
+therefore cannot overwrite the clean in-image install during `COPY . .`.
+
+On 2026-09-01, a cold `docker compose build --no-cache dashboard` completed with a
+4.88 MB context and installed 451 packages with 0 reported vulnerabilities. A baseline
+build from a checkout without `.dockerignore` had sent 717.42 MB when host dependencies
+were present. A container launched from the rebuilt image reached Vite readiness in 713 ms and
+served the real application shell over HTTP before it was removed. This is local build/runtime
+evidence, not evidence that a persistent or remote dashboard deployment was replaced.
 
 ## Routes
 

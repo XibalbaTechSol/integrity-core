@@ -1294,15 +1294,21 @@ entry records what survived verification and what did not. Full detail:
   itself the argument for the healthchecks above: `/healthz` returning `ok` preserved no
   information that could distinguish "broken" from "briefly broken" after the fact.
 
-* **OPEN — the dashboard Docker image cannot be rebuilt.** `docker compose build dashboard`
-  fails at `npm install` with `Cannot read properties of null (reading 'edgesOut')` — an npm
-  arborist crash, not a dependency conflict. Consequence: the running dashboard image dates
-  from **2026-07-18** while its source is current, so `make check-deploy` reports it STALE and
-  *cannot be made fresh*. The dashboard's own suite passes on the host (`vitest run`, 20 files
-  / 68 tests), so this is a container-build problem, not broken code. Untouched by this
-  session's changes — `package.json`/`package-lock.json` are unmodified. Worth noting that the
-  freshness check (§22) is doing exactly its job here: it converted an invisible 13-day drift
-  into a visible, actionable failure.
+* **CLOSED 2026-09-01 — the dashboard Docker image rebuilds reproducibly.** The historical
+  npm arborist crash no longer reproduced on current `main`: a baseline
+  `docker compose build dashboard` completed successfully. The build still had a live packaging
+  defect, however: no `.dockerignore` existed, so a checkout with host `node_modules` sent a
+  **717.42 MB** context and copied host dependencies into the image after the container install.
+  Added `integrity-dashboard/.dockerignore` to exclude host Node/Python dependencies,
+  build/test output, local environment files, caches, and repository metadata; changed the
+  Dockerfile install to lockfile-exact `npm ci`. A cold `docker compose build --no-cache dashboard` then completed
+  successfully with a **4.88 MB** context and a fresh in-image install of 451 packages reporting
+  0 vulnerabilities. Host `npm ci`, `npm run build`, and `npm run lint` also passed (37 existing
+  warnings, 0 errors). A container started from the built image reached Vite readiness in 713 ms;
+  an HTTP read returned the real 990-byte application shell with the root mount and Vite client,
+  and the container was removed after the smoke test. This closes source-level rebuildability
+  and host-contamination risk; it does not claim that a persistent or remote dashboard deployment
+  was replaced in this pass.
 
 ## 25. `integrity_sdk/mcp_server.py` exposed signing/on-chain-write tools with zero coverage from the one gate anyone trusted (2026-08-05)
 

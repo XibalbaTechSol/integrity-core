@@ -3242,6 +3242,23 @@ writeup: PRODUCTION_GAPS.md §18.
   because `forge` was not discoverable; the installed Foundry 1.7.1 binaries completed the
   canonical suite when their directory was added to `PATH`.
 
+## [2026-09-01] fix | Reproducible dashboard container build
+
+- Added `integrity-dashboard/.dockerignore` so host Node/Python dependencies (including the
+  demo `.venv` and Python caches), build/test output, local environment files, caches, and
+  repository metadata cannot enter the dashboard image context.
+- Changed the dashboard Dockerfile from mutable `npm install` to lockfile-exact `npm ci`.
+- Reconciled the historical production-gap entry: the old npm arborist failure no longer
+  reproduced, but the previously absent ignore boundary sent 717.42 MB and could overwrite the
+  image's dependency installation with host `node_modules`.
+- Verification: cold `docker compose build --no-cache dashboard` passed with a 4.88 MB context,
+  451 packages installed, and 0 vulnerabilities; host `npm ci` and `npm run build` passed;
+  `npm run lint` completed with 37 existing warnings and 0 errors. A container launched from the
+  image reached Vite readiness in 713 ms and served a 990-byte application shell containing the
+  root mount and Vite client over HTTP; the smoke container was then removed. A review regression
+  placed 64 MiB in `demo/.venv` and 8 MiB in `demo/__pycache__`; the recursive ignore rules kept
+  both files out of the build context and image, verified by in-container path checks.
+- Evidence boundary: no persistent container or remote deployment was replaced.
 ## [2026-09-01] fix | Per-suite test-status tree binding
 
 - Replaced the local test-status format with an explicit schema-v2 lifecycle: `--begin` declares

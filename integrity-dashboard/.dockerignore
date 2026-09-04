@@ -1,0 +1,47 @@
+# Dependency and build outputs must come from the image's locked install,
+# never from the host checkout. Host Node/Python environments can be
+# hundreds of megabytes and may target a different operating system.
+node_modules
+**/node_modules
+.venv
+**/.venv
+__pycache__
+**/__pycache__
+*.py[cod]
+**/*.py[cod]
+.pytest_cache
+**/.pytest_cache
+.ruff_cache
+**/.ruff_cache
+dist
+**/dist
+playwright-report
+**/playwright-report
+test-results
+**/test-results
+coverage
+**/coverage
+
+# Local configuration, caches, logs, and editor metadata are not image input.
+.env
+**/.env
+.env.*
+**/.env.*
+!.env.example
+!**/.env.example
+*.log
+**/*.log
+.npm
+**/.npm
+.vite
+**/.vite
+.DS_Store
+**/.DS_Store
+.vscode
+**/.vscode
+.idea
+**/.idea
+
+# Repository metadata is not needed by the Vite development container.
+.git
+.gitignore
