@@ -1083,7 +1083,7 @@ Full regression after all of the above: frontend `npm run build`/`npm run lint` 
   * **Corrected diagnosis:** the first hypothesis was a timeout on the chain write. Measured wrong — the real anchor of all 11 backlogged leaves took **3.3s**. The hook is killed *between* the telemetry flush and the anchor call, not during it. SessionEnd now returns in **0.5s** because it only spawns; there is nothing left to kill. Backlog drained: 11 leaves anchored, tx `b189215d8a38118bb2…`.
 
 * **CLOSED (2026-08-03) — all anchored evidence was empty; root cause was a formula bug, not a discipline gap.** All 48 leaves in the vault's history carried `test_result_hash: "unverified"` or `"unverified:stale"` — including leaves committed *after* `record_test_status.py`/`vault_commit_leaf.py`/`tree_hash.py` were built same-day as the original audit to fix exactly this. The tree-mismatch check they share, `tree_hash()`, hashed `rev-parse HEAD + diff HEAD + untracked-file contents` — and `git commit` necessarily changes both `HEAD` (new SHA) and `diff HEAD` (collapses to empty) even when zero file bytes change. A status stamped immediately pre-commit could never structurally match what the post-commit hook computed one command later, so the match rate was never going to be anything but 0%. Fixed in `scripts/tree_hash.py` by hashing the actual bytes of every tracked file (`git ls-files`) instead of a commit-relative diff — `git commit` snapshots the index into a new commit object without touching working-tree files, so this hash is byte-identical immediately before and after a commit that changes nothing further. Verified two ways: a `--self-test` harness pinning the invariance property (4/4: stable across a commit, unaffected by untracked-file churn, changes on a real staged edit, stable across a second commit), and live — the fix's own commit (`acdae8b`) is the first leaf in the vault's history to carry a real hash (`0xf14dce3e…`, attesting to 43/43 `bcc_middleware` OPA policy tests run against that exact tree) instead of `unverified`.
-  * **Note, not re-opened:** all leaves anchored before this fix remain permanently `unverified`/`unverified:stale` — the vault is append-only, so this closes the mechanism going forward, not retroactively. A second, smaller honesty gap surfaced while verifying this: `record_test_status.py --finalize` re-stamps `tree_hash` to the *current* tree but does not check that every already-recorded suite entry in `.integrity-test-status` is still current — a suite result recorded hours earlier, before intervening commits, can get silently re-vouched-for by a fresh `tree_hash` at finalize time if a caller invokes `record_test_status.py` for one new suite without re-running the others. Not fixed this pass; noted for whoever picks up test-status hygiene next.
+  * **CLOSED (2026-09-01):** all leaves anchored before this fix remain permanently `unverified`/`unverified:stale` — the vault is append-only, so this closes the mechanism going forward, not retroactively. A second honesty gap was then closed: schema-v2 status runs now begin with an exact expected-suite set, bind every suite result to the tree observed at record time, and reject mixed-tree, partial, malformed, unknown-tree, or legacy state at finalization. The Trust Vault leaf consumer independently enforces the same completeness and consistency invariants, so bypassing the recorder cannot promote an invalid local document into verified test evidence. Root `make test` starts a fresh eight-suite run before execution. This establishes local workflow/tree consistency only; it does not make the local file tamper-proof, prove external anchoring, or make a tracked-tree snapshot atomic against concurrent edits.
 
 * **OPEN (architectural) — three runtimes, one DID, three incompatible partial loops.** `xibalba` telemetry is a blend of three adapters with different instrumentation levels, distinguishable only by a metadata field:
 
@@ -1302,15 +1302,21 @@ entry records what survived verification and what did not. Full detail:
   itself the argument for the healthchecks above: `/healthz` returning `ok` preserved no
   information that could distinguish "broken" from "briefly broken" after the fact.
 
-* **OPEN — the dashboard Docker image cannot be rebuilt.** `docker compose build dashboard`
-  fails at `npm install` with `Cannot read properties of null (reading 'edgesOut')` — an npm
-  arborist crash, not a dependency conflict. Consequence: the running dashboard image dates
-  from **2026-07-18** while its source is current, so `make check-deploy` reports it STALE and
-  *cannot be made fresh*. The dashboard's own suite passes on the host (`vitest run`, 20 files
-  / 68 tests), so this is a container-build problem, not broken code. Untouched by this
-  session's changes — `package.json`/`package-lock.json` are unmodified. Worth noting that the
-  freshness check (§22) is doing exactly its job here: it converted an invisible 13-day drift
-  into a visible, actionable failure.
+* **CLOSED 2026-09-01 — the dashboard Docker image rebuilds reproducibly.** The historical
+  npm arborist crash no longer reproduced on current `main`: a baseline
+  `docker compose build dashboard` completed successfully. The build still had a live packaging
+  defect, however: no `.dockerignore` existed, so a checkout with host `node_modules` sent a
+  **717.42 MB** context and copied host dependencies into the image after the container install.
+  Added `integrity-dashboard/.dockerignore` to exclude host Node/Python dependencies,
+  build/test output, local environment files, caches, and repository metadata; changed the
+  Dockerfile install to lockfile-exact `npm ci`. A cold `docker compose build --no-cache dashboard` then completed
+  successfully with a **4.88 MB** context and a fresh in-image install of 451 packages reporting
+  0 vulnerabilities. Host `npm ci`, `npm run build`, and `npm run lint` also passed (37 existing
+  warnings, 0 errors). A container started from the built image reached Vite readiness in 713 ms;
+  an HTTP read returned the real 990-byte application shell with the root mount and Vite client,
+  and the container was removed after the smoke test. This closes source-level rebuildability
+  and host-contamination risk; it does not claim that a persistent or remote dashboard deployment
+  was replaced in this pass.
 
 ## 25. `integrity_sdk/mcp_server.py` exposed signing/on-chain-write tools with zero coverage from the one gate anyone trusted (2026-08-05)
 
@@ -3838,3 +3844,26 @@ already-shipped step toward it, not a claim of v1-required status.
 publication, permissionless publication making an adapter installable, idempotent republication,
 conflicting-republication revert, the emitted event carrying the registration's own `specHash`,
 and per-adapter independence). Full suite 492/492, zero regressions.
+
+## 65. Policy-hook test coverage gap closed: reverting policies and setter access control (2026-08-31)
+
+*Current State:* the `feat/role-split-policy-hooks` branch's original test file
+(`PolicyHookInvariants.t.sol`, 11 tests) never made it to `main` when its interfaces landed under
+`contracts/test/PolicyHooks.t.sol` (7 tests, a renamed, evolved rewrite). Diffed the two directly
+(recovered the old file from git's unreachable-object store after the source branch was deleted)
+rather than guessing at the delta: two real gaps, not redundant with anything the 7 existing
+tests already covered.
+
+`docs/SPEC.md` §5.3 (added this session, see #entry above on the same date) requires "a `false`
+return OR a revert" from `IExecutionPolicy`/`IAnchorPolicy` to both fail closed identically --
+nothing in the suite exercised the revert half. Added `RevertingExecutionPolicy`/
+`RevertingAnchorPolicy` test-only mocks and two tests confirming a reverting policy leaves
+`executionNonce`/`latestEpoch`/`latestRoot` completely unchanged, not just that the call reverts.
+
+Also untested anywhere in the repo: `setExecutionPolicy`/`setAnchorPolicy` are real
+access-controlled setters (`onlyController` / `onlyRole(DEFAULT_ADMIN_ROLE)` respectively,
+confirmed by reading `SovereignAgent.sol`/`StateAnchor.sol` directly before writing the tests,
+not assumed) with zero test coverage anywhere in `contracts/test/`. Added two tests confirming a
+non-controller/non-admin stranger cannot install a policy.
+
+4 new tests, full suite 496/496, zero regressions.
