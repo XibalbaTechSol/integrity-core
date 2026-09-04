@@ -122,21 +122,22 @@ down:
 #     after it never ran at all — one bcc_middleware failure silently skipped userapi and
 #     dashboard entirely, while looking like a single ordinary failure.
 #
-# Note the trap in fixing only (1): with a working path, `|| $(TEST_STATUS) pkg fail`
-# exits 0, so `make test` would report SUCCESS on a red suite. `false` after the recorder
-# preserves "record the outcome, then still fail" — the recorder must never mask, nor
-# invent, a result.
-TEST_STATUS := python3 $(CURDIR)/scripts/record_test_status.py
+# Each suite branch records pass or fail and returns success so the remaining suites still run.
+# The finalizer derives the aggregate result and returns nonzero after all expected outcomes have
+# been persisted; recorder/instrumentation errors still stop immediately.
+TEST_RUN_ID := $(shell python3 -c 'import uuid; print(uuid.uuid4())')
+TEST_STATUS := uv run --project $(CURDIR)/integrity-sdk python $(CURDIR)/scripts/record_test_status.py --run-id $(TEST_RUN_ID)
 
 test:
-	cd contracts && forge test && $(TEST_STATUS) contracts pass || { $(TEST_STATUS) contracts fail; false; }
-	cd integrity-zkp && nargo test && $(TEST_STATUS) zkp pass || { $(TEST_STATUS) zkp fail; false; }
-	cd integrity-oracle && cargo test && $(TEST_STATUS) oracle pass || { $(TEST_STATUS) oracle fail; false; }
-	cd integrity-sdk && uv run python -m pytest && $(TEST_STATUS) sdk pass || { $(TEST_STATUS) sdk fail; false; }
-	cd integrity-cli && uv run python -m pytest && $(TEST_STATUS) cli pass || { $(TEST_STATUS) cli fail; false; }
-	cd bcc_middleware && uv run python -m pytest && $(TEST_STATUS) bcc pass || { $(TEST_STATUS) bcc fail; false; }
-	cd integrity-userapi && uv run python -m pytest && $(TEST_STATUS) userapi pass || { $(TEST_STATUS) userapi fail; false; }
-	cd integrity-dashboard && npm run build && npm run lint && $(TEST_STATUS) dashboard pass || { $(TEST_STATUS) dashboard fail; false; }
+	$(TEST_STATUS) --begin contracts zkp oracle sdk cli bcc userapi dashboard
+	@if cd contracts && forge test; then $(TEST_STATUS) contracts pass; else $(TEST_STATUS) contracts fail; fi
+	@if cd integrity-zkp && nargo test; then $(TEST_STATUS) zkp pass; else $(TEST_STATUS) zkp fail; fi
+	@if cd integrity-oracle && cargo test; then $(TEST_STATUS) oracle pass; else $(TEST_STATUS) oracle fail; fi
+	@if cd integrity-sdk && uv run python -m pytest; then $(TEST_STATUS) sdk pass; else $(TEST_STATUS) sdk fail; fi
+	@if cd integrity-cli && uv run python -m pytest; then $(TEST_STATUS) cli pass; else $(TEST_STATUS) cli fail; fi
+	@if cd bcc_middleware && uv run python -m pytest; then $(TEST_STATUS) bcc pass; else $(TEST_STATUS) bcc fail; fi
+	@if cd integrity-userapi && uv run python -m pytest; then $(TEST_STATUS) userapi pass; else $(TEST_STATUS) userapi fail; fi
+	@if cd integrity-dashboard && npm run build && npm run lint; then $(TEST_STATUS) dashboard pass; else $(TEST_STATUS) dashboard fail; fi
 	$(TEST_STATUS) --finalize
 
 # Real browser (Playwright) end-to-end tests — a separate, slower layer from

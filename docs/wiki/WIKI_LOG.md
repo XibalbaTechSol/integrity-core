@@ -3259,3 +3259,20 @@ writeup: PRODUCTION_GAPS.md §18.
   placed 64 MiB in `demo/.venv` and 8 MiB in `demo/__pycache__`; the recursive ignore rules kept
   both files out of the build context and image, verified by in-container path checks.
 - Evidence boundary: no persistent container or remote deployment was replaced.
+## [2026-09-01] fix | Per-suite test-status tree binding
+
+- Replaced the local test-status format with an explicit schema-v2 lifecycle: `--begin` declares
+  a unique run identifier and the exact expected suite set, each result records its own
+  tracked-tree hash, and finalization rejects partial, mixed-tree, cross-run, malformed,
+  unknown-tree, and legacy status. File locking and atomic replacement fence concurrent writers;
+  root failures still run every suite before finalization returns nonzero.
+- Hardened the Trust Vault leaf consumer to independently validate finalization, suite
+  completeness, per-suite provenance, valid outcomes, and the derived overall result before
+  hashing local status as verified evidence.
+- Root `make test` now starts a fresh eight-suite run; prior local status is never silently
+  migrated or carried forward.
+- Focused verification: `integrity-sdk/.venv/bin/python -m pytest -q
+  scripts/tests/test_test_status.py` passed 14/14; `integrity-sdk/.venv/bin/python
+  scripts/tree_hash.py --self-test` passed 4/4; wiki table-of-contents validation passed for 35
+  pages. This proves local workflow/tree consistency, not hostile-host authenticity, external
+  anchoring, or atomicity against concurrent source edits.

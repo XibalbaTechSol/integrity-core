@@ -2,6 +2,9 @@
   "generatedAt": "2026-09-01T06:01:55-05:00",
   "source": "https://github.com/XibalbaTechSol/integrity-core/tree/main/docs/wiki",
   "commit": "16e5147",
+  "generatedAt": "2026-08-31T13:46:23-05:00",
+  "source": "https://github.com/XibalbaTechSol/integrity-core/tree/main/docs/wiki",
+  "commit": "408c54f",
   "pages": [
     {
       "id": "home",
@@ -507,7 +510,7 @@
       "path": "concepts/test-status-tree-binding.md",
       "category": "concepts",
       "title": "Test-status tree binding",
-      "updated": "2026-08-29",
+      "updated": "2026-09-01",
       "confidence": "high",
       "tags": [
         "provenance",
@@ -516,7 +519,7 @@
       ],
       "sourceFiles": [],
       "excerpt": "Table of contents Purpose Current implementation Verification and limits Purpose A local test result must not be attached to a different source tree. The test status recorder and Trust Vault",
-      "body": "## Table of contents\n\n- [Purpose](#purpose)\n- [Current implementation](#current-implementation)\n- [Verification and limits](#verification-and-limits)\n\n## Purpose\n\nA local test result must not be attached to a different source tree. The test-status recorder and\nTrust Vault leaf writer therefore share `scripts/tree_hash.py` rather than maintaining separate\nfingerprint algorithms.\n\n## Current implementation\n\n`tree_hash(repo)` hashes the path and SHA-256 digest of every tracked file and returns a\nKeccak-256 fingerprint. Untracked files are excluded because they are not part of the committed\ntree being attested. Both `record_test_status.py` and `vault_commit_leaf.py` import this function.\n\nAt leaf creation, a missing status is recorded as `unverified`; a status for a different tree is\nrecorded as `unverified:stale`; only a matching status file is hashed into the leaf as test-result\nevidence.\n\n## Verification and limits\n\nThe deterministic self-test recorded on 2026-08-13 passed 4/4:\n\n```text\npython3 scripts/tree_hash.py --self-test\n4/4 passed\n```\n\nThe test covers commit-boundary stability, untracked-file exclusion, tracked-content sensitivity,\nand stability across a second commit. This verifies the local fingerprint algorithm only. It does\nnot establish external anchoring, successful remote delivery, or that every historical leaf was\ncreated from a matching test status."
+      "body": "## Table of contents\n\n- [Purpose](#purpose)\n- [Current implementation](#current-implementation)\n- [Verification and limits](#verification-and-limits)\n\n## Purpose\n\nA local test result must not be attached to a different source tree. The test-status recorder and\nTrust Vault leaf writer therefore share `scripts/tree_hash.py` rather than maintaining separate\nfingerprint algorithms.\n\n## Current implementation\n\n`tree_hash(repo)` hashes the path and SHA-256 digest of every tracked file and returns a\nKeccak-256 fingerprint. Untracked files are excluded because they are not part of the committed\ntree being attested. Both `record_test_status.py` and `vault_commit_leaf.py` import this function.\n\n`make test` starts an explicit schema-v2 run with a unique run identifier and names all eight\nexpected suites. Each suite result stores the tree hash observed when that suite finishes;\nfinalization succeeds only when the exact expected suite set exists and every result names the\ncurrent tracked tree. Suite failures are recorded without aborting later suites, then finalization\nreturns a failing exit after the complete result set is persisted. File locking, run-identifier\nmatching, and atomic replacement prevent concurrent invocations from mixing or exposing partial\nJSON. Finalization never re-stamps an older suite result onto a newer tree. Legacy, malformed,\npartial, mixed-tree, cross-run, and unknown-tree status documents fail closed rather than being\nsilently migrated. The leaf consumer accepts only the shared `integrity-core-root-v1` profile and\nits exact eight-suite set; internally consistent custom or reduced runs remain unverified.\n\nAt leaf creation, the consumer independently revalidates schema version, finalization state,\nexpected-suite completeness, per-suite tree binding, outcomes, and the derived overall result. A\nmissing or invalid status is recorded as `unverified`; an explicit status for a different tree is\nrecorded as `unverified:stale`; only a consistent finalized status file is hashed into the leaf.\n\n## Verification and limits\n\nThe deterministic tree-hash self-test recorded on 2026-08-13 passed 4/4:\n\n```text\npython3 scripts/tree_hash.py --self-test\n4/4 passed\n```\n\nThe test covers commit-boundary stability, untracked-file exclusion, tracked-content sensitivity,\nand stability across a second commit. This verifies the local fingerprint algorithm only. It does\ndoes not establish external anchoring, successful remote delivery, or that every historical leaf was\ncreated from a matching test status. Focused schema-v2 regressions additionally cover mixed-tree\nrejection, complete-run finalization, incomplete and legacy documents, invalid outcomes,\npost-finalize invalidation, consumer-side consistency checks, and explicit stale classification."
     },
     {
       "id": "concepts/testing-strategy",
