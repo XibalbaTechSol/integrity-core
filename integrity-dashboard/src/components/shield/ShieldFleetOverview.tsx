@@ -404,10 +404,19 @@ export default function ShieldFleetOverview() {
           </p>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {summary.devices.map((device) => {
-              const reported = exporterByDevice.get(device.device_id)?.status;
+              const exporterRow = exporterByDevice.get(device.device_id);
+              const reported = exporterRow?.status;
               const state = (value: string | boolean | undefined, unknown = 'unknown') => value === undefined ? unknown : typeof value === 'boolean' ? (value ? 'verified' : 'not verified') : value;
               const stateColor = (value: string | boolean | undefined) => value === undefined ? 'var(--text-muted)' : value === true || value === 'connected' || value === 'verified' || value === 'compliant' ? '#10b981' : value === false || value === 'failed' || value === 'unavailable' || value === 'noncompliant' ? '#f43f5e' : 'var(--text-muted)';
               const online = device.last_seen_at ? Date.now() - new Date(device.last_seen_at).getTime() <= STALE_MS : false;
+              // A device can keep sending decision/outcome/metric traffic (online === true)
+              // while its own watchdog thread has separately died or stopped publishing --
+              // opa/policy/sensors/exporter come from a DIFFERENT write path
+              // (publish_runtime_status -> exporter_status), so they need their OWN
+              // staleness check against exporter_status.updated_at, not device.last_seen_at.
+              // Without this, a frozen last-known "OPA: healthy" could display forever.
+              const exporterStale = !exporterRow?.updated_at || Date.now() - new Date(exporterRow.updated_at).getTime() > STALE_MS;
+              const freshReported = exporterStale ? undefined : reported;
               return (
                 <div key={device.device_id} style={{ padding: 'var(--space-3) 0', borderBottom: '1px solid var(--glass-border)', fontSize: '0.82rem' }}>
                   <div style={{ display: 'flex', gap: 'var(--space-4)', alignItems: 'center', flexWrap: 'wrap', marginBottom: 'var(--space-2)' }}>
@@ -417,11 +426,17 @@ export default function ShieldFleetOverview() {
                   </div>
                   <div style={{ display: 'flex', gap: 'var(--space-3)', flexWrap: 'wrap', color: 'var(--text-muted)' }}>
                     <span style={{ color: stateColor(reported?.did_registered) }}>DID {state(reported?.did_registered)}</span>
-                    <span style={{ color: stateColor(reported?.opa?.healthy) }}>OPA {state(reported?.opa?.healthy)}</span>
-                    <span style={{ color: stateColor(reported?.policy?.healthy ?? (device.policy_hash ? true : undefined)) }}>Policy {state(reported?.policy?.healthy ?? (device.policy_hash ? true : undefined))}</span>
+                    <span style={{ color: stateColor(freshReported?.opa?.healthy) }}>OPA {state(freshReported?.opa?.healthy)}</span>
+                    <span style={{ color: stateColor(freshReported?.policy?.healthy ?? (device.policy_hash && !exporterStale ? true : undefined)) }}>Policy {state(freshReported?.policy?.healthy ?? (device.policy_hash && !exporterStale ? true : undefined))}</span>
                     <span>Evidence export {state(reported?.bcc_middleware)}</span>
                     <span>Oracle readback {state(reported?.oracle_readback)}</span>
                     <span>Endpoint posture {state(reported?.endpoint_posture)}</span>
+                    <span style={{ color: (freshReported?.sensors?.lost_events ?? 0) > 0 ? '#f59e0b' : 'var(--text-muted)' }}>
+                      Sensor lost events {freshReported?.sensors ? (freshReported.sensors.lost_events ?? 0) : 'unknown'}
+                    </span>
+                    <span style={{ color: (freshReported?.exporter?.export_failures ?? 0) > 0 ? '#f43f5e' : 'var(--text-muted)' }}>
+                      Export failures {freshReported?.exporter ? (freshReported.exporter.export_failures ?? 0) : 'unknown'}
+                    </span>
                   </div>
                 </div>
               );
