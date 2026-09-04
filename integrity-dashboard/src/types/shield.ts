@@ -54,6 +54,8 @@ export interface ShieldExporterStatus {
         opa?: { healthy?: boolean; last_checked_at?: string | null; last_error?: string | null };
         policy?: { healthy?: boolean; active_policy_version?: string; active_policy_hash?: string; last_error?: string | null };
         endpoint_posture?: 'compliant' | 'noncompliant' | 'unknown' | string;
+        sensors?: { attached?: boolean; lost_events?: number; last_event_at?: string | null };
+        exporter?: { export_failures?: number; queue_depth?: number | null };
     };
     updated_at?: string;
 }
