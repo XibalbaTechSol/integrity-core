@@ -1061,10 +1061,13 @@ async fn oracle_e2e_agents_list_degrades_without_xns() {
     let rpc_url = format!("http://127.0.0.1:{anvil_port}");
     let _anvil = start_anvil(anvil_port);
 
-    // Real deployments file, minus the XNS singleton.
-    let mut deployments: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(repo_root().join("deployments.local.json")).unwrap()).unwrap();
-    deployments["singletons"].as_object_mut().unwrap().remove("XibalbaNameService");
+    // Minimal real deployments shape with XNS deliberately absent. The registry address is not
+    // called by this fleet-list path, but must be syntactically present for ChainClient startup.
+    let deployments = serde_json::json!({
+        "singletons": {
+            "XibalbaAgentRegistry": "0x0000000000000000000000000000000000000001"
+        }
+    });
     let stripped = std::env::temp_dir().join(format!("deployments-no-xns-{anvil_port}.json"));
     std::fs::write(&stripped, serde_json::to_string(&deployments).unwrap()).unwrap();
 
@@ -1074,14 +1077,20 @@ async fn oracle_e2e_agents_list_degrades_without_xns() {
         "test setup is wrong if XNS is still configured — it would not exercise the degradation path"
     );
 
-    // Two agents: one with a cached primitive set (the normal case), one without any
-    // `agent_primitives` row at all (must still appear — the query LEFT JOINs on purpose).
+    // Four agents exercise the chain-scoped LEFT JOIN: only the current-chain cache row may
+    // enrich the fleet. Wrong-chain, legacy NULL-chain, and absent rows must all remain in
+    // the list with no primitive address attached.
     let with_primitives = "did:integrity:xns-e2e-with-primitives";
+    let wrong_chain = "did:integrity:xns-e2e-wrong-chain";
+    let legacy_null_chain = "did:integrity:xns-e2e-legacy-null-chain";
     let without_primitives = "did:integrity:xns-e2e-without-primitives";
     let addr_of = |n: u8| format!("0x{:040x}", n);
     // `eth_address` is required: migration 0001's `agents_has_a_verification_method` check
     // constraint refuses a row with neither an eth_address nor an ed25519_pubkey.
-    for (i, id) in [with_primitives, without_primitives].into_iter().enumerate() {
+    for (i, id) in [with_primitives, wrong_chain, legacy_null_chain, without_primitives]
+        .into_iter()
+        .enumerate()
+    {
         sqlx::query("INSERT INTO agents (id, eth_address, verification_tier, last_nonce) VALUES ($1, $2, 1, 0)")
             .bind(id)
             .bind(addr_of(100 + i as u8))
@@ -1089,16 +1098,118 @@ async fn oracle_e2e_agents_list_degrades_without_xns() {
             .await
             .unwrap();
     }
-    db::upsert_agent_primitives(
+    let current_chain_id = state.chain.chain_id() as i64;
+    for (id, sovereign, chain_id) in [
+        (with_primitives, addr_of(1), current_chain_id),
+        (wrong_chain, addr_of(21), current_chain_id + 1),
+        (legacy_null_chain, addr_of(31), current_chain_id),
+    ] {
+        db::upsert_agent_primitives(
+            &state.pool,
+            id,
+            &sovereign,
+            &addr_of(2), &addr_of(3), &addr_of(4), &addr_of(5), &addr_of(6), &addr_of(7),
+            &addr_of(8),
+            "0",
+            chain_id,
+        )
+        .await
+        .unwrap();
+    }
+    sqlx::query("UPDATE agent_primitives SET chain_id = NULL WHERE agent_id = $1")
+        .bind(legacy_null_chain)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+    assert!(db::get_agent_primitives_on_chain(&state.pool, with_primitives, current_chain_id)
+        .await
+        .unwrap()
+        .is_some());
+    for id in [wrong_chain, legacy_null_chain, without_primitives] {
+        assert!(db::get_agent_primitives_on_chain(&state.pool, id, current_chain_id)
+            .await
+            .unwrap()
+            .is_none());
+    }
+    assert_eq!(
+        db::did_by_sovereign_agent_on_chain(&state.pool, &addr_of(1), current_chain_id)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(with_primitives)
+    );
+    assert!(db::did_by_sovereign_agent_on_chain(&state.pool, &addr_of(21), current_chain_id)
+        .await
+        .unwrap()
+        .is_none());
+
+    let listed = db::list_agents_with_primitives_on_chain(&state.pool, current_chain_id)
+        .await
+        .unwrap();
+    for (id, should_have_primitives) in [
+        (with_primitives, true),
+        (wrong_chain, false),
+        (legacy_null_chain, false),
+        (without_primitives, false),
+    ] {
+        let row = listed.iter().find(|row| row.id == id).unwrap();
+        assert_eq!(
+            row.sovereign_agent_address.is_some(),
+            should_have_primitives,
+            "fleet enrichment for {id} must be scoped to chain {current_chain_id}"
+        );
+    }
+
+    // The derived leaderboard and its freshness marker are independently chain-scoped too.
+    let now = chrono::Utc::now();
+    db::replace_leaderboard_cache_for_chain(
         &state.pool,
-        with_primitives,
-        &addr_of(1), &addr_of(2), &addr_of(3), &addr_of(4), &addr_of(5), &addr_of(6), &addr_of(7),
-        &addr_of(8),
-        "0",
-        31337,
+        current_chain_id,
+        &[(with_primitives.into(), addr_of(1), "100".into())],
+        1,
+        now,
     )
     .await
     .unwrap();
+    db::replace_leaderboard_cache_for_chain(
+        &state.pool,
+        current_chain_id + 1,
+        &[(wrong_chain.into(), addr_of(21), "999".into())],
+        1,
+        now,
+    )
+    .await
+    .unwrap();
+    let current_leaderboard =
+        db::list_leaderboard_cache_on_chain(&state.pool, current_chain_id)
+            .await
+            .unwrap();
+    assert_eq!(current_leaderboard.len(), 1);
+    assert_eq!(current_leaderboard[0].agent_id, with_primitives);
+    assert_eq!(
+        db::get_leaderboard_sync_on_chain(&state.pool, current_chain_id + 1)
+            .await
+            .unwrap()
+            .unwrap()
+            .agent_count,
+        1
+    );
+    db::replace_leaderboard_cache_for_chain(&state.pool, current_chain_id, &[], 0, now)
+        .await
+        .unwrap();
+    assert!(db::list_leaderboard_cache_on_chain(&state.pool, current_chain_id)
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        db::list_leaderboard_cache_on_chain(&state.pool, current_chain_id + 1)
+            .await
+            .unwrap()
+            .len(),
+        1,
+        "replacing one chain's snapshot must not delete another chain's cache"
+    );
 
     let app = backend::build_router(state.clone());
     let server_port = free_port();
@@ -1115,7 +1226,7 @@ async fn oracle_e2e_agents_list_degrades_without_xns() {
     );
     let agents: Vec<serde_json::Value> = resp.json().await.unwrap();
 
-    for id in [with_primitives, without_primitives] {
+    for id in [with_primitives, wrong_chain, legacy_null_chain, without_primitives] {
         let agent = agents
             .iter()
             .find(|a| a["id"] == id)
@@ -1227,7 +1338,12 @@ async fn oracle_e2e_register_rejects_missing_genesis_memory_root() {
     );
 
     // And the refusal must be total — no half-registered agent left behind (§6).
-    let listed = db::list_agents(&state.pool).await.unwrap();
+    let listed = db::list_agents_with_primitives_on_chain(
+        &state.pool,
+        state.chain.chain_id() as i64,
+    )
+    .await
+    .unwrap();
     assert!(
         !listed.iter().any(|a| a.id == reg["did"].as_str().unwrap()),
         "a rejected agent must not be persisted"

@@ -290,9 +290,10 @@ pub async fn get_agent(
     // "resolved before this column existed") is treated exactly like a cache miss —
     // never served as-is — so an oracle repointed to a different network can't keep
     // handing out addresses that belong to the old one.
-    let cached = db::get_agent_primitives(&state.pool, &id).await?;
     let current_chain_id = state.chain.chain_id() as i64;
-    let (primitives, source) = match cached.filter(|row| row.chain_id == Some(current_chain_id)) {
+    let cached =
+        db::get_agent_primitives_on_chain(&state.pool, &id, current_chain_id).await?;
+    let (primitives, source) = match cached {
         Some(row) => (Some(row_to_dto(&row)?), "cache"),
         None => match state.chain.resolve_primitives_by_did(&id).await {
             Ok(record) => {
@@ -422,7 +423,11 @@ pub struct AgentSummary {
 pub async fn list_agents(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<AgentSummary>>, AppError> {
-    let rows = db::list_agents(&state.pool).await?;
+    let rows = db::list_agents_with_primitives_on_chain(
+        &state.pool,
+        state.chain.chain_id() as i64,
+    )
+    .await?;
     let handles = resolve_primary_handles(&state, &rows).await;
     Ok(Json(
         rows.into_iter()
@@ -592,7 +597,12 @@ pub(crate) async fn compute_ais_for_agent(
     let tier = db::effective_verification_tier(&state.pool, id, agent.verification_tier).await?;
     let breakdown = engine.score_with_tier(&inputs, tier);
 
-    let primitives_row = db::get_agent_primitives(&state.pool, id).await?;
+    let primitives_row = db::get_agent_primitives_on_chain(
+        &state.pool,
+        id,
+        state.chain.chain_id() as i64,
+    )
+    .await?;
 
     let onchain_zk_boost_consistent = match &primitives_row {
         Some(row) => {
@@ -872,7 +882,11 @@ async fn check_telemetry_rate_limit(state: &AppState, agent_id: &str) -> Result<
 async fn oracle_compliance(state: &AppState, req: &TelemetryIngestRequest) -> f64 {
     let self_reported = derive::self_reported_compliance(&req.otel_spans);
 
-    let Some(primitives) = db::get_agent_primitives(&state.pool, &req.agent_id)
+    let Some(primitives) = db::get_agent_primitives_on_chain(
+        &state.pool,
+        &req.agent_id,
+        state.chain.chain_id() as i64,
+    )
         .await
         .ok()
         .flatten()
@@ -1220,9 +1234,8 @@ pub async fn get_compliance(
     // E11: same chain-id guard as `get_agent`/`resolve_primitives_row` — a cross-chain
     // cache row must not be trusted for a live compliance-gate read either.
     let current_chain_id = state.chain.chain_id() as i64;
-    let cached = db::get_agent_primitives(&state.pool, &id)
-        .await?
-        .filter(|row| row.chain_id == Some(current_chain_id));
+    let cached =
+        db::get_agent_primitives_on_chain(&state.pool, &id, current_chain_id).await?;
     let compliance_gate_addr = match cached {
         Some(row) => Address::from_str(&row.compliance_gate_address).map_err(|e| {
             AppError::Internal(anyhow::anyhow!(
@@ -1521,9 +1534,8 @@ async fn resolve_primitives_row(
     // E11: only trust a cache row resolved against this oracle's own chain — see the
     // matching comment in `get_agent` above for why.
     let current_chain_id = state.chain.chain_id() as i64;
-    if let Some(row) = db::get_agent_primitives(&state.pool, agent_id)
-        .await?
-        .filter(|row| row.chain_id == Some(current_chain_id))
+    if let Some(row) =
+        db::get_agent_primitives_on_chain(&state.pool, agent_id, current_chain_id).await?
     {
         return Ok(Some(row));
     }
@@ -1544,7 +1556,10 @@ async fn resolve_primitives_row(
                 current_chain_id,
             )
             .await?;
-            Ok(db::get_agent_primitives(&state.pool, agent_id).await?)
+            Ok(
+                db::get_agent_primitives_on_chain(&state.pool, agent_id, current_chain_id)
+                    .await?,
+            )
         }
         Err(_) => Ok(None),
     }
@@ -1574,7 +1589,8 @@ pub struct LeaderboardEntryDto {
 /// a newly-registered agent actually appears, mirroring
 /// `refresh_markets_index_if_stale`'s exact pattern.
 async fn refresh_leaderboard_if_stale(state: &AppState) -> Result<(), AppError> {
-    let sync = db::get_leaderboard_sync(&state.pool).await?;
+    let chain_id = state.chain.chain_id() as i64;
+    let sync = db::get_leaderboard_sync_on_chain(&state.pool, chain_id).await?;
     let stale = match &sync {
         None => true,
         Some(s) => {
@@ -1586,7 +1602,11 @@ async fn refresh_leaderboard_if_stale(state: &AppState) -> Result<(), AppError> 
         return Ok(());
     }
 
-    let agents = db::list_agents(&state.pool).await?;
+    let agents = db::list_agents_with_primitives_on_chain(
+        &state.pool,
+        chain_id,
+    )
+    .await?;
     let agent_count = agents.len();
 
     let reads = agents.into_iter().map(|agent| {
@@ -1611,11 +1631,20 @@ async fn refresh_leaderboard_if_stale(state: &AppState) -> Result<(), AppError> 
         .into_iter()
         .flatten()
         .collect();
-    for (agent_id, sovereign_agent, score) in &results {
-        db::upsert_leaderboard_cache(&state.pool, agent_id, sovereign_agent, &score.to_string())
-            .await?;
-    }
-    db::upsert_leaderboard_sync(&state.pool, agent_count as i32, Utc::now()).await?;
+    let snapshot: Vec<(String, String, String)> = results
+        .into_iter()
+        .map(|(agent_id, sovereign_agent, score)| {
+            (agent_id, sovereign_agent, score.to_string())
+        })
+        .collect();
+    db::replace_leaderboard_cache_for_chain(
+        &state.pool,
+        chain_id,
+        &snapshot,
+        agent_count as i32,
+        Utc::now(),
+    )
+    .await?;
     Ok(())
 }
 
@@ -1629,7 +1658,11 @@ pub async fn get_leaderboard(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<LeaderboardEntryDto>>, AppError> {
     refresh_leaderboard_if_stale(&state).await?;
-    let mut rows = db::list_leaderboard_cache(&state.pool).await?;
+    let mut rows = db::list_leaderboard_cache_on_chain(
+        &state.pool,
+        state.chain.chain_id() as i64,
+    )
+    .await?;
     // effective_score is a decimal-string uint256 — compare numerically via U256, not
     // lexicographically, or "9" would sort above "10".
     rows.sort_by(|a, b| {
@@ -2502,7 +2535,14 @@ pub async fn get_xns_resolve(
     };
     // Reverse the SovereignAgent to a known DID via the oracle DB (best-effort).
     let did = match &sovereign_agent {
-        Some(sa) => db::did_by_sovereign_agent(&state.pool, sa).await?,
+        Some(sa) => {
+            db::did_by_sovereign_agent_on_chain(
+                &state.pool,
+                sa,
+                state.chain.chain_id() as i64,
+            )
+            .await?
+        }
         None => None,
     };
     Ok(Json(XnsResolveDto {
