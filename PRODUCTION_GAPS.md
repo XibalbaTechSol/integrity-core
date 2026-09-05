@@ -3867,3 +3867,50 @@ not assumed) with zero test coverage anywhere in `contracts/test/`. Added two te
 non-controller/non-admin stranger cannot install a policy.
 
 4 new tests, full suite 496/496, zero regressions.
+
+## 66. Halmos coverage for the registry-ENABLED kernel configuration (2026-09-05)
+
+*Current State:* §54/§55 both disclosed the same gap plainly: every Halmos property in
+`test/halmos/KernelProperties.t.sol` was proven only against `HalmosKernelFixture._deployRealKernel`,
+which always constructs `IntegrityKernel` with `AdapterRegistry(address(0))` (disabled) — the
+registry-enabled branch of `preCheck` was concrete-Foundry-tested only
+(`test/kernel/IntegrityKernelRegistryHook.t.sol`), never machine-checked.
+
+Closed by adding `HalmosKernelFixture._deployRealKernelWithRegistry` — deploys a real
+`AdapterRegistry` and a real `ReputationFloorAdapter` (the same reference adapter the concrete
+test already used), registers it, and wires it into the kernel's `registryHook`/`registryAdapter`
+constructor args, reusing the concrete test's own isolating trick (`REGISTRY_MIN_SCORE = 700`,
+deliberately higher than the kernel's own `MIN_EFFECTIVE_SCORE = 500`, both read from the SAME
+`ReputationRegistry.effectiveScore`).
+
+New file `test/halmos/KernelPropertiesRegistryEnabled.t.sol`, 3 properties, not a re-run of all
+6 — a deliberate scoping choice, not an oversight (see the file's own header comment for which
+three and why): `check_nativeBudgetContainment` (budget accounting undisturbed by an installed,
+passing adapter), `check_reentrancyGuardIsSound` (the extra external call the registry branch adds
+to `preCheck` opens no new reentrancy window), and a genuinely new property no prior coverage
+checked over the full symbolic range — `check_registryAdapterGatesAdditively(uint256 baseScore)`
+— proving the registry adapter's floor and the kernel's own cached floor are each independently,
+conjunctively enforced across every reachable score, not just the one value
+(`MIN_EFFECTIVE_SCORE`) the concrete test picks to demonstrate the gap exists.
+
+**Real, measured result:** `.venv-halmos/bin/halmos --contract KernelPropertiesRegistryEnabledTest
+--root .` — **3 passed, 0 failed, 3.31s** (`check_nativeBudgetContainment`: 13 paths, 1.64s;
+`check_reentrancyGuardIsSound`: 2 paths, 0.59s; `check_registryAdapterGatesAdditively`: 6 paths,
+0.37s).
+
+**What this closes:** the "Halmos has zero coverage for the registry-enabled configuration" gap
+named in §54/§55/`IntegrityKernel.sol`'s own top-level NatSpec and
+`IntegrityKernelRegistryHookTest`'s own doc comment — all three updated to point here rather than
+still disclosing an already-closed gap.
+
+**What this does NOT close:** the separate, still-open registry-enabled gas-ceiling gap (§55: 49,290
+gas measured, ~9.3k over the whitepaper's `<=40k` `preCheck` ceiling) — a Halmos property proves
+logical soundness of the additive gate, not that the adapter's forwarded gas stipend fits the
+ceiling. Does not re-verify the other three §-KernelProperties.t.sol properties (token-budget
+conjunction, native-budget-still-enforced-on-token-kernel, cumulative containment) against the
+registry-enabled configuration — same `preCheck` code path, same registry branch structure, no
+different interaction with the registry-adapter call than the one property above already covers;
+left unrun to bound this Halmos run's cost, consistent with the parent proposal's own "too large a
+unit to authorize as one block" discipline. Makefile's `verify-kernel` target updated to run this
+new contract alongside the existing two. No change to `AdapterRegistry.sol`, `LicenceAccount`'s own
+registry wiring, or the registry-enabled gas figure itself.
