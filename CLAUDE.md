@@ -46,12 +46,15 @@ background agents to close test gaps with real tests, not placeholders). Read
 the pinned toolchain/contract source of truth (forge/anvil 1.7.1, cargo/rustc 1.96.0, nargo
 1.0.0-beta.22, bb 5.0.0-nightly, opa 1.18.2, node/npm 22.x/10.x, python/uv 3.12/0.11).
 
-Specification authority is layered: `docs/archive/2026-08/integrity-protocol-v0.4.md` is the accepted
-normative baseline; `docs/archive/2026-08/integrity-protocol-v0.5-proposed.md` is the new non-authoritative
-amendment under clause-level review; and `docs/archive/2026-08/integrity-protocol-v3.2.md` is the current
-explanatory, non-normative whitepaper. The v3.2 PDF is generated output. Never implement or
-claim a v0.5/v3.2 surface solely because the whitepaper describes it; check the proposal's
-status, `docs/INTERFACE_CONTRACT.md` §16, `PRODUCTION_GAPS.md`, source, tests, and deployment.
+Specification authority is layered, and `docs/DOCUMENT_STATUS.yaml` is the single source of
+truth for it — check that file directly rather than trusting a copy of this paragraph, which has
+drifted stale before (see `PRODUCTION_GAPS.md`'s corrected 2026-09-05 pointer entry). As of this
+writing: `docs/SPEC.md` (v1.0.0-draft) is the accepted normative baseline; `docs/WHITEPAPER.md`
+(v3.2) is the current explanatory, non-normative whitepaper; `docs/archive/2026-08/integrity-protocol-v0.4.md`
+and `docs/archive/2026-08/integrity-protocol-v0.5-proposed.md` are both archived, not
+authoritative. Never implement or claim a surface solely because the whitepaper describes it;
+check `docs/SPEC.md`'s own status tags (`[BUILT]`/`[PARTIAL]`/`[PLANNED]`), `docs/INTERFACE_CONTRACT.md`
+§16, `PRODUCTION_GAPS.md`, source, tests, and deployment.
 
 ## Common commands
 

@@ -2,7 +2,7 @@
 title: Repository Implementation Plans
 acronyms: [AIS, BCC, DID, MVP]
 created: 2026-08-06
-updated: 2026-08-29
+updated: 2026-09-05
 type: architecture
 tags: [infrastructure, planning, roadmap, documentation]
 confidence: high
@@ -78,7 +78,7 @@ integrity-core remains the protocol authority. Shield and graph memory do not be
 
 **Role:** Protocol trust backend: contracts, SDK, CLI, BCC middleware, Oracle/AIS, user API, dashboard, ZKP, canonical wiki, and protocol specs.
 
-**Specification authority:** `docs/archive/2026-08/integrity-protocol-v0.4.md` is accepted normative authority. `docs/archive/2026-08/integrity-protocol-v0.5-proposed.md` is a proposed, non-authoritative delta. `docs/WHITEPAPER.md` is the current v3.2 explanatory/non-normative whitepaper. Current implementation evidence is maintained by `README.md`, `SPECIFICATION.md`, `PRODUCTION_GAPS.md`, `docs/INTERFACE_CONTRACT.md`, `docs/MAINNET_READINESS.md`, and `docs/wiki/`.
+**Specification authority (corrected 2026-09-05, see `docs/DOCUMENT_STATUS.yaml`):** `docs/SPEC.md` (v1.0.0-draft) is accepted normative authority; `docs/archive/2026-08/integrity-protocol-v0.4.md` and `integrity-protocol-v0.5-proposed.md` are both archived, not authoritative — this entry previously still named v0.4 as accepted after the real cutover had already happened, see `PRODUCTION_GAPS.md`'s dated pointer-correction entry. `docs/WHITEPAPER.md` is the current v3.2 explanatory/non-normative whitepaper. Current implementation evidence is maintained by `README.md`, `SPECIFICATION.md`, `PRODUCTION_GAPS.md`, `docs/INTERFACE_CONTRACT.md`, `docs/MAINNET_READINESS.md`, and `docs/wiki/`.
 
 **Audit checkpoint (2026-08-17):** Phase 0 is locally complete. The Foundry suite passes 209/209; `IntegrityIdentityReadV1` passes its 10 focused tests; the local generated verifier has real-proof negative-control coverage; and package Continuous Integration includes dashboard build/lint rather than a nonexistent unit-test script. Base Sepolia still lacks the identity facade and retains the older fail-closed verifier, so source capability is not deployed capability.
 

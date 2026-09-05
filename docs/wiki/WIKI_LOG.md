@@ -1,5 +1,25 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-09-05] fix | Corrected stale normative-baseline pointer drift
+
+- `PRODUCTION_GAPS.md`'s top-of-file pointer, `CLAUDE.md`, `docs/MAINNET_READINESS.md`,
+  `docs/INTERFACE_CONTRACT.md`, `spec/README.md`, `docs/wiki/index.md`, and
+  `docs/wiki/architecture/repository-implementation-plans.md` all still named the now-archived
+  `docs/archive/2026-08/integrity-protocol-v0.4.md` as the accepted normative baseline, after the
+  real cutover to `docs/SPEC.md` (v1.0.0-draft) had already happened for at least Phase III
+  adapter-registry work. `docs/DOCUMENT_STATUS.yaml` already had the correct pointer; the living
+  reference docs above did not match it. Corrected all of them to point at `docs/SPEC.md` and
+  `docs/DOCUMENT_STATUS.yaml` as the source of truth, and marked v0.4/v0.5-proposed as archived
+  rather than current, consistent with `docs/DOCUMENT_STATUS.yaml`'s existing `archived:` list.
+- Dated, historical section citations elsewhere in `docs/INTERFACE_CONTRACT.md` (§15, §16 — tied
+  to a specific past date and clause range) were deliberately left unedited, matching this
+  document's own append-only convention for dated entries.
+- Separately corrected a factually wrong disclosure made in `xibalba-cortex`'s own Gate 6 work
+  the same day: that repo's `memory_export_provenance` MCP tool was reported as having no
+  scope/authorization check, but its transport-level `BearerTokenAuth` wrapper (checked against
+  only after the fact) already enforces a `memory:read` baseline on every tool call in the real
+  multi-tenant deployment mode — no code fix was needed there, only the record.
+
 ## [2026-08-28] update | Invocation correlation profile v1
 
 - Added the accepted `spec/invocation-id-v1.md` cross-repository profile and updated the BCC
