@@ -185,7 +185,17 @@ clamp pinned by 8 Foundry ladder tests; deployed-vs-source drift detection.
 guardian M-of-N execution quorum and unanimous emergency propose/cancel, guardian-set
 rotation, kernel-swap reentrancy guard for the fallback path, reputation-floor and
 assurance-tier adapters with epoch-snapshotting, 6 machine-checked Halmos properties
-proven unbounded for the base (registry-disabled) kernel configuration.
+proven unbounded for the base (registry-disabled) kernel configuration. **Closed
+2026-09-05:** Halmos coverage for the registry-ENABLED configuration
+(`test/halmos/KernelPropertiesRegistryEnabled.t.sol`, via
+`HalmosKernelFixture._deployRealKernelWithRegistry`) — 3/3 properties passed: budget
+containment and the reentrancy guard both hold unchanged with a real, registered,
+passing `ReputationFloorAdapter` installed, and a new property proves the registry
+adapter's floor and the kernel's own cached floor are each independently, conjunctively
+enforced across the full symbolic score range (neither ever substitutes for the other).
+This closes the "zero Halmos coverage for registry-enabled" gap listed below, but does
+NOT close the separate registry-enabled gas-ceiling gap (still open, see below) — a
+Halmos property proves logical soundness, not gas cost.
 
 **Still open:**
 - **No deployment anywhere**, no independent/external audit, and no machine-checked
@@ -199,10 +209,8 @@ proven unbounded for the base (registry-disabled) kernel configuration.
   gas to 49,290 gas (a real ~16.7% reduction, commit `d1e59eb`) — still **~9.3k gas
   over** the `<=40k` ceiling. Closing the rest needs either a cheaper adapter body or a
   rework of `AdapterRegistry`'s installability semantics.
-- **Halmos has zero coverage for the registry-enabled configuration** — the fixture
-  (`HalmosKernelFixture.sol`) always constructs the kernel with
-  `AdapterRegistry(address(0))`. All 6 proven properties are proven only for the
-  registry-disabled path.
+- ~~**Halmos has zero coverage for the registry-enabled configuration**~~ — **closed
+  2026-09-05**, see above.
 - A second, broader reentrancy exception remains: `approveKernelSwap`/guardian-action
   entry points are deliberately never routed through the reentrancy hook (would be
   circular otherwise) — a disclosed, accepted design exception, not a bug, but real
@@ -418,9 +426,10 @@ interim component-floor decision made for AIS scoring rather than indefinitely d
 ### Gate 4 — Kernel deployment readiness
 
 Pass when the registry-enabled `preCheck` gas gap is closed or explicitly re-scoped,
-Halmos coverage exists for the registry-enabled configuration, and an independent
-security audit of `IntegrityKernel`/`IntegrityAccount` is scheduled or complete —
-promotion-in-name-only is not sufficient (§3 invariant 7).
+Halmos coverage exists for the registry-enabled configuration (closed 2026-09-05, see
+Workstream B), and an independent security audit of `IntegrityKernel`/`IntegrityAccount`
+is scheduled or complete — promotion-in-name-only is not sufficient (§3 invariant 7).
+Remaining to pass: the gas gap and the audit.
 
 ### Gate 5 — Evidence continuity
 

@@ -246,14 +246,23 @@ contract IntegrityKernel is IERC7579Hook {
     /// `boundAccount` as the subject and `value` (the wrapped call's own native value -- the same
     /// number the per-op/cumulative budget checks below ultimately measure a real delta against in
     /// `postCheck`) as the amount; this does NOT independently verify a delta itself, it only
-    /// forwards the declared value to whatever adapter is registered. **Halmos coverage does NOT
-    /// extend to the registry-enabled configuration**: `HalmosKernelFixture.sol` always constructs
-    /// this kernel with `AdapterRegistry(address(0))`, so the six machine-checked properties above
-    /// were re-run and confirmed to still hold with this feature ADDED-BUT-DISABLED (6/6 passed,
-    /// `PRODUCTION_GAPS.md` §54's own record) -- proving this addition does not regress anyone who
-    /// leaves it off, NOT that the properties hold with the registry actually enabled. That
-    /// configuration is concrete-Foundry-tested only (`test/kernel/IntegrityKernelRegistryHook.t.sol`),
-    /// same disclosed-gap category as `LicenceAccount`'s own hook slots.
+    /// forwards the declared value to whatever adapter is registered. **Halmos coverage of the
+    /// registry-DISABLED configuration** (`HalmosKernelFixture.sol`'s `_deployRealKernel`, always
+    /// `AdapterRegistry(address(0))`) re-ran the six machine-checked properties above and confirmed
+    /// they still hold with this feature ADDED-BUT-DISABLED (6/6 passed, `PRODUCTION_GAPS.md` §54's
+    /// own record) -- proving this addition does not regress anyone who leaves it off. **As of
+    /// 2026-09-05, the registry-ENABLED configuration also has real, machine-checked coverage**:
+    /// `HalmosKernelFixture._deployRealKernelWithRegistry` builds the same reference adapter
+    /// (`ReputationFloorAdapter`) the concrete test below uses, and
+    /// `test/halmos/KernelPropertiesRegistryEnabled.t.sol` proves budget containment is
+    /// undisturbed by an installed-and-passing adapter, that the reentrancy guard holds with the
+    /// extra external call the registry branch adds, and -- the property no prior coverage (concrete
+    /// or Halmos) checked over the full symbolic score range -- that the registry adapter's floor
+    /// and this kernel's own cached floor are each independently, conjunctively enforced (neither
+    /// check ever substitutes for the other) across every reachable score (3/3 passed). This does
+    /// NOT close the separate, still-open registry-enabled gas-ceiling gap (§55/§56) -- a Halmos
+    /// property proves logical soundness, not that the adapter's forwarded gas stipend keeps this
+    /// path under the whitepaper's `<=40k` validation-phase ceiling.
     AdapterRegistry public immutable registryHook;
     address public immutable registryAdapter;
     uint256 public immutable registryAdapterGasBound;

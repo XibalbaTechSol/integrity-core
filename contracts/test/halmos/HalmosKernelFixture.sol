@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {IntegrityAccount} from "../../src/kernel/IntegrityAccount.sol";
 import {IntegrityKernel} from "../../src/kernel/IntegrityKernel.sol";
 import {AdapterRegistry} from "../../src/registry/AdapterRegistry.sol";
+import {ReputationFloorAdapter} from "../../src/registry/ReputationFloorAdapter.sol";
 import {ReputationRegistry} from "../../src/oracle/ReputationRegistry.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {MODULE_TYPE_HOOK} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
@@ -62,9 +63,17 @@ abstract contract HalmosKernelFixture is Test {
     uint256 constant MIN_EFFECTIVE_SCORE = 500;
     uint256 constant ABOVE_FLOOR_SCORE = 800;
     uint256 constant REPUTATION_EPOCH_LENGTH = 3 days;
+    // Deliberately a DIFFERENT, higher floor than the kernel's own MIN_EFFECTIVE_SCORE, matching
+    // `IntegrityKernelRegistryHook.t.sol`'s own concrete fixture -- this is what makes it possible
+    // for a property to isolate "the registry adapter's own floor fired" from "the kernel's own
+    // cached reputation floor fired" (same underlying `ReputationRegistry.effectiveScore`, two
+    // independent thresholds compared against it).
+    uint256 constant REGISTRY_MIN_SCORE = 700;
 
     IntegrityAccount account;
     ReputationRegistry reputation;
+    AdapterRegistry registry;
+    ReputationFloorAdapter registryAdapter;
 
     /// @dev Genesis-installs a placeholder (no address prediction needed), matching
     /// `KernelSwapHarness.t.sol`'s own `setUp`.
@@ -124,6 +133,63 @@ abstract contract HalmosKernelFixture is Test {
             tokenCumulativeBudget,
             AdapterRegistry(address(0)),
             address(0)
+        );
+    }
+
+    /// @dev Registry-ENABLED sibling of `_deployRealKernel`, closing `PRODUCTION_GAPS.md`'s
+    /// disclosed "Halmos has zero coverage for the registry-enabled configuration" gap
+    /// (`IntegrityKernel.sol`'s own top-level NatSpec names this explicitly). Deploys a real
+    /// `AdapterRegistry` plus a real `ReputationFloorAdapter` -- the SAME reference adapter the
+    /// existing concrete-only coverage in `test/kernel/IntegrityKernelRegistryHook.t.sol` uses --
+    /// registers it, and wires it into the kernel as the SECOND, independent additive
+    /// precondition `IntegrityKernel.preCheck` applies after its own cached reputation check
+    /// (see that function's own doc comment). Reuses the same `ReputationRegistry` clone and the
+    /// same `address(account)` score as the kernel's own cached floor, exactly like the concrete
+    /// test does, so `REGISTRY_MIN_SCORE` vs `MIN_EFFECTIVE_SCORE` isolates which check actually
+    /// gates a given symbolic score.
+    function _deployRealKernelWithRegistry(address trackedToken, uint256 tokenPerOpBudget, uint256 tokenCumulativeBudget)
+        internal
+        returns (IntegrityKernel)
+    {
+        return _deployRealKernelWithRegistry(
+            PER_OP_BUDGET, CUMULATIVE_BUDGET, trackedToken, tokenPerOpBudget, tokenCumulativeBudget, ABOVE_FLOOR_SCORE
+        );
+    }
+
+    /// @dev Full-control overload: lets a property set the account's `baseScore` itself (rather
+    /// than always the fixed `ABOVE_FLOOR_SCORE`), needed by any property that wants to reason
+    /// about the registry gate over a SYMBOLIC score rather than a fixed passing one.
+    function _deployRealKernelWithRegistry(
+        uint256 perOpBudget,
+        uint256 cumulativeBudget,
+        address trackedToken,
+        uint256 tokenPerOpBudget,
+        uint256 tokenCumulativeBudget,
+        uint256 baseScore
+    ) internal returns (IntegrityKernel) {
+        ReputationRegistry reputationImpl = new ReputationRegistry();
+        reputation = ReputationRegistry(Clones.clone(address(reputationImpl)));
+        reputation.initialize(address(this), address(this), address(0), address(0));
+
+        reputation.updateScore(address(account), baseScore);
+        _setZkBoostExpiry(reputation, address(account), block.timestamp + 7 days);
+
+        registry = new AdapterRegistry();
+        registryAdapter = new ReputationFloorAdapter(reputation, REGISTRY_MIN_SCORE);
+        registry.register(address(registryAdapter), 200_000, keccak256("reputation-floor-v1"));
+
+        return new IntegrityKernel(
+            address(account),
+            perOpBudget,
+            cumulativeBudget,
+            address(reputation),
+            MIN_EFFECTIVE_SCORE,
+            REPUTATION_EPOCH_LENGTH,
+            trackedToken,
+            tokenPerOpBudget,
+            tokenCumulativeBudget,
+            registry,
+            address(registryAdapter)
         );
     }
 

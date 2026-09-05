@@ -1,5 +1,29 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-09-05] feat | Halmos coverage for the registry-ENABLED kernel configuration
+
+- Closed `PRODUCTION_GAPS.md` §54/§55's disclosed gap: every Halmos property in
+  `contracts/test/halmos/KernelProperties.t.sol` was proven only against the kernel built with
+  `AdapterRegistry(address(0))` (disabled); the registry-enabled branch of `IntegrityKernel.preCheck`
+  was concrete-Foundry-tested only.
+- Added `HalmosKernelFixture._deployRealKernelWithRegistry` (deploys a real `AdapterRegistry` +
+  `ReputationFloorAdapter`, the same reference adapter `test/kernel/IntegrityKernelRegistryHook.t.sol`
+  already uses) and a new `contracts/test/halmos/KernelPropertiesRegistryEnabled.t.sol` — 3 properties,
+  not all 6, a deliberate scoping choice explained in the file's own header. `check_nativeBudgetContainment`
+  and `check_reentrancyGuardIsSound` re-verify budget accounting and the reentrancy guard hold with the
+  registry enabled; `check_registryAdapterGatesAdditively` is new — proves the registry adapter's floor
+  and the kernel's own cached reputation floor are each independently, conjunctively enforced across the
+  full symbolic score range, not just the one value the concrete test picks.
+- `.venv-halmos/bin/halmos --contract KernelPropertiesRegistryEnabledTest --root .`: 3 passed, 0 failed,
+  3.31s. Full `forge test`: 496/496, zero regressions. `Makefile`'s `verify-kernel` target updated to run
+  the new contract. `IntegrityKernel.sol`'s own NatSpec and `IntegrityKernelRegistryHookTest`'s doc comment
+  both updated to point here rather than still disclosing an already-closed gap; full record in
+  `PRODUCTION_GAPS.md` §66.
+- Does not close the separate registry-enabled gas-ceiling gap (§55, still ~9.3k gas over the `<=40k`
+  ceiling) — logical soundness and gas cost are independent claims. Does not re-run the other three
+  `KernelProperties.t.sol` properties against the registry-enabled configuration (same code path, no
+  different interaction with the registry-adapter call); left unrun to bound Halmos run cost.
+
 ## [2026-09-05] fix | Corrected stale normative-baseline pointer drift
 
 - `PRODUCTION_GAPS.md`'s top-of-file pointer, `CLAUDE.md`, `docs/MAINNET_READINESS.md`,

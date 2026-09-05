@@ -47,14 +47,18 @@ contract KernelBareRevertAdapter is IAdapter {
 /// alongside the existing cached reputation/assurance-tier checks. Deliberately a standalone
 /// test file, not folded into `IntegrityAccount.t.sol`, matching how `LicenceAccountHook.t.sol`
 /// isolated its own registry-hook coverage.
-/// @dev **Halmos coverage does NOT extend to this configuration.** `HalmosKernelFixture.sol`
-/// always constructs the kernel with `AdapterRegistry(address(0))` (disabled) -- Halmos verified
-/// the six kernel properties still hold in that reachable configuration (6/6 passed,
-/// `PRODUCTION_GAPS.md` §54's own record of the run), which proves adding this feature does not
-/// regress the properties for anyone who leaves it off. It does NOT prove the properties hold
-/// with the registry ENABLED -- that branch was unreachable in every path Halmos explored. This
-/// file's coverage is concrete Foundry only, same disclosed gap category as `LicenceAccount`'s
-/// own `hook`/`registryHook` slots.
+/// @dev This file remains the concrete-Foundry coverage for this configuration, and stays the
+/// place that demonstrates the exact score/floor setup (`REGISTRY_MIN_SCORE` deliberately higher
+/// than the kernel's own `MIN_EFFECTIVE_SCORE`) a Halmos property later generalized. **As of
+/// 2026-09-05, this configuration also has real, machine-checked coverage**:
+/// `test/halmos/KernelPropertiesRegistryEnabled.t.sol`, via
+/// `HalmosKernelFixture._deployRealKernelWithRegistry`, proves budget containment and the
+/// reentrancy guard both hold with the registry ENABLED (not just added-but-disabled), and proves
+/// -- over the FULL symbolic score range, not just the one value this file's own
+/// `REGISTRY_MIN_SCORE`/`MIN_EFFECTIVE_SCORE` split demonstrates concretely -- that the registry
+/// adapter's floor and the kernel's own cached floor are each independently, conjunctively
+/// enforced. This file's own tests remain valuable as concrete, readable worked examples and stay
+/// in place; they are no longer the ONLY evidence for this configuration.
 contract IntegrityKernelRegistryHookTest is Test {
     using stdStorage for StdStorage;
 
