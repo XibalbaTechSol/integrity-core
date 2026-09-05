@@ -1,5 +1,26 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-09-05] feat | Durable local audit-report spool for bcc_middleware
+
+- Closed `docs/PRODUCTION_READINESS_PLAN.md` Gate 5's named blocker: `app/audit.py`'s
+  `report_decision`/`report_anchor_events` were best-effort POSTs to the oracle with no durability
+  — a failed delivery (oracle down, network blip) was logged once and permanently lost.
+- New `bcc_middleware/app/spool.py`: a local SQLite file (`BCC_SPOOL_DB_PATH`, `.gitignore`d as
+  real runtime state) that a failed report now writes to instead of only logging; a new periodic
+  background loop (`app/main.py::_spool_retry_loop`, mirroring the existing `_score_sync_loop`)
+  retries due rows with capped exponential backoff. New ops hooks: `POST /v1/audit/spool/retry`,
+  `GET /v1/audit/spool/status`.
+- `tests/test_spool.py` (8 tests, respx-mocked oracle boundary) plus a genuinely real end-to-end
+  check against a real local `http.server` (not mocked): a decision reported during a real ~2s
+  outage spools, stays pending on an immediate retry while still down, and delivers the real
+  original payload once the server actually recovers — confirmed via the server's own
+  received-request log. Full `uv run pytest -q`: 143 passed, zero regressions.
+- Disclosed, not silently accepted: single-process/single-replica scope (same class as this
+  service's existing in-memory nonce/circuit-breaker state); rows retry indefinitely with capped
+  backoff rather than dead-lettering, so a long enough outage grows the file unboundedly — no
+  operator alert yet beyond polling the new status endpoint. Full record in `PRODUCTION_GAPS.md`
+  §67.
+
 ## [2026-09-05] feat | Halmos coverage for the registry-ENABLED kernel configuration
 
 - Closed `PRODUCTION_GAPS.md` §54/§55's disclosed gap: every Halmos property in

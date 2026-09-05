@@ -3914,3 +3914,56 @@ left unrun to bound this Halmos run's cost, consistent with the parent proposal'
 unit to authorize as one block" discipline. Makefile's `verify-kernel` target updated to run this
 new contract alongside the existing two. No change to `AdapterRegistry.sol`, `LicenceAccount`'s own
 registry wiring, or the registry-enabled gas figure itself.
+
+## 67. Durable local audit-report spool for bcc_middleware (2026-09-05)
+
+*Current State:* `docs/PRODUCTION_READINESS_PLAN.md` Workstream D named this plainly:
+`app/audit.py`'s `report_decision`/`report_anchor_events` are best-effort POSTs to the oracle's
+`audit_log` ingest endpoints, and before this entry a failed POST (oracle down, network blip) was
+logged once and then permanently, silently lost — the exact "audit-report-loss-on-outage" gap Gate
+5 (Evidence continuity) named as a blocker.
+
+Closed with a new module, `app/spool.py`: a local SQLite file (`BCC_SPOOL_DB_PATH`, defaulting to
+`bcc_middleware/data/audit_spool.sqlite3`, now `.gitignore`d as real per-deployment runtime state).
+`audit.py`'s two report functions now call `spool.enqueue(...)` in their existing `except` branch
+(previously just a `logger.warning`) — a row is written ONLY on a failed delivery; a successful
+POST never touches the file, so the steady-state path is unchanged. A new periodic background loop
+(`app/main.py::_spool_retry_loop`, started in `lifespan` alongside the existing `_score_sync_loop`,
+same try/except-and-continue-on-next-tick posture) drains due rows via
+`spool.run_retry_cycle`, with capped exponential backoff per row
+(`min(SPOOL_MAX_BACKOFF_SECONDS, SPOOL_RETRY_INTERVAL_SECONDS * 2**attempts)`) so a prolonged outage
+doesn't turn into a retry storm the moment the oracle recovers. Two new ops hooks, mirroring the
+existing `POST /v1/reputation/sync` manual-trigger convention: `POST /v1/audit/spool/retry` (force
+one cycle now) and `GET /v1/audit/spool/status` (pending count + oldest-pending age, for an operator
+to watch during a sustained outage).
+
+**Real, not just mocked, verification:** `tests/test_spool.py` (8 tests, respx-mocked oracle
+boundary, same convention as `test_scoring_loop.py`) covers enqueue/status, delivery-and-removal,
+backoff-scheduling (a row retried immediately after a failure is NOT picked up again until its
+backoff window elapses — confirmed by asserting `attempted == 0` on an immediate second cycle, then
+`attempted == 1` once enough simulated time has passed), both report functions spooling on failure,
+the empty-leaves early return never touching the spool, `spool_enabled=false` never enqueuing, and a
+successful report never writing a row at all. Beyond the mocked suite: a genuinely real end-to-end
+check against a real local `http.server` instance (not respx) that returns 503 for ~2 real wall-clock
+seconds then starts succeeding — `report_decision` against it spools on the real failed call, an
+immediate retry cycle still fails against the real still-down server, and a later retry (once the
+server has actually recovered) delivers the real original payload, independently confirmed via the
+server's own received-request log rather than only via `run_retry_cycle`'s return value. Full
+`uv run pytest -q`: 143 passed (8 of them new, `tests/test_spool.py`), zero failures.
+
+**Disclosed scope limitation, same class as `nonce_store.py`/`circuit_breaker.py`/
+`scoring_loop.py`'s dispute cooldown:** the spool is one local SQLite file, single-process/
+single-replica — a multi-replica deployment would need a shared durable queue (e.g. the Redis
+already present in the broader docker-compose topology), not N independent local spools each
+retrying the same undelivered rows.
+
+**Disclosed scope limitation, a different axis, not shared with the state above:** rows are retried
+indefinitely with a capped backoff interval, never dropped or dead-lettered — a sufficiently long
+oracle outage grows this file unboundedly. No operator alert exists yet beyond polling the new
+`GET /v1/audit/spool/status` endpoint; a real dead-letter view/alert is future work, not attempted
+here.
+
+**What this does NOT claim:** does not touch `app/anchor.py`'s own separate best-effort on-chain
+anchoring path (that failure mode is unrelated — a missed on-chain anchor, not a missed audit-log
+POST) or move Merkle anchoring off batch-size-triggered-only (Gate 5's other remaining item, still
+open). No change to the oracle's own `audit_log` schema or ingest endpoints.

@@ -14,7 +14,13 @@ Same asymmetry as anchor.py's on-chain anchoring: by the time this is called,
 run_intercept has already decided allow/deny. Reporting failure (oracle down,
 network blip) must never change that decision or block the caller's response
 -- it only means this one decision is missing from the audit trail until the
-next successful report, a documented gap rather than a correctness issue.
+next successful report.
+
+**No longer a silent, permanent loss on failure** (as of app/spool.py): a POST
+that fails here is durably spooled to local SQLite and retried by a periodic
+background loop (app/main.py), rather than only logged and forgotten. See
+app/spool.py's own module docstring for the full design and its disclosed
+scope limitations.
 """
 
 from __future__ import annotations
@@ -23,6 +29,7 @@ import logging
 
 import httpx
 
+from app import spool
 from app.config import Settings
 
 logger = logging.getLogger("bcc_middleware.audit")
@@ -57,15 +64,20 @@ def report_decision(
     }
     if metadata is not None:
         payload["metadata"] = metadata
+    endpoint_path = "/v1/audit/ingest"
     try:
         resp = httpx.post(
-            f"{settings.oracle_url.rstrip('/')}/v1/audit/ingest",
+            f"{settings.oracle_url.rstrip('/')}{endpoint_path}",
             json=payload,
             timeout=3.0,
         )
         resp.raise_for_status()
     except Exception as exc:
-        logger.warning("failed to report audit decision for agent %s: %s", agent_id, exc)
+        logger.warning(
+            "failed to report audit decision for agent %s: %s -- spooling for retry", agent_id, exc
+        )
+        if settings.spool_enabled:
+            spool.enqueue(settings, kind="decision", endpoint_path=endpoint_path, payload=payload, error=str(exc))
 
 
 def report_anchor_events(
@@ -87,12 +99,17 @@ def report_anchor_events(
     if not leaves:
         return
     payload = {"agent_id": agent_id, "leaves": leaves, "root": root, "tx_hash": tx_hash}
+    endpoint_path = "/v1/audit/anchor"
     try:
         resp = httpx.post(
-            f"{settings.oracle_url.rstrip('/')}/v1/audit/anchor",
+            f"{settings.oracle_url.rstrip('/')}{endpoint_path}",
             json=payload,
             timeout=3.0,
         )
         resp.raise_for_status()
     except Exception as exc:
-        logger.warning("failed to report anchor events for agent %s: %s", agent_id, exc)
+        logger.warning(
+            "failed to report anchor events for agent %s: %s -- spooling for retry", agent_id, exc
+        )
+        if settings.spool_enabled:
+            spool.enqueue(settings, kind="anchor_event", endpoint_path=endpoint_path, payload=payload, error=str(exc))

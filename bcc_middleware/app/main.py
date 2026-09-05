@@ -75,6 +75,7 @@ from app import anchor as anchor_module
 from app import audit as audit_module
 from app import opa_client
 from app import scoring_loop as scoring_loop_module
+from app import spool as spool_module
 from app import verification_token as verification_token_module
 
 try:
@@ -88,6 +89,7 @@ except ImportError:
 logger = logging.getLogger("bcc_middleware")
 
 _score_sync_task: asyncio.Task | None = None
+_spool_retry_task: asyncio.Task | None = None
 _audit_shutdown_started = False
 
 
@@ -115,6 +117,28 @@ async def _score_sync_loop(settings: Settings) -> None:
         except Exception:
             logger.exception("score sync cycle crashed, will retry next interval")
         await asyncio.sleep(settings.score_sync_interval_seconds)
+
+
+async def _spool_retry_loop(settings: Settings) -> None:
+    """
+    Background loop, started at app startup: every
+    `spool_retry_interval_seconds`, retries every audit-report row currently
+    due (see app/spool.py::run_retry_cycle). Same try/except-and-continue
+    posture as _score_sync_loop -- one bad cycle logs and retries on the
+    next tick rather than killing the loop, since this is the only thing
+    that ever drains the durable spool outside a manual trigger.
+    """
+    while True:
+        try:
+            result = await asyncio.to_thread(spool_module.run_retry_cycle, settings)
+            if result.attempted:
+                logger.info(
+                    "spool retry cycle: %d attempted, %d delivered, %d still pending",
+                    result.attempted, result.delivered, result.still_pending,
+                )
+        except Exception:
+            logger.exception("spool retry cycle crashed, will retry next interval")
+        await asyncio.sleep(settings.spool_retry_interval_seconds)
 
 
 async def _drain_audit_reports(timeout: float = 10.0) -> None:
@@ -148,13 +172,17 @@ async def _drain_audit_reports(timeout: float = 10.0) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _score_sync_task, _audit_shutdown_started
+    global _score_sync_task, _spool_retry_task, _audit_shutdown_started
     _audit_shutdown_started = False
     if default_settings.score_sync_enabled:
         _score_sync_task = asyncio.create_task(_score_sync_loop(default_settings))
+    if default_settings.spool_enabled:
+        _spool_retry_task = asyncio.create_task(_spool_retry_loop(default_settings))
     yield
     if _score_sync_task is not None:
         _score_sync_task.cancel()
+    if _spool_retry_task is not None:
+        _spool_retry_task.cancel()
     _audit_shutdown_started = True
     await _drain_audit_reports()
 
@@ -554,6 +582,38 @@ async def force_score_sync() -> dict:
             }
             for r in result.results
         ],
+    }
+
+
+@app.post("/v1/audit/spool/retry")
+async def force_spool_retry() -> dict:
+    """
+    Operational/testing hook: run one spool retry cycle right now instead of
+    waiting for the periodic loop. Not part of the interface contract; only
+    exists so integration tests and operators don't have to wait
+    `spool_retry_interval_seconds` to observe a delivery.
+    """
+    result = await asyncio.to_thread(spool_module.run_retry_cycle, default_settings)
+    return {
+        "attempted": result.attempted,
+        "delivered": result.delivered,
+        "still_pending": result.still_pending,
+    }
+
+
+@app.get("/v1/audit/spool/status")
+async def spool_status() -> dict:
+    """
+    Read-only ops hook: how many audit reports are currently spooled (never
+    successfully delivered yet) and how old the oldest one is. A nonzero,
+    growing `pending` count with an aging `oldest_pending_age_seconds` is the
+    signal an operator should watch for a sustained oracle outage -- see
+    app/spool.py's own disclosed "no dead-letter/alert yet" limitation.
+    """
+    result = spool_module.status(default_settings)
+    return {
+        "pending": result.pending,
+        "oldest_pending_age_seconds": result.oldest_pending_age_seconds,
     }
 
 
