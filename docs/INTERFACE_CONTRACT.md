@@ -6,11 +6,14 @@ Repo documentation precedence is:
 
 1. `README.md` defines repo-level ownership, current package status, and source-of-truth pointers.
 2. This file defines internal schemas, ports, env vars, service boundaries, and cross-package call conventions inside integrity-core.
-3. `docs/archive/2026-08/integrity-protocol-v0.4.md` is the accepted normative protocol;
-   `docs/archive/2026-08/integrity-protocol-v0.5-proposed.md` is a non-authoritative review candidate;
-   `docs/WHITEPAPER.md` (v3.2) is the current explanatory, non-normative whitepaper; and
-   the remaining `spec/` subtrees define externally-supported wire surfaces. A generated
-   PDF is publication output, not an interface contract.
+3. `docs/SPEC.md` (v1.0.0-draft) is the accepted normative protocol — see `docs/DOCUMENT_STATUS.yaml`,
+   the single source of truth for document authority (corrected 2026-09-05: this entry
+   previously still named the now-archived `docs/archive/2026-08/integrity-protocol-v0.4.md`
+   as accepted after the real cutover had already happened, see `PRODUCTION_GAPS.md`'s dated
+   pointer-correction entry). `integrity-protocol-v0.5-proposed.md` is likewise archived, not a
+   live review candidate. `docs/WHITEPAPER.md` (v3.2) is the current explanatory,
+   non-normative whitepaper; and the remaining `spec/` subtrees define externally-supported
+   wire surfaces. A generated PDF is publication output, not an interface contract.
 4. `docs/wiki/` is the compiled long-term knowledge layer generated out to the GitHub Wiki and `integrity-dashboard/`'s browser wiki.
 
 Scope: this rewrite covers **six protocol core packages**:

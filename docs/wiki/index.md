@@ -17,10 +17,18 @@ gates registration), then [AIS](concepts/ais.md) (the trust score) and
 [Telemetry Ingestion Pipeline](concepts/telemetry-ingestion.md) (how
 agent behavior becomes that score).
 
-## Specification authority — 2026-08-29
+## Specification authority — 2026-09-05 (corrected; see `docs/DOCUMENT_STATUS.yaml`)
 
-- [Integrity Protocol v0.4](../archive/2026-08/integrity-protocol-v0.4.md) is the accepted normative baseline.
-- [Integrity Protocol v0.5 proposed](../archive/2026-08/integrity-protocol-v0.5-proposed.md) is the new non-authoritative amendment under review.
+- [`docs/SPEC.md`](../SPEC.md) (v1.0.0-draft) is the accepted normative specification.
+  `docs/DOCUMENT_STATUS.yaml` is the single machine-readable source of truth for this —
+  check it directly rather than trusting this page to stay current.
+- [Integrity Protocol v0.4](../archive/2026-08/integrity-protocol-v0.4.md) is now archived,
+  not normative. A previous version of this section (dated 2026-08-29) still named it as
+  the accepted baseline after the real cutover to `docs/SPEC.md` had already happened for
+  at least Phase III adapter-registry work — see `PRODUCTION_GAPS.md`'s dated
+  pointer-correction entry for the drift this closes.
+- [Integrity Protocol v0.5 proposed](../archive/2026-08/integrity-protocol-v0.5-proposed.md)
+  is likewise archived, not a live review candidate.
 - [Whitepaper v3.2](../WHITEPAPER.md) is the current explanatory and non-normative whitepaper.
 - The v3.2 PDF is generated publication output from the archived v3.2 source; code, tests, and deployments are separate implementation evidence layers.
 

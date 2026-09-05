@@ -156,10 +156,16 @@ clamp pinned by 8 Foundry ladder tests; deployed-vs-source drift detection.
 - `lexical_stability_score` is mis-specified (measures repetitiveness, not stability) —
   identified, deliberately not fixed pending a dual Python+Rust bit-identical change and
   a live-score-movement validation pass.
-- Chain-is-source-of-truth invariant (§3 item 3) is currently violated: a stale or
-  cross-chain cached primitive can be served as an authoritative 200 rather than 404.
-  Deliberately not fixed by deleting stale rows (would destroy evidence) — needs a real
-  fix, not a data purge.
+- **Closed 2026-09-05** (PR #85, `fix/oracle-chain-scoped-cache`, verified against live
+  code this session, not just the merge log): the chain-is-source-of-truth violation
+  (§3 item 3) is fixed. `get_agent`, `resolve_primitives_row`, and the leaderboard cache
+  path (`handlers.rs`, tagged `E11` at each site) now only trust a cached primitives row
+  if it was resolved against the oracle's *currently configured* chain id; a row from a
+  different chain, or `NULL` (predates the chain-id column), is treated exactly like a
+  cache miss and never served as-is — falling back to a live chain re-resolution rather
+  than a stale-chain answer. Real e2e coverage exists
+  (`integrity-oracle/backend/tests/e2e.rs`, `wrong_chain`/`legacy_null_chain` cases) but
+  needs `ORACLE_E2E=1` and a live test database to execute, not run in this pass.
 - `covered_entity_address` spoofing: the Oracle trusts a client-supplied compliance
   address with no on-chain ownership check.
 - Single signer for oracle/disputer roles in the current deployment; a
@@ -405,9 +411,9 @@ stated semver/deprecation policy covering both the SDK and CLI (§5 items 1-2).
 
 ### Gate 3 — Oracle scoring integrity
 
-Pass when the chain-is-source-of-truth violation is fixed (not just disclosed), signer
-role separation is enforced in production configuration, and at least an interim
-component-floor decision is made for AIS scoring rather than indefinitely deferred.
+Chain-is-source-of-truth is fixed (closed 2026-09-05, see Workstream A). Remaining to
+pass: signer role separation enforced in production configuration, and at least an
+interim component-floor decision made for AIS scoring rather than indefinitely deferred.
 
 ### Gate 4 — Kernel deployment readiness
 
@@ -437,12 +443,14 @@ Gates 2-3 above.
 ## 7. Immediate implementation sequence
 
 1. Publish `integrity-sdk` as a real, version-pinned package — this single item
-   unblocks the most downstream work across all three repos (§5 item 1).
-2. Reconcile the normative-baseline pointer drift in `PRODUCTION_GAPS.md` itself
-   (Gate 1) — cheap, and removes ambiguity for every future contributor reading that
-   document.
-3. Fix the chain-is-source-of-truth violation in the Oracle (Workstream A) — a real
-   correctness bug, not a scope gap.
+   unblocks the most downstream work across all three repos (§5 item 1). Proven
+   publishable on TestPyPI (2026-09-04); real publish still needs the account holder's
+   own PyPI credentials.
+2. ~~Reconcile the normative-baseline pointer drift~~ — **closed 2026-09-05**: fixed in
+   `PRODUCTION_GAPS.md` and every other living reference doc that had drifted from
+   `docs/DOCUMENT_STATUS.yaml` (Gate 1).
+3. ~~Fix the chain-is-source-of-truth violation in the Oracle~~ — **closed 2026-09-05**
+   (verified against live code, landed via PR #85 slightly earlier): see Workstream A.
 4. Extend Halmos coverage to the registry-enabled kernel configuration and re-attempt
    the registry `preCheck` gas mitigation (Workstream B) — needed before any kernel
    deployment can be responsibly scheduled.

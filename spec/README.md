@@ -13,26 +13,35 @@ people outside this repo.
 
 ## The design specification
 
-[`integrity-protocol-v0.4.md`](../docs/archive/2026-08/integrity-protocol-v0.4.md) is the **active normative design
-specification** — foundational primitives, AIS, memory, authority, interop. It supersedes
-`Integrity_Protocol_Specification_v0.3.pdf`.
+**`docs/DOCUMENT_STATUS.yaml` is the single source of truth for this table** — it is
+machine-readable and consumers may render it directly; the table below is a human-readable
+mirror of it and must be kept in sync, not treated as its own independent authority. This
+section previously pointed at `integrity-protocol-v0.4.md` as the accepted normative
+specification after the real cutover to `docs/SPEC.md` had already happened; that drift
+was corrected 2026-09-05 (see `PRODUCTION_GAPS.md`'s dated pointer-correction entry).
 
-[`integrity-protocol-v0.5-proposed.md`](../docs/archive/2026-08/integrity-protocol-v0.5-proposed.md) is the **new proposed,
-not-yet-accepted normative amendment** derived from the v3.2 whitepaper. It does not replace
-v0.4 until each clause is reviewed, accepted or rejected, implemented where applicable, and
-recorded in the interface contract, production-gap register, tests, and wiki log.
+[`docs/SPEC.md`](../docs/SPEC.md) (v1.0.0-draft) is the **active normative specification** —
+foundational primitives, AIS, memory, authority, interop, kernel/adapter-registry
+requirements. Implementations claim conformance only against this file; it supersedes
+`integrity-protocol-v0.4.md`, which is archived.
 
 [`WHITEPAPER.md`](../docs/WHITEPAPER.md) (v3.2) is the current
-**non-normative explanatory whitepaper**. It may explain and motivate the proposal, but it
-cannot amend the protocol by itself. [`Integrity_Protocol_Whitepaper_v3.2.pdf`](Integrity_Protocol_Whitepaper_v3.2.pdf)
+**non-normative explanatory whitepaper**. It may explain and motivate the protocol, but it
+cannot amend it by itself — `docs/SPEC.md` is the only document implementations claim
+conformance against. [`Integrity_Protocol_Whitepaper_v3.2.pdf`](Integrity_Protocol_Whitepaper_v3.2.pdf)
 is a generated release artifact, not a source of truth. The archived v3.1 and v3.2 copies are historical release evidence; the canonical source is `docs/WHITEPAPER.md`.
+
+`integrity-protocol-v0.5-proposed.md` was a proposed amendment derived from the whitepaper;
+it is now archived alongside v0.4 rather than a live review candidate — check
+`docs/DOCUMENT_STATUS.yaml` directly if its disposition matters, rather than trusting this
+prose to stay current on that point.
 
 | Layer | Current document | Authority |
 |---|---|---|
-| Accepted normative specification | `docs/archive/2026-08/integrity-protocol-v0.4.md` | Active requirements |
-| Proposed normative amendment | `docs/archive/2026-08/integrity-protocol-v0.5-proposed.md` | Review candidate only |
+| Accepted normative specification | `docs/SPEC.md` (v1.0.0-draft) | Active requirements |
 | Explanatory whitepaper | `docs/WHITEPAPER.md` (v3.2) | Current non-normative rationale and roadmap |
 | Compiled publication | `Integrity_Protocol_Whitepaper_v3.2.pdf` | Generated artifact only |
+| Archived (not normative) | `docs/archive/2026-08/integrity-protocol-v0.4.md`, `integrity-protocol-v0.5-proposed.md` | Historical only |
 
 It lives here, in markdown and under version control, deliberately: a specification that
 cannot be diffed, reviewed in a pull request, or kept in step with the code by any mechanism
