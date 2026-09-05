@@ -269,14 +269,25 @@ redundant score-push elimination; active quarantine enforcement (deliberately
 **fails open** on an unverifiable dispute check — a considered tradeoff, disclosed, not
 an oversight); `chain_id`/`verifying_contract` deployment-binding check for both the
 non-ZK BCC commitment (closed earlier) and the ZK circuit's `intent_commitment` Pedersen
-hash (closed later, same binding now covers both paths).
+hash (closed later, same binding now covers both paths). **Closed 2026-09-05:** durable
+local audit-report spool (`app/spool.py`) — a failed `report_decision`/
+`report_anchor_events` POST is now written to a local SQLite file and retried by a
+periodic background loop (`SPOOL_RETRY_INTERVAL_SECONDS`, capped exponential backoff per
+row, `SPOOL_MAX_BACKOFF_SECONDS`) instead of being silently and permanently lost.
+Verified against a real local HTTP server (not mocked): a decision reported while the
+"oracle" returns 503 is spooled, stays pending across a retry attempted while still
+down, and delivers with the original payload intact once the server recovers.
+`GET /v1/audit/spool/status` / `POST /v1/audit/spool/retry` are the new ops hooks.
 
 **Still open:**
 - Merkle anchoring remains batch-size-triggered only; no periodic anchoring loop.
 - In-memory nonce/circuit-breaker state blocks horizontal scale-out (same class of gap
   as the Oracle's).
-- Audit-report draining on shutdown is bounded/best-effort — an oracle outage can still
-  lose an audit report; no durable local spool/retry queue exists.
+- The audit spool is single SQLite file, single-process/single-replica (disclosed,
+  same scope-limitation class as the in-memory state above) — a multi-replica
+  deployment needs a shared durable queue instead. Rows are retried indefinitely with
+  capped backoff, never dead-lettered — a prolonged outage grows the file unboundedly;
+  no operator alert exists yet beyond polling `GET /v1/audit/spool/status`.
 
 ### E. ZK circuit (`integrity-zkp`)
 
@@ -433,9 +444,9 @@ Remaining to pass: the gas gap and the audit.
 
 ### Gate 5 — Evidence continuity
 
-Pass when `bcc_middleware` has a durable local export/spool queue (closing the
-audit-report-loss-on-outage gap) and Merkle anchoring moves from batch-triggered-only to
-a real periodic loop.
+`bcc_middleware`'s durable local export/spool queue (closing the audit-report-loss-on-
+outage gap) closed 2026-09-05 — see Workstream D. Remaining to pass: Merkle anchoring
+moves from batch-triggered-only to a real periodic loop.
 
 ### Gate 6 — Cross-runtime telemetry contract
 

@@ -171,6 +171,22 @@ class Settings:
     # misbehavior pattern doesn't raise a fresh dispute every sync cycle.
     dispute_cooldown_seconds: int = field(default_factory=lambda: int(os.getenv("DISPUTE_COOLDOWN_SECONDS", "86400")))
 
+    # --- Durable audit-report spool (app/spool.py) ---
+    # `app/audit.py`'s report_decision/report_anchor_events are best-effort POSTs to the
+    # oracle -- before this, a failed POST (oracle down, network blip) was logged once and
+    # then permanently lost, the exact gap PRODUCTION_READINESS_PLAN.md's Workstream D names:
+    # "a durable local export/spool queue in bcc_middleware so an oracle outage cannot
+    # silently drop an audit report." See app/spool.py's own module docstring for the full
+    # design and its disclosed single-process/single-replica scope limitation.
+    spool_enabled: bool = field(default_factory=lambda: _bool_env("BCC_SPOOL_ENABLED", True))
+    spool_db_path: str = field(
+        default_factory=lambda: os.getenv("BCC_SPOOL_DB_PATH", str(Path(__file__).resolve().parents[1] / "data" / "audit_spool.sqlite3"))
+    )
+    # Base retry-cycle interval AND the base unit of each row's own exponential backoff
+    # (`spool.py::_backoff_seconds`: `min(spool_max_backoff_seconds, spool_retry_interval_seconds * 2**attempts)`).
+    spool_retry_interval_seconds: int = field(default_factory=lambda: int(os.getenv("SPOOL_RETRY_INTERVAL_SECONDS", "30")))
+    spool_max_backoff_seconds: int = field(default_factory=lambda: int(os.getenv("SPOOL_MAX_BACKOFF_SECONDS", "900")))
+
     def load_deployments(self) -> dict:
         """
         Best-effort read of the shared deployments.local.json (§6). Missing
