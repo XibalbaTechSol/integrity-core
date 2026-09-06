@@ -119,6 +119,18 @@ jobs:
         working-directory: integrity-sdk
       - run: uv run pytest
         working-directory: integrity-sdk
+      - name: Verify installed SDK wheel
+        working-directory: integrity-sdk
+        run: |
+          uv build --wheel --out-dir "$RUNNER_TEMP/integrity-sdk-dist"
+          uv venv "$RUNNER_TEMP/integrity-sdk-wheel"
+          uv pip install --python "$RUNNER_TEMP/integrity-sdk-wheel/bin/python" \
+            "$RUNNER_TEMP"/integrity-sdk-dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/integrity-sdk-wheel/bin/python" \
+            "$GITHUB_WORKSPACE/integrity-sdk/tests/packaging/verify_installed_wheel.py" \
+            --fixture "$GITHUB_WORKSPACE/integrity-sdk/tests/fixtures/aws_nitro_document.cbor" \
+            --expected-install-prefix "$RUNNER_TEMP/integrity-sdk-wheel"
 
   cli:
     name: integrity-cli (pytest)

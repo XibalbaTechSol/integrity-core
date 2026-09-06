@@ -3383,3 +3383,22 @@ writeup: PRODUCTION_GAPS.md §18.
   scripts/tree_hash.py --self-test` passed 4/4; wiki table-of-contents validation passed for 35
   pages. This proves local workflow/tree consistency, not hostile-host authenticity, external
   anchoring, or atomicity against concurrent source edits.
+
+## [2026-09-06] fix | SDK wheel ships the pinned Nitro trust root
+
+- Reproduced a release-artifact defect hidden by editable installs: a clean
+  `integrity-sdk` wheel raised `FileNotFoundError` before AWS Nitro certificate-chain
+  verification because `security/trust_roots/aws_nitro_root_g1.pem` was absent.
+- Added the trust-root PEM to package data, switched loading to `importlib.resources`,
+  and retained the existing SHA-256 fingerprint pin. Continuous Integration now builds
+  and installs the wheel in an isolated environment, changes outside the checkout, and
+  verifies the genuine checked-in Nitro attestation fixture.
+- Test-driven evidence: the new installed-wheel smoke failed against the original wheel
+  with the missing-resource error, then passed after the package-data fix. Full Software
+  Development Kit suite: `PATH="$HOME/.foundry/bin:$PATH" uv run pytest -q` returned
+  279 passed, 9 skipped. The first full run returned 23 setup errors because the isolated
+  worktree lacked contract submodules and Node dependencies; after reproducing the hosted
+  Continuous Integration dependency topology with `git submodule update --init --recursive`
+  and `npm install`, the canonical suite passed.
+- Boundary: this proves clean installed-wheel verification, not Nitro attestation generation,
+  live Tier-3 enrollment, or package-index publication.

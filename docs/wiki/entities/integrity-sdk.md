@@ -1,7 +1,7 @@
 ---
 title: integrity-sdk
 created: 2026-07-07
-updated: 2026-08-19
+updated: 2026-09-06
 type: entity
 tags: [sdk, identity, metrics]
 confidence: high
@@ -22,6 +22,9 @@ source_files:
   - integrity-sdk/integrity_sdk/integrations/langchain_callback.py
   - integrity-sdk/integrity_sdk/integrations/auto_hook.py
   - integrity-sdk/integrity_sdk/security/redactor.py
+  - integrity-sdk/integrity_sdk/security/attestation.py
+  - integrity-sdk/pyproject.toml
+  - integrity-sdk/tests/packaging/verify_installed_wheel.py
   - integrity-sdk/integrity_sdk/mcp_server.py
   - integrity-sdk/integrity_sdk/memory.py
 ---
@@ -40,6 +43,7 @@ become a self-sovereign, on-chain, reputation-bearing participant.
 - [Telemetry integrations widened + redactphi opt-in default, 2026-07-15](#telemetry-integrations-widened-redactphi-opt-in-default-2026-07-15)
 - [PHI/PII redaction](#phi-pii-redaction)
 - [Markets](#markets)
+- [Installed-wheel attestation verification](#installed-wheel-attestation-verification)
 - [Also](#also)
 - [MCP server (mcpserver.py, added 2026-07-29)](#mcp-server-mcpserver-py-added-2026-07-29)
 - [Persistent Memory Bridge (memory.py, added 2026-07-30)](#persistent-memory-bridge-memory-py-added-2026-07-30)
@@ -199,6 +203,20 @@ builds a real [BCC commitment](../concepts/bcc.md), routes through
 execute-routing. `registration.py`'s `_VERTICALS` extended with
 `prediction_market`/`trading`/`capital_allocation` compliance verticals.
 
+## Installed-wheel attestation verification
+
+The built wheel includes `security/trust_roots/aws_nitro_root_g1.pem` as package
+data. `security/attestation.py` loads that resource through `importlib.resources`
+and still verifies the certificate's pinned SHA-256 fingerprint before trusting
+it. Continuous Integration builds and installs the wheel into an isolated Python
+environment, runs outside the source checkout, and verifies the genuine captured
+Nitro fixture through `tests/packaging/verify_installed_wheel.py`. This packaging
+gate prevents editable installs from masking a missing trust anchor.
+
+The check proves installed-artifact verification only. Generating an attestation
+still requires real AWS Nitro hardware, and the package smoke does not prove live
+Tier-3 enrollment.
+
 ## Also
 
 - `bcc.py` — signed [BCC commitment](../concepts/bcc.md) construction (7 signed
@@ -207,7 +225,7 @@ execute-routing. `registration.py`'s `_VERTICALS` extended with
 - `security/attestation.py` — real AWS Nitro attestation *verification* (gen
   needs enclave hardware — honest, documented gap).
 
-**267 tests passed, 9 skipped** (`uv run pytest`, confirmed 2026-08-19 with
+**279 tests passed, 9 skipped** (`uv run pytest -q`, confirmed 2026-09-06 with
 Foundry's `anvil` on `PATH`): unit + real-anvil integration, always run. The
 2026-08-19 regression coverage adds
 `tests/unit/test_registration_existing_did_genesis.py`, including the failure

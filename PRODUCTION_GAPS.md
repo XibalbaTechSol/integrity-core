@@ -190,6 +190,18 @@ infrastructure (real anvil for chain-touching tests, real HTTP mocks for client-
 no fix was accepted on code-review alone. SDK: 122 passed, 1 skipped. CLI: 68 passed, 1
 skipped.
 
+* **CLOSED — the built SDK wheel omitted its pinned AWS Nitro trust root.**
+  `security/attestation.py` could verify the genuine checked-in attestation fixture from an
+  editable source checkout, but `pyproject.toml` packaged only contract ABI JSON. A clean wheel
+  install therefore raised `FileNotFoundError` before certificate-chain verification. The
+  trust-root PEM now ships as package data and is loaded through `importlib.resources`; its
+  existing SHA-256 fingerprint check remains the trust decision. Continuous Integration now
+  builds the wheel, installs it into an isolated Python environment, changes outside the
+  checkout, and runs `tests/packaging/verify_installed_wheel.py` against the genuine Nitro
+  fixture. This proves the installed artifact can load the pinned root and validate the
+  fixture's signature and chain; it does not claim attestation generation without Nitro
+  hardware or live Tier-3 enrollment.
+
 * **CLOSED — CLI minted testnet ITK to the agent's wallet, not its SovereignAgent contract.**
   Reordered `integrity-cli/integrity_cli/main.py`'s registration steps (funding → deploy
   SovereignAgent → deploy StateAnchor → mint ITK to the SovereignAgent *contract*, not the

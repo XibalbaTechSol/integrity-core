@@ -87,9 +87,10 @@ dev = [
 include = ["integrity_sdk*"]
 
 [tool.setuptools.package-data]
-# Trimmed contract {abi, bytecode} JSON (see abis/__init__.py) — must ship in
-# the built wheel, not just be readable from an editable-install source tree.
-integrity_sdk = ["abis/*.json"]
+# Runtime resources must ship in the built wheel, not just be readable from an
+# editable-install source tree. The Nitro root is the verifier's pinned trust
+# anchor; omitting it makes every installed-wheel verification fail closed.
+integrity_sdk = ["abis/*.json", "security/trust_roots/*.pem"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

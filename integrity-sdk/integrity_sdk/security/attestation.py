@@ -47,7 +47,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
+from importlib.resources import files
 from typing import Dict, List, Optional
 
 import cbor2
@@ -57,8 +57,6 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, utils as ec_utils
 
 logger = logging.getLogger("integrity_sdk.security.attestation")
-
-_TRUST_ROOT_PATH = Path(__file__).parent / "trust_roots" / "aws_nitro_root_g1.pem"
 
 # SHA-256 fingerprint of the pinned root, computed once from the official
 # download and asserted at load time — if the bundled PEM is ever swapped
@@ -106,7 +104,11 @@ class AttestationResult:
 
 
 def _load_trusted_root() -> x509.Certificate:
-    pem_bytes = _TRUST_ROOT_PATH.read_bytes()
+    pem_bytes = (
+        files("integrity_sdk.security")
+        .joinpath("trust_roots", "aws_nitro_root_g1.pem")
+        .read_bytes()
+    )
     cert = x509.load_pem_x509_certificate(pem_bytes)
     import hashlib
 
