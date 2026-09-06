@@ -485,9 +485,12 @@ Gates 2-3 above.
    inherit.
 6. Schedule an independent security audit of the promoted kernel/account contracts
    before considering any real-value deployment (Gate 4).
-7. Make an interim AIS component-floor decision rather than waiting indefinitely for a
-   second registered agent (Workstream A) — once a downstream SaaS pilot depends on
-   the score, "wait for more data" stops being a safe default.
+7. ~~Make an interim AIS component-floor decision rather than waiting indefinitely for
+   a second registered agent~~ — **closed 2026-09-05**: see
+   `docs/design/ais-floor-interim-decision-2026-09-05.md` and Gate 3 (§6) above. The
+   floor gate stays shadow-only with three stated graduation criteria and a checkable
+   script (`scripts/check_ais_floor_graduation.py`); it is not enforced, since real
+   population data to calibrate it doesn't exist yet.
 
 ## 8. External gates that cannot be completed locally
 
