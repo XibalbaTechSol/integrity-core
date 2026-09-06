@@ -14,8 +14,9 @@ allow the action. So:
   - If `StateAnchor` isn't deployed yet (no address in
     deployments.local.json -- expected in dev before `contracts/` deploys),
     or the RPC/signer isn't configured, or the transaction fails, we log a
-    warning and keep the batch's leaves so a later flush can retry. We do
-    NOT deny or reverse the already-returned authorization -- blocking a
+    warning. The current in-memory batch owner does not durably retain a
+    failed submission across flush or process restart. We do NOT deny or
+    reverse the already-returned authorization -- blocking a
     real-time policy decision on L1 confirmation latency would defeat the
     point of a low-latency pre-execution gate.
   - This is a deliberate, documented asymmetry from the BAA check, not an
@@ -145,7 +146,7 @@ def anchor_batch_per_agent(settings: Settings, leaves: list[BatchLeaf]) -> dict[
             primitives = resolve_agent_primitives(settings.oracle_url, agent_id)
             state_anchor_address = primitives.get("state_anchor")
         except AgentResolutionError as exc:
-            logger.warning("cannot anchor batch for agent %s: %s -- retained in logs only", agent_id, exc)
+            logger.warning("cannot anchor batch for agent %s: %s -- recorded in logs only", agent_id, exc)
             results[agent_id] = AnchorResult(submitted=False, detail=f"could not resolve StateAnchor: {exc}")
             continue
         if not state_anchor_address:
@@ -159,6 +160,6 @@ def anchor_batch_per_agent(settings: Settings, leaves: list[BatchLeaf]) -> dict[
         if result.submitted:
             logger.info("anchored %d leaves for agent %s to StateAnchor %s tx=%s", len(agent_leaves), agent_id, state_anchor_address, result.tx_hash)
         else:
-            logger.warning("could not anchor %d leaves for agent %s: %s -- retained in logs only", len(agent_leaves), agent_id, result.detail)
+            logger.warning("could not anchor %d leaves for agent %s: %s -- recorded in logs only", len(agent_leaves), agent_id, result.detail)
 
     return results

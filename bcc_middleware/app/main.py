@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 from contextlib import asynccontextmanager
 
@@ -90,7 +91,9 @@ logger = logging.getLogger("bcc_middleware")
 
 _score_sync_task: asyncio.Task | None = None
 _spool_retry_task: asyncio.Task | None = None
+_anchor_flush_task: asyncio.Task | None = None
 _audit_shutdown_started = False
+_anchor_flush_lock = threading.Lock()
 
 
 async def _score_sync_loop(settings: Settings) -> None:
@@ -141,6 +144,25 @@ async def _spool_retry_loop(settings: Settings) -> None:
         await asyncio.sleep(settings.spool_retry_interval_seconds)
 
 
+async def _anchor_flush_loop(settings: Settings) -> None:
+    """Flush partial Merkle batches on a bounded periodic cadence."""
+    while True:
+        await asyncio.sleep(settings.merkle_anchor_interval_seconds)
+        flush_task = asyncio.create_task(
+            asyncio.to_thread(_flush_and_anchor, settings, require_full=False)
+        )
+        try:
+            await asyncio.shield(flush_task)
+        except asyncio.CancelledError:
+            # ``to_thread`` cannot stop work that is already running. Wait for
+            # the single-flight claim/submit/report cycle before lifespan exits
+            # so it cannot outlive this service instance unnoticed.
+            await flush_task
+            raise
+        except Exception:
+            logger.exception("periodic Merkle anchor cycle crashed, will retry next interval")
+
+
 async def _drain_audit_reports(timeout: float = 10.0) -> None:
     """Drain audit tasks admitted before shutdown, with a hard deadline.
 
@@ -172,19 +194,31 @@ async def _drain_audit_reports(timeout: float = 10.0) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _score_sync_task, _spool_retry_task, _audit_shutdown_started
+    global _score_sync_task, _spool_retry_task, _anchor_flush_task, _audit_shutdown_started
     _audit_shutdown_started = False
     if default_settings.score_sync_enabled:
         _score_sync_task = asyncio.create_task(_score_sync_loop(default_settings))
     if default_settings.spool_enabled:
         _spool_retry_task = asyncio.create_task(_spool_retry_loop(default_settings))
-    yield
-    if _score_sync_task is not None:
-        _score_sync_task.cancel()
-    if _spool_retry_task is not None:
-        _spool_retry_task.cancel()
-    _audit_shutdown_started = True
-    await _drain_audit_reports()
+    if default_settings.merkle_anchor_enabled:
+        _anchor_flush_task = asyncio.create_task(_anchor_flush_loop(default_settings))
+    try:
+        yield
+    finally:
+        background_tasks = [
+            task
+            for task in (_score_sync_task, _spool_retry_task, _anchor_flush_task)
+            if task is not None
+        ]
+        for task in background_tasks:
+            task.cancel()
+        if background_tasks:
+            await asyncio.gather(*background_tasks, return_exceptions=True)
+        _score_sync_task = None
+        _spool_retry_task = None
+        _anchor_flush_task = None
+        _audit_shutdown_started = True
+        await _drain_audit_reports()
 
 
 app = FastAPI(title="BCC Middleware", version="3.0.0", lifespan=lifespan)
@@ -294,25 +328,30 @@ def _report_anchor_events(settings: Settings, leaves: list, results: dict) -> No
         )
 
 
-def _flush_and_anchor(settings: Settings) -> None:
+def _flush_and_anchor(
+    settings: Settings, *, require_full: bool = True
+) -> tuple[list, dict] | None:
     """
-    Flushes the pending batch (if full) and best-effort submits it on-chain.
-    Anchoring failure is logged, not raised -- see app/anchor.py docstring
-    for why this is intentionally not a gate on the caller's response.
+    Flush the pending batch and best-effort submit it on-chain.
+
+    Request-path callers keep ``require_full=True`` for immediate size-based
+    flushes. The periodic and operator paths pass ``False`` so partial batches
+    are time-bounded. The process-wide lock serializes the complete
+    claim/submit/report cycle across request, timer, and operator triggers.
     """
-    if not batcher.is_full():
-        return
-    flushed = batcher.flush()
-    if flushed is None:
-        return
-    _root, leaves = flushed
-    # Anchor per-agent: each agent's leaves go to that agent's own StateAnchor
-    # (StateAnchor is a per-agent primitive now — see anchor.anchor_batch_per_agent).
-    results = anchor_module.anchor_batch_per_agent(settings, leaves)
-    # Link the anchored leaves back to their decisions (evidence export). Runs
-    # here, off the event loop, since _flush_and_anchor is dispatched via
-    # asyncio.to_thread -- see run_intercept.
-    _report_anchor_events(settings, leaves, results)
+    with _anchor_flush_lock:
+        if require_full and not batcher.is_full():
+            return None
+        flushed = batcher.flush()
+        if flushed is None:
+            return None
+        _root, leaves = flushed
+        # Anchor per-agent: each agent's leaves go to that agent's own StateAnchor
+        # (StateAnchor is a per-agent primitive now — see anchor.anchor_batch_per_agent).
+        results = anchor_module.anchor_batch_per_agent(settings, leaves)
+        # Link the anchored leaves back to their decisions (evidence export).
+        _report_anchor_events(settings, leaves, results)
+        return leaves, results
 
 
 async def run_intercept(commitment: BCCCommitment, settings: Settings) -> BCCInterceptResponse:
@@ -638,19 +677,17 @@ async def force_flush() -> dict:
     exists so integration tests and operators don't have to send
     `merkle_batch_size` real commitments to observe an anchoring transaction.
     """
-    flushed = batcher.flush()
+    flushed = await asyncio.to_thread(
+        _flush_and_anchor, default_settings, require_full=False
+    )
     if flushed is None:
         return {"flushed": False, "detail": "no pending commitments"}
-    _discarded_full_batch_root, leaves = flushed
+    leaves, results = flushed
     # Per-agent anchoring: one StateAnchor tx per distinct agent in the batch.
     # NOTE: no single "root" field here anymore -- anchoring is per-agent
-    # (see anchor.py), so the full-batch root above matches nothing that was
-    # actually submitted on-chain. Each agent's OWN sub-root (the thing that
-    # really got anchored, or attempted) is under `agents[agent_id].root`
-    # instead (PRODUCTION_GAPS.md §5).
-    results = anchor_module.anchor_batch_per_agent(default_settings, leaves)
-    # Same decision->anchor linkage the auto-flush path records (evidence export).
-    _report_anchor_events(default_settings, leaves, results)
+    # (see anchor.py), so the full-batch root computed by MerkleBatcher matches
+    # nothing that was actually submitted on-chain. Each agent's OWN sub-root
+    # is under `agents[agent_id].root` instead (PRODUCTION_GAPS.md §5).
     return {
         "flushed": True,
         "leaf_count": len(leaves),

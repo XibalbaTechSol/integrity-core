@@ -50,8 +50,11 @@ service:**
   approves on error; see `app/opa_client.py` and `app/baa.py` docstrings.
 - Step 7 (Merkle anchoring) happens *after* authorization is already
   decided. It's an audit trail, not a gate, so its failure is logged and
-  retried later, not surfaced as a denial of an already-authorized action
-  — see `app/anchor.py` docstring for the reasoning.
+  is not surfaced as a denial of an already-authorized action
+  — see `app/anchor.py` docstring for the reasoning. Full batches flush
+  immediately; partial batches flush every
+  `BCC_MERKLE_ANCHOR_INTERVAL_SECONDS` (default 300s). Flush triggers are
+  single-flight, but failed submissions are not durably queued today.
 - The circuit breaker only counts violations **attributable to the agent**
   (bad signature, replay, an actual OPA denial, an inactive BAA). Our own
   infrastructure being down (OPA/chain unreachable) denies the request but
@@ -135,7 +138,10 @@ Matches the root `docker-compose.yml`'s `bcc-middleware` service: port 8000,
   (`app/anchor.py`) calling `anchorRoot(bytes32)`, signed and submitted
   against the same local anvil + a `MockStateAnchor.sol` fixture, with the
   transaction receipt checked and the contract's resulting on-chain state
-  read back and asserted against the exact expected Merkle root.
+  read back and asserted against the exact expected Merkle root. A FastAPI
+  lifespan task also flushes non-empty partial batches on a bounded interval;
+  `tests/test_periodic_anchor.py` covers partial flush, positive interval
+  validation, single-flight execution, and exception-safe task cleanup.
 - **Merkle tree construction**: real `keccak256`, real sorted-pair parent
   hashing per §4.4 (`app/merkle.py`), unit tested independently of any
   chain interaction.

@@ -1,5 +1,22 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-09-05] feat | Periodic single-flight Merkle anchoring
+
+- Closed Production Readiness Gate 5 locally: non-empty partial Behavioral Commitment Chain
+  (BCC) Merkle batches now flush every `BCC_MERKLE_ANCHOR_INTERVAL_SECONDS` (default 300s), while
+  full batches still flush immediately.
+- Request, periodic, and manual flush paths share one single-flight `_flush_and_anchor` cycle;
+  lifespan cancellation is awaited and exception-safe.
+- Test-driven development evidence: initial regressions failed 3/3; adversarial-review
+  regressions then failed before the lifecycle, in-flight drain, and serialization fixes. Final
+  focused file: 6/6 passed. Full `PATH=/home/xibalba/.foundry/bin:$PATH uv run pytest -q`:
+  145 passed, 4 skipped.
+  `opa test policies/ -v`: 48/48 passed.
+- Boundary: no fresh Base Sepolia transaction was sent. Pending leaves remain process-local and
+  can still be lost on restart, hard crash, or multi-replica handoff; failed submissions are not
+  durably queued. Durable anchor-attempt spooling remains future work. Full record:
+  `PRODUCTION_GAPS.md` §68.
+
 ## [2026-09-05] feat | Durable local audit-report spool for bcc_middleware
 
 - Closed `docs/PRODUCTION_READINESS_PLAN.md` Gate 5's named blocker: `app/audit.py`'s
