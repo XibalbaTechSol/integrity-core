@@ -1457,6 +1457,20 @@ numerically before touching any code, not assumed from the spec's description.
   real `Slasher.raiseDispute` off the resulting score — landing rows 5–6 needs a dry-run
   against the live agent set first, not a direct edit. See `HANDOFF.md`'s 2026-08-17
   section (and its later addendum) for the full priority ordering.
+* **Row 5 (the "indefinitely deferred" half) closed 2026-09-05, not by enforcing the gate
+  yet** — by making the deferral itself an explicit, dated, checkable decision instead of
+  silence. `docs/design/ais-floor-interim-decision-2026-09-05.md` states why enforcing today
+  would be premature (the provisional floors are circular by their own doc comment — tuned to
+  avoid flagging the one real registered agent; there is no real multi-agent population to
+  calibrate against; flipping to enforcement can raise a real on-chain `Slasher.raiseDispute`
+  against real stake), sets three graduation criteria (population ≥5 agents, ≥30 days of
+  shadow observation, explicit human sign-off recorded in that file), and ships
+  `scripts/check_ais_floor_graduation.py` (stdlib-only, same convention as xibalba-cortex's
+  `verify_provenance_export.py`) so criterion 1 is a one-command check against a real oracle
+  rather than something nobody is tracking. Verified against a real local HTTP server standing
+  in for the oracle: reports `met: false` at 3/5 agents, `met: true` once the threshold is
+  lowered below the real count, and a clean `exit 2` (not a stack trace) when the oracle is
+  genuinely unreachable. Row 6 (unclamped published `ais`) remains untouched by this entry.
 
 ## 28. Phase 0 identity discovery facade — local implementation closed, deployment and native ERC-8004 convergence open (2026-08-17)
 
