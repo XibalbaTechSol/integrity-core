@@ -8,10 +8,12 @@ FastAPI service implementing the "Behavioral Commitment Chain" (BCC) — the
 pre-execution policy gate of Integrity Protocol. Agents (via `integrity-sdk`
 / `integrity-cli`) POST a signed intent commitment to `POST /v1/bcc/intercept`
 before executing an action; this service authorizes or denies, then the
-agent proceeds only on authorization. It also runs a periodic background loop
-that pushes oracle-computed reputation scores on-chain and raises slashing
-disputes — the only place in the monorepo that closes that loop (see
-`app/reputation.py`'s module docstring).
+agent proceeds only on authorization. It also runs periodic background loops
+that (1) flush non-empty partial Merkle batches for low-traffic agents and
+(2) push oracle-computed
+reputation scores on-chain and raise slashing disputes — the only place in the
+monorepo that closes those loops (see `app/main.py::_anchor_flush_loop` and
+`app/reputation.py`).
 
 Sibling packages: see `/home/xibalba/Projects/integrity-core/CLAUDE.md` for
 the full monorepo. `docs/INTERFACE_CONTRACT.md` at the repo root is the
@@ -79,7 +81,7 @@ best-effort.**
   contract not deployed — **denies** the request. There is no error path
   that approves.
 - Step 7 (Merkle anchoring) runs *after* authorization is already decided.
-  Its failure is logged/retried, never surfaced as a denial of an
+  Its failure is logged, never surfaced as a denial of an
   already-authorized action.
 - The circuit breaker (`app/circuit_breaker.py`) only counts violations
   *attributable to the agent* (bad signature, replay, an actual OPA denial,

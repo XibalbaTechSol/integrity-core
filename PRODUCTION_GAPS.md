@@ -3967,3 +3967,33 @@ here.
 anchoring path (that failure mode is unrelated — a missed on-chain anchor, not a missed audit-log
 POST) or move Merkle anchoring off batch-size-triggered-only (Gate 5's other remaining item, still
 open). No change to the oracle's own `audit_log` schema or ingest endpoints.
+
+## 68. Periodic partial-batch Merkle anchoring — CLOSED locally (2026-09-05)
+
+The historical notes in §1a, §5, and §67 correctly recorded that Merkle anchoring was
+batch-size-triggered only: an approved commitment from a low-traffic agent could remain in
+process memory indefinitely if `BCC_MERKLE_BATCH_SIZE` was never reached. The same inspection corrected a stale claim: failed anchor leaves are logged but are not
+durably retained for retry after a flush.
+
+Closed locally with `app/main.py::_anchor_flush_loop`, started by FastAPI lifespan and
+controlled by `BCC_MERKLE_ANCHOR_ENABLED` plus the strictly-positive
+`BCC_MERKLE_ANCHOR_INTERVAL_SECONDS` (default 300 seconds). Full batches still flush
+immediately on the request path; a non-empty partial batch is flushed after the configured
+interval. All request, timer, and manual flush paths now share `_flush_and_anchor`, whose
+process-wide lock serializes the complete claim, submit, and report cycle. FastAPI lifespan
+cleanup now uses `try/finally`, cancels and awaits all three periodic workers, and clears their
+task references even when the application body exits exceptionally.
+
+Test-driven evidence: the initial focused tests failed 3/3 against the prior API (no
+`require_full` path, interval setting, or periodic loop); adversarial-review regressions then
+failed before single-flight, exception-safe cleanup, and in-flight thread draining were added.
+The final focused file passed 6/6. The full package suite passed with
+`PATH=/home/xibalba/.foundry/bin:$PATH uv run pytest -q`: 145 passed, 4 skipped. Real Open Policy
+Agent policy validation passed 48/48 with `opa test policies/ -v`. An initial full-suite run
+without Foundry on `PATH` produced 37 fixture setup errors (`FileNotFoundError: forge`); rerunning
+with the repository's installed Foundry toolchain exercised the real anvil-backed tests and
+passed. This change does not claim a fresh live Base Sepolia anchor; it closes local scheduling,
+scheduling, single-flight execution, lifecycle cleanup, and regression coverage only. Pending
+batches remain process-local and can still be lost on a graceful restart before the next timer,
+a hard process crash, or multi-replica handoff. A failed on-chain submission is not durably
+queued. Durable anchor-attempt spooling remains a separate production-hardening gap.

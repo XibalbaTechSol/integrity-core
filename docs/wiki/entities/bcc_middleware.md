@@ -1,7 +1,7 @@
 ---
 title: bcc_middleware
 created: 2026-07-07
-updated: 2026-08-30
+updated: 2026-09-05
 type: entity
 tags: [infrastructure, compliance, cryptography, metrics]
 confidence: high
@@ -17,6 +17,7 @@ source_files:
   - bcc_middleware/app/nonce_lock.py
   - bcc_middleware/app/verification_token.py
   - bcc_middleware/app/audit.py
+  - bcc_middleware/tests/test_periodic_anchor.py
   - bcc_middleware/tests/test_shutdown_drain.py
   - bcc_middleware/tests/test_opa_fail_closed.py
   - bcc_middleware/policies/bcc.rego
@@ -67,7 +68,14 @@ lifespan now drains in-flight audit-report tasks during shutdown, with a bounded
 10-second wait, a shutdown admission gate, and explicit cleanup/logging when a report
 remains stuck. This closes shutdown cancellation loss, but does not claim delivery
 guarantees: an oracle outage can still lose a report because no local durable spool or
-retry queue exists.
+retry queue exists in the request task itself; failed reports now enter the package's
+durable SQLite spool and are retried by its separate periodic worker.
+Merkle anchoring also has a periodic worker: full batches still flush immediately, while
+non-empty partial batches flush every `BCC_MERKLE_ANCHOR_INTERVAL_SECONDS` (default
+300 seconds). Request, timer, and manual cycles are single-flight, and lifespan teardown
+cancels and awaits the worker even when the application body exits exceptionally. Failed
+on-chain submissions are logged but not durably queued; a graceful restart can also lose
+an unflushed in-memory partial batch.
 The reputation-sync loop below follows the same best-effort posture for score
 pushes (a stale on-chain score, not a wrongly-trusted one) but the opposite for
 disputes — see below.
@@ -230,7 +238,7 @@ two follow-on gaps, both fixed in the same pass:
 
 ## State
 
-**131 pytest passed, 4 skipped + 48 OPA tests passed** (verified 2026-08-30).
+**145 pytest passed, 4 skipped + 48 OPA tests passed** (verified 2026-09-05).
 Real coverage: a fail-closed test points at a dead
 OPA port; `test_baa_health_integration.py` deploys the real
 [Integrity Health contracts](../concepts/compliance-gate.md) on a local anvil and exercises

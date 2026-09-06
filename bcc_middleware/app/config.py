@@ -130,6 +130,12 @@ class Settings:
         default_factory=lambda: os.getenv("STATE_ANCHOR_CONTRACT_NAME", "StateAnchor")
     )
     merkle_batch_size: int = field(default_factory=lambda: int(os.getenv("BCC_MERKLE_BATCH_SIZE", "8")))
+    # Maximum time a low-traffic approved commitment may wait for a flush.
+    # Size-triggered flushes still happen immediately when the batch fills.
+    merkle_anchor_enabled: bool = field(default_factory=lambda: _bool_env("BCC_MERKLE_ANCHOR_ENABLED", True))
+    merkle_anchor_interval_seconds: int = field(
+        default_factory=lambda: int(os.getenv("BCC_MERKLE_ANCHOR_INTERVAL_SECONDS", "300"))
+    )
     # Dev-only signer used to submit the anchorRoot() transaction. Never a
     # populated real value in committed config -- see .env.example.
     anchor_signer_private_key: str | None = field(
@@ -186,6 +192,10 @@ class Settings:
     # (`spool.py::_backoff_seconds`: `min(spool_max_backoff_seconds, spool_retry_interval_seconds * 2**attempts)`).
     spool_retry_interval_seconds: int = field(default_factory=lambda: int(os.getenv("SPOOL_RETRY_INTERVAL_SECONDS", "30")))
     spool_max_backoff_seconds: int = field(default_factory=lambda: int(os.getenv("SPOOL_MAX_BACKOFF_SECONDS", "900")))
+
+    def __post_init__(self) -> None:
+        if self.merkle_anchor_interval_seconds <= 0:
+            raise ValueError("merkle anchor interval must be greater than zero")
 
     def load_deployments(self) -> dict:
         """

@@ -2,7 +2,7 @@
 
 **Status:** Active planning baseline; backbone protocol under heavy iteration, no
 deployment/audit of promoted contracts, SDK unpublished
-**Updated:** 2026-09-04
+**Updated:** 2026-09-05
 **Target:** A stable, versioned protocol backbone that `xibalba-shield` and
 `xibalba-cortex` can build SaaS products on top of
 
@@ -279,8 +279,13 @@ Verified against a real local HTTP server (not mocked): a decision reported whil
 down, and delivers with the original payload intact once the server recovers.
 `GET /v1/audit/spool/status` / `POST /v1/audit/spool/retry` are the new ops hooks.
 
+**Closed 2026-09-05:** Merkle anchoring is no longer batch-size-triggered only.
+`app/main.py::_anchor_flush_loop` flushes non-empty partial batches every
+`BCC_MERKLE_ANCHOR_INTERVAL_SECONDS` (default 300s), while full batches still flush
+immediately. Request, timer, and operator-triggered flushes serialize through one
+process-wide single-flight lock, and lifespan cleanup is exception-safe.
+
 **Still open:**
-- Merkle anchoring remains batch-size-triggered only; no periodic anchoring loop.
 - In-memory nonce/circuit-breaker state blocks horizontal scale-out (same class of gap
   as the Oracle's).
 - The audit spool is single SQLite file, single-process/single-replica (disclosed,
@@ -444,9 +449,10 @@ Remaining to pass: the gas gap and the audit.
 
 ### Gate 5 — Evidence continuity
 
-`bcc_middleware`'s durable local export/spool queue (closing the audit-report-loss-on-
-outage gap) closed 2026-09-05 — see Workstream D. Remaining to pass: Merkle anchoring
-moves from batch-triggered-only to a real periodic loop.
+Passed locally 2026-09-05: `bcc_middleware` now has both the durable local
+audit-report spool and a real periodic partial-batch Merkle anchoring loop. This is local
+implementation and regression evidence, not a claim that a live testnet anchor was
+observed in this change. Failed on-chain submissions still lack a durable retry queue.
 
 ### Gate 6 — Cross-runtime telemetry contract
 
@@ -471,12 +477,11 @@ Gates 2-3 above.
    `docs/DOCUMENT_STATUS.yaml` (Gate 1).
 3. ~~Fix the chain-is-source-of-truth violation in the Oracle~~ — **closed 2026-09-05**
    (verified against live code, landed via PR #85 slightly earlier): see Workstream A.
-4. Extend Halmos coverage to the registry-enabled kernel configuration and re-attempt
-   the registry `preCheck` gas mitigation (Workstream B) — needed before any kernel
-   deployment can be responsibly scheduled.
-5. Add a durable local export/spool queue to `bcc_middleware` (Workstream D) — closes a
-   real evidence-loss window that a production pilot on either downstream repo would
-   inherit.
+4. Registry-enabled Halmos coverage is closed; re-attempt the registry `preCheck` gas
+   mitigation (Workstream B) — needed before any kernel deployment can be responsibly
+   scheduled.
+5. ~~Add a durable local export/spool queue and periodic partial-batch Merkle anchoring
+   to `bcc_middleware`~~ — **closed 2026-09-05** (Workstream D / Gate 5).
 6. Schedule an independent security audit of the promoted kernel/account contracts
    before considering any real-value deployment (Gate 4).
 7. Make an interim AIS component-floor decision rather than waiting indefinitely for a
