@@ -430,9 +430,15 @@ stated semver/deprecation policy covering both the SDK and CLI (§5 items 1-2).
 
 ### Gate 3 — Oracle scoring integrity
 
-Chain-is-source-of-truth is fixed (closed 2026-09-05, see Workstream A). Remaining to
-pass: signer role separation enforced in production configuration, and at least an
-interim component-floor decision made for AIS scoring rather than indefinitely deferred.
+Chain-is-source-of-truth is fixed (closed 2026-09-05, see Workstream A). The AIS
+component-floor decision is also closed 2026-09-05 — not by enforcing the gate (real
+population data doesn't exist yet to calibrate it, and flipping it live can raise a real
+on-chain dispute), but by replacing indefinite silence with an explicit, dated decision,
+three stated graduation criteria, and a checkable script
+(`scripts/check_ais_floor_graduation.py`) — see `docs/design/ais-floor-interim-decision-2026-09-05.md`
+and `PRODUCTION_GAPS.md` §27. Remaining to pass: signer role separation enforced in
+production configuration — a real key-management/deployment action, not a code change,
+and out of scope for an autonomous session to perform.
 
 ### Gate 4 — Kernel deployment readiness
 
