@@ -472,6 +472,18 @@ Pass when both `xibalba-shield` and `xibalba-cortex` confirm their own SDK-depen
 production gates (Cortex's own Gate 2, "Standalone deployability") are unblocked by
 Gates 2-3 above.
 
+**Cross-repo status note (2026-09-05, informational only — does not itself change this
+gate's pass/fail):** `xibalba-shield`'s own `docs/PRODUCTION_READINESS_PLAN.md` §7 sequence
+(items 3-7, its own Gate 3-7 set, distinct from this document's gates) has items 3
+(TCP-connect kernel-matrix evidence-script parity), 4 (durable exporter spool + real DID/
+readback preflight, replacing a hardcoded demo placeholder), and 5 (systemd hardening —
+dedicated non-root service account, tightened confinement; package-signing/rollback
+mechanics still fully open) closed or partially closed this session, plus a real health/
+exporter panel wired into Shield's own console (its item 7). None of this touches Gate 2/3
+here or Shield's own SDK dependency — it's Shield's internal packaging/observability
+readiness, tracked in Shield's own document, noted here only so this backbone board doesn't
+go stale about what "Shield's readiness" currently means.
+
 ## 7. Immediate implementation sequence
 
 1. Publish `integrity-sdk` as a real, version-pinned package — this single item
