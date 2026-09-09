@@ -36,6 +36,10 @@ def _intended_state_hash() -> str:
     return "0x" + hashlib.sha256(b"a real BCC intent payload").hexdigest()
 
 
+def _bcc_leaf() -> str:
+    return "0x" + hashlib.sha256(b"the exact anchored BCC leaf").hexdigest()
+
+
 def test_generate_and_verify_real_proof(prover: NoirProver) -> None:
     keypair = Keypair.generate()
     proof = prover.generate_proof(
@@ -43,15 +47,16 @@ def test_generate_and_verify_real_proof(prover: NoirProver) -> None:
         nonce=1,
         chain_id=CHAIN_ID,
         verifying_contract=VERIFYING_CONTRACT,
+        bcc_leaf_hex=_bcc_leaf(),
         keypair=keypair,
     )
     assert proof.circuit == "integrity_zkp"
     assert proof.verifier_target == "evm"
     assert len(bytes.fromhex(proof.proof_hex)) == 8000
-    # 5 real public inputs, 32 bytes each. The 8 UltraHonk pairing-point
-    # words counted in the Solidity verifier's NUMBER_OF_PUBLIC_INPUTS=13
+    # 6 real public inputs, 32 bytes each. The 8 UltraHonk pairing-point
+    # words counted in the Solidity verifier's NUMBER_OF_PUBLIC_INPUTS=14
     # are carried inside the proof bytes, not this public_inputs file.
-    assert len(bytes.fromhex(proof.public_inputs_hex)) == 5 * 32
+    assert len(bytes.fromhex(proof.public_inputs_hex)) == 6 * 32
     assert prover.verify_proof(proof) is True
 
 
@@ -62,6 +67,7 @@ def test_tampered_proof_fails_verification(prover: NoirProver) -> None:
         nonce=2,
         chain_id=CHAIN_ID,
         verifying_contract=VERIFYING_CONTRACT,
+        bcc_leaf_hex=_bcc_leaf(),
         keypair=keypair,
     )
     tampered_bytes = bytearray(bytes.fromhex(proof.proof_hex))
@@ -80,6 +86,7 @@ def test_different_chain_id_produces_different_commitment(prover: NoirProver) ->
         nonce=3,
         chain_id=CHAIN_ID,
         verifying_contract=VERIFYING_CONTRACT,
+        bcc_leaf_hex=_bcc_leaf(),
         keypair=keypair,
     )
     proof_b = prover.generate_proof(
@@ -87,10 +94,30 @@ def test_different_chain_id_produces_different_commitment(prover: NoirProver) ->
         nonce=3,
         chain_id=8453,  # different chain -> different intent_commitment
         verifying_contract=VERIFYING_CONTRACT,
+        bcc_leaf_hex=_bcc_leaf(),
         keypair=keypair,
     )
     assert proof_a.intent_commitment_field != proof_b.intent_commitment_field
     # Identity commitment is independent of chain_id/verifying_contract/nonce.
+    assert proof_a.agent_id_commitment_field == proof_b.agent_id_commitment_field
+
+
+def test_different_bcc_leaf_produces_different_intent_commitment(prover: NoirProver) -> None:
+    keypair = Keypair.generate()
+    common = {
+        "intended_state_hash_hex": _intended_state_hash(),
+        "nonce": 4,
+        "chain_id": CHAIN_ID,
+        "verifying_contract": VERIFYING_CONTRACT,
+        "keypair": keypair,
+    }
+    proof_a = prover.generate_proof(bcc_leaf_hex=_bcc_leaf(), **common)
+    proof_b = prover.generate_proof(
+        bcc_leaf_hex="0x" + hashlib.sha256(b"a different anchored BCC leaf").hexdigest(),
+        **common,
+    )
+
+    assert proof_a.intent_commitment_field != proof_b.intent_commitment_field
     assert proof_a.agent_id_commitment_field == proof_b.agent_id_commitment_field
 
 
@@ -112,6 +139,7 @@ def test_identity_commitment_is_stable_per_keypair_and_distinct_across_keypairs(
         nonce=5,
         chain_id=CHAIN_ID,
         verifying_contract=VERIFYING_CONTRACT,
+        bcc_leaf_hex=_bcc_leaf(),
         keypair=keypair_a,
     )
     proof_a2 = prover.generate_proof(
@@ -119,6 +147,7 @@ def test_identity_commitment_is_stable_per_keypair_and_distinct_across_keypairs(
         nonce=6,
         chain_id=CHAIN_ID,
         verifying_contract=VERIFYING_CONTRACT,
+        bcc_leaf_hex=_bcc_leaf(),
         keypair=keypair_a,
     )
     proof_b = prover.generate_proof(
@@ -126,6 +155,7 @@ def test_identity_commitment_is_stable_per_keypair_and_distinct_across_keypairs(
         nonce=7,
         chain_id=CHAIN_ID,
         verifying_contract=VERIFYING_CONTRACT,
+        bcc_leaf_hex=_bcc_leaf(),
         keypair=keypair_b,
     )
     assert proof_a1.agent_id_commitment_field == proof_a2.agent_id_commitment_field

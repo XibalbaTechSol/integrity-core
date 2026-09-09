@@ -12,20 +12,16 @@ wire protocol.
 
 Canonical JSON encoding (used for BOTH the intent-payload hash and the
 commitment signature):
-  - `json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=True)`
-  - Keys sorted lexicographically (byte-wise ASCII order) — this is what
-    `sort_keys=True` does in Python and what most other languages' "sort
-    object keys" helpers do too, so it's a safe cross-language convention.
-  - No inserted whitespace (`separators=(",", ":")`).
-  - `ensure_ascii=True` (json's default): non-ASCII characters are escaped as
-    `\\uXXXX` rather than emitted as raw UTF-8 bytes. This is REQUIRED for
-    byte-for-byte reproducibility — a Rust or Go implementation using a
-    different default here would produce a different byte string and a
-    different hash/signature, even though the *logical* JSON is identical.
-  - Integers only for `nonce` and `timestamp` — never floats. Python's `json`
-    renders `1719000000000` and `1719000000000.0` differently, and other
-    languages differ on trailing `.0`, so floats here would break
-    cross-implementation hash agreement.
+  - RFC 8785 (JSON Canonicalization Scheme / JCS), implemented via the `jcs`
+    Python library and the `serde_jcs` Rust crate. All components (integrity-sdk,
+    integrity-cli, bcc_middleware, and integrity-oracle) now use the same standard.
+  - JCS mandates: keys sorted lexicographically (UTF-16 code unit order),
+    no inserted whitespace, ECMAScript `Number::toString` for floats, and
+    raw UTF-8 passthrough for non-ASCII characters.
+  - This replaces the previous `json.dumps(sort_keys=True, ensure_ascii=True)`
+    approach, which diverged from the Rust oracle on float representation
+    (~20% signature rejection) and non-ASCII escaping.
+  - Integers only for `nonce` and `timestamp` — never floats.
 
 Hash function: intended_state_hash is fixed by the contract to be SHA-256
 of the canonical intent payload (not a policy choice made here).
@@ -47,9 +43,8 @@ from .did import Keypair, public_key_multibase, verify_signature
 def canonical_json_bytes(obj: Any) -> bytes:
     """The one and only canonicalization used across the SDK for anything
     that gets hashed or signed. See module docstring for why each flag matters."""
-    return json.dumps(
-        obj, sort_keys=True, separators=(",", ":"), ensure_ascii=True
-    ).encode("utf-8")
+    import jcs
+    return jcs.canonicalize(obj)
 
 
 def hash_intent_payload(intent_payload: Dict[str, Any]) -> str:

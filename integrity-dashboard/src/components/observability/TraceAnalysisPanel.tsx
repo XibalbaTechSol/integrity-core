@@ -1,16 +1,10 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ChevronRight, 
   ChevronDown, 
-  Play, 
   RotateCcw, 
-  Pause, 
-  Edit3, 
-  GitBranch,
-  Zap,
-  AlertCircle,
   CheckCircle2,
   XCircle
 } from 'lucide-react';
@@ -203,7 +197,7 @@ export function TraceAnalysisPanel() {
   // for each instead of a single "Loading session..." that never resolved and looked
   // identical to a hang for the (common) case of an agent with no telemetry yet.
   const [status, setStatus] = useState<'loading' | 'no-agent' | 'no-traces' | 'ready'>('loading');
-  const [isRewinding, setIsRewinding] = useState(false);
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [rewindSpan, setRewindSpan] = useState<Span | null>(null);
 
   // Real chain-of-thought: the selected agent's most recent OTel trace, fetched
@@ -251,7 +245,6 @@ export function TraceAnalysisPanel() {
 
   const handleTimeTravel = (span: Span) => {
     setRewindSpan(span);
-    setIsRewinding(true);
   };
 
   const buildTree = (spans: Span[]) => {

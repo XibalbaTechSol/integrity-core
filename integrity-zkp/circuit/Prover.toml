@@ -17,9 +17,10 @@ intent_payload_hash = "0x0000000000000000000000000000000000000000000000000000000
 nonce = "0x07"
 chain_id = "0x7a69"
 verifying_contract = "0x0000000000000000000000005FC8d32690cc91D4c39d9d3abcBD16989F875707"
+bcc_leaf = "0x0000000000000000000000000000000000000000000000000000000987654321"
 
 # agent_id_commitment = pedersen_hash([DOMAIN_IDENTITY(1), secret_key])
 agent_id_commitment = "0x2817315e00e740df3fec7b27f79eacc3925ffc65d592bbbb273ca8d1b7c880ba"
 
 # intent_commitment = pedersen_hash([DOMAIN_INTENT(2), secret_key, intent_payload_hash, nonce, chain_id, verifying_contract])
-intent_commitment = "0x164a96b914cc827ea81f6b84b94e6753dfe88acf3255cfc91873550f3a58d88d"
+intent_commitment = "0x25029857b35aa589cd0b89b6e0687aaec978080b2cb72cff29aefa7cb85ea69a"

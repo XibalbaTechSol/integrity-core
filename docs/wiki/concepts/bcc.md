@@ -47,8 +47,8 @@ Wire schema (field names are load-bearing across packages):
 }
 ```
 
-Canonicalization: sorted-key JSON, no whitespace, `ensure_ascii=True`, sign all
-fields except `signature` itself. Agreed byte-for-byte across
+Canonicalization: RFC 8785 JCS UTF-8 bytes, signing all fields except
+`signature` itself. Agreed byte-for-byte across
 [integrity-sdk](../entities/integrity-sdk.md),
 [integrity-cli](../entities/integrity-cli.md), and
 [bcc_middleware](../entities/bcc_middleware.md), verified by cross-package
@@ -84,7 +84,7 @@ identity commitment before the middleware anchors the commitment into a
 sequenceDiagram
     participant Agent as Agent (SDK/CLI)
     participant MW as bcc_middleware
-    Agent->>Agent: sign commitment (canonical JSON,<br/>ensure_ascii=True)
+    Agent->>Agent: sign commitment (RFC 8785 JCS)
     Agent->>MW: POST /v1/bcc/intercept
     MW->>MW: bind agent_public_key to agent_id<br/>(sha256(pubkey) == fingerprint)
     MW->>MW: verify Ed25519 signature

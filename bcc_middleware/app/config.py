@@ -28,6 +28,13 @@ def _bool_env(name: str, default: bool) -> bool:
     return val.strip().lower() in ("1", "true", "yes", "on")
 
 
+def _csv_env(name: str, default: tuple[str, ...]) -> frozenset[str]:
+    value = os.getenv(name)
+    if value is None:
+        return frozenset(default)
+    return frozenset(item.strip() for item in value.split(",") if item.strip())
+
+
 @dataclass
 class Settings:
     # --- Cross-package shared env vars (see docs/INTERFACE_CONTRACT.md §3) ---
@@ -61,6 +68,28 @@ class Settings:
     # checks out -- this bounds how long a captured-and-replayed commitment
     # stays valid.
     max_commitment_age_ms: int = field(default_factory=lambda: int(os.getenv("BCC_MAX_AGE_MS", "60000")))
+
+    # Quarantine reads run for every request. An RPC/oracle outage therefore
+    # must not take down harmless traffic, but it must fail closed for actions
+    # that can move value, change credentials, or bypass a control plane.
+    # Values match exact intent types or the `claude_tool:<tool>:<risk_class>`
+    # suffix emitted by the runtime hook.
+    quarantine_fail_closed_intents: frozenset[str] = field(
+        default_factory=lambda: _csv_env(
+            "BCC_QUARANTINE_FAIL_CLOSED_INTENTS",
+            (
+                "chain_write",
+                "destructive",
+                "credential",
+                "privileged",
+                "EMR_WRITE",
+                "DISPENSE_MEDICATION",
+                "BILLING_SUBMISSION",
+                "SECURE_EMR_WRITE",
+                "CLINICAL_DATA_ACCESS",
+            ),
+        )
+    )
 
     # --- Shadow (monitor-only) mode ---------------------------------------
     # The enterprise-adoption on-ramp: when true, run_intercept still runs the

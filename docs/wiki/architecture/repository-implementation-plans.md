@@ -2,7 +2,7 @@
 title: Repository Implementation Plans
 acronyms: [AIS, BCC, DID, MVP]
 created: 2026-08-06
-updated: 2026-09-05
+updated: 2026-09-08
 type: architecture
 tags: [infrastructure, planning, roadmap, documentation]
 confidence: high
@@ -27,10 +27,10 @@ layer. That repository is now stale/superseded — `integrity-dashboard/` (insid
 is the actively developed presentation layer today. The section is left as recorded history, not
 rewritten; treat any status claim in it as historical, not current.
 
-This page is the cross-repository implementation and specification ledger for the Integrity Protocol product stack. It summarizes the root `IMPLEMENTATION_PLAN.md` and `SPECIFICATION.md` files that now exist in each project root:
+This page is the cross-repository implementation and specification ledger for the Integrity Protocol product stack. Current repository names and authority differ from the historical checklist below:
 
-- `integrity-core/IMPLEMENTATION_PLAN.md` and `integrity-core/SPECIFICATION.md`
-- `integrity-core/integrity-dashboard/IMPLEMENTATION_PLAN.md` and `integrity-core/integrity-dashboard/SPECIFICATION.md` (formerly tracked in the now-superseded standalone `integrity-mvp` repository, see note above)
+- `integrity-core/docs/IMPLEMENTATION_PLAN.md` and normative `integrity-core/docs/SPEC.md`
+- `integrity-core/integrity-dashboard/` is governed by the core repository docs and its package README/configuration; it has no current root `SPECIFICATION.md`
 - `xibalba-shield/IMPLEMENTATION_PLAN.md` and `xibalba-shield/SPECIFICATION.md`
 - `xibalba-cortex/IMPLEMENTATION_PLAN.md` and `xibalba-cortex/SPECIFICATION.md`
 
@@ -78,7 +78,7 @@ integrity-core remains the protocol authority. Shield and graph memory do not be
 
 **Role:** Protocol trust backend: contracts, SDK, CLI, BCC middleware, Oracle/AIS, user API, dashboard, ZKP, canonical wiki, and protocol specs.
 
-**Specification authority (corrected 2026-09-05, see `docs/DOCUMENT_STATUS.yaml`):** `docs/SPEC.md` (v1.0.0-draft) is accepted normative authority; `docs/archive/2026-08/integrity-protocol-v0.4.md` and `integrity-protocol-v0.5-proposed.md` are both archived, not authoritative — this entry previously still named v0.4 as accepted after the real cutover had already happened, see `PRODUCTION_GAPS.md`'s dated pointer-correction entry. `docs/WHITEPAPER.md` is the current v3.2 explanatory/non-normative whitepaper. Current implementation evidence is maintained by `README.md`, `SPECIFICATION.md`, `PRODUCTION_GAPS.md`, `docs/INTERFACE_CONTRACT.md`, `docs/MAINNET_READINESS.md`, and `docs/wiki/`.
+**Specification authority (corrected 2026-09-08, see `docs/DOCUMENT_STATUS.yaml`):** `docs/SPEC.md` (v1.0.0-draft) is accepted normative authority; `docs/archive/2026-08/integrity-protocol-v0.4.md` and `integrity-protocol-v0.5-proposed.md` are both archived, not authoritative. `docs/WHITEPAPER.md` is the current v3.2 explanatory/non-normative whitepaper. Current implementation evidence is maintained by `README.md`, `PRODUCTION_GAPS.md`, `docs/INTERFACE_CONTRACT.md`, `docs/MAINNET_READINESS.md`, and `docs/wiki/`.
 
 **Audit checkpoint (2026-08-17):** Phase 0 is locally complete. The Foundry suite passes 209/209; `IntegrityIdentityReadV1` passes its 10 focused tests; the local generated verifier has real-proof negative-control coverage; and package Continuous Integration includes dashboard build/lint rather than a nonexistent unit-test script. Base Sepolia still lacks the identity facade and retains the older fail-closed verifier, so source capability is not deployed capability.
 
@@ -89,7 +89,7 @@ integrity-core remains the protocol authority. Shield and graph memory do not be
 - [x] Solidity primitive suite, factory, and per-agent primitive contracts exist.
 - [x] Integrity Health, SmartBAA, ComplianceGate, Oracle/AIS, telemetry, BCC, SDK, CLI, user API, and ZKP packages exist.
 - [x] Canonical wiki exists and feeds downstream MVP/GitHub wiki projections.
-- [x] Protocol spec v0.4 is version-controlled Markdown and supersedes the archived v0.3 PDF.
+- [x] `docs/SPEC.md` is the accepted normative source; v0.3/v0.4/v0.5-proposed are archived.
 - [x] Phase 0 `IntegrityIdentityReadV1` is implemented locally, fails inconsistent mappings closed, preserves registry/AIS authority separation, and requires no agent migration.
 - [x] Whitepaper v3.2 and the proposed v0.5 delta are published with explicit explanatory/proposed authority labels.
 - [x] Future genesis and incremental deployment serialization preserve the optional identity singleton.
@@ -239,7 +239,7 @@ integrity-core remains the protocol authority. Shield and graph memory do not be
 ## Cross-repository task list
 
 - [x] Add root `IMPLEMENTATION_PLAN.md` to integrity-core.
-- [x] Add root `SPECIFICATION.md` to integrity-core.
+- [x] Establish `docs/SPEC.md` as integrity-core's normative specification.
 - [x] Add root `IMPLEMENTATION_PLAN.md` to integrity-mvp.
 - [x] Add root `SPECIFICATION.md` to integrity-mvp.
 - [x] Add root `IMPLEMENTATION_PLAN.md` to xibalba-shield.

@@ -2,7 +2,7 @@
 title: Zero-Knowledge Proving Pipeline
 acronyms: [ZKP]
 created: 2026-07-07
-updated: 2026-08-17
+updated: 2026-09-08
 type: concept
 tags: [cryptography]
 confidence: high
@@ -24,7 +24,7 @@ source_files:
   - docs/INTERFACE_CONTRACT.md
 ---
 
-**Current boundary (2026-08-17):** the local pipeline now has a real generated
+**Current boundary (2026-09-08):** the local pipeline has a real generated
 Solidity verifier, real-proof Foundry coverage, and real Oracle-side
 Barretenberg verification during telemetry ingestion. It is still not wired
 end to end: the SDK prover targets its older proof-of-concept circuit, no
@@ -66,19 +66,23 @@ pipeline context: given a private `secret_key` (KDF'd off-circuit from the
 agent's real Ed25519 seed) and a private `intent_payload_hash` (the BCC
 object's SHA-256 `intended_state_hash`, reduced to a `Field`), the circuit
 asserts two Pedersen-hash equalities against public inputs
-(`agent_id_commitment`, `nonce`, `intent_commitment`):
+(`agent_id_commitment`, `nonce`, `intent_commitment`, `chain_id`,
+`verifying_contract`, `bcc_leaf`):
 
 1. `pedersen_hash([DOMAIN_IDENTITY, secret_key]) == agent_id_commitment` —
    the prover holds the exact secret behind the agent's published identity,
    not just anyone who observed the public commitment.
-2. `pedersen_hash([DOMAIN_INTENT, secret_key, intent_payload_hash, nonce]) == intent_commitment` —
+2. `pedersen_hash([DOMAIN_INTENT, secret_key, intent_payload_hash, nonce, chain_id, verifying_contract, bcc_leaf]) == intent_commitment` —
    the prover actually knows the payload locked in for *this* nonce/action,
    binding the proof to one specific action and blocking replay as a
-   different action.
+   different action or against a different chain/protocol deployment; the
+   leaf binding also prevents pairing a valid proof with another anchored event.
 
-Both are real constraints on real Pedersen gates, exercised by 4 `nargo
-test` cases (1 valid, 3 `should_fail` negative controls: wrong secret,
-substituted payload, zero nonce — all 4 pass). **Explicit scope limit**:
+Both are real constraints on real Pedersen gates, exercised by 7 `nargo
+test` cases (1 valid, 6 `should_fail` negative controls: wrong secret,
+substituted payload, zero nonce, wrong chain, wrong verifying contract, and
+wrong BCC leaf — all pass).
+**Explicit scope limit**:
 this is proof-of-possession of a KDF-derived secret, not a full in-circuit
 Ed25519 signature check (that would need a non-native Curve25519
 bignum/foreign-field gadget library — a separate undertaking, documented
@@ -90,7 +94,7 @@ Exact commands, all actually run (full transcripts in
 `integrity-zkp/README.md`):
 
 ```
-nargo test                                              # 4/4 constraint unit tests pass
+nargo test                                              # 7/7 circuit constraint tests pass
 nargo compile                                           # -> target/integrity_zkp.json (ACIR)
 nargo execute witness                                   # -> target/witness.gz, using Prover.toml
 bb write_vk   -b target/integrity_zkp.json -o target/vk -t evm
@@ -108,11 +112,12 @@ Two naming/shape traps for anyone consuming the output:
   current default), not classic UltraPlonk. The generated contract is a
   real **Honk** verifier; `UltraPlonkVerifier.sol` is only the filename
   `contracts/` expects, not a claim about the proving system.
-- The generated contract declares `NUMBER_OF_PUBLIC_INPUTS = 11`, not the
-  circuit's logical 3 (`agent_id_commitment`, `nonce`, `intent_commitment`)
+- The generated contract declares `NUMBER_OF_PUBLIC_INPUTS = 14`, not the
+  circuit's logical 6 (`agent_id_commitment`, `nonce`, `intent_commitment`,
+  `chain_id`, `verifying_contract`, `bcc_leaf`)
   — Honk appends internal accumulator/pairing-point public inputs. Callers
   must pass `bb`'s `public_inputs` output through verbatim, not assume a
-  3-element array.
+  5-element array.
 
 Makefile targets (`integrity-zkp/Makefile`): `make test` (nargo only, fast,
 CI-safe), `make compile`, `make execute`, `make vk`, `make prove`, `make
@@ -125,8 +130,9 @@ solidity-verifier, the full sequence above), `make clean`.
 now the generated UltraHonk verifier. `contracts/test/UltraPlonkVerifier.t.sol`
 uses a checked-in 8,000-byte proof fixture: the valid proof passes, while a
 tampered proof, tampered public input, and malformed proof are rejected.
-`ReputationRegistry.submitZkAttestation` retains its versioned-verifier and
-Merkle-anchor checks.
+`ReputationRegistry.submitZkAttestation` also pins the identity commitment,
+checks nonce/chain/its own clone address/exact anchored leaf, and rejects leaf
+reuse before crediting the proof.
 
 **Oracle verification:** telemetry ingestion decodes the submitted proof and
 public inputs, then calls `state.zk.verify(...)`. `backend/src/zk.rs` shells out
@@ -137,9 +143,6 @@ Barretenberg verification result, not a self-reported boolean.
 
 **Still open:**
 
-- `integrity-sdk/integrity_sdk/prover.py` still targets
-  `integrity-sdk/circuits/poc_commitment`, not the canonical
-  `integrity-zkp/circuit/src/main.nr` circuit, and uses a different field derivation.
 - No SDK, CLI, or Oracle runtime path currently submits a proof on chain through
   `ReputationRegistry.submitZkAttestation`.
 - Off-chain Oracle verification and on-chain proof submission are separate

@@ -375,18 +375,21 @@ contract IntegrityKernelRegistryHookGasTest is Test {
     /// cold gas cost with the registry genuinely enabled (not the isolated `AdapterRegistry.
     /// evaluate` figure from §52, and not the disabled-branch figure already covered by the
     /// existing `test_preCheckGasIsUnderPaperTable4BudgetWithCachedReputation`).
-    /// **Real, disclosed finding, MITIGATED but not eliminated (§55): originally measured at
+    /// **Real, disclosed finding, MITIGATED and explicitly re-scoped (§55/§69): historically measured at
     /// ~59.2k gas (a call routed through `AdapterRegistry.evaluate`); mitigated to ~49.3k gas by
     /// having the kernel call the registered adapter DIRECTLY, using a gas bound mirrored once at
     /// construction (see `registryAdapterGasBound`'s own NatSpec) -- a real ~9.9k-gas reduction,
     /// removing the registry hop's own external-call overhead. STILL over the whitepaper's Table 4
-    /// `preCheck` ceiling (`<=40k`) by ~9.3k gas** -- a third crossing in this codebase's history,
-    /// same category as `IntegrityKernel`'s tracked-token check (§41), now partially mitigated
-    /// rather than fully accepted as-is. The remaining cost is the adapter's own live external
+    /// `preCheck` target (`<=40k`) by ~9.3k gas**. The accepted `docs/SPEC.md` §4.6 defines the
+    /// exact core/cached measurement profile and says deliberately live foreign-registry reads must
+    /// be amortized or explicitly declared outside it. §69 takes the latter option for this reference
+    /// profile rather than weakening its semantics. The remaining cost is the adapter's own live external
     /// read (`ReputationFloorAdapter` reading `ReputationRegistry.effectiveScore`, ~15.5k gas
     /// cold) -- unavoidable without caching the score itself, which this kernel deliberately does
     /// NOT do for a registry-installed adapter (would silently break any adapter, like
-    /// `SpendBudgetAdapter`, whose correctness depends on genuinely live per-call state).
+    /// `SpendBudgetAdapter`, whose correctness depends on genuinely live per-call state). The
+    /// `(44k, 54k)` assertions below are an adapter-specific regression band for this successful,
+    /// cold `ReputationFloorAdapter` path -- not a protocol maximum or an arbitrary-adapter bound.
     function test_preCheckGasCostWithRegistryEnabled() public {
         vm.prank(address(account));
         uint256 gasBefore = gasleft();
@@ -396,18 +399,16 @@ contract IntegrityKernelRegistryHookGasTest is Test {
         assertGt(
             gasUsed,
             44_000,
-            "this test's OWN name/doc asserts a mitigated-but-still-over-budget finding (~49.3k) "
-            "-- if this now fails low, the remaining crossing may have been resolved (e.g. by "
-            "caching the adapter's own read) and this test should be replaced with an "
-            "under-budget assertion, not left stale"
+            "adapter-specific lower regression bound for the successful cold "
+            "ReputationFloorAdapter path -- this is not a protocol minimum"
         );
         assertLt(
             gasUsed,
             54_000,
-            "regression ceiling -- a further, unexplained rise could mean something other than "
+            "adapter-specific regression ceiling, not a protocol or arbitrary-adapter maximum -- "
+            "a further, unexplained rise could mean something other than "
             "the named, understood cost (the adapter's own live cold read) is now driving this "
-            "number, e.g. the direct-call mitigation silently regressed back toward the "
-            "registry-hop cost"
+            "number, e.g. the direct-call mitigation silently regressed back toward the " "registry-hop cost"
         );
 
         vm.prank(address(account));

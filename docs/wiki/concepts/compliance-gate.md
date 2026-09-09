@@ -1,7 +1,7 @@
 ---
 title: ComplianceGate & Integrity Health
 created: 2026-07-07
-updated: 2026-08-24
+updated: 2026-09-08
 type: concept
 tags: [compliance, layer-2]
 confidence: high

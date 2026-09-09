@@ -3383,3 +3383,190 @@ writeup: PRODUCTION_GAPS.md §18.
   scripts/tree_hash.py --self-test` passed 4/4; wiki table-of-contents validation passed for 35
   pages. This proves local workflow/tree consistency, not hostile-host authenticity, external
   anchoring, or atomicity against concurrent source edits.
+## [2026-09-08] lint | Full documentation and wiki source reconciliation
+
+- Pages created: 0
+- Pages updated: 9 (`contracts`, `compliance-gate`, `zkp`, `ais`,
+  `testing-strategy`, `agent-memory`, `integrity-sdk`, `foundational-primitives`,
+  and `repository-implementation-plans`).
+- Dead links fixed: 0; orphans resolved: 0.
+- Stale pages refreshed: 6. All current entity `source_files` resolve, and the
+  correct index count remains 35 articles; the standalone skill linter's count of
+  33 omits the two indexed `architecture/` articles.
+- Corrected active-document drift outside the wiki: `docs/WHITEPAPER.md` now points
+  to normative `docs/SPEC.md`; the spec now records built local enterprise-EHR
+  resolution and AIS floors/constraint score; the telemetry interface records the
+  intentional SDK-v2/Oracle-v3 compatibility window; and the readiness plan no
+  longer lists the already-closed authority-pointer repair as open.
+- Aspirational content flagged/corrected: ZKP chain/deployment binding and public
+  input counts, SDK registration preflight/personal-domain behavior, invocation
+  correlation/post-tool evidence, MCP signing-tool opt-in boundaries, and Halmos/
+  test-status coverage were reconciled to current source. Historical Base Sepolia
+  memory observations remain explicitly dated and were not promoted to current proof.
+- A focused Devil's Advocate review blocked the initial registry-gas closure wording.
+  `docs/SPEC.md` now defines the exact 40k reference measurement profile, the whitepaper
+  distinguishes core/cached and adapter-inclusive profiles, and `PRODUCTION_GAPS.md` §69
+  records the 49,290 value as historical with the live `(44k, 54k)` regression band.
+  The measured crossing remains; kernel adapter identity/installability, bytecode/EOA
+  handling, maximum-stipend/caller-reserve, and hostile-adapter reentrancy remain open
+  deployment blockers rather than being promoted by a documentation exception.
+- Validation: `forge test --match-path test/kernel/IntegrityKernelRegistryHook.t.sol -vvv`
+  passed 7/7; full `forge test -vvv` passed 496/496; targeted `forge fmt --check`
+  passed for the three touched Solidity files; wiki table-of-contents and linter checks
+  passed for all 35 indexed pages. Repository-wide `forge fmt --check` still reports
+  pre-existing formatting drift outside this change and is not represented as green.
+- Two fail-closed pre-commit reviews also corrected AIS floors from "operator-enabled
+  enforcement" to shadow-only evaluation, removed a nonexistent chain-ID registration
+  preflight claim, separated local `make test` from hosted Noir/OPA/demo coverage, and
+  repaired stale ZKP 4-test/3-input wording. `docs/TESTING.md` now matches the root
+  Makefile and hosted workflow; the earlier append-only log claim remains historical.
+
+## [2026-09-08] fix | Frozen host policy-hook registration closure
+
+- Verified the existing `IExecutionPolicy` and `IAnchorPolicy` host hooks, reference
+  policies, deployment serialization, and SDK wiring; corrected registration to anchor
+  agent-only genesis before installing the oracle-only anchor policy.
+- Transferred default policy administration to `IntegrityGovernance` on non-local genesis
+  deployments and added regression coverage for fail-closed post-genesis oracle anchoring.
+- Updated stale factory fixtures to fund, approve, and anchor before bonded registration.
+- Verification: full Foundry suite passed 497/497; real Anvil SDK registration suite passed
+  12/12. Existing Base Sepolia agents retain old frozen bytecode and were not migrated.
+
+## [2026-09-08] fix | Proportional proof-bearing event scoring
+
+- Replaced the reporting-window `BOOL_OR(zk_verified)` with verified-event coverage and
+  blended `ZK_boost` from 1.0 to 1.15 by that ratio. One proof-bearing row therefore no
+  longer grants unrelated rows the full multiplier.
+- Exposed the ratio in the AIS response while retaining the legacy boolean as an
+  any-proof compatibility signal, and applied the same aggregation to AIS history.
+- Kept mainnet readiness open: proof public inputs are not yet checked against the
+  specific event, and `ReputationRegistry` still applies an on-chain period-wide boost.
+- Verification: `cargo test --lib` passed 146 backend and 19 scoring-core tests, including
+  a 50%-coverage regression asserting a 1.075 multiplier.
+
+## [2026-09-08] fix | Covered-entity fail-closed scoring binding
+
+- Reconciled the existing live `ComplianceGate` lookup with oracle scoring: a confirmed
+  Healthcare agent now scores compliance as zero when its covered-entity address is
+  missing, malformed, unbound, or cannot be verified on chain.
+- Added an explicit contract regression proving that an active BAA for hospital A cannot
+  authorize the same agent under a different registered hospital B.
+- Verification: `ComplianceGate.t.sol` passed 7/7 and the oracle library suites passed
+  146 backend plus 19 scoring-core tests. No deployed-chain readback was performed.
+
+## [2026-09-08] fix | ZK public-input and anchored-event binding
+
+- Added `bcc_leaf` as the sixth logical Noir public input and bound it into the intent
+  commitment; regenerated the Honk verifier and real proof fixtures for the new circuit.
+- Made `ReputationRegistry` check pinned identity, monotonic nonce, current chain, its own
+  clone address, exact anchored leaf, and leaf non-reuse before crediting a proof.
+- Added the SDK's SovereignAgent-routed one-time identity pin and synced the registry ABI.
+- Verification: full Forge passed 507/507, full SDK passed 290 with 3 skipped,
+  and all 7 Noir circuit tests plus the real-Anvil SDK identity-pin path passed. Existing
+  Base Sepolia bytecode was not migrated; coverage-aware on-chain scoring is now source-complete; deployment remains open.
+
+## [2026-09-08] fix | Coverage-aware on-chain ZK scoring
+
+- Added oracle-only `updateScoreWithCoverage` with a bounded verified-event ratio in basis
+  points; `effectiveScore` now applies `1.0 + 0.15 * ratio` rather than a blanket 1.15x
+  multiplier for new score-sync writes.
+- Updated the kernel snapshot path and middleware score loop to consume the same effective
+  score and ratio; retained the legacy update method only for compatibility with frozen
+  callers, without enabling coverage on those writes.
+- Verification: 19/19 registry tests, 121/121 IntegrityAccount tests, and 149/149
+  middleware tests passed. Existing Base Sepolia bytecode still needs migration/readback.
+
+## [2026-09-09] audit | Base Sepolia verifier migration gate
+
+- Read-only RPC confirmed chain ID `84532`, block `46581012`, and the recorded verifier
+  address still has approximately 233 bytes of placeholder runtime code.
+- No deployment transaction was attempted because this workspace has no configured Base
+  Sepolia RPC/private-key environment. The approved migration, deployment-record update,
+  direct bytecode readback, and valid/tampered proof calls remain the next operational gate.
+
+## [2026-09-09] deploy | linked verifier candidate readback
+
+- Deployed `RelationsLib` (`0xbfe49e2e340012FbB5F2066cd0C6B7c29934Fcb8`) and `ZKTranscriptLib`
+  (`0xbB6Ed9423e88c4bA7Bb44355007752D5b1E870c0`) from the funded Base Sepolia deployment wallet.
+- Deployed linked `UltraPlonkVerifier` candidate at `0x565184C507CD2c22a0c95f914c9034C8F289818A`
+  in tx `0xb394ebe6efb7fa09b95b14e6ee522ea67a7a590e9d7cfb21e7eec598175f1547`.
+- Readback: 23,912-byte runtime; valid fixture returned `true`; one-byte-tampered fixture reverted.
+  The existing factory still points to the recorded placeholder, so adoption and deployment-record
+  reconciliation remain open.
+
+## [2026-09-09] migrate | future factory verifier adoption
+
+- Deployed replacement `AgentPrimitivesFactory` at `0x240F72d7c1fc824BB641e51213ca135Ee5514A5B`
+  with immutable `initialZkVerifier = 0x565184C507CD2c22a0c95f914c9034C8F289818A`.
+- Granted the replacement `REGISTRAR_ROLE` on `XibalbaAgentRegistry` and `DomainRegistry`, then
+  revoked both roles from the old factory `0xC19fc9cB2cB87297EfDF11DA7e211e44A6C1181D`.
+- Updated `deployments.baseSepolia.json`; existing verifier-registry clones still need their
+  controller-routed version pinning/adoption transaction.
+
+## [2026-09-09] migrate | xibalba verifier registry
+
+- Located the encrypted controller keystore locally at `~/.integrity/wallet/xibalba/` and used
+  its existing password-file reference without exposing the secret.
+- Through `SovereignAgent 0x360e2a56eb23e383b81e5bb42ee5c3966688558a`, pinned verifier version 2
+  on registry `0x9baf461553e59904fb4e41973d995aa856cad0e7` and activated it.
+- Transactions: pin `0xdcd830bff0179c0982226495869d2a3a2444be078930a257572ce33938aabc8e`; activate
+  `0x8b371eb98d3a946acb1fdd5d19c52019e909ba8a0801a287401a4b18795b22db`. Readback confirms
+  `currentVersion == 2` and `verifierImpl(2)` equals the new verifier.
+
+## [2026-09-09] harden | testnet registration convenience gate
+
+- SDK registration now rejects automatic ETH funding and ITK minting on non-testnet chains.
+- Base Sepolia requires explicit `ALLOW_TESTNET_CONVENIENCE=true`; production callers must
+  pass zero convenience amounts and pre-fund through an approved path. Anvil remains available
+  for local development.
+- Added focused registration tests for mainnet rejection, Base Sepolia opt-in, and zero-amount
+  production mode. Python syntax and a direct mainnet-blocking check pass.
+
+## [2026-09-09] harden | append-only agent lineage attestation
+
+- Added `AgentLineageRegistry`, an append-only registry for controller-authorized
+  `forked_from`, `migrated_from`, and `recovered_from` edges between registered agents.
+- Each edge records the predecessor, relation, attestor, and timestamp exactly once; unknown
+  agents, invalid relations, self-links, and non-controller writers revert.
+- Focused Forge coverage passes (3/3). Network deployment and workflow adoption remain open.
+
+## [2026-09-09] harden | intent-scoped quarantine fail-closed policy
+
+- Quarantine read failures now deny configured high-risk intent classes (chain writes,
+  destructive/credential/privileged tools, and clinical actions) while low-risk reads continue
+  to the authoritative OPA gate.
+- Added `BCC_QUARANTINE_FAIL_CLOSED_INTENTS` configuration and suffix matching for runtime
+  risk labels such as `claude_tool:Bash:chain_write`.
+- Focused quarantine suite passes (7/7); live production deny observation remains open.
+
+## [2026-09-09] close | identity-ceiling clamp
+
+- The authoritative Rust scoring engine now clamps post-boost AIS to the documented
+  verification ladder for every tier, including the Tier-3 maximum of 1000.
+- Negative/unknown tiers cannot bypass the Tier-0 ceiling, and `constraint_score` uses the
+  same normalized cap. Scoring-core tests pass (19/19).
+
+## [2026-09-09] harden | silence-as-signal policy wiring
+
+- Added the opt-in `AIS_ANCHOR_STALE_PENALTY_BPS` oracle policy. Active agents with stale
+  anchor coverage can receive a bounded post-score penalty; the default remains zero so
+  coverage is informational until explicitly enabled.
+- No-activity remains neutral, and the normalized constraint input is not altered. Backend
+  anchor-coverage tests cover the opt-in, bounded behavior.
+
+## [2026-09-09] close | testnet convenience surface audit
+
+- Confirmed the SDK's explicit non-testnet convenience gate remains in place.
+- Audited the dashboard and scripts: no `VITE_DEV_AUTO_LOGIN_*`, mock seeder, or Vite
+  middleware that executes `make demo` exists; the Vite config contains only a development
+  Shield proxy. The production dashboard build passed.
+
+## [2026-09-09] integrate | Agent 360 canonical DID join
+
+- Added the Cortex agent summary endpoint backed by `sources.agent_id` and wired the
+  dashboard's Agent 360 panel to real Oracle, Shield, and Cortex data.
+- Fixed Cortex local API identity-mode propagation and configured the local Hermes
+  runtime to emit the registered `did:integrity:68fed1331613937555a59398223e8e87520a87dd0305aac4fd7ecdc32a14a861`.
+- Historical pseudonymous/legacy records remain unchanged; unattributed Agent 360
+  records render as an explicit empty state.
+- Wiki pages updated: 1. Pages created: 0. Dead links fixed: 0. Orphans resolved: 0.

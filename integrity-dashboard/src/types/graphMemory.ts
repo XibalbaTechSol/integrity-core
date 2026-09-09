@@ -75,6 +75,15 @@ export interface GraphMemoryStats {
     embedded_memories: number;
 }
 
+export interface AgentMemorySummary {
+    agent_id: string;
+    memories: number;
+    embedded_memories: number;
+    sessions: number;
+    sources: number;
+    recent_memories: Memory[];
+}
+
 export interface StoreStatus {
     schema_version: number;
     journal_mode: string;

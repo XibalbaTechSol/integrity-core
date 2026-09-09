@@ -208,6 +208,39 @@ def deploy_state_anchor(w3: Web3, agent: LocalAccount, sovereign_agent_address: 
     return receipt.contractAddress
 
 
+def approve_factory_bond(
+    w3: Web3,
+    agent: LocalAccount,
+    sovereign_agent_address: str,
+    itk_address: str,
+    factory_address: str,
+    amount: int,
+    chain_id: int,
+    nonce: int | None = None,
+) -> str:
+    """Routes an ERC20 approve through the SovereignAgent to authorize the Factory."""
+    itk = _contract(w3, "IntegrityToken", address=itk_address)
+    approve_calldata = itk.functions.approve(w3.to_checksum_address(factory_address), amount).build_transaction(
+        {"gas": 0}
+    )["data"]
+
+    sovereign_agent = _contract(w3, "SovereignAgent", address=sovereign_agent_address)
+    tx_nonce = nonce if nonce is not None else w3.eth.get_transaction_count(agent.address)
+    tx = sovereign_agent.functions.execute(
+        w3.to_checksum_address(itk_address), 0, approve_calldata
+    ).build_transaction(
+        {
+            "from": agent.address,
+            "nonce": tx_nonce,
+            "chainId": chain_id,
+        }
+    )
+    signed = agent.sign_transaction(tx)
+    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+    _wait(w3, tx_hash, action="approve_factory_bond")
+    return tx_hash.hex()
+
+
 def grant_anchor_role(
     w3: Web3,
     agent: LocalAccount,

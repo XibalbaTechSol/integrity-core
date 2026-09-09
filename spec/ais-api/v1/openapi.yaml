@@ -113,6 +113,35 @@ paths:
           description: Unsupported bucket value
         '404':
           description: Agent not found
+  /v1/agent/{id}/ais/zero-axis:
+    get:
+      tags:
+      - telemetry
+      summary: Counts fail-closed AIS axes observed for an agent in the requested window.
+      operationId: get_ais_zero_axis_counts
+      parameters:
+      - name: id
+        in: path
+        description: agent identifier
+        required: true
+        schema:
+          type: string
+      - name: days
+        in: query
+        description: lookback window, default 30 days
+        required: false
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AxisZeroCount'
   /v1/agent/{id}/baas:
     get:
       tags:
@@ -1156,6 +1185,7 @@ components:
       - weights
       - zk_boost
       - zk_proof_verified
+      - zk_verified_event_ratio
       - period_start
       - period_end
       - event_count
@@ -1194,7 +1224,7 @@ components:
           description: |-
             Present only when a cached on-chain ReputationRegistry address is known for this
             agent — a nice-to-have cross-check (per the task's "not required" note) that the
-            oracle's off-chain `zk_verified_this_period` telemetry flag agrees with the
+            oracle's off-chain `zk_verified_event_ratio` telemetry flag agrees with the
             contract's own independently-earned `isZkBoosted` state. A mismatch here doesn't
             fail the request (the two are allowed to be transiently out of sync — e.g. a proof
             submitted directly to the contract that hasn't shown up in telemetry yet) but is
@@ -1221,6 +1251,10 @@ components:
           format: double
         zk_proof_verified:
           type: boolean
+        zk_verified_event_ratio:
+          type: number
+          format: double
+          description: Fraction of events in this exact reporting window with their own verified proof.
     AisWeightsSchema:
       type: object
       description: |-
@@ -1498,6 +1532,17 @@ components:
         id:
           type: string
           format: uuid
+    AxisZeroCount:
+      type: object
+      required:
+      - axis
+      - count
+      properties:
+        axis:
+          type: string
+        count:
+          type: integer
+          format: int64
     BaaDto:
       type: object
       required:
@@ -1552,6 +1597,20 @@ components:
           type: number
           format: double
           description: Behavioral stability in [0,1] = exp(-1.5 * avg_variance^2) (mirrors the entropy score).
+    BilledCost:
+      type: object
+      required:
+      - amount
+      - currency
+      - rate_source
+      properties:
+        amount:
+          type: number
+          format: double
+        currency:
+          type: string
+        rate_source:
+          type: string
     ComplianceResponse:
       type: object
       required:
@@ -1604,6 +1663,13 @@ components:
       - sacrifice
       - compliance
       properties:
+        billed_cost:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/BilledCost'
+            description: |-
+              Optional provider-reported cost. This is absent when the provider did not
+              report a price; the oracle never derives one from token counts.
         compliance:
           type: number
           format: double
@@ -2301,6 +2367,11 @@ components:
           type: string
         derived_signals:
           $ref: '#/components/schemas/DerivedSignals'
+        evidence_tier:
+          type: string
+          description: |-
+            Explicit provenance tier for the signed-agent ingestion path. Version 1
+            payloads may omit this field and are treated as the historical signed tier.
         judge_evaluation:
           oneOf:
           - type: 'null'

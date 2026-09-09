@@ -124,6 +124,14 @@ contract Slasher is Initializable, AccessControlUpgradeable, ReentrancyGuard {
         emit Staked(msg.sender, amount);
     }
 
+    /// @notice Stakes on behalf of another account (e.g. pulled by AgentPrimitivesFactory during registration)
+    function stakeFor(address account, uint256 amount) external nonReentrant {
+        if (amount == 0) revert ZeroAmount();
+        IERC20(address(itk)).safeTransferFrom(msg.sender, address(this), amount);
+        stakeOf[account] += amount;
+        emit Staked(account, amount);
+    }
+
     /// @notice Withdraws stake. Only the *unlocked* portion (total minus whatever is
     /// currently tied up in open disputes) can be withdrawn — this is what makes
     /// `raiseDispute` meaningful; without it, an agent could see a dispute coming (or

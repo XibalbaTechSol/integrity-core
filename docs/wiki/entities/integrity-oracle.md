@@ -51,7 +51,7 @@ this is the **only** backend that ever reads on-chain state.
   - [Judge evaluations (storage only — no judge implementation)](#judge-evaluations-storage-only-no-judge-implementation)
 - [On-chain client (chain.rs)](#on-chain-client-chain-rs)
 - [Anchoring](#anchoring)
-- [Canonical JSON signing — real cross-language bug fixed 2026-07-11](#canonical-json-signing-real-cross-language-bug-fixed-2026-07-11)
+- [Canonical JSON signing — RFC 8785 JCS](#canonical-json-signing-rfc-8785-jcs)
 - [State](#state)
 
 ## Workspace
@@ -336,28 +336,12 @@ Telemetry leaves batched into a keccak256 [Merkle tree](../concepts/merkle-batch
 because `StateAnchor` is per-agent, the same epoch root is submitted to each
 participating agent's own `StateAnchor` clone — a documented gas tradeoff.
 
-## Canonical JSON signing — real cross-language bug fixed 2026-07-11
+## Canonical JSON signing — RFC 8785 JCS
 
-`crypto::canonical_json_bytes` (the byte representation `ingest_telemetry`
-verifies an agent's telemetry-envelope signature against) used
-`serde_json`'s default compact formatter, which emits non-ASCII string
-content as raw UTF-8. Every producer this oracle must verify against
-(`integrity-sdk/integrity_sdk/bcc.py`, `bcc_middleware/app/canonical.py`)
-instead pins Python's `ensure_ascii=True` (non-ASCII escaped as `\uXXXX`,
-surrogate pairs for astral code points) — both modules' own docstrings
-explicitly warned a Rust implementation using a different default here
-would produce a different signature, and this one did. Was masked until
-now because nothing successfully reached signature verification at all
-(see [integrity-sdk](integrity-sdk.md)'s matching fix — the SDK's own
-request used to fail JSON deserialization before ever reaching this check).
-Fixed with a custom `AsciiEscapingFormatter` overriding only
-`write_string_fragment` (the rest of `serde_json::ser::Formatter`'s default
-methods, which `CompactFormatter` also just uses unmodified, are
-inherited).
-
-**Second fix (2026-07-30):** The float re-serialization bug. While the ASCII fix handled strings, `serde_json` by default parses floating-point numbers into 64-bit floats (`f64`) and then re-serializes them. This caused complex latency numbers (e.g., `1785382891.2774885`) sent by the Python client to be subtly reformatted by Rust's `Ryu` float formatter, breaking the signature verification on full telemetry syncs. Fixed by:
-1. Modifying `ingest_telemetry` to extract the signable payload from the exact, raw parsed JSON `serde_json::Value` (by stripping `signature` and `judge_evaluation`) rather than rebuilding the object via `serde_json::json!({})`.
-2. Enabling the `arbitrary_precision` feature in `serde_json`, which forces the JSON parser to treat all numbers as opaque strings during deserialization and preserve their exact literal representations during canonical re-serialization, guaranteeing a byte-for-byte match with Python.
+`crypto::canonical_json_bytes`, the byte representation checked for signed
+telemetry, uses `serde_jcs`. Python producers use the `jcs` package. This
+shared RFC 8785 rule replaces the earlier custom ASCII formatter and pins both
+ECMAScript number serialization and raw non-ASCII UTF-8 across runtimes.
 
 ## State
 

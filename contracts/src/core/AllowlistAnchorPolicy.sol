@@ -26,7 +26,15 @@ contract AllowlistAnchorPolicy is AccessControl, IAnchorPolicy {
         emit CallerAllowed(caller, allowed);
     }
 
-    function check(address caller, bytes32 root, uint256 /* nextEpoch */) external view returns (bool) {
+    function check(
+        address caller,
+        bytes32 root,
+        uint256 /* nextEpoch */
+    )
+        external
+        view
+        returns (bool)
+    {
         if (root == bytes32(0)) return false;
         return allowedCaller[caller];
     }

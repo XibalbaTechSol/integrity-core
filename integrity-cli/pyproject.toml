@@ -20,6 +20,7 @@ dependencies = [
     "eth-account>=0.13.0",
     "web3>=7.4.0",
     "eth-utils>=5.1.0",
+    "jcs>=0.2.1",
 ]
 
 [project.scripts]

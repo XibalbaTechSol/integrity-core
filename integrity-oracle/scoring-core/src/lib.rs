@@ -26,8 +26,8 @@
 //! `PRODUCTION_GAPS.md` for the absent-vs-zero question this raises.
 //!
 //! with default weights wE=0.30, wG=0.30, wS=0.20, wC=0.20 (sum to 1.0) and
-//! ZK_boost = 1.15 when a real Barretenberg proof was verified for the agent
-//! during the reporting period, else 1.0.
+//! ZK_boost is blended from 1.0 to 1.15 by the fraction of events in the
+//! reporting period whose own attached Barretenberg proof verified.
 //!
 //! The four `S_*` component scores are each normalized to the same
 //! [0, MAX_COMPONENT_SCORE] range so that the weights above are directly
@@ -128,10 +128,10 @@ pub struct AisComponentInputs {
     /// flagged the corresponding intent), in `[0.0, 1.0]`. This is the compliance
     /// axis; 0.0 = no flags, 1.0 = every single action was flagged.
     pub penalty_ratio: f64,
-    /// Whether at least one telemetry submission in the period carried a ZK proof
-    /// that this oracle verified for real via `bb verify` (see `backend::zk`). Drives
-    /// `ZK_boost` — real cryptographic evidence outranks self-reported telemetry.
-    pub zk_verified_this_period: bool,
+    /// Fraction of telemetry events in the reporting period whose own attached ZK proof
+    /// was verified, in `[0.0, 1.0]`. The boost is blended by this ratio, so proof for
+    /// event A cannot grant the full-period multiplier to unrelated event B.
+    pub zk_verified_event_ratio: f64,
 }
 
 /// Full breakdown of an AIS computation, returned by the API so operators/consumers
@@ -144,12 +144,9 @@ pub struct AisBreakdown {
     pub s_sacrifice: f64,
     pub s_compliance: f64,
     pub zk_boost: f64,
-    /// Final AIS. Note this is intentionally NOT clamped to `MAX_COMPONENT_SCORE`:
-    /// the weighted sum of four scores each in `[0, 1000]` with weights summing to
-    /// 1.0 is itself in `[0, 1000]`, but the `ZK_boost` multiplier (up to 1.15x) can
-    /// push a fully-boosted top performer above 1000. The interface contract's
-    /// formula doesn't specify a post-boost ceiling, so we report the true computed
-    /// value rather than silently reintroducing a cap that isn't part of the spec.
+    /// Final AIS after the weighted geometric mean, ZK boost, and (when requested)
+    /// verification-tier ceiling. `score()` returns the raw post-boost value;
+    /// `score_with_tier()` clamps it to the documented 300/600/850/1000 ladder.
     pub ais: f64,
     /// spec/integrity-protocol-v3.2.md §3.1.1 eq. 4b's `r(ι)`: the normalised,
     /// **pre-boost** base score clamped to `[0,1]`, for use as a reputation-parameterised
@@ -281,11 +278,9 @@ impl AisEngine {
         let s_sacrifice = self.calculate_sacrifice_score(inputs.gpu_hours_verified);
         let s_compliance = self.calculate_compliance_score(inputs.penalty_ratio);
 
-        let zk_boost = if inputs.zk_verified_this_period {
-            ZK_BOOST_FACTOR
-        } else {
-            NO_ZK_BOOST_FACTOR
-        };
+        let verified_ratio = inputs.zk_verified_event_ratio.clamp(0.0, 1.0);
+        let zk_boost = NO_ZK_BOOST_FACTOR
+            + (ZK_BOOST_FACTOR - NO_ZK_BOOST_FACTOR) * verified_ratio;
 
         // Use the Weighted Geometric Mean (Volume formula) instead of Arithmetic Mean
         let weighted = s_entropy.powf(self.weights.w_entropy)
@@ -323,10 +318,11 @@ impl AisEngine {
     /// Tier 0 (Developer API Key): 300.0
     /// Tier 1 (Sovereign Software Key): 600.0
     /// Tier 2 (Linked DNS/Social Attestation): 850.0
-    /// Tier 3 (Institutional TEE/Audit): 1000.0 (uncapped, ZK boost applies)
+    /// Tier 3 (Institutional TEE/Audit): 1000.0 (maximum score; ZK boost is included
+    /// before the cap)
     pub fn ceiling_for_tier(verification_tier: i32) -> f64 {
         match verification_tier {
-            0 => 300.0,
+            i32::MIN..=0 => 300.0,
             1 => 600.0,
             2 => 850.0,
             _ => 1000.0,
@@ -337,14 +333,12 @@ impl AisEngine {
     pub fn score_with_tier(&self, inputs: &AisComponentInputs, verification_tier: i32) -> AisBreakdown {
         let mut breakdown = self.score(inputs);
         let ceiling = Self::ceiling_for_tier(verification_tier);
-        if verification_tier < 3 {
-            breakdown.ais = breakdown.ais.min(ceiling);
-            // Same ceiling, same rationale, expressed on constraint_score's [0,1] scale:
-            // an agent's identity-assurance tier bounds its constraint input exactly as it
-            // bounds its display score, so a low-tier agent can't use eq. 4b to reach a
-            // reputation-parameterised bound its verification level hasn't earned.
-            breakdown.constraint_score = breakdown.constraint_score.min(ceiling / MAX_COMPONENT_SCORE);
-        }
+        breakdown.ais = breakdown.ais.min(ceiling);
+        // Same ceiling, same rationale, expressed on constraint_score's [0,1] scale:
+        // an agent's identity-assurance tier bounds its constraint input exactly as it
+        // bounds its display score, so a low-tier agent can't use eq. 4b to reach a
+        // reputation-parameterised bound its verification level hasn't earned.
+        breakdown.constraint_score = breakdown.constraint_score.min(ceiling / MAX_COMPONENT_SCORE);
         breakdown
     }
 }
@@ -389,7 +383,7 @@ mod tests {
             hgi_raw: 0.0,                // never human-checked
             gpu_hours_verified: 0.0,     // no verified contribution
             penalty_ratio: 1.0,          // every action flagged
-            zk_verified_this_period: false,
+            zk_verified_event_ratio: 0.0,
         };
         let breakdown = engine.score(&inputs);
         assert!(breakdown.ais < 1.0, "expected near-zero AIS, got {}", breakdown.ais);
@@ -403,7 +397,7 @@ mod tests {
             hgi_raw: 1.0,
             gpu_hours_verified: 1000.0,
             penalty_ratio: 0.0,
-            zk_verified_this_period: false,
+            zk_verified_event_ratio: 0.0,
         };
         let breakdown = engine.score(&inputs);
         assert!((breakdown.ais - 1000.0).abs() < 1.0, "expected ~1000, got {}", breakdown.ais);
@@ -418,15 +412,41 @@ mod tests {
             hgi_raw: 0.8,
             gpu_hours_verified: 500.0,
             penalty_ratio: 0.1,
-            zk_verified_this_period: false,
+            zk_verified_event_ratio: 0.0,
         };
         let mut boosted_inputs = base_inputs;
-        boosted_inputs.zk_verified_this_period = true;
+        boosted_inputs.zk_verified_event_ratio = 1.0;
 
         let unboosted = engine.score(&base_inputs);
         let boosted = engine.score(&boosted_inputs);
 
         assert!((boosted.ais - unboosted.ais * ZK_BOOST_FACTOR).abs() < 1e-9);
+    }
+
+    #[test]
+    fn zk_boost_is_proportional_to_verified_event_coverage() {
+        let engine = AisEngine::default();
+        let base_inputs = AisComponentInputs {
+            performance_variance: 0.1,
+            hgi_raw: 0.8,
+            gpu_hours_verified: 100.0,
+            penalty_ratio: 0.0,
+            zk_verified_event_ratio: 0.0,
+        };
+        let unverified = engine.score(&base_inputs);
+        let half_verified = engine.score(&AisComponentInputs {
+            zk_verified_event_ratio: 0.5,
+            ..base_inputs
+        });
+        let fully_verified = engine.score(&AisComponentInputs {
+            zk_verified_event_ratio: 1.0,
+            ..base_inputs
+        });
+
+        assert!((half_verified.zk_boost - 1.075).abs() < 1e-9);
+        assert!((fully_verified.zk_boost - 1.15).abs() < 1e-9);
+        assert!((half_verified.ais - unverified.ais * 1.075).abs() < 1e-9);
+        assert!(half_verified.ais < fully_verified.ais);
     }
 
     #[test]
@@ -458,7 +478,7 @@ mod tests {
             hgi_raw: 1.0,
             gpu_hours_verified: 1000.0,
             penalty_ratio: 0.0,
-            zk_verified_this_period: false,
+            zk_verified_event_ratio: 0.0,
         };
 
         // Tier 0 (Dev Key): capped at 300
@@ -473,9 +493,16 @@ mod tests {
         let score_t2 = engine.score_with_tier(&perfect_inputs, 2);
         assert_eq!(score_t2.ais, 850.0);
 
-        // Tier 3 (Institutional): uncapped (1000)
+        // Tier 3 (Institutional): capped at the protocol maximum (1000).
         let score_t3 = engine.score_with_tier(&perfect_inputs, 3);
         assert!((score_t3.ais - 1000.0).abs() < 1e-6);
+
+        // The cap applies after the ZK boost too; tier 3 cannot exceed 1000.
+        let boosted = AisComponentInputs { zk_verified_event_ratio: 1.0, ..perfect_inputs };
+        assert_eq!(engine.score_with_tier(&boosted, 3).ais, 1000.0);
+
+        // Unknown/negative values cannot bypass the lowest identity ceiling.
+        assert_eq!(engine.score_with_tier(&perfect_inputs, -1).ais, 300.0);
     }
 
     // -----------------------------------------------------------------------
@@ -538,7 +565,7 @@ mod tests {
             hgi_raw: 1.0,                // -> s_grounding  = 1000 (best)
             gpu_hours_verified: 0.0,     // -> s_sacrifice  = 0    (nothing reported)
             penalty_ratio: 0.0,          // -> s_compliance = 1000 (best)
-            zk_verified_this_period: false,
+            zk_verified_event_ratio: 0.0,
         };
         let scored = engine.score(&inputs);
         assert_eq!(scored.s_sacrifice, 0.0, "precondition: sacrifice must be 0");
@@ -583,7 +610,7 @@ mod tests {
             hgi_raw: grounding / MAX_COMPONENT_SCORE,
             gpu_hours_verified: hours,
             penalty_ratio: 1.0 - (compliance / MAX_COMPONENT_SCORE),
-            zk_verified_this_period: false,
+            zk_verified_event_ratio: 0.0,
         }
     }
 
@@ -596,7 +623,7 @@ mod tests {
     fn constraint_score_uses_pre_boost_value_unlike_ais() {
         let engine = AisEngine::default();
         let inputs = component_inputs_yielding(800.0, 800.0, 800.0, 800.0, &engine);
-        let boosted = AisComponentInputs { zk_verified_this_period: true, ..inputs };
+        let boosted = AisComponentInputs { zk_verified_event_ratio: 1.0, ..inputs };
         let unboosted = engine.score(&inputs);
         let boosted_score = engine.score(&boosted);
 
@@ -619,7 +646,7 @@ mod tests {
             hgi_raw: 1.0,
             gpu_hours_verified: 1000.0,
             penalty_ratio: 0.0,
-            zk_verified_this_period: true,
+            zk_verified_event_ratio: 1.0,
         };
         let breakdown = engine.score(&inputs);
         assert!(breakdown.ais > 1000.0, "test setup must exercise the >1000 boosted case, got {}", breakdown.ais);
@@ -639,7 +666,7 @@ mod tests {
             hgi_raw: 1.0,
             gpu_hours_verified: 1000.0,
             penalty_ratio: 0.0,
-            zk_verified_this_period: false,
+            zk_verified_event_ratio: 0.0,
         };
         let tier1 = engine.score_with_tier(&perfect_inputs, 1);
         assert_eq!(tier1.ais, 600.0);

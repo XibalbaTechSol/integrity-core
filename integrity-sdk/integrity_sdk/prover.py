@@ -88,6 +88,7 @@ class ZKProof:
     intent_hash_field: str  # decimal string, for debugging/audit logs
     agent_id_commitment_field: str
     intent_commitment_field: str
+    bcc_leaf_field: str
     nonce: str
     chain_id: str
     verifying_contract: str
@@ -101,6 +102,7 @@ class ZKProof:
             "intent_hash_field": self.intent_hash_field,
             "agent_id_commitment_field": self.agent_id_commitment_field,
             "intent_commitment_field": self.intent_commitment_field,
+            "bcc_leaf_field": self.bcc_leaf_field,
             "nonce": self.nonce,
             "chain_id": self.chain_id,
             "verifying_contract": self.verifying_contract,
@@ -116,6 +118,7 @@ class ZKProof:
             intent_hash_field=data["intent_hash_field"],
             agent_id_commitment_field=data["agent_id_commitment_field"],
             intent_commitment_field=data["intent_commitment_field"],
+            bcc_leaf_field=data["bcc_leaf_field"],
             nonce=data["nonce"],
             chain_id=data["chain_id"],
             verifying_contract=data["verifying_contract"],
@@ -252,6 +255,7 @@ class NoirProver:
         nonce_field: int,
         chain_id_field: int,
         verifying_contract_field: int,
+        bcc_leaf_field: int,
     ) -> tuple:
         """Run `tools/commitment_calc` to compute
         `(agent_id_commitment, intent_commitment)` for the given witnesses —
@@ -271,6 +275,7 @@ class NoirProver:
                 f'nonce = "{nonce_field}"\n'
                 f'chain_id = "{chain_id_field}"\n'
                 f'verifying_contract = "{verifying_contract_field}"\n'
+                f'bcc_leaf = "{bcc_leaf_field}"\n'
             )
             result = self._run(
                 [self._nargo, "execute", "-p", prover_toml_name, witness_name],
@@ -295,6 +300,7 @@ class NoirProver:
         nonce: int,
         chain_id: int,
         verifying_contract: str,
+        bcc_leaf_hex: str,
         keypair: Keypair,
     ) -> ZKProof:
         """
@@ -303,14 +309,12 @@ class NoirProver:
         `intended_state_hash`), the BCC per-agent `nonce`, and — as of
         2026-08-18 — `chain_id`/`verifying_contract`, matching the same
         deployment-binding fields already required for the non-ZK BCC
-        commitment object (bcc.py). `verifying_contract` is the
-        `XibalbaAgentRegistry` singleton address for the target deployment
-        (the same value markets.py sources via
-        `chain.load_deployments(deployments_file)["singletons"]
-        ["XibalbaAgentRegistry"]`), not fetched here — callers must pass it
-        explicitly, matching bcc.py's existing convention. Every step here
-        is a real subprocess call; any failure raises `ProverError` rather
-        than returning a placeholder.
+        commitment object (bcc.py). `verifying_contract` is the agent's
+        `ReputationRegistry` clone that will receive the proof, and
+        `bcc_leaf_hex` is the exact anchored BCC leaf it will credit. Neither
+        is fetched here: callers must resolve and pass both explicitly. Every
+        step here is a real subprocess call; any failure raises `ProverError`
+        rather than returning a placeholder.
         """
         call_id = uuid.uuid4().hex[:12]
         prover_toml_name = f"Prover_{call_id}"
@@ -321,9 +325,15 @@ class NoirProver:
         nonce_field = int(nonce)
         chain_id_field = int(chain_id)
         verifying_contract_field = _pack_address_to_field(verifying_contract)
+        bcc_leaf_field = _pack_hash_to_field(bcc_leaf_hex)
 
         agent_id_commitment, intent_commitment = self._compute_commitments(
-            secret_field, intent_payload_hash_field, nonce_field, chain_id_field, verifying_contract_field
+            secret_field,
+            intent_payload_hash_field,
+            nonce_field,
+            chain_id_field,
+            verifying_contract_field,
+            bcc_leaf_field,
         )
 
         prover_toml_path = self.circuit_dir / f"{prover_toml_name}.toml"
@@ -339,6 +349,7 @@ class NoirProver:
                 f'intent_commitment = "{intent_commitment}"\n'
                 f'chain_id = "{chain_id_field}"\n'
                 f'verifying_contract = "{verifying_contract_field}"\n'
+                f'bcc_leaf = "{bcc_leaf_field}"\n'
             )
 
             self._run(
@@ -372,6 +383,7 @@ class NoirProver:
                 intent_hash_field=str(intent_payload_hash_field),
                 agent_id_commitment_field=str(agent_id_commitment),
                 intent_commitment_field=str(intent_commitment),
+                bcc_leaf_field=str(bcc_leaf_field),
                 nonce=str(nonce_field),
                 chain_id=str(chain_id_field),
                 verifying_contract=verifying_contract,

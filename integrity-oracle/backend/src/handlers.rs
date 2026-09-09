@@ -512,12 +512,14 @@ pub struct AisResponse {
     pub weights: scoring_core::AisWeights,
     pub zk_boost: f64,
     pub zk_proof_verified: bool,
+    /// Fraction of events in this exact reporting window with their own verified proof.
+    pub zk_verified_event_ratio: f64,
     pub period_start: chrono::DateTime<Utc>,
     pub period_end: chrono::DateTime<Utc>,
     pub event_count: i64,
     /// Present only when a cached on-chain ReputationRegistry address is known for this
     /// agent — a nice-to-have cross-check (per the task's "not required" note) that the
-    /// oracle's off-chain `zk_verified_this_period` telemetry flag agrees with the
+    /// oracle's off-chain `zk_verified_event_ratio` telemetry flag agrees with the
     /// contract's own independently-earned `isZkBoosted` state. A mismatch here doesn't
     /// fail the request (the two are allowed to be transiently out of sync — e.g. a proof
     /// submitted directly to the contract that hasn't shown up in telemetry yet) but is
@@ -580,7 +582,7 @@ pub(crate) async fn compute_ais_for_agent(
         hgi_raw: aggregate.avg_hgi,
         gpu_hours_verified: aggregate.sum_gpu_hours,
         penalty_ratio: aggregate.penalty_ratio,
-        zk_verified_this_period: aggregate.zk_verified_this_period,
+        zk_verified_event_ratio: aggregate.zk_verified_event_ratio,
     };
     let agent = db::get_agent(&state.pool, id)
         .await?
@@ -595,7 +597,7 @@ pub(crate) async fn compute_ais_for_agent(
     // permanently cap every agent at 600 no matter what it proved -- which is the bug
     // this subsystem exists to fix.
     let tier = db::effective_verification_tier(&state.pool, id, agent.verification_tier).await?;
-    let breakdown = engine.score_with_tier(&inputs, tier);
+    let mut breakdown = engine.score_with_tier(&inputs, tier);
 
     let primitives_row = db::get_agent_primitives_on_chain(
         &state.pool,
@@ -614,7 +616,7 @@ pub(crate) async fn compute_ais_for_agent(
                     .is_zk_boosted(rep, sov)
                     .await
                     .ok()
-                    .map(|onchain| onchain == aggregate.zk_verified_this_period),
+                    .map(|onchain| onchain == (aggregate.zk_verified_event_ratio > 0.0)),
                 _ => None,
             }
         }
@@ -639,6 +641,11 @@ pub(crate) async fn compute_ais_for_agent(
     };
     let anchor_coverage =
         anchor_coverage::evaluate(aggregate.event_count, period_start, onchain_anchor_activity);
+    breakdown.ais = anchor_coverage::apply_stale_penalty(
+        breakdown.ais,
+        &anchor_coverage,
+        state.config.anchor_stale_penalty_bps,
+    );
 
     Ok(AisResponse {
         agent_id: id.to_string(),
@@ -651,7 +658,8 @@ pub(crate) async fn compute_ais_for_agent(
         },
         weights: state.config.ais_weights,
         zk_boost: breakdown.zk_boost,
-        zk_proof_verified: aggregate.zk_verified_this_period,
+        zk_proof_verified: aggregate.zk_verified_event_ratio > 0.0,
+        zk_verified_event_ratio: aggregate.zk_verified_event_ratio,
         period_start,
         period_end,
         event_count: aggregate.event_count,
@@ -874,11 +882,12 @@ async fn check_telemetry_rate_limit(state: &AppState, agent_id: &str) -> Result<
 /// unconditionally here rather than as an SDK-side opt-in a caller could forget to pass.
 /// `covered_entity_address` is read from `req.otel_spans`' `metadata` (see
 /// `derive::entry_covered_entity_address`'s doc comment for why, not a new signed field)
-/// rather than a request parameter. Falls back to the self-reported signal — never
-/// errors — whenever the agent isn't cached, isn't in a regulated vertical, no
-/// `covered_entity_address` was supplied, or the chain read fails; this function
-/// computes an AIS input, not a security gate (`EHRGate.sol` remains the real,
-/// fail-closed enforcement point for actual PHI access).
+/// rather than a request parameter. Agents without cached primitives retain the
+/// self-reported signal because the oracle cannot classify their vertical. Once an
+/// on-chain ComplianceGate exists, however, an unreadable gate fails closed; and a
+/// Healthcare gate earns compliance only from a valid address whose live
+/// CoveredEntityRegistry + SmartBAA lookup succeeds. `EHRGate.sol` remains the actual
+/// PHI-access enforcement boundary.
 async fn oracle_compliance(state: &AppState, req: &TelemetryIngestRequest) -> f64 {
     let self_reported = derive::self_reported_compliance(&req.otel_spans);
 
@@ -893,26 +902,30 @@ async fn oracle_compliance(state: &AppState, req: &TelemetryIngestRequest) -> f6
     else {
         return self_reported;
     };
-    let Some(covered_entity) = derive::entry_covered_entity_address(&req.otel_spans) else {
-        return self_reported;
-    };
     let Some(gate) = Address::from_str(&primitives.compliance_gate_address).ok() else {
-        return self_reported;
-    };
-    let Some(entity) = Address::from_str(&covered_entity).ok() else {
-        return self_reported;
+        return 0.0;
     };
 
     match state.chain.compliance_vertical(gate).await {
-        Ok(1) => match state.chain.is_healthcare_compliant(gate, entity).await {
-            // On-chain wins: a live "not compliant" read overrides a clean self-report
-            // (an agent can't talk its way out of a lapsed BAA), but a live "compliant"
-            // read still can't push the score above what self-reporting already earned.
-            Ok(true) => self_reported.min(1.0),
-            Ok(false) => 0.0,
-            Err(_) => self_reported,
-        },
-        _ => self_reported,
+        Ok(1) => {
+            let Some(covered_entity) = derive::entry_covered_entity_address(&req.otel_spans)
+            else {
+                return 0.0;
+            };
+            let Ok(entity) = Address::from_str(&covered_entity) else {
+                return 0.0;
+            };
+            match state.chain.is_healthcare_compliant(gate, entity).await {
+                // On-chain wins: a live "not compliant" read overrides a clean self-report
+                // (an agent can't talk its way out of a lapsed BAA), but a live "compliant"
+                // read still can't push the score above what self-reporting already earned.
+                Ok(true) => self_reported.min(1.0),
+                Ok(false) => 0.0,
+                Err(_) => 0.0,
+            }
+        }
+        Ok(_) => self_reported,
+        Err(_) => 0.0,
     }
 }
 
@@ -3148,7 +3161,7 @@ pub async fn get_ais_history(
                 hgi_raw: b.avg_hgi,
                 gpu_hours_verified: b.sum_gpu_hours,
                 penalty_ratio: b.penalty_ratio,
-                zk_verified_this_period: b.zk_verified_this_period,
+                zk_verified_event_ratio: b.zk_verified_event_ratio,
             };
             let breakdown = engine.score_with_tier(&inputs, tier);
             AisHistoryPoint {

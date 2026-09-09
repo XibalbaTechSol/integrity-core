@@ -67,7 +67,7 @@ pub struct AisAggregate {
     pub avg_hgi: f64,
     pub sum_gpu_hours: f64,
     pub penalty_ratio: f64,
-    pub zk_verified_this_period: bool,
+    pub zk_verified_event_ratio: f64,
     pub event_count: i64,
 }
 
@@ -419,7 +419,7 @@ pub async fn aggregate_for_ais(
     agent_id: &str,
     since: DateTime<Utc>,
 ) -> Result<AisAggregate, sqlx::Error> {
-    let row: (f64, f64, f64, f64, bool, i64) = sqlx::query_as(
+    let row: (f64, f64, f64, f64, f64, i64) = sqlx::query_as(
         r#"
         SELECT
             -- Each aggregate is explicitly cast to `double precision`: the `1.0`/`0.0`
@@ -432,7 +432,7 @@ pub async fn aggregate_for_ais(
             COALESCE(AVG(hgi_raw), 0.0)::double precision AS avg_hgi,
             COALESCE(SUM(gpu_hours_verified), 0.0)::double precision AS sum_gpu_hours,
             COALESCE(AVG(CASE WHEN flagged THEN 1.0 ELSE 0.0 END), 0.0)::double precision AS penalty_ratio,
-            COALESCE(BOOL_OR(zk_verified), false) AS zk_verified_this_period,
+            COALESCE(AVG(CASE WHEN zk_verified THEN 1.0 ELSE 0.0 END), 0.0)::double precision AS zk_verified_event_ratio,
             COUNT(*) AS event_count
         FROM telemetry_events
         WHERE agent_id = $1 AND created_at >= $2
@@ -448,7 +448,7 @@ pub async fn aggregate_for_ais(
         avg_hgi: row.1,
         sum_gpu_hours: row.2,
         penalty_ratio: row.3,
-        zk_verified_this_period: row.4,
+        zk_verified_event_ratio: row.4,
         event_count: row.5,
     })
 }
@@ -1565,7 +1565,7 @@ pub struct AisBucketAggregate {
     pub avg_hgi: f64,
     pub sum_gpu_hours: f64,
     pub penalty_ratio: f64,
-    pub zk_verified_this_period: bool,
+    pub zk_verified_event_ratio: f64,
     pub event_count: i64,
 }
 
@@ -1582,7 +1582,7 @@ pub async fn ais_history_buckets(
     bucket_interval: &str,
     since: DateTime<Utc>,
 ) -> Result<Vec<AisBucketAggregate>, sqlx::Error> {
-    let rows: Vec<(DateTime<Utc>, f64, f64, f64, f64, bool, i64)> = sqlx::query_as(
+    let rows: Vec<(DateTime<Utc>, f64, f64, f64, f64, f64, i64)> = sqlx::query_as(
         r#"
         SELECT
             time_bucket($1::interval, created_at) AS bucket_start,
@@ -1590,7 +1590,7 @@ pub async fn ais_history_buckets(
             COALESCE(AVG(hgi_raw), 0.0)::double precision AS avg_hgi,
             COALESCE(SUM(gpu_hours_verified), 0.0)::double precision AS sum_gpu_hours,
             COALESCE(AVG(CASE WHEN flagged THEN 1.0 ELSE 0.0 END), 0.0)::double precision AS penalty_ratio,
-            COALESCE(BOOL_OR(zk_verified), false) AS zk_verified_this_period,
+            COALESCE(AVG(CASE WHEN zk_verified THEN 1.0 ELSE 0.0 END), 0.0)::double precision AS zk_verified_event_ratio,
             COUNT(*) AS event_count
         FROM telemetry_events
         WHERE agent_id = $2 AND created_at >= $3
@@ -1613,7 +1613,7 @@ pub async fn ais_history_buckets(
                 avg_hgi,
                 sum_gpu_hours,
                 penalty_ratio,
-                zk_verified_this_period,
+                zk_verified_event_ratio,
                 event_count,
             )| {
                 AisBucketAggregate {
@@ -1622,7 +1622,7 @@ pub async fn ais_history_buckets(
                     avg_hgi,
                     sum_gpu_hours,
                     penalty_ratio,
-                    zk_verified_this_period,
+                    zk_verified_event_ratio,
                     event_count,
                 }
             },

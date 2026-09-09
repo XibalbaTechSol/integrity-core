@@ -232,22 +232,20 @@ included in the signed payload, so neither can be swapped post-signature:
   `PRODUCTION_GAPS.md` §36) — this residual gap is closed, not open.
 
 **Canonicalization, pinned:** the signature covers every field above except
-`signature` itself, serialized as `json.dumps(fields, sort_keys=True,
-separators=(",", ":"), ensure_ascii=True)` (UTF-8 bytes). `ensure_ascii=True`
-specifically — not the RFC 8785/JCS default — because it's the byte-for-byte
-rule `integrity-sdk`, `integrity-cli`, and `bcc_middleware` all independently
-implement today; a mismatch here silently breaks every signature on non-ASCII
-content. (`integrity-oracle`'s Rust-side `serde_json` does not escape
-non-ASCII by default and does not yet participate in this signature scheme —
-see `PRODUCTION_GAPS.md` for that gap if it ever needs to.)
+`signature` itself, serialized as RFC 8785 JSON Canonicalization Scheme (JCS)
+UTF-8 bytes. `integrity-sdk`, `integrity-cli`, and `bcc_middleware` use the
+Python `jcs` package; `integrity-oracle` uses `serde_jcs`. This shared rule is
+load-bearing for ECMAScript number formatting and raw non-ASCII UTF-8: do not
+replace it with language-default JSON serialization.
 
 ### 4.3 Agent Integrity Score (AIS)
 Formula (from the product spec, keep as-is):
 `AIS = (S_entropy^wE * S_grounding^wG * S_sacrifice^wS * S_compliance^wC) * ZK_boost`
 
 Default weights (must sum to 1.0, make them configurable but ship this default):
-`wE = 0.30, wG = 0.30, wS = 0.20, wC = 0.20`. `ZK_boost` is `1.15` when a real
-Barretenberg proof was verified for the reporting period, else `1.0`. This
+`wE = 0.30, wG = 0.30, wS = 0.20, wC = 0.20`. `ZK_boost` is
+`1.0 + 0.15 * verified_event_ratio`, where the ratio is the fraction of events in
+the exact reporting window carrying a proof verified by the oracle. This
 formula lives in `integrity-oracle/scoring-core` and is the only place it's computed —
 other packages call the oracle's `/v1/agent/{id}/ais` endpoint rather than recompute it.
 
@@ -272,8 +270,8 @@ The signed object of `POST /v1/telemetry/ingest` carries `schema_version`, an in
 **inside the signature**:
 
 ```
-schema_version = 3          # integrity_sdk.client.TELEMETRY_SCHEMA_VERSION
-                            # backend::handlers::MAX_TELEMETRY_SCHEMA_VERSION
+schema_version = 2          # current integrity_sdk.client.TELEMETRY_SCHEMA_VERSION
+max accepted version = 3   # backend::handlers::MAX_TELEMETRY_SCHEMA_VERSION
 evidence_tier = "signed_agent" # inside the signed object; v1/legacy defaults to this tier
 ```
 
@@ -296,9 +294,11 @@ Both constants must move together. Rules, all load-bearing:
   malformed covered-entity addresses, invalid numeric ranges, oversized text/properties,
   and batches above the configured span limit. This is shape validation only; it does not
   make the unauthenticated OTLP path part of AIS scoring.
-- Bumping the version is therefore a coordinated change: raise the SDK constant, raise the
-  oracle's maximum, and deploy the oracle **first** so it can accept the new shape before any
-  agent emits it.
+- Bumping the emitted version is therefore a coordinated change: raise and deploy the oracle's
+  accepted maximum **first**, then raise the SDK constant. That rollout is currently between
+  those steps: the Oracle accepts and structurally validates v3, while the SDK still emits v2.
+  This is a deliberate compatibility window, not evidence that SDK-emitted spans receive v3
+  structural validation today.
 
 Covered by `oracle_e2e_telemetry_schema_version_is_signed_and_backward_compatible`, which
 asserts legacy/v1 compatibility, unknown-version refusal, and signed-field tamper rejection.
@@ -353,10 +353,10 @@ specific value, so a genuinely non-empty vault at birth is equally valid.
 
 Authorization (§7.2): the genesis root (epoch 0→1) must be anchored by the agent itself —
 its controller via `SovereignAgent.execute`, which works because `StateAnchor`'s admin is
-the `SovereignAgent` contract and the constructor grants it `ANCHOR_ROLE`. No Solidity
-change is needed for this; **enforcement** that the protocol's `ANCHOR_ROLE` signer cannot
-anchor epoch 1 is still `[PLANNED]` (Appendix A gap 2), since `StateAnchor` is deployed
-per-agent and already-deployed anchors keep their current bytecode.
+the `SovereignAgent` contract and the constructor grants it `ANCHOR_ROLE`. `StateAnchor`
+enforces this with `GenesisRequiresAdmin`; the protocol oracle cannot anchor epoch 1.
+Already-deployed anchors retain their frozen prior bytecode and are not upgraded by this
+source change.
 
 ### 4.4b Memory DAG node schema (spec §7.4 lineage) — `[VERIFIED 2026-08-05]`
 
@@ -370,9 +370,8 @@ design doc's order-of-work). This section is now binding.
 leaf position meaningless, so it cannot express that one memory derives from
 another. Lineage needs a DAG, not a bigger tree.
 
-**Node preimage** (canonical JSON per §4.2's rule — `sort_keys=True`,
-`separators=(",",":")`, `ensure_ascii=True`; deliberately the same encoding, not a
-second one):
+**Node preimage** (RFC 8785 JCS canonical JSON per §4.2's rule; deliberately
+the same encoding, not a second one):
 
 ```
 { schema, agent_id, kind, content_hash, parents[], edge_type, timestamp, source }
@@ -430,7 +429,8 @@ whichever of the two structs currently has room**, not just be appended to
    other member; see that package's own docstring for why it exists). It
    proves: "I know a private Ed25519-derived secret and an intent payload
    whose hash equals the public `intended_state_hash`, without revealing the
-   secret or full payload," bound to a specific `chain_id`/`verifying_contract`.
+   secret or full payload," bound to a specific `chain_id`, per-agent
+   `ReputationRegistry` clone, and exact anchored `bcc_leaf`.
    Keep the circuit's constraint logic real — no `assert(true)`-style shortcuts.
 2. Compile with `nargo compile` (produces the ACIR bytecode).
 3. Generate a proving/verification key and Solidity verifier with `bb`:
@@ -443,6 +443,17 @@ whichever of the two structs currently has room**, not just be appended to
 5. `contracts`' verifier contract is the on-chain source of truth; `integrity-oracle`
    also verifies proofs off-chain for scoring purposes using the same `bb verify` flow
    (or a Rust binding) — no independent/duplicate mock verifier.
+
+The six logical public inputs, in circuit ABI order, are
+`[agent_id_commitment, nonce, intent_commitment, chain_id,
+verifying_contract, bcc_leaf]` (192 bytes in Barretenberg's
+`public_inputs` file). `verifying_contract` is the receiving agent's
+`ReputationRegistry` clone, not the shared `XibalbaAgentRegistry`; `bcc_leaf`
+is the exact StateAnchor leaf reduced modulo the BN254 scalar field. The
+registry pins the identity commitment once, requires a strictly increasing
+nonce, checks chain/registry/leaf inputs before verification, and prevents
+leaf reuse. The generated Honk verifier reports 14 total inputs because it
+adds eight internal accumulator/pairing-point words.
 
 Since this requires re-running `nargo`/`bb` commands as part of the build,
 document the exact commands in `integrity-zkp/README.md` and wire them into
@@ -605,7 +616,12 @@ exactly by `contracts/test/AgentPrimitivesFactory.t.sol`, and the sequence
    routing the grant through the agent's own account (per §6.2) to give the
    protocol's oracle signer `ANCHOR_ROLE` on this agent's `StateAnchor`, so
    the oracle can anchor Merkle roots on the agent's behalf.
-4. The wallet calls `AgentPrimitivesFactory.registerPrimitives(sovereignAgent,
+4. The wallet anchors the nonzero genesis root through `SovereignAgent.execute`, then
+   pins the serialized default `IAnchorPolicy`. This ordering is mandatory because the
+   shared policy permits the oracle signer for later epochs, while genesis is agent-only.
+   The SDK also pins the serialized default `IExecutionPolicy` on `SovereignAgent`.
+5. The wallet approves the factory's registration bond through `SovereignAgent.execute`.
+6. The wallet calls `AgentPrimitivesFactory.registerPrimitives(sovereignAgent,
    stateAnchor, did, domainId, vertical, profileURI)` (EOA-signed directly,
    per the §6.2 bootstrap exception). This single transaction:
    - verifies the caller controls the claimed `SovereignAgent`,
@@ -624,8 +640,8 @@ No consumer can ever observe an agent that only half-exists: registration
 either completes all 5 clones + both registry writes in one transaction, or
 reverts entirely.
 
-**Step 5 — off-chain: oracle independent re-verification.** After the
-4 on-chain steps above, `integrity-sdk`'s `registration.register_agent()`
+**Step 7 — off-chain: oracle independent re-verification.** After the
+on-chain steps above, `integrity-sdk`'s `registration.register_agent()`
 POSTs to `integrity-oracle`'s `POST /v1/agent/register`
 (`integrity-oracle/backend/src/handlers.rs`'s `RegisterAgentRequest`), which
 independently re-derives the agent's primitives from
@@ -1073,6 +1089,7 @@ uses these currently implemented external calls:
 | Extraction review | `GET /api/extraction-proposals`, `POST /api/extraction-proposals/{id}/decision` | Lists proposed deterministic extractions; accept/dismiss is an explicit write to Cortex canonical memory state. |
 | Operator status | `GET /api/inference/tasks`, `GET /api/embedding/models` | Displays pending inference work and registered embedding-model availability. |
 | Projection integrity | `GET /api/projections/{id}/checkpoints`, `POST /api/projections/{id}/checkpoint`, `/reconcile`, `/rebuild` | Operates only the `memories`, `entities`, and `relations` derived projections; reconciliation mismatch is not silently promoted to verified state. |
+| Agent 360 attribution | `GET /api/agent/{agent_id}/summary?limit=` | Returns only Cortex memories whose `sources.agent_id` exactly matches the selected Oracle DID, plus embedded-memory, session, source, and recent-memory counts. Missing attribution is an explicit empty state. |
 
 Failures are per-capability: the route presents a partial/unavailable state
 and does not fabricate fallback records. The current browser client has no
@@ -1084,6 +1101,13 @@ local deployment until Cortex or an authenticated gateway enforces operator
 authorization. Cortex provenance/session evidence
 complements runtime memory systems; it does not replace Hermes memory or
 Integrity protocol evidence.
+
+For cross-system Agent 360 joins, the Cortex runtime must emit the canonical
+Oracle DID through `XIBALBA_AGENT_ID`. Deployments that intentionally expose
+the DID to the local operator dashboard set
+`XIBALBA_CORTEX_IDENTITY_MODE=full`; pseudonymous or omitted identity modes
+cannot be joined to an Oracle DID. Historical records are not rewritten when
+this setting changes.
 
 ## 7. OPA policy integration (must be real, no "assume success" fallback)
 
@@ -1428,16 +1452,17 @@ Shield spec §4.5, not a new oracle endpoint. `integrity-oracle` requires **no r
 receive Shield telemetry — it arrives through the existing `POST /v1/bcc/intercept` and
 telemetry-ingest paths (§2, §4.2 above) like any other agent's traffic.
 
-## 16. Whitepaper v3.2 / proposed v0.5 interface status (2026-08-17)
+## 16. Whitepaper v3.2 amendment interface status (updated 2026-09-08)
 
-Normative status: [`integrity-protocol-v0.5-proposed.md`](archive/2026-08/integrity-protocol-v0.5-proposed.md)
-is a review candidate, not an active interface version. No package may emit a v0.5 profile
-identifier or claim v3.2 conformance merely because a related local mechanism exists.
+Normative status: `docs/SPEC.md` is authoritative. The former
+[`integrity-protocol-v0.5-proposed.md`](archive/2026-08/integrity-protocol-v0.5-proposed.md)
+is archived review history, not an active interface version. No package may emit a v0.5
+profile identifier or claim v3.2 conformance merely because a related mechanism exists.
 
 | Proposed surface | Current internal interface status |
 |---|---|
 | Identity read profile | **LOCAL / TESTED:** `IntegrityIdentityReadV1` is defined in §6.1a; custom and explicitly non-ERC-8004; not deployed to Base Sepolia. |
-| AIS fail-closed evidence | **PARTIAL:** empty entropy/grounding and empty self-reported compliance default to zero; no accepted `ais/v0.5-*` profile, floor vector, pre-boost constraint score, or migration wire field exists. |
+| AIS fail-closed evidence | **PARTIAL / BUILT LOCALLY:** fail-closed defaults, configurable component-floor evaluation/conjunctive result, and a tier-capped pre-boost `constraint_score` exist in `scoring-core`. The floor result is shadow reporting only: it is not wired into score pushes, disputes, or another enforcement path. No `ais/v0.5-*` wire profile or production deployment is implied. |
 | Federated telemetry prover | **PLANNED:** no validator-set, threshold-signature, disagreement, rotation, or quorum wire schema exists. The current Oracle remains Trusted and single-operator. |
 | Memory availability escrow | **PLANNED:** no challenge/stake/deadline/production/slashing schema or contract exists in integrity-core. |
 | Grace-mode adapter | **PLANNED:** no hard/soft partition, contraction-function, freshness, recovery, or staged-settlement schema exists. |

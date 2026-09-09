@@ -1,7 +1,7 @@
 ---
 title: Testing Strategy
 created: 2026-07-09
-updated: 2026-08-17
+updated: 2026-09-08
 type: concept
 tags: [infrastructure]
 confidence: high
@@ -30,7 +30,7 @@ summary.
 
 ```mermaid
 flowchart TB
-    L1["Package validation (make test)<br/>forge / nargo / cargo / pytest / OPA<br/>dashboard build + lint"]
+    L1["Local package validation (make test)<br/>forge / nargo / cargo / pytest<br/>dashboard build + lint"]
     L2["Playwright E2E (make test-e2e)<br/>real Chromium; backend stack<br/>prepared separately"]
     L3["GitHub Actions<br/>package jobs on push/PR to main<br/>Playwright excluded"]
 
@@ -38,11 +38,12 @@ flowchart TB
     L1 --> L3
 ```
 
-1. **Package validation** (`make test`) runs the Solidity, Noir, Rust, Python,
-   and Open Policy Agent (OPA) suites, then validates the dashboard with
-   `npm run build && npm run lint`. The contracts suite returned 209 passing
-   tests on 2026-08-17; other package counts are intentionally not frozen in
-   this page because they drift.
+1. **Package validation** (`make test`) runs the Solidity, Noir, Rust, and Python
+   suites, then validates the dashboard with
+   `npm run build && npm run lint`. The
+   root runner records every suite against one run ID and tested-tree hash, runs
+   all declared suites, and fails at finalization if any result is missing,
+   mixed-tree, malformed, or red. Test counts are intentionally not frozen here.
 2. **Playwright end-to-end** (`make test-e2e`) drives the real Vite application
    in Chromium. `playwright.config.ts` starts only the frontend. Chain, Oracle,
    middleware, databases, and optional Cortex memory Application Programming
@@ -50,7 +51,14 @@ flowchart TB
    [`docs/TESTING.md`](../../TESTING.md).
 3. **Hosted CI** (`.github/workflows/ci.yml`) runs package jobs on pushes and
    pull requests to `main`. It excludes Playwright, opt-in full-stack Oracle
-   coverage, and live Base Sepolia demo activity.
+   coverage, and live Base Sepolia demo activity. Unlike local `make test`, hosted
+   Continuous Integration runs Noir with `--workspace`, runs the real Open Policy
+   Agent (OPA) policy suite, and adds the dashboard demo's Python regression suite.
+
+`make verify-kernel` is the separate pinned Halmos 0.3.3 symbolic pass. It builds
+Foundry artifacts with AST output and covers the governance-swap harness plus the
+registry-disabled and registry-enabled kernel property suites; it is not evidence
+of deployment, gas cost, or independent audit.
 
 ## Dashboard boundary
 

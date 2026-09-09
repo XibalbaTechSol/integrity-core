@@ -27,9 +27,9 @@ isolated test seam explicitly. Nothing pretends a stubbed dependency is real.
 ## Layer 1 — per-package unit/integration tests
 
 Run via `make test` from the repo root, or per-package directly. The dashboard
-currently has no Vitest/component-test layer; its root-target check is build +
-lint plus the Python demo harness's pytest suite, while browser behavior is
-covered separately by Playwright.
+currently has no Vitest/component-test layer; its local root-target check is
+build + lint, while browser behavior is covered separately by Playwright. The
+hosted dashboard job additionally runs the Python demo harness's pytest suite.
 
 | Package | Runner | What's real |
 |---|---|---|
@@ -38,9 +38,9 @@ covered separately by Playwright.
 | `integrity-oracle/` | `cargo test` | Workspace tests; the opt-in `ORACLE_E2E=1` path adds anvil, deployment, SDK registration, Postgres, Redis, and HTTP |
 | `integrity-sdk/` | `uv run pytest` | Chain-touching tests use a real local anvil and real deployment scripts |
 | `integrity-cli/` | `uv run pytest` | Includes real local-chain coverage |
-| `bcc_middleware/` | `uv run pytest` + `opa test policies/ -v` | Middleware tests plus the real OPA policy suite |
+| `bcc_middleware/` | local root: `uv run pytest`; hosted CI also runs `opa test policies/ -v` | Middleware tests locally; hosted Continuous Integration adds the real OPA policy suite |
 | `integrity-userapi/` | `uv run pytest` | Uses Postgres rather than an in-memory substitute |
-| `integrity-dashboard/` | `npm run build && npm run lint`; `cd demo && uv run pytest` | TypeScript/Vite production build and ESLint validation plus Python demo-harness regressions; no frontend component/unit test script exists |
+| `integrity-dashboard/` | local root: `npm run build && npm run lint`; hosted CI also runs `cd demo && uv run pytest` | TypeScript/Vite production build and ESLint validation locally; hosted Continuous Integration adds Python demo-harness regressions; no frontend component/unit test script exists |
 
 GitHub Actions runs these package jobs for pushes and pull requests to `main`.
 The opt-in full-stack Oracle test and Playwright layer are not hosted-CI jobs.

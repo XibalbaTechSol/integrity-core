@@ -612,6 +612,25 @@ def agent_register(
             next_nonce += 1
             time.sleep(3)
 
+        # Approve AgentPrimitivesFactory to pull the registration bond
+        itk_contract = w3.eth.contract(
+            address=w3.to_checksum_address(itk_address),
+            abi=[{"constant": True, "inputs": [{"name": "_owner", "type": "address"}, {"name": "_spender", "type": "address"}], "name": "allowance", "outputs": [{"name": "", "type": "uint256"}], "payable": False, "stateMutability": "view", "type": "function"}],
+        )
+        allowance = itk_contract.functions.allowance(
+            w3.to_checksum_address(sovereign_agent),
+            w3.to_checksum_address(factory_address)
+        ).call()
+        min_bond = 100 * 10**18
+        if allowance < min_bond:
+            with console.status("[bold blue]Approving AgentPrimitivesFactory to pull ITK bond..."):
+                chain.approve_factory_bond(w3, evm_account, sovereign_agent, itk_address, factory_address, min_bond, chain_id, nonce=next_nonce)
+            console.print("  [green]done[/green] approved ITK registration bond")
+            next_nonce += 1
+            time.sleep(3)
+        else:
+            console.print("  [dim]skip[/dim] AgentPrimitivesFactory already has sufficient ITK allowance -- skipping")
+
         # domain_id was already computed above, in the precondition-check block that ran
         # before any gas was spent.
         with console.status("[bold blue]Registering primitives..."):

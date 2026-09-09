@@ -124,6 +124,8 @@ def test_cli_chain_full_registration(deployed_chain, tmp_path, monkeypatch):
 
     chain.grant_anchor_role(w3, agent, sovereign_agent, state_anchor, oracle_signer, chain_id)
 
+    chain.approve_factory_bond(w3, agent, sovereign_agent, addr["IntegrityToken"], addr["AgentPrimitivesFactory"], Web3.to_wei(100, "ether"), chain_id)
+
     result = chain.register_primitives(
         w3, agent, addr["AgentPrimitivesFactory"], sovereign_agent, state_anchor,
         did, GENERAL_DOMAIN_ID, 0, "ipfs://cli-test", chain_id,

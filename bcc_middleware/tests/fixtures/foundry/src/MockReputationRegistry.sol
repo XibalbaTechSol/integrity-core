@@ -10,6 +10,7 @@ pragma solidity ^0.8.24;
 contract MockReputationRegistry {
     mapping(address => uint256) public baseScoreOf;
     mapping(address => uint256) public lastUpdateOf;
+    mapping(address => uint256) public zkVerifiedEventRatioBps;
 
     event ScoreUpdated(address indexed agent, uint256 oldBaseScore, uint256 newBaseScore, address indexed updatedBy);
 
@@ -18,5 +19,14 @@ contract MockReputationRegistry {
         baseScoreOf[agent] = baseScore;
         lastUpdateOf[agent] = block.timestamp;
         emit ScoreUpdated(agent, old, baseScore, msg.sender);
+    }
+
+    function updateScoreWithCoverage(address agent, uint256 baseScore, uint256 ratioBps) external {
+        require(ratioBps <= 10_000, "ratio");
+        uint256 old = baseScoreOf[agent];
+        baseScoreOf[agent] = baseScore;
+        lastUpdateOf[agent] = block.timestamp;
+        emit ScoreUpdated(agent, old, baseScore, msg.sender);
+        zkVerifiedEventRatioBps[agent] = ratioBps;
     }
 }

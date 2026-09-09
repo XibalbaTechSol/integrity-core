@@ -32,15 +32,13 @@ import {
   type HistoryBucket,
 } from '../services/oracle';
 import CorrelationPage from './CorrelationPage';
-import CortexPage from './CortexPage';
 import { IntelligencePage } from './IntelligencePage';
 
-type KnowledgeTab = 'overview' | 'intelligence' | 'cortex' | 'evidence';
+type KnowledgeTab = 'overview' | 'intelligence' | 'evidence';
 
 const TABS: ControlTab<KnowledgeTab>[] = [
   { id: 'overview', label: 'AIS & knowledge', icon: Sparkles },
   { id: 'intelligence', label: 'Agent intelligence', icon: Activity },
-  { id: 'cortex', label: 'Cortex workspace', icon: BrainCircuit },
   { id: 'evidence', label: 'Evidence correlation', icon: GitMerge },
 ];
 
@@ -247,7 +245,6 @@ export default function KnowledgeControlPage() {
       <div className="control-page-body control-hub-content">
         {tab === 'overview' && <KnowledgeOverview />}
         {tab === 'intelligence' && <IntelligencePage />}
-        {tab === 'cortex' && <CortexPage />}
         {tab === 'evidence' && <CorrelationPage />}
       </div>
     </div>

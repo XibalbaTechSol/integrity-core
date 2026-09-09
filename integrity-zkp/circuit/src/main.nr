@@ -61,10 +61,11 @@
 //             chain_id,             // Field — the EVM chain ID this proof is
 //                                   //         valid for (public); see CHAIN /
 //                                   //         CONTRACT BINDING below
-//             verifying_contract,   // Field — the XibalbaAgentRegistry
-//                                   //         singleton address for this
-//                                   //         deployment (public); see
+//             verifying_contract,   // Field — this agent\'s ReputationRegistry
+//                                   //         clone address (public); see
 //                                   //         CHAIN / CONTRACT BINDING below
+//             bcc_leaf,             // Field — the exact anchored BCC leaf this
+//                                   //         proof may credit, reduced mod Fr
 //         ])
 //
 //     integrity-sdk's `prover.py` MUST compute `intent_commitment` with
@@ -88,13 +89,11 @@
 //
 // CHAIN / CONTRACT BINDING
 // --------------------------
-// `chain_id` and `verifying_contract` bind a proof to one specific chain
-// and one specific protocol deployment (`verifying_contract` is the
-// `XibalbaAgentRegistry` singleton address, matching the field integrity-sdk
-// already sources via `chain.load_deployments(...)["singletons"]
-// ["XibalbaAgentRegistry"]` for the non-ZK BCC binding — see bcc.py/
-// markets.py), mirroring the same binding already applied to the non-ZK BCC
-// commitment object (§4.2). An
+// `chain_id` and `verifying_contract` bind a proof to one specific chain and
+// one specific per-agent ReputationRegistry clone. This is intentionally more
+// specific than the non-ZK BCC envelope\'s XibalbaAgentRegistry deployment
+// binding: ReputationRegistry is the contract that validates and credits this
+// proof. `bcc_leaf` additionally binds it to one exact StateAnchor leaf. An
 // Ethereum address is at most 160 bits and the BN254 scalar field is
 // ~254 bits, so `Field(uint256(address))` is an injective, lossless
 // packing with no truncation — the same conversion integrity-sdk's
@@ -174,6 +173,10 @@ fn main(
     // packed as Field(uint256(address)). See CHAIN / CONTRACT BINDING
     // above.
     verifying_contract: pub Field,
+    // The exact BCC Merkle leaf credited by ReputationRegistry, reduced modulo
+    // the BN254 scalar field. Publishing and hashing it here lets the contract
+    // reject a valid proof replayed against a different anchored event.
+    bcc_leaf: pub Field,
 ) {
     // Defensive: a nonce of 0 is the typical "uninitialized struct field"
     // sentinel in most languages sdk/oracle might be written in. Reject it
@@ -207,6 +210,7 @@ fn main(
         nonce,
         chain_id,
         verifying_contract,
+        bcc_leaf,
     ]);
     assert(derived_intent == intent_commitment);
 }
@@ -232,6 +236,7 @@ fn test_valid_binding() {
     let nonce = 42;
     let chain_id = 84532; // Base Sepolia
     let verifying_contract = 0x5FbDB2315678afecb367f032d93F642f64180aa;
+    let bcc_leaf = 0x987654321;
 
     let agent_id_commitment = std::hash::pedersen_hash([DOMAIN_IDENTITY, secret_key]);
     let intent_commitment = std::hash::pedersen_hash([
@@ -241,6 +246,7 @@ fn test_valid_binding() {
         nonce,
         chain_id,
         verifying_contract,
+        bcc_leaf,
     ]);
 
     main(
@@ -251,6 +257,7 @@ fn test_valid_binding() {
         intent_commitment,
         chain_id,
         verifying_contract,
+        bcc_leaf,
     );
 }
 
@@ -263,6 +270,7 @@ fn test_invalid_binding_wrong_secret() {
     let nonce = 42;
     let chain_id = 84532;
     let verifying_contract = 0x5FbDB2315678afecb367f032d93F642f64180aa;
+    let bcc_leaf = 0x987654321;
 
     let agent_id_commitment = std::hash::pedersen_hash([DOMAIN_IDENTITY, real_secret]);
     let intent_commitment = std::hash::pedersen_hash([
@@ -272,6 +280,7 @@ fn test_invalid_binding_wrong_secret() {
         nonce,
         chain_id,
         verifying_contract,
+        bcc_leaf,
     ]);
 
     // An impostor who does not hold `real_secret` tries to substitute
@@ -286,6 +295,7 @@ fn test_invalid_binding_wrong_secret() {
         intent_commitment,
         chain_id,
         verifying_contract,
+        bcc_leaf,
     );
 }
 
@@ -301,6 +311,7 @@ fn test_invalid_binding_wrong_payload() {
     let nonce = 42;
     let chain_id = 84532;
     let verifying_contract = 0x5FbDB2315678afecb367f032d93F642f64180aa;
+    let bcc_leaf = 0x987654321;
 
     let agent_id_commitment = std::hash::pedersen_hash([DOMAIN_IDENTITY, secret_key]);
     let intent_commitment = std::hash::pedersen_hash([
@@ -310,6 +321,7 @@ fn test_invalid_binding_wrong_payload() {
         nonce,
         chain_id,
         verifying_contract,
+        bcc_leaf,
     ]);
 
     main(
@@ -320,6 +332,7 @@ fn test_invalid_binding_wrong_payload() {
         intent_commitment,
         chain_id,
         verifying_contract,
+        bcc_leaf,
     );
 }
 
@@ -332,6 +345,7 @@ fn test_invalid_binding_zero_nonce() {
     let nonce = 0;
     let chain_id = 84532;
     let verifying_contract = 0x5FbDB2315678afecb367f032d93F642f64180aa;
+    let bcc_leaf = 0x987654321;
 
     let agent_id_commitment = std::hash::pedersen_hash([DOMAIN_IDENTITY, secret_key]);
     let intent_commitment = std::hash::pedersen_hash([
@@ -341,6 +355,7 @@ fn test_invalid_binding_zero_nonce() {
         nonce,
         chain_id,
         verifying_contract,
+        bcc_leaf,
     ]);
 
     main(
@@ -351,6 +366,7 @@ fn test_invalid_binding_zero_nonce() {
         intent_commitment,
         chain_id,
         verifying_contract,
+        bcc_leaf,
     );
 }
 
@@ -366,6 +382,7 @@ fn test_invalid_binding_wrong_chain_id() {
     let real_chain_id = 84532;
     let wrong_chain_id = 8453; // Base mainnet, not Base Sepolia
     let verifying_contract = 0x5FbDB2315678afecb367f032d93F642f64180aa;
+    let bcc_leaf = 0x987654321;
 
     let agent_id_commitment = std::hash::pedersen_hash([DOMAIN_IDENTITY, secret_key]);
     let intent_commitment = std::hash::pedersen_hash([
@@ -375,6 +392,7 @@ fn test_invalid_binding_wrong_chain_id() {
         nonce,
         real_chain_id,
         verifying_contract,
+        bcc_leaf,
     ]);
 
     main(
@@ -385,6 +403,7 @@ fn test_invalid_binding_wrong_chain_id() {
         intent_commitment,
         wrong_chain_id,
         verifying_contract,
+        bcc_leaf,
     );
 }
 
@@ -399,6 +418,7 @@ fn test_invalid_binding_wrong_verifying_contract() {
     let chain_id = 84532;
     let real_verifying_contract = 0x5FbDB2315678afecb367f032d93F642f64180aa;
     let wrong_verifying_contract = 0x0000000000000000000000000000000000dEaD;
+    let bcc_leaf = 0x987654321;
 
     let agent_id_commitment = std::hash::pedersen_hash([DOMAIN_IDENTITY, secret_key]);
     let intent_commitment = std::hash::pedersen_hash([
@@ -408,6 +428,7 @@ fn test_invalid_binding_wrong_verifying_contract() {
         nonce,
         chain_id,
         real_verifying_contract,
+        bcc_leaf,
     ]);
 
     main(
@@ -418,6 +439,39 @@ fn test_invalid_binding_wrong_verifying_contract() {
         intent_commitment,
         chain_id,
         wrong_verifying_contract,
+        bcc_leaf,
     );
 }
 
+#[test(should_fail)]
+fn test_invalid_binding_wrong_bcc_leaf() {
+    let secret_key = 0x1234;
+    let intent_payload_hash = 0xabcdef;
+    let nonce = 42;
+    let chain_id = 84532;
+    let verifying_contract = 0x5FbDB2315678afecb367f032d93F642f64180aa;
+    let real_bcc_leaf = 0x987654321;
+    let wrong_bcc_leaf = 0x111111111;
+
+    let agent_id_commitment = std::hash::pedersen_hash([DOMAIN_IDENTITY, secret_key]);
+    let intent_commitment = std::hash::pedersen_hash([
+        DOMAIN_INTENT,
+        secret_key,
+        intent_payload_hash,
+        nonce,
+        chain_id,
+        verifying_contract,
+        real_bcc_leaf,
+    ]);
+
+    main(
+        secret_key,
+        intent_payload_hash,
+        agent_id_commitment,
+        nonce,
+        intent_commitment,
+        chain_id,
+        verifying_contract,
+        wrong_bcc_leaf,
+    );
+}

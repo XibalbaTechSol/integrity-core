@@ -26,10 +26,10 @@ Given:
   commitment, published once at DID-creation time),
 - a public `intent_commitment` (the specific, per-action public commitment
   this proof must reproduce), and
-- as of 2026-08-18, a public `chain_id` and public `verifying_contract` (the
-  EVM chain and `XibalbaAgentRegistry` deployment this proof is valid
-  for — see "CHAIN / CONTRACT BINDING" in `circuit/src/main.nr`, mirroring
-  the same binding already required for the non-ZK BCC commitment object),
+- a public `chain_id` and public `verifying_contract` (the EVM chain and the
+  agent\'s `ReputationRegistry` clone this proof is valid for), and
+- a public `bcc_leaf` (the exact anchored BCC leaf this proof may credit,
+  reduced modulo the BN254 scalar field),
 
 the circuit asserts:
 
@@ -37,13 +37,14 @@ the circuit asserts:
    — the prover holds the exact secret behind this agent's published
    identity, not just anyone who saw a public commitment. Prevents
    proof-of-identity spoofing.
-2. `pedersen_hash([DOMAIN_INTENT, secret_key, intent_payload_hash, nonce, chain_id, verifying_contract]) == intent_commitment`
+2. `pedersen_hash([DOMAIN_INTENT, secret_key, intent_payload_hash, nonce, chain_id, verifying_contract, bcc_leaf]) == intent_commitment`
    — the prover actually knows the intent payload that was locked in for
    *this specific* nonce/action, not a fabricated or substituted one, on
    *this specific* chain and deployment. Binding the nonce in prevents a
    valid proof for one action being replayed as if it covered a different
-   action; binding `chain_id`/`verifying_contract` prevents a valid proof
-   for one deployment being replayed verbatim against another.
+   action; binding `chain_id`/`verifying_contract` prevents cross-deployment
+   replay, while `bcc_leaf` prevents pairing the proof with a different
+   anchored event.
 3. `nonce != 0` — defensive rejection of an uninitialized/sentinel nonce.
 
 Both `assert`s are real constraints on real Pedersen hash gates — not
@@ -51,9 +52,9 @@ Both `assert`s are real constraints on real Pedersen hash gates — not
 (the comments explain the *why* — what attack each constraint stops — per
 INTERFACE_CONTRACT.md §10).
 
-Six `#[test]` functions in `circuit/src/main.nr` exercise this: one valid
-binding, and five invalid ones (wrong secret / substituted payload / zero
-nonce / wrong `chain_id` / wrong `verifying_contract`) that must each fail
+Seven `#[test]` functions in `circuit/src/main.nr` exercise this: one valid
+binding, and six invalid ones (wrong secret / substituted payload / zero
+nonce / wrong `chain_id` / wrong `verifying_contract` / wrong `bcc_leaf`) that must each fail
 to satisfy the constraints — run with `nargo test --workspace` (output
 pasted below; all six pass, including the five `should_fail` cases
 correctly failing).
@@ -97,11 +98,12 @@ underlying data is "the same"):
 agent_id_commitment = pedersen_hash([DOMAIN_IDENTITY, secret_key])            // DOMAIN_IDENTITY = 1
 intent_commitment   = pedersen_hash([DOMAIN_INTENT, secret_key,
                                       intent_payload_hash, nonce,
-                                      chain_id, verifying_contract])           // DOMAIN_INTENT = 2
+                                      chain_id, verifying_contract,
+                                      bcc_leaf])                               // DOMAIN_INTENT = 2
 ```
 
 **Converting bytes to a Field** (needed for both `secret_key` and
-`intent_payload_hash`, which start life as byte strings): take the
+`intent_payload_hash` and `bcc_leaf`, which start life as byte strings): take the
 big-endian byte string, interpret it as an unsigned integer, and reduce it
 mod the BN254 scalar field prime
 `21888242871839275222246405745257275088548364400416034343698204186575808495617`.
@@ -119,6 +121,9 @@ secret_key_field = bytes_be_to_field_mod_r(blake2s(ed25519_seed).digest())
 
 # intent_payload_hash: the BCC object's own intended_state_hash bytes
 intent_payload_hash_field = bytes_be_to_field_mod_r(bytes.fromhex(intended_state_hash[2:]))
+
+# bcc_leaf: the exact StateAnchor leaf credited by this proof
+bcc_leaf_field = bytes_be_to_field_mod_r(bytes.fromhex(bcc_leaf[2:]))
 ```
 
 **`chain_id`/`verifying_contract` need no reduction** — an EVM chain ID and
@@ -161,8 +166,8 @@ pretending the boundary isn't there.
 
 The checked-in `circuit/Prover.toml` fixture uses `secret_key = 0xf00d`,
 `intent_payload_hash = 0xc0ffee`, `nonce = 7`, `chain_id = 31337` (local
-anvil), `verifying_contract = 0x5FC8...875707` (the `XibalbaAgentRegistry`
-singleton address from `deployments.local.json`) — as 32-byte hex strings —
+anvil), `verifying_contract = 0x5FC8...875707` (a fixture target address), and
+`bcc_leaf = 0x987654321` — as Field-compatible hex strings —
 with `agent_id_commitment` / `intent_commitment` precomputed to match via
 Pedersen hash. As of 2026-08-18, regenerating these no longer needs a
 temporary `#[test]`+`println` round-trip: `tools/commitment_calc` (a second
@@ -172,7 +177,7 @@ directly. Run:
 ```
 cd tools/commitment_calc
 # write a Prover.toml with secret_key/intent_payload_hash/nonce/chain_id/
-# verifying_contract for your chosen values, then:
+# verifying_contract/bcc_leaf for your chosen values, then:
 nargo execute out
 ```
 
@@ -196,18 +201,19 @@ $ nargo test --workspace
 [commitment_calc] Running 1 test function
 [commitment_calc] Testing test_matches_main_circuit_fixture ... ok
 [commitment_calc] 1 test passed
-[integrity_zkp] Running 6 test functions
+[integrity_zkp] Running 7 test functions
 [integrity_zkp] Testing test_invalid_binding_wrong_secret ... ok
 [integrity_zkp] Testing test_invalid_binding_wrong_verifying_contract ... ok
 [integrity_zkp] Testing test_invalid_binding_wrong_payload ... ok
 [integrity_zkp] Testing test_invalid_binding_wrong_chain_id ... ok
+[integrity_zkp] Testing test_invalid_binding_wrong_bcc_leaf ... ok
 [integrity_zkp] Testing test_invalid_binding_zero_nonce ... ok
 [integrity_zkp] Testing test_valid_binding ... ok
-[integrity_zkp] 6 tests passed
+[integrity_zkp] 7 tests passed
 ```
 
-All five `should_fail` tests (wrong secret, substituted payload, zero
-nonce, wrong `chain_id`, wrong `verifying_contract`) correctly fail to
+All six `should_fail` tests (wrong secret, substituted payload, zero
+nonce, wrong `chain_id`, wrong `verifying_contract`, wrong `bcc_leaf`) correctly fail to
 satisfy the circuit's constraints; the valid binding correctly succeeds.
 `commitment_calc`'s one test cross-checks its output against
 `circuit/Prover.toml`'s checked-in fixture — see "Directory layout" below
@@ -297,16 +303,16 @@ INTERFACE_CONTRACT.md §5.3/§9, but `bb`'s printed scheme is
 system is **UltraHonk**, not the older UltraPlonk. The generated contract
 is a real Honk verifier; treat "UltraPlonkVerifier.sol" as the *filename
 contracts/ is expecting*, not a claim about the underlying proof system.
-The contract also declares `NUMBER_OF_PUBLIC_INPUTS = 13`, not 5 — Honk
+The contract also declares `NUMBER_OF_PUBLIC_INPUTS = 14`, not 6 — Honk
 verifiers append 8 internal protocol accumulator/pairing-point public
-inputs after this circuit's own 5 (`agent_id_commitment`, `nonce`,
-`intent_commitment`, `chain_id`, `verifying_contract`); `contracts/` must
+inputs after this circuit's own 6 (`agent_id_commitment`, `nonce`,
+`intent_commitment`, `chain_id`, `verifying_contract`, `bcc_leaf`); `contracts/` must
 pass through whatever `bb`'s `public_inputs` output contains verbatim to
-the verifier's `verify()` call rather than assuming a 5-element array. Note
+the verifier's `verify()` call rather than assuming a 6-element array. Note
 `bb prove`'s own `public_inputs` output file only ever contains the
-circuit's real public inputs (160 bytes = 5 × 32 for this circuit) — the 8
+circuit's real public inputs (192 bytes = 6 × 32 for this circuit) — the 8
 pairing-point words are carried inside the proof bytes themselves, not
-this file; `NUMBER_OF_PUBLIC_INPUTS = 13` describes what the Solidity
+this file; `NUMBER_OF_PUBLIC_INPUTS = 14` describes what the Solidity
 verifier's `verify()` expects internally, not the shape of `public_inputs`.
 
 ## Handoff to `contracts/`
@@ -332,14 +338,14 @@ does not point at any other circuit:
 1. Compute `secret_key_field` (KDF'd from the agent's Ed25519 seed) and
    `intent_payload_hash_field` (reduced SHA-256 `intended_state_hash`) per
    the Python snippet above; pack `nonce`/`chain_id` as plain ints and
-   `verifying_contract` as `int(address, 16)` (lossless — see
+   `verifying_contract` as `int(address, 16)` and reduce `bcc_leaf` modulo Fr (see
    `circuit/src/main.nr`'s "CHAIN / CONTRACT BINDING").
 2. Run `tools/commitment_calc` (via `nargo execute`, parsing its
    `Circuit output: (0x.., 0x..)` stdout line) to get
    `agent_id_commitment` / `intent_commitment` — see "Fixture values" above
    for why this goes through the real toolchain instead of a Python
    Pedersen-hash reimplementation.
-3. Write `circuit/Prover.toml` with all 7 named fields (2 private, 5
+3. Write `circuit/Prover.toml` with all 8 named fields (2 private, 6
    public) and run `nargo execute` there, then `bb prove -t evm` / `bb
    verify -t evm` — `-t evm` (not `-t noir-recursive-no-zk`, an earlier
    default this module used before it was wired to a real circuit) is

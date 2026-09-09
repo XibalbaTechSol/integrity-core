@@ -58,6 +58,20 @@ class QuarantineStatus(enum.Enum):
     CANNOT_VERIFY = "cannot_verify"
 
 
+def fail_closed_for_intent(settings: Settings, intent_type: str) -> bool:
+    """Whether an unverifiable quarantine read must deny this intent.
+
+    Exact matches cover clinical actions; suffix matching covers runtime tool
+    labels such as ``claude_tool:Bash:chain_write``. Low-risk reads continue
+    to OPA when the secondary quarantine signal is unavailable.
+    """
+    normalized = (intent_type or "").strip()
+    configured = settings.quarantine_fail_closed_intents
+    if normalized in configured:
+        return True
+    return any(normalized.endswith(f":{risk_class}") for risk_class in configured)
+
+
 def check_quarantine_status(settings: Settings, agent_id: str) -> tuple[QuarantineStatus, str]:
     """
     Returns (status, detail). QUARANTINED means `lockedStakeOf(agent) > 0` on the agent's own

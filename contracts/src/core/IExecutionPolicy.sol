@@ -11,8 +11,5 @@ interface IExecutionPolicy {
     /// @param value Native value attached to the proposed call.
     /// @param data Calldata of the proposed call.
     /// @return allowed True iff the host may proceed with `target.call`.
-    function check(address agent, address target, uint256 value, bytes calldata data)
-        external
-        view
-        returns (bool);
+    function check(address agent, address target, uint256 value, bytes calldata data) external view returns (bool);
 }

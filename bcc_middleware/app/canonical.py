@@ -5,12 +5,13 @@ Canonicalization + Ed25519 signature verification for BCC Commitments.
 docs/INTERFACE_CONTRACT.md §4.2 and the package README's "Integration
 reconciliation" #1-2) ***. Two things §4.2 originally left open, now pinned:
 
-  (a) Canonical JSON = `json.dumps(fields, sort_keys=True,
-      separators=(",", ":"), ensure_ascii=True)` encoded as UTF-8.
-      `ensure_ascii=True` specifically (not the RFC 8785/JCS default) --
-      this is the byte-for-byte rule integrity-sdk's canonical_json_bytes
-      also implements; a mismatch here would silently break signatures on
-      any non-ASCII content.
+  (a) Canonical JSON = RFC 8785 (JSON Canonicalization Scheme / JCS),
+      implemented via the `jcs` Python library and the `serde_jcs` Rust crate.
+      All components (integrity-sdk, integrity-cli, bcc_middleware, and
+      integrity-oracle) now use the same standard, which mandates ECMAScript
+      `Number::toString` for floats and raw UTF-8 for non-ASCII — eliminating
+      the cross-language divergences that previously caused ~20% signature
+      rejection on float-containing payloads.
   (b) The DID fingerprint is `sha256(pubkey)`, NOT the raw public key --
       a real one-way fingerprint, not a self-encoding one. Since a sha256
       digest can't be inverted back to the key it hashed, a verifier
@@ -83,11 +84,12 @@ def canonical_commitment_bytes(commitment: BCCCommitment) -> bytes:
     }
     if commitment.invocation_id is not None:
         payload["invocation_id"] = commitment.invocation_id
-    # ensure_ascii=True to match integrity-sdk's canonical_json_bytes byte-for-byte
-    # (its module docstring pins ensure_ascii=True as the cross-language protocol
-    # rule). For the ASCII-only fields here the two are identical, but they MUST
-    # agree — a mismatch would silently break signatures on any non-ASCII content.
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    # RFC 8785 (JCS) — the single canonical JSON standard now used across all
+    # components (integrity-sdk, integrity-cli, integrity-oracle, and this
+    # middleware). Replaces the previous json.dumps(ensure_ascii=True) approach
+    # which diverged from the Rust oracle on floats and non-ASCII content.
+    import jcs
+    return jcs.canonicalize(payload)
 
 
 def public_key_from_commitment(commitment: BCCCommitment) -> Ed25519PublicKey:

@@ -8,10 +8,12 @@ import {IAdapter} from "./IAdapter.sol";
 /// (`docs/plans/2026-08-25-phase3-adapter-registry-tracer-bullet-proposal.md`): permissionless
 /// registration of `IAdapter` contracts, plus metered-call enforcement of each adapter's own
 /// self-declared gas bound (`docs/SPEC.md` §7.2 obligation R3).
-/// @dev **What this proves:** R3 (bounded cost) is real -- `evaluate` never forwards more than
-/// an adapter's own `declaredGasBound` to it, and a call that exhausts that stipend is
+/// @dev **What this proves:** `evaluate` requests no more than an adapter's own
+/// `declaredGasBound` for the adapter call, and a call that appears to exhaust that stipend is
 /// distinguished from an ordinary rejection (see `evaluate`'s own doc comment for the exact
-/// heuristic and its disclosed limitation). Registration is permissionless and idempotent-safe:
+/// heuristic and its disclosed limitation). The self-declared stipend is not an end-to-end
+/// operation bound: this registry enforces no protocol maximum or caller reserve, and EIP-150 may
+/// clip an oversized request. Registration is permissionless and idempotent-safe:
 /// registering the identical `(adapter, declaredGasBound, specHash)` twice is a harmless no-op;
 /// registering the same `adapter` address with DIFFERENT params reverts -- there is no
 /// re-registration path in this slice, conflicting or not.
@@ -20,9 +22,10 @@ import {IAdapter} from "./IAdapter.sol";
 /// §6.2's staking/audit-attestation framing) predates `docs/SPEC.md`'s spec cutover.
 /// `docs/SPEC.md` §7.2 (the current normative source, `docs/DOCUMENT_STATUS.yaml`) redefines R5
 /// as **Identity**: "published with source, machine-readable semantics, and a version hash the
-/// account pins" -- no bonds, no audit attestation. `publishIdentity` below closes that,
-/// tied to the SAME `specHash` every consuming account (`IntegrityKernel`, `LicenceAccount`)
-/// already immutably pins at construction, rather than adding a second, parallel hash.
+/// account pins" -- no bonds, no audit attestation. `publishIdentity` supplies the registry-side
+/// publication signal tied to the registration's `specHash`. Consumers still have to enforce
+/// that identity: `LicenceAccount` pins it, while the current `IntegrityKernel` reads only the gas
+/// bound and therefore does not close R5 or `isInstallable()` at its own installation boundary.
 ///
 /// **What this does NOT prove:** R1 (determinism) -- needs an off-chain differential-replay
 /// admission suite (`AdapterAdmissionSuite.s.sol`, `contracts/test/registry/
@@ -88,10 +91,10 @@ contract AdapterRegistry {
 
     /// @notice Publishes machine-readable identity for an already-registered adapter, closing
     /// `docs/SPEC.md` §7.2 R5 ("Identity"): published with source, machine-readable semantics,
-    /// and a version hash the account pins.
-    /// @dev Deliberately does NOT take a separate hash parameter. `specHash` was already pinned,
-    /// immutably, at `register()` time, and every consuming account (`IntegrityKernel`,
-    /// `LicenceAccount`) already trusts that exact value forever. Requiring a second hash here
+    /// and a version hash the account pins. Publication alone does not prove that a consumer pins
+    /// it; the current `IntegrityKernel`, for example, does not.
+    /// @dev Deliberately does NOT take a separate hash parameter. `specHash` was already fixed,
+    /// immutably, at `register()` time. Requiring a second hash here
     /// would create two "versions" of the same adapter with no way to reconcile them if they
     /// ever disagreed. Instead, `metadataURI` MUST point to a document whose content hashes to
     /// the adapter's EXISTING `specHash` -- publishing identity means "here is what that hash you

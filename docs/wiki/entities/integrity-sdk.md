@@ -1,7 +1,7 @@
 ---
 title: integrity-sdk
 created: 2026-07-07
-updated: 2026-08-19
+updated: 2026-09-08
 type: entity
 tags: [sdk, identity, metrics]
 confidence: high
@@ -24,6 +24,7 @@ source_files:
   - integrity-sdk/integrity_sdk/security/redactor.py
   - integrity-sdk/integrity_sdk/mcp_server.py
   - integrity-sdk/integrity_sdk/memory.py
+  - integrity-sdk/integrity_sdk/posttool_report.py
 ---
 
 
@@ -34,6 +35,7 @@ become a self-sovereign, on-chain, reputation-bearing participant.
 
 - [Two keypairs](#two-keypairs)
 - [Self-sovereign registration](#self-sovereign-registration)
+- [Registration preflight and personal domains](#registration-preflight-and-personal-domains)
 - [Telemetry: OpenTelemetry + MLflow, unified](#telemetry-opentelemetry-mlflow-unified)
 - [Pre-execution intent capture (telemetry/intent.py, added 2026-07-11)](#pre-execution-intent-capture-telemetry-intent-py-added-2026-07-11)
 - [Two dangling-reference gaps, closed 2026-07-11](#two-dangling-reference-gaps-closed-2026-07-11)
@@ -71,6 +73,19 @@ and does not POST to the oracle, preventing an avoidable oracle-side
 registration handoff. If the root is already non-zero, the SDK skips re-anchoring
 and proceeds with the idempotent oracle registration POST.
 
+## Registration preflight and personal domains
+
+`preflight_register_agent(...)` is a read-only dry run for the on-chain conditions
+that would otherwise fail late: Remote Procedure Call reachability, deployment-file loading, registrar role,
+funding, and domain existence/joinability. Oracle reachability is reported but does
+not make `PreflightResult.ok` false because callers may intentionally use
+`skip_oracle_registration=True`.
+
+`register_agent(..., auto_register_domain=True)` may create only the deterministic
+personal domain `<agent_id>.integrity`, in open mode and owned by the agent wallet.
+It never auto-claims a shared or arbitrary domain; missing non-personal domains and
+permissioned domains without approval fail before primitive deployment gas is spent.
+
 **Fixed 2026-07-09**: the final oracle POST (step 11) used to send
 `{"agent_id": ..., "did_document": ..., "primitives": registration.to_dict()}`,
 which 422'd against the oracle's real `RegisterAgentRequest` struct
@@ -97,6 +112,10 @@ those spans; the oracle owns the final formula. See
 [local metrology](../concepts/local-metrology.md) for the exact derivations.
 `client.py` batches and POSTs to the oracle.
 
+The SDK currently emits signed telemetry schema v2. The Oracle accepts through v3,
+where structural span validation begins; until the SDK emission constant is raised,
+ordinary SDK batches do not claim that v3 validation profile.
+
 ## Pre-execution intent capture (`telemetry/intent.py`, added 2026-07-11)
 
 `invoke_intent` (also `client.invoke_intent(...)`, pre-bound) is the OTel
@@ -105,7 +124,10 @@ commitment (unchanged, single source of truth), opens a real
 `integrity.invoke_intent` span *before* the caller's execution code runs
 (temporally prior, not retrofitted after the fact — the whole point of a
 pre-execution gate), and records a `trace_run`-shaped entry that rides the
-same `flush_telemetry` pipeline `traceable` already uses. `intent_id` reuses
+same `flush_telemetry` pipeline `traceable` already uses. Each invocation also carries
+a signed, canonical non-nil UUID `invocation_id`, distinct from the content-addressed
+`intent_id`, to correlate the intent with append-only post-tool effect evidence.
+`intent_id` reuses
 the commitment's own `intended_state_hash` rather than minting a second ID
 space. `IntentInvocation.record_outcome(actual_action)` runs a tier-1
 (deterministic, structural tool-name+args diff — see
@@ -201,19 +223,19 @@ execute-routing. `registration.py`'s `_VERTICALS` extended with
 
 ## Also
 
-- `bcc.py` — signed [BCC commitment](../concepts/bcc.md) construction (7 signed
-  fields incl. the self-certifying `agent_public_key`).
-- `prover.py` — real `nargo`/`bb` [ZK proof](../concepts/zkp.md) generation.
+- `bcc.py` — signed [BCC commitment](../concepts/bcc.md) construction, including
+  chain/deployment binding and an optional canonical `invocation_id`.
+- `posttool_report.py` — emits append-only post-tool effect reports correlated by
+  `invocation_id`; it does not mutate the original intent or prove the external effect.
+- `prover.py` — real `nargo`/`bb` [ZK proof](../concepts/zkp.md) generation,
+  including exact anchored-BCC-leaf binding. `chain.set_zk_identity_commitment`
+  routes the registry's one-time identity pin through `SovereignAgent.execute`.
 - `security/attestation.py` — real AWS Nitro attestation *verification* (gen
   needs enclave hardware — honest, documented gap).
 
-**267 tests passed, 9 skipped** (`uv run pytest`, confirmed 2026-08-19 with
-Foundry's `anvil` on `PATH`): unit + real-anvil integration, always run. The
-2026-08-19 regression coverage adds
-`tests/unit/test_registration_existing_did_genesis.py`, including the failure
-case where genesis anchoring raises `RegistrationError` and prevents the oracle
-POST. Plus opt-in oracle e2e tests (`ORACLE_E2E=1`) covering real oracle-POST
-paths skipped by the always-run suite.
+The package has unit and real-anvil integration coverage, plus opt-in Oracle E2E
+tests (`ORACLE_E2E=1`) for real registration POST paths. Counts are intentionally
+not frozen here because they drift; current results belong in test artifacts/logs.
 
 Related: [Telemetry Ingestion Pipeline](../concepts/telemetry-ingestion.md),
 [agent primitives](../concepts/agent-primitives.md),
@@ -228,7 +250,9 @@ MCP-capable agent harness (Claude Desktop, Cursor, Antigravity CLI, custom
 harnesses) can discover and call them over JSON-RPC without a
 framework-specific adapter.
 
-Five tools registered:
+Seven tool definitions exist. Signing/writing tools are hidden from discovery and
+refuse calls unless the operator explicitly opts in; model tool selection alone is
+not authorization for irreversible or signing-class actions.
 
 | Tool | Description |
 |---|---|
@@ -237,7 +261,7 @@ Five tools registered:
 | `integrity_invoke_intent` | BCC-commit + OPA-gate an intent before execution |
 | `integrity_agent_info` | Read back canonical DID, nonce, keypair status, pending batch size |
 | `integrity_resolve_did` | Look up any DID's on-chain registration record via Oracle |
-| `integrity_register_agent` | [PLANNED partial] Full on-chain registration via `registration.register_agent` |
+| `integrity_register_agent` | **`[PLANNED partial / currently broken]`** signing/writing opt-in handler; its keyword arguments do not match `registration.register_agent`, so use `integrity-cli agent register` until the handler and regression test are repaired |
 | `integrity_commit_memory` | Commit session facts to the TrustVault backend (JSONL by default) and compute/anchor the cryptographic StateRoot |
 
 The server loads the agent's Ed25519 keypair from the standard identity store

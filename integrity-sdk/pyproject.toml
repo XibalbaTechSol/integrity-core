@@ -54,6 +54,7 @@ dependencies = [
     # so this adds GenAI-shaped auto-instrumentation on top of OTel, not a
     # competing observability system.
     "mlflow-skinny>=3.0.0",
+    "jcs>=0.2.1",
 ]
 
 [project.optional-dependencies]

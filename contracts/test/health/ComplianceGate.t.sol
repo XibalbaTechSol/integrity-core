@@ -57,6 +57,19 @@ contract ComplianceGateTest is Test {
         assertTrue(gate.isHealthcareCompliant(hospital));
     }
 
+    function test_forgedCoveredEntityRejectedDespiteDifferentActiveBAA() public {
+        _signBAA();
+
+        address forgedHospital = makeAddr("forged-hospital");
+        vm.prank(admin);
+        entityRegistry.registerEntity(
+            forgedHospital, CoveredEntityRegistry.EntityType.CoveredEntity, "uri"
+        );
+
+        assertTrue(gate.isHealthcareCompliant(hospital));
+        assertFalse(gate.isHealthcareCompliant(forgedHospital));
+    }
+
     function test_nonHealthcareVerticalNeverCompliantEvenWithBAA() public {
         ComplianceGate impl = new ComplianceGate(address(entityRegistry), address(baaFactory));
         ComplianceGate noneGate = ComplianceGate(Clones.clone(address(impl)));
