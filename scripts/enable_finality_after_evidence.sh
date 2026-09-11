@@ -87,6 +87,10 @@ if [[ "$APPLY_FINALITY" == "true" ]]; then
     sleep 1
   done
   [[ "$core_ready" == true ]] || die "CORE did not become healthy after enabling finality"
+  container_id="$(docker compose ps -q oracle-backend)"
+  [[ -n "$container_id" ]] || die "oracle-backend container ID is unavailable"
+  container_finality="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$container_id" | awk -F= '$1 == "AGENT_DIRECTORY_FINALIZED" {print $2; exit}')"
+  [[ "$container_finality" == "true" ]] || die "oracle-backend received AGENT_DIRECTORY_FINALIZED=${container_finality:-<unset>}"
   snapshot=""
   for _ in $(seq 1 15); do
     snapshot="$(curl --fail --silent --show-error "$CORE_URL/v1/agents/snapshot" 2>/dev/null || true)"
