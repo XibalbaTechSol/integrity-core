@@ -44,10 +44,10 @@ EOF
 [[ -n "${SHIELD_ADMIN_TOKEN:-}" ]] || die "SHIELD_ADMIN_TOKEN must be provided in the environment"
 [[ -n "$SHIELD_TENANT_ID" ]] || die "SHIELD_TENANT_ID must be provided in the environment"
 case "$SHIELD_ADMIN_TOKEN" in
-  your-*|actual-*|REPLACE_*|replace-*) die "SHIELD_ADMIN_TOKEN still contains a placeholder" ;;
+  your-*|actual-*|real-*|REPLACE_*|replace-*) die "SHIELD_ADMIN_TOKEN still contains a placeholder" ;;
 esac
 case "$SHIELD_TENANT_ID" in
-  your-*|actual-*|REPLACE_*|replace-*) die "SHIELD_TENANT_ID still contains a placeholder" ;;
+  your-*|actual-*|real-*|REPLACE_*|replace-*) die "SHIELD_TENANT_ID still contains a placeholder" ;;
 esac
 
 need install
@@ -152,8 +152,20 @@ bash "$REPO_ROOT/scripts/install_policy_publisher.sh"
 systemctl restart xibalba-shield-backend.service
 systemctl restart xibalba-core-shield-policy.service
 
-curl --fail --silent --show-error "$SHIELD_URL/api/shield/health" >/dev/null || die "Shield health check failed"
-if ! curl --fail --silent --show-error "$CORE_URL/healthz" >/dev/null; then
+wait_for_health() {
+  local url="$1" label="$2" attempts=12
+  while (( attempts > 0 )); do
+    if curl --fail --silent --show-error "$url" >/dev/null 2>&1; then
+      return 0
+    fi
+    attempts=$((attempts - 1))
+    sleep 2
+  done
+  die "$label health check failed after waiting for service startup: $url"
+}
+
+wait_for_health "$SHIELD_URL/api/shield/health" "Shield"
+if ! curl --fail --silent --show-error "$CORE_URL/healthz" >/dev/null 2>&1; then
   echo "CORE is not live at $CORE_URL; publisher will remain retry-safe, finality stays disabled." >&2
   exit 2
 fi
