@@ -14,7 +14,8 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 command -v python3 >/dev/null 2>&1 || die "python3 is required"
 command -v cast >/dev/null 2>&1 || die "cast is required"
 
-python3 - "$ENV_FILE" "$RPC_URL" <<'PY'
+write_env() {
+python3 - "$ENV_FILE" "$1" <<'PY'
 from pathlib import Path
 import sys
 
@@ -40,10 +41,27 @@ for name, value in keys.items():
         out.append(f"{name}={value}")
 path.write_text("\n".join(out) + "\n", encoding="utf-8")
 PY
+}
+
+write_env "$RPC_URL"
 
 chain_id="$(cast chain-id --rpc-url "$RPC_URL")" || die "could not reach Base Sepolia RPC"
 [[ "$chain_id" == "84532" ]] || die "RPC returned chain ID $chain_id, expected 84532"
 echo "Configured Base Sepolia RPC; chain ID verified as 84532"
+
+if ! cast block finalized --rpc-url "$RPC_URL" >/dev/null 2>&1; then
+  [[ -t 0 ]] || die "RPC does not expose finalized blocks; set BASE_SEPOLIA_RPC_URL to an authenticated provider URL"
+  printf 'The RPC accepts Base Sepolia but does not provide finalized blocks.\n'
+  printf 'Enter an authenticated Base Sepolia RPC URL (input hidden): '
+  read -r -s RPC_URL
+  printf '\n'
+  [[ -n "$RPC_URL" ]] || die "no RPC URL supplied"
+  chain_id="$(cast chain-id --rpc-url "$RPC_URL")" || die "could not reach supplied RPC"
+  [[ "$chain_id" == "84532" ]] || die "supplied RPC returned chain ID $chain_id, expected 84532"
+  cast block finalized --rpc-url "$RPC_URL" >/dev/null 2>&1 || die "supplied RPC still does not expose finalized blocks"
+  write_env "$RPC_URL"
+  echo "Authenticated Base Sepolia RPC validated and saved"
+fi
 
 cd "$REPO_ROOT"
 if [[ "$(id -u)" -eq 0 ]]; then
