@@ -47,6 +47,7 @@ contract XibalbaAgentRegistry is AccessControl {
     error AlreadyRegistered();
     error UnknownDID();
     error UnknownAgent();
+    error ZeroController();
 
     constructor(address admin) {
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
@@ -59,6 +60,7 @@ contract XibalbaAgentRegistry is AccessControl {
     {
         if (_byDID[didHash_].exists) revert AlreadyRegistered();
         if (didHashOf[primitives.sovereignAgent] != bytes32(0)) revert AlreadyRegistered();
+        if (controller == address(0)) revert ZeroController();
 
         _byDID[didHash_] = AgentRecord({
             primitives: primitives,
@@ -80,6 +82,7 @@ contract XibalbaAgentRegistry is AccessControl {
         if (didHashOf[agent] != bytes32(0) || enterpriseRecordOf[agent].exists) revert AlreadyRegistered();
         require(agent != address(0), "zero agent");
         require(stateAnchor != address(0), "zero stateAnchor");
+        if (controller == address(0)) revert ZeroController();
 
         enterpriseRecordOf[agent] = EnterpriseRecord({
             stateAnchor: stateAnchor,
