@@ -7,7 +7,7 @@ import { ControlHeader } from './components/control/ControlHeader';
 import { oracle, type AisResponse, type IntentOutcomeDto, type StatsDto, type AuditLogEntryDto } from './services/oracle';
 import { graphMemory, type AgentMemorySummary, type InvocationCorrelation } from './services/graphMemory';
 import { shieldBackend, type ShieldDashboardSummary } from './services/shieldBackend';
-import { GRAPH_MEMORY_URL, SHIELD_BACKEND_URL } from './config';
+import { GRAPH_MEMORY_URL, SHIELD_BACKEND_URL, SHIELD_TENANT_ID } from './config';
 
 type ServiceState = { state: 'checking' | 'online' | 'degraded' | 'offline'; detail: string };
 const initialService: ServiceState = { state: 'checking', detail: 'Checking connection' };
@@ -46,7 +46,8 @@ export default function Dashboard() {
     // Agent 360 needs bounded Cortex aggregates; the full memory list belongs
     // to the Cortex workspace. Passing zero avoids sorting a large profile just
     // to render three preview cards here.
-    Promise.allSettled([oracle.getAuditLog(selectedAgent.id, 8), oracle.getReconciliation(selectedAgent.id), shieldBackend.dashboardSummary(selectedAgent.eth_address), oracle.getAis(selectedAgent.id), graphMemory.agentSummary(selectedAgent.id, 0)]).then(([auditResult, reconciliationResult, shieldResult, aisResult, memoryResult]) => {
+    const shieldTenant = SHIELD_TENANT_ID || selectedAgent.eth_address;
+    Promise.allSettled([oracle.getAuditLog(selectedAgent.id, 8), oracle.getReconciliation(selectedAgent.id), shieldBackend.dashboardSummary(shieldTenant), oracle.getAis(selectedAgent.id), graphMemory.agentSummary(selectedAgent.id, 0)]).then(([auditResult, reconciliationResult, shieldResult, aisResult, memoryResult]) => {
       if (!active) return;
       setAudit(auditResult.status === 'fulfilled' ? auditResult.value : []);
       setReconciliation(reconciliationResult.status === 'fulfilled' ? reconciliationResult.value : []);
