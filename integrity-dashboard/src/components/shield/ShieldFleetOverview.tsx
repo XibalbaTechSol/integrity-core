@@ -62,7 +62,11 @@ function actionTone(action: string | undefined): { label: string; color: string;
 
 export default function ShieldFleetOverview() {
   const { selectedAgent } = useDashboard();
-  const [tenantId, setTenantId] = useState(SHIELD_TENANT_ID);
+  // Agent selection is the user-facing identity control. Shield's tenant is a
+  // deployment namespace, so it is intentionally not editable (and must never
+  // be confused with a DID). Isolated demo builds may still fall back to the
+  // selected DID when no control-plane tenant is configured.
+  const tenantId = SHIELD_TENANT_ID || selectedAgent?.eth_address || '';
   const [summary, setSummary] = useState<ShieldDashboardSummary | null>(null);
   const [detectionQuality, setDetectionQuality] = useState<ShieldDetectionQuality[]>([]);
   const [enforcementOutcomes, setEnforcementOutcomes] = useState<ShieldEnforcementOutcome[]>([]);
@@ -71,10 +75,6 @@ export default function ShieldFleetOverview() {
   const [background, setBackground] = useState<'light' | 'dark' | 'plain' | 'blueprint'>('dark');
   const [edgeType, setEdgeType] = useState('all');
   const graphRef = useRef<ShieldEvidenceGraphHandle>(null);
-
-  useEffect(() => {
-    if (selectedAgent?.eth_address && !tenantId) setTenantId(selectedAgent.eth_address);
-  }, [selectedAgent?.eth_address, tenantId]);
 
   const load = useCallback(async (id: string) => {
     if (!id) return;
@@ -136,22 +136,21 @@ export default function ShieldFleetOverview() {
         </div>
       </div>
 
-      <Panel title="Fleet tenant" icon={<Server size={16} />}>
+      <Panel title="Shield fleet" icon={<Server size={16} />}>
         <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.6, margin: '0 0 var(--space-4)' }}>
           Real device enrollment, policy, and enforcement-decision data from the Shield backend (<code>shield/backend/api.py</code>).
-          Uses the deployment's configured Shield tenant when available; otherwise it falls back to the active agent identity for isolated demo tenants. Shield tenant IDs are control-plane namespaces, not DIDs.
+          The header's active agent controls Cortex memory and the registered identity context; this view shows the device pair(s) in the configured Shield control-plane namespace.
         </p>
-        <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
-          <input
-            value={tenantId}
-            onChange={(e) => setTenantId(e.target.value)}
-            placeholder="tenant id"
-            style={{
-              flex: 1, minWidth: 0, background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)',
-              borderRadius: 'var(--radius-md)', padding: 'var(--space-3)', color: 'var(--text-primary)',
-              fontFamily: 'var(--font-mono, monospace)', fontSize: '0.85rem',
-            }}
-          />
+        <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Active agent</div>
+            <code title={selectedAgent?.eth_address || 'No agent selected'} style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 'min(560px, 75vw)', fontSize: '0.82rem' }}>
+              {selectedAgent?.eth_address || 'Select an agent from the header'}
+            </code>
+            <div style={{ marginTop: '4px', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+              Shield namespace: <code>{SHIELD_TENANT_ID || 'selected-agent fallback (demo)'}</code>
+            </div>
+          </div>
           <button
             type="button"
             onClick={() => load(tenantId)}
