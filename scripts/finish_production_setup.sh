@@ -46,11 +46,15 @@ EOF
 [[ "${1:-}" != "--help" ]] || { usage; exit 0; }
 [[ "$(id -u)" -eq 0 ]] || die "run with sudo from the repository checkout"
 if [[ -z "${SHIELD_ADMIN_TOKEN:-}" || "$SHIELD_ADMIN_TOKEN" == your-* || "$SHIELD_ADMIN_TOKEN" == actual-* || "$SHIELD_ADMIN_TOKEN" == real-* || "$SHIELD_ADMIN_TOKEN" == REPLACE_* || "$SHIELD_ADMIN_TOKEN" == replace-* ]]; then
-  if [[ -s "$SHIELD_ADMIN_TOKEN_FILE" ]]; then
-    SHIELD_ADMIN_TOKEN="$(<"$SHIELD_ADMIN_TOKEN_FILE")"
-  else
-    die "set SHIELD_ADMIN_TOKEN or provide $SHIELD_ADMIN_TOKEN_FILE"
+  # The native backend prefers SHIELD_BACKEND_TOKEN from its root-owned env file
+  # when present. Prefer that active credential over a possibly stale legacy file.
+  if [[ -s "$SHIELD_BACKEND_ENV" ]]; then
+    SHIELD_ADMIN_TOKEN="$(awk -F= '$1 == "SHIELD_BACKEND_TOKEN" {print substr($0, index($0, "=") + 1); exit}' "$SHIELD_BACKEND_ENV")"
   fi
+  if [[ -z "$SHIELD_ADMIN_TOKEN" && -s "$SHIELD_ADMIN_TOKEN_FILE" ]]; then
+    SHIELD_ADMIN_TOKEN="$(<"$SHIELD_ADMIN_TOKEN_FILE")"
+  fi
+  [[ -n "$SHIELD_ADMIN_TOKEN" ]] || die "set SHIELD_ADMIN_TOKEN or provide an active backend token"
 fi
 [[ -n "$SHIELD_TENANT_ID" ]] || die "SHIELD_TENANT_ID must be provided in the environment"
 case "$SHIELD_ADMIN_TOKEN" in
