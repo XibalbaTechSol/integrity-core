@@ -63,6 +63,9 @@ export function Sidebar() {
         <div style={{ padding: '1.5rem 1.5rem 0.5rem 1.5rem' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '0.5rem', letterSpacing: '0.05em' }}>Active Agent</div>
           <select
+            id="sidebar-active-agent"
+            name="sidebar-active-agent"
+            aria-label="Sidebar active agent"
             value={selectedAgent?.id || ''}
             onChange={(e) => {
               const agent = agents.find(a => a.id === e.target.value);
