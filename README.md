@@ -91,6 +91,27 @@ make up        # docker-compose: postgres, redis, opa, oracle, dashboard
 make test-e2e  # playwright e2e against live stack
 ```
 
+### Durable Shield policy publishing
+
+The CORE-to-Shield publisher is a long-running, SQLite-backed scheduler. It records each
+pair-bound delivery, retries transient failures with bounded backoff, and moves exhausted
+deliveries to a dead-letter state while retaining audit events and counters. Install it on a
+deployment host as a system service:
+
+```bash
+sudo ./scripts/install_policy_publisher.sh
+sudoedit /etc/xibalba-integrity/policy-publisher.env
+sudo systemctl start xibalba-core-shield-policy.service
+sudo journalctl -u xibalba-core-shield-policy.service
+```
+
+The environment file must contain the Shield tenant, policy, and internal API settings. Keep
+the rotated VC issuer seed in a root-owned secret file and set `VC_ISSUER_SEED_FILE` for the
+oracle; configure Shield with the matching Ed25519 public key using
+`XIBALBA_ORACLE_POLICY_PUBLIC_KEY=file:/etc/xibalba-integrity/oracle-policy-issuer.pub`.
+Never set `VC_ALLOW_DEVELOPMENT_ISSUER` on a deployment host. The publisher state database is
+stored at `/var/lib/xibalba-integrity/policy-publisher.sqlite3` by default.
+
 Toolchain pinned in [docs/INTERFACE_CONTRACT.md](docs/INTERFACE_CONTRACT.md) §1. For per-package development, see each package's own README.
 
 ### Registering an agent
