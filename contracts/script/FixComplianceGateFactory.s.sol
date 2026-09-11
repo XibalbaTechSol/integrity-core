@@ -113,11 +113,14 @@ contract FixComplianceGateFactory is Script {
 
         XibalbaAgentRegistry(registry).grantRole(XibalbaAgentRegistry(registry).REGISTRAR_ROLE(), address(newFactory));
         DomainRegistry(domainRegistry).grantRole(DomainRegistry(domainRegistry).REGISTRAR_ROLE(), address(newFactory));
+        _assertFactoryReady(address(newFactory));
         // Maintain "exactly one factory holds REGISTRAR_ROLE" -- revoke the old one only
         // AFTER the new one is confirmed granted, so there's never a window with zero
         // authorized factories.
         XibalbaAgentRegistry(registry).revokeRole(XibalbaAgentRegistry(registry).REGISTRAR_ROLE(), oldFactory);
         DomainRegistry(domainRegistry).revokeRole(DomainRegistry(domainRegistry).REGISTRAR_ROLE(), oldFactory);
+        require(!XibalbaAgentRegistry(registry).hasRole(XibalbaAgentRegistry(registry).REGISTRAR_ROLE(), oldFactory), "old registry role remains");
+        require(!DomainRegistry(domainRegistry).hasRole(DomainRegistry(domainRegistry).REGISTRAR_ROLE(), oldFactory), "old domain role remains");
 
         vm.stopBroadcast();
 
@@ -144,6 +147,14 @@ contract FixComplianceGateFactory is Script {
         console2.log("old AgentPrimitivesFactory:", oldFactory);
         console2.log("new ComplianceGateImpl:   ", address(newComplianceGateImpl));
         console2.log("new AgentPrimitivesFactory:", address(newFactory));
+    }
+
+    /// @dev Fail closed before revoking the previous factory. This catches phantom
+    /// addresses and partial grants while the old factory remains recoverable.
+    function _assertFactoryReady(address candidate) internal view {
+        require(candidate.code.length != 0, "new factory has no bytecode");
+        require(XibalbaAgentRegistry(registry).hasRole(XibalbaAgentRegistry(registry).REGISTRAR_ROLE(), candidate), "new factory missing registry role");
+        require(DomainRegistry(domainRegistry).hasRole(DomainRegistry(domainRegistry).REGISTRAR_ROLE(), candidate), "new factory missing domain role");
     }
 
     /// @dev Same re-serialize-the-whole-file pattern as DeployMarkets.s.sol -- reads

@@ -162,11 +162,14 @@ contract RotateOperatorKeyGrant is Script {
         );
         XibalbaAgentRegistry(registry).grantRole(XibalbaAgentRegistry(registry).REGISTRAR_ROLE(), address(newFactory));
         DomainRegistry(domainRegistry).grantRole(DomainRegistry(domainRegistry).REGISTRAR_ROLE(), address(newFactory));
+        _assertFactoryReady(address(newFactory));
         // Same "exactly one authorized factory" invariant as FixComplianceGateFactory.s.sol
         // — safe to revoke the OLD factory here (not the old KEY, a different thing) since
         // the new factory is already confirmed granted in the two lines above.
         XibalbaAgentRegistry(registry).revokeRole(XibalbaAgentRegistry(registry).REGISTRAR_ROLE(), oldFactory);
         DomainRegistry(domainRegistry).revokeRole(DomainRegistry(domainRegistry).REGISTRAR_ROLE(), oldFactory);
+        require(!XibalbaAgentRegistry(registry).hasRole(XibalbaAgentRegistry(registry).REGISTRAR_ROLE(), oldFactory), "old registry role remains");
+        require(!DomainRegistry(domainRegistry).hasRole(DomainRegistry(domainRegistry).REGISTRAR_ROLE(), oldFactory), "old domain role remains");
 
         // --- 6. Existing Slasher clones: governance is the direct DEFAULT_ADMIN_ROLE/DISPUTER_ROLE admin ---
         for (uint256 i = 0; i < slasherClones.length; i++) {
@@ -188,6 +191,15 @@ contract RotateOperatorKeyGrant is Script {
         } else {
             console2.log("Dry run (no --broadcast) -- skipping deployments file write.");
         }
+    }
+
+    /// @dev Keep the old factory authorized until the replacement is a real contract and
+    /// both registries confirm its role. A failed preflight is recoverable; revoking first
+    /// would turn a rotation mistake into a registration outage.
+    function _assertFactoryReady(address candidate) internal view {
+        require(candidate.code.length != 0, "new factory has no bytecode");
+        require(XibalbaAgentRegistry(registry).hasRole(XibalbaAgentRegistry(registry).REGISTRAR_ROLE(), candidate), "new factory missing registry role");
+        require(DomainRegistry(domainRegistry).hasRole(DomainRegistry(domainRegistry).REGISTRAR_ROLE(), candidate), "new factory missing domain role");
     }
 
     /// @dev Updates singletons.AgentPrimitivesFactory + protocolAddresses.* to the new
