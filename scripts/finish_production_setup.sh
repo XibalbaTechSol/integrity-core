@@ -13,6 +13,7 @@ ISSUER_SEED_FILE="${ISSUER_SEED_FILE:-$INTEGRITY_CONFIG_DIR/oracle-policy-issuer
 ISSUER_PUBLIC_FILE="${ISSUER_PUBLIC_FILE:-$INTEGRITY_CONFIG_DIR/oracle-policy-issuer.pub}"
 PUBLISHER_ENV="${PUBLISHER_ENV:-$INTEGRITY_CONFIG_DIR/policy-publisher.env}"
 SHIELD_BACKEND_ENV="${SHIELD_BACKEND_ENV:-$SHIELD_CONFIG_DIR/backend.env}"
+SHIELD_ADMIN_TOKEN_FILE="${SHIELD_ADMIN_TOKEN_FILE:-/home/xibalba/.xibalba-shield/backend-admin.token}"
 CORE_URL="${CORE_URL:-http://127.0.0.1:8080}"
 SHIELD_URL="${SHIELD_URL:-http://127.0.0.1:8421}"
 SHIELD_TENANT_ID="${SHIELD_TENANT_ID:-}"
@@ -27,8 +28,11 @@ usage() {
 Usage: sudo -E bash scripts/finish_production_setup.sh
 
 Required environment:
-  SHIELD_ADMIN_TOKEN   Shield backend admin token (never printed)
   SHIELD_TENANT_ID     tenant used by the policy publisher
+
+Optional environment:
+  SHIELD_ADMIN_TOKEN   Shield backend admin token (never printed); if omitted or a
+                        placeholder, the native backend token file is read
 
 Optional gates:
   ROTATE_ISSUER_KEY=true  replace an existing issuer keypair; default preserves it
@@ -41,10 +45,16 @@ EOF
 
 [[ "${1:-}" != "--help" ]] || { usage; exit 0; }
 [[ "$(id -u)" -eq 0 ]] || die "run with sudo from the repository checkout"
-[[ -n "${SHIELD_ADMIN_TOKEN:-}" ]] || die "SHIELD_ADMIN_TOKEN must be provided in the environment"
+if [[ -z "${SHIELD_ADMIN_TOKEN:-}" || "$SHIELD_ADMIN_TOKEN" == your-* || "$SHIELD_ADMIN_TOKEN" == actual-* || "$SHIELD_ADMIN_TOKEN" == real-* || "$SHIELD_ADMIN_TOKEN" == REPLACE_* || "$SHIELD_ADMIN_TOKEN" == replace-* ]]; then
+  if [[ -s "$SHIELD_ADMIN_TOKEN_FILE" ]]; then
+    SHIELD_ADMIN_TOKEN="$(<"$SHIELD_ADMIN_TOKEN_FILE")"
+  else
+    die "set SHIELD_ADMIN_TOKEN or provide $SHIELD_ADMIN_TOKEN_FILE"
+  fi
+fi
 [[ -n "$SHIELD_TENANT_ID" ]] || die "SHIELD_TENANT_ID must be provided in the environment"
 case "$SHIELD_ADMIN_TOKEN" in
-  your-*|actual-*|real-*|REPLACE_*|replace-*) die "SHIELD_ADMIN_TOKEN still contains a placeholder" ;;
+  your-*|actual-*|real-*|REPLACE_*|replace-*) die "SHIELD_ADMIN_TOKEN still contains a placeholder and no usable token file was found" ;;
 esac
 case "$SHIELD_TENANT_ID" in
   your-*|actual-*|real-*|REPLACE_*|replace-*) die "SHIELD_TENANT_ID still contains a placeholder" ;;
