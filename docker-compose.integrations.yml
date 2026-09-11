@@ -49,6 +49,7 @@ services:
       VITE_GRAPH_MEMORY_URL: http://localhost:8420
       VITE_SHIELD_BACKEND_URL: http://localhost:8765
       VITE_SHIELD_BACKEND_TOKEN: ${SHIELD_BACKEND_TOKEN:-dev-shield-admin}
+      VITE_SHIELD_TENANT_ID: ${SHIELD_TENANT_ID:-}
 
 volumes:
   cortex-data:

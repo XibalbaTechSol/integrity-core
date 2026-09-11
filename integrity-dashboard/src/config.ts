@@ -14,3 +14,7 @@ export const GRAPH_MEMORY_TOKEN = import.meta.env.VITE_GRAPH_MEMORY_TOKEN || '';
 //   uv run python -m shield.backend.api --admin-token dev-shield-admin
 export const SHIELD_BACKEND_URL = import.meta.env.VITE_SHIELD_BACKEND_URL || 'http://localhost:8765';
 export const SHIELD_BACKEND_TOKEN = import.meta.env.VITE_SHIELD_BACKEND_TOKEN || 'dev-shield-admin';
+// Shield tenants are control-plane namespaces, not agent DIDs. Keep the mapping
+// deployment-configurable; falling back to the selected agent remains useful for
+// isolated demo tenants but must never be mistaken for production identity mapping.
+export const SHIELD_TENANT_ID = import.meta.env.VITE_SHIELD_TENANT_ID || '';

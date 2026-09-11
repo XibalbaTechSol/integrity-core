@@ -5,6 +5,7 @@ import { useDashboard } from '../../context/DashboardContext';
 import { shieldBackend } from '../../services/shieldBackend';
 import type { ShieldDashboardSummary, ShieldDetectionQuality, ShieldEnforcementOutcome } from '../../services/shieldBackend';
 import { ShieldEvidenceGraph, type ShieldEvidenceGraphHandle } from '../ShieldEvidenceGraph';
+import { SHIELD_TENANT_ID } from '../../config';
 
 // Real fleet/decisions dashboard for xibalba-shield's backend (shield/backend/api.py) --
 // what Shield actually is (per its own CLAUDE.md): a fleet-level enforcement/detection
@@ -61,7 +62,7 @@ function actionTone(action: string | undefined): { label: string; color: string;
 
 export default function ShieldFleetOverview() {
   const { selectedAgent } = useDashboard();
-  const [tenantId, setTenantId] = useState('');
+  const [tenantId, setTenantId] = useState(SHIELD_TENANT_ID);
   const [summary, setSummary] = useState<ShieldDashboardSummary | null>(null);
   const [detectionQuality, setDetectionQuality] = useState<ShieldDetectionQuality[]>([]);
   const [enforcementOutcomes, setEnforcementOutcomes] = useState<ShieldEnforcementOutcome[]>([]);
@@ -138,7 +139,7 @@ export default function ShieldFleetOverview() {
       <Panel title="Fleet tenant" icon={<Server size={16} />}>
         <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.6, margin: '0 0 var(--space-4)' }}>
           Real device enrollment, policy, and enforcement-decision data from the Shield backend (<code>shield/backend/api.py</code>).
-          Defaults to the active agent's identity as tenant -- the same tenant the Guided System Test wizard's Shield step seeds.
+          Uses the deployment's configured Shield tenant when available; otherwise it falls back to the active agent identity for isolated demo tenants. Shield tenant IDs are control-plane namespaces, not DIDs.
         </p>
         <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
           <input
