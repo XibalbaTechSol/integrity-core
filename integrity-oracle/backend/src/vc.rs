@@ -3,28 +3,32 @@
 //! derived trust level. The credential is really Ed25519-signed with the oracle's issuer
 //! key (a `did:key` identity) over the canonicalized credential — not a fabricated proof.
 //!
-//! The issuer key comes from `VC_ISSUER_SEED` (32-byte hex); absent, a fixed development
-//! seed is used so local/dev issuance is deterministic. A production deployment sets a real
-//! seed (and would rotate it via the DID document's verification methods).
+//! The issuer key comes from `VC_ISSUER_SEED` (32-byte hex) or
+//! `VC_ISSUER_SEED_FILE`. There is no implicit production fallback: a deployment must
+//! provide the issuer secret. Local development may opt into the documented fixture with
+//! `VC_ALLOW_DEVELOPMENT_ISSUER=true`.
 
 use chrono::Utc;
 use ed25519_dalek::{Signer, SigningKey};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-/// Fixed dev seed (clearly not secret) used when `VC_ISSUER_SEED` is unset.
+/// Fixed fixture seed, available only with explicit local-development opt-in.
 const DEV_ISSUER_SEED_HEX: &str = "9d61b19deffdc4a4c1a2a2a2b8b8b8b8c3c3c3c3d4d4d4d4e5e5e5e5f6f6f6f60";
 
 pub(crate) fn issuer_signing_key() -> SigningKey {
-    let hex_seed = std::env::var("VC_ISSUER_SEED").ok().filter(|value| !value.trim().is_empty())
+    let configured = std::env::var("VC_ISSUER_SEED").ok().filter(|value| !value.trim().is_empty())
         .or_else(|| std::env::var("VC_ISSUER_SEED_FILE").ok().and_then(|path| std::fs::read_to_string(path).ok()))
-        .unwrap_or_else(|| DEV_ISSUER_SEED_HEX.to_string());
-    let mut seed = [0u8; 32];
-    if let Ok(bytes) = hex::decode(hex_seed.trim_start_matches("0x")) {
-        if bytes.len() == 32 {
-            seed.copy_from_slice(&bytes);
-        }
-    }
+        .or_else(|| {
+            let allow_fixture = std::env::var("VC_ALLOW_DEVELOPMENT_ISSUER")
+                .ok().is_some_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"));
+            allow_fixture.then(|| DEV_ISSUER_SEED_HEX.to_string())
+        })
+        .unwrap_or_else(|| panic!("VC issuer key is not configured; set VC_ISSUER_SEED or VC_ISSUER_SEED_FILE"));
+    let bytes = hex::decode(configured.trim().trim_start_matches("0x"))
+        .unwrap_or_else(|_| panic!("VC issuer seed must be 32-byte hexadecimal"));
+    let seed: [u8; 32] = bytes.try_into()
+        .unwrap_or_else(|_| panic!("VC issuer seed must be exactly 32 bytes"));
     SigningKey::from_bytes(&seed)
 }
 
