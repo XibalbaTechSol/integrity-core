@@ -54,7 +54,7 @@
   "protocolAddresses": {
     "arbitrator": "0x7530bd7Cb142C50d5cC742EdF02263f368e89E2f",
     "disputer": "0x7530bd7Cb142C50d5cC742EdF02263f368e89E2f",
-    "funderWallet": "0x7530bd7Cb142C50d5cC742EdF02263f368e89E2f",
+    "funderWallet": "0x67bA5D723E1F5517afF7eb980E2f73a9e17aD556",
     "governance": "0x7530bd7Cb142C50d5cC742EdF02263f368e89E2f",
     "oracleSigner": "0x7530bd7Cb142C50d5cC742EdF02263f368e89E2f",
     "resolverSigner": "0x67bA5D723E1F5517afF7eb980E2f73a9e17aD556"

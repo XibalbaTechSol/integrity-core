@@ -259,7 +259,31 @@ services:
       ORACLE_URL: http://oracle-backend:8080
     ports: ["8090:8090"]
 
+  shield-policy-publisher:
+
+    image: python:3.12-slim
+
+    depends_on: [oracle-backend]
+
+    command: ["python", "/app/scripts/shield_policy_publisher.py"]
+
+    volumes:
+
+      - .:/app
+
+      - policy_publisher_data:/var/lib/xibalba-integrity
+
+    environment:
+
+      CORE_ORACLE_URL: http://oracle-backend:8080
+
+      SHIELD_TENANT_ID: "demo-tenant"
+
+      CORE_POLICY_PUSH_INTERVAL_SECONDS: "60"
+
 volumes:
   pgdata:
   userapi_pgdata:
   shield-identity:
+
+  policy_publisher_data:
