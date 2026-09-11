@@ -7,6 +7,16 @@ export interface ShieldDevice {
     last_seen_at: string | null;
     enrolled_at: string;
     agent_label?: string;
+    /** Canonical agent identity returned by Shield's enriched device record. */
+    integrity_agent_id?: string | null;
+    agent_id?: string | null;
+    device_agent_pair?: {
+        pair_id: string;
+        device_id: string;
+        shield_agent_id: string;
+        memory_namespace: string;
+        binding: string;
+    } | null;
 }
 
 export interface ShieldDecisionAction {
