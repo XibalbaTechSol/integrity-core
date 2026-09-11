@@ -50,3 +50,47 @@ def test_failed_delivery_retries_then_dead_letters(tmp_path, monkeypatch):
         events = [row[0] for row in db.execute("SELECT event FROM policy_publisher_audit WHERE delivery_id=? ORDER BY id", (delivery_id,))]
     assert row == ("dead_letter", 2)
     assert events == ["enqueued", "pending", "dead_letter"]
+
+
+def test_publish_once_issues_and_delivers_pair_bound_policy(tmp_path, monkeypatch):
+    store = publisher.DeliveryStore(tmp_path / "publisher.sqlite3")
+    calls: list[tuple[str, dict]] = []
+
+    monkeypatch.setenv("CORE_ORACLE_URL", "http://core")
+    monkeypatch.setenv("SHIELD_URL", "http://shield")
+    monkeypatch.setenv("SHIELD_TENANT_ID", "tenant")
+    monkeypatch.setenv("SHIELD_POLICY_VERSION", "v2")
+    monkeypatch.setenv("SHIELD_POLICY_JSON", '{"rules":[{"action":"observe"}]}')
+
+    monkeypatch.setattr(
+        publisher,
+        "_get",
+        lambda url, token="": {
+            "agents": [{"devices": [{"device_id": "device-1", "integrity_agent_id": "did:integrity:agent-1"}]}]
+        },
+    )
+
+    def request(url: str, payload: dict, token: str = "") -> dict:
+        calls.append((url, payload))
+        if url == "http://core/v1/shield/policy-token":
+            return {"policy_hash": "sha256:" + "b" * 64, "token": "signed-token"}
+        return {"accepted": True}
+
+    monkeypatch.setattr(publisher, "_request", request)
+
+    result = publisher.publish_once(store)
+
+    assert result["attempted"] == 1
+    assert result["delivered"] == 1
+    assert calls[0] == (
+        "http://core/v1/shield/policy-token",
+        {
+            "tenant_id": "tenant",
+            "device_id": "device-1",
+            "agent_id": "did:integrity:agent-1",
+            "policy": {"rules": [{"action": "observe"}]},
+            "policy_version": "v2",
+        },
+    )
+    assert calls[1] == ("http://shield/api/v1/policy/push", {"token": "signed-token"})
+    assert store.metrics()["sent"] == 1
