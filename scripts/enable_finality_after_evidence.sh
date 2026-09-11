@@ -78,7 +78,22 @@ if [[ "$APPLY_FINALITY" == "true" ]]; then
   command -v docker >/dev/null 2>&1 || die "docker is required to apply finality"
   cd "$REPO_ROOT"
   docker compose up -d --force-recreate oracle-backend
-  snapshot="$(curl --fail --silent --show-error "$CORE_URL/v1/agents/snapshot")" || die "CORE snapshot unavailable after enabling finality"
+  core_ready=false
+  for _ in $(seq 1 45); do
+    if curl --fail --silent --show-error "$CORE_URL/healthz" >/dev/null 2>&1; then
+      core_ready=true
+      break
+    fi
+    sleep 1
+  done
+  [[ "$core_ready" == true ]] || die "CORE did not become healthy after enabling finality"
+  snapshot=""
+  for _ in $(seq 1 15); do
+    snapshot="$(curl --fail --silent --show-error "$CORE_URL/v1/agents/snapshot" 2>/dev/null || true)"
+    [[ -n "$snapshot" ]] && break
+    sleep 1
+  done
+  [[ -n "$snapshot" ]] || die "CORE snapshot unavailable after enabling finality"
   SNAPSHOT="$snapshot" python3 - <<'PY'
 import json, os
 p = json.loads(os.environ["SNAPSHOT"])
