@@ -491,9 +491,17 @@ pub async fn agent_directory_snapshot(
             None
         }
     };
+    // Never advertise a finalized directory unless the directory cursor itself is
+    // covered by the execution client's finalized head.  The operator flag is an
+    // approval gate, not a substitute for chain evidence; without this guard a
+    // stale/misconfigured deployment could widen Cortex access across a reorg.
+    let finalized = state.config.agent_directory_finalized
+        && finalized_head
+            .as_ref()
+            .is_some_and(|(finalized_number, _)| *finalized_number >= block_number);
     Ok(Json(AgentDirectorySnapshot {
         schema_version: "xibalba.agent-directory.v1".to_string(),
-        finalized: state.config.agent_directory_finalized,
+        finalized,
         chain_id: state.chain.chain_id() as i64,
         generated_at: Utc::now(),
         block_number,
