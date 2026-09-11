@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "sync-wiki": "node scripts/sync-wiki.mjs",
+    "sync-chain-bytecode": "node scripts/sync-chain-bytecode.mjs",
     "preview": "vite preview",
     "test-e2e": "playwright test"
   },

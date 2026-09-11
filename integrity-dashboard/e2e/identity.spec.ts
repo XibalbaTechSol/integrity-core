@@ -92,6 +92,8 @@ test.describe('/identity (IdentityPage)', () => {
 
     const dialog = page.getByRole('dialog', { name: 'Register agent on-chain' });
     await expect(dialog).toBeVisible();
+    await expect(dialog.getByText(/anchors its genesis memory, bonds 100 ITK/)).toBeVisible();
+    await expect(dialog.getByText(/progress survives a browser or workstation restart/)).toBeVisible();
     const didInput = dialog.locator('#ra-did');
     await expect(didInput).toHaveValue(/^did:integrity:/);
     await didInput.fill(shieldDid);

@@ -122,6 +122,23 @@ evidence, not evidence that a persistent or remote dashboard deployment was repl
 | `/developer` | `pages/DeveloperPage.tsx` | `oracle` + chain (IDE/contracts tab), `oracle` (Trace Analysis tab) |
 | `/settings` | `pages/SettingsPage.tsx` | `userapi` (API keys), `DashboardContext` (theme/layout), chain (`PrivacyPanel`) |
 
+## Browser registration recovery and bond gate
+
+`RegisterAgentModal.tsx` uses the currently authorized Base Sepolia
+`AgentPrimitivesFactory` from the dashboard deployment mirror and performs the same
+load-bearing sequence as the SDK: deploy `SovereignAgent`, deploy `StateAnchor`, fund the
+agent with the 100 ITK registration bond, grant the oracle anchor role, anchor the non-zero
+genesis memory root through `SovereignAgent.execute`, approve the factory bond through the
+same account, atomically register the seven primitives, then submit the chain-verified record
+to the Oracle. The read-only preflight checks the factory role, domain admission, and combined
+wallet/agent ITK needed for the bond before enabling a fresh deployment.
+
+Confirmed browser steps are stored in a chain-versioned local progress record scoped to the
+connected controller, so a browser or workstation restart reuses deployed contract addresses
+instead of silently orphaning them. `scripts/sync-chain-bytecode.mjs` regenerates the browser
+deployment ABI and bytecode directly from current Foundry artifacts; `npm run
+sync-chain-bytecode` must be run after either browser-deployed contract changes.
+
 ## Agent 360 data boundary
 
 The dashboard's `/dashboard` overview joins the selected Oracle agent DID with
