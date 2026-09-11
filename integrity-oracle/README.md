@@ -96,8 +96,17 @@ export BIND_ADDR=0.0.0.0:8080
 # Optional: enable trusted KYC receipt issuers (empty means KYC is disabled)
 export KYC_PROVIDER_KEYS=open-kyc=<64-hex-character-ed25519-public-key>
 
+# VC issuer signing is fail-closed unless a secret is supplied. Prefer a mode-0600 file.
+export VC_ISSUER_SEED_FILE=/run/secrets/integrity-vc-issuer-seed
+# Local-only fixture opt-in; never set this in a deployed environment.
+# export VC_ALLOW_DEVELOPMENT_ISSUER=true
+
 cargo run --bin oracle-backend
 ```
+
+Configure the matching issuer public key in Shield through its deployment secret store as
+`XIBALBA_ORACLE_POLICY_PUBLIC_KEY` (a `file:` path is supported). Keep the private seed and
+public verification key on separate secret-management boundaries.
 
 Migrations (`backend/migrations/0001_init.sql`) run automatically at boot,
 creating `agents`, `agent_primitives`, `telemetry_events`, `merkle_roots`.
