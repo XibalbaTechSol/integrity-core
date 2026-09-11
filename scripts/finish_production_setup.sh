@@ -142,7 +142,7 @@ chown xibalba-integrity:xibalba-integrity "$PUBLISHER_ENV"
 chmod 0600 "$PUBLISHER_ENV"
 
 # Install the current checkout and restart only the service this script owns.
-"$REPO_ROOT/scripts/install_policy_publisher.sh"
+bash "$REPO_ROOT/scripts/install_policy_publisher.sh"
 systemctl restart xibalba-shield-backend.service
 systemctl restart xibalba-core-shield-policy.service
 
