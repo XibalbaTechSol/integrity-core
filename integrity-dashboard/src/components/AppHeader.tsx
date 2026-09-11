@@ -84,6 +84,9 @@ export function AppHeader() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Agent</span>
           <select
+            id="active-agent"
+            name="active-agent"
+            aria-label="Active agent"
             value={selectedAgent?.id || ''}
             onChange={(e) => {
               const agent = agents.find(a => a.id === e.target.value);

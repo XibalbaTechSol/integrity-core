@@ -73,6 +73,8 @@ export const XNSSearchService: React.FC = () => {
             }}>
                 <Search size={16} className="text-muted" />
                 <input
+                    id="xns-search-query"
+                    name="xns-search-query"
                     type="text"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
