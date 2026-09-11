@@ -69,6 +69,16 @@ function chartTime(value: string, bucket: HistoryBucket) {
   return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
+// A large local Cortex profile can take longer to assemble graph edges than the
+// rest of the operator summary. Keep that optional panel from blocking the
+// already-available memory/status cards indefinitely.
+function bounded<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => window.setTimeout(() => reject(new Error('graph request timed out')), timeoutMs)),
+  ]);
+}
+
 function PanelHeading({ eyebrow, title, meta }: { eyebrow: string; title: string; meta?: string }) {
   return (
     <div className="control-section-heading">
@@ -103,7 +113,7 @@ function KnowledgeOverview() {
       agentId ? oracle.getAisHistory(agentId, bucket) : Promise.resolve([]),
       graphMemory.stats(),
       graphMemory.status(),
-      graphMemory.graph(220, 0.78),
+      bounded(graphMemory.graph(60, 0.78), 8_000),
       graphMemory.inferenceTasks('pending', 50),
     ]);
 
