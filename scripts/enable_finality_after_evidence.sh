@@ -77,7 +77,7 @@ PY
 if [[ "$APPLY_FINALITY" == "true" ]]; then
   command -v docker >/dev/null 2>&1 || die "docker is required to apply finality"
   cd "$REPO_ROOT"
-  AGENT_DIRECTORY_FINALIZED=true docker compose up -d --force-recreate oracle-backend
+  AGENT_DIRECTORY_FINALIZED=true docker compose up -d --build --force-recreate oracle-backend
   core_ready=false
   for _ in $(seq 1 45); do
     if curl --fail --silent --show-error "$CORE_URL/healthz" >/dev/null 2>&1; then
