@@ -19,6 +19,10 @@ install -m 0755 scripts/shield_policy_publisher.py "$PREFIX/scripts/shield_polic
 install -m 0644 packaging/systemd/xibalba-core-shield-policy.service "$SERVICE_DIR/xibalba-core-shield-policy.service"
 if [ ! -f "$CONFIG_DIR/policy-publisher.env" ]; then
   install -m 0600 -o "$SERVICE_USER" -g "$SERVICE_USER" packaging/systemd/policy-publisher.env.example "$CONFIG_DIR/policy-publisher.env"
+else
+  # Preserve operator overrides and secrets, but migrate the old packaged native
+  # Shield default so upgrades do not keep pointing at the Docker-only port.
+  sed -i 's#^SHIELD_URL=http://127\.0\.0\.1:8765$#SHIELD_URL=http://127.0.0.1:8421#' "$CONFIG_DIR/policy-publisher.env"
 fi
 systemctl daemon-reload
 systemctl enable xibalba-core-shield-policy.service
