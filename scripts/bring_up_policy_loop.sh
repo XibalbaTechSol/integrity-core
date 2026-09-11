@@ -46,11 +46,17 @@ docker compose up -d postgres redis oracle-backend
 wait_http "$CORE_URL/healthz" "CORE"
 
 unset SHIELD_ADMIN_TOKEN
-SHIELD_TENANT_ID="$SHIELD_TENANT_ID" \
-  bash "$REPO_ROOT/scripts/finish_production_setup.sh"
+if ! SHIELD_TENANT_ID="$SHIELD_TENANT_ID" \
+  bash "$REPO_ROOT/scripts/finish_production_setup.sh"; then
+  echo "--- Shield service status ---" >&2
+  systemctl --no-pager --full status xibalba-shield-backend.service >&2 || true
+  echo "--- Shield recent logs ---" >&2
+  journalctl -u xibalba-shield-backend.service -n 30 --no-pager >&2 || true
+  die "CORE-to-Shield setup failed"
+fi
 
-wait_http "$SHIELD_URL/health" "Shield"
-wait_http "$CORTEX_URL/health" "Cortex"
+wait_http "$SHIELD_URL/api/shield/health" "Shield"
+wait_http "$CORTEX_URL/healthz" "Cortex"
 
 if ! systemctl is-active --quiet xibalba-core-shield-policy.service; then
   systemctl --no-pager status xibalba-core-shield-policy.service || true
