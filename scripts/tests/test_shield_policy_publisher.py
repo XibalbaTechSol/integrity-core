@@ -109,3 +109,4 @@ def test_publish_once_keeps_scheduler_alive_when_discovery_is_unavailable(tmp_pa
     assert result["attempted"] == 1
     assert result["delivered"] == 1
     assert store.metrics()["sent"] == 1
+    assert store.metrics()["discovery_error_total"] == 1

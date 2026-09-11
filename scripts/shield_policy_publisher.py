@@ -101,6 +101,10 @@ class DeliveryStore:
             totals = {row[0]: int(row[1]) for row in db.execute("SELECT name,value FROM policy_publisher_metrics")}
         return {"pending": counts.get("pending", 0), "sent": counts.get("sent", 0), "dead_letter": counts.get("dead_letter", 0), **totals}
 
+    def increment_metric(self, name: str) -> None:
+        with sqlite3.connect(self.path) as db:
+            self._metric(db, name)
+
 
 def publish_once(store: DeliveryStore) -> dict:
     core = os.environ.get("CORE_ORACLE_URL", "http://127.0.0.1:8080").rstrip("/")
@@ -117,6 +121,7 @@ def publish_once(store: DeliveryStore) -> dict:
         # A control-plane outage must not crash the scheduler. Existing queued
         # deliveries can still make progress, and discovery is retried next tick.
         discovery_error = str(exc)[:500]
+        store.increment_metric("discovery_error_total")
         groups = []
     for group in groups:
         for device in group.get("devices", []):
