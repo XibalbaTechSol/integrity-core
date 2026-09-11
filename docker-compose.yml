@@ -260,26 +260,24 @@ services:
     ports: ["8090:8090"]
 
   shield-policy-publisher:
-
+    # The durable production install is the systemd unit. Compose runs this
+    # publisher only when the Shield integration overlay is explicitly enabled;
+    # without that overlay there is no reachable Shield control-plane service.
+    profiles: [integrations]
     image: python:3.12-slim
-
     depends_on: [oracle-backend]
-
     command: ["python", "/app/scripts/shield_policy_publisher.py"]
-
     volumes:
-
       - .:/app
-
       - policy_publisher_data:/var/lib/xibalba-integrity
-
     environment:
-
       CORE_ORACLE_URL: http://oracle-backend:8080
-
+      SHIELD_URL: ${SHIELD_URL:-http://host.docker.internal:8765}
+      SHIELD_ADMIN_TOKEN: ${SHIELD_BACKEND_TOKEN:-}
       SHIELD_TENANT_ID: "demo-tenant"
-
       CORE_POLICY_PUSH_INTERVAL_SECONDS: "60"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
   pgdata:
