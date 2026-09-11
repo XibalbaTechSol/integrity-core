@@ -98,6 +98,11 @@ pair-bound delivery, retries transient failures with bounded backoff, and moves 
 deliveries to a dead-letter state while retaining audit events and counters. Install it on a
 deployment host as a system service:
 
+For a guarded end-to-end setup, run `sudo -E bash scripts/finish_production_setup.sh` from this
+checkout with `SHIELD_ADMIN_TOKEN` and `SHIELD_TENANT_ID` exported. The script is idempotent,
+keeps existing operator settings, and refuses to enable finality without a valid finalized
+CORE snapshot.
+
 ```bash
 sudo ./scripts/install_policy_publisher.sh
 sudoedit /etc/xibalba-integrity/policy-publisher.env
