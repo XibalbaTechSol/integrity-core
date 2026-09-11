@@ -22,14 +22,19 @@ command -v python3 >/dev/null 2>&1 || die "python3 is required"
 rpc_json() {
   local method="$1" params="$2"
   RPC_URL="$RPC_URL" RPC_METHOD="$method" RPC_PARAMS="$params" python3 - <<'PY'
-import json, os, urllib.request
+import json, os, urllib.error, urllib.request
 request = urllib.request.Request(
     os.environ["RPC_URL"],
     data=json.dumps({"jsonrpc":"2.0", "id":1, "method":os.environ["RPC_METHOD"], "params":json.loads(os.environ["RPC_PARAMS"])}).encode(),
     headers={"Content-Type":"application/json"},
 )
-with urllib.request.urlopen(request, timeout=15) as response:
-    payload = json.load(response)
+try:
+    with urllib.request.urlopen(request, timeout=15) as response:
+        payload = json.load(response)
+except urllib.error.HTTPError as exc:
+    raise SystemExit(f"RPC request rejected with HTTP {exc.code}")
+except urllib.error.URLError:
+    raise SystemExit("RPC endpoint is unreachable")
 if payload.get("error"):
     raise SystemExit(1)
 print(json.dumps(payload.get("result")))
