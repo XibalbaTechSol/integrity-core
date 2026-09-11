@@ -109,6 +109,18 @@ contract XibalbaAgentRegistryTest is Test {
         registry.registerPrimitives(h, primitives, controller, domainId);
     }
 
+    function test_registerPrimitivesRejectsZeroController() public {
+        vm.prank(registrar);
+        vm.expectRevert(XibalbaAgentRegistry.ZeroController.selector);
+        registry.registerPrimitives(registry.didHash("did:integrity:zero-controller"), primitives, address(0), domainId);
+    }
+
+    function test_registerEnterpriseAgentRejectsZeroController() public {
+        vm.prank(registrar);
+        vm.expectRevert(XibalbaAgentRegistry.ZeroController.selector);
+        registry.registerEnterpriseAgent(makeAddr("enterpriseAgent"), makeAddr("enterpriseAnchor"), address(0), domainId);
+    }
+
     function test_resolveUnknownDIDReverts() public {
         vm.expectRevert(XibalbaAgentRegistry.UnknownDID.selector);
         registry.resolveDID("did:integrity:never-registered");
