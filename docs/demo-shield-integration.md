@@ -150,3 +150,14 @@ the first time would hit no known blocker, but would still deploy a fresh
 `SovereignAgent`/`StateAnchor` (this fix didn't make the script idempotent for partial
 failures, it only unblocked the specific role gap that was causing every attempt to fail at
 the last step).
+
+## Current live drift — 2026-09-11
+
+The historical completion note above is not a current Base Sepolia authorization guarantee.
+An independent read of the live registry shows `REGISTRAR_ROLE == false` for both the retired
+factory `0xC19fc9cB2cB87297EfDF11DA7e211e44A6C1181D` and the migrated factory
+`0x240F72d7c1fc824BB641e51213ca135Ee5514A5B`. Do not spend gas on a new registration until
+the registry operator grants the role to the factory address in the active deployment mirror.
+The grant is an operator action (`DEFAULT_ADMIN_ROLE` is held by the configured governance
+operator), not an agent-controller action. Re-run `hasRole(REGISTRAR_ROLE, factory)` after the
+grant and before resuming any browser or SDK checkpoint.
