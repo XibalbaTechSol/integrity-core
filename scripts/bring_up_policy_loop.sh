@@ -46,13 +46,20 @@ docker compose up -d postgres redis oracle-backend
 wait_http "$CORE_URL/healthz" "CORE"
 
 unset SHIELD_ADMIN_TOKEN
-if ! SHIELD_TENANT_ID="$SHIELD_TENANT_ID" \
-  bash "$REPO_ROOT/scripts/finish_production_setup.sh"; then
+set +e
+SHIELD_TENANT_ID="$SHIELD_TENANT_ID" \
+  bash "$REPO_ROOT/scripts/finish_production_setup.sh"
+setup_rc=$?
+set -e
+if (( setup_rc != 0 )); then
+  if [[ "${ENABLE_FINALITY:-false}" == "true" ]]; then
+    die "finality gate refused setup (CORE snapshot is not finalized); no finality setting was changed"
+  fi
   echo "--- Shield service status ---" >&2
   systemctl --no-pager --full status xibalba-shield-backend.service >&2 || true
   echo "--- Shield recent logs ---" >&2
   journalctl -u xibalba-shield-backend.service -n 30 --no-pager >&2 || true
-  die "CORE-to-Shield setup failed"
+  die "CORE-to-Shield setup failed (exit $setup_rc)"
 fi
 
 wait_http "$SHIELD_URL/api/shield/health" "Shield"
