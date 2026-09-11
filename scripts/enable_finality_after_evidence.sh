@@ -77,7 +77,7 @@ PY
 if [[ "$APPLY_FINALITY" == "true" ]]; then
   command -v docker >/dev/null 2>&1 || die "docker is required to apply finality"
   cd "$REPO_ROOT"
-  docker compose up -d --force-recreate oracle-backend
+  AGENT_DIRECTORY_FINALIZED=true docker compose up -d --force-recreate oracle-backend
   core_ready=false
   for _ in $(seq 1 45); do
     if curl --fail --silent --show-error "$CORE_URL/healthz" >/dev/null 2>&1; then
@@ -98,7 +98,10 @@ if [[ "$APPLY_FINALITY" == "true" ]]; then
 import json, os
 p = json.loads(os.environ["SNAPSHOT"])
 if p.get("finalized") is not True:
-    raise SystemExit("CORE did not advertise a finalized snapshot after applying the approval bit")
+    raise SystemExit(
+        "CORE did not advertise a finalized snapshot after applying the approval bit "
+        f"(block={p.get('block_number')}, finalized_block={p.get('finalized_block_number')})"
+    )
 print("CORE finalized snapshot verified")
 PY
   echo "Oracle recreated with finality approval. Restart Cortex sync and verify its finalized snapshot consumption."
