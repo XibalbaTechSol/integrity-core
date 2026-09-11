@@ -67,7 +67,7 @@ pub struct AisAggregate {
     pub avg_hgi: f64,
     pub sum_gpu_hours: f64,
     pub penalty_ratio: f64,
-    pub zk_verified_this_period: bool,
+    pub zk_verified_event_ratio: f64,
     pub event_count: i64,
 }
 
@@ -124,6 +124,84 @@ pub async fn get_agent(pool: &PgPool, id: &str) -> Result<Option<AgentRow>, sqlx
     .await
 }
 
+pub async fn upsert_memory_profile(pool: &PgPool, profile_id: &str, agent_id: &str) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO memory_profiles(profile_id, agent_id) VALUES($1,$2) ON CONFLICT(profile_id) DO UPDATE SET agent_id=EXCLUDED.agent_id WHERE memory_profiles.agent_id=EXCLUDED.agent_id",
+    )
+    .bind(profile_id)
+    .bind(agent_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn get_memory_profile_agent(pool: &PgPool, profile_id: &str) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar::<_, String>("SELECT agent_id FROM memory_profiles WHERE profile_id=$1")
+        .bind(profile_id)
+        .fetch_optional(pool)
+        .await
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct MemoryAnchorRow {
+    pub id: Uuid,
+    pub profile_id: String,
+    pub agent_id: String,
+    pub session_id: String,
+    pub root_hash: String,
+    pub leaf_count: i32,
+    pub idempotency_key: String,
+    pub metadata: serde_json::Value,
+    pub anchored_at: DateTime<Utc>,
+}
+
+pub async fn insert_memory_anchor(
+    pool: &PgPool,
+    profile_id: &str,
+    agent_id: &str,
+    session_id: &str,
+    root_hash: &str,
+    leaf_count: i32,
+    idempotency_key: &str,
+    metadata: &serde_json::Value,
+) -> Result<(MemoryAnchorRow, bool), sqlx::Error> {
+    let existing = sqlx::query_as::<_, MemoryAnchorRow>(
+        "SELECT id,profile_id,agent_id,session_id,root_hash,leaf_count,idempotency_key,metadata,anchored_at FROM memory_anchors WHERE idempotency_key=$1 OR (profile_id=$2 AND session_id=$3)",
+    )
+    .bind(idempotency_key)
+    .bind(profile_id)
+    .bind(session_id)
+    .fetch_optional(pool)
+    .await?;
+    if let Some(row) = existing {
+        let same = row.agent_id == agent_id && row.root_hash == root_hash && row.leaf_count == leaf_count;
+        return Ok((row, same));
+    }
+    let row = sqlx::query_as::<_, MemoryAnchorRow>(
+        "INSERT INTO memory_anchors(profile_id,agent_id,session_id,root_hash,leaf_count,idempotency_key,metadata) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id,profile_id,agent_id,session_id,root_hash,leaf_count,idempotency_key,metadata,anchored_at",
+    )
+    .bind(profile_id)
+    .bind(agent_id)
+    .bind(session_id)
+    .bind(root_hash)
+    .bind(leaf_count)
+    .bind(idempotency_key)
+    .bind(metadata)
+    .fetch_one(pool)
+    .await?;
+    Ok((row, true))
+}
+
+pub async fn get_memory_anchors(pool: &PgPool, profile_id: &str, limit: i64) -> Result<Vec<MemoryAnchorRow>, sqlx::Error> {
+    sqlx::query_as::<_, MemoryAnchorRow>(
+        "SELECT id,profile_id,agent_id,session_id,root_hash,leaf_count,idempotency_key,metadata,anchored_at FROM memory_anchors WHERE profile_id=$1 ORDER BY anchored_at DESC LIMIT $2",
+    )
+    .bind(profile_id)
+    .bind(limit.clamp(1, 100))
+    .fetch_all(pool)
+    .await
+}
+
 /// Reverse a SovereignAgent address to its owning agent DID via the cached primitive set.
 /// Case-insensitive on the hex address. Best-effort: returns None when the agent's primitives
 /// have never been resolved into the oracle DB.
@@ -160,6 +238,7 @@ pub struct AgentListRow {
     pub created_at: DateTime<Utc>,
     pub did_document: Option<serde_json::Value>,
     pub sovereign_agent_address: Option<String>,
+    pub controller_address: Option<String>,
     /// `None` means no ERC-8004 binding on record — never rendered as "unlinked = bad",
     /// just absence of a public discovery listing. See `erc8004_identity_bindings` and
     /// `handlers::link_erc8004_identity` for how a row here gets set.
@@ -190,6 +269,7 @@ pub async fn list_agents_with_primitives_on_chain(
                ) AS verification_tier,
                a.created_at, a.did_document,
                p.sovereign_agent_address,
+               p.controller_address,
                e.binding_status AS erc8004_binding_status
         FROM agents a
         LEFT JOIN agent_primitives p ON p.agent_id = a.id AND p.chain_id = $1
@@ -419,7 +499,7 @@ pub async fn aggregate_for_ais(
     agent_id: &str,
     since: DateTime<Utc>,
 ) -> Result<AisAggregate, sqlx::Error> {
-    let row: (f64, f64, f64, f64, bool, i64) = sqlx::query_as(
+    let row: (f64, f64, f64, f64, f64, i64) = sqlx::query_as(
         r#"
         SELECT
             -- Each aggregate is explicitly cast to `double precision`: the `1.0`/`0.0`
@@ -432,7 +512,7 @@ pub async fn aggregate_for_ais(
             COALESCE(AVG(hgi_raw), 0.0)::double precision AS avg_hgi,
             COALESCE(SUM(gpu_hours_verified), 0.0)::double precision AS sum_gpu_hours,
             COALESCE(AVG(CASE WHEN flagged THEN 1.0 ELSE 0.0 END), 0.0)::double precision AS penalty_ratio,
-            COALESCE(BOOL_OR(zk_verified), false) AS zk_verified_this_period,
+            COALESCE(AVG(CASE WHEN zk_verified THEN 1.0 ELSE 0.0 END), 0.0)::double precision AS zk_verified_event_ratio,
             COUNT(*) AS event_count
         FROM telemetry_events
         WHERE agent_id = $1 AND created_at >= $2
@@ -448,7 +528,7 @@ pub async fn aggregate_for_ais(
         avg_hgi: row.1,
         sum_gpu_hours: row.2,
         penalty_ratio: row.3,
-        zk_verified_this_period: row.4,
+        zk_verified_event_ratio: row.4,
         event_count: row.5,
     })
 }
@@ -1565,7 +1645,7 @@ pub struct AisBucketAggregate {
     pub avg_hgi: f64,
     pub sum_gpu_hours: f64,
     pub penalty_ratio: f64,
-    pub zk_verified_this_period: bool,
+    pub zk_verified_event_ratio: f64,
     pub event_count: i64,
 }
 
@@ -1582,7 +1662,7 @@ pub async fn ais_history_buckets(
     bucket_interval: &str,
     since: DateTime<Utc>,
 ) -> Result<Vec<AisBucketAggregate>, sqlx::Error> {
-    let rows: Vec<(DateTime<Utc>, f64, f64, f64, f64, bool, i64)> = sqlx::query_as(
+    let rows: Vec<(DateTime<Utc>, f64, f64, f64, f64, f64, i64)> = sqlx::query_as(
         r#"
         SELECT
             time_bucket($1::interval, created_at) AS bucket_start,
@@ -1590,7 +1670,7 @@ pub async fn ais_history_buckets(
             COALESCE(AVG(hgi_raw), 0.0)::double precision AS avg_hgi,
             COALESCE(SUM(gpu_hours_verified), 0.0)::double precision AS sum_gpu_hours,
             COALESCE(AVG(CASE WHEN flagged THEN 1.0 ELSE 0.0 END), 0.0)::double precision AS penalty_ratio,
-            COALESCE(BOOL_OR(zk_verified), false) AS zk_verified_this_period,
+            COALESCE(AVG(CASE WHEN zk_verified THEN 1.0 ELSE 0.0 END), 0.0)::double precision AS zk_verified_event_ratio,
             COUNT(*) AS event_count
         FROM telemetry_events
         WHERE agent_id = $2 AND created_at >= $3
@@ -1613,7 +1693,7 @@ pub async fn ais_history_buckets(
                 avg_hgi,
                 sum_gpu_hours,
                 penalty_ratio,
-                zk_verified_this_period,
+                zk_verified_event_ratio,
                 event_count,
             )| {
                 AisBucketAggregate {
@@ -1622,7 +1702,7 @@ pub async fn ais_history_buckets(
                     avg_hgi,
                     sum_gpu_hours,
                     penalty_ratio,
-                    zk_verified_this_period,
+                    zk_verified_event_ratio,
                     event_count,
                 }
             },

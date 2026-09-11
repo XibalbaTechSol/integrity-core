@@ -340,6 +340,32 @@ def deploy_state_anchor(w3: Web3, agent: LocalAccount, sovereign_agent_address: 
     return receipt.contractAddress
 
 
+def approve_factory_bond(
+    w3: Web3,
+    agent: LocalAccount,
+    sovereign_agent_address: str,
+    itk_address: str,
+    factory_address: str,
+    amount: int,
+    chain_id: int,
+) -> str:
+    """Routes an ERC20 approve through the SovereignAgent to authorize the Factory."""
+    itk = _contract(w3, "IntegrityToken", address=itk_address)
+    approve_calldata = itk.functions.approve(Web3.to_checksum_address(factory_address), amount).build_transaction(
+        {"gas": 0}
+    )["data"]
+
+    sovereign_agent = _contract(w3, "SovereignAgent", address=sovereign_agent_address)
+    _, tx_hash = _send_signed(
+        w3, agent,
+        lambda nonce: sovereign_agent.functions.execute(
+            Web3.to_checksum_address(itk_address), 0, approve_calldata
+        ).build_transaction({"from": agent.address, "nonce": nonce, "chainId": chain_id}),
+        action="approve_factory_bond",
+    )
+    return tx_hash.hex()
+
+
 def grant_anchor_role(
     w3: Web3,
     agent: LocalAccount,
@@ -370,6 +396,72 @@ def grant_anchor_role(
             Web3.to_checksum_address(state_anchor_address), 0, grant_calldata
         ).build_transaction({"from": agent.address, "nonce": nonce, "chainId": chain_id}),
         action="grant_anchor_role",
+    )
+    return tx_hash.hex()
+
+
+def set_execution_policy(w3: Web3, agent: LocalAccount, sovereign_agent_address: str, policy_address: str, chain_id: int) -> str:
+    """Pins the agent's SovereignAgent to a specific ExecutionPolicy."""
+    sovereign_agent = _contract(w3, "SovereignAgent", address=sovereign_agent_address)
+    _, tx_hash = _send_signed(
+        w3, agent,
+        lambda nonce: sovereign_agent.functions.setExecutionPolicy(
+            Web3.to_checksum_address(policy_address)
+        ).build_transaction({"from": agent.address, "nonce": nonce, "chainId": chain_id}),
+        action="set_execution_policy",
+    )
+    return tx_hash.hex()
+
+
+def set_anchor_policy(w3: Web3, agent: LocalAccount, sovereign_agent_address: str, state_anchor_address: str, policy_address: str, chain_id: int) -> str:
+    """Pins the agent's StateAnchor to a specific AnchorPolicy via SovereignAgent execute."""
+    state_anchor = _contract(w3, "StateAnchor", address=state_anchor_address)
+    set_calldata = state_anchor.functions.setAnchorPolicy(Web3.to_checksum_address(policy_address)).build_transaction(
+        {"gas": 0}
+    )["data"]
+
+    sovereign_agent = _contract(w3, "SovereignAgent", address=sovereign_agent_address)
+    _, tx_hash = _send_signed(
+        w3, agent,
+        lambda nonce: sovereign_agent.functions.execute(
+            Web3.to_checksum_address(state_anchor_address), 0, set_calldata
+        ).build_transaction({"from": agent.address, "nonce": nonce, "chainId": chain_id}),
+        action="set_anchor_policy",
+    )
+    return tx_hash.hex()
+
+
+def set_zk_identity_commitment(
+    w3: Web3,
+    agent: LocalAccount,
+    sovereign_agent_address: str,
+    reputation_registry_address: str,
+    identity_commitment: bytes,
+    chain_id: int,
+) -> str:
+    """Pins the Noir identity commitment on the agent's ReputationRegistry.
+
+    The registry's admin is the SovereignAgent contract, so the controller EOA
+    must route this one-time operation through ``SovereignAgent.execute``.
+    Subsequent ZK attestations are rejected unless their first public input
+    matches this pinned value.
+    """
+    if len(identity_commitment) != 32 or not any(identity_commitment):
+        raise ValueError("identity_commitment must be a non-zero 32-byte value")
+
+    reputation_registry = _contract(w3, "ReputationRegistry", address=reputation_registry_address)
+    set_calldata = reputation_registry.functions.setZkIdentityCommitment(identity_commitment).build_transaction(
+        {"gas": 0}
+    )["data"]
+
+    sovereign_agent = _contract(w3, "SovereignAgent", address=sovereign_agent_address)
+    _, tx_hash = _send_signed(
+        w3,
+        agent,
+        lambda nonce: sovereign_agent.functions.execute(
+            Web3.to_checksum_address(reputation_registry_address), 0, set_calldata
+        ).build_transaction({"from": agent.address, "nonce": nonce, "chainId": chain_id}),
+        action="set_zk_identity_commitment",
     )
     return tx_hash.hex()
 

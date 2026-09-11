@@ -11,10 +11,9 @@ export default function MainAppLayout() {
   const appScrollRef = useRef<HTMLDivElement>(null);
   const contentScrollRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile(768);
-  const isCortex = location.pathname === '/cortex';
   const isWiki = location.pathname === '/wiki';
   const isDeveloper = location.pathname === '/developer';
-  const isFullWidth = ['/developer', '/security', '/knowledge'].includes(location.pathname) || isCortex || isWiki;
+  const isFullWidth = ['/developer', '/security', '/knowledge'].includes(location.pathname) || isWiki;
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
@@ -25,7 +24,7 @@ export default function MainAppLayout() {
   }, [location.pathname]);
 
   return (
-    <div ref={appScrollRef} className={isCortex || isWiki ? 'main-app-layout memory-route' : 'main-app-layout'} style={{ display: 'flex', flexDirection: layoutMode === 'header' ? 'column' : 'row', minHeight: '100vh', background: 'var(--bg-color)', color: 'var(--text-primary)' }}>
+    <div ref={appScrollRef} className={isWiki ? 'main-app-layout memory-route' : 'main-app-layout'} style={{ display: 'flex', flexDirection: layoutMode === 'header' ? 'column' : 'row', minHeight: '100vh', background: 'var(--bg-color)', color: 'var(--text-primary)' }}>
       {layoutMode === 'sidebar' && <div className="memory-sidebar-shell"><Sidebar /></div>}
       {layoutMode === 'header' && <AppHeader />}
       

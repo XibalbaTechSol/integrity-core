@@ -1,7 +1,7 @@
 ---
 title: contracts
 created: 2026-07-07
-updated: 2026-08-29
+updated: 2026-09-08
 type: entity
 tags: [layer-2, identity, tokenomics, compliance]
 confidence: high
@@ -10,6 +10,8 @@ source_files:
   - contracts/src/framework/XibalbaAgentRegistry.sol
   - contracts/src/framework/AgentAuthorityResolver.sol
   - contracts/src/kernel/IntegrityIdentityReadV1.sol
+  - contracts/src/kernel/IntegrityKernel.sol
+  - contracts/src/registry/AdapterRegistry.sol
   - contracts/src/framework/XibalbaNameService.sol
   - contracts/src/core/SovereignAgent.sol
   - contracts/src/oracle/ReputationRegistry.sol
@@ -111,6 +113,18 @@ even though the ordinary contract unit tests can pass.
   require this resolver to already be serialized in `deployments.<network>.json`;
   they do not deploy it against legacy registry bytecode as a side effect.
 
+- **IntegrityKernel registry-adapter gas boundary:** the successful cold
+  `ReputationFloorAdapter` profile historically measured 49,290 gas, above the v3
+  whitepaper's 40k `preCheck` target. The accepted `docs/SPEC.md` §4.6 defines the
+  core/cached measurement profile and permits deliberately live foreign-registry reads
+  to be named separately. This profile is therefore an explicit scoped exception, not a
+  claim that 40k was met; the performance crossing remains. The `(44k, 54k)` Foundry
+  range is current adapter-specific regression evidence, not a maximum for arbitrary
+  adapters. `IntegrityKernel` does not pin `specHash`, enforce `isInstallable()`, reject
+  EOAs, pin bytecode, or cap the registered stipend with a caller reserve. Enabled Halmos
+  evidence uses a benign reference adapter and does not prove hostile-adapter reentrancy
+  safety. These remain deployment blockers.
+
 ## Key invariants
 
 - **Call-routing:** every clone's admin is the agent's `SovereignAgent` contract;
@@ -133,7 +147,7 @@ an otherwise rejected operation.
 
 ## State
 
-- **330 tests** (`forge test -vvv`, confirmed via a real run 2026-08-24), all green
+- **497 tests** (`forge test`, confirmed via a real run 2026-09-08), all green
   — including full end-to-end coverage of the registration sequence in
   `test/AgentPrimitivesFactory.t.sol`, 21 market-layer tests, 14
   `test/XibalbaNameService.t.sol` tests, 3 tests covering
@@ -146,6 +160,11 @@ an otherwise rejected operation.
   ERC-8004 conformance, identity consistency, controller rotation, URI behavior,
   duplicate-agent rejection, malformed registry states, and isolation of fixed
   identity reads from a reverting profile contract.
+- `SovereignAgent.execute` and `StateAnchor.anchorRoot` are frozen host chokepoints
+  with agent-pinned, swappable `IExecutionPolicy` and `IAnchorPolicy` contracts. Policy
+  false returns and reverts fail closed. The SDK anchors agent-only genesis before pinning
+  the oracle-only anchor policy; a real Anvil registration test verifies both policy
+  pointers. This describes future deployment source, not a retrofit of existing agents.
 - **Deployed to Base Sepolia** (chainId 84532): `XibalbaAgentRegistry` at
   `0x72e21e44AdD6d6e7CAa02eaedF078630afC40819`, `AgentPrimitivesFactory` at
   `0x215f39C8a2Cea2F8c6976fA10bbf48479825aD6e`, plus the market-layer
@@ -177,7 +196,10 @@ an otherwise rejected operation.
   ERC-721 tooling must not be pointed at this facade.
 
 - The repository's `UltraPlonkVerifier.sol` is now the real generated verifier and
-  has valid/tampered/malformed proof coverage. The **existing Base Sepolia address
+  has valid/tampered/malformed proof coverage. `ReputationRegistry` checks its six
+  logical inputs against pinned identity, monotonic nonce, current chain, its own
+  clone address, and the exact anchored leaf, and prevents leaf reuse. The
+  **existing Base Sepolia address
   still contains the older fail-closed placeholder bytecode**, so source capability
   must not be described as deployed capability until a separately approved verifier
   deployment is read back and exercised on-chain. See [ZKP](integrity-zkp.md) and

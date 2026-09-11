@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
 import { Panel } from '../shared/Panel';

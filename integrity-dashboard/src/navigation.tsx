@@ -2,9 +2,8 @@ import {
   BookOpen,
   BrainCircuit,
   Code,
-  Landmark,
+  FileCheck2,
   LayoutDashboard,
-  LockKeyhole,
   ShieldCheck,
   Users,
 } from 'lucide-react';
@@ -28,16 +27,16 @@ export const NAVIGATION_GROUPS: NavigationGroup[] = [
     section: 'Manage',
     items: [
       { to: '/agents', label: 'Agents & Identity', icon: Users },
-      { to: '/treasury', label: 'Funds & Access', icon: Landmark },
-      { to: '/security', label: 'Security & Policy', icon: ShieldCheck },
-      { to: '/knowledge', label: 'Knowledge & Evidence', icon: BrainCircuit },
+      { to: '/security', label: 'Policy', icon: ShieldCheck },
+      { to: '/knowledge', label: 'Evidence', icon: FileCheck2 },
+      { to: '/fleet', label: 'Fleet', icon: ShieldCheck },
+      { to: '/memory', label: 'Memory', icon: BrainCircuit },
     ],
   },
   {
     section: 'Build',
     items: [
       { to: '/developer', label: 'Developer', icon: Code },
-      { to: '/licence', label: 'Licensing', icon: LockKeyhole },
       { to: '/wiki', label: 'Wiki', icon: BookOpen },
     ],
   },

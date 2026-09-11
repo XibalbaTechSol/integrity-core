@@ -2,12 +2,13 @@
 title: Persistent Memory, Genesis Root & Lineage [PARTIALLY BUILT]
 acronyms: []
 created: 2026-07-29
-updated: 2026-08-19
+updated: 2026-09-09
 type: concept
 tags: [identity, cryptography, compliance]
 confidence: high
 source_files:
   - contracts/src/oracle/StateAnchor.sol
+  - contracts/src/framework/AgentLineageRegistry.sol
   - integrity-sdk/integrity_sdk/registration.py
   - integrity-oracle/backend/src/handlers.rs
   - docs/wiki/concepts/agent-primitives.md
@@ -29,7 +30,7 @@ actually checked against code, rather than restating the spec's own status claim
 
 - [Persistent Memory is a foundational primitive — not an 8th contract](#persistent-memory-is-a-foundational-primitive-not-an-8th-contract)
 - [Genesis root](#genesis-root)
-- [Verified status (checked against code 2026-07-29, not inherited from the spec)](#verified-status-checked-against-code-2026-07-29-not-inherited-from-the-spec)
+- [Verified status (source-rechecked 2026-09-08, not inherited from the spec)](#verified-status-source-rechecked-2026-09-08-not-inherited-from-the-spec)
 - [Copying, lineage, and similarity](#copying-lineage-and-similarity)
 - [What memory does not change](#what-memory-does-not-change)
 - [Hermes native provider boundary (verified 2026-08-19)](#hermes-native-provider-boundary-verified-2026-08-19)
@@ -77,20 +78,22 @@ cross-package constant in `docs/INTERFACE_CONTRACT.md` §4.4a and derived by has
 every package rather than copied as a hex literal. The gate checks only that the root is
 non-zero, so an agent with a genuinely non-empty vault at birth is equally valid.
 
-## Verified status (checked against code 2026-07-29, not inherited from the spec)
+## Verified status (source-rechecked 2026-09-08, not inherited from the spec)
 
 | Spec requirement | Status |
 |---|---|
 | §7.1 oracle rejects a zero root with `400 MemoryNotInitialized` | **BUILT.** `ChainClient::memory_state` + `AppError::MemoryNotInitialized`. Covered by e2e `oracle_e2e_register_rejects_missing_genesis_memory_root`, which deploys a real on-chain agent with only the genesis anchor omitted and asserts 400 + no persisted row |
 | §6 registration anchors a genesis root before `registerPrimitives` | **BUILT.** `chain.anchor_genesis_root()` + `registration.py` step 8b. The pre-existing full-registration e2e passes with the gate live, which is what proves the ordering satisfies it |
 | §7.2 genesis root is agent-authorized | **BUILT, unenforced.** It works today with no Solidity change — `StateAnchor`'s admin *is* the `SovereignAgent`, which the constructor grants `ANCHOR_ROLE`, so `SovereignAgent.execute → anchorRoot` at epoch 0 is a controller-signed genesis. What is missing is *preventing* the alternative (below) |
-| §7.2 `ANCHOR_ROLE` restricted to epoch ≥ 2 | **OPEN (Appendix A gap 2).** `anchorRoot` is `onlyRole(ANCHOR_ROLE)` at every epoch, and `registration.py` step 8 grants that role to the oracle signer — so the protocol *could* anchor an agent's genesis root instead of the agent. Blocked on migration, not on design: `StateAnchor` is deployed **per agent, not cloned**, so a contract change reaches only future agents |
-| §7.4 lineage attestation | **BUILT, not yet integrated (2026-08-05).** `integrity_sdk/memory_dag.py` implements the full design (`docs/design/memory-dag.md`); `tests/test_memory_dag.py` passes 21/21, verified 2026-08-05 after being written 2026-07-31 and left unrun. `import_memory_dag.py --dry-run` runs cleanly against the real Trust Vault. Not yet anchored on-chain (`anchor_memory_dag.py` untested, deliberately not run) and no downstream consumer reads it as authoritative yet. |
+| §7.2 `ANCHOR_ROLE` restricted to epoch ≥ 2 | **BUILT in source.** `StateAnchor` rejects privileged genesis anchoring; future-agent deployment and existing-agent migration remain separate network gates |
+| §7.4 lineage attestation | **BUILT in source, deployment/adoption open.** `AgentLineageRegistry` records one immutable controller-authorized fork/migration/recovery edge per successor; focused Forge coverage passes |
 
-**Existing agents are non-conformant.** All 7 agents registered before this flow —
+**Historical live observation (2026-07-29; not re-verified in this documentation
+pass):** all 7 agents registered before this flow —
 including `xibalba.integrity` (`StateAnchor 0x09DCBBd0…`) — report `latestRoot == 0`,
-verified live on Base Sepolia and confirmed by the running oracle refusing that DID with
-400. They stay registered because the gate runs only at registration. Each needs one
+then reported `latestRoot == 0`, and the running oracle refused that DID with
+400. That snapshot may now be stale. Such agents stay registered because the gate runs
+only at registration; each still needs one
 controller-signed `anchorRoot` to conform. See [`PRODUCTION_GAPS.md`](../../../PRODUCTION_GAPS.md) §19.
 
 ## Copying, lineage, and similarity

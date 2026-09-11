@@ -61,6 +61,24 @@ On registration, a healthcare agent must declare compliance and anchor its contr
 
 For the full conceptual derivation, see [docs/SPEC.md](docs/SPEC.md) §4.
 
+## Policy Architecture (On-chain vs Off-chain)
+
+When writing complex rules or safety guardrails for an agent, developers must choose between evaluating the policy **off-chain** (via the BCC Middleware and Open Policy Agent) or **on-chain** (via Smart Contract Adapters). Both operate on a "fail-closed" (default deny) basis.
+
+### When to use Off-Chain Rules (BCC / OPA)
+Off-chain rules act as the **"Preventative Brain."** Use them to intercept an agent *before* it affects the real world.
+* **Complex Data Parsing:** If you need to read JSON, look for specific keywords, or evaluate the parameters of an API call (e.g., "is this trading leverage > 2x?" or "is this email going to a competitor?"), it must be off-chain. Smart contracts cannot easily parse unstructured strings.
+* **External Web2 Context:** If the rule requires checking a real-time web API before making a decision, it goes off-chain.
+* **Cost Efficiency:** Off-chain OPA checks take milliseconds and cost nothing. You can have thousands of highly complex rules here without worrying about gas fees.
+* **Example (`TradingGuardrail`):** A `.rego` policy that intercepts an agent's `financial_trade` intent, validating the trade against a dynamic token allowlist.
+
+### When to use On-Chain Rules (Smart Contract Adapters)
+On-chain rules act as the **"Cryptographic Backstop."** Use them for strict, deterministic state enforcement where you cannot trust the off-chain environment.
+* **Hard Financial Limits:** Rules about money (e.g., "Do not spend more than $50" or "Do not transfer this NFT") belong on-chain. If the off-chain system is compromised, the smart contract physically prevents the funds from moving.
+* **Absolute Protocol State:** Things like transaction frequency (Velocity), Time-locks, or Reputation Floors. The blockchain is the ultimate source of truth for time and state.
+* **Denial of Service Protection (Gas Bounding):** Adapters are evaluated by the `IntegrityKernel` in a `try/catch` with strict gas limits. If a complex rule loops forever or crashes, it runs out of gas, safely catching the failure and rejecting the transaction without crashing the agent.
+* **Example (`VelocityAdapter`):** A Solidity contract implementing `IAdapter.sol` that limits how many transactions an agent can perform within a 1-hour window.
+
 ---
 
 ## Quick start

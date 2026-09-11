@@ -1,4 +1,5 @@
-import { GRAPH_MEMORY_URL } from '../config';
+/* eslint-disable @typescript-eslint/no-unused-vars */
+import { GRAPH_MEMORY_TOKEN, GRAPH_MEMORY_URL } from '../config';
 
 // Mirrors xibalba_cortex.local_api's routes exactly, which themselves are thin wrappers around
 // GraphStore's own methods (store.py) -- no response envelope, each route just returns the
@@ -11,6 +12,7 @@ import type {
     ExtractionProposal,
     HybridRetrieveResult,
     GraphMemoryStats,
+    AgentMemorySummary,
     GraphPayload,
     InferenceManifest,
     InferenceTask,
@@ -37,6 +39,7 @@ import type {
 } from '../types/graphMemory';
 
 export type {
+    AgentMemorySummary,
     Attachment,
     ContextContribution,
     EntityRelation,
@@ -80,7 +83,7 @@ export type {
 // ---------------------------------------------------------------------------
 
 async function getJson<T>(path: string): Promise<T> {
-    const response = await fetch(`${GRAPH_MEMORY_URL}${path}`);
+    const response = await fetch(`${GRAPH_MEMORY_URL}${path}`, GRAPH_MEMORY_TOKEN ? { headers: { Authorization: `Bearer ${GRAPH_MEMORY_TOKEN}` } } : undefined);
     if (!response.ok) {
         const body = await response.json().catch(() => ({ error: response.statusText }));
         throw new Error(body.error ?? `request failed: ${response.status}`);
@@ -91,7 +94,10 @@ async function getJson<T>(path: string): Promise<T> {
 async function postJson<T>(path: string, payload: Record<string, unknown>): Promise<T> {
     const response = await fetch(`${GRAPH_MEMORY_URL}${path}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+            'Content-Type': 'application/json',
+            ...(GRAPH_MEMORY_TOKEN ? { Authorization: `Bearer ${GRAPH_MEMORY_TOKEN}` } : {}),
+        },
         body: JSON.stringify(payload),
     });
     if (!response.ok) {
@@ -108,6 +114,8 @@ async function postJson<T>(path: string, payload: Record<string, unknown>): Prom
 export const graphMemory = {
     // Read operations — store health & overview
     stats: () => getJson<GraphMemoryStats>('/api/stats'),
+    agentSummary: (agentId: string, limit = 8) =>
+        getJson<AgentMemorySummary>(`/api/agent/${encodeURIComponent(agentId)}/summary?limit=${limit}`),
     status: () => getJson<StoreStatus>('/api/status'),
     integrityLinks: (limit = 50) => getJson<IntegrityLinksStatus>(`/api/integrity-links?limit=${limit}`),
 

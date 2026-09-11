@@ -8,7 +8,7 @@
 
 ---
 
-> **Status of this document.** This is the explanatory, non-normative Markdown edition of the whitepaper, revised in light of reference implementations and recorded as a proposal for the next normative specification. It reflects two revision passes: **v3.1** reconciled the specification against the implementations that already exist in this ecosystem (`integrity-core`, `xibalba-cortex`, `xibalba-shield`), and **v3.2** incorporates the amendment register arising from adversarial technical review — liveness/DoS traps (§4.7), AIS oracle centrality (§3.1.5), forensic memory withholding (§3.2.5), micro-transaction gas friction (§7.5), the exfiltration surface (§9.5), and competing-paradigm skepticism (§1.5, §10.4). Every substantive change is flagged inline as `PROPOSED NORMATIVE CHANGE`; they are **proposed normative changes**, not active protocol requirements until accepted. The change register is in Appendix D, and the proposed amendment is `archive/2026-08/integrity-protocol-v0.5-proposed.md`.
+> **Status of this document.** This is the explanatory, non-normative Markdown edition of the whitepaper. It reflects two revision passes: **v3.1** reconciled the specification against the implementations that already exist in this ecosystem (`integrity-core`, `xibalba-cortex`, `xibalba-shield`), and **v3.2** incorporates the amendment register arising from adversarial technical review — liveness/DoS traps (§4.7), AIS oracle centrality (§3.1.5), forensic memory withholding (§3.2.5), micro-transaction gas friction (§7.5), the exfiltration surface (§9.5), and competing-paradigm skepticism (§1.5, §10.4). Inline `PROPOSED NORMATIVE CHANGE` labels record that historical review lineage; implementer authority now lives exclusively in `SPEC.md`, and the former v0.5 proposal is archived.
 >
 > Three v3.2 amendments were **implemented differently from the register**, each because transcribing them verbatim would have contradicted an existing section: ZK-telemetry is recorded as a research horizon rather than a roadmap phase (§3.1.5); the hybrid TEE configuration is framed as joint coverage of two attack surfaces rather than "complete mediation achieved" (§9.5); and grace modes operate strictly inside the bound floors AIS establishes (§4.7.2). Appendix D records each with its reasoning.
 >
@@ -18,7 +18,7 @@
 
 > **Important notice.** This document is published for technical and informational purposes. It is not an offer to sell, or a solicitation of an offer to buy, any security, token, or other instrument, and it is not investment, legal, accounting, or tax advice. Statements concerning future protocol capability, adoption, revenue, token supply dynamics, or market size are forward-looking and subject to substantial uncertainty; actual outcomes will differ. All economic figures in Section 8 are parametric illustrations computed from explicitly stated hypothetical inputs, not forecasts, projections, or promises of return. Digital assets carry risk of total loss. Protocol components described as planned or in development are not yet audited or deployed; see Section 9 for a candid enumeration of the threats this design does not eliminate.
 
-**Relationship to the normative specification.** This whitepaper explains the protocol's thesis, architecture, economics, and proposed direction. It is not the authority for implementers. The active normative baseline is `archive/2026-08/integrity-protocol-v0.4.md`; the v3.1 foundation and v3.2 amendments collected here are recorded as a `[PROPOSED]` amendment in `archive/2026-08/integrity-protocol-v0.5-proposed.md`. If the proposal is rejected or modified, this whitepaper must be revised to match the accepted specification. Implementation status must be established from source, tests, the interface contract, and the production-gap register rather than inferred from this paper.
+**Relationship to the normative specification.** This whitepaper explains the protocol's thesis, architecture, economics, and direction. It is not the authority for implementers. The active normative baseline is `SPEC.md` (v1.0.0-draft), as recorded by `DOCUMENT_STATUS.yaml`; v0.4 and v0.5-proposed are archived historical inputs. Implementation status must be established from source, tests, the interface contract, and the production-gap register rather than inferred from this paper.
 
 ---
 
@@ -50,7 +50,7 @@ If you read nothing else, read that sentence, Section 1, and Section 10.
 2. **We check the *outcome*, not the request.** Before a transaction commits, we compute what the account's state *would become*, and test it against rules the operator wrote in advance. Fail the test, and the transaction reverts — there's nothing to unwind, because nothing happened.
 3. **We do not claim the agent behaves well.** We claim its *damage is bounded*, even if the agent has been completely hijacked and the attacker holds its keys. That's a weaker promise than "safe AI," and it's the one that's actually achievable — and the one an underwriter needs.
 
-**How the sections layer.** Sections 1 and 10 are the argument. Sections 2–7 describe the proposed engineering architecture; accepted implementer requirements remain in v0.4 unless and until corresponding v0.5 clauses are reviewed and accepted. Sections 8–9 are economics and honest risk. Dense sections open with an *In plain terms* box; if the box is enough, skip to the next one.
+**How the sections layer.** Sections 1 and 10 are the argument. Sections 2–7 describe the engineering architecture; only matching clauses in `SPEC.md` are accepted implementer requirements. Sections 8–9 are economics and honest risk. Dense sections open with an *In plain terms* box; if the box is enough, skip to the next one.
 
 **A note on tone.** Where this paper says a thing is unproven, incomplete, or not yet built, that is deliberate rather than modest. A verification protocol that oversells itself is worse than none, and the same standard is applied to our own components throughout — including several places where our reference implementation failed its own spec and we say so.
 
@@ -1038,13 +1038,13 @@ A UserOperation is submitted to a bundler and routed through the singleton Entry
 
 | Component | Budget | Note |
 |---|---|---|
-| `preCheck` hook | ≤ 40k gas, $O(m)$ | no unbounded loops, no external calls to untrusted code, no storage writes in the gate path; constraints read from packed storage |
+| Core/cached `preCheck` profile | target ≤ 40k gas, $O(m)$ | direct hook call with adapter and tracked-token branches disabled; cached checks, no unbounded loops, no storage writes in the gate path |
 | Per-constraint $g_i$ | ≤ 6k gas | favours arithmetic and comparison predicates over signature or proof verification inside the gate |
-| Adapter transduction | off-chain, cached | determinism (R1) makes results memoisable and auditor-re-derivable |
+| Adapter-inclusive profile | separately declared and metered | live foreign reads are outside the 40k core target; each measured adapter profile must disclose enabled branches and cannot establish an arbitrary-adapter maximum |
 | Attestation | amortised per epoch | batched into a Merkle root; per-call proofs destroy the efficiency ratio $\rho$ for small transactions |
 | Added latency | < 1 block | all gate logic executes in the same transaction — no cross-transaction handshake, no off-chain callback in the critical path |
 
-**Table 4.** Cost and latency budget.
+**Table 4.** Cost and latency budget. The exact reference measurement boundary is normative only in `SPEC.md` §4.6. The current registry-enabled `ReputationFloorAdapter` cold profile historically measured 49,290 gas and is retained under a 44k–54k regression band; it does not meet the core target, and neither that band nor a self-declared stipend proves a system-wide gas ceiling or hostile-adapter safety.
 
 ### 7.4 What an integrator changes
 

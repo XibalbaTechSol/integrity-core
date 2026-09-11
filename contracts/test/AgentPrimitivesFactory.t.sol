@@ -101,22 +101,32 @@ contract AgentPrimitivesFactoryTest is Test {
         internal
         returns (address sovereignAgent, address stateAnchor)
     {
-        vm.startPrank(agentWallet);
-
+        vm.prank(agentWallet);
         SovereignAgent sa = new SovereignAgent(did, agentWallet, oracleSigner, address(0));
         sovereignAgent = address(sa);
 
+        vm.prank(agentWallet);
         StateAnchor anchor = new StateAnchor(sovereignAgent);
         stateAnchor = address(anchor);
 
-        // Step 3: route the ANCHOR_ROLE grant through the agent's own SovereignAgent,
-        // since StateAnchor's admin is that contract, not the raw EOA.
-        sa.execute(
-            stateAnchor, 0, abi.encodeCall(AccessControl.grantRole, (anchor.ANCHOR_ROLE(), oracleSigner))
-        );
+        _initializeAgent(sa, anchor, agentWallet, did);
 
+        vm.prank(agentWallet);
         factory.registerPrimitives(sovereignAgent, stateAnchor, did, domainId, vertical, "ipfs://profile");
-        vm.stopPrank();
+    }
+
+    function _initializeAgent(SovereignAgent sa, StateAnchor anchor, address controller, string memory did) internal {
+        bytes32 anchorRole = anchor.ANCHOR_ROLE();
+        uint256 registrationBond = factory.MIN_REGISTRATION_BOND();
+        vm.prank(controller);
+        sa.execute(address(anchor), 0, abi.encodeCall(AccessControl.grantRole, (anchorRole, oracleSigner)));
+        vm.prank(controller);
+        sa.execute(address(anchor), 0, abi.encodeCall(StateAnchor.anchorRoot, (keccak256(bytes(did)))));
+
+        vm.prank(protocolAdmin);
+        itk.transfer(address(sa), registrationBond);
+        vm.prank(controller);
+        sa.execute(address(itk), 0, abi.encodeWithSelector(itk.approve.selector, address(factory), registrationBond));
     }
 
     function test_fullRegistrationWiresAllSevenPrimitives() public {
@@ -215,12 +225,14 @@ contract AgentPrimitivesFactoryTest is Test {
         vm.startPrank(agentWallet);
         SovereignAgent sa2 = new SovereignAgent("did:integrity:dupe", agentWallet, oracleSigner, address(0));
         StateAnchor anchor2 = new StateAnchor(address(sa2));
+        vm.stopPrank();
+        _initializeAgent(sa2, anchor2, agentWallet, "did:integrity:dupe");
 
+        vm.prank(agentWallet);
         vm.expectRevert(XibalbaAgentRegistry.AlreadyRegistered.selector);
         factory.registerPrimitives(
             address(sa2), address(anchor2), "did:integrity:dupe", domainId, ComplianceGate.Vertical.None, ""
         );
-        vm.stopPrank();
     }
 
     /// @notice Two different agents registering must never collide on clone addresses
@@ -234,11 +246,12 @@ contract AgentPrimitivesFactoryTest is Test {
         vm.startPrank(agentTwoWallet);
         SovereignAgent sa2 = new SovereignAgent("did:integrity:agent-two", agentTwoWallet, oracleSigner, address(0));
         StateAnchor anchor2 = new StateAnchor(address(sa2));
-        sa2.execute(address(anchor2), 0, abi.encodeCall(AccessControl.grantRole, (anchor2.ANCHOR_ROLE(), oracleSigner)));
+        vm.stopPrank();
+        _initializeAgent(sa2, anchor2, agentTwoWallet, "did:integrity:agent-two");
+        vm.prank(agentTwoWallet);
         factory.registerPrimitives(
             address(sa2), address(anchor2), "did:integrity:agent-two", domainId, ComplianceGate.Vertical.None, ""
         );
-        vm.stopPrank();
 
         XibalbaAgentRegistry.AgentRecord memory r1 = registry.resolveAgent(agentOneSA);
         XibalbaAgentRegistry.AgentRecord memory r2 = registry.resolveAgent(address(sa2));

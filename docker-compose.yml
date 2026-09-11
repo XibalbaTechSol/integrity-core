@@ -78,6 +78,9 @@ services:
       # this — set it explicitly per deployment.
       PHI_BACKSTOP_MODE: ${PHI_BACKSTOP_MODE:-flag}
       KYC_PROVIDER_KEYS: ${KYC_PROVIDER_KEYS:-}
+      # Required in production. Keep unset only for explicitly local/dev VC issuance.
+      VC_ISSUER_SEED: ${VC_ISSUER_SEED:-}
+      AGENT_DIRECTORY_FINALIZED: ${AGENT_DIRECTORY_FINALIZED:-false}
     ports: ["8080:8080", "4317:4317"]
     volumes:
       - ./deployments.baseSepolia.json:/deployments.baseSepolia.json

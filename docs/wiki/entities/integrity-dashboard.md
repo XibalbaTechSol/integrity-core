@@ -1,8 +1,7 @@
 ---
 title: integrity-dashboard
 created: 2026-07-07
-updated: 2026-08-31
-updated: 2026-09-01
+updated: 2026-09-09
 type: entity
 tags: [infrastructure, sdk]
 confidence: high
@@ -18,7 +17,6 @@ source_files:
   - integrity-dashboard/src/components/shield/ShieldFleetOverview.tsx
   - integrity-dashboard/src/services/shieldBackend.ts
   - integrity-dashboard/src/pages/FinancialsPage.tsx
-  - integrity-dashboard/src/pages/CortexPage.tsx
   - integrity-dashboard/src/components/cortex/CortexOperationsTab.tsx
   - integrity-dashboard/src/pages/DeveloperPage.tsx
   - integrity-dashboard/src/pages/WikiPage.tsx
@@ -56,6 +54,7 @@ rule, the old content is replaced rather than patched.
 - [What this is](#what-this-is)
 - [Container packaging](#container-packaging)
 - [Routes](#routes)
+- [Agent 360 data boundary](#agent-360-data-boundary)
 - [Cortex Operations tab boundary](#cortex-operations-tab-boundary)
 - [2026-08-13 full-site Playwright audit](#2026-08-13-full-site-playwright-audit)
 - [Real bugs found and fixed this pass](#real-bugs-found-and-fixed-this-pass)
@@ -122,6 +121,22 @@ evidence, not evidence that a persistent or remote dashboard deployment was repl
 | `/memory` | compatibility redirect | Redirects to the canonical `/cortex` workspace so existing bookmarks remain valid |
 | `/developer` | `pages/DeveloperPage.tsx` | `oracle` + chain (IDE/contracts tab), `oracle` (Trace Analysis tab) |
 | `/settings` | `pages/SettingsPage.tsx` | `userapi` (API keys), `DashboardContext` (theme/layout), chain (`PrivacyPanel`) |
+
+## Agent 360 data boundary
+
+The dashboard's `/dashboard` overview joins the selected Oracle agent DID with
+real Shield and Cortex records. Shield uses the DID as its tenant key and
+returns devices, policy/decision counts, and enforcement posture through
+`services/shieldBackend.ts`. Cortex exposes
+`GET /api/agent/{agent_id}/summary`, backed by `sources.agent_id`, returning
+agent-attributed memory, embedding, session, provenance-source, and recent
+memory counts. The Agent 360 panel renders missing attribution as an explicit
+empty state; it does not infer ownership from global Cortex totals.
+
+Cortex runtime ingestion must emit the registered Oracle DID through
+`XIBALBA_AGENT_ID` and use `XIBALBA_CORTEX_IDENTITY_MODE=full` when the
+operator needs cross-system DID joins. Historical pseudonymous or legacy
+records remain unchanged and are not silently reassigned.
 
 **`/shield`** renders two explicit surfaces: `ShieldFleetOverview` is the default real-backend evidence view, reading dashboard summaries, detection quality, enforcement outcomes, exporter status, device state, integrations, and the 3D evidence graph through `services/shieldBackend.ts`; the `Live Attack Demo` tab is a separate synthetic/local demonstration of the Tier-2 escalation path. Backend data is not replaced by simulator data when the service is unavailable; the fleet view shows an unavailable or partial state. The local integration overlay exposes the backend on `:8765`, but healthy local responses remain development evidence and do not establish production sensor, Oracle, or live-chain proof.
 

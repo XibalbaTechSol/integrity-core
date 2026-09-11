@@ -17,10 +17,10 @@ a billable product surface. See §5, "Backbone contract," for what Core specific
 those two consumers.
 
 This document restructures the existing append-style gap register
-(`PRODUCTION_GAPS.md`, ~3855 lines, dated entries never silently rewritten) into a
+(`PRODUCTION_GAPS.md`, dated entries never silently rewritten) into a
 gate-format readiness plan, matching `xibalba-shield`'s
 `docs/PRODUCTION_READINESS_PLAN.md`. It summarizes that register's per-subsystem
-Closed/Partial/Open state as of its final entries (through §65, `bb8b121`) rather than
+Closed/Partial/Open state through the current §69 reconciliation rather than
 re-deriving findings from scratch. `PRODUCTION_GAPS.md` remains the detailed,
 line-item-cited source of record; this document is the gate-level index over it.
 
@@ -66,9 +66,11 @@ Exit requires all of the following:
 - Oracle production key-separation actually enforced (today `ANCHOR_SIGNER_PRIVATE_KEY`
   equals both the `oracleSigner` and `disputer` on-chain roles; a separate
   `REPUTATION_SIGNER_PRIVATE_KEY` seam exists but nothing forces its use).
-- The registry-enabled kernel `preCheck` gas gap closed or explicitly re-scoped (see
-  Workstream B) and Halmos coverage extended to the registry-*enabled* configuration —
-  currently zero symbolic coverage exists for it.
+- The registry-enabled kernel `preCheck` profile explicitly scoped under the
+  accepted specification. The 49,290-gas performance crossing remains real; the
+  readiness decision accepts a named exception rather than claiming the target was met.
+  Halmos coverage exists only for the benign reference adapter; hostile-adapter
+  reentrancy, identity/installability, and gas-reserve behavior remain open.
 - At least one of the two AIS scoring floor decisions (§ Workstream A) made
   non-blocking: the repo's own 2026-08-17 decision to wait for a second registered
   agent before picking component floors cannot hold indefinitely once a downstream
@@ -166,14 +168,14 @@ clamp pinned by 8 Foundry ladder tests; deployed-vs-source drift detection.
   than a stale-chain answer. Real e2e coverage exists
   (`integrity-oracle/backend/tests/e2e.rs`, `wrong_chain`/`legacy_null_chain` cases) but
   needs `ORACLE_E2E=1` and a live test database to execute, not run in this pass.
-- `covered_entity_address` spoofing: the Oracle trusts a client-supplied compliance
-  address with no on-chain ownership check.
+- Covered-entity spoofing is closed in source/local tests: the address is only a lookup
+  key for the exact live CoveredEntityRegistry/SmartBAA pair; deployed readback remains.
 - Single signer for oracle/disputer roles in the current deployment; a
   `REPUTATION_SIGNER_PRIVATE_KEY` separation seam exists but is not enforced.
 - Dispute signal remains a flagged-ratio heuristic, not a real BCC-commitment-vs-
   on-chain-action comparator, which doesn't exist yet.
-- ZK-boost binding is period-wide (`BOOL_OR` over the whole reporting window), not
-  per-event — needs a circuit/on-chain change.
+- Oracle ZK boost is proportional to proof-bearing event coverage, but public-input
+  binding and the on-chain period-wide boost still need a circuit/contract change.
 - Nonce race under load-balanced RPC (`nonce too low` recurring even after chain-id fix
   and process-wide lock) — leading hypothesis is stale RPC reads, unconfirmed.
 - In-memory `nonce_store`/circuit-breaker state blocks horizontal Oracle scale-out
@@ -193,9 +195,9 @@ containment and the reentrancy guard both hold unchanged with a real, registered
 passing `ReputationFloorAdapter` installed, and a new property proves the registry
 adapter's floor and the kernel's own cached floor are each independently, conjunctively
 enforced across the full symbolic score range (neither ever substitutes for the other).
-This closes the "zero Halmos coverage for registry-enabled" gap listed below, but does
-NOT close the separate registry-enabled gas-ceiling gap (still open, see below) — a
-Halmos property proves logical soundness, not gas cost.
+This closes the "zero Halmos coverage for registry-enabled" gap listed below. The
+separate measured gas crossing is explicitly scoped below; a Halmos property proves
+logical soundness, not gas cost.
 
 **Still open:**
 - **No deployment anywhere**, no independent/external audit, and no machine-checked
@@ -204,11 +206,18 @@ Halmos property proves logical soundness, not gas cost.
 - Multi-asset value conservation (declared ERC-20 budget) measures ~41k gas, over the
   whitepaper's Table 4 `<=40k` `preCheck` ceiling — disclosed, unmitigated; general
   value-conservation scope beyond one declared token is an open design question.
-- **Registry-enabled `preCheck` gas gap** (tracked separately in project memory,
-  independently re-verified from `PRODUCTION_GAPS.md` §54-55): mitigated from ~59.2k
-  gas to 49,290 gas (a real ~16.7% reduction, commit `d1e59eb`) — still **~9.3k gas
-  over** the `<=40k` ceiling. Closing the rest needs either a cheaper adapter body or a
-  rework of `AdapterRegistry`'s installability semantics.
+- **Registry-enabled `preCheck` performance crossing** — **readiness decision explicitly
+  scoped 2026-09-08; measured crossing remains.** The successful cold path for the selected
+  `ReputationFloorAdapter` historically measured 49,290 gas, ~9.3k above the whitepaper's
+  40k target. The accepted `docs/SPEC.md` §4.6 defines the exact core/cached measurement
+  profile and requires deliberately live foreign reads to be amortized or named separately.
+  This reference profile takes the latter path because generic caching could invalidate a
+  stateful adapter's safety semantics. The retained `(44k, 54k)` test range is current
+  adapter-specific regression evidence, not a protocol maximum or arbitrary-adapter bound.
+  See `PRODUCTION_GAPS.md` §69.
+- Adapter installability/identity enforcement, hostile-adapter behavior, and arbitrary-
+  adapter gas economics remain independent audit/readiness questions; this scoped
+  exception does not bless them or establish deployment readiness.
 - ~~**Halmos has zero coverage for the registry-enabled configuration**~~ — **closed
   2026-09-05**, see above.
 - A second, broader reentrancy exception remains: `approveKernelSwap`/guardian-action
@@ -241,11 +250,8 @@ wallet keystore atomic-write race; SDK-generated float-canonicalization ambiguit
   with **no runtime enforcement** preventing a misconfigured healthcare deployment from
   shipping unredacted data. A `health.py`-level guard is logged as a follow-up, not
   built.
-- General float-canonicalization (RFC 8785/JCS) remains a wire-contract change across 4
-  packages, out of scope for the narrower SDK-only fix — a caller-supplied arbitrary
-  float can still hit the ambiguity.
-- Non-ASCII canonical-JSON divergence between Rust (`serde_json`) and Python
-  (`ensure_ascii=True`) is documented and unfixed.
+- Cross-language float and non-ASCII canonicalization is closed in source via RFC 8785
+  JCS (`jcs` in Python and `serde_jcs` in Rust). Deployment adoption remains a release gate.
 - `register_agent()`'s `resolve_did` short-circuit can skip genesis memory anchoring
   entirely for an already-deployed agent, leaving it permanently oracle-unregistrable
   until manually anchored — reproduced live for one real agent, worked around manually,
@@ -312,11 +318,13 @@ coverage.
 restriction; allowlisted paymaster with per-op cost cap; six typed licence terms behind
 a fail-closed typed-consume route; licence-economy fee router with governance delay; the
 full reference stack deployed and verified on Base Sepolia with one real live `consume`
-transaction reconciled end-to-end. `AdapterRegistry` R3 (bounded cost) is real; R1
-(determinism) has a genuine off-chain differential-replay admission-suite tool; R5
-(Identity — published source + machine-readable semantics + version hash) closed via
-`publishIdentity()`, with the standard disclosed limitation that the registry cannot
-verify `metadataURI`'s content matches `specHash`.
+transaction reconciled end-to-end. `AdapterRegistry` requests the registered self-declared
+stipend for an adapter call, but without a protocol maximum and caller reserve this is not
+an end-to-end operation gas bound. R1 (determinism) has a genuine off-chain differential-
+replay admission-suite tool. `publishIdentity()` supplies the registry-side R5 publication
+signal, with the disclosed limitation that the registry cannot verify `metadataURI` content
+against `specHash`; each consumer must still pin and enforce that identity. `LicenceAccount`
+does so, while `IntegrityKernel` currently does not.
 
 **Still open:**
 - No live bundler/EntryPoint transaction and no funded paymaster sponsorship (deposit
@@ -330,6 +338,9 @@ verify `metadataURI`'s content matches `specHash`.
 - The general adapter-encoding-strategy question referenced in
   `docs/design/phase3-adapter-encoding-strategy-2026-08-25.md` remains open in that
   design doc, not resolved here.
+- `IntegrityKernel` does not pin adapter `specHash`, require `isInstallable()`, reject EOAs,
+  pin bytecode, enforce a maximum adapter stipend/caller reserve, or prove reentrancy safety
+  against a hostile adapter. The enabled Halmos suite uses a benign reference adapter only.
 
 ### G. Governance, dashboard, and documentation integrity
 
@@ -347,13 +358,10 @@ given an honest `SeededDataBadge`/disabled state.
   gap to close, but must stay correctly labeled as the dashboard evolves.
 - A GET-route naming trap remains undeferred: `GET /v1/agent/{id}/traces` returns
   judge-evaluation records, not spans — a wire-contract rename deferred, not fixed.
-- **Documentation pointer drift:** this repo's own top-of-file normative pointer
-  (`PRODUCTION_GAPS.md`) still names `docs/archive/2026-08/integrity-protocol-v0.4.md`
-  as the accepted baseline, while a later, narrower cutover already cites `docs/SPEC.md`
-  (via `docs/DOCUMENT_STATUS.yaml`) as the current normative source for at least Phase
-  III adapter-registry work. The top-level pointer was never updated to reflect this.
-  This document's own §3 invariant 8 states both facts; closing the drift means
-  updating `PRODUCTION_GAPS.md`'s own header, not just noting it here.
+- ~~**Documentation pointer drift**~~ — **closed 2026-09-05:**
+  `PRODUCTION_GAPS.md`, this plan, `docs/INTERFACE_CONTRACT.md`, and the canonical wiki
+  now point to `docs/SPEC.md` through `docs/DOCUMENT_STATUS.yaml`. A 2026-09-08 sync also
+  corrected the remaining stale authority language in the current whitepaper.
 
 ### H. Cross-runtime telemetry and dogfooding
 
@@ -447,11 +455,13 @@ and out of scope for an autonomous session to perform.
 
 ### Gate 4 — Kernel deployment readiness
 
-Pass when the registry-enabled `preCheck` gas gap is closed or explicitly re-scoped,
-Halmos coverage exists for the registry-enabled configuration (closed 2026-09-05, see
-Workstream B), and an independent security audit of `IntegrityKernel`/`IntegrityAccount`
-is scheduled or complete — promotion-in-name-only is not sufficient (§3 invariant 7).
-Remaining to pass: the gas gap and the audit.
+The registry-enabled `preCheck` measurement profile is explicitly scoped under
+`docs/SPEC.md` §4.6 as of 2026-09-08; the 49,290-gas performance crossing remains real.
+Halmos coverage exists for the registry-enabled benign-reference-adapter configuration
+(2026-09-05; see Workstream B), not for hostile adapter behavior. Gate 4 remains **blocked**
+until adapter identity/installability, maximum-stipend/caller-reserve, hostile-adapter
+reentrancy, and independent security-review requirements are resolved. There is still no
+production deployment or live inclusion evidence.
 
 ### Gate 5 — Evidence continuity
 
@@ -495,9 +505,11 @@ go stale about what "Shield's readiness" currently means.
    `docs/DOCUMENT_STATUS.yaml` (Gate 1).
 3. ~~Fix the chain-is-source-of-truth violation in the Oracle~~ — **closed 2026-09-05**
    (verified against live code, landed via PR #85 slightly earlier): see Workstream A.
-4. Registry-enabled Halmos coverage is closed; re-attempt the registry `preCheck` gas
-   mitigation (Workstream B) — needed before any kernel deployment can be responsibly
-   scheduled.
+4. **Registry `preCheck` performance crossing:** the readiness sequencing decision is
+   accepted by explicit scope, not by meeting 40k (2026-09-08). The selected reference-
+   adapter path historically measured 49,290 gas and is named outside the core target under
+   `docs/SPEC.md` §4.6. Identity/installability, gas-reserve, hostile-adapter, and independent
+   audit work remain before deployment.
 5. ~~Add a durable local export/spool queue and periodic partial-batch Merkle anchoring
    to `bcc_middleware`~~ — **closed 2026-09-05** (Workstream D / Gate 5).
 6. Schedule an independent security audit of the promoted kernel/account contracts

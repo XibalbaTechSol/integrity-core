@@ -24,6 +24,7 @@
 
 use std::path::Path;
 
+use alloy::eips::BlockNumberOrTag;
 use alloy::primitives::{keccak256, Address, B256, U256};
 use alloy::providers::{DynProvider, Provider, ProviderBuilder};
 use alloy::sol;
@@ -594,6 +595,23 @@ impl ChainClient {
     /// row is only trustworthy if it was resolved against this same chain.
     pub fn chain_id(&self) -> u64 {
         self.chain_id
+    }
+
+    pub async fn latest_block_number(&self) -> Result<u64, ChainError> {
+        self.provider.get_block_number().await.map_err(ChainError::Transport)
+    }
+
+    /// Return the execution client's canonical finalized head when the upstream
+    /// RPC exposes the `finalized` block tag.  This is best-effort metadata for
+    /// snapshot consumers; callers may still fail closed when the provider does
+    /// not support finalized tags.
+    pub async fn finalized_block(&self) -> Result<Option<(u64, B256)>, ChainError> {
+        let block = self
+            .provider
+            .get_block_by_number(BlockNumberOrTag::Finalized)
+            .await
+            .map_err(ChainError::Transport)?;
+        Ok(block.map(|value| (value.header.inner.number, value.hash())))
     }
 
     fn registry(&self) -> IXibalbaAgentRegistry::IXibalbaAgentRegistryInstance<DynProvider> {

@@ -110,11 +110,13 @@ async function collectPages() {
 }
 
 let commit = process.env.INTEGRITY_WIKI_COMMIT || 'local';
-let generatedAt = process.env.INTEGRITY_WIKI_UPDATED_AT || new Date(0).toISOString();
+// The projection timestamp describes when this generated artifact was produced,
+// not when the source repository's last commit happened. Dirty but deliberate
+// documentation changes must be visible in the dashboard immediately.
+let generatedAt = process.env.INTEGRITY_WIKI_UPDATED_AT || new Date().toISOString();
 try {
   const repositoryRoot = path.resolve(sourceRoot, '..', '..');
   commit = execFileSync('git', ['-C', repositoryRoot, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim();
-  generatedAt = execFileSync('git', ['-C', repositoryRoot, 'show', '-s', '--format=%cI', 'HEAD'], { encoding: 'utf8' }).trim();
 } catch { /* A downloaded wiki snapshot may not have git metadata. */ }
 
 const pages = await collectPages();

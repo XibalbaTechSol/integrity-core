@@ -68,9 +68,11 @@ async function adminPost<T>(path: string, payload: Record<string, unknown>, toke
 // ---------------------------------------------------------------------------
 
 export const shieldBackend = {
-    // Health check (no auth)
+    // Health check is protected by the backend admin token in local/dev deployments.
     health: () =>
-        fetch(`${SHIELD_BACKEND_URL}/api/shield/health`)
+        fetch(`${SHIELD_BACKEND_URL}/api/shield/health`, {
+            headers: { Authorization: `Bearer ${SHIELD_BACKEND_TOKEN}` },
+        })
             .then(r => r.json() as Promise<{ ok: boolean; service: string }>),
 
     // Admin read routes

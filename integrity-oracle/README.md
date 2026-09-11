@@ -29,8 +29,8 @@ AIS_final = min(AIS_raw, verification_tier_ceiling)
 
 Default weights `wE=0.30, wG=0.30, wS=0.20, wC=0.20` (validated to sum to 1.0,
 configurable via `AIS_WEIGHTS`). Each `S_*` is normalized to `[0, 1000]`;
-`ZK_boost = 1.15` when a real Barretenberg proof was verified in the reporting
-period. This is a weighted geometric mean. Tiers 0/1/2 cap the result at
+`ZK_boost = 1.0 + 0.15 * verified_event_ratio`, where the ratio counts only
+events carrying a Barretenberg proof the oracle verified. This is a weighted geometric mean. Tiers 0/1/2 cap the result at
 300/600/850; Tier 3 has no post-boost cap. See
 [`../docs/wiki/concepts/ais.md`](../docs/wiki/concepts/ais.md).
 

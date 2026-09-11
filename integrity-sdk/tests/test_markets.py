@@ -44,7 +44,19 @@ def _register_agent(deployed_chain, agent_id: str, agent_account) -> chain.Primi
     sovereign_agent = chain.deploy_sovereign_agent(w3, agent_account, did, oracle_signer, chain_id)
     state_anchor = chain.deploy_state_anchor(w3, agent_account, sovereign_agent, chain_id)
     chain.mint_testnet_itk(w3, funder, addr["IntegrityToken"], sovereign_agent, Web3.to_wei(10_000, "ether"), chain_id)
+    chain.set_execution_policy(w3, agent_account, sovereign_agent, addr["ConstraintExecutionPolicy"], chain_id)
     chain.grant_anchor_role(w3, agent_account, sovereign_agent, state_anchor, oracle_signer, chain_id)
+    chain.anchor_genesis_root(w3, agent_account, sovereign_agent, state_anchor, chain_id)
+    chain.set_anchor_policy(w3, agent_account, sovereign_agent, state_anchor, addr["AllowlistAnchorPolicy"], chain_id)
+    chain.approve_factory_bond(
+        w3,
+        agent_account,
+        sovereign_agent,
+        addr["IntegrityToken"],
+        addr["AgentPrimitivesFactory"],
+        Web3.to_wei(100, "ether"),
+        chain_id,
+    )
 
     return chain.register_primitives(
         w3, agent_account, addr["AgentPrimitivesFactory"], sovereign_agent, state_anchor, did, GENERAL_DOMAIN_ID, 0, "", chain_id

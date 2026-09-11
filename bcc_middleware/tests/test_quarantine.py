@@ -14,10 +14,18 @@ import respx
 from eth_account import Account
 
 from app.config import Settings
-from app.quarantine import QuarantineStatus, check_quarantine_status
+from app.quarantine import QuarantineStatus, check_quarantine_status, fail_closed_for_intent
 from tests.helpers import mock_oracle_agent_resolution, new_agent
 
 _ORACLE_URL = "http://oracle.test"
+
+
+def test_quarantine_unavailability_is_scoped_by_intent_class():
+    settings = Settings()
+
+    assert fail_closed_for_intent(settings, "claude_tool:Bash:chain_write")
+    assert fail_closed_for_intent(settings, "EMR_WRITE")
+    assert not fail_closed_for_intent(settings, "claude_tool:read_file")
 
 
 # --- unit-level: check_quarantine_status --------------------------------------

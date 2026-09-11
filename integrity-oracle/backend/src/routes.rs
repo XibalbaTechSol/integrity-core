@@ -17,6 +17,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/agent/register", post(handlers::register_agent))
         .route("/v1/agent/{id}", get(handlers::get_agent))
         .route("/v1/agents", get(handlers::list_agents))
+        .route("/v1/agents/snapshot", get(handlers::agent_directory_snapshot))
         .route("/v1/agent/{id}/ais", get(handlers::get_ais))
         .route(
             "/v1/agent/{id}/erc8004",
@@ -67,6 +68,9 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/audit/invocation/{invocation_id}", get(handlers::get_audit_invocation_join))
         .route("/v1/audit/intent/{intended_state_hash}", get(handlers::get_audit_intent_join))
         .route("/v1/audit/anchor", post(handlers::ingest_anchor_events))
+        .route("/v1/memory/profile", post(handlers::register_memory_profile))
+        .route("/v1/memory/anchor", get(handlers::get_memory_anchors).post(handlers::create_memory_anchor))
+        .route("/v1/shield/policy-token", post(handlers::create_shield_policy_token))
         .route("/v1/agent/{id}/provenance", get(handlers::get_provenance))
         .route("/v1/agent/{id}/stake", get(handlers::get_stake))
         .route("/v1/agent/{id}/credit", get(handlers::get_credit))

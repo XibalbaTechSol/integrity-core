@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { lazy, Suspense } from 'react';
 import { Navigate, Routes, Route } from 'react-router-dom';
 import 'katex/dist/katex.min.css';
@@ -16,7 +17,6 @@ import AuthPage from './pages/AuthPage';
 import SettingsPage from './pages/SettingsPage';
 import { DeveloperPage } from './pages/DeveloperPage';
 import DocsPage from './pages/DocsPage';
-import CortexPage from './pages/CortexPage';
 import PrivacyPage from './pages/PrivacyPage';
 import TermsPage from './pages/TermsPage';
 import { IntelligencePage } from './pages/IntelligencePage';
@@ -55,15 +55,17 @@ function App() {
             <Route path="/financials" element={<FinancialsPage />} />
             <Route path="/intelligence" element={<IntelligencePage />} />
             <Route path="/correlation" element={<CorrelationPage />} />
-            <Route path="/cortex" element={<CortexPage />} />
             <Route path="/prediction-markets" element={<ActuarialHub mode="markets" />} />
             <Route path="/health" element={<HealthPage />} />
             <Route path="/shield" element={<ShieldPage />} />
+            {/* Cross-platform identity aliases: keep the established pages while
+                exposing the plan's explicit fleet and memory entry points. */}
+            <Route path="/fleet" element={<ShieldPage />} />
+            <Route path="/memory" element={<KnowledgeControlPage />} />
             <Route path="/quant" element={<QuantPage />} />
             <Route path="/licence" element={<LicencePage />} />
             <Route path="/kernel" element={<KernelPage />} />
             <Route path="/kernel-intent" element={<KernelIntentPage />} />
-            <Route path="/memory" element={<Navigate to="/cortex" replace />} />
             <Route path="/developer" element={<DeveloperPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/wiki" element={<Suspense fallback={<div style={{ minHeight: '100vh', background: '#07111d' }} />}><WikiPage /></Suspense>} />

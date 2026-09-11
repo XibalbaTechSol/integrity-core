@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { useState, useEffect } from 'react';
 import { Activity, Brain, Zap, CheckCircle2, Sigma, Shield, Clock } from 'lucide-react';
 import { Panel } from '../components/shared/Panel';

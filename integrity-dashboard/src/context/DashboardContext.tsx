@@ -30,6 +30,7 @@ export interface Agent {
    *  address, resolve the real SovereignAgent via oracle.resolveSovereignAgent(id). */
   id: string;
   eth_address: string;
+  controller?: string | null;
   name?: string | null;
   alias?: string | null;
   verification_tier: number;
@@ -92,6 +93,7 @@ function agentFromSummary(s: AgentSummary): Agent {
   return {
     id: s.id,
     eth_address: s.id,
+    controller: s.controller ?? null,
     name: s.name ?? null,
     alias: s.handle ?? s.name ?? null,
     verification_tier: s.verification_tier,
@@ -208,6 +210,10 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setAgents(prev => prev.map(a => a.id === selectedAgent.id ? { ...a, current_ais: ais.ais, tee_verified: ais.zk_boost > 1 } : a));
       })
       .catch(() => { /* agent may not have telemetry yet — leave current_ais unset */ });
+    // A DID can be present in the off-chain directory before CORE has a
+    // controller/primitives binding. Do not poll an on-chain stake route for
+    // that state; the resulting 404 is expected, not a browser error.
+    if (!selectedAgent.controller) return () => { active = false; };
     oracle.getStake(selectedAgent.eth_address)
       .then(stake => {
         if (!active) return;
@@ -226,7 +232,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     let active = true;
     Promise.all([
       oracle.getLeaderboard().catch(() => []),
-      Promise.all(agents.map(a => oracle.getStake(a.eth_address).catch(() => null))),
+      Promise.all(agents.map(a => a.controller ? oracle.getStake(a.eth_address).catch(() => null) : Promise.resolve(null))),
     ]).then(([leaderboard, stakes]) => {
       if (!active) return;
       const scores = leaderboard.map(e => Number(e.effective_score)).filter(n => !Number.isNaN(n));

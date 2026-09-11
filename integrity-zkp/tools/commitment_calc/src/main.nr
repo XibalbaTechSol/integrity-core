@@ -45,6 +45,7 @@ fn main(
     nonce: pub Field,
     chain_id: pub Field,
     verifying_contract: pub Field,
+    bcc_leaf: pub Field,
 ) -> pub (Field, Field) {
     let agent_id_commitment = std::hash::pedersen_hash([DOMAIN_IDENTITY, secret_key]);
     let intent_commitment = std::hash::pedersen_hash([
@@ -54,13 +55,14 @@ fn main(
         nonce,
         chain_id,
         verifying_contract,
+        bcc_leaf,
     ]);
     (agent_id_commitment, intent_commitment)
 }
 
 #[test]
 fn test_matches_main_circuit_fixture() {
-    // Same secret_key/intent_payload_hash/nonce/chain_id/verifying_contract
+    // Same secret_key/intent_payload_hash/nonce/chain_id/verifying_contract/bcc_leaf
     // as integrity-zkp/Prover.toml's checked-in fixture. If this ever stops
     // matching the values recorded there, either this file's hash logic or
     // ../../src/main.nr's has drifted from the other.
@@ -69,9 +71,10 @@ fn test_matches_main_circuit_fixture() {
     let nonce = 7;
     let chain_id = 31337;
     let verifying_contract = 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707;
+    let bcc_leaf = 0x987654321;
 
     let (agent_id_commitment, intent_commitment) =
-        main(secret_key, intent_payload_hash, nonce, chain_id, verifying_contract);
+        main(secret_key, intent_payload_hash, nonce, chain_id, verifying_contract, bcc_leaf);
 
     assert(
         agent_id_commitment
@@ -79,6 +82,6 @@ fn test_matches_main_circuit_fixture() {
     );
     assert(
         intent_commitment
-            == 0x164a96b914cc827ea81f6b84b94e6753dfe88acf3255cfc91873550f3a58d88d,
+            == 0x25029857b35aa589cd0b89b6e0687aaec978080b2cb72cff29aefa7cb85ea69a,
     );
 }

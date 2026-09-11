@@ -34,6 +34,7 @@ contract StateAnchor is AccessControl {
 
     error EmptyRoot();
     error PolicyDenied();
+    error GenesisRequiresAdmin();
 
     constructor(address admin) {
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
@@ -50,6 +51,7 @@ contract StateAnchor is AccessControl {
     /// recomputes the Trust Vault.
     function anchorRoot(bytes32 root) external onlyRole(ANCHOR_ROLE) returns (uint256 epoch) {
         if (root == bytes32(0)) revert EmptyRoot();
+        if (latestEpoch == 0 && !hasRole(DEFAULT_ADMIN_ROLE, msg.sender)) revert GenesisRequiresAdmin();
         if (address(anchorPolicy) != address(0)) {
             if (!anchorPolicy.check(msg.sender, root, latestEpoch + 1)) revert PolicyDenied();
         }

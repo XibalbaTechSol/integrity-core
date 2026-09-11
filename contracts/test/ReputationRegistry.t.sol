@@ -26,6 +26,8 @@ contract ReputationRegistryTest is Test {
     bytes32 sibling;
     bytes32 root;
     bytes32[] proof;
+    bytes32 identityCommitment = bytes32(uint256(0x1234));
+    uint256 constant BN254_SCALAR_FIELD = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
 
     function _hashPair(bytes32 a, bytes32 b) internal pure returns (bytes32) {
         return a < b ? keccak256(abi.encodePacked(a, b)) : keccak256(abi.encodePacked(b, a));
@@ -44,6 +46,8 @@ contract ReputationRegistryTest is Test {
         // about ReputationRegistry's own logic — the real distinction between the two is
         // exercised in AgentPrimitivesFactory.t.sol.
         registry.initialize(admin, admin, mockVerifier, address(anchor));
+        vm.prank(admin);
+        registry.setZkIdentityCommitment(identityCommitment);
 
         leaf = keccak256(abi.encodePacked("agent-report:", agent));
         sibling = keccak256(abi.encodePacked("sibling-leaf"));
@@ -54,6 +58,16 @@ contract ReputationRegistryTest is Test {
 
         vm.prank(admin);
         anchor.anchorRoot(root);
+    }
+
+    function _publicInputs(bytes32 forLeaf, uint256 nonce) internal view returns (bytes32[] memory inputs) {
+        inputs = new bytes32[](6);
+        inputs[0] = identityCommitment;
+        inputs[1] = bytes32(nonce);
+        inputs[2] = bytes32(uint256(0x5678));
+        inputs[3] = bytes32(block.chainid);
+        inputs[4] = bytes32(uint256(uint160(address(registry))));
+        inputs[5] = bytes32(uint256(forLeaf) % BN254_SCALAR_FIELD);
     }
 
     function test_oracleUpdatesBaseScore() public {
@@ -73,14 +87,12 @@ contract ReputationRegistryTest is Test {
 
     function test_submitZkAttestation_appliesBoost() public {
         vm.prank(admin);
-        registry.updateScore(agent, 1000);
+        registry.updateScoreWithCoverage(agent, 1000, 10_000);
 
-        vm.mockCall(
-            mockVerifier, abi.encodeWithSelector(IZkVerifier.verify.selector), abi.encode(true)
-        );
+        vm.mockCall(mockVerifier, abi.encodeWithSelector(IZkVerifier.verify.selector), abi.encode(true));
 
         vm.prank(agent);
-        registry.submitZkAttestation(agent, hex"1234", new bytes32[](0), root, leaf, proof);
+        registry.submitZkAttestation(agent, hex"1234", _publicInputs(leaf, 1), root, leaf, proof);
 
         (uint256 base, uint256 effective, bool boosted,) = registry.getAgent(agent);
         assertEq(base, 1000);
@@ -90,11 +102,11 @@ contract ReputationRegistryTest is Test {
 
     function test_boostExpiresAfterReportingPeriod() public {
         vm.prank(admin);
-        registry.updateScore(agent, 1000);
+        registry.updateScoreWithCoverage(agent, 1000, 10_000);
 
         vm.mockCall(mockVerifier, abi.encodeWithSelector(IZkVerifier.verify.selector), abi.encode(true));
         vm.prank(agent);
-        registry.submitZkAttestation(agent, hex"1234", new bytes32[](0), root, leaf, proof);
+        registry.submitZkAttestation(agent, hex"1234", _publicInputs(leaf, 1), root, leaf, proof);
 
         assertEq(registry.effectiveScore(agent), 1150);
 
@@ -103,13 +115,32 @@ contract ReputationRegistryTest is Test {
         assertFalse(registry.isZkBoosted(agent));
     }
 
+    function test_eventCoverageScalesBoostAndDoesNotGrantFullPeriodMultiplier() public {
+        vm.prank(admin);
+        registry.updateScoreWithCoverage(agent, 1000, 5_000);
+
+        vm.mockCall(mockVerifier, abi.encodeWithSelector(IZkVerifier.verify.selector), abi.encode(true));
+        vm.prank(agent);
+        registry.submitZkAttestation(agent, hex"1234", _publicInputs(leaf, 1), root, leaf, proof);
+
+        assertEq(registry.zkVerifiedEventRatioBps(agent), 5_000);
+        assertEq(registry.effectiveScore(agent), 1075);
+        assertTrue(registry.isZkBoosted(agent));
+    }
+
+    function test_eventCoverageRejectsOutOfRangeRatio() public {
+        vm.prank(admin);
+        vm.expectRevert(ReputationRegistry.InvalidEventCoverage.selector);
+        registry.updateScoreWithCoverage(agent, 1000, 10_001);
+    }
+
     function test_onlyAgentCanSubmitOwnProof() public {
         vm.mockCall(mockVerifier, abi.encodeWithSelector(IZkVerifier.verify.selector), abi.encode(true));
 
         address impersonator = makeAddr("impersonator");
         vm.prank(impersonator);
         vm.expectRevert(ReputationRegistry.OnlyAgentCanSubmitOwnProof.selector);
-        registry.submitZkAttestation(agent, hex"1234", new bytes32[](0), root, leaf, proof);
+        registry.submitZkAttestation(agent, hex"1234", _publicInputs(leaf, 1), root, leaf, proof);
     }
 
     function test_attestationFailsIfLeafNotAnchored() public {
@@ -118,7 +149,7 @@ contract ReputationRegistryTest is Test {
         bytes32 unanchoredLeaf = keccak256("never-anchored");
         vm.prank(agent);
         vm.expectRevert(ReputationRegistry.LeafNotAnchored.selector);
-        registry.submitZkAttestation(agent, hex"1234", new bytes32[](0), root, unanchoredLeaf, proof);
+        registry.submitZkAttestation(agent, hex"1234", _publicInputs(unanchoredLeaf, 1), root, unanchoredLeaf, proof);
     }
 
     function test_attestationFailsIfVerifierRejects() public {
@@ -126,10 +157,96 @@ contract ReputationRegistryTest is Test {
 
         vm.prank(agent);
         vm.expectRevert(ReputationRegistry.InvalidProof.selector);
-        registry.submitZkAttestation(agent, hex"1234", new bytes32[](0), root, leaf, proof);
+        registry.submitZkAttestation(agent, hex"1234", _publicInputs(leaf, 1), root, leaf, proof);
     }
 
+    function test_attestationRejectsProofForDifferentLeafBeforeVerifier() public {
+        bytes32 otherLeaf = keccak256("different-event");
+        vm.prank(agent);
+        vm.expectRevert(ReputationRegistry.PublicInputMismatch.selector);
+        registry.submitZkAttestation(agent, hex"1234", _publicInputs(otherLeaf, 1), root, leaf, proof);
+    }
 
+    function test_attestationRejectsWrongChain() public {
+        bytes32[] memory inputs = _publicInputs(leaf, 1);
+        inputs[3] = bytes32(block.chainid + 1);
+        vm.prank(agent);
+        vm.expectRevert(ReputationRegistry.PublicInputMismatch.selector);
+        registry.submitZkAttestation(agent, hex"1234", inputs, root, leaf, proof);
+    }
+
+    function test_attestationRejectsWrongRegistry() public {
+        bytes32[] memory inputs = _publicInputs(leaf, 1);
+        inputs[4] = bytes32(uint256(uint160(address(0xDEAD))));
+        vm.prank(agent);
+        vm.expectRevert(ReputationRegistry.PublicInputMismatch.selector);
+        registry.submitZkAttestation(agent, hex"1234", inputs, root, leaf, proof);
+    }
+
+    function test_attestationLeafCannotBeReused() public {
+        vm.mockCall(mockVerifier, abi.encodeWithSelector(IZkVerifier.verify.selector), abi.encode(true));
+        vm.startPrank(agent);
+        registry.submitZkAttestation(agent, hex"1234", _publicInputs(leaf, 1), root, leaf, proof);
+        vm.expectRevert(ReputationRegistry.AttestationLeafAlreadyUsed.selector);
+        registry.submitZkAttestation(agent, hex"1234", _publicInputs(leaf, 2), root, leaf, proof);
+        vm.stopPrank();
+    }
+
+    function test_attestationNonceMustIncrease() public {
+        vm.mockCall(mockVerifier, abi.encodeWithSelector(IZkVerifier.verify.selector), abi.encode(true));
+        vm.prank(agent);
+        registry.submitZkAttestation(agent, hex"1234", _publicInputs(leaf, 2), root, leaf, proof);
+
+        bytes32 leaf2 = keccak256("second-event");
+        bytes32 root2 = _hashPair(leaf2, sibling);
+        vm.prank(admin);
+        anchor.anchorRoot(root2);
+
+        vm.prank(agent);
+        vm.expectRevert(ReputationRegistry.ZkNonceNotIncreasing.selector);
+        registry.submitZkAttestation(agent, hex"1234", _publicInputs(leaf2, 1), root2, leaf2, proof);
+    }
+
+    function test_attestationRequiresConfiguredIdentity() public {
+        ReputationRegistry impl = new ReputationRegistry();
+        ReputationRegistry unconfigured = ReputationRegistry(Clones.clone(address(impl)));
+        unconfigured.initialize(admin, admin, mockVerifier, address(anchor));
+
+        bytes32[] memory inputs = _publicInputs(leaf, 1);
+        inputs[4] = bytes32(uint256(uint160(address(unconfigured))));
+        vm.prank(agent);
+        vm.expectRevert(ReputationRegistry.ZkIdentityNotConfigured.selector);
+        unconfigured.submitZkAttestation(agent, hex"1234", inputs, root, leaf, proof);
+    }
+
+    function test_attestationRejectsWrongIdentity() public {
+        bytes32[] memory inputs = _publicInputs(leaf, 1);
+        inputs[0] = bytes32(uint256(0xDEAD));
+        vm.prank(agent);
+        vm.expectRevert(ReputationRegistry.PublicInputMismatch.selector);
+        registry.submitZkAttestation(agent, hex"1234", inputs, root, leaf, proof);
+    }
+
+    function test_attestationRejectsWrongPublicInputCount() public {
+        bytes32[] memory inputs = new bytes32[](5);
+        vm.prank(agent);
+        vm.expectRevert(ReputationRegistry.InvalidPublicInputCount.selector);
+        registry.submitZkAttestation(agent, hex"1234", inputs, root, leaf, proof);
+    }
+
+    function test_identityCommitmentCanOnlyBeSetOnceAndMustBeNonzero() public {
+        ReputationRegistry impl = new ReputationRegistry();
+        ReputationRegistry fresh = ReputationRegistry(Clones.clone(address(impl)));
+        fresh.initialize(admin, admin, mockVerifier, address(anchor));
+
+        vm.startPrank(admin);
+        vm.expectRevert(ReputationRegistry.InvalidZkIdentityCommitment.selector);
+        fresh.setZkIdentityCommitment(bytes32(0));
+        fresh.setZkIdentityCommitment(identityCommitment);
+        vm.expectRevert(ReputationRegistry.ZkIdentityAlreadyConfigured.selector);
+        fresh.setZkIdentityCommitment(bytes32(uint256(0x5678)));
+        vm.stopPrank();
+    }
 
     function test_bridgeRoleCanUpdateScore() public {
         address bridge = makeAddr("bridge");

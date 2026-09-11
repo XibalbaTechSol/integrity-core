@@ -2,7 +2,7 @@
 title: Agent Integrity Score (AIS)
 acronyms: [AIS]
 created: 2026-07-07
-updated: 2026-08-17
+updated: 2026-09-08
 type: concept
 tags: [metrics]
 confidence: high
@@ -18,14 +18,14 @@ The composite trust score for an agent, computed by [Integrity Oracle](../entiti
 `AIS = (S_entropy^wE * S_grounding^wG * S_sacrifice^wS * S_compliance^wC) * ZK_boost`
 
 Default weights (sum to 1.0): `wE=0.30, wG=0.30, wS=0.20, wC=0.20`.
-`ZK_boost = 1.15` when a real Barretenberg proof (see [ZKP](zkp.md)) was
-verified for the reporting period, else `1.0`.
+`ZK_boost = 1.0 + 0.15 * verified_event_ratio`, where the ratio counts events
+carrying a real Barretenberg proof (see [ZKP](zkp.md)) verified by the oracle.
 
 This formula is computed in exactly one place (`integrity-oracle/scoring-core`)
 — other packages read the final, tier-capped result via the oracle's
 `GET /v1/agent/{id}/ais` endpoint rather than recomputing it. The on-chain sync
 removes only the response's reported ZK multiplier before calling
-`ReputationRegistry.updateScore`; it does not reconstruct the mean from
+`ReputationRegistry.updateScoreWithCoverage`; it does not reconstruct the mean from
 `components`/`weights`. See
 [Interface Contract §4.3](../../INTERFACE_CONTRACT.md#43-agent-integrity-score-ais)
 for the canonical definition. The four component *inputs* the SDK derives
@@ -37,6 +37,7 @@ term, weights not summing to 1.0) that never matched this one.
 ## Table of contents
 
 - [Where the four inputs actually come from (trust model)](#where-the-four-inputs-actually-come-from-trust-model)
+- [Constraint score and component floors](#constraint-score-and-component-floors)
 
 ## Where the four inputs actually come from (trust model)
 
@@ -55,7 +56,7 @@ flowchart LR
     Agent["Agent (SDK/CLI)"] -->|"signed POST /v1/telemetry/ingest<br/>(otel_spans + derived_signals)"| Oracle["integrity-oracle"]
     Oracle -->|"re-derive from otel_spans<br/>(same posture as the PHI backstop)"| Recompute["entropy / grounding / sacrifice /<br/>compliance (oracle-recomputed;<br/>some source evidence remains<br/>self-asserted or proxy-derived)"]
     Recompute --> Formula["AIS = Π(S^w) · ZK_boost<br/>(scoring-core, geometric volume model)"]
-    ZK["Real Barretenberg ZK proof<br/>(bb verify)"] -.->|"1.15× if verified<br/>this period"| Formula
+    ZK["Real Barretenberg ZK proof<br/>(bb verify)"] -.->|"up to 1.15× by<br/>verified-event ratio"| Formula
     Formula --> API["GET /v1/agent/{id}/ais<br/>+ live SSE push (/v1/stream)"]
 ```
 
@@ -65,22 +66,27 @@ low recomputation stored and scored — see
 `oracle_e2e_recomputed_grounding_overrides_inflated_client_claim` in
 `integrity-oracle/backend/tests/e2e.rs`.
 
-**Still open** (see `PRODUCTION_GAPS.md` §1a for the full list): the ZK boost is a
-period-wide boolean, not bound to a specific event's claim; TEE/Tier-3 attestation
+**Still open** (see `PRODUCTION_GAPS.md` §1a for the full list): the oracle scales the
+boost by proof-bearing event coverage. The source on-chain registry now receives the
+same coverage ratio through its oracle-only score-sync path and applies a proportional
+boost after exact event-bound proof validation; TEE/Tier-3 attestation
 verification is real but unwired. The oracle-to-chain score push that used to be missing
 here now exists — `bcc_middleware`'s `app/reputation.py`/`scoring_loop.py` periodically
-pushes each agent's recomputed AIS to `ReputationRegistry.updateScore` and raises
+pushes each agent's recomputed AIS to `ReputationRegistry.updateScoreWithCoverage` and raises
 `Slasher.raiseDispute` on a flagged-telemetry threshold (see `PRODUCTION_GAPS.md` §1 and
 `docs/INTERFACE_CONTRACT.md` §7a) — this AIS trust hardening now has a live economic
 consumer.
 
-Whitepaper v3.2 proposes additional safeguards that are **not yet accepted or
-fully implemented**: independent admissibility for compliance and sacrifice
-evidence, non-compensable component floors, a conjunctive gate, and a separate
-pre-boost normalized accessor for constraint use. Current server-side
-recomputation reduces client tampering but does not make self-asserted span
-content independently true. See the proposed clauses in
-[`integrity-protocol-v0.5-proposed.md`](../../archive/2026-08/integrity-protocol-v0.5-proposed.md).
+## Constraint score and component floors
+
+`AisBreakdown.constraint_score` is now built as the tier-capped, normalized
+pre-boost geometric mean in `[0,1]`. It deliberately excludes `ZK_boost`, so a
+constraint consumer cannot treat the same proof as both evidence and a score
+multiplier. Configurable component floors and the conjunctive floor result are
+also implemented in `AisEngine`, but only as shadow/observational output. No path
+currently uses that result to gate score pushes, disputes, or execution. These
+mechanisms do not make self-asserted span content independently admissible, and
+they do not establish a production deployment.
 
 `AIS_final = min(S_calculated, Tier_ceiling)` — an identity-verification
 ceiling clamp — is **`[BUILT]`** and enforced in `integrity-oracle/scoring-core`

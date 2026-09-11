@@ -70,6 +70,7 @@ _VERTICALS = {
 
 _DEFAULT_AGENT_FUND_WEI = Web3.to_wei(0.01, "ether")
 _DEFAULT_TESTNET_ITK_ALLOCATION_WEI = Web3.to_wei(10_000, "ether")
+_TESTNET_CHAIN_IDS = {31337, 84532}  # Anvil and Base Sepolia only
 
 
 class RegistrationError(RuntimeError):
@@ -116,6 +117,23 @@ def _personal_domain_name(agent_id: Optional[str]) -> str:
     return f"{agent_id or 'default'}.integrity"
 
 
+def _check_testnet_convenience(chain_id: int, fund_amount_wei: int, itk_amount_wei: int) -> None:
+    """Fail closed before funding or minting outside an explicitly allowed testnet."""
+    if fund_amount_wei <= 0 and itk_amount_wei <= 0:
+        return
+    if chain_id not in _TESTNET_CHAIN_IDS:
+        raise RegistrationError(
+            "automatic ETH funding and ITK minting are testnet conveniences and are disabled "
+            f"on chain {chain_id}; pre-fund the agent wallet and pass fund_amount_wei=0 and "
+            "testnet_itk_allocation_wei=0"
+        )
+    if chain_id == 84532 and os.getenv("ALLOW_TESTNET_CONVENIENCE", "").lower() not in {"1", "true", "yes"}:
+        raise RegistrationError(
+            "Base Sepolia testnet convenience is disabled by default; set "
+            "ALLOW_TESTNET_CONVENIENCE=true explicitly to allow automatic ETH funding/ITK minting"
+        )
+
+
 def preflight_register_agent(
     agent_id: Optional[str] = None,
     *,
@@ -124,6 +142,7 @@ def preflight_register_agent(
     deployments_file: Optional[str] = None,
     oracle_url: Optional[str] = None,
     fund_amount_wei: int = _DEFAULT_AGENT_FUND_WEI,
+    testnet_itk_allocation_wei: int = _DEFAULT_TESTNET_ITK_ALLOCATION_WEI,
     skip_oracle_check: bool = False,
 ) -> PreflightResult:
     """
@@ -159,6 +178,13 @@ def preflight_register_agent(
         return PreflightResult(checks)
 
     try:
+        chain_id = w3.eth.chain_id
+        _check_testnet_convenience(chain_id, fund_amount_wei, testnet_itk_allocation_wei)
+        checks.append(PreflightCheck("testnet_convenience_scope", True, f"chain {chain_id} is allowed"))
+    except RegistrationError as exc:
+        checks.append(PreflightCheck("testnet_convenience_scope", False, str(exc)))
+
+    try:
         deployments = chain.load_deployments(deployments_file)
         factory_address = deployments["singletons"]["AgentPrimitivesFactory"]
         registry_address = deployments["singletons"]["XibalbaAgentRegistry"]
@@ -185,7 +211,9 @@ def preflight_register_agent(
     # (see chain.fund_agent_wallet's docstring), so it's the one gas cost this
     # preflight can actually price ahead of time.
     funder_key = os.getenv("FUNDER_PRIVATE_KEY")
-    if not funder_key:
+    if fund_amount_wei <= 0 and testnet_itk_allocation_wei <= 0:
+        checks.append(PreflightCheck("funder_key_set", True, "automatic testnet funding and minting disabled"))
+    elif not funder_key:
         checks.append(PreflightCheck("funder_key_set", False, "FUNDER_PRIVATE_KEY is not set"))
     else:
         from eth_account import Account
@@ -366,6 +394,7 @@ def register_agent(
     if not w3.is_connected():
         raise RegistrationError(f"RPC {rpc_url} is unreachable — cannot register an agent")
     chain_id = w3.eth.chain_id
+    _check_testnet_convenience(chain_id, fund_amount_wei, testnet_itk_allocation_wei)
 
     deployments = chain.load_deployments(deployments_file)
     factory_address = deployments["singletons"]["AgentPrimitivesFactory"]
@@ -373,14 +402,15 @@ def register_agent(
     registry_address = deployments["singletons"]["XibalbaAgentRegistry"]
     domain_registry_address = deployments["singletons"]["DomainRegistry"]
     oracle_signer = deployments["protocolAddresses"]["oracleSigner"]
-    funder_key = os.getenv("FUNDER_PRIVATE_KEY")
-    if not funder_key:
-        raise RegistrationError("FUNDER_PRIVATE_KEY is not set — required to fund the agent's new wallet")
-
+    anchor_policy_address = deployments["singletons"].get("AllowlistAnchorPolicy")
+    execution_policy_address = deployments["singletons"].get("ConstraintExecutionPolicy")
     from eth_account import Account
     from eth_utils import keccak
 
-    funder = Account.from_key(funder_key)
+    funder_key = os.getenv("FUNDER_PRIVATE_KEY")
+    if (fund_amount_wei > 0 or testnet_itk_allocation_wei > 0) and not funder_key:
+        raise RegistrationError("FUNDER_PRIVATE_KEY is not set — required for enabled testnet convenience")
+    funder = Account.from_key(funder_key) if funder_key else None
 
     # Steps 1-3: DID + EVM wallet + CAIP-10 binding.
     agent_did, keypair, doc = did.load_or_create_did(agent_id)
@@ -482,7 +512,11 @@ def register_agent(
     # through its own contract (see step 5's comment for why ITK, unlike
     # ETH, goes to the contract instead).
     try:
-        chain.fund_agent_wallet(w3, funder, evm_account.address, fund_amount_wei, chain_id)
+        if fund_amount_wei > 0:
+            assert funder is not None
+            chain.fund_agent_wallet(w3, funder, evm_account.address, fund_amount_wei, chain_id)
+        else:
+            logger.info("step 4: automatic agent-wallet funding disabled; wallet must already be funded")
     except Exception as exc:  # noqa: BLE001 — re-raised with step context below
         raise RegistrationError(f"step 4 (fund_agent_wallet) failed: {exc}") from exc
 
@@ -548,6 +582,13 @@ def register_agent(
             ) from exc
         _save_deploy_progress(agent_id, sovereign_agent=sovereign_agent, state_anchor=state_anchor)
 
+    if execution_policy_address:
+        logger.info("step 6b: setting execution policy to %s", execution_policy_address)
+        try:
+            chain.set_execution_policy(w3, evm_account, sovereign_agent, execution_policy_address, chain_id)
+        except Exception as exc:  # noqa: BLE001
+            raise RegistrationError(f"step 6b (set_execution_policy) failed: {exc}") from exc
+
     # Step 7: testnet ITK allocation, minted to the SovereignAgent CONTRACT
     # address (not the wallet). Every AIS-gated application contract
     # (IntegrityMarket.enterPosition, A2ACapitalPool via markets.py) checks
@@ -611,6 +652,7 @@ def register_agent(
                 )
 
         if not minted_from_treasury:
+            assert funder is not None
             try:
                 chain.mint_testnet_itk(w3, funder, itk_address, sovereign_agent, testnet_itk_allocation_wei, chain_id)
             except Exception as exc:  # noqa: BLE001
@@ -657,6 +699,42 @@ def register_agent(
                 f"StateAnchor {state_anchor} exist on-chain but the agent has no genesis memory "
                 f"root, so the oracle will reject it with MemoryNotInitialized: {exc}"
             ) from exc
+
+    # Step 8c: pin the default anchor policy only after genesis. The genesis call is
+    # routed through SovereignAgent (the StateAnchor admin), while the shared production
+    # policy intentionally allowlists the oracle signer for subsequent epochs. Installing
+    # that policy before genesis would deny the SovereignAgent and deadlock registration.
+    if anchor_policy_address:
+        logger.info("step 8c: setting anchor policy to %s", anchor_policy_address)
+        try:
+            chain.set_anchor_policy(w3, evm_account, sovereign_agent, state_anchor, anchor_policy_address, chain_id)
+        except Exception as exc:  # noqa: BLE001
+            raise RegistrationError(f"step 8c (set_anchor_policy) failed: {exc}") from exc
+
+    # Step 8d: approve AgentPrimitivesFactory to pull the registration bond (100 ITK).
+    # The testnet ITK was minted to SovereignAgent in Step 7, so we must route the
+    # approve() call through SovereignAgent.execute.
+    # We check allowance first to be idempotent.
+    itk_contract = w3.eth.contract(
+        address=w3.to_checksum_address(itk_address),
+        abi=[{"constant": True, "inputs": [{"name": "_owner", "type": "address"}, {"name": "_spender", "type": "address"}], "name": "allowance", "outputs": [{"name": "", "type": "uint256"}], "payable": False, "stateMutability": "view", "type": "function"}],
+    )
+    allowance = itk_contract.functions.allowance(
+        w3.to_checksum_address(sovereign_agent),
+        w3.to_checksum_address(factory_address)
+    ).call()
+
+    min_bond = 100 * 10**18
+    if allowance < min_bond:
+        logger.info("step 8d: approving AgentPrimitivesFactory to pull %s ITK registration bond", min_bond)
+        try:
+            chain.approve_factory_bond(
+                w3, evm_account, sovereign_agent, itk_address, factory_address, min_bond, chain_id
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise RegistrationError(f"step 8d (approve_factory_bond) failed: {exc}") from exc
+    else:
+        logger.info("step 8d: AgentPrimitivesFactory already has sufficient ITK allowance -- skipping")
 
     # Step 9: clone + register the remaining 5. domain_id was already computed above,
     # in the precondition-check block that ran before any gas was spent.

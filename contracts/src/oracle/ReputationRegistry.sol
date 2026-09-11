@@ -33,6 +33,9 @@ contract ReputationRegistry is Initializable, AccessControlUpgradeable {
     /// arithmetic doesn't need a fixed-point library for a single constant multiplier.
     uint256 public constant ZK_BOOST_BPS = 11_500;
     uint256 public constant BPS_DENOMINATOR = 10_000;
+    uint256 public constant BN254_SCALAR_FIELD =
+        21888242871839275222246405745257275088548364400416034343698204186575808495617;
+    uint256 public constant ZK_PUBLIC_INPUT_COUNT = 6;
 
     /// @notice How long a verified ZK proof's boost remains valid before it must be
     /// re-submitted. Mirrors "for the reporting period" in §4.3 — a proof verified once
@@ -52,12 +55,22 @@ contract ReputationRegistry is Initializable, AccessControlUpgradeable {
     }
 
     mapping(address => AgentScore) public scores;
+    mapping(bytes32 => bool) public usedAttestationLeaves;
+    mapping(address => uint256) public lastZkNonce;
+    /// @dev Oracle-authoritative fraction of reporting-window events with a verified proof,
+    /// in basis points. It is explicitly configured by updateScoreWithCoverage; leaving it
+    /// unset preserves the legacy read shape for already-deployed callers.
+    mapping(address => uint256) public zkVerifiedEventRatioBps;
+    mapping(address => bool) public coverageConfigured;
 
     IZkVerifier public zkVerifier;
     StateAnchor public stateAnchor;
+    bytes32 public zkIdentityCommitment;
 
     event ScoreUpdated(address indexed agent, uint256 oldBaseScore, uint256 newBaseScore, address indexed updatedBy);
     event ZkAttestationVerified(address indexed agent, bytes32 indexed leaf, uint256 boostExpiry);
+    event ZkIdentityCommitmentSet(bytes32 indexed commitment);
+    event ZkEventCoverageUpdated(address indexed agent, uint256 verifiedEventRatioBps);
     event ZkConfigUpdated(address indexed verifier, address indexed anchor);
     event ReportingPeriodUpdated(uint256 newPeriod);
 
@@ -65,6 +78,14 @@ contract ReputationRegistry is Initializable, AccessControlUpgradeable {
     error InvalidProof();
     error LeafNotAnchored();
     error OnlyAgentCanSubmitOwnProof();
+    error ZkIdentityNotConfigured();
+    error ZkIdentityAlreadyConfigured();
+    error InvalidZkIdentityCommitment();
+    error InvalidPublicInputCount();
+    error PublicInputMismatch();
+    error ZkNonceNotIncreasing();
+    error AttestationLeafAlreadyUsed();
+    error InvalidEventCoverage();
 
     /// @dev Implementation contract itself is never initializable — only its clones are
     /// (standard OZ upgradeable-safety pattern: without this, someone could call
@@ -107,11 +128,38 @@ contract ReputationRegistry is Initializable, AccessControlUpgradeable {
         emit ReportingPeriodUpdated(newPeriod);
     }
 
+    /// @notice Pins the agent's long-lived Noir identity commitment once. The value is
+    /// derived from the same agent-held secret used by the proving circuit. It cannot be
+    /// rotated in place: changing ZK identity requires a new registry/version so an admin
+    /// compromise cannot silently retarget already-issued proofs.
+    function setZkIdentityCommitment(bytes32 commitment) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (commitment == bytes32(0)) revert InvalidZkIdentityCommitment();
+        if (zkIdentityCommitment != bytes32(0)) revert ZkIdentityAlreadyConfigured();
+        zkIdentityCommitment = commitment;
+        emit ZkIdentityCommitmentSet(commitment);
+    }
+
     /// @notice Oracle-pushed update of an agent's pre-boost weighted AIS. Does not
     /// touch `zkBoostExpiry` — a fresh score push should not silently extend or clear an
     /// independently-earned ZK boost.
     function updateScore(address agent, uint256 baseScore) external onlyRole(ORACLE_ROLE) {
         _setBaseScore(agent, baseScore, msg.sender);
+    }
+
+    /// @notice Pushes a pre-boost score together with the reporting-window fraction of
+    /// events carrying an independently verified ZK proof. New oracle score syncs MUST use
+    /// this method; the legacy updateScore remains only for compatibility with frozen
+    /// integrations and intentionally does not configure coverage.
+    /// @param verifiedEventRatioBps 0..10_000, where 10_000 means every event was proven.
+    function updateScoreWithCoverage(address agent, uint256 baseScore, uint256 verifiedEventRatioBps)
+        external
+        onlyRole(ORACLE_ROLE)
+    {
+        if (verifiedEventRatioBps > BPS_DENOMINATOR) revert InvalidEventCoverage();
+        _setBaseScore(agent, baseScore, msg.sender);
+        zkVerifiedEventRatioBps[agent] = verifiedEventRatioBps;
+        coverageConfigured[agent] = true;
+        emit ZkEventCoverageUpdated(agent, verifiedEventRatioBps);
     }
 
     /// @notice Same as `updateScore`, but for scores arriving from a trusted cross-chain
@@ -134,15 +182,16 @@ contract ReputationRegistry is Initializable, AccessControlUpgradeable {
     /// off-chain-committed fact about this agent's behavior, e.g. a hashed intent
     /// payload from a BCC commitment, §4.2) is both (a) part of a Merkle tree this chain
     /// has anchored via StateAnchor, and (b) attested to by a valid ZK proof over
-    /// `publicInputs`. Only the agent itself may submit its own attestation — otherwise
+    /// `publicInputs`. The six logical inputs are checked here as
+    /// `[identity, nonce, intentCommitment, chainId, verifyingContract, bccLeafField]`;
+    /// the proof is therefore useful only for this agent, this registry deployment, and
+    /// this exact anchored BCC leaf. Only the agent itself may submit its own attestation — otherwise
     /// anyone could grab a valid (proof, publicInputs, leaf, merkleProof) tuple observed
     /// on-chain or off-chain and replay it to boost a *different* agent's score, since
     /// none of those values are, by themselves, bound to a caller.
     /// @param agent The agent this attestation is for. Must equal msg.sender.
     /// @param proof The UltraPlonk/Honk proof bytes from `bb prove`.
-    /// @param publicInputs The circuit's public inputs (see integrity-zkp/src/main.nr for
-    /// the exact layout); this contract does not interpret their contents beyond passing
-    /// them to the verifier — the circuit itself encodes what they must mean.
+    /// @param publicInputs The circuit's six logical public inputs, in circuit ABI order.
     /// @param root The StateAnchor root the leaf is claimed to belong to.
     /// @param leaf The keccak256 leaf value (§4.4 leaf-hashing convention).
     /// @param merkleProof Sibling hashes proving `leaf` is included under `root`.
@@ -156,10 +205,23 @@ contract ReputationRegistry is Initializable, AccessControlUpgradeable {
     ) external {
         if (agent != msg.sender) revert OnlyAgentCanSubmitOwnProof();
         if (address(zkVerifier) == address(0) || address(stateAnchor) == address(0)) revert ZkNotConfigured();
+        if (zkIdentityCommitment == bytes32(0)) revert ZkIdentityNotConfigured();
+        if (publicInputs.length != ZK_PUBLIC_INPUT_COUNT) revert InvalidPublicInputCount();
+        if (usedAttestationLeaves[leaf]) revert AttestationLeafAlreadyUsed();
+
+        uint256 nonce = uint256(publicInputs[1]);
+        if (nonce == 0 || nonce <= lastZkNonce[agent]) revert ZkNonceNotIncreasing();
+        if (
+            publicInputs[0] != zkIdentityCommitment || uint256(publicInputs[3]) != block.chainid
+                || uint256(publicInputs[4]) != uint256(uint160(address(this)))
+                || uint256(publicInputs[5]) != uint256(leaf) % BN254_SCALAR_FIELD
+        ) revert PublicInputMismatch();
 
         if (!stateAnchor.verifyLeaf(root, leaf, merkleProof)) revert LeafNotAnchored();
         if (!zkVerifier.verify(proof, publicInputs)) revert InvalidProof();
 
+        usedAttestationLeaves[leaf] = true;
+        lastZkNonce[agent] = nonce;
         uint256 expiry = block.timestamp + reportingPeriod;
         scores[agent].zkBoostExpiry = expiry;
         emit ZkAttestationVerified(agent, leaf, expiry);
@@ -171,13 +233,17 @@ contract ReputationRegistry is Initializable, AccessControlUpgradeable {
     function effectiveScore(address agent) public view returns (uint256) {
         AgentScore storage s = scores[agent];
         if (block.timestamp <= s.zkBoostExpiry) {
-            return (s.baseScore * ZK_BOOST_BPS) / BPS_DENOMINATOR;
+            if (!coverageConfigured[agent]) return (s.baseScore * ZK_BOOST_BPS) / BPS_DENOMINATOR;
+            uint256 boostBps =
+                BPS_DENOMINATOR + ((ZK_BOOST_BPS - BPS_DENOMINATOR) * zkVerifiedEventRatioBps[agent]) / BPS_DENOMINATOR;
+            return (s.baseScore * boostBps) / BPS_DENOMINATOR;
         }
         return s.baseScore;
     }
 
     function isZkBoosted(address agent) external view returns (bool) {
-        return block.timestamp <= scores[agent].zkBoostExpiry;
+        if (block.timestamp > scores[agent].zkBoostExpiry) return false;
+        return !coverageConfigured[agent] || zkVerifiedEventRatioBps[agent] > 0;
     }
 
     function getAgent(address agent)

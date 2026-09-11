@@ -176,7 +176,7 @@ The clone set exists for agents that opt into the sovereign profile: on-chain ma
 
 It is **not required** for the enclosed enterprise profile as a v1 target: an enterprise agent conformant with this document needs only an account plus a `StateAnchor` head; it MUST NOT be required to deploy `ReputationRegistry`, `Slasher`, `VerifierRegistry`, `ComplianceGate`, or `AgentProfile` clones to be enclosed.
 
-**Disclosed gap `[PARTIAL]`:** the live `EHRGate.checkAccess` implementation today resolves `registry.resolveAgent(msg.sender).primitives.reputationRegistry` — i.e. it currently requires an agent to be registered through `AgentPrimitivesFactory` (the full clone set) before its AIS can gate PHI access. The enterprise profile's "no clone set required" claim is this document's **target**, not yet the live path for the Integrity Health pack. Closing this gap needs either an AIS/reputation read that does not require a `ReputationRegistry` clone, or a documented exception where an enclosed enterprise healthcare agent still deploys that one clone. Do not represent minimal-footprint enterprise Integrity Health agents as already working end-to-end.
+**Integrity Health status `[BUILT]` locally:** `EHRGate.checkAccess` now resolves registration and AIS through `IAgentAuthorityResolver`. Sovereign agents read their own `ReputationRegistry`; enterprise agents read the account's oracle-updated cached AIS and need only their account plus `StateAnchor`. Focused Foundry tests cover registered enterprise allow/deny behavior. This is local implementation evidence, not deployment or production assurance.
 
 ### 3.5 Reputation parameter
 
@@ -209,9 +209,14 @@ Domain = lenpref(chainId) || lenpref(account) || lenpref(packId)
 
 Encoding MUST be length-prefixed. Concatenation of raw strings is non-conformant. Nonce MUST be strictly monotone in that domain.
 
-Live BCC commitments bind `chain_id` and `verifying_contract`. `[PARTIAL]`: the experimental kernel's replay-domain binding and the ZK circuit's `intent_commitment` do not yet bind `chain_id`.
+Live BCC commitments bind `chain_id` and `verifying_contract`. The ZK circuit
+also binds its intent commitment to the chain, receiving ReputationRegistry
+clone, and exact anchored BCC leaf. `[PARTIAL]`: the experimental kernel's
+replay-domain binding remains separate.
 
-**Disclosed residual `[PARTIAL]`:** canonical-JSON encoding is implemented three times (`integrity_sdk/bcc.py`, `integrity_cli/bcc.py`, `bcc_middleware/app/canonical.py`, all Python) and once more inside the oracle (Rust `serde_json`). Python's `ensure_ascii=True` escapes non-ASCII bytes; `serde_json` does not by default. A signature computed over one encoding and checked over the other diverges for any payload with non-ASCII content. This MUST be closed (single canonicalization crate/library shared across languages, or an explicit byte-for-byte test vector suite) before BCC signatures can be called cross-language conformant. See `IMPLEMENTATION_PLAN.md` §2.
+**Canonical JSON `[BUILT]`:** all signed BCC/telemetry payloads use RFC 8785
+JCS: Python consumers use `jcs` and the Rust oracle uses `serde_jcs`. This is
+the normative byte representation for number formatting and non-ASCII UTF-8.
 
 ---
 
@@ -319,7 +324,7 @@ n_{k+1} > n_k,\qquad d(a) = d_{\text{declared}}
 
 **Delegation / license (`delegation_active`).** A principal-to-agent grant: `(principal, agent, scope_hash) → {active, expires, meter}`. The hook MUST treat a missing, expired, revoked, or out-of-scope grant as \(V = 0\) when the installed pack requires one. Integrity Health's `SmartBAA` is the first on-chain body of this family (covered entity = principal, business associate = agent, PHI class = scope). An IP-license pack is the same family with a different principal and scope. Packs MUST NOT each invent a second `checkAccess` idiom that bypasses this family.
 
-Status: `[PARTIAL]` — `SmartBAA` is `[BUILT]`; a kernel-level view `(principal, agent, scope_hash)` that both Health and IP consume is `[PLANNED]`. `covered_entity_address` is still client-supplied on the BCC path today; resolving it through this view is P0.
+Status: `[PARTIAL]` — `SmartBAA` is `[BUILT]`; a kernel-level view `(principal, agent, scope_hash)` that both Health and IP consume is `[PLANNED]`. The client supplies `covered_entity_address` only as a lookup key: BCC authorization and Healthcare oracle scoring resolve the exact live `(covered entity, SovereignAgent)` pair through `CoveredEntityRegistry` and `SmartBAAFactory`, failing closed when it is not bound. Generalizing that relationship into the cross-domain authority view remains planned.
 
 **`scope` is not yet defined — a known hole, not an omission by oversight.** This section
 requires an "out-of-scope grant" check and a "PHI class = scope" / "IP-license = same family,
@@ -333,7 +338,9 @@ before the `[PLANNED]` kernel-level view above is implementable.
 
 Each \(g_i\) MUST declare `gas_max`. Evaluation MUST use a metered call. Exceeding `gas_max` MUST be treated as \(V = 0\), not as "skip this constraint."
 
-The v3 whitepaper's 40k `preCheck` budget is a target, not a silent requirement of this spec. Live reads of foreign registries MUST be amortized (epoch snapshots) or declared out of that budget. Do not claim both a 40k cap and live ERC-8004 / licence TBA reads on every call.
+The v3 whitepaper's 40k `preCheck` budget is a target, not a silent requirement of this spec. For the current reference implementation, the measured target profile is one direct, cold external `IntegrityKernel.preCheck` call, including call and `onlyBoundAccount` modifier overhead, with the registry-adapter and tracked-token branches disabled. It includes the cached reputation/assurance checks, native-budget checks, and balance snapshot; it excludes the account's hook-dispatch overhead, `postCheck`, snapshot refresh, token balance calls, adapter calls, and transaction intrinsic gas. The compiler, optimizer, EVM revision, cold/warm state, enabled branches, and measured commit MUST accompany any exact figure.
+
+Live reads of foreign registries MUST be amortized (epoch snapshots) or named as a separate adapter-inclusive profile outside that 40k target. Such an exception MUST identify the adapter, enabled branches, measurement profile, and regression band; it MUST NOT be described as a protocol maximum or generalized to arbitrary adapters. A self-declared adapter stipend is only the requested call stipend unless the caller also enforces a reviewed maximum and reserve; it is not by itself an end-to-end operation gas bound. Do not claim both a 40k cap and live ERC-8004 / licence TBA reads on every call.
 
 ### 4.7 Forbidden
 
@@ -396,7 +403,7 @@ Live production `SovereignAgent.execute()` does **not** dispatch through this fu
 
 A companion type-1 validator MAY enforce session keys. Rich policy that reads foreign account state MUST NOT be placed only in the ERC-4337 validation phase.
 
-### 5.3 Live execution/anchor policy hooks `[PARTIAL]`
+### 5.3 Live execution/anchor policy hooks `[BUILT]`
 
 Distinct from, and narrower than, §5.2's full ERC-7579 kernel hook: live `SovereignAgent.execute()` and `StateAnchor.anchorRoot()` each consult a swappable, fail-closed policy contract set by the controller -- `IExecutionPolicy` / `IAnchorPolicy` (`contracts/src/core/`), installed via `setExecutionPolicy` / `setAnchorPolicy`. `address(0)` on the host is the skip path (no policy installed, matching today's already-registered agents). Once a policy is set, a `false` return or a revert from it MUST fail closed: no value movement, no root write, no nonce consumption.
 
@@ -772,7 +779,7 @@ AIS_{a,t} = f(E_{a,0:t}, P_{a,0:t}, B_{a,0:t}, A_{a,0:t})
 | \(B\) | Behavioral consistency, drift, anomaly indicators |
 | \(A\) | Assurance: signed workload identity, hardware or ZK attestations |
 
-Live formula (ungated geometric mean with optional ZK boost and identity-ceiling clamp) is `[BUILT]` in `scoring-core`. The gated / conjunctive form from v0.5-proposed is `[PLANNED]`. Identity ceiling clamp is `[BUILT]`. Keyword grounding is `[PARTIAL]`.
+The live formula, configurable component-floor evaluation/conjunctive result, pre-boost normalized `constraint_score`, optional ZK boost, and identity-ceiling clamp are `[BUILT]` in `scoring-core`. The floor result is shadow/observational output only; no enforcement path is implemented. Keyword grounding is `[PARTIAL]`.
 
 ```mermaid
 flowchart LR
@@ -790,7 +797,7 @@ flowchart LR
     OUT -. "MUST NOT" .-> DENY["flip a deny into allow"]
 ```
 
-A single exact-zero input component annihilates `AIS_raw` (weighted geometric mean, not a weighted average) — this is `[BUILT]` and numerically verified server-side, closing a real scoring exploit where a content-free submission with a claimed compute-time input previously outscored an honest agent under the old fail-open defaults. `[PARTIAL]`: the fail-closed defaults for entropy/grounding/compliance-self-report on absent evidence are `[BUILT]`; the per-component floor plus conjunctive gate (rows 5–6 of the v0.5-proposed evidence table) and a pre-boost, unclamped `[0,1]` accessor are `[PLANNED]`. Compliance for non-Integrity-Health agents and sacrifice (compute-time) both remain self-reported, with no validator or TEE attestation, until those rows land.
+A single exact-zero input component annihilates `AIS_raw` (weighted geometric mean, not a weighted average) — this is `[BUILT]` and numerically verified server-side, closing a real scoring exploit where a content-free submission with a claimed compute-time input previously outscored an honest agent under the old fail-open defaults. `[PARTIAL]`: fail-closed defaults, configurable per-component-floor evaluation, a conjunctive floor result, and the tier-capped pre-boost `[0,1]` `constraint_score` are `[BUILT]`; the floor result is shadow reporting only and is not wired into score pushes, disputes, or another enforcement path. Compliance for non-Integrity-Health agents and sacrifice (compute-time) both remain self-reported, with no validator or TEE attestation.
 
 AIS MAY drive one of four bounded outcomes:
 
@@ -808,7 +815,12 @@ AIS MUST NEVER:
 - Be computed from Path B (unsigned OTLP)
 - Be treated as the reason a hook passed
 
-ZK boost, if used, SHOULD bind to the specific event. Period-wide `BOOL_OR` boost is `[PARTIAL]` and MUST be disclosed.
+ZK boost, if used, SHOULD bind to the specific event. The oracle now scales the
+multiplier by the fraction of proof-bearing events instead of a period-wide
+`BOOL_OR`. Proof public inputs now bind identity, nonce, chain, receiving
+registry, and the exact anchored BCC leaf, preventing event substitution. The
+on-chain registry still grants a period-wide boost after that event-bound proof,
+so the end-to-end scoring path remains `[PARTIAL]` and MUST be disclosed.
 
 ---
 
@@ -892,7 +904,7 @@ Grounded against `XibalbaTechSol/integrity-core` `main` as of 2026-08-20, plus `
 | ZK ingest profile | `[PARTIAL]` off-chain; on-chain verifier is a fail-closed placeholder |
 | On-chain licence TBA; IntegrityGovernance; Metered IP marketplace | out of v1 spine (archive). Market contracts stay in repo as `markets@*` body. |
 | Independent audit + invariance proof | `[PLANNED]` — gate for non-draft v1.0.0 |
-| Upgradeability of `SovereignAgent` / `StateAnchor` | `[OPEN]` — decided (beacon+pin), reopened same day in favor of frozen contracts + swappable policy hooks; **unresolved**, blocks any proxy code |
+| Upgradeability of `SovereignAgent` / `StateAnchor` | `[BUILT]` for future deployments — frozen hosts with agent-pinned, fail-closed policy hooks; existing Base Sepolia agents retain older bytecode and are not migrated |
 | Protocol role concentration | `[OPEN]` — arbitrator/disputer/funderWallet/governance/oracleSigner/resolverSigner + `MINTER_ROLE` + `DEFAULT_ADMIN_ROLE` are one EOA today (testnet posture, named P0 for mainnet) |
 | ZK verifier: source vs. deployed | `[PARTIAL]` — real generated verifier (Honk scheme) exists in source; Base Sepolia still runs an older fail-closed placeholder |
 | Single RPC dependency, no failover | `[OPEN]` |

@@ -135,7 +135,9 @@ signature = "0x" + keypair.sign(bcc.canonical_json_bytes(signable)).hex()
 payload = {**signable, "signature": signature}
 ```
 
-- **Canonicalization**: `bcc.canonical_json_bytes` — `json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=True)`, the same convention used across `bcc.py` and mirrored on the oracle side by `crypto::canonical_json_bytes` (a Rust formatter that had to be custom-written to match `ensure_ascii=True`'s non-ASCII-escaping behavior — `serde_json`'s default does not escape non-ASCII, which was a real cross-language signature mismatch bug, fixed; see [integrity-oracle](../entities/integrity-oracle.md)). **Known residual gap**, not yet exercised by any test: the fix covers the two sides agreeing on *escaping*, but non-ASCII content flowing through this pipeline is still a narrower theoretical disagreement surface — flagged, not silently assumed fine.
+- **Canonicalization**: `bcc.canonical_json_bytes` uses RFC 8785 JCS via the
+  Python `jcs` package; the oracle mirrors it with Rust `serde_jcs`. This pins
+  ECMAScript number formatting and raw non-ASCII UTF-8 across runtimes.
 - **Signature**: raw 64-byte Ed25519 (`did.py`'s `Keypair.sign`), hex-encoded with a `0x` prefix. Without a `keypair=` at `IntegrityClient` construction, `signature` is sent as an empty string — this still *deserializes* on the oracle side (the field is a required `String`, not `Option<String>`) but the oracle's signature check then honestly `401`s it, handled by the same retry/re-queue path as any other failure.
 - **`otel_spans`**: one flat, tagged JSON array — `{"kind": "telemetry", ...entry}` for each `log_telemetry` call in the batch, `{"kind": "trace_run", ...run}` for each finished `traceable`/`trace_run`, and (if any custom metrics were recorded) one `{"kind": "custom_metrics", "metrics": [...]}` element. The oracle stores this column as opaque `JSONB` and never destructures by tag — the tag is for a human/future-code reader distinguishing origins, not a schema requirement. **This was previously sent as a JSON object** (`{"telemetry": [...], "trace_runs": [...]}`), which Axum's JSON extractor rejected outright since the oracle's struct types it `Vec<serde_json::Value>` — every telemetry flush this SDK ever sent to a real oracle would have failed before that fix.
 
@@ -184,9 +186,9 @@ unauthenticated OTLP spans remain a separate evidence tier and never feed AIS.
    `derive.py::derive_compliance`'s "on-chain wins" logic, but runs
    **unconditionally** here rather than as an SDK-side opt-in a caller
    could forget to pass. Falls back to the self-reported flagged ratio
-   whenever the agent's primitives aren't cached, no
-   `covered_entity_address` was supplied, or the chain read fails — never
-   errors, since this feeds a score, not a security gate.
+   whenever the agent's primitives aren't cached. For a confirmed Healthcare
+   gate, a missing, malformed, unbound, or unreadable covered entity fails the
+   compliance score closed to zero; non-healthcare agents retain self-reporting.
    [ComplianceGate](compliance-gate.md) remains the real, fail-closed
    PHI-access enforcement point.
 8. **Merkle leaf hash.** `keccak256` over `telemetry_leaf_data(agent_id,
@@ -226,7 +228,7 @@ Response (`TelemetryIngestResponse`): `event_id`, `leaf_hash`, `zk_verified`, `f
 
 ## 8. AIS computation
 
-`GET /v1/agent/{id}/ais` aggregates every `telemetry_events` row for the agent over a trailing **30-day** window (`AIS_REPORTING_PERIOD_DAYS`, default 30) — `AVG(performance_variance)`, `AVG(hgi_raw)`, `SUM(gpu_hours_verified)`, `AVG(flagged::0/1)` as the penalty ratio, `BOOL_OR(zk_verified)` — then applies `scoring-core`'s formula. Full formula, weights, and the component-score curve shapes: [AIS](ais.md).
+`GET /v1/agent/{id}/ais` aggregates every `telemetry_events` row for the agent over a trailing **30-day** window (`AIS_REPORTING_PERIOD_DAYS`, default 30) — `AVG(performance_variance)`, `AVG(hgi_raw)`, `SUM(gpu_hours_verified)`, `AVG(flagged::0/1)` as the penalty ratio, and `AVG(zk_verified::0/1)` as verified-event coverage — then applies `scoring-core`'s formula. Full formula, weights, and the component-score curve shapes: [AIS](ais.md).
 
 ## 9. Read-side API surface
 
@@ -247,8 +249,9 @@ GET  /v1/agent/{id}/stream                      SSE: same, filtered to one agent
 ## 10. Known gaps (honest, not silently assumed fine)
 
 - **No runtime enforcement of `redact_phi=True` for healthcare agents** (§2) — a real, accepted residual risk from the 2026-07-15 default change, tracked in `PRODUCTION_GAPS.md` §3.
-- **Non-ASCII canonicalization** — the escaping mismatch between Python's `ensure_ascii=True` and Rust's default was fixed, but non-ASCII telemetry content flowing through this exact pipeline isn't covered by any current test (§6).
-- **ZK boost is period-wide, not per-event** — a single verified proof anywhere in the 30-day window boosts the *average* of every event in it, not bound to a specific event's claim (see [AIS](ais.md)'s "Still open" section).
+- **ZK on-chain scoring remains period-wide** — public inputs now bind the proof
+  to the exact anchored event, but the registry still applies one verified
+  event's boost to its whole base score for a reporting period (see [AIS](ais.md)).
 - **`gpu_hours_verified` is a token-usage proxy, not independently verified compute** — despite the field name, no such measurement exists in this protocol yet (`scoring-core`'s own field doc is explicit about this).
 - **OTLP path is unauthenticated by design** (§0) — real spans, but no signature envelope; never treat `GET /v1/agent/{id}/otel/volume` data as tamper-evident the way `telemetry_events` is.
 

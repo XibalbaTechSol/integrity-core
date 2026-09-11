@@ -68,16 +68,13 @@ was double-log-compressed (SDK pre-normalized to `[0,1]`, then `scoring-core` lo
 again) — both fixed at the `derive.rs` call site, no `scoring-core` changes needed.
 
 **Still open, deliberately out of scope for this pass:**
-* **ZK-boost binding is looser than the name implies.** `db::aggregate_for_ais` computes
-  `zk_verified_this_period` as `BOOL_OR(zk_verified)` over the whole reporting window — a
-  single ZK-proof-bearing submission flips the boost boolean for the *entire period's
-  average*, not just the specific event the proof was submitted with.
-  `ingest_telemetry` never decodes/cross-checks the proof's `public_inputs` against the
-  specific submission's `nonce`/`derived_signals` either. Tightening this to a genuine
-  per-event binding needs a circuit/on-chain change (the real ZK circuit,
-  `integrity-zkp/src/main.nr`, proves identity+intent-commitment binding only — it has no
-  numeric/behavioral inputs today, so it doesn't attest to entropy/grounding/sacrifice
-  claims at all).
+* **CLOSED IN SOURCE — ZK proof/event binding and proportional on-chain coverage.** `db::aggregate_for_ais` now
+  computes `AVG(zk_verified::0/1)` and `scoring-core` blends the multiplier from 1.0 to
+  1.15 by that event-coverage ratio, so one proof no longer earns a full-period boost.
+  `ReputationRegistry` now checks the exact anchored BCC leaf and the oracle score-sync
+  path submits the verified-event ratio through `updateScoreWithCoverage`; the remaining
+  gap is deployment/adoption of this source on existing networks. The ZK circuit still
+  proves identity and intent/leaf binding, not numeric behavioral claims.
 * **TEE/Tier-3 attestation is unwired.** `integrity_sdk/security/attestation.py`'s Nitro
   attestation *verifier* is real, tested against a real captured AWS fixture, and
   correctly pins the root CA — but nothing in the codebase calls it. No oracle endpoint
@@ -85,18 +82,18 @@ again) — both fixed at the `derive.rs` call site, no `scoring-core` changes ne
   verification ladder) via a real attestation check.
   `NitroAttestationGenerator.get_attestation_document` is an honest
   `NotImplementedError` (no enclave hardware available), not a mock.
-* **`covered_entity_address` spoofing.** The oracle's on-chain compliance check trusts
-  whatever `covered_entity_address` a client supplies in `otel_spans[].metadata` — an
-  agent could name a genuinely-compliant third party's address to earn the on-chain-wins
-  ceiling without being that entity's agent. Identical, pre-existing behavior to the
-  SDK's own caller-supplied `covered_entity_address` kwarg (`derive.py`) — not a new gap
-  introduced here.
+* **CLOSED in source/local tests — covered-entity binding.** The supplied address is only
+  a lookup key: `ComplianceGate.isHealthcareCompliant` resolves the exact live
+  `(covered entity, SovereignAgent)` pair through `CoveredEntityRegistry` and
+  `SmartBAAFactory`. Healthcare scoring now fails closed for missing, malformed, unbound,
+  or unreadable entity state; a forged second registered hospital is covered by a
+  negative contract regression. Base Sepolia readback remains separately unverified.
 * **Oracle-to-chain score push — CLOSED.** `bcc_middleware/app/reputation.py` +
   `app/scoring_loop.py` now periodically (`SCORE_SYNC_INTERVAL_SECONDS`, default 300s)
   list every agent the oracle knows about, accept each one's geometric, tier-capped
   `ais` from `GET /v1/agent/{id}/ais` as authoritative, remove only the response's
   reported ZK multiplier, and sign+submit a real
-  `ReputationRegistry.updateScore(agent, baseScore)` transaction per agent. Also raises
+  `ReputationRegistry.updateScoreWithCoverage(agent, baseScore, ratioBps)` transaction per agent. Also raises
   a real `Slasher.raiseDispute` when an agent's oracle-computed flagged-telemetry ratio
   (`GET /v1/agent/{id}/telemetry/volume`) crosses `DISPUTE_FLAGGED_RATIO_THRESHOLD`
   (default 50%) over a minimum sample size (`DISPUTE_MIN_EVENTS`), locking
@@ -4011,3 +4008,82 @@ scheduling, single-flight execution, lifecycle cleanup, and regression coverage 
 batches remain process-local and can still be lost on a graceful restart before the next timer,
 a hard process crash, or multi-replica handoff. A failed on-chain submission is not durably
 queued. Durable anchor-attempt spooling remains a separate production-hardening gap.
+
+## 69. Registry-enabled kernel gas target explicitly scoped — ACCEPTED DECISION; CROSSING REMAINS (2026-09-08)
+
+The historical measurements in §54/§55 remain true and are not rewritten: the successful,
+cold `IntegrityKernel.preCheck` path with the pinned `ReputationFloorAdapter` fell from
+~59.2k gas to **49,290 gas** after removing the runtime `AdapterRegistry.evaluate` hop, but
+it still does **not** meet the v3 whitepaper's 40k target.
+
+The current accepted normative source, `docs/SPEC.md` §4.6, now defines the exact local reference
+profile for the 40k target and resolves the authority question: 40k covers the direct cold
+core/cached `preCheck` call with adapter and tracked-token branches disabled, not every
+adapter-inclusive profile. Deliberately live foreign-registry reads must be amortized or named as
+a separate profile outside that target. This reference configuration takes the latter path.
+Caching the result of an arbitrary registered adapter merely to recover the number would silently
+weaken stateful adapters such as spend-budget checks, whose guarantee depends on current state.
+
+The exact 49,290 value is a historical measurement from commit `d1e59eb`; the current executable
+evidence is the `(44_000, 54_000)` Foundry regression band for this specific
+successful, cold, compiler/profile-dependent `ReputationFloorAdapter` path. They are **not** a
+protocol maximum, conformance ceiling, or bound on arbitrary adapters: another adapter may consume
+up to its own immutable `declaredGasBound`, plus kernel and call overhead. This decision does not
+establish bundler acceptance, sponsorship economics, hostile-adapter safety, R5/installability
+trust, deployment readiness, or production behavior.
+
+A focused Devil's Advocate review required this narrow framing and identified live gaps that prior
+entries overstated. Contrary to §64's historical wording, `IntegrityKernel` does not pin the
+adapter `specHash` or enforce `isInstallable()`; registration is its only current constructor gate.
+The registry accepts EOAs and does not pin bytecode. A self-declared gas stipend is not a system
+bound because no protocol maximum or caller reserve is enforced and EIP-150 may clip an oversized
+request. The enabled Halmos fixture uses a benign reference adapter and does not prove hostile-
+adapter reentrancy safety. These identity/installability, gas-reserve, and hostile-adapter findings
+remain open and block deployment readiness.
+
+This decision therefore satisfies only the readiness plan's option to explicitly re-scope the 40k
+item; it does not close the measured performance crossing. Gate 4 remains blocked on independent
+security review; the kernel has no production deployment or live inclusion evidence. Reopen the
+decision if the normative specification makes 40k mandatory, a target chain/bundler rejects the
+measured profile, the compiler/EVM profile materially moves the regression band, or an adapter can
+safely amortize its foreign-state read without weakening its declared semantics.
+
+## 67. ZK public-input and exact BCC-leaf binding closed in source (2026-09-08)
+
+**CLOSED IN SOURCE; NOT DEPLOYED.** The canonical Noir circuit now exposes the exact
+`bcc_leaf` as its sixth logical public input and includes it in the domain-separated
+intent Pedersen commitment. `ReputationRegistry.submitZkAttestation` validates all six
+inputs against a one-time pinned agent identity, a strictly increasing nonce, the current
+chain, the receiving registry clone, and the exact StateAnchor leaf reduced modulo the
+BN254 scalar field. It rejects reused leaves, so a proof generated for event A cannot be
+paired with anchored event B. The SDK generates the six-input proof and provides a
+SovereignAgent-routed helper for the one-time identity pin.
+
+The source registry now applies the verified-event ratio to its boost, and the middleware
+score-sync path submits that ratio through the oracle-only coverage method. Existing Base
+Sepolia verifier/registry bytecode is unchanged and does not gain these checks until an
+approved migration is deployed and exercised. Source evidence: 509/509 full Forge tests, 290 passed and
+3 skipped in the full SDK suite, 7/7 Noir circuit tests, and a real Anvil controller
+identity-pin integration test.
+
+## 68. Base Sepolia verifier migration remains blocked (2026-09-09)
+
+**OPEN — LIVE DEPLOYMENT GATE.** A read-only RPC check confirmed Base Sepolia chain ID
+`84532`, block `46581012`, and the deployment-record verifier address
+`0xD6eE9031320382831c8C96627D02aEE573089226` still has only the old ~233-byte placeholder
+runtime. The generated verifier and proof fixtures are valid locally, but no RPC/private-key
+environment is configured in this workspace, so no broadcast was attempted. Finish requires
+an approved incremental migration, deployment-record update, direct bytecode readback, and
+valid plus tampered proof calls against the deployed address.
+
+## 69. Linked verifier candidate deployed; adoption remains open (2026-09-09)
+
+The required `RelationsLib` and `ZKTranscriptLib` were deployed, followed by a linked
+`UltraPlonkVerifier` candidate at `0x565184C507CD2c22a0c95f914c9034C8F289818A` in tx
+`0xb394ebe6efb7fa09b95b14e6ee522ea67a7a590e9d7cfb21e7eec598175f1547`. Runtime readback is
+23,912 bytes; the known valid fixture returned `true`, and a one-byte-tampered proof reverted.
+The old factory was replaced by `0x240F72d7c1fc824BB641e51213ca135Ee5514A5B` in tx
+`0x11c5cd8ebe613a87812229a0bb86c207b2e0e510b71b013e04ccf998dcacd033`; its immutable
+verifier pointer reads the candidate; its `REGISTRAR_ROLE` was granted and the old factory's
+role revoked. The deployment record now reflects both new addresses. Existing verifier-registry
+clones still require controller-routed version pinning and adoption before this gate closes.

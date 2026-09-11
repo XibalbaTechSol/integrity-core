@@ -47,6 +47,9 @@ CLI_ABIS_DIR = REPO_ROOT / "integrity-cli" / "integrity_cli" / "abis"
 CONTRACTS = [
     ("SovereignAgent", "SovereignAgent"),
     ("StateAnchor", "StateAnchor"),
+    # ReputationRegistry: the controller pins its Noir identity commitment
+    # through SovereignAgent.execute before submitting any ZK attestation.
+    ("ReputationRegistry", "ReputationRegistry"),
     ("AgentPrimitivesFactory", "AgentPrimitivesFactory"),
     # IntegrityToken: only `mint` is used (the funder wallet, holding
     # MINTER_ROLE, allocates each freshly-registered agent some testnet ITK

@@ -56,6 +56,17 @@ _REPUTATION_REGISTRY_ABI = [
         "stateMutability": "nonpayable",
         "type": "function",
     },
+    {
+        "inputs": [
+            {"internalType": "address", "name": "agent", "type": "address"},
+            {"internalType": "uint256", "name": "baseScore", "type": "uint256"},
+            {"internalType": "uint256", "name": "verifiedEventRatioBps", "type": "uint256"},
+        ],
+        "name": "updateScoreWithCoverage",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function",
+    },
 ]
 
 _SLASHER_ABI = [
@@ -117,7 +128,13 @@ def _signer_key(settings: Settings) -> str | None:
     return settings.reputation_signer_private_key or settings.anchor_signer_private_key
 
 
-def push_score(settings: Settings, reputation_registry_address: str, agent_address: str, base_score: int) -> ScorePushResult:
+def push_score(
+    settings: Settings,
+    reputation_registry_address: str,
+    agent_address: str,
+    base_score: int,
+    verified_event_ratio_bps: int | None = None,
+) -> ScorePushResult:
     """
     Signs and submits `updateScore(agent, baseScore)` against one agent's
     ReputationRegistry clone.
@@ -129,6 +146,9 @@ def push_score(settings: Settings, reputation_registry_address: str, agent_addre
     `app/scoring_loop.py::_base_score_from_ais_response` divides out only the
     reported boost and never reimplements the geometric formula or tier cap.
     """
+    if verified_event_ratio_bps is not None and not 0 <= verified_event_ratio_bps <= 10_000:
+        return ScorePushResult(submitted=False, detail="verified event ratio must be between 0 and 10000 bps")
+
     signer_key = _signer_key(settings)
     if not signer_key:
         return ScorePushResult(submitted=False, detail="no reputation/anchor signer key configured")
@@ -147,8 +167,12 @@ def push_score(settings: Settings, reputation_registry_address: str, agent_addre
             tx_hash, receipt = send_with_managed_nonce(
                 w3,
                 account,
-                lambda nonce: contract.functions.updateScore(
-                    w3.to_checksum_address(agent_address), base_score
+                lambda nonce: (
+                    contract.functions.updateScoreWithCoverage(
+                        w3.to_checksum_address(agent_address), base_score, verified_event_ratio_bps
+                    )
+                    if verified_event_ratio_bps is not None
+                    else contract.functions.updateScore(w3.to_checksum_address(agent_address), base_score)
                 ).build_transaction({"from": account.address, "nonce": nonce, "chainId": settings.chain_id}),
             )
     except (Web3Exception, ValueError) as exc:

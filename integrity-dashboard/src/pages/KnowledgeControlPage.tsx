@@ -32,15 +32,13 @@ import {
   type HistoryBucket,
 } from '../services/oracle';
 import CorrelationPage from './CorrelationPage';
-import CortexPage from './CortexPage';
 import { IntelligencePage } from './IntelligencePage';
 
-type KnowledgeTab = 'overview' | 'intelligence' | 'cortex' | 'evidence';
+type KnowledgeTab = 'overview' | 'intelligence' | 'evidence';
 
 const TABS: ControlTab<KnowledgeTab>[] = [
   { id: 'overview', label: 'AIS & knowledge', icon: Sparkles },
   { id: 'intelligence', label: 'Agent intelligence', icon: Activity },
-  { id: 'cortex', label: 'Cortex workspace', icon: BrainCircuit },
   { id: 'evidence', label: 'Evidence correlation', icon: GitMerge },
 ];
 
@@ -69,6 +67,16 @@ function chartTime(value: string, bucket: HistoryBucket) {
   if (Number.isNaN(date.getTime())) return value;
   if (bucket === '1d' || bucket === '1w') return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
   return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+// A large local Cortex profile can take longer to assemble graph edges than the
+// rest of the operator summary. Keep that optional panel from blocking the
+// already-available memory/status cards indefinitely.
+function bounded<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => window.setTimeout(() => reject(new Error('graph request timed out')), timeoutMs)),
+  ]);
 }
 
 function PanelHeading({ eyebrow, title, meta }: { eyebrow: string; title: string; meta?: string }) {
@@ -105,7 +113,7 @@ function KnowledgeOverview() {
       agentId ? oracle.getAisHistory(agentId, bucket) : Promise.resolve([]),
       graphMemory.stats(),
       graphMemory.status(),
-      graphMemory.graph(220, 0.78),
+      bounded(graphMemory.graph(60, 0.78), 8_000),
       graphMemory.inferenceTasks('pending', 50),
     ]);
 
@@ -247,7 +255,6 @@ export default function KnowledgeControlPage() {
       <div className="control-page-body control-hub-content">
         {tab === 'overview' && <KnowledgeOverview />}
         {tab === 'intelligence' && <IntelligencePage />}
-        {tab === 'cortex' && <CortexPage />}
         {tab === 'evidence' && <CorrelationPage />}
       </div>
     </div>

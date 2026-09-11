@@ -56,7 +56,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.baa import BAAStatus, check_baa_status
 from app.canonical import SignatureVerificationError, verify_commitment_signature
 from app.chain import resolve_verification_tier
-from app.quarantine import QuarantineStatus, check_quarantine_status
+from app.quarantine import QuarantineStatus, check_quarantine_status, fail_closed_for_intent
 from app.circuit_breaker import AgentCircuitBreaker
 from app.config import Settings, settings as default_settings
 from app.merkle import MerkleBatcher, leaf_hash
@@ -478,7 +478,22 @@ async def _run_intercept_inner(
         finalize_span("deny", resp.reason)
         return resp
     elif quarantine_status is QuarantineStatus.CANNOT_VERIFY:
-        logger.warning("quarantine check inconclusive for %s, allowing request to proceed: %s", agent_id, quarantine_detail)
+        if fail_closed_for_intent(settings, commitment.intent_type):
+            _record_violation(agent_id, settings)
+            resp = _deny(
+                f"QUARANTINE_CANNOT_VERIFY: {quarantine_detail}",
+                agent_id=agent_id,
+                settings=settings,
+                intent_type=commitment.intent_type,
+            )
+            finalize_span("deny", resp.reason)
+            return resp
+        logger.warning(
+            "quarantine check inconclusive for low-risk intent %s/%s, continuing to OPA: %s",
+            agent_id,
+            commitment.intent_type,
+            quarantine_detail,
+        )
 
     # --- 5. OPA policy evaluation (FAIL CLOSED) -------------------------------
     # verification_tier is resolved unconditionally (not just for intent_types the

@@ -1,7 +1,7 @@
 ---
 title: The Four Foundational Primitives
 created: 2026-07-30
-updated: 2026-08-29
+updated: 2026-09-08
 type: concept
 tags: [identity, metrics, compliance]
 confidence: high
@@ -165,7 +165,7 @@ abandoned but not ended.
 
 ## Status of this page
 
-The four-primitive framing is **normative as of spec v0.4**
-([`integrity-protocol-v0.4.md`](../../archive/2026-08/integrity-protocol-v0.4.md) §4), which
-supersedes the v0.3 PDF's six-item list. This page is the wiki-side statement of it; the spec
-is authoritative and the derivation lives in `docs/design/`.
+The four-primitive framing remains the conceptual derivation recorded by archived
+v0.4 §4 and `docs/design/`; archived v0.4 is no longer normative. Current implementer
+authority is [`docs/SPEC.md`](../../SPEC.md), whose object/plane model and identity
+profiles supersede any contract-count implication from the older framing.

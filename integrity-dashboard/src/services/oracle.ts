@@ -27,6 +27,8 @@ export interface AgentResponse {
 
 export interface AgentSummary {
     id: string;
+    /** Lowercase on-chain controller when the DID has a verified CORE binding. */
+    controller?: string | null;
     /** Primary XNS handle (e.g. "xibalba.integrity"), read on-chain by the oracle. Prefer
      *  this over `name` for display — it's the protocol's own naming authority. `null` when
      *  the agent hasn't claimed one or XNS isn't deployed on this chain. */

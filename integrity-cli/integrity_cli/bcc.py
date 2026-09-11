@@ -8,14 +8,11 @@ are pinned in docs/INTERFACE_CONTRACT.md section 4.2 -- do not rename or
 restructure them here, since bcc_middleware and integrity-sdk are being
 built against this exact contract in parallel.
 
-Canonicalization note: the contract requires the signature to cover "the
-above fields, canonical JSON" but does not pin the exact byte
-serialization. We use `json.dumps(fields, sort_keys=True,
-separators=(",", ":"))` (sorted keys, no whitespace) -- the de facto
-standard for "canonical JSON" in protocols like this. This is a real
-integration risk called out in README.md: if bcc_middleware/integrity-sdk
-canonicalize differently, signatures built here won't verify there even
-though the commitment shape is otherwise correct.
+Canonicalization note: All components now use RFC 8785 (JSON Canonicalization
+Scheme / JCS) via the `jcs` Python library and the `serde_jcs` Rust crate.
+This eliminates the cross-language divergences (float representation, non-ASCII
+escaping) that previously caused ~20% signature rejection between Python
+producers and the Rust oracle verifier.
 """
 from __future__ import annotations
 
@@ -35,7 +32,8 @@ def canonical_json_bytes(fields: dict[str, Any]) -> bytes:
     and for signing the commitment fields. sort_keys + no separators
     whitespace guarantees the same bytes for the same logical object
     regardless of dict insertion order."""
-    return json.dumps(fields, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    import jcs
+    return jcs.canonicalize(fields)
 
 
 def intended_state_hash(intent_payload: dict[str, Any]) -> str:

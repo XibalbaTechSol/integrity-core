@@ -1,7 +1,7 @@
 ---
 title: bcc_middleware
 created: 2026-07-07
-updated: 2026-09-05
+updated: 2026-09-09
 type: entity
 tags: [infrastructure, compliance, cryptography, metrics]
 confidence: high
@@ -14,6 +14,7 @@ source_files:
   - bcc_middleware/app/reputation.py
   - bcc_middleware/app/scoring_loop.py
   - bcc_middleware/app/config.py
+  - bcc_middleware/app/quarantine.py
   - bcc_middleware/app/nonce_lock.py
   - bcc_middleware/app/verification_token.py
   - bcc_middleware/app/audit.py
@@ -80,6 +81,13 @@ The reputation-sync loop below follows the same best-effort posture for score
 pushes (a stale on-chain score, not a wrongly-trusted one) but the opposite for
 disputes — see below.
 
+When the secondary on-chain quarantine read is unavailable, the policy is
+intent-scoped rather than globally fail-open: configured high-risk classes
+(`chain_write`, `destructive`, `credential`, `privileged`, and clinical actions)
+deny, while low-risk reads continue to the authoritative OPA decision. Configure
+the classes with `BCC_QUARANTINE_FAIL_CLOSED_INTENTS`; the focused quarantine
+suite covers both paths.
+
 ## Hermes runtime gate bridge (2026-08-04)
 
 Hermes' shell-hook adapter now has a real per-session context bridge instead of
@@ -110,7 +118,7 @@ public-safe and signed, not imply access to private chain-of-thought.
   the oracle knows about and, per agent: (1) treats
   `GET /v1/agent/{id}/ais`'s geometric, tier-capped `ais` as authoritative,
   divides out only its reported `zk_boost`, and signs+submits a real
-  `ReputationRegistry.updateScore(agent, baseScore)`; it never reconstructs
+  `ReputationRegistry.updateScoreWithCoverage(agent, baseScore, ratioBps)`; it never reconstructs
   the formula from `components`/`weights`;
   (2) if the oracle's flagged-telemetry ratio for that agent crosses
   `DISPUTE_FLAGGED_RATIO_THRESHOLD` over a lookback window, signs+submits a
@@ -138,7 +146,7 @@ sequenceDiagram
     Loop->>Oracle: GET /v1/agents
     loop each agent
         Loop->>Oracle: GET /v1/agent/{id}/ais
-        Loop->>RR: updateScore(agent, preBoostBaseScore)
+        Loop->>RR: updateScoreWithCoverage(agent, preBoostBaseScore, proofRatioBps)
         Loop->>Oracle: GET /v1/agent/{id}/telemetry/volume
         alt flagged ratio over threshold and cooldown elapsed
             Loop->>Slasher: raiseDispute(agent, amount, reason)
@@ -185,7 +193,7 @@ sequenceDiagram
 - **Signature scheme:** the commitment carries a signed `agent_public_key`
   (multibase), bound by `sha256(pubkey) == did_fingerprint` before the Ed25519
   check — because the DID fingerprint is `sha256(pubkey)`, not the raw key.
-  Canonical JSON uses `ensure_ascii=True`, matching the SDK/CLI byte-for-byte.
+  Canonical JSON uses RFC 8785 JCS, matching the SDK/CLI byte-for-byte.
 - **BAA check:** the real two-arg
   `SmartBAAFactory.isBAAActive(coveredEntity, businessAssociate)`; the hospital
   comes from the commitment's signed `covered_entity_address`.

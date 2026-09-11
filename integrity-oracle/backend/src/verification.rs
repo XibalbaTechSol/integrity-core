@@ -935,7 +935,7 @@ mod ladder_tests {
             hgi_raw: 1.0,
             gpu_hours_verified: 10_000.0,
             penalty_ratio: 0.0,
-            zk_verified_this_period: false,
+            zk_verified_event_ratio: 0.0,
         }
     }
 
@@ -980,7 +980,7 @@ mod ladder_tests {
         // agent's Barretenberg proof was worth 0 points at tier 1.
         let e = engine();
         let mut boosted = excellent_agent();
-        boosted.zk_verified_this_period = true;
+        boosted.zk_verified_event_ratio = 1.0;
 
         for tier in [0, 1, 2] {
             let plain = e.score_with_tier(&excellent_agent(), tier).ais;
@@ -1007,7 +1007,7 @@ mod ladder_tests {
             hgi_raw: 0.05,
             gpu_hours_verified: 0.1,
             penalty_ratio: 0.9,
-            zk_verified_this_period: false,
+            zk_verified_event_ratio: 0.0,
         };
         let weak_at_3 = e.score_with_tier(&weak, 3).ais;
         let strong_at_1 = e.score_with_tier(&excellent_agent(), 1).ais;

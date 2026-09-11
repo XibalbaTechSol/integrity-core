@@ -68,6 +68,9 @@ pub struct Config {
 
     pub ais_weights: AisWeights,
     pub reporting_period_days: i64,
+    /// Optional post-score penalty for active agents with stale anchor coverage.
+    /// Defaults to zero: coverage remains informational until an operator opts in.
+    pub anchor_stale_penalty_bps: u16,
 
     /// Telemetry submissions per agent per minute before `429 Too Many Requests`.
     /// A concrete, real use of Redis (fixed-window counter) rather than a token
@@ -84,6 +87,9 @@ pub struct Config {
     /// Optional shared API key to authenticate internal-only endpoints 
     /// (e.g. /v1/audit/ingest, /v1/audit/anchor, and OTLP receivers).
     pub oracle_api_key: Option<String>,
+    /// Operators set this only after the directory refresh has reached the configured
+    /// chain-finality policy. It is surfaced in the snapshot envelope; default is false.
+    pub agent_directory_finalized: bool,
 }
 
 impl Config {
@@ -111,6 +117,12 @@ impl Config {
         let reporting_period_days: i64 = env_or("AIS_REPORTING_PERIOD_DAYS", "30")
             .parse()
             .map_err(|_| "AIS_REPORTING_PERIOD_DAYS must be a valid integer".to_string())?;
+        let anchor_stale_penalty_bps: u16 = env_or("AIS_ANCHOR_STALE_PENALTY_BPS", "0")
+            .parse()
+            .map_err(|_| "AIS_ANCHOR_STALE_PENALTY_BPS must be an integer between 0 and 10000".to_string())?;
+        if anchor_stale_penalty_bps > 10_000 {
+            return Err("AIS_ANCHOR_STALE_PENALTY_BPS must be between 0 and 10000".to_string());
+        }
         let phi_backstop_mode = PhiBackstopMode::parse(&env_or("PHI_BACKSTOP_MODE", "reject"))?;
         let telemetry_rate_limit_per_minute: u32 = env_or("TELEMETRY_RATE_LIMIT_PER_MINUTE", "60")
             .parse()
@@ -131,10 +143,12 @@ impl Config {
             deployments_file,
             ais_weights,
             reporting_period_days,
+            anchor_stale_penalty_bps,
             telemetry_rate_limit_per_minute,
             phi_backstop_mode,
             kyc_provider_keys,
             oracle_api_key: std::env::var("ORACLE_API_KEY").ok(),
+            agent_directory_finalized: env_or("AGENT_DIRECTORY_FINALIZED", "false").parse().map_err(|_| "AGENT_DIRECTORY_FINALIZED must be true or false" )?,
         })
     }
 
@@ -157,12 +171,14 @@ impl Config {
             deployments_file: PathBuf::from("../deployments.local.json"),
             ais_weights: AisWeights::default(),
             reporting_period_days: 30,
+            anchor_stale_penalty_bps: 0,
             telemetry_rate_limit_per_minute: 60,
             // Tests get the strict default; a test that needs Flag/Off sets it explicitly, so a
             // relaxed backstop can never be inherited silently.
             phi_backstop_mode: PhiBackstopMode::Reject,
             kyc_provider_keys: HashMap::new(),
             oracle_api_key: None,
+            agent_directory_finalized: false,
         }
     }
 }

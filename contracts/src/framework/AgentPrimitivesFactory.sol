@@ -2,6 +2,8 @@
 pragma solidity ^0.8.28;
 
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {SovereignAgent} from "../core/SovereignAgent.sol";
 import {XibalbaAgentRegistry} from "./XibalbaAgentRegistry.sol";
 import {DomainRegistry} from "./DomainRegistry.sol";
@@ -10,6 +12,7 @@ import {Slasher} from "../oracle/Slasher.sol";
 import {VerifierRegistry} from "../oracle/VerifierRegistry.sol";
 import {ComplianceGate} from "../health/ComplianceGate.sol";
 import {AgentProfile} from "./AgentProfile.sol";
+import {StateAnchor} from "../oracle/StateAnchor.sol";
 
 /// @title AgentPrimitivesFactory
 /// @notice The self-sovereign replacement for the old AgentFactory. An agent no longer
@@ -30,6 +33,10 @@ import {AgentProfile} from "./AgentProfile.sol";
 /// (granted to this contract's address at deploy time, see script/Deploy.s.sol) — no
 /// other contract should hold that role, same reasoning as the old AgentFactory.
 contract AgentPrimitivesFactory {
+    using SafeERC20 for IERC20;
+
+    uint256 public constant MIN_REGISTRATION_BOND = 100 ether;
+
     XibalbaAgentRegistry public immutable registry;
     DomainRegistry public immutable domainRegistry;
 
@@ -67,6 +74,7 @@ contract AgentPrimitivesFactory {
 
     error NotAgentController();
     error DomainJoinNotApproved();
+    error MemoryNotInitialized();
 
     constructor(
         address _registry,
@@ -129,6 +137,7 @@ contract AgentPrimitivesFactory {
         SovereignAgent sa = SovereignAgent(payable(sovereignAgent));
         if (!sa.hasRole(sa.DEFAULT_ADMIN_ROLE(), msg.sender)) revert NotAgentController();
         if (!domainRegistry.canJoin(domainId, msg.sender)) revert DomainJoinNotApproved();
+        if (StateAnchor(stateAnchor).latestRoot() == bytes32(0)) revert MemoryNotInitialized();
 
         // Every clone's admin is the SovereignAgent contract address, not msg.sender —
         // see the interface contract's call-routing convention. Protocol-held roles
@@ -139,6 +148,10 @@ contract AgentPrimitivesFactory {
 
         slasher = Clones.clone(slasherImpl);
         Slasher(slasher).initialize(governance, disputer);
+
+        IERC20(itk).safeTransferFrom(sovereignAgent, address(this), MIN_REGISTRATION_BOND);
+        IERC20(itk).forceApprove(slasher, MIN_REGISTRATION_BOND);
+        Slasher(slasher).stakeFor(sovereignAgent, MIN_REGISTRATION_BOND);
 
         verifierRegistry = Clones.clone(verifierRegistryImpl);
         VerifierRegistry(verifierRegistry).initialize(sovereignAgent, initialZkVerifier);

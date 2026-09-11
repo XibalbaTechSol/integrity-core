@@ -58,6 +58,18 @@ pub struct AnchorCoverage {
     pub last_anchored_epoch: Option<u64>,
 }
 
+/// Applies the optional operator-selected penalty for active agents whose anchor
+/// signal is stale. A zero penalty preserves the informational-only default.
+/// The penalty is deliberately applied to the final AIS only; the four component
+/// measurements and normalized constraint input remain independently auditable.
+pub fn apply_stale_penalty(ais: f64, coverage: &AnchorCoverage, penalty_bps: u16) -> f64 {
+    if coverage.status != AnchorCoverageStatus::Stale || penalty_bps == 0 {
+        return ais;
+    }
+    let multiplier = 1.0 - f64::from(penalty_bps.min(10_000)) / 10_000.0;
+    (ais * multiplier).max(0.0)
+}
+
 /// Pure evaluation — no chain/DB access, so it's cheaply unit-testable and the caller
 /// (`handlers::compute_ais_for_agent`) owns all I/O and its own error handling, matching
 /// the `onchain_zk_boost_consistent` cross-check's existing pattern in that function
@@ -160,5 +172,17 @@ mod tests {
         let period_start = t(720);
         let result = evaluate(5, period_start, Some((1, period_start.timestamp())));
         assert_eq!(result.status, AnchorCoverageStatus::Current);
+    }
+
+    #[test]
+    fn stale_penalty_is_opt_in_and_bounded() {
+        let period_start = t(720);
+        let stale = evaluate(5, period_start, None);
+        assert_eq!(apply_stale_penalty(800.0, &stale, 0), 800.0);
+        assert_eq!(apply_stale_penalty(800.0, &stale, 2_500), 600.0);
+        assert_eq!(apply_stale_penalty(800.0, &stale, 20_000), 0.0);
+
+        let current = evaluate(5, period_start, Some((1, Utc::now().timestamp())));
+        assert_eq!(apply_stale_penalty(800.0, &current, 2_500), 800.0);
     }
 }

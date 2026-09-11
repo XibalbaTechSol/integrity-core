@@ -31,24 +31,27 @@ contract UltraPlonkVerifierTest is Test {
     function test_malformed_proof_is_rejected() public view {
         (bytes memory proof, bytes32[] memory publicInputs) = _fixture();
         bytes memory malformed = new bytes(proof.length - 1);
-        for (uint256 i; i < malformed.length; ++i) malformed[i] = proof[i];
+        for (uint256 i; i < malformed.length; ++i) {
+            malformed[i] = proof[i];
+        }
         assertFalse(_verifyNoRevert(malformed, publicInputs));
     }
 
     function _fixture() private view returns (bytes memory proof, bytes32[] memory publicInputs) {
         proof = vm.readFileBinary("test/fixtures/ultraplonk/proof.bin");
         assertEq(proof.length, 8000);
-        assertEq(keccak256(proof), 0x8301001eea7884326f420c791dd937c2577065fedf7819061bf58b1fc43999f0);
+        assertEq(keccak256(proof), 0x2320b36152cce9c447862786371ec65151f986fd7a54903df01defd7be99798a);
         bytes memory rawInputs = vm.readFileBinary("test/fixtures/ultraplonk/public_inputs.bin");
-        assertEq(rawInputs.length, 160);
-        assertEq(keccak256(rawInputs), 0x1963fb18178d4e305ba37b8ae4e610e5a673af74f94fae4306bc8ba8dcd1f028);
-        publicInputs = new bytes32[](5);
-        assembly {
+        assertEq(rawInputs.length, 192);
+        assertEq(keccak256(rawInputs), 0x5d12387962bcde4dcabad88c2606f8661e1f346465144fb06259cd9abdf163b7);
+        publicInputs = new bytes32[](6);
+        assembly ("memory-safe") {
             mstore(add(publicInputs, 0x20), mload(add(rawInputs, 0x20)))
             mstore(add(publicInputs, 0x40), mload(add(rawInputs, 0x40)))
             mstore(add(publicInputs, 0x60), mload(add(rawInputs, 0x60)))
             mstore(add(publicInputs, 0x80), mload(add(rawInputs, 0x80)))
             mstore(add(publicInputs, 0xa0), mload(add(rawInputs, 0xa0)))
+            mstore(add(publicInputs, 0xc0), mload(add(rawInputs, 0xc0)))
         }
     }
 

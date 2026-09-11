@@ -25,6 +25,8 @@ import {IntegrityIdentityReadV1} from "../src/kernel/IntegrityIdentityReadV1.sol
 import {IntegrityMarket} from "../src/markets/IntegrityMarket.sol";
 import {MarketFactory} from "../src/markets/MarketFactory.sol";
 import {A2ACapitalPool} from "../src/markets/A2ACapitalPool.sol";
+import {AllowlistAnchorPolicy} from "../src/core/AllowlistAnchorPolicy.sol";
+import {ConstraintExecutionPolicy} from "../src/core/ConstraintExecutionPolicy.sol";
 
 /// @title Deploy
 /// @notice Deploys the full protocol genesis: every global singleton, all 5 EIP-1167
@@ -68,6 +70,8 @@ contract Deploy is Script {
     XibalbaAgentRegistry registry;
     AgentAuthorityResolver authorityResolver;
     IntegrityIdentityReadV1 identityRead;
+    AllowlistAnchorPolicy defaultAnchorPolicy;
+    ConstraintExecutionPolicy defaultExecutionPolicy;
     XibalbaNameService xns;
     DomainRegistry domainRegistry;
     CoveredEntityRegistry entityRegistry;
@@ -108,6 +112,15 @@ contract Deploy is Script {
         // deploys its own markets via MarketFactory.
         resolverSigner = vm.envOr("RESOLVER_ADDRESS", deployer);
 
+        if (block.chainid != 31337) {
+            require(oracleSigner != deployer, "P0: oracleSigner cannot be deployer");
+            require(disputer != deployer, "P0: disputer cannot be deployer");
+            require(governance != deployer, "P0: governance cannot be deployer");
+            require(arbitrator != deployer, "P0: arbitrator cannot be deployer");
+            require(resolverSigner != deployer, "P0: resolverSigner cannot be deployer");
+            require(oracleSigner != disputer && oracleSigner != resolverSigner, "P0: Oracle must be isolated");
+        }
+
         vm.startBroadcast(deployerKey);
 
         _deploySingletons();
@@ -136,6 +149,12 @@ contract Deploy is Script {
         verifier = new UltraPlonkVerifier();
         registry = new XibalbaAgentRegistry(deployer);
         authorityResolver = new AgentAuthorityResolver(address(registry));
+
+        address[] memory oracleCallers = new address[](1);
+        oracleCallers[0] = oracleSigner;
+        defaultAnchorPolicy = new AllowlistAnchorPolicy(deployer, oracleCallers);
+        defaultExecutionPolicy = new ConstraintExecutionPolicy(deployer, 0, type(uint256).max, false);
+
         // Read-only Integrity identity discovery facade. It intentionally exposes no
         // ERC-721 or native ERC-8004 ownership/transfer surface; see its NatSpec and
         // docs/INTERFACE_CONTRACT.md before integrating it.
@@ -158,7 +177,11 @@ contract Deploy is Script {
         // does NOT replace — the three-way consent+BAA+AIS gate the Integrity Health vertical's
         // docs describe had no reachable contract to call on-chain until this line.
         ehrGate = new EHRGate(
-            address(registry), address(baaFactory), address(authorityResolver), EHR_GATE_MIN_AIS_THRESHOLD, deployer
+            address(registry),
+            address(baaFactory),
+            address(authorityResolver),
+            EHR_GATE_MIN_AIS_THRESHOLD,
+            block.chainid != 31337 ? address(gov) : deployer
         );
     }
 
@@ -216,6 +239,30 @@ contract Deploy is Script {
         // party watching telemetry/Slasher disputes off-chain), not just the deployer
         // admin the constructor already granted this to.
         capitalPool.grantRole(capitalPool.BREACH_REPORTER_ROLE(), oracleSigner);
+
+        if (block.chainid != 31337) {
+            // Mainnet Readiness P0 #1: transfer ITK minting to governance to separate it from oracle/scoring key
+            itk.grantRole(itk.MINTER_ROLE(), address(gov));
+            itk.revokeRole(itk.MINTER_ROLE(), deployer);
+
+            // Transfer all singleton admin roles to governance
+            registry.grantRole(registry.DEFAULT_ADMIN_ROLE(), address(gov));
+            registry.revokeRole(registry.DEFAULT_ADMIN_ROLE(), deployer);
+            domainRegistry.grantRole(domainRegistry.DEFAULT_ADMIN_ROLE(), address(gov));
+            domainRegistry.revokeRole(domainRegistry.DEFAULT_ADMIN_ROLE(), deployer);
+            capitalPool.grantRole(capitalPool.DEFAULT_ADMIN_ROLE(), address(gov));
+            capitalPool.revokeRole(capitalPool.DEFAULT_ADMIN_ROLE(), deployer);
+            entityRegistry.grantRole(entityRegistry.DEFAULT_ADMIN_ROLE(), address(gov));
+            entityRegistry.revokeRole(entityRegistry.DEFAULT_ADMIN_ROLE(), deployer);
+            itk.grantRole(itk.DEFAULT_ADMIN_ROLE(), address(gov));
+            itk.revokeRole(itk.DEFAULT_ADMIN_ROLE(), deployer);
+            guardrailRegistry.grantRole(guardrailRegistry.DEFAULT_ADMIN_ROLE(), address(gov));
+            guardrailRegistry.revokeRole(guardrailRegistry.DEFAULT_ADMIN_ROLE(), deployer);
+            defaultAnchorPolicy.grantRole(defaultAnchorPolicy.DEFAULT_ADMIN_ROLE(), address(gov));
+            defaultAnchorPolicy.revokeRole(defaultAnchorPolicy.DEFAULT_ADMIN_ROLE(), deployer);
+            defaultExecutionPolicy.grantRole(defaultExecutionPolicy.DEFAULT_ADMIN_ROLE(), address(gov));
+            defaultExecutionPolicy.revokeRole(defaultExecutionPolicy.DEFAULT_ADMIN_ROLE(), deployer);
+        }
     }
 
     /// @dev Bootstraps two Open domains at genesis so the first agents (including the
@@ -236,6 +283,8 @@ contract Deploy is Script {
         console2.log("UltraPlonkVerifier:    ", address(verifier));
         console2.log("XibalbaAgentRegistry:  ", address(registry));
         console2.log("AgentAuthorityResolver:", address(authorityResolver));
+        console2.log("AllowlistAnchorPolicy: ", address(defaultAnchorPolicy));
+        console2.log("ConstraintExecPolicy:  ", address(defaultExecutionPolicy));
         console2.log("IntegrityIdentityReadV1:", address(identityRead));
         console2.log("XibalbaNameService:    ", address(xns));
         console2.log("DomainRegistry:        ", address(domainRegistry));
@@ -265,6 +314,8 @@ contract Deploy is Script {
         vm.serializeAddress(singletons, "UltraPlonkVerifier", address(verifier));
         vm.serializeAddress(singletons, "XibalbaAgentRegistry", address(registry));
         vm.serializeAddress(singletons, "AgentAuthorityResolver", address(authorityResolver));
+        vm.serializeAddress(singletons, "AllowlistAnchorPolicy", address(defaultAnchorPolicy));
+        vm.serializeAddress(singletons, "ConstraintExecutionPolicy", address(defaultExecutionPolicy));
         vm.serializeAddress(singletons, "IntegrityIdentityReadV1", address(identityRead));
         vm.serializeAddress(singletons, "XibalbaNameService", address(xns));
         vm.serializeAddress(singletons, "DomainRegistry", address(domainRegistry));

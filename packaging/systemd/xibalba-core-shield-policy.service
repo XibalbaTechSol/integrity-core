@@ -1,0 +1,21 @@
+[Unit]
+Description=Integrity CORE to Shield signed policy publisher
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=xibalba-integrity
+Group=xibalba-integrity
+EnvironmentFile=-/etc/xibalba-integrity/policy-publisher.env
+ExecStart=/usr/bin/python3 /opt/integrity-core/scripts/shield_policy_publisher.py
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/xibalba-integrity
+
+[Install]
+WantedBy=multi-user.target

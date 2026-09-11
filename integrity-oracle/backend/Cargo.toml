@@ -75,6 +75,7 @@ ciborium = "0.2.2"
 p384 = "0.14.0"
 p256 = "0.14.0"
 x509-cert = "0.3.0"
+serde_jcs = "0.2.0"
 
 [dev-dependencies]
 # `alloy`'s own `rpc::json_rpc` re-export is gated behind a meta-crate feature "full"

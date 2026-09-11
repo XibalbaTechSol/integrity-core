@@ -101,7 +101,7 @@ A background asyncio task (started in `app/main.py`'s lifespan, interval
 `SCORE_SYNC_INTERVAL_SECONDS`) that lists every agent from the oracle
 (`GET /v1/agents`), and for each: pushes its oracle-computed AIS base score
 to that agent's `ReputationRegistry` clone via a real signed
-`updateScore(agent, baseScore)` tx, and — if the oracle's flagged-telemetry
+`updateScoreWithCoverage(agent, baseScore, verifiedEventRatioBps)` tx, and — if the oracle's flagged-telemetry
 ratio for that agent crosses `DISPUTE_FLAGGED_RATIO_THRESHOLD` over the
 lookback bucket — raises a `Slasher.raiseDispute(...)` tx (subject to a
 per-agent cooldown). `POST /v1/reputation/sync` triggers one cycle manually

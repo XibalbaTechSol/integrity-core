@@ -40,6 +40,7 @@ _last_disputed_at: dict[str, float] = {}
 # means one extra redundant push, not a correctness problem: ReputationRegistry.
 # updateScore is idempotent for an unchanged value).
 _last_pushed_score: dict[str, int] = {}
+_last_pushed_coverage: dict[str, int] = {}
 
 
 @dataclass
@@ -116,18 +117,27 @@ def sync_one_agent(settings: Settings, agent_id: str, *, now: float) -> AgentSyn
     if base_score is None:
         return AgentSyncResult(agent_id=agent_id, score_pushed=False, score_detail="AIS response missing valid ais/zk_boost")
 
-    if _last_pushed_score.get(agent_id) == base_score:
+    try:
+        ratio = float(ais.get("zk_verified_event_ratio", 0.0))
+        if not math.isfinite(ratio) or not 0.0 <= ratio <= 1.0:
+            raise ValueError
+        ratio_bps = round(ratio * 10_000)
+    except (AttributeError, TypeError, ValueError):
+        return AgentSyncResult(agent_id=agent_id, score_pushed=False, score_detail="AIS response has invalid zk event ratio")
+
+    if _last_pushed_score.get(agent_id) == base_score and _last_pushed_coverage.get(agent_id) == ratio_bps:
         result = AgentSyncResult(
             agent_id=agent_id, score_pushed=False, score_detail=f"unchanged (base_score={base_score}), skipped"
         )
     else:
-        push_result = push_score(settings, reputation_registry, sovereign_agent, base_score)
+        push_result = push_score(settings, reputation_registry, sovereign_agent, base_score, ratio_bps)
         result = AgentSyncResult(agent_id=agent_id, score_pushed=push_result.submitted, score_detail=push_result.detail)
         if push_result.submitted:
             # Only cache on a CONFIRMED submission -- a failed push must not
             # be remembered as "unchanged", or a real pending update would be
             # skipped forever on every subsequent cycle.
             _last_pushed_score[agent_id] = base_score
+            _last_pushed_coverage[agent_id] = ratio_bps
 
     if not slasher or not settings.dispute_enabled:
         return result

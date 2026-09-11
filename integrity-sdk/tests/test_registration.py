@@ -36,6 +36,8 @@ def _env(tmp_path, monkeypatch, deployed_chain):
             "IntegrityToken": addr["IntegrityToken"],
             "XibalbaAgentRegistry": addr["XibalbaAgentRegistry"],
             "DomainRegistry": addr["DomainRegistry"],
+            "AllowlistAnchorPolicy": addr["AllowlistAnchorPolicy"],
+            "ConstraintExecutionPolicy": addr["ConstraintExecutionPolicy"],
         },
         "protocolAddresses": {"oracleSigner": deployed_chain["funder"].address},
     }
@@ -61,6 +63,18 @@ def test_register_agent_full_onchain_sequence():
         result.agent_profile,
     ):
         assert field_value.lower() != zero
+
+    # The SDK must anchor genesis before installing the oracle-only anchor policy;
+    # otherwise the policy rejects the SovereignAgent caller and registration deadlocks.
+    from integrity_sdk import chain as chain_module
+
+    deployments = json.loads(open(os.environ["DEPLOYMENTS_FILE"]).read())
+    w3 = chain_module.get_w3(os.environ["RPC_URL"])
+    sovereign_agent = chain_module._contract(w3, "SovereignAgent", address=result.sovereign_agent)
+    state_anchor = chain_module._contract(w3, "StateAnchor", address=result.state_anchor)
+    assert state_anchor.functions.latestEpoch().call() == 1
+    assert state_anchor.functions.anchorPolicy().call().lower() == deployments["singletons"]["AllowlistAnchorPolicy"].lower()
+    assert sovereign_agent.functions.executionPolicy().call().lower() == deployments["singletons"]["ConstraintExecutionPolicy"].lower()
 
 
 def test_register_agent_persists_document_and_primitives(tmp_path):
@@ -184,6 +198,27 @@ def test_register_agent_requires_funder_key(monkeypatch):
 def test_register_agent_rejects_unknown_vertical():
     with pytest.raises(ValueError, match="compliance_vertical"):
         registration.register_agent("bad-vertical-agent", compliance_vertical="not-a-real-vertical")
+
+
+def test_testnet_convenience_is_rejected_on_mainnet():
+    with pytest.raises(registration.RegistrationError, match="disabled"):
+        registration._check_testnet_convenience(8453, 1, 0)
+
+
+def test_base_sepolia_convenience_requires_explicit_opt_in(monkeypatch):
+    monkeypatch.delenv("ALLOW_TESTNET_CONVENIENCE", raising=False)
+    with pytest.raises(registration.RegistrationError, match="ALLOW_TESTNET_CONVENIENCE"):
+        registration._check_testnet_convenience(84532, 1, 1)
+
+
+def test_base_sepolia_convenience_opt_in_is_explicit(monkeypatch):
+    monkeypatch.setenv("ALLOW_TESTNET_CONVENIENCE", "true")
+    registration._check_testnet_convenience(84532, 1, 1)
+
+
+def test_zero_convenience_amounts_are_allowed_on_mainnet(monkeypatch):
+    monkeypatch.delenv("ALLOW_TESTNET_CONVENIENCE", raising=False)
+    registration._check_testnet_convenience(8453, 0, 0)
 
 
 def test_register_agent_self_registers_personal_domain_when_missing():

@@ -1,7 +1,7 @@
 ---
 title: Identity Ceiling & Verification Ladder [BUILT]
 created: 2026-07-09
-updated: 2026-08-29
+updated: 2026-09-09
 type: concept
 tags: [identity, metrics, compliance]
 confidence: high
@@ -30,8 +30,9 @@ scoring and sensitive BCC policy decisions.
    server-verified tier is below the required minimum.
 3. **The AIS identity ceiling is enforced.**
    `scoring-core` provides `AisEngine::ceiling_for_tier` and `AisEngine::score_with_tier`
-   which cap calculated scores per tier: Tier 0 (300), Tier 1 (600), and Tier 2 (850).
-   Tier 3 returns the raw post-boost score without an additional clamp.
+   which cap calculated post-boost scores per tier: Tier 0 (300), Tier 1 (600), Tier 2
+   (850), and Tier 3 (1000 maximum). Unknown or negative tiers cannot bypass the
+   Tier-0 ceiling; the normalized constraint score uses the same cap.
    `handlers::compute_ais_for_agent` passes `agent.verification_tier` into `score_with_tier`.
 
 ## Table of contents
@@ -52,8 +53,8 @@ institutional one.
 |---|---|---|---|
 | 1 — Sovereign | Software-key possession plus on-chain primitive match | 600 | Assigned at registration |
 | 2 — Linked | Dual-resolver DNS TXT proof or GitHub repository proof | 850 | Built; evidence expires after 90 days |
-| 3 — Institutional | Nonce-bound AWS Nitro attestation with AWS-root certificate validation | No post-boost cap | Built; evidence expires after 30 days |
-| 3 — Institutional KYC | Trusted receipt asserting document authenticity, liveness, and sanctions/PEP screening | No post-boost cap | Built; provider-neutral and expiring |
+| 3 — Institutional | Nonce-bound AWS Nitro attestation with AWS-root certificate validation | 1000 maximum after boost | Built; evidence expires after 30 days |
+| 3 — Institutional KYC | Trusted receipt asserting document authenticity, liveness, and sanctions/PEP screening | 1000 maximum after boost | Built; provider-neutral and expiring |
 | Developer API key (testnet convenience) | Issued by `integrity-userapi` | Capped at 300 | Score ceiling enforced in `scoring-core` (300) |
 
 KYC uses a provider-neutral signed-receipt boundary. A commercial provider or

@@ -61,8 +61,14 @@ contract PolicyHooksTest is Test {
     }
 
     function testExecuteDeniedDoesNotConsumeNonce() public {
-        ConstraintExecutionPolicy policy =
-            new ConstraintExecutionPolicy(controller, /* minAis */ 1, /* maxValue */ 0, false);
+        ConstraintExecutionPolicy policy = new ConstraintExecutionPolicy(
+            controller,
+            /* minAis */
+            1,
+            /* maxValue */
+            0,
+            false
+        );
         vm.prank(controller);
         agent.setExecutionPolicy(address(policy));
 
@@ -73,8 +79,7 @@ contract PolicyHooksTest is Test {
     }
 
     function testExecuteAllowsWhenAisMeetsFloor() public {
-        ConstraintExecutionPolicy policy =
-            new ConstraintExecutionPolicy(controller, 10, 0, false);
+        ConstraintExecutionPolicy policy = new ConstraintExecutionPolicy(controller, 10, 0, false);
         vm.prank(controller);
         agent.setExecutionPolicy(address(policy));
 
@@ -87,8 +92,7 @@ contract PolicyHooksTest is Test {
     }
 
     function testExecuteEnforcesValueCapAndAllowlist() public {
-        ConstraintExecutionPolicy policy =
-            new ConstraintExecutionPolicy(controller, 0, 1 ether, true);
+        ConstraintExecutionPolicy policy = new ConstraintExecutionPolicy(controller, 0, 1 ether, true);
         vm.prank(controller);
         policy.setTarget(address(sink), true);
         vm.prank(controller);
@@ -143,6 +147,31 @@ contract PolicyHooksTest is Test {
         assertEq(anchor.rootAtEpoch(1), root);
     }
 
+    function testGenesisBeforeOraclePolicyThenOracleCanAdvance() public {
+        bytes32 genesis = keccak256("genesis");
+        vm.prank(controller);
+        anchor.anchorRoot(genesis);
+
+        bytes32 anchorRole = anchor.ANCHOR_ROLE();
+        vm.prank(controller);
+        anchor.grantRole(anchorRole, oracle);
+        address[] memory initial = new address[](1);
+        initial[0] = oracle;
+        AllowlistAnchorPolicy policy = new AllowlistAnchorPolicy(controller, initial);
+        vm.prank(controller);
+        anchor.setAnchorPolicy(address(policy));
+
+        bytes32 nextRoot = keccak256("epoch-2");
+        vm.prank(oracle);
+        anchor.anchorRoot(nextRoot);
+        assertEq(anchor.latestEpoch(), 2);
+        assertEq(anchor.latestRoot(), nextRoot);
+
+        vm.prank(controller);
+        vm.expectRevert(StateAnchor.PolicyDenied.selector);
+        anchor.anchorRoot(keccak256("controller-cannot-bypass-policy"));
+    }
+
     // --- fail-closed on a REVERTING policy, not just a false-returning one ----------------------
 
     function testExecuteRevertingPolicyFailsClosed() public {
@@ -187,9 +216,7 @@ contract PolicyHooksTest is Test {
 
         vm.prank(stranger);
         vm.expectRevert(
-            abi.encodeWithSignature(
-                "AccessControlUnauthorizedAccount(address,bytes32)", stranger, bytes32(0)
-            )
+            abi.encodeWithSignature("AccessControlUnauthorizedAccount(address,bytes32)", stranger, bytes32(0))
         );
         anchor.setAnchorPolicy(address(policy));
     }
