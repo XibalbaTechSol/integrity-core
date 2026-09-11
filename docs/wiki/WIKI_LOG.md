@@ -3570,3 +3570,14 @@ writeup: PRODUCTION_GAPS.md §18.
 - Historical pseudonymous/legacy records remain unchanged; unattributed Agent 360
   records render as an explicit empty state.
 - Wiki pages updated: 1. Pages created: 0. Dead links fixed: 0. Orphans resolved: 0.
+
+## [2026-09-11] fix | crash-safe browser chain registration
+
+- Reconciled the dashboard deployment mirror with the migrated, authorized Base Sepolia
+  factory and generated verifier addresses.
+- Updated browser registration to enforce the real genesis-memory and 100 ITK bond sequence,
+  fail before deployment when the bond cannot be funded, and persist confirmed step progress
+  across browser or workstation restarts.
+- Added deterministic browser ABI/bytecode generation from Foundry artifacts so the UI cannot
+  silently deploy stale contract code.
+- Wiki pages updated: 1. Pages created: 0. Dead links fixed: 0. Orphans resolved: 0.

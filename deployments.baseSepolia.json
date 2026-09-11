@@ -8,7 +8,10 @@
     "Slasher": "0xbA044396b6B347c9b484e5a96c83888e59f4dF7D",
     "VerifierRegistry": "0x09D034BE2D98A36a5B8637f282814F9D2c23a4Bf"
   },
-  "domains": {},
+  "domains": {
+    "general.integrity": "0x595cceb222da8b2d14f13ddd254b38c4c99285925da5d4f854461514dad57e00",
+    "healthcare.integrity": "0x83064d690f7098fe67923a009c2f7ee6651571d8fbf9071c0c0a340c1ebf63a7"
+  },
   "experimentalPhase1Reference": {
     "IntegrityAccount": "0x25858C53818E777C5569163F2e05570314fC947d",
     "IntegrityKernel": "0x3e05E67Fb6dd3eE382eD24150141ffcBE2C9c338",
@@ -46,6 +49,8 @@
     "volumeCapTotal": 1000
   },
   "network": "base-sepolia",
+  "rpcUrl": "https://sepolia.base.org",
+  "explorerUrl": "https://sepolia.basescan.org",
   "protocolAddresses": {
     "arbitrator": "0x7530bd7Cb142C50d5cC742EdF02263f368e89E2f",
     "disputer": "0x7530bd7Cb142C50d5cC742EdF02263f368e89E2f",
