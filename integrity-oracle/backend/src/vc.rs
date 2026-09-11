@@ -16,7 +16,9 @@ use uuid::Uuid;
 const DEV_ISSUER_SEED_HEX: &str = "9d61b19deffdc4a4c1a2a2a2b8b8b8b8c3c3c3c3d4d4d4d4e5e5e5e5f6f6f6f60";
 
 pub(crate) fn issuer_signing_key() -> SigningKey {
-    let hex_seed = std::env::var("VC_ISSUER_SEED").unwrap_or_else(|_| DEV_ISSUER_SEED_HEX.to_string());
+    let hex_seed = std::env::var("VC_ISSUER_SEED").ok().filter(|value| !value.trim().is_empty())
+        .or_else(|| std::env::var("VC_ISSUER_SEED_FILE").ok().and_then(|path| std::fs::read_to_string(path).ok()))
+        .unwrap_or_else(|| DEV_ISSUER_SEED_HEX.to_string());
     let mut seed = [0u8; 32];
     if let Ok(bytes) = hex::decode(hex_seed.trim_start_matches("0x")) {
         if bytes.len() == 32 {

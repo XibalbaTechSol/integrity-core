@@ -6,6 +6,15 @@
 #   docker compose -f docker-compose.yml -f docker-compose.integrations.yml up --build
 
 services:
+  oracle-backend:
+    # The production deployment mounts the rotated issuer seed as a secret file;
+    # the application reads it without exposing the private value to Compose's
+    # interpolation or committing it to the repository.
+    environment:
+      VC_ISSUER_SEED_FILE: /run/secrets/oracle-policy-issuer.seed
+    volumes:
+      - /etc/xibalba-integrity/oracle-policy-issuer.seed:/run/secrets/oracle-policy-issuer.seed:ro
+
   cortex:
     build:
       context: ..
