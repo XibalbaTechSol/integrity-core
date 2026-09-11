@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { RefreshCw, ShieldCheck, ShieldAlert, ShieldOff, Radio, Server, Link2, FileCheck2, Boxes, Eye, Cpu, FileText, Network, Users, Activity, Gauge, Target, Timer } from 'lucide-react';
+import { RefreshCw, ShieldCheck, ShieldAlert, ShieldOff, Radio, Server, Link2, FileCheck2, Boxes, Eye, Cpu, FileText, Network, Users, Activity, Gauge, Target, Timer, Unlink, Ban } from 'lucide-react';
 import { Panel } from '../shared/Panel';
 import { useDashboard } from '../../context/DashboardContext';
 import { shieldBackend } from '../../services/shieldBackend';
@@ -27,6 +27,11 @@ function timeAgo(iso: string | null): string {
 }
 
 const STALE_MS = 5 * 60 * 1000;
+const pairButtonStyle: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', gap: 6, border: '1px solid var(--glass-border)',
+  borderRadius: 'var(--radius-sm)', background: 'transparent', color: 'var(--text-primary)',
+  padding: '6px 9px', fontSize: '0.72rem', cursor: 'pointer',
+};
 
 // shield/schemas/events.py's real `klass` values (one per Event dataclass) -- the actual
 // wire-format strings Shield tags every observation with, not a UI-invented category list.
@@ -74,6 +79,8 @@ export default function ShieldFleetOverview() {
   const [error, setError] = useState<string | null>(null);
   const [background, setBackground] = useState<'light' | 'dark' | 'plain' | 'blueprint'>('dark');
   const [edgeType, setEdgeType] = useState('all');
+  const [pairAction, setPairAction] = useState<string | null>(null);
+  const [pairMessage, setPairMessage] = useState<string | null>(null);
   const graphRef = useRef<ShieldEvidenceGraphHandle>(null);
 
   const load = useCallback(async (id: string) => {
@@ -111,6 +118,27 @@ export default function ShieldFleetOverview() {
   const escalateCount = decisionCounts['escalate'] ?? 0;
   const allowCount = (decisionCounts['allow'] ?? 0) + (decisionCounts['log_only'] ?? 0);
   const exporterByDevice = new Map((summary?.exporter_status ?? []).map((item) => [item.device_id, item]));
+  const activePairs = (summary?.devices ?? []).flatMap((device) => {
+    const agentId = device.device_agent_pair?.shield_agent_id || device.integrity_agent_id || device.agent_id;
+    return agentId ? [{ device, agentId, pairId: device.device_agent_pair?.pair_id ?? `${device.device_id}:${agentId}` }] : [];
+  });
+
+  const changePairStatus = async (deviceId: string, agentId: string, action: 'detach' | 'revoke') => {
+    const key = `${deviceId}:${agentId}:${action}`;
+    const verb = action === 'detach' ? 'detach' : 'revoke';
+    if (!window.confirm(`Confirm ${verb} for this exact pair?\n\nDevice: ${deviceId}\nAgent: ${agentId}`)) return;
+    setPairAction(key);
+    setPairMessage(null);
+    try {
+      await shieldBackend.setDeviceAgentBindingStatus({ tenant_id: tenantId, device_id: deviceId, agent_id: agentId, action });
+      setPairMessage(`${verb[0].toUpperCase()}${verb.slice(1)}d pair ${deviceId} ↔ ${agentId}.`);
+      await load(tenantId);
+    } catch (e) {
+      setPairMessage(e instanceof Error ? e.message : `Could not ${verb} the selected pair.`);
+    } finally {
+      setPairAction(null);
+    }
+  };
 
   // What kind of raw machine activity Shield actually classified each decision's triggering
   // event as -- real tally over event_ref.class from summary.latest_decisions, not a
@@ -173,6 +201,28 @@ export default function ShieldFleetOverview() {
           <div style={{ color: 'var(--danger, #e5484d)', fontSize: '0.85rem', padding: 'var(--space-2) 0' }}>{error}</div>
         </Panel>
       )}
+
+      <Panel title="Device–agent pairs" icon={<Link2 size={16} />}>
+        <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.5, margin: '0 0 var(--space-3)' }}>
+          Management actions target the selected pair explicitly. Detach preserves history; revoke marks the binding unusable.
+        </p>
+        {pairMessage && <div role="status" style={{ color: pairMessage.toLowerCase().includes('could not') ? 'var(--danger, #e5484d)' : '#10b981', fontSize: '0.8rem', marginBottom: 'var(--space-3)' }}>{pairMessage}</div>}
+        {activePairs.length === 0 ? <div style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>No active device–agent pairs are reported by Shield.</div> : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+            {activePairs.map(({ device, agentId, pairId }) => {
+              const busy = pairAction?.startsWith(`${device.device_id}:${agentId}:`);
+              return <div key={pairId} style={{ display: 'grid', gridTemplateColumns: 'minmax(160px, 1fr) minmax(220px, 1.4fr) auto', gap: 'var(--space-3)', alignItems: 'center', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-md)', padding: 'var(--space-3)' }}>
+                <div><div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Device</div><code style={{ fontSize: '0.78rem', wordBreak: 'break-word' }}>{device.device_id}</code></div>
+                <div><div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Agent</div><code style={{ fontSize: '0.78rem', wordBreak: 'break-word' }}>{agentId}</code><div style={{ fontSize: '0.66rem', color: 'var(--text-muted)', marginTop: 3 }}>Pair {pairId}</div></div>
+                <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  <button type="button" disabled={!!busy} onClick={() => changePairStatus(device.device_id, agentId, 'detach')} title="Detach this exact device/agent pair" style={pairButtonStyle}><Unlink size={13} /> {busy && pairAction?.endsWith(':detach') ? 'Detaching…' : 'Detach'}</button>
+                  <button type="button" disabled={!!busy} onClick={() => changePairStatus(device.device_id, agentId, 'revoke')} title="Revoke this exact device/agent pair" style={{ ...pairButtonStyle, color: '#f43f5e', borderColor: 'rgba(244,63,94,0.45)' }}><Ban size={13} /> {busy && pairAction?.endsWith(':revoke') ? 'Revoking…' : 'Revoke'}</button>
+                </div>
+              </div>;
+            })}
+          </div>
+        )}
+      </Panel>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--space-4)' }}>
         <SummaryCard icon={<Boxes size={18} />} label="Enrolled devices" value={deviceCount} />

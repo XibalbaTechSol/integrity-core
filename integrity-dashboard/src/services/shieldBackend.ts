@@ -101,6 +101,12 @@ export const shieldBackend = {
     // Admin write routes
     enrollDevice: (payload: { tenant_id: string; device_id: string; device_role?: string }, token?: string) =>
         adminPost<ShieldEnrollment>('/api/shield/enroll', payload, token),
+    setDeviceAgentBindingStatus: (payload: { tenant_id: string; device_id: string; agent_id: string; action: 'detach' | 'revoke' }, token?: string) =>
+        adminPost<{ binding: Record<string, unknown> }>(
+            `/api/shield/devices/${encodeURIComponent(payload.device_id)}/agent-bindings/${encodeURIComponent(payload.agent_id)}/${payload.action}`,
+            { tenant_id: payload.tenant_id, device_id: payload.device_id, agent_id: payload.agent_id },
+            token,
+        ),
     seedDemo: (payload: { tenant_id: string } | string, token = SHIELD_BACKEND_TOKEN) =>
         adminPost<ShieldSeedResult>('/api/shield/demo/seed', typeof payload === 'string' ? { tenant_id: payload } : payload, token),
     // Generic cross-system test-run log (~/.claude/plans/velvet-giggling-quill.md) -- see
