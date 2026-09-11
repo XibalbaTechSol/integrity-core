@@ -495,6 +495,15 @@ pub async fn agent_directory_snapshot(
     // covered by the execution client's finalized head.  The operator flag is an
     // approval gate, not a substitute for chain evidence; without this guard a
     // stale/misconfigured deployment could widen Cortex access across a reorg.
+    // When approval is enabled, anchor the directory cursor to the execution
+    // client's finalized head before evaluating coverage. Computing the boolean
+    // against the latest head and then rewriting the cursor would produce the
+    // contradictory envelope (equal cursors but `finalized: false`).
+    let block_number = if state.config.agent_directory_finalized {
+        finalized_head.as_ref().map_or(block_number, |(number, _)| *number)
+    } else {
+        block_number
+    };
     let finalized = state.config.agent_directory_finalized
         && finalized_head
             .as_ref()
