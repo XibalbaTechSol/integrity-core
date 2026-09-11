@@ -57,10 +57,16 @@ export const DIDExplorer: React.FC<DIDExplorerProps> = ({ agent }) => {
                 // The XNS reverse-lookup reads the on-chain XibalbaNameService primary handle;
                 // it returns 503 until that singleton is deployed, so it degrades to null
                 // rather than faking a handle.
-                const [detail, vcDoc, handleDoc] = await Promise.all([
-                    oracle.getAgent(agent.eth_address),
+                // Resolve the DID first.  Reverse XNS lookup is an on-chain primitive
+                // lookup and is not meaningful for an oracle-known DID whose primitive
+                // registration is still pending.  Avoiding that request keeps a normal
+                // "no handle yet" state from becoming a noisy 404 in the browser.
+                const detail = await oracle.getAgent(agent.eth_address);
+                const [vcDoc, handleDoc] = await Promise.all([
                     oracle.getAgentVc(agent.eth_address).catch(() => null),
-                    oracle.getAgentHandle(agent.eth_address).catch(() => null),
+                    detail.primitives?.sovereign_agent
+                        ? oracle.getAgentHandle(agent.eth_address).catch(() => null)
+                        : Promise.resolve(null),
                 ]);
                 setDidDoc(detail.did_document || { id: agent.eth_address, note: 'No DID document on record for this agent.' });
                 setVc(vcDoc || { note: 'Verifiable Credential unavailable.' });
