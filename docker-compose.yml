@@ -205,6 +205,7 @@ services:
       - --agent-label
       - xibalba-shield
     environment:
+      XIBALBA_ORACLE_POLICY_PUBLIC_KEY: ${XIBALBA_ORACLE_POLICY_PUBLIC_KEY}
       INTEGRITY_DID_HOME: /identity
       # Only consumed by the one-off `docker compose exec shield python
       # scripts/register_with_oracle.py` registration step (Phase 4) -- `shield run` itself
