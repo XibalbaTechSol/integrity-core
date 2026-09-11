@@ -462,6 +462,10 @@ pub struct AgentDirectorySnapshot {
     pub chain_id: i64,
     pub generated_at: chrono::DateTime<Utc>,
     pub block_number: u64,
+    /// Canonical execution-client finalized head observed while creating this
+    /// response. `None` means the configured RPC did not expose the tag.
+    pub finalized_block_number: Option<u64>,
+    pub finalized_block_hash: Option<String>,
     pub snapshot_id: String,
     pub agents: Vec<AgentSummary>,
 }
@@ -480,12 +484,21 @@ pub async fn agent_directory_snapshot(
 ) -> Result<Json<AgentDirectorySnapshot>, AppError> {
     let Json(agents) = list_agents(State(state.clone())).await?;
     let block_number = state.chain.latest_block_number().await?;
+    let finalized_head = match state.chain.finalized_block().await {
+        Ok(value) => value,
+        Err(error) => {
+            tracing::warn!(?error, "finalized block metadata unavailable");
+            None
+        }
+    };
     Ok(Json(AgentDirectorySnapshot {
         schema_version: "xibalba.agent-directory.v1".to_string(),
         finalized: state.config.agent_directory_finalized,
         chain_id: state.chain.chain_id() as i64,
         generated_at: Utc::now(),
         block_number,
+        finalized_block_number: finalized_head.map(|(number, _)| number),
+        finalized_block_hash: finalized_head.map(|(_, hash)| format!("{hash:#x}")),
         snapshot_id: format!("directory:{}:{}", state.chain.chain_id(), block_number),
         agents,
     }))
