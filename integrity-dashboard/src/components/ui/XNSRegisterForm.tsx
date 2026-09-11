@@ -54,6 +54,8 @@ export function XNSRegisterForm() {
       }}>
         <Globe size={16} className="text-muted" />
         <input
+          id="xns-handle"
+          name="xns-handle"
           type="text"
           value={handle}
           onChange={(e) => setHandle(e.target.value)}
