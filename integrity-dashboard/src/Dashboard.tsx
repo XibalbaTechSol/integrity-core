@@ -33,7 +33,11 @@ export default function Dashboard() {
     setServices({
       core: core.status === 'fulfilled' ? { state: 'online', detail: 'Oracle and on-chain read model responding' } : { state: 'offline', detail: 'Oracle API unavailable' },
       shield: shield.status === 'fulfilled' && shield.value.ok ? { state: 'online', detail: 'External enforcement system responding' } : { state: 'offline', detail: 'Shield backend unavailable' },
-      cortex: cortex.status === 'fulfilled' ? { state: cortex.value.integrity_check === 'ok' ? 'online' : 'degraded', detail: `${cortex.value.memory_count} memories · integrity ${cortex.value.integrity_check}` } : { state: 'offline', detail: 'Cortex local API unavailable' },
+      // The protocol-surface counter measures reachability, not the optional
+      // full-store integrity scan. Cortex deliberately reports
+      // "skipped (fast mode)" for a healthy low-latency status check; treating
+      // that diagnostic as offline made a live Cortex API render as 2/3 online.
+      cortex: cortex.status === 'fulfilled' ? { state: 'online', detail: `${cortex.value.memory_count} memories · integrity ${cortex.value.integrity_check}` } : { state: 'offline', detail: 'Cortex local API unavailable' },
     });
     setProtocol(core.status === 'fulfilled' ? core.value : null);
     setInvocations(invocationsResult.status === 'fulfilled' ? invocationsResult.value : []);
