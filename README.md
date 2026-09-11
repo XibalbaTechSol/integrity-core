@@ -117,6 +117,15 @@ oracle; configure Shield with the matching Ed25519 public key using
 Never set `VC_ALLOW_DEVELOPMENT_ISSUER` on a deployment host. The publisher state database is
 stored at `/var/lib/xibalba-integrity/policy-publisher.sqlite3` by default.
 
+For native local bring-up, run `sudo -E bash scripts/bring_up_policy_loop.sh` to start CORE
+dependencies and verify CORE, Shield, Cortex, and the publisher. To configure an Alchemy Base
+Sepolia endpoint without putting the key in shell history, run
+`bash scripts/configure_alchemy_base_sepolia.sh`; it reads the key without echoing it,
+validates chain ID `84532`, and performs a read-only finality audit. Applying finality is a
+separate explicit step: `APPLY_FINALITY=true sudo -E bash scripts/enable_finality_after_evidence.sh`.
+That step rebuilds the oracle image and refuses to proceed unless the RPC exposes a usable
+finalized block and CORE advertises a finalized snapshot.
+
 Toolchain pinned in [docs/INTERFACE_CONTRACT.md](docs/INTERFACE_CONTRACT.md) §1. For per-package development, see each package's own README.
 
 ### Registering an agent
