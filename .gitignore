@@ -37,10 +37,15 @@ target/
 Cargo.lock.bak
 
 # --- foundry ---
+out/
+cache/
 contracts/out/
 contracts/cache/
 contracts/broadcast/**/run-*.json
 contracts/script/adapter-admission-vectors/last-report.json
+
+# Foundry fixture build output is generated during middleware tests.
+bcc_middleware/tests/fixtures/foundry/out/
 
 # --- noir ---
 **/target/
