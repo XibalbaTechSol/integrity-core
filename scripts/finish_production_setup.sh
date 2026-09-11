@@ -43,6 +43,12 @@ EOF
 [[ "$(id -u)" -eq 0 ]] || die "run with sudo from the repository checkout"
 [[ -n "${SHIELD_ADMIN_TOKEN:-}" ]] || die "SHIELD_ADMIN_TOKEN must be provided in the environment"
 [[ -n "$SHIELD_TENANT_ID" ]] || die "SHIELD_TENANT_ID must be provided in the environment"
+case "$SHIELD_ADMIN_TOKEN" in
+  your-*|actual-*|REPLACE_*|replace-*) die "SHIELD_ADMIN_TOKEN still contains a placeholder" ;;
+esac
+case "$SHIELD_TENANT_ID" in
+  your-*|actual-*|REPLACE_*|replace-*) die "SHIELD_TENANT_ID still contains a placeholder" ;;
+esac
 
 need install
 need curl
