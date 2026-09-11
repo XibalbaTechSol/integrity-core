@@ -83,6 +83,27 @@ test.describe('/identity (IdentityPage)', () => {
     expect(errors).toEqual([]);
   });
 
+  test('registration UI can target the existing Shield DID before wallet signing', async ({ page }) => {
+    const errors = collectPageErrors(page);
+    const shieldDid = 'did:integrity:2ea17967f7a65589d570ca7e800844701fb36e6aa7374243e8766de8651f6bc4';
+    await page.goto('/identity');
+    await page.waitForLoadState('networkidle');
+    await page.getByRole('button', { name: /Register New/ }).click();
+
+    const dialog = page.getByRole('dialog', { name: 'Register agent on-chain' });
+    await expect(dialog).toBeVisible();
+    const didInput = dialog.locator('#ra-did');
+    await expect(didInput).toHaveValue(/^did:integrity:/);
+    await didInput.fill(shieldDid);
+    await expect(didInput).toHaveValue(shieldDid);
+    // No wallet is connected in this journey, so the only available action is the
+    // explicit connect step; no chain transaction can be submitted accidentally.
+    await expect(dialog.getByRole('button', { name: /Connect a Base Sepolia wallet/ })).toBeVisible();
+    await expect(dialog.getByText('Deploy SovereignAgent')).not.toBeVisible();
+    expect(errors).toEqual([]);
+    await page.screenshot({ path: 'e2e/screenshots/registration-shield-did.png', fullPage: true });
+  });
+
   test('Sovereign Node status badges (XNS_RESOLVE/PROTO_VER/STATUS) render with readable width, not squeezed to near-zero', async ({ page }) => {
     // Regression test for a real layout bug: the DID Explorer's two-column grid
     // (src/components/ui/DIDExplorer.tsx) sized its left column off the DID string's

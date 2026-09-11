@@ -59,7 +59,12 @@ export function RegisterAgentModal({ onClose, onSuccess }: Props) {
   const [alias, setAlias] = React.useState('');
   const [vertical, setVertical] = React.useState<0 | 1>(0);
   const [profileURI, setProfileURI] = React.useState('');
-  const [did] = React.useState(() => `did:integrity:${ethers.id(`agent-${Date.now()}`).slice(2, 34)}`);
+  // Keep the generated DID as the safe default, but allow an operator to register
+  // an existing identity (for example the Shield DID already bound to this device).
+  // This must be chosen before the first wallet-signed step; changing an identity
+  // after contracts are deployed would make the on-chain DID/contract binding
+  // inconsistent.
+  const [did, setDid] = React.useState(() => `did:integrity:${ethers.id(`agent-${Date.now()}`).slice(2, 34)}`);
 
   const [sovereignAgent, setSovereignAgent] = React.useState<string | null>(null);
   const [stateAnchor, setStateAnchor] = React.useState<string | null>(null);
@@ -147,6 +152,9 @@ export function RegisterAgentModal({ onClose, onSuccess }: Props) {
   };
 
   const deploySovereignAgent = () => run(1, async () => {
+    if (!/^did:integrity:[A-Za-z0-9._:-]+$/.test(did)) {
+      throw new Error('Enter a valid did:integrity identifier before deploying.');
+    }
     const signer = await getSigner();
     addToast('info', 'Deploying SovereignAgent…');
     const factory = new ethers.ContractFactory(SOVEREIGN_AGENT_ABI, SOVEREIGN_AGENT_BYTECODE, signer);
@@ -259,6 +267,22 @@ export function RegisterAgentModal({ onClose, onSuccess }: Props) {
 
         <div className="text-muted" style={{ fontSize: '0.8rem' }}>
           Deploys this agent's own contracts and registers its full 7-primitive set on Base Sepolia — four wallet-signed transactions. DID: <code style={{ color: 'var(--theme-accent)' }}>{did}</code>
+        </div>
+
+        <div className="form-group">
+          <label className="form-label" htmlFor="ra-did">DID to register</label>
+          <input
+            id="ra-did"
+            className="input"
+            value={did}
+            onChange={(e) => setDid(e.target.value.trim())}
+            disabled={sovereignAgent !== null}
+            pattern="did:integrity:.+"
+            aria-describedby="ra-did-help"
+          />
+          <small id="ra-did-help" className="text-muted">
+            Use the existing Shield DID here when registering the device-bound agent; leave the generated value for a new identity.
+          </small>
         </div>
 
         {!walletAddress ? (
