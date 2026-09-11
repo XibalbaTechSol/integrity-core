@@ -94,3 +94,18 @@ def test_publish_once_issues_and_delivers_pair_bound_policy(tmp_path, monkeypatc
     )
     assert calls[1] == ("http://shield/api/v1/policy/push", {"token": "signed-token"})
     assert store.metrics()["sent"] == 1
+
+
+def test_publish_once_keeps_scheduler_alive_when_discovery_is_unavailable(tmp_path, monkeypatch):
+    store = publisher.DeliveryStore(tmp_path / "publisher.sqlite3")
+    _enqueue(store)
+    monkeypatch.setenv("SHIELD_TENANT_ID", "tenant")
+    monkeypatch.setattr(publisher, "_get", lambda *args, **kwargs: (_ for _ in ()).throw(urllib.error.URLError("offline")))
+    monkeypatch.setattr(publisher, "_request", lambda *args, **kwargs: {"accepted": True})
+
+    result = publisher.publish_once(store)
+
+    assert result["discovery_error"] == "<urlopen error offline>"
+    assert result["attempted"] == 1
+    assert result["delivered"] == 1
+    assert store.metrics()["sent"] == 1

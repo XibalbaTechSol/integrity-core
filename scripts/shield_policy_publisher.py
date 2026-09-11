@@ -108,7 +108,14 @@ def publish_once(store: DeliveryStore) -> dict:
     tenant = os.environ["SHIELD_TENANT_ID"]
     policy = json.loads(os.environ.get("SHIELD_POLICY_JSON", '{"rules":[]}'))
     policy_version = str(os.environ.get("SHIELD_POLICY_VERSION", f"scheduler-{int(time.time())}"))
-    groups = _get(f"{shield}/api/shield/agents?tenant_id={tenant}", os.environ.get("SHIELD_ADMIN_TOKEN", "")).get("agents", [])
+    discovery_error = None
+    try:
+        groups = _get(f"{shield}/api/shield/agents?tenant_id={tenant}", os.environ.get("SHIELD_ADMIN_TOKEN", "")).get("agents", [])
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError, ValueError, RuntimeError) as exc:
+        # A control-plane outage must not crash the scheduler. Existing queued
+        # deliveries can still make progress, and discovery is retried next tick.
+        discovery_error = str(exc)[:500]
+        groups = []
     for group in groups:
         for device in group.get("devices", []):
             agent_id = str(device.get("integrity_agent_id") or device.get("agent_id") or "")
@@ -118,6 +125,8 @@ def publish_once(store: DeliveryStore) -> dict:
             signed = _request(f"{core}/v1/shield/policy-token", {"tenant_id": tenant, "device_id": device_id, "agent_id": agent_id, "policy": policy, "policy_version": policy_version}, os.environ.get("CORE_API_KEY", ""))
             store.enqueue(tenant_id=tenant, device_id=device_id, agent_id=agent_id, policy_version=policy_version, policy_hash=str(signed["policy_hash"]), token=str(signed["token"]))
     result = store.deliver_due(shield)
+    if discovery_error:
+        result["discovery_error"] = discovery_error
     result["metrics"] = store.metrics()
     return result
 
