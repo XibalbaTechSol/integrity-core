@@ -50,6 +50,18 @@ services:
       retries: 5
       start_period: 15s
 
+  shield-policy-publisher:
+    depends_on:
+      oracle-backend: {condition: service_started}
+      shield-backend: {condition: service_healthy}
+    environment:
+      # The publisher runs in its own container; localhost would point at the
+      # publisher itself, not Shield's control-plane service.
+      SHIELD_URL: http://shield-backend:8765
+      SHIELD_ADMIN_TOKEN: ${SHIELD_BACKEND_TOKEN:-dev-shield-admin}
+      SHIELD_TENANT_ID: ${SHIELD_TENANT_ID:-}
+      SHIELD_POLICY_JSON: ${SHIELD_POLICY_JSON:-{"rules":[]}}
+
   dashboard:
     depends_on:
       cortex: {condition: service_healthy}
