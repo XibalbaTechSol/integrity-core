@@ -1,5 +1,6 @@
 import {
   BookOpen,
+  BrainCircuit,
   Code,
   FileCheck2,
   LayoutDashboard,
@@ -28,6 +29,8 @@ export const NAVIGATION_GROUPS: NavigationGroup[] = [
       { to: '/agents', label: 'Agents & Identity', icon: Users },
       { to: '/security', label: 'Policy', icon: ShieldCheck },
       { to: '/knowledge', label: 'Evidence', icon: FileCheck2 },
+      { to: '/fleet', label: 'Fleet', icon: ShieldCheck },
+      { to: '/memory', label: 'Memory', icon: BrainCircuit },
     ],
   },
   {

@@ -28,8 +28,11 @@ services:
       dockerfile: xibalba-shield/Dockerfile
     entrypoint: ["python", "-m", "shield.backend.api"]
     command: ["--host", "0.0.0.0", "--port", "8765", "--admin-token", "${SHIELD_BACKEND_TOKEN:-dev-shield-admin}"]
+    environment:
+      XIBALBA_ORACLE_POLICY_PUBLIC_KEY: ${XIBALBA_ORACLE_POLICY_PUBLIC_KEY:-file:/run/secrets/oracle-policy-issuer.pub}
     volumes:
       - shield-backend-data:/root/.xibalba-shield
+      - /etc/xibalba-integrity/oracle-policy-issuer.pub:/run/secrets/oracle-policy-issuer.pub:ro
     ports: ["8765:8765"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8765/api/shield/health').read()"]

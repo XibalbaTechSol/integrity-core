@@ -58,6 +58,10 @@ function App() {
             <Route path="/prediction-markets" element={<ActuarialHub mode="markets" />} />
             <Route path="/health" element={<HealthPage />} />
             <Route path="/shield" element={<ShieldPage />} />
+            {/* Cross-platform identity aliases: keep the established pages while
+                exposing the plan's explicit fleet and memory entry points. */}
+            <Route path="/fleet" element={<ShieldPage />} />
+            <Route path="/memory" element={<KnowledgeControlPage />} />
             <Route path="/quant" element={<QuantPage />} />
             <Route path="/licence" element={<LicencePage />} />
             <Route path="/kernel" element={<KernelPage />} />

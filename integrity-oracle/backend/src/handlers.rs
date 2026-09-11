@@ -9,8 +9,9 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
+use sha2::{Digest, Sha256};
 
 use crate::AppState;
 use crate::anchor_coverage::{self, AnchorCoverage};
@@ -391,6 +392,9 @@ fn row_to_dto(row: &db::AgentPrimitivesRow) -> Result<PrimitiveSetDto, AppError>
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AgentSummary {
     pub id: String,
+    /// Lowercase EVM controller resolved from the on-chain registry cache.
+    /// Consumers must compare this exact address; it is not a user-editable label.
+    pub controller: Option<String>,
     /// The agent's primary XNS handle (e.g. `"xibalba.integrity"`), read live from
     /// `XibalbaNameService.primaryHandle(sovereignAgent)`. This is the protocol's own
     /// naming authority — self-service and on-chain (see XibalbaNameService.sol's NatSpec
@@ -433,6 +437,7 @@ pub async fn list_agents(
         rows.into_iter()
             .enumerate()
             .map(|(i, r)| AgentSummary {
+                controller: r.controller_address,
                 handle: handles.get(i).cloned().flatten(),
                 name: r
                     .did_document
@@ -448,6 +453,42 @@ pub async fn list_agents(
             })
             .collect(),
     ))
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AgentDirectorySnapshot {
+    pub schema_version: String,
+    pub finalized: bool,
+    pub chain_id: i64,
+    pub generated_at: chrono::DateTime<Utc>,
+    pub block_number: u64,
+    pub snapshot_id: String,
+    pub agents: Vec<AgentSummary>,
+}
+
+/// Finality-bearing directory envelope for trusted consumers such as Cortex. The legacy
+/// `/v1/agents` array remains unchanged for compatibility; sync workers must use this route
+/// and refuse snapshots whose operator-controlled finality bit is false.
+#[utoipa::path(
+    get,
+    path = "/v1/agents/snapshot",
+    responses((status = 200, description = "Finality-bearing registered-agent directory", body = AgentDirectorySnapshot)),
+    tag = "agents",
+)]
+pub async fn agent_directory_snapshot(
+    State(state): State<AppState>,
+) -> Result<Json<AgentDirectorySnapshot>, AppError> {
+    let Json(agents) = list_agents(State(state.clone())).await?;
+    let block_number = state.chain.latest_block_number().await?;
+    Ok(Json(AgentDirectorySnapshot {
+        schema_version: "xibalba.agent-directory.v1".to_string(),
+        finalized: state.config.agent_directory_finalized,
+        chain_id: state.chain.chain_id() as i64,
+        generated_at: Utc::now(),
+        block_number,
+        snapshot_id: format!("directory:{}:{}", state.chain.chain_id(), block_number),
+        agents,
+    }))
 }
 
 /// Best-effort XNS lookup for a whole agent list, returned positionally (one entry per
@@ -2162,6 +2203,225 @@ pub async fn ingest_anchor_events(
     )
     .await?;
     Ok(Json(AnchorEventIngestResponse { recorded }))
+}
+
+// ---------------------------------------------------------------------------------
+// DID-bound Cortex memory session anchors. This is deliberately separate from
+// /v1/audit/anchor: audit anchors describe Shield/BCC leaves, while these rows
+// describe Cortex session Merkle roots and are keyed by an explicitly registered
+// opaque profile alias.
+// ---------------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct MemoryProfileRegistrationRequest {
+    pub profile_id: String,
+    pub agent_id: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct MemoryProfileRegistrationResponse {
+    pub profile_id: String,
+    pub agent_id: String,
+    pub registered: bool,
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/memory/profile",
+    request_body = MemoryProfileRegistrationRequest,
+    responses((status = 200, description = "Registered Cortex profile alias", body = MemoryProfileRegistrationResponse)),
+    tag = "memory",
+)]
+pub async fn register_memory_profile(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<MemoryProfileRegistrationRequest>,
+) -> Result<Json<MemoryProfileRegistrationResponse>, AppError> {
+    check_internal_api_rate_limit(&state).await?;
+    check_oracle_api_key(&state, &headers)?;
+    let profile_id = req.profile_id.trim();
+    let agent_id = req.agent_id.trim();
+    if profile_id.is_empty() || agent_id.is_empty() {
+        return Err(AppError::BadRequest("profile_id and agent_id are required".to_string()));
+    }
+    if db::get_agent(&state.pool, agent_id).await?.is_none() {
+        return Err(AppError::AgentNotFound(agent_id.to_string()));
+    }
+    db::upsert_memory_profile(&state.pool, profile_id, agent_id).await?;
+    if db::get_memory_profile_agent(&state.pool, profile_id).await?.as_deref() != Some(agent_id) {
+        return Err(AppError::BadRequest("profile_id is already registered to a different agent".to_string()));
+    }
+    Ok(Json(MemoryProfileRegistrationResponse { profile_id: profile_id.to_string(), agent_id: agent_id.to_string(), registered: true }))
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct MemoryAnchorRequest {
+    pub profile_id: String,
+    pub agent_id: String,
+    pub session_id: String,
+    pub root_hash: String,
+    pub leaf_count: i32,
+    pub idempotency_key: String,
+    #[serde(default)]
+    pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct MemoryAnchorResponse {
+    pub id: Uuid,
+    pub profile_id: String,
+    pub agent_id: String,
+    pub session_id: String,
+    pub root_hash: String,
+    pub leaf_count: i32,
+    pub anchored_at: String,
+    pub idempotent: bool,
+}
+
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct MemoryAnchorQuery {
+    pub profile_id: String,
+    pub limit: Option<i64>,
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/memory/anchor",
+    request_body = MemoryAnchorRequest,
+    responses((status = 200, description = "DID-bound Cortex session anchor", body = MemoryAnchorResponse)),
+    tag = "memory",
+)]
+pub async fn create_memory_anchor(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<MemoryAnchorRequest>,
+) -> Result<Json<MemoryAnchorResponse>, AppError> {
+    check_internal_api_rate_limit(&state).await?;
+    check_oracle_api_key(&state, &headers)?;
+    let profile_id = req.profile_id.trim();
+    let agent_id = req.agent_id.trim();
+    let session_id = req.session_id.trim();
+    let root_hash = req.root_hash.trim();
+    let idempotency_key = req.idempotency_key.trim();
+    if [profile_id, agent_id, session_id, root_hash, idempotency_key].iter().any(|v| v.is_empty()) || req.leaf_count < 0 {
+        return Err(AppError::BadRequest("profile_id, agent_id, session_id, root_hash, idempotency_key, and non-negative leaf_count are required".to_string()));
+    }
+    if db::get_memory_profile_agent(&state.pool, profile_id).await?.as_deref() != Some(agent_id) {
+        return Err(AppError::Unauthorized);
+    }
+    let (row, same) = db::insert_memory_anchor(&state.pool, profile_id, agent_id, session_id, root_hash, req.leaf_count, idempotency_key, &req.metadata).await?;
+    if row.agent_id != agent_id || !same {
+        return Err(AppError::BadRequest("idempotency key or session already belongs to a different anchor".to_string()));
+    }
+    Ok(Json(MemoryAnchorResponse { id: row.id, profile_id: row.profile_id, agent_id: row.agent_id, session_id: row.session_id, root_hash: row.root_hash, leaf_count: row.leaf_count, anchored_at: row.anchored_at.to_rfc3339(), idempotent: row.idempotency_key == idempotency_key && row.id != Uuid::nil() }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/memory/anchor",
+    params(MemoryAnchorQuery),
+    responses((status = 200, description = "DID-bound Cortex session anchors", body = Vec<MemoryAnchorResponse>)),
+    tag = "memory",
+)]
+pub async fn get_memory_anchors(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Query(query): Query<MemoryAnchorQuery>,
+) -> Result<Json<Vec<MemoryAnchorResponse>>, AppError> {
+    check_internal_api_rate_limit(&state).await?;
+    check_oracle_api_key(&state, &headers)?;
+    let profile_id = query.profile_id.trim();
+    if profile_id.is_empty() {
+        return Err(AppError::BadRequest("profile_id is required".to_string()));
+    }
+    let rows = db::get_memory_anchors(&state.pool, profile_id, query.limit.unwrap_or(50)).await?;
+    Ok(Json(rows.into_iter().map(|row| MemoryAnchorResponse { id: row.id, profile_id: row.profile_id, agent_id: row.agent_id, session_id: row.session_id, root_hash: row.root_hash, leaf_count: row.leaf_count, anchored_at: row.anchored_at.to_rfc3339(), idempotent: true }).collect()))
+}
+
+// ---------------------------------------------------------------------------------
+// CORE -> Shield signed policy publication
+// ---------------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ShieldPolicyTokenRequest {
+    pub tenant_id: String,
+    pub device_id: String,
+    pub agent_id: String,
+    pub policy: serde_json::Value,
+    pub policy_version: Option<String>,
+    pub ttl_seconds: Option<i64>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ShieldPolicyTokenResponse {
+    pub token: String,
+    pub issuer: String,
+    pub policy_hash: String,
+    pub expires_at: i64,
+}
+
+/// Issue a short-lived EdDSA JWT for the already-registered agent/device binding.
+/// Shield verifies this token with the issuer public key and never accepts an
+/// unsigned or browser-provided policy document.
+#[utoipa::path(
+    post,
+    path = "/v1/shield/policy-token",
+    request_body = ShieldPolicyTokenRequest,
+    responses((status = 200, description = "Signed Shield policy token", body = ShieldPolicyTokenResponse)),
+    tag = "shield",
+)]
+pub async fn create_shield_policy_token(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(req): Json<ShieldPolicyTokenRequest>,
+) -> Result<Json<ShieldPolicyTokenResponse>, AppError> {
+    check_internal_api_rate_limit(&state).await?;
+    check_oracle_api_key(&state, &headers)?;
+    let tenant_id = req.tenant_id.trim();
+    let device_id = req.device_id.trim();
+    let agent_id = req.agent_id.trim();
+    if tenant_id.is_empty() || device_id.is_empty() || agent_id.is_empty() || !req.policy.is_object() {
+        return Err(AppError::BadRequest("tenant_id, device_id, agent_id, and object policy are required".to_string()));
+    }
+    if db::get_agent(&state.pool, agent_id).await?.is_none() {
+        return Err(AppError::AgentNotFound(agent_id.to_string()));
+    }
+    let policy_bytes = crate::crypto::canonical_json_bytes(&req.policy);
+    let policy_hash = format!("sha256:{}", hex::encode(Sha256::digest(&policy_bytes)));
+    let now = Utc::now().timestamp();
+    let ttl = req.ttl_seconds.unwrap_or(300).clamp(30, 900);
+    let expires_at = now + ttl;
+    let jti = Uuid::new_v4().to_string();
+    let sk = crate::vc::issuer_signing_key();
+    let issuer = {
+        let mut prefixed = vec![0xed, 0x01];
+        prefixed.extend_from_slice(sk.verifying_key().as_bytes());
+        format!("did:key:z{}", bs58::encode(prefixed).into_string())
+    };
+    let header = serde_json::json!({"alg":"EdDSA","typ":"JWT"});
+    let claims = serde_json::json!({
+        "iss": issuer,
+        "aud": "shield",
+        "sub": agent_id,
+        "tenant_id": tenant_id,
+        "device_id": device_id,
+        "policy": req.policy,
+        "policy_version": req.policy_version.unwrap_or_else(|| format!("core-{}", now)),
+        "policy_hash": policy_hash,
+        "iat": now,
+        "exp": expires_at,
+        "jti": jti,
+    });
+    let encode = |value: &serde_json::Value| -> String {
+        use base64::Engine;
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(crate::crypto::canonical_json_bytes(value))
+    };
+    let signing_input = format!("{}.{}", encode(&header), encode(&claims));
+    use ed25519_dalek::Signer;
+    use base64::Engine;
+    let signature = sk.sign(signing_input.as_bytes());
+    let token = format!("{}.{}", signing_input, base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(signature.to_bytes()));
+    Ok(Json(ShieldPolicyTokenResponse { token, issuer, policy_hash, expires_at }))
 }
 
 // Provenance: an agent's on-chain-anchored history (Class B, docs/design/

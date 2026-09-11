@@ -1,11 +1,11 @@
 import { test, expect } from '@playwright/test';
 
 const APP_ROUTES = [
-  '/dashboard', '/agents', '/treasury', '/security', '/knowledge', '/developer', '/licence', '/wiki',
+  '/dashboard', '/agents', '/treasury', '/security', '/knowledge', '/fleet', '/memory', '/developer', '/licence', '/wiki',
 ];
 
 const NAV_HREFS = [
-  '/dashboard', '/agents', '/treasury', '/security', '/knowledge', '/developer', '/licence', '/wiki',
+  '/dashboard', '/agents', '/treasury', '/security', '/knowledge', '/fleet', '/memory', '/developer', '/licence', '/wiki',
 ];
 
 test.describe('authenticated navigation consistency', () => {

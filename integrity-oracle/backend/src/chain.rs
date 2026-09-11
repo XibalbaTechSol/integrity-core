@@ -596,6 +596,10 @@ impl ChainClient {
         self.chain_id
     }
 
+    pub async fn latest_block_number(&self) -> Result<u64, ChainError> {
+        self.provider.get_block_number().await.map_err(ChainError::Transport)
+    }
+
     fn registry(&self) -> IXibalbaAgentRegistry::IXibalbaAgentRegistryInstance<DynProvider> {
         IXibalbaAgentRegistry::new(self.registry_address, self.provider.clone())
     }

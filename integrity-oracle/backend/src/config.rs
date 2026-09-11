@@ -87,6 +87,9 @@ pub struct Config {
     /// Optional shared API key to authenticate internal-only endpoints 
     /// (e.g. /v1/audit/ingest, /v1/audit/anchor, and OTLP receivers).
     pub oracle_api_key: Option<String>,
+    /// Operators set this only after the directory refresh has reached the configured
+    /// chain-finality policy. It is surfaced in the snapshot envelope; default is false.
+    pub agent_directory_finalized: bool,
 }
 
 impl Config {
@@ -145,6 +148,7 @@ impl Config {
             phi_backstop_mode,
             kyc_provider_keys,
             oracle_api_key: std::env::var("ORACLE_API_KEY").ok(),
+            agent_directory_finalized: env_or("AGENT_DIRECTORY_FINALIZED", "false").parse().map_err(|_| "AGENT_DIRECTORY_FINALIZED must be true or false" )?,
         })
     }
 
@@ -174,6 +178,7 @@ impl Config {
             phi_backstop_mode: PhiBackstopMode::Reject,
             kyc_provider_keys: HashMap::new(),
             oracle_api_key: None,
+            agent_directory_finalized: false,
         }
     }
 }

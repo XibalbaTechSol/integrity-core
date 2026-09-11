@@ -15,7 +15,7 @@ use uuid::Uuid;
 /// Fixed dev seed (clearly not secret) used when `VC_ISSUER_SEED` is unset.
 const DEV_ISSUER_SEED_HEX: &str = "9d61b19deffdc4a4c1a2a2a2b8b8b8b8c3c3c3c3d4d4d4d4e5e5e5e5f6f6f6f60";
 
-fn issuer_signing_key() -> SigningKey {
+pub(crate) fn issuer_signing_key() -> SigningKey {
     let hex_seed = std::env::var("VC_ISSUER_SEED").unwrap_or_else(|_| DEV_ISSUER_SEED_HEX.to_string());
     let mut seed = [0u8; 32];
     if let Ok(bytes) = hex::decode(hex_seed.trim_start_matches("0x")) {
