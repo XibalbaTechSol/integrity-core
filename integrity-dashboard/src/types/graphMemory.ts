@@ -78,7 +78,7 @@ export interface GraphMemoryStats {
 export interface AgentMemorySummary {
     agent_id: string;
     memories: number;
-    embedded_memories: number;
+    embedded_memories: number | null;
     sessions: number;
     sources: number;
     recent_memories: Memory[];
