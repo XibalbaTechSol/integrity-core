@@ -491,9 +491,23 @@ Migration is additive — `device_token` still works, and a device with no key o
 
 §6.3's finding, closed. stdio has no HTTP layer, so no middleware ran and `current_principal()` was always None — which short-circuits every agent-scope check in `server.py`. The checks existed but enforced nothing on the transport local harnesses actually use.
 
-The server now derives a principal from `XIBALBA_AGENT_ID` at startup and **fails closed** when unset, with `XIBALBA_CORTEX_ALLOW_UNSCOPED_STDIO=1` as a deliberate, visible escape hatch. Confirmed against live processes that this binds to real, correctly separated identities: `2ea17967…` (local_api), `68fed133…` (Hermes), `7d0ecae5…` (quant).
+The server now derives a principal from `XIBALBA_AGENT_ID` at startup and **fails closed** when unset, with `XIBALBA_CORTEX_ALLOW_UNSCOPED_STDIO=1` as a deliberate, visible escape hatch.
 
 This does not claim to *authenticate* a local subprocess — it runs as the same user and can read the store directly. It prevents accidental cross-agent access, which is the actual failure mode.
+
+**Launcher audit — one gap found and fixed.** Failing closed only works if every launcher supplies the identity, and checking the *running* processes is not the same as checking the *launch config*. Every MCP server definition was audited:
+
+| Launcher | `XIBALBA_AGENT_ID` |
+|---|---|
+| `~/.hermes/config.yaml` | `did:integrity:68fed133…` |
+| Hermes `xibalba-cortex-worker` profile | `xibalba.extraction-worker` |
+| Hermes `xibalba-quant` profile | `did:integrity:7d0ecae5…` |
+| `~/.codex/config.toml` | `xibalba.agent` |
+| `~/.claude.json` | **was missing — added as `xibalba.agent`** |
+
+Claude Code's definition set only `XIBALBA_CORTEX_HOME`, so this change would have hard-failed its Cortex MCP server on next start and removed all memory tooling. Fixed in `~/.claude.json` (backup: `.claude.json.bak-pre-stdio-agent-id-20260912`). Verified both directions against the real entrypoint: it starts cleanly with the variable set, and exits with the guard message without it.
+
+`[UNVERIFIED]` **Post-restart retrieval behavior.** Binding a principal means `_bound_agent_id` now raises `PermissionError` when a tool passes an `agent_id` that differs from the launch identity — previously that call succeeded. No adapter was audited for passing an explicit `agent_id`, and no stdio call has been made under the new principal. Confirm memory retrieval still behaves as expected after the next harness restart, and check the runtime adapters for explicit `agent_id` arguments.
 
 ### 10.4 Not migrated, with reasons
 
