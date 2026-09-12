@@ -3581,3 +3581,28 @@ writeup: PRODUCTION_GAPS.md §18.
 - Added deterministic browser ABI/bytecode generation from Foundry artifacts so the UI cannot
   silently deploy stale contract code.
 - Wiki pages updated: 1. Pages created: 0. Dead links fixed: 0. Orphans resolved: 0.
+
+## [2026-09-12] docs | device-scoped hybrid Shield deployment modes
+
+- Updated `docs/SPEC-v2.0.0-proposed.md`, `spec/xibalba-shield-v1.md`, `docs/WHITEPAPER.md`, and `docs/INTERFACE_CONTRACT.md` to define three operator-selectable modes: `edge_only`, `cloud_only`, and `hybrid`.
+- Defined the hybrid model as one device-scoped logical Shield agent per enrolled device, composed of a device-bound edge installation and paired cloud runtime instance(s). A shared cloud service may host many runtimes without collapsing tenant, device, deployment, session, or runtime boundaries.
+- Preserved the evidence boundary: local enforcement and device-originated evidence belong to the enrolled edge runtime; cloud coordination and cloud records cannot be promoted to device evidence without independently verifiable edge provenance.
+- Recorded user choice explicitly: users may select edge-only, cloud-only, or hybrid operation according to their needs. Mode changes, enrollment, repair, replacement, pairing, and succession remain auditable lifecycle events.
+- Status: v2 language is proposed; the current active normative specification and Shield implementation still require reconciliation and implementation evidence before production claims.
+- Adversarial review identified acceptance requirements still needing explicit implementation: one active device binding with fencing, mutual edge/cloud pairing, signed provenance envelopes, lifecycle state machines for repair/replacement/transfer, tenant-scoped cache and queue isolation, policy freshness and rollback controls, monotonic counters, loss-interval accounting, and fleet-scale idempotency.
+- Verification: `git diff --check` passed. No implementation or deployment behavior was changed by this documentation update.
+
+## [2026-09-12] ops | bounded protocol CI watch
+
+- Audited the remaining local scheduler loops and live GitHub state for `integrity-core`,
+  `xibalba-cortex`, and `xibalba-shield`.
+- Confirmed the current default branches had no open pull requests and recent runs were green;
+  historical Shield failures were localized to missing `uv` in the runner, a missing `cortex_url`
+  CLI namespace field, and stale wiki table-of-contents metadata.
+- Replaced the local CI watcher with a read-only, deduplicated detector that inspects failed jobs
+  and open pull-request merge blockers, reports exact URLs, and never reruns, edits, merges, or
+  closes anything automatically.
+- Remaining improvement boundary: queue preflight for the Cortex and wiki workers, durable
+  backoff/dead-letter metrics, and approval-gated exact-branch repair remain future work.
+- Verification: live watcher execution completed successfully with no current incidents; its
+  production alert state was not modified during verification.

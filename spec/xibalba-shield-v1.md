@@ -95,6 +95,18 @@ xibalba-shield/
 
 ---
 
+## 3. Deployment Architecture
+
+Shield is a device-scoped hybrid agent with operator-selectable deployment modes. Users MAY choose:
+
+- **Edge-only:** one device-bound Shield installation performs sensing, policy evaluation, local enforcement, and evidence queueing without requiring a cloud round trip.
+- **Cloud-only:** a cloud Shield runtime protects cloud workloads and uses the Integrity/Cortex interfaces, but makes no physical-device coverage claim unless an independently verified device binding exists.
+- **Hybrid:** one device-bound edge installation is paired with one or more authenticated cloud runtime instances for policy distribution, fleet management, analytics, and Cortex integration.
+
+The logical unit is **one Shield agent per enrolled device**. This does not require one dedicated cloud process per device: a multi-tenant cloud service MAY host many cloud runtimes, provided that tenant, device, agent, deployment, session, and runtime boundaries remain explicit. Edge and cloud runtimes use separate purpose-bound credentials. Cloud coordination cannot by itself create device-originated evidence; device claims require verifiable evidence from the enrolled edge installation.
+
+The edge runtime remains authoritative for local enforcement and continues to apply its last valid policy under cloud outage or latency. A cloud command is accepted only after local pairing, authorization, freshness, and replay checks. Reinstallation, device replacement, mode changes, pairing changes, and cloud-runtime succession are auditable lifecycle events.
+
 ## 3. Device-Side Architecture
 
 On each supported endpoint, Shield runs as **one lightweight process** composed of cooperating
@@ -149,6 +161,8 @@ Responsibilities:
 - Route each normalized event through the Policy Engine (§4.3) and, for agent/LLM-boundary
   events, through the Guardrail Hooks (§4.4).
 - Own the local queue feeding the Integrity Exporter (§4.5) — retries, batching, backpressure.
+
+The Agent Core is the edge half of the device-scoped hybrid Shield agent. In `hybrid` mode it maintains an authenticated pairing with the cloud runtime, but the cloud runtime is not a second Shield agent for that device and cannot override local fail-closed policy without an accepted local decision.
 
 ### 4.3 Policy Engine
 

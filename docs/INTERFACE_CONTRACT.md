@@ -28,6 +28,17 @@ layer — a component of this repository, not an external one; it consumes the s
 interfaces as any other consumer, with no privileged path. The cross-repository dependency
 map is `docs/architecture/ecosystem-dependencies.md` and `docs/wiki/architecture/ecosystem-dependencies.md`.
 
+### Shield deployment and identity boundary
+
+Shield supports `edge_only`, `cloud_only`, and `hybrid` deployment modes. In `hybrid`, one
+device-scoped logical Shield agent consists of one device-bound edge installation plus paired
+cloud runtime instance(s). A shared cloud service may host many cloud runtimes; it must preserve
+tenant, device, agent, deployment, session, and runtime scope. Edge and cloud credentials are
+separate purpose-bound credentials. Only the enrolled edge installation can produce
+device-originated evidence; cloud records cannot be promoted to device evidence without an
+independently verifiable edge provenance reference. Mode changes, enrollment, repair,
+replacement, pairing, and succession are lifecycle events rather than silent identity changes.
+
 Ground rule for this rewrite: **no silent mocks**. Every previously-stubbed
 piece (ZK proving, TEE attestation, OPA policy evaluation, on-chain BAA
 checks, Merkle anchoring) must be a real, working implementation, tested
