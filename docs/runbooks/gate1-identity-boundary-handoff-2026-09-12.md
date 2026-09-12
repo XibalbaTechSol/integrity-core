@@ -93,29 +93,53 @@ Full backup taken before any copy: `~/.integrity-migration-backup-20260912-18154
 - `scripts/register_shield_with_funder.sh` still checks the old flat CLI path for `IDENTITY_NAME`. Already
   known to target the wrong DID regardless (see the on-chain registration item below) — fix both together.
 
+## Done and pushed, third pass — AgentSubject (§4.1/§11 Gate 1 bullet 1)
+
+Implemented as `integrity-sdk/integrity_sdk/agent_subject.py`: an append-only
+`agent_subjects.jsonl` alongside the per-agent directories under `did.did_home()`
+(`$INTEGRITY_DID_HOME`), using §9.2's mapping-record field set verbatim. `MappingType.SAME_SUBJECT`
+declares two labels are the same logical agent; `MappingType.DISTINCT_SUBJECT` declares a reviewed
+non-identity. `resolve_subject(label)` follows only active `SAME_SUBJECT` edges to a connected
+component and returns its lexicographically smallest member — **explicitly documented as not a
+stable identifier to persist elsewhere**, since a later mapping can pull a smaller label into an
+existing component and change what an unrelated label resolves to. `record_mapping` fails closed
+(`SubjectConflictError`) both on a direct contradiction (opposite mapping type already active for
+the same pair) and transitively (a `SAME_SUBJECT` edge that would merge across an existing
+`DISTINCT_SUBJECT` edge through some other label) — corrections require `revoke_mapping` first,
+which appends a new `REVOKED` record pointing at the original via `predecessor_mapping_id` rather
+than editing history in place. 17 tests in `tests/unit/test_agent_subject.py`, all passing
+alongside the full `did.py` suite.
+
+Deliberately NOT auto-seeded: `created_by_principal` is supposed to be the human who reviewed the
+evidence, not this session quoting its own audit back to itself. `integrity-sdk/scripts/
+seed_agent_subjects.py` documents the exact two real correspondences the audit found —
+`xibalba-shield`≡`shield-replacement`, `xibalba`≠`xibalba-healthcare-cli` — with full basis text,
+but the user needs to actually run it (`cd integrity-sdk && .venv/bin/python
+scripts/seed_agent_subjects.py`) for the record to exist and to be the real reviewing principal on
+it.
+
+Scope note: this is SDK-only and read/write plumbing only — nothing in `integrity-cli`, the
+oracle, or Shield/Cortex reads `agent_subjects.jsonl` yet, so it records review but doesn't gate
+any behavior. Spec marked `[PARTIAL]`, not `[BUILT]`, for exactly this reason.
+
 ## Not started
 
-1. **AgentSubject persistence** (§4.1/§11 Gate 1 bullet 1) — real design work, deliberately not started.
-   F2 is now resolved (see above), which was the blocking prerequisite. With one canonical storage
-   location settled, `AgentSubject`'s actual job is narrower than originally scoped: an explicit,
-   human-declared mapping from label/DID to logical agent (the thing that would have caught
-   `xibalba-shield`/`shield-replacement` as "the same agent" and `xibalba`'s two collisions as "different
-   agents" — storage unification alone can do neither). Start by rereading spec §4.1–§4.3 and
-   `docs/wiki/concepts/foundational-primitives.md`, then decide where this mapping lives (new contract vs.
-   off-chain index vs. an integrity-sdk module) and its minimal schema.
-2. **The actual on-chain registration** — repoint `scripts/register_shield_with_funder.sh` (or a new
+1. **The actual on-chain registration** — repoint `scripts/register_shield_with_funder.sh` (or a new
    script) at the SDK-store DID `2ea17967f7a65589d570ca7e800844701fb36e6aa7374243e8766de8651f6bc4`
    (confirmed unregistered on Base Sepolia per the audit's §2.1 on-chain readback — no history to
    preserve, so this is the right target) rather than the CLI-store `shield-replacement` identity. User
    explicitly deferred this — needs a private key entered interactively and a real broadcast, with the
    user present. **Do not run `register_shield_with_funder.sh` as currently written** — it targets the
    wrong DID.
-3. Untracked files from before this session, still untracked, related to that registration attempt:
+2. Untracked files from before this session, still untracked, related to that registration attempt:
    `integrity-core/contracts/fund-deployment-wallet.html`,
    `integrity-core/docs/runbooks/shield-registration-handoff-2026-09-11.md`,
    `integrity-core/scripts/register_shield_with_funder.sh`. Left alone deliberately — decide what to do
-   with them alongside item 2.
-4. The live systemd fix from `3569781` above (item under xibalba-shield) — needs root + user presence.
+   with them alongside item 1.
+3. The live systemd fix from `3569781` above (item under xibalba-shield) — needs root + user presence.
+4. Run `integrity-sdk/scripts/seed_agent_subjects.py` yourself (see the AgentSubject section
+   above) so the two real correspondences the audit found are actually recorded with you as the
+   reviewing principal — not run automatically by this session.
 
 ## Orientation for whoever resumes
 

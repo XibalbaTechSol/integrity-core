@@ -532,7 +532,18 @@ The following controls remain required before production claims:
 
 ### Gate 1 — Identity boundary
 
-- define and persist `AgentSubject`;
+- `[PARTIAL]` define and persist `AgentSubject` — closed 2026-09-12 (tri-repo audit's F2
+  follow-up): `integrity-sdk/integrity_sdk/agent_subject.py` implements the §9.2 mapping-record
+  shape as an append-only `agent_subjects.jsonl` alongside the per-agent DID directories
+  (`did.did_home()`), with `SAME_SUBJECT`/`DISTINCT_SUBJECT` declarations, revoke-then-reverse
+  correction (never in-place edits), and transitive-conflict rejection (a `SAME_SUBJECT` edge
+  that would merge two labels already reviewed distinct is refused, not silently applied).
+  Records are human-reviewed declarations, not something code infers or seeds on its own —
+  `scripts/seed_agent_subjects.py` documents but does not auto-run the two real correspondences
+  the audit found (`xibalba-shield`≡`shield-replacement`, `xibalba`≠`xibalba-healthcare-cli`);
+  the user runs it once, as the reviewing principal. `[PARTIAL]` rather than `[BUILT]`: no CLI
+  command exposes this yet (SDK-only), and nothing in `integrity-cli` or the oracle reads it —
+  it doesn't yet gate registration or migration behavior, it only records the review.
 - define ERC-8004 mapping and pin the exact draft revision;
 - define verification-key history, rotation, revocation, and recovery;
 - keep Shield device identity separate;
