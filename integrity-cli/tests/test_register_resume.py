@@ -133,7 +133,7 @@ def test_agent_register_resumes_from_partial_failure_without_redeploying(deploye
 
     from integrity_cli import identity
 
-    progress_path = identity.IDENTITY_DIR / "default.registration_progress.json"
+    progress_path = identity.agent_dir("default") / "registration_progress.json"
     assert progress_path.exists(), first.stdout
     progress = json.loads(progress_path.read_text())
     assert progress["sovereign_agent"].startswith("0x")
@@ -145,7 +145,7 @@ def test_agent_register_resumes_from_partial_failure_without_redeploying(deploye
     assert "reusing already-deployed SovereignAgent" in second.stdout
     assert "reusing already-deployed StateAnchor" in second.stdout
 
-    primitives_path = identity.IDENTITY_DIR / "default.primitives.json"
+    primitives_path = identity.agent_dir("default") / "primitives.json"
     result = json.loads(primitives_path.read_text())
     assert result["sovereign_agent"].lower() == progress["sovereign_agent"].lower()
     assert result["state_anchor"].lower() == progress["state_anchor"].lower()
@@ -164,11 +164,11 @@ def test_agent_register_is_idempotent_for_an_already_registered_did(deployed_cha
 
     from integrity_cli import identity
 
-    first_primitives = json.loads((identity.IDENTITY_DIR / "default.primitives.json").read_text())
+    first_primitives = json.loads((identity.agent_dir("default") / "primitives.json").read_text())
 
     second = runner.invoke(app, _register_args(deployed_chain))
     assert second.exit_code == 0, second.stdout
     assert "already registered on-chain" in second.stdout
 
-    second_primitives = json.loads((identity.IDENTITY_DIR / "default.primitives.json").read_text())
+    second_primitives = json.loads((identity.agent_dir("default") / "primitives.json").read_text())
     assert second_primitives["sovereign_agent"].lower() == first_primitives["sovereign_agent"].lower()

@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 from rich.console import Console
 
-from integrity_cli import bcc, config, identity
+from integrity_cli import bcc, config, identity, wallet
 from integrity_cli import main as main_module
 
 
@@ -27,6 +27,10 @@ def isolated_home(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "CONFIG_FILE", config_dir / "config.json")
     monkeypatch.setattr(identity, "IDENTITY_DIR", identity_dir)
     monkeypatch.setattr(bcc, "NONCE_STATE_FILE", identity_dir / "nonces.json")
+    # wallet.py now has its own storage root (matching integrity-sdk's separate
+    # INTEGRITY_WALLET_HOME) rather than piggybacking on identity.IDENTITY_DIR --
+    # redirect it explicitly so tests don't touch a real ~/.integrity/wallet.
+    monkeypatch.setattr(wallet, "WALLET_DIR", config_dir / "wallet")
 
     for env_var in ("ORACLE_URL", "BCC_MIDDLEWARE_URL", "AUTH_TOKEN", "ENVIRONMENT"):
         monkeypatch.delenv(env_var, raising=False)

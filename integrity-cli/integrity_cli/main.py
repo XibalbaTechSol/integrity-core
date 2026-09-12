@@ -163,7 +163,9 @@ def identity_keygen(
     Generate a new Ed25519 keypair and print its DID document
     (INTERFACE_CONTRACT.md section 4.1).
 
-    The private key is written to ~/.integrity-cli/identity/<name>.pem
+    The private key is written to $INTEGRITY_DID_HOME/<name>/private_key.pem
+    (default ~/.integrity/did/<name>/private_key.pem -- the same location
+    integrity-sdk uses, see identity.py's module docstring)
     (file mode 0600) and is never printed to the terminal.
     """
     try:
@@ -229,7 +231,7 @@ def _registration_progress_path(identity_name: str):
     `<name>.primitives.json` (written only on full success) so the two can never be
     confused -- this file's existence means "incomplete," the other's means "done."
     """
-    return identity.IDENTITY_DIR / f"{identity_name}.registration_progress.json"
+    return identity.agent_dir(identity_name) / "registration_progress.json"
 
 
 def _load_registration_progress(identity_name: str) -> Optional[dict]:
@@ -443,8 +445,8 @@ def agent_register(
             domain_id=existing.domain_id,
             oracle_registered=False,
         )
-        doc_path = identity.IDENTITY_DIR / f"{identity_name}.document.json"
-        primitives_path = identity.IDENTITY_DIR / f"{identity_name}.primitives.json"
+        doc_path = identity.document_path(identity_name)
+        primitives_path = identity.agent_dir(identity_name) / "primitives.json"
         doc_path.write_text(json.dumps(doc, indent=2) + "\n")
         primitives_path.write_text(json.dumps(registration.to_dict(), indent=2) + "\n")
         _clear_registration_progress(identity_name)
@@ -668,10 +670,10 @@ def agent_register(
         oracle_registered=False,
     )
 
-    # Persist next to the identity's own files (<name>.pem, <name>.wallet.json),
-    # same convention -- mirrors integrity-sdk's document.json/primitives.json.
-    doc_path = identity.IDENTITY_DIR / f"{identity_name}.document.json"
-    primitives_path = identity.IDENTITY_DIR / f"{identity_name}.primitives.json"
+    # Persist in the identity's own directory alongside private_key.pem/keystore.json --
+    # the exact same location and file names integrity-sdk's registration.py uses.
+    doc_path = identity.document_path(identity_name)
+    primitives_path = identity.agent_dir(identity_name) / "primitives.json"
     doc_path.write_text(json.dumps(doc, indent=2) + "\n")
     primitives_path.write_text(json.dumps(registration.to_dict(), indent=2) + "\n")
     # registerPrimitives just succeeded -- resolve_did's idempotency check (top of this

@@ -11,7 +11,7 @@ def _wallet_password(monkeypatch):
 
 
 def _keystore_path(name: str):
-    return identity.IDENTITY_DIR / f"{name}.wallet.json"
+    return wallet.wallet_dir(name) / "keystore.json"
 
 
 def test_generate_creates_and_persists_keystore():
