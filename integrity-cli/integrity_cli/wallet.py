@@ -16,17 +16,13 @@ bit-for-bit reuse between the two key types.
 This is a CLI-local reimplementation, not an import of integrity_sdk.wallet
 -- see identity.py's module docstring for why this package deliberately
 duplicates identity/wallet logic instead of depending on the sibling SDK
-package while both are still in flux. The on-disk format and library calls
-are the same (Ethereum V3 encrypted keystore via eth_account); only the
-storage path convention differs, to match this CLI's own layout:
-~/.integrity-cli/identity/<name>.wallet.json, alongside identity.py's
-~/.integrity-cli/identity/<name>.pem -- the two files are siblings for the
-same local identity, distinguished only by extension. Note this module reads
-identity.IDENTITY_DIR *inside* each function (not a copied module-level
-constant) so that tests which monkeypatch identity.IDENTITY_DIR (see
-tests/conftest.py's isolated_home fixture) transparently also redirect
-wallet storage -- no separate test scaffolding needed to keep the two paths
-in sync.
+package while both are still in flux. The on-disk format, library calls, AND
+storage path convention now all match integrity-sdk's wallet.py exactly:
+$INTEGRITY_WALLET_HOME/<name>/keystore.json (default ~/.integrity/wallet),
+the same location and layout the SDK uses (tri-repo audit 2026-09-12, F2 --
+see identity.py's module docstring for the full rationale). Previously this
+colocated the keystore inside identity.IDENTITY_DIR under a different root
+than the SDK's wallet storage; that's now fixed the same way DID storage was.
 
 Storage posture is intentionally stronger than identity.py's plain PEM: this
 key signs real value-bearing transactions (contract deploys, ITK transfers),
@@ -48,8 +44,6 @@ from typing import Optional
 from eth_account import Account
 from eth_account.signers.local import LocalAccount
 from eth_utils import to_checksum_address
-
-from . import identity
 
 # Registers extended key-derivation/message-signing functionality onto
 # `Account` (HD wallets, EIP-712, etc.) -- not strictly required for the
@@ -82,8 +76,24 @@ class WalletDecryptionError(RuntimeError):
     §3, mirrors integrity-sdk's wallet.py."""
 
 
+def _default_wallet_dir() -> Path:
+    override = os.getenv("INTEGRITY_WALLET_HOME")
+    if override:
+        return Path(override).expanduser()
+    return Path.home() / ".integrity" / "wallet"
+
+
+# Mirrors integrity-sdk's wallet.py::_default_wallet_home(). A plain module
+# attribute, like identity.IDENTITY_DIR, so tests can monkeypatch it directly.
+WALLET_DIR = _default_wallet_dir()
+
+
+def wallet_dir(name: str) -> Path:
+    return WALLET_DIR / name
+
+
 def _wallet_path(name: str) -> Path:
-    return identity.IDENTITY_DIR / f"{name}.wallet.json"
+    return wallet_dir(name) / "keystore.json"
 
 
 def _load_keystore(keystore_path: Path, password: str) -> LocalAccount:
@@ -142,7 +152,7 @@ def generate_or_load_evm_wallet(name: str = "default") -> LocalAccount:
     loads the winner's instead. Mirrors integrity-sdk's wallet.py fix
     exactly (same bug, duplicated logic, both packages fixed identically).
     """
-    identity.IDENTITY_DIR.mkdir(parents=True, exist_ok=True)
+    wallet_dir(name).mkdir(parents=True, exist_ok=True)
     keystore_path = _wallet_path(name)
 
     password = _wallet_password()

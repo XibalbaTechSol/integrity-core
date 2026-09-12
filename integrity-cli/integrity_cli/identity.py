@@ -12,6 +12,21 @@ explicit about that), producing the exact same DID document shape the
 contract specifies, so integrity-oracle can consume it unmodified whichever
 package generated it.
 
+Storage location and layout now match integrity-sdk's did.py exactly --
+$INTEGRITY_DID_HOME (default ~/.integrity/did), one subdirectory per
+identity name holding private_key.pem and document.json. This is a
+deliberate change (tri-repo audit 2026-09-12, F2): the DID document shape
+was already byte-for-byte identical between the two packages, but each
+persisted it under a different root (~/.integrity-cli/identity vs
+~/.integrity/did), so the SAME name/agent_id could silently end up with
+TWO DIFFERENT DIDs depending on which tool touched it first -- exactly what
+happened to Shield's "shield-replacement" identity. Unifying the storage
+location closes that permanently: this CLI still implements its own
+independent code (no import of integrity_sdk), it just agrees with the SDK
+on where state lives, so nothing can diverge again. See
+docs/runbooks/gate1-identity-boundary-handoff-2026-09-12.md for the full
+reconciliation this required for identities that had already diverged.
+
 Key storage is intentionally simple: a PKCS8 PEM file on disk, mode 0600.
 This is a developer CLI for local/dev use, not a production KMS -- don't
 reuse these keys for anything that matters.
@@ -30,7 +45,26 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PublicKey,
 )
 
-IDENTITY_DIR = Path.home() / ".integrity-cli" / "identity"
+
+def _default_identity_dir() -> Path:
+    override = os.getenv("INTEGRITY_DID_HOME")
+    if override:
+        return Path(override).expanduser()
+    return Path.home() / ".integrity" / "did"
+
+
+# Base directory holding one subdirectory per identity name -- mirrors
+# integrity-sdk's did.py::_default_did_home(). A plain module attribute
+# (not a function) so existing tests can monkeypatch it directly, same
+# pattern as before this change.
+IDENTITY_DIR = _default_identity_dir()
+
+
+def agent_dir(name: str) -> Path:
+    """Per-identity directory: IDENTITY_DIR/<name>/, matching integrity-sdk's
+    did.py::agent_dir nested layout exactly (private_key.pem, document.json,
+    and any other per-identity file colocated the same way)."""
+    return IDENTITY_DIR / name
 
 # Multicodec varint prefix for "ed25519-pub" (0xed, 0x01), per the
 # multiformats table used by the did:key method / Ed25519VerificationKey2020.
@@ -83,7 +117,13 @@ def _fingerprint(public_bytes: bytes) -> str:
 
 
 def _key_path(name: str) -> Path:
-    return IDENTITY_DIR / f"{name}.pem"
+    return agent_dir(name) / "private_key.pem"
+
+
+def document_path(name: str) -> Path:
+    """Public so main.py can persist/read the DID document alongside the key,
+    at the same path integrity-sdk's registration.py writes/reads."""
+    return agent_dir(name) / "document.json"
 
 
 def identity_exists(name: str = "default") -> bool:
@@ -102,7 +142,7 @@ def generate_identity(name: str = "default", force: bool = False) -> dict:
         raise FileExistsError(
             f"Identity '{name}' already exists at {path}. Use --force to overwrite."
         )
-    IDENTITY_DIR.mkdir(parents=True, exist_ok=True)
+    agent_dir(name).mkdir(parents=True, exist_ok=True)
     private_key = Ed25519PrivateKey.generate()
     pem = private_key.private_bytes(
         encoding=serialization.Encoding.PEM,

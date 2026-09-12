@@ -280,7 +280,7 @@ def test_agent_register_succeeds_against_real_oracle(oracle_backend, deployed_ch
     # `oracle_registered` field is always stale/False on disk; the DID and
     # primitive addresses it carries are what matter here) rather than
     # fragile-parsing rich's colored/pretty-printed stdout.
-    primitives_path = tmp_path / ".integrity-cli" / "identity" / "default.primitives.json"
+    primitives_path = tmp_path / ".integrity-cli" / "identity" / "default" / "primitives.json"
     assert primitives_path.exists(), f"expected {primitives_path} to exist after a successful register"
     body = json.loads(primitives_path.read_text())
 

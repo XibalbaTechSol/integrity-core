@@ -25,6 +25,7 @@ def test_base58btc_encode_matches_known_vectors():
 def test_generate_identity_creates_key_file_with_restricted_permissions():
     doc = identity.generate_identity("default")
     path = identity._key_path("default")
+    assert path.parent == identity.agent_dir("default")
     assert path.exists()
     # Private key material must not be world/group readable.
     mode = stat.S_IMODE(path.stat().st_mode)
