@@ -42,31 +42,46 @@ finishing; resume here.
 encryption. **This is not a real fix, just damage control** — the user should move that password into
 an actual secret manager and delete the file. Never read/printed its contents.
 
-## Not started — still "all of the above"
+**Second pass, after user said "all of the above" again:**
+- `312661b`/`338d424` **ERC-8004 §5.1**: content hash pinned. Fetched `ERCS/erc-8004.md` at the exact
+  pinned commit via `gh api repos/ethereum/ERCs/contents/...?ref=<commit>`, verified the blob hash via a
+  second, independent path (the commit's git tree object), sha256
+  `249dc3d96ad7bbe4afd25cacd14be942eb87751abcf1608bab19a610f3c3f8a9`. Recorded in
+  `docs/INTERFACE_CONTRACT.md` §6.1a, `SPEC-v2.0.0-proposed.md` §5.1/§14, and as an on-chain-readable
+  constant `ERC8004_DRAFT_CONTENT_SHA256` on `IntegrityIdentityReadV1.sol`, with a pinning test.
+- `04ef862` **corrected `isERC8004Conformant()` from a false `true` to `false`** on
+  `IntegrityERC8004Registry.sol` — the pinned ERC-8004 text requires transferability
+  ("the owner... can transfer ownership"); this contract is deliberately soulbound (`transferFrom`
+  always reverts), so it cannot conform. This was disprovable, not just unverified. Also documented the
+  contract in `INTERFACE_CONTRACT.md` §6.1b for the first time (existed since `41385d6` with zero doc
+  coverage), and corrected two stale spec rows (§6.3, §12, Gate 2 checklist) claiming the
+  IntegrityKernel/IntegrityAccount fixtures fail in setup — they don't (121+7 tests pass).
 
-1. **AgentSubject persistence** (§4.1/§11 Gate 1 bullet 1) — real design work, not done. Open questions:
-   where does it live (new contract? off-chain index in Cortex? a new integrity-sdk module?), what's the
-   minimal schema per §4.1's table, how does it map to the existing `did:integrity:` + `XibalbaAgentRegistry`
-   on-chain model without duplicating authority. Start by rereading spec §4.1–§4.3 and
-   `docs/wiki/concepts/foundational-primitives.md`.
-2. **ERC-8004 revision content hash** (§5.1) — revision `ethereum/ERCs@503591a6e80e6e1affdd6403341e25269141f046`
-   is already pinned in `contracts/src/kernel/IntegrityERC8004Registry.sol:36` and
-   `docs/INTERFACE_CONTRACT.md:521`, but no content hash accompanies it. Needs fetching the actual
-   referenced ERC document at that commit and hashing it — will need `WebFetch` (deferred tool, not yet
-   loaded this session).
-3. **The actual on-chain registration** — repoint `scripts/register_shield_with_funder.sh` (or a new
+## Not started
+
+1. **AgentSubject persistence** (§4.1/§11 Gate 1 bullet 1) — real design work, deliberately not started.
+   Advisor guidance taken this session: don't design it before the user decides **F2** — the SDK/CLI
+   identity-store split is documented in `CLAUDE.md` as a deliberate architecture choice ("integrity-cli
+   does NOT hard-depend on integrity-sdk... independent reimplementation, not a wrapper"), and
+   `AgentSubject` is precisely the object meant to resolve that split. Designing it against an unsettled
+   F2 risks building on the wrong foundation. **Put this decision to the user before starting:** does F2
+   stay as two independently-implemented stores unified only by an `AgentSubject` mapping layer, or does
+   one store become authoritative and the other a reader? That answer shapes where `AgentSubject` lives
+   (new contract vs. off-chain index vs. an integrity-sdk module) and its minimal schema. Reread spec
+   §4.1–§4.3 and `docs/wiki/concepts/foundational-primitives.md` first.
+2. **The actual on-chain registration** — repoint `scripts/register_shield_with_funder.sh` (or a new
    script) at the SDK-store DID `2ea17967f7a65589d570ca7e800844701fb36e6aa7374243e8766de8651f6bc4`
    (confirmed unregistered on Base Sepolia per the audit's §2.1 on-chain readback — no history to
    preserve, so this is the right target) rather than the CLI-store `shield-replacement` identity. User
    explicitly deferred this — needs a private key entered interactively and a real broadcast, with the
    user present. **Do not run `register_shield_with_funder.sh` as currently written** — it targets the
    wrong DID.
-4. Untracked files from before this session, still untracked, related to that registration attempt:
+3. Untracked files from before this session, still untracked, related to that registration attempt:
    `integrity-core/contracts/fund-deployment-wallet.html`,
    `integrity-core/docs/runbooks/shield-registration-handoff-2026-09-11.md`,
    `integrity-core/scripts/register_shield_with_funder.sh`. Left alone deliberately — decide what to do
-   with them alongside item 3.
-5. The live systemd fix from `3569781` above (item under xibalba-shield) — needs root + user presence.
+   with them alongside item 2.
+4. The live systemd fix from `3569781` above (item under xibalba-shield) — needs root + user presence.
 
 ## Orientation for whoever resumes
 
