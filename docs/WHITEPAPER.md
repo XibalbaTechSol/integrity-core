@@ -1202,6 +1202,18 @@ It is tempting to present the two as a joint guarantee — the kernel covering o
 
 Complete mediation as defined in §2.4 is stated strictly over paths by which *the account's state* can change; extending the term to host-space would break the proof it names, since Proposition 1 quantifies over on-chain actions $a_k$ only.
 
+#### 9.4.1 Shield deployment choices
+
+Xibalba Shield is designed as a **device-scoped hybrid agent**, while allowing users to select the deployment shape that fits their needs. A user may run Shield in one of three modes:
+
+1. **Edge-only:** a device-bound installation performs local sensing, policy evaluation, containment, offline enforcement, and signed evidence queueing.
+2. **Cloud-only:** a cloud runtime protects workloads that do not require physical-endpoint enforcement. It may use Integrity and Cortex, but it must not claim that a physical device was observed or protected without a separately verified device binding.
+3. **Hybrid:** one enrolled device has one logical Shield agent composed of its device-bound edge runtime and paired cloud runtime instances. The edge remains responsible for local enforcement and device-originated evidence; the cloud supplies coordination, fleet management, analytics, policy distribution, and Cortex integration.
+
+“One agent per device” describes the logical device-scoped relationship, not a requirement for one dedicated cloud process per device. A shared cloud service may host many cloud runtimes, but it must preserve tenant, device, deployment, session, and runtime boundaries. Cloud logs or cloud instructions do not become device evidence merely because they refer to a device. Device-originated claims require verifiable evidence from the enrolled edge installation.
+
+Users therefore do not have to choose between endpoint protection and cloud operation as a universal product decision. They can deploy edge-only, cloud-only, or both together. The security boundary remains explicit: the edge protects the device; the cloud coordinates the hybrid agent; Integrity preserves and evaluates the evidence; Cortex manages the authorized memory and provenance plane.
+
 **Where host-side agents legitimately contribute:**
 
 1. **Evidence production.** Signed, timestamped decision records feed element 3 of §5.5 ("make the ledger the evidence") and are genuinely useful for incident forensics and compliance narrative.

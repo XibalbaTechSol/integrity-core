@@ -84,6 +84,10 @@ Core MUST NOT import or require Shield or Cortex to define its base protocol. Sh
 
 Shield is the endpoint-security product. It owns device sensing, enrollment, posture, local enforcement, installation credentials, and device-bound recovery. Shield MAY publish or consume an agent discovery handle, but its device identity MUST remain separate from a portable logical runtime identity.
 
+Shield MAY be deployed in three operator-selected forms: edge-only, cloud-only, or hybrid. In hybrid mode, each enrolled device has exactly one device-scoped logical Shield agent composed of a device-bound edge runtime and one or more paired cloud runtime instances. The edge runtime owns local sensing, enforcement, offline behavior, and device-originated evidence. Cloud runtimes provide control-plane coordination, fleet management, analytics, and Cortex integration; they do not become evidence that an action occurred on the device.
+
+The one-agent-per-device rule applies to the logical Shield agent, not to the number of cloud processes. A multi-tenant cloud service MAY host many cloud runtime instances, but it MUST preserve tenant, device, agent, deployment, and runtime separation. Edge and cloud runtimes MUST use distinct purpose-bound keys and MUST authenticate their pairing. A cloud-originated command MUST be attributable to its cloud principal and accepted by the edge only after local policy, freshness, replay, and pairing checks succeed.
+
 ### 3.3 Cortex
 
 Cortex is the memory and provenance system. It owns canonical memory storage, source lineage, graph and vector projections, retrieval traces, inference task boundaries, retention, forgetting, and memory access authorization.
@@ -158,6 +162,20 @@ Missing or inconsistent key state MUST fail closed. Ordinary startup MUST NOT ge
 Shield installation identity is intentionally device-bound. Same-device repair SHOULD restore the original installation identity. A new physical device requires explicit enrollment or an audited successor relationship.
 
 Machine identity MUST NOT determine the portable agent subject, ERC-8004 `agentId`, Cortex tenant, or Integrity kernel address. A device binding is execution context and endpoint evidence, not a universal identity.
+
+### 4.5 Shield hybrid deployment modes
+
+The deployment mode is an explicit product choice:
+
+| Mode | Required runtime | Permitted role |
+|---|---|---|
+| `edge_only` | One device-bound edge runtime | Local sensing, enforcement, offline queueing, and signed device evidence |
+| `cloud_only` | One cloud runtime subject | Cloud-hosted agent protection and control-plane policy; no claim of physical-device coverage unless a separately verified device binding exists |
+| `hybrid` | One device-bound edge runtime plus paired cloud runtime instance(s) | Local enforcement and device evidence combined with cloud coordination, fleet, analytics, and Cortex services |
+
+Users MAY choose any mode according to their needs. A user MAY operate edge-only Shield on a sensitive or disconnected device, cloud-only Shield for workloads that never require endpoint enforcement, or hybrid Shield when local containment and cloud coordination are both required. Changing mode MUST be recorded as a deployment/lifecycle event and MUST NOT silently replace the logical Shield agent or its device binding.
+
+In all modes, a device-bound evidence claim requires evidence from the enrolled edge runtime. Cloud logs, cloud model output, or a cloud session alone MUST NOT be upgraded into device-originated evidence.
 
 ## 5. ERC-8004 interoperability profile
 
