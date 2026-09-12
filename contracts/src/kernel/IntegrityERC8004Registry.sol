@@ -7,7 +7,8 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {XibalbaAgentRegistry} from "../framework/XibalbaAgentRegistry.sol";
 
 /// @title IntegrityERC8004Registry
-/// @notice ERC-8004 conformant Identity Registry for the Integrity Protocol.
+/// @notice ERC-8004-shaped Identity Registry for the Integrity Protocol. Deliberately soulbound,
+/// so it is not ERC-8004 conformant -- see isERC8004Conformant() below for the exact clause it fails.
 ///
 // Design principles:
 ///
@@ -22,9 +23,15 @@ import {XibalbaAgentRegistry} from "../framework/XibalbaAgentRegistry.sol";
 ///     and on-chain metadata only. All identity resolution delegates to the underlying
 ///     registry. No duplicate identity store.
 ///
-//  4. ERC-8004 CONFORMANT — isERC8004Conformant() returns true. The agentURI MUST
-///     resolve to a document matching ERC-8004 registration file schema:
-///     { "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1", ... }
+//  4. ERC-8004-SHAPED, NOT CONFORMANT — isERC8004Conformant() returns false. This
+///     contract is soulbound (transferFrom always reverts), but the pinned ERC-8004
+///     revision (see the reference below) requires transferability: "the owner of the
+///     ERC-721 token... can transfer ownership," and agentWallet is auto-cleared "when
+///     the agent is transferred." A registry that cannot transfer cannot conform to that
+///     requirement, so this returns false rather than an unverified or false true. The
+///     agentURI still resolves to a document matching the ERC-8004 registration file
+///     schema: { "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1", ... }
+///     -- ERC-8004-shaped, deliberately non-transferable, and honest about the gap.
 ///
 //  5. MINTER ROLE — only a privileged minter (AgentPrimitivesFactory at deploy time)
 ///     can call mintSovereign / mintEnterprise.
@@ -95,10 +102,15 @@ contract IntegrityERC8004Registry is ERC721URIStorage, AccessControl {
 
     // ── ERC-8004 capability claim ──────────────────────────────────────────────
 
-    /// @notice Returns true — this contract IS ERC-8004 conformant.
-    /// @dev Contrast with IntegrityIdentityReadV1 which returns false.
+    /// @notice Returns false. This contract is soulbound and therefore cannot satisfy the
+    /// pinned ERC-8004 revision's transferability requirement -- see the header comment above
+    /// for the exact clause this fails. Per SPEC-v2.0.0-proposed.md §5.1, a source-level claim
+    /// here MUST NOT be used as independent evidence of conformance either way; this returns
+    /// the honest, disprovable-if-wrong answer rather than an aspirational one.
+    /// @dev IntegrityIdentityReadV1 also returns false, for a different reason (deliberately
+    /// custom, not ERC-8004/ERC-721 shaped at all).
     function isERC8004Conformant() external pure returns (bool) {
-        return true;
+        return false;
     }
 
     // ── Minting ────────────────────────────────────────────────────────────────

@@ -193,9 +193,12 @@ contents endpoint the file itself was fetched from -- so the sha256 above is che
 two independent sources, not one response validated against itself. Recorded in
 `docs/INTERFACE_CONTRACT.md` §6.1a and `contracts/src/kernel/IntegrityERC8004Registry.sol`'s header.
 
-Still `[PLANNED]`: this pins the revision only. `isERC8004Conformant()` returning a hardcoded
-`true` (tri-repo audit §7.3) is a separate, unresolved conformance-claim defect — pinning the
-revision does not establish that the contract actually conforms to it.
+`isERC8004Conformant()` was corrected 2026-09-12 (was a hardcoded `true`, tri-repo audit §7.3;
+now `false`) — the pinned revision text itself requires transferability
+("the owner of the ERC-721 token... can transfer ownership"), which `IntegrityERC8004Registry`'s
+soulbound design cannot satisfy. See `docs/INTERFACE_CONTRACT.md` §6.1b. Pinning the revision
+still does not itself establish semantic conformance either way — only §5.2's standard-boundary
+test gates do, and none have been run.
 
 Until semantic conformance against the pinned revision is independently tested (§5.2):
 
@@ -301,7 +304,7 @@ Before calling the kernel production-ready, the following MUST pass against one 
 - clean-build artifact and ABI verification;
 - deployment and chain readback, if deployed.
 
-Current audit finding: the focused account and registry-hook fixtures fail during setup with `Unauthorized(...)`, consistent with an account creation-nonce prediction mismatch after deploying the kernel first. This is an open test defect, not a verified kernel-logic failure.
+Corrected 2026-09-12 (tri-repo audit §7.1): this paragraph previously claimed the focused account and registry-hook fixtures fail during setup with `Unauthorized(...)`. They do not — `forge test --match-contract IntegrityAccount` (121 tests) and `--match-contract IntegrityKernel` (7 tests) both pass. Every `Unauthorized` in the account test file is a deliberate `vm.expectRevert` negative assertion inside a passing test, which is almost certainly what produced the original misreading. The named mechanism — `test/IntegrityAccount.t.sol` does use `vm.computeCreateAddress` for nonce-dependent address prediction — is real and worth being aware of, but it is not currently failing.
 
 ## 7. Evidence and authorization
 
@@ -537,7 +540,7 @@ The following controls remain required before production claims:
 
 ### Gate 2 — Kernel stabilization
 
-- repair nonce/address-prediction fixtures;
+- ~~repair nonce/address-prediction fixtures~~ — done, they were never broken (see §6.3, corrected 2026-09-12);
 - run concrete account, kernel, and registry-enabled suites;
 - rerun formal properties with every enabled configuration;
 - close gas-ceiling and adapter-path gaps;
@@ -575,10 +578,10 @@ A v2 implementation MUST NOT be called accepted, conformant, production-ready, o
 | Area | Current evidence | Proposed v2 disposition |
 |---|---|---|
 | v3.2 architecture | Explanatory whitepaper and archived copy | Preserve as rationale; reconcile into accepted clauses |
-| IntegrityKernel | Source implemented; focused fixtures currently fail in setup | Stabilize, test, then decide production integration |
-| IntegrityAccount | Source implemented; focused suite currently fails in setup | Stabilize with kernel path |
+| IntegrityKernel | Source implemented; focused fixtures pass (121+7 tests, verified 2026-09-12 — a prior "fails in setup" claim here was a misreading of deliberate `vm.expectRevert` negative assertions, tri-repo audit §7.1) | Decide production integration |
+| IntegrityAccount | Source implemented; focused suite passes (see above) | Integrate with kernel path |
 | Production account | `SovereignAgent.execute()` uses `ConstraintExecutionPolicy` | Keep until kernel migration is accepted and verified |
-| ERC-8004 registry | ERC-721-shaped source and local custom tests | Require pinned-draft semantic conformance or label custom |
+| ERC-8004 registry | ERC-721-shaped, soulbound source; `isERC8004Conformant()` corrected to `false` 2026-09-12 (was incorrectly `true`); revision pinned with content hash; local custom tests only | Require pinned-draft semantic conformance testing (§5.2) before any conformance claim |
 | `IntegrityIdentityReadV1` | Custom read facade | Preserve as explicitly non-ERC-8004 compatibility surface |
 | Shield identity | Operationally device-bound through local identity/enrollment state | Preserve device binding; remove portable-agent coupling |
 | Cortex profile isolation | Profile-local SQLite and focused identity/runtime tests | Retain for local mode; extend for multi-agent service mode |
