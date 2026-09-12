@@ -22,6 +22,13 @@ contract IntegrityIdentityReadV1 {
     bytes32 public constant INTERFACE_PROFILE = keccak256("xibalba.integrity.identity-read.v1");
     string public constant ERC8004_DRAFT_REFERENCE =
         "ethereum/ERCs@503591a6e80e6e1affdd6403341e25269141f046/ERCS/erc-8004.md";
+    /// @dev sha256 of ERCS/erc-8004.md at the exact commit above (24470 bytes), so the pinned
+    /// revision is independently checkable on-chain, not only in docs. Verified 2026-09-12: fetched
+    /// via `gh api repos/ethereum/ERCs/contents/ERCS/erc-8004.md?ref=<commit>`, and `git
+    /// hash-object` on the fetched bytes reproduced git blob 7653a80922c0bf0243669f30e7a2d4aabfe006aa,
+    /// confirming this is the exact pinned-commit content, not a substituted or edited copy.
+    bytes32 public constant ERC8004_DRAFT_CONTENT_SHA256 =
+        0x249dc3d96ad7bbe4afd25cacd14be942eb87751abcf1608bab19a610f3c3f8a9;
 
     XibalbaAgentRegistry public immutable sourceRegistry;
 

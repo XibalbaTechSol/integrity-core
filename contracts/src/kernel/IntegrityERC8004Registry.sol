@@ -34,6 +34,9 @@ import {XibalbaAgentRegistry} from "../framework/XibalbaAgentRegistry.sol";
 ///
 // References:
 //   ERC-8004: ethereum/ERCs@503591a6e80e6e1affdd6403341e25269141f046/ERCS/erc-8004.md
+//     (git blob 7653a80922c0bf0243669f30e7a2d4aabfe006aa,
+//      sha256 249dc3d96ad7bbe4afd25cacd14be942eb87751abcf1608bab19a610f3c3f8a9 -- see
+//      IntegrityIdentityReadV1.sol's ERC8004_DRAFT_CONTENT_SHA256 for the on-chain-readable form)
 //   Integrity SPEC.md §3.3  — AgentId = IntegrityDid | ERC8004TokenId
 //   INTERFACE_CONTRACT.md §6.1a — ERC-8004 boundary, isERC8004Conformant()
 //   CROSS_PLATFORM_MANAGEMENT.md §3.6 — cross-platform ERC-8004 strategy

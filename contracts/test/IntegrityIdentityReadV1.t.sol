@@ -173,6 +173,21 @@ contract IntegrityIdentityReadV1Test is Test {
         new IntegrityIdentityReadV1(address(0));
     }
 
+    /// Pins the on-chain-readable content hash to the exact bytes fetched and verified
+    /// 2026-09-12 (SPEC-v2.0.0-proposed.md §5.1) -- a change to this constant without an
+    /// accompanying, re-verified ERC8004_DRAFT_REFERENCE commit is exactly the drift this
+    /// test exists to catch.
+    function test_erc8004DraftContentHashMatchesVerifiedFetch() public {
+        assertEq(
+            identityRead.ERC8004_DRAFT_CONTENT_SHA256(),
+            bytes32(0x249dc3d96ad7bbe4afd25cacd14be942eb87751abcf1608bab19a610f3c3f8a9)
+        );
+        assertEq(
+            identityRead.ERC8004_DRAFT_REFERENCE(),
+            "ethereum/ERCs@503591a6e80e6e1affdd6403341e25269141f046/ERCS/erc-8004.md"
+        );
+    }
+
     function _register(
         string memory did,
         XibalbaAgentRegistry.PrimitiveSet memory primitiveSet,

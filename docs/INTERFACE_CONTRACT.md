@@ -529,7 +529,12 @@ contract should hold it.
 facade over `XibalbaAgentRegistry`. Its interface profile is
 `keccak256("xibalba.integrity.identity-read.v1")`. It is informed by the
 ERC-8004 draft at
-`ethereum/ERCs@503591a6e80e6e1affdd6403341e25269141f046/ERCS/erc-8004.md`,
+`ethereum/ERCs@503591a6e80e6e1affdd6403341e25269141f046/ERCS/erc-8004.md`
+(git blob `7653a80922c0bf0243669f30e7a2d4aabfe006aa`,
+sha256 `249dc3d96ad7bbe4afd25cacd14be942eb87751abcf1608bab19a610f3c3f8a9`,
+24470 bytes — both retrieved and verified 2026-09-12 via
+`gh api repos/ethereum/ERCs/contents/ERCS/erc-8004.md?ref=503591a6e80e6e1affdd6403341e25269141f046`,
+with `git hash-object` on the fetched bytes reproducing the blob hash),
 but it is deliberately **not** an ERC-8004 Identity Registry or ERC-721
 implementation. ERC-8004 remains Draft at that revision.
 
