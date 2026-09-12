@@ -569,6 +569,27 @@ Reputation Registry, or Validation Registry semantics. The registry's
 as current ownership. `isController` instead verifies a caller-supplied
 candidate against the `SovereignAgent`'s live `DEFAULT_ADMIN_ROLE`.
 
+### 6.1b IntegrityERC8004Registry
+
+`contracts/src/kernel/IntegrityERC8004Registry.sol` is a second, separate ERC-8004-related
+contract, undocumented here until 2026-09-12 despite existing in source since commit `41385d6`
+(tri-repo audit §7.3). Unlike `IntegrityIdentityReadV1` (a read-only, deliberately non-ERC-721
+facade), this one **is** an `ERC721URIStorage` contract — it mints a real token per agent
+(`tokenId = uint256(keccak256(bytes(did)))`), stores an `agentURI`, and supports on-chain
+metadata per ERC-8004 §4.2. It is deliberately **soulbound**: `transferFrom`/`safeTransferFrom`
+always revert (`Soulbound()`), because ownership is meant to track agent controller rotation, not
+be market-transferable.
+
+`isERC8004Conformant() -> false` (corrected 2026-09-12; previously and incorrectly `true`). The
+pinned ERC-8004 revision (§6.1a's reference) requires transferability — "the owner of the
+ERC-721 token... can transfer ownership," with `agentWallet` auto-cleared "when the agent is
+transferred." A soulbound registry cannot satisfy that clause, so it is ERC-8004-**shaped**
+(same token/metadata/URI conventions) but not ERC-8004-**conformant**, and now says so.
+
+Per §5.1, `isERC8004Conformant()` — from either contract — MUST NOT be used as independent
+conformance evidence regardless of which boolean it returns; only the §5.2 standard-boundary
+test gates establish conformance, and none have been run against this contract.
+
 Agent Integrity Score (AIS) remains an Integrity-native reputation signal:
 the facade returns the agent's `ReputationRegistry` primitive address but
 does not read, translate, or publish AIS through ERC-8004 feedback methods.
