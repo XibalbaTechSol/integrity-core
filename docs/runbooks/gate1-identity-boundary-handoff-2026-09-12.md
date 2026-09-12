@@ -57,18 +57,52 @@ an actual secret manager and delete the file. Never read/printed its contents.
   coverage), and corrected two stale spec rows (§6.3, §12, Gate 2 checklist) claiming the
   IntegrityKernel/IntegrityAccount fixtures fail in setup — they don't (121+7 tests pass).
 
+## F2 — resolved this session
+
+User decided: SDK's identity store (`~/.integrity/did/`) is authoritative; `integrity-cli` now reads/writes
+the same location and layout, keeping its own independent code (`1843bcf`). Full comparison of every label
+in both stores found exactly **one** literal collision — `xibalba` itself — and it was NOT a Shield-style
+orphan/real pair: both sides are genuinely distinct, live, Base-Sepolia-registered identities (SDK's
+`68fed133…` under `general.integrity`, CLI's `f96ae072…` under `healthcare.integrity`, different
+SovereignAgent/StateAnchor addresses, ~21h apart). User confirmed these are legitimately different
+registrations that only coincidentally shared a label, the same way `xibalba-shield`/`shield-replacement`
+turned out to be two different labels for arguably-the-same intended agent, just inverted (there, one
+label, meant-different; here, two real identities, same label by accident). Renamed on migration to
+`xibalba-healthcare-cli` rather than merged or discarded.
+
+**Key finding for `AgentSubject` design:** a pure label-matching migration cannot detect a Shield-style
+collision at all — `shield-replacement` (CLI) and `xibalba-shield` (SDK) are *different label strings* for
+what a human treats as the same logical agent. Only a human (or some out-of-band provenance record) can
+declare that correspondence; storage-path unification alone doesn't surface it. This is likely the actual
+job `AgentSubject` needs to do — an explicit, human-declared mapping from label/DID to logical agent,
+not just "one directory instead of two."
+
+Five other CLI-only labels with no SDK counterpart were copied (never moved) into the unified store as-is:
+`mvp-verify`, `quant`, `shield-replacement`, `xibalba-agent-01`, `xibalba-agent-02` — including their
+wallet keystores. Two (`shield-replacement`, `xibalba-agent-01`) had no `document.json`; loading them
+exercised this session's F1 fix, which reconstructed the document from the key losslessly. Every migrated
+DID verified to match its pre-migration fingerprint exactly. Every original CLI-store file is untouched.
+Full backup taken before any copy: `~/.integrity-migration-backup-20260912-181545`.
+
+**Still not done, flagged rather than fixed:**
+- `integrity-sdk/sync_telemetry.py` hardcodes `~/.integrity-cli/identity/xibalba.pem` — that's the
+  healthcare-vertical identity (`f96ae072…`), not the general one Hermes actually runs as (`68fed133…`).
+  Unclear whether that was intentional or a stale reference from before the two diverged. Ask the user
+  which identity telemetry-sync should actually sign as before touching this — it's a live behavior
+  decision (which DID shows up in oracle-recorded telemetry going forward), not a path cleanup.
+- `scripts/register_shield_with_funder.sh` still checks the old flat CLI path for `IDENTITY_NAME`. Already
+  known to target the wrong DID regardless (see the on-chain registration item below) — fix both together.
+
 ## Not started
 
 1. **AgentSubject persistence** (§4.1/§11 Gate 1 bullet 1) — real design work, deliberately not started.
-   Advisor guidance taken this session: don't design it before the user decides **F2** — the SDK/CLI
-   identity-store split is documented in `CLAUDE.md` as a deliberate architecture choice ("integrity-cli
-   does NOT hard-depend on integrity-sdk... independent reimplementation, not a wrapper"), and
-   `AgentSubject` is precisely the object meant to resolve that split. Designing it against an unsettled
-   F2 risks building on the wrong foundation. **Put this decision to the user before starting:** does F2
-   stay as two independently-implemented stores unified only by an `AgentSubject` mapping layer, or does
-   one store become authoritative and the other a reader? That answer shapes where `AgentSubject` lives
-   (new contract vs. off-chain index vs. an integrity-sdk module) and its minimal schema. Reread spec
-   §4.1–§4.3 and `docs/wiki/concepts/foundational-primitives.md` first.
+   F2 is now resolved (see above), which was the blocking prerequisite. With one canonical storage
+   location settled, `AgentSubject`'s actual job is narrower than originally scoped: an explicit,
+   human-declared mapping from label/DID to logical agent (the thing that would have caught
+   `xibalba-shield`/`shield-replacement` as "the same agent" and `xibalba`'s two collisions as "different
+   agents" — storage unification alone can do neither). Start by rereading spec §4.1–§4.3 and
+   `docs/wiki/concepts/foundational-primitives.md`, then decide where this mapping lives (new contract vs.
+   off-chain index vs. an integrity-sdk module) and its minimal schema.
 2. **The actual on-chain registration** — repoint `scripts/register_shield_with_funder.sh` (or a new
    script) at the SDK-store DID `2ea17967f7a65589d570ca7e800844701fb36e6aa7374243e8766de8651f6bc4`
    (confirmed unregistered on Base Sepolia per the audit's §2.1 on-chain readback — no history to
