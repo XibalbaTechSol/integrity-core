@@ -2,11 +2,70 @@
 
 Continuation of `docs/audits/tri-repo-audit-2026-09-12.md`. User accepted `docs/SPEC-v2.0.0-proposed.md`
 as the implementation target (not yet formally accepted per its own §14 checklist — `docs/SPEC.md`
-remains normative) and asked to implement Gate 1 (§11), then said "all of the above" to: quick fixes,
-AgentSubject design, ERC-8004 revision hash, and negative tests. This session ran out of context before
-finishing; resume here.
+remains normative) and asked to implement Gate 1 (§11): quick fixes, AgentSubject design, ERC-8004
+revision hash, and negative tests ("all of the above").
 
-## Done and pushed this session
+**Status as of this update: every code/design item under Gate 1 that this session could do without
+the user physically present is done and pushed.** What's left (below, "Not started") is either an
+on-chain action requiring the user's private key, a root-owned live-system change, or a one-time
+script the user needs to run themselves as the reviewing principal — none of it is "resume coding
+Gate 1," it's "the user needs to do these specific things." If a future session picks this up, check
+`git log --oneline` on both `docs/rescope-registry-precheck-gas` (integrity-core) and `main`
+(xibalba-shield, xibalba-cortex) since this file's date before assuming anything below is still
+accurate — this doc reflects one session's exit state, not a live status page.
+
+## Done and pushed this session — HTTPS/cookie auth migration (separate ask, same session)
+
+Mid-audit the user also asked to fix browser auth (bearer tokens in `sessionStorage` → HttpOnly/
+Secure/SameSite cookies over TLS) in both Shield and Cortex, then explicitly asked for machine
+callers to be migrated too, not just browsers. All pushed to `main` in both repos, clean trees.
+
+**xibalba-shield** (`main`):
+- `63623c4` fixed the UI/dev-proxy/Caddy port mismatch (8421→8765) blocking the whole flow.
+- `b8327b8` **operator cookie auth**: `Caddyfile` now runs `tls internal`; backend issues an
+  HttpOnly/Secure/SameSite=Strict `shield_session` cookie on login/signup instead of returning a
+  bearer token for the UI to store; UI (`api.js`, `App.jsx`, `SignIn.jsx`) drops all client-side
+  token storage and sends `credentials: 'include'`. Removed the "Advanced access" manual
+  bearer-token UI entirely — self-caught bug during this commit: `App.jsx`'s `logout()` was still
+  gated on `connection.token`, which is now always empty, so logout would never fire; fixed to
+  gate on `connection.tenant` only.
+- `d010a92` **device-agent auth (the "callers migrated too" ask)**: new
+  `shield/device_assertion.py` — device agents sign a short-lived (120s TTL) assertion with their
+  existing Ed25519 device key instead of presenting a long-lived `device_token` bearer secret.
+  Re-derives `did:integrity:sha256(pubkey)` from the assertion's own embedded public key and
+  checks it against the enrolled `integrity_agent_id` *before* verifying the signature — blocks
+  key-substitution (an attacker can't just sign with a different key and claim someone else's
+  enrolled identity). Nonce-based replay guard, audience binding. `_require_device_token` in
+  `shield/backend/api.py` accepts both `Assertion` and legacy `Bearer` schemes during migration.
+  `runtime_status.py`/`remediation_worker.py` now call `device_auth_header()` instead of
+  hardcoding `f"Bearer {device_token}"`. 9 new tests in `tests/test_device_assertion.py`
+  (substituted-key rejection, expiry, wrong audience, replay, tampered claims, unregistered
+  device, malformed input).
+- `3569781`/`042f587`/`242eb95` — see Gate 1 section below (same commits, dual-purpose).
+
+**xibalba-cortex** (`main`):
+- `826138d` **browser cookie auth + a real vulnerability fix**: `Caddyfile` `tls internal`;
+  `local_api.py` issues an HttpOnly/Secure/SameSite `cortex_session` cookie; **removed a
+  `token == "dev"` bypass that accepted a fixed literal as valid auth** (found while migrating the
+  auth path, not something the user flagged — worth independent verification). Viewer
+  (`api.ts`/`App.tsx`) drops `apiToken` storage, removes the "use bearer token instead" mode, uses
+  `credentials: 'include'` throughout.
+- `209b1e5` **stdio principal binding (the other "caller" that needed migrating)**: Cortex's stdio
+  MCP transport (used by Claude Code's own MCP connection to Cortex, among others) had *no* auth
+  middleware at all, so `current_principal()` always returned `None` — every agent-scope check
+  silently no-op'd rather than denying. Added `_install_stdio_principal()` in `server.py`, binding
+  from the `XIBALBA_AGENT_ID` env var and failing closed if unset (escape hatch:
+  `XIBALBA_CORTEX_ALLOW_UNSCOPED_STDIO=1`). **Caught before it broke anything**: this session's own
+  `~/.claude.json` MCP config for `xibalba_cortex` was missing `XIBALBA_AGENT_ID` — would have
+  hard-failed on next Claude Code restart. Fixed with a backup at
+  `~/.claude.json.bak-pre-stdio-agent-id-20260912`.
+
+Neither repo's live systemd/production deployment was touched for this — only source, tests, and
+local Caddy config. If Shield or Cortex run as systemd services anywhere, the service's own
+`ProtectHome`/env config needs the same `INTEGRITY_DID_HOME`-style review as the item below before
+assuming device assertions work identically in production.
+
+## Done and pushed this session — Gate 1 identity boundary
 
 **integrity-core** (`docs/rescope-registry-precheck-gas` branch):
 - `99c786a` tracked `docs/SPEC-v2.0.0-proposed.md` (was untracked since written)
@@ -84,18 +143,21 @@ exercised this session's F1 fix, which reconstructed the document from the key l
 DID verified to match its pre-migration fingerprint exactly. Every original CLI-store file is untouched.
 Full backup taken before any copy: `~/.integrity-migration-backup-20260912-181545`.
 
-**Still not done, flagged rather than fixed:**
-- `integrity-sdk/sync_telemetry.py` hardcodes `~/.integrity-cli/identity/xibalba.pem` — that's the
-  healthcare-vertical identity (`f96ae072…`), not the general one Hermes actually runs as (`68fed133…`).
-  Unclear whether that was intentional or a stale reference from before the two diverged. Ask the user
-  which identity telemetry-sync should actually sign as before touching this — it's a live behavior
-  decision (which DID shows up in oracle-recorded telemetry going forward), not a path cleanup.
+**Fixed in a later pass this session** (was flagged here as not-yet-done, resolved after asking the
+user which identity was correct — they picked the general one):
+- `a119baa` **`integrity-sdk/sync_telemetry.py`** now calls `load_or_create_did("xibalba")` (via the
+  unified SDK store) instead of hardcoding `~/.integrity-cli/identity/xibalba.pem` (the
+  healthcare-vertical identity, `f96ae072…`). Confirmed it resolves to
+  `did:integrity:68fed1331613937555a59398223e8e87520a87dd0305aac4fd7ecdc32a14a861` — the
+  general.integrity identity Hermes and every live process actually run as.
+
+**Still not fixed, flagged rather than fixed:**
 - `scripts/register_shield_with_funder.sh` still checks the old flat CLI path for `IDENTITY_NAME`. Already
   known to target the wrong DID regardless (see the on-chain registration item below) — fix both together.
 
 ## Done and pushed, third pass — AgentSubject (§4.1/§11 Gate 1 bullet 1)
 
-Implemented as `integrity-sdk/integrity_sdk/agent_subject.py`: an append-only
+`9b51bbe` implemented as `integrity-sdk/integrity_sdk/agent_subject.py`: an append-only
 `agent_subjects.jsonl` alongside the per-agent directories under `did.did_home()`
 (`$INTEGRITY_DID_HOME`), using §9.2's mapping-record field set verbatim. `MappingType.SAME_SUBJECT`
 declares two labels are the same logical agent; `MappingType.DISTINCT_SUBJECT` declares a reviewed
