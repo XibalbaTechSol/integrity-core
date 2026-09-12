@@ -310,7 +310,7 @@ def _load_deploy_progress(agent_id: Optional[str]) -> Optional[dict]:
         return None
 
 
-def _save_deploy_progress(agent_id: Optional[str], **fields: str) -> None:
+def _save_deploy_progress(agent_id: Optional[str], **fields: object) -> None:
     path = _progress_path(agent_id)
     existing = _load_deploy_progress(agent_id) or {}
     existing.update(fields)
@@ -336,6 +336,12 @@ class AgentRegistration:
     agent_profile: str
     domain_id: str
     oracle_registered: bool
+    # Which chain these addresses live on. Without this, a cached primitives.json produced
+    # against one chain (e.g. local anvil, 31337) reads as authoritative when later inspected
+    # against a different chain's RPC (e.g. Base Sepolia, 84532) -- exactly the failure the
+    # 2026-09-11 Shield registration handoff hit, where an address the docs later had to note
+    # "belongs to local chain 31337" had been treated as a live Base Sepolia registration.
+    chain_id: int = 0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -447,6 +453,7 @@ def register_agent(
             agent_profile=existing.agent_profile,
             domain_id=existing.domain_id,
             oracle_registered=False,
+            chain_id=chain_id,
         )
         doc_path = did.agent_dir(agent_id) / "document.json"
         doc_path.write_text(json.dumps(doc, indent=2) + "\n")
@@ -549,6 +556,19 @@ def register_agent(
     # bytecode) is silently discarded and this falls through to a fresh
     # deploy, exactly like having no progress file at all.
     progress = _load_deploy_progress(agent_id)
+    if progress and progress.get("chain_id") != chain_id:
+        # A recorded address is only meaningful on the chain it was deployed against. Checking
+        # bytecode presence alone is not enough to rule out a false positive: the same wallet
+        # reused across chains with the same nonce sequence derives the SAME contract address
+        # (CREATE's address = keccak(sender, nonce) doesn't depend on chain), so an address from
+        # a prior local-anvil run can have real bytecode sitting at the identical address on
+        # Base Sepolia purely by coincidence of nonce alignment. Requiring an exact chain_id
+        # match before even considering the recorded address closes that hole outright.
+        logger.warning(
+            "step 5: discarding progress recorded for chain_id=%s -- currently connected to chain_id=%s",
+            progress.get("chain_id"), chain_id,
+        )
+        progress = None
     sovereign_agent = progress.get("sovereign_agent") if progress else None
     state_anchor = progress.get("state_anchor") if progress else None
     if sovereign_agent and w3.eth.get_code(Web3.to_checksum_address(sovereign_agent)) in (b"", "0x"):
@@ -563,7 +583,7 @@ def register_agent(
             sovereign_agent = chain.deploy_sovereign_agent(w3, evm_account, agent_did, oracle_signer, chain_id)
         except Exception as exc:  # noqa: BLE001
             raise RegistrationError(f"step 5 (deploy_sovereign_agent) failed: {exc}") from exc
-        _save_deploy_progress(agent_id, sovereign_agent=sovereign_agent)
+        _save_deploy_progress(agent_id, sovereign_agent=sovereign_agent, chain_id=chain_id)
 
     if state_anchor and w3.eth.get_code(Web3.to_checksum_address(state_anchor)) in (b"", "0x"):
         logger.warning("step 6: recorded StateAnchor %s has no bytecode -- discarding stale progress", state_anchor)
@@ -580,7 +600,7 @@ def register_agent(
                 f"and its address is saved in {_progress_path(agent_id)}; a retry will reuse it "
                 f"rather than deploying a second one: {exc}"
             ) from exc
-        _save_deploy_progress(agent_id, sovereign_agent=sovereign_agent, state_anchor=state_anchor)
+        _save_deploy_progress(agent_id, sovereign_agent=sovereign_agent, state_anchor=state_anchor, chain_id=chain_id)
 
     if execution_policy_address:
         logger.info("step 6b: setting execution policy to %s", execution_policy_address)
@@ -770,6 +790,7 @@ def register_agent(
         agent_profile=result.agent_profile,
         domain_id=result.domain_id,
         oracle_registered=False,
+        chain_id=chain_id,
     )
 
     # Step 10: persist.
