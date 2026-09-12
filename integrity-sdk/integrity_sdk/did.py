@@ -214,6 +214,14 @@ def agent_dir(agent_id: Optional[str]) -> Path:
     return base / (agent_id or "default")
 
 
+def did_home() -> Path:
+    """Public accessor for the DID storage root (`$INTEGRITY_DID_HOME`, default
+    `~/.integrity/did`) -- lets sibling modules (agent_subject.py) co-locate
+    state alongside the per-agent directories without re-resolving the env
+    var themselves."""
+    return _default_did_home()
+
+
 class IdentityInconsistentError(RuntimeError):
     """Persisted DID state exists but cannot be safely resolved.
 
