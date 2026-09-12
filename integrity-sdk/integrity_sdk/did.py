@@ -214,12 +214,36 @@ def agent_dir(agent_id: Optional[str]) -> Path:
     return base / (agent_id or "default")
 
 
+class IdentityInconsistentError(RuntimeError):
+    """Persisted DID state exists but cannot be safely resolved.
+
+    Raised instead of silently regenerating a keypair. A prior version of this function treated
+    a missing or mismatched `document.json` as license to call `Keypair.generate()` and
+    overwrite `private_key.pem` -- which destroys the original signing key and mints a new DID,
+    with no way back. Per SPEC-v2.0.0-proposed.md §4.3: "Missing or inconsistent key state MUST
+    fail closed. Ordinary startup MUST NOT generate a replacement key." A registered on-chain
+    identity that loses its key this way cannot be recovered by regenerating one -- the new key
+    derives a different DID that the chain has never heard of.
+    """
+
+
 def load_or_create_did(agent_id: Optional[str] = None) -> Tuple[str, Keypair, dict]:
     """
-    Load the persisted DID/keypair for `agent_id`, or generate a fresh
-    Ed25519 keypair and DID document if none exists yet.
+    Load the persisted DID/keypair for `agent_id`, or generate a fresh Ed25519 keypair and DID
+    document if this is a genuinely new identity (neither file exists yet).
 
     Returns (did, keypair, did_document).
+
+    Fails closed -- raises IdentityInconsistentError -- rather than regenerating whenever
+    existing state cannot be trivially and losslessly resolved:
+      - key present, document missing or unreadable: the document is reconstructible from the
+        key with zero information loss, so this case is repaired in place, not treated as an
+        error.
+      - key present, document present but does not match the key: ambiguous (which one is
+        wrong?) and destructive to guess at, so this fails closed untouched.
+      - key missing, document present: the document cannot reconstruct the private key, so
+        there is nothing safe to do but fail closed.
+    Neither file existing is the only case that creates a new identity.
     """
     # NOTE: previously called a nonexistent `_agent_dir` (undefined anywhere in this
     # module) — a live NameError bug that no test caught because nothing exercised
@@ -231,14 +255,36 @@ def load_or_create_did(agent_id: Optional[str] = None) -> Tuple[str, Keypair, di
     key_path = this_agent_dir / "private_key.pem"
     doc_path = this_agent_dir / "document.json"
 
-    if key_path.exists() and doc_path.exists():
+    key_exists = key_path.exists()
+    doc_exists = doc_path.exists()
+
+    if key_exists and not doc_exists:
+        # Losslessly recoverable: the document is pure derived data.
+        keypair = Keypair.from_pem(key_path.read_bytes())
+        doc = build_did_document(keypair.public_bytes())
+        doc_path.write_text(json.dumps(doc, indent=2) + "\n")
+        return doc["id"], keypair, doc
+
+    if key_exists and doc_exists:
         keypair = Keypair.from_pem(key_path.read_bytes())
         doc = json.loads(doc_path.read_text())
-        # Sanity check: the persisted document must actually correspond to
-        # the persisted key. If someone hand-edited one file without the
-        # other, regenerate rather than serve an inconsistent identity.
         if doc.get("id") == f"did:{_DID_METHOD}:{fingerprint_for_pubkey(keypair.public_bytes())}":
             return doc["id"], keypair, doc
+        raise IdentityInconsistentError(
+            f"{doc_path} does not correspond to the key at {key_path}: "
+            f"document claims '{doc.get('id')}' but the key derives "
+            f"'did:{_DID_METHOD}:{fingerprint_for_pubkey(keypair.public_bytes())}'. "
+            "Resolve manually -- this is not automatically repaired because either file could "
+            "be the wrong one, and guessing risks replacing a registered identity's key."
+        )
+
+    if doc_exists and not key_exists:
+        raise IdentityInconsistentError(
+            f"{doc_path} exists but its private key at {key_path} is missing. "
+            "A document cannot reconstruct a private key, so this cannot be auto-repaired. "
+            "Restore the key from backup, or explicitly delete the document to start a new "
+            "identity -- do not let this call silently mint a replacement key."
+        )
 
     keypair = Keypair.generate()
     doc = build_did_document(keypair.public_bytes())

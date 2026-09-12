@@ -189,6 +189,64 @@ def test_register_agent_discards_stale_progress_with_no_bytecode(tmp_path, monke
     assert result.state_anchor.lower() != "0x000000000000000000000000000000000000beef"
 
 
+def test_register_agent_records_chain_id_in_progress_and_primitives():
+    """Regression test for F3: a cached primitives.json/registration_progress.json with no
+    chain_id reads as authoritative regardless of which chain it was actually produced against.
+    Both files must now carry the chain the deploy actually happened on."""
+    from integrity_sdk import did as did_module
+
+    result = registration.register_agent("chain-id-test-agent", skip_oracle_registration=True)
+    assert result.chain_id != 0
+
+    primitives_path = did_module.agent_dir("chain-id-test-agent") / "primitives.json"
+    primitives = json.loads(primitives_path.read_text())
+    assert primitives["chain_id"] == result.chain_id
+
+
+def test_register_agent_discards_progress_from_a_different_chain(monkeypatch):
+    """The exact collision the 2026-09-11 Shield registration handoff hit: CREATE-derived
+    contract addresses (keccak(sender, nonce)) don't depend on chain, so a wallet reused across
+    a local anvil run and Base Sepolia with the same nonce sequence can derive the SAME address
+    on both chains -- meaning a stale progress file can point at an address that genuinely HAS
+    bytecode on the currently-connected chain, purely by coincidence, and would be wrongly
+    trusted if chain_id were not checked first."""
+    from integrity_sdk import chain as chain_module
+    from integrity_sdk import did as did_module
+
+    real_register_primitives = chain_module.register_primitives
+    call_count = {"n": 0}
+
+    def flaky_register_primitives(*args, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise RuntimeError("simulated registerPrimitives revert")
+        return real_register_primitives(*args, **kwargs)
+
+    monkeypatch.setattr(chain_module, "register_primitives", flaky_register_primitives)
+
+    with pytest.raises(registration.RegistrationError, match="step 9"):
+        registration.register_agent("cross-chain-progress-agent", skip_oracle_registration=True)
+
+    progress_path = did_module.agent_dir("cross-chain-progress-agent") / "registration_progress.json"
+    progress = json.loads(progress_path.read_text())
+    real_sovereign_agent = progress["sovereign_agent"]
+    assert progress["chain_id"] != 0
+
+    # Corrupt the recorded chain_id to simulate "this progress was really from another chain" --
+    # the address still has real bytecode on the currently-connected chain (it's the same anvil
+    # instance), so only the chain_id check can catch this, not the bytecode-presence check.
+    progress["chain_id"] = progress["chain_id"] + 999999
+    progress_path.write_text(json.dumps(progress))
+
+    monkeypatch.setattr(chain_module, "register_primitives", real_register_primitives)  # let the retry succeed
+    result = registration.register_agent("cross-chain-progress-agent", skip_oracle_registration=True)
+
+    assert result.sovereign_agent.lower() != real_sovereign_agent.lower(), (
+        "a progress file recorded for a different chain_id must be discarded, even though its "
+        "address happens to have bytecode on the chain currently connected"
+    )
+
+
 def test_register_agent_requires_funder_key(monkeypatch):
     monkeypatch.delenv("FUNDER_PRIVATE_KEY", raising=False)
     with pytest.raises(registration.RegistrationError, match="FUNDER_PRIVATE_KEY"):
