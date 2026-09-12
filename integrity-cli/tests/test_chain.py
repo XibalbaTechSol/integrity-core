@@ -123,6 +123,9 @@ def test_cli_chain_full_registration(deployed_chain, tmp_path, monkeypatch):
     assert itk.functions.balanceOf(agent.address).call() == 0, "the raw EOA wallet must NOT receive testnet ITK"
 
     chain.grant_anchor_role(w3, agent, sovereign_agent, state_anchor, oracle_signer, chain_id)
+    chain.anchor_root(
+        w3, agent, sovereign_agent, state_anchor, chain_id, root=chain.genesis_vault_root()
+    )
 
     chain.approve_factory_bond(w3, agent, sovereign_agent, addr["IntegrityToken"], addr["AgentPrimitivesFactory"], Web3.to_wei(100, "ether"), chain_id)
 

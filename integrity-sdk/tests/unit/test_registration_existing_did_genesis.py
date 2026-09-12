@@ -41,6 +41,10 @@ def _existing_primitives() -> chain.PrimitivesRegistered:
 @pytest.fixture
 def existing_did_harness(tmp_path, monkeypatch):
     events: list[str] = []
+    # This fixture uses a mocked Base Sepolia chain identifier while exercising
+    # local registration control flow. Explicitly opt into the testnet-only
+    # convenience path; production defaults remain fail-safe and disabled.
+    monkeypatch.setenv("ALLOW_TESTNET_CONVENIENCE", "true")
     agent_dir = tmp_path / "agent"
     agent_dir.mkdir()
 
