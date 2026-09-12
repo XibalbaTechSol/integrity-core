@@ -13,6 +13,15 @@ on:
     branches: [main]
   workflow_dispatch: {}
 
+# CI only reads source and publishes test results. Keep the default token
+# incapable of changing repository contents, pull requests, or workflows.
+permissions:
+  contents: read
+
+concurrency:
+  group: integrity-core-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   FOUNDRY_VERSION: v1.7.1
   RUST_VERSION: "1.96.0"

@@ -284,13 +284,24 @@ async def test_full_intercept_flow_gates_on_real_on_chain_baa_status(
     # and app.anchor (via `from app.chain import resolve_agent_primitives`),
     # so both bindings must be patched or per-agent anchoring in step 3 would
     # hit the real (unmocked) oracle URL and silently no-op.
-    primitives = {"sovereign_agent": agent_address, "state_anchor": anvil_chain["anchor_address"]}
+    primitives = {
+        "sovereign_agent": agent_address,
+        "state_anchor": anvil_chain["anchor_address"],
+        "slasher": anvil_chain["slasher_address"],
+    }
 
     def _fake_resolve(oracle_url: str, agent_id_: str) -> dict:
         return primitives
 
+    # Patch every module-local binding: these modules intentionally import the
+    # resolver by value, so patching app.chain alone does not replace already
+    # bound references in the BAA and quarantine checks.
     monkeypatch.setattr("app.chain.resolve_agent_primitives", _fake_resolve)
+    monkeypatch.setattr("app.chain.resolve_verification_tier", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr("app.main.resolve_verification_tier", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr("app.baa.agent_id_to_address", lambda *_args, **_kwargs: agent_address)
     monkeypatch.setattr("app.anchor.resolve_agent_primitives", _fake_resolve)
+    monkeypatch.setattr("app.quarantine.resolve_agent_primitives", _fake_resolve)
 
     # 1. BAA inactive -> denied. `covered_entity_address` is set (a real
     #    healthcare-vertical commitment always carries it -- see

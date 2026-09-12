@@ -28,6 +28,10 @@ on:
       - "scripts/sync_wiki.py"
   workflow_dispatch: {}
 
+concurrency:
+  group: canonical-wiki-sync-main
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
