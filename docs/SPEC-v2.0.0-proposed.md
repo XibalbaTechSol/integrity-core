@@ -181,9 +181,21 @@ In all modes, a device-bound evidence claim requires evidence from the enrolled 
 
 ### 5.1 Revision pinning
 
-`[PLANNED]` Before any conformance claim, the implementation MUST pin an exact ERC-8004 draft revision, including a retrievable source identifier and content hash. “Current draft” is not a sufficient version.
+`[PARTIAL]` The implementation pins an exact ERC-8004 draft revision with a retrievable source identifier and content hash — closed 2026-09-12 (tri-repo audit's §9 correction: this row was `[PLANNED]`, but a revision was already pinned in source; only the content hash was missing).
 
-Until that gate passes:
+Pinned revision: `ethereum/ERCs@503591a6e80e6e1affdd6403341e25269141f046/ERCS/erc-8004.md`
+— git blob `7653a80922c0bf0243669f30e7a2d4aabfe006aa`,
+sha256 `249dc3d96ad7bbe4afd25cacd14be942eb87751abcf1608bab19a610f3c3f8a9` (24470 bytes).
+Retrieved via `gh api repos/ethereum/ERCs/contents/ERCS/erc-8004.md?ref=503591a6e80e6e1affdd6403341e25269141f046`;
+`git hash-object` on the fetched bytes reproduced the blob hash, so the sha256 above is
+independently verifiable against the pinned commit, not merely asserted. Recorded in
+`docs/INTERFACE_CONTRACT.md` §6.1a and `contracts/src/kernel/IntegrityERC8004Registry.sol`'s header.
+
+Still `[PLANNED]`: this pins the revision only. `isERC8004Conformant()` returning a hardcoded
+`true` (tri-repo audit §7.3) is a separate, unresolved conformance-claim defect — pinning the
+revision does not establish that the contract actually conforms to it.
+
+Until semantic conformance against the pinned revision is independently tested (§5.2):
 
 - `IntegrityERC8004Registry` MUST be described as an Integrity-specific implementation with ERC-721-shaped behavior, not as proven ERC-8004 conformance;
 - `IntegrityIdentityReadV1` MUST remain explicitly custom and non-ERC-8004/non-ERC-721;
@@ -590,7 +602,7 @@ Until the gates above are closed, this proposal MUST NOT be used to claim that:
 
 Before accepting this proposal as a normative version:
 
-- pin the ERC-8004 revision and preserve its source hash;
+- ~~pin the ERC-8004 revision and preserve its source hash~~ — done 2026-09-12, §5.1;
 - perform a clause-by-clause comparison against `docs/SPEC.md` and v3.2;
 - update `docs/INTERFACE_CONTRACT.md` for accepted cross-package changes;
 - obtain independent adversarial review of identity, kernel, Cortex authorization, and migration;
