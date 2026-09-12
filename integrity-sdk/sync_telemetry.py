@@ -1,24 +1,20 @@
 import json
 import time
 from pathlib import Path
-from integrity_sdk.did import Keypair
+from integrity_sdk.did import load_or_create_did
 from integrity_sdk.client import IntegrityClient
 
 from integrity_sdk.telemetry.tracing import trace_run
 
 def sync_transcript():
-    # 1. Load the xibalba identity
-    pem_path = Path("/home/xibalba/.integrity-cli/identity/xibalba.pem")
-    doc_path = Path("/home/xibalba/.integrity-cli/identity/xibalba.document.json")
-    
-    with open(pem_path, "rb") as f:
-        pem_bytes = f.read()
-    keypair = Keypair.from_pem(pem_bytes)
-    
-    with open(doc_path, "r") as f:
-        doc = json.load(f)
-    agent_id = doc["id"]
-    
+    # 1. Load the xibalba identity -- the general.integrity one Hermes and every live
+    # process actually run as (did:integrity:68fed133...), not the healthcare-vertical
+    # identity this script hardcoded before the tri-repo audit's F2 storage unification
+    # (2026-09-12). That one is now at ~/.integrity/did/xibalba-healthcare-cli/ and was a
+    # different, unrelated registration that only coincidentally shared the "xibalba"
+    # label under the old CLI-only flat storage.
+    agent_id, keypair, doc = load_or_create_did("xibalba")
+
     print(f"Loaded identity: {agent_id}")
 
     # 2. Init client
