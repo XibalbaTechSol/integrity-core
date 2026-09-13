@@ -361,3 +361,77 @@ past what's already tracked in §3 — no new staking/slashing or compliance-gat
 status change. General sweep for a new named entrant combining identity + staked reputation +
 compliance gating surfaced nothing beyond Observer Protocol (already tracked above, not new
 this run). No changes to the §3 table this run.
+
+### 2026-09-13 — Ecosystem watch: Visa/Mastercard/Ant International joint "Know Your Agent" payment framework; everything else unchanged since 2026-09-02
+
+Automated research sweep (scheduled tracking run, ~11 days after the prior run — wider than the
+usual cadence, so this sweep covers the full gap rather than just the last 7 days). Re-swept all
+nine named §3 players, both §4 fact-checks, and did a general sweep for a new entrant combining
+identity + staked reputation + compliance gating. One material finding; everything else confirmed
+unchanged.
+
+1. **Visa, Mastercard, and Ant International announced a joint "Know Your Agent" (KYA)
+   interoperability framework, 2026-09-10, São Paulo.** This is new since the 2026-09-02 entry
+   and directly touches this doc's already-tracked §3 "Visa TAP / Mastercard Agent Pay" row: the
+   two card networks (previously described in this doc as separate, competing frameworks — see
+   the Forbes "fighting over how AI agents pay" framing cited in earlier research) are now
+   converging on a shared standard, joined by Ant International, so that an agent's KYA
+   verification from one provider is recognized by the others rather than needing duplicate
+   verification per network. Reported consistently across independent outlets (PYMNTS, Forkast,
+   PANews, crypto.news, Hokanews). **Explicitly no technical specification, governance body, or
+   rollout timeline disclosed yet** — this is a joint intent-to-standardize announcement, not a
+   shipped mechanism, and nothing in the coverage describes staking, slashing, or a
+   compliance-vertical gate, so it stays in this doc's existing "adjacent, payments-identity,
+   track for interop only" bucket rather than becoming a direct identity+staked-reputation+
+   compliance-gating competitor. Flagging two things for future runs: (a) this is the specific
+   development to watch if it later grows a staking/slashing or compliance-gating layer, since
+   three major payment networks converging on one agent-trust standard would be a much higher-
+   leverage integration/interop target than any single one alone; (b) this consortium's own use
+   of the "Know Your Agent" / "KYA" name is a **new, separate naming collision** on top of the
+   half-dozen unrelated "KYA"-branded efforts already flagged in the 2026-09-01 entry (this doc's
+   existing §3 KYA row tracks a different, Base-deployed, AWP-protocol project at
+   `kya.link`/`agentecon.ai` — unrelated to this Visa/Mastercard/Ant announcement) — do not
+   conflate the two in future sweeps.
+   Sources: [PYMNTS, Visa and Mastercard Team With Ant on Know Your Agent Framework](https://www.pymnts.com/cybersecurity/2026/visa-mastercard-team-with-ant-know-your-agent-framework),
+   [Forkast, Ant International, Visa, and Mastercard Agree on Agent Identity Standard. Now Comes the Hard Part.](https://forkast.news/ant-international-visa-and-mastercard-agree-on-agent-identity-standard-now-comes-the-hard-part/),
+   [crypto.news, Ant International joins Visa, Mastercard to build AI agent payment standards](https://crypto.news/ant-international-joins-visa-mastercard-to-build-ai-agent-payment-standards/),
+   [PANews, Ant International Partners with Visa and Mastercard to Establish AI Agent Payment Standards](https://panews.io/articles/01a08951-c577-77c7-b43b-2795756e0c48).
+
+2. **§4 fact-checks: no change since 2026-09-02.** ERC-8004 Validation Registry — general
+   secondary-source sweep found nothing past the already-recorded status (Identity/Reputation
+   live on 40+ EVM networks since 2026-01-29; Validation Registry still described as under active
+   spec revision, no mainnet address). EU AI Act — reconfirmed the 2026-08-28 correction's dates
+   (Annex III high-risk conformity 2027-12-02, Annex I 2028-08-02) against fresh sources; nothing
+   newer surfaced.
+
+3. **Observer Protocol (tracked since 2026-09-01, still not added to §3) — unchanged, still
+   pre-mainnet.** This session's egress proxy again blocked `observerprotocol.org`,
+   `agentecon.ai`, and `kya.link` directly (same restriction as the prior two runs), but
+   `github.com/observer-protocol` was reachable. Its visible repo activity is **identical** to
+   what the 2026-09-02 entry already recorded (`op-policy-engine` last updated 2026-08-31,
+   `op-verify-service` and `observerprotocol-website` last updated 2026-08-26) — no commits since
+   the last sweep, no mainnet contract address, no new funding/deployment signal. A separate
+   general web search surfaced an unrelated Bitcoin-Lightning-settlement narrative for
+   "Observer Protocol" (a "genesis transaction," 2026-02-22) describing "Verified Agent
+   Credentials (VAC)" — this predates and is a different framing from the AIP-spec/staked-
+   attestation project already tracked here; not enough independent confirmation this run to
+   determine if it's the same project rebranding its terminology or a distinct namesake, so not
+   treated as new information pending a primary-source check once the proxy block clears.
+
+4. **KYA (`agentecon.ai`/`kya.link`) open stake/slash question — still unverified, still
+   blocked.** No change from the 2026-09-01/09-02 status.
+
+Not material / considered and not added: FIDO Alliance's Agentic Authentication TWG (still
+tracking toward H2 2026–early 2027 per its own April timeline, no draft spec yet); Cloudflare's
+2026-09-15 default AI-agent-crawler-blocking change (already flagged as non-new in the 2026-09-01
+entry — this run confirms the date is real and imminent but it's the same already-tracked policy,
+not a new fact); Anthropic's enterprise-managed MCP auth GA (already covered in the 2026-08-28
+entry, no further change); Semantica (still pre-1.0, PyPI 0.5.0 as of a 2026-09-02 third-party
+review, no staking/reputation mechanism); Trulioo+Worldpay Digital Agent Passport (still no public
+API for the agent-specific KYA layer beyond the 2025-08-14 partnership announcement); VeChain's
+"Agentic Foundations" 2026 roadmap (agent identity + a behavioral "credibility score" + its
+existing StarGate validator-staking platform) — considered as a possible new identity+staked-
+reputation entrant, but the roadmap dates to April 2026 (predates this doc's tracking window
+entirely), the staking is StarGate's general network-consensus staking rather than an
+agent-specific bond that gets slashed on misbehavior, and no compliance-vertical gating is
+described — does not meet this doc's competitor bar. No changes to the §3 table this run.
