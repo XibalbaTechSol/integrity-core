@@ -6,7 +6,7 @@ import { useServiceHealth } from '../services/health';
 import { NAVIGATION_ITEMS } from '../navigation';
 
 export function AppHeader() {
-  const { selectedAgent, setSelectedAgent, agents, user } = useDashboard();
+  const { selectedAgent, setSelectedAgent, agents, user, signOut } = useDashboard();
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const serviceChecks = useServiceHealth().filter((s) => s.key !== 'kernel');
   const profileRef = useRef<HTMLDivElement>(null);
@@ -100,7 +100,10 @@ export function AppHeader() {
           >
             {agents.length === 0 && <option value="">No agents registered</option>}
             {agents.map(a => (
-              <option key={a.id} value={a.id}>{a.alias || a.name || a.id}</option>
+              // Never show the raw DID unshortened here -- matches AgentsPage.tsx's fallback
+              // exactly (same identity standard, same short-DID shape as
+              // integrity_sdk.agent_identity._short_did).
+              <option key={a.id} value={a.id}>{a.alias || a.name || (a.id.length <= 24 ? a.id : `${a.id.slice(0, 14)}…${a.id.slice(-8)}`)}</option>
             ))}
           </select>
         </div>
@@ -127,7 +130,7 @@ export function AppHeader() {
               <Link to="/auth" onClick={() => setProfileMenuOpen(false)} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem 1rem', textDecoration: 'none', color: 'var(--text-primary)', borderBottom: '1px solid var(--border-color)' }}>
                 <LogIn size={16} /> Sign In / Up
               </Link>
-              <Link to="/" onClick={() => setProfileMenuOpen(false)} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem 1rem', textDecoration: 'none', color: 'var(--text-primary)' }}>
+              <Link to="/" onClick={() => { setProfileMenuOpen(false); void signOut(); }} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem 1rem', textDecoration: 'none', color: 'var(--text-primary)' }}>
                 <LogOut size={16} /> Sign Out
               </Link>
             </div>

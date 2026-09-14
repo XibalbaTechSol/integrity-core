@@ -14,6 +14,11 @@ export const GRAPH_MEMORY_TOKEN = import.meta.env.VITE_GRAPH_MEMORY_TOKEN || '';
 //   uv run python -m shield.backend.api --admin-token dev-shield-admin
 export const SHIELD_BACKEND_URL = import.meta.env.VITE_SHIELD_BACKEND_URL || 'http://localhost:8765';
 export const SHIELD_BACKEND_TOKEN = import.meta.env.VITE_SHIELD_BACKEND_TOKEN || 'dev-shield-admin';
+// Shield's and Cortex's own operator UIs (not their backend API origins above) -- used for
+// "open console" deep links from the dashboard's summary cards. Each is a fully separate
+// app with its own cookie-authenticated login; the dashboard never proxies their UI.
+export const SHIELD_UI_URL = import.meta.env.VITE_SHIELD_UI_URL || 'https://localhost:9444';
+export const CORTEX_UI_URL = import.meta.env.VITE_CORTEX_UI_URL || 'https://localhost:9443';
 // Shield tenants are control-plane namespaces, not agent DIDs. Keep the mapping
 // deployment-configurable; falling back to the selected agent remains useful for
 // isolated demo tenants but must never be mistaken for production identity mapping.

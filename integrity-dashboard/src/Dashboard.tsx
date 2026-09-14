@@ -7,9 +7,9 @@ import { ControlHeader } from './components/control/ControlHeader';
 import { oracle, type AisResponse, type IntentOutcomeDto, type StatsDto, type AuditLogEntryDto } from './services/oracle';
 import { graphMemory, type AgentMemorySummary, type InvocationCorrelation } from './services/graphMemory';
 import { shieldBackend, type ShieldDashboardSummary } from './services/shieldBackend';
-import { GRAPH_MEMORY_URL, SHIELD_BACKEND_URL, SHIELD_TENANT_ID } from './config';
+import { CORTEX_UI_URL, SHIELD_TENANT_ID, SHIELD_UI_URL } from './config';
 
-type ServiceState = { state: 'checking' | 'online' | 'degraded' | 'offline'; detail: string };
+type ServiceState = { state: 'checking' | 'online' | 'degraded' | 'offline' | 'auth-required'; detail: string };
 const initialService: ServiceState = { state: 'checking', detail: 'Checking connection' };
 const fromWei = (value?: string | null) => { if (!value) return null; try { return Number(ethers.formatEther(value)); } catch { return null; } };
 const formatItk = (value: number | null) => value == null ? '—' : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -30,14 +30,28 @@ export default function Dashboard() {
   const loadOverview = useCallback(async () => {
     setRefreshing(true);
     const [core, shield, cortex, invocationsResult] = await Promise.allSettled([oracle.getStats(), shieldBackend.health(), graphMemory.status(), graphMemory.invocations(8)]);
+    // Shield and Cortex are deliberately separate account systems from this dashboard --
+    // a 401/403 means the service is up but this dashboard has no session/admin-token for
+    // it, which is expected, not "offline". Only a genuine network failure or other error
+    // is offline.
+    const shieldAuthRequired = shield.status === 'fulfilled' && (shield.value.httpStatus === 401 || shield.value.httpStatus === 403);
+    const cortexAuthRequired = cortex.status === 'rejected' && (cortex.reason as { status?: number })?.status === 401;
     setServices({
       core: core.status === 'fulfilled' ? { state: 'online', detail: 'Oracle and on-chain read model responding' } : { state: 'offline', detail: 'Oracle API unavailable' },
-      shield: shield.status === 'fulfilled' && shield.value.ok ? { state: 'online', detail: 'External enforcement system responding' } : { state: 'offline', detail: 'Shield backend unavailable' },
+      shield: shield.status === 'fulfilled' && shield.value.ok
+        ? { state: 'online', detail: 'External enforcement system responding' }
+        : shieldAuthRequired
+          ? { state: 'auth-required', detail: 'Shield is up; sign in at the Shield console to see live data' }
+          : { state: 'offline', detail: 'Shield backend unavailable' },
       // The protocol-surface counter measures reachability, not the optional
       // full-store integrity scan. Cortex deliberately reports
       // "skipped (fast mode)" for a healthy low-latency status check; treating
       // that diagnostic as offline made a live Cortex API render as 2/3 online.
-      cortex: cortex.status === 'fulfilled' ? { state: 'online', detail: `${cortex.value.memory_count} memories · integrity ${cortex.value.integrity_check}` } : { state: 'offline', detail: 'Cortex local API unavailable' },
+      cortex: cortex.status === 'fulfilled'
+        ? { state: 'online', detail: `${cortex.value.memory_count} memories · integrity ${cortex.value.integrity_check}` }
+        : cortexAuthRequired
+          ? { state: 'auth-required', detail: 'Cortex is up; sign in at the Cortex console to see live data' }
+          : { state: 'offline', detail: 'Cortex local API unavailable' },
     });
     setProtocol(core.status === 'fulfilled' ? core.value : null);
     setInvocations(invocationsResult.status === 'fulfilled' ? invocationsResult.value : []);
@@ -72,7 +86,7 @@ export default function Dashboard() {
   return <div className="control-page command-center protocol-overview">
     <ControlHeader eyebrow="Integrity protocol" title="Protocol overview" description="A verifiable path from agent identity to policy decision and signed outcome." actions={<><button className="control-secondary-action" onClick={() => void loadOverview()} disabled={refreshing}><RefreshCw size={15} className={refreshing ? 'spin' : undefined} /> Refresh</button><Link className="control-primary-action" to="/agents"><Users size={15} /> Manage agents</Link></>} />
     <div className="command-status-bar protocol-status" aria-label="Protocol status">
-      {(['core', 'shield', 'cortex'] as const).map(name => { const Icon = name === 'core' ? Network : name === 'shield' ? ShieldCheck : BrainCircuit; const label = name === 'core' ? 'Integrity Core' : name === 'shield' ? 'Shield' : 'Cortex'; const service = services[name]; const href = name === 'shield' ? SHIELD_BACKEND_URL : name === 'cortex' ? GRAPH_MEMORY_URL : '/wiki'; return <a className="service-status" href={href} target={name === 'core' ? undefined : '_blank'} rel={name === 'core' ? undefined : 'noreferrer'} key={name}><span className={`service-icon ${service.state}`}><Icon size={16} /></span><div><strong>{label}</strong><small>{service.detail}</small></div><span className={`control-state ${service.state}`}>{service.state}</span></a>; })}
+      {(['core', 'shield', 'cortex'] as const).map(name => { const Icon = name === 'core' ? Network : name === 'shield' ? ShieldCheck : BrainCircuit; const label = name === 'core' ? 'Integrity Core' : name === 'shield' ? 'Shield' : 'Cortex'; const service = services[name]; const href = name === 'shield' ? SHIELD_UI_URL : name === 'cortex' ? CORTEX_UI_URL : '/wiki'; return <a className="service-status" href={href} target={name === 'core' ? undefined : '_blank'} rel={name === 'core' ? undefined : 'noreferrer'} key={name}><span className={`service-icon ${service.state}`}><Icon size={16} /></span><div><strong>{label}</strong><small>{service.detail}</small></div><span className={`control-state ${service.state}`}>{service.state}</span></a>; })}
       <div className="service-summary"><strong>{onlineServices}/3</strong><small>protocol surfaces online</small></div>
     </div>
     <div className="control-page-body protocol-body">
@@ -80,7 +94,7 @@ export default function Dashboard() {
         <section className="control-section protocol-spine-section"><div className="control-section-heading"><div><span className="control-eyebrow">Visual backbone</span><h2>Protocol spine</h2></div><span className="protocol-caption">identity + score + policy + evidence</span></div>
           <div className="protocol-spine" aria-label="Agent identity to verified outcome"><div className="spine-node"><span><Fingerprint size={22} /></span><strong>Agent identity</strong><small>{agentsLoading ? 'Loading agents' : `${agents.length} registered`}</small></div><i /><div className="spine-node"><span><ShieldCheck size={22} /></span><strong>Integrity score</strong><small>{selectedAis ? `${selectedAis.ais.toFixed(0)} AIS · ${selectedAis.event_count} events` : 'Select an agent for live AIS'}</small></div><i /><div className="spine-node"><span><FileCheck2 size={22} /></span><strong>Policy decision</strong><small>{pendingActions ? `${pendingActions} items need review` : 'No blocked actions'}</small></div><i /><div className="spine-node"><span><BadgeCheck size={22} /></span><strong>Verified outcome</strong><small>{reconciledCount} reconciled · {unresolved.length} gaps</small></div></div>
           <div className="protocol-spine-footer"><span>Integrity Core</span><small>Every action remains attributable, policy-bound, and evidence-bearing.</small></div>
-          <div className="external-systems"><span className="control-eyebrow">Connected systems</span><a href={SHIELD_BACKEND_URL} target="_blank" rel="noreferrer"><ShieldCheck size={17} /><span><strong>Shield</strong><small>Threat defence & enforcement</small></span><ExternalLink size={14} /></a><a href={GRAPH_MEMORY_URL} target="_blank" rel="noreferrer"><BrainCircuit size={17} /><span><strong>Cortex</strong><small>Intelligence & provenance</small></span><ExternalLink size={14} /></a></div>
+          <div className="external-systems"><span className="control-eyebrow">Connected systems</span><a href={SHIELD_UI_URL} target="_blank" rel="noreferrer"><ShieldCheck size={17} /><span><strong>Shield</strong><small>Threat defence & enforcement</small></span><ExternalLink size={14} /></a><a href={CORTEX_UI_URL} target="_blank" rel="noreferrer"><BrainCircuit size={17} /><span><strong>Cortex</strong><small>Intelligence & provenance</small></span><ExternalLink size={14} /></a></div>
         </section>
         <aside className="control-section attention-section"><div className="control-section-heading"><div><span className="control-eyebrow">Operator attention</span><h2>Review queue</h2></div><Link to="/security">Review <ArrowRight size={14} /></Link></div><div className="attention-summary"><span className={pendingActions ? 'warn' : 'good'}>{pendingActions}</span><div><strong>{pendingActions ? 'Items require review' : 'No blocked actions'}</strong><small>Selected agent: {selectedAgent ? selectedAgent.alias || selectedAgent.name || shortId(selectedAgent.id) : 'none'}</small></div></div><div className="attention-list">{deniedActions.slice(0, 3).map(entry => <article key={entry.id}><span className="attention-dot danger" /><div><strong>{entry.event_type}</strong><small>{entry.reason_code || entry.detail || 'Policy denied this action'}</small></div></article>)}{unresolved.slice(0, 2).map((entry, index) => <article key={entry.invocation_id || index}><span className="attention-dot warn" /><div><strong>{entry.intent_type || 'Invocation evidence'}</strong><small>{entry.status.replace(/_/g, ' ')}</small></div></article>)}{!pendingActions && <div className="control-empty compact"><BadgeCheck size={18} /> Current queues are clear.</div>}</div>{shieldSummary && <div className="attention-footer"><ShieldCheck size={14} /> {shieldSummary.device_count} Shield devices · {shieldSummary.decisions_by_action?.deny ?? shieldSummary.decisions_by_action?.block ?? 0} denied actions</div>}</aside>
       </div>

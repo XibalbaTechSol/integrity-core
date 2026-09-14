@@ -86,7 +86,7 @@ async function getJson<T>(path: string): Promise<T> {
     const response = await fetch(`${GRAPH_MEMORY_URL}${path}`, GRAPH_MEMORY_TOKEN ? { headers: { Authorization: `Bearer ${GRAPH_MEMORY_TOKEN}` } } : undefined);
     if (!response.ok) {
         const body = await response.json().catch(() => ({ error: response.statusText }));
-        throw new Error(body.error ?? `request failed: ${response.status}`);
+        throw Object.assign(new Error(body.error ?? `request failed: ${response.status}`), { status: response.status });
     }
     return response.json() as Promise<T>;
 }

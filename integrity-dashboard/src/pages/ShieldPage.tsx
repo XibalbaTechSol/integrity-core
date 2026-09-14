@@ -1,9 +1,9 @@
-import ShieldFleetOverview from '../components/shield/ShieldFleetOverview';
+import { SystemSummaryCard } from '../components/shared/SystemSummaryCard';
 
 export default function ShieldPage() {
   return (
     <div style={{ padding: 'var(--space-4)' }}>
-      <ShieldFleetOverview />
+      <SystemSummaryCard system="shield" />
     </div>
   );
 }

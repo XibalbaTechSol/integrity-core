@@ -1,11 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   BrainCircuit,
   Clock3,
-  Database,
   GitMerge,
-  Network,
   RefreshCw,
   ShieldCheck,
   Sparkles,
@@ -22,9 +20,8 @@ import {
 } from 'recharts';
 import { ControlHeader } from '../components/control/ControlHeader';
 import { ControlTabs, type ControlTab } from '../components/control/ControlTabs';
-import { EvidenceGraph2D, type EvidenceGraph2DHandle } from '../components/control/EvidenceGraph2D';
+import { SystemSummaryCard } from '../components/shared/SystemSummaryCard';
 import { useDashboard } from '../context/DashboardContext';
-import { graphMemory, type GraphMemoryStats, type GraphPayload, type StoreStatus } from '../services/graphMemory';
 import {
   oracle,
   type AisHistoryPoint,
@@ -48,8 +45,6 @@ const BUCKETS: Array<{ id: HistoryBucket; label: string }> = [
   { id: '1d', label: 'Daily' },
   { id: '1w', label: 'Weekly' },
 ];
-
-const EMPTY_GRAPH: GraphPayload = { nodes: [], edges: [] };
 
 function compactNumber(value: number | undefined) {
   if (value == null || !Number.isFinite(value)) return '—';
@@ -93,15 +88,9 @@ function PanelHeading({ eyebrow, title, meta }: { eyebrow: string; title: string
 
 function KnowledgeOverview() {
   const { selectedAgent } = useDashboard();
-  const graphRef = useRef<EvidenceGraph2DHandle>(null);
   const [bucket, setBucket] = useState<HistoryBucket>('1h');
   const [ais, setAis] = useState<AisResponse | null>(null);
   const [history, setHistory] = useState<AisHistoryPoint[]>([]);
-  const [stats, setStats] = useState<GraphMemoryStats | null>(null);
-  const [store, setStore] = useState<StoreStatus | null>(null);
-  const [graph, setGraph] = useState<GraphPayload>(EMPTY_GRAPH);
-  const [pendingInference, setPendingInference] = useState<number | null>(null);
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [sourceErrors, setSourceErrors] = useState<string[]>([]);
 
@@ -111,33 +100,15 @@ function KnowledgeOverview() {
     const requests = await Promise.allSettled([
       agentId ? oracle.getAis(agentId) : Promise.resolve(null),
       agentId ? oracle.getAisHistory(agentId, bucket) : Promise.resolve([]),
-      graphMemory.stats(),
-      graphMemory.status(),
-      bounded(graphMemory.graph(60, 0.78), 8_000),
-      graphMemory.inferenceTasks('pending', 50),
     ]);
 
-    const [aisResult, historyResult, statsResult, storeResult, graphResult, inferenceResult] = requests;
+    const [aisResult, historyResult] = requests;
     const errors: string[] = [];
 
     if (aisResult.status === 'fulfilled') setAis(aisResult.value);
     else { setAis(null); errors.push('Current AIS unavailable'); }
     if (historyResult.status === 'fulfilled') setHistory(historyResult.value);
     else { setHistory([]); errors.push('AIS history unavailable'); }
-    if (statsResult.status === 'fulfilled') setStats(statsResult.value);
-    else { setStats(null); errors.push('Cortex statistics unavailable'); }
-    if (storeResult.status === 'fulfilled') setStore(storeResult.value);
-    else { setStore(null); errors.push('Cortex integrity status unavailable'); }
-    if (graphResult.status === 'fulfilled') {
-      setGraph(graphResult.value);
-      setSelectedNodeId((current) => current && graphResult.value.nodes.some((node) => node.id === current) ? current : graphResult.value.nodes[0]?.id ?? null);
-    } else {
-      setGraph(EMPTY_GRAPH);
-      setSelectedNodeId(null);
-      errors.push('Evidence graph unavailable');
-    }
-    if (inferenceResult.status === 'fulfilled') setPendingInference(inferenceResult.value.length);
-    else { setPendingInference(null); errors.push('Inference queue unavailable'); }
 
     setSourceErrors(errors);
     setLoading(false);
@@ -145,19 +116,11 @@ function KnowledgeOverview() {
 
   useEffect(() => { void load(); }, [load]);
 
-  const selectedNode = useMemo(() => graph.nodes.find((node) => node.id === selectedNodeId) ?? null, [graph.nodes, selectedNodeId]);
-  const selectedEdges = useMemo(() => graph.edges.filter((edge) => {
-    const source = typeof edge.source === 'string' ? edge.source : String((edge.source as { id?: string }).id);
-    const target = typeof edge.target === 'string' ? edge.target : String((edge.target as { id?: string }).id);
-    return source === selectedNodeId || target === selectedNodeId;
-  }), [graph.edges, selectedNodeId]);
-
   const aisChart = useMemo(() => history.map((point) => ({
     ...point,
     label: chartTime(point.bucket_start, bucket),
   })), [history, bucket]);
 
-  const integrityState = store?.integrity_check === 'ok';
   const sourceState = sourceErrors.length === 0 ? 'online' : sourceErrors.length < 5 ? 'degraded' : 'offline';
 
   return (
@@ -168,16 +131,11 @@ function KnowledgeOverview() {
           <div><strong>{selectedAgent?.alias || selectedAgent?.name || shortAgent(selectedAgent?.id)}</strong><small>{shortAgent(selectedAgent?.id)}</small></div>
         </div>
         <div><span>Oracle evidence</span><strong className={sourceState}>{sourceErrors.length ? 'Partial' : 'Available'}</strong></div>
-        <div><span>Cortex store</span><strong className={integrityState ? 'online' : store ? 'degraded' : 'offline'}>{store ? (integrityState ? 'Integrity OK' : store.integrity_check) : 'Unavailable'}</strong></div>
-        <div><span>Graph filter</span><strong>Similarity ≥ 0.78</strong></div>
-        <div className="knowledge-context-note"><ShieldCheck size={15} /><span>AIS and graph evidence retain separate provenance and assurance boundaries.</span></div>
+        <div className="knowledge-context-note"><ShieldCheck size={15} /><span>AIS is protocol-native, computed by Integrity Core. Cortex owns knowledge/evidence storage -- see its own console for graph exploration.</span></div>
       </div>
 
       <div className="control-metric-grid knowledge-metric-grid">
         <div className="control-metric"><span><Activity size={14} /> Current AIS</span><strong>{compactNumber(ais?.ais)}</strong><small>{ais ? `${ais.event_count} scored events · zk ×${ais.zk_boost.toFixed(2)}` : 'No current Oracle reading'}</small></div>
-        <div className="control-metric"><span><Database size={14} /> Cortex memories</span><strong>{compactNumber(stats?.memories)}</strong><small>{stats ? `${compactNumber(stats.embedded_memories)} embedded` : 'Store statistics unavailable'}</small></div>
-        <div className="control-metric"><span><Network size={14} /> Graph evidence</span><strong>{compactNumber(graph.nodes.length)}</strong><small>{compactNumber(graph.edges.length)} visible relationships</small></div>
-        <div className={`control-metric ${pendingInference ? 'attention' : ''}`}><span><BrainCircuit size={14} /> Inference queue</span><strong>{compactNumber(pendingInference ?? undefined)}</strong><small>{pendingInference == null ? 'Queue unavailable' : pendingInference ? 'Pending review or processing' : 'No pending tasks'}</small></div>
       </div>
 
       <div className="knowledge-toolbar">
@@ -207,33 +165,11 @@ function KnowledgeOverview() {
             )}
           </div>
         </section>
-
       </div>
 
       <section className="control-section knowledge-graph-panel">
-        <PanelHeading eyebrow="Cortex knowledge graph" title="Knowledge evidence graph" meta={`${graph.nodes.length} nodes · ${graph.edges.length} edges`} />
-        <div className="knowledge-graph-layout">
-          <div className="knowledge-graph-stage">
-            {graph.nodes.length === 0 ? <div className="chart-empty">No Cortex graph data is available. This is not treated as positive evidence.</div> : <EvidenceGraph2D ref={graphRef} data={graph} selectedNodeId={selectedNodeId} onSelectNode={setSelectedNodeId} />}
-            <div className="knowledge-graph-legend" aria-label="Evidence graph legend"><span><i className="memory" />Memory</span><span><i className="entity" />Entity</span><span><i className="similarity" />Similarity</span><span><i className="contradiction" />Contradiction</span></div>
-            {graph.nodes.length > 0 && <button className="knowledge-fit-button" type="button" onClick={() => graphRef.current?.zoomToFit()}>Fit graph</button>}
-          </div>
-          <aside className="knowledge-node-inspector">
-            <span className="control-eyebrow">Selected evidence</span>
-            {selectedNode ? <>
-              <h3>{selectedNode.label}</h3>
-              <code title={selectedNode.id}>{selectedNode.id}</code>
-              <dl>
-                <div><dt>Type</dt><dd>{selectedNode.type}</dd></div>
-                <div><dt>Status</dt><dd>{selectedNode.status ?? 'not reported'}</dd></div>
-                <div><dt>Evidence class</dt><dd>{selectedNode.evidence_class ?? 'not reported'}</dd></div>
-                <div><dt>Source kind</dt><dd>{selectedNode.source_kind ?? 'not reported'}</dd></div>
-                <div><dt>Relationships</dt><dd>{selectedEdges.length}</dd></div>
-              </dl>
-              <div className="knowledge-edge-list">{selectedEdges.slice(0, 8).map((edge, index) => <span key={`${edge.type}-${index}`}><i className={edge.type} />{edge.predicate || edge.type}</span>)}</div>
-            </> : <p>Select a memory or entity to inspect its provenance and relationships.</p>}
-          </aside>
-        </div>
+        <PanelHeading eyebrow="Cortex" title="Knowledge & evidence storage" />
+        <SystemSummaryCard system="cortex" />
       </section>
 
       <div className="knowledge-assurance-note"><ShieldCheck size={14} /><span>Signed telemetry can contribute to AIS. Vendor OTel remains operational context only; detailed telemetry and integrity vectors are available in Agent intelligence.</span></div>

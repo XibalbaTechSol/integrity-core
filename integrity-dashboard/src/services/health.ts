@@ -9,7 +9,7 @@ import { RPC_URL } from '../constants';
 // (see PRODUCTION_GAPS.md -- the project's own Docker healthcheck avoids it too), so this
 // intentionally does NOT probe it; a real DB-touching endpoint would be a better choice if
 // oracle's own health semantics ever change, but that's a separate decision from this hook.
-export type ServiceState = 'checking' | 'online' | 'offline';
+export type ServiceState = 'checking' | 'online' | 'offline' | 'auth-required';
 
 export interface ServiceCheck {
   key: string;
@@ -30,7 +30,12 @@ const KERNEL_FIX_HINT = `Anvil RPC not reachable at ${RPC_URL} -- run \`make cha
 async function checkHttp(url: string): Promise<ServiceState> {
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(2500) });
-    return response.ok ? 'online' : 'offline';
+    if (response.ok) return 'online';
+    // 401/403 means the service is up but this dashboard has no session/token for it --
+    // Shield, Cortex, and userapi are deliberately separate account systems, so this is
+    // expected, not a sign the service is down.
+    if (response.status === 401 || response.status === 403) return 'auth-required';
+    return 'offline';
   } catch {
     return 'offline';
   }
@@ -69,7 +74,11 @@ export function useServiceHealth(pollIntervalMs = 15000): ServiceCheck[] {
   }, [pollIntervalMs]);
 
   return [
-    ...httpChecks.map((c) => ({ key: c.key, label: c.label, status: states[c.key] ?? 'checking', detail: states[c.key] === 'offline' ? c.fixHint : undefined })),
+    ...httpChecks.map((c) => {
+      const status = states[c.key] ?? 'checking';
+      const detail = status === 'offline' ? c.fixHint : status === 'auth-required' ? `${c.label} is up, but this dashboard has no session with it -- sign in there directly.` : undefined;
+      return { key: c.key, label: c.label, status, detail };
+    }),
     { key: 'kernel', label: 'Kernel bridge (RPC)', status: states.kernel ?? 'checking', detail: states.kernel === 'offline' ? KERNEL_FIX_HINT : undefined },
   ];
 }

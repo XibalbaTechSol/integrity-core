@@ -3606,3 +3606,16 @@ writeup: PRODUCTION_GAPS.md §18.
   backoff/dead-letter metrics, and approval-gated exact-branch repair remain future work.
 - Verification: live watcher execution completed successfully with no current incidents; its
   production alert state was not modified during verification.
+
+## [2026-09-12] ops | Cortex inference queue recovery wired into cron preflight
+
+- Updated `/home/xibalba/.hermes/scripts/xibalba-cortex-queue-preflight.py` to invoke the canonical
+  `GraphStore` recovery methods before reporting readiness: legacy claimed-row reconciliation and
+  bounded expired-lease requeue/dead-letter handling.
+- Updated the `xibalba-cortex-inference-worker` cron prompt to treat recovery as a completed
+  deterministic stage, preserve proposal-only inference, and use only the active restricted
+  Model Context Protocol tool manifest for evidence retrieval.
+- Verification: the live default Cortex queue recovery executed successfully; legacy dead-lettered,
+  expired, requeued, and exhausted counts were all zero, and eligible pending tasks were zero.
+- Limitation: the scheduler preflight proves queue recovery/readiness, not inference correctness or
+  proposal acceptance. Model processing remains separately observable and review-gated.

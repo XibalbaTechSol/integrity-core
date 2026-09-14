@@ -19,6 +19,7 @@ column, applied to a different credential type.
 from __future__ import annotations
 
 import hashlib
+import os
 import secrets
 import uuid
 from dataclasses import dataclass
@@ -32,6 +33,25 @@ from app.config import Settings
 _pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
 API_KEY_PREFIX = "uak_"
+
+# Mirrors xibalba-shield's shield/backend/api.py `_session_cookie` exactly (same
+# HttpOnly/SameSite=Strict/Secure reasoning) so the three products' auth cookies share one
+# security posture. The cookie carries the same JWT `/auth/login` and `/auth/register`
+# already mint -- no second token type, no session table -- so `deps.py`'s existing
+# jti-based revocation covers cookie sessions for free.
+SESSION_COOKIE_NAME = "userapi_session"
+# `Secure` is omitted only for plain-HTTP local dev. Any real deployment terminates TLS in
+# front of this service, where `Secure` must be set or the browser silently drops the cookie.
+_INSECURE_COOKIES = os.environ.get("USERAPI_INSECURE_COOKIES") == "1"
+
+
+def session_cookie_header(token: str, *, max_age: int) -> str:
+    """Serialize the operator session cookie. `SameSite=Strict` is what makes HttpOnly safe
+    without a separate CSRF token: the browser will not attach it to any cross-site request."""
+    parts = [f"{SESSION_COOKIE_NAME}={token}", "Path=/", "HttpOnly", "SameSite=Strict", f"Max-Age={max_age}"]
+    if not _INSECURE_COOKIES:
+        parts.append("Secure")
+    return "; ".join(parts)
 
 
 def hash_password(password: str) -> str:

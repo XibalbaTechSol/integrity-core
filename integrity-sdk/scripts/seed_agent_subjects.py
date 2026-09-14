@@ -67,6 +67,26 @@ def main() -> None:
     except SubjectConflictError as exc:
         print(f"skipped (already recorded / conflict): {exc}")
 
+    try:
+        m3 = record_mapping(
+            source_identifier="xibalba.agent",
+            target_identifier="did:integrity:68fed1331613937555a59398223e8e87520a87dd0305aac4fd7ecdc32a14a861",
+            mapping_type=MappingType.SAME_SUBJECT,
+            basis=(
+                "Cortex/Shield auth session (2026-09-13): the user wants to keep 'xibalba.agent' "
+                "as their working identity label (used by Claude Code and Codex) rather than "
+                "Shield's DID (did:integrity:2ea17967...), which the Cortex API unit's "
+                "XIBALBA_AGENT_ID had been misconfigured to. did:integrity:68fed133... is the "
+                "SDK's registered 'xibalba' identity (general.integrity, Base Sepolia) already "
+                "confirmed as this user's real agent in the 2026-09-12 tri-repo audit above. "
+                "User directed this mapping be recorded explicitly in this session."
+            ),
+            created_by_principal=PRINCIPAL,
+        )
+        print(f"recorded: {m3.mapping_id} xibalba.agent <same_subject> did:integrity:68fed133...")
+    except SubjectConflictError as exc:
+        print(f"skipped (already recorded / conflict): {exc}")
+
 
 if __name__ == "__main__":
     main()

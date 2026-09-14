@@ -15,7 +15,7 @@ import asyncio
 import secrets
 
 import asyncpg
-from fastapi import Depends, FastAPI, HTTPException, status, BackgroundTasks
+from fastapi import Depends, FastAPI, HTTPException, Response, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from uuid import UUID
 import subprocess
@@ -45,12 +45,7 @@ from app.security import (
     create_access_token,
     generate_api_key,
     hash_password,
-    verify_password,
-)
-from app.security import (
-    create_access_token,
-    generate_api_key,
-    hash_password,
+    session_cookie_header,
     verify_password,
 )
 
@@ -63,7 +58,12 @@ app = FastAPI(title="integrity-userapi", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=default_settings.cors_origins,
-    allow_credentials=False,
+    # HttpOnly session cookies (see app/security.py's session_cookie_header) require this:
+    # a fetch() from the dashboard only sends/receives the cookie with credentials: 'include',
+    # which the browser refuses unless CORS explicitly allows credentials for the exact
+    # origin (cors_origins is already an explicit list, never '*', which credentials mode
+    # disallows anyway).
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -108,6 +108,7 @@ async def health() -> dict:
 )
 async def register(
     body: RegisterRequest,
+    response: Response,
     pool: asyncpg.Pool = Depends(get_pool),
     settings: Settings = Depends(get_settings),
 ) -> TokenResponse:
@@ -124,12 +125,18 @@ async def register(
         hashed,
     )
     token = create_access_token(user_id=str(row["id"]), settings=settings)
+    # Same JWT as the response body, also set as an HttpOnly cookie -- see
+    # app/security.py's session_cookie_header. The dashboard (and any other browser
+    # client) authenticates via the cookie going forward; the body's access_token
+    # remains for non-browser clients (CLI, API-key-style bearer use).
+    response.headers.append("Set-Cookie", session_cookie_header(token, max_age=settings.jwt_expiry_minutes * 60))
     return TokenResponse(access_token=token)
 
 
 @app.post("/auth/login", response_model=TokenResponse)
 async def login(
     body: LoginRequest,
+    response: Response,
     pool: asyncpg.Pool = Depends(get_pool),
     settings: Settings = Depends(get_settings),
 ) -> TokenResponse:
@@ -152,11 +159,13 @@ async def login(
 
     login_rate_limiter.record_success(body.email)
     token = create_access_token(user_id=str(row["id"]), settings=settings)
+    response.headers.append("Set-Cookie", session_cookie_header(token, max_age=settings.jwt_expiry_minutes * 60))
     return TokenResponse(access_token=token)
 
 
 @app.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(
+    response: Response,
     token: DecodedToken = Depends(get_current_token),
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> None:
@@ -166,6 +175,7 @@ async def logout(
     already-expired revocation rows first, so this table stays bounded by
     "revoked tokens still inside their own exp window" without needing a
     separate cleanup job."""
+    response.headers.append("Set-Cookie", session_cookie_header("", max_age=0))
     async with pool.acquire() as conn:
         async with conn.transaction():
             await conn.execute("DELETE FROM revoked_tokens WHERE expires_at < now()")

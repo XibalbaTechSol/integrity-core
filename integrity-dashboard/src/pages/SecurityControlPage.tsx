@@ -1,19 +1,20 @@
 import { useState } from 'react';
-import { GitCompare, GitMerge, Network, ShieldCheck } from 'lucide-react';
+import { GitCompare, Network, ShieldCheck } from 'lucide-react';
 import { ControlHeader } from '../components/control/ControlHeader';
 import { ControlTabs, type ControlTab } from '../components/control/ControlTabs';
 import ShieldPage from './ShieldPage';
 import KernelPage from './KernelPage';
 import KernelIntentPage from './KernelIntentPage';
 import { AgentRiskContext } from '../components/control/AgentRiskContext';
-import CorrelationPage from './CorrelationPage';
 
-type SecurityTab = 'shield' | 'kernel' | 'actions' | 'correlation';
+// Cross-system correlation (oracle intents + Shield decisions + Cortex invocations) lives
+// in exactly one place now: Knowledge & Evidence's "evidence" tab (CorrelationPage). This
+// page used to embed a second copy of it; removed rather than duplicated.
+type SecurityTab = 'shield' | 'kernel' | 'actions';
 const TABS: ControlTab<SecurityTab>[] = [
   { id: 'shield', label: 'Endpoints & devices', icon: ShieldCheck },
   { id: 'kernel', label: 'Policy & guardians', icon: Network },
   { id: 'actions', label: 'Intent review', icon: GitCompare },
-  { id: 'correlation', label: 'Correlation evidence', icon: GitMerge },
 ];
 
 export default function SecurityControlPage({ initialTab = 'shield' }: { initialTab?: SecurityTab }) {
@@ -27,7 +28,6 @@ export default function SecurityControlPage({ initialTab = 'shield' }: { initial
         {tab === 'shield' && <ShieldPage />}
         {tab === 'kernel' && <KernelPage />}
         {tab === 'actions' && <KernelIntentPage />}
-        {tab === 'correlation' && <CorrelationPage />}
       </div>
     </div>
   );

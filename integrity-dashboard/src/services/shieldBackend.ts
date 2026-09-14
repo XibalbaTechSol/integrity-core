@@ -42,7 +42,7 @@ async function adminGet<T>(path: string, params?: Record<string, string>, token 
     });
     if (!response.ok) {
         const body = await response.json().catch(() => ({ error: response.statusText }));
-        throw new Error(body.error ?? `shield-backend request failed: ${response.status}`);
+        throw Object.assign(new Error(body.error ?? `shield-backend request failed: ${response.status}`), { status: response.status });
     }
     return response.json() as Promise<T>;
 }
@@ -58,7 +58,7 @@ async function adminPost<T>(path: string, payload: Record<string, unknown>, toke
     });
     if (!response.ok) {
         const body = await response.json().catch(() => ({ error: response.statusText }));
-        throw new Error(body.error ?? `shield-backend request failed: ${response.status}`);
+        throw Object.assign(new Error(body.error ?? `shield-backend request failed: ${response.status}`), { status: response.status });
     }
     return response.json() as Promise<T>;
 }
@@ -68,12 +68,14 @@ async function adminPost<T>(path: string, payload: Record<string, unknown>, toke
 // ---------------------------------------------------------------------------
 
 export const shieldBackend = {
-    // Health check is protected by the backend admin token in local/dev deployments.
+    // Health check is protected by the backend admin token in local/dev deployments. Reports
+    // the HTTP status alongside the body so callers can tell "up but this admin token isn't
+    // valid" (401/403) apart from a genuinely unreachable backend.
     health: () =>
         fetch(`${SHIELD_BACKEND_URL}/api/shield/health`, {
             headers: { Authorization: `Bearer ${SHIELD_BACKEND_TOKEN}` },
         })
-            .then(r => r.json() as Promise<{ ok: boolean; service: string }>),
+            .then(async r => ({ ...(await r.json().catch(() => ({ ok: false, service: 'shield' }))) as { ok: boolean; service: string }, httpStatus: r.status })),
 
     // Admin read routes
     dashboardSummary: (tenantId: string, token = SHIELD_BACKEND_TOKEN) =>

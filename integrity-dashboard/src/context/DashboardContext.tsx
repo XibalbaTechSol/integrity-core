@@ -80,6 +80,7 @@ interface DashboardContextType {
   apiKeys: ApiKey[];
   setApiKeys: (keys: ApiKey[]) => void;
   user: User | null;
+  signOut: () => Promise<void>;
   walletAddress: string | null;
   connectWallet: () => Promise<boolean>;
   addToast: (type: 'success' | 'error' | 'info', message: string) => void;
@@ -248,18 +249,21 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   useEffect(() => {
     let active = true;
     const load = () => {
-      if (getToken()) {
-        userapi.me()
-          .then(u => { if (active) setUser(userFromResponse(u)); })
-          .catch(() => { if (active) setUser(walletAddress ? userFromWallet(walletAddress) : null); });
-      } else {
-        setUser(walletAddress ? userFromWallet(walletAddress) : null);
-      }
+      // Always attempts the cookie-authenticated bootstrap, regardless of this tab's local
+      // "authed" marker: the marker is per-tab sessionStorage, but the real credential is a
+      // cookie shared across every tab, so a freshly opened tab must still be able to pick up
+      // an existing session. A missing/expired cookie just 401s and falls back below.
+      userapi.meIfSignedIn()
+        .then(u => { if (active) setUser(u ? userFromResponse(u) : (walletAddress ? userFromWallet(walletAddress) : null)); });
     };
     load();
     window.addEventListener('integrity-auth-changed', load);
     return () => { active = false; window.removeEventListener('integrity-auth-changed', load); };
   }, [walletAddress]);
+
+  // Revokes the session server-side and clears the local marker; the 'integrity-auth-changed'
+  // listener above then re-runs and drops `user` back to a wallet-derived view (or null).
+  const signOut = useCallback(async () => { await userapi.logout(); }, []);
 
   // Real API keys from userapi (requires a session — see AuthPage).
   useEffect(() => {
@@ -296,7 +300,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       fontFamily, setFontFamily,
       fontSize, setFontSize,
       apiKeys, setApiKeys,
-      user,
+      user, signOut,
       walletAddress, connectWallet, addToast,
       stats,
     }}>

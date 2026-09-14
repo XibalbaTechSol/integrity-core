@@ -19,9 +19,17 @@ from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.config import Settings, settings as default_settings
-from app.security import DecodedToken, TokenError, decode_access_token, hash_api_key
+from app.security import DecodedToken, SESSION_COOKIE_NAME, TokenError, decode_access_token, hash_api_key
 
 _bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def _bearer_token(credentials: HTTPAuthorizationCredentials | None, request: Request) -> str | None:
+    """Prefer an explicit Authorization header (API clients, CLI); fall back to the
+    HttpOnly session cookie (the dashboard and every other browser-based client)."""
+    if credentials is not None:
+        return credentials.credentials
+    return request.cookies.get(SESSION_COOKIE_NAME)
 
 
 def get_settings() -> Settings:
@@ -33,17 +41,20 @@ async def get_pool(request: Request) -> asyncpg.Pool:
 
 
 async def get_current_token(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
     settings: Settings = Depends(get_settings),
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> DecodedToken:
-    """Decodes + validates the bearer JWT: signature, expiry, not-revoked,
-    and that the user it names still exists. Used directly by routes (like
-    logout) that need the token's own `jti`, not just the user it names."""
-    if credentials is None:
+    """Decodes + validates the bearer JWT (from an Authorization header or the HttpOnly
+    session cookie -- see `_bearer_token`): signature, expiry, not-revoked, and that the
+    user it names still exists. Used directly by routes (like logout) that need the
+    token's own `jti`, not just the user it names."""
+    token = _bearer_token(credentials, request)
+    if token is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="missing bearer token")
     try:
-        decoded = decode_access_token(credentials.credentials, settings)
+        decoded = decode_access_token(token, settings)
     except TokenError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"invalid token: {exc}") from exc
 
@@ -58,13 +69,14 @@ async def get_current_token(
 
 
 async def get_current_user_id(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
     api_key: str | None = Header(default=None, alias="X-API-Key"),
     settings: Settings = Depends(get_settings),
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> str:
-    if credentials is not None:
-        decoded = await get_current_token(credentials, settings, pool)
+    if _bearer_token(credentials, request) is not None:
+        decoded = await get_current_token(request, credentials, settings, pool)
         return decoded.user_id
 
     if api_key is not None:

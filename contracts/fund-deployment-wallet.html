@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fund Integrity deployment wallet</title>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.5/dist/ethers.umd.min.js"></script>
+  <style>
+    body { font: 16px system-ui, sans-serif; max-width: 640px; margin: 3rem auto; padding: 0 1rem; }
+    code { word-break: break-all; }
+    button { padding: .7rem 1rem; cursor: pointer; }
+    #status { white-space: pre-wrap; margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Fund deployment wallet</h1>
+  <p>Connect MetaMask on Base Sepolia, then approve a native ETH transfer.</p>
+  <p>Destination: <code id="destination"></code></p>
+  <label>Amount (ETH): <input id="amount" value="0.01" inputmode="decimal"></label>
+  <p><button id="send">Connect and send</button></p>
+  <div id="status"></div>
+
+  <script>
+    const TARGET = "0x7530bd7Cb142C50d5cC742EdF02263f368e89E2f";
+    const CHAIN_ID = 84532n; // Base Sepolia
+    const status = document.getElementById("status");
+    document.getElementById("destination").textContent = TARGET;
+
+    function show(message) { status.textContent = message; }
+
+    document.getElementById("send").addEventListener("click", async () => {
+      try {
+        if (!window.ethereum) throw new Error("MetaMask was not detected in this browser.");
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        await provider.send("eth_requestAccounts", []);
+        const network = await provider.getNetwork();
+        if (network.chainId !== CHAIN_ID) {
+          show("Requesting MetaMask network switch to Base Sepolia...");
+          try {
+            await window.ethereum.request({
+              method: "wallet_switchEthereumChain",
+              params: [{ chainId: "0x14a34" }]
+            });
+          } catch (switchError) {
+            if (switchError.code !== 4902) throw switchError;
+            await window.ethereum.request({
+              method: "wallet_addEthereumChain",
+              params: [{
+                chainId: "0x14a34",
+                chainName: "Base Sepolia",
+                nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+                rpcUrls: ["https://sepolia.base.org"],
+                blockExplorerUrls: ["https://sepolia.basescan.org"]
+              }]
+            });
+          }
+        }
+        const signer = await provider.getSigner();
+        const from = await signer.getAddress();
+        const amount = document.getElementById("amount").value.trim();
+        const value = ethers.parseEther(amount);
+        if (value <= 0n) throw new Error("Amount must be greater than zero.");
+        show(`Connected: ${from}\nRequesting MetaMask approval...`);
+        const tx = await signer.sendTransaction({ to: TARGET, value });
+        show(`Submitted: ${tx.hash}\nWaiting for confirmation...`);
+        await tx.wait();
+        show(`Confirmed: ${tx.hash}\nhttps://sepolia.basescan.org/tx/${tx.hash}`);
+      } catch (error) {
+        show(`Not sent: ${error?.shortMessage || error?.message || error}`);
+      }
+    });
+  </script>
+</body>
+</html>

@@ -68,7 +68,7 @@ html {
 .service-status small { margin-top: 0.18rem; overflow: hidden; color: var(--text-muted); font-size: 0.64rem; text-overflow: ellipsis; white-space: nowrap; }
 .service-icon { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 1px solid var(--border-color); border-radius: 5px; color: var(--text-muted); }
 .service-icon.online { color: var(--success); }
-.service-icon.degraded { color: var(--gold); }
+.service-icon.degraded, .service-icon.auth-required { color: var(--gold); }
 .service-icon.offline { color: var(--danger); }
 .protocol-body { gap: 1rem; }
 .protocol-grid { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(290px, .7fr); gap: 1rem; align-items: stretch; }
@@ -96,7 +96,7 @@ html {
 .service-summary small { color: var(--text-muted); font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.06em; }
 .control-state { display: inline-flex; align-items: center; width: fit-content; min-height: 22px; padding: 0.12rem 0.4rem; border: 1px solid var(--border-color); border-radius: 999px; color: var(--text-muted); font-size: 0.61rem; font-weight: 700; text-transform: uppercase; white-space: nowrap; }
 .control-state.online, .control-state.good { color: var(--success); border-color: color-mix(in srgb, var(--success) 45%, var(--border-color)); }
-.control-state.degraded { color: var(--gold); border-color: color-mix(in srgb, var(--gold) 45%, var(--border-color)); }
+.control-state.degraded, .control-state.auth-required { color: var(--gold); border-color: color-mix(in srgb, var(--gold) 45%, var(--border-color)); }
 .control-state.offline { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--border-color)); }
 
 .control-metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden; background: var(--surface-color); }
@@ -119,6 +119,7 @@ html {
 .control-count { color: var(--text-muted); font-size: 0.7rem; }
 .control-empty { display: flex; align-items: center; justify-content: center; gap: 0.45rem; min-height: 150px; padding: 1.5rem; color: var(--text-muted); font-size: 0.76rem; text-align: center; }
 .control-empty.compact { min-height: 90px; }
+.control-hint { margin: 0.35rem 0 0.75rem; color: var(--text-muted); font-size: 0.72rem; }
 
 .fleet-table-wrap { overflow-x: auto; }
 .fleet-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 0.74rem; }
@@ -848,6 +849,7 @@ a:hover {
 
 .app-service-indicator.online > span { background: #2f9e62; }
 .app-service-indicator.offline > span { background: #c35c58; }
+.app-service-indicator.auth-required > span { background: #c9932f; }
 
 @media (max-width: 1180px) {
   .app-service-status { display: none; }
