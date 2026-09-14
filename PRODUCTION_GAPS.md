@@ -4087,3 +4087,47 @@ The old factory was replaced by `0x240F72d7c1fc824BB641e51213ca135Ee5514A5B` in 
 verifier pointer reads the candidate; its `REGISTRAR_ROLE` was granted and the old factory's
 role revoked. The deployment record now reflects both new addresses. Existing verifier-registry
 clones still require controller-routed version pinning and adoption before this gate closes.
+
+## 70. `AgentPrimitivesFactory`'s Slasher clone template predated `stakeFor` — CLOSED (2026-09-14)
+
+**Root cause of "every `registerPrimitives()` call reverts with empty data," found and fixed live
+while registering `xibalba-shield`.** The factory deployed in item #69 above
+(`0x240F72d7c1fc824BB641e51213ca135Ee5514A5B`, 2026-09-09) correctly fixed the verifier pointer
+but, like `MigrateVerifierFactory.s.sol`'s own pattern, read `slasherImpl` straight from
+`deployments.baseSepolia.json`'s `cloneTemplates.Slasher` rather than redeploying it — and that
+cached address (`0xbA044396b6B347c9b484e5a96c83888e59f4dF7D`) was already stale, predating
+`stakeFor(address,uint256)` being added to `Slasher.sol`. Confirmed two ways: (1) scanning the
+deployed contract's runtime bytecode for the function's 4-byte selector found it entirely absent
+(present for `stake(uint256)`, the pre-existing function); (2) forking Base Sepolia locally with
+Anvil and replaying the exact failing call via `cast call --trace` showed the revert originating
+inside the delegatecall to `stakeFor` with zero returndata — the standard Solidity behavior when a
+contract with no `fallback()` receives an unmatched selector. This has been silently live since
+2026-09-09; nothing surfaced it because no new agent attempted full registration in the interim.
+
+**Fixed**: `contracts/script/MigrateSlasherFactory.s.sol` (mirrors #69's own
+`MigrateVerifierFactory.s.sol` pattern exactly) deploys a fresh `Slasher` implementation from
+current source plus a replacement `AgentPrimitivesFactory` pointing at it, migrates
+`REGISTRAR_ROLE` on both `XibalbaAgentRegistry` and `DomainRegistry` from the old factory to the
+new one, and revokes it from the old. New addresses: Slasher
+`0xf182E30215E568ba9570872d4F65bB6EEf5825f4`, Factory
+`0x706818f86042BcAAAfAa8557cc4057061FeC60D9`. Deployed via a purpose-built local MetaMask-signing
+page rather than a raw `FUNDER_PRIVATE_KEY` env var, since the registries' `DEFAULT_ADMIN_ROLE`
+belongs to the user's own wallet — kept out of any CLI/shell entirely. `xibalba-shield`'s
+registration was re-run afterward and completed end to end: `registered 7 primitives` on-chain,
+`oracle_registered: true` with a full real primitive set confirmed via the oracle's own API.
+
+**Not fixed, deliberately out of scope**: `ReputationRegistry`'s deployed clone template
+(`0xd362eC37F74bfef79184dB3bBC16E2EC0272a2Ef`) is *also* stale by the same bytecode-selector-scan
+method — missing `BN254_SCALAR_FIELD()`, `zkIdentityCommitment()`, `updateScoreWithCoverage(...)`,
+and several other newer ZK-related functions from item #67 above. Its `initialize()` — the only
+function `registerPrimitives()` itself calls — is present and confirmed working, so it did not
+block this fix. ZK-boost submission for any newly registered agent may still be affected until
+`ReputationRegistry` gets the same clone-template treatment as `Slasher` did here.
+
+**Process note for next time a clone template genuinely needs replacing**: neither this
+migration nor #69's verifier migration redeploys *every* clone template each time — both
+deliberately reuse the other, still-current implementations and replace only the one that
+changed. Before trusting any `cloneTemplates.*` address as current, scan the deployed bytecode
+for every function selector the current source defines (cheap, no RPC tracing tier required) —
+that's what caught both the `Slasher` and `ReputationRegistry` staleness here, and would have
+caught #69's underlying issue earlier too had it been run against `Slasher` at the time.

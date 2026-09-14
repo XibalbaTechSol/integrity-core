@@ -3631,3 +3631,26 @@ writeup: PRODUCTION_GAPS.md §18.
   `.integrity-cli` path.
 - Added focused regression coverage for identity uniqueness, DID mismatch,
   device enforcement, lifecycle metadata, and MCP key loading.
+
+## [2026-09-14] fix | Slasher clone template staleness closed (PRODUCTION_GAPS.md #70)
+
+- Root-caused "every `registerPrimitives()` call reverts with empty data" (found while
+  registering `xibalba-shield`) to `AgentPrimitivesFactory`'s Slasher clone template predating
+  `stakeFor(address,uint256)` -- silently live since the 2026-09-09 verifier-only factory
+  migration (#69), which correctly redeployed the factory but reused the already-stale
+  `cloneTemplates.Slasher` address from `deployments.baseSepolia.json` rather than redeploying it.
+- Confirmed via deployed-bytecode selector scanning (no tracing RPC tier required) and, for the
+  specific revert point, an Anvil local fork + `cast call --trace` replay.
+- Deployed a fresh `Slasher` + replacement `AgentPrimitivesFactory`
+  (`contracts/script/MigrateSlasherFactory.s.sol`, mirrors #69's own migration pattern), migrated
+  `REGISTRAR_ROLE` on `XibalbaAgentRegistry` and `DomainRegistry`, revoked it from the old
+  factory. New addresses: Slasher `0xf182E30215E568ba9570872d4F65bB6EEf5825f4`, Factory
+  `0x706818f86042BcAAAfAa8557cc4057061FeC60D9`.
+- Signed via a purpose-built local MetaMask page rather than a raw `FUNDER_PRIVATE_KEY` env var,
+  since the registries' admin role belongs to the operator's own wallet.
+- Verification: `xibalba-shield` registration re-run end to end afterward --
+  `registered 7 primitives` on-chain, `oracle_registered: true` with a full real primitive set
+  confirmed via the oracle's own API, not just the CLI's exit status.
+- Known follow-up, not fixed: `ReputationRegistry`'s clone template is also stale by the same
+  selector-scan method (missing newer ZK-related functions from #67), but its `initialize()` --
+  the only function `registerPrimitives()` calls -- is present and unaffected.
