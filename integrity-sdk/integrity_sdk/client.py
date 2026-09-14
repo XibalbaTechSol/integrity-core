@@ -225,10 +225,18 @@ class IntegrityClient:
         lifetime explicitly (a test, a worker that finishes) should prefer this over relying
         on interpreter exit.
         """
+        self.shutdown()
+        self._flush_on_exit()
+
+    def shutdown(self) -> None:
+        """Stop background flushing without attempting a network flush.
+
+        Harness adapters use this when they deliberately retain or inspect a
+        buffered batch, such as during a deterministic test or handoff.
+        """
         self._stop_event.set()
         if self._flusher is not None and self._flusher.is_alive():
             self._flusher.join(timeout=self._batcher.flush_interval_sec + 1.0)
-        self._flush_on_exit()
 
     def log_telemetry(
         self,
@@ -377,6 +385,17 @@ class IntegrityClient:
                 self._nonce = last_nonce
         except requests.RequestException as exc:
             logger.warning("could not sync starting nonce from oracle for agent %s: %s", self.agent_id, exc)
+
+    def registration_status(self) -> Optional[bool]:
+        """Return the last Oracle registration result, checking it once if needed.
+
+        ``True`` and ``False`` are authoritative Oracle responses. ``None`` means
+        the Oracle could not be reached, so callers requiring a strict gate must
+        refuse startup rather than interpreting uncertainty as registration.
+        """
+        if not self._nonce_synced:
+            self._sync_nonce_from_oracle()
+        return self._registered
 
     def flush_telemetry(
         self,

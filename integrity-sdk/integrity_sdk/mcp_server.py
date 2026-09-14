@@ -61,8 +61,8 @@ Or add to an MCP-capable harness config:
 
 ## Identity / keypair
 
-The server loads the agent's Ed25519 keypair from the standard identity store
-(`~/.integrity-cli/identity/<agent-id>/`) so every flush and intent call is
+The server loads the agent's Ed25519 keypair from the SDK's canonical identity
+store (`~/.integrity/did/<agent-id>/`, or `$INTEGRITY_DID_HOME/<agent-id>/`) so every flush and intent call is
 correctly signed.  If no keypair is found, the server still starts and provides
 telemetry logging but flushes will receive a 401 from the oracle (as documented
 in client.py's `flush_telemetry` docstring).
@@ -116,17 +116,15 @@ _SIGNING_TOOLS_ENABLED = os.environ.get("INTEGRITY_MCP_ALLOW_SIGNING_TOOLS") == 
 
 
 def _load_keypair_for(agent_id: str) -> Optional[Any]:
-    """Load the Ed25519 Keypair for *agent_id* from the default identity store,
+    """Load the Ed25519 Keypair for *agent_id* from the SDK identity store,
     or return None if not found (server still starts, flushes will 401)."""
     from .did import Keypair
 
-    # Strip the DID prefix if the caller passed a full DID.
+    from .did import agent_dir
+
     bare = agent_id.replace("did:integrity:", "")
-    candidates = [
-        Path.home() / ".integrity-cli" / "identity" / bare / "private.pem",
-        Path.home() / ".integrity-cli" / "identity" / bare / f"{bare}.pem",
-        Path.home() / ".integrity-cli" / "identity" / f"{bare}.pem",
-    ]
+    root = agent_dir(bare)
+    candidates = [root / "private_key.pem", root / "private.pem", root / f"{bare}.pem"]
     for path in candidates:
         if path.exists():
             try:
@@ -140,12 +138,12 @@ def _load_keypair_for(agent_id: str) -> Optional[Any]:
 
 
 def _load_doc_for(agent_id: str) -> Optional[Dict[str, Any]]:
-    """Load the DID document for *agent_id* to resolve the canonical DID string."""
+    """Load the DID document from the SDK identity store."""
+    from .did import agent_dir
+
     bare = agent_id.replace("did:integrity:", "")
-    candidates = [
-        Path.home() / ".integrity-cli" / "identity" / bare / "document.json",
-        Path.home() / ".integrity-cli" / "identity" / f"{bare}.document.json",
-    ]
+    root = agent_dir(bare)
+    candidates = [root / "document.json", root / f"{bare}.document.json"]
     for path in candidates:
         if path.exists():
             try:

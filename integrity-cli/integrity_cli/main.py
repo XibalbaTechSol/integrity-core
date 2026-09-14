@@ -70,6 +70,75 @@ app.add_typer(domain_app, name="domain")
 vault_app = typer.Typer(help="Trust Vault (Persistent Memory) commands")
 app.add_typer(vault_app, name="vault")
 
+wallet_app = typer.Typer(help="EVM wallet keystores -- import a raw key once, then reference it by name")
+app.add_typer(wallet_app, name="wallet")
+
+
+# --------------------------------------------------------------------------
+# wallet
+# --------------------------------------------------------------------------
+
+@wallet_app.command("import")
+def wallet_import(
+    identity_name: str = typer.Option(..., "--identity", help="Local wallet identity name to store this key under (e.g. 'operator')"),
+    force: bool = typer.Option(False, "--force", help="Overwrite an existing keystore for this identity instead of refusing"),
+) -> None:
+    """
+    Import an existing raw private key into an encrypted keystore, ONE TIME,
+    so it never has to be typed or pasted again after this.
+
+    Added 2026-09-14: the protocol's single operator key (DEFAULT_ADMIN_ROLE/
+    MINTER_ROLE/governance/arbitrator/disputer on Base Sepolia) was pasted
+    into a chat session during troubleshooting and subsequently lost -- every
+    agent identity already got proper keystore protection via
+    `generate_or_load_evm_wallet`, but the operator/funder key never did.
+    Run this once for a recovered or freshly rotated operator key, then use
+    `agent register --funder-identity <name>` instead of FUNDER_PRIVATE_KEY
+    from then on. Requires INTEGRITY_WALLET_PASSWORD in the environment
+    (same as every other keystore in this CLI) to encrypt the imported key.
+
+    The private key is read from a hidden interactive prompt only -- never
+    a CLI argument (would leak into shell history / `ps`) or an env var
+    (would leak into the process's environment listing / any logging that
+    dumps env). This command is the intended way to get a raw key onto disk
+    at all; after this, only INTEGRITY_WALLET_PASSWORD is ever needed.
+    """
+    import getpass
+
+    raw_key = getpass.getpass(f"Private key to import for identity '{identity_name}' (input hidden): ").strip()
+    if not raw_key:
+        console.print("[bold red]Error:[/bold red] no key entered")
+        raise typer.Exit(1)
+    try:
+        account = wallet.import_evm_wallet(identity_name, raw_key, force=force)
+    except wallet.WalletAlreadyExistsError as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+        raise typer.Exit(1)
+    except wallet.WalletPasswordNotSet as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+        raise typer.Exit(1)
+    finally:
+        # Best-effort: drop our only in-process reference to the plaintext
+        # promptly rather than leaving it reachable for the rest of the
+        # process's life. Python can't guarantee secure erasure of a str,
+        # but there's no reason to hold it longer than needed either.
+        raw_key = "0" * len(raw_key)
+    console.print(f"[green]done[/green] imported and encrypted -- identity [cyan]{identity_name}[/cyan] now at [cyan]{account.address}[/cyan]")
+    console.print(f"  Keystore: {wallet.wallet_dir(identity_name) / 'keystore.json'}")
+    console.print("  The raw key was never written to disk and is no longer needed -- only INTEGRITY_WALLET_PASSWORD from here on.")
+
+
+@wallet_app.command("address")
+def wallet_address(
+    identity_name: str = typer.Option(..., "--identity", help="Local wallet identity name to look up"),
+) -> None:
+    """Read-only address lookup -- does not require INTEGRITY_WALLET_PASSWORD."""
+    addr = wallet.load_evm_address(identity_name)
+    if addr is None:
+        console.print(f"[yellow]no keystore found for identity[/yellow] {identity_name!r}")
+        raise typer.Exit(1)
+    console.print(addr)
+
 
 # --------------------------------------------------------------------------
 # config
@@ -342,6 +411,11 @@ def agent_register(
              "ONLY when --domain is exactly '<identity>.integrity', the personal-domain convention. "
              "A missing non-personal domain is always a hard error regardless of this flag.",
     ),
+    funder_identity: Optional[str] = typer.Option(
+        None, "--funder-identity",
+        help="Load the funder from an encrypted keystore (see `integrity wallet import`) instead of "
+             "the raw FUNDER_PRIVATE_KEY env var. Preferred -- see that command's docstring for why.",
+    ),
 ):
     """
     Run the real self-sovereign on-chain registration sequence for a local
@@ -357,11 +431,15 @@ def agent_register(
     docstrings rather than importing integrity_sdk.
 
     Requires INTEGRITY_WALLET_PASSWORD (gates the EVM keystore, see
-    wallet.py) and FUNDER_PRIVATE_KEY (the protocol funder wallet that pays
-    to seed the new agent wallet with gas -- see
-    docs/INTERFACE_CONTRACT.md §3) in the environment. Neither has a CLI
-    flag, deliberately -- they're secrets that shouldn't end up in shell
-    history or a process list.
+    wallet.py) in the environment either way. The funder wallet that pays to
+    seed the new agent wallet with gas (docs/INTERFACE_CONTRACT.md §3) comes
+    from EITHER --funder-identity (an encrypted keystore, preferred -- see
+    `integrity wallet import`) OR the raw FUNDER_PRIVATE_KEY env var
+    (kept only for scripts/CI that already manage the raw value themselves;
+    for interactive/manual use, `wallet import` once and pass
+    --funder-identity from then on so the raw key never has to be typed or
+    pasted again). Neither takes the raw key as a CLI flag -- that would
+    leak into shell history / a process list.
     """
     if vertical not in _VERTICALS:
         console.print(
@@ -380,13 +458,45 @@ def agent_register(
     deployments_file = deployments_file or os.getenv("DEPLOYMENTS_FILE", "../deployments.local.json")
     oracle_url = oracle_url or config.get_config_value("ORACLE_URL")
 
-    funder_key = os.getenv("FUNDER_PRIVATE_KEY")
-    if not funder_key:
-        console.print(
-            "[bold red]Error:[/bold red] FUNDER_PRIVATE_KEY is not set -- required to fund "
-            "the agent's new wallet (see docs/INTERFACE_CONTRACT.md §3)."
-        )
-        raise typer.Exit(1)
+    # Resolved LAZILY (only if a fund/mint step below actually turns out to be
+    # necessary) rather than required unconditionally up front: an identity
+    # that already has enough ETH and ITK (e.g. topped up by a transfer from
+    # another agent you control, sidestepping a lost/unavailable funder key
+    # entirely) needs no funder at all. Memoized so two consuming steps in
+    # the same run only prompt/decrypt once.
+    _funder_cache: list["Account"] = []
+
+    def _resolve_funder() -> "Account":
+        if _funder_cache:
+            return _funder_cache[0]
+        if funder_identity:
+            if not wallet.wallet_exists(funder_identity):
+                # Checked BEFORE calling generate_or_load_evm_wallet(), which would
+                # otherwise silently MINT a brand-new, unfunded, un-authorized
+                # wallet under this name -- exactly wrong for a funder identity,
+                # which must already be a real, imported, role-bearing key.
+                console.print(
+                    f"[bold red]Error:[/bold red] no keystore exists for funder identity {funder_identity!r} -- "
+                    f"import the real funder key first with `integrity wallet import --identity {funder_identity}`"
+                )
+                raise typer.Exit(1)
+            try:
+                resolved = wallet.generate_or_load_evm_wallet(funder_identity)
+            except wallet.WalletPasswordNotSet as e:
+                console.print(f"[bold red]Error:[/bold red] {e}")
+                raise typer.Exit(1)
+        else:
+            funder_key = os.getenv("FUNDER_PRIVATE_KEY")
+            if not funder_key:
+                console.print(
+                    "[bold red]Error:[/bold red] neither --funder-identity nor FUNDER_PRIVATE_KEY is set, "
+                    "and this identity doesn't already have enough ETH/ITK to proceed without one. "
+                    "Prefer --funder-identity (see `integrity wallet import --help`)."
+                )
+                raise typer.Exit(1)
+            resolved = Account.from_key(funder_key)
+        _funder_cache.append(resolved)
+        return resolved
 
     try:
         w3 = chain.get_w3(rpc_url)
@@ -418,7 +528,6 @@ def agent_register(
         raise typer.Exit(1)
 
     doc = identity.attach_evm_account(doc, evm_account.address, chain_id)
-    funder = Account.from_key(funder_key)
 
     console.print(f"[bold]Registering[/bold] {agent_did}")
     console.print(f"  EVM wallet: [cyan]{evm_account.address}[/cyan]  (chain {chain_id} @ {rpc_url})")
@@ -501,6 +610,7 @@ def agent_register(
         _MIN_OPERATING_BALANCE_WEI = Web3.to_wei(0.001, "ether")
         current_balance = w3.eth.get_balance(evm_account.address)
         if current_balance < _MIN_OPERATING_BALANCE_WEI:
+            funder = _resolve_funder()
             funder_balance = w3.eth.get_balance(funder.address)
             # Leave 0.001 ETH for funder gas fee
             fund_amount = min(_DEFAULT_AGENT_FUND_WEI, max(0, funder_balance - Web3.to_wei(0.001, "ether")))
@@ -584,6 +694,7 @@ def agent_register(
         if chain.itk_balance(w3, itk_address, sovereign_agent) >= _DEFAULT_TESTNET_ITK_ALLOCATION_WEI:
             console.print("  [dim]skip[/dim] SovereignAgent already holds enough testnet ITK -- skipping mint")
         else:
+            funder = _resolve_funder()
             with console.status("[bold blue]Minting testnet ITK..."):
                 chain.mint_testnet_itk(
                     w3, funder, itk_address, sovereign_agent, _DEFAULT_TESTNET_ITK_ALLOCATION_WEI, chain_id

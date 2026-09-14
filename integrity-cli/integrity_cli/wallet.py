@@ -195,6 +195,66 @@ def generate_or_load_evm_wallet(name: str = "default") -> LocalAccount:
     return account
 
 
+class WalletAlreadyExistsError(RuntimeError):
+    """Raised by import_evm_wallet when a keystore already exists for `name`
+    and `force` was not set -- protects against silently clobbering an
+    existing identity's wallet with an unrelated imported key."""
+
+
+def import_evm_wallet(name: str, private_key: str, *, force: bool = False) -> LocalAccount:
+    """
+    Encrypt an EXISTING raw private key into this identity's keystore, so it
+    never has to be typed, pasted, or exported as plaintext again after this
+    one-time import.
+
+    Added 2026-09-14 after the protocol's single operator key (holding
+    DEFAULT_ADMIN_ROLE/MINTER_ROLE/governance/arbitrator/disputer on Base
+    Sepolia) was pasted into a chat session during troubleshooting and later
+    could not be relocated -- every OTHER identity on this machine (agent
+    wallets, Shield, Quant) already gets this keystore treatment via
+    generate_or_load_evm_wallet(); the operator/funder key never did, which
+    is exactly why it ended up as a bare value someone had to paste instead
+    of a password-gated file. Use this once to bring a recovered or freshly
+    rotated operator key under the same protection, then reference it by
+    name (e.g. via agent_register's --funder-identity) instead of ever
+    setting FUNDER_PRIVATE_KEY to a raw value again.
+
+    Raises WalletAlreadyExistsError unless `force=True` -- importing must be
+    a deliberate, explicit action, never an accidental overwrite of a
+    keystore that already has real funds/roles behind it.
+    """
+    keystore_path = _wallet_path(name)
+    if keystore_path.exists() and not force:
+        raise WalletAlreadyExistsError(
+            f"a keystore already exists for identity {name!r} at {keystore_path} -- "
+            "pass force=True (CLI: --force) if you really mean to replace it"
+        )
+
+    password = _wallet_password()
+    account: LocalAccount = Account.from_key(private_key)
+    keystore_json = Account.encrypt(account.key, password)
+
+    wallet_dir(name).mkdir(parents=True, exist_ok=True)
+    tmp_path = keystore_path.parent / f".{keystore_path.name}.tmp.{os.getpid()}.{uuid.uuid4().hex}"
+    fd = os.open(str(tmp_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(json.dumps(keystore_json, indent=2) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        # os.replace (not os.link) here: unlike generate_or_load_evm_wallet's
+        # first-writer-wins race guard, an explicit import is a deliberate
+        # overwrite the caller already confirmed (force=True, or no prior
+        # file) -- the atomicity we need is "never leave a half-written
+        # keystore," not "protect against a concurrent bootstrap."
+        os.replace(str(tmp_path), str(keystore_path))
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+    os.chmod(str(keystore_path), stat.S_IRUSR | stat.S_IWUSR)
+    return account
+
+
 def load_evm_address(name: str = "default") -> Optional[str]:
     """
     Read-only address lookup that does NOT require the wallet password --

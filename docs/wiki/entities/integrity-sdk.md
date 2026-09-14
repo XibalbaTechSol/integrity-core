@@ -264,8 +264,8 @@ not authorization for irreversible or signing-class actions.
 | `integrity_register_agent` | **`[PLANNED partial / currently broken]`** signing/writing opt-in handler; its keyword arguments do not match `registration.register_agent`, so use `integrity-cli agent register` until the handler and regression test are repaired |
 | `integrity_commit_memory` | Commit session facts to the TrustVault backend (JSONL by default) and compute/anchor the cryptographic StateRoot |
 
-The server loads the agent's Ed25519 keypair from the standard identity store
-(`~/.integrity-cli/identity/<agent-id>/`) so every flush and intent call is
+The server loads the agent's Ed25519 keypair from the SDK's canonical identity
+store (`~/.integrity/did/<agent-id>/`, or `$INTEGRITY_DID_HOME/<agent-id>/`) so every flush and intent call is
 correctly signed. If no keypair is found, the server still starts and provides
 logging, but flushes will receive a 401 from the oracle (documented in
 `client.py`'s `flush_telemetry` docstring).
@@ -301,6 +301,23 @@ For example, to configure the Antigravity CLI (`agy`) harness to run all session
 ```
 
 Requires `mcp>=1.0.0` (`pip install integrity-sdk[mcp]` — optional dep).
+
+## Harness-neutral runtime (`agent_runtime.py`, added 2026-09-14)
+
+`IntegrityAgent.open(agent_slug=..., harness=...)` is the shared runtime façade
+for Hermes, Claude, Codex, Antigravity, OpenClaw adapters, and Shield. The SDK
+owns stable slug-to-DID loading, key continuity checks, optional strict Oracle
+registration checks, Shield's required device binding, and standard lifecycle
+events (`session_started`, `model_call`, `tool_call`, `tool_result`, and
+`session_completed`). Harness integrations only translate their native hooks
+into `IntegrityAgent.emit()` calls.
+
+Each logical agent must use a distinct slug and therefore a distinct keypair
+under the canonical SDK DID store. A missing identity may be created for
+provisioning, but a mismatched or missing file in an existing identity fails
+closed. `require_registered=True` makes Oracle registration a startup gate;
+unknown registration state is never treated as success. `device_id` is
+optional for ordinary agents and required when `require_device_binding=True`.
 
 ## Persistent Memory Bridge (`memory.py`, added 2026-07-30)
 
