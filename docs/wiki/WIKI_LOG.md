@@ -3619,3 +3619,15 @@ writeup: PRODUCTION_GAPS.md §18.
   expired, requeued, and exhausted counts were all zero, and eligible pending tasks were zero.
 - Limitation: the scheduler preflight proves queue recovery/readiness, not inference correctness or
   proposal acceptance. Model processing remains separately observable and review-gated.
+
+## [2026-09-14] integrate | harness-neutral Integrity agent runtime
+
+- Added `integrity_sdk.agent_runtime.IntegrityAgent` as the shared slug-to-DID
+  runtime for Hermes, Claude, Codex, Antigravity, OpenClaw adapters, and Shield.
+- Added immutable lifecycle attribution fields, optional strict Oracle
+  registration gating, and required device binding for Shield-capable adapters.
+- Corrected the MCP server to load keys and DID documents from the SDK's
+  canonical `~/.integrity/did/<agent-id>/` store rather than a divergent
+  `.integrity-cli` path.
+- Added focused regression coverage for identity uniqueness, DID mismatch,
+  device enforcement, lifecycle metadata, and MCP key loading.
