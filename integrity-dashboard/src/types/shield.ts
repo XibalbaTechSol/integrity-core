@@ -7,6 +7,19 @@ export interface ShieldDevice {
     last_seen_at: string | null;
     enrolled_at: string;
     agent_label?: string;
+    integrity_agent_id?: string | null;
+    agent_id?: string | null;
+    device_agent_pair?: { pair_id?: string; binding?: string };
+}
+
+export interface ShieldAgentBinding {
+    id: number;
+    tenant_id: string;
+    device_id: string;
+    agent_id: string;
+    registration_status: string;
+    bound_at: string;
+    unbound_at: string | null;
 }
 
 export interface ShieldDecisionAction {

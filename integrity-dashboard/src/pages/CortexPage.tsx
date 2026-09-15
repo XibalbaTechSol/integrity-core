@@ -312,27 +312,32 @@ export default function CortexPage() {
     const refresh = async () => {
         setRefreshing(true);
         setApiError(null);
-        const [statsResult, statusResult, linksResult, sessionsResult, graphResult, manifestResult] = await Promise.allSettled([
-            graphMemory.stats(), graphMemory.status(), graphMemory.integrityLinks(), graphMemory.sessions(), graphMemory.graph(500, similarityThreshold), graphMemory.inferenceManifest(),
-        ]);
         const unavailable: string[] = [];
-        if (statsResult.status === 'fulfilled') setStats(statsResult.value); else unavailable.push('statistics');
-        if (statusResult.status === 'fulfilled') setStatus(statusResult.value); else unavailable.push('store status');
-        if (linksResult.status === 'fulfilled') setLinks(linksResult.value); else unavailable.push('integrity links');
-        if (sessionsResult.status === 'fulfilled') {
-            setSessions(sessionsResult.value);
-            if (!selectedSessionId && sessionsResult.value[0]) setSelectedSessionId(sessionsResult.value[0].external_session_id);
-        } else {
-            unavailable.push('sessions');
+        try {
+            await Promise.all([
+                graphMemory.stats().then(setStats).catch(() => { unavailable.push('statistics'); }),
+                graphMemory.status().then(setStatus).catch(() => { unavailable.push('store status'); }),
+                graphMemory.integrityLinks().then(setLinks).catch(() => { unavailable.push('integrity links'); }),
+                graphMemory.sessions().then((value) => {
+                    setSessions(value);
+                    if (!selectedSessionId && value[0]) setSelectedSessionId(value[0].external_session_id);
+                }).catch(() => { unavailable.push('sessions'); }),
+                graphMemory.inferenceManifest().then(setManifest).catch(() => { unavailable.push('inference manifest'); }),
+            ]);
+            if (unavailable.length > 0) setApiError(`Partial Cortex data unavailable: ${unavailable.join(', ')}`);
+        } finally {
+            setRefreshing(false);
         }
-        if (graphResult.status === 'fulfilled') setGraph(graphResult.value); else unavailable.push('graph');
-        if (manifestResult.status === 'fulfilled') setManifest(manifestResult.value); else unavailable.push('inference manifest');
-        if (unavailable.length > 0) setApiError(`Partial Cortex data unavailable: ${unavailable.join(', ')}`);
-        setRefreshing(false);
     };
 
     useEffect(() => { void refresh(); }, []);
-    useEffect(() => { const timer = window.setTimeout(() => { graphMemory.graph(500, similarityThreshold).then(setGraph).catch((error) => setApiError(String(error))); }, 180); return () => window.clearTimeout(timer); }, [similarityThreshold]);
+    useEffect(() => {
+        if (activeTab !== 'graph') return;
+        const timer = window.setTimeout(() => {
+            graphMemory.graph(100, similarityThreshold).then(setGraph).catch((error) => setApiError(String(error)));
+        }, 180);
+        return () => window.clearTimeout(timer);
+    }, [activeTab, similarityThreshold]);
     useEffect(() => { if (!selectedSessionId) { setExchanges([]); setRoot(null); return; } graphMemory.sessionExchanges(selectedSessionId).then(setExchanges).catch(() => setExchanges([])); graphMemory.sessionMerkleRoot(selectedSessionId).then(setRoot).catch(() => setRoot(null)); }, [selectedSessionId]);
     useEffect(() => {
         graphMemory.inferenceTasks(taskStatus).then(setTasks).catch(() => setTasks([]));
@@ -364,5 +369,5 @@ export default function CortexPage() {
         } catch (error) { setApiError(String(error)); }
     };
 
-    return <div className="memory-page"><header className="memory-header"><div className="memory-title"><BrainCircuit size={25} /><div><span className="memory-eyebrow">Xibalba</span><h1>Cortex</h1></div></div><nav className="memory-tabs" aria-label="Cortex views">{TABS.map(({ id, label, icon: Icon }) => <button data-memory-tab={id} className={activeTab === id ? 'active' : ''} key={id} onClick={() => setActiveTab(id)} type="button"><Icon size={16} />{label}</button>)}</nav><div className="memory-health"><Badge tone={apiError ? 'bad' : 'good'}>{apiError ? 'API unavailable' : 'API connected'}</Badge><Badge>{stats?.memories ?? 0} memories</Badge><Badge>{stats?.entities ?? 0} entities</Badge><Badge>{stats?.relations ?? 0} relations</Badge><Badge>schema {status?.schema_version ?? 'n/a'}</Badge><button className="memory-icon-button" onClick={() => void refresh()} type="button" title="Refresh Cortex data" aria-label="Refresh Cortex data"><RefreshCw size={16} className={refreshing ? 'memory-spin' : ''} /></button></div></header>{apiError && <div className="memory-api-banner"><AlertTriangle size={16} /> {apiError} <span>Start xibalba-cortex local_api to reconnect.</span></div>}<div className="memory-shell"><main className="memory-workspace">{activeTab === 'timeline' && <TimelineTab exchanges={exchanges} selectedSessionId={selectedSessionId} sessions={sessions} contextBundle={contextBundle} onSelectMemory={selectMemory} onRecord={recordExchange} onSelectSession={setSelectedSessionId} />}{activeTab === 'graph' && <GraphTab graph={graph} selectedNodeId={selectedGraphNodeId} onSelectNode={selectGraphNode} onSelectMemory={selectMemory} similarityThreshold={similarityThreshold} onThreshold={setSimilarityThreshold} sessions={sessions} selectedSessionId={selectedSessionId} onSelectSession={setSelectedSessionId} />}{activeTab === 'recall' && <RecallTab results={results} query={query} onQuery={setQuery} onSelectMemory={selectMemory} onUseContext={(memory) => setContextBundle((current) => current.some((item) => item.id === memory.id) ? current : [...current, memory])} selectedMemoryId={selectedMemoryId} similar={similar} stats={stats} />}{activeTab === 'inference' && <InferenceTab manifest={manifest} tasks={tasks} taskStatus={taskStatus} selectedSessionId={selectedSessionId} onTaskStatus={setTaskStatus} onAnalyze={() => void analyzeSelectedSession()} onQueue={(taskType) => void queueTask(taskType)} onClaim={(task) => void claimTask(task)} onComplete={(task) => void completeTask(task)} onWriteBack={(task, action) => void writeBack(task, action)} autoRefresh={autoRefreshInference} onToggleAutoRefresh={setAutoRefreshInference} paraProposals={paraProposals} onParaDecision={(proposal, action) => void handleParaDecision(proposal, action)} />}{activeTab === 'integrity' && <IntegrityTab status={status} links={links} root={root} exchanges={exchanges} selectedMemoryId={selectedMemoryId} events={selectedEvents} />}{activeTab === 'operations' && <CortexOperationsTab />}</main>{activeTab !== 'operations' && <Inspector memoryId={selectedMemoryId} onClose={() => { setSelectedMemoryId(null); setSelectedGraphNodeId(null); setSelectedEvents([]); setSimilar([]); }} onSelectMemory={selectMemory} />}</div></div>;
+    return <div className="memory-page"><header className="memory-header"><div className="memory-title"><BrainCircuit size={25} /><div><span className="memory-eyebrow">Xibalba · Memory & Provenance Provider</span><h1>Cortex</h1><p className="memory-subtitle">Cortex stores and verifies agent-scoped memory and provenance. It is not an agent or identity authority.</p></div></div><nav className="memory-tabs" aria-label="Cortex views">{TABS.map(({ id, label, icon: Icon }) => <button data-memory-tab={id} className={activeTab === id ? 'active' : ''} key={id} onClick={() => setActiveTab(id)} type="button"><Icon size={16} />{label}</button>)}</nav><div className="memory-health"><Badge tone={apiError ? 'bad' : 'good'}>{apiError ? 'API unavailable' : 'API connected'}</Badge><Badge>{stats?.memories ?? 0} memories</Badge><Badge>{stats?.entities ?? 0} entities</Badge><Badge>{stats?.relations ?? 0} relations</Badge><Badge>schema {status?.schema_version ?? 'n/a'}</Badge><button className="memory-icon-button" onClick={() => void refresh()} type="button" title="Refresh Cortex data" aria-label="Refresh Cortex data"><RefreshCw size={16} className={refreshing ? 'memory-spin' : ''} /></button></div></header>{apiError && <div className="memory-api-banner"><AlertTriangle size={16} /> {apiError} <span>Start xibalba-cortex local_api to reconnect.</span></div>}<div className="memory-shell"><main className="memory-workspace">{activeTab === 'timeline' && <TimelineTab exchanges={exchanges} selectedSessionId={selectedSessionId} sessions={sessions} contextBundle={contextBundle} onSelectMemory={selectMemory} onRecord={recordExchange} onSelectSession={setSelectedSessionId} />}{activeTab === 'graph' && <GraphTab graph={graph} selectedNodeId={selectedGraphNodeId} onSelectNode={selectGraphNode} onSelectMemory={selectMemory} similarityThreshold={similarityThreshold} onThreshold={setSimilarityThreshold} sessions={sessions} selectedSessionId={selectedSessionId} onSelectSession={setSelectedSessionId} />}{activeTab === 'recall' && <RecallTab results={results} query={query} onQuery={setQuery} onSelectMemory={selectMemory} onUseContext={(memory) => setContextBundle((current) => current.some((item) => item.id === memory.id) ? current : [...current, memory])} selectedMemoryId={selectedMemoryId} similar={similar} stats={stats} />}{activeTab === 'inference' && <InferenceTab manifest={manifest} tasks={tasks} taskStatus={taskStatus} selectedSessionId={selectedSessionId} onTaskStatus={setTaskStatus} onAnalyze={() => void analyzeSelectedSession()} onQueue={(taskType) => void queueTask(taskType)} onClaim={(task) => void claimTask(task)} onComplete={(task) => void completeTask(task)} onWriteBack={(task, action) => void writeBack(task, action)} autoRefresh={autoRefreshInference} onToggleAutoRefresh={setAutoRefreshInference} paraProposals={paraProposals} onParaDecision={(proposal, action) => void handleParaDecision(proposal, action)} />}{activeTab === 'integrity' && <IntegrityTab status={status} links={links} root={root} exchanges={exchanges} selectedMemoryId={selectedMemoryId} events={selectedEvents} />}{activeTab === 'operations' && <CortexOperationsTab />}</main>{activeTab !== 'operations' && <Inspector memoryId={selectedMemoryId} onClose={() => { setSelectedMemoryId(null); setSelectedGraphNodeId(null); setSelectedEvents([]); setSimilar([]); }} onSelectMemory={selectMemory} />}</div></div>;
 }

@@ -7,6 +7,8 @@ import { LayoutDashboard, Bell, Activity, Zap, Lock, AlertTriangle } from 'lucid
 import { Panel } from './components/shared/Panel';
 import { useDashboard } from './context/DashboardContext';
 import { oracle, AisHistoryPoint, AuditLogEntryDto, RecentTraceDto, AisResponse } from './services/oracle';
+import { graphMemory } from './services/graphMemory';
+import { shieldBackend } from './services/shieldBackend';
 
 interface ActivityRow {
   id: string;
@@ -15,6 +17,42 @@ interface ActivityRow {
   latency: string;
   time: string;
 }
+
+const EvidenceSourcePanel: React.FC = () => {
+  const [cortexConnected, setCortexConnected] = useState<boolean | null>(null);
+  const [shieldConnected, setShieldConnected] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    graphMemory.status().then(() => setCortexConnected(true)).catch(() => setCortexConnected(false));
+    shieldBackend.health().then(result => setShieldConnected(result.ok === true)).catch(() => setShieldConnected(false));
+  }, []);
+
+  const rows = [
+    ['Agent Integrity Score (AIS)', 'Oracle', 'Oracle-derived score', 'var(--success)'],
+    ['Telemetry and score inputs', 'Oracle', 'Accepted telemetry projection', 'var(--success)'],
+    ['OpenTelemetry usage metrics', 'Oracle OpenTelemetry endpoint', 'Unsigned vendor telemetry', 'var(--warning)'],
+    ['Raw session and provenance evidence', 'Cortex', cortexConnected === true ? 'Cortex status observed' : cortexConnected === false ? 'Cortex unavailable' : 'Checking Cortex status…', cortexConnected === true ? 'var(--success)' : 'var(--text-muted)'],
+    ['Endpoint and device enforcement', 'Shield', shieldConnected === true ? 'Shield health observed' : shieldConnected === false ? 'Shield unavailable' : 'Checking Shield health…', shieldConnected === true ? 'var(--success)' : 'var(--text-muted)'],
+  ] as const;
+
+  return (
+    <Panel>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 'var(--space-3)', marginBottom: 'var(--space-3)' }}>
+        <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Evidence sources</h3>
+        <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Authority labels are explicit</span>
+      </div>
+      <div style={{ display: 'grid', gap: 'var(--space-2)' }}>
+        {rows.map(([label, source, status, tone]) => (
+          <div key={label} style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1fr) minmax(150px, 0.8fr) minmax(180px, 1fr)', gap: 'var(--space-3)', alignItems: 'center', padding: '10px 0', borderTop: '1px solid var(--border-color)' }}>
+            <span style={{ color: 'var(--text-primary)', fontSize: '0.9rem' }}>{label}</span>
+            <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Source: {source}</span>
+            <span style={{ color: tone, fontSize: '0.85rem' }}>Verification: {status}</span>
+          </div>
+        ))}
+      </div>
+    </Panel>
+  );
+};
 
 const Dashboard: React.FC = () => {
   const { selectedAgent, agentsLoading } = useDashboard();
@@ -252,6 +290,8 @@ const Dashboard: React.FC = () => {
           </div>
         </Panel>
       </div>
+
+      <EvidenceSourcePanel />
 
       {/* ── COT Explorer ── */}
       <Panel>

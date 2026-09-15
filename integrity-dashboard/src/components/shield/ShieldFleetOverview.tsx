@@ -3,7 +3,7 @@ import { RefreshCw, ShieldCheck, ShieldAlert, ShieldOff, Radio, Server, Link2, F
 import { Panel } from '../shared/Panel';
 import { useDashboard } from '../../context/DashboardContext';
 import { shieldBackend } from '../../services/shieldBackend';
-import type { ShieldDashboardSummary, ShieldDetectionQuality, ShieldEnforcementOutcome } from '../../services/shieldBackend';
+import type { ShieldDashboardSummary, ShieldDetectionQuality, ShieldEnforcementOutcome, ShieldAgentBinding } from '../../services/shieldBackend';
 import { ShieldEvidenceGraph, type ShieldEvidenceGraphHandle } from '../ShieldEvidenceGraph';
 
 // Real fleet/decisions dashboard for xibalba-shield's backend (shield/backend/api.py) --
@@ -65,6 +65,7 @@ export default function ShieldFleetOverview() {
   const [summary, setSummary] = useState<ShieldDashboardSummary | null>(null);
   const [detectionQuality, setDetectionQuality] = useState<ShieldDetectionQuality[]>([]);
   const [enforcementOutcomes, setEnforcementOutcomes] = useState<ShieldEnforcementOutcome[]>([]);
+  const [bindingHistory, setBindingHistory] = useState<Record<string, ShieldAgentBinding[]>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [background, setBackground] = useState<'light' | 'dark' | 'plain' | 'blueprint'>('dark');
@@ -82,6 +83,13 @@ export default function ShieldFleetOverview() {
     try {
       const result = await shieldBackend.dashboardSummary(id);
       setSummary(result);
+      const bindingResults = await Promise.allSettled(result.devices.map((device) => shieldBackend.agentBindings(id, device.device_id)));
+      const histories: Record<string, ShieldAgentBinding[]> = {};
+      result.devices.forEach((device, index) => {
+        const bindingResult = bindingResults[index];
+        histories[device.device_id] = bindingResult?.status === 'fulfilled' ? bindingResult.value.bindings : [];
+      });
+      setBindingHistory(histories);
       // Best-effort, independent reads -- neither being unavailable should hide the fleet
       // summary that just loaded fine.
       const [qualityR, outcomesR] = await Promise.allSettled([
@@ -94,6 +102,7 @@ export default function ShieldFleetOverview() {
       setSummary(null);
       setDetectionQuality([]);
       setEnforcementOutcomes([]);
+      setBindingHistory({});
       setError(e instanceof Error ? e.message : 'Could not load Shield fleet data for this tenant.');
     } finally {
       setLoading(false);
@@ -137,7 +146,7 @@ export default function ShieldFleetOverview() {
       <Panel title="Fleet tenant" icon={<Server size={16} />}>
         <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.6, margin: '0 0 var(--space-4)' }}>
           Real device enrollment, policy, and enforcement-decision data from the Shield backend (<code>shield/backend/api.py</code>).
-          Defaults to the active agent's identity as tenant -- the same tenant the Guided System Test wizard's Shield step seeds.
+          Each device has exactly one current agent in this tenant; an agent may protect multiple devices. Reassignments remain historical and auditable.
         </p>
         <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
           <input
@@ -267,6 +276,7 @@ export default function ShieldFleetOverview() {
               <thead>
                 <tr style={{ textAlign: 'left', color: 'var(--text-muted)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                   <th style={{ padding: 'var(--space-2) var(--space-3)' }}>Device</th>
+                  <th style={{ padding: 'var(--space-2) var(--space-3)' }}>Current agent (one per device)</th>
                   <th style={{ padding: 'var(--space-2) var(--space-3)' }}>Role</th>
                   <th style={{ padding: 'var(--space-2) var(--space-3)' }}>Policy hash</th>
                   <th style={{ padding: 'var(--space-2) var(--space-3)' }}>Last seen</th>
@@ -279,6 +289,7 @@ export default function ShieldFleetOverview() {
                   return (
                     <tr key={d.device_id} style={{ borderTop: '1px solid var(--glass-border)' }}>
                       <td style={{ padding: 'var(--space-2) var(--space-3)', fontFamily: 'var(--font-mono, monospace)' }}>{d.device_id}</td>
+                      <td style={{ padding: 'var(--space-2) var(--space-3)', fontFamily: 'var(--font-mono, monospace)' }}>{d.integrity_agent_id ?? d.agent_id ?? 'unassigned'}</td>
                       <td style={{ padding: 'var(--space-2) var(--space-3)' }}>{d.device_role}</td>
                       <td style={{ padding: 'var(--space-2) var(--space-3)', fontFamily: 'var(--font-mono, monospace)', color: 'var(--text-muted)' }}>
                         {d.policy_hash ? `${d.policy_hash.slice(0, 10)}…` : 'none'}
@@ -299,6 +310,20 @@ export default function ShieldFleetOverview() {
                 })}
               </tbody>
             </table>
+          </div>
+          <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 'var(--space-3) 0 0' }}>
+            Each device has one current association. Historical bindings below are retained for audit and are not additional current agents.
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', marginTop: 'var(--space-3)' }}>
+            {summary.devices.map((device) => {
+              const history = bindingHistory[device.device_id] ?? [];
+              return <details key={`${device.device_id}-bindings`}>
+                <summary style={{ cursor: 'pointer', fontSize: '0.78rem' }}>{device.device_id} binding history ({history.length})</summary>
+                {history.length > 0 && <ul style={{ margin: 'var(--space-2) 0 0', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                  {history.map((binding) => <li key={binding.id}><code>{binding.agent_id}</code> — {binding.unbound_at ? `ended ${timeAgo(binding.unbound_at)}` : 'CURRENT agent'} </li>)}
+                </ul>}
+              </details>;
+            })}
           </div>
         </Panel>
       )}

@@ -8,6 +8,7 @@ import type {
     ShieldDashboardSummary,
     ShieldDetectionQuality,
     ShieldDevice,
+    ShieldAgentBinding,
     ShieldEnforcementOutcome,
     ShieldEnrollment,
     ShieldExporterStatus,
@@ -22,6 +23,7 @@ export type {
     ShieldDecisionRecord,
     ShieldDetectionQuality,
     ShieldDevice,
+    ShieldAgentBinding,
     ShieldEnforcementOutcome,
     ShieldEnrollment,
     ShieldExporterStatus,
@@ -78,6 +80,8 @@ export const shieldBackend = {
         adminGet<ShieldDashboardSummary>('/api/shield/dashboard-summary', { tenant_id: tenantId }, token),
     listDevices: (tenantId: string) =>
         adminGet<{ devices: ShieldDevice[] }>('/api/shield/devices', { tenant_id: tenantId }),
+    agentBindings: (tenantId: string, deviceId: string) =>
+        adminGet<{ bindings: ShieldAgentBinding[] }>(`/api/shield/devices/${encodeURIComponent(deviceId)}/agent-bindings`, { tenant_id: tenantId }),
     getDevice: (tenantId: string, deviceId: string) =>
         adminGet<ShieldDevice>(`/api/shield/devices/${encodeURIComponent(deviceId)}`, { tenant_id: tenantId }),
     exporterStatus: (tenantId: string) =>

@@ -80,7 +80,7 @@ export type {
 // ---------------------------------------------------------------------------
 
 async function getJson<T>(path: string): Promise<T> {
-    const response = await fetch(`${GRAPH_MEMORY_URL}${path}`);
+    const response = await fetch(`${GRAPH_MEMORY_URL}${path}`, { credentials: 'include' });
     if (!response.ok) {
         const body = await response.json().catch(() => ({ error: response.statusText }));
         throw new Error(body.error ?? `request failed: ${response.status}`);
@@ -88,10 +88,39 @@ async function getJson<T>(path: string): Promise<T> {
     return response.json() as Promise<T>;
 }
 
+// Cortex's session cookie is SameSite=None (2026-09-15, needed for this cross-origin dashboard
+// to present it at all) -- writes therefore need an explicit CSRF token, since SameSite=None
+// drops the free CSRF protection SameSite=Strict used to provide. The token itself can only be
+// obtained via a CORS-mediated read of /api/auth/csrf's JSON body (this dashboard's origin has
+// to be on Cortex's --allowed-origins list); it cannot be read directly from the cookie jar,
+// since that cookie is HttpOnly and, even if it weren't, is scoped to Cortex's own origin, not
+// this dashboard's. See xibalba-cortex's local_api.py `_csrf_token_for` for the server side.
+let csrfTokenPromise: Promise<string> | null = null;
+
+async function getCsrfToken(): Promise<string> {
+    if (!csrfTokenPromise) {
+        csrfTokenPromise = fetch(`${GRAPH_MEMORY_URL}/api/auth/csrf`, { credentials: 'include' })
+            .then(async (response) => {
+                if (!response.ok) {
+                    throw new Error(`could not fetch Cortex CSRF token: ${response.status}`);
+                }
+                const body = await response.json();
+                return body.csrf_token as string;
+            })
+            .catch((err) => {
+                csrfTokenPromise = null; // let the next write attempt retry, not stay poisoned
+                throw err;
+            });
+    }
+    return csrfTokenPromise;
+}
+
 async function postJson<T>(path: string, payload: Record<string, unknown>): Promise<T> {
+    const csrfToken = await getCsrfToken();
     const response = await fetch(`${GRAPH_MEMORY_URL}${path}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'X-Cortex-CSRF-Token': csrfToken },
         body: JSON.stringify(payload),
     });
     if (!response.ok) {
@@ -112,7 +141,8 @@ export const graphMemory = {
     integrityLinks: (limit = 50) => getJson<IntegrityLinksStatus>(`/api/integrity-links?limit=${limit}`),
 
     // Sessions
-    sessions: (limit = 100) => getJson<Session[]>(`/api/sessions?limit=${limit}`),
+    // Keep the timeline selector bounded; large session projections can contend with active writers.
+    sessions: (limit = 20) => getJson<Session[]>(`/api/sessions?limit=${limit}`),
     invocations: (limit = 100) => getJson<InvocationCorrelation[]>(`/api/invocations?limit=${limit}`),
     sessionOtel: (id: string) => getJson<OtelEvent[]>(`/api/session/${encodeURIComponent(id)}/otel`),
     // Cross-system test log write (~/.claude/plans/velvet-giggling-quill.md) -- browser-reachable
