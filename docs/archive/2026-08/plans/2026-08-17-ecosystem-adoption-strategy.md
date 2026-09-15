@@ -435,3 +435,72 @@ reputation entrant, but the roadmap dates to April 2026 (predates this doc's tra
 entirely), the staking is StarGate's general network-consensus staking rather than an
 agent-specific bond that gets slashed on misbehavior, and no compliance-vertical gating is
 described — does not meet this doc's competitor bar. No changes to the §3 table this run.
+
+### 2026-09-15 — Ecosystem watch: correction — Observer Protocol does not actually have a stake/slash mechanism (primary-source-confirmed); everything else unchanged since 2026-09-13
+
+Automated research sweep (scheduled tracking run, ~2 days after the prior run). Re-swept all nine
+named §3 players, both §4 fact-checks, and did a general sweep for a new entrant combining
+identity + staked reputation + compliance gating. One material correction to a repeatedly-tracked
+item; everything else confirmed unchanged or not material.
+
+1. **Correction: Observer Protocol does not have a staking/slashing mechanism — the
+   "observers must stake collateral with slashing on false attestation" characterization
+   carried in the 2026-09-01, 2026-09-02, and 2026-09-13 entries above was based on secondary
+   sources and does not hold up against the protocol's own primary sources.** This run's network
+   egress again blocked `observerprotocol.org`, `agentecon.ai`, and `kya.link` directly (same
+   restriction as every prior run), but `github.com/observer-protocol` and its component repos
+   were reachable. Direct review of the `aip` spec repo (the Agentic Identity Protocol
+   specification itself, v0.6 through v0.9) found **no mention of staking, bonds, collateral, or
+   slashing anywhere** — the spec's actual scope is DIDs/credential lifecycle, verification flows
+   and an attestation taxonomy, trading-delegation policy mandates, and World ID
+   proof-of-personhood linkage, not an economic stake/slash mechanism. A separate search
+   independently corroborates this: Observer Protocol is MIT-licensed "with no token and no plans
+   for one." The `op-policy-engine` repo (delegation-scoped policy enforcement for agentic
+   wallets) is a compliance/authorization layer — evaluating a proposed agent action against a
+   signed delegation credential and returning a signed allow/deny decision — not a staking
+   ledger. Net: Observer Protocol is identity (W3C DIDs, Verifiable Agent Credentials) +
+   delegation/compliance policy enforcement, but **not** staked/slashable reputation, so it does
+   **not** actually match this doc's specific identity+staked-reputation+compliance-gating
+   competitor combination after all. Downgrading from "possible direct competitor, pending
+   primary-source confirmation" (2026-09-01) / "primary-source-confirmed real project, still
+   pre-mainnet" (2026-09-02, 2026-09-13) to: primary-source-confirmed, does not meet the
+   competitor bar on the staked-reputation axis. Not added to §3 (consistent with prior runs,
+   though now for a different reason — mechanism mismatch rather than deployment-stage caveat).
+   Leaving the original 2026-09-01/09-02/09-13 entries above unedited per this doc's own
+   append-only convention; this entry is the correction of record.
+   Sources: [Observer Protocol · GitHub org](https://github.com/observer-protocol),
+   [observer-protocol/aip](https://github.com/observer-protocol/aip),
+   [observer-protocol/op-policy-engine](https://github.com/observer-protocol/op-policy-engine).
+
+2. **§4 fact-checks: no change since 2026-09-13.** ERC-8004 Validation Registry — independently
+   reconfirmed via a primary-source signal not seen in prior sweeps: a September 5, 2026 GitHub
+   pull request (`CSOAI-ORG/councilof-ai#1332`, unrelated third-party repo naming canonical
+   ERC-8004 mainnet addresses) explicitly states the "Validation registry is UNSHIPPED upstream"
+   — consistent with the status already tracked here since 2026-08-26 (Identity/Reputation live
+   on 40+ EVM networks since 2026-01-29, Validation Registry still not deployed). EU AI Act — no
+   new developments surfaced; Annex III high-risk conformity 2027-12-02 and Annex I 2028-08-02
+   dates reconfirmed against fresh secondary sources, nothing newer.
+
+3. **KYA (`agentecon.ai`/`kya.link`) open stake/slash question — still unverified, still
+   blocked.** Same as 2026-09-01/09-02/09-13: primary sites unreachable this session; secondary
+   sources continue describing an AWP-protocol stake/slash mechanism consistent with prior runs,
+   nothing new enough to change status.
+
+Not material / considered and not added: two solo/hobbyist projects technically combining
+identity + stake/slash surfaced in a general sweep — `selfradiance/agentgate` ("Stake-gated
+action microservice for AI systems," Ed25519 identity + bond-and-slash + progressive trust
+tiers — genuinely matches the technical combination on paper, but primary-source and press
+review (the creator's own Medium posts) confirm it's an individual's learning project built
+solo with Claude Code, explicitly described as "not a business," 5 GitHub stars, no company or
+funding; its public `agentgate.run` deployment was decommissioned in March 2026 and it now runs
+locally only) and `agentstake.dev` ("The Trust Layer for AI Agents," STAKE-token staking +
+slashing + staked-juror dispute resolution on Base — but framed across dev.to posts as an
+"I built the missing trust layer" solo/hackathon project, its dispute-resolution model is
+escrow/arbitration-style rather than compliance-vertical gating, matching the pattern already
+ruled out for BNBAgent SDK/ERC-8183 in the 2026-08-28 entry) — neither is a funded or
+institutionally-backed entrant, so neither meets this doc's "genuinely new named competitor"
+bar; flagging only in case either gains real backing later. FIDO Alliance TWG (still no draft
+spec); Cloudflare/GoDaddy default AI-crawler-blocking (effective today, 2026-09-15, but already
+flagged as non-new since 2026-09-01); Anthropic MCP enterprise auth (no change since
+2026-08-28); Semantica and Trulioo+Worldpay (no updates since last tracked). No changes to the
+§3 table this run.
