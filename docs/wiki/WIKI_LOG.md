@@ -3654,3 +3654,13 @@ writeup: PRODUCTION_GAPS.md §18.
 - Known follow-up, not fixed: `ReputationRegistry`'s clone template is also stale by the same
   selector-scan method (missing newer ZK-related functions from #67), but its `initialize()` --
   the only function `registerPrimitives()` calls -- is present and unaffected.
+## [2026-09-14] integrate | finalized CORE directory and Cortex sync handoff
+- Pages created: 0
+- Pages updated: 3
+- Dead links fixed: 0
+- Orphans resolved: 0
+- Stale pages refreshed: 0
+- Aspirational content flagged: 0
+- Updated Oracle finality, harness-neutral SDK, and dashboard runtime evidence pages.
+- Recorded the finalized-block historical registration audit, live Oracle approval,
+  Cortex account binding/timer success, and remaining pending harness registrations.

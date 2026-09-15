@@ -86,6 +86,7 @@ class Settings(BaseSettings):
     # the Playwright port are listed rather than assuming browsers treat them as one.
     cors_origins: list[str] = [
         "http://localhost:5173",
+        "http://127.0.0.1:5173",
         "http://localhost:5190",
         "http://localhost:5189",
         "http://127.0.0.1:5189",

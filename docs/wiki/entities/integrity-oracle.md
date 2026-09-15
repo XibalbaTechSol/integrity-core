@@ -1,7 +1,7 @@
 ---
 title: integrity-oracle
 created: 2026-07-07
-updated: 2026-08-29
+updated: 2026-09-14
 type: entity
 tags: [infrastructure, metrics, layer-2, tokenomics]
 confidence: high
@@ -11,6 +11,7 @@ source_files:
   - integrity-oracle/backend/src/derive.rs
   - integrity-oracle/backend/src/otlp.rs
   - integrity-oracle/backend/src/chain.rs
+  - integrity-oracle/backend/src/config.rs
   - integrity-oracle/backend/src/db.rs
   - integrity-oracle/backend/src/phi.rs
   - integrity-oracle/backend/src/vc.rs
@@ -52,6 +53,7 @@ this is the **only** backend that ever reads on-chain state.
 - [On-chain client (chain.rs)](#on-chain-client-chain-rs)
 - [Anchoring](#anchoring)
 - [Canonical JSON signing — RFC 8785 JCS](#canonical-json-signing-rfc-8785-jcs)
+- [Finality-bearing agent directory](#finality-bearing-agent-directory)
 - [State](#state)
 
 ## Workspace
@@ -342,6 +344,26 @@ participating agent's own `StateAnchor` clone — a documented gas tradeoff.
 telemetry, uses `serde_jcs`. Python producers use the `jcs` package. This
 shared RFC 8785 rule replaces the earlier custom ASCII formatter and pins both
 ECMAScript number serialization and raw non-ASCII UTF-8 across runtimes.
+
+## Finality-bearing agent directory
+
+`GET /v1/agents/snapshot` is the directory interface consumed by Cortex. Its
+response includes `chain_id`, `block_number`, `finalized_block_number`,
+`finalized_block_hash`, `snapshot_id`, and `finalized`. The `finalized` value is
+the conjunction of the operator approval setting `AGENT_DIRECTORY_FINALIZED`
+and the execution client's finalized cursor covering the directory cursor.
+When approval is enabled, the handler anchors `block_number` to the execution
+client's finalized block before evaluating the conjunction; it does not label
+the moving latest head as finalized.
+
+The Cortex sync worker refuses any snapshot whose `finalized` value is false,
+whose finalized cursor is missing or malformed, or whose finalized cursor does
+not cover the directory cursor. The setting must therefore remain disabled
+until registration state has been independently checked at a finalized block.
+On 2026-09-14, read-only Base Sepolia historical calls at block `46830231`
+resolved all five directory agents with `exists=true`; the Oracle was then
+restarted with `AGENT_DIRECTORY_FINALIZED=true` and returned a finalized
+snapshot at that same block with five agents.
 
 ## State
 

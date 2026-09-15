@@ -1,7 +1,7 @@
 ---
 title: integrity-sdk
 created: 2026-07-07
-updated: 2026-09-08
+updated: 2026-09-14
 type: entity
 tags: [sdk, identity, metrics]
 confidence: high
@@ -25,6 +25,7 @@ source_files:
   - integrity-sdk/integrity_sdk/mcp_server.py
   - integrity-sdk/integrity_sdk/memory.py
   - integrity-sdk/integrity_sdk/posttool_report.py
+  - integrity-sdk/integrity_sdk/agent_runtime.py
 ---
 
 
@@ -44,6 +45,7 @@ become a self-sovereign, on-chain, reputation-bearing participant.
 - [Markets](#markets)
 - [Also](#also)
 - [MCP server (mcpserver.py, added 2026-07-29)](#mcp-server-mcpserver-py-added-2026-07-29)
+- [Harness-neutral runtime (agentruntime.py, added 2026-09-14)](#harness-neutral-runtime-agentruntime-py-added-2026-09-14)
 - [Persistent Memory Bridge (memory.py, added 2026-07-30)](#persistent-memory-bridge-memory-py-added-2026-07-30)
 
 ## Two keypairs
@@ -318,6 +320,13 @@ provisioning, but a mismatched or missing file in an existing identity fails
 closed. `require_registered=True` makes Oracle registration a startup gate;
 unknown registration state is never treated as success. `device_id` is
 optional for ordinary agents and required when `require_device_binding=True`.
+
+The 2026-09-14 local attribution canary opened each configured harness identity
+and emitted `session_started` plus `model_call` lifecycle events. The batch
+records preserved the expected DID and harness for Xibalba, Quant, Shield,
+Codex, Claude, and Antigravity, with six distinct DIDs. This is local SDK
+identity evidence; Codex, Claude, and Antigravity still require independent
+on-chain registration before their strict live canaries can be claimed.
 
 ## Persistent Memory Bridge (`memory.py`, added 2026-07-30)
 
