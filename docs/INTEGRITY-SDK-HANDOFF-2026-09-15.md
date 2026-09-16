@@ -324,6 +324,12 @@ hook semantics. Direct SDK wiring for every installed bridge is the next migrati
 step; the SDK adapter itself is unit-tested and does not yet make the existing
 Cortex subprocesses depend on an unpublished editable SDK checkout.
 
+Continuation update: the Hermes production bridge now calls the SDK's
+`normalize_hook` directly before constructing its Cortex outbox event
+(`xibalba-cortex` commit `0b585cf`). This closes the shared-normalization gap
+for Hermes; the remaining distinction is that the Cortex subprocess still
+owns local-store dispatch and is not yet a published SDK package consumer.
+
 SDK hook adapter validation: focused tests passed. The full SDK unit run remains
 **245 passed, 1 skipped, 3 failed** in pre-existing MLflow/OpenAI sampling and
 redaction expectations; those failures are outside the hook adapter files.
