@@ -7,6 +7,8 @@ from .integrity import integrity, SDKAgent
 from .readiness import ReadinessCheck, RegistrationReadiness, assess_local_readiness
 from .did import migrate_identity_store
 from .identity_registry import history as identity_history, latest as latest_identity
+from .telemetry.privacy import PrivacyPolicy
+from .telemetry.transports import HttpTelemetryTransport, MCPTelemetryTransport, OTLPHttpTransport
 
 __all__ = [
     "IntegrityClient",
@@ -22,4 +24,8 @@ __all__ = [
     "migrate_identity_store",
     "identity_history",
     "latest_identity",
+    "PrivacyPolicy",
+    "HttpTelemetryTransport",
+    "OTLPHttpTransport",
+    "MCPTelemetryTransport",
 ]
