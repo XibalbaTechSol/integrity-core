@@ -3664,3 +3664,18 @@ writeup: PRODUCTION_GAPS.md §18.
 - Updated Oracle finality, harness-neutral SDK, and dashboard runtime evidence pages.
 - Recorded the finalized-block historical registration audit, live Oracle approval,
   Cortex account binding/timer success, and remaining pending harness registrations.
+
+## [2026-09-15] validate | dashboard rendered control-center handoff
+- Pages created: 0
+- Pages updated: 1
+- Dead links fixed: 0
+- Orphans resolved: 0
+- Stale pages refreshed: 0
+- Aspirational content flagged: 0
+- Updated the dashboard integration report with final 33-route desktop and
+  27-route-viewport responsive Playwright evidence, axe-core behavior, and the
+  authenticated-isolation gate.
+- Recorded that the in-app Browser runtime was unavailable, so regular headless
+  Playwright is the rendered evidence surface for this pass.
+- Remaining gates: a disposable userapi principal with two exact assigned DIDs,
+  strict axe remediation, and intentionally unexecuted real wallet/contract writes.

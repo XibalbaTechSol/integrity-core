@@ -34,6 +34,7 @@ export default function SettingsPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
+      <h1 style={{ margin: 0, fontSize: '1.6rem' }}>Settings</h1>
       <SubTabs 
         tabs={[
           { id: 'appearance', label: 'Appearance', icon: <Palette size={16} /> },

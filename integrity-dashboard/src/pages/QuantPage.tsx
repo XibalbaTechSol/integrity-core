@@ -110,6 +110,7 @@ export default function QuantPage() {
       transition={{ duration: 0.28, ease: 'easeOut' }}
       style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}
     >
+      <h1 style={{ margin: 0, fontSize: '1.6rem' }}>Quant operations</h1>
       <Panel title="xibalba-quant" icon={<Activity size={16} />}>
         <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.6, margin: 0 }}>
           Autonomous trading agent — a real-world stress test of Integrity Protocol's Behavioral

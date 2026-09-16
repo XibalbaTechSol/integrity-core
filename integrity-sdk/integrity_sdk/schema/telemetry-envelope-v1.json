@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://integrity.protocol/schemas/telemetry-envelope-v1.json",
+  "title": "Integrity SDK telemetry envelope v1",
+  "type": "object",
+  "required": ["schema_version", "event_id", "event_type", "agent_id", "timestamp", "timestamp_source", "monotonic_ns", "payload", "metadata", "privacy_classification", "redaction_status", "content_hash", "payload_hash"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "event_id": {"type": "string", "minLength": 1},
+    "event_type": {"type": "string", "minLength": 1},
+    "agent_id": {"type": "string", "minLength": 1},
+    "did": {"type": ["string", "null"]}, "harness": {"type": ["string", "null"]},
+    "principal": {"type": ["string", "null"]}, "device_id": {"type": ["string", "null"]},
+    "session_id": {"type": ["string", "null"]}, "invocation_id": {"type": ["string", "null"]},
+    "parent_event_id": {"type": ["string", "null"]}, "trace_id": {"type": ["string", "null"]},
+    "span_id": {"type": ["string", "null"]}, "timestamp": {"type": "string", "format": "date-time"},
+    "timestamp_source": {"type": "string", "minLength": 1}, "monotonic_ns": {"type": "integer", "minimum": 0},
+    "payload": {"type": "object"}, "metadata": {"type": "object"},
+    "privacy_classification": {"type": "string", "minLength": 1}, "redaction_status": {"type": "string", "minLength": 1},
+    "content_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "payload_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "additionalProperties": false
+}

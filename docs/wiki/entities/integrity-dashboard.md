@@ -1,7 +1,7 @@
 ---
 title: integrity-dashboard
 created: 2026-07-07
-updated: 2026-09-14
+updated: 2026-09-15
 type: entity
 tags: [infrastructure, sdk]
 confidence: high
@@ -61,6 +61,7 @@ rule, the old content is replaced rather than patched.
 - [Real bugs found and fixed this pass](#real-bugs-found-and-fixed-this-pass)
 - [Known gaps not fixed this pass](#known-gaps-not-fixed-this-pass)
 - [Live deployment and rendered verification (2026-09-14)](#live-deployment-and-rendered-verification-2026-09-14)
+- [Rendered control-center validation (2026-09-15)](#rendered-control-center-validation-2026-09-15)
 - [Local e2e stack](#local-e2e-stack)
 
 ## What this is
@@ -296,6 +297,30 @@ CORS errors remained.
 This is local container and rendered-runtime evidence, not proof of a remote
 deployment. The exact source and runtime provenance remains recorded in the
 dated handoff runbook.
+
+## Rendered control-center validation (2026-09-15)
+
+The dedicated validation configuration in
+`integrity-dashboard/playwright.validation.config.ts` runs regular headless
+Playwright against the local Vite viewer and records screenshots, DOM
+assertions, console output, network findings, axe-core results, and reports.
+The in-app Browser runtime was unavailable for this pass, so it is not counted
+as a second browser evidence surface.
+
+The final desktop Chromium route audit passed 33/33 declared routes. The
+protocol route set passed 27/27 responsive route-viewport checks at desktop,
+tablet, and narrow mobile widths, and safe refresh/copy controls passed at all
+three widths. The validator also scans rendered output for private keys, seed
+phrases, and recovery material; none were found.
+
+Authenticated isolation is implemented but requires a disposable userapi
+principal with two exact agent DIDs already assigned through `/me/agents`. The
+test is deliberately skipped when those variables are absent and must not be
+reported as browser-verified in that state. Strict axe blocking and real
+wallet/contract writes remain separate release gates. See the dated
+[dashboard handoff](../../INTEGRITY-DASHBOARD-HANDOFF-2026-09-15.md) and the
+[integration report](../../integrity-dashboard/docs/INTEGRATION-REPORT.md) for
+commands, evidence paths, and limitations.
 
 ## Local e2e stack
 

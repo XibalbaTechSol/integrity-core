@@ -188,6 +188,7 @@ export function ActuarialHub({ mode }: { mode: 'markets' | 'stability' }) {
     // oracle (GET /v1/benchmarks) — behavioral stability + grounding per underlying model.
     return (
       <div className="flex-col gap-6">
+        <h1 style={{ margin: 0, fontSize: '1.6rem' }}>Model stability</h1>
         <Panel title="Model Stability Leaderboard" icon={<BarChart2 size={18} />}>
           <div className="text-muted" style={{ fontSize: '0.8rem', marginBottom: 'var(--space-3)' }}>
             Underlying models ranked by real telemetry: behavioral stability (1 − variance) and grounding fidelity, aggregated across every agent using them.
@@ -225,6 +226,7 @@ export function ActuarialHub({ mode }: { mode: 'markets' | 'stability' }) {
 
   return (
     <div className="flex-col gap-6">
+      <h1 style={{ margin: 0, fontSize: '1.6rem' }}>Prediction markets</h1>
       <Panel title="Deploy a Market" icon={<Zap size={18} />}>
         <div className="grid-cols-2" style={{ gap: 'var(--space-6)' }}>
           <div className="flex-col gap-4">

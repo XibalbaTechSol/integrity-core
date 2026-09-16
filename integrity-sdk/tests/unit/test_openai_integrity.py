@@ -62,7 +62,7 @@ def messages():
     return [{"role": "user", "content": "My SSN is 123-45-6789, please help."}]
 
 
-def test_redact_phi_defaults_to_false_and_leaves_text_raw(messages):
+def test_redact_phi_defaults_to_true(messages):
     client = _client()
     completions = _FakeCompletions(response=_fake_response("call me at 555-123-4567"))
     wrapper = IntegrityCompletionsWrapper(completions, client)  # redact_phi omitted -> False
@@ -70,7 +70,7 @@ def test_redact_phi_defaults_to_false_and_leaves_text_raw(messages):
     wrapper.create(model="gpt-4o", messages=messages)
 
     meta = _last_metadata(client)
-    assert meta["text_output"] == "call me at 555-123-4567"  # unredacted
+    assert "555-123-4567" not in meta["text_output"]
 
 
 def test_redact_phi_true_redacts_prompt_and_completion(messages):

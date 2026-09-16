@@ -314,6 +314,26 @@ Both constants must move together. Rules, all load-bearing:
 Covered by `oracle_e2e_telemetry_schema_version_is_signed_and_backward_compatible`, which
 asserts legacy/v1 compatibility, unknown-version refusal, and signed-field tamper rejection.
 
+### 4.2b SDK developer telemetry envelope v1
+
+`integrity-sdk/integrity_sdk/telemetry/envelope.py` defines the developer-facing
+event envelope at `schema/telemetry-envelope-v1.json`. It is distinct from the
+signed Oracle ingestion object in §4.2a: it is the common pre-projection shape
+for local JSONL/SQLite, authenticated Cortex export, Shield correlation, and
+dashboard adapters. It requires an event ID, event type, stable agent ID,
+timestamp sources, payload/metadata objects, privacy/redaction state, and
+content/payload hashes; optional fields preserve DID, harness, principal,
+device, session, invocation, trace, span, and parent relationships.
+
+Serialization is UTF-8 JSON with sorted keys, no insignificant whitespace, and
+`ensure_ascii=false`; hashes are lowercase SHA-256 hex over the canonical
+redacted values. Event IDs are the idempotency key. Redaction occurs before
+persistence or export. Unknown event types are rejected. Missing principal,
+device, or session values remain null/unknown rather than being inferred from
+addresses or timestamps. This envelope does not itself assert Oracle
+registration, Shield authorization, Cortex principal authority, or on-chain
+finality.
+
 ### 4.4 Merkle tree convention (must match between integrity-oracle and contracts)
 - Hash function: `keccak256` (not SHA-256) — this tree's root gets verified on-chain in
   `StateAnchor.sol`, and keccak256 is native/cheap in the EVM.

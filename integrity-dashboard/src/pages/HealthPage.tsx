@@ -473,6 +473,7 @@ export default function HealthPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+      <h1 style={{ margin: 0, fontSize: '1.6rem' }}>Integrity Health</h1>
       
       {/* ─── Hero HIPAA Gateway Bar ─── */}
       <div

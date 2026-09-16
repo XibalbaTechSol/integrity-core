@@ -14,11 +14,11 @@ from integrity_sdk.client import IntegrityClient
 from integrity_sdk.collection import CollectionConfig, CollectionProfile
 
 
-def test_default_profile_is_development_with_redaction_off() -> None:
+def test_default_profile_is_development_with_redaction_on() -> None:
     config = CollectionConfig.from_env({})
     assert config.profile is CollectionProfile.DEVELOPMENT
     assert config.capture_content is True
-    assert config.redact_content is False, "redaction is off by default — operator decision"
+    assert config.redact_content is True, "secret and PII redaction is the safe default"
 
 
 def test_regulated_profile_withholds_content_entirely() -> None:

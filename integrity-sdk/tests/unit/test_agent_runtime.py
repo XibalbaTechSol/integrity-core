@@ -49,3 +49,21 @@ def test_mcp_loaders_use_the_canonical_sdk_identity_store(tmp_path, monkeypatch)
     expected_did, expected_keypair, _ = did.load_or_create_did("mcp-agent")
     assert _load_keypair_for("mcp-agent").private_bytes_raw() == expected_keypair.private_bytes_raw()
     assert _load_doc_for("mcp-agent")["id"] == expected_did
+
+
+def test_identity_snapshot_is_non_secret_and_keeps_boundaries_distinct(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTEGRITY_DID_HOME", str(tmp_path / "dids"))
+    agent = IntegrityAgent.open(
+        "snapshot-agent", harness="hermes", principal="cortex-principal",
+        device_id="shield-device", client_kwargs={"auto_flush": False, "enable_otel_export": False},
+    )
+    snapshot = agent.identity_snapshot()
+    assert snapshot["agent_id"] == "snapshot-agent"
+    assert snapshot["did"] == agent.did
+    assert snapshot["principal"] == "cortex-principal"
+    assert snapshot["device_id"] == "shield-device"
+    assert snapshot["did_controller"] == agent.did
+    assert snapshot["key_fingerprint"] in agent.did
+    assert "private" not in str(snapshot).lower()
+    assert "keypair" not in str(snapshot).lower()
+    agent.close(flush=False)

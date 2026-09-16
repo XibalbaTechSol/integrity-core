@@ -11,7 +11,7 @@ import re
 from typing import Any, Mapping, Optional
 
 from .client import IntegrityClient
-from .did import IdentityInconsistentError, Keypair, load_or_create_did
+from .did import IdentityInconsistentError, Keypair, agent_dir, load_or_create_did
 
 _AGENT_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
@@ -37,6 +37,7 @@ class IntegrityAgent:
         client: IntegrityClient,
         harness: str,
         profile: str | None,
+        principal: str | None,
         device_id: str | None,
         require_device_binding: bool,
     ) -> None:
@@ -47,6 +48,7 @@ class IntegrityAgent:
         self.client = client
         self.harness = harness
         self.profile = profile
+        self.principal = principal
         self.device_id = device_id
         self.require_device_binding = require_device_binding
         self._session_id: str | None = None
@@ -59,6 +61,7 @@ class IntegrityAgent:
         *,
         harness: str,
         profile: str | None = None,
+        principal: str | None = None,
         device_id: str | None = None,
         require_device_binding: bool = False,
         expected_did: str | None = None,
@@ -99,6 +102,7 @@ class IntegrityAgent:
             client=client,
             harness=harness,
             profile=profile,
+            principal=principal,
             device_id=device_id,
             require_device_binding=require_device_binding,
         )
@@ -112,6 +116,36 @@ class IntegrityAgent:
     def registration_status(self) -> bool | None:
         """Return Oracle registration state, or ``None`` when inconclusive."""
         return self.client.registration_status()
+
+    def identity_snapshot(self) -> dict[str, Any]:
+        """Return a non-secret identity registry projection.
+
+        The DID directory and DID document remain canonical. This projection
+        deliberately does not create a second key store or claim that a
+        controller, wallet, principal, or device are interchangeable.
+        """
+        wallet_refs = [
+            method.get("blockchainAccountId")
+            for method in self.did_document.get("verificationMethod", [])
+            if isinstance(method, dict) and method.get("blockchainAccountId")
+        ]
+        created = self.did_document.get("created")
+        return {
+            "identity_version": 1,
+            "agent_id": self.agent_slug,
+            "harness": self.harness,
+            "did": self.did,
+            "did_controller": self.did_document.get("controller"),
+            "principal": self.principal,
+            "device_id": self.device_id,
+            "wallet_references": wallet_refs,
+            "key_fingerprint": self.did.removeprefix("did:integrity:"),
+            "memory_store_reference": str(agent_dir(self.agent_slug)),
+            "registration_status": self.registration_status(),
+            "created_at": created,
+            "last_seen_at": None,
+            "provenance_history": [{"event": "identity_created", "timestamp": created}],
+        }
 
     def emit(self, event: str, metadata: Mapping[str, Any] | None = None, **fields: Any) -> None:
         """Queue one standard lifecycle event with immutable attribution fields."""
@@ -127,13 +161,15 @@ class IntegrityAgent:
             "agent_slug": self.agent_slug,
             "harness": self.harness,
             "profile": self.profile,
+            "principal": self.principal,
             "device_id": self.device_id,
         })
         self.client.log_telemetry(entry)
 
-    def start_session(self, session_id: str, **fields: Any) -> None:
+    def start_session(self, session_id: str, *, emit: bool = True, **fields: Any) -> None:
         self._session_id = session_id
-        self.emit("session_started", session_id=session_id, **fields)
+        if emit:
+            self.emit("session_started", session_id=session_id, **fields)
 
     def model_call(self, *, session_id: str | None = None, **fields: Any) -> None:
         self.emit("model_call", session_id=session_id or self._session_id, **fields)
@@ -146,6 +182,11 @@ class IntegrityAgent:
 
     def complete(self, *, session_id: str | None = None, **fields: Any) -> None:
         self.emit("session_completed", session_id=session_id or self._session_id, **fields)
+
+    def end_session(self, session_id: str | None = None, *, emit: bool = True, **fields: Any) -> None:
+        if emit:
+            self.emit("session_ended", session_id=session_id or self._session_id, **fields)
+        self._session_id = None
 
     def flush(self) -> bool:
         return self.client.flush_telemetry()
