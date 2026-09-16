@@ -424,6 +424,9 @@ at 16 MiB, and uses a one-second busy timeout. These source-level controls are
 test-confirmed but are not yet present in the running `/opt/xibalba-shield`
 installation until that package is deployed.
 
+The storage-ceiling regression is now explicitly covered by the Shield suite
+(`xibalba-shield` commit `b8f0084`; 10 focused tests pass).
+
 For the live root-owned unit, `xibalba-shield` commit `faa42f1` adds
 `scripts/install_live_cortex_outbox_limits.sh`. It is an idempotent privileged
 installer that writes the drop-in, resumes and stops the frozen worker in the
