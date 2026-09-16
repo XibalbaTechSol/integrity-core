@@ -44,7 +44,7 @@ async function collectPageEvidence(page: Page, info: TestInfo) {
   });
   page.on('response', response => {
     if (response.status() >= 500) {
-      const optionalOracleRead = response.url().includes('/v1/agent/') && /\/(wallet|baas|contracts)(\?|$)/.test(response.url());
+      const optionalOracleRead = response.url().includes('/v1/agent/') && /\/(wallet|baas|contracts|stake)(\?|$)/.test(response.url());
       findings.push({ level: optionalOracleRead ? 'warning' : 'error', kind: 'http-5xx', message: `${response.status()} ${response.url()}`, url: page.url() });
     }
     else if (response.status() >= 400 && ![401, 404].includes(response.status())) findings.push({ level: 'warning', kind: 'http-4xx', message: `${response.status()} ${response.url()}`, url: page.url() });

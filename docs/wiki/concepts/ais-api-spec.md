@@ -2,7 +2,7 @@
 title: AIS API — Versioned Wire Spec
 acronyms: [AIS]
 created: 2026-07-11
-updated: 2026-08-29
+updated: 2026-09-15
 type: concept
 tags: [metrics, sdk, infrastructure]
 confidence: high

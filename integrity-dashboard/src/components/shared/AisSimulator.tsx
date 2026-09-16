@@ -60,6 +60,7 @@ function Slider({ label, value, min, max, step, onChange, format }: {
         <span className="mono" style={{ color: 'var(--theme-accent)', fontWeight: 700 }}>{format(value)}</span>
       </div>
       <input
+        aria-label={label}
         type="range"
         min={min}
         max={max}
@@ -144,7 +145,7 @@ export function AisSimulator() {
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', cursor: 'pointer' }}>
-              <input type="checkbox" checked={zk} onChange={(e) => setZk(e.target.checked)} />
+              <input aria-label="Real ZK proof verified this period" type="checkbox" checked={zk} onChange={(e) => setZk(e.target.checked)} />
               <Zap size={14} color={zk ? '#f59e0b' : 'var(--text-muted)'} />
               Real ZK proof verified this period (x1.15)
             </label>
@@ -179,7 +180,7 @@ export function AisSimulator() {
           <Bar label="S_entropy (Stability)" value={breakdown.s_entropy} color="#2196f3" />
           <Bar label="S_grounding" value={breakdown.s_grounding} color="#4caf50" />
           <Bar label="S_sacrifice" value={breakdown.s_sacrifice} color="#f59e0b" />
-          <Bar label="S_compliance" value={breakdown.s_compliance} color="#8b5cf6" />
+          <Bar label="S_compliance" value={breakdown.s_compliance} color="#c4b5fd" />
 
           <div style={{
             marginTop: '8px', padding: '16px', borderRadius: 'var(--radius-md)',

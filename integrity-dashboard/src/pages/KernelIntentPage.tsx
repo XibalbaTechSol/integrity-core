@@ -223,7 +223,7 @@ export default function KernelIntentPage() {
           bridge disabled (the default) will show no rows here, which is expected, not an error.
         </p>
         <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
-          <select
+          <select aria-label="Kernel intent session"
             value={selectedSessionId}
             onChange={(e) => setSelectedSessionId(e.target.value)}
             style={{

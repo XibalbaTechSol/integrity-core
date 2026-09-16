@@ -1,4 +1,23 @@
-import { Activity, FileCheck2, FileKey2, Fingerprint, KeyRound, LayoutDashboard, ScrollText, ShieldCheck, WalletCards } from 'lucide-react';
+import {
+  Activity,
+  BadgeCheck,
+  BookOpen,
+  BrainCircuit,
+  Code,
+  Database,
+  FileCheck2,
+  FileKey2,
+  Fingerprint,
+  KeyRound,
+  Landmark,
+  LayoutDashboard,
+  Network,
+  ScrollText,
+  Settings,
+  Shield,
+  ShieldCheck,
+  WalletCards,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 export type NavigationItem = {
@@ -24,6 +43,29 @@ export const NAVIGATION_GROUPS: NavigationGroup[] = [
     { to: '/contracts', label: 'Contracts', icon: FileKey2 },
     { to: '/security', label: 'Security & Keys', icon: KeyRound },
     { to: '/activity', label: 'Activity Log', icon: ShieldCheck },
+  ] },
+  { section: 'Finance', items: [
+    { to: '/treasury', label: 'Treasury', icon: Landmark },
+    { to: '/financials', label: 'Financials', icon: WalletCards },
+  ] },
+  { section: 'Intelligence', items: [
+    { to: '/intelligence', label: 'Intelligence', icon: BrainCircuit },
+    { to: '/correlation', label: 'Correlation', icon: Network },
+    { to: '/prediction-markets', label: 'Prediction Markets', icon: BadgeCheck },
+  ] },
+  { section: 'Operations', items: [
+    { to: '/health', label: 'Health', icon: ShieldCheck },
+    { to: '/shield', label: 'Shield', icon: Shield },
+    { to: '/quant', label: 'Quant', icon: Activity },
+  ] },
+  { section: 'System', items: [
+    { to: '/knowledge', label: 'Knowledge', icon: Database },
+    { to: '/licence', label: 'Licence', icon: FileKey2 },
+    { to: '/kernel', label: 'Kernel', icon: ShieldCheck },
+    { to: '/kernel-intent', label: 'Kernel Intent', icon: KeyRound },
+    { to: '/developer', label: 'Developer', icon: Code },
+    { to: '/wiki', label: 'Wiki', icon: BookOpen },
+    { to: '/settings', label: 'Settings', icon: Settings },
   ] },
 ];
 

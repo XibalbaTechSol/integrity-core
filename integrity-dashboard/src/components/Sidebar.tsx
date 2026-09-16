@@ -54,7 +54,7 @@ export function Sidebar() {
           {!effectiveCollapsed && <img src="/logo.png" alt="Logo" style={{ height: '32px', marginBottom: '0.5rem' }} />}
           {effectiveCollapsed && <img src="/logo.png" alt="Logo" style={{ height: '24px', objectFit: 'contain' }} />}
         </Link>
-        <button onClick={() => setCollapsed(!collapsed)} style={{ background: 'var(--bg-color)', border: '1px solid var(--border-color)', borderRadius: '50%', color: 'var(--text-secondary)', cursor: 'pointer', padding: '0.25rem', display: isMobile ? 'none' : 'flex', alignItems: 'center', position: 'absolute', right: '-12px', top: '2rem' }}>
+        <button aria-label={effectiveCollapsed ? 'Expand navigation' : 'Collapse navigation'} onClick={() => setCollapsed(!collapsed)} style={{ background: 'var(--bg-color)', border: '1px solid var(--border-color)', borderRadius: '50%', color: 'var(--text-secondary)', cursor: 'pointer', padding: '0.25rem', display: isMobile ? 'none' : 'flex', alignItems: 'center', position: 'absolute', right: '-12px', top: '2rem' }}>
           {effectiveCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
         </button>
       </div>
@@ -85,7 +85,7 @@ export function Sidebar() {
         </div>
       )}
 
-      <nav ref={navRef} aria-label="Primary navigation" style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '1.5rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+      <nav ref={navRef} aria-label="Primary navigation" tabIndex={0} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '1.5rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
         {NAVIGATION_GROUPS.map((group) => (
           <div key={group.section} style={{ marginBottom: '0.5rem' }}>
             {!effectiveCollapsed && (

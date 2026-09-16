@@ -45,7 +45,7 @@ registry's unknown-DID result, represented by the SDK as `None`.
 | Profile | Controller | SovereignAgent | StateAnchor | Chain evidence |
 |---|---|---|---|---|
 | xibalba | `0x14bB099e3ADD7341a987a3FB435F051908F46EE2` | `0x360E2a56eb23e383B81E5bB42Ee5c3966688558a` | `0x09DCBBd0D7B0f39db315a8C4f913C162D73Cc68b` | on-chain-confirmed |
-| quant | `0x8D63d24f6D2f32a565F479Fd712e719D35950E5f` | `0x1a252A024A8230180720b991FccccA166B0181e8` | `0x509f37c40562cd7ddf3945c02A640EB7821D76f7` | on-chain-confirmed |
+| quant | `0xf85Cfe4b3b72347c02B9549714Fcf53CA6990317` | `0x1a252A024A8230180720b991FccccA166B0181e8` | `0x509f37c40562cd7ddf3945c02A640EB7821D76f7` | on-chain-confirmed |
 | shield | `0xB5831537150cCF80A21B069F8E10a7FB072AA0D4` | `0xDef665Fd3722160AeBF1e8Cb7D4E43da7E9432dC` | `0xddC4517B0df0383959C64cbc2BA922d3649f8957` | on-chain-confirmed |
 | claude | — | — | — | on-chain-confirmed absent |
 | codex | — | — | — | on-chain-confirmed absent |
@@ -55,17 +55,36 @@ The registry read proves that the DID has a registered primitive record. It does
 prove that the current local wallet can control the record, that every primitive's admin role is
 correct, that the genesis root is non-zero, or that the registration event is finalized.
 
+## Bounded readiness refresh — 2026-09-15
+
+Read-only Base Sepolia calls confirmed that the deployed `AgentPrimitivesFactory` holds
+`REGISTRAR_ROLE` on both `XibalbaAgentRegistry` and `DomainRegistry`. For `xibalba`, `quant`,
+and `shield`, the controller recorded in the registry also currently holds the zero-valued
+admin role on the exact `SovereignAgent` address, and each exact `StateAnchor.latestRoot()` is
+non-zero. A complete ten-assertion role matrix also passed for each profile: controller admin on
+`SovereignAgent`; SovereignAgent admin on the agent-controlled clones; `ANCHOR_ROLE` on
+`StateAnchor`; `ORACLE_ROLE` on `ReputationRegistry`; and governance/disputer roles on
+`Slasher`. These checks improve the three registered profiles' readiness evidence but do not
+replace the missing local-wallet-address comparison or finalized registration-event/log-range
+proof.
+
 ## Fail-closed interpretation
 
 The following statuses are intentionally not promoted to pass from a cache or display label:
 
 - `on_chain_preflight`: **unknown** for all six; no preflight result was injected.
-- Controller ownership/control: **unknown** beyond the registry's recorded controller field.
-- Primitive role integrity: **unknown**; factory registrar role and per-primitive admin reads were
-  not run in this matrix.
+- Controller ownership/control: **pass for the registered-record/controller boundary** for
+  `xibalba`, `quant`, and `shield`; direct `SovereignAgent.hasRole(bytes32(0), current_recorded_controller)`
+  reads returned `true`.
+- Primitive role integrity: **pass for the required ten-role matrix** for each of those three
+  profiles; the factory registrar role reads also returned `true` for both registries.
 - Genesis root anchoring: **pass for xibalba, quant, and Shield** from direct non-zero
   `StateAnchor.latestRoot()` reads; unknown for the three unregistered profiles.
 - Finality: **unknown**; registry resolution is a chain read, not a finalized-log proof.
+- RPC finality capability: **pass** on Base Sepolia at the read-only check on
+  2026-09-15: `eth_chainId=84532`, finalized block `0x2cb4e1a`, latest block
+  `0x2cb509b`. This proves the endpoint exposes a finalized cursor, but does
+  not prove that any agent registration event is within that finalized range.
 - Shield device binding: **unknown** for this run; device enrollment is a separate Shield authority.
 
 Consequently, no profile is registration-ready. This is the intended fail-closed outcome.

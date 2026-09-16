@@ -65,7 +65,7 @@ export function FleetWalletOverview() {
             <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Fleet total ITK</div>
             <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--theme-accent)' }}>{totalItk.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
           </div>
-          <button onClick={load} disabled={loading} style={{ background: 'none', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-md)', padding: '6px', color: 'var(--text-muted)', cursor: 'pointer' }}>
+          <button aria-label="Refresh wallet overview" onClick={load} disabled={loading} style={{ background: 'none', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-md)', padding: '6px', color: 'var(--text-muted)', cursor: 'pointer' }}>
             <RefreshCw size={14} className={loading ? 'spin' : ''} />
           </button>
         </div>

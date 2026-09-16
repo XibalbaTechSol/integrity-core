@@ -2,7 +2,7 @@
 title: Telemetry Ingestion Pipeline
 acronyms: []
 created: 2026-07-15
-updated: 2026-08-29
+updated: 2026-09-15
 type: concept
 tags: [sdk, metrics, infrastructure, compliance]
 confidence: high
@@ -86,12 +86,11 @@ Every surface below ultimately calls `IntegrityClient.log_telemetry(metadata, *,
 
 `security/redactor.py`'s `redact_text()` performs targeted (not blanket) masking of `PRIVATE_KEY`/`API_KEY`/`SSN`/`CREDIT_CARD`/`EMAIL`/`PHONE`/`MRN` patterns — see [Observability & PHI Safety](observability-vtl.md) for the regex categories and the full design rationale.
 
-**As of 2026-07-15, both `IntegrityOpenAI` and `IntegrityLangChainCallback` accept a `redact_phi: bool` constructor param that defaults to `False`.** This is a real, deliberate behavior change from the prior posture (redaction ran unconditionally in both integrations). The decision:
+**Both `IntegrityOpenAI` and `IntegrityLangChainCallback` accept a `redact_phi: bool` constructor param that defaults to `True`.** Callers may pass `False` only for controlled local fixtures; the client collection policy remains an independent backstop. The current safety posture is:
 
-- Redaction is now opt-in, scoped to Integrity Health / healthcare-vertical agents — a trading/prediction-market/capital-allocation agent has no PHI exposure at all, and defaulting to redaction everywhere cost fidelity on captured text project-wide with no compliance benefit for those verticals.
-- **Any Integrity Health / healthcare-vertical agent MUST pass `redact_phi=True` explicitly.** Neither wrapper has any way to know an agent's `compliance_vertical` on its own (that's registered separately, via `registration.py`) — nothing here can safely auto-detect "this needs redaction."
-- Both wrappers log a `logger.warning(...)` naming the agent at construction time whenever `redact_phi` is left at its default `False`, so a misconfigured deployment is at least loud about it.
-- **There is no runtime enforcement.** Nothing currently prevents a healthcare-vertical agent from being constructed without `redact_phi=True` — this is a real, accepted residual risk from the chosen default, tracked in `PRODUCTION_GAPS.md` §3, not an oversight. `telemetry/tracing.py`'s `traceable`/`trace_run` API is unaffected by this flag and always redacts (see §1's table) — only the two named integrations gained the toggle.
+- Redaction is enabled by default for every vertical. A caller may explicitly disable it only for a controlled local fixture; the wrappers log a warning naming the agent when that happens.
+- Neither wrapper infers `compliance_vertical` on its own (that is registered separately via `registration.py`), so a healthcare deployment must retain the safe default and must not pass `False`.
+- `telemetry/tracing.py`'s `traceable`/`trace_run` API is unaffected by this flag and always redacts (see §1's table) — only the two named integrations expose the toggle.
 - The oracle-side PHI backstop (`phi.rs`, §7 step 1 below) is unconditional regardless of `redact_phi` — it will `400` a payload carrying an unredacted pattern either way, whether or not the client opted into client-side redaction. This is the actual safety net for a misconfigured `redact_phi=False` healthcare deployment today, not a substitute for fixing the SDK-side default.
 
 ## 3. Signal derivation

@@ -3699,3 +3699,84 @@ writeup: PRODUCTION_GAPS.md §18.
 - Remaining issue: 19 older pages are beyond the 14-day freshness threshold
   and require separate source re-verification; no stale claim was silently
   refreshed in this focused pass.
+
+## [2026-09-15] audit | Wiki Sync Loop
+- Pages created: 0
+- Pages updated: 1
+- Dead links fixed: 0
+- Orphans resolved: 0
+- Stale pages refreshed: 0
+- Aspirational content flagged: 0
+- Corrected the index counter from 33 to the 35 article files actually present.
+- Revalidated all indexed paths, source-free metadata, orphan/dead-link state,
+  and generated TOCs; 20 pages remain older than the 14-day freshness threshold
+  and require source-by-source review.
+
+## [2026-09-15] refresh | CLI and user API entities
+- Pages created: 0
+- Pages updated: 2
+- Dead links fixed: 0
+- Orphans resolved: 0
+- Stale pages refreshed: 2
+- Aspirational content flagged: 0
+- Re-verified the Integrity CLI and user API entity claims against their current
+  source modules, migrations, tests, and compose wiring; refreshed their
+  frontmatter dates and retained high confidence.
+
+## [2026-09-15] refresh | identity, primitives, and BCC concepts
+- Pages created: 0
+- Pages updated: 3
+- Dead links fixed: 0
+- Orphans resolved: 0
+- Stale pages refreshed: 3
+- Aspirational content flagged: 0
+- Re-verified DID fingerprint/EVM binding, seven-primitive ownership and
+  call-routing, and BCC canonical signing/invocation binding against the
+  current CLI, SDK, middleware, and Solidity sources.
+
+## [2026-09-15] refresh | AIS, governance, and cross-chain concepts
+- Pages created: 0
+- Pages updated: 3
+- Dead links fixed: 0
+- Orphans resolved: 0
+- Stale pages refreshed: 3
+- Aspirational content flagged: 0
+- Re-verified the generated AIS route inventory, governance lifecycle/read
+  surface and deployment status, and the current per-agent CCIP resolution.
+- Corrected the cross-chain page's stale claim that the bridge still assumes a
+  global reputation registry; production deployment and lane configuration
+  remain explicitly planned.
+
+## [2026-09-15] refresh | metrology, Merkle, and observability concepts
+- Pages created: 0
+- Pages updated: 3
+- Dead links fixed: 0
+- Orphans resolved: 0
+- Stale pages refreshed: 3
+- Aspirational content flagged: 0
+- Re-verified signal derivation, Merkle hashing, and SDK/oracle PHI safety
+  against current source and tests. Corrected the observability page's stale
+  `redact_phi` default from `False` to the current safety default `True`.
+
+## [2026-09-15] refresh | persistent memory, Smart BAA, and telemetry
+- Pages created: 0
+- Pages updated: 3
+- Dead links fixed: 0
+- Orphans resolved: 0
+- Stale pages refreshed: 3
+- Aspirational content flagged: 0
+- Re-verified the JSONL TrustVault bridge, Smart BAA state machine/factory,
+  and SDK-to-oracle telemetry pipeline. Corrected telemetry ingestion's stale
+  `redact_phi` default from `False` to the current safety default `True`.
+
+## [2026-09-15] refresh | remaining architecture and planned concepts
+- Pages created: 0
+- Pages updated: 5
+- Dead links fixed: 0
+- Orphans resolved: 0
+- Stale pages refreshed: 5
+- Aspirational content flagged: 0
+- Re-verified A2A negotiation and ZK-ML remain explicitly planned, market
+  contracts are source-backed but live deployment requires independent
+  evidence, the Xibalba operating model's runtime claims are externally
+  scoped, and the cross-repository dependency boundaries remain current.

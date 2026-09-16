@@ -1,12 +1,8 @@
 import { test, expect } from '@playwright/test';
+import { NAVIGATION_GROUPS, NAVIGATION_ITEMS } from '../src/navigation';
 
-const APP_ROUTES = [
-  '/dashboard', '/agents', '/treasury', '/security', '/knowledge', '/fleet', '/memory', '/developer', '/licence', '/wiki',
-];
-
-const NAV_HREFS = [
-  '/dashboard', '/agents', '/treasury', '/security', '/knowledge', '/fleet', '/memory', '/developer', '/licence', '/wiki',
-];
+const APP_ROUTES = ['/financials', '/settings'];
+const NAV_HREFS = NAVIGATION_ITEMS.map((item) => item.to);
 
 test.describe('authenticated navigation consistency', () => {
   for (const route of APP_ROUTES) {
@@ -25,15 +21,23 @@ test.describe('authenticated navigation consistency', () => {
         return Boolean(link && link.top >= nav.top && link.bottom <= nav.bottom);
       });
       expect(navBounds).toBe(true);
-      await expect(sidebar.getByText('Command', { exact: true })).toBeVisible();
-      await expect(sidebar.getByText('Manage', { exact: true })).toBeVisible();
-      await expect(sidebar.getByText('Build', { exact: true })).toBeVisible();
+      for (const group of NAVIGATION_GROUPS) {
+        await expect(sidebar.locator('nav > div > div').filter({ hasText: group.section })).toHaveText(group.section);
+      }
     });
   }
 
+  test('protocol surface exposes every canonical page', async ({ page }) => {
+    await page.goto('/dashboard');
+    const links = page.locator('.protocol-sidebar nav[aria-label="Protocol navigation"] a');
+    await expect(links).toHaveCount(NAV_HREFS.length);
+    const hrefs = await links.evaluateAll((items) => items.map((item) => item.getAttribute('href')));
+    expect(hrefs).toEqual(NAV_HREFS);
+  });
+
   test('header mode uses the same canonical route order', async ({ page }) => {
     await page.goto('/settings');
-    await page.getByRole('button', { name: /Branding & Layout/ }).click();
+    await page.getByRole('tab', { name: /Branding & Layout/ }).click();
     await page.getByRole('button', { name: 'Header Navigation' }).click();
 
     for (const route of NAV_HREFS) {
@@ -47,7 +51,7 @@ test.describe('authenticated navigation consistency', () => {
   });
 
   test('sidebar remains usable when the navigation exceeds the viewport', async ({ page }) => {
-    await page.goto('/dashboard');
+    await page.goto('/financials');
     const nav = page.locator('.memory-sidebar-shell nav[aria-label="Primary navigation"]');
     await expect(nav).toBeVisible();
     expect(await nav.evaluate((element) => element.scrollHeight)).toBeGreaterThan(await nav.evaluate((element) => element.clientHeight));

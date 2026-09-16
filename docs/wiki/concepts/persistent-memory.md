@@ -1,7 +1,7 @@
 ---
 title: Persistent Memory Bridge
 created: 2026-07-30
-updated: 2026-08-29
+updated: 2026-09-15
 type: concept
 tags: [architecture, sdk, primitive]
 confidence: high

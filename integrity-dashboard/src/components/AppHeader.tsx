@@ -41,7 +41,7 @@ export function AppHeader() {
       </Link>
 
       {/* Center: Navigation Links */}
-      <nav aria-label="Primary navigation" style={{ display: 'flex', gap: '0.5rem', height: '100%', overflowX: 'auto', minWidth: 0 }}>
+      <nav aria-label="Primary navigation" tabIndex={0} style={{ display: 'flex', gap: '0.5rem', height: '100%', overflowX: 'auto', minWidth: 0 }}>
         {NAVIGATION_ITEMS.map((item) => (
           <NavLink
             key={item.to}

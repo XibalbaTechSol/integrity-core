@@ -282,7 +282,7 @@ export function ActuarialHub({ mode }: { mode: 'markets' | 'stability' }) {
       </Panel>
 
       <Panel title="Live Markets" icon={<Handshake size={18} />}
-        action={<button className="btn btn-icon" onClick={fetchMarkets} disabled={loading}><RefreshCw size={14} className={loading ? 'spin' : ''} /></button>}>
+        action={<button aria-label="Refresh live markets" className="btn btn-icon" onClick={fetchMarkets} disabled={loading}><RefreshCw size={14} className={loading ? 'spin' : ''} /></button>}>
         <div className="table-container">
           <table className="table">
             <thead>

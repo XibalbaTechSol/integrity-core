@@ -555,7 +555,7 @@ export default function HealthPage() {
                     Real, on-chain Business Associate Agreements via <code>SmartBAAFactory</code>/<code>SmartBAA</code>. Locked ITK collateral is slashed only by the protocol arbitrator, on a raised dispute.
                   </p>
 
-                  <div className="table-container">
+                  <div className="table-container" tabIndex={0}>
                     <table className="table">
                       <thead>
                         <tr>
@@ -666,7 +666,7 @@ export default function HealthPage() {
                     <span className="text-muted" style={{ fontSize: '0.85rem' }}>Registered Oracle Agents.</span>
                     <span style={{ fontSize: '0.75rem', background: 'var(--bg-secondary)', padding: '2px 8px', borderRadius: '12px' }}>{agents.length} agents</span>
                   </div>
-                  <div className="table-container">
+                  <div className="table-container" tabIndex={0}>
                     <table className="table">
                       <thead>
                         <tr>
@@ -709,7 +709,7 @@ export default function HealthPage() {
                     Real on-chain consent via <code>EHRGate</code> (Base Sepolia). EHRGate has no on-chain enumeration, so this list is a local bookmark of gates this browser has interacted with — each row's status is always re-read live from the contract, never cached.
                   </p>
 
-                  <div className="table-container">
+                  <div className="table-container" tabIndex={0}>
                     <table className="table">
                       <thead>
                         <tr>
@@ -813,7 +813,7 @@ export default function HealthPage() {
               {/* Interaction Logs */}
               <div className="col-span-2">
                 <Panel title="Medical Record Interaction Logs" icon={<Activity size={18} color="var(--theme-accent)" />}>
-                  <div className="table-container">
+                  <div className="table-container" tabIndex={0}>
                     <table className="table">
                       <thead>
                         <tr>
@@ -920,7 +920,7 @@ export default function HealthPage() {
                     Real quarantine state: an agent is quarantined the moment its Slasher clone shows locked stake (an unresolved dispute), the exact same <code>lockedStakeOf(agent) &gt; 0</code> check <code>bcc_middleware</code>'s pre-execution gate enforces on every request. There's no separate "restore" action to build — quarantine clears itself the instant the arbitrator resolves the dispute via <code>SmartBAA.arbitrate</code> (Smart BAAs tab) or the dispute is otherwise released on-chain.
                   </p>
 
-                  <div className="table-container">
+                  <div className="table-container" tabIndex={0}>
                     <table className="table">
                       <thead>
                         <tr>

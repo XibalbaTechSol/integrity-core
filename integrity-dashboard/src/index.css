@@ -494,7 +494,7 @@ a:hover {
 
 .button.primary {
   background-color: var(--accent-color);
-  color: #ffffff;
+  color: #052e24;
 }
 
 .button.primary:hover {
@@ -629,6 +629,7 @@ a:hover {
 .memory-form-footer { grid-column: 1 / -1; justify-content: space-between; gap: 0.75rem; }
 .memory-primary-button, .memory-small-button { border: 1px solid var(--border-color); border-radius: 4px; background: var(--surface-color); color: var(--text-primary); padding: 0.4rem 0.65rem; }
 .memory-primary-button { background: var(--accent-color); border-color: var(--accent-color); color: #fff; }
+.memory-primary-button { color: #052e24; }
 .memory-small-button { font-size: 0.75rem; }
 .memory-timeline, .memory-results { display: grid; gap: 0.8rem; }
 .memory-session-reconstruction .memory-panel-header { align-items: flex-start; }
@@ -944,7 +945,7 @@ a:hover {
 
 .btn-primary {
   background-color: var(--accent-color);
-  color: #ffffff;
+  color: #052e24;
 }
 .btn-primary:hover {
   background-color: var(--accent-hover);
@@ -1114,3 +1115,5 @@ input[type=range]::-moz-range-track {
     grid-template-columns: 1fr !important;
   }
 }
+/* Keep accent-filled actions readable across the selectable themes. */
+.btn-primary, .button.primary, .memory-primary-button, .shield-primary-button { color: #052e24; }

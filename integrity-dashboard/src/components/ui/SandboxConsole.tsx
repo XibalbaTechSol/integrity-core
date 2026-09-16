@@ -74,7 +74,7 @@ export const SandboxConsole = () => {
                     
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                         <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Performance Variance (Entropy)</label>
-                        <input 
+                        <input aria-label="Performance variance"
                             type="range" min="0" max="1" step="0.01" 
                             value={performanceVariance} 
                             onChange={(e) => setPerformanceVariance(parseFloat(e.target.value))} 
@@ -85,7 +85,7 @@ export const SandboxConsole = () => {
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                         <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Human Grounding Index (HGI)</label>
-                        <input 
+                        <input aria-label="Human Grounding Index"
                             type="range" min="0" max="1" step="0.01" 
                             value={hgiRaw} 
                             onChange={(e) => setHgiRaw(parseFloat(e.target.value))} 
@@ -96,7 +96,7 @@ export const SandboxConsole = () => {
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                         <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Verified GPU Hours (Sacrifice)</label>
-                        <input 
+                        <input aria-label="Verified GPU hours"
                             type="number" 
                             value={gpuHours} 
                             onChange={(e) => setGpuHours(parseInt(e.target.value))} 
@@ -106,7 +106,7 @@ export const SandboxConsole = () => {
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                         <label style={{ fontSize: '0.85rem', fontWeight: 600 }}>Identity Verification Tier</label>
-                        <select 
+                        <select aria-label="Identity verification tier"
                             value={tier} 
                             onChange={(e) => setTier(parseInt(e.target.value))}
                             style={{ padding: '0.5rem', background: 'var(--bg-color)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: '4px' }}

@@ -55,7 +55,7 @@ function MermaidDiagram({ source }: { source: string }) {
 
   if (error) return <div className="wiki-diagram-error" role="alert"><strong>Diagram could not be rendered.</strong><span>{error}</span><pre><code>{source}</code></pre></div>;
   if (!svg) return <div className="wiki-diagram-loading" role="status">Rendering diagram…</div>;
-  return <figure className="wiki-diagram" aria-label="Protocol diagram" dangerouslySetInnerHTML={{ __html: svg }} />;
+  return <figure className="wiki-diagram" aria-label="Protocol diagram" tabIndex={0} dangerouslySetInnerHTML={{ __html: svg }} />;
 }
 
 const categoryMeta = {
@@ -371,7 +371,7 @@ export default function WikiPage() {
       </main>
 
       <aside className={`wiki-toc ${tocOpen ? 'is-open' : ''}`}>
-        <div className="wiki-mobile-rail-title"><span>On this page</span><button onClick={() => setTocOpen(false)}><X size={18} /></button></div>
+        <div className="wiki-mobile-rail-title"><span>On this page</span><button aria-label="Close table of contents" onClick={() => setTocOpen(false)}><X size={18} /></button></div>
         <p className="wiki-rail-label">On this page</p>
         <nav className="wiki-toc-tree" aria-label="Table of contents">
           <button className={activeHeading === 'article-top' ? 'active level-1' : 'level-1'} onClick={() => visitHeading('article-top')}>{active.title}</button>
@@ -396,7 +396,7 @@ export default function WikiPage() {
 
     {searchOpen && <div className="wiki-search-backdrop" onMouseDown={() => setSearchOpen(false)}>
       <div className="wiki-command" onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="Search wiki">
-        <div className="wiki-command-input"><Search size={20} /><input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search the protocol" /><button onClick={() => setSearchOpen(false)}><X size={18} /></button></div>
+        <div className="wiki-command-input"><Search size={20} /><input aria-label="Search the protocol" ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search the protocol" /><button aria-label="Close search" onClick={() => setSearchOpen(false)}><X size={18} /></button></div>
         <div className="wiki-command-results">{results.length ? results.map((page, index) => <button key={page.id} onClick={() => selectPage(page)}><div><strong>{page.title}</strong><span>{page.category} · {page.excerpt}</span></div><kbd>⌘ {index + 1}</kbd></button>) : <p>No knowledge matched that search.</p>}</div>
       </div>
     </div>}

@@ -1,7 +1,7 @@
 ---
 title: integrity-cli
 created: 2026-07-07
-updated: 2026-08-29
+updated: 2026-09-15
 type: entity
 tags: [sdk, identity]
 confidence: high

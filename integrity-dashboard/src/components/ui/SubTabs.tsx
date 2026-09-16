@@ -19,7 +19,9 @@ export function SubTabs({ tabs, activeTab, setActiveTab }: SubTabsProps) {
         <button
           key={tab.id}
           type="button"
-          aria-pressed={activeTab === tab.id}
+          role="tab"
+          id={`settings-tab-${tab.id}`}
+          aria-selected={activeTab === tab.id}
           onClick={() => setActiveTab(tab.id as any)}
           style={{
             padding: '0.7rem 1rem',

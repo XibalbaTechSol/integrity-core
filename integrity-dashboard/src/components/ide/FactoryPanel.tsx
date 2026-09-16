@@ -462,7 +462,7 @@ export function FactoryPanel() {
 
             {/* AI Copilot Input */}
             <div style={{ flex: isMobile ? '1 1 100%' : '1 1 240px', display: 'flex', gap: '8px', padding: '0 8px', minWidth: isMobile ? 0 : '180px', maxWidth: isMobile ? 'none' : '500px', order: isMobile ? 3 : 0 }}>
-              <input
+              <input aria-label="AI Contract Copilot"
                 type="text"
                 placeholder="AI Contract Copilot (Powered by SDK Telemetry) - e.g. 'Add a function to withdraw funds'"
                 style={{
@@ -522,7 +522,7 @@ export function FactoryPanel() {
               style={{ 
                 width: '36px', 
                 background: '#19191d', 
-                color: '#65656c', 
+                color: '#a3a3ad',
                 fontFamily: 'monospace', 
                 fontSize: '0.75rem', 
                 textAlign: 'right', 
@@ -564,7 +564,7 @@ export function FactoryPanel() {
               />
 
               {/* Raw editable Textarea on top */}
-              <textarea
+              <textarea aria-label="Contract source editor"
                 ref={textareaRef}
                 value={code}
                 onChange={e => setCode(e.target.value)}
@@ -697,16 +697,16 @@ export function FactoryPanel() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>Outcomes</label>
-                <input type="number" min={2} max={8} className="input" style={{ fontSize: '0.75rem', padding: '6px', background: '#101014', border: '1px solid var(--glass-border)', color: 'var(--text-primary)' }} value={mktOutcomes} onChange={e => setMktOutcomes(e.target.value)} />
+                <input aria-label="Market outcomes" type="number" min={2} max={8} className="input" style={{ fontSize: '0.75rem', padding: '6px', background: '#101014', border: '1px solid var(--glass-border)', color: 'var(--text-primary)' }} value={mktOutcomes} onChange={e => setMktOutcomes(e.target.value)} />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>Min AIS</label>
-                <input type="number" className="input" style={{ fontSize: '0.75rem', padding: '6px', background: '#101014', border: '1px solid var(--glass-border)', color: 'var(--text-primary)' }} value={mktMinAis} onChange={e => setMktMinAis(e.target.value)} />
+                <input aria-label="Market minimum AIS" type="number" className="input" style={{ fontSize: '0.75rem', padding: '6px', background: '#101014', border: '1px solid var(--glass-border)', color: 'var(--text-primary)' }} value={mktMinAis} onChange={e => setMktMinAis(e.target.value)} />
               </div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>Resolve Deadline (hours)</label>
-              <input type="number" className="input" style={{ fontSize: '0.75rem', padding: '6px', background: '#101014', border: '1px solid var(--glass-border)', color: 'var(--text-primary)' }} value={mktDeadlineHours} onChange={e => setMktDeadlineHours(e.target.value)} />
+              <input aria-label="Market resolve deadline hours" type="number" className="input" style={{ fontSize: '0.75rem', padding: '6px', background: '#101014', border: '1px solid var(--glass-border)', color: 'var(--text-primary)' }} value={mktDeadlineHours} onChange={e => setMktDeadlineHours(e.target.value)} />
             </div>
             {!walletAddress && <button className="btn btn-primary" style={{ fontSize: '0.72rem', padding: '6px' }} onClick={connectWallet}>Connect Wallet</button>}
           </div>
@@ -1052,7 +1052,7 @@ export function ContractsListAndDetails() {
 
             <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(0,0,0,0.3)', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-sm)', padding: '6px 12px', minWidth: '220px' }}>
               <Search size={14} style={{ color: 'var(--text-muted)', marginRight: '8px' }} />
-              <input
+              <input aria-label="Search owned contracts"
                 type="text"
                 placeholder="Search contracts..."
                 value={searchQuery}

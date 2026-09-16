@@ -46,7 +46,7 @@ export default function SettingsPage() {
         setActiveTab={setActiveTab as any} 
       />
 {/* Settings Content */}
-      <div style={{ flex: 1 }} className="card">
+      <div style={{ flex: 1 }} className="card" role="tabpanel" id={`settings-panel-${activeTab}`} aria-labelledby={`settings-tab-${activeTab}`}>
         {activeTab === 'appearance' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
             <h3 style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '1rem' }}>Appearance Settings</h3>
@@ -81,7 +81,8 @@ export default function SettingsPage() {
               <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600, marginBottom: '1rem' }}>
                 <Type size={16} /> Typography
               </label>
-              <select 
+              <label htmlFor="settings-font" style={{ display: 'contents' }}>
+              <select id="settings-font" aria-label="Font family"
                 value={font} 
                 onChange={e => updateSettings({ font: e.target.value as any })}
                 className="button"
@@ -93,10 +94,11 @@ export default function SettingsPage() {
                 <option value="Fira Code">Fira Code (Monospace)</option>
                 <option value="Playfair Display">Playfair Display (Serif)</option>
               </select>
+              </label>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                 <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Font Size: {fontSize}px</span>
-                <input 
+                <input aria-label="Font size"
                   type="range" 
                   min="12" 
                   max="24" 

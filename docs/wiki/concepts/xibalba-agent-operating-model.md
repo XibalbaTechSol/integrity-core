@@ -2,7 +2,7 @@
 title: Xibalba Agent Operating Model
 acronyms: [MCP, MoA, BCC, DID, PHI]
 created: 2026-08-06
-updated: 2026-08-29
+updated: 2026-09-15
 type: concept
 tags: [identity, compliance, sdk, infrastructure]
 confidence: medium

@@ -6,11 +6,8 @@ import {
   ArrowUpFromLine,
   ChevronRight,
   Copy,
-  FileKey2,
-  Fingerprint,
   KeyRound,
   LockKeyhole,
-  Network,
   RefreshCw,
   ShieldCheck,
   WalletCards,
@@ -20,6 +17,7 @@ import { oracle, type AisResponse, type AgentResponse, type AuditLogEntryDto, ty
 import { graphMemory, type MerkleRoot, type StoreStatus } from '../services/graphMemory';
 import { readAgentBalances, type OnChainBalance } from '../integrity/wallet/chainClient';
 import { ALLOW_UNSCOPED_AGENT_DIRECTORY } from '../config';
+import { NAVIGATION_ITEMS } from '../navigation';
 import './ProtocolDashboardPage.css';
 
 type Tab = 'overview' | 'identity' | 'records' | 'proofs' | 'wallets' | 'transactions' | 'contracts' | 'security' | 'activity';
@@ -129,23 +127,13 @@ export default function ProtocolDashboardPage() {
   }, [selectedAgent, refreshNonce]);
 
   const primitiveRows = useMemo(() => detail?.primitives ? Object.entries(detail.primitives) : [], [detail]);
-  const nav = [
-    { to: '/dashboard', label: 'Overview', icon: Network },
-    { to: '/identity', label: 'Agent Identity', icon: Fingerprint },
-    { to: '/records', label: 'Integrity Records', icon: ShieldCheck },
-    { to: '/proofs', label: 'Proofs & Verification', icon: FileKey2 },
-    { to: '/wallets', label: 'Wallet', icon: WalletCards },
-    { to: '/transactions', label: 'Transactions', icon: Network },
-    { to: '/contracts', label: 'Contracts', icon: FileKey2 },
-    { to: '/security', label: 'Security & Keys', icon: LockKeyhole },
-    { to: '/activity', label: 'Activity Log', icon: ShieldCheck },
-  ];
+  const nav = NAVIGATION_ITEMS;
 
   return <div className="protocol-app">
     <aside className="protocol-sidebar">
       <Link className="protocol-brand" to="/dashboard"><img src="/logo.png" alt="Integrity" /><span>PROTOCOL CORE</span></Link>
       <div className="protocol-network"><span>Network</span><strong><i />Base Sepolia</strong></div>
-      <nav aria-label="Protocol navigation">{nav.map(item => { const Icon = item.icon; return <Link key={item.to} aria-label={item.label} className={routeTab === item.to.slice(1) || (routeTab === 'overview' && item.to === '/dashboard') ? 'active' : ''} to={item.to}><Icon size={17} /><span>{item.label}</span></Link>; })}</nav>
+      <nav aria-label="Protocol navigation" tabIndex={0}>{nav.map(item => { const Icon = item.icon; return <Link key={item.to} aria-label={item.label} className={routeTab === item.to.slice(1) || (routeTab === 'overview' && item.to === '/dashboard') ? 'active' : ''} to={item.to}><Icon size={17} /><span>{item.label}</span></Link>; })}</nav>
       <div className="protocol-sidebar-foot"><LockKeyhole size={15} /><span>Key material never rendered</span><small>Protocol surface v1</small></div>
     </aside>
     <main className="protocol-main">

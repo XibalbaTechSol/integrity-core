@@ -2,7 +2,7 @@
 title: Behavioral Commitment Chain (BCC)
 acronyms: [BCC]
 created: 2026-07-07
-updated: 2026-08-28
+updated: 2026-09-15
 type: concept
 tags: [compliance, cryptography]
 confidence: high

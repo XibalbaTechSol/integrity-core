@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .client import IntegrityClient
 from .agent_runtime import AgentIdentityError, AgentNotRegisteredError, IntegrityAgent
+from .harness_hooks import IntegrityHookAdapter, normalize_hook
 from .integrations.auto_hook import enable_auto_hooks
 from .integrity import integrity, SDKAgent
 from .readiness import ReadinessCheck, RegistrationReadiness, assess_local_readiness
@@ -13,6 +14,8 @@ from .telemetry.transports import HttpTelemetryTransport, MCPTelemetryTransport,
 __all__ = [
     "IntegrityClient",
     "IntegrityAgent",
+    "IntegrityHookAdapter",
+    "normalize_hook",
     "AgentIdentityError",
     "AgentNotRegisteredError",
     "enable_auto_hooks",

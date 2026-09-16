@@ -4,3 +4,7 @@
 .wallet-notice{margin:14px 20px 0;border:1px solid rgb(88 210 255 / 22%);background:rgb(88 210 255 / 6%);color:#a8cfde;padding:10px 12px;font-size:11px;line-height:1.45}
 .protocol-app{margin:0!important}
 .wallet-address-row{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 10px;margin:0 20px 16px;padding:10px 11px;border:1px solid var(--protocol-line);background:#0a1520}.wallet-address-row>span,.wallet-address-row>small{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--protocol-muted)}.wallet-address-row code{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#c9d8e6;font:11px ui-monospace,SFMono-Regular,monospace}.wallet-address-row small{grid-column:1/-1;letter-spacing:0;text-transform:none;line-height:1.35}
+/* WCAG AA: the muted footer caption is small text on a dark protocol surface. */
+.protocol-sidebar-foot small{color:var(--protocol-muted)}
+/* Keep the expanded canonical route model keyboard-accessible and scrollable. */
+.protocol-sidebar nav{flex:1;min-height:0;overflow-y:auto}

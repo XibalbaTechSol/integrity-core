@@ -135,7 +135,7 @@ export const TelemetryStream = () => {
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', fontWeight: 700 }}>Agent Filter:</span>
-                    <select
+                    <select aria-label="Filter telemetry by agent"
                         value={selectedAgentFilter}
                         onChange={e => setSelectedAgentFilter(e.target.value)}
                         style={{ background: '#0e0e12', border: '1px solid rgba(255,255,255,0.1)', color: 'white', fontSize: '0.7rem', padding: '4px 8px', borderRadius: '4px', outline: 'none' }}
@@ -148,7 +148,7 @@ export const TelemetryStream = () => {
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', fontWeight: 700 }}>Type:</span>
-                    <select
+                    <select aria-label="Filter telemetry by type"
                         value={selectedTypeFilter}
                         onChange={e => setSelectedTypeFilter(e.target.value)}
                         style={{ background: '#0e0e12', border: '1px solid rgba(255,255,255,0.1)', color: 'white', fontSize: '0.7rem', padding: '4px 8px', borderRadius: '4px', outline: 'none' }}
@@ -176,7 +176,13 @@ export const TelemetryStream = () => {
             </div>
 
             {/* SCROLLING WINDOW */}
-            <div className="card-body mono" style={{ flex: 1, overflowY: 'auto', maxHeight: '520px', fontSize: '0.75rem', padding: '16px 24px' }}>
+            <div
+                className="card-body mono"
+                role="region"
+                aria-label="Telemetry records"
+                tabIndex={0}
+                style={{ flex: 1, overflowY: 'auto', maxHeight: '520px', fontSize: '0.75rem', padding: '16px 24px' }}
+            >
                 {loading && stream.length === 0 ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                         {[1, 2, 3, 4, 5].map(i => (

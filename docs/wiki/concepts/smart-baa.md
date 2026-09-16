@@ -2,7 +2,7 @@
 title: Smart BAA (On-Chain Business Associate Agreement Escrow)
 acronyms: [BAA]
 created: 2026-07-09
-updated: 2026-08-29
+updated: 2026-09-15
 type: concept
 tags: [compliance, tokenomics]
 confidence: high
