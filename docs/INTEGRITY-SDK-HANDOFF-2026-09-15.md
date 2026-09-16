@@ -423,9 +423,9 @@ that installation is independently verified.
 The provider itself now supplies a second boundary in `xibalba-shield`
 commit `58323c8`: it clamps publishing to one worker and ten rows per flush,
 rejects payloads over 64 KiB, caps the SQLite outbox (including WAL sidecars)
-at 16 MiB, and uses a one-second busy timeout. These source-level controls are
-test-confirmed but are not yet present in the running `/opt/xibalba-shield`
-installation until that package is deployed.
+at 16 MiB, and uses a one-second busy timeout. These controls are now present in
+the running `/opt/xibalba-shield` installation; the live verifier reports the
+16 MiB/10-row/1-worker caps and the worker's aggregate-count bypass.
 
 The storage-ceiling regression is now explicitly covered by the Shield suite
 (`xibalba-shield` commit `b8f0084`; 10 focused tests pass).
@@ -436,12 +436,13 @@ installer that writes the drop-in, resumes and stops the frozen worker in the
 safe order, reloads systemd, starts the bounded service, and prints the
 effective cgroup limits. The operator has now installed those limits successfully;
 `systemctl show` confirms 256 MiB RAM/swap, 25% CPU, 64 tasks, and 1024 FDs.
-The running `/opt/xibalba-shield` virtualenv was then found to contain the older
-provider: it lacks `_OUTBOX_MAX_BYTES` and continues high-volume reads against
-the existing outbox. `xibalba-shield` commit `99e590f` adds
-`scripts/update_live_cortex_outbox_package.sh` to deploy only the current
-provider/worker code and restart this unit without changing identity,
-configuration, or the database. It remains to be run and independently rechecked.
+The running `/opt/xibalba-shield` virtualenv was subsequently upgraded with
+`scripts/update_live_cortex_outbox_package.sh` from `xibalba-shield` commits
+`a7a60bd`, `bcfaa9f`, and `94479e2`. The live worker now uses the count bypass,
+and a bounded 15-second sample measured only about 209 KiB of additional reads
+(versus about 225 MiB before the bypass), with TCP entries decreasing from 54
+to 44. The provider also treats SQLite lock contention as a failed retry
+rather than crashing the worker.
 
 The installer now preserves the unit's configured `SHIELD_DEVICE_ID` instead
 of embedding this workstation's device identifier (`xibalba-shield` commit

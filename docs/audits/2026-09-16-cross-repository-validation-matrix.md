@@ -16,7 +16,7 @@ on-chain evidence.
 | Shield live containment | `scripts/validate_local_containment.sh` | `CONFIRMED_SIGSTOP` | privileged live-device evidence |
 | Cortex fast liveness | authenticated `GET /api/status` on `127.0.0.1:8420` | 200; WAL, FTS5, backup ready; exact count deferred | live local service evidence |
 | Integrity directory | `GET /v1/agents/snapshot` on `127.0.0.1:8080` | finalized Base Sepolia snapshot, chain 84532, five agents | live Oracle evidence |
-| Resource containment | process/cgroup/socket probes after outbox freeze and Cortex restart | Cortex ~0.6% CPU; no active outbox sockets | live host evidence |
+| Resource containment | bounded worker verifier plus 15-second `/proc` I/O/socket sample | live worker stable under 256 MiB/25% cgroup; read delta ~209 KiB and port-8420 TCP entries fell 54→44 | live host evidence |
 | Bounded disposable benchmark | `uv run python scripts/benchmark_bounded.py --memories 100 --iterations 20` | ingest 271.080 ms; search p50/p95/max 2.018/3.620/3.643 ms; fast-status p50/p95/max 0.043/0.117/0.683 ms | reproducible local performance evidence |
 | Clean Cortex artifact | `uv build --sdist --wheel --no-sources` plus archive inspection | 7.4 MiB sdist and 275 KiB wheel; generated viewer dependencies/test artifacts excluded; wheel metadata carries immutable SDK Git pin | packaging test-confirmed |
 
@@ -25,7 +25,7 @@ on-chain evidence.
 | Scenario | Observation | Interpretation |
 |---|---:|---|
 | Shield outbox before containment | eight workers, batch 100, 179 FDs; Cortex ~43.8% CPU | confirmed retry/connection storm |
-| Shield outbox after containment | worker frozen; no active port-8420 outbox sockets | emergency containment effective |
+| Shield outbox after containment | one live worker, batch 10, 30-second cadence; no renewed high-volume scan after count bypass | permanent bounded containment effective; delivery health still depends on valid Cortex authorization |
 | Cortex fast status on large store | `memory_count_deferred=true` | liveness no longer performs an exact full-table count |
 | Shield full suite excluding release installer | 331 passed, 12 skipped in 112.18s | broad local regression evidence; installer remains separate |
 
@@ -41,7 +41,7 @@ always creates a temporary store and hard-caps fixture size and iterations.
 |---|---|---|
 | Authenticated real tenant | account session plus read/write/retrieval journey against a deployed tenant | not available; current bearer credential is not an account session |
 | Rendered UI | Browser DOM, console, network, interaction, and screenshots | in-app Browser reports zero connections |
-| Live Shield cgroup limits | `systemctl show` reports 256 MiB / 25% / 64 tasks / 1024 FDs | installed and active; provider package deployment remains stale |
+| Live Shield cgroup limits | `verify_live_cortex_outbox_limits.sh` plus `systemctl show` | installed and active; provider caps and aggregate-count bypass verified live |
 | New harness registrations | finalized registry records and accepted transaction receipts for Claude, Codex, Agy | not attempted; wallet/control authorization absent |
 | Full matrix | repeated performance, failure, recovery, and cross-repository canaries | partial; rows above are the safe current baseline |
 
