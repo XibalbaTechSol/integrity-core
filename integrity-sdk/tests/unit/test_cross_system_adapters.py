@@ -19,3 +19,33 @@ def test_cortex_transport_maps_envelope_without_authority_guessing(monkeypatch):
     assert result["recorded"] == 1
     assert calls[0][1]["headers"]["Authorization"] == "Bearer bearer-secret"
     assert calls[0][1]["json"]["events"][0]["idempotency_key"] == "e1"
+
+
+def test_cortex_transport_retries_transient_failure_with_same_batch(monkeypatch):
+    calls = []
+
+    class Response:
+        status_code = 503
+        def raise_for_status(self):
+            import requests
+            if self.status_code >= 400:
+                raise requests.HTTPError(response=self)
+        def json(self):
+            return {"recorded": 1}
+
+    def post(*args, **kwargs):
+        calls.append(kwargs["json"])
+        if len(calls) < 3:
+            return Response()
+        Response.status_code = 200
+        return Response()
+
+    monkeypatch.setattr("integrity_sdk.integrations.cortex.requests.post", post)
+    monkeypatch.setattr("integrity_sdk.integrations.cortex.time.sleep", lambda _: None)
+    result = CortexTransport("http://cortex", "bearer-secret").export(
+        [{"event_id": "e1", "agent_id": "agent-a", "session_id": "s1"}],
+        max_attempts=3,
+    )
+    assert result["recorded"] == 1
+    assert len(calls) == 3
+    assert calls[0] == calls[-1]

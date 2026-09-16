@@ -137,3 +137,21 @@ def test_sqlite_mode_is_selected_by_explicit_configuration(tmp_path, monkeypatch
     assert agent.store is not None
     assert agent.store._db.execute("select count(*) from events").fetchone()[0] == 1
     agent.close()
+
+
+def test_facade_cortex_export_records_acknowledgement(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTEGRITY_DID_HOME", str(tmp_path / "did"))
+    monkeypatch.setenv("INTEGRITY_LOCAL_EVENTS", str(tmp_path / "events.sqlite3"))
+    class Response:
+        status_code = 200
+        def raise_for_status(self): pass
+        def json(self): return {"recorded": 1, "duplicates": 0}
+    monkeypatch.setattr("integrity_sdk.integrations.cortex.requests.post", lambda *a, **k: Response())
+    agent = integrity.init(agent_id="cortex-agent", telemetry="sqlite",
+                           client_kwargs={"auto_flush": False, "enable_otel_export": False})
+    event = agent.emit("session_started", session_id="s1")
+    result = agent.export_cortex(base_url="http://cortex", bearer_token="secret")
+    assert result["recorded"] == 1
+    assert agent.last_delivery_receipts[0].status == "acknowledged"
+    assert agent.store._db.execute("select count(*) from delivery_attempts where event_id=?", (event["event_id"],)).fetchone()[0] == 1
+    agent.close()
