@@ -10,6 +10,7 @@ on-chain evidence.
 | Boundary | Command or probe | Result | Evidence class |
 |---|---|---:|---|
 | SDK hook contract | `uv run pytest -q tests/unit/test_harness_hooks.py tests/unit/test_cross_system_adapters.py tests/unit/test_readiness.py` | 13 passed | SDK test-confirmed |
+| Harness binaries | `claude --version`, `codex --version`, `agy --version`, `hermes --version` | Claude 2.1.273; Codex 0.154.0; Agy 1.2.3; Hermes 0.20.0 | installed-host evidence; version checks only |
 | Cortex runtime adapters | `uv run pytest -q tests/test_runtime_adapters.py tests/test_runtime_bridge_contract.py tests/test_agy_hook_bridge.py tests/test_hermes_bridge.py tests/test_hermes_observer.py tests/test_telemetry_outbox.py` | 65 passed | Cortex test-confirmed |
 | Cortex full test suite | `uv run pytest -q` | completed with exit code 0; temporary-store tests only, with deprecation warnings | Cortex full-suite evidence |
 | Claude/Codex SDK normalization | `uv run pytest -q tests/test_runtime_adapters.py` | 25 passed; `xibalba-cortex` `498e67f` | adapter test-confirmed; live native hook delivery not claimed |

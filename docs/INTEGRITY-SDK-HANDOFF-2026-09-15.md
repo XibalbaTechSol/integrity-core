@@ -217,7 +217,7 @@ performing external actions:
 | Harness | Current evidence | Honest status |
 |---|---|---|
 | Claude Code 2.1.273 | User-local settings contain the four Xibalba lifecycle/tool hooks; all four hook scripts passed JSON and Python syntax checks | Local hook wiring verified; running-session automatic enforcement still needs a real Claude journey |
-| agy 1.2.2 | `agy-cortex` plugin installed; native pre/post-model, completed-tool, and Stop delivery observed | Live observation validated; blocking enforcement remains unverified |
+| agy 1.2.3 | `agy-cortex` plugin installed; native pre/post-model, completed-tool, and Stop delivery observed | Live observation validated; blocking enforcement remains unverified |
 | Codex 0.154.0 | Effective plugin registry contains active `SessionStart` and `Stop`; the corrected `CodexLauncherProbe` reports `hook_surface: lifecycle` and those event names | Lifecycle hooks measured; plugin effects and PreTool/PostTool parity remain unverified |
 
 Cortex runtime contract and adapter tests passed after this audit. The probe
