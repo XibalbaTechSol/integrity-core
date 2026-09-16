@@ -379,6 +379,27 @@ regression suite passed 12 tests, including the FTS deadline and 16 MiB
 outbox-default assertions. No live graph-store deletion, compaction, or
 broad retrieval probe was performed during this remediation.
 
+### Outbox storm recheck — 2026-09-16
+
+The live root-owned Shield outbox unit was rechecked after the bounded Cortex
+tests. Its installed configuration still had eight concurrent outbox workers,
+batch size 100, a ten-second interval, and `Restart=always`. The worker held
+179 file descriptors while the Cortex API reached approximately 43.8% CPU and
+accumulated a large `CLOSE-WAIT`/`FIN-WAIT-2` socket population. The worker's
+systemd accounting showed a 2.5 GiB memory peak. This is an active retry and
+connection storm, not merely historical resource usage.
+
+The worker was stopped and immediately relaunched by `Restart=always`; the
+second instance reached approximately 568 MiB RSS within seconds. It was
+therefore frozen with `SIGSTOP` as an emergency containment measure, and the
+Cortex API was restarted to clear the accumulated connections. Port 8420 then
+had no active outbox connections. The permanent packaging fix is pushed in
+`xibalba-shield` commit `001a2b5`: one worker, batch size 10, 30-second cadence,
+`Restart=on-failure`, start-rate limiting, and the existing 256 MiB / 25% CPU /
+64-task / 1024-FD limits. Root installation and unfreezing/replacement of the
+live unit remain required; the package commit is not represented as live until
+that installation is independently verified.
+
 These are not silently represented as complete:
 
 1. automatic production adapters and lifecycle hooks for each named harness;
