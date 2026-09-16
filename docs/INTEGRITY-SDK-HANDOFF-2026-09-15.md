@@ -330,6 +330,13 @@ Continuation update: the Hermes production bridge now calls the SDK's
 for Hermes; the remaining distinction is that the Cortex subprocess still
 owns local-store dispatch and is not yet a published SDK package consumer.
 
+The Cortex project now resolves `integrity-sdk` from an immutable Git
+subdirectory revision rather than a sibling checkout (`xibalba-cortex` commit
+`ead2e67`). Its lockfile and editable build were refreshed, and the focused
+Hermes/Agy bridge suite passed 30 tests after the change. This closes the clean
+deployment dependency boundary; it does not make live tenant or on-chain
+validation complete.
+
 SDK hook adapter validation: focused tests passed. The full SDK unit run remains
 **245 passed, 1 skipped, 3 failed** in pre-existing MLflow/OpenAI sampling and
 redaction expectations; those failures are outside the hook adapter files.
