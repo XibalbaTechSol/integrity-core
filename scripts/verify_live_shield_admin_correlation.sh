@@ -34,8 +34,9 @@ url="${BASE_URL}?tenant_id=$(python3 -c 'import sys, urllib.parse; print(urllib.
 response="$(printf 'header = "Authorization: Bearer %s"\nurl = "%s"\n' "$token" "$url" |
   curl --config - --fail --silent --show-error --max-time 10)"
 
-if command -v jq >/dev/null 2>&1 && jq -e '.ok == true' >/dev/null 2>&1 <<<"$response"; then
-  echo "admin_correlation=CONFIRMED_HTTP_200"
+if command -v jq >/dev/null 2>&1 && jq -e '.exporter_status | type == "array"' >/dev/null 2>&1 <<<"$response"; then
+  rows="$(jq -r '.exporter_status | length' <<<"$response")"
+  echo "admin_correlation=CONFIRMED_HTTP_200 rows=$rows"
 else
   echo "admin_correlation=unexpected_response"
   exit 1
