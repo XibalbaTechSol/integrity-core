@@ -254,6 +254,12 @@ service run exited `0` and synchronized the Xibalba DID. Controller ownership,
 primitive roles, wallet-control proof, and finalized registration logs for the
 three unregistered harness slots remain open read-only gates.
 
+An independent SDK `resolve_did` read against the Base Sepolia
+`XibalbaAgentRegistry` returned no on-chain record for each of those three DIDs.
+The public RPC finalized-block probe and the local Oracle snapshot both remain
+finalized; finality is therefore evidenced, while controller/role/ownership
+proof remains unavailable because the registrations do not yet exist.
+
 ### Continuation probe — 2026-09-16
 
 The active Cortex API was rechecked read-only at `127.0.0.1:8420`. The bearer
@@ -272,18 +278,11 @@ fallback gate.
 
 ## Current repository state
 
-The pushed `integrity-core` branch is synchronized with its origin. The only
-remaining local artifact is the pre-existing untracked file:
-
-```text
-integrity-zkp/tools/commitment_calc/Prover_a8b3b22ff91d.toml
-```
-
-It is user-owned provenance and must not be removed or included casually in an
-SDK documentation commit. `xibalba-shield` was not modified by the
-documentation push. The continuation added the disposable SDK-to-Cortex
-integration test at
-`xibalba-cortex/tests/test_integrity_sdk_cortex_transport.py`.
+The pushed `integrity-core` branch is synchronized with its origin, while the
+worktree also contains substantial pre-existing user-owned modifications and
+untracked artifacts across the dashboard, middleware, Oracle, SDK, and AIS
+specification surfaces. Those changes are not part of this handoff's focused
+documentation commits and must not be staged, removed, or reorganized casually.
 
 ## Remaining gates
 
