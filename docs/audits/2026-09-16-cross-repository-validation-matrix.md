@@ -18,6 +18,7 @@ on-chain evidence.
 | Shield live cgroup limits | `verify_live_cortex_outbox_limits.sh` plus `systemctl show` | installed and active; provider caps and aggregate-count bypass verified live; 256 MiB RAM/swap, 25% CPU, 64 tasks, 1024 FDs | live host evidence |
 | Cortex fast liveness | authenticated `GET /api/status` on `127.0.0.1:8420` | 200; WAL, FTS5, backup ready; exact count deferred | live local service evidence |
 | Integrity directory | `GET /v1/agents/snapshot` on `127.0.0.1:8080` | finalized Base Sepolia snapshot, chain 84532, five agents | live Oracle evidence |
+| Independent chain finality | read-only `eth_getBlockByNumber` against `https://sepolia.base.org` | finalized block 46891468, latest block 46892134, finalized hash present and not ahead of latest | public RPC evidence; no transaction submitted |
 | Resource containment | bounded worker verifier plus 15-second `/proc` I/O/socket sample | live worker stable under 256 MiB/25% cgroup; read delta ~209 KiB and port-8420 TCP entries fell 54→44 | live host evidence |
 | Bounded disposable benchmark | `uv run python scripts/benchmark_bounded.py --memories 100 --iterations 20` | ingest 271.080 ms; search p50/p95/max 2.018/3.620/3.643 ms; fast-status p50/p95/max 0.043/0.117/0.683 ms | reproducible local performance evidence |
 | Clean Cortex artifact | `uv build --sdist --wheel --no-sources` plus archive inspection | 7.4 MiB sdist and 275 KiB wheel; generated viewer dependencies/test artifacts excluded; wheel metadata carries immutable SDK Git pin | packaging test-confirmed |
@@ -43,6 +44,7 @@ always creates a temporary store and hard-caps fixture size and iterations.
 |---|---|---|
 | Authenticated real tenant | account session plus read/write/retrieval journey against a deployed tenant | not available; current bearer credential is not an account session |
 | Rendered UI | Browser DOM, console, network, interaction, and screenshots | in-app Browser reports zero connections |
+| Controller/role/ownership readiness | exact controller, primitive-role, wallet-control, and ownership readbacks for required identities | finality is independently verified, but controller/role/ownership evidence for the three new harnesses is still absent |
 | New harness registrations | finalized registry records and accepted transaction receipts for Claude, Codex, Agy | not attempted; wallet/control authorization absent |
 | Full matrix | repeated performance, failure, recovery, and cross-repository canaries | partial; rows above are the safe current baseline |
 
