@@ -486,7 +486,7 @@ The historical-count discrepancy remains recorded in `docs/wiki/WIKI_LOG.md`.
 | Statement | Classification |
 |---|---|
 | SDK API, identity loader, registry journal, migration, transports, privacy policy | Source-confirmed and test-confirmed |
-| Full development-profile SDK unit suite | Test-confirmed: 246 passed, 1 skipped |
+| Full development-profile SDK unit suite | Test-confirmed: 245 passed, 1 skipped, 3 pre-existing failures outside the hook adapter files |
 | Quant and Shield DID-scoped memory/genesis stores | Filesystem-confirmed and on-chain-confirmed in readiness evidence |
 | Branch `feat/harness-neutral-agent-runtime` contains published documentation commit | Git/API-confirmed |
 | Live cross-repository production consumption | Partially verified; not a completion claim |
