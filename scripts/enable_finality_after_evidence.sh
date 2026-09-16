@@ -26,7 +26,7 @@ import json, os, urllib.error, urllib.request
 request = urllib.request.Request(
     os.environ["RPC_URL"],
     data=json.dumps({"jsonrpc":"2.0", "id":1, "method":os.environ["RPC_METHOD"], "params":json.loads(os.environ["RPC_PARAMS"])}).encode(),
-    headers={"Content-Type":"application/json"},
+    headers={"Content-Type":"application/json", "User-Agent":"integrity-core-finality-check/1"},
 )
 try:
     with urllib.request.urlopen(request, timeout=15) as response:
