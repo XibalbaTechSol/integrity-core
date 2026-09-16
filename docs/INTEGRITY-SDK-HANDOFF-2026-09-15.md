@@ -434,6 +434,10 @@ safe order, reloads systemd, starts the bounded service, and prints the
 effective cgroup limits. It must be run by an operator with sudo/root access;
 this session has verified that non-interactive sudo is unavailable.
 
+The installer now preserves the unit's configured `SHIELD_DEVICE_ID` instead
+of embedding this workstation's device identifier (`xibalba-shield` commit
+`9626c79`).
+
 These are not silently represented as complete:
 
 The current cross-repository baseline and performance evidence are tabulated
