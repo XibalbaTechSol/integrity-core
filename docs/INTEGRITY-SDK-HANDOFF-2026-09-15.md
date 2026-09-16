@@ -337,6 +337,10 @@ Hermes/Agy bridge suite passed 30 tests after the change. This closes the clean
 deployment dependency boundary; it does not make live tenant or on-chain
 validation complete.
 
+The Cortex sdist was also checked with `--no-sources`: generated frontend
+dependencies and test artifacts were excluded, reducing the archive from the
+initial 111 MiB to 7.4 MiB (`xibalba-cortex` commit `9bf7729`).
+
 SDK hook adapter validation: focused tests passed. The full SDK unit run remains
 **245 passed, 1 skipped, 3 failed** in pre-existing MLflow/OpenAI sampling and
 redaction expectations; those failures are outside the hook adapter files.
