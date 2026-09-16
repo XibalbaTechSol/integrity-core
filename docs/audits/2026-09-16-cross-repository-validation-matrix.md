@@ -14,6 +14,7 @@ on-chain evidence.
 | Claude/Codex SDK normalization | `uv run pytest -q tests/test_runtime_adapters.py` | 25 passed; `xibalba-cortex` `498e67f` | adapter test-confirmed; live native hook delivery not claimed |
 | Shield binding/redaction/outbox | `./.venv/bin/pytest -q tests/test_agent_binding_and_redaction.py tests/test_e2e_validate.py` | 11 passed; includes worker count-skip regression from `xibalba-shield` `bcfaa9f` | Shield test-confirmed |
 | Shield live containment | `scripts/validate_local_containment.sh` | `CONFIRMED_SIGSTOP` | privileged live-device evidence |
+| Shield device correlation | one device-authenticated `POST /api/shield/exporter-status` with bounded live-status payload | HTTP 200 `{"ok":true}` | live device credential and backend acceptance; admin readback token reconciliation remains open |
 | Cortex fast liveness | authenticated `GET /api/status` on `127.0.0.1:8420` | 200; WAL, FTS5, backup ready; exact count deferred | live local service evidence |
 | Integrity directory | `GET /v1/agents/snapshot` on `127.0.0.1:8080` | finalized Base Sepolia snapshot, chain 84532, five agents | live Oracle evidence |
 | Resource containment | bounded worker verifier plus 15-second `/proc` I/O/socket sample | live worker stable under 256 MiB/25% cgroup; read delta ~209 KiB and port-8420 TCP entries fell 54→44 | live host evidence |
