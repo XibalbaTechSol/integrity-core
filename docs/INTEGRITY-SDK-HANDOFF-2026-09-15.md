@@ -254,6 +254,22 @@ service run exited `0` and synchronized the Xibalba DID. Controller ownership,
 primitive roles, wallet-control proof, and finalized registration logs for the
 three unregistered harness slots remain open read-only gates.
 
+### Continuation probe — 2026-09-16
+
+The active Cortex API was rechecked read-only at `127.0.0.1:8420`. The bearer
+credential returned HTTP 200 for `/api/status`, with profile `default`, WAL,
+FTS5, backup readiness, and `memory_count_deferred=true`; the fast endpoint did
+not perform an exact count on the multi-gigabyte store. The same credential is
+not an interactive account-session cookie: `/api/auth/me` returned HTTP 401
+(`account session not found`). No separate external tenant deployment was
+present in the active Cortex service configuration, so live real-tenant
+validation remains open.
+
+The in-app Browser runtime was rechecked and reported zero available browser
+connections. No rendered DOM, console, network, interaction, or screenshot
+claim is made; standalone browser automation remains an operator-approved
+fallback gate.
+
 ## Current repository state
 
 The pushed `integrity-core` branch is synchronized with its origin. The only
