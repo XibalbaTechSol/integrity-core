@@ -5,6 +5,8 @@ from .agent_runtime import AgentIdentityError, AgentNotRegisteredError, Integrit
 from .integrations.auto_hook import enable_auto_hooks
 from .integrity import integrity, SDKAgent
 from .readiness import ReadinessCheck, RegistrationReadiness, assess_local_readiness
+from .did import migrate_identity_store
+from .identity_registry import history as identity_history, latest as latest_identity
 
 __all__ = [
     "IntegrityClient",
@@ -17,4 +19,7 @@ __all__ = [
     "ReadinessCheck",
     "RegistrationReadiness",
     "assess_local_readiness",
+    "migrate_identity_store",
+    "identity_history",
+    "latest_identity",
 ]

@@ -1,5 +1,6 @@
 from integrity_sdk.integrations.cortex import CortexTransport
 from integrity_sdk.integrations.shield import action_context, decision_event
+from integrity_sdk.telemetry.transports import HttpTelemetryTransport, MCPTelemetryTransport, OTLPHttpTransport
 
 
 def test_shield_correlation_requires_exact_pair_bound_context():
@@ -49,3 +50,39 @@ def test_cortex_transport_retries_transient_failure_with_same_batch(monkeypatch)
     assert result["recorded"] == 1
     assert len(calls) == 3
     assert calls[0] == calls[-1]
+
+
+def test_http_transport_is_authenticated_and_idempotent(monkeypatch):
+    calls = []
+    class Response:
+        status_code = 200
+        content = b'{}'
+        def raise_for_status(self): pass
+        def json(self): return {"accepted": True}
+    monkeypatch.setattr("integrity_sdk.telemetry.transports.requests.post", lambda *a, **k: calls.append((a, k)) or Response())
+    result = HttpTelemetryTransport("http://collector", bearer_token="bearer").export(
+        [{"event_id": "e1", "event_type": "session_started"}])
+    assert result["accepted"] is True
+    assert calls[0][1]["headers"]["Authorization"] == "Bearer bearer"
+    assert calls[0][1]["headers"]["Idempotency-Key"] == "e1"
+
+
+def test_otlp_transport_emits_otlp_json_log_shape(monkeypatch):
+    calls = []
+    class Response:
+        status_code = 200
+        content = b'{}'
+        def raise_for_status(self): pass
+        def json(self): return {"accepted": True}
+    monkeypatch.setattr("integrity_sdk.telemetry.transports.requests.post", lambda *a, **k: calls.append((a, k)) or Response())
+    OTLPHttpTransport("http://collector").export([{"event_id": "e1", "event_type": "session_started", "timestamp": "2026-09-15T00:00:00Z"}])
+    assert calls[0][0][0].endswith("/v1/logs")
+    assert "resourceLogs" in calls[0][1]["json"]
+    assert calls[0][1]["headers"]["Content-Type"] == "application/json"
+
+
+def test_mcp_transport_preserves_event_ids():
+    calls = []
+    transport = MCPTelemetryTransport(lambda name, args: calls.append((name, args)) or {"recorded": 1})
+    assert transport.export([{"event_id": "e1", "event_type": "session_started"}])["recorded"] == 1
+    assert calls[0][1]["idempotency_keys"] == ["e1"]

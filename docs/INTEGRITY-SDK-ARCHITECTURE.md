@@ -51,6 +51,17 @@ DID-directory memory reference. It does not persist or expose private keys and
 does not equate the Cortex principal, Shield device, wallet, controller, or
 contract owner.
 
+`migrate_identity_store(...)` is the supported copy-only migration path. It
+validates that the source document matches the Ed25519 key, refuses an
+inconsistent or conflicting destination, preserves the source as recovery
+material, and never generates replacement key material.
+
+Runtime loads append non-secret identity observations to
+`<DID_HOME>/identity_registry.jsonl`; `history()` and `latest()` expose the
+audit projection. Migration merges only matching-agent registry records,
+deduplicates exact lines, and leaves unrelated agents and the source root
+untouched.
+
 ## Developer entry points
 
 ```python
@@ -86,6 +97,13 @@ delivery attempts in a separate durable table; JSONL stores them as typed
 `record_type=delivery_attempt` records. A local append or queue operation is
 not represented as remote acknowledgement or canonical indexing.
 
+The SDK also exposes `HttpTelemetryTransport`, `OTLPHttpTransport`, and
+`MCPTelemetryTransport`. HTTP and OTLP/HTTP send the versioned envelope batch
+with authentication and event-ID idempotency headers; MCP requires the host
+to provide its installed client's `call_tool` function and passes event IDs in
+the tool arguments. These are explicit transports, not automatic claims that
+an arbitrary harness supports MCP or OTLP.
+
 ## Privacy boundary
 
 The envelope recursively redacts secret-shaped mapping keys and high-confidence
@@ -98,6 +116,20 @@ and MRN markers. Collection profiles remain the higher-level control:
 any future location field must be explicitly opted in and policy-scoped.
 Redaction is heuristic, not a legal de-identification guarantee, so destination
 backstops remain authoritative.
+
+The façade exposes this policy explicitly through `PrivacyPolicy`: choose
+`mode="redacted"` (default), `mode="metadata_only"`, or
+`mode="hash_only"`, set a content limit, and opt into location with
+`allow_location=True`. Policy application occurs before envelope hashing and
+before the local event store, so hashes and persisted records describe the
+sanitized representation rather than raw input.
+
+Retention is explicit through `PrivacyPolicy(retention_days=...)`. Retention-
+enabled local storage uses SQLite and transactionally removes expired events
+and their delivery attempts. JSONL remains append-only and therefore rejects
+retention configuration rather than falsely claiming that historical bytes
+were erased; operators requiring expiry must select SQLite or an external
+retention-managed durable boundary.
 
 ## Adapter and verification status
 

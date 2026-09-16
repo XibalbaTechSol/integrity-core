@@ -19,6 +19,7 @@ class CortexTransport:
         self.base_url = base_url.rstrip("/")
         self.bearer_token = bearer_token
         self.timeout = timeout
+        self.last_attempts: list[dict[str, Any]] = []
 
     def export(self, events: Iterable[Mapping[str, Any]], *, session_id: str | None = None,
                max_attempts: int = 3, backoff_seconds: float = 0.2) -> dict[str, Any]:
@@ -45,6 +46,7 @@ class CortexTransport:
         if max_attempts < 1:
             raise ValueError("max_attempts must be positive")
         last_error: Exception | None = None
+        self.last_attempts = []
         for attempt in range(1, max_attempts + 1):
             try:
                 response = requests.post(
@@ -60,9 +62,11 @@ class CortexTransport:
                     response.raise_for_status()
                 response.raise_for_status()
                 body = response.json()
+                self.last_attempts.append({"attempt": attempt, "status": "acknowledged", "error": None})
                 return body if isinstance(body, dict) else {"response": body}
             except requests.RequestException as exc:
                 last_error = exc
+                self.last_attempts.append({"attempt": attempt, "status": "failed", "error": str(exc)})
                 status = getattr(getattr(exc, "response", None), "status_code", None)
                 retryable = status is None or status >= 500 or status == 429
                 if not retryable or attempt == max_attempts:

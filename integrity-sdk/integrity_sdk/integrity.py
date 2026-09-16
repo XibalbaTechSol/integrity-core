@@ -9,14 +9,17 @@ from .agent_runtime import IntegrityAgent
 from .telemetry.envelope import TelemetryEnvelope
 from .telemetry.local_store import LocalEventStore
 from .telemetry.delivery import DeliveryReceipt
+from .telemetry.privacy import PrivacyPolicy
+from .telemetry.transports import HttpTelemetryTransport, MCPTelemetryTransport, OTLPHttpTransport
 from .integrations.cortex import CortexTransport
 from .integrations.shield import action_context, decision_event
 
 
 class SDKAgent:
     """Developer façade over the canonical identity runtime and local event boundary."""
-    def __init__(self, runtime: IntegrityAgent, store: LocalEventStore | None = None) -> None:
+    def __init__(self, runtime: IntegrityAgent, store: LocalEventStore | None = None, privacy: PrivacyPolicy | None = None) -> None:
         self.runtime, self.store = runtime, store
+        self.privacy = privacy or PrivacyPolicy()
         self._events: list[dict[str, Any]] = []
         self.last_delivery_receipts: list[DeliveryReceipt] = []
 
@@ -26,7 +29,7 @@ class SDKAgent:
     def did(self) -> str: return self.runtime.did
 
     def emit(self, event_type: str, *, payload: Mapping[str, Any] | None = None, metadata: Mapping[str, Any] | None = None, **ids: Any) -> dict[str, Any]:
-        event = TelemetryEnvelope(event_type=event_type, agent_id=self.runtime.agent_slug, did=self.did, harness=self.runtime.harness, principal=self.runtime.principal, device_id=self.runtime.device_id, payload=payload or {}, metadata=metadata or {}, session_id=ids.pop("session_id", getattr(self.runtime, "_session_id", None)), **ids).to_dict()
+        event = TelemetryEnvelope(event_type=event_type, agent_id=self.runtime.agent_slug, did=self.did, harness=self.runtime.harness, principal=self.runtime.principal, device_id=self.runtime.device_id, payload=self.privacy.apply(payload or {}), metadata=self.privacy.apply(metadata or {}), session_id=ids.pop("session_id", getattr(self.runtime, "_session_id", None)), **ids).to_dict()
         if self.store is not None: self.store.append(event)
         self._events.append(event)
         self.runtime.emit(event_type, telemetry_envelope=event)
@@ -119,24 +122,69 @@ class SDKAgent:
         try:
             result = transport.export(rows, session_id=session_id)
         except Exception as exc:
-            self.last_delivery_receipts = [
-                DeliveryReceipt(event_id=str(event["event_id"]), destination="cortex",
-                                attempt=1, timestamp=event["timestamp"], status="failed",
-                                retry_state="transport_error", error=str(exc))
-                for event in rows if event.get("event_id")
-            ]
+            attempts = transport.last_attempts or [{"attempt": 1, "status": "failed", "error": str(exc)}]
+            self.last_delivery_receipts = [DeliveryReceipt(
+                event_id=str(event["event_id"]), destination="cortex",
+                attempt=attempt["attempt"], timestamp=event["timestamp"],
+                status="dead-lettered" if attempt["attempt"] == len(attempts) else attempt["status"],
+                retry_state="dead-lettered" if attempt["attempt"] == len(attempts) else "retrying",
+                error=attempt.get("error"), dead_lettered=attempt["attempt"] == len(attempts)
+            ) for event in rows if event.get("event_id") for attempt in attempts]
             for receipt in self.last_delivery_receipts:
                 if self.store is not None: self.store.record_delivery(receipt.to_dict())
             raise
-        self.last_delivery_receipts = [
-            DeliveryReceipt(event_id=str(event["event_id"]), destination="cortex",
-                            attempt=1, timestamp=event["timestamp"], status="acknowledged",
-                            retry_state="complete")
-            for event in rows if event.get("event_id")
-        ]
+        attempts = transport.last_attempts or [{"attempt": 1, "status": "acknowledged", "error": None}]
+        self.last_delivery_receipts = [DeliveryReceipt(
+            event_id=str(event["event_id"]), destination="cortex",
+            attempt=attempt["attempt"], timestamp=event["timestamp"],
+            status=attempt["status"], retry_state="complete",
+            error=attempt.get("error"))
+            for event in rows if event.get("event_id") for attempt in attempts]
         for receipt in self.last_delivery_receipts:
             if self.store is not None: self.store.record_delivery(receipt.to_dict())
         return result
+
+    def export_http(self, *, base_url: str, bearer_token: str | None = None,
+                    path: str = "/v1/telemetry", events: list[Mapping[str, Any]] | None = None) -> dict[str, Any]:
+        rows = list(events) if events is not None else list(self._events)
+        transport = HttpTelemetryTransport(base_url, bearer_token=bearer_token, path=path)
+        try:
+            result = transport.export(rows)
+        except Exception:
+            self._record_transport_receipts("http", rows, transport.last_attempts or [{"attempt": 1, "status": "failed", "error": "transport error"}])
+            raise
+        self._record_transport_receipts("http", rows, transport.last_attempts)
+        return result
+
+    def export_otlp(self, *, base_url: str, bearer_token: str | None = None,
+                    events: list[Mapping[str, Any]] | None = None) -> dict[str, Any]:
+        rows = list(events) if events is not None else list(self._events)
+        transport = OTLPHttpTransport(base_url, bearer_token=bearer_token)
+        try:
+            result = transport.export(rows)
+        except Exception:
+            self._record_transport_receipts("otlp", rows, transport.last_attempts or [{"attempt": 1, "status": "failed", "error": "transport error"}])
+            raise
+        self._record_transport_receipts("otlp", rows, transport.last_attempts)
+        return result
+
+    def export_mcp(self, *, call_tool: Any, tool_name: str = "integrity_ingest_telemetry",
+                   events: list[Mapping[str, Any]] | None = None) -> dict[str, Any]:
+        rows = list(events) if events is not None else list(self._events)
+        result = MCPTelemetryTransport(call_tool, tool_name=tool_name).export(rows)
+        self._record_transport_receipts("mcp", rows, [{"attempt": 1, "status": "acknowledged", "error": None}])
+        return result
+
+    def _record_transport_receipts(self, destination: str, rows: list[Mapping[str, Any]], attempts: list[dict[str, Any]]) -> None:
+        self.last_delivery_receipts = [DeliveryReceipt(
+            event_id=str(event["event_id"]), destination=destination,
+            attempt=attempt["attempt"], timestamp=str(event["timestamp"]),
+            status=("dead-lettered" if attempt["status"] == "failed" and attempt is attempts[-1] else attempt["status"]),
+            retry_state=("dead-lettered" if attempt["status"] == "failed" and attempt is attempts[-1] else ("complete" if attempt["status"] == "acknowledged" else "retrying")),
+            error=attempt.get("error"), dead_lettered=attempt["status"] == "failed" and attempt is attempts[-1]
+        ) for event in rows if event.get("event_id") for attempt in attempts]
+        for receipt in self.last_delivery_receipts:
+            if self.store is not None: self.store.record_delivery(receipt.to_dict())
 
     def record_shield_decision(self, *, device_id: str | None = None, invocation_id: str, action: str, decision: str, reason: str, enforcement: str | None = None, metadata: Mapping[str, Any] | None = None) -> dict[str, Any]:
         """Record a Shield decision; this does not evaluate or bypass Shield policy."""
@@ -144,28 +192,28 @@ class SDKAgent:
         result = decision_event(context, decision=decision, reason=reason, enforcement=enforcement)
         event_type = "shield_action_denied" if decision == "deny" else "shield_action_allowed"
         return self.emit(event_type, payload=result, invocation_id=invocation_id)
-    def close(self) -> bool:
-        result = self.runtime.close()
+    def close(self, *, flush: bool = True) -> bool:
+        result = self.runtime.close(flush=flush)
         if self.store is not None: self.store.close()
         return result
 
 
 class _IntegrityFacade:
-    def init(self, *, agent_id: str, harness: str = "custom", memory: str = "optional", telemetry: str = "auto", identity: str = "persistent", memory_home: str | None = None, **kwargs: Any) -> SDKAgent:
+    def init(self, *, agent_id: str, harness: str = "custom", memory: str = "optional", telemetry: str = "auto", identity: str = "persistent", memory_home: str | None = None, privacy: PrivacyPolicy | None = None, **kwargs: Any) -> SDKAgent:
         if identity != "persistent": raise ValueError("only identity='persistent' is supported; refusing ephemeral attribution")
         if memory not in {"optional", "required", "disabled", "none"}:
             raise ValueError("memory must be 'optional', 'required', or 'disabled'")
         if telemetry not in {"auto", "local", "jsonl", "sqlite", "disabled", "off", "none"}:
             raise ValueError("telemetry must be auto, local, jsonl, sqlite, or disabled")
         runtime = IntegrityAgent.open(agent_id, harness=harness, client_kwargs=kwargs.pop("client_kwargs", None), **kwargs)
-        store = _store_for(agent_id, telemetry)
+        store = _store_for(agent_id, telemetry, privacy.retention_days if privacy else None)
         if memory == "required":
             from .readiness import assess_local_readiness
             readiness = assess_local_readiness(agent_id, cortex_home=memory_home)
             if not any(check.name == "persistent_memory" and check.status == "pass" for check in readiness.checks):
                 runtime.close(flush=False)
                 raise ValueError("memory='required' but no persistent agent-scoped memory store was detected")
-        return SDKAgent(runtime, store)
+        return SDKAgent(runtime, store, privacy=privacy)
 
     def auto(self, **kwargs: Any) -> SDKAgent:
         agent_id = kwargs.pop("agent_id", None) or os.getenv("INTEGRITY_AGENT_ID", "xibalba")
@@ -173,10 +221,15 @@ class _IntegrityFacade:
         return self.init(agent_id=agent_id, harness=harness, **kwargs)
 
 
-def _store_for(agent_id: str, telemetry: str) -> LocalEventStore | None:
+def _store_for(agent_id: str, telemetry: str, retention_days: float | None = None) -> LocalEventStore | None:
     if telemetry in ("disabled", "off", "none"): return None
     path = os.getenv("INTEGRITY_LOCAL_EVENTS", str(__import__("pathlib").Path.home() / ".integrity" / "telemetry" / f"{agent_id}.jsonl"))
-    return LocalEventStore(path, jsonl=telemetry != "sqlite")
+    if retention_days is not None and telemetry == "jsonl":
+        raise ValueError("telemetry='jsonl' cannot enforce retention; use telemetry='sqlite' or 'auto'")
+    jsonl = telemetry != "sqlite" and retention_days is None
+    if retention_days is not None and jsonl:
+        path = str(__import__("pathlib").Path(path).with_suffix(".sqlite3"))
+    return LocalEventStore(path, jsonl=jsonl, retention_days=retention_days)
 
 
 integrity = _IntegrityFacade()

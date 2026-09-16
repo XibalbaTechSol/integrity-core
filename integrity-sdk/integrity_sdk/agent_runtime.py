@@ -8,10 +8,12 @@ attribution stay in the SDK so every harness follows the same rules.
 from __future__ import annotations
 
 import re
+import time
 from typing import Any, Mapping, Optional
 
 from .client import IntegrityClient
 from .did import IdentityInconsistentError, Keypair, agent_dir, load_or_create_did
+from .identity_registry import record_identity
 
 _AGENT_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
@@ -111,6 +113,9 @@ class IntegrityAgent:
             raise AgentNotRegisteredError(
                 f"agent {agent_slug!r} ({did}) is not confirmed registered with the Integrity Oracle"
             )
+        snapshot = runtime.identity_snapshot()
+        snapshot["last_seen_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        record_identity(snapshot, event="identity_loaded")
         return runtime
 
     def registration_status(self) -> bool | None:
@@ -143,7 +148,7 @@ class IntegrityAgent:
             "memory_store_reference": str(agent_dir(self.agent_slug)),
             "registration_status": self.registration_status(),
             "created_at": created,
-            "last_seen_at": None,
+            "last_seen_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "provenance_history": [{"event": "identity_created", "timestamp": created}],
         }
 

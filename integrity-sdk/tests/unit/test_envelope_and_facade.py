@@ -5,6 +5,7 @@ from integrity_sdk import integrity
 from integrity_sdk.telemetry.envelope import TelemetryEnvelope
 from integrity_sdk.telemetry.local_store import LocalEventStore
 from integrity_sdk.telemetry.delivery import deliver_with_retry
+from integrity_sdk.telemetry.privacy import PrivacyPolicy
 
 
 def test_shipped_schema_matches_envelope_required_fields():
@@ -58,6 +59,24 @@ def test_sqlite_delivery_receipt_is_idempotent(tmp_path):
     store.record_delivery(receipt)
     assert store._db.execute("select count(*) from delivery_attempts").fetchone()[0] == 1
     store.close()
+
+
+def test_retention_purges_expired_sqlite_events_and_delivery_attempts(tmp_path):
+    store = LocalEventStore(tmp_path / "retention.sqlite3", jsonl=False, retention_days=1)
+    old = TelemetryEnvelope(event_type="session_started", agent_id="a", timestamp="2000-01-01T00:00:00Z").to_dict()
+    store.append(old)
+    store.record_delivery({"event_id": old["event_id"], "destination": "cortex", "attempt": 1,
+                           "timestamp": old["timestamp"], "status": "failed", "retry_state": "retrying"})
+    assert store.purge_expired() == 1
+    assert store._db.execute("select count(*) from events").fetchone()[0] == 0
+    assert store._db.execute("select count(*) from delivery_attempts").fetchone()[0] == 0
+    store.close()
+
+
+def test_jsonl_retention_is_rejected_instead_of_claimed_as_enforced(tmp_path):
+    import pytest
+    with pytest.raises(ValueError, match="requires SQLite"):
+        LocalEventStore(tmp_path / "events.jsonl", retention_days=1)
 
 
 def test_integrity_auto_loads_persistent_identity_and_writes_redacted_event(tmp_path, monkeypatch):
@@ -155,3 +174,24 @@ def test_facade_cortex_export_records_acknowledgement(tmp_path, monkeypatch):
     assert agent.last_delivery_receipts[0].status == "acknowledged"
     assert agent.store._db.execute("select count(*) from delivery_attempts where event_id=?", (event["event_id"],)).fetchone()[0] == 1
     agent.close()
+
+
+def test_privacy_policy_supports_metadata_hash_and_location_controls(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTEGRITY_DID_HOME", str(tmp_path / "did"))
+    monkeypatch.setenv("INTEGRITY_LOCAL_EVENTS", str(tmp_path / "events.jsonl"))
+    agent = integrity.init(agent_id="privacy-agent", privacy=PrivacyPolicy(mode="hash_only"),
+                           client_kwargs={"auto_flush": False, "enable_otel_export": False})
+    event = agent.emit("prompt_received", payload={"content": "password=hunter2", "location": {"lat": 1.0}, "count": 2}, metadata={"note": "safe"})
+    assert event["payload"]["content"]["sha256"]
+    assert "hunter2" not in json.dumps(event)
+    assert "location" not in event["payload"]
+    agent.close()
+
+
+def test_privacy_policy_location_is_explicitly_opt_in(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTEGRITY_DID_HOME", str(tmp_path / "did"))
+    agent = integrity.init(agent_id="location-agent", privacy=PrivacyPolicy(allow_location=True),
+                           telemetry="disabled", client_kwargs={"auto_flush": False, "enable_otel_export": False})
+    event = agent.emit("agent_initialized", payload={"location": {"lat": 1.0, "lon": 2.0}})
+    assert event["payload"]["location"]["lat"] == 1.0
+    agent.close(flush=False)

@@ -38,6 +38,8 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.exceptions import InvalidSignature
 
 import hashlib
+import shutil
+import tempfile
 
 # Multicodec prefix for "ed25519-pub" (0xed, varint-encoded) followed by the
 # format byte 0x01. This two-byte prefix is what the `did:key` method (and,
@@ -303,3 +305,94 @@ def load_or_create_did(agent_id: Optional[str] = None) -> Tuple[str, Keypair, di
     doc_path.write_text(json.dumps(doc, indent=2) + "\n")
 
     return doc["id"], keypair, doc
+
+
+def migrate_identity_store(agent_id: str, *, source_home: str | Path, destination_home: str | Path) -> str:
+    """Copy one canonical DID identity to a new root without key regeneration.
+
+    Migration is deliberately copy-only: the source remains the recovery
+    copy, an existing destination is never overwritten, and inconsistent
+    source/destination state fails closed. The returned DID is safe to record;
+    private key bytes never leave this function or appear in diagnostics.
+    """
+    source = Path(source_home).expanduser() / agent_id
+    destination = Path(destination_home).expanduser() / agent_id
+    source_key = source / "private_key.pem"
+    source_doc = source / "document.json"
+    if not source_key.exists() or not source_doc.exists():
+        raise IdentityInconsistentError(f"cannot migrate {agent_id!r}: source identity is incomplete")
+    keypair = Keypair.from_pem(source_key.read_bytes())
+    document = json.loads(source_doc.read_text(encoding="utf-8"))
+    expected_did = f"did:{_DID_METHOD}:{fingerprint_for_pubkey(keypair.public_bytes())}"
+    if document.get("id") != expected_did:
+        raise IdentityInconsistentError(f"cannot migrate {agent_id!r}: source document does not match its key")
+
+    if destination.exists():
+        try:
+            existing_did, _, _ = _load_did_from_dir(destination)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            raise IdentityInconsistentError(f"cannot migrate {agent_id!r}: destination is inconsistent") from exc
+        if existing_did != expected_did:
+            raise IdentityInconsistentError(f"cannot migrate {agent_id!r}: destination DID mismatch")
+        _merge_identity_registry(agent_id, source_home=Path(source_home), destination_home=Path(destination_home))
+        return expected_did
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=f".{agent_id}.migration-", dir=destination.parent))
+    try:
+        os.chmod(staging, stat.S_IRWXU)
+        staged_key = staging / "private_key.pem"
+        staged_key.write_bytes(source_key.read_bytes())
+        os.chmod(staged_key, stat.S_IRUSR | stat.S_IWUSR)
+        (staging / "document.json").write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+        # Refuse an overwrite if another process created the destination.
+        try:
+            os.mkdir(destination, stat.S_IRWXU)
+        except FileExistsError:
+            existing_did, _, _ = _load_did_from_dir(destination)
+            if existing_did != expected_did:
+                raise IdentityInconsistentError(f"cannot migrate {agent_id!r}: destination DID mismatch")
+            _merge_identity_registry(agent_id, source_home=Path(source_home), destination_home=Path(destination_home))
+            return expected_did
+        shutil.copy2(staged_key, destination / "private_key.pem")
+        os.chmod(destination / "private_key.pem", stat.S_IRUSR | stat.S_IWUSR)
+        shutil.copy2(staging / "document.json", destination / "document.json")
+        _merge_identity_registry(agent_id, source_home=Path(source_home), destination_home=Path(destination_home))
+        return expected_did
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
+def _load_did_from_dir(identity_dir: Path) -> Tuple[str, Keypair, dict]:
+    keypair = Keypair.from_pem((identity_dir / "private_key.pem").read_bytes())
+    document = json.loads((identity_dir / "document.json").read_text(encoding="utf-8"))
+    expected = f"did:{_DID_METHOD}:{fingerprint_for_pubkey(keypair.public_bytes())}"
+    if document.get("id") != expected:
+        raise IdentityInconsistentError(f"identity at {identity_dir} does not match its key")
+    return expected, keypair, document
+
+
+def _merge_identity_registry(agent_id: str, *, source_home: Path, destination_home: Path) -> None:
+    """Copy only this agent's validated non-secret registry history."""
+    source_path = source_home.expanduser() / "identity_registry.jsonl"
+    if not source_path.exists():
+        return
+    destination_home = destination_home.expanduser()
+    destination_home.mkdir(parents=True, exist_ok=True)
+    destination_path = destination_home / "identity_registry.jsonl"
+    existing = set(destination_path.read_text(encoding="utf-8").splitlines()) if destination_path.exists() else set()
+    additions: list[str] = []
+    for line in source_path.read_text(encoding="utf-8").splitlines():
+        if not line.strip() or line in existing:
+            continue
+        record = json.loads(line)
+        if record.get("agent_id") != agent_id:
+            continue
+        if any(secret in {str(key).lower() for key in record} for secret in ("private_key", "seed", "password", "bearer_token", "keystore")):
+            raise IdentityInconsistentError("cannot migrate identity registry containing secret-bearing fields")
+        additions.append(line)
+    if additions:
+        with destination_path.open("a", encoding="utf-8") as handle:
+            handle.write("\n".join(additions) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
