@@ -400,6 +400,13 @@ had no active outbox connections. The permanent packaging fix is pushed in
 live unit remain required; the package commit is not represented as live until
 that installation is independently verified.
 
+The provider itself now supplies a second boundary in `xibalba-shield`
+commit `58323c8`: it clamps publishing to one worker and ten rows per flush,
+rejects payloads over 64 KiB, caps the SQLite outbox (including WAL sidecars)
+at 16 MiB, and uses a one-second busy timeout. These source-level controls are
+test-confirmed but are not yet present in the running `/opt/xibalba-shield`
+installation until that package is deployed.
+
 These are not silently represented as complete:
 
 1. automatic production adapters and lifecycle hooks for each named harness;
