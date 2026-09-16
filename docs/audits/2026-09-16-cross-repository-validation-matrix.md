@@ -16,6 +16,7 @@ on-chain evidence.
 | Cortex fast liveness | authenticated `GET /api/status` on `127.0.0.1:8420` | 200; WAL, FTS5, backup ready; exact count deferred | live local service evidence |
 | Integrity directory | `GET /v1/agents/snapshot` on `127.0.0.1:8080` | finalized Base Sepolia snapshot, chain 84532, five agents | live Oracle evidence |
 | Resource containment | process/cgroup/socket probes after outbox freeze and Cortex restart | Cortex ~0.6% CPU; no active outbox sockets | live host evidence |
+| Bounded disposable benchmark | `uv run python scripts/benchmark_bounded.py --memories 100 --iterations 20` | ingest 293.874 ms; search p50/p95/max 3.137/6.158/7.829 ms; fast-status p50/p95/max 0.065/0.127/0.370 ms | reproducible local performance evidence |
 
 ## Performance observations
 
@@ -29,6 +30,8 @@ on-chain evidence.
 No sustained throughput, latency percentile, or burn-in SLO is claimed. Those
 measurements require a bounded disposable fixture and an agreed workload; the
 multi-gigabyte live graph store must not be used for an unbounded benchmark.
+The benchmark harness is `xibalba-cortex/scripts/benchmark_bounded.py`; it
+always creates a temporary store and hard-caps fixture size and iterations.
 
 ## Unverified production gates
 
