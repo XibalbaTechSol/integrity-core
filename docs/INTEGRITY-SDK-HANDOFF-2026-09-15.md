@@ -453,21 +453,20 @@ These are not silently represented as complete:
 The current cross-repository baseline and performance evidence are tabulated
 in `docs/audits/2026-09-16-cross-repository-validation-matrix.md`.
 
+The nineteen stale low-severity wiki pages were source-reverified and refreshed
+in the 2026-09-15 wiki pass; the current audit reports 35/35 pages current.
+The historical-count discrepancy remains recorded in `docs/wiki/WIKI_LOG.md`.
+
 1. automatic production adapters and lifecycle hooks for each named harness;
 2. authenticated Cortex memory/session/retrieval end-to-end validation against
    a live deployment and real tenant data;
-3. Shield device-binding and enforcement correlation in live fixtures;
-4. rendered Dashboard/Cortex browser journeys with DOM, console, network, and
+3. rendered Dashboard/Cortex browser journeys with DOM, console, network, and
    screenshot evidence;
-5. strict readiness for controller, roles, ownership/control, and finality;
-6. on-chain registration for Claude, Codex, and Agy;
-7. full performance and cross-repository integration matrix;
-8. TypeScript/Node package support, if the ecosystem later establishes a
+4. strict readiness for controller, roles, ownership/control, and finality;
+5. on-chain registration for Claude, Codex, and Agy;
+6. full performance and cross-repository integration matrix;
+7. TypeScript/Node package support, if the ecosystem later establishes a
    canonical Node package boundary;
-9. nineteen older low-severity wiki pages beyond the freshness threshold —
-   completed in the 2026-09-15 wiki refresh; the current audit reports 35/35
-   pages current, with the historical-count discrepancy recorded in
-   `docs/wiki/WIKI_LOG.md`.
 
 ## Safe next operator sequence
 
