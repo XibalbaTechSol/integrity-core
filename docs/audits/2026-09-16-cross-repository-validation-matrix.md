@@ -17,7 +17,7 @@ on-chain evidence.
 | Integrity directory | `GET /v1/agents/snapshot` on `127.0.0.1:8080` | finalized Base Sepolia snapshot, chain 84532, five agents | live Oracle evidence |
 | Resource containment | process/cgroup/socket probes after outbox freeze and Cortex restart | Cortex ~0.6% CPU; no active outbox sockets | live host evidence |
 | Bounded disposable benchmark | `uv run python scripts/benchmark_bounded.py --memories 100 --iterations 20` | ingest 293.874 ms; search p50/p95/max 3.137/6.158/7.829 ms; fast-status p50/p95/max 0.065/0.127/0.370 ms | reproducible local performance evidence |
-| Clean Cortex artifact | `uv build --sdist --no-sources` plus archive inspection | 7.4 MiB sdist; generated viewer dependencies and test artifacts excluded | packaging test-confirmed |
+| Clean Cortex artifact | `uv build --sdist --wheel --no-sources` plus archive inspection | 7.4 MiB sdist and 275 KiB wheel; generated viewer dependencies/test artifacts excluded; wheel metadata carries immutable SDK Git pin | packaging test-confirmed |
 
 ## Performance observations
 
