@@ -8,6 +8,7 @@ from typing import Any, Mapping
 from .agent_runtime import IntegrityAgent
 from .telemetry.envelope import TelemetryEnvelope
 from .telemetry.local_store import LocalEventStore
+from .telemetry.delivery import DeliveryReceipt
 from .integrations.cortex import CortexTransport
 from .integrations.shield import action_context, decision_event
 
@@ -16,6 +17,8 @@ class SDKAgent:
     """Developer façade over the canonical identity runtime and local event boundary."""
     def __init__(self, runtime: IntegrityAgent, store: LocalEventStore | None = None) -> None:
         self.runtime, self.store = runtime, store
+        self._events: list[dict[str, Any]] = []
+        self.last_delivery_receipts: list[DeliveryReceipt] = []
 
     @property
     def agent_id(self) -> str: return self.runtime.agent_slug
@@ -25,6 +28,7 @@ class SDKAgent:
     def emit(self, event_type: str, *, payload: Mapping[str, Any] | None = None, metadata: Mapping[str, Any] | None = None, **ids: Any) -> dict[str, Any]:
         event = TelemetryEnvelope(event_type=event_type, agent_id=self.runtime.agent_slug, did=self.did, harness=self.runtime.harness, principal=self.runtime.principal, device_id=self.runtime.device_id, payload=payload or {}, metadata=metadata or {}, session_id=ids.pop("session_id", getattr(self.runtime, "_session_id", None)), **ids).to_dict()
         if self.store is not None: self.store.append(event)
+        self._events.append(event)
         self.runtime.emit(event_type, telemetry_envelope=event)
         return event
 
@@ -108,8 +112,31 @@ class SDKAgent:
 
     def export_cortex(self, *, base_url: str, bearer_token: str, events: list[Mapping[str, Any]] | None = None, session_id: str | None = None) -> dict[str, Any]:
         """Export already-redacted canonical events through Cortex's authenticated boundary."""
-        rows = events or []
-        return CortexTransport(base_url, bearer_token).export(rows, session_id=session_id)
+        rows = list(events) if events is not None else list(self._events)
+        if not rows:
+            raise ValueError("Cortex export requires at least one event")
+        transport = CortexTransport(base_url, bearer_token)
+        try:
+            result = transport.export(rows, session_id=session_id)
+        except Exception as exc:
+            self.last_delivery_receipts = [
+                DeliveryReceipt(event_id=str(event["event_id"]), destination="cortex",
+                                attempt=1, timestamp=event["timestamp"], status="failed",
+                                retry_state="transport_error", error=str(exc))
+                for event in rows if event.get("event_id")
+            ]
+            for receipt in self.last_delivery_receipts:
+                if self.store is not None: self.store.record_delivery(receipt.to_dict())
+            raise
+        self.last_delivery_receipts = [
+            DeliveryReceipt(event_id=str(event["event_id"]), destination="cortex",
+                            attempt=1, timestamp=event["timestamp"], status="acknowledged",
+                            retry_state="complete")
+            for event in rows if event.get("event_id")
+        ]
+        for receipt in self.last_delivery_receipts:
+            if self.store is not None: self.store.record_delivery(receipt.to_dict())
+        return result
 
     def record_shield_decision(self, *, device_id: str | None = None, invocation_id: str, action: str, decision: str, reason: str, enforcement: str | None = None, metadata: Mapping[str, Any] | None = None) -> dict[str, Any]:
         """Record a Shield decision; this does not evaluate or bypass Shield policy."""
