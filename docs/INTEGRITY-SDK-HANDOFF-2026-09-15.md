@@ -320,15 +320,18 @@ and snake_case Hermes events therefore resolve to the same SDK event family.
 
 The current Cortex Agy/Hermes modules remain compatibility shims for the live
 local Cortex store and existing deployments. They are not the canonical home of
-hook semantics. Direct SDK wiring for every installed bridge is the next migration
-step; the SDK adapter itself is unit-tested and does not yet make the existing
-Cortex subprocesses depend on an unpublished editable SDK checkout.
+hook semantics. The Claude and Codex adapter entry points now also route their
+correlation fields through the shared normalizer; the SDK adapter itself remains
+the canonical home of hook semantics.
 
 Continuation update: the Hermes production bridge now calls the SDK's
 `normalize_hook` directly before constructing its Cortex outbox event
 (`xibalba-cortex` commit `0b585cf`). This closes the shared-normalization gap
-for Hermes; the remaining distinction is that the Cortex subprocess still
-owns local-store dispatch and is not yet a published SDK package consumer.
+for Hermes; the Cortex subprocess still owns local-store dispatch and is not yet
+a published SDK package consumer. The Agy native adapter and the Claude/Codex
+compatibility adapters use the same SDK boundary as of `xibalba-cortex` commit
+`498e67f`; Codex remains honestly lifecycle/forwarded-observation only because
+native tool hooks were not verified.
 
 The Cortex project now resolves `integrity-sdk` from an immutable Git
 subdirectory revision rather than a sibling checkout (`xibalba-cortex` commit
