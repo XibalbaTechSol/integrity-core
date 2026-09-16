@@ -416,6 +416,9 @@ this session has verified that non-interactive sudo is unavailable.
 
 These are not silently represented as complete:
 
+The current cross-repository baseline and performance evidence are tabulated
+in `docs/audits/2026-09-16-cross-repository-validation-matrix.md`.
+
 1. automatic production adapters and lifecycle hooks for each named harness;
 2. authenticated Cortex memory/session/retrieval end-to-end validation against
    a live deployment and real tenant data;

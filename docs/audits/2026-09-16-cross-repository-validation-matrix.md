@@ -1,0 +1,51 @@
+# Cross-repository validation matrix — 2026-09-16
+
+This matrix is the current production/live validation boundary for
+`integrity-core`, `xibalba-cortex`, and `xibalba-shield`. A passing local test is
+reported as test evidence only; it is not promoted to deployment, tenant, or
+on-chain evidence.
+
+## Executed checks
+
+| Boundary | Command or probe | Result | Evidence class |
+|---|---|---:|---|
+| SDK hook contract | `uv run pytest -q tests/unit/test_harness_hooks.py tests/unit/test_cross_system_adapters.py tests/unit/test_readiness.py` | 13 passed | SDK test-confirmed |
+| Cortex runtime adapters | `uv run pytest -q tests/test_runtime_adapters.py tests/test_runtime_bridge_contract.py tests/test_agy_hook_bridge.py tests/test_hermes_bridge.py tests/test_hermes_observer.py tests/test_telemetry_outbox.py` | 65 passed | Cortex test-confirmed |
+| Shield binding/redaction/outbox | `./.venv/bin/pytest -q tests/test_agent_binding_and_redaction.py tests/test_e2e_validate.py` | 9 passed | Shield test-confirmed |
+| Shield live containment | `scripts/validate_local_containment.sh` | `CONFIRMED_SIGSTOP` | privileged live-device evidence |
+| Cortex fast liveness | authenticated `GET /api/status` on `127.0.0.1:8420` | 200; WAL, FTS5, backup ready; exact count deferred | live local service evidence |
+| Integrity directory | `GET /v1/agents/snapshot` on `127.0.0.1:8080` | finalized Base Sepolia snapshot, chain 84532, five agents | live Oracle evidence |
+| Resource containment | process/cgroup/socket probes after outbox freeze and Cortex restart | Cortex ~0.6% CPU; no active outbox sockets | live host evidence |
+
+## Performance observations
+
+| Scenario | Observation | Interpretation |
+|---|---:|---|
+| Shield outbox before containment | eight workers, batch 100, 179 FDs; Cortex ~43.8% CPU | confirmed retry/connection storm |
+| Shield outbox after containment | worker frozen; no active port-8420 outbox sockets | emergency containment effective |
+| Cortex fast status on large store | `memory_count_deferred=true` | liveness no longer performs an exact full-table count |
+| Shield full suite excluding release installer | 331 passed, 12 skipped in 112.18s | broad local regression evidence; installer remains separate |
+
+No sustained throughput, latency percentile, or burn-in SLO is claimed. Those
+measurements require a bounded disposable fixture and an agreed workload; the
+multi-gigabyte live graph store must not be used for an unbounded benchmark.
+
+## Unverified production gates
+
+| Gate | Required evidence | Current state |
+|---|---|---|
+| Authenticated real tenant | account session plus read/write/retrieval journey against a deployed tenant | not available; current bearer credential is not an account session |
+| Rendered UI | Browser DOM, console, network, interaction, and screenshots | in-app Browser reports zero connections |
+| Live Shield cgroup limits | `systemctl show` reports 256 MiB / 25% / 64 tasks / 1024 FDs | not installed; root-owned unit remains old and frozen |
+| New harness registrations | finalized registry records and accepted transaction receipts for Claude, Codex, Agy | not attempted; wallet/control authorization absent |
+| Full matrix | repeated performance, failure, recovery, and cross-repository canaries | partial; rows above are the safe current baseline |
+
+## Reproduction constraints
+
+- Do not unfreeze the Shield worker before installing
+  `xibalba-shield/scripts/install_live_cortex_outbox_limits.sh`.
+- Do not unlock or regenerate identity material during validation.
+- Do not run broad retrieval, compaction, or deletion against the live graph
+  database.
+- Do not use standalone browser automation as a substitute for the unavailable
+  in-app Browser without explicit operator approval.
