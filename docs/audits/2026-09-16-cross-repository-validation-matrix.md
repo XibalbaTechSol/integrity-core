@@ -12,7 +12,7 @@ on-chain evidence.
 | SDK hook contract | `uv run pytest -q tests/unit/test_harness_hooks.py tests/unit/test_cross_system_adapters.py tests/unit/test_readiness.py` | 13 passed | SDK test-confirmed |
 | Cortex runtime adapters | `uv run pytest -q tests/test_runtime_adapters.py tests/test_runtime_bridge_contract.py tests/test_agy_hook_bridge.py tests/test_hermes_bridge.py tests/test_hermes_observer.py tests/test_telemetry_outbox.py` | 65 passed | Cortex test-confirmed |
 | Claude/Codex SDK normalization | `uv run pytest -q tests/test_runtime_adapters.py` | 25 passed; `xibalba-cortex` `498e67f` | adapter test-confirmed; live native hook delivery not claimed |
-| Shield binding/redaction/outbox | `./.venv/bin/pytest -q tests/test_agent_binding_and_redaction.py tests/test_e2e_validate.py` | 10 passed | Shield test-confirmed |
+| Shield binding/redaction/outbox | `./.venv/bin/pytest -q tests/test_agent_binding_and_redaction.py tests/test_e2e_validate.py` | 11 passed; includes worker count-skip regression from `xibalba-shield` `bcfaa9f` | Shield test-confirmed |
 | Shield live containment | `scripts/validate_local_containment.sh` | `CONFIRMED_SIGSTOP` | privileged live-device evidence |
 | Cortex fast liveness | authenticated `GET /api/status` on `127.0.0.1:8420` | 200; WAL, FTS5, backup ready; exact count deferred | live local service evidence |
 | Integrity directory | `GET /v1/agents/snapshot` on `127.0.0.1:8080` | finalized Base Sepolia snapshot, chain 84532, five agents | live Oracle evidence |
