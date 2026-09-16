@@ -90,7 +90,7 @@ include = ["integrity_sdk*"]
 [tool.setuptools.package-data]
 # Trimmed contract {abi, bytecode} JSON (see abis/__init__.py) — must ship in
 # the built wheel, not just be readable from an editable-install source tree.
-integrity_sdk = ["abis/*.json"]
+integrity_sdk = ["abis/*.json", "schema/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

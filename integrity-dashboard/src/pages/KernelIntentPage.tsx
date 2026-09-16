@@ -211,6 +211,7 @@ export default function KernelIntentPage() {
       transition={{ duration: 0.28, ease: 'easeOut' }}
       style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}
     >
+      <h1 style={{ margin: 0, fontSize: '1.6rem' }}>Kernel intent audit</h1>
       <Panel title="Kernel intent vs. outcome" icon={<GitCompare size={16} />}>
         <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.6, margin: '0 0 var(--space-4)' }}>
           For each tool call in the selected session where the kernel-bridge was opted in
@@ -222,7 +223,7 @@ export default function KernelIntentPage() {
           bridge disabled (the default) will show no rows here, which is expected, not an error.
         </p>
         <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
-          <select
+          <select aria-label="Kernel intent session"
             value={selectedSessionId}
             onChange={(e) => setSelectedSessionId(e.target.value)}
             style={{

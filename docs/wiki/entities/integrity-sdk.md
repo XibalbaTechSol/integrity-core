@@ -1,9 +1,9 @@
 ---
 title: integrity-sdk
 created: 2026-07-07
-updated: 2026-09-08
+updated: 2026-09-15
 type: entity
-tags: [sdk, identity, metrics]
+tags: [sdk, identity, metrics, infrastructure]
 confidence: high
 source_files:
   - integrity-sdk/integrity_sdk/registration.py
@@ -25,6 +25,16 @@ source_files:
   - integrity-sdk/integrity_sdk/mcp_server.py
   - integrity-sdk/integrity_sdk/memory.py
   - integrity-sdk/integrity_sdk/posttool_report.py
+  - integrity-sdk/integrity_sdk/agent_runtime.py
+  - integrity-sdk/integrity_sdk/did.py
+  - integrity-sdk/integrity_sdk/identity_registry.py
+  - integrity-sdk/integrity_sdk/integrity.py
+  - integrity-sdk/integrity_sdk/telemetry/envelope.py
+  - integrity-sdk/integrity_sdk/telemetry/privacy.py
+  - integrity-sdk/integrity_sdk/telemetry/local_store.py
+  - integrity-sdk/integrity_sdk/telemetry/delivery.py
+  - integrity-sdk/integrity_sdk/telemetry/transports.py
+  - integrity-sdk/integrity_sdk/integrations/cortex.py
 ---
 
 
@@ -39,11 +49,15 @@ become a self-sovereign, on-chain, reputation-bearing participant.
 - [Telemetry: OpenTelemetry + MLflow, unified](#telemetry-opentelemetry-mlflow-unified)
 - [Pre-execution intent capture (telemetry/intent.py, added 2026-07-11)](#pre-execution-intent-capture-telemetry-intent-py-added-2026-07-11)
 - [Two dangling-reference gaps, closed 2026-07-11](#two-dangling-reference-gaps-closed-2026-07-11)
-- [Telemetry integrations widened + redactphi opt-in default, 2026-07-15](#telemetry-integrations-widened-redactphi-opt-in-default-2026-07-15)
+- [Telemetry integrations and privacy defaults, 2026-09-15](#telemetry-integrations-and-privacy-defaults-2026-09-15)
 - [PHI/PII redaction](#phi-pii-redaction)
 - [Markets](#markets)
 - [Also](#also)
 - [MCP server (mcpserver.py, added 2026-07-29)](#mcp-server-mcpserver-py-added-2026-07-29)
+- [Harness-neutral runtime (agentruntime.py, added 2026-09-14)](#harness-neutral-runtime-agentruntime-py-added-2026-09-14)
+- [One-line SDK façade and canonical identity registry](#one-line-sdk-fa-ade-and-canonical-identity-registry)
+- [Universal telemetry envelope, transports, and delivery](#universal-telemetry-envelope-transports-and-delivery)
+- [Privacy policy and retention](#privacy-policy-and-retention)
 - [Persistent Memory Bridge (memory.py, added 2026-07-30)](#persistent-memory-bridge-memory-py-added-2026-07-30)
 
 ## Two keypairs
@@ -165,7 +179,7 @@ itself needed a matching fix, see [integrity-oracle](integrity-oracle.md),
 for non-ASCII content to verify correctly). Without a keypair, flush still
 sends a (now honestly-rejected, not silently-malformed) empty signature.
 
-## Telemetry integrations widened + `redact_phi` opt-in default, 2026-07-15
+## Telemetry integrations and privacy defaults, 2026-09-15
 
 `integrations/openai_integrity.py` and `integrations/langchain_callback.py`
 both gained real, previously-uncaptured operational metadata the
@@ -180,21 +194,20 @@ before this — both now do (`tests/unit/test_openai_integrity.py`,
 `tests/unit/test_langchain_callback.py`, 13 new tests).
 
 **Real behavior change**: both integrations' `redact_phi` constructor
-parameter now defaults to `False` (previously redaction ran
-unconditionally — see next section for what that means and its risk).
+parameter defaults to `True`. Callers may disable it only for controlled local
+fixtures. The lower-level SDK façade applies its own `PrivacyPolicy` before
+envelope hashing and persistence.
 Full writeup: [Telemetry Ingestion Pipeline](../concepts/telemetry-ingestion.md).
 
 ## PHI/PII redaction
 
 `security/redactor.py` — targeted, client-side masking (SSNs, emails,
-phone numbers, credit cards, API keys/private keys, medical record
-numbers). `integrations/openai_integrity.py`/`langchain_callback.py` both
-call it before a span attribute/telemetry field is set, but **only when
-constructed with `redact_phi=True`** (default `False` as of 2026-07-15 —
-see above). Any Integrity Health / healthcare-vertical agent must pass that
-flag explicitly; neither wrapper can infer an agent's `compliance_vertical`
-on its own. `telemetry/tracing.py`'s `trace_run`/`traceable` API is
-unaffected by this flag and always redacts.
+phone numbers, credit cards, API keys/private keys, passwords, cookies,
+recovery phrases, and medical record numbers). The OpenAI and LangChain
+integrations call it before span attributes are set and default to
+`redact_phi=True`. `telemetry/tracing.py`'s `trace_run`/`traceable` API and
+the `PrivacyPolicy` façade boundary also redact before queueing or local
+persistence.
 
 **Real gap closed 2026-07-11**: the SDK's own documented, *recommended*
 general-purpose tracing API — `telemetry/tracing.py`'s `trace_run`/
@@ -318,6 +331,80 @@ provisioning, but a mismatched or missing file in an existing identity fails
 closed. `require_registered=True` makes Oracle registration a startup gate;
 unknown registration state is never treated as success. `device_id` is
 optional for ordinary agents and required when `require_device_binding=True`.
+
+The 2026-09-14 local attribution canary opened each configured harness identity
+and emitted `session_started` plus `model_call` lifecycle events. The batch
+records preserved the expected DID and harness for Xibalba, Quant, Shield,
+Codex, Claude, and Antigravity, with six distinct DIDs. This is local SDK
+identity evidence; Codex, Claude, and Antigravity still require independent
+on-chain registration before their strict live canaries can be claimed.
+
+## One-line SDK façade and canonical identity registry
+
+The developer-facing façade keeps basic integration to one line:
+
+```python
+from integrity_sdk import integrity
+agent = integrity.auto()
+```
+
+`integrity.auto()` selects `INTEGRITY_AGENT_ID` and `INTEGRITY_HARNESS` when
+set, otherwise uses the local defaults, loads the existing DID/key material,
+and opens a redacted local telemetry boundary. Explicit configuration is:
+
+```python
+agent = integrity.init(
+    agent_id="my-agent", harness="custom-openai-compatible",
+    memory="required", telemetry="sqlite", identity="persistent",
+)
+```
+
+`SDKAgent.session(...)` records session boundaries, while `prompt`, `response`,
+`model_request`, `token_usage`, `tool_call`, `tool_result`, and
+`memory_event` construct typed envelope events. The façade does not replace
+the signed Oracle telemetry grammar; it creates the developer event boundary
+that can be exported explicitly to Cortex, HTTP, OTLP/HTTP, or MCP.
+
+The DID directory (`INTEGRITY_DID_HOME`, default `~/.integrity/did`) remains
+the authority for key continuity and DID identity. The append-only
+`identity_registry.jsonl` journal records non-secret runtime observations:
+agent slug, harness, DID, principal, device, wallet references, DID-derived
+controller, key fingerprint, registration status, timestamps, and provenance.
+`identity_history()` and `latest_identity()` read that projection. A mismatch,
+missing private key, or expected-DID conflict fails closed. The supported
+`migrate_identity_store(...)` operation copies an existing identity and its
+matching registry history without overwriting a conflicting destination or
+regenerating keys.
+
+## Universal telemetry envelope, transports, and delivery
+
+`TelemetryEnvelope` is schema version 1 and includes event ID/type, agent/DID,
+harness, principal, device, session/invocation/trace relationships, wall and
+monotonic timestamps, payload and developer metadata, privacy state, content
+hash, and payload hash. Event IDs are the idempotency keys. Unknown event types
+are rejected at construction.
+
+`LocalEventStore` supports append-only JSONL and SQLite. SQLite additionally
+stores delivery attempts and can enforce `PrivacyPolicy(retention_days=...)`;
+JSONL rejects retention configuration because an append-only file cannot
+honestly erase expired bytes. `HttpTelemetryTransport`, `OTLPHttpTransport`,
+`MCPTelemetryTransport`, and `CortexTransport` expose explicit destination
+boundaries. HTTP, OTLP/HTTP, and Cortex retry transient failures with finite
+exponential backoff. Delivery receipts distinguish failed, retrying,
+acknowledged, and dead-lettered attempts; local acceptance is not canonical
+remote indexing.
+
+## Privacy policy and retention
+
+`PrivacyPolicy` defaults to `mode="redacted"`, removes location unless
+`allow_location=True`, and applies before envelope hashes and local writes.
+`mode="metadata_only"` withholds content fields, while `mode="hash_only"`
+retains deterministic SHA-256 and length metadata. Content is bounded by
+`max_content_chars`. The redactor covers private keys, API/Bearer tokens,
+passwords, cookies, cloud/database/SMTP credentials, recovery phrases, SSNs,
+cards, emails, phones, and MRN markers. This is a heuristic protection layer,
+not a legal de-identification guarantee; destination backstops remain
+authoritative.
 
 ## Persistent Memory Bridge (`memory.py`, added 2026-07-30)
 

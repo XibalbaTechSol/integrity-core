@@ -2,7 +2,7 @@
 title: Ecosystem Dependencies
 acronyms: []
 created: 2026-08-06
-updated: 2026-08-29
+updated: 2026-09-15
 type: architecture
 tags: [infrastructure]
 confidence: high

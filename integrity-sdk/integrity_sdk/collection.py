@@ -7,11 +7,8 @@ narrows the whole surface:
 
     INTEGRITY_COLLECTION_PROFILE = development | standard | regulated
 
-**Redaction is OFF by default, deliberately** (operator decision, 2026-07-29). The
-development and standard profiles capture content as-is; only `regulated` turns redaction on,
-and it disables content capture outright. That ordering matters: an operator running the
-regulated profile has said their data is regulated, so the safe setting is not merely
-redacting content but not collecting it.
+**Redaction is ON by default.** Developers may explicitly disable it for a controlled
+local fixture, but production telemetry must not assume prompts and tool data are safe.
 
 Note the boundary this does NOT control: `integrity-oracle` runs its own PHI backstop and
 **rejects** a payload whose content trips it (`AppError::PhiDetected` -> 400). Capturing
@@ -33,7 +30,7 @@ CONTENT_KEYS = ("text_output", "prompt", "completion", "system_prompt", "tool_re
 
 
 class CollectionProfile(str, Enum):
-    #: Everything on, content unredacted and unsampled. For building and debugging.
+    #: Everything on, with targeted secret/PII redaction and no content sampling.
     DEVELOPMENT = "development"
     #: Structural data on; content sampled rather than captured wholesale.
     STANDARD = "standard"
@@ -60,8 +57,8 @@ class CollectionConfig:
         if profile is CollectionProfile.REGULATED:
             return CollectionConfig(profile, capture_content=False, redact_content=True, content_sample_rate=0.0, max_content_chars=0)
         if profile is CollectionProfile.STANDARD:
-            return CollectionConfig(profile, capture_content=True, redact_content=False, content_sample_rate=0.1, max_content_chars=4_096)
-        return CollectionConfig(profile, capture_content=True, redact_content=False, content_sample_rate=1.0, max_content_chars=16_384)
+            return CollectionConfig(profile, capture_content=True, redact_content=True, content_sample_rate=0.1, max_content_chars=4_096)
+        return CollectionConfig(profile, capture_content=True, redact_content=True, content_sample_rate=1.0, max_content_chars=16_384)
 
     @staticmethod
     def from_env(env: Optional[Dict[str, str]] = None) -> "CollectionConfig":
@@ -146,7 +143,7 @@ class CollectionConfig:
             if self.redact_content:
                 from .security.redactor import redact_text
 
-                text = redact_text(text)
+                text = redact_text(text).text
             if self.max_content_chars and len(text) > self.max_content_chars:
                 text = text[: self.max_content_chars] + "…[truncated]"
             out[key] = text

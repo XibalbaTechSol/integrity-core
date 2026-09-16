@@ -30,6 +30,7 @@ import AgentsPage from './pages/AgentsPage';
 import SecurityControlPage from './pages/SecurityControlPage';
 import KnowledgeControlPage from './pages/KnowledgeControlPage';
 import TreasuryControlPage from './pages/TreasuryControlPage';
+import ProtocolDashboardPage from './pages/ProtocolDashboardPage';
 
 const WikiPage = lazy(() => import('./pages/WikiPage'));
 
@@ -46,12 +47,19 @@ function App() {
             <Route path="/terms" element={<TermsPage />} />
           </Route>
           <Route element={<MainAppLayout />}>
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/agents" element={<AgentsPage />} />
+            <Route path="/dashboard" element={<ProtocolDashboardPage />} />
+            <Route path="/agents" element={<Navigate to="/identity" replace />} />
+            <Route path="/identity" element={<ProtocolDashboardPage />} />
+            <Route path="/records" element={<ProtocolDashboardPage />} />
+            <Route path="/proofs" element={<ProtocolDashboardPage />} />
+            <Route path="/wallets" element={<ProtocolDashboardPage />} />
+            <Route path="/transactions" element={<ProtocolDashboardPage />} />
+            <Route path="/contracts" element={<ProtocolDashboardPage />} />
+            <Route path="/evidence" element={<Navigate to="/records" replace />} />
+            <Route path="/activity" element={<ProtocolDashboardPage />} />
             <Route path="/treasury" element={<TreasuryControlPage />} />
-            <Route path="/security" element={<SecurityControlPage />} />
+            <Route path="/security" element={<ProtocolDashboardPage />} />
             <Route path="/knowledge" element={<KnowledgeControlPage />} />
-            <Route path="/identity" element={<IdentityPage />} />
             <Route path="/financials" element={<FinancialsPage />} />
             <Route path="/intelligence" element={<IntelligencePage />} />
             <Route path="/correlation" element={<CorrelationPage />} />

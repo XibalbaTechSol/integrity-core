@@ -1,7 +1,7 @@
 ---
 title: Cross-Chain Reputation Sync [PLANNED]
 created: 2026-07-09
-updated: 2026-08-29
+updated: 2026-09-15
 type: concept
 tags: [layer-2]
 confidence: low
@@ -27,18 +27,15 @@ as written.
 
 ## Current state: an honest, documented gap
 
-`contracts/src/oracle/CCIPReputationBridge.sol` exists in the codebase but
-is **explicitly unwired**: it predates the per-agent clone model and still
-assumes one global, immutable `ReputationRegistry` — its
-`registry.getAgent(agent)`/`registry.updateScoreByBridge(agent, baseScore)`
-calls no longer resolve to "the" registry for an arbitrary agent, now that
-every agent has its own `ReputationRegistry` clone (see
-[Interface Contract §6.5](../../INTERFACE_CONTRACT.md#65-known-gap-ccipreputationbridge-is-unwired)).
-It is **not** deployed by `Deploy.s.sol` and **not** referenced by
-`AgentPrimitivesFactory`. Before any cross-chain sync work starts, this
-contract needs reworking to resolve each agent's own `ReputationRegistry`
-clone via `XibalbaAgentRegistry` on every read/write — don't build against
-it as it stands today.
+`contracts/src/oracle/CCIPReputationBridge.sol` exists in the codebase and its
+per-agent clone resolution has been reworked: both send and receive resolve
+the agent's `ReputationRegistry` through `XibalbaAgentRegistry`, and an
+unregistered agent fails closed. The bridge remains **explicitly unwired for
+production**: it is not deployed by `Deploy.s.sol`, and each agent must
+opt-in by granting the bridge `BRIDGE_ROLE` on its own clone while operators
+configure trusted peer bridges and a real CCIP lane. The contract and its
+tests are therefore implemented but still `[PLANNED]` as a deployed
+cross-chain capability.
 
 ## What a real design would need to solve
 

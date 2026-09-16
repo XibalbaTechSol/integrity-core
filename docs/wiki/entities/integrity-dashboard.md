@@ -1,7 +1,7 @@
 ---
 title: integrity-dashboard
 created: 2026-07-07
-updated: 2026-09-09
+updated: 2026-09-15
 type: entity
 tags: [infrastructure, sdk]
 confidence: high
@@ -54,11 +54,14 @@ rule, the old content is replaced rather than patched.
 - [What this is](#what-this-is)
 - [Container packaging](#container-packaging)
 - [Routes](#routes)
+- [Browser registration recovery and bond gate](#browser-registration-recovery-and-bond-gate)
 - [Agent 360 data boundary](#agent-360-data-boundary)
 - [Cortex Operations tab boundary](#cortex-operations-tab-boundary)
 - [2026-08-13 full-site Playwright audit](#2026-08-13-full-site-playwright-audit)
 - [Real bugs found and fixed this pass](#real-bugs-found-and-fixed-this-pass)
 - [Known gaps not fixed this pass](#known-gaps-not-fixed-this-pass)
+- [Live deployment and rendered verification (2026-09-14)](#live-deployment-and-rendered-verification-2026-09-14)
+- [Rendered control-center validation (2026-09-15)](#rendered-control-center-validation-2026-09-15)
 - [Local e2e stack](#local-e2e-stack)
 
 ## What this is
@@ -279,6 +282,45 @@ or redesign pass):
   is unconditionally stacked on one continuous page. Dead code, not a
   functional bug (nothing crashes or hides content).
 - The Shield fleet surface is locally wired to the real backend client, but production registration, sensor coverage, Oracle readback, and burn-in remain external/runtime evidence gates.
+
+## Live deployment and rendered verification (2026-09-14)
+
+The local live stack was rebuilt and recreated for `dashboard` and `userapi`
+after adding `http://127.0.0.1:5173` to the user API CORS allowlist. The
+published containers served the current Integrity MVP landing page and its
+`/auth` route. A headless Playwright journey verified HTTP 200 rendering,
+non-empty meaningful DOM content, the `Launch MVP Dashboard` navigation, and a
+mobile viewport render. The only remaining browser console responses were
+expected `401 Unauthorized` results from unauthenticated `/me` requests; no
+CORS errors remained.
+
+This is local container and rendered-runtime evidence, not proof of a remote
+deployment. The exact source and runtime provenance remains recorded in the
+dated handoff runbook.
+
+## Rendered control-center validation (2026-09-15)
+
+The dedicated validation configuration in
+`integrity-dashboard/playwright.validation.config.ts` runs regular headless
+Playwright against the local Vite viewer and records screenshots, DOM
+assertions, console output, network findings, axe-core results, and reports.
+The in-app Browser runtime was unavailable for this pass, so it is not counted
+as a second browser evidence surface.
+
+The final desktop Chromium route audit passed 33/33 declared routes. The
+protocol route set passed 27/27 responsive route-viewport checks at desktop,
+tablet, and narrow mobile widths, and safe refresh/copy controls passed at all
+three widths. The validator also scans rendered output for private keys, seed
+phrases, and recovery material; none were found.
+
+Authenticated isolation is implemented but requires a disposable userapi
+principal with two exact agent DIDs already assigned through `/me/agents`. The
+test is deliberately skipped when those variables are absent and must not be
+reported as browser-verified in that state. Strict axe blocking and real
+wallet/contract writes remain separate release gates. See the dated
+[dashboard handoff](../../INTEGRITY-DASHBOARD-HANDOFF-2026-09-15.md) and the
+[integration report](../../integrity-dashboard/docs/INTEGRATION-REPORT.md) for
+commands, evidence paths, and limitations.
 
 ## Local e2e stack
 

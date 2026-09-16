@@ -53,15 +53,15 @@ def messages():
     return [[SimpleNamespace(content="patient SSN is 123-45-6789")]]
 
 
-def test_redact_phi_defaults_to_false(messages):
+def test_redact_phi_defaults_to_true(messages):
     client = _client()
-    cb = IntegrityLangChainCallback(client)  # redact_phi omitted -> False
+    cb = IntegrityLangChainCallback(client)  # redact_phi omitted -> True
     cb.on_chat_model_start(_serialized(["langchain", "chat_models", "openai", "ChatOpenAI"]), messages, run_id="r1")
 
     cb.on_llm_end(_result("call 555-123-4567"), run_id="r1")
 
     meta = _last_metadata(client)
-    assert meta["text_output"] == "call 555-123-4567"  # unredacted
+    assert "555-123-4567" not in meta["text_output"]
 
 
 def test_redact_phi_true_redacts_text_and_reasoning(messages):

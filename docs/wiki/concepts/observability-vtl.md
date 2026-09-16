@@ -2,7 +2,7 @@
 title: Observability & PHI Safety Pipeline
 acronyms: [VTL]
 created: 2026-07-09
-updated: 2026-08-29
+updated: 2026-09-15
 type: concept
 tags: [sdk, compliance, infrastructure]
 confidence: high
@@ -70,12 +70,12 @@ common high-confidence cases — not a certified HIPAA Safe Harbor
 structural marker (e.g. a patient's name in free text). This is why the
 oracle-side backstop below exists.
 
-Wired into the two named integrations, but **as of 2026-07-15, opt-in, not
-unconditional**: both `openai_integrity.py`'s `IntegrityOpenAI` and
-`langchain_callback.py`'s `IntegrityLangChainCallback` accept a
-`redact_phi: bool` constructor parameter that now **defaults to `False`**
-(a real, deliberate behavior change from this section's prior claim that
-redaction ran unconditionally). When `True`, `openai_integrity.py` calls
+Wired into the two named integrations with an explicit safety switch: both
+`openai_integrity.py`'s `IntegrityOpenAI` and `langchain_callback.py`'s
+`IntegrityLangChainCallback` accept a `redact_phi: bool` constructor parameter
+that **defaults to `True`**. Callers may pass `False` only for controlled local
+fixtures; the client collection policy remains an independent backstop. When
+redaction is enabled, `openai_integrity.py` calls
 `redact_text(...)` on prompt text, completion text (both streaming and
 non-streaming), and streamed chunks *before* any span attribute is set or
 [local-metrology](local-metrology.md) signals are derived from it;

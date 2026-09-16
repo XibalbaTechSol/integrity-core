@@ -109,6 +109,52 @@ the exact signed field set, shared byte-for-byte with `integrity-cli` and
 
 ## Telemetry: OpenTelemetry + MLflow, unified
 
+### One-line agent integration
+
+For a persistent local identity and redacted append-only telemetry, the minimal
+integration is:
+
+```python
+from integrity_sdk import integrity
+
+agent = integrity.auto()
+```
+
+The façade exposes explicit lifecycle helpers and preserves the existing
+runtime identity. A typical application can add structured events without
+changing its model provider:
+
+```python
+with agent.session("request-123"):
+    agent.prompt("hello", metadata={"channel": "api"})
+    agent.model_request(provider="openai", model="gpt-4o-mini")
+    agent.response("world")
+    agent.token_usage({"input_tokens": 4, "output_tokens": 2})
+    agent.tool_call("search", arguments={"query": "integrity"})
+    agent.tool_result("search", result={"items": []})
+```
+
+Use explicit configuration when the deployment has a required memory boundary
+or a SQLite telemetry queue:
+
+```python
+agent = integrity.init(
+    agent_id="my-agent",
+    harness="custom-openai-compatible",
+    memory="required",
+    memory_home="/path/to/cortex",  # optional; DID-scoped Cortex SQLite store
+    telemetry="sqlite",
+    identity="persistent",
+)
+```
+
+`memory="required"` fails closed unless a DID-scoped persistent store is
+detected. `telemetry="disabled"` disables this local developer event store;
+security-sensitive runtime telemetry and policy decisions retain their own
+runtime configuration. Content is redacted before local persistence by the
+active collection policy. Unsupported host lifecycle hooks are reported by
+the adapter rather than synthesized.
+
 The SDK captures rich agent traces two complementary ways and feeds them into the
 AIS pipeline:
 

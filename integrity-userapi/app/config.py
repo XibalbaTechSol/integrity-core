@@ -79,16 +79,22 @@ class Settings(BaseSettings):
     app_name: str = "integrity-userapi"
 
     # --- CORS ---
-    # 5173 is `npm run dev`'s default; 5190 covers an alternate local port already in use
-    # elsewhere; 5189 is what integrity-dashboard/playwright.config.ts's webServer boots
-    # for the real-backend e2e suite (`npm run test-e2e`) — 127.0.0.1 and localhost are
-    # distinct CORS origins even though they resolve to the same host, so both forms of
-    # the Playwright port are listed rather than assuming browsers treat them as one.
+    # 5173 is `npm run dev`'s default; 5174 is the isolated validation port; 5190 covers an
+    # alternate local port already in use elsewhere; 5189 is what
+    # integrity-dashboard/playwright.config.ts's webServer boots for the real-backend e2e suite
+    # (`npm run test-e2e`) — 127.0.0.1 and localhost are distinct CORS origins even though they
+    # resolve to the same host, so both forms of each validation port are listed.
     cors_origins: list[str] = [
         "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
         "http://localhost:5190",
+        "http://localhost:5192",
         "http://localhost:5189",
         "http://127.0.0.1:5189",
+        "http://localhost:5193",
+        "http://127.0.0.1:5193",
     ]
 
 

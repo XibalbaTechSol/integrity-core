@@ -1,7 +1,7 @@
 ---
 title: integrity-userapi
 created: 2026-07-09
-updated: 2026-08-29
+updated: 2026-09-15
 type: entity
 tags: [infrastructure, identity]
 confidence: high

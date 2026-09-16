@@ -2,12 +2,33 @@ from __future__ import annotations
 
 from .client import IntegrityClient
 from .agent_runtime import AgentIdentityError, AgentNotRegisteredError, IntegrityAgent
+from .harness_hooks import IntegrityHookAdapter, normalize_hook
 from .integrations.auto_hook import enable_auto_hooks
+from .integrity import integrity, SDKAgent
+from .readiness import ReadinessCheck, RegistrationReadiness, assess_local_readiness
+from .did import migrate_identity_store
+from .identity_registry import history as identity_history, latest as latest_identity
+from .telemetry.privacy import PrivacyPolicy
+from .telemetry.transports import HttpTelemetryTransport, MCPTelemetryTransport, OTLPHttpTransport
 
 __all__ = [
     "IntegrityClient",
     "IntegrityAgent",
+    "IntegrityHookAdapter",
+    "normalize_hook",
     "AgentIdentityError",
     "AgentNotRegisteredError",
     "enable_auto_hooks",
+    "integrity",
+    "SDKAgent",
+    "ReadinessCheck",
+    "RegistrationReadiness",
+    "assess_local_readiness",
+    "migrate_identity_store",
+    "identity_history",
+    "latest_identity",
+    "PrivacyPolicy",
+    "HttpTelemetryTransport",
+    "OTLPHttpTransport",
+    "MCPTelemetryTransport",
 ]

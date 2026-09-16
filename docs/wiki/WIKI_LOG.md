@@ -3654,3 +3654,129 @@ writeup: PRODUCTION_GAPS.md §18.
 - Known follow-up, not fixed: `ReputationRegistry`'s clone template is also stale by the same
   selector-scan method (missing newer ZK-related functions from #67), but its `initialize()` --
   the only function `registerPrimitives()` calls -- is present and unaffected.
+## [2026-09-14] integrate | finalized CORE directory and Cortex sync handoff
+- Pages created: 0
+- Pages updated: 3
+- Dead links fixed: 0
+- Orphans resolved: 0
+- Stale pages refreshed: 0
+- Aspirational content flagged: 0
+- Updated Oracle finality, harness-neutral SDK, and dashboard runtime evidence pages.
+- Recorded the finalized-block historical registration audit, live Oracle approval,
+  Cortex account binding/timer success, and remaining pending harness registrations.
+
+## [2026-09-15] validate | dashboard rendered control-center handoff
+- Pages created: 0
+- Pages updated: 1
+- Dead links fixed: 0
+- Orphans resolved: 0
+- Stale pages refreshed: 0
+- Aspirational content flagged: 0
+- Updated the dashboard integration report with final 33-route desktop and
+  27-route-viewport responsive Playwright evidence, axe-core behavior, and the
+  authenticated-isolation gate.
+- Recorded that the in-app Browser runtime was unavailable, so regular headless
+  Playwright is the rendered evidence surface for this pass.
+- Remaining gates: a disposable userapi principal with two exact assigned DIDs,
+  strict axe remediation, and intentionally unexecuted real wallet/contract writes.
+
+## [2026-09-15] integrate | SDK identity, telemetry, and privacy boundary
+
+- Pages created: 0
+- Pages updated: 1
+- Dead links fixed: 0
+- Orphans resolved: 0
+- Stale pages refreshed: 0
+- Aspirational content flagged: 0
+- Updated `entities/integrity-sdk.md` for the one-line façade, append-only
+  identity registry, copy-only identity migration, versioned envelope,
+  HTTP/OTLP/MCP/Cortex transports, delivery receipts, retries, redaction,
+  location opt-in, and SQLite retention behavior.
+- Reconciled `WIKI_INDEX.md` from 35 to the 33 pages actually present in the
+  indexed wiki directories.
+- Verification: `wiki_toc.py` updated the SDK page; SDK unit suite passed
+  246 tests with 1 skipped under the development collection profile.
+- Remaining issue: 19 older pages are beyond the 14-day freshness threshold
+  and require separate source re-verification; no stale claim was silently
+  refreshed in this focused pass.
+
+## [2026-09-15] audit | Wiki Sync Loop
+- Pages created: 0
+- Pages updated: 1
+- Dead links fixed: 0
+- Orphans resolved: 0
+- Stale pages refreshed: 0
+- Aspirational content flagged: 0
+- Corrected the index counter from 33 to the 35 article files actually present.
+- Revalidated all indexed paths, source-free metadata, orphan/dead-link state,
+  and generated TOCs; 20 pages remain older than the 14-day freshness threshold
+  and require source-by-source review.
+
+## [2026-09-15] refresh | CLI and user API entities
+- Pages created: 0
+- Pages updated: 2
+- Dead links fixed: 0
+- Orphans resolved: 0
+- Stale pages refreshed: 2
+- Aspirational content flagged: 0
+- Re-verified the Integrity CLI and user API entity claims against their current
+  source modules, migrations, tests, and compose wiring; refreshed their
+  frontmatter dates and retained high confidence.
+
+## [2026-09-15] refresh | identity, primitives, and BCC concepts
+- Pages created: 0
+- Pages updated: 3
+- Dead links fixed: 0
+- Orphans resolved: 0
+- Stale pages refreshed: 3
+- Aspirational content flagged: 0
+- Re-verified DID fingerprint/EVM binding, seven-primitive ownership and
+  call-routing, and BCC canonical signing/invocation binding against the
+  current CLI, SDK, middleware, and Solidity sources.
+
+## [2026-09-15] refresh | AIS, governance, and cross-chain concepts
+- Pages created: 0
+- Pages updated: 3
+- Dead links fixed: 0
+- Orphans resolved: 0
+- Stale pages refreshed: 3
+- Aspirational content flagged: 0
+- Re-verified the generated AIS route inventory, governance lifecycle/read
+  surface and deployment status, and the current per-agent CCIP resolution.
+- Corrected the cross-chain page's stale claim that the bridge still assumes a
+  global reputation registry; production deployment and lane configuration
+  remain explicitly planned.
+
+## [2026-09-15] refresh | metrology, Merkle, and observability concepts
+- Pages created: 0
+- Pages updated: 3
+- Dead links fixed: 0
+- Orphans resolved: 0
+- Stale pages refreshed: 3
+- Aspirational content flagged: 0
+- Re-verified signal derivation, Merkle hashing, and SDK/oracle PHI safety
+  against current source and tests. Corrected the observability page's stale
+  `redact_phi` default from `False` to the current safety default `True`.
+
+## [2026-09-15] refresh | persistent memory, Smart BAA, and telemetry
+- Pages created: 0
+- Pages updated: 3
+- Dead links fixed: 0
+- Orphans resolved: 0
+- Stale pages refreshed: 3
+- Aspirational content flagged: 0
+- Re-verified the JSONL TrustVault bridge, Smart BAA state machine/factory,
+  and SDK-to-oracle telemetry pipeline. Corrected telemetry ingestion's stale
+  `redact_phi` default from `False` to the current safety default `True`.
+
+## [2026-09-15] refresh | remaining architecture and planned concepts
+- Pages created: 0
+- Pages updated: 5
+- Dead links fixed: 0
+- Orphans resolved: 0
+- Stale pages refreshed: 5
+- Aspirational content flagged: 0
+- Re-verified A2A negotiation and ZK-ML remain explicitly planned, market
+  contracts are source-backed but live deployment requires independent
+  evidence, the Xibalba operating model's runtime claims are externally
+  scoped, and the cross-repository dependency boundaries remain current.

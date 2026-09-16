@@ -5,18 +5,10 @@ logging, covering both streaming and non-streaming calls. Real, working
 glue code carried over from the old prototype (not a mocked piece),
 tidied up.
 
-PHI/PII redaction (`redact_phi`) is OFF by default here. This wrapper is
-general-purpose (trading/prediction-market/capital-allocation agents have
-no PHI exposure at all), and defaulting to redaction everywhere both costs
-fidelity on the captured text and was judged not worth it project-wide.
-**Any Integrity Health / healthcare-vertical agent MUST pass
-`redact_phi=True` explicitly** when constructing `IntegrityOpenAI` — this
-wrapper has no way to know an agent's `compliance_vertical` on its own
-(that's registered separately, via `registration.py`/`health.py`), so
-nothing here can safely default it to True only for healthcare agents.
-Getting this wrong for a healthcare deployment means raw, unredacted
-completion text (and prompts) leave the process — see `security/redactor.py`
-for exactly what categories `redact_text()` catches when it does run
+PHI/PII redaction (`redact_phi`) is ON by default here. Callers may disable it
+only for controlled local fixtures; the client collection policy remains an
+independent backstop. See `security/redactor.py` for exactly what categories
+`redact_text()` catches when it does run
 (SSNs, emails, phone numbers, credit cards, API keys/secrets, MRNs).
 """
 
@@ -86,7 +78,7 @@ class IntegrityCompletionsWrapper:
         self,
         original_completions: Completions,
         integrity_client: IntegrityClient,
-        redact_phi: bool = False,
+        redact_phi: bool = True,
     ):
         self.original_completions = original_completions
         self.integrity_client = integrity_client
@@ -367,8 +359,7 @@ class IntegrityCompletionsWrapper:
 class IntegrityOpenAI(OpenAI):
     """Drop-in OpenAI client wrapper with non-blocking telemetry.
 
-    `redact_phi` defaults to False (see module docstring) — pass
-    `redact_phi=True` for any Integrity Health / healthcare-vertical agent.
+    `redact_phi` defaults to True; pass False only for controlled local fixtures.
     """
 
     def __init__(
@@ -376,7 +367,7 @@ class IntegrityOpenAI(OpenAI):
         *args,
         agent_id: str = "openai_agent_edge",
         oracle_url: str = "http://localhost:8080",
-        redact_phi: bool = False,
+        redact_phi: bool = True,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)

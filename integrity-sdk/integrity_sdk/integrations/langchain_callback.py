@@ -5,12 +5,11 @@ previously-mocked pieces) — kept functionally equivalent to the old
 prototype, with graceful degradation if `langchain_core` isn't installed
 (this SDK doesn't want to force a LangChain dependency on every user).
 
-PHI/PII redaction (`redact_phi`) is OFF by default here, same posture and
+PHI/PII redaction (`redact_phi`) is ON by default here; callers may disable it
 same reasoning as `openai_integrity.py`'s module docstring — this callback
 is provider/vertical-agnostic (works with any LangChain-wrapped model, for
 any agent vertical), so it can't safely infer "this needs PHI redaction" on
-its own. **Any Integrity Health / healthcare-vertical agent MUST pass
-`redact_phi=True`** when constructing `IntegrityLangChainCallback`.
+its own, so the safe default is to redact before capture.
 """
 
 from __future__ import annotations
@@ -40,11 +39,10 @@ class IntegrityLangChainCallback(BaseCallbackHandler):
         callback = IntegrityLangChainCallback(client)
         llm = ChatOpenAI(callbacks=[callback])
 
-    `redact_phi` defaults to False (see module docstring) — pass
-    `redact_phi=True` for any Integrity Health / healthcare-vertical agent.
+    `redact_phi` defaults to True. Pass False only for controlled local tests.
     """
 
-    def __init__(self, integrity_client, redact_phi: bool = False):
+    def __init__(self, integrity_client, redact_phi: bool = True):
         self.client = integrity_client
         self.redact_phi = redact_phi
         self.start_times: Dict[str, float] = {}

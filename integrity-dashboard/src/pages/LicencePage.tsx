@@ -271,6 +271,7 @@ export default function LicencePage() {
       transition={{ duration: 0.28, ease: 'easeOut' }}
       style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}
     >
+      <h1 style={{ margin: 0, fontSize: '1.6rem' }}>Licence control</h1>
       <Panel title="Licence account" icon={<FileText size={16} />}>
         <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.6, margin: '0 0 var(--space-4)' }}>
           Read-only viewer for a <code>LicenceAccount</code> (Phase II tracer-bullet ERC-6551

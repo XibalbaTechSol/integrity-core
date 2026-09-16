@@ -137,6 +137,7 @@ class IntegrityClient:
         # advanced the oracle's counter, and would replay a stale nonce on
         # every flush forever (PRODUCTION_GAPS.md Sec3).
         self._nonce = 0
+        self._last_receipt: Optional[Dict[str, Any]] = None
         self._nonce_synced = False
         # Tri-state, set by `_sync_nonce_from_oracle`'s same GET: `None` = not yet
         # checked or the check was inconclusive (oracle unreachable — best-effort,
@@ -397,6 +398,11 @@ class IntegrityClient:
             self._sync_nonce_from_oracle()
         return self._registered
 
+    @property
+    def last_receipt(self) -> Optional[Dict[str, Any]]:
+        """Most recent successful Oracle response, if one was returned."""
+        return dict(self._last_receipt) if self._last_receipt is not None else None
+
     def flush_telemetry(
         self,
         *,
@@ -530,7 +536,6 @@ class IntegrityClient:
         }
         if self._keypair is not None:
             c_bytes = bcc.canonical_json_bytes(signable)
-            print("CLIENT SIGNABLE BYTES:", c_bytes.decode('utf-8'))
             signature = "0x" + self._keypair.sign(c_bytes).hex()
         else:
             signature = ""  # deserializes fine; the oracle will 401 it (see docstring point 2)
@@ -540,6 +545,11 @@ class IntegrityClient:
         try:
             resp = requests.post(f"{self.oracle_url}/v1/telemetry/ingest", json=payload, timeout=10)
             resp.raise_for_status()
+            try:
+                body = resp.json()
+                self._last_receipt = body if isinstance(body, dict) else {"response": body}
+            except ValueError:
+                self._last_receipt = {"http_status": resp.status_code}
             return True
         except requests.RequestException as exc:
             # Re-queue the drained batch so a later flush retries it — a

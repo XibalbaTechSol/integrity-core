@@ -3,6 +3,7 @@ import { ethers } from 'ethers';
 import { oracle, AgentSummary } from '../services/oracle';
 import { userapi, getToken, UserResponse } from '../services/userapi';
 import { BASE_SEPOLIA_CHAIN_ID } from '../constants';
+import { ALLOW_UNSCOPED_AGENT_DIRECTORY } from '../config';
 
 // Some browser/embedding contexts (e.g. a sandboxed automation profile) throw on any
 // localStorage access rather than just returning null -- these calls run during initial
@@ -101,6 +102,19 @@ function agentFromSummary(s: AgentSummary): Agent {
   };
 }
 
+function agentFromOwnedRecord(record: { agent_did: string; live_data: Record<string, unknown> | null }): Agent {
+  const live = record.live_data;
+  const verificationTier = typeof live?.verification_tier === 'number' ? live.verification_tier : 0;
+  return {
+    id: record.agent_did,
+    eth_address: record.agent_did,
+    controller: null,
+    name: null,
+    alias: null,
+    verification_tier: verificationTier,
+  };
+}
+
 function userFromWallet(address: string): User {
   return {
     name: `${address.substring(0, 6)}...${address.substring(address.length - 4)}`,
@@ -178,26 +192,57 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   }, [addToast]);
 
-  // Load the real agent fleet from the oracle — no client-side mock filter, the oracle
-  // itself gates mock/seeded agents server-side.
+  // Agent scope is an authorization boundary. Prefer the authenticated userapi ownership
+  // projection; do not use Oracle's global directory for ordinary dashboard selection.
+  // The global directory remains available only behind an explicit operator/dev flag and
+  // must never be treated as proof that the current principal controls an agent.
   useEffect(() => {
     let active = true;
     setAgentsLoading(true);
-    oracle.listAgents()
-      .then(summaries => {
+    const load = async () => {
+      try {
+        if (getToken()) {
+          const owned = await userapi.myAgents();
+          const usable = owned.filter(record => record.error === null && record.live_data !== null);
+          if (!active) return;
+          const real = usable.map(agentFromOwnedRecord);
+          setAgents(real);
+          const lastId = safeLocalStorageGet(LAST_AGENT_KEY);
+          const restored = lastId && real.find(a => a.id === lastId);
+          setSelectedAgentId((restored || real[0])?.id ?? null);
+          return;
+        }
+        if (!ALLOW_UNSCOPED_AGENT_DIRECTORY) {
+          if (active) {
+            setAgents([]);
+            setSelectedAgentId(null);
+          }
+          return;
+        }
+        const summaries = await oracle.listAgents();
         if (!active) return;
         const real = summaries.map(agentFromSummary);
         setAgents(real);
         const lastId = safeLocalStorageGet(LAST_AGENT_KEY);
         const restored = lastId && real.find(a => a.id === lastId);
         setSelectedAgentId((restored || real[0])?.id ?? null);
-      })
-      .catch(err => {
-        console.error('Failed to load agent fleet from oracle', err);
-        if (active) setAgents([]);
-      })
-      .finally(() => { if (active) setAgentsLoading(false); });
-    return () => { active = false; };
+      } catch (err) {
+        console.warn('Agent scope unavailable; showing empty agent fleet', err);
+        if (active) {
+          setAgents([]);
+          setSelectedAgentId(null);
+        }
+      } finally {
+        if (active) setAgentsLoading(false);
+      }
+    };
+    void load();
+    const reload = () => { void load(); };
+    window.addEventListener('integrity-auth-changed', reload);
+    return () => {
+      active = false;
+      window.removeEventListener('integrity-auth-changed', reload);
+    };
   }, []);
 
   // Refresh the selected agent's live AIS once it's chosen, so downstream cards
@@ -214,7 +259,9 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     // A DID can be present in the off-chain directory before CORE has a
     // controller/primitives binding. Do not poll an on-chain stake route for
     // that state; the resulting 404 is expected, not a browser error.
-    if (!selectedAgent.controller) return () => { active = false; };
+    // The unscoped directory is a read-only operator/dev view. Avoid a per-agent stake
+    // fan-out there: it exhausts public RPC limits and is not an authorization signal.
+    if (!selectedAgent.controller || ALLOW_UNSCOPED_AGENT_DIRECTORY) return () => { active = false; };
     oracle.getStake(selectedAgent.eth_address)
       .then(stake => {
         if (!active) return;
@@ -229,6 +276,10 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   // endpoint returns network-wide AIS/stake — this is derived, real aggregation,
   // not a mock; see PRODUCTION_GAPS.md).
   useEffect(() => {
+    if (ALLOW_UNSCOPED_AGENT_DIRECTORY) {
+      setStats(null);
+      return;
+    }
     if (agents.length === 0) { setStats(agentsLoading ? null : { active_nodes: 0, aggregate_ais: 0, protocol_staked_itk: 0 }); return; }
     let active = true;
     Promise.all([

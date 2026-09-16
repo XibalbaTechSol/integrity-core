@@ -124,6 +124,7 @@ export function BaaAuthoringPanel({ walletAddress, selectedAgent, addToast, onDe
           <StepLabel n={2} label="Agreement document" />
           <div style={{ position: 'relative', marginBottom: '8px' }}>
             <input
+              aria-label="Upload BAA document PDF"
               type="file"
               accept=".pdf"
               style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }}
@@ -144,7 +145,7 @@ export function BaaAuthoringPanel({ walletAddress, selectedAgent, addToast, onDe
           <StepLabel n={3} label="Collateral terms" />
           <label className="form-label" style={{ fontSize: '0.75rem' }}>Staked ITK collateral required from the agent</label>
           <input
-            type="number" className="input" value={stake}
+            aria-label="Staked ITK collateral required" type="number" className="input" value={stake}
             onChange={(e) => setStake(e.target.value)}
             style={{ fontSize: '0.85rem' }}
           />

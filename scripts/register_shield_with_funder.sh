@@ -41,15 +41,15 @@ read -r -s -p "Funder private key (input hidden): " FUNDER_PRIVATE_KEY
 echo
 read -r -s -p "Agent wallet password (input hidden): " INTEGRITY_WALLET_PASSWORD
 echo
-read -r -s -p "Alchemy API key (input hidden): " ALCHEMY_KEY
-echo
-
-if [[ -z "$FUNDER_PRIVATE_KEY" || -z "$INTEGRITY_WALLET_PASSWORD" || -z "$ALCHEMY_KEY" ]]; then
-  echo "ERROR: all three hidden values are required" >&2
-  exit 1
+if [[ -z "${RPC_URL:-}" ]]; then
+  read -r -s -p "Base Sepolia RPC URL (input hidden): " RPC_URL
+  echo
 fi
 
-RPC_URL="https://base-sepolia.g.alchemy.com/v2/$ALCHEMY_KEY"
+if [[ -z "$FUNDER_PRIVATE_KEY" || -z "$INTEGRITY_WALLET_PASSWORD" || -z "${RPC_URL:-}" ]]; then
+  echo "ERROR: funder key, wallet password, and RPC URL are required" >&2
+  exit 1
+fi
 
 # Resolve and display only the public funder address and its Base Sepolia
 # balance. The private key remains in the child process environment and is

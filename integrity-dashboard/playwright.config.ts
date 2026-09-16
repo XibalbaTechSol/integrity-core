@@ -22,7 +22,10 @@ export default defineConfig({
     headless: true,
   },
   webServer: {
-    command: 'npm run dev -- --port 5189',
+    // Unauthenticated browser fixtures need a deterministic read-only agent
+    // directory. Authenticated validation uses /me/agents instead and does not
+    // rely on this development-only escape hatch.
+    command: 'VITE_ALLOW_UNSCOPED_AGENT_DIRECTORY=true npm run dev -- --port 5189',
     url: 'http://127.0.0.1:5189',
     reuseExistingServer: !process.env.CI,
   },

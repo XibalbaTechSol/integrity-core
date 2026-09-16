@@ -10,7 +10,11 @@
     "sync-wiki": "node scripts/sync-wiki.mjs",
     "sync-chain-bytecode": "node scripts/sync-chain-bytecode.mjs",
     "preview": "vite preview",
-    "test-e2e": "playwright test"
+    "test-e2e": "playwright test",
+    "test:e2e:validation": "playwright test --config=playwright.validation.config.ts",
+    "test:e2e:validation:headed": "playwright test --config=playwright.validation.config.ts --headed",
+    "test:e2e:validation:all-browsers": "VALIDATE_ALL_BROWSERS=true playwright test --config=playwright.validation.config.ts",
+    "test:e2e:validation:report": "playwright show-report test-results/reports/html"
   },
   "dependencies": {
     "ethers": "^6.17.0",
@@ -32,6 +36,7 @@
     "three-spritetext": "^1.10.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@eslint/js": "^9.39.5",
     "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4.3.3",

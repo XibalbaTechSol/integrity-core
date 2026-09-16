@@ -119,7 +119,7 @@ export default function FinancialsPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-
+      <h1 style={{ margin: 0, fontSize: '1.6rem' }}>Financial control</h1>
 
 
       {/* ── 4-stat strip ─────────────────────────────────────────────────── */}

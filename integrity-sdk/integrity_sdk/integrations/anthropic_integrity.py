@@ -95,7 +95,7 @@ def _extract_text(content: Any) -> str:
 class IntegrityMessagesWrapper:
     """Wraps `client.messages` so `create` is instrumented while everything else passes through."""
 
-    def __init__(self, original_messages: Any, integrity_client: IntegrityClient, redact: bool = False):
+    def __init__(self, original_messages: Any, integrity_client: IntegrityClient, redact: bool = True):
         self._original = original_messages
         self.integrity_client = integrity_client
         self._redact = redact
@@ -106,7 +106,7 @@ class IntegrityMessagesWrapper:
         return getattr(self._original, name)
 
     def _maybe_redact(self, text: str) -> str:
-        return redact_text(text) if self._redact else text
+        return redact_text(text).text if self._redact else text
 
     def create(self, *args: Any, **kwargs: Any) -> Any:
         tracer = get_tracer("integrity_sdk.anthropic")
@@ -271,7 +271,7 @@ class IntegrityAnthropic(Anthropic):
     `integrity_client`. Telemetry is best-effort and never blocks or breaks a call.
     """
 
-    def __init__(self, *args: Any, integrity_client: IntegrityClient, redact: bool = False, **kwargs: Any):
+    def __init__(self, *args: Any, integrity_client: IntegrityClient, redact: bool = True, **kwargs: Any):
         super().__init__(*args, **kwargs)
         self.integrity_client = integrity_client
         self._integrity_messages = IntegrityMessagesWrapper(

@@ -1,7 +1,7 @@
 ---
 title: Integrity Market (Prediction Markets, Binary Options, A2A Capital Allocation)
 created: 2026-07-09
-updated: 2026-08-29
+updated: 2026-09-15
 type: concept
 tags: [layer-2, tokenomics, metrics]
 confidence: high

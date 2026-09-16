@@ -25,6 +25,20 @@ export interface AgentResponse {
     did_document: Record<string, unknown> | null;
 }
 
+export interface Erc8004BindingDto {
+    agent_id: string;
+    chain_id: number;
+    identity_registry_address: string;
+    agent_token_id: string;
+    registration_uri: string;
+    registration_sha256: string;
+    nft_owner_address: string;
+    agent_wallet_address: string | null;
+    binding_status: string;
+    verified_at: string;
+    last_checked_at: string;
+}
+
 export interface AgentSummary {
     id: string;
     /** Lowercase on-chain controller when the DID has a verified CORE binding. */
@@ -375,6 +389,11 @@ class OracleError extends Error {
 }
 
 async function get<T>(path: string): Promise<T> {
+    // Oracle's read API is a public/read-only surface in the current deployment and
+    // intentionally uses permissive CORS. Do not send browser credentials here: wildcard
+    // CORS and credentialed requests are incompatible, and the dashboard must not imply
+    // that an Oracle read proves user authorization. Authenticated user scope comes from
+    // userapi's separate HttpOnly session boundary.
     const res = await fetch(`${ORACLE_URL}${path}`);
     if (!res.ok) {
         throw new OracleError(res.status, `Oracle request failed: ${res.status} ${path}`);
@@ -497,6 +516,7 @@ function historyQuery(bucket?: HistoryBucket, since?: string): string {
 
 export const oracle = {
     getAgent: (id: string) => get<AgentResponse>(`/v1/agent/${encodeURIComponent(id)}`),
+    getErc8004: (id: string) => get<Erc8004BindingDto | null>(`/v1/agent/${encodeURIComponent(id)}/erc8004`),
     // Resolve an agent's real on-chain SovereignAgent contract address from its DID. The
     // dashboard keys agents by DID (Agent.eth_address actually holds the DID), so any on-chain
     // write that needs the real address must resolve it here rather than using that field.

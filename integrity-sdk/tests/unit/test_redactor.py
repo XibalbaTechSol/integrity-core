@@ -65,6 +65,21 @@ def test_redacts_mrn():
     assert "[REDACTED:MRN]" in result.text
 
 
+def test_redacts_credentials_recovery_phrase_and_cookie():
+    text = (
+        "password=hunter2 client_secret=abc123 access_token=jwt-value "
+        "Cookie: session=abc123; theme=dark "
+        "recovery phrase: alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima"
+    )
+    result = redact_text(text)
+    assert "hunter2" not in result.text
+    assert "abc123" not in result.text
+    assert "jwt-value" not in result.text
+    assert "session=abc123" not in result.text
+    assert "alpha bravo charlie" not in result.text
+    assert {"SECRET_VALUE", "COOKIE", "RECOVERY_PHRASE"} <= set(result.categories_found)
+
+
 def test_multiple_categories_in_one_string():
     result = redact_text("Email jane@example.com or SSN 123-45-6789 for verification.")
     assert set(result.categories_found) == {"EMAIL", "SSN"}
