@@ -41,14 +41,16 @@ always creates a temporary store and hard-caps fixture size and iterations.
 |---|---|---|
 | Authenticated real tenant | account session plus read/write/retrieval journey against a deployed tenant | not available; current bearer credential is not an account session |
 | Rendered UI | Browser DOM, console, network, interaction, and screenshots | in-app Browser reports zero connections |
-| Live Shield cgroup limits | `systemctl show` reports 256 MiB / 25% / 64 tasks / 1024 FDs | not installed; root-owned unit remains old and frozen |
+| Live Shield cgroup limits | `systemctl show` reports 256 MiB / 25% / 64 tasks / 1024 FDs | installed and active; provider package deployment remains stale |
 | New harness registrations | finalized registry records and accepted transaction receipts for Claude, Codex, Agy | not attempted; wallet/control authorization absent |
 | Full matrix | repeated performance, failure, recovery, and cross-repository canaries | partial; rows above are the safe current baseline |
 
 ## Reproduction constraints
 
-- Do not unfreeze the Shield worker before installing
-  `xibalba-shield/scripts/install_live_cortex_outbox_limits.sh`.
+- Do not disable the installed Shield limits. Deploy the current provider with
+  `xibalba-shield/scripts/update_live_cortex_outbox_package.sh` before treating
+  the live outbox as fully contained; the active unit is bounded, but the
+  currently imported `/opt/xibalba-shield` provider is an older uncapped build.
 - Do not unlock or regenerate identity material during validation.
 - Do not run broad retrieval, compaction, or deletion against the live graph
   database.

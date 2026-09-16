@@ -434,8 +434,14 @@ For the live root-owned unit, `xibalba-shield` commit `faa42f1` adds
 `scripts/install_live_cortex_outbox_limits.sh`. It is an idempotent privileged
 installer that writes the drop-in, resumes and stops the frozen worker in the
 safe order, reloads systemd, starts the bounded service, and prints the
-effective cgroup limits. It must be run by an operator with sudo/root access;
-this session has verified that non-interactive sudo is unavailable.
+effective cgroup limits. The operator has now installed those limits successfully;
+`systemctl show` confirms 256 MiB RAM/swap, 25% CPU, 64 tasks, and 1024 FDs.
+The running `/opt/xibalba-shield` virtualenv was then found to contain the older
+provider: it lacks `_OUTBOX_MAX_BYTES` and continues high-volume reads against
+the existing outbox. `xibalba-shield` commit `99e590f` adds
+`scripts/update_live_cortex_outbox_package.sh` to deploy only the current
+provider/worker code and restart this unit without changing identity,
+configuration, or the database. It remains to be run and independently rechecked.
 
 The installer now preserves the unit's configured `SHIELD_DEVICE_ID` instead
 of embedding this workstation's device identifier (`xibalba-shield` commit
