@@ -3679,3 +3679,23 @@ writeup: PRODUCTION_GAPS.md §18.
   Playwright is the rendered evidence surface for this pass.
 - Remaining gates: a disposable userapi principal with two exact assigned DIDs,
   strict axe remediation, and intentionally unexecuted real wallet/contract writes.
+
+## [2026-09-15] integrate | SDK identity, telemetry, and privacy boundary
+
+- Pages created: 0
+- Pages updated: 1
+- Dead links fixed: 0
+- Orphans resolved: 0
+- Stale pages refreshed: 0
+- Aspirational content flagged: 0
+- Updated `entities/integrity-sdk.md` for the one-line façade, append-only
+  identity registry, copy-only identity migration, versioned envelope,
+  HTTP/OTLP/MCP/Cortex transports, delivery receipts, retries, redaction,
+  location opt-in, and SQLite retention behavior.
+- Reconciled `WIKI_INDEX.md` from 35 to the 33 pages actually present in the
+  indexed wiki directories.
+- Verification: `wiki_toc.py` updated the SDK page; SDK unit suite passed
+  246 tests with 1 skipped under the development collection profile.
+- Remaining issue: 19 older pages are beyond the 14-day freshness threshold
+  and require separate source re-verification; no stale claim was silently
+  refreshed in this focused pass.
