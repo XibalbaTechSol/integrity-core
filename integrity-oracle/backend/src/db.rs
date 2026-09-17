@@ -424,6 +424,8 @@ pub async fn get_agent_primitives_on_chain(
 pub enum InsertTelemetryError {
     #[error("nonce {submitted} is not greater than last seen nonce {last_seen}")]
     NonceReplay { submitted: i64, last_seen: i64 },
+    #[error("semantic duplicate telemetry content for agent {agent_id}")]
+    DuplicateContent { agent_id: String },
     #[error(transparent)]
     Db(#[from] sqlx::Error),
 }
@@ -445,6 +447,8 @@ pub async fn insert_telemetry_event(
     flagged: bool,
     zk_verified: bool,
     leaf_hash: &[u8],
+    content_hash: &[u8],
+    event_time: DateTime<Utc>,
     payload: &serde_json::Value,
     phi_flags: Option<&[String]>,
 ) -> Result<(), InsertTelemetryError> {
@@ -463,11 +467,11 @@ pub async fn insert_telemetry_event(
         });
     }
 
-    sqlx::query(
+    let insert_result = sqlx::query(
         r#"
         INSERT INTO telemetry_events
-            (id, agent_id, nonce, performance_variance, hgi_raw, gpu_hours_verified, flagged, zk_verified, leaf_hash, payload, phi_flags)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            (id, agent_id, nonce, performance_variance, hgi_raw, gpu_hours_verified, flagged, zk_verified, leaf_hash, content_hash, event_time, payload, phi_flags)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         "#,
     )
     .bind(event_id)
@@ -479,10 +483,22 @@ pub async fn insert_telemetry_event(
     .bind(flagged)
     .bind(zk_verified)
     .bind(leaf_hash)
+    .bind(content_hash)
+    .bind(event_time)
     .bind(payload)
     .bind(phi_flags)
     .execute(&mut *tx)
-    .await?;
+    .await;
+    if let Err(sqlx::Error::Database(db_err)) = &insert_result {
+        if db_err.code().as_deref() == Some("23505")
+            && db_err.constraint() == Some("idx_telemetry_events_agent_content_hash")
+        {
+            return Err(InsertTelemetryError::DuplicateContent {
+                agent_id: agent_id.to_string(),
+            });
+        }
+    }
+    insert_result?;
 
     sqlx::query("UPDATE agents SET last_nonce = $1 WHERE id = $2")
         .bind(nonce)
@@ -515,7 +531,7 @@ pub async fn aggregate_for_ais(
             COALESCE(AVG(CASE WHEN zk_verified THEN 1.0 ELSE 0.0 END), 0.0)::double precision AS zk_verified_event_ratio,
             COUNT(*) AS event_count
         FROM telemetry_events
-        WHERE agent_id = $1 AND created_at >= $2
+        WHERE agent_id = $1 AND event_time >= $2
         "#,
     )
     .bind(agent_id)
@@ -1665,7 +1681,7 @@ pub async fn ais_history_buckets(
     let rows: Vec<(DateTime<Utc>, f64, f64, f64, f64, f64, i64)> = sqlx::query_as(
         r#"
         SELECT
-            time_bucket($1::interval, created_at) AS bucket_start,
+            time_bucket($1::interval, event_time) AS bucket_start,
             COALESCE(AVG(performance_variance), 0.0)::double precision AS avg_variance,
             COALESCE(AVG(hgi_raw), 0.0)::double precision AS avg_hgi,
             COALESCE(SUM(gpu_hours_verified), 0.0)::double precision AS sum_gpu_hours,
@@ -1673,7 +1689,7 @@ pub async fn ais_history_buckets(
             COALESCE(AVG(CASE WHEN zk_verified THEN 1.0 ELSE 0.0 END), 0.0)::double precision AS zk_verified_event_ratio,
             COUNT(*) AS event_count
         FROM telemetry_events
-        WHERE agent_id = $2 AND created_at >= $3
+        WHERE agent_id = $2 AND event_time >= $3
         GROUP BY bucket_start
         ORDER BY bucket_start ASC
         "#,
@@ -1721,11 +1737,11 @@ pub async fn telemetry_volume_buckets(
     sqlx::query_as(
         r#"
         SELECT
-            time_bucket($1::interval, created_at) AS bucket_start,
+            time_bucket($1::interval, event_time) AS bucket_start,
             COUNT(*) AS count,
             COUNT(*) FILTER (WHERE flagged) AS flagged_count
         FROM telemetry_events
-        WHERE agent_id = $2 AND created_at >= $3
+        WHERE agent_id = $2 AND event_time >= $3
         GROUP BY bucket_start
         ORDER BY bucket_start ASC
         "#,

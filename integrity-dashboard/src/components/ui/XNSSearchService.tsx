@@ -91,9 +91,11 @@ export const XNSSearchService: React.FC = () => {
                     }}
                 />
                 <button
+                    type="button"
+                    aria-label={isLoading ? 'Searching XNS' : 'Search XNS'}
                     onClick={handleSearch}
                     disabled={isLoading || !query.trim()}
-                    className="btn btn-sm btn-primary"
+                    className="primary-button"
                     style={{ borderRadius: 'calc(var(--r-md) - 2px)' }}
                 >
                     {isLoading ? <Loader2 size={14} className="pulse" /> : <ArrowRight size={14} />}

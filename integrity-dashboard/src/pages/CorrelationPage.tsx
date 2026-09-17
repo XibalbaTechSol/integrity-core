@@ -109,7 +109,7 @@ export default function CorrelationPage() {
             Follow one attempted action across Cortex runtime hooks, Shield enforcement, the signed BCC intent, and Oracle outcome evidence.
           </p>
         </div>
-        <button className="btn btn-secondary" onClick={() => void load()} disabled={loading} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+        <button className="secondary-button" onClick={() => void load()} disabled={loading} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
           <RefreshCw size={16} className={loading ? 'spin' : undefined} /> Refresh evidence
         </button>
       </div>

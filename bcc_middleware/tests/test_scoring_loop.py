@@ -131,6 +131,34 @@ def test_base_score_rejects_missing_or_invalid_authoritative_fields():
     assert _base_score_from_ais_response({"ais": math.nan, "zk_boost": 1.0}) is None
 
 
+def test_base_score_prefers_oracle_onchain_base_after_post_adjustments():
+    assert _base_score_from_ais_response(
+        {"ais": 575.0, "zk_boost": 1.15, "onchain_base_score": 500.0}
+    ) == 500
+
+
+def test_base_score_fails_closed_on_onchain_assurance_mismatch():
+    assert _base_score_from_ais_response(
+        {
+            "ais": 500.0,
+            "zk_boost": 1.0,
+            "onchain_base_score": 500.0,
+            "onchain_assurance_consistent": False,
+        }
+    ) is None
+
+
+def test_base_score_fails_closed_when_modern_response_cannot_read_onchain_cap():
+    assert _base_score_from_ais_response(
+        {
+            "ais": 500.0,
+            "zk_boost": 1.0,
+            "onchain_base_score": 500.0,
+            "onchain_assurance_consistent": None,
+        }
+    ) is None
+
+
 # --- sync_one_agent: score push ----------------------------------------------------
 
 

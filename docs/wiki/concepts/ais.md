@@ -2,7 +2,7 @@
 title: Agent Integrity Score (AIS)
 acronyms: [AIS]
 created: 2026-07-07
-updated: 2026-09-08
+updated: 2026-09-17
 type: concept
 tags: [metrics]
 confidence: high
@@ -15,7 +15,11 @@ source_files:
 
 The composite trust score for an agent, computed by [Integrity Oracle](../entities/integrity-oracle.md):
 
-`AIS = (S_entropy^wE * S_grounding^wG * S_sacrifice^wS * S_compliance^wC) * ZK_boost`
+Active profile: `ais/v1-geometric-1`.
+
+`AIS_base = S_entropy^wE * S_grounding^wG * S_sacrifice^wS * S_compliance^wC`
+and `AIS_post_boost = AIS_base * ZK_boost`; the final displayed AIS is the
+post-boost value after the server-derived identity-tier ceiling.
 
 Default weights (sum to 1.0): `wE=0.30, wG=0.30, wS=0.20, wC=0.20`.
 `ZK_boost = 1.0 + 0.15 * verified_event_ratio`, where the ratio counts events
@@ -43,18 +47,17 @@ term, weights not summing to 1.0) that never matched this one.
 
 A client's `POST /v1/telemetry/ingest` signature proves *who* sent a request, never
 *whether its numbers were honest*. The oracle does not trust the client's
-`derived_signals` claim for entropy/grounding/sacrifice — it independently recomputes
-all three server-side, from the raw `otel_spans` content already inside the same signed
-request (`backend/src/derive.rs`, mirroring `integrity_sdk/telemetry/derive.py`'s
-algorithms so results agree), and does the on-chain `ComplianceGate` "wins" check itself
-rather than trusting an SDK-side opt-in call. `derived_signals` stays in the signed
-envelope (so the wire format hasn't changed) and is still stored, but only as an audit
-trail alongside the oracle's own recomputation — it does not feed the formula.
+`derived_signals` claim. It recomputes entropy/grounding from the raw `otel_spans`
+content and accepts sacrifice/compliance only from independently admissible evidence;
+the token-derived sacrifice and client compliance values remain audit-only proxies and
+resolve to zero authoritatively when their evidence is absent. `derived_signals` stays
+in the signed envelope (so the wire format has not changed) and is still stored, but
+only as an audit trail — it does not feed the formula.
 
 ```mermaid
 flowchart LR
     Agent["Agent (SDK/CLI)"] -->|"signed POST /v1/telemetry/ingest<br/>(otel_spans + derived_signals)"| Oracle["integrity-oracle"]
-    Oracle -->|"re-derive from otel_spans<br/>(same posture as the PHI backstop)"| Recompute["entropy / grounding / sacrifice /<br/>compliance (oracle-recomputed;<br/>some source evidence remains<br/>self-asserted or proxy-derived)"]
+    Oracle -->|"re-derive admissible inputs<br/>(fail closed where evidence is absent)"| Recompute["entropy / grounding /<br/>attested sacrifice / independent compliance"]
     Recompute --> Formula["AIS = Π(S^w) · ZK_boost<br/>(scoring-core, geometric volume model)"]
     ZK["Real Barretenberg ZK proof<br/>(bb verify)"] -.->|"up to 1.15× by<br/>verified-event ratio"| Formula
     Formula --> API["GET /v1/agent/{id}/ais<br/>+ live SSE push (/v1/stream)"]
@@ -92,6 +95,15 @@ they do not establish a production deployment.
 ceiling clamp — is **`[BUILT]`** and enforced in `integrity-oracle/scoring-core`
 via `AisEngine::score_with_tier` (Tier 0: 300, Tier 1: 600, Tier 2: 850, Tier 3: 1000);
 see [Identity Ceiling](identity-ceiling.md).
+
+Deployment status is separate from local implementation: on 2026-09-17,
+read-only Base Sepolia calls against the deployment-recorded template reverted
+for the assurance-tier selectors. The deployed clone set is therefore treated
+as legacy until a replay-safe migration is designed, approved, and verified.
+No chain migration was sent. See the [dated AIS handoff](../../design/ais-handoff-2026-09-17.md)
+for evidence and preservation requirements. AIS is an implemented protocol
+metric, not a validated predictor: real time-separated outcome labels and
+browser-level acceptance evidence remain unavailable.
 
 Related: [Telemetry Ingestion Pipeline](telemetry-ingestion.md) (the full
 collection→batching→signing→oracle-pipeline writeup; this page covers only

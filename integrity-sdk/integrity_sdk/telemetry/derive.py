@@ -5,12 +5,11 @@ attach to a `POST /v1/telemetry/ingest` call (see
 docs/INTERFACE_CONTRACT.md's telemetry ingestion section).
 
 Ownership boundary (load-bearing, see scoring-core/src/lib.rs's own module
-docstring): this file produces the AIS formula's *inputs*, never the score
-itself. integrity-oracle's `scoring-core` crate remains the only place the
-weighted-sum formula is computed; every function here is documented as a
-first-pass heuristic the SDK can compute client-side, which the oracle may
-combine with its own server-side signals (verified GPU-hours, ZK
-attestation state) rather than trust blindly.
+docstring): this file produces client-side claims/proxies, never authoritative
+AIS inputs or the score itself. `integrity-oracle`'s `scoring-core` crate
+remains the only place the geometric formula is computed. The Oracle may use
+only independently admissible evidence; token-derived sacrifice and
+self-reported compliance remain audit-only unless independently verified.
 
 All four signals are normalized to `[0.0, 1.0]` with a consistent polarity:
 **1.0 always means "best/most trustworthy"**, 0.0 always means "worst" — this
@@ -229,9 +228,9 @@ def derive_compliance(
     w3: Optional[Any] = None,
 ) -> float:
     """
-    Combines self-reported compliance signals from the telemetry batch with
-    a live on-chain `ComplianceGate.isHealthcareCompliant` read when chain
-    access is available — **on-chain wins** when both are present, since a
+    Computes a self-reported compliance audit proxy and, when chain access is
+    available, compares it with a live `ComplianceGate.isHealthcareCompliant`
+    read — **on-chain wins** when both are present, since a
     self-report alone is exactly the kind of unverified claim
     `ComplianceGate.sol`'s own NatSpec warns against trusting for a
     regulated-vertical agent (see contracts/src/health/ComplianceGate.sol).
@@ -268,11 +267,10 @@ def derive_compliance(
             # eligibility, not good behavior within that eligibility.
             return min(self_reported, 1.0) if is_compliant else 0.0
         except Exception:
-            # Chain read failures (RPC down, gate not deployed, etc) fall
-            # back to the self-reported signal rather than raising — this
-            # function computes an input to a score, not a security gate;
-            # EHRGate.sol remains the real, fail-closed enforcement point
-            # for actual PHI access, this is just a reputation input.
+            # Chain-read failure does not promote this client-side proxy to
+            # authoritative evidence. The Oracle fails the authoritative
+            # compliance axis closed when independent evidence is unavailable;
+            # EHRGate.sol remains the real fail-closed PHI boundary.
             pass
 
     return self_reported

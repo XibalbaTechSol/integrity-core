@@ -72,6 +72,23 @@ def _base_score_from_ais_response(ais: dict) -> int | None:
     preserves both oracle decisions while leaving the contract to apply a
     separately earned on-chain ZK boost.
     """
+    # The Oracle provides this after all of its own post-score adjustments. It
+    # is the only exact value suitable for ReputationRegistry.baseScore; the
+    # legacy fallback is retained for older Oracle deployments.
+    # New factory clones enforce the assurance tier in the contract itself. A
+    # modern response must explicitly prove that the Oracle and contract agree;
+    # `null` means a legacy/unreadable clone and is therefore not safe for an
+    # authoritative push. Only responses from genuinely older Oracles that omit
+    # this field retain the compatibility fallback.
+    if "onchain_assurance_consistent" in ais and ais.get("onchain_assurance_consistent") is not True:
+        return None
+    if "onchain_base_score" in ais:
+        try:
+            base = float(ais["onchain_base_score"])
+        except (TypeError, ValueError):
+            return None
+        return round(base) if math.isfinite(base) and base >= 0.0 else None
+
     try:
         final_ais = float(ais["ais"])
         zk_boost = float(ais["zk_boost"])
@@ -81,6 +98,16 @@ def _base_score_from_ais_response(ais: dict) -> int | None:
         return None
     if not math.isfinite(zk_boost) or zk_boost <= 0.0:
         return None
+    # Defense in depth for the Oracle's identity ceiling. The middleware still
+    # consumes the authoritative score and never rebuilds the geometric formula,
+    # but a malformed/new response must not let a low-tier value reach chain.
+    if "tier_ceiling" in ais:
+        try:
+            ceiling = float(ais["tier_ceiling"])
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(ceiling) or ceiling < 0.0 or final_ais > ceiling + 1e-9:
+            return None
     return round(final_ais / zk_boost)
 
 

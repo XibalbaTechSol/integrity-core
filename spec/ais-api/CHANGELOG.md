@@ -6,6 +6,16 @@ integrator would actually observe, not one per commit.
 
 ## Unreleased
 
+- Added nullable on-chain assurance-tier metadata to AIS responses. New factory clones
+  expose the contract-read tier/ceiling and an Oracle/chain consistency flag; legacy
+  clones return `null` until migrated. Middleware now fails closed on a missing or
+  mismatched modern cap, preventing synchronization to an uncapped legacy clone.
+- Added signed telemetry event time, semantic duplicate protection, and explicit
+  audit-only handling for unattested sacrifice/compliance proxies.
+- Documented the authoritative `ais/v1-geometric-1` scoring profile and added
+  explicit base, post-boost, tier-ceiling, evidence-tier, sufficiency, proxy,
+  and missing-axis fields to the AIS response. The proposed v0.5 gated-floor
+  profile remains shadow-only and is not emitted as the active profile.
 - Added provider-neutral KYC challenge and receipt-verification endpoints. The
   `open_source_kyc_v1` receipt is nonce-bound, Ed25519-signed by a configured provider,
   time-limited, and explicitly records document, liveness, and sanctions/PEP checks

@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const baseURL = process.env.DASHBOARD_BASE_URL || 'http://127.0.0.1:5193';
+const baseURL = process.env.DASHBOARD_BASE_URL || 'http://127.0.0.1:5189';
 const allBrowsers = process.env.VALIDATE_ALL_BROWSERS === 'true';
 const authState = process.env.E2E_AUTH_STORAGE_STATE;
 const restrictedState = process.env.E2E_RESTRICTED_STORAGE_STATE;
@@ -30,7 +30,7 @@ export default defineConfig({
     serviceWorkers: 'block',
   },
   webServer: {
-    command: 'VITE_ALLOW_UNSCOPED_AGENT_DIRECTORY=true npm run dev -- --host 127.0.0.1 --port 5193',
+    command: 'VITE_ALLOW_UNSCOPED_AGENT_DIRECTORY=true VITE_GRAPH_MEMORY_URL=http://127.0.0.1:8420 npm run dev -- --host 127.0.0.1 --port 5189',
     url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

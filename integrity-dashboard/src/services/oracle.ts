@@ -62,7 +62,16 @@ export interface AisComponents {
 
 export interface AisResponse {
     agent_id: string;
+    scoring_profile: string;
+    ais_base: number;
+    ais_post_boost: number;
     ais: number;
+    tier_ceiling: number;
+    verification_tier: number;
+    /** Null for legacy registry clones that predate on-chain tier enforcement. */
+    onchain_assurance_tier: number | null;
+    onchain_tier_ceiling: number | null;
+    onchain_assurance_consistent: boolean | null;
     components: AisComponents;
     weights: Record<string, number>;
     zk_boost: number;
@@ -70,6 +79,18 @@ export interface AisResponse {
     period_start: string;
     period_end: string;
     event_count: number;
+    evidence_tier: string;
+    data_sufficiency: 'no_events' | 'observed_events' | string;
+    authoritative_input_source: string;
+    proxy_axes: string[];
+    missing_axes: string[];
+    constraint_score: number;
+    shadow_gate: {
+        entropy_pass: boolean;
+        grounding_pass: boolean;
+        compliance_pass: boolean;
+        would_pass: boolean;
+    };
     onchain_zk_boost_consistent: boolean | null;
 }
 

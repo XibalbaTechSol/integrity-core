@@ -194,11 +194,13 @@ itself. All four signals are normalized to `[0, 1]` with `1.0 = most trustworthy
 - `derive_entropy` — real Shannon entropy over the completion's word distribution,
   inverted so stable output scores high.
 - `derive_grounding` — first-pass heuristic over uncertainty markers.
-- `derive_sacrifice` — log-scaled total tokens processed (honestly-observable
-  proxy for verified compute; the oracle re-weights against its own evidence).
-- `derive_compliance` — self-reported policy signals, overridden by a live
-  on-chain `ComplianceGate.isHealthcareCompliant` read when available (on-chain
-  wins).
+- `derive_sacrifice` — log-scaled total tokens processed, retained as an
+  explicitly labelled audit proxy; it is not verified compute and the Oracle
+  supplies zero to authoritative AIS until validator/TEE evidence exists.
+- `derive_compliance` — client-side audit proxy. The Oracle independently reads
+  admissible on-chain/attested evidence and fails the authoritative component
+  closed when that evidence is unavailable; client flags never silently become
+  verified compliance.
 
 ### Working with LangChain / LLM evaluations
 

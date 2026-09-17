@@ -422,7 +422,7 @@ export const TokenWallet = () => {
                         <button 
                             key={tab}
                             onClick={() => setActiveTab(tab as any)}
-                            style={{ flex: 1, padding: 'var(--space-4)', background: 'none', border: 'none', color: activeTab === tab ? 'var(--theme-accent)' : 'var(--text-muted)', borderBottom: activeTab === tab ? '2px solid var(--theme-accent)' : '2px solid transparent', fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.15em', cursor: 'pointer' }}
+                            style={{ flex: 1, padding: 'var(--space-4)', background: 'none', border: 'none', color: activeTab === tab ? 'var(--text-primary)' : 'var(--text-secondary)', borderBottom: activeTab === tab ? '2px solid var(--theme-accent)' : '2px solid transparent', fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.15em', cursor: 'pointer' }}
                         >
                             {tab}
                         </button>
@@ -444,7 +444,7 @@ export const TokenWallet = () => {
                                 </div>
                                 <div style={{ textAlign: 'right' }}>
                                     <div style={{ fontWeight: 800, color: 'white', fontSize: '1.2rem' }}>{parseFloat(balance).toLocaleString()}</div>
-                                    <div style={{ fontSize: '0.65rem', color: 'var(--theme-accent)', fontWeight: 800, letterSpacing: '0.05em' }}>BASE_SEPOLIA</div>
+                                    <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', fontWeight: 800, letterSpacing: '0.05em' }}>BASE_SEPOLIA</div>
                                 </div>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'var(--space-4)', background: 'var(--glass-surface-light)', borderRadius: 'var(--r-md)', border: '1px solid var(--border)' }}>
@@ -459,7 +459,7 @@ export const TokenWallet = () => {
                                 </div>
                                 <div style={{ textAlign: 'right' }}>
                                     <div style={{ fontWeight: 800, color: 'white', fontSize: '1.2rem' }}>{parseFloat(gasBalance).toFixed(4)}</div>
-                                    <div style={{ fontSize: '0.65rem', color: 'var(--theme-accent)', fontWeight: 800, letterSpacing: '0.05em' }}>BASE_SEPOLIA</div>
+                                    <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', fontWeight: 800, letterSpacing: '0.05em' }}>BASE_SEPOLIA</div>
                                 </div>
                             </div>
                         </div>
@@ -532,7 +532,7 @@ export const TokenWallet = () => {
                                     <button
                                         onClick={async () => { setConnecting(true); try { await connectWallet(); } finally { setConnecting(false); } }}
                                         disabled={connecting}
-                                        className="btn btn-primary"
+                                        className="primary-button"
                                         style={{ width: '100%', padding: '16px' }}
                                     >
                                         {connecting ? <Loader2 className="animate-spin" size={20} /> : 'Connect Wallet'}
@@ -570,7 +570,7 @@ export const TokenWallet = () => {
                                         <label style={{ display: 'block', fontSize: '0.65rem', fontWeight: 800, color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Amount (ITK)</label>
                                         <input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" style={{ width: '100%', padding: '16px', background: 'var(--glass-surface-light)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', color: 'white', fontFamily: 'JetBrains Mono, monospace', outline: 'none' }} required />
                                     </div>
-                                    <button type="submit" disabled={isLoading} className="btn btn-primary" style={{ width: '100%', padding: '16px', fontSize: '0.9rem', fontWeight: 800 }}>
+                                    <button type="submit" disabled={isLoading} className="primary-button" style={{ width: '100%', padding: '16px', fontSize: '0.9rem', fontWeight: 800 }}>
                                         {isLoading ? <Loader2 className="animate-spin" size={20} /> : 'CONFIRM TRANSACTION'}
                                     </button>
                                 </form>
@@ -589,7 +589,7 @@ export const TokenWallet = () => {
                                     <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', padding: 'var(--space-4)', marginBottom: 'var(--space-8)' }}>
                                         <div className="mono" style={{ fontSize: '0.85rem', color: 'white', wordBreak: 'break-all' }}>{address || '—'}</div>
                                     </div>
-                                    <button disabled={!address} onClick={() => { navigator.clipboard.writeText(address); addToast?.('success', 'Address copied'); }} className="btn btn-primary" style={{ width: '100%', padding: '16px' }}>COPY ADDRESS</button>
+                                    <button disabled={!address} onClick={() => { navigator.clipboard.writeText(address); addToast?.('success', 'Address copied'); }} className="primary-button" style={{ width: '100%', padding: '16px' }}>COPY ADDRESS</button>
                                 </div>
                             )}
 
@@ -604,7 +604,7 @@ export const TokenWallet = () => {
                                     <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', lineHeight: 1.6, marginBottom: 'var(--space-8)' }}>
                                         Lock ITK to increase your Sacrifice Score and harden your agent's reputation ceiling. Use the Staking panel in Financials to broadcast a real bond — this quick action is a shortcut there, not a separate flow.
                                     </p>
-                                    <Link to="/financials" className="btn btn-primary" style={{ width: '100%', padding: '16px', background: 'var(--emerald)', borderColor: 'var(--emerald)', display: 'block', textAlign: 'center', textDecoration: 'none' }} onClick={() => setActiveModal(null)}>GO TO STAKING</Link>
+                                    <Link to="/financials" className="primary-button" style={{ width: '100%', padding: '16px', background: 'var(--emerald)', borderColor: 'var(--emerald)', display: 'block', textAlign: 'center', textDecoration: 'none' }} onClick={() => setActiveModal(null)}>GO TO STAKING</Link>
                                 </div>
                             )}
                         </motion.div>

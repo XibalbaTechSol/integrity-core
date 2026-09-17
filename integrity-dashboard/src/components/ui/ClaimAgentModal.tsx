@@ -91,7 +91,7 @@ export function ClaimAgentModal({ isOpen, defaultAddress = '', onClose, onSucces
             <Shield size={20} color="var(--theme-accent)" />
             <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'white' }}>Claim Existing Agent</h3>
           </div>
-          <button onClick={onClose} className="btn btn-icon" aria-label="Close modal"><X size={20} /></button>
+          <button onClick={onClose} className="secondary-button" aria-label="Close modal"><X size={20} /></button>
         </div>
 
         <div style={{ padding: 'var(--space-8)' }}>
@@ -106,9 +106,9 @@ export function ClaimAgentModal({ isOpen, defaultAddress = '', onClose, onSucces
                   </p>
                 </div>
                 {!walletAddress ? (
-                  <button className="btn btn-primary" onClick={connectWallet}>Connect Wallet</button>
+                  <button className="primary-button" onClick={connectWallet}>Connect Wallet</button>
                 ) : (
-                  <button className="btn btn-primary" onClick={handleVerify} disabled={isChecking || !agentAddress}>
+                  <button className="primary-button" onClick={handleVerify} disabled={isChecking || !agentAddress}>
                     {isChecking ? <><Loader2 className="spin" size={18} /> Checking control…</> : 'Verify Control On-Chain'}
                   </button>
                 )}
@@ -128,7 +128,7 @@ export function ClaimAgentModal({ isOpen, defaultAddress = '', onClose, onSucces
                       <CheckCircle size={20} color="var(--success)" />
                       <div style={{ fontSize: '0.8rem', color: 'var(--success)', fontWeight: 600 }}>Your wallet holds this agent's controller role.</div>
                     </div>
-                    <button className="btn btn-primary" onClick={handleLink} disabled={isLinking}>
+                    <button className="primary-button" onClick={handleLink} disabled={isLinking}>
                       {isLinking ? <><Loader2 className="spin" size={18} /> Linking…</> : 'Link Agent to Dashboard'}
                     </button>
                   </div>
@@ -143,7 +143,7 @@ export function ClaimAgentModal({ isOpen, defaultAddress = '', onClose, onSucces
                   </div>
                 )}
 
-                <button className="btn btn-ghost btn-sm" onClick={() => { setStep(1); setResult(null); }} disabled={isLinking}>
+                <button className="secondary-button btn-sm" onClick={() => { setStep(1); setResult(null); }} disabled={isLinking}>
                   Back to Address
                 </button>
               </motion.div>

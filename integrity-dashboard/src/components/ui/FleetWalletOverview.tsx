@@ -48,7 +48,7 @@ export function FleetWalletOverview() {
   const totalItk = rows.reduce((sum, r) => sum + r.balance, 0);
 
   return (
-    <div style={{
+    <div className="fleet-wallet-overview" style={{
       background: 'var(--bg-secondary)', border: '1px solid var(--glass-border)', borderRadius: 'var(--radius-md)',
       padding: 'var(--space-6)', marginBottom: 'var(--space-6)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)',
     }}>
@@ -79,6 +79,7 @@ export function FleetWalletOverview() {
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           {rows.map((r) => (
             <button
+              className="fleet-wallet-row"
               key={r.id}
               onClick={() => {
                 const agent = agents.find(a => a.id === r.id);

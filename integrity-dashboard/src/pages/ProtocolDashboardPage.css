@@ -8,3 +8,108 @@
 .protocol-sidebar-foot small{color:var(--protocol-muted)}
 /* Keep the expanded canonical route model keyboard-accessible and scrollable. */
 .protocol-sidebar nav{flex:1;min-height:0;overflow-y:auto}
+.protocol-topbar,.protocol-top-actions{min-width:0;max-width:100%;box-sizing:border-box}
+.protocol-top-actions{flex-wrap:wrap}
+.protocol-top-actions select{min-width:0;max-width:100%;box-sizing:border-box}
+
+/* Sidebar Profile Widget */
+.sidebar-profile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  margin: 0 10px 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--protocol-line, #213246);
+  border-radius: 8px;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.2s, border-color 0.2s;
+}
+.sidebar-profile:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+.profile-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 14px;
+  background: var(--protocol-blue, #36a7ff);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.profile-info {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.profile-info span {
+  font-size: 13px;
+  font-weight: 600;
+  color: #eef5fb;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.profile-info small {
+  font-size: 11px;
+  color: #8ea1b4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.profile-dropdown {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  background: var(--surface-color, #0d1824);
+  border: 1px solid var(--protocol-line, #213246);
+  border-radius: 8px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  z-index: 100;
+  animation: fadeUp 0.15s ease-out;
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.profile-dropdown a, .profile-dropdown button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  color: #8ea1b4;
+  background: transparent;
+  border: none;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+  font-family: inherit;
+}
+.profile-dropdown a:hover, .profile-dropdown button:hover {
+  background: rgba(255,255,255,0.06);
+  color: #eef5fb;
+}
+
+@media (max-width: 1000px) {
+  .sidebar-profile {
+    justify-content: center;
+    padding: 10px;
+    margin: 10px;
+  }
+  .profile-info {
+    display: none;
+  }
+}

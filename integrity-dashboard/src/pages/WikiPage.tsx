@@ -359,7 +359,7 @@ export default function WikiPage() {
         <div className="wiki-mobile-controls"><button onClick={() => setNavOpen(true)}><Menu size={17} /> Protocol TOC</button><button onClick={() => setTocOpen(true)}>On this page <ChevronRight size={16} /></button></div>
         <article id="article-top">
           <div className="wiki-article-meta"><span>{categoryMeta[active.category as keyof typeof categoryMeta]?.label || active.category}</span><span>Updated {active.updated || 'from source'}</span></div>
-          <h1>{active.title}</h1>
+
           <p className="wiki-deck">{active.excerpt}</p>
           <div className="wiki-rule" />
           <MarkdownArticle body={active.body} currentPage={active} onNavigate={selectPage} />

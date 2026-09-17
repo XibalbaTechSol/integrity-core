@@ -13,6 +13,11 @@ const routes = [
 
 type Finding = { level: 'error' | 'warning'; kind: string; message: string; url?: string };
 
+function isOptionalShieldAccessError(message: string) {
+  return message.includes('localhost:8765/api/shield/')
+    && (message.includes('due to access control checks') || message.includes('Cross-Origin Request Blocked'));
+}
+
 function safePath(info: TestInfo, name: string) {
   return info.outputPath('screenshots', `${name}.png`);
 }
@@ -32,11 +37,22 @@ async function collectPageEvidence(page: Page, info: TestInfo) {
     // in the artifact, but reserve a test-blocking finding for actual runtime
     // exceptions; auth/indexer/RPC degradation is an expected observable state
     // in the real local stack and must be classified, not hidden.
-    if (message.type() === 'error' && !message.text().startsWith('Failed to load resource:')) {
+    const text = message.text();
+    // Firefox reports a missing optional loopback Shield service as a CORS
+    // console error. The request failure is retained below as evidence; it
+    // must not turn an honest degraded-service state into a browser crash.
+    const optionalShieldCors = text.includes('Cross-Origin Request Blocked') && text.includes('localhost:8765/api/shield/');
+    // WebKit emits only this URL-less connection message for the same optional
+    // Shield failure; the page-level error above carries the exact Shield URL.
+    const optionalShieldConnection = text === 'Could not connect to localhost: Connection refused' && page.url().endsWith('/correlation');
+    if (message.type() === 'error' && !text.startsWith('Failed to load resource:') && !optionalShieldCors && !optionalShieldConnection) {
       findings.push({ level: 'error', kind: 'console', message: message.text(), url: page.url() });
     }
   });
-  page.on('pageerror', error => findings.push({ level: 'error', kind: 'pageerror', message: error.message, url: page.url() }));
+  page.on('pageerror', error => {
+    const finding = { level: isOptionalShieldAccessError(error.message) ? 'warning' : 'error' as const, kind: 'pageerror', message: error.message, url: page.url() };
+    findings.push(finding);
+  });
   page.on('requestfailed', request => {
     const failure = `${request.method()} ${request.url()} :: ${request.failure()?.errorText || 'failed'}`;
     failedRequests.push(failure);

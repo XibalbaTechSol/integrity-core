@@ -193,7 +193,7 @@ export function ActuarialHub({ mode }: { mode: 'markets' | 'stability' }) {
           <div className="text-muted" style={{ fontSize: '0.8rem', marginBottom: 'var(--space-3)' }}>
             Underlying models ranked by real telemetry: behavioral stability (1 − variance) and grounding fidelity, aggregated across every agent using them.
           </div>
-          <div className="table-container">
+          <div className="table-container" role="region" aria-label="Market records" tabIndex={0}>
             <table className="table" style={{ fontSize: '0.85rem' }}>
               <thead><tr><th>Model</th><th>Provider</th><th>Sim. AIS</th><th>Stability</th><th>Grounding</th><th>Samples</th></tr></thead>
               <tbody>
@@ -255,9 +255,9 @@ export function ActuarialHub({ mode }: { mode: 'markets' | 'stability' }) {
               <input id="mkt-dur" type="number" className="input" value={durationHours} onChange={e => setDurationHours(e.target.value)} />
             </div>
             {!walletAddress ? (
-              <button className="btn btn-primary" onClick={connectWallet}>Connect Wallet</button>
+              <button className="primary-button" onClick={connectWallet}>Connect Wallet</button>
             ) : (
-              <button className="btn btn-primary" onClick={handleCreateMarket} disabled={isCreating || !selectedAgent || !question.trim()}>
+              <button className="primary-button" onClick={handleCreateMarket} disabled={isCreating || !selectedAgent || !question.trim()}>
                 {isCreating ? 'Deploying…' : <>Deploy Market <Plus size={16} style={{ marginLeft: 8 }} /></>}
               </button>
             )}
@@ -282,8 +282,8 @@ export function ActuarialHub({ mode }: { mode: 'markets' | 'stability' }) {
       </Panel>
 
       <Panel title="Live Markets" icon={<Handshake size={18} />}
-        action={<button aria-label="Refresh live markets" className="btn btn-icon" onClick={fetchMarkets} disabled={loading}><RefreshCw size={14} className={loading ? 'spin' : ''} /></button>}>
-        <div className="table-container">
+        action={<button aria-label="Refresh live markets" className="secondary-button" onClick={fetchMarkets} disabled={loading}><RefreshCw size={14} className={loading ? 'spin' : ''} /></button>}>
+        <div className="table-container" role="region" aria-label="Market allocations" tabIndex={0}>
           <table className="table">
             <thead>
               <tr><th>Question</th><th>Outcomes</th><th>Min AIS</th><th>Total Staked</th><th>Deadline</th><th>Status</th><th>Action</th></tr>
@@ -316,21 +316,21 @@ export function ActuarialHub({ mode }: { mode: 'markets' | 'stability' }) {
                     <td><StatusBadge status={m.resolved ? 'resolved' : past ? 'pending' : 'active'} /></td>
                     <td>
                       {m.resolved ? (
-                        <button className="btn btn-ghost" style={{ padding: '4px 8px', fontSize: '0.72rem', color: 'var(--success)' }}
+                        <button className="secondary-button" style={{ padding: '4px 8px', fontSize: '0.72rem', color: 'var(--success)' }}
                           disabled={actionBusy === m.address} onClick={() => handleClaim(m)}>
                           <Trophy size={12} style={{ marginRight: 4 }} /> Claim
                         </button>
                       ) : isCreator && past ? (
                         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                           {Array.from({ length: m.outcome_count }).map((_, i) => (
-                            <button key={i} className="btn btn-ghost" style={{ padding: '3px 7px', fontSize: '0.68rem', color: 'var(--primary)' }}
+                            <button key={i} className="secondary-button" style={{ padding: '3px 7px', fontSize: '0.68rem', color: 'var(--primary)' }}
                               disabled={actionBusy === m.address} onClick={() => handleResolve(m, i)}>
                               <Gavel size={10} style={{ marginRight: 2 }} /> #{i}
                             </button>
                           ))}
                         </div>
                       ) : (
-                        <button className="btn" style={{ padding: '4px 8px', fontSize: '0.72rem' }}
+                        <button className="secondary-button" style={{ padding: '4px 8px', fontSize: '0.72rem' }}
                           disabled={!selectedAgent || past} onClick={() => { setPosMarket(m); setPosOutcome('0'); }}>
                           Enter Position
                         </button>
@@ -350,7 +350,7 @@ export function ActuarialHub({ mode }: { mode: 'markets' | 'stability' }) {
           <div style={{ position: 'relative', width: '100%', maxWidth: 460, background: 'var(--bg-secondary)', border: '1px solid var(--primary)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
             <div style={{ padding: 'var(--space-5)', borderBottom: '1px solid var(--glass-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>Enter Position</h3>
-              <button onClick={() => !posBusy && setPosMarket(null)} className="btn btn-icon" aria-label="Close"><X size={18} /></button>
+              <button onClick={() => !posBusy && setPosMarket(null)} className="secondary-button" aria-label="Close"><X size={18} /></button>
             </div>
             <div style={{ padding: 'var(--space-5)', display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div style={{ fontSize: '0.85rem' }}>{posMarket.question}</div>
@@ -367,7 +367,7 @@ export function ActuarialHub({ mode }: { mode: 'markets' | 'stability' }) {
               <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
                 Pulled from your agent's SovereignAgent (topped up from your wallet if short), AIS-gated on entry.
               </div>
-              <button className="btn btn-primary" onClick={handleEnterPosition} disabled={posBusy}>
+              <button className="primary-button" onClick={handleEnterPosition} disabled={posBusy}>
                 {posBusy ? 'Submitting…' : 'Stake Position'}
               </button>
             </div>

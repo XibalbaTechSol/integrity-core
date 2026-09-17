@@ -14,32 +14,18 @@ interface SubTabsProps {
 
 export function SubTabs({ tabs, activeTab, setActiveTab }: SubTabsProps) {
   return (
-    <div className="sub-tabs-container developer-tabs" role="tablist" aria-label="Developer tools">
+    <div className="protocol-tabs" role="tablist">
       {tabs.map((tab) => (
         <button
           key={tab.id}
           type="button"
           role="tab"
-          id={`settings-tab-${tab.id}`}
           aria-selected={activeTab === tab.id}
-          onClick={() => setActiveTab(tab.id as any)}
-          style={{
-            padding: '0.7rem 1rem',
-            background: activeTab === tab.id ? 'var(--bg-color)' : 'transparent',
-            border: '1px solid transparent',
-            borderRadius: '5px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-            cursor: 'pointer',
-            color: activeTab === tab.id ? 'var(--theme-accent, var(--primary, #fff))' : 'var(--text-secondary)',
-            fontWeight: 600,
-            whiteSpace: 'nowrap',
-            minHeight: '38px'
-          }}
+          onClick={() => setActiveTab(tab.id)}
+          className={`protocol-tab ${activeTab === tab.id ? 'active' : ''}`}
         >
           {tab.icon}
-          {tab.label}
+          <span>{tab.label}</span>
         </button>
       ))}
     </div>

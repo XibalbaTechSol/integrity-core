@@ -260,4 +260,41 @@ contract ReputationRegistryTest is Test {
         (uint256 base,,,) = registry.getAgent(agent);
         assertEq(base, 555);
     }
+
+    function test_assuranceTierAuthorityCapsOracleBaseAndEffectiveScore() public {
+        ReputationRegistry impl = new ReputationRegistry();
+        ReputationRegistry capped = ReputationRegistry(Clones.clone(address(impl)));
+        address governance = makeAddr("assurance-governance");
+        capped.initializeWithAssuranceTierAuthority(admin, admin, mockVerifier, address(anchor), governance);
+        vm.prank(admin);
+        capped.setZkIdentityCommitment(identityCommitment);
+
+        vm.prank(governance);
+        capped.setAssuranceTier(1);
+        assertEq(capped.assuranceTierCeiling(), 600);
+
+        vm.prank(admin);
+        capped.updateScoreWithCoverage(agent, 1000, 10_000);
+        (uint256 cappedBase,,,) = capped.getAgent(agent);
+        assertEq(cappedBase, 600);
+
+        vm.mockCall(mockVerifier, abi.encodeWithSelector(IZkVerifier.verify.selector), abi.encode(true));
+        vm.prank(agent);
+        capped.submitZkAttestation(agent, hex"1234", _publicInputsFor(capped, leaf, 1), root, leaf, proof);
+        assertEq(capped.effectiveScore(agent), 600);
+    }
+
+    function _publicInputsFor(ReputationRegistry target, bytes32 forLeaf, uint256 nonce)
+        internal
+        view
+        returns (bytes32[] memory inputs)
+    {
+        inputs = new bytes32[](6);
+        inputs[0] = identityCommitment;
+        inputs[1] = bytes32(nonce);
+        inputs[2] = bytes32(uint256(0x5678));
+        inputs[3] = bytes32(block.chainid);
+        inputs[4] = bytes32(uint256(uint160(address(target))));
+        inputs[5] = bytes32(uint256(forLeaf) % BN254_SCALAR_FIELD);
+    }
 }

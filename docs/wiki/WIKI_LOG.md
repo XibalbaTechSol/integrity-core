@@ -1,5 +1,21 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-09-17] docs | AIS implementation handoff and deployment boundary
+
+- Added a dated handoff separating local mathematical correctness and
+  implementation consistency from evidence integrity, predictive validity,
+  operational usefulness, and production readiness.
+- Recorded that read-only Base Sepolia selector calls did not establish
+  assurance-tier enforcement on the deployed template. No chain mutation was
+  made; legacy clone migration remains an explicit design and authorization gate.
+- Updated the AIS wiki to distinguish local tier-cap implementation from live
+  deployment status and to state that risk/trust predictive validity is not
+  established without time-separated real outcome labels.
+- Verified that the catalog's 35 links resolve; the lint script's 33-page
+  count omits the two `architecture/` pages because it only scans concepts,
+  entities, comparisons, and queries. One unrelated stale-page warning remains
+  for `concepts/test-status-tree-binding.md`.
+
 ## [2026-09-05] feat | Periodic single-flight Merkle anchoring
 
 - Closed Production Readiness Gate 5 locally: non-empty partial Behavioral Commitment Chain

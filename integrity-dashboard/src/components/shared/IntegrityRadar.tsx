@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip } from 'recharts';
 import type { Agent } from '../../context/DashboardContext';
-import { oracle, AisComponents } from '../../services/oracle';
+import { oracle, type AisResponse } from '../../services/oracle';
 
 interface IntegrityRadarProps {
   agent: Agent;
@@ -22,24 +22,24 @@ const CustomTooltip = ({ active, payload, mode }: any) => {
         explanation = 'Measures alignment with factuality, correctness, and context verification.';
       } else if (data.subject === 'Sacrifice') {
         formula = 'Sacrifice = oracle AIS component S';
-        explanation = 'Represents economic collateral staked on the platform to guarantee integrity.';
-      } else if (data.subject === 'Identity') {
-        formula = 'Identity = Verification Tier * 33.3';
-        explanation = 'Reflects identity verification and reputation grade (Tiers 1-3).';
+        explanation = 'Shows the Oracle sacrifice component. Current token-derived contribution is an audit proxy and is zero in authoritative AIS until independently attested compute exists.';
+      } else if (data.subject === 'Tier ceiling') {
+        formula = 'Tier ceiling = oracle tier ceiling / 10';
+        explanation = 'Identity assurance limits the attainable AIS ceiling; it is not a fifth geometric AIS component and does not add points to the score.';
       } else if (data.subject === 'Compliance') {
         formula = 'Compliance = oracle AIS component C';
-        explanation = 'Indicates regulatory compliance, penalized by accumulated infractions.';
+        explanation = 'Shows the Oracle compliance component. Client flags are audit-only; absent independent evidence, the authoritative component fails closed.';
       }
     } else {
       if (data.subject === 'Behavioral Drift') {
         formula = 'Drift Risk = 100 - Stability';
-        explanation = 'Represents operational volatility. Lower stability (the oracle\'s entropy component) indicates fluctuating behavior or potential runaway states.';
+        explanation = 'Observed-risk indicator: lower stability (the Oracle component) indicates more fluctuating behavior. It is not a probability of harm.';
       } else if (data.subject === 'Hallucination Risk') {
         formula = 'Hallucination Risk = 100 - Grounding';
-        explanation = 'Probability of factuality drift or incorrect instruction following.';
+        explanation = 'Observed-risk indicator for grounding shortfalls; it is not a calibrated probability of factuality drift.';
       } else if (data.subject === 'Sybil Exposure') {
         formula = 'Sybil Risk = 100 - Sacrifice';
-        explanation = 'Economic replicability exposure. Lower stake size allows identities to be cloned at low cost.';
+        explanation = 'Observed exposure indicator based on the sacrifice component; it is not a probability of identity compromise.';
       }
     }
 
@@ -66,13 +66,13 @@ const CustomTooltip = ({ active, payload, mode }: any) => {
 
 export function IntegrityRadar({ agent }: IntegrityRadarProps) {
   const [mode, setMode] = useState<'integrity' | 'risk'>('integrity');
-  const [components, setComponents] = useState<AisComponents | null>(null);
+  const [ais, setAis] = useState<AisResponse | null>(null);
 
   useEffect(() => {
     let active = true;
     oracle.getAis(agent.eth_address)
-      .then(r => { if (active) setComponents(r.components); })
-      .catch(() => { if (active) setComponents(null); });
+      .then(r => { if (active) setAis(r); })
+      .catch(() => { if (active) setAis(null); });
     return () => { active = false; };
   }, [agent.eth_address]);
 
@@ -83,17 +83,20 @@ export function IntegrityRadar({ agent }: IntegrityRadarProps) {
   // ~100,000 -- recharts then auto-scaled its radius domain to that outlier, collapsing every
   // other axis toward the center. That's why the chart used to look like a thin sliver instead
   // of the near-full pentagon this agent's real scores actually describe).
-  const entropy = components ? Math.round(components.entropy / 10) : 0;
-  const grounding = components ? Math.round(components.grounding / 10) : 0;
-  const sacrifice = components ? Math.round(components.sacrifice / 10) : 0;
-  const compliance = components ? Math.round(components.compliance / 10) : 0;
-  const identity = Math.round((agent.verification_tier ?? 0) * 33.3);
+  const entropy = ais ? Math.round(ais.components.entropy / 10) : 0;
+  const grounding = ais ? Math.round(ais.components.grounding / 10) : 0;
+  const sacrifice = ais ? Math.round(ais.components.sacrifice / 10) : 0;
+  const compliance = ais ? Math.round(ais.components.compliance / 10) : 0;
+  // The assurance tier is a ceiling, not a fifth AIS component. Displaying the
+  // ceiling on the same 0-100 radar scale makes that distinction visible without
+  // reintroducing a retired linear identity score.
+  const identity = ais ? Math.round(ais.tier_ceiling / 10) : 0;
 
   const integrityData = [
     { subject: 'Stability (Entropy)', value: entropy },
     { subject: 'Grounding', value: grounding },
     { subject: 'Sacrifice', value: sacrifice },
-    { subject: 'Identity', value: identity },
+    { subject: 'Tier ceiling', value: identity },
     { subject: 'Compliance', value: compliance },
   ];
 
@@ -106,7 +109,7 @@ export function IntegrityRadar({ agent }: IntegrityRadarProps) {
   const data = mode === 'integrity' ? integrityData : riskData;
   const activeColor = mode === 'integrity' ? 'var(--primary)' : '#ef4444';
 
-  if (!components) {
+  if (!ais) {
     return <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>No AIS reading yet for this agent.</div>;
   }
 
@@ -191,7 +194,7 @@ export function IntegrityRadar({ agent }: IntegrityRadarProps) {
             { name: 'Stability', formula: 'Stability = oracle entropy component / 10', desc: 'Oracle-derived stability score from performance entropy (already higher-is-better, 0-1000 scale).' },
             { name: 'Grounding', formula: 'Grounding = oracle grounding component / 10', desc: 'Normalized alignment with factuality and context verification indexes.' },
             { name: 'Sacrifice', formula: 'Sacrifice = oracle sacrifice component / 10', desc: 'Economic collateral (staked ITK) contribution to AIS, as computed by the oracle.' },
-            { name: 'Identity', formula: 'Identity = Verification Tier * 33.3', desc: 'Scaled value based on reputation verification (Tiers 1 to 3).' },
+            { name: 'Tier ceiling', formula: 'Tier ceiling = oracle tier ceiling / 10', desc: 'Identity assurance ceiling shown separately from the four geometric AIS components; it limits attainable AIS but does not contribute a fifth factor.' },
             { name: 'Compliance', formula: 'Compliance = oracle compliance component / 10', desc: 'Regulatory and behavioral compliance rating, adjusted downwards for infractions.' }
           ].map((axis) => (
             <div key={axis.name} style={{ display: 'flex', flexDirection: 'column', gap: '4px', borderBottom: '1px solid rgba(255, 255, 255, 0.03)', paddingBottom: '8px' }}>

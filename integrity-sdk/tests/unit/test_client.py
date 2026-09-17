@@ -178,6 +178,7 @@ def test_flush_with_keypair_produces_a_real_verifiable_signature(captured_posts)
         "evidence_tier": payload["evidence_tier"],
         "agent_id": payload["agent_id"],
         "nonce": payload["nonce"],
+        "observed_at": payload["observed_at"],
         "otel_spans": payload["otel_spans"],
         "derived_signals": payload["derived_signals"],
         "zk_proof": payload["zk_proof"],

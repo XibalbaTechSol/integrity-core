@@ -496,7 +496,7 @@ export function FactoryPanel() {
               <button 
                 onClick={handleBuild}
                 disabled={isCompiling || isDeploying}
-                className="btn btn-ghost"
+                className="secondary-button"
                 style={{ padding: '5px 12px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px', color: '#f8fafc', border: '1px solid #3b3b45', background: '#24242b' }}
               >
                 {isCompiling ? <RefreshCw className="animate-spin" size={12} /> : <Hammer size={12} />}
@@ -506,7 +506,7 @@ export function FactoryPanel() {
               <button 
                 onClick={() => handleDeploy()}
                 disabled={isDeploying || isCompiling}
-                className="btn btn-primary"
+                className="primary-button"
                 style={{ padding: '5px 14px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600, boxShadow: '0 0 10px rgba(212, 175, 55, 0.2)' }}
               >
                 {isDeploying ? <RefreshCw className="animate-spin" size={12} /> : <Play size={12} />}
@@ -649,7 +649,7 @@ export function FactoryPanel() {
             </div>
             
             {/* Terminal Logs View */}
-            <div style={{ flex: 1, padding: '8px 16px', overflowY: 'auto', fontFamily: 'monospace', fontSize: '0.7rem', color: '#a5a5a9', lineHeight: 1.4 }}>
+            <div role="region" aria-label="Terminal output" tabIndex={0} style={{ flex: 1, padding: '8px 16px', overflowY: 'auto', fontFamily: 'monospace', fontSize: '0.7rem', color: '#a5a5a9', lineHeight: 1.4 }}>
               {terminalTab === 'terminal' ? (
                 <>
                   {terminalLogs.map((log, index) => (
@@ -708,7 +708,7 @@ export function FactoryPanel() {
               <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>Resolve Deadline (hours)</label>
               <input aria-label="Market resolve deadline hours" type="number" className="input" style={{ fontSize: '0.75rem', padding: '6px', background: '#101014', border: '1px solid var(--glass-border)', color: 'var(--text-primary)' }} value={mktDeadlineHours} onChange={e => setMktDeadlineHours(e.target.value)} />
             </div>
-            {!walletAddress && <button className="btn btn-primary" style={{ fontSize: '0.72rem', padding: '6px' }} onClick={connectWallet}>Connect Wallet</button>}
+            {!walletAddress && <button className="primary-button" style={{ fontSize: '0.72rem', padding: '6px' }} onClick={connectWallet}>Connect Wallet</button>}
           </div>
 
           {/* Real deploy receipt */}

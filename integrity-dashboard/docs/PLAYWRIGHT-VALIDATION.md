@@ -1,8 +1,9 @@
 # Rendered Playwright validation
 
-The dashboard has a dedicated real-browser validation configuration at
-`playwright.validation.config.ts`. It is intentionally separate from the
-legacy e2e configuration so existing tests are not multiplied across projects.
+The dashboard has two real-browser configurations. `playwright.config.ts` is
+the current five-project matrix (desktop Chromium, Firefox, WebKit, tablet,
+and mobile Chromium); `playwright.validation.config.ts` is the report-oriented
+wrapper used by the npm validation scripts.
 
 ```bash
 npm run test:e2e:validation
@@ -11,11 +12,11 @@ npm run test:e2e:validation:all-browsers
 npm run test:e2e:validation:report
 ```
 
-The default command starts Vite on `http://127.0.0.1:5193` with the explicit
-development directory flag used by the local live-data viewer. Set
-`DASHBOARD_BASE_URL` to connect to another already-running instance. Set
-`VALIDATE_ALL_BROWSERS=true` to add Firefox and WebKit projects when their
-browser binaries are installed.
+Both configs default to Vite at `http://127.0.0.1:5189` with the explicit
+development directory flag used by the local live-data viewer. Direct matrix
+commands use `--project=desktop`, `firefox`, `webkit`, `tablet-chromium`, or
+`mobile-chromium`; report-wrapper projects use the corresponding
+`desktop-chromium`, `desktop-firefox`, and `desktop-webkit` names.
 
 The suite discovers the route inventory from the current application route
 map, visits every declared route in headless Chromium, and exercises the
@@ -42,6 +43,14 @@ scope check; set `E2E_AUTH_STORAGE_STATE` or
 `E2E_RESTRICTED_STORAGE_STATE` to add authenticated Playwright projects.
 Set `E2E_AGENT_A_ID` and `E2E_AGENT_B_ID` to the exact DIDs already assigned to
 that authenticated principal to run the live two-agent isolation journey.
+
+The browser test does not create accounts or assign agents. For an explicit
+disposable setup, register a temporary user with `POST /auth/register`, then
+call authenticated `POST /me/agents` twice with two DIDs already verified by
+Oracle. Keep the email, password, bearer token, and DID values in the current
+shell only; verify `GET /me/agents` returns exactly the two intended DIDs,
+then export `E2E_AUTH_EMAIL`, `E2E_AUTH_PASSWORD`, `E2E_AGENT_A_ID`, and
+`E2E_AGENT_B_ID` before running the isolation test.
 
 Current limitations: authenticated two-agent switching is skipped unless the
 test principal and exact agent assignments are provided; real transaction and

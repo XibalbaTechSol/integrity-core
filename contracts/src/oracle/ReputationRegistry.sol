@@ -9,15 +9,15 @@ import {StateAnchor} from "./StateAnchor.sol";
 /// @title ReputationRegistry
 /// @notice Per-agent EIP-1167 clone: the on-chain ledger for one agent's Agent Integrity
 /// Score (AIS, §4.3 of the interface contract). This contract does not *compute* the AIS
-/// formula `(S_entropy*wE + S_grounding*wG + S_sacrifice*wS + S_compliance*wC) * ZK_boost`
-/// — that weighted-sum computation is integrity-oracle's job, and stays the single place
+/// formula `Π(S_i^w_i) * ZK_boost` — that geometric computation is integrity-oracle's
+/// job, and stays the single place
 /// it's computed (per the interface contract, every other package calls the oracle's
 /// `/v1/agent/{id}/ais` HTTP endpoint rather than recompute it). What this contract owns
 /// is the one component that *cannot* be trusted from an off-chain HTTP response alone:
 /// the `ZK_boost` multiplier, which is only legitimate if a real Barretenberg proof
 /// verified on-chain, against a leaf that is itself anchored in a Merkle root this chain
 /// anchored. So the division of labour is: oracle pushes `baseScore` (the pre-boost
-/// weighted sum) via `updateScore`; this contract independently earns the right to apply
+/// geometric score) via `updateScoreWithCoverage`; this contract independently earns the right to apply
 /// the 1.15x multiplier by verifying a ZK proof itself, in `submitZkAttestation`.
 /// @dev Was a directly-deployed singleton; now a per-agent clone (see
 /// AgentPrimitivesFactory) so one agent's score storage never shares a slot with
@@ -28,6 +28,7 @@ import {StateAnchor} from "./StateAnchor.sol";
 contract ReputationRegistry is Initializable, AccessControlUpgradeable {
     bytes32 public constant ORACLE_ROLE = keccak256("ORACLE_ROLE");
     bytes32 public constant BRIDGE_ROLE = keccak256("BRIDGE_ROLE");
+    bytes32 public constant ASSURANCE_TIER_ROLE = keccak256("ASSURANCE_TIER_ROLE");
 
     /// @dev ZK_boost = 1.15 per §4.3, expressed in basis points so Solidity integer
     /// arithmetic doesn't need a fixed-point library for a single constant multiplier.
@@ -57,6 +58,12 @@ contract ReputationRegistry is Initializable, AccessControlUpgradeable {
     mapping(address => AgentScore) public scores;
     mapping(bytes32 => bool) public usedAttestationLeaves;
     mapping(address => uint256) public lastZkNonce;
+    /// @dev New factory-created clones enable this authority. Legacy clones created
+    /// through the four-argument initializer retain their historical unconstrained
+    /// score behavior until migrated, rather than pretending an off-chain tier is an
+    /// on-chain fact.
+    bool public assuranceTierConfigured;
+    uint8 public assuranceTier;
     /// @dev Oracle-authoritative fraction of reporting-window events with a verified proof,
     /// in basis points. It is explicitly configured by updateScoreWithCoverage; leaving it
     /// unset preserves the legacy read shape for already-deployed callers.
@@ -86,6 +93,8 @@ contract ReputationRegistry is Initializable, AccessControlUpgradeable {
     error ZkNonceNotIncreasing();
     error AttestationLeafAlreadyUsed();
     error InvalidEventCoverage();
+    error InvalidAssuranceTier();
+    error AssuranceTierAuthorityRequired();
 
     /// @dev Implementation contract itself is never initializable — only its clones are
     /// (standard OZ upgradeable-safety pattern: without this, someone could call
@@ -107,14 +116,58 @@ contract ReputationRegistry is Initializable, AccessControlUpgradeable {
         external
         initializer
     {
+        _initialize(admin, oracleSigner, _zkVerifier, _stateAnchor, address(0));
+    }
+
+    /// @notice Initializes a new clone with an explicit protocol-held authority for
+    /// identity assurance tiers. The tier authority is separate from ORACLE_ROLE so a
+    /// compromised score-publishing signer cannot raise its own attainable ceiling.
+    /// `AgentPrimitivesFactory` supplies its governance authority here.
+    function initializeWithAssuranceTierAuthority(
+        address admin,
+        address oracleSigner,
+        address _zkVerifier,
+        address _stateAnchor,
+        address tierAuthority
+    ) external initializer {
+        if (tierAuthority == address(0)) revert AssuranceTierAuthorityRequired();
+        _initialize(admin, oracleSigner, _zkVerifier, _stateAnchor, tierAuthority);
+    }
+
+    function _initialize(
+        address admin,
+        address oracleSigner,
+        address _zkVerifier,
+        address _stateAnchor,
+        address tierAuthority
+    ) internal {
         __AccessControl_init();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         if (oracleSigner != address(0)) {
             _grantRole(ORACLE_ROLE, oracleSigner);
         }
+        if (tierAuthority != address(0)) {
+            _grantRole(ASSURANCE_TIER_ROLE, tierAuthority);
+            assuranceTierConfigured = true;
+        }
         zkVerifier = IZkVerifier(_zkVerifier);
         stateAnchor = StateAnchor(_stateAnchor);
         reportingPeriod = 7 days;
+    }
+
+    /// @notice Sets the current evidence-backed identity assurance tier. Tier 3 is
+    /// the maximum represented value; the tier ceiling is applied to both the stored
+    /// base score and the contract-computed effective score.
+    function setAssuranceTier(uint8 tier) external onlyRole(ASSURANCE_TIER_ROLE) {
+        if (tier > 3) revert InvalidAssuranceTier();
+        assuranceTier = tier;
+    }
+
+    function assuranceTierCeiling() public view returns (uint256) {
+        if (assuranceTier == 0) return 300;
+        if (assuranceTier == 1) return 600;
+        if (assuranceTier == 2) return 850;
+        return 1000;
     }
 
     function setZkConfig(address _zkVerifier, address _stateAnchor) external onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -172,6 +225,9 @@ contract ReputationRegistry is Initializable, AccessControlUpgradeable {
     }
 
     function _setBaseScore(address agent, uint256 baseScore, address updatedBy) internal {
+        if (assuranceTierConfigured && baseScore > assuranceTierCeiling()) {
+            baseScore = assuranceTierCeiling();
+        }
         uint256 old = scores[agent].baseScore;
         scores[agent].baseScore = baseScore;
         scores[agent].lastUpdate = block.timestamp;
@@ -232,13 +288,19 @@ contract ReputationRegistry is Initializable, AccessControlUpgradeable {
     /// is still within its reporting period.
     function effectiveScore(address agent) public view returns (uint256) {
         AgentScore storage s = scores[agent];
+        uint256 score;
         if (block.timestamp <= s.zkBoostExpiry) {
-            if (!coverageConfigured[agent]) return (s.baseScore * ZK_BOOST_BPS) / BPS_DENOMINATOR;
+            if (!coverageConfigured[agent]) score = (s.baseScore * ZK_BOOST_BPS) / BPS_DENOMINATOR;
+            else {
             uint256 boostBps =
                 BPS_DENOMINATOR + ((ZK_BOOST_BPS - BPS_DENOMINATOR) * zkVerifiedEventRatioBps[agent]) / BPS_DENOMINATOR;
-            return (s.baseScore * boostBps) / BPS_DENOMINATOR;
+                score = (s.baseScore * boostBps) / BPS_DENOMINATOR;
+            }
+        } else {
+            score = s.baseScore;
         }
-        return s.baseScore;
+        if (assuranceTierConfigured && score > assuranceTierCeiling()) return assuranceTierCeiling();
+        return score;
     }
 
     function isZkBoosted(address agent) external view returns (bool) {

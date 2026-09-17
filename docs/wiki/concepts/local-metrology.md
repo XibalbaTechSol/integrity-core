@@ -21,13 +21,14 @@ this supersedes the old wiki's speculative "hardware-tethered offline moat"
 and "7 predictive risk indicators v2.1" content, none of which exists in
 this rewrite; see the note at the bottom.
 
-**Ownership boundary (load-bearing):** this module produces the AIS
-formula's *inputs*, never the score itself. `integrity-oracle`'s
-`scoring-core` crate remains the only place the weighted-sum formula
-(`concepts/ais.md`) is computed — the oracle may combine these client
-signals with its own server-side evidence (e.g. verified GPU-hours, ZK
-attestation state) rather than trust them blindly. All four signals are
-normalized to `[0.0, 1.0]` with a consistent polarity: **1.0 always means
+**Ownership boundary (load-bearing):** this module produces client-side
+*claims/proxies*, never authoritative AIS inputs or the score itself.
+`integrity-oracle`'s `scoring-core` crate remains the only place the
+geometric formula (`concepts/ais.md`) is computed. The Oracle may use only
+independently admissible evidence; token-derived contribution and
+self-reported compliance are audit-only proxies unless their evidence chain
+is independently verified. All four client signals are normalized to
+`[0.0, 1.0]` with a consistent polarity: **1.0 always means
 "best/most trustworthy."**
 
 ## Table of contents
@@ -78,18 +79,16 @@ min(math.log10(total_tokens + 1) / math.log10(_SACRIFICE_TOKEN_CEILING + 1), 1.0
 Documented as genuinely weaker than oracle-verified GPU-hours; the oracle's
 own ingestion handler decides how much weight to give it.
 
-## `derive_compliance` — self-report, but on-chain wins
+## `derive_compliance` — client proxy; Oracle evidence wins
 
-Combines a self-reported signal (fraction of batch entries *not* flagged
-`policy_violation`/`flagged`) with a **live** on-chain
+Computes a client-side audit proxy from the fraction of batch entries *not*
+flagged `policy_violation`/`flagged` and may compare it with a **live** on-chain
 `ComplianceGate.isHealthcareCompliant` read when chain access is available.
-On-chain wins in both directions: a live "not compliant" read overrides a
-clean self-report (an agent can't talk its way out of a lapsed BAA) — but a
-live "compliant" read still can't push the score above what self-reporting
-already earned. A chain-read failure (RPC down, gate not deployed) falls
-back to the self-reported signal rather than raising, since this function
-computes a scoring *input*, not a security gate — [EHRGate](compliance-gate.md)
-remains the real, fail-closed PHI-access enforcement point.
+The Oracle independently decides admissibility: a client flag or chain-read
+failure never becomes verified compliance. Without independent gate or
+attestation evidence, the authoritative compliance axis is zero —
+[EHRGate](compliance-gate.md) remains the real, fail-closed PHI-access
+enforcement point.
 
 ## Where it's consumed
 

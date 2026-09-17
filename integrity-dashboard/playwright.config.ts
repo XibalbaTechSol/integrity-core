@@ -25,7 +25,7 @@ export default defineConfig({
     // Unauthenticated browser fixtures need a deterministic read-only agent
     // directory. Authenticated validation uses /me/agents instead and does not
     // rely on this development-only escape hatch.
-    command: 'VITE_ALLOW_UNSCOPED_AGENT_DIRECTORY=true npm run dev -- --port 5189',
+    command: 'VITE_ALLOW_UNSCOPED_AGENT_DIRECTORY=true VITE_GRAPH_MEMORY_URL=http://127.0.0.1:8420 npm run dev -- --port 5189',
     url: 'http://127.0.0.1:5189',
     reuseExistingServer: !process.env.CI,
   },
@@ -33,6 +33,22 @@ export default defineConfig({
     {
       name: 'desktop',
       use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } },
+    },
+    {
+      name: 'firefox',
+      use: { ...devices['Desktop Firefox'], viewport: { width: 1440, height: 900 } },
+    },
+    {
+      name: 'webkit',
+      use: { ...devices['Desktop Safari'], viewport: { width: 1440, height: 900 } },
+    },
+    {
+      name: 'tablet-chromium',
+      use: { ...devices['Desktop Chrome'], viewport: { width: 1024, height: 768 } },
+    },
+    {
+      name: 'mobile-chromium',
+      use: { ...devices['Pixel 5'], viewport: { width: 393, height: 851 } },
     },
   ],
 });

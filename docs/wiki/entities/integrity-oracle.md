@@ -245,13 +245,13 @@ built this pass.
 ### Server-side telemetry-signal re-derivation (`derive.rs`)
 
 `POST /v1/telemetry/ingest` does not trust a client's self-reported
-`derived_signals` — it independently recomputes entropy/grounding/sacrifice
-server-side from the same signed request's raw `otel_spans` content
-(`backend/src/derive.rs`, mirroring `integrity_sdk/telemetry/derive.py`'s
-algorithms closely enough that results agree), and derives compliance
-separately via a live on-chain "wins" check. Only the oracle's own
-recomputation feeds `telemetry_events`/[AIS](../concepts/ais.md) — the
-client's claim is stored purely as an audit-trail comparison. Two
+`derived_signals`. It independently recomputes entropy/grounding from the same
+signed request's raw `otel_spans` content and accepts sacrifice/compliance only
+from independently admissible evidence. Token-derived sacrifice and client
+compliance remain audit-only proxies and fail closed in authoritative AIS when
+their evidence is absent. Only the oracle's own admissible values feed
+`telemetry_events`/[AIS](../concepts/ais.md) — the client's claim is stored
+purely as an audit-trail comparison. Two
 polarity/calibration bugs were fixed at this exact call site in the same
 pass: `performance_variance` was receiving the SDK's stability-score
 polarity (1.0=best) into a column `scoring-core` treats as a true variance

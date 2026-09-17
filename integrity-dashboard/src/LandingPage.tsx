@@ -43,9 +43,9 @@ export default function LandingPage() {
   const aisFormula = `\\text{AIS} = \\left( S_{\\text{entropy}}^{0.30} \\cdot S_{\\text{grounding}}^{0.30} \\cdot S_{\\text{sacrifice}}^{0.20} \\cdot S_{\\text{compliance}}^{0.20} \\right) \\cdot \\text{ZK}_{\\text{boost}}`;
 
   return (
-    <div style={{ color: 'var(--text-primary)' }}>
+    <div className="landing-page" style={{ color: 'var(--text-primary)' }}>
       {/* 1. Global Navigation & Header */}
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem 3rem', background: 'rgba(25, 25, 25, 0.8)', backdropFilter: 'blur(10px)', position: 'sticky', top: 0, zIndex: 100, borderBottom: '1px solid var(--border-color)' }}>
+      <header className="landing-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.5rem 3rem', background: 'rgba(25, 25, 25, 0.8)', backdropFilter: 'blur(10px)', position: 'sticky', top: 0, zIndex: 100, borderBottom: '1px solid var(--border-color)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <img src="https://xibalbatechsol.github.io/XibalbaSolutionsLogo.png" alt="Xibalba Solutions" style={{ height: '40px' }} />
           <span style={{ fontSize: '1.25rem', fontWeight: 700, letterSpacing: '0.5px' }}>Integrity Protocol</span>
@@ -59,7 +59,7 @@ export default function LandingPage() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
           <a href="https://github.com/xibalbatechsol" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-secondary)', textDecoration: 'none', fontWeight: 500 }}>GitHub</a>
-          <Link to="/auth" className="button primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1.5rem' }}>
+          <Link to="/auth" className="primary-button" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1.5rem' }}>
             Launch MVP <ArrowRight size={16} />
           </Link>
         </div>
@@ -80,11 +80,11 @@ export default function LandingPage() {
           <p style={{ fontSize: '1.35rem', color: 'var(--text-secondary)', maxWidth: '800px', margin: '0 auto 3rem auto', lineHeight: 1.6 }}>
             The Integrity Protocol is the missing infrastructure for enterprise AI adoption. By utilizing smart contracts, hardware attestations, and Zero-Knowledge proofs, we transform unpredictable black-box agents into highly determinative, insurable economic actors.
           </p>
-          <div style={{ display: 'flex', gap: '1.5rem', justifyContent: 'center' }}>
-            <Link to="/auth" className="button primary" style={{ padding: '1.25rem 2.5rem', fontSize: '1.1rem', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div className="landing-hero-actions" style={{ display: 'flex', gap: '1.5rem', justifyContent: 'center' }}>
+            <Link to="/auth" className="primary-button" style={{ padding: '1.25rem 2.5rem', fontSize: '1.1rem', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
               Launch MVP Dashboard <ArrowRight size={18} />
             </Link>
-            <a href="#problem" className="button" style={{ padding: '1.25rem 2.5rem', fontSize: '1.1rem', textDecoration: 'none' }}>
+            <a href="#problem" className="secondary-button" style={{ padding: '1.25rem 2.5rem', fontSize: '1.1rem', textDecoration: 'none' }}>
               Read the Business Plan
             </a>
           </div>
@@ -153,7 +153,7 @@ export default function LandingPage() {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4rem', alignItems: 'center' }}>
           <motion.div initial={fadeInUp.initial} whileInView={fadeInUp.whileInView} viewport={fadeInUp.viewport} transition={fadeInUp.transition} className="card" style={{ background: 'var(--bg-card)', padding: '2.5rem', border: '1px solid var(--glass-border)' }}>
             <h3 style={{ marginBottom: '1.5rem', fontSize: '1.4rem' }}>The Geometric Volume Formula</h3>
-            <div style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '8px', border: '1px solid var(--border-color)', marginBottom: '2rem', overflowX: 'auto' }}>
+            <div className="landing-formula" role="region" aria-label="Agentic Integrity Score formula" tabIndex={0} style={{ background: 'var(--bg-color)', padding: '1.5rem', borderRadius: '8px', border: '1px solid var(--border-color)', marginBottom: '2rem', overflowX: 'auto' }}>
               <BlockMath math={aisFormula} />
             </div>
             
@@ -264,7 +264,7 @@ export default function LandingPage() {
               <p style={{ color: 'var(--text-secondary)', lineHeight: 1.6, flex: 1, marginBottom: '1.5rem' }}>
                 Xibalba Shield intercepts rogue actions in under 50ms using strict OPA policy gates. It actively blocks prompt injection attacks, discovers shadow AI, and guarantees Real-time Agent Security before any system mutations occur.
               </p>
-              <Link to="/shield" className="button" style={{ textAlign: 'center', textDecoration: 'none', borderColor: '#2196f3', color: '#2196f3' }}>View Shield Prototype</Link>
+              <Link to="/shield" className="secondary-button" style={{ textAlign: 'center', textDecoration: 'none', borderColor: '#2196f3', color: '#2196f3' }}>View Shield Prototype</Link>
             </motion.div>
 
             <motion.div variants={fadeInUp} className="card" style={{ display: 'flex', flexDirection: 'column' }}>
@@ -276,7 +276,7 @@ export default function LandingPage() {
               <p style={{ color: 'var(--text-secondary)', lineHeight: 1.6, flex: 1, marginBottom: '1.5rem' }}>
                 Utilizing the novel <code>SmartBAA</code> and client-side PHI <code>Redactor</code>, Integrity Health unlocks secure FHIR data through patient consent flowcharts. We ensure "Minimum Necessary" data ever reaches the LLM.
               </p>
-              <Link to="/health" className="button" style={{ textAlign: 'center', textDecoration: 'none', borderColor: '#4caf50', color: '#4caf50' }}>View Health Prototype</Link>
+              <Link to="/health" className="secondary-button" style={{ textAlign: 'center', textDecoration: 'none', borderColor: '#4caf50', color: '#4caf50' }}>View Health Prototype</Link>
             </motion.div>
 
             <motion.div variants={fadeInUp} className="card" style={{ display: 'flex', flexDirection: 'column' }}>
@@ -288,7 +288,7 @@ export default function LandingPage() {
               <p style={{ color: 'var(--text-secondary)', lineHeight: 1.6, flex: 1, marginBottom: '1.5rem' }}>
                 Powered by the <code>$ITK</code> token. Agents utilize the <code>A2ACapitalPool</code> for dynamic capital allocation markets, staking for trust, and facing immediate slashing penalties for measurable hallucination events.
               </p>
-              <Link to="/financials" className="button" style={{ textAlign: 'center', textDecoration: 'none', borderColor: '#f59e0b', color: '#f59e0b' }}>View Finance Prototype</Link>
+              <Link to="/financials" className="secondary-button" style={{ textAlign: 'center', textDecoration: 'none', borderColor: '#f59e0b', color: '#f59e0b' }}>View Finance Prototype</Link>
             </motion.div>
           </motion.div>
         </div>
@@ -436,7 +436,7 @@ export default function LandingPage() {
               <label htmlFor="contact-message" style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Direct Message</label>
               <textarea id="contact-message" rows={4} style={{ width: '100%', padding: '0.75rem', borderRadius: '4px', border: '1px solid var(--border-color)', background: 'var(--bg-color)', color: 'var(--text-primary)', fontFamily: 'inherit', resize: 'vertical' }} placeholder="Tell us about your infrastructure goals..."></textarea>
             </div>
-            <button type="button" className="button primary" style={{ padding: '1rem', fontSize: '1rem', fontWeight: 600 }}>Submit Inquiry</button>
+            <button type="button" className="primary-button" style={{ padding: '1rem', fontSize: '1rem', fontWeight: 600 }}>Submit Inquiry</button>
           </form>
         </motion.div>
       </section>
@@ -450,7 +450,7 @@ export default function LandingPage() {
             The living v0.4 specification is maintained in the Integrity Wiki. The original comprehensive v0.3 design is also preserved as a browser-viewable PDF for historical reference.
           </p>
           <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '1rem' }}>
-            <Link to="/wiki" className="button primary" style={{ padding: '0.9rem 1.4rem', textDecoration: 'none' }}>
+            <Link to="/wiki" className="primary-button" style={{ padding: '0.9rem 1.4rem', textDecoration: 'none' }}>
               Read current v0.4 in the Wiki
             </Link>
             <a href="/integrity-protocol-specification-v0.3.pdf" target="_blank" rel="noopener noreferrer" className="button secondary" style={{ padding: '0.9rem 1.4rem', textDecoration: 'none' }}>
@@ -471,7 +471,7 @@ export default function LandingPage() {
           <p style={{ fontSize: '1.25rem', color: 'var(--text-secondary)', maxWidth: '700px', margin: '0 auto 2.5rem auto', lineHeight: 1.6 }}>
             Join the protocol establishing the necessary cryptographic trust layer for the next era of compute.
           </p>
-          <Link to="/auth" className="button primary" style={{ padding: '1.5rem 3rem', fontSize: '1.25rem', fontWeight: 700, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.75rem', boxShadow: '0 0 30px rgba(0, 150, 255, 0.4)' }}>
+          <Link to="/auth" className="primary-button" style={{ padding: '1.5rem 3rem', fontSize: '1.25rem', fontWeight: 700, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.75rem', boxShadow: '0 0 30px rgba(0, 150, 255, 0.4)' }}>
             Launch MVP Dashboard <ArrowRight size={20} />
           </Link>
         </motion.div>

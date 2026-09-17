@@ -47,7 +47,7 @@ export const DIDExplorer: React.FC<DIDExplorerProps> = ({ agent }) => {
 
     useEffect(() => {
         if (!agent) return;
-        
+
         const fetchIdentity = async () => {
             setIsLoading(true);
             try {
@@ -120,7 +120,7 @@ export const DIDExplorer: React.FC<DIDExplorerProps> = ({ agent }) => {
                     <Fingerprint size={22} style={{ color: 'var(--theme-accent)' }} />
                     <h3 style={{ fontSize: '1.25rem', fontWeight: 800, margin: 0, color: 'white', fontFamily: 'Playfair Display, serif' }}>Sovereign Identity Explorer</h3>
                 </div>
-                
+
                 <div style={{ display: 'flex', gap: 'var(--space-2)', background: 'rgba(0,0,0,0.3)', padding: '4px', borderRadius: 'var(--r-md)', marginTop: isMobile ? 'var(--space-4)' : 0 }}>
                     {['did', 'vc', 'raw'].map((view) => (
                         <button
@@ -209,7 +209,7 @@ export const DIDExplorer: React.FC<DIDExplorerProps> = ({ agent }) => {
                                         <div className="pulse-gold" style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '200px', height: '200px', border: '1px solid var(--theme-accent)', borderRadius: '50%' }} />
                                         <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '300px', height: '300px', border: '1px dashed rgba(255,255,255,0.2)', borderRadius: '50%' }} />
                                     </div>
-                                    
+
                                     <div style={{ position: 'relative', zIndex: 1, textAlign: 'center', width: '100%' }}>
                                         <div style={{ width: '100px', height: '100px', borderRadius: '24px', background: 'rgba(201, 168, 76, 0.15)', border: '2px solid var(--theme-accent)', margin: '0 auto 24px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--theme-accent)', boxShadow: '0 0 40px rgba(201, 168, 76, 0.2)' }}>
                                             <Fingerprint size={48} />
@@ -219,7 +219,7 @@ export const DIDExplorer: React.FC<DIDExplorerProps> = ({ agent }) => {
                                             <Shield size={12} style={{ color: 'var(--theme-accent)' }} />
                                             <span style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--theme-accent)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Tier {agent.verification_tier} Guardian</span>
                                         </div>
-                                        
+
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', width: '100%' }}>
                                             {[
                                                 { label: 'XNS_RESOLVE', value: (handle ? `${handle.includes('.') ? handle : `${handle}.intg`}` : agent.xns_handle) || "UNRESOLVED", active: !!(handle || agent.xns_handle) },
@@ -284,10 +284,10 @@ export const DIDExplorer: React.FC<DIDExplorerProps> = ({ agent }) => {
                                 </div>
 
                                 <div style={{ display: 'flex', gap: 'var(--space-4)' }}>
-                                    <button className="btn btn-primary" style={{ flex: 1, padding: '16px', fontSize: '0.85rem' }}>
+                                    <button className="primary-button" style={{ flex: 1, padding: '16px', fontSize: '0.85rem' }}>
                                         <ExternalLink size={18} style={{ marginRight: '10px' }} /> EXPORT TO CLEARING HOUSE
                                     </button>
-                                    <button className="btn btn-outline" style={{ flex: 1, padding: '16px', fontSize: '0.85rem' }}>
+                                    <button className="secondary-button" style={{ flex: 1, padding: '16px', fontSize: '0.85rem' }}>
                                         <CheckCircle2 size={18} style={{ marginRight: '10px' }} /> VALIDATE ON-CHAIN
                                     </button>
                                 </div>
@@ -303,8 +303,8 @@ export const DIDExplorer: React.FC<DIDExplorerProps> = ({ agent }) => {
                             exit={{ opacity: 0 }}
                         >
                             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
-                                <button 
-                                    className="btn btn-outline btn-sm" 
+                                <button
+                                    className="secondary-button btn-sm"
                                     onClick={downloadDID}
                                     id="did-download-btn-raw"
                                     style={{ padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.7rem' }}

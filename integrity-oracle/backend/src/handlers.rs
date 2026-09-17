@@ -7,7 +7,7 @@ use std::str::FromStr;
 use alloy::primitives::{Address, U256};
 use axum::Json;
 use axum::extract::{Path, Query, State};
-use chrono::Utc;
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
@@ -577,7 +577,21 @@ pub struct AisWeightsSchema {
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct AisResponse {
     pub agent_id: String,
+    pub scoring_profile: &'static str,
+    pub ais_base: f64,
+    pub ais_post_boost: f64,
     pub ais: f64,
+    /// Exact pre-boost value to synchronize into ReputationRegistry after
+    /// every Oracle-side post-score adjustment (including anchor coverage).
+    /// Consumers must not reconstruct this from component fields.
+    pub onchain_base_score: f64,
+    pub tier_ceiling: f64,
+    pub verification_tier: i32,
+    /// On-chain assurance state for migrated factory clones. Legacy clones that
+    /// predate the tier-authority initializer return `null` here.
+    pub onchain_assurance_tier: Option<i32>,
+    pub onchain_tier_ceiling: Option<f64>,
+    pub onchain_assurance_consistent: Option<bool>,
     pub components: AisComponents,
     #[schema(value_type = AisWeightsSchema)]
     pub weights: scoring_core::AisWeights,
@@ -588,6 +602,11 @@ pub struct AisResponse {
     pub period_start: chrono::DateTime<Utc>,
     pub period_end: chrono::DateTime<Utc>,
     pub event_count: i64,
+    pub evidence_tier: &'static str,
+    pub data_sufficiency: &'static str,
+    pub authoritative_input_source: &'static str,
+    pub proxy_axes: Vec<&'static str>,
+    pub missing_axes: Vec<&'static str>,
     /// Present only when a cached on-chain ReputationRegistry address is known for this
     /// agent — a nice-to-have cross-check (per the task's "not required" note) that the
     /// oracle's off-chain `zk_verified_event_ratio` telemetry flag agrees with the
@@ -694,6 +713,20 @@ pub(crate) async fn compute_ais_for_agent(
         None => None,
     };
 
+    let onchain_assurance = match &primitives_row {
+        Some(row) => match Address::from_str(&row.reputation_registry_address) {
+            Ok(rep) => state
+                .chain
+                .assurance_tier_state(rep)
+                .await
+                .ok()
+                .filter(|(configured, _, _)| *configured)
+                .map(|(_, tier, ceiling)| (tier as i32, ceiling.to::<u64>() as f64)),
+            Err(_) => None,
+        },
+        None => None,
+    };
+
     // Best-effort, same posture as the zk-boost cross-check above: an RPC failure or
     // unset address must not fail the whole AIS response, only leave the on-chain half
     // of the reading absent (`anchor_coverage::evaluate` treats `None` as "unknown",
@@ -717,10 +750,28 @@ pub(crate) async fn compute_ais_for_agent(
         &anchor_coverage,
         state.config.anchor_stale_penalty_bps,
     );
+    let onchain_base_score = if breakdown.zk_boost > 0.0 {
+        (breakdown.ais / breakdown.zk_boost).max(0.0)
+    } else {
+        0.0
+    };
 
     Ok(AisResponse {
         agent_id: id.to_string(),
+        scoring_profile: scoring_core::AIS_PROFILE_VERSION,
+        ais_base: breakdown.ais_base,
+        ais_post_boost: breakdown.ais_post_boost,
         ais: breakdown.ais,
+        onchain_base_score,
+        tier_ceiling: breakdown.tier_ceiling,
+        verification_tier: tier,
+        onchain_assurance_tier: onchain_assurance.as_ref().map(|(tier, _)| *tier),
+        onchain_tier_ceiling: onchain_assurance.as_ref().map(|(_, ceiling)| *ceiling),
+        onchain_assurance_consistent: onchain_assurance
+            .as_ref()
+            .map(|(onchain_tier, onchain_ceiling)| {
+                *onchain_tier == tier && (*onchain_ceiling - breakdown.tier_ceiling).abs() < f64::EPSILON
+            }),
         components: AisComponents {
             entropy: breakdown.s_entropy,
             grounding: breakdown.s_grounding,
@@ -734,6 +785,11 @@ pub(crate) async fn compute_ais_for_agent(
         period_start,
         period_end,
         event_count: aggregate.event_count,
+        evidence_tier: "signed_agent",
+        data_sufficiency: if aggregate.event_count == 0 { "no_events" } else { "observed_events" },
+        authoritative_input_source: "oracle_recomputed_from_signed_telemetry",
+        proxy_axes: vec!["sacrifice", "compliance_proxy"],
+        missing_axes: if aggregate.event_count == 0 { vec!["entropy", "grounding", "sacrifice", "compliance"] } else { Vec::new() },
         onchain_zk_boost_consistent,
         anchor_coverage,
         constraint_score: breakdown.constraint_score,
@@ -838,6 +894,30 @@ pub struct JudgeEvaluationDto {
 /// and then storing it as signed evidence is worse than rejecting it.
 pub const MAX_TELEMETRY_SCHEMA_VERSION: i64 = 3;
 
+fn validate_telemetry_schema_version(req: &TelemetryIngestRequest) -> Result<(), AppError> {
+    let Some(version) = req.schema_version else {
+        return Ok(());
+    };
+    if version > MAX_TELEMETRY_SCHEMA_VERSION || version < 1 {
+        return Err(AppError::BadRequest(format!(
+            "unsupported telemetry schema_version {version}: this oracle understands \
+             1..={MAX_TELEMETRY_SCHEMA_VERSION} (or an absent field, meaning the \
+             pre-versioning envelope). Upgrade the oracle before sending this shape."
+        )));
+    }
+    if version >= 2 && req.evidence_tier != "signed_agent" {
+        return Err(AppError::BadRequest(
+            "schema_version 2 telemetry must use evidence_tier=signed_agent".to_string(),
+        ));
+    }
+    if version >= 2 && req.observed_at.is_none() {
+        return Err(AppError::BadRequest(
+            "schema_version 2+ telemetry must include signed observed_at".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 fn default_signed_evidence_tier() -> String {
     "signed_agent".to_string()
 }
@@ -859,6 +939,12 @@ pub struct TelemetryIngestRequest {
     pub evidence_tier: String,
     pub agent_id: String,
     pub nonce: i64,
+    /// Agent-observed wall-clock time for this signed batch. Required for
+    /// schema_version 2+; it is optional only for historical pre-versioning and
+    /// schema-version-1 envelopes. It is deliberately inside the signed envelope
+    /// so delayed submissions cannot move an event into a different AIS window.
+    #[serde(default)]
+    pub observed_at: Option<chrono::DateTime<Utc>>,
     #[serde(default)]
     pub otel_spans: Vec<serde_json::Value>,
     pub derived_signals: DerivedSignals,
@@ -949,14 +1035,14 @@ async fn check_telemetry_rate_limit(state: &AppState, agent_id: &str) -> Result<
 }
 
 /// Oracle-side compliance derivation, mirroring `integrity_sdk/telemetry/derive.py`'s
-/// `derive_compliance` — "on-chain wins" over the self-reported flagged-ratio — but run
-/// unconditionally here rather than as an SDK-side opt-in a caller could forget to pass.
+/// `derive_compliance` — independent on-chain evidence wins over the self-reported
+/// flagged-ratio — but run unconditionally here rather than as an SDK-side opt-in a
+/// caller could forget to pass.
 /// `covered_entity_address` is read from `req.otel_spans`' `metadata` (see
 /// `derive::entry_covered_entity_address`'s doc comment for why, not a new signed field)
-/// rather than a request parameter. Agents without cached primitives retain the
-/// self-reported signal because the oracle cannot classify their vertical. Once an
-/// on-chain ComplianceGate exists, however, an unreadable gate fails closed; and a
-/// Healthcare gate earns compliance only from a valid address whose live
+/// rather than a request parameter. Agents without cached primitives fail closed: the
+/// self-reported value is retained only as an audit proxy and never enters AIS. An
+/// unreadable gate also fails closed; and a Healthcare gate earns compliance only from a valid address whose live
 /// CoveredEntityRegistry + SmartBAA lookup succeeds. `EHRGate.sol` remains the actual
 /// PHI-access enforcement boundary.
 async fn oracle_compliance(state: &AppState, req: &TelemetryIngestRequest) -> f64 {
@@ -971,7 +1057,10 @@ async fn oracle_compliance(state: &AppState, req: &TelemetryIngestRequest) -> f6
         .ok()
         .flatten()
     else {
-        return self_reported;
+        // A signed agent claim is identity-authenticated, not independently
+        // evidentiary. Keep it as a shadow signal, but fail the authoritative
+        // compliance axis closed without a readable gate.
+        return 0.0;
     };
     let Some(gate) = Address::from_str(&primitives.compliance_gate_address).ok() else {
         return 0.0;
@@ -995,7 +1084,7 @@ async fn oracle_compliance(state: &AppState, req: &TelemetryIngestRequest) -> f6
                 Err(_) => 0.0,
             }
         }
-        Ok(_) => self_reported,
+        Ok(_) => 0.0,
         Err(_) => 0.0,
     }
 }
@@ -1029,19 +1118,8 @@ pub async fn ingest_telemetry(
     //
     // `None` is accepted deliberately — it is the pre-versioning shape, and those signatures
     // must keep verifying (see `TelemetryIngestRequest::schema_version`).
+    validate_telemetry_schema_version(&req)?;
     if let Some(version) = req.schema_version {
-        if version > MAX_TELEMETRY_SCHEMA_VERSION || version < 1 {
-            return Err(AppError::BadRequest(format!(
-                "unsupported telemetry schema_version {version}: this oracle understands \
-                 1..={MAX_TELEMETRY_SCHEMA_VERSION} (or an absent field, meaning the \
-                 pre-versioning envelope). Upgrade the oracle before sending this shape."
-            )));
-        }
-        if version >= 2 && req.evidence_tier != "signed_agent" {
-            return Err(AppError::BadRequest(
-                "schema_version 2 telemetry must use evidence_tier=signed_agent".to_string(),
-            ));
-        }
         // Version 3 is the first shape where `otel_spans` is structurally validated
         // (allowlisted keys, bounded sizes) rather than accepted as fully opaque
         // JSON — see `span_schema`'s module doc comment. Runs before the PHI scan:
@@ -1050,6 +1128,17 @@ pub async fn ingest_telemetry(
         if version >= 3 {
             span_schema::validate_batch(&req.otel_spans)?;
         }
+    }
+
+    let now = Utc::now();
+    let event_time = req.observed_at.unwrap_or(now);
+    if req.observed_at.is_some()
+        && (event_time > now + Duration::minutes(5)
+            || event_time < now - Duration::days(state.config.reporting_period_days))
+    {
+        return Err(AppError::BadRequest(
+            "observed_at is outside the active AIS reporting window".to_string(),
+        ));
     }
 
     // Defense-in-depth PHI/PII/secret backstop (see crate::phi's doc comment): scan the
@@ -1112,12 +1201,24 @@ pub async fn ingest_telemetry(
         return Err(AppError::Unauthorized);
     }
 
-    // The oracle independently recomputes entropy/grounding/sacrifice from the raw
-    // content already inside this signed request (`otel_spans`' `metadata.text_output`/
-    // token usage) rather than trusting `req.derived_signals` — see `derive.rs`'s module
-    // doc comment for why. Placed after signature verification (so an unauthenticated
-    // request never triggers this work) and before the ZK check.
+    // The oracle independently recomputes entropy/grounding from the raw content already
+    // inside this signed request. It records token-derived sacrifice only as an audit
+    // proxy; authoritative sacrifice remains zero until validator/TEE evidence exists.
+    // None of this trusts `req.derived_signals` — see derive.rs. Placed after signature
+    // verification (so an unauthenticated request never triggers this work) and before ZK.
     let recomputed = derive::recompute(&req.otel_spans);
+
+    // Bind the proof to this signed envelope before asking Barretenberg to verify
+    // it. The verifier checks proof/public-input consistency, not request intent.
+    let payload_hash = merkle::keccak256(&message);
+    let leaf_data = merkle::telemetry_leaf_data(&req.agent_id, req.nonce as u64, payload_hash);
+    let leaf_hash = merkle::keccak256(&leaf_data);
+    // A fresh nonce is necessary for replay protection but is not sufficient to
+    // prevent semantic event padding. Hash the signed span batch without the
+    // nonce so an identical batch cannot be counted repeatedly in one window.
+    let content_hash = Sha256::digest(&crypto::canonical_json_bytes(
+        &serde_json::to_value(&req.otel_spans).map_err(|e| AppError::BadRequest(e.to_string()))?,
+    ));
 
     let zk_verified = match &req.zk_proof {
         Some(proof) => {
@@ -1130,6 +1231,40 @@ pub async fn ingest_telemetry(
                 .map_err(|e| {
                     AppError::BadRequest(format!("invalid base64 zk_proof.public_inputs: {e}"))
                 })?;
+            let primitives = db::get_agent_primitives_on_chain(
+                &state.pool,
+                &req.agent_id,
+                state.chain.chain_id() as i64,
+            )
+            .await?
+            .ok_or_else(|| {
+                AppError::BadRequest(
+                    "zk proof requires a registry resolved on the oracle's active chain"
+                        .to_string(),
+                )
+            })?;
+            let reputation_registry = Address::from_str(&primitives.reputation_registry_address)
+                .map_err(|e| {
+                    AppError::BadRequest(format!("invalid resolved reputation registry: {e}"))
+                })?;
+            let identity_commitment = state
+                .chain
+                .zk_identity_commitment(reputation_registry)
+                .await
+                .map_err(|_| {
+                    AppError::BadRequest(
+                        "zk proof requires a readable on-chain identity commitment".to_string(),
+                    )
+                })?;
+            crate::zk::validate_telemetry_public_inputs(
+                &inputs_bytes,
+                req.nonce,
+                state.chain.chain_id(),
+                reputation_registry,
+                identity_commitment.as_slice(),
+                &leaf_hash,
+            )
+            .map_err(AppError::BadRequest)?;
             state
                 .zk
                 .verify(&proof.circuit_id, &proof_bytes, &inputs_bytes)
@@ -1148,16 +1283,14 @@ pub async fn ingest_telemetry(
     // penalized). See PRODUCTION_GAPS.md §2 for the full incident writeup.
     let flagged = compliance < 0.5;
 
-    // Leaf hash per merkle.rs's telemetry_leaf_data convention: keccak256 of the payload
-    // (everything the client signed, so the leaf is bound to the same bytes the signature
-    // covers), then packed with agent_id/nonce per §4.4.
-    let payload_hash = merkle::keccak256(&message);
-    let leaf_data = merkle::telemetry_leaf_data(&req.agent_id, req.nonce as u64, payload_hash);
-    let leaf_hash = merkle::keccak256(&leaf_data);
-
     let event_id = Uuid::new_v4();
     let payload_json = serde_json::json!({
         "evidence_tier": &req.evidence_tier,
+        "event_time_source": if req.observed_at.is_some() {
+            "signed_observed_at"
+        } else {
+            "receipt_time_legacy"
+        },
         "otel_spans": req.otel_spans,
         // Client's claimed values — advisory/audit-trail only, no longer what gets scored.
         "derived_signals": req.derived_signals,
@@ -1170,7 +1303,9 @@ pub async fn ingest_telemetry(
             "entropy": recomputed.entropy,
             "grounding": recomputed.grounding,
             "sacrifice": recomputed.sacrifice,
+            "sacrifice_proxy": recomputed.sacrifice_proxy,
             "compliance": compliance,
+            "compliance_proxy": derive::self_reported_compliance(&req.otel_spans),
             "billed_cost": &req.derived_signals.billed_cost,
         },
         "zk_proof": req.zk_proof.as_ref().map(|p| &p.circuit_id),
@@ -1194,6 +1329,8 @@ pub async fn ingest_telemetry(
         flagged,
         zk_verified,
         &leaf_hash,
+        &content_hash,
+        event_time,
         &payload_json,
         phi_flags.as_deref(),
     )
@@ -1207,6 +1344,9 @@ pub async fn ingest_telemetry(
             submitted,
             last_seen,
         },
+        db::InsertTelemetryError::DuplicateContent { agent_id } => {
+            AppError::DuplicateTelemetry(agent_id)
+        }
         db::InsertTelemetryError::Db(e) => AppError::Database(e),
     })?;
 
@@ -3434,7 +3574,8 @@ pub async fn get_ais_history(
     let agent = db::get_agent(&state.pool, &id)
         .await?
         .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
-    let tier = agent.verification_tier;
+    // Match live AIS: historical points use the expiry-aware effective tier.
+    let tier = db::effective_verification_tier(&state.pool, &id, agent.verification_tier).await?;
 
     let bucket = parse_bucket_interval(query.bucket.as_deref())?;
     let since = query.since.unwrap_or_else(default_history_since);
@@ -4664,4 +4805,50 @@ pub async fn get_intent_outcome_reconciliation(
     Ok(Json(
         db::reconcile_agent_intent_outcome(&state.pool, &id, 200).await?,
     ))
+}
+
+#[cfg(test)]
+mod telemetry_version_tests {
+    use super::*;
+
+    fn request(schema_version: Option<i64>, observed_at: Option<DateTime<Utc>>) -> TelemetryIngestRequest {
+        TelemetryIngestRequest {
+            schema_version,
+            evidence_tier: "signed_agent".to_string(),
+            agent_id: "did:integrity:test".to_string(),
+            nonce: 1,
+            observed_at,
+            otel_spans: Vec::new(),
+            derived_signals: DerivedSignals {
+                entropy: 0.0,
+                grounding: 0.0,
+                sacrifice: 0.0,
+                compliance: 0.0,
+                billed_cost: None,
+            },
+            zk_proof: None,
+            signature: "0x".to_string(),
+            judge_evaluation: None,
+        }
+    }
+
+    #[test]
+    fn historical_envelopes_may_omit_observation_time() {
+        assert!(validate_telemetry_schema_version(&request(None, None)).is_ok());
+        assert!(validate_telemetry_schema_version(&request(Some(1), None)).is_ok());
+    }
+
+    #[test]
+    fn current_envelopes_require_signed_observation_time() {
+        let missing = validate_telemetry_schema_version(&request(Some(2), None));
+        assert!(matches!(missing, Err(AppError::BadRequest(message)) if message.contains("observed_at")));
+        assert!(validate_telemetry_schema_version(&request(Some(2), Some(Utc::now()))).is_ok());
+        assert!(validate_telemetry_schema_version(&request(Some(3), Some(Utc::now()))).is_ok());
+    }
+
+    #[test]
+    fn unknown_envelope_versions_fail_closed() {
+        let result = validate_telemetry_schema_version(&request(Some(99), Some(Utc::now())));
+        assert!(matches!(result, Err(AppError::BadRequest(message)) if message.contains("unsupported")));
+    }
 }

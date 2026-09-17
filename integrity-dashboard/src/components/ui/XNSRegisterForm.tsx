@@ -67,7 +67,7 @@ export function XNSRegisterForm() {
       <button
         onClick={handleRegister}
         disabled={busy || !handle.trim()}
-        className="btn btn-sm btn-primary"
+        className="primary-button"
         style={{ borderRadius: 'calc(var(--r-md) - 2px)' }}
       >
         {busy ? <Loader2 size={14} className="pulse" /> : 'Register'}

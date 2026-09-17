@@ -1,10 +1,10 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { 
-  ChevronRight, 
-  ChevronDown, 
-  RotateCcw, 
+import {
+  ChevronRight,
+  ChevronDown,
+  RotateCcw,
   CheckCircle2,
   XCircle
 } from 'lucide-react';
@@ -103,7 +103,7 @@ interface TraceNode {
 const RiskBadge = ({ score }: { score: number }) => {
   const color = score > 0.7 ? 'var(--error)' : score > 0.3 ? 'var(--warning)' : 'var(--success)';
   const label = score > 0.7 ? 'HIGH RISK' : score > 0.3 ? 'MODERATE' : 'NOMINAL';
-  
+
   return (
     <span style={{
       fontSize: '0.6rem',
@@ -126,14 +126,14 @@ const TraceTreeNode = ({ node, depth = 0, onTimeTravel }: { node: TraceNode, dep
 
   return (
     <div style={{ marginLeft: depth > 0 ? '20px' : '0', marginTop: '4px' }}>
-      <div 
-        style={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          gap: '8px', 
-          padding: '8px', 
-          background: 'rgba(255,255,255,0.03)', 
-          border: '1px solid var(--glass-border)', 
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          padding: '8px',
+          background: 'rgba(255,255,255,0.03)',
+          border: '1px solid var(--glass-border)',
           borderRadius: 'var(--radius-sm)',
           cursor: 'pointer',
           transition: 'all 0.2s'
@@ -143,12 +143,12 @@ const TraceTreeNode = ({ node, depth = 0, onTimeTravel }: { node: TraceNode, dep
         {node.children.length > 0 ? (
           expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />
         ) : <div style={{ width: 14 }} />}
-        
+
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
-          <span style={{ 
-            fontSize: '0.7rem', 
-            fontWeight: 700, 
-            color: span.run_type === 'tool' ? 'var(--theme-accent)' : 'var(--primary)' 
+          <span style={{
+            fontSize: '0.7rem',
+            fontWeight: 700,
+            color: span.run_type === 'tool' ? 'var(--theme-accent)' : 'var(--primary)'
           }}>
             {span.run_type.toUpperCase()}
           </span>
@@ -157,14 +157,14 @@ const TraceTreeNode = ({ node, depth = 0, onTimeTravel }: { node: TraceNode, dep
         </div>
 
         <div style={{ display: 'flex', gap: '8px' }}>
-          <button 
+          <button
             onClick={(e) => { e.stopPropagation(); onTimeTravel(span); }}
-            style={{ 
-              background: 'transparent', 
-              border: '1px solid var(--glass-border)', 
-              color: 'var(--text-muted)', 
-              padding: '2px 6px', 
-              borderRadius: '4px', 
+            style={{
+              background: 'transparent',
+              border: '1px solid var(--glass-border)',
+              color: 'var(--text-muted)',
+              padding: '2px 6px',
+              borderRadius: '4px',
               fontSize: '0.6rem',
               cursor: 'pointer',
               display: 'flex',
@@ -177,7 +177,7 @@ const TraceTreeNode = ({ node, depth = 0, onTimeTravel }: { node: TraceNode, dep
           {span.status === 'error' ? <XCircle size={14} color="var(--error)" /> : <CheckCircle2 size={14} color="var(--success)" />}
         </div>
       </div>
-      
+
       {expanded && node.children.length > 0 && (
         <div style={{ borderLeft: '1px solid var(--glass-border)', marginLeft: '7px' }}>
           {node.children.map(child => (
@@ -280,14 +280,14 @@ export function TraceAnalysisPanel() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
       {/* Session Header */}
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center', 
-        padding: 'var(--space-4)', 
-        background: 'var(--bg-secondary)', 
-        border: '1px solid var(--glass-border)', 
-        borderRadius: 'var(--radius-md)' 
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: 'var(--space-4)',
+        background: 'var(--bg-secondary)',
+        border: '1px solid var(--glass-border)',
+        borderRadius: 'var(--radius-md)'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>SESSION:</span>
@@ -308,9 +308,9 @@ export function TraceAnalysisPanel() {
 
         {/* Right: Inspector & Time Travel */}
         <Panel title="Step Inspector" icon={<Edit3 size={18} />}>
-          <div style={{ 
-            display: 'flex', 
-            flexDirection: 'column', 
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
             gap: 'var(--space-4)',
             minHeight: '300px',
             padding: 'var(--space-4)',
@@ -324,30 +324,30 @@ export function TraceAnalysisPanel() {
                   <RotateCcw size={16} />
                   <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>TIME TRAVEL ACTIVE</span>
                 </div>
-                
+
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                   You have rewound the agent to: <span className="mono" style={{ color: 'white' }}>{rewindSpan.name}</span>
                 </div>
 
                 <div className="form-group">
                   <label className="form-label">Modify Input State</label>
-                  <textarea 
-                    className="input" 
+                  <textarea
+                    className="input"
                     style={{ height: '120px', fontFamily: 'monospace', fontSize: '0.8rem' }}
                     defaultValue={JSON.stringify(rewindSpan.attributes['integrity.input'], null, 2)}
                   />
                 </div>
 
                 <div style={{ display: 'flex', gap: '12px' }}>
-                  <button 
-                    className="btn btn-primary" 
+                  <button
+                    className="primary-button"
                     style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
                     onClick={() => setIsRewinding(false)}
                   >
                     <Play size={14} /> Fork Execution
                   </button>
-                  <button 
-                    className="btn btn-ghost" 
+                  <button
+                    className="secondary-button"
                     style={{ flex: 1 }}
                     onClick={() => setRewindSpan(null)}
                   >
@@ -356,25 +356,25 @@ export function TraceAnalysisPanel() {
                 </div>
               </div>
             ) : (
-              <div style={{ 
-                display: 'flex', 
-                flexDirection: 'column', 
-                alignItems: 'center', 
-                justifyContent: 'center', 
-                height: '100%', 
-                color: 'var(--text-muted)', 
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: '100%',
+                color: 'var(--text-muted)',
                 textAlign: 'center',
                 gap: '12px'
               }}>
-                <div style={{ 
-                  width: '48px', 
-                  height: '48px', 
-                  borderRadius: '50%', 
-                  background: 'var(--bg-secondary)', 
-                  display: 'flex', 
-                  alignItems: 'center', 
+                <div style={{
+                  width: '48px',
+                  height: '48px',
+                  borderRadius: '50%',
+                  background: 'var(--bg-secondary)',
+                  display: 'flex',
+                  alignItems: 'center',
                   justifyContent: 'center',
-                  border: '1px solid var(--glass-border)' 
+                  border: '1px solid var(--glass-border)'
                 }}>
                   <Zap size={24} />
                 </div>

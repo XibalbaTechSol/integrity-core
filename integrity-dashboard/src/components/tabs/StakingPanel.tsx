@@ -128,10 +128,10 @@ export function StakingPanel() {
               <>
                 <div className="form-group">
                   <label className="form-label" htmlFor="stake-amount">Amount to Stake (ITK)</label>
-                  <input 
+                  <input
                     id="stake-amount"
-                    type="number" 
-                    className="input" 
+                    type="number"
+                    className="input"
                     placeholder="Min. 100 ITK"
                     value={stakeAmount}
                     onChange={e => setStakeAmount(e.target.value)}
@@ -145,7 +145,7 @@ export function StakingPanel() {
                 </div>
 
                 <button
-                  className="btn btn-primary" 
+                  className="primary-button"
                   onClick={handleStake}
                   disabled={isStaking || !stakeAmount || Number(stakeAmount) < 100}
                 >
@@ -162,7 +162,7 @@ export function StakingPanel() {
               <div className="text-muted" style={{ fontSize: '0.875rem' }}>No stake position for this agent yet.</div>
             ) : (
               <>
-                <div className="table-container">
+                <div className="table-container" role="region" aria-label="Staking records" tabIndex={0}>
                   <table className="table" style={{ fontSize: '0.75rem' }}>
                     <thead>
                       <tr>

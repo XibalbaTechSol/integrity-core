@@ -43,6 +43,8 @@ use serde::{Deserialize, Serialize};
 /// the old prototype's convention (a human-readable "out of 1000" score) so the
 /// API's `ais_score` field stays intuitive to operators.
 pub const MAX_COMPONENT_SCORE: f64 = 1000.0;
+pub const AIS_PROFILE_VERSION: &str = "ais/v1-geometric-1";
+pub const DEFAULT_REPORTING_PERIOD_DAYS: i64 = 30;
 
 /// Multiplier applied when the agent has at least one Barretenberg-verified ZK
 /// proof in the reporting period. Fixed by the interface contract — not configurable,
@@ -82,13 +84,15 @@ impl AisWeights {
     /// sums of decimal literals (0.30 + 0.30 + 0.20 + 0.20) are not bit-exact, so
     /// this checks within a small epsilon rather than `== 1.0`.
     pub fn validate(&self) -> Result<(), String> {
+        if [self.w_entropy, self.w_grounding, self.w_sacrifice, self.w_compliance]
+            .iter().any(|w| !w.is_finite()) { return Err("AIS weights must be finite".to_string()); }
         let sum = self.w_entropy + self.w_grounding + self.w_sacrifice + self.w_compliance;
         if (sum - 1.0).abs() > 1e-6 {
             return Err(format!("AIS weights must sum to 1.0, got {sum}"));
         }
         if [self.w_entropy, self.w_grounding, self.w_sacrifice, self.w_compliance]
             .iter()
-            .any(|w| *w < 0.0)
+            .any(|w| *w < 0.0 || *w > 1.0)
         {
             return Err("AIS weights must be non-negative".to_string());
         }
@@ -144,10 +148,13 @@ pub struct AisBreakdown {
     pub s_sacrifice: f64,
     pub s_compliance: f64,
     pub zk_boost: f64,
+    pub ais_base: f64,
+    pub ais_post_boost: f64,
     /// Final AIS after the weighted geometric mean, ZK boost, and (when requested)
     /// verification-tier ceiling. `score()` returns the raw post-boost value;
     /// `score_with_tier()` clamps it to the documented 300/600/850/1000 ladder.
     pub ais: f64,
+    pub tier_ceiling: f64,
     /// spec/integrity-protocol-v3.2.md §3.1.1 eq. 4b's `r(ι)`: the normalised,
     /// **pre-boost** base score clamped to `[0,1]`, for use as a reputation-parameterised
     /// constraint input — never `ais` above, which is post-boost and unclamped. Computed
@@ -197,6 +204,16 @@ impl Default for AisFloors {
     }
 }
 
+impl AisFloors {
+    pub fn validate(&self) -> Result<(), String> {
+        if [self.entropy, self.grounding, self.compliance].iter()
+            .any(|v| !v.is_finite() || *v < 0.0 || *v > MAX_COMPONENT_SCORE) {
+            return Err("AIS floors must be finite values in [0, 1000]".to_string());
+        }
+        Ok(())
+    }
+}
+
 /// Stateless computation engine over a fixed set of weights. Cheap to construct;
 /// callers can build one per-request from operator-configured weights, or reuse
 /// `AisEngine::default()`.
@@ -221,9 +238,11 @@ impl Default for AisEngine {
 impl AisEngine {
     pub fn new(weights: AisWeights) -> Result<Self, String> {
         weights.validate()?;
+        let floors = AisFloors::default();
+        floors.validate()?;
         Ok(Self {
             weights,
-            floors: AisFloors::default(),
+            floors,
         })
     }
 
@@ -231,6 +250,7 @@ impl AisEngine {
     /// instead of `AisFloors::default()`'s provisional values.
     pub fn with_floors(weights: AisWeights, floors: AisFloors) -> Result<Self, String> {
         weights.validate()?;
+        floors.validate()?;
         Ok(Self { weights, floors })
     }
 
@@ -238,6 +258,7 @@ impl AisEngine {
     /// Gaussian-style decay so small variance barely moves the score but variance
     /// growing without bound saturates toward 0 rather than going negative.
     pub fn calculate_entropy_score(&self, performance_variance: f64) -> f64 {
+        if !performance_variance.is_finite() { return 0.0; }
         let v = performance_variance.max(0.0);
         let stability_factor = (-1.5 * v * v).exp();
         (stability_factor * MAX_COMPONENT_SCORE).clamp(0.0, MAX_COMPONENT_SCORE)
@@ -247,6 +268,8 @@ impl AisEngine {
     /// design — there's no principled nonlinearity to apply here, unlike the
     /// logarithmic "sacrifice" metric where marginal hours matter less at scale.
     pub fn calculate_grounding_score(&self, hgi_raw: f64) -> f64 {
+        if hgi_raw.is_nan() || hgi_raw == f64::NEG_INFINITY { return 0.0; }
+        if hgi_raw == f64::INFINITY { return MAX_COMPONENT_SCORE; }
         (hgi_raw.clamp(0.0, 1.0) * MAX_COMPONENT_SCORE).clamp(0.0, MAX_COMPONENT_SCORE)
     }
 
@@ -256,6 +279,8 @@ impl AisEngine {
     /// baseline agent should not score 100x higher, since that would make the score
     /// pure pay-to-win rather than a trust signal).
     pub fn calculate_sacrifice_score(&self, gpu_hours_verified: f64) -> f64 {
+        if gpu_hours_verified.is_nan() || gpu_hours_verified == f64::NEG_INFINITY { return 0.0; }
+        if gpu_hours_verified == f64::INFINITY { return MAX_COMPONENT_SCORE; }
         let hours = gpu_hours_verified.max(0.0);
         let sacrifice_idx = ((hours + 1.0).log10() / 3.0).min(1.0);
         (sacrifice_idx * MAX_COMPONENT_SCORE).clamp(0.0, MAX_COMPONENT_SCORE)
@@ -267,6 +292,7 @@ impl AisEngine {
     /// rate of 0.4 should be treated non-linearly worse than 0.2, unlike compute
     /// contribution where marginal returns genuinely diminish.
     pub fn calculate_compliance_score(&self, penalty_ratio: f64) -> f64 {
+        if penalty_ratio.is_nan() || penalty_ratio == f64::NEG_INFINITY || penalty_ratio == f64::INFINITY { return 0.0; }
         let clean_ratio = 1.0 - penalty_ratio.clamp(0.0, 1.0);
         (clean_ratio * MAX_COMPONENT_SCORE).clamp(0.0, MAX_COMPONENT_SCORE)
     }
@@ -278,15 +304,15 @@ impl AisEngine {
         let s_sacrifice = self.calculate_sacrifice_score(inputs.gpu_hours_verified);
         let s_compliance = self.calculate_compliance_score(inputs.penalty_ratio);
 
-        let verified_ratio = inputs.zk_verified_event_ratio.clamp(0.0, 1.0);
+        let verified_ratio = if inputs.zk_verified_event_ratio.is_finite() { inputs.zk_verified_event_ratio.clamp(0.0, 1.0) } else { 0.0 };
         let zk_boost = NO_ZK_BOOST_FACTOR
             + (ZK_BOOST_FACTOR - NO_ZK_BOOST_FACTOR) * verified_ratio;
 
-        // Use the Weighted Geometric Mean (Volume formula) instead of Arithmetic Mean
-        let weighted = s_entropy.powf(self.weights.w_entropy)
-            * s_grounding.powf(self.weights.w_grounding)
-            * s_sacrifice.powf(self.weights.w_sacrifice)
-            * s_compliance.powf(self.weights.w_compliance);
+        let components = [(s_entropy, self.weights.w_entropy), (s_grounding, self.weights.w_grounding), (s_sacrifice, self.weights.w_sacrifice), (s_compliance, self.weights.w_compliance)];
+        let weighted = if components.iter().any(|(v, w)| *w > 0.0 && *v == 0.0) { 0.0 } else {
+            components.iter().filter(|(_, w)| *w > 0.0).map(|(v, w)| *w * v.ln()).sum::<f64>().exp().clamp(0.0, MAX_COMPONENT_SCORE)
+        };
+        let ais_post_boost = (weighted * zk_boost).clamp(0.0, MAX_COMPONENT_SCORE * ZK_BOOST_FACTOR);
 
         // eq. 4b: r(ι) is the PRE-boost base score, normalised and clamped to [0,1].
         // `weighted` (not `weighted * zk_boost`) is deliberate — see AisBreakdown's doc
@@ -305,7 +331,10 @@ impl AisEngine {
             s_sacrifice,
             s_compliance,
             zk_boost,
-            ais: weighted * zk_boost,
+            ais_base: weighted,
+            ais_post_boost,
+            ais: ais_post_boost,
+            tier_ceiling: MAX_COMPONENT_SCORE,
             constraint_score,
             gate_entropy_pass,
             gate_grounding_pass,
@@ -334,6 +363,7 @@ impl AisEngine {
         let mut breakdown = self.score(inputs);
         let ceiling = Self::ceiling_for_tier(verification_tier);
         breakdown.ais = breakdown.ais.min(ceiling);
+        breakdown.tier_ceiling = ceiling;
         // Same ceiling, same rationale, expressed on constraint_score's [0,1] scale:
         // an agent's identity-assurance tier bounds its constraint input exactly as it
         // bounds its display score, so a low-tier agent can't use eq. 4b to reach a
@@ -373,6 +403,32 @@ mod tests {
             w_compliance: 0.3,
         };
         assert!(bad.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_non_finite_weights_and_floors() {
+        assert!(AisWeights { w_entropy: f64::NAN, ..AisWeights::default() }.validate().is_err());
+        assert!(AisFloors { entropy: f64::INFINITY, ..AisFloors::default() }.validate().is_err());
+    }
+
+    #[test]
+    fn non_finite_inputs_fail_closed_or_saturate_by_direction() {
+        let engine = AisEngine::default();
+        assert_eq!(engine.calculate_entropy_score(f64::NAN), 0.0);
+        assert_eq!(engine.calculate_grounding_score(f64::NAN), 0.0);
+        assert_eq!(engine.calculate_grounding_score(f64::INFINITY), MAX_COMPONENT_SCORE);
+        assert_eq!(engine.calculate_sacrifice_score(f64::NAN), 0.0);
+        assert_eq!(engine.calculate_sacrifice_score(f64::INFINITY), MAX_COMPONENT_SCORE);
+        assert_eq!(engine.calculate_compliance_score(f64::NAN), 0.0);
+    }
+
+    #[test]
+    fn breakdown_exposes_distinct_base_boosted_and_capped_values() {
+        let inputs = AisComponentInputs { performance_variance: 0.2, hgi_raw: 0.8, gpu_hours_verified: 500.0, penalty_ratio: 0.1, zk_verified_event_ratio: 1.0 };
+        let b = AisEngine::default().score_with_tier(&inputs, 1);
+        assert!(b.ais_base < b.ais_post_boost);
+        assert_eq!(b.ais, b.ais_post_boost.min(600.0));
+        assert_eq!(b.tier_ceiling, 600.0);
     }
 
     #[test]

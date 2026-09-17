@@ -206,6 +206,7 @@ export default function KernelIntentPage() {
 
   return (
     <motion.div
+      className="kernel-intent-page"
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.28, ease: 'easeOut' }}

@@ -34,9 +34,9 @@ const AuthPage: React.FC = () => {
   };
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-color)', color: 'var(--text-primary)' }}>
+    <div className="auth-page" style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-color)', color: 'var(--text-primary)' }}>
       {/* Left side: Brand/Visual */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '4rem', background: 'var(--surface-color)', borderRight: '1px solid var(--border-color)' }}>
+      <div className="auth-brand-panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '4rem', background: 'var(--surface-color)', borderRight: '1px solid var(--border-color)' }}>
         <img src="/logo.png" alt="Xibalba Solutions" style={{ height: '48px', alignSelf: 'flex-start', marginBottom: 'auto' }} />
         <div style={{ marginTop: 'auto', marginBottom: 'auto' }}>
           <h1 style={{ fontSize: '3rem', marginBottom: '1rem', fontFamily: 'Raleway, sans-serif' }}>Access the Agentic Economy.</h1>
@@ -47,14 +47,14 @@ const AuthPage: React.FC = () => {
       </div>
 
       {/* Right side: Auth Form */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '4rem' }}>
+      <div className="auth-form-panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '4rem' }}>
         <div style={{ width: '100%', maxWidth: '400px' }}>
           <h2 style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>{isLogin ? 'Welcome Back' : 'Create Account'}</h2>
           <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem' }}>
             {isLogin ? 'Enter your credentials to access the platform.' : 'Register to get started with Integrity Protocol.'}
           </p>
 
-          <button onClick={handleWalletAuth} className="button" style={{ width: '100%', padding: '1rem', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.75rem', marginBottom: '2rem', background: '#333', color: 'white', border: '1px solid #555' }}>
+          <button onClick={handleWalletAuth} className="secondary-button" style={{ width: '100%', padding: '1rem', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.75rem', marginBottom: '2rem', background: '#333', color: 'white', border: '1px solid #555' }}>
             <Key size={18} />
             <span style={{ fontWeight: 600 }}>Continue with Web3 Wallet</span>
           </button>
@@ -75,7 +75,7 @@ const AuthPage: React.FC = () => {
               <input id="auth-password" type="password" required value={password} onChange={e => setPassword(e.target.value)} style={{ width: '100%', padding: '0.75rem', borderRadius: '4px', border: '1px solid var(--border-color)', background: 'var(--bg-color)', color: 'var(--text-primary)' }} placeholder="••••••••" />
             </div>
             {error && <div style={{ color: 'var(--danger, #f44336)', fontSize: '0.85rem' }}>{error}</div>}
-            <button type="submit" disabled={loading} className="button primary" style={{ width: '100%', padding: '1rem', marginTop: '0.5rem', display: 'flex', justifyContent: 'center', gap: '0.5rem' }}>
+            <button type="submit" disabled={loading} className="primary-button" style={{ width: '100%', padding: '1rem', marginTop: '0.5rem', display: 'flex', justifyContent: 'center', gap: '0.5rem' }}>
               {loading ? 'Working…' : isLogin ? 'Sign In' : 'Sign Up'} <ArrowRight size={18} />
             </button>
           </form>

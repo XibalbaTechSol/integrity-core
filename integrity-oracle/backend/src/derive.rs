@@ -102,16 +102,12 @@ fn entry_text_output(entry: &Value) -> Option<&str> {
     entry.get("metadata")?.get("text_output")?.as_str()
 }
 
-fn entry_precomputed(entry: &Value, key: &str) -> Option<f64> {
-    entry.get(key)?.as_f64()
-}
-
 fn entry_entropy(entry: &Value) -> Option<f64> {
-    entry_precomputed(entry, "entropy").or_else(|| entry_text_output(entry).map(lexical_stability_score))
+    entry_text_output(entry).map(lexical_stability_score)
 }
 
 fn entry_grounding(entry: &Value) -> Option<f64> {
-    entry_precomputed(entry, "grounding").or_else(|| entry_text_output(entry).map(keyword_grounding_score))
+    entry_text_output(entry).map(keyword_grounding_score)
 }
 
 /// Batch-mean stability score across every entry that has a completion text or a
@@ -261,14 +257,19 @@ pub fn entry_covered_entity_address(batch: &[Value]) -> Option<String> {
 pub struct RecomputedSignals {
     pub entropy: f64,
     pub grounding: f64,
+    /// Authoritative sacrifice input. Until validator/TEE evidence is wired,
+    /// this is deliberately zero rather than a self-reported token proxy.
     pub sacrifice: f64,
+    /// Audit-only shadow metric retained to quantify the proxy gap.
+    pub sacrifice_proxy: f64,
 }
 
 pub fn recompute(batch: &[Value]) -> RecomputedSignals {
     RecomputedSignals {
         entropy: derive_entropy(batch),
         grounding: derive_grounding(batch),
-        sacrifice: derive_sacrifice(batch),
+        sacrifice: 0.0,
+        sacrifice_proxy: derive_sacrifice(batch),
     }
 }
 
@@ -385,7 +386,7 @@ mod tests {
     // --- derive_sacrifice ---
 
     #[test]
-    fn derive_sacrifice_sums_token_usage_and_divides_by_proxy_constant() {
+    fn derive_sacrifice_proxy_sums_token_usage_and_divides_by_proxy_constant() {
         let batch = vec![json!({"metadata": {"token_usage": {"total_tokens": 50000}}})];
         let score = derive_sacrifice(&batch);
         assert!((score - 1.0).abs() < 1e-9, "got {score}");
@@ -406,6 +407,15 @@ mod tests {
     fn derive_sacrifice_zero_tokens_is_zero() {
         assert_eq!(derive_sacrifice(&[json!({"metadata": {}})]), 0.0);
         assert_eq!(derive_sacrifice(&[]), 0.0);
+    }
+
+    #[test]
+    fn recompute_does_not_promote_token_proxy_to_authoritative_sacrifice() {
+        let signals = recompute(&[json!({
+            "metadata": {"text_output": "grounded answer", "token_usage": {"total_tokens": 50_000}}
+        })]);
+        assert_eq!(signals.sacrifice, 0.0);
+        assert_eq!(signals.sacrifice_proxy, 1.0);
     }
 
     // --- batch defaults / adversarial robustness ---
@@ -462,12 +472,10 @@ mod tests {
     }
 
     #[test]
-    fn precomputed_entropy_grounding_preferred_over_recompute() {
-        // Mirrors derive.py's _entry_entropy/_entry_grounding: prefer a pre-computed
-        // per-entry field over recomputing from text_output.
-        let batch = vec![json!({"entropy": 0.42, "grounding": 0.11, "metadata": {"text_output": "ignored text content here"}})];
-        assert_eq!(derive_entropy(&batch), 0.42);
-        assert_eq!(derive_grounding(&batch), 0.11);
+    fn client_precomputed_entropy_grounding_are_not_authoritative() {
+        let batch = vec![json!({"entropy": 0.0, "grounding": 0.0, "metadata": {"text_output": "answer answer answer grounded"}})];
+        assert!(derive_entropy(&batch) > 0.0);
+        assert_eq!(derive_grounding(&batch), 0.95);
     }
 
     // --- self_reported_compliance ---

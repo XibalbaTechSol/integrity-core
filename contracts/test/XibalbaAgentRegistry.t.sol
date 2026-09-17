@@ -110,9 +110,10 @@ contract XibalbaAgentRegistryTest is Test {
     }
 
     function test_registerPrimitivesRejectsZeroController() public {
+        bytes32 h = registry.didHash("did:integrity:zero-controller");
         vm.prank(registrar);
         vm.expectRevert(XibalbaAgentRegistry.ZeroController.selector);
-        registry.registerPrimitives(registry.didHash("did:integrity:zero-controller"), primitives, address(0), domainId);
+        registry.registerPrimitives(h, primitives, address(0), domainId);
     }
 
     function test_registerEnterpriseAgentRejectsZeroController() public {

@@ -416,7 +416,7 @@ export function RegisterAgentModal({ onClose, onSuccess }: Props) {
         </div>
 
         {!walletAddress ? (
-          <button className="btn btn-primary" onClick={connectWallet}>Connect a Base Sepolia wallet</button>
+          <button className="primary-button" onClick={connectWallet}>Connect a Base Sepolia wallet</button>
         ) : (
           <>
             <div style={{ display: 'flex', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
@@ -457,7 +457,7 @@ export function RegisterAgentModal({ onClose, onSuccess }: Props) {
                       {st === 'busy' ? <Loader2 size={13} className="animate-spin" /> : st === 'done' ? <Check size={13} /> : s.n}
                     </span>
                     <span style={{ flex: 1, fontSize: '0.85rem', fontWeight: 600 }}>{s.label}</span>
-                    <button className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: '0.72rem' }}
+                    <button className="secondary-button" style={{ padding: '4px 10px', fontSize: '0.72rem' }}
                       disabled={busyStep !== null || st === 'done' || !s.ready}
                       onClick={s.action}>
                       {st === 'done' ? 'Done' : st === 'busy' ? 'Working…' : 'Run'}
@@ -480,7 +480,7 @@ export function RegisterAgentModal({ onClose, onSuccess }: Props) {
             )}
 
             {oracleDone && (
-              <button className="btn btn-success" onClick={() => onSuccess(did)}>Finish</button>
+              <button className="primary-button" onClick={() => onSuccess(did)}>Finish</button>
             )}
           </>
         )}

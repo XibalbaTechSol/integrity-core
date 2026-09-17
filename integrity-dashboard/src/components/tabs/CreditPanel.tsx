@@ -215,11 +215,11 @@ export function CreditPanel() {
                   On-chain via A2ACapitalPool — no lending, no interest. Purely trust-gated capital delegation.
                 </div>
                 {!walletAddress ? (
-                  <button type="button" className="btn btn-primary" style={{ width: '100%', marginTop: 'var(--space-4)' }} onClick={connectWallet}>
+                  <button type="button" className="primary-button" style={{ width: '100%', marginTop: 'var(--space-4)' }} onClick={connectWallet}>
                     Connect Wallet
                   </button>
                 ) : (
-                  <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: 'var(--space-4)' }} disabled={!selectedAgent || isAllocating}>
+                  <button type="submit" className="primary-button" style={{ width: '100%', marginTop: 'var(--space-4)' }} disabled={!selectedAgent || isAllocating}>
                     {isAllocating ? <RefreshCw className="spin" size={16} /> : <><Send size={15} style={{ marginRight: 6 }} /> Escrow Capital</>}
                   </button>
                 )}
@@ -235,7 +235,7 @@ export function CreditPanel() {
         ) : !walletAddress ? (
           <div className="text-muted" style={{ textAlign: 'center', padding: 'var(--space-6)' }}>Connect a wallet to see allocations you've made.</div>
         ) : (
-          <div className="table-container">
+          <div className="table-container" role="region" aria-label="Agent allocations" tabIndex={0}>
             <table className="table">
               <thead>
                 <tr><th>Allocation ID</th><th>Amount</th><th>Min AIS</th><th>Created</th><th>Status</th><th>Actions</th></tr>
@@ -252,11 +252,11 @@ export function CreditPanel() {
                     <td>
                       {a.status === 0 ? (
                         <div style={{ display: 'flex', gap: '6px' }}>
-                          <button className="btn btn-ghost" style={{ padding: '4px 8px', fontSize: '0.75rem', color: 'var(--success)' }}
+                          <button className="secondary-button" style={{ padding: '4px 8px', fontSize: '0.75rem', color: 'var(--success)' }}
                             disabled={busyId === a.id} onClick={() => act(a.id, 'release')}>
                             {busyId === a.id ? '…' : 'Release'}
                           </button>
-                          <button className="btn btn-ghost" style={{ padding: '4px 8px', fontSize: '0.75rem', color: 'var(--theme-accent)', display: 'flex', alignItems: 'center', gap: '2px' }}
+                          <button className="secondary-button" style={{ padding: '4px 8px', fontSize: '0.75rem', color: 'var(--theme-accent)', display: 'flex', alignItems: 'center', gap: '2px' }}
                             disabled={busyId === a.id} onClick={() => act(a.id, 'clawback')}>
                             <Undo2 size={12} /> Clawback
                           </button>

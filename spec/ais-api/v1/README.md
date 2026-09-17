@@ -14,6 +14,31 @@ See [`../../README.md`](../../README.md) for the full policy. Short version: `/v
 additive-only for its lifetime (new optional fields and new endpoints only); a breaking
 change means a `/v2/*` prefix, not a change to `/v1/*`'s existing shape.
 
+## AIS scoring profile
+
+The current response identifies `scoring_profile: "ais/v1-geometric-1"`.
+`ais_base` is the weighted geometric mean before assurance boost;
+`ais_post_boost` applies `1 + 0.15 * verified_event_ratio`; and `ais` is the
+post-boost value capped by the server-derived identity tier. The authoritative
+pre-boost constraint input is `constraint_score`, not `ais`. The four components
+use the `0.30/0.30/0.20/0.20` weights and a trailing 30-day window by default.
+For migrated factory registries, `onchain_assurance_tier` and
+`onchain_tier_ceiling` are the contract-read cap and
+`onchain_assurance_consistent` states whether they agree with the Oracle tier.
+These fields are `null` for legacy registries without the new tier authority;
+middleware refuses authoritative synchronization for that state until migration.
+
+`evidence_tier`, `data_sufficiency`, `proxy_axes`, and `missing_axes` are
+categorical evidence metadata, not calibrated confidence or probability. Token
+usage and self-reported compliance are retained as audit-only proxies; without
+independent evidence their authoritative AIS axes are zero. Signed `observed_at`
+is required for schema version 2+ and is used for reporting-window/history
+queries. Identical span batches are rejected even with a fresh nonce.
+Pre-versioning and schema version 1 envelopes remain verifiable as historical
+evidence, but their receipt time is not equivalent to signed observation time.
+Unsigned OTLP, client-derived
+signal claims, and dashboard simulations are not authoritative AIS evidence.
+
 ## Base URL / auth
 
 There is currently **no authentication layer** on this API — every endpoint is publicly

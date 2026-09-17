@@ -117,6 +117,9 @@ impl Config {
         let reporting_period_days: i64 = env_or("AIS_REPORTING_PERIOD_DAYS", "30")
             .parse()
             .map_err(|_| "AIS_REPORTING_PERIOD_DAYS must be a valid integer".to_string())?;
+        if reporting_period_days <= 0 {
+            return Err("AIS_REPORTING_PERIOD_DAYS must be greater than zero".to_string());
+        }
         let anchor_stale_penalty_bps: u16 = env_or("AIS_ANCHOR_STALE_PENALTY_BPS", "0")
             .parse()
             .map_err(|_| "AIS_ANCHOR_STALE_PENALTY_BPS must be an integer between 0 and 10000".to_string())?;

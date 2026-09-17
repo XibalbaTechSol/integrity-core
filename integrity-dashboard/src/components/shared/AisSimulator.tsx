@@ -1,33 +1,24 @@
 import { useMemo, useState } from 'react';
 import { Sliders, Zap, RotateCcw } from 'lucide-react';
+import {
+  AIS_PROFILE,
+  AIS_WEIGHTS,
+  MAX_COMPONENT_SCORE,
+  SHADOW_FLOORS,
+  TIER_CEILINGS,
+  ZK_BOOST_FACTOR,
+  complianceScore,
+  entropyScore,
+  groundingScore,
+  sacrificeProxyScore,
+} from '../../services/aisProfile';
 
-// A live, client-side reimplementation of integrity-oracle/scoring-core's exact
-// AisEngine::score() -- same constants, same formulas, same order of operations.
-// This is not fabricated demo data: it's the real algorithm run against
-// hypothetical inputs, so a viewer can feel out *why* the score moves the way it
+// A hypothetical explanatory model matching the accepted profile in
+// integrity-oracle/scoring-core. It is not live evidence or an authoritative
+// score; it lets a viewer feel out *why* the score moves the way it
 // does (the geometric mean's zero-annihilation property especially) without
 // needing a live agent with matching telemetry. If scoring-core's formula ever
 // changes, this must change with it -- see that crate's own top docstring.
-const MAX = 1000;
-const WEIGHTS = { entropy: 0.3, grounding: 0.3, sacrifice: 0.2, compliance: 0.2 };
-const ZK_BOOST = 1.15;
-const TIER_CEILING = [300, 600, 850, 1000];
-
-function sEntropy(variance: number) {
-  const v = Math.max(variance, 0);
-  return Math.min(Math.max(Math.exp(-1.5 * v * v) * MAX, 0), MAX);
-}
-function sGrounding(hgi: number) {
-  return Math.min(Math.max(hgi, 0), 1) * MAX;
-}
-function sSacrifice(hours: number) {
-  const h = Math.max(hours, 0);
-  return Math.min((Math.log10(h + 1) / 3), 1) * MAX;
-}
-function sCompliance(penaltyRatio: number) {
-  return (1 - Math.min(Math.max(penaltyRatio, 0), 1)) * MAX;
-}
-
 type Preset = { label: string; variance: number; hgi: number; hours: number; penalty: number; zk: boolean };
 const PRESETS: Preset[] = [
   { label: 'Perfect agent', variance: 0, hgi: 1, hours: 1000, penalty: 0, zk: true },
@@ -44,7 +35,7 @@ function Bar({ label, value, color }: { label: string; value: number; color: str
         <span style={{ fontWeight: 700, color }}>{value.toFixed(1)}</span>
       </div>
       <div style={{ height: '8px', borderRadius: '4px', background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
-        <div style={{ height: '100%', width: `${(value / MAX) * 100}%`, background: color, transition: 'width 0.15s ease' }} />
+        <div style={{ height: '100%', width: `${(value / MAX_COMPONENT_SCORE) * 100}%`, background: color, transition: 'width 0.15s ease' }} />
       </div>
     </div>
   );
@@ -82,20 +73,21 @@ export function AisSimulator() {
   const [tier, setTier] = useState(3);
 
   const breakdown = useMemo(() => {
-    const s_entropy = sEntropy(variance);
-    const s_grounding = sGrounding(hgi);
-    const s_sacrifice = sSacrifice(hours);
-    const s_compliance = sCompliance(penalty);
+    const s_entropy = entropyScore(variance);
+    const s_grounding = groundingScore(hgi);
+    const s_sacrifice = sacrificeProxyScore(hours);
+    const s_compliance = complianceScore(penalty);
     const weighted =
-      Math.pow(s_entropy, WEIGHTS.entropy) *
-      Math.pow(s_grounding, WEIGHTS.grounding) *
-      Math.pow(s_sacrifice, WEIGHTS.sacrifice) *
-      Math.pow(s_compliance, WEIGHTS.compliance);
-    const zk_boost = zk ? ZK_BOOST : 1.0;
+      Math.pow(s_entropy, AIS_WEIGHTS.entropy) *
+      Math.pow(s_grounding, AIS_WEIGHTS.grounding) *
+      Math.pow(s_sacrifice, AIS_WEIGHTS.sacrifice) *
+      Math.pow(s_compliance, AIS_WEIGHTS.compliance);
+    const zk_boost = zk ? ZK_BOOST_FACTOR : 1.0;
     const raw = weighted * zk_boost;
-    const ceiling = TIER_CEILING[tier];
+    const ceiling = TIER_CEILINGS[tier];
     const ais = tier < 3 ? Math.min(raw, ceiling) : raw;
-    return { s_entropy, s_grounding, s_sacrifice, s_compliance, weighted, zk_boost, raw, ceiling, ais, tierCapped: tier < 3 && raw > ceiling };
+    const shadowGate = s_entropy >= SHADOW_FLOORS.entropy && s_grounding >= SHADOW_FLOORS.grounding && s_compliance >= SHADOW_FLOORS.compliance;
+    return { s_entropy, s_grounding, s_sacrifice, s_compliance, weighted, zk_boost, raw, ceiling, ais, shadowGate, tierCapped: tier < 3 && raw > ceiling };
   }, [variance, hgi, hours, penalty, zk, tier]);
 
   const applyPreset = (p: Preset) => {
@@ -117,7 +109,7 @@ export function AisSimulator() {
           <div>
             <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>AIS Mechanics Explorer</div>
             <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-              Runs the real oracle formula client-side against hypothetical inputs -- not a live agent reading.
+              Hypothetical explorer for {AIS_PROFILE}; not live evidence or an authorization decision.
             </div>
           </div>
         </div>
@@ -126,7 +118,7 @@ export function AisSimulator() {
             <button
               key={p.label}
               onClick={() => applyPreset(p)}
-              className="btn btn-outline btn-xs"
+              className="secondary-button btn-xs"
               style={{ fontSize: '0.65rem' }}
             >
               {p.label}
@@ -149,7 +141,7 @@ export function AisSimulator() {
               <Zap size={14} color={zk ? '#f59e0b' : 'var(--text-muted)'} />
               Real ZK proof verified this period (x1.15)
             </label>
-            <button onClick={() => applyPreset(PRESETS[1])} className="btn btn-ghost btn-xs" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <button onClick={() => applyPreset(PRESETS[1])} className="secondary-button btn-xs" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
               <RotateCcw size={12} /> Reset
             </button>
           </div>
@@ -188,14 +180,17 @@ export function AisSimulator() {
             display: 'flex', flexDirection: 'column', gap: '6px',
           }}>
             <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-              Resulting AIS
+              Hypothetical AIS
             </div>
             <div style={{ fontSize: '2rem', fontWeight: 800, color: breakdown.ais < 1 ? 'var(--danger)' : 'var(--theme-accent)' }}>
               {breakdown.ais.toFixed(1)} <span style={{ fontSize: '1rem', color: 'var(--text-muted)', fontWeight: 500 }}>/ 1000</span>
             </div>
             <div className="mono" style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-              {breakdown.s_entropy.toFixed(0)}^0.3 x {breakdown.s_grounding.toFixed(0)}^0.3 x {breakdown.s_sacrifice.toFixed(0)}^0.2 x {breakdown.s_compliance.toFixed(0)}^0.2 x {breakdown.zk_boost.toFixed(2)} = {breakdown.raw.toFixed(1)}
+              base {breakdown.weighted.toFixed(1)} · post-boost {breakdown.raw.toFixed(1)} · final {breakdown.ais.toFixed(1)} · profile {AIS_PROFILE}
               {breakdown.tierCapped && <span style={{ color: '#f59e0b' }}> -- capped at tier ceiling {breakdown.ceiling}</span>}
+            </div>
+            <div style={{ fontSize: '0.68rem', color: breakdown.shadowGate ? 'var(--text-muted)' : '#f59e0b' }}>
+              Shadow floor diagnostic: {breakdown.shadowGate ? 'would pass' : 'would fail'}; proposed gate is not enforced.
             </div>
             {breakdown.ais < 1 && (
               <div style={{ marginTop: '6px', fontSize: '0.7rem', color: 'var(--danger)', lineHeight: 1.4 }}>

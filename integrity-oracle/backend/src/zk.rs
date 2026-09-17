@@ -20,7 +20,66 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use alloy::primitives::{Address, U256};
 use tokio::process::Command;
+
+const PUBLIC_INPUT_BYTES: usize = 32;
+const PUBLIC_INPUT_COUNT: usize = 6;
+const BN254_SCALAR_FIELD: U256 = U256::from_limbs([
+    0x3c208c16d87cfd47,
+    0x97816a916871ca8d,
+    0xb85045b68181585d,
+    0x30644e72e131a029,
+]);
+
+/// Bind the circuit's public inputs to the telemetry request before invoking
+/// Barretenberg. `bb verify` proves only that the proof matches caller-supplied
+/// bytes; it does not know which request or registry the caller intended.
+pub fn validate_telemetry_public_inputs(
+    public_inputs: &[u8],
+    nonce: i64,
+    chain_id: u64,
+    reputation_registry: Address,
+    identity_commitment: &[u8],
+    leaf_hash: &[u8],
+) -> Result<(), String> {
+    if nonce <= 0 {
+        return Err("telemetry nonce must be positive".to_string());
+    }
+    if public_inputs.len() != PUBLIC_INPUT_BYTES * PUBLIC_INPUT_COUNT {
+        return Err(format!(
+            "expected {PUBLIC_INPUT_COUNT} public inputs ({} bytes), got {}",
+            PUBLIC_INPUT_BYTES * PUBLIC_INPUT_COUNT,
+            public_inputs.len()
+        ));
+    }
+    if identity_commitment.len() != PUBLIC_INPUT_BYTES || leaf_hash.len() != PUBLIC_INPUT_BYTES {
+        return Err("zk identity commitment and telemetry leaf hash must each be exactly 32 bytes".to_string());
+    }
+    let field = |index: usize| {
+        U256::from_be_slice(
+            &public_inputs[index * PUBLIC_INPUT_BYTES..(index + 1) * PUBLIC_INPUT_BYTES],
+        )
+    };
+    if field(1) != U256::from(nonce as u64) {
+        return Err("zk proof nonce is not bound to the telemetry nonce".to_string());
+    }
+    if field(0) != U256::from_be_slice(identity_commitment) {
+        return Err("zk proof identity is not bound to the registered commitment".to_string());
+    }
+    if field(3) != U256::from(chain_id) {
+        return Err("zk proof chain id is not bound to the oracle chain".to_string());
+    }
+    let mut registry_bytes = [0u8; PUBLIC_INPUT_BYTES];
+    registry_bytes[12..].copy_from_slice(reputation_registry.as_slice());
+    if field(4) != U256::from_be_bytes(registry_bytes) {
+        return Err("zk proof registry is not bound to the agent registry".to_string());
+    }
+    if field(5) != (U256::from_be_slice(leaf_hash) % BN254_SCALAR_FIELD) {
+        return Err("zk proof leaf is not bound to the telemetry leaf".to_string());
+    }
+    Ok(())
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum ZkVerifyError {
@@ -191,6 +250,37 @@ mod tests {
             std::env::var("BB_BINARY").unwrap_or_else(|_| "bb".to_string()),
             std::env::temp_dir().join("integrity-oracle-zk-test-scratch"),
         )
+    }
+
+    #[test]
+    fn telemetry_public_inputs_bind_request_context() {
+        let registry = Address::from([0x11; 20]);
+        let leaf = [0x22; 32];
+        let mut inputs = vec![0u8; PUBLIC_INPUT_BYTES * PUBLIC_INPUT_COUNT];
+        inputs[32..64].copy_from_slice(&U256::from(7u64).to_be_bytes::<32>());
+        inputs[96..128].copy_from_slice(&U256::from(84532u64).to_be_bytes::<32>());
+        let mut registry_field = [0u8; 32];
+        registry_field[12..].copy_from_slice(registry.as_slice());
+        inputs[128..160].copy_from_slice(&registry_field);
+        inputs[160..192].copy_from_slice(&U256::from_be_slice(&leaf).to_be_bytes::<32>());
+
+        let identity = [0x33; 32];
+        inputs[..32].copy_from_slice(&identity);
+        assert!(validate_telemetry_public_inputs(&inputs, 7, 84532, registry, &identity, &leaf).is_ok());
+        assert!(validate_telemetry_public_inputs(&inputs, 8, 84532, registry, &identity, &leaf).is_err());
+    }
+
+    #[test]
+    fn malformed_telemetry_public_inputs_fail_closed() {
+        let result = validate_telemetry_public_inputs(
+            &[0u8; 32],
+            1,
+            84532,
+            Address::ZERO,
+            &[0u8; 32],
+            &[0u8; 32],
+        );
+        assert!(result.is_err());
     }
 
     #[tokio::test]

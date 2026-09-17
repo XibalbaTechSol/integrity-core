@@ -112,7 +112,7 @@ export function IntelligencePage() {
   const [isAddTelemetryOpen, setIsAddTelemetryOpen] = useState(false);
   const [newFieldName, setNewFieldName] = useState('');
   const [newFieldValue, setNewFieldValue] = useState('');
-  
+
   const [customFields, setCustomFields] = useState<any[]>(() => {
     const saved = localStorage.getItem('integrity_custom_telemetry');
     if (!saved) return [];
@@ -231,10 +231,10 @@ export function IntelligencePage() {
             <div className="grid-cols-2" style={{ gap: 'var(--space-6)', alignItems: 'center' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
-                  This multi-dimensional radar chart displays the normalized performance indices of the focused agent. 
+                  This multi-dimensional radar chart displays the normalized performance indices of the focused agent.
                   Reputation checks analyze alignment margins across stability (entropy control), human-in-the-loop validation (grounding), TEE checks, and economic commitments.
                 </div>
-                
+
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '6px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', padding: '6px 0', borderBottom: '1px solid var(--glass-border)' }}>
                     <span style={{ color: 'var(--text-muted)' }}>Focused Agent Alias</span>
@@ -267,11 +267,11 @@ export function IntelligencePage() {
         )}
 
         {/* ── Intelligence Customization Console Toolbar ── */}
-        <div 
-          style={{ 
-            background: 'var(--bg-card)', 
-            border: '1px solid var(--glass-border)', 
-            borderRadius: 'var(--radius-md)', 
+        <div
+          style={{
+            background: 'var(--bg-card)',
+            border: '1px solid var(--glass-border)',
+            borderRadius: 'var(--radius-md)',
             padding: '12px 16px',
             display: 'flex',
             alignItems: 'center',
@@ -285,7 +285,7 @@ export function IntelligencePage() {
               <Activity size={16} style={{ color: 'var(--primary)' }} />
               <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'white', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Filters</span>
             </div>
-            
+
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               {[
                 { id: 'telemetry', label: 'Telemetry Stream', state: showTelemetry, set: setShowTelemetry },
@@ -333,8 +333,8 @@ export function IntelligencePage() {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-            <button 
-              className="btn btn-ghost" 
+            <button
+              className="secondary-button"
               onClick={() => setIsAddTelemetryOpen(true)}
               style={{ padding: '6px 12px', fontSize: '0.7rem', height: '28px', border: '1px dashed var(--glass-border)' }}
             >
@@ -352,59 +352,59 @@ export function IntelligencePage() {
       {/* Dynamic Telemetry Modal */}
       {isAddTelemetryOpen && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
-          <div 
-            onClick={() => setIsAddTelemetryOpen(false)} 
-            style={{ position: 'absolute', inset: 0, background: 'var(--navy-deep)', opacity: 0.85, backdropFilter: 'blur(8px)' }} 
+          <div
+            onClick={() => setIsAddTelemetryOpen(false)}
+            style={{ position: 'absolute', inset: 0, background: 'var(--navy-deep)', opacity: 0.85, backdropFilter: 'blur(8px)' }}
           />
-          <div 
-            style={{ 
-              position: 'relative', 
-              width: '100%', 
-              maxWidth: '400px', 
-              background: 'var(--bg-card)', 
-              border: '1px solid var(--primary)', 
-              borderRadius: 'var(--radius-lg)', 
-              padding: '24px', 
-              display: 'flex', 
-              flexDirection: 'column', 
+          <div
+            style={{
+              position: 'relative',
+              width: '100%',
+              maxWidth: '400px',
+              background: 'var(--bg-card)',
+              border: '1px solid var(--primary)',
+              borderRadius: 'var(--radius-lg)',
+              padding: '24px',
+              display: 'flex',
+              flexDirection: 'column',
               gap: '16px',
               boxShadow: '0 20px 50px rgba(0,0,0,0.6)'
             }}
           >
             <h3 style={{ margin: 0, color: 'white', fontSize: '1.1rem', fontWeight: 700 }}>Add Custom Telemetry</h3>
-            
+
             <div className="form-group">
               <label className="form-label">Telemetry Label</label>
-              <input 
-                type="text" 
-                className="input" 
-                placeholder="e.g. Enclave Temperature" 
-                value={newFieldName} 
-                onChange={e => setNewFieldName(e.target.value)} 
+              <input
+                type="text"
+                className="input"
+                placeholder="e.g. Enclave Temperature"
+                value={newFieldName}
+                onChange={e => setNewFieldName(e.target.value)}
               />
             </div>
-            
+
             <div className="form-group">
               <label className="form-label">Metric Value / Output</label>
-              <input 
-                type="text" 
-                className="input" 
-                placeholder="e.g. 42.5°C or 99.8%" 
-                value={newFieldValue} 
-                onChange={e => setNewFieldValue(e.target.value)} 
+              <input
+                type="text"
+                className="input"
+                placeholder="e.g. 42.5°C or 99.8%"
+                value={newFieldValue}
+                onChange={e => setNewFieldValue(e.target.value)}
               />
             </div>
-            
+
             <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
-              <button 
-                className="btn btn-outline" 
+              <button
+                className="secondary-button"
                 style={{ flex: 1 }}
                 onClick={() => setIsAddTelemetryOpen(false)}
               >
                 Cancel
               </button>
-              <button 
-                className="btn btn-primary" 
+              <button
+                className="primary-button"
                 style={{ flex: 1 }}
                 onClick={handleAddTelemetry}
                 disabled={!newFieldName || !newFieldValue}

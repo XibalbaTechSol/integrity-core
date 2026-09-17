@@ -8,6 +8,8 @@
   --wiki-gold: #e4ad49;
   --wiki-cyan: #51c7e8;
   min-height: 100vh;
+  max-width: 100%;
+  overflow-x: clip;
   background: var(--wiki-bg);
   color: var(--wiki-text);
   font-family: 'Raleway', system-ui, sans-serif;

@@ -85,7 +85,7 @@ export default function SettingsPage() {
               <select id="settings-font" aria-label="Font family"
                 value={font} 
                 onChange={e => updateSettings({ font: e.target.value as any })}
-                className="button"
+                className="secondary-button"
                 style={{ width: '100%', padding: '1rem', textAlign: 'left', marginBottom: '1rem' }}
               >
                 <option value="System Default">System Default</option>
@@ -148,7 +148,7 @@ export default function SettingsPage() {
                   <button 
                     key={mode}
                     onClick={() => setLayoutMode(mode)}
-                    className="button"
+                    className="secondary-button"
                     style={{ 
                       flex: 1, 
                       padding: '1rem',
@@ -171,7 +171,7 @@ export default function SettingsPage() {
                   <button 
                     key={s}
                     onClick={() => updateSettings({ headerStyle: s })}
-                    className="button"
+                    className="secondary-button"
                     style={{ 
                       flex: 1, 
                       padding: '1rem',
@@ -204,7 +204,7 @@ export default function SettingsPage() {
                   Keys are issued by userapi with a fixed AIS trust ceiling — there's no per-key name or scoped permissions on the backend yet.
                 </p>
                 {createError && <div style={{ color: '#f44336', fontSize: '0.85rem' }}>{createError}</div>}
-                <button onClick={handleCreateKey} disabled={creating} className="button primary" style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Plus size={16} /> {creating ? 'Generating…' : 'Generate Key'}</button>
+                <button onClick={handleCreateKey} disabled={creating} className="primary-button" style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Plus size={16} /> {creating ? 'Generating…' : 'Generate Key'}</button>
               </div>
             )}
 

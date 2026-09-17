@@ -144,7 +144,11 @@ contract AgentPrimitivesFactory {
         // (oracle/disputer/governance) are this factory's own immutables, never
         // anything the registering agent controls.
         reputationRegistry = Clones.clone(reputationRegistryImpl);
-        ReputationRegistry(reputationRegistry).initialize(sovereignAgent, oracleSigner, initialZkVerifier, stateAnchor);
+        // Governance is a separate assurance-tier authority; the Oracle signer is
+        // intentionally not allowed to raise the ceiling it benefits from.
+        ReputationRegistry(reputationRegistry).initializeWithAssuranceTierAuthority(
+            sovereignAgent, oracleSigner, initialZkVerifier, stateAnchor, governance
+        );
 
         slasher = Clones.clone(slasherImpl);
         Slasher(slasher).initialize(governance, disputer);

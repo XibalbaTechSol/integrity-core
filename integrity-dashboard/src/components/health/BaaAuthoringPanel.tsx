@@ -159,7 +159,7 @@ export function BaaAuthoringPanel({ walletAddress, selectedAgent, addToast, onDe
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.7rem', color: canDeploy ? '#10b981' : 'var(--text-muted)' }}>
           <ShieldCheck size={14} /> {canDeploy ? 'Ready to deploy' : 'Complete the fields above'}
         </div>
-        <button className="btn btn-primary" disabled={!canDeploy} onClick={handleDeploy} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <button className="primary-button" disabled={!canDeploy} onClick={handleDeploy} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {busy ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
           {busy ? 'Deploying…' : 'Write & Deploy SmartBAA'}
         </button>

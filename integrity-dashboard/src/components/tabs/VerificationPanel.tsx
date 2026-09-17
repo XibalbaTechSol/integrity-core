@@ -94,7 +94,7 @@ export function VerificationPanel() {
                 title="Verification Ladder"
                 icon={<ShieldCheck size={18} />}
                 action={
-                    <button className="btn btn-ghost" style={{ padding: '4px 8px' }} onClick={refresh} disabled={loading}>
+                    <button className="secondary-button" style={{ padding: '4px 8px' }} onClick={refresh} disabled={loading}>
                         <RefreshCw size={14} className={loading ? 'spin' : ''} />
                     </button>
                 }
@@ -123,7 +123,7 @@ export function VerificationPanel() {
                             )}
                         </div>
 
-                        <div className="table-container">
+                        <div className="table-container" role="region" aria-label="Verification records" tabIndex={0}>
                             <table className="table">
                                 <thead>
                                     <tr><th>Method</th><th>Subject</th><th>Tier Granted</th><th>Verified</th><th>Expires</th><th>Status</th></tr>
@@ -177,7 +177,7 @@ export function VerificationPanel() {
                                 onChange={e => setProvider(e.target.value)}
                                 style={{ flex: 1 }}
                             />
-                            <button className="btn btn-outline" onClick={handleRequestChallenge} disabled={requestingChallenge}>
+                            <button className="secondary-button" onClick={handleRequestChallenge} disabled={requestingChallenge}>
                                 {requestingChallenge ? <RefreshCw className="spin" size={16} /> : 'Request Challenge'}
                             </button>
                         </div>
@@ -214,7 +214,7 @@ export function VerificationPanel() {
                     </div>
 
                     <button
-                        className="btn btn-primary"
+                        className="primary-button"
                         onClick={handleSubmitReceipt}
                         disabled={submittingReceipt || !receiptJson.trim()}
                     >

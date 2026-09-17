@@ -1,6 +1,6 @@
 # Integrity Dashboard Integration Report
 
-Date: 2026-09-15
+Date: 2026-09-16
 Repository: `integrity-core`
 Dashboard branch: `feat/harness-neutral-agent-runtime`
 
@@ -47,11 +47,17 @@ Dashboard branch: `feat/harness-neutral-agent-runtime`
 - Screenshot: [integrity-dashboard-browser-dashboard.png](/home/xibalba/Pictures/integrity-dashboard-browser-dashboard.png)
 - Browser run against local Oracle/Cortex-unavailable state; therefore route rendering and fail-closed states are browser-verified, while live populated agent/balance/proof/contract values remain API/RPC-dependent and are not claimed browser-verified in this environment.
 
-## Final rendered-validation handoff (2026-09-15)
+## Final rendered-validation handoff (2026-09-16)
 
 - Browser surface: regular headless Playwright; the in-app Browser runtime was unavailable (`No browser is available`).
 - Desktop Chromium route audit: **33/33 passed**. Every discovered route rendered a non-empty DOM with a visible primary heading, a main landmark where applicable, no horizontal overflow, and no rendered private-key or recovery-material pattern.
-- Protocol responsive audit: **27/27 route-viewport checks passed** at 1440x900, 834x1194, and 390x844. Safe refresh/copy controls passed at all three viewports.
+- Tablet Chromium route audit: **33/33 passed** at 1024x768. Mobile Chromium
+  covered all 33 routes; the final full run passed 32/33 and the changed
+  `/licence` route passed its focused rerun after the responsive stat-grid fix.
+  Safe refresh/copy controls passed at desktop, tablet, and mobile widths.
+- Firefox passed the strict **33/33** route audit. WebKit covered all 33 route
+  cases through its full run plus focused reruns; the unavailable optional
+  Shield service on `/correlation` is retained as degraded-service evidence.
 - Axe-core now runs on every discovered route and writes per-route results. The
   strict desktop gate passed all **33/33** discovered routes after remediation;
   CI still needs to execute the same strict command in its supported
@@ -60,14 +66,17 @@ Dashboard branch: `feat/harness-neutral-agent-runtime`
 - Deterministic write safety is covered by `e2e/write-gates.spec.ts`: the
   independent permission matrix, an explicit `eth_call`-style
   `SovereignAgent.execute` envelope simulation, and the headless no-wallet Send
-  flow passed (`3 passed`). This validates encoding and fail-closed behavior
-  only; no chain write, transfer, approval, stateful simulation, or receipt
-  verification was performed.
+  flow passed (`3 passed`). The simulator has no `send` or `sendTransaction`
+  path. This validates encoding and fail-closed behavior only; no chain write,
+  transfer, approval, stateful simulation, or receipt verification was
+  performed.
 - The underlying local-EVM `contracts/test/SovereignAgent.t.sol` suite passed
   **8/8**, covering controller execution and rejection controls. This is
   contract-level evidence only and does not replace dashboard browser-to-chain
   integration or receipt verification.
 - The authenticated isolation journey is implemented in `e2e/validation.spec.ts`, but its live run is **blocked/skipped** until a disposable userapi principal is assigned two exact DIDs through `/me/agents`. No credentials, users, assignments, transactions, or contract writes were created by this validation pass.
+- The final production build passed after the responsive fixes. Touched-file
+  `git diff --check` also passes.
 - A transient Oracle 502 from an optional `/contracts` read was observed during `/wallets`; the validator preserves it as a warning for provider degradation. The route passed after classification was corrected.
 
 Run the remaining authenticated gate with four environment variables supplied out-of-band:

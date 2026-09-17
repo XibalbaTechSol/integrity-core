@@ -27,6 +27,8 @@ pub enum AppError {
         submitted: i64,
         last_seen: i64,
     },
+    #[error("semantic duplicate telemetry content for agent {0}")]
+    DuplicateTelemetry(String),
     #[error("rate limit exceeded, try again shortly")]
     RateLimited,
     #[error(transparent)]
@@ -72,6 +74,7 @@ impl IntoResponse for AppError {
             AppError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             AppError::Unauthorized => (StatusCode::UNAUTHORIZED, self.to_string()),
             AppError::NonceReplay { .. } => (StatusCode::CONFLICT, self.to_string()),
+            AppError::DuplicateTelemetry(_) => (StatusCode::CONFLICT, self.to_string()),
             AppError::RateLimited => (StatusCode::TOO_MANY_REQUESTS, self.to_string()),
             AppError::Verify(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             AppError::Zk(_) => (StatusCode::BAD_REQUEST, self.to_string()),

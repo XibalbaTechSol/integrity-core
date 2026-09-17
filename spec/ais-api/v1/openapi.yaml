@@ -557,6 +557,22 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/AgentSummary'
+  /v1/agents/snapshot:
+    get:
+      tags:
+      - agents
+      summary: |-
+        Finality-bearing directory envelope for trusted consumers such as Cortex. The legacy
+        `/v1/agents` array remains unchanged for compatibility; sync workers must use this route
+        and refuse snapshots whose operator-controlled finality bit is false.
+      operationId: agent_directory_snapshot
+      responses:
+        '200':
+          description: Finality-bearing registered-agent directory
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentDirectorySnapshot'
   /v1/audit-log:
     get:
       tags:
@@ -874,6 +890,50 @@ paths:
                 $ref: '#/components/schemas/XnsResolveDto'
 components:
   schemas:
+    AgentDirectorySnapshot:
+      type: object
+      required:
+      - schema_version
+      - finalized
+      - chain_id
+      - generated_at
+      - block_number
+      - snapshot_id
+      - agents
+      properties:
+        agents:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentSummary'
+        block_number:
+          type: integer
+          format: int64
+          minimum: 0
+        chain_id:
+          type: integer
+          format: int64
+        finalized:
+          type: boolean
+        finalized_block_hash:
+          type:
+          - string
+          - 'null'
+        finalized_block_number:
+          type:
+          - integer
+          - 'null'
+          format: int64
+          description: |-
+            Canonical execution-client finalized head observed while creating this
+            response. `None` means the configured RPC did not expose the tag.
+          minimum: 0
+        generated_at:
+          type: string
+          format: date-time
+        schema_version:
+          type: string
+        snapshot_id:
+          type: string
     AgentEventDto:
       type: object
       required:
@@ -1024,6 +1084,13 @@ components:
       - verification_tier
       - created_at
       properties:
+        controller:
+          type:
+          - string
+          - 'null'
+          description: |-
+            Lowercase EVM controller resolved from the on-chain registry cache.
+            Consumers must compare this exact address; it is not a user-editable label.
         created_at:
           type: string
           format: date-time
@@ -1180,7 +1247,13 @@ components:
       type: object
       required:
       - agent_id
+      - scoring_profile
+      - ais_base
+      - ais_post_boost
       - ais
+      - onchain_base_score
+      - tier_ceiling
+      - verification_tier
       - components
       - weights
       - zk_boost
@@ -1189,6 +1262,11 @@ components:
       - period_start
       - period_end
       - event_count
+      - evidence_tier
+      - data_sufficiency
+      - authoritative_input_source
+      - proxy_axes
+      - missing_axes
       - anchor_coverage
       - constraint_score
       - shadow_gate
@@ -1198,12 +1276,20 @@ components:
         ais:
           type: number
           format: double
+        ais_base:
+          type: number
+          format: double
+        ais_post_boost:
+          type: number
+          format: double
         anchor_coverage:
           $ref: '#/components/schemas/AnchorCoverage'
           description: |-
             Whether this agent's on-chain `StateAnchor` shows anchoring activity at or after
             `period_start`, given it had telemetry activity in that same window.
             Informational only (see `anchor_coverage.rs`) — never fed into `ais` itself.
+        authoritative_input_source:
+          type: string
         components:
           $ref: '#/components/schemas/AisComponents'
         constraint_score:
@@ -1214,9 +1300,41 @@ components:
             tier-ceilinged constraint input in `[0,1]`. Distinct from `ais` above (post-boost,
             unclamped, display-only) — any integration reading a reputation-parameterised bound
             off this response MUST use this field, never `ais`. See `AisBreakdown`'s doc comment.
+        data_sufficiency:
+          type: string
         event_count:
           type: integer
           format: int64
+        evidence_tier:
+          type: string
+        missing_axes:
+          type: array
+          items:
+            type: string
+        onchain_assurance_consistent:
+          type:
+          - boolean
+          - 'null'
+        onchain_assurance_tier:
+          type:
+          - integer
+          - 'null'
+          format: int32
+          description: |-
+            On-chain assurance state for migrated factory clones. Legacy clones that
+            predate the tier-authority initializer return `null` here.
+        onchain_base_score:
+          type: number
+          format: double
+          description: |-
+            Exact pre-boost value to synchronize into ReputationRegistry after
+            every Oracle-side post-score adjustment (including anchor coverage).
+            Consumers must not reconstruct this from component fields.
+        onchain_tier_ceiling:
+          type:
+          - number
+          - 'null'
+          format: double
         onchain_zk_boost_consistent:
           type:
           - boolean
@@ -1235,6 +1353,12 @@ components:
         period_start:
           type: string
           format: date-time
+        proxy_axes:
+          type: array
+          items:
+            type: string
+        scoring_profile:
+          type: string
         shadow_gate:
           $ref: '#/components/schemas/ShadowGate'
           description: |-
@@ -1244,6 +1368,12 @@ components:
             has overridden them). Purely observational: does not affect `ais` or
             `constraint_score`, does not gate anything, and is not consumed by
             `bcc_middleware`'s chain-push or dispute logic.
+        tier_ceiling:
+          type: number
+          format: double
+        verification_tier:
+          type: integer
+          format: int32
         weights:
           $ref: '#/components/schemas/AisWeightsSchema'
         zk_boost:
@@ -2382,6 +2512,16 @@ components:
         nonce:
           type: integer
           format: int64
+        observed_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: |-
+            Agent-observed wall-clock time for this signed batch. Required for
+            schema_version 2+; it is optional only for historical pre-versioning and
+            schema-version-1 envelopes. It is deliberately inside the signed envelope
+            so delayed submissions cannot move an event into a different AIS window.
         otel_spans:
           type: array
           items: {}

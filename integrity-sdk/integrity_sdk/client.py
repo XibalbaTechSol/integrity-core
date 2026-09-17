@@ -24,6 +24,7 @@ import atexit
 import logging
 import os
 import threading
+import time
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
@@ -530,6 +531,7 @@ class IntegrityClient:
             "evidence_tier": "signed_agent",
             "agent_id": self.agent_id,
             "nonce": self._nonce,
+            "observed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "otel_spans": otel_spans,
             "derived_signals": derived,
             "zk_proof": zk_proof,

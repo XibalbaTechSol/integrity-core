@@ -11,17 +11,17 @@ interface PanelProps {
 
 export function Panel({ title, icon, action, children, className = '', style }: PanelProps) {
   return (
-    <div className={`panel ${className}`} style={style}>
+    <div className={`protocol-panel ${className}`} style={style}>
       {(title || action) && (
-        <div className="panel-header">
-          <div className="panel-title">
-            {icon && <span style={{ color: 'var(--primary)' }}>{icon}</span>}
-            {title}
+        <div className="panel-heading">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {icon && <span style={{ color: 'var(--protocol-blue)', display: 'flex' }}>{icon}</span>}
+            {title && (typeof title === 'string' ? <h2 style={{ margin: 0, fontSize: '17px', letterSpacing: '-0.02em' }}>{title}</h2> : title)}
           </div>
-          {action && <div>{action}</div>}
+          {action && <div style={{ display: 'flex', alignItems: 'center' }}>{action}</div>}
         </div>
       )}
-      <div>
+      <div style={{ padding: '20px' }}>
         {children}
       </div>
     </div>

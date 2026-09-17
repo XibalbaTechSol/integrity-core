@@ -131,9 +131,9 @@ export default function HealthPage() {
   const [allowlistBusy, setAllowlistBusy] = useState(false);
   const [allowlistError, setAllowlistError] = useState<string | null>(null);
 
-  useEffect(() => { 
-    setAllowlistLoading(true); 
-    bccMiddleware.getClinicalAllowlist().then((result) => setAllowlist(result.agents)).catch(() => setAllowlist([])).finally(() => setAllowlistLoading(false)); 
+  useEffect(() => {
+    setAllowlistLoading(true);
+    bccMiddleware.getClinicalAllowlist().then((result) => setAllowlist(result.agents)).catch(() => setAllowlist([])).finally(() => setAllowlistLoading(false));
   }, []);
   const addToAllowlist = async () => { const did = newAllowlistAgent.trim(); if (!did || allowlist.includes(did)) return; setAllowlistBusy(true); setAllowlistError(null); try { const next = [...allowlist, did]; await bccMiddleware.setClinicalAllowlist(next); setAllowlist(next); setNewAllowlistAgent(''); } catch (error) { setAllowlistError(String(error)); } finally { setAllowlistBusy(false); } };
   const removeFromAllowlist = async (did: string) => { setAllowlistBusy(true); setAllowlistError(null); try { const next = allowlist.filter((item) => item !== did); await bccMiddleware.setClinicalAllowlist(next); setAllowlist(next); } catch (error) { setAllowlistError(String(error)); } finally { setAllowlistBusy(false); } };
@@ -473,8 +473,8 @@ export default function HealthPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
-      <h1 style={{ margin: 0, fontSize: '1.6rem' }}>Integrity Health</h1>
-      
+
+
       {/* ─── Hero HIPAA Gateway Bar ─── */}
       <div
         style={{
@@ -529,13 +529,13 @@ export default function HealthPage() {
 
 
 
-      
+
 
       {/* ─── Render Tab Contents ─── */}
       <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-8)", marginTop: "24px" }}>
-        
+
         {/* TAB 1: Smart BAAs */}
-        
+
           <div className="flex-col gap-6" style={{ background: "rgba(0,0,0,0.2)", padding: "24px", borderRadius: "12px", border: "1px solid var(--glass-border)" }}>
             <BaaAuthoringPanel
               walletAddress={walletAddress}
@@ -586,21 +586,21 @@ export default function HealthPage() {
                               <td>
                                 <div style={{ display: 'flex', gap: '4px' }}>
                                   {canSign && (
-                                    <button className="btn btn-success btn-xs" disabled={busyBaa === b.address} onClick={() => handleSignBAA(b.address)}>
+                                    <button className="primary-button btn-xs" disabled={busyBaa === b.address} onClick={() => handleSignBAA(b.address)}>
                                       {busyBaa === b.address ? '…' : 'Sign'}
                                     </button>
                                   )}
                                   {canDispute && (
-                                    <button className="btn btn-danger btn-xs" disabled={busyBaa === b.address} onClick={() => handleRaiseDispute(b.address, b.covered_entity)}>
+                                    <button className="secondary-button btn-xs" disabled={busyBaa === b.address} onClick={() => handleRaiseDispute(b.address, b.covered_entity)}>
                                       Dispute
                                     </button>
                                   )}
                                   {canRevoke && (
-                                    <button className="btn btn-outline btn-xs" disabled={busyBaa === b.address} onClick={() => handleRevokeBAA(b.address)}>
+                                    <button className="secondary-button btn-xs" disabled={busyBaa === b.address} onClick={() => handleRevokeBAA(b.address)}>
                                       Revoke
                                     </button>
                                   )}
-                                  <button className="btn btn-outline btn-xs" onClick={() => setSelectedBAA(b)}>Explore</button>
+                                  <button className="secondary-button btn-xs" onClick={() => setSelectedBAA(b)}>Explore</button>
                                 </div>
                               </td>
                             </tr>
@@ -619,7 +619,7 @@ export default function HealthPage() {
                   <div style={{ padding: '16px', background: 'var(--primary-dim)', border: '1px solid var(--primary)', borderRadius: 'var(--radius-md)' }}>
                     <strong>Parametric Enforcement:</strong> BAA contracts are no longer passive paper. Under Xibalba Shield, the contract acts as a cryptographic custodian of performance. If a validator enclave leaks PHI, the contract executes the slash automatically.
                   </div>
-                  
+
                   {[
                     { title: 'TEE Hardware Isolation', desc: 'Medical records are queried inside Secure Enclaves (Intel SGX) with zero memory visibility to host operators.' },
                     { title: 'Edge-Blinding', desc: 'No unblinded PHI is committed to the blockchain ledger. We store cryptographic SHA-256 hashes of record histories.' },
@@ -645,7 +645,7 @@ export default function HealthPage() {
                       {allowlist.map((did) => (
                         <div key={did} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-secondary)', padding: '8px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--glass-border)' }}>
                           <code style={{ fontSize: '0.8rem' }}>{did}</code>
-                          <button className="btn btn-ghost btn-xs text-danger" disabled={allowlistBusy} onClick={() => void removeFromAllowlist(did)} title="Remove from allowlist"><Trash2 size={14} /></button>
+                          <button className="secondary-button btn-xs text-danger" disabled={allowlistBusy} onClick={() => void removeFromAllowlist(did)} title="Remove from allowlist"><Trash2 size={14} /></button>
                         </div>
                       ))}
                       {allowlist.length === 0 && <p className="text-muted" style={{ fontSize: '0.85rem' }}>No agents on the runtime allowlist.</p>}
@@ -653,7 +653,7 @@ export default function HealthPage() {
                   )}
                   <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                     <input className="input" style={{ flex: 1 }} value={newAllowlistAgent} onChange={(event) => setNewAllowlistAgent(event.target.value)} placeholder="did:integrity:..." />
-                    <button className="btn btn-primary btn-sm" disabled={allowlistBusy || !newAllowlistAgent.trim()} onClick={() => void addToAllowlist()} type="button">Add</button>
+                    <button className="primary-button btn-sm" disabled={allowlistBusy || !newAllowlistAgent.trim()} onClick={() => void addToAllowlist()} type="button">Add</button>
                   </div>
                   {allowlistError && <p style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>{allowlistError}</p>}
                 </div>
@@ -698,10 +698,10 @@ export default function HealthPage() {
           </div>
 
         {/* TAB 2: PHI Access Gates */}
-        
+
           <div className="flex-col gap-6" style={{ background: "rgba(0,0,0,0.2)", padding: "24px", borderRadius: "12px", border: "1px solid var(--glass-border)" }}>
             <div className="grid-cols-2" style={{ gap: 'var(--space-6)' }}>
-              
+
               {/* Record Gate Consent Contracts */}
               <Panel title="Patient Consent Contracts (EHR Gates)" icon={<Lock size={18} color="var(--theme-accent)" />}>
                 <div className="flex-col gap-4">
@@ -737,7 +737,7 @@ export default function HealthPage() {
                               <td style={{ whiteSpace: 'nowrap' }}><StatusBadge status={c.isUnlocked ? 'active' : 'pending'} /></td>
                               <td style={{ whiteSpace: 'nowrap' }}>
                                 {canRevoke && (
-                                  <button className="btn btn-danger btn-sm" disabled={busyGate === key} onClick={() => handleRevokeConsent(c)}>
+                                  <button className="secondary-button btn-sm" disabled={busyGate === key} onClick={() => handleRevokeConsent(c)}>
                                     {busyGate === key ? '…' : 'REVOKE'}
                                   </button>
                                 )}
@@ -796,7 +796,7 @@ export default function HealthPage() {
                       required
                     />
                   </div>
-                  <button type="submit" className="btn btn-primary" disabled={busyGate === 'create' || !walletAddress}>
+                  <button type="submit" className="primary-button" disabled={busyGate === 'create' || !walletAddress}>
                     {busyGate === 'create' ? 'Granting…' : 'Grant Access'}
                   </button>
                 </form>
@@ -805,11 +805,11 @@ export default function HealthPage() {
           </div>
 
         {/* TAB 3: Audit & Compliance */}
-        
+
           <div className="flex-col gap-6" style={{ background: "rgba(0,0,0,0.2)", padding: "24px", borderRadius: "12px", border: "1px solid var(--glass-border)" }}>
             {/* Interaction Logs + Violations */}
             <div className="grid-cols-3" style={{ gap: 'var(--space-6)' }}>
-              
+
               {/* Interaction Logs */}
               <div className="col-span-2">
                 <Panel title="Medical Record Interaction Logs" icon={<Activity size={18} color="var(--theme-accent)" />}>
@@ -892,10 +892,10 @@ export default function HealthPage() {
                                 {v.detail}
                               </p>
                               <div className="flex gap-2">
-                                <button className="btn btn-danger btn-xs" style={{ flex: 1 }} disabled={busyBaa === v.address} onClick={() => handleArbitrate(v.address, true)}>
+                                <button className="secondary-button btn-xs" style={{ flex: 1 }} disabled={busyBaa === v.address} onClick={() => handleArbitrate(v.address, true)}>
                                   Slash Stake
                                 </button>
-                                <button className="btn btn-ghost btn-xs" style={{ flex: 1, border: '1px solid var(--border)' }} disabled={busyBaa === v.address} onClick={() => handleArbitrate(v.address, false)}>
+                                <button className="secondary-button btn-xs" style={{ flex: 1, border: '1px solid var(--border)' }} disabled={busyBaa === v.address} onClick={() => handleArbitrate(v.address, false)}>
                                   Dismiss
                                 </button>
                               </div>
@@ -911,7 +911,7 @@ export default function HealthPage() {
           </div>
 
         {/* TAB 4: Quarantine Zone */}
-        
+
           <div className="flex-col gap-6" style={{ background: "rgba(0,0,0,0.2)", padding: "24px", borderRadius: "12px", border: "1px solid var(--glass-border)" }}>
             <div className="grid-cols-1" style={{ gap: 'var(--space-6)' }}>
               <Panel title="Agent Circuit Breakers (Quarantine Zone)" icon={<AlertTriangle size={18} color="var(--danger)" />}>
@@ -968,10 +968,10 @@ export default function HealthPage() {
       {selectedBAA && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
           <div onClick={() => setSelectedBAA(null)} style={{ position: 'absolute', inset: 0, background: 'var(--navy-deep)', opacity: 0.85, backdropFilter: 'blur(8px)' }} />
-          <div 
-            style={{ 
-              position: 'relative', width: '100%', maxWidth: '600px', background: 'var(--bg-card)', 
-              border: '1px solid var(--theme-accent)', borderRadius: 'var(--radius-lg)', padding: '24px', 
+          <div
+            style={{
+              position: 'relative', width: '100%', maxWidth: '600px', background: 'var(--bg-card)',
+              border: '1px solid var(--theme-accent)', borderRadius: 'var(--radius-lg)', padding: '24px',
               display: 'flex', flexDirection: 'column', gap: '16px', boxShadow: '0 20px 50px rgba(0,0,0,0.6)',
               maxHeight: '90vh', overflowY: 'auto'
             }}

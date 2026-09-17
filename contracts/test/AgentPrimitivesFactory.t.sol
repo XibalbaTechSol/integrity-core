@@ -156,6 +156,8 @@ contract AgentPrimitivesFactoryTest is Test {
         // ReputationRegistry's ORACLE_ROLE is the protocol's oracle signer, never the
         // agent — see ReputationRegistry.initialize's NatSpec.
         assertTrue(rep.hasRole(rep.ORACLE_ROLE(), oracleSigner));
+        assertTrue(rep.assuranceTierConfigured());
+        assertTrue(rep.hasRole(rep.ASSURANCE_TIER_ROLE(), governance));
     }
 
     /// @notice Slasher's arbiter must be protocol governance, never the agent — an

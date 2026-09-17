@@ -62,6 +62,10 @@ sol! {
     interface IReputationRegistry {
         function effectiveScore(address agent) external view returns (uint256);
         function isZkBoosted(address agent) external view returns (bool);
+        function zkIdentityCommitment() external view returns (bytes32);
+        function assuranceTierConfigured() external view returns (bool);
+        function assuranceTier() external view returns (uint8);
+        function assuranceTierCeiling() external view returns (uint256);
     }
 }
 
@@ -697,6 +701,26 @@ impl ChainClient {
     pub async fn is_zk_boosted(&self, reputation_registry: Address, agent: Address) -> Result<bool, ChainError> {
         let contract = IReputationRegistry::new(reputation_registry, self.provider.clone());
         Ok(contract.isZkBoosted(agent).call().await?)
+    }
+
+    pub async fn zk_identity_commitment(&self, reputation_registry: Address) -> Result<B256, ChainError> {
+        let contract = IReputationRegistry::new(reputation_registry, self.provider.clone());
+        Ok(contract.zkIdentityCommitment().call().await?)
+    }
+
+    /// Reads the contract-enforced assurance ceiling when the registry is a new
+    /// factory clone. Legacy four-argument clones do not implement these getters;
+    /// callers must treat `Err` as "on-chain cap unavailable", never as evidence
+    /// that the off-chain tier is authoritative on chain.
+    pub async fn assurance_tier_state(
+        &self,
+        reputation_registry: Address,
+    ) -> Result<(bool, u8, U256), ChainError> {
+        let contract = IReputationRegistry::new(reputation_registry, self.provider.clone());
+        let configured = contract.assuranceTierConfigured().call().await?;
+        let tier = contract.assuranceTier().call().await?;
+        let ceiling = contract.assuranceTierCeiling().call().await?;
+        Ok((configured, tier, ceiling))
     }
 
     /// Reads an agent's real stake accounting from its own `Slasher` clone:

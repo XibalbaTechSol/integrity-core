@@ -18,8 +18,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { ControlHeader } from '../components/control/ControlHeader';
-import { ControlTabs, type ControlTab } from '../components/control/ControlTabs';
+
+import { SubTabs } from '../components/ui/SubTabs';
 import { SystemSummaryCard } from '../components/shared/SystemSummaryCard';
 import { useDashboard } from '../context/DashboardContext';
 import {
@@ -33,10 +33,10 @@ import { IntelligencePage } from './IntelligencePage';
 
 type KnowledgeTab = 'overview' | 'intelligence' | 'evidence';
 
-const TABS: ControlTab<KnowledgeTab>[] = [
-  { id: 'overview', label: 'AIS & knowledge', icon: Sparkles },
-  { id: 'intelligence', label: 'Agent intelligence', icon: Activity },
-  { id: 'evidence', label: 'Evidence correlation', icon: GitMerge },
+const TABS = [
+  { id: 'overview', label: 'AIS & knowledge', icon: <Sparkles size={14} /> },
+  { id: 'intelligence', label: 'Agent intelligence', icon: <Activity size={14} /> },
+  { id: 'evidence', label: 'Evidence correlation', icon: <GitMerge size={14} /> },
 ];
 
 const BUCKETS: Array<{ id: HistoryBucket; label: string }> = [
@@ -76,12 +76,12 @@ function bounded<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
 
 function PanelHeading({ eyebrow, title, meta }: { eyebrow: string; title: string; meta?: string }) {
   return (
-    <div className="control-section-heading">
+    <div className="protocol-panel-heading">
       <div>
-        <span className="control-eyebrow">{eyebrow}</span>
+        <span className="panel-label">{eyebrow}</span>
         <h2>{title}</h2>
       </div>
-      {meta && <span className="control-count">{meta}</span>}
+      {meta && <span className="panel-count">{meta}</span>}
     </div>
   );
 }
@@ -146,7 +146,7 @@ function KnowledgeOverview() {
       {sourceErrors.length > 0 && <div className="knowledge-source-warning"><Activity size={15} /><span>Partial evidence view: {sourceErrors.join(' · ')}</span></div>}
 
       <div className="knowledge-visual-grid">
-        <section className="control-section knowledge-chart-panel">
+        <section className="protocol-panel knowledge-chart-panel">
           <PanelHeading eyebrow="Oracle AIS" title="AIS time series" meta={`${aisChart.length} buckets`} />
           <div className="knowledge-chart-stage">
             {aisChart.length === 0 ? <div className="chart-empty">No AIS history is available for this agent and resolution.</div> : (
@@ -167,7 +167,7 @@ function KnowledgeOverview() {
         </section>
       </div>
 
-      <section className="control-section knowledge-graph-panel">
+      <section className="protocol-panel knowledge-graph-panel">
         <PanelHeading eyebrow="Cortex" title="Knowledge & evidence storage" />
         <SystemSummaryCard system="cortex" />
       </section>
@@ -177,18 +177,13 @@ function KnowledgeOverview() {
   );
 }
 
-export default function KnowledgeControlPage() {
-  const [tab, setTab] = useState<KnowledgeTab>('overview');
+export default function IntelligenceControlPage() {
+  const [tab, setTab] = useState('overview');
 
   return (
-    <div className="control-page control-page-full knowledge-control-page">
-      <ControlHeader
-        eyebrow="Intelligence control plane"
-        title="Knowledge & Evidence"
-        description="Monitor AIS behavior over time, explore Cortex knowledge relationships, and trace decisions from agent intent through enforcement and outcome evidence."
-      />
-      <ControlTabs tabs={TABS} active={tab} onChange={setTab} label="Knowledge and evidence views" />
-      <div className="control-page-body control-hub-content">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+      <SubTabs tabs={TABS} activeTab={tab} setActiveTab={setTab} />
+      <div style={{ marginTop: 'var(--space-2)' }}>
         {tab === 'overview' && <KnowledgeOverview />}
         {tab === 'intelligence' && <IntelligencePage />}
         {tab === 'evidence' && <CorrelationPage />}

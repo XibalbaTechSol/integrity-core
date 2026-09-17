@@ -248,8 +248,8 @@ v3.2 Metered IP marketplace, ATCP/IP, and adapter-author revenue stay archive. A
 
 Rows 1–2 (fail-closed defaults for entropy/grounding/compliance-self-report on absent evidence) are `[BUILT]` and closed a real, numerically-verified exploit (a content-free submission with a claimed compute-time input previously scored higher than an honest agent). Rows 3–6 remain open:
 
-- Compliance for non-Integrity-Health agents is self-reported with no independent check.
-- Sacrifice (compute-time) is self-reported token counts, no validator or TEE attestation.
+- Compliance without an independently readable gate or attestation is fail-closed in authoritative AIS; any signed flagged ratio is audit-only.
+- Sacrifice (compute-time) is zero until validator or TEE attestation is available; token counts are retained only as an explicitly labelled proxy.
 - No per-component floor plus conjunctive Θ gate exists — a 90%-violation agent still reaches a non-zero score under the geometric mean rather than gating to zero.
 - The API surfaces `AIS_final` (post-boost, clamped) but not the pre-boost, unclamped `r(ι) ∈ [0,1]` value the proposed conjunctive-gate formula needs as its own input.
 

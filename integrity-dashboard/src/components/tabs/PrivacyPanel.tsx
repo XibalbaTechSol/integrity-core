@@ -114,7 +114,7 @@ export function PrivacyPanel() {
             Specify the degree of cryptographic abstraction used for agent verification on-chain.
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 'var(--space-4)' }}>
-            <label 
+            <label
               style={{
                 display: 'flex',
                 flexDirection: 'column',
@@ -127,11 +127,11 @@ export function PrivacyPanel() {
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, fontSize: '0.85rem' }}>
-                <input 
-                  type="radio" 
-                  name="privacyMode" 
-                  value="public" 
-                  checked={privacyMode === 'public'} 
+                <input
+                  type="radio"
+                  name="privacyMode"
+                  value="public"
+                  checked={privacyMode === 'public'}
                   onChange={() => setPrivacyMode('public')}
                 />
                 Public Mode
@@ -139,7 +139,7 @@ export function PrivacyPanel() {
               <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Transparent execution tracking and telemetry.</span>
             </label>
 
-            <label 
+            <label
               style={{
                 display: 'flex',
                 flexDirection: 'column',
@@ -152,11 +152,11 @@ export function PrivacyPanel() {
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, fontSize: '0.85rem' }}>
-                <input 
-                  type="radio" 
-                  name="privacyMode" 
-                  value="pseudonymous" 
-                  checked={privacyMode === 'pseudonymous'} 
+                <input
+                  type="radio"
+                  name="privacyMode"
+                  value="pseudonymous"
+                  checked={privacyMode === 'pseudonymous'}
                   onChange={() => setPrivacyMode('pseudonymous')}
                 />
                 Pseudonymous
@@ -164,7 +164,7 @@ export function PrivacyPanel() {
               <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Decouples real-world metadata; binds identity strictly to cryptographic DID.</span>
             </label>
 
-            <label 
+            <label
               style={{
                 display: 'flex',
                 flexDirection: 'column',
@@ -177,11 +177,11 @@ export function PrivacyPanel() {
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, fontSize: '0.85rem', color: 'var(--theme-accent)' }}>
-                <input 
-                  type="radio" 
-                  name="privacyMode" 
-                  value="zero_knowledge" 
-                  checked={privacyMode === 'zero_knowledge'} 
+                <input
+                  type="radio"
+                  name="privacyMode"
+                  value="zero_knowledge"
+                  checked={privacyMode === 'zero_knowledge'}
                   onChange={() => setPrivacyMode('zero_knowledge')}
                 />
                 Zero-Knowledge
@@ -195,16 +195,16 @@ export function PrivacyPanel() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           <h4 style={{ fontSize: '0.9rem', fontWeight: 600, margin: 0 }}>Data Publishing Consents</h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-            
+
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px var(--space-4)', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
               <div>
                 <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>Publish Telemetry Logs</div>
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Enable streaming system performance logs and entropy signals.</div>
               </div>
-              <input 
-                type="checkbox" 
-                checked={publishTelemetry} 
-                onChange={(e) => setPublishTelemetry(e.target.checked)} 
+              <input
+                type="checkbox"
+                checked={publishTelemetry}
+                onChange={(e) => setPublishTelemetry(e.target.checked)}
                 style={{ width: '16px', height: '16px' }}
               />
             </div>
@@ -214,10 +214,10 @@ export function PrivacyPanel() {
                 <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>Publish Transaction History</div>
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Expose task executions, outcome compliance, and dispute history.</div>
               </div>
-              <input 
-                type="checkbox" 
-                checked={publishTransactions} 
-                onChange={(e) => setPublishTransactions(e.target.checked)} 
+              <input
+                type="checkbox"
+                checked={publishTransactions}
+                onChange={(e) => setPublishTransactions(e.target.checked)}
                 style={{ width: '16px', height: '16px' }}
               />
             </div>
@@ -227,10 +227,10 @@ export function PrivacyPanel() {
                 <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>Publish Staking Data</div>
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Allow public verification of locked collateral and sacrifice score.</div>
               </div>
-              <input 
-                type="checkbox" 
-                checked={publishStaking} 
-                onChange={(e) => setPublishStaking(e.target.checked)} 
+              <input
+                type="checkbox"
+                checked={publishStaking}
+                onChange={(e) => setPublishStaking(e.target.checked)}
                 style={{ width: '16px', height: '16px' }}
               />
             </div>
@@ -239,9 +239,9 @@ export function PrivacyPanel() {
         </div>
 
         {/* Save Button */}
-        <button 
-          className="btn btn-primary" 
-          onClick={handleSave} 
+        <button
+          className="primary-button"
+          onClick={handleSave}
           disabled={isSaving}
           style={{ alignSelf: 'flex-end', display: 'flex', alignItems: 'center', gap: '8px' }}
         >
