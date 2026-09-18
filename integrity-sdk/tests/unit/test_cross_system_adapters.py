@@ -11,15 +11,42 @@ def test_shield_correlation_requires_exact_pair_bound_context():
 
 
 def test_cortex_transport_maps_envelope_without_authority_guessing(monkeypatch):
+    monkeypatch.setenv("INTEGRITY_COLLECTION_PROFILE", "development")
     calls = []
     class Response:
         def raise_for_status(self): pass
         def json(self): return {"recorded": 1, "duplicates": 0}
     monkeypatch.setattr("integrity_sdk.integrations.cortex.requests.post", lambda *a, **k: calls.append((a, k)) or Response())
-    result = CortexTransport("http://cortex", "bearer-secret").export([{"event_id": "e1", "agent_id": "agent-a", "session_id": "s1"}])
+    result = CortexTransport("http://cortex", "bearer-secret").export([{
+        "event_id": "e1", "event_type": "tool_call_started", "agent_id": "agent-a",
+        "session_id": "s1", "invocation_id": "inv-1",
+        "payload": {"tool_name": "search", "arguments": {"query": "private text"}},
+    }])
     assert result["recorded"] == 1
     assert calls[0][1]["headers"]["Authorization"] == "Bearer bearer-secret"
     assert calls[0][1]["json"]["events"][0]["idempotency_key"] == "e1"
+    attrs = calls[0][1]["json"]["events"][0]["attributes"]
+    assert attrs["event_type"] == "tool_call_started"
+    assert attrs["payload"]["tool_name"] == "search"
+    assert attrs["payload"]["arguments"]["query"] == "private text"
+
+
+def test_cortex_transport_keeps_non_memory_event_types_with_bounded_content(monkeypatch):
+    calls = []
+    class Response:
+        def raise_for_status(self): pass
+        def json(self): return {"recorded": 1}
+    monkeypatch.setattr("integrity_sdk.integrations.cortex.requests.post", lambda *a, **k: calls.append((a, k)) or Response())
+    transport = CortexTransport("http://cortex", "bearer-secret")
+    result = transport.export([{
+        "event_id": "e2", "event_type": "model_response_received", "session_id": "s1",
+        "payload": {"content": "x" * 80_000},
+    }])
+    attrs = calls[0][1]["json"]["events"][0]["attributes"]
+    assert result["recorded"] == 1
+    assert attrs["event_type"] == "model_response_received"
+    assert len(str(attrs["payload"]["content"])) <= 4_120
+    assert transport.last_exported_event_ids == ["e2"]
 
 
 def test_cortex_transport_retries_transient_failure_with_same_batch(monkeypatch):
@@ -44,7 +71,7 @@ def test_cortex_transport_retries_transient_failure_with_same_batch(monkeypatch)
     monkeypatch.setattr("integrity_sdk.integrations.cortex.requests.post", post)
     monkeypatch.setattr("integrity_sdk.integrations.cortex.time.sleep", lambda _: None)
     result = CortexTransport("http://cortex", "bearer-secret").export(
-        [{"event_id": "e1", "agent_id": "agent-a", "session_id": "s1"}],
+        [{"event_id": "e1", "event_type": "tool_call_started", "agent_id": "agent-a", "session_id": "s1"}],
         max_attempts=3,
     )
     assert result["recorded"] == 1

@@ -153,6 +153,33 @@ def _load_doc_for(agent_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _validate_profile_identity(agent_id: str) -> None:
+    """Fail closed when an MCP server is explicitly scoped to a harness root."""
+    profile_root_value = os.environ.get("HERMES_HOME") or os.environ.get("CODEX_HOME")
+    if not profile_root_value:
+        did_root_value = os.environ.get("INTEGRITY_DID_HOME")
+        if did_root_value:
+            did_root = Path(did_root_value).expanduser()
+            if did_root.name == "did" and did_root.parent.name == ".integrity":
+                profile_root_value = str(did_root.parent.parent)
+    if not profile_root_value:
+        return
+
+    profile_root = Path(profile_root_value).expanduser().resolve()
+    binding_path = profile_root / ".integrity" / "identity.json"
+    try:
+        binding = json.loads(binding_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"profile identity binding is unavailable or invalid: {binding_path}") from exc
+    requested_slug = agent_id.removeprefix("did:integrity:")
+    if agent_id != binding.get("did") and requested_slug != binding.get("agent_id"):
+        raise RuntimeError(
+            f"MCP agent_id {agent_id!r} conflicts with profile binding {binding.get('agent_id')!r}"
+        )
+    if binding.get("profile_root") != str(profile_root):
+        raise RuntimeError(f"profile root does not match identity binding: {binding_path}")
+
+
 def build_server(agent_id: str, oracle_url: str) -> Any:
     """
     Construct and return the MCP `Server` instance with all Integrity tools
@@ -178,9 +205,17 @@ def build_server(agent_id: str, oracle_url: str) -> Any:
     from .did import Keypair
     from .memory import TrustVault, JSONLBackend
 
+    _validate_profile_identity(agent_id)
     # Resolve canonical DID from stored document if available.
     doc = _load_doc_for(agent_id)
     canonical_did = doc["id"] if doc else agent_id
+    profile_root = os.environ.get("HERMES_HOME") or os.environ.get("CODEX_HOME")
+    if profile_root:
+        binding = json.loads(
+            (Path(profile_root).expanduser().resolve() / ".integrity" / "identity.json").read_text(encoding="utf-8")
+        )
+        if binding.get("did") != canonical_did:
+            raise RuntimeError("profile identity DID does not match the stored DID document")
     keypair = _load_keypair_for(agent_id)
 
     client = IntegrityClient(

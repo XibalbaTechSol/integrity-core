@@ -19,10 +19,85 @@ def test_each_slug_gets_a_stable_unique_identity(tmp_path, monkeypatch):
     quant.close(flush=False)
 
 
+def test_profile_root_scopes_identity_and_records_canonical_root(tmp_path, monkeypatch):
+    monkeypatch.delenv("INTEGRITY_DID_HOME", raising=False)
+    monkeypatch.delenv("HERMES_HOME", raising=False)
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    profile_root = tmp_path / "profiles" / "agent-a"
+    profile_root.mkdir(parents=True)
+    agent = IntegrityAgent.open(
+        "agent-a", harness="hermes", profile="agent-a", profile_root=profile_root,
+        client_kwargs={"auto_flush": False, "enable_otel_export": False},
+    )
+    canonical = profile_root / ".integrity" / "did" / "agent-a"
+    assert (canonical / "document.json").is_file()
+    assert (canonical / "private_key.pem").is_file()
+    snapshot = agent.identity_snapshot()
+    assert snapshot["profile_root"] == str(profile_root.resolve())
+    assert snapshot["identity_store_reference"] == str(canonical)
+    binding_path = profile_root / ".integrity" / "identity.json"
+    assert binding_path.is_file()
+    reopened = IntegrityAgent.open(
+        harness="hermes", profile_root=profile_root,
+        client_kwargs={"auto_flush": False, "enable_otel_export": False},
+    )
+    assert reopened.agent_slug == "agent-a"
+    assert reopened.did == agent.did
+    with pytest.raises(AgentIdentityError, match="bound to agent"):
+        IntegrityAgent.open(
+            "other-agent", harness="hermes", profile_root=profile_root,
+            client_kwargs={"auto_flush": False, "enable_otel_export": False},
+        )
+    reopened.close(flush=False)
+    agent.close(flush=False)
+
+
+def test_profile_root_must_be_an_existing_directory(tmp_path, monkeypatch):
+    monkeypatch.setenv("INTEGRITY_DID_HOME", str(tmp_path / "dids"))
+    with pytest.raises(AgentIdentityError, match="existing directory"):
+        IntegrityAgent.open(
+            "agent-a", harness="codex", profile_root=tmp_path / "missing",
+            client_kwargs={"auto_flush": False, "enable_otel_export": False},
+        )
+
+
+def test_harness_home_environment_scopes_default_did_home(tmp_path, monkeypatch):
+    monkeypatch.delenv("INTEGRITY_DID_HOME", raising=False)
+    profile_root = tmp_path / "codex-home"
+    profile_root.mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(profile_root))
+    agent = IntegrityAgent.open(
+        "agent-a", harness="codex",
+        client_kwargs={"auto_flush": False, "enable_otel_export": False},
+    )
+    assert (profile_root / ".integrity" / "did" / "agent-a" / "document.json").is_file()
+    assert agent.identity_snapshot()["profile_root"] == str(profile_root.resolve())
+    agent.close(flush=False)
+
+
 def test_expected_did_mismatch_refuses_attribution(tmp_path, monkeypatch):
     monkeypatch.setenv("INTEGRITY_DID_HOME", str(tmp_path / "dids"))
     with pytest.raises(AgentIdentityError, match="expected"):
         IntegrityAgent.open("claude", harness="claude", expected_did="did:integrity:not-this-agent", client_kwargs={"auto_flush": False, "enable_otel_export": False})
+    assert not (tmp_path / "dids" / "claude").exists()
+
+
+def test_profile_binding_rejects_conflicting_expected_did(tmp_path, monkeypatch):
+    monkeypatch.delenv("INTEGRITY_DID_HOME", raising=False)
+    root = tmp_path / "bound-profile"
+    root.mkdir()
+    agent = IntegrityAgent.open(
+        "agent-a", harness="hermes", profile_root=root,
+        client_kwargs={"auto_flush": False, "enable_otel_export": False},
+    )
+    agent.close(flush=False)
+    with pytest.raises(AgentIdentityError, match="conflicts with the profile identity binding"):
+        IntegrityAgent.open(
+            "agent-a", harness="hermes", profile_root=root,
+            expected_did="did:integrity:not-this-agent",
+            client_kwargs={"auto_flush": False, "enable_otel_export": False},
+        )
+    assert (root / ".integrity" / "identity.json").is_file()
 
 
 def test_shield_requires_device_binding(tmp_path, monkeypatch):

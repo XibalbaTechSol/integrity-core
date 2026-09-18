@@ -13,13 +13,16 @@ from .telemetry.privacy import PrivacyPolicy
 from .telemetry.transports import HttpTelemetryTransport, MCPTelemetryTransport, OTLPHttpTransport
 from .integrations.cortex import CortexTransport
 from .integrations.shield import action_context, decision_event
+from .collection import CollectionConfig
 
 
 class SDKAgent:
     """Developer façade over the canonical identity runtime and local event boundary."""
-    def __init__(self, runtime: IntegrityAgent, store: LocalEventStore | None = None, privacy: PrivacyPolicy | None = None) -> None:
+    def __init__(self, runtime: IntegrityAgent, store: LocalEventStore | None = None,
+                 privacy: PrivacyPolicy | None = None, collection: CollectionConfig | None = None) -> None:
         self.runtime, self.store = runtime, store
         self.privacy = privacy or PrivacyPolicy()
+        self.collection = collection or CollectionConfig.from_env()
         self._events: list[dict[str, Any]] = []
         self.last_delivery_receipts: list[DeliveryReceipt] = []
 
@@ -29,7 +32,9 @@ class SDKAgent:
     def did(self) -> str: return self.runtime.did
 
     def emit(self, event_type: str, *, payload: Mapping[str, Any] | None = None, metadata: Mapping[str, Any] | None = None, **ids: Any) -> dict[str, Any]:
-        event = TelemetryEnvelope(event_type=event_type, agent_id=self.runtime.agent_slug, did=self.did, harness=self.runtime.harness, principal=self.runtime.principal, device_id=self.runtime.device_id, payload=self.privacy.apply(payload or {}), metadata=self.privacy.apply(metadata or {}), session_id=ids.pop("session_id", getattr(self.runtime, "_session_id", None)), **ids).to_dict()
+        safe_payload = self.collection.apply_nested(self.privacy.apply(payload or {}))
+        safe_metadata = self.collection.apply_nested(self.privacy.apply(metadata or {}))
+        event = TelemetryEnvelope(event_type=event_type, agent_id=self.runtime.agent_slug, did=self.did, harness=self.runtime.harness, principal=self.runtime.principal, device_id=self.runtime.device_id, payload=safe_payload, metadata=safe_metadata, session_id=ids.pop("session_id", getattr(self.runtime, "_session_id", None)), **ids).to_dict()
         if self.store is not None: self.store.append(event)
         self._events.append(event)
         self.runtime.emit(event_type, telemetry_envelope=event)
@@ -133,13 +138,15 @@ class SDKAgent:
             for receipt in self.last_delivery_receipts:
                 if self.store is not None: self.store.record_delivery(receipt.to_dict())
             raise
-        attempts = transport.last_attempts or [{"attempt": 1, "status": "acknowledged", "error": None}]
+        exported_ids = set(transport.last_exported_event_ids)
+        exported_rows = [event for event in rows if str(event.get("event_id", "")) in exported_ids]
+        attempts = transport.last_attempts or ([{"attempt": 1, "status": "acknowledged", "error": None}] if exported_rows else [])
         self.last_delivery_receipts = [DeliveryReceipt(
             event_id=str(event["event_id"]), destination="cortex",
             attempt=attempt["attempt"], timestamp=event["timestamp"],
             status=attempt["status"], retry_state="complete",
             error=attempt.get("error"))
-            for event in rows if event.get("event_id") for attempt in attempts]
+            for event in exported_rows if event.get("event_id") for attempt in attempts]
         for receipt in self.last_delivery_receipts:
             if self.store is not None: self.store.record_delivery(receipt.to_dict())
         return result

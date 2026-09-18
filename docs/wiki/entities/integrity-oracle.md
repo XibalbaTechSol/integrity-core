@@ -1,7 +1,7 @@
 ---
 title: integrity-oracle
 created: 2026-07-07
-updated: 2026-09-14
+updated: 2026-09-18
 type: entity
 tags: [infrastructure, metrics, layer-2, tokenomics]
 confidence: high
@@ -23,6 +23,7 @@ source_files:
   - integrity-oracle/backend/migrations/0001_init.sql
   - integrity-oracle/backend/migrations/0002_markets_and_judge.sql
   - integrity-oracle/backend/migrations/0003_agent_did_document.sql
+  - integrity-oracle/backend/migrations/0021_otel_retention.sql
 ---
 
 The off-chain brain (Rust, Axum, Postgres, Redis, `alloy`): it ingests agent

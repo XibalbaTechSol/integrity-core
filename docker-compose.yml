@@ -9,12 +9,14 @@ services:
   # separate trust domain that never touches oracle telemetry (§6.10/§13).
   postgres:
     image: timescale/timescaledb:latest-pg16
+    mem_limit: 768m
+    cpus: 0.75
     environment:
       POSTGRES_DB: integrity
       POSTGRES_USER: integrity
       POSTGRES_PASSWORD: integrity_dev_only
     ports: ["5436:5432"]
-    command: ["postgres", "-c", "shared_preload_libraries=timescaledb"]
+    command: ["postgres", "-c", "shared_preload_libraries=timescaledb", "-c", "shared_buffers=128MB", "-c", "work_mem=4MB", "-c", "maintenance_work_mem=64MB", "-c", "max_connections=25"]
     volumes: ["pgdata:/var/lib/postgresql/data"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U integrity -d integrity"]
@@ -25,6 +27,9 @@ services:
 
   redis:
     image: redis:7-alpine
+    mem_limit: 128m
+    cpus: 0.25
+    command: ["redis-server", "--maxmemory", "96mb", "--maxmemory-policy", "noeviction"]
     ports: ["6379:6379"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -48,6 +53,8 @@ services:
     ports: ["8181:8181"]
 
   oracle-backend:
+    mem_limit: 512m
+    cpus: 0.50
     build:
       context: ./integrity-oracle
       args:
@@ -233,6 +240,8 @@ services:
   # integrity-userapi never shares a database with the oracle, by design.
   userapi-postgres:
     image: postgres:16-alpine
+    mem_limit: 384m
+    cpus: 0.50
     environment:
       POSTGRES_DB: integrity_userapi
       POSTGRES_USER: integrity

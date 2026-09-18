@@ -10,6 +10,7 @@ twice.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Optional
 
 from opentelemetry import metrics, trace
@@ -50,11 +51,17 @@ def init_telemetry(agent_id: str, endpoint: str = "localhost:4317", insecure: bo
 
     tracer_provider = TracerProvider(resource=resource)
     trace_exporter = OTLPSpanExporter(endpoint=endpoint, insecure=insecure)
-    tracer_provider.add_span_processor(BatchSpanProcessor(trace_exporter))
+    # Keep the SDK's in-memory retry queue and each export batch bounded even
+    # when the collector is slow or unavailable.
+    tracer_provider.add_span_processor(BatchSpanProcessor(
+        trace_exporter, max_queue_size=2048, max_export_batch_size=512,
+        export_timeout_millis=5000,
+    ))
     trace.set_tracer_provider(tracer_provider)
 
     metric_exporter = OTLPMetricExporter(endpoint=endpoint, insecure=insecure)
-    reader = PeriodicExportingMetricReader(metric_exporter, export_interval_millis=5000)
+    export_interval = max(1000, int(os.environ.get("INTEGRITY_METRIC_EXPORT_INTERVAL_MILLIS", "60000")))
+    reader = PeriodicExportingMetricReader(metric_exporter, export_interval_millis=export_interval)
     meter_provider = MeterProvider(resource=resource, metric_readers=[reader])
     metrics.set_meter_provider(meter_provider)
 
