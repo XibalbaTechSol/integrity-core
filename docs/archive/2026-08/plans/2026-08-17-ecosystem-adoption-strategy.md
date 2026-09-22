@@ -504,3 +504,101 @@ spec); Cloudflare/GoDaddy default AI-crawler-blocking (effective today, 2026-09-
 flagged as non-new since 2026-09-01); Anthropic MCP enterprise auth (no change since
 2026-08-28); Semantica and Trulioo+Worldpay (no updates since last tracked). No changes to the
 §3 table this run.
+
+### 2026-09-22 — Ecosystem watch: first confirmed EU AI Act enforcement action (GPAI RFIs); no new competitor; everything else unchanged since 2026-09-15
+
+Automated research sweep (scheduled tracking run, ~7 days after the prior run; branch
+`audit/harness-loop-2026-07-30` still exists from the last run, no recreation needed this time —
+note for future runs: the 2026-09-01 entry recorded it being deleted-and-recreated once already).
+Re-swept all nine named §3 players, both §4 fact-checks, and did a general sweep for a new
+entrant combining identity + staked reputation + compliance gating. One material finding on the
+EU AI Act enforcement fact-check; everything else confirmed unchanged or not material.
+
+1. **First confirmed concrete EU AI Act enforcement action: formal Requests for Information sent
+   to 30+ GPAI model providers.** European Commission Executive Vice-President Henna Virkkunen
+   confirmed on 2026-08-29 that the AI Office had formally sent requests for information (under
+   Article 91's investigative powers) to "a number of providers of general-purpose AI models
+   based in different regions of the world," with the requests themselves going out around
+   2026-09-01. Reporting (independently corroborated by the AGENCE EUROPE wire service and
+   multiple law/policy outlets) says the RFIs run on two tracks — one on model security,
+   independent external evaluation, and post-market monitoring for the most advanced models; the
+   other on copyright and transparency obligations for training data and outputs — and that
+   OpenAI, Anthropic, and Google are reportedly among the recipients (the Commission has not
+   published an official recipient list). This is evidence-gathering, not a finding of
+   infringement, but it is the first actual use of the Act's Article 91 investigative power
+   reported anywhere, i.e. the first move from "law on the books" to "enforcement in motion" —
+   material to this doc's §2 EU AI Act tracking even though it targets the transparency/GPAI tier
+   already in force since 2026-08-02, not the deferred Annex III high-risk tier (2027-12-02,
+   unchanged — see item 2 below). Distinct and lower-confidence secondary reporting (cubbbix.com,
+   opsintel.io, thegputrade.com — none corroborated by a primary EU source or major outlet found
+   this sweep) additionally claims a parallel "first wave" of Article 50 sector inspections
+   (automated resume screening, credit-scoring, healthcare triage) starting in September 2026;
+   not treated as confirmed here given the source quality, flagging only so a future run with
+   primary-source access can check for an official AI Office announcement.
+   Sources: [Agence Europe, European Commission sends first requests for information to more
+   than 30 AI providers](https://agenceurope.eu/en/bulletin/article/13929/31/european-commission-sends-first-requests-for-information-to-more-than-30-ai-providers),
+   [Superpower Daily, EU Seeks AI Act Answers From 30-Plus Companies, With Fines for Misleading
+   Replies](https://superpowerdaily.com/posts/eu-seeks-ai-act-answers-from-30-plus-companies-with-fines-for-misleading-replies),
+   [Tokenstead, EU AI Act Enforcement Begins: The AI Office Starts Asking](https://tokenstead.ai/guides/eu-ai-act-first-enforcement-security-rfis).
+
+2. **§4 fact-checks: no change.** ERC-8004 Validation Registry — re-confirmed unchanged (Identity/
+   Reputation registries live on 40+ EVM networks since 2026-01-29; Validation Registry still
+   explicitly "unshipped upstream" per the same primary repo/PR evidence already cited in the
+   2026-09-15 entry, no mainnet address). EU AI Act deadlines — Annex III high-risk 2027-12-02 and
+   Annex I 2028-08-02 reconfirmed against fresh sources, no change to the dates themselves (only
+   the new enforcement-activity fact in item 1 above).
+
+3. **General sweep for a new identity + staked-reputation + compliance-gating entrant: nothing
+   added.** Checked several newly-surfaced identity/compliance players specifically for a
+   staking/slashing mechanism, since that's the discriminator that has ruled out most candidates
+   in prior sweeps — none qualify: **KYA Lab** (`kyalab.com`, "KAAC" accreditation credential for
+   AI agents in healthcare/insurance/finance/government, continuous re-examination on material
+   change, HIPAA/PCI-DSS/SOX audit trails) is accreditation/credentialing only, no staking or
+   slashing found anywhere in its public materials — same shape as the already-tracked
+   Semantica/Trulioo rows, not added, though flagged here given its explicit healthcare framing
+   overlaps Integrity Health's vertical; **AgentFacts** (`agentfacts.org`, an academic "Know Your
+   Agent" metadata standard, Apache 2.0, cites enterprise pilots in finance/gaming/Web3) is a
+   capability-declaration/verification standard, no staking mechanism disclosed; **AGNTCY
+   Identity** and the newly-surfaced **"MCP-I"** identity extension work referenced in MCP-adjacent
+   coverage are both agent/MCP identity-and-permissioning layers (delegation credentials,
+   workload identity federation, token exchange — consistent with Anthropic's own 2026-08-22 MCP
+   roadmap, already covered by this doc's existing MCP row), not staked-reputation systems.
+   **New naming-collision note for future runs:** a *third*, unrelated "KYA Protocol" surfaced
+   this sweep — `github.com/fotescodev/kya-protocol`, an EAS (Ethereum Attestation Service)-based
+   on-chain identity standard, alpha-stage and live only on Base Sepolia testnet, explicitly with
+   no staking/slashing mechanism — distinct from both the already-tracked `kya.link`/`agentecon.ai`
+   AWP-based KYA Protocol and the Visa/Mastercard/Ant "Know Your Agent" payments framework; do not
+   conflate the three in future sweeps.
+
+4. **§3's existing KYA row (`kya.link`/`agentecon.ai`) stake/slash question — still open, still
+   blocked from primary-source confirmation, but secondary-source detail firmed up somewhat.**
+   This session's egress proxy again blocked `agentecon.ai` and `kya.link` directly (same
+   restriction every prior run since 2026-09-01), but web search (rather than direct fetch)
+   surfaced more specific, mutually-consistent secondary-source technical detail than prior runs
+   had: agentecon.ai's KYA Protocol is described as an ERC-8004-compliant system on Base with
+   "10 core smart contracts" implementing Identity/Reputation/Validation registries mirroring the
+   ERC-8004 structure, where validators "earn rewards for accurate scoring and face slashing
+   penalties for malicious behavior." This is consistent with, and more detailed than, the
+   2026-09-01 entry's original secondary-source characterization, but it is still secondary-source
+   only (no primary-site fetch succeeded) and still does not resolve whether this constitutes
+   compliance-vertical gating specifically (searches returned only generic "KYA compliance market"
+   framing, not an agentecon.ai-specific gating mechanism) — not upgrading this doc's confidence
+   level beyond "open, unverified" for that reason. Worth a primary-source visit to
+   `agentecon.ai/whitepaper` and `kya.link` from an unrestricted session before treating the
+   stake/slash mechanism, or any compliance-gating claim, as confirmed.
+
+Not material / considered and not added: Injective Agents and ChaosChain/Genesis Studio (no
+September 2026 updates found beyond routine ecosystem-event coverage — Injective/Microsoft
+Token2049 commerce event, no ERC-8004/identity-specific news; ChaosChain's Genesis Studio repo
+shows no commits since 2026-02-07); the Visa/Mastercard/Ant International "Know Your Agent"
+payments framework (already tracked in the 2026-09-13 entry — this sweep found additional detail,
+that it was convened under the Monetary Authority of Singapore's BuildFin.ai platform and builds
+on an existing "SAFR framework," but no technical spec, staking, or compliance-gating mechanism
+disclosed yet, so status is unchanged); FIDO Alliance's Agentic Authentication TWG (still tracking
+toward its original H2 2026–early 2027 timeline, no draft spec yet); Cloudflare/GoDaddy (no
+update since the already-tracked 2026-09-15 default-blocking change); Semantica (still MIT-licensed
+open source, no funding or staking found, v0.6.0 as of 2026-07-21); Trulioo+Worldpay Digital Agent
+Passport (no update since the original 2025-08-14 partnership); Observer Protocol (not re-checked
+in depth this run beyond a routine site-content-reorganization commit dated 2026-09-16 — no
+reversal of the 2026-09-15 correction that it lacks a staking/slashing mechanism). No changes to
+the §3 table this run.
