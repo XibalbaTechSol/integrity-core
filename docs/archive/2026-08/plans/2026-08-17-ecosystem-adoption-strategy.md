@@ -602,3 +602,72 @@ Passport (no update since the original 2025-08-14 partnership); Observer Protoco
 in depth this run beyond a routine site-content-reorganization commit dated 2026-09-16 — no
 reversal of the 2026-09-15 correction that it lacks a staking/slashing mechanism). No changes to
 the §3 table this run.
+
+### 2026-09-24 — Ecosystem watch: Baselayer's $35M Series A for "Know Your Agent" identity (no staking); everything else unchanged or still unconfirmed since 2026-09-22
+
+Automated research sweep (scheduled tracking run, ~2 days after the prior run; branch
+`audit/harness-loop-2026-07-30` still existed, no recreation needed). Re-swept all nine named §3
+players, both §4 fact-checks, and did a general sweep for a new entrant combining identity +
+staked reputation + compliance gating. One material funding-round finding; two items checked and
+found not to advance past their existing (already-cautious) status; everything else confirmed
+unchanged.
+
+1. **Baselayer raised a $35M Series A led by M13 (announced 2026-09-23, the day before this
+   sweep), launching an "Agentic Identity Suite" built around a "Know Your Agent" product** —
+   reported as the first dedicated venture capital specifically into KYA/agent-identity
+   infrastructure, not previously tracked in this doc. Round included Picus Capital, Torch
+   Capital, Afore Capital, and Socure's Matt Thompson (participating individually), bringing
+   Baselayer's total raised to ~$40M. The company claims 2,000+ US financial-institution
+   customers already (>20% of that market segment) and says it has helped prevent over $1B in
+   fraud losses — i.e., an already-commercial, not pre-launch, player. Mechanism, per multiple
+   consistent reports: developer/deployer verification, model provenance, and behavioral risk
+   scoring to determine "who deployed an agent, who it represents, and whether it may transact"
+   — **no staking, bonding, or slashing mechanism reported anywhere**, so like the existing
+   Trulioo+Worldpay and Semantica §3 rows this is identity/compliance-adjacent, not the full
+   identity+staked-reputation+compliance-gating combination this doc watches for as a direct
+   competitor. A funding round of this size for a newly-capitalized, already-commercial KYA
+   player is material on its own per this doc's own bar even without matching the full
+   combination. Not added as a new §3 table row this run, consistent with this doc's established
+   convention (Observer Protocol, KYA Lab, AgentFacts before it) of flagging new finds in the
+   Changelog for a future manual decision rather than having an automated sweep edit the table.
+   Sources: [fintech.global, Baselayer lands $35m to verify AI agents before fraud hits](https://fintech.global/2026/09/23/baselayer-lands-35m-to-verify-ai-agents-before-fraud-hits/),
+   [Forkast, Baselayer Raises $35M to Build the 'Know Your Agent' Layer Agentic Commerce Needs](https://forkast.news/baselayer-raises-35m-to-build-the-know-your-agent-layer-agentic-commerce-needs/),
+   [ID Tech, Baselayer Raises $35 Million and Launches AI Agent Identity Suite](https://idtechwire.com/baselayer-raises-35-million-and-launches-ai-agent-identity-suite/),
+   [PR Newswire, Baselayer Raises $35M Series A Led by M13, Launches Identity Infrastructure for AI Agents](https://www.prnewswire.com/news-releases/baselayer-raises-35m-series-a-led-by-m13-launches-identity-infrastructure-for-ai-agents-302885670.html).
+
+2. **Checked and ruled out: "Assay Protocol" (`0xvikram/assay`), a project genuinely combining
+   ERC-8004 identity with an on-chain `StakeRegistry` (staking + slashing) and `AssayReputation`
+   score, live on Base mainnet.** On paper this is closer to the full technical combination this
+   doc watches for than most entries ruled out so far — but its GitHub lives under an individual's
+   personal account rather than an org, and its own write-up is a "I built the missing trust layer
+   for AI agents on Base" dev.to post, the same solo/hackathon-project shape already ruled out
+   twice before (`selfradiance/agentgate` and `agentstake.dev`, both in the 2026-09-15 entry) —
+   no company, funding, or team disclosed. Its actual function is also a paid pre-flight
+   reputation check for ERC-8004 agent-to-agent payments (VERIFIED/UNPROVEN/WASH_REPUTATION_DETECTED),
+   not compliance-vertical gating. Not added, consistent with the prior solo-project rulings.
+   Source: [GitHub, 0xvikram/assay](https://github.com/0xvikram/assay).
+
+3. **EU AI Act: the low-confidence "Article 50 sector inspection wave" claim flagged in the
+   2026-09-22 entry (automated hiring/credit-scoring/student-monitoring tools, reportedly starting
+   September 2026) is repeated by more sources this sweep (volkovlaw.com's compliance blog, plus
+   opsintel.io and a dev.to post) but still traces to no identifiable primary EU Commission or AI
+   Office announcement** — every source found is secondary commentary, and none cites an official
+   press release or Official Journal entry the way the already-confirmed GPAI-RFI finding (2026-09-22
+   entry) does. Not upgrading confidence; this doc's status on this specific claim stays
+   "unconfirmed, needs a primary EU source." The confirmed GPAI RFI finding and the Annex III/Annex I
+   deadline dates from the 2026-09-22 entry are otherwise unchanged.
+
+4. **§4 fact-check (a), ERC-8004 Validation Registry: no change.** Re-confirmed via multiple
+   independent sources this sweep — Identity/Reputation registries remain live and widely
+   replicated (including Ethereum, Avalanche, BSC mainnets) since 2026-01-29; Validation Registry
+   remains explicitly under active technical due diligence / not yet accessible to users, no new
+   mainnet address. Consistent with every prior entry since 2026-08-26.
+
+Not material / considered and not added: t54 Labs ($5M seed — but announced 2026-02-25, predates
+this doc's 2026-08-17 tracking window entirely and only surfaced in this sweep's general search;
+identity/risk/credit product, no staking or slashing disclosed, same non-combination bucket as
+Baselayer above); Injective Agents, ChaosChain/Genesis Studio, FIDO Alliance TWG, Cloudflare/GoDaddy,
+Semantica, Trulioo+Worldpay, Anthropic/MCP (enterprise-managed auth GA already tracked since
+2026-08-28, this sweep found only routine anniversary-update coverage), Visa/Mastercard/Ant KYA
+framework, and Observer Protocol — all re-swept, no updates found beyond what's already tracked as
+of 2026-09-22. No changes to the §3 table this run.
