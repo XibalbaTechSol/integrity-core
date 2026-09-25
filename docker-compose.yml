@@ -168,9 +168,9 @@ services:
       VITE_ORACLE_URL: http://localhost:8080
       VITE_BCC_MIDDLEWARE_URL: http://localhost:8000
       VITE_USERAPI_URL: http://localhost:8090
-      VITE_SHIELD_BACKEND_URL: http://localhost:8421
-      VITE_SHIELD_UI_URL: https://localhost:9444
-      VITE_CORTEX_UI_URL: https://localhost:9443
+      VITE_SHIELD_BACKEND_URL: http://localhost:8435
+      VITE_SHIELD_UI_URL: http://localhost:5193
+      VITE_CORTEX_UI_URL: http://localhost:5190
       VITE_CHAIN_ID: "84532"
     ports: ["5173:5173"]
 
@@ -294,7 +294,7 @@ services:
       - policy_publisher_data:/var/lib/xibalba-integrity
     environment:
       CORE_ORACLE_URL: http://oracle-backend:8080
-      SHIELD_URL: ${SHIELD_URL:-http://host.docker.internal:8765}
+      SHIELD_URL: ${SHIELD_URL:-http://host.docker.internal:8435}
       SHIELD_ADMIN_TOKEN: ${SHIELD_BACKEND_TOKEN:-}
       SHIELD_TENANT_ID: "demo-tenant"
       CORE_POLICY_PUSH_INTERVAL_SECONDS: "60"
