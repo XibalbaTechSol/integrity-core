@@ -4,6 +4,7 @@ import { oracle, AgentSummary } from '../services/oracle';
 import { userapi, getToken, UserResponse } from '../services/userapi';
 import { BASE_SEPOLIA_CHAIN_ID } from '../constants';
 import { ALLOW_UNSCOPED_AGENT_DIRECTORY } from '../config';
+import { graphMemory } from '../services/graphMemory';
 
 // Some browser/embedding contexts (e.g. a sandboxed automation profile) throw on any
 // localStorage access rather than just returning null -- these calls run during initial
@@ -25,6 +26,27 @@ function safeLocalStorageSet(key: string, value: string): void {
   }
 }
 
+function sharedScopeFromUrl(): { agentId: string; storeId: string } {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return { agentId: params.get('agent_id') || '', storeId: params.get('store_id') || '' };
+  } catch {
+    return { agentId: '', storeId: '' };
+  }
+}
+
+function writeSharedScope(agentId: string, storeId = ''): void {
+  try {
+    const url = new URL(window.location.href);
+    const params = url.searchParams;
+    if (agentId) params.set('agent_id', agentId); else params.delete('agent_id');
+    if (storeId) params.set('store_id', storeId); else params.delete('store_id');
+    window.history.replaceState({}, '', `${url.pathname}${params.toString() ? `?${params}` : ''}${url.hash}`);
+  } catch {
+    // URL persistence is a best-effort cross-origin handoff hint.
+  }
+}
+
 export interface Agent {
   /** The agent's DID — historically named `eth_address` across this codebase (see
    *  oracle.ts's resolveSovereignAgent comment); never use this as an on-chain
@@ -38,6 +60,13 @@ export interface Agent {
   current_ais?: number;
   staked_itk?: number;
   tee_verified?: boolean;
+  /** Cortex's mounted-store namespace. A DID alone is not a unique memory authority. */
+  store_id?: string;
+  profile_id?: string;
+  store_access?: string;
+  writable?: boolean;
+  namespace_key?: string;
+  namespace_state?: 'cortex' | 'unavailable';
 }
 
 export interface ApiKey {
@@ -99,6 +128,7 @@ function agentFromSummary(s: AgentSummary): Agent {
     name: s.name ?? null,
     alias: s.handle ?? s.name ?? null,
     verification_tier: s.verification_tier,
+    namespace_state: 'unavailable',
   };
 }
 
@@ -112,6 +142,7 @@ function agentFromOwnedRecord(record: { agent_did: string; live_data: Record<str
     name: null,
     alias: null,
     verification_tier: verificationTier,
+    namespace_state: 'unavailable',
   };
 }
 
@@ -138,10 +169,14 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(true);
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const sharedScope = sharedScopeFromUrl();
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(() => {
+    if (sharedScope.agentId && sharedScope.storeId) return `${sharedScope.storeId}:${sharedScope.agentId}`;
+    return safeLocalStorageGet(LAST_AGENT_KEY);
+  });
   // Derived from `agents` (not a separate copy) so per-agent enrichment — AIS, stake,
   // zk-boost — fetched below flows straight through to whatever holds the selection.
-  const selectedAgent = agents.find(a => a.id === selectedAgentId) || null;
+  const selectedAgent = agents.find(a => (a.namespace_key || a.id) === selectedAgentId) || null;
   const [layoutMode, setLayoutMode] = useState<'sidebar' | 'header'>('sidebar');
   const [theme, setTheme] = useState<'dark' | 'light' | 'cyber'>('dark');
   const [fontFamily, setFontFamily] = useState<string>('Raleway');
@@ -152,8 +187,10 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [stats, setStats] = useState<Stats | null>(null);
 
   const setSelectedAgent = useCallback((agent: Agent) => {
-    setSelectedAgentId(agent.id);
-    safeLocalStorageSet(LAST_AGENT_KEY, agent.id);
+    const key = agent.namespace_key || agent.id;
+    setSelectedAgentId(key);
+    safeLocalStorageSet(LAST_AGENT_KEY, key);
+    writeSharedScope(agent.id, agent.store_id || (agent.namespace_key?.startsWith(`${key.split(':')[0]}:`) ? key.split(':')[0] : ''));
   }, []);
 
   const addToast = useCallback((type: 'success' | 'error' | 'info', message: string) => {
@@ -201,31 +238,57 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setAgentsLoading(true);
     const load = async () => {
       try {
+        // Cortex is the authoritative namespace projection. Its authenticated HttpOnly
+        // session is shared through the same-origin /cortex-api proxy, so Dashboard can
+        // mirror the exact `{store_id, agent_id}` roster even when its separate UserAPI
+        // session has expired. UserAPI ownership still enriches the rows and remains the
+        // authorization boundary for Dashboard-only financial mutations.
+        const cortexResult = await Promise.all([
+          graphMemory.agents().catch(() => null),
+          graphMemory.accountMe().catch(() => null),
+        ]);
+        let owned: Awaited<ReturnType<typeof userapi.myAgents>> = [];
         if (getToken()) {
-          const owned = await userapi.myAgents();
-          const usable = owned.filter(record => record.error === null && record.live_data !== null);
-          if (!active) return;
-          const real = usable.map(agentFromOwnedRecord);
-          setAgents(real);
-          const lastId = safeLocalStorageGet(LAST_AGENT_KEY);
-          const restored = lastId && real.find(a => a.id === lastId);
-          setSelectedAgentId((restored || real[0])?.id ?? null);
-          return;
+          [owned] = await Promise.all([
+            userapi.myAgents().catch(() => []),
+          ]);
         }
-        if (!ALLOW_UNSCOPED_AGENT_DIRECTORY) {
-          if (active) {
-            setAgents([]);
-            setSelectedAgentId(null);
-          }
-          return;
-        }
-        const summaries = await oracle.listAgents();
         if (!active) return;
-        const real = summaries.map(agentFromSummary);
-        setAgents(real);
-        const lastId = safeLocalStorageGet(LAST_AGENT_KEY);
-        const restored = lastId && real.find(a => a.id === lastId);
-        setSelectedAgentId((restored || real[0])?.id ?? null);
+        const usable = owned.filter(record => record.error === null && record.live_data !== null);
+        const real = usable.map(agentFromOwnedRecord);
+        const baseByDid = new Map(real.map(agent => [agent.id, agent]));
+        const [cortex, cortexAccount] = cortexResult;
+        // `/api/agents` is already an authenticated, account-scoped Cortex endpoint.
+        // Do not require a second `/api/auth/me` round-trip: a valid roster response is
+        // sufficient evidence, and the extra identity probe caused Dashboard to discard
+        // a valid Cortex roster when the two cookie paths were momentarily out of sync.
+        const cortexAuthenticated = Array.isArray(cortex?.agents);
+        // Preserve every exact {store_id, agent_id} workspace from Cortex, including
+        // read-only stores. Never collapse by DID and never merge profile stores.
+        const scoped = (cortexAuthenticated ? (cortex?.agents || []) : [])
+            .map(workspace => {
+              const base = baseByDid.get(workspace.agent_id) || {
+                id: workspace.agent_id,
+                eth_address: workspace.agent_id,
+                verification_tier: 0,
+              };
+              return {
+                ...base,
+                alias: workspace.agent_name || workspace.device_name || base.alias,
+                store_id: workspace.store_id,
+                profile_id: workspace.profile_id,
+                store_access: workspace.store_access,
+                writable: workspace.writable,
+                namespace_key: `${workspace.store_id}:${workspace.agent_id}`,
+                namespace_state: 'cortex' as const,
+              };
+            });
+          const visible = scoped.length ? scoped : real;
+          const lastId = sharedScope.agentId && sharedScope.storeId ? `${sharedScope.storeId}:${sharedScope.agentId}` : safeLocalStorageGet(LAST_AGENT_KEY);
+          const restored = lastId && visible.find(a => a.namespace_key === lastId || (!a.namespace_key && a.id === lastId));
+          setAgents(visible);
+          setSelectedAgentId((restored || visible[0])?.namespace_key || (restored || visible[0])?.id || null);
+          return;
       } catch (err) {
         console.warn('Agent scope unavailable; showing empty agent fleet', err);
         if (active) {
@@ -253,7 +316,7 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     oracle.getAis(selectedAgent.eth_address)
       .then(ais => {
         if (!active) return;
-        setAgents(prev => prev.map(a => a.id === selectedAgent.id ? { ...a, current_ais: ais.ais, tee_verified: ais.zk_boost > 1 } : a));
+        setAgents(prev => prev.map(a => (a.namespace_key || a.id) === (selectedAgent.namespace_key || selectedAgent.id) ? { ...a, current_ais: ais.ais, tee_verified: ais.zk_boost > 1 } : a));
       })
       .catch(() => { /* agent may not have telemetry yet — leave current_ais unset */ });
     // A DID can be present in the off-chain directory before CORE has a
@@ -266,11 +329,11 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       .then(stake => {
         if (!active) return;
         // total_stake is a raw wei string off the chain (Slasher.stakes) — convert to ITK.
-        setAgents(prev => prev.map(a => a.id === selectedAgent.id ? { ...a, staked_itk: Number(ethers.formatEther(stake.total_stake)) } : a));
+        setAgents(prev => prev.map(a => (a.namespace_key || a.id) === (selectedAgent.namespace_key || selectedAgent.id) ? { ...a, staked_itk: Number(ethers.formatEther(stake.total_stake)) } : a));
       })
       .catch(() => { /* no Slasher clone yet */ });
     return () => { active = false; };
-  }, [selectedAgent?.id]);
+  }, [selectedAgent?.namespace_key, selectedAgent?.id]);
 
   // Protocol-wide stats aggregated live from the real agent set (no single oracle
   // endpoint returns network-wide AIS/stake — this is derived, real aggregation,

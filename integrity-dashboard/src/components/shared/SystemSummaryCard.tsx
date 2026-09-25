@@ -4,7 +4,7 @@ import { Panel } from './Panel';
 import { useDashboard } from '../../context/DashboardContext';
 import { shieldBackend } from '../../services/shieldBackend';
 import { graphMemory } from '../../services/graphMemory';
-import { CORTEX_UI_URL, SHIELD_TENANT_ID, SHIELD_UI_URL } from '../../config';
+import { CORTEX_UI_URL, SHIELD_TENANT_ID, SHIELD_UI_URL, withSharedAgentScope } from '../../config';
 
 // Shield and Cortex each own a full operator UI now (device management, graph exploration,
 // enforcement actions) with their own cookie-authenticated login -- this dashboard has no
@@ -22,7 +22,7 @@ export function SystemSummaryCard({ system }: { system: 'shield' | 'cortex' }) {
   const [state, setState] = useState<CardState>(INITIAL);
 
   const label = system === 'shield' ? 'Shield' : 'Cortex';
-  const uiUrl = system === 'shield' ? SHIELD_UI_URL : CORTEX_UI_URL;
+  const uiUrl = withSharedAgentScope(system === 'shield' ? SHIELD_UI_URL : CORTEX_UI_URL, selectedAgent || undefined);
   const Icon = system === 'shield' ? ShieldCheck : BrainCircuit;
   const tenantId = SHIELD_TENANT_ID || selectedAgent?.eth_address || '';
 

@@ -21,12 +21,12 @@ export function usePinnedAgent(agentId: string) {
 
   useEffect(() => {
     if (hasPinnedRef.current) return;
-    const target = agents.find(a => a.id === agentId);
+    const target = agents.find(a => a.id === agentId || a.namespace_key === agentId);
     if (!target) return; // not loaded yet, or not registered -- nothing to pin to
 
     hasPinnedRef.current = true;
-    previousIdRef.current = selectedAgent?.id ?? null;
-    if (selectedAgent?.id !== agentId) setSelectedAgent(target);
+    previousIdRef.current = selectedAgent?.namespace_key || selectedAgent?.id || null;
+    if ((selectedAgent?.namespace_key || selectedAgent?.id) !== (target.namespace_key || target.id)) setSelectedAgent(target);
   }, [agentId, agents, selectedAgent, setSelectedAgent]);
 
   useEffect(() => {
@@ -34,7 +34,7 @@ export function usePinnedAgent(agentId: string) {
       if (!hasPinnedRef.current) return;
       const { agents: currentAgents, setSelectedAgent: currentSet } = stateRef.current;
       const restoreId = previousIdRef.current;
-      const restoreTo = restoreId ? currentAgents.find(a => a.id === restoreId) : null;
+      const restoreTo = restoreId ? currentAgents.find(a => (a.namespace_key || a.id) === restoreId) : null;
       if (restoreTo) currentSet(restoreTo);
     };
   }, []);

@@ -10,6 +10,11 @@ export default defineConfig({
         target: 'http://127.0.0.1:8765',
         changeOrigin: true,
       }
+      ,'/cortex-api': {
+        target: 'http://127.0.0.1:8420',
+        changeOrigin: false,
+        rewrite: (path) => path.replace(/^\/cortex-api/, ''),
+      }
     }
   }
 })

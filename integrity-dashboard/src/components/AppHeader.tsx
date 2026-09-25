@@ -12,22 +12,18 @@ export function AppHeader() {
   const location = useLocation();
   const { agents, selectedAgent, setSelectedAgent, agentsLoading } = useDashboard();
 
-  // Very basic tab titles for the header
   const tabTitles: Record<string, string> = {
     'dashboard': 'Protocol overview',
-    'identity': 'Identity & Trust',
-    'contracts': 'Deployed contracts',
-    'treasury': 'Treasury Control',
-    'financials': 'Financials',
-    'intelligence': 'Intelligence',
-    'system': 'System Administration',
-    'correlation': 'Correlation',
-    'prediction-markets': 'Prediction Markets',
-    'health': 'System Health',
-    'kernel': 'Kernel Policy',
-    'knowledge': 'Knowledge & Memory',
-    'licence': 'Licence',
-    'wiki': 'Wiki',
+    'agents': 'Identity & agents',
+    'identity': 'Identity & agents',
+    'contracts': 'Evidence & activity',
+    'treasury': 'Wallet & finance',
+    'financials': 'Wallet & finance',
+    'evidence': 'Evidence & activity',
+    'security': 'Protection',
+    'health': 'Health',
+    'system': 'System',
+    'wiki': 'Docs & wiki',
     'settings': 'Settings'
   };
 
@@ -40,10 +36,10 @@ export function AppHeader() {
         <h1>{tabTitles[routeTab] || 'Dashboard'}</h1>
       </div>
       <div className="protocol-top-actions">
-        <label>Selected agent
-          <select aria-label="Selected agent" value={selectedAgent?.id || ''} onChange={event => { const next = agents.find(agent => agent.id === event.target.value); if (next) setSelectedAgent(next); }}>
+        <label>Selected agent namespace
+          <select aria-label="Selected agent namespace" value={selectedAgent?.namespace_key || selectedAgent?.id || ''} onChange={event => { const next = agents.find(agent => (agent.namespace_key || agent.id) === event.target.value); if (next) setSelectedAgent(next); }}>
             <option value="">{agentsLoading ? 'Loading agents…' : 'No agent selected'}</option>
-            {agents.map(agent => <option key={agent.id} value={agent.id}>{agent.alias || agent.name || short(agent.id)}</option>)}
+            {agents.map(agent => <option key={agent.namespace_key || agent.id} value={agent.namespace_key || agent.id}>{agent.alias || agent.name || short(agent.id)}{agent.profile_id ? ` · ${agent.profile_id} · ${agent.writable === false || agent.store_access === 'read_only' ? 'read only' : 'writable'}` : agent.namespace_state === 'unavailable' ? ' · Cortex namespace unavailable' : ''}</option>)}
           </select>
         </label>
         <button className="icon-button" aria-label="Refresh data"><RefreshCw size={16} /></button>

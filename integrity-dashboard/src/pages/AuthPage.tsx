@@ -22,7 +22,14 @@ const AuthPage: React.FC = () => {
       else await userapi.register(email, password);
       navigate('/dashboard');
     } catch (err) {
-      setError(err instanceof UserApiError ? err.message : 'Authentication failed — check the userapi service is reachable.');
+      if (err instanceof UserApiError) {
+        if (err.status === 401) setError('Invalid email or password. If this is a new account, choose Create Account first.');
+        else if (err.status === 429) setError('Too many sign-in attempts. Wait briefly and try again.');
+        else if (err.status >= 500) setError('The account service returned an internal error. Try again shortly.');
+        else setError(err.message);
+      } else {
+        setError('Authentication service is unreachable. Check that UserAPI is running on port 8090.');
+      }
     } finally {
       setLoading(false);
     }

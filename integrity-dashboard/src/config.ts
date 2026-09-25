@@ -10,7 +10,9 @@ export const ALLOW_UNSCOPED_AGENT_DIRECTORY = import.meta.env.VITE_ALLOW_UNSCOPE
 // project, not part of this repo's own backend stack. Run it with:
 //   .venv/bin/python -m xibalba_cortex.local_api --home ~/.hermes/xibalba-cortex \
 //     --allowed-origin http://localhost:5173
-export const GRAPH_MEMORY_URL = import.meta.env.VITE_GRAPH_MEMORY_URL || 'http://localhost:8420';
+// Same-origin dev proxy keeps Cortex's HttpOnly cookie on the localhost host shared
+// by the three browser UIs. Production may override this with an explicit API origin.
+export const GRAPH_MEMORY_URL = import.meta.env.VITE_GRAPH_MEMORY_URL || (import.meta.env.DEV ? '/cortex-api' : 'http://127.0.0.1:8420');
 // Cortex local_api requires an explicit bearer token. Keep this opt-in so a
 // production dashboard never silently sends a development credential.
 export const GRAPH_MEMORY_TOKEN = import.meta.env.VITE_GRAPH_MEMORY_TOKEN || '';
@@ -27,3 +29,31 @@ export const CORTEX_UI_URL = import.meta.env.VITE_CORTEX_UI_URL || 'https://loca
 // deployment-configurable; falling back to the selected agent remains useful for
 // isolated demo tenants but must never be mistaken for production identity mapping.
 export const SHIELD_TENANT_ID = import.meta.env.VITE_SHIELD_TENANT_ID || '';
+
+// Cross-UI agent handoff contract. Browser storage is origin-scoped, so the
+// Dashboard, Cortex, and Shield dev UIs cannot share their selected agent via
+// localStorage/sessionStorage. Keep the authoritative Cortex scope explicit in
+// the URL instead: the pair {store_id, agent_id} is the namespace, never the DID
+// alone. This is a handoff hint, not an authorization boundary.
+export function sharedAgentParams(agent?: { id?: string; namespace_key?: string; store_id?: string }): string {
+  if (!agent) return '';
+  const params = new URLSearchParams();
+  const agentId = agent.id || '';
+  const storeId = agent.store_id || (agent.namespace_key?.includes(':') ? agent.namespace_key.split(':')[0] : '');
+  if (agentId) params.set('agent_id', agentId);
+  if (storeId) params.set('store_id', storeId);
+  const query = params.toString();
+  return query ? `?${query}` : '';
+}
+
+export function withSharedAgentScope(url: string, agent?: { id?: string; namespace_key?: string; store_id?: string }): string {
+  if (!agent) return url;
+  const target = new URL(url, window.location.href);
+  const params = new URLSearchParams(target.search);
+  const agentId = agent.id || '';
+  const storeId = agent.store_id || (agent.namespace_key?.includes(':') ? agent.namespace_key.split(':')[0] : '');
+  if (agentId) params.set('agent_id', agentId);
+  if (storeId) params.set('store_id', storeId);
+  target.search = params.toString();
+  return target.toString();
+}
