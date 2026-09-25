@@ -62,10 +62,24 @@ async fn main() -> anyhow::Result<()> {
 
     let otlp_addr: std::net::SocketAddr = otlp_grpc_addr.parse()?;
     tracing::info!(otlp_grpc_addr = %otlp_addr, "otlp grpc receiver listening");
+    // Shield's OTLP exporter can legitimately emit a dense batch slightly above
+    // tonic's 4 MiB default when a backlog drains. Keep the receiver bounded,
+    // but large enough to accept the configured SDK batch without turning a
+    // reachable receiver into a misleading DEADLINE_EXCEEDED failure.
+    const OTLP_MAX_DECODING_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
     let otlp_server = tonic::transport::Server::builder()
-        .add_service(TraceServiceServer::new(OtlpTraceService::new(state.clone())))
-        .add_service(MetricsServiceServer::new(OtlpMetricsService::new(state.clone())))
-        .add_service(LogsServiceServer::new(OtlpLogsService::new(state)))
+        .add_service(
+            TraceServiceServer::new(OtlpTraceService::new(state.clone()))
+                .max_decoding_message_size(OTLP_MAX_DECODING_MESSAGE_BYTES),
+        )
+        .add_service(
+            MetricsServiceServer::new(OtlpMetricsService::new(state.clone()))
+                .max_decoding_message_size(OTLP_MAX_DECODING_MESSAGE_BYTES),
+        )
+        .add_service(
+            LogsServiceServer::new(OtlpLogsService::new(state))
+                .max_decoding_message_size(OTLP_MAX_DECODING_MESSAGE_BYTES),
+        )
         .serve_with_shutdown(otlp_addr, shutdown_signal());
 
     tokio::try_join!(

@@ -109,8 +109,8 @@ def _backoff_seconds(settings: Settings, attempts: int) -> float:
 
 
 def run_retry_cycle(settings: Settings, *, now: float | None = None) -> RetryCycleResult:
-    """One pass over every row due for retry: POST it again, delete the row
-    on success, bump `attempts` and reschedule with backoff on failure.
+    """Retry one bounded batch of due rows: POST each again, delete it on
+    success, and bump `attempts`/reschedule it on failure.
 
     Pure w.r.t. any event loop -- no asyncio here, matching
     `scoring_loop.run_sync_cycle`'s own separation. `app/main.py` wraps this
@@ -120,8 +120,9 @@ def run_retry_cycle(settings: Settings, *, now: float | None = None) -> RetryCyc
     conn = _connect(settings)
     try:
         rows = conn.execute(
-            "SELECT id, endpoint_path, payload_json, attempts FROM spool WHERE next_retry_at <= ? ORDER BY id",
-            (now,),
+            "SELECT id, endpoint_path, payload_json, attempts FROM spool "
+            "WHERE next_retry_at <= ? ORDER BY id LIMIT ?",
+            (now, settings.spool_retry_batch_size),
         ).fetchall()
         delivered = 0
         for row_id, endpoint_path, payload_json, attempts in rows:

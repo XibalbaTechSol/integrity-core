@@ -221,10 +221,16 @@ class Settings:
     # (`spool.py::_backoff_seconds`: `min(spool_max_backoff_seconds, spool_retry_interval_seconds * 2**attempts)`).
     spool_retry_interval_seconds: int = field(default_factory=lambda: int(os.getenv("SPOOL_RETRY_INTERVAL_SECONDS", "30")))
     spool_max_backoff_seconds: int = field(default_factory=lambda: int(os.getenv("SPOOL_MAX_BACKOFF_SECONDS", "900")))
+    # Bound the amount of work one retry cycle can issue. Without this cap, a
+    # long outage can make every due row fire at once when the oracle returns,
+    # overwhelming its rate limiter and starving fresh audit reports.
+    spool_retry_batch_size: int = field(default_factory=lambda: int(os.getenv("SPOOL_RETRY_BATCH_SIZE", "100")))
 
     def __post_init__(self) -> None:
         if self.merkle_anchor_interval_seconds <= 0:
             raise ValueError("merkle anchor interval must be greater than zero")
+        if self.spool_retry_batch_size <= 0:
+            raise ValueError("spool retry batch size must be greater than zero")
 
     def load_deployments(self) -> dict:
         """

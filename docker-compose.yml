@@ -79,6 +79,11 @@ services:
       CHAIN_ID: ${CHAIN_ID:-31337}
       DEPLOYMENTS_FILE: ${DOCKER_DEPLOYMENTS_FILE:-/deployments.local.json}
       OTLP_GRPC_ADDR: 0.0.0.0:4317
+      # Local integration traffic includes the Shield telemetry replay queue and
+      # bounded BCC retries. Keep the limiter finite, but make the dev stack's
+      # actual repair/replay path capable of draining those queues. Production
+      # deployments must set this explicitly for their expected ingest volume.
+      TELEMETRY_RATE_LIMIT_PER_MINUTE: ${TELEMETRY_RATE_LIMIT_PER_MINUTE:-600}
       # reject | flag | off. Defaults to `reject` in code; `flag` here so development
       # collection (redaction off by operator decision) is STORED WITH the matched categories
       # recorded on the row rather than refused at the boundary. Production must not inherit
@@ -270,6 +275,10 @@ services:
     environment:
       DATABASE_URL: postgres://integrity:integrity_dev_only@userapi-postgres:5432/integrity_userapi
       ORACLE_URL: http://oracle-backend:8080
+      # Local UIs run over plain HTTP on 127.0.0.1. The service must omit the
+      # Secure cookie attribute in this explicitly local compose profile or the
+      # browser will never send the HttpOnly session back to /me/agents.
+      USERAPI_INSECURE_COOKIES: "1"
     ports: ["8090:8090"]
 
   shield-policy-publisher:

@@ -59,6 +59,20 @@ def test_retry_cycle_delivers_and_removes_row(tmp_path):
     assert status(settings).pending == 0
 
 
+def test_retry_cycle_honors_batch_size(tmp_path):
+    settings = _settings(tmp_path, spool_retry_batch_size=1)
+    enqueue(settings, kind="decision", endpoint_path="/v1/audit/ingest", payload={"a": 1}, error="boom")
+    enqueue(settings, kind="decision", endpoint_path="/v1/audit/ingest", payload={"a": 2}, error="boom")
+
+    with respx.mock(assert_all_called=True) as mock:
+        mock.post(f"{_ORACLE_URL}/v1/audit/ingest").mock(return_value=Response(200, json={"ok": True}))
+        result = run_retry_cycle(settings)
+
+    assert result.attempted == 1
+    assert result.delivered == 1
+    assert result.still_pending == 1
+
+
 def test_retry_cycle_reschedules_with_backoff_on_repeated_failure(tmp_path):
     settings = _settings(tmp_path, spool_retry_interval_seconds=10)
     enqueue(settings, kind="decision", endpoint_path="/v1/audit/ingest", payload={"agent_id": "agent-1"}, error="boom")
