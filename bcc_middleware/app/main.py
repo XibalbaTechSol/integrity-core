@@ -671,6 +671,12 @@ async def spool_status() -> dict:
     }
 
 
+@app.get("/v1/audit/spool/receipts")
+async def spool_receipts(limit: int = 20) -> dict:
+    """Read-only map from a retried local row to Oracle's acknowledgment."""
+    return {"receipts": spool_module.recent_receipts(default_settings, limit=limit)}
+
+
 @app.post("/v1/bcc/verify_token", response_model=VerifyTokenResponse)
 async def verify_token(request: VerifyTokenRequest) -> VerifyTokenResponse:
     """

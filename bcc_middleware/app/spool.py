@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import json
 import logging
+import hashlib
 import sqlite3
 import time
 from dataclasses import dataclass
@@ -63,6 +64,15 @@ CREATE TABLE IF NOT EXISTS spool (
     next_retry_at REAL NOT NULL,
     last_error TEXT
 )
+;
+CREATE TABLE IF NOT EXISTS delivery_receipts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    spool_id INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    oracle_ack TEXT NOT NULL,
+    payload_sha256 TEXT NOT NULL,
+    delivered_at REAL NOT NULL
+)
 """
 
 
@@ -70,7 +80,7 @@ def _connect(settings: Settings) -> sqlite3.Connection:
     path = Path(settings.spool_db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path), timeout=5.0)
-    conn.execute(_SCHEMA)
+    conn.executescript(_SCHEMA)
     conn.commit()
     return conn
 
@@ -104,6 +114,29 @@ class RetryCycleResult:
     still_pending: int
 
 
+def _payload_sha256(payload_json: str) -> str:
+    return hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
+
+
+def _oracle_ack(resp: httpx.Response, endpoint_path: str) -> str:
+    """Return a durable, non-secret acknowledgment value from Oracle."""
+    try:
+        body = resp.json()
+    except ValueError:
+        body = {}
+    if endpoint_path == "/v1/audit/ingest":
+        value = body.get("id") if isinstance(body, dict) else None
+        if not value:
+            raise RuntimeError("Oracle audit acknowledgment did not include an id")
+        return str(value)
+    if endpoint_path == "/v1/audit/anchor":
+        value = body.get("recorded") if isinstance(body, dict) else None
+        if value is None:
+            raise RuntimeError("Oracle anchor acknowledgment did not include recorded")
+        return f"recorded:{value}"
+    return "http:200"
+
+
 def _backoff_seconds(settings: Settings, attempts: int) -> float:
     return min(settings.spool_max_backoff_seconds, settings.spool_retry_interval_seconds * (2**attempts))
 
@@ -133,6 +166,7 @@ def run_retry_cycle(settings: Settings, *, now: float | None = None) -> RetryCyc
                     timeout=3.0,
                 )
                 resp.raise_for_status()
+                oracle_ack = _oracle_ack(resp, endpoint_path)
             except Exception as exc:
                 next_attempts = attempts + 1
                 conn.execute(
@@ -148,6 +182,12 @@ def run_retry_cycle(settings: Settings, *, now: float | None = None) -> RetryCyc
                     exc,
                 )
             else:
+                conn.execute(
+                    "INSERT INTO delivery_receipts "
+                    "(spool_id, kind, oracle_ack, payload_sha256, delivered_at) "
+                    "SELECT id, kind, ?, ?, ? FROM spool WHERE id = ?",
+                    (oracle_ack, _payload_sha256(payload_json), now, row_id),
+                )
                 conn.execute("DELETE FROM spool WHERE id = ?", (row_id,))
                 delivered += 1
         conn.commit()
@@ -174,3 +214,26 @@ def status(settings: Settings) -> SpoolStatus:
         conn.close()
     age = (time.time() - oldest) if oldest is not None else None
     return SpoolStatus(pending=pending, oldest_pending_age_seconds=age)
+
+
+def recent_receipts(settings: Settings, *, limit: int = 20) -> list[dict]:
+    """Return non-sensitive delivery receipts for operator attribution."""
+    conn = _connect(settings)
+    try:
+        rows = conn.execute(
+            "SELECT spool_id, kind, oracle_ack, payload_sha256, delivered_at "
+            "FROM delivery_receipts ORDER BY id DESC LIMIT ?",
+            (max(1, min(limit, 100)),),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [
+        {
+            "spool_id": row[0],
+            "kind": row[1],
+            "oracle_ack": row[2],
+            "payload_sha256": row[3],
+            "delivered_at": row[4],
+        }
+        for row in rows
+    ]
