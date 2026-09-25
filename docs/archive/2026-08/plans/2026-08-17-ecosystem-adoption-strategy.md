@@ -671,3 +671,72 @@ Semantica, Trulioo+Worldpay, Anthropic/MCP (enterprise-managed auth GA already t
 2026-08-28, this sweep found only routine anniversary-update coverage), Visa/Mastercard/Ant KYA
 framework, and Observer Protocol — all re-swept, no updates found beyond what's already tracked as
 of 2026-09-22. No changes to the §3 table this run.
+
+### 2026-09-25 — Ecosystem watch: primary-source check finds the circulating "Annex III sector inspection wave" claim inconsistent with the EU Commission's own confirmed enforcement timeline; no new competitor; everything else unchanged since 2026-09-24
+
+Automated research sweep (scheduled tracking run, ~1 day after the prior run; branch
+`audit/harness-loop-2026-07-30` still existed, no recreation needed). Re-swept all nine named §3
+players, both §4/§2 fact-checks, and did a general sweep for a new entrant combining identity +
+staked reputation + compliance gating. One notable refinement to a previously-flagged
+low-confidence claim (a genuine primary-source check this run, going further than the "still
+unconfirmed" status recorded on 2026-09-15/09-22/09-24); no other material change.
+
+1. **The "Article 50 sector inspection wave" claim (first flagged as low-confidence,
+   secondary-source-only in the 2026-09-22 entry, still unconfirmed as of 2026-09-24) is now
+   also being repeated by a more credible source — CDT Europe's monthly AI Bulletin — but a
+   direct primary-source check this run finds it in apparent tension with the EU Commission's
+   own confirmed enforcement timeline, rather than resolving it.** The claim (per opsintel.io,
+   cubbbix.com, thegputrade.com, and now CDT Europe's September 2026 bulletin) is that the
+   European AI Office, working with 24 national market surveillance authorities (naming France's
+   CNIL, Germany's BfDI, Spain's AESIA), opened a first coordinated wave of compliance
+   inspections in September 2026 targeting three high-risk system types — automated resume
+   screening, algorithmic credit assessment, and AI medical triage — checking technical
+   documentation, bias testing, human oversight records, and post-market monitoring. Those four
+   checked items (technical documentation, bias testing, human oversight, post-market
+   monitoring) are Annex III high-risk obligations (AI Act Articles 9-15), not Article 50
+   transparency-disclosure requirements, and resume-screening/credit-assessment/medical-triage
+   are themselves Annex III use cases. Checked directly against the European Commission's own
+   page (`digital-strategy.ec.europa.eu/en/policies/enforcement-ai-act`), which states in its
+   own words: "the rules for high-risk AI systems listed in Annex III to the AI Act apply from
+   2 December 2027" — the same date this doc has tracked since the 2026-08-26/08-28 corrections
+   (per the Digital Omnibus deferral, Regulation (EU) 2026/1744). No Commission or AI Office
+   page found describing an active Annex III inspection campaign; a targeted search for an
+   official announcement (`site:digital-strategy.ec.europa.eu`, `site:europa.eu`) surfaced only
+   the standard enforcement-framework and Annex III reference pages, none mentioning inspections
+   of the three named sectors. Net: this doesn't resolve the open item to "confirmed" or "false"
+   — it's possible national surveillance authorities are conducting preparatory or voluntary
+   readiness reviews ahead of the 2027-12-02 deadline that press coverage is describing loosely
+   as "inspections," or the claim may simply be inaccurate/premature reporting circulating across
+   several outlets (including one, CDT Europe, this doc hadn't previously weighed) without an
+   identifiable primary source. Flagging this specifically because a future GTM or compliance
+   claim citing "the EU AI Office is already inspecting high-risk AI systems" would conflict with
+   this doc's own confirmed Annex III timeline unless re-verified against an actual AI Office
+   announcement first.
+   Sources: [European Commission, The enforcement framework of the AI Act](https://digital-strategy.ec.europa.eu/en/policies/enforcement-ai-act),
+   [CDT Europe's AI Bulletin: September 2026](https://cdt.org/insights/cdt-europes-ai-bulletin-september-2026/),
+   [opsintel.io, EU AI Office begins automated hiring tool inspections](https://www.opsintel.io/blog/eu-ai-office-begins-automated-hiring-tool-inspections-first-enforcement-wave-under-article-50-starts-september-2026/),
+   [Cubbbix, AI Regulation News September 2026](https://cubbbix.com/blog/ai-regulation-september-2026-global-update).
+
+2. **§4 fact-check (a), ERC-8004 Validation Registry: no change.** Re-confirmed — Identity/
+   Reputation registries remain live since 2026-01-29; Validation Registry remains under
+   technical due diligence, not yet user-accessible, no mainnet address. Unchanged since
+   2026-08-26.
+
+3. **General sweep for a new identity + staked-reputation + compliance-gating entrant: nothing
+   added.** One candidate checked and ruled out — **"AIAgentRegistry"** (a `paragraph.com`
+   write-up for a project branded "Yelden," $YLD token): permissionless on-chain agent
+   registration via a 50-YLD stake, a Chainlink-oracle-updated 0-1000 reputation score that
+   "cannot be bought" by staking more, and slashing that can zero an exiting agent's stake —
+   genuinely identity + staked/slashable reputation on paper, but it is a DeFi-accountability
+   primitive (no compliance-vertical gating disclosed) published as an individual blog post, the
+   same solo/no-company/no-funding shape already ruled out for `selfradiance/agentgate`,
+   `agentstake.dev`, and `0xvikram/assay` in the 2026-09-15 and 2026-09-24 entries — not added,
+   consistent with those prior rulings.
+
+Not material / considered and not added: all nine named §3 players re-swept with no updates
+beyond what the 2026-09-24 entry already recorded (Injective Agents, ChaosChain/Genesis Studio,
+KYA `kya.link`/`agentecon.ai` — stake/slash question still open, still blocked from primary-source
+confirmation, no new detail this sweep — Cloudflare/GoDaddy, FIDO Alliance TWG — still tracking
+its original H2 2026-early 2027 timeline, no draft spec — Semantica, Trulioo+Worldpay,
+Visa/Mastercard/Ant KYA framework, and Observer Protocol); Baselayer's $35M Series A (already
+tracked 2026-09-24, no update). No changes to the §3 table this run.
