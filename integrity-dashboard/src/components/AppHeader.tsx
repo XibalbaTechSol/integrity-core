@@ -13,18 +13,23 @@ export function AppHeader() {
   const { agents, selectedAgent, setSelectedAgent, agentsLoading } = useDashboard();
 
   const tabTitles: Record<string, string> = {
-    'dashboard': 'Protocol overview',
-    'agents': 'Identity & agents',
-    'identity': 'Identity & agents',
-    'contracts': 'Evidence & activity',
-    'treasury': 'Wallet & finance',
-    'financials': 'Wallet & finance',
-    'evidence': 'Evidence & activity',
-    'security': 'Protection',
-    'health': 'Health',
-    'system': 'System',
-    'wiki': 'Docs & wiki',
-    'settings': 'Settings'
+    'dashboard': 'Command center',
+    'agents': 'Agent registry',
+    'identity': 'Agent registry',
+    'contracts': 'Evidence ledger',
+    'treasury': 'Treasury',
+    'financials': 'Treasury',
+    'evidence': 'Evidence ledger',
+    'security': 'Overview',
+    'health': 'Operations',
+    'system': 'Operations',
+    'wiki': 'Operations',
+    'docs': 'Operations',
+    'kernel': 'Operations',
+    'kernel-intent': 'Operations',
+    'licence': 'Operations',
+    'developer': 'Operations',
+    'settings': 'Workspace settings'
   };
 
   const routeTab = location.pathname.slice(1) || 'dashboard';

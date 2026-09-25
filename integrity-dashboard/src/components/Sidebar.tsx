@@ -38,7 +38,20 @@ export function Sidebar() {
             <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column' }}>
         <div className="protocol-sidebar-foot"><LockKeyhole size={15} /><span>Key material never rendered</span><small>Protocol surface v1</small></div>
 
-        <div className={`sidebar-profile ${profileOpen ? 'open' : ''}`} onClick={() => setProfileOpen(!profileOpen)}>
+        <div
+          className={`sidebar-profile ${profileOpen ? 'open' : ''}`}
+          role="button"
+          tabIndex={0}
+          aria-haspopup="menu"
+          aria-expanded={profileOpen}
+          onClick={() => setProfileOpen(!profileOpen)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              setProfileOpen((open) => !open);
+            }
+          }}
+        >
           <div className="profile-avatar"><User size={15} /></div>
           <div className="profile-info">
             <span>{user?.name || user?.email || 'Operator'}</span>

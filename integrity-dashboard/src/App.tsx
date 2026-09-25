@@ -15,7 +15,6 @@ import { DashboardProvider } from './context/DashboardContext';
 import { SettingsProvider } from './context/SettingsContext';
 import MainAppLayout from './layouts/MainAppLayout';
 import PublicLayout from './layouts/PublicLayout';
-import ShieldConsolePage from './pages/ShieldConsolePage';
 import { IntelligencePage } from './pages/IntelligencePage';
 import TreasuryControlPage from './pages/TreasuryControlPage';
 import ProtocolDashboardPage from './pages/ProtocolDashboardPage';
@@ -43,7 +42,6 @@ function App() {
             <Route path="/evidence" element={<CorrelationPage />} />
             <Route path="/treasury" element={<TreasuryControlPage />} />
             <Route path="/health" element={<HealthPage />} />
-            <Route path="/security" element={<ShieldConsolePage />} />
             <Route path="/system" element={<SystemControlPage />} />
             <Route path="/settings" element={<SettingsPage />} />
                         <Route path="/wiki" element={<Suspense fallback={<div style={{ minHeight: '100vh', background: '#07111d' }} />}><WikiPage /></Suspense>} />
@@ -63,8 +61,10 @@ function App() {
             <Route path="/financials" element={<Navigate to="/treasury" replace />} />
             <Route path="/prediction-markets" element={<Navigate to="/treasury" replace />} />
             <Route path="/quant" element={<Navigate to="/treasury" replace />} />
-            <Route path="/shield" element={<Navigate to="/security" replace />} />
-            <Route path="/fleet" element={<Navigate to="/security" replace />} />
+            {/* Protection was a boundary-only handoff, not a dashboard surface. */}
+            <Route path="/security" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/shield" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/fleet" element={<Navigate to="/agents" replace />} />
             <Route path="/kernel" element={<Navigate to="/system" replace />} />
             <Route path="/kernel-intent" element={<Navigate to="/system" replace />} />
             <Route path="/licence" element={<Navigate to="/system" replace />} />
