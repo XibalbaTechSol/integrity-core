@@ -1,0 +1,9 @@
+# Local-only overlay for a host that already runs Shield's OPA on 127.0.0.1:8181.
+# The container still listens on opa:8181 for Compose peers; only the host mapping moves.
+services:
+  opa:
+    ports: !override
+      - "127.0.0.1:8182:8181"
+  bcc-middleware:
+    ports: !override
+      - "127.0.0.1:8001:8000"
