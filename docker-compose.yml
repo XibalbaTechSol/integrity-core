@@ -79,6 +79,10 @@ services:
       CHAIN_ID: ${CHAIN_ID:-31337}
       DEPLOYMENTS_FILE: ${DOCKER_DEPLOYMENTS_FILE:-/deployments.local.json}
       OTLP_GRPC_ADDR: 0.0.0.0:4317
+      # Optional local shared credential for OTLP/gRPC. When set, Oracle
+      # requires exporters to send Authorization: Bearer <key>; leave unset
+      # only for explicitly local, identity-attributed development traffic.
+      ORACLE_API_KEY: ${ORACLE_API_KEY:-}
       # Local integration traffic includes the Shield telemetry replay queue and
       # bounded BCC retries. Keep the limiter finite, but make the dev stack's
       # actual repair/replay path capable of draining those queues. Production
