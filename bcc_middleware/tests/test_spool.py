@@ -161,3 +161,49 @@ def test_successful_report_never_touches_the_spool(tmp_path):
         report_decision(settings, agent_id="agent-1", decision="allow")
 
     assert status(settings).pending == 0
+
+
+def test_spool_at_capacity_refuses_new_rows_and_counts_drops(tmp_path, caplog):
+    """At the cap the spool refuses the *new* report (drop-newest) and counts it;
+    rows already queued are never deleted, and the drop is logged, not silent."""
+    settings = _settings(tmp_path, spool_max_rows=2)
+    for i in range(2):
+        enqueue(settings, kind="decision", endpoint_path="/v1/audit/ingest", payload={"i": i}, error="boom")
+    assert status(settings).pending == 2
+    assert status(settings).dropped_total == 0
+
+    with caplog.at_level("WARNING", logger="bcc_middleware.spool"):
+        enqueue(settings, kind="decision", endpoint_path="/v1/audit/ingest", payload={"i": 2}, error="boom")
+        enqueue(settings, kind="decision", endpoint_path="/v1/audit/ingest", payload={"i": 3}, error="boom")
+
+    result = status(settings)
+    assert result.pending == 2            # existing rows untouched
+    assert result.dropped_total == 2      # every refused report counted
+    assert result.max_rows == 2
+    assert any("at capacity" in r.getMessage() for r in caplog.records)
+
+    # The counter is durable: a fresh connection/process sees the same total.
+    assert status(_settings(tmp_path, spool_max_rows=2)).dropped_total == 2
+
+
+def test_spool_accepts_again_after_draining_below_capacity(tmp_path):
+    settings = _settings(tmp_path, spool_max_rows=1)
+    enqueue(settings, kind="decision", endpoint_path="/v1/audit/ingest", payload={"i": 0}, error="boom")
+    enqueue(settings, kind="decision", endpoint_path="/v1/audit/ingest", payload={"i": 1}, error="boom")
+    assert status(settings).dropped_total == 1
+
+    with respx.mock:
+        respx.post(f"{_ORACLE_URL}/v1/audit/ingest").mock(return_value=Response(200, json={"id": "ack-1"}))
+        run_retry_cycle(settings, now=time.time() + 10)
+    assert status(settings).pending == 0
+
+    enqueue(settings, kind="decision", endpoint_path="/v1/audit/ingest", payload={"i": 2}, error="boom")
+    assert status(settings).pending == 1
+    assert status(settings).dropped_total == 1
+
+
+def test_spool_max_rows_must_be_positive():
+    import pytest
+
+    with pytest.raises(ValueError):
+        Settings(spool_max_rows=0)

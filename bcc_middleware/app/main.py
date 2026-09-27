@@ -668,6 +668,8 @@ async def spool_status() -> dict:
     return {
         "pending": result.pending,
         "oldest_pending_age_seconds": result.oldest_pending_age_seconds,
+        "max_rows": result.max_rows,
+        "dropped_total": result.dropped_total,
     }
 
 

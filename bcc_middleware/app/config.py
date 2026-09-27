@@ -227,12 +227,18 @@ class Settings:
     # long outage can make every due row fire at once when the oracle returns,
     # overwhelming its rate limiter and starving fresh audit reports.
     spool_retry_batch_size: int = field(default_factory=lambda: int(os.getenv("SPOOL_RETRY_BATCH_SIZE", "100")))
+    # Upper bound on undelivered rows. At the cap a *new* report is refused and
+    # counted (spool_metrics.dropped_total) -- rows already queued are never
+    # deleted. 500k is ~a day of Oracle outage at the 2026-09-26 observed rate.
+    spool_max_rows: int = field(default_factory=lambda: int(os.getenv("BCC_SPOOL_MAX_ROWS", "500000")))
 
     def __post_init__(self) -> None:
         if self.merkle_anchor_interval_seconds <= 0:
             raise ValueError("merkle anchor interval must be greater than zero")
         if self.spool_retry_batch_size <= 0:
             raise ValueError("spool retry batch size must be greater than zero")
+        if self.spool_max_rows <= 0:
+            raise ValueError("spool max rows must be greater than zero")
 
     def load_deployments(self) -> dict:
         """
