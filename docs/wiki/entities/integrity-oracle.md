@@ -213,15 +213,34 @@ cheaply derive from its per-agent loop: marketplace volume (sum of cached market
 `total_staked`) + `A2ACapitalPool` escrow/release totals; `tvl` is composed client-side
 for a single source of truth.
 
-### XNS resolution: `GET /v1/xns/resolve?handle=<h>`, `GET /v1/agent/{id}/handle`
+### XNS handle directory (Oracle-local, primary): `GET /v1/xns/available`, `GET /v1/xns/handle/{handle}`, `POST /v1/xns/claim`
 
-Live reads of the `XibalbaNameService` singleton. `/xns/resolve` maps a human handle →
-`SovereignAgent` (and, best-effort via `db::did_by_sovereign_agent`, the reverse DID);
-`resolve_handle` gates on `handleExists` first since the contract's `resolve()` reverts
-on an unclaimed handle, so an unregistered handle returns a null address, not an error.
-`/agent/{id}/handle` is the reverse: an agent's `primaryHandle`. Both return
+As of 2026-09-26 (PRODUCTION_GAPS.md #71) this, not the on-chain resolver below, is the
+primary XNS system: a chat-app-style unique handle per agent, chosen by the user, stored in
+the oracle's own `xns_handles` Postgres table (`agent_id` PK, unique index on
+`lower(handle)`), independent of chain state entirely. `GET /v1/xns/available?handle=<h>`
+checks availability and returns suggested alternatives when taken; `GET
+/v1/xns/handle/{handle}` resolves a handle → `agent_id`; `POST /v1/xns/claim` claims a
+handle for an agent (409 if taken). `POST /v1/agent/register` now takes a mandatory
+`handle` and claims it transactionally with primitive registration
+(`db::register_agent_with_handle`) — every agent registered from here on has a handle
+unconditionally; `list_agents` sources it via `db::get_xns_handles_for_agents`. Agents
+without a handle (registered before this change) are identified by DID. Consumed by
+`XNSSearchService` (dashboard) for search, availability, and claim.
+
+### On-chain XNS alias resolution (secondary): `GET /v1/xns/resolve?handle=<h>`, `GET /v1/agent/{id}/handle`
+
+Live reads of the `XibalbaNameService` singleton — now an optional, explicitly secondary
+*alias* listing, not the primary handle system (see above). `/xns/resolve` maps a human
+handle → `SovereignAgent` (and, best-effort via `db::did_by_sovereign_agent`, the reverse
+DID); `resolve_handle` gates on `handleExists` first since the contract's `resolve()`
+reverts on an unclaimed handle, so an unregistered handle returns a null address, not an
+error. `/agent/{id}/handle` is the reverse: an agent's `primaryHandle`. Both return
 `MissingSingleton` (**HTTP 400**) until XNS is deployed on the target network — an honest
-"not deployed", never a fabricated handle. Consumed by `XNSSearchService` + `DIDExplorer`.
+"not deployed", never a fabricated handle. Registering an on-chain alias for an
+Oracle-claimed handle is not yet built (`XNSRegisterForm.tsx`, which wrote directly to this
+contract, was removed 2026-09-26 — see PRODUCTION_GAPS.md #71 — because it bypassed the
+Oracle-local uniqueness table and could disagree with it about who holds a handle).
 
 ### Governance: `GET /v1/governance/proposals`
 

@@ -4131,3 +4131,61 @@ changed. Before trusting any `cloneTemplates.*` address as current, scan the dep
 for every function selector the current source defines (cheap, no RPC tracing tier required) —
 that's what caught both the `Slasher` and `ReputationRegistry` staleness here, and would have
 caught #69's underlying issue earlier too had it been run against `Slasher` at the time.
+
+## 71. XNS redesigned as an Oracle-local handle directory, not an on-chain register — `XNSRegisterForm.tsx` removed (2026-09-26)
+
+**Correction to item #17's 2026-08-02 update above.** That update recorded the register-handle
+write as wired through `XibalbaNameService.register(handle)` (on-chain, routed via
+`executeAsAgent`). Explicit design decision superseding that: XNS handles are a chat-app-style
+unique username per agent, chosen by the user, checked for availability, and used everywhere in
+the ecosystem to identify an agent instead of its DID — living in the oracle's own Postgres
+table (`xns_handles`, new migration `0022_xns_handles.sql`: `agent_id PRIMARY KEY`, `handle`,
+unique index on `lower(handle)`), independent of chain state. The on-chain
+`XibalbaNameService` contract stays live and resolvable (`GET /v1/xns/resolve`) but is now
+explicitly an optional *alias* listing, not the primary handle system — registering a handle no
+longer requires an on-chain write, gas, or a connected wallet at all.
+
+New oracle endpoints (`integrity-oracle/backend/src/handlers.rs`): `GET /v1/xns/available`
+(availability + suggestions when taken), `GET /v1/xns/handle/{handle}` (resolve → agent_id,
+renamed from an earlier `XnsResolveDto` to `XnsHandleResolveDto` to avoid colliding with the
+pre-existing on-chain resolve DTO), `POST /v1/xns/claim`. `POST /v1/agent/register` now takes a
+mandatory `handle` and claims it transactionally with primitive registration
+(`db::register_agent_with_handle`) — every agent registered through the dashboard/SDK/CLI from
+here on gets a handle unconditionally; agents without one are identified by DID. `list_agents`
+sources the handle via `db::get_xns_handles_for_agents`. Threaded through `integrity-sdk`
+(`registration.py`'s `register_agent()` now raises `ValueError` if `handle` is omitted, plus a
+fix to its idempotent-409 handling to inspect the response body for "already registered" before
+treating a 409 as success — otherwise a real `HandleTaken` conflict silently looked like success)
+and `integrity-cli` (`--handle` on `agent_register`, new `xns available`/`xns claim`
+subcommands).
+
+Dashboard: `XNSSearchService.tsx` rebuilt as the single search-and-claim surface — search a
+handle, see availability, claim it for a selected agent from a dropdown, or get suggested
+alternatives if taken; paste a DID/address to look up an existing agent's card instead
+(fixed a real bug in the same pass: availability and taken-handle-suggestions were sharing one
+state object, so the UI showed a false "is available" regardless of actual state — split into
+separate `availableHandle`/`suggestions` state). `RegisterAgentModal.tsx`/`ClaimAgentModal.tsx`
+both gained a mandatory handle field with live debounced availability checks gating submit.
+`DashboardContext.tsx` now surfaces the claimed handle (`agentFromOwnedRecord`'s `alias`, and the
+scoped-agent mapping) so the namespace selector, "Selected identity" heading, and agent list all
+display `xibalba.agent`/`xibalba.shield`/etc. instead of a truncated DID once claimed — same fix
+applied to Cortex's namespace display.
+
+**`XNSRegisterForm.tsx` (the on-chain-write panel from item #17's correction) removed outright,
+not just deprecated** — its `XibalbaNameService.register(handle)` write path bypasses the
+oracle's uniqueness table entirely, so leaving both live side by side could let two different
+systems disagree about who holds a handle. `ProtocolDashboardPage.tsx`'s "Register an XNS
+Handle" panel deleted along with it; `XNSSearchService` alone now covers search + claim for the
+Oracle-local directory. On-chain aliasing (voluntarily *listing* an Oracle-claimed handle on the
+`XibalbaNameService` singleton) remains a distinct, not-yet-built capability per
+`XNSSearchService.tsx`'s own header comment — not the same thing as the removed write path, and
+not required for a handle to be authoritative in the ecosystem.
+
+Handles claimed under the new system for this device's agents: `xibalba.agent` (Hermes/Xibalba),
+`xibalba.shield`, `xibalba.quant` (the 3 Hermes agents), plus `xibalba.codex`, `xibalba.claude`,
+`xibalba.agy` (the 3 standalone-harness agents). Verified live in the dashboard: search for any
+of these now resolves the agent card labeled "IDENTIFIED BY: XNS handle," not DID.
+
+**Still open, not addressed in this pass:** the 3 pre-existing `integrity-sdk` test failures tied
+to the core/full registration-path split (unrelated concurrent work) remain unfixed; on-chain
+alias listing for an Oracle-claimed handle is not built.

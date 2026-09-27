@@ -135,12 +135,17 @@ function agentFromSummary(s: AgentSummary): Agent {
 function agentFromOwnedRecord(record: { agent_did: string; live_data: Record<string, unknown> | null }): Agent {
   const live = record.live_data;
   const verificationTier = typeof live?.verification_tier === 'number' ? live.verification_tier : 0;
+  // userapi's oracle_client.py forwards Oracle's GET /v1/agent/{id} response verbatim as
+  // live_data, so its `handle` field (the Oracle-local XNS directory -- see migration
+  // 0022) is already here with no userapi change needed. Prefer it for display over the
+  // raw DID everywhere an agent's alias is shown.
+  const handle = typeof live?.handle === 'string' ? live.handle : null;
   return {
     id: record.agent_did,
     eth_address: record.agent_did,
     controller: null,
     name: null,
-    alias: null,
+    alias: handle,
     verification_tier: verificationTier,
     namespace_state: 'unavailable',
   };
@@ -274,7 +279,11 @@ export const DashboardProvider: React.FC<{ children: React.ReactNode }> = ({ chi
               };
               return {
                 ...base,
-                alias: workspace.agent_name || workspace.device_name || base.alias,
+                // Prefer the real, claimed Oracle-local XNS handle (base.alias, set in
+                // agentFromOwnedRecord from Oracle's `handle` field) over Cortex's own
+                // agent_name/device_name label -- a handle is the ecosystem-wide identity
+                // once claimed; Cortex's name is a local label that predates it.
+                alias: base.alias || workspace.agent_name || workspace.device_name,
                 store_id: workspace.store_id,
                 profile_id: workspace.profile_id,
                 store_access: workspace.store_access,

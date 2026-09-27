@@ -56,7 +56,19 @@ work shipped and only caught via the real anvil end-to-end test in
 the `SovereignAgent` address directly and so never exercised the CLI's own
 calling convention). `register`/`set-primary`/`release` resolve the caller's
 own `SovereignAgent` address via a `GET /v1/agent/{did}` oracle lookup first
-(that mapping isn't persisted locally by `agent register`).
+(that mapping isn't persisted locally by `agent register`). **Superseded as the
+primary handle system as of 2026-09-26** (PRODUCTION_GAPS.md #71): these five
+subcommands still operate the on-chain `XibalbaNameService` singleton, now
+scoped to optional alias listing rather than an agent's primary identity —
+see the two new subcommands below for the actual primary path.
+
+**`xns available`/`xns claim`, added 2026-09-26**, cover the new Oracle-local
+`xns_handles` directory (see [integrity-oracle](integrity-oracle.md)'s "XNS
+handle directory" section) — no chain write, no gas, no wallet required.
+`agent_register` also gained a mandatory `--handle` option (auto-derived from
+`--alias` when omitted), validated client-side by
+`_validate_xns_handle_format()` before the oracle POST, since registration
+now claims a handle transactionally alongside primitive registration.
 
 Security: no insecure default auth token (the old prototype's `"mock_demo_token"`
 is gone); placeholder tokens are refused outside `ENVIRONMENT=local`.

@@ -14,7 +14,6 @@ import {
 } from 'lucide-react';
 
 import { XNSSearchService } from '../components/ui/XNSSearchService';
-import { XNSRegisterForm } from '../components/ui/XNSRegisterForm';
 import { RegisterAgentModal } from '../components/ui/RegisterAgentModal';
 import { ClaimAgentModal } from '../components/ui/ClaimAgentModal';
 import { SubTabs } from '../components/ui/SubTabs';
@@ -230,18 +229,6 @@ export default function ProtocolDashboardPage() {
                     <button className="primary-button" onClick={() => setIsRegisterModalOpen(true)} style={{ flex: 1 }}>Register New Identity</button>
                     <button className="secondary-button" onClick={() => setIsClaimModalOpen(true)} style={{ flex: 1 }}>Claim Existing Identity</button>
                   </div>
-                </div>
-              </div>
-
-              <div className="protocol-panel">
-                <div className="panel-heading">
-                  <div>
-                    <span className="panel-label">Register</span>
-                    <h2>Register an XNS Handle</h2>
-                  </div>
-                </div>
-                <div style={{ padding: '20px' }}>
-                  {selectedAgent ? <XNSRegisterForm /> : <div className="empty-state">Select an agent to register a handle.</div>}
                 </div>
               </div>
             </section>
