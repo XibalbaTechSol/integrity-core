@@ -1,0 +1,12 @@
+[Unit]
+Description=Integrity policy engine (OPA) — BCC policies + Shield smb.rego, 127.0.0.1:8181
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+WorkingDirectory=/home/xibalba/Projects/integrity-core/bcc_middleware
+ExecStart=/home/xibalba/.local/bin/opa run --server --addr=127.0.0.1:8181 policies/ /home/xibalba/Projects/xibalba-shield/shield/policies/rego/smb.rego
+Restart=on-failure
+RestartSec=5
+[Install]
+WantedBy=default.target
