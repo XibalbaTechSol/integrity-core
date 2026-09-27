@@ -237,7 +237,7 @@ included in the signed payload, so neither can be swapped post-signature:
   limitation so a local/dev/test topology with no deployments file
   configured isn't turned into a blanket deny). This does **not** close the
   experimental kernel's own hook-frame replay-domain binding (a separate,
-  contract-side concern — see `CLAUDE_HANDOFF_2026-08-17.md` §9). As of
+  contract-side concern — see `docs/archive/2026-09/CLAUDE_HANDOFF_2026-08-17.md` §9). As of
   2026-08-18/19, `chain_id`/`verifying_contract` ARE also bound into the ZK
   circuit's `intent_commitment` (`integrity-zkp/circuit/src/main.nr` — see
   `PRODUCTION_GAPS.md` §36) — this residual gap is closed, not open.

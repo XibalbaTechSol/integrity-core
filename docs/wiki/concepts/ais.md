@@ -100,7 +100,7 @@ Deployment status is separate from local implementation: on 2026-09-17,
 read-only Base Sepolia calls against the deployment-recorded template reverted
 for the assurance-tier selectors. The deployed clone set is therefore treated
 as legacy until a replay-safe migration is designed, approved, and verified.
-No chain migration was sent. See the [dated AIS handoff](../../design/ais-handoff-2026-09-17.md)
+No chain migration was sent. See the [dated AIS handoff](../../archive/2026-09/ais-handoff-2026-09-17.md)
 for evidence and preservation requirements. AIS is an implemented protocol
 metric, not a validated predictor: real time-separated outcome labels and
 browser-level acceptance evidence remain unavailable.

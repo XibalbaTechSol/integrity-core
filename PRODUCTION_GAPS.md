@@ -1847,7 +1847,7 @@ plainly here rather than silently shipped as the originally-described unconditio
 
 **What this does NOT close**, matching the proposal's own explicit deferrals: the experimental
 kernel's own hook-frame replay-domain binding (account, kernel/profile, execution depth, action
-digest, pre-state digest, configuration epoch — `CLAUDE_HANDOFF_2026-08-17.md` §9) is untouched,
+digest, pre-state digest, configuration epoch — `docs/archive/2026-09/CLAUDE_HANDOFF_2026-08-17.md` §9) is untouched,
 separate, contract-side, larger scope. Binding `chain_id` into the ZK circuit's
 `intent_commitment` (`integrity-zkp/src/main.nr`) is untouched — the Pedersen hash still covers
 only `secret_key`, `intent_payload_hash`, `agent_id_commitment`, `nonce`; adding a public input
@@ -2721,7 +2721,7 @@ it would have discarded 314 tests and six rounds of Devil's Advocate review with
 architectural justification, which is exactly the kind of divergence-prone path this repo's own
 history (§21 above) warns against.
 
-**Historical documents intentionally NOT rewritten:** `HANDOFF.md`, `CLAUDE_HANDOFF_2026-08-19.md`,
+**Historical documents intentionally NOT rewritten:** `HANDOFF.md`, `docs/archive/2026-09/CLAUDE_HANDOFF_2026-08-19.md`,
 `docs/design/phase1-tracer-bullet-slice-2026-08-17.md`, and every dated `docs/plans/2026-08-1[78]-
 phase1-*.md` proposal still refer to `IntegrityAccountV1Experimental`/`IntegrityKernelV1Experimental`
 — correct as dated logs of what was true when written. Only current-state documents (this file,

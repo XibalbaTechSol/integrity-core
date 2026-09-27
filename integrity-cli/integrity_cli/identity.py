@@ -24,7 +24,7 @@ happened to Shield's "shield-replacement" identity. Unifying the storage
 location closes that permanently: this CLI still implements its own
 independent code (no import of integrity_sdk), it just agrees with the SDK
 on where state lives, so nothing can diverge again. See
-docs/runbooks/gate1-identity-boundary-handoff-2026-09-12.md for the full
+docs/archive/2026-09/gate1-identity-boundary-handoff-2026-09-12.md for the full
 reconciliation this required for identities that had already diverged.
 
 Key storage is intentionally simple: a PKCS8 PEM file on disk, mode 0600.

@@ -318,7 +318,7 @@ principal with two exact agent DIDs already assigned through `/me/agents`. The
 test is deliberately skipped when those variables are absent and must not be
 reported as browser-verified in that state. Strict axe blocking and real
 wallet/contract writes remain separate release gates. See the dated
-[dashboard handoff](../../INTEGRITY-DASHBOARD-HANDOFF-2026-09-15.md) and the
+[dashboard handoff](../../archive/2026-09/INTEGRITY-DASHBOARD-HANDOFF-2026-09-15.md) and the
 [integration report](../../integrity-dashboard/docs/INTEGRATION-REPORT.md) for
 commands, evidence paths, and limitations.
 
