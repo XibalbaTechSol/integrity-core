@@ -15,6 +15,7 @@ export function AppHeader() {
   const tabTitles: Record<string, string> = {
     'dashboard': 'Command center',
     'agents': 'Agent registry',
+    'ais': 'AIS intelligence',
     'identity': 'Agent registry',
     'contracts': 'Evidence ledger',
     'treasury': 'Treasury',

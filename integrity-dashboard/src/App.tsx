@@ -15,7 +15,8 @@ import { DashboardProvider } from './context/DashboardContext';
 import { SettingsProvider } from './context/SettingsContext';
 import MainAppLayout from './layouts/MainAppLayout';
 import PublicLayout from './layouts/PublicLayout';
-import { IntelligencePage } from './pages/IntelligencePage';
+import { AgentRegistryPage } from './pages/AgentRegistryPage';
+import { AisPage } from './pages/AisPage';
 import TreasuryControlPage from './pages/TreasuryControlPage';
 import ProtocolDashboardPage from './pages/ProtocolDashboardPage';
 import CorrelationPage from './pages/CorrelationPage';
@@ -38,7 +39,10 @@ function App() {
           </Route>
           <Route element={<MainAppLayout />}>
             <Route path="/dashboard" element={<ProtocolDashboardPage />} />
-            <Route path="/agents" element={<IntelligencePage />} />
+            <Route path="/agents" element={<AgentRegistryPage />} />
+            {/* AIS radar, simulator, telemetry and derivation math: Oracle-computed AIS
+                shown per selected agent (display only; scoring lives in scoring-core). */}
+            <Route path="/ais" element={<AisPage />} />
             <Route path="/evidence" element={<CorrelationPage />} />
             <Route path="/treasury" element={<TreasuryControlPage />} />
             <Route path="/health" element={<HealthPage />} />
@@ -48,10 +52,10 @@ function App() {
 
             {/* Legacy deep links converge on one canonical page each. */}
             {/* Identity Management (Register/Claim) lives on ProtocolDashboardPage's
-                default Overview tab, not on IntelligencePage -- this was previously
+                default Overview tab, not on the agent registry -- this was previously
                 misrouted to /agents, where no such controls exist. */}
             <Route path="/identity" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/intelligence" element={<Navigate to="/agents" replace />} />
+            <Route path="/intelligence" element={<Navigate to="/ais" replace />} />
             <Route path="/knowledge" element={<Navigate to="/agents" replace />} />
             <Route path="/memory" element={<Navigate to="/agents" replace />} />
             <Route path="/records" element={<Navigate to="/evidence" replace />} />
