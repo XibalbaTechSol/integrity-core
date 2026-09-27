@@ -47,7 +47,10 @@ function App() {
                         <Route path="/wiki" element={<Suspense fallback={<div style={{ minHeight: '100vh', background: '#07111d' }} />}><WikiPage /></Suspense>} />
 
             {/* Legacy deep links converge on one canonical page each. */}
-            <Route path="/identity" element={<Navigate to="/agents" replace />} />
+            {/* Identity Management (Register/Claim) lives on ProtocolDashboardPage's
+                default Overview tab, not on IntelligencePage -- this was previously
+                misrouted to /agents, where no such controls exist. */}
+            <Route path="/identity" element={<Navigate to="/dashboard" replace />} />
             <Route path="/intelligence" element={<Navigate to="/agents" replace />} />
             <Route path="/knowledge" element={<Navigate to="/agents" replace />} />
             <Route path="/memory" element={<Navigate to="/agents" replace />} />
