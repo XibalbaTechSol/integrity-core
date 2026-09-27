@@ -21,6 +21,13 @@ import time
 from pathlib import Path
 
 import pytest
+
+# BCC now defaults to shadow (observe-only) mode. Most of this suite verifies
+# *enforcement* behaviour (denials, quarantine, OPA fail-closed), so run it with
+# blocking explicitly enabled. Set before any `app` import so the module-level
+# `app.config.settings` also enforces. Shadow-mode tests pass shadow_mode=True
+# explicitly, and test_observation_is_the_default clears this variable itself.
+os.environ.setdefault("BCC_SHADOW_MODE", "false")
 from eth_account import Account
 from web3 import Web3
 

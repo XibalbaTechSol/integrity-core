@@ -259,4 +259,4 @@ class HealthResponse(BaseModel):
     # "enforce" (denies actually block) or "shadow" (monitor-only; nothing is
     # blocked, would-be denials are recorded). Lets operators/the dashboard
     # see at a glance which posture the gate is deployed in.
-    mode: str = "enforce"
+    mode: str = "shadow"

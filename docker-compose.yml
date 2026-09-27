@@ -125,6 +125,8 @@ services:
     environment:
       OPA_URL: http://opa:8181
       ORACLE_URL: http://oracle-backend:8080
+      # Observation is the safe local default; operators can explicitly opt into enforcement.
+      BCC_SHADOW_MODE: ${BCC_SHADOW_MODE:-true}
       RPC_URL: ${DOCKER_RPC_URL:-http://host.docker.internal:8545}
       # THE direct cause of the silent anchoring failure: this service was the only one
       # reading RPC_URL without also being told CHAIN_ID, so `config.py`'s default of

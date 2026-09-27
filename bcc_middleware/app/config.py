@@ -102,8 +102,10 @@ class Settings:
     # "would-have-blocked" report accumulate, and only then flip to enforcement.
     # In shadow mode the circuit breaker is never tripped (observing, not
     # enforcing -- locking out a well-behaved agent for a violation we didn't
-    # act on would be wrong). Default false: enforce, matching prior behavior.
-    shadow_mode: bool = field(default_factory=lambda: _bool_env("BCC_SHADOW_MODE", False))
+    # act on would be wrong). Observation is the safe adoption default: a
+    # missing compliance pack or an unreviewed policy must not stop an agent.
+    # Operators opt into blocking explicitly with BCC_SHADOW_MODE=false.
+    shadow_mode: bool = field(default_factory=lambda: _bool_env("BCC_SHADOW_MODE", True))
 
     # --- Circuit breaker ---
     circuit_breaker_violation_threshold: int = field(
