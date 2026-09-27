@@ -7,7 +7,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CORE_URL="${CORE_URL:-http://127.0.0.1:8080}"
-SHIELD_URL="${SHIELD_URL:-http://127.0.0.1:8421}"
+SHIELD_URL="${SHIELD_URL:-http://127.0.0.1:8435}"
 CORTEX_URL="${CORTEX_URL:-http://127.0.0.1:8420}"
 SHIELD_TENANT_ID="${SHIELD_TENANT_ID:-}"
 ROTATE_SHIELD_TOKEN="${ROTATE_SHIELD_TOKEN:-false}"

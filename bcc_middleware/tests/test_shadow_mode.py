@@ -115,10 +115,9 @@ def test_shadow_mode_reports_would_be_denials_as_shadow_deny(client, real_opa_se
     assert decision["reason_code"] == "BCC_INVALID_SIGNATURE"
 
 
-def test_enforce_mode_still_blocks_by_default(client, real_opa_server, monkeypatch):
-    """Regression guard: with shadow_mode unset (the default), a replayed nonce
-    is denied exactly as before -- shadow mode must be strictly opt-in."""
-    settings = Settings(opa_url=real_opa_server, merkle_batch_size=999)  # shadow_mode defaults False
+def test_enforce_mode_is_explicit_opt_in(client, real_opa_server, monkeypatch):
+    """Blocking remains available, but only when explicitly enabled."""
+    settings = Settings(opa_url=real_opa_server, merkle_batch_size=999, shadow_mode=False)
     _fresh_state(monkeypatch, settings)
     assert settings.shadow_mode is False
 
@@ -130,6 +129,23 @@ def test_enforce_mode_still_blocks_by_default(client, real_opa_server, monkeypat
     assert replay["authorized"] is False
     assert replay["enforced"] is True
     assert "BCC_NONCE_REPLAY" in replay["reason"]
+
+
+def test_observation_is_the_default(client, real_opa_server, monkeypatch):
+    """A plain Settings instance observes would-deny traffic by default."""
+    # conftest opts the enforcement suite into blocking; exercise the real default here.
+    monkeypatch.delenv("BCC_SHADOW_MODE", raising=False)
+    settings = Settings(opa_url=real_opa_server, merkle_batch_size=999)
+    _fresh_state(monkeypatch, settings)
+    assert settings.shadow_mode is True
+
+    agent_id, private_key = new_agent()
+    payload = sign_commitment(private_key, agent_id=agent_id, intent_type="payment", nonce=10)
+    assert client.post("/v1/bcc/intercept", json=payload).json()["authorized"] is True
+    replay = client.post("/v1/bcc/intercept", json=payload).json()
+    assert replay["authorized"] is True
+    assert replay["enforced"] is False
+    assert replay["shadow_would_deny"] is True
 
 
 def test_health_reports_mode(client, monkeypatch):

@@ -105,7 +105,11 @@ async def test_real_opa_denies_unauthorized_clinical_agent(real_opa_server):
 @pytest.mark.asyncio
 async def test_full_intercept_flow_denies_via_real_opa(real_opa_server):
     """End-to-end: real signature verification + real running OPA denying a clinical action."""
-    settings = Settings(opa_url=real_opa_server, merkle_batch_size=999)
+    # EMR_WRITE is a quarantine fail-closed intent, so with no Oracle to verify quarantine
+    # status the request is (correctly) denied as QUARANTINE_CANNOT_VERIFY before OPA is
+    # consulted. This test is about the OPA denial, so let the quarantine check fail open
+    # here; the fail-closed ordering itself is covered by the quarantine tests.
+    settings = Settings(opa_url=real_opa_server, merkle_batch_size=999, quarantine_fail_closed_intents=frozenset())
     agent_id, private_key = new_agent()
     payload = sign_commitment(private_key, agent_id=agent_id, intent_type="EMR_WRITE", nonce=1)
     commitment = make_commitment_model(**payload)

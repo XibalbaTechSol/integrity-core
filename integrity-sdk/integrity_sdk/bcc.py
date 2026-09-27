@@ -31,9 +31,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import fcntl
+import os
 import threading
 import time
 import uuid
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -82,29 +85,58 @@ class NonceStore:
     let a compromised or buggy client replay an old commitment's nonce,
     which is exactly what monotonicity is meant to prevent.
 
-    This is intentionally simple (a single JSON counter file behind a
-    process-local lock) and is NOT safe for multiple processes sharing one
-    agent identity concurrently — that would need a real lock file or a
-    server-side nonce authority (bcc_middleware could serve this role).
-    Documented here rather than silently assumed away.
+    The counter is protected by a separate advisory lock file so independent
+    hook processes sharing one agent identity cannot allocate the same nonce.
+    Writes use replace + fsync so a crash cannot leave a truncated counter.
     """
 
     def __init__(self, path: Path):
         self._path = path
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
+        self._lock_path = self._path.with_name(self._path.name + ".lock")
 
     def next(self) -> int:
         with self._lock:
-            current = 0
-            if self._path.exists():
+            with self._lock_path.open("a+") as lock_file:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+                current = 0
+                if self._path.exists():
+                    raw = self._path.read_text().strip()
+                    try:
+                        current = int(raw)
+                    except ValueError as exc:
+                        raise RuntimeError(
+                            f"BCC nonce file is invalid; refusing to reset it: {self._path}"
+                        ) from exc
+                    if current < 0:
+                        raise RuntimeError(
+                            f"BCC nonce file is negative; refusing to reset it: {self._path}"
+                        )
+                # Millisecond epoch time provides a recovery floor when an
+                # earlier client version lost increments to concurrent
+                # read/modify/write races. Keep incrementing from the saved
+                # value within the same millisecond and never move backward.
+                nxt = max(current + 1, time.time_ns() // 1_000_000)
+                fd, temp_name = tempfile.mkstemp(
+                    prefix=f".{self._path.name}.", dir=self._path.parent
+                )
                 try:
-                    current = int(self._path.read_text().strip() or "0")
-                except ValueError:
-                    current = 0
-            nxt = current + 1
-            self._path.write_text(str(nxt))
-            return nxt
+                    with os.fdopen(fd, "w") as temp_file:
+                        temp_file.write(str(nxt))
+                        temp_file.flush()
+                        os.fsync(temp_file.fileno())
+                    os.replace(temp_name, self._path)
+                    dir_fd = os.open(self._path.parent, os.O_RDONLY)
+                    try:
+                        os.fsync(dir_fd)
+                    finally:
+                        os.close(dir_fd)
+                finally:
+                    if os.path.exists(temp_name):
+                        os.unlink(temp_name)
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                return nxt
 
 
 def build_bcc_commitment(

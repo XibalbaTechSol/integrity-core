@@ -14,7 +14,6 @@ import {
 } from 'lucide-react';
 
 import { XNSSearchService } from '../components/ui/XNSSearchService';
-import { XNSRegisterForm } from '../components/ui/XNSRegisterForm';
 import { RegisterAgentModal } from '../components/ui/RegisterAgentModal';
 import { ClaimAgentModal } from '../components/ui/ClaimAgentModal';
 import { SubTabs } from '../components/ui/SubTabs';
@@ -60,7 +59,7 @@ function EvidenceValue({ label, value }: { label: string; value?: string | null 
 function AgentCard({ agent, selected, onSelect }: { agent: ReturnType<typeof useDashboard>['agents'][number]; selected: boolean; onSelect: () => void }) {
   return <button className={`agent-list-row ${selected ? 'selected' : ''}`} onClick={onSelect}>
     <span className="agent-avatar">{(agent.alias || agent.name || 'A').slice(0, 2).toUpperCase()}</span>
-    <span className="agent-list-copy"><strong>{agent.alias || agent.name || short(agent.id, 12, 8)}</strong><small>{short(agent.id, 15, 9)}</small></span>
+    <span className="agent-list-copy"><strong>{agent.alias || agent.name || short(agent.id, 12, 8)}</strong><small>{short(agent.id, 15, 9)}{agent.profile_id ? ` · ${agent.profile_id} · ${agent.writable === false || agent.store_access === 'read_only' ? 'read only' : 'writable'}` : ''}</small></span>
     <span className="agent-list-score">{agent.current_ais == null ? '—' : agent.current_ais.toFixed(1)}<small>AIS</small></span>
     <ChevronRight size={15} />
   </button>;
@@ -109,7 +108,7 @@ export default function ProtocolDashboardPage() {
       oracle.getProvenance(selectedAgent.id),
       oracle.getAuditLog(selectedAgent.id, 20),
       graphMemory.status(),
-      graphMemory.sessions(1),
+      graphMemory.sessions(1, selectedAgent.id, selectedAgent.store_id),
     ]).then(([aisResult, detailResult, walletResult, contractResult, ercResult, provenanceResult, auditResult, cortexResult, sessionsResult]) => {
       if (!active) return;
       if (aisResult.status === 'fulfilled') setAis(aisResult.value);
@@ -194,7 +193,7 @@ export default function ProtocolDashboardPage() {
                 </div>
                 <div className="agent-list">
                   {agents.length ? agents.map(agent => (
-                    <AgentCard key={agent.id} agent={agent} selected={agent.id === selectedAgent?.id} onSelect={() => setSelectedAgent(agent)} />
+                    <AgentCard key={agent.namespace_key || agent.id} agent={agent} selected={(agent.namespace_key || agent.id) === (selectedAgent?.namespace_key || selectedAgent?.id)} onSelect={() => setSelectedAgent(agent)} />
                   )) : (
                     <div className="empty-state">No permitted agents are available for this authenticated session.</div>
                   )}
@@ -230,18 +229,6 @@ export default function ProtocolDashboardPage() {
                     <button className="primary-button" onClick={() => setIsRegisterModalOpen(true)} style={{ flex: 1 }}>Register New Identity</button>
                     <button className="secondary-button" onClick={() => setIsClaimModalOpen(true)} style={{ flex: 1 }}>Claim Existing Identity</button>
                   </div>
-                </div>
-              </div>
-
-              <div className="protocol-panel">
-                <div className="panel-heading">
-                  <div>
-                    <span className="panel-label">Register</span>
-                    <h2>Register an XNS Handle</h2>
-                  </div>
-                </div>
-                <div style={{ padding: '20px' }}>
-                  {selectedAgent ? <XNSRegisterForm /> : <div className="empty-state">Select an agent to register a handle.</div>}
                 </div>
               </div>
             </section>

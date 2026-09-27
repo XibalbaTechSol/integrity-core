@@ -26,7 +26,10 @@ from typing import Any, Dict, Optional
 #: Metadata keys treated as free-text content, subject to the content policy below. Anything
 #: not listed is structural (token counts, model ids, latencies) and always collected — those
 #: are the fields the protocol actually scores on.
-CONTENT_KEYS = ("text_output", "prompt", "completion", "system_prompt", "tool_result")
+CONTENT_KEYS = (
+    "text_output", "prompt", "completion", "system_prompt", "tool_result",
+    "content", "response", "result", "arguments", "tool_output",
+)
 
 
 class CollectionProfile(str, Enum):
@@ -58,7 +61,7 @@ class CollectionConfig:
             return CollectionConfig(profile, capture_content=False, redact_content=True, content_sample_rate=0.0, max_content_chars=0)
         if profile is CollectionProfile.STANDARD:
             return CollectionConfig(profile, capture_content=True, redact_content=True, content_sample_rate=0.1, max_content_chars=4_096)
-        return CollectionConfig(profile, capture_content=True, redact_content=True, content_sample_rate=1.0, max_content_chars=16_384)
+        return CollectionConfig(profile, capture_content=True, redact_content=True, content_sample_rate=1.0, max_content_chars=4_096)
 
     @staticmethod
     def from_env(env: Optional[Dict[str, str]] = None) -> "CollectionConfig":
@@ -148,3 +151,50 @@ class CollectionConfig:
                 text = text[: self.max_content_chars] + "…[truncated]"
             out[key] = text
         return out
+
+    def apply_nested(self, value: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply the same policy to nested envelope payloads before any consumer sees them.
+
+        Structural event types and fields are preserved. Content-bearing subtrees are
+        redacted and bounded, or replaced by an explicit marker according to the profile.
+        One sampling decision applies to the whole event so related content is consistent.
+        """
+        def contains_content(item: Any, content_context: bool = False) -> bool:
+            if isinstance(item, dict):
+                return any(
+                    contains_content(child, content_context or str(key).lower() in CONTENT_KEYS)
+                    for key, child in item.items()
+                )
+            if isinstance(item, (list, tuple)):
+                return any(contains_content(child, content_context) for child in item)
+            return content_context and isinstance(item, str)
+
+        has_content = contains_content(value)
+        keep_content = (
+            self.capture_content
+            and (self.content_sample_rate >= 1.0 or random.random() <= self.content_sample_rate)
+        ) if has_content else True
+
+        def transform(item: Any, content_context: bool = False) -> Any:
+            if isinstance(item, dict):
+                return {
+                    str(key): transform(child, content_context or str(key).lower() in CONTENT_KEYS)
+                    for key, child in item.items()
+                }
+            if isinstance(item, (list, tuple)):
+                return [transform(child, content_context) for child in item]
+            if not isinstance(item, str) or not content_context:
+                return item
+            if not self.capture_content:
+                return f"<content not collected: profile={self.profile.value}>"
+            if not keep_content:
+                return f"<content sampled out: rate={self.content_sample_rate}>"
+            text = item
+            if self.redact_content:
+                from .security.redactor import redact_text
+                text = redact_text(text).text
+            if self.max_content_chars and len(text) > self.max_content_chars:
+                text = text[:self.max_content_chars] + "…[truncated]"
+            return text
+
+        return transform(value)

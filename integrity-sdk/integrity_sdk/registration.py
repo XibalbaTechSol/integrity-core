@@ -39,6 +39,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass, asdict
 from typing import Optional
 
@@ -347,9 +348,23 @@ class AgentRegistration:
         return asdict(self)
 
 
+def _validate_xns_handle_format(handle: str) -> Optional[str]:
+    """Mirrors integrity-oracle's `handlers::validate_xns_handle` exactly (backend/src/
+    handlers.rs) -- keep both in sync if either changes. Returns None when valid, else a
+    human-readable reason."""
+    if not (3 <= len(handle) <= 32):
+        return "must be 3-32 characters"
+    if not handle[0].islower() or not handle[0].isalpha():
+        return "must start with a lowercase letter"
+    if not re.fullmatch(r"[a-z0-9._-]+", handle):
+        return "may only contain lowercase letters, digits, '.', '-', '_'"
+    return None
+
+
 def register_agent(
     agent_id: Optional[str] = None,
     *,
+    handle: Optional[str] = None,
     domain_name: str = "general.integrity",
     compliance_vertical: str = "none",
     profile_uri: str = "",
@@ -360,14 +375,20 @@ def register_agent(
     testnet_itk_allocation_wei: int = _DEFAULT_TESTNET_ITK_ALLOCATION_WEI,
     skip_oracle_registration: bool = False,
     auto_register_domain: bool = True,
+    full_registration: bool = False,
 ) -> AgentRegistration:
     """
-    Runs the full self-sovereign registration sequence for `agent_id`
+    Runs the self-sovereign registration sequence for `agent_id`
     (defaults to the DID home's "default" slot — see did.py/wallet.py).
 
     `rpc_url`/`deployments_file`/`oracle_url` default to the same
     cross-package env vars every other component reads (see
     docs/INTERFACE_CONTRACT.md §3: RPC_URL, DEPLOYMENTS_FILE, ORACLE_URL).
+
+    Core registration (the default) creates identity + anchored memory without
+    provisioning optional primitives or requiring an ITK bond. Set
+    `full_registration=True` to retain the legacy all-seven flow, including the
+    100 ITK Slasher stake and optional testnet ITK allocation.
 
     `skip_oracle_registration=True` runs only the on-chain portion (steps
     1-10) without the final oracle POST — useful for testing/CLI flows
@@ -393,8 +414,27 @@ def register_agent(
     deployments_file = deployments_file or os.getenv("DEPLOYMENTS_FILE", "../deployments.local.json")
     oracle_url = oracle_url or os.getenv("ORACLE_URL", "http://localhost:8080")
 
+    # Mandatory: the oracle's own POST /v1/agent/register now requires a unique,
+    # Oracle-local XNS handle (integrity-oracle migration 0022) -- independent of
+    # on-chain state, chosen like a chat-app username. Not deriving this from
+    # `agent_id` (a did:integrity:... string is not a valid handle shape) --
+    # `agent_id` here is either that DID or the local identity slot name, neither of
+    # which is guaranteed handle-shaped, so an explicit or already-sanitized value is
+    # required rather than silently mangled.
+    if handle is None:
+        raise ValueError(
+            "register_agent() now requires `handle` -- a unique Oracle-local XNS "
+            "handle for this agent (see integrity-oracle migration 0022). Check "
+            f"availability first with a GET to {oracle_url}/v1/xns/available/<handle>."
+        )
+    handle_error = _validate_xns_handle_format(handle)
+    if handle_error:
+        raise ValueError(f"handle {handle!r} is invalid: {handle_error}")
+
     if compliance_vertical not in _VERTICALS:
         raise ValueError(f"compliance_vertical must be one of {sorted(_VERTICALS)}, got {compliance_vertical!r}")
+    if compliance_vertical != "none" and not full_registration:
+        raise ValueError("compliance_vertical requires full_registration=True; core registration has no compliance capability")
 
     w3 = chain.get_w3(rpc_url)
     if not w3.is_connected():
@@ -414,7 +454,7 @@ def register_agent(
     from eth_utils import keccak
 
     funder_key = os.getenv("FUNDER_PRIVATE_KEY")
-    if (fund_amount_wei > 0 or testnet_itk_allocation_wei > 0) and not funder_key:
+    if (fund_amount_wei > 0 or (full_registration and testnet_itk_allocation_wei > 0)) and not funder_key:
         raise RegistrationError("FUNDER_PRIVATE_KEY is not set — required for enabled testnet convenience")
     funder = Account.from_key(funder_key) if funder_key else None
 
@@ -474,7 +514,7 @@ def register_agent(
                 ) from exc
 
         if not skip_oracle_registration:
-            _post_to_oracle(oracle_url, agent_did, doc, registration, keypair, evm_account, idempotent=True)
+            _post_to_oracle(oracle_url, agent_did, doc, registration, keypair, evm_account, handle, idempotent=True)
         logger.info("agent %s already registered (SovereignAgent %s) — no new on-chain work done", agent_did, registration.sovereign_agent)
         return registration
 
@@ -624,11 +664,11 @@ def register_agent(
     # Skip re-minting on a retry that already got this far -- unlike grant_anchor_role
     # below (idempotent by construction, OZ's grantRole no-ops if already held), minting
     # again would genuinely double-issue ITK to the same SovereignAgent.
-    already_minted = testnet_itk_allocation_wei > 0 and chain.itk_balance(w3, itk_address, sovereign_agent) >= testnet_itk_allocation_wei
+    already_minted = full_registration and testnet_itk_allocation_wei > 0 and chain.itk_balance(w3, itk_address, sovereign_agent) >= testnet_itk_allocation_wei
     if already_minted:
         logger.info("step 7: SovereignAgent %s already holds >= %s wei ITK -- skipping mint", sovereign_agent, testnet_itk_allocation_wei)
 
-    if testnet_itk_allocation_wei > 0 and not already_minted:
+    if full_registration and testnet_itk_allocation_wei > 0 and not already_minted:
         # Preferred path: mint from the protocol's designated *liquidity agent* (e.g.
         # `xibalba.integrity`), so testnet ITK is issued by a registered agent through its
         # own `SovereignAgent.execute` and is attributable on-chain to that agent rather
@@ -731,46 +771,47 @@ def register_agent(
         except Exception as exc:  # noqa: BLE001
             raise RegistrationError(f"step 8c (set_anchor_policy) failed: {exc}") from exc
 
-    # Step 8d: approve AgentPrimitivesFactory to pull the registration bond (100 ITK).
+    # Step 8d: approve AgentPrimitivesFactory to pull the optional registration bond (100 ITK).
     # The testnet ITK was minted to SovereignAgent in Step 7, so we must route the
     # approve() call through SovereignAgent.execute.
     # We check allowance first to be idempotent.
-    itk_contract = w3.eth.contract(
-        address=w3.to_checksum_address(itk_address),
-        abi=[{"constant": True, "inputs": [{"name": "_owner", "type": "address"}, {"name": "_spender", "type": "address"}], "name": "allowance", "outputs": [{"name": "", "type": "uint256"}], "payable": False, "stateMutability": "view", "type": "function"}],
-    )
-    allowance = itk_contract.functions.allowance(
-        w3.to_checksum_address(sovereign_agent),
-        w3.to_checksum_address(factory_address)
-    ).call()
+    if full_registration:
+        itk_contract = w3.eth.contract(
+            address=w3.to_checksum_address(itk_address),
+            abi=[{"constant": True, "inputs": [{"name": "_owner", "type": "address"}, {"name": "_spender", "type": "address"}], "name": "allowance", "outputs": [{"name": "", "type": "uint256"}], "payable": False, "stateMutability": "view", "type": "function"}],
+        )
+        allowance = itk_contract.functions.allowance(
+            w3.to_checksum_address(sovereign_agent),
+            w3.to_checksum_address(factory_address)
+        ).call()
 
-    min_bond = 100 * 10**18
-    if allowance < min_bond:
-        logger.info("step 8d: approving AgentPrimitivesFactory to pull %s ITK registration bond", min_bond)
-        try:
-            chain.approve_factory_bond(
-                w3, evm_account, sovereign_agent, itk_address, factory_address, min_bond, chain_id
-            )
-        except Exception as exc:  # noqa: BLE001
-            raise RegistrationError(f"step 8d (approve_factory_bond) failed: {exc}") from exc
+        min_bond = 100 * 10**18
+        if allowance < min_bond:
+            logger.info("step 8d: approving AgentPrimitivesFactory to pull %s ITK optional capability bond", min_bond)
+            try:
+                chain.approve_factory_bond(
+                    w3, evm_account, sovereign_agent, itk_address, factory_address, min_bond, chain_id
+                )
+            except Exception as exc:  # noqa: BLE001
+                raise RegistrationError(f"step 8d (approve_factory_bond) failed: {exc}") from exc
+        else:
+            logger.info("step 8d: AgentPrimitivesFactory already has sufficient ITK allowance -- skipping")
     else:
-        logger.info("step 8d: AgentPrimitivesFactory already has sufficient ITK allowance -- skipping")
+        logger.info("step 8d: core registration skips optional ITK bond")
 
-    # Step 9: clone + register the remaining 5. domain_id was already computed above,
+    # Step 9: register core or clone + register the remaining 5. domain_id was already computed above,
     # in the precondition-check block that ran before any gas was spent.
     try:
-        result = chain.register_primitives(
-            w3,
-            evm_account,
-            factory_address,
-            sovereign_agent,
-            state_anchor,
-            agent_did,
-            domain_id,
-            _VERTICALS[compliance_vertical],
-            profile_uri,
-            chain_id,
-        )
+        if full_registration:
+            result = chain.register_primitives(
+                w3, evm_account, factory_address, sovereign_agent, state_anchor,
+                agent_did, domain_id, _VERTICALS[compliance_vertical], profile_uri, chain_id,
+            )
+        else:
+            result = chain.register_core(
+                w3, evm_account, factory_address, sovereign_agent, state_anchor,
+                agent_did, domain_id, chain_id,
+            )
     except Exception as exc:  # noqa: BLE001
         raise RegistrationError(
             f"step 9 (register_primitives) failed — SovereignAgent {sovereign_agent} and "
@@ -805,7 +846,7 @@ def register_agent(
 
     # Step 11: oracle independent re-verification.
     if not skip_oracle_registration:
-        _post_to_oracle(oracle_url, agent_did, doc, registration, keypair, evm_account, idempotent=False)
+        _post_to_oracle(oracle_url, agent_did, doc, registration, keypair, evm_account, handle, idempotent=False)
 
     logger.info("registered agent %s (SovereignAgent %s)", agent_did, registration.sovereign_agent)
     return registration
@@ -818,6 +859,7 @@ def _post_to_oracle(
     registration: "AgentRegistration",
     keypair,
     evm_account,
+    handle: str,
     *,
     idempotent: bool,
 ) -> None:
@@ -865,12 +907,25 @@ def _post_to_oracle(
                 },
                 "ed25519_pubkey_hex": "0x" + keypair.public_bytes().hex(),
                 "eth_address_hex": evm_account.address,
+                "handle": handle,
             },
             timeout=10,
         )
+        # A 409 now has two possible causes that share the same status code:
+        # `AgentAlreadyExists` (the idempotent case this short-circuit exists for) and
+        # `HandleTaken` (a real failure -- someone else has that handle, or this agent
+        # already holds a different one). Only the former is safe to treat as success;
+        # inspect the body rather than trust the status code alone, or a handle
+        # conflict would silently look like a successful idempotent re-registration.
         if idempotent and resp.status_code == 409:
-            registration.oracle_registered = True
-            return
+            body_text = ""
+            try:
+                body_text = resp.json().get("error", "")
+            except ValueError:
+                pass
+            if "already registered" in body_text:
+                registration.oracle_registered = True
+                return
         resp.raise_for_status()
         registration.oracle_registered = True
     except requests.RequestException as exc:

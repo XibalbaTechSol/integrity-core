@@ -9,12 +9,14 @@ services:
   # separate trust domain that never touches oracle telemetry (§6.10/§13).
   postgres:
     image: timescale/timescaledb:latest-pg16
+    mem_limit: 768m
+    cpus: 0.75
     environment:
       POSTGRES_DB: integrity
       POSTGRES_USER: integrity
       POSTGRES_PASSWORD: integrity_dev_only
-    ports: ["5436:5432"]
-    command: ["postgres", "-c", "shared_preload_libraries=timescaledb"]
+    ports: ["127.0.0.1:5436:5432"]
+    command: ["postgres", "-c", "shared_preload_libraries=timescaledb", "-c", "shared_buffers=128MB", "-c", "work_mem=4MB", "-c", "maintenance_work_mem=64MB", "-c", "max_connections=25"]
     volumes: ["pgdata:/var/lib/postgresql/data"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U integrity -d integrity"]
@@ -25,7 +27,10 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports: ["6379:6379"]
+    mem_limit: 128m
+    cpus: 0.25
+    command: ["redis-server", "--maxmemory", "96mb", "--maxmemory-policy", "noeviction"]
+    ports: ["127.0.0.1:6379:6379"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -45,9 +50,11 @@ services:
     volumes:
       - ./bcc_middleware/policies:/policies:ro
       - ../xibalba-shield/shield/policies/rego/smb.rego:/shield-policies/selected.rego:ro
-    ports: ["8181:8181"]
+    ports: ["127.0.0.1:8181:8181"]
 
   oracle-backend:
+    mem_limit: 512m
+    cpus: 0.50
     build:
       context: ./integrity-oracle
       args:
@@ -72,6 +79,15 @@ services:
       CHAIN_ID: ${CHAIN_ID:-31337}
       DEPLOYMENTS_FILE: ${DOCKER_DEPLOYMENTS_FILE:-/deployments.local.json}
       OTLP_GRPC_ADDR: 0.0.0.0:4317
+      # Optional local shared credential for OTLP/gRPC. When set, Oracle
+      # requires exporters to send Authorization: Bearer <key>; leave unset
+      # only for explicitly local, identity-attributed development traffic.
+      ORACLE_API_KEY: ${ORACLE_API_KEY:-}
+      # Local integration traffic includes the Shield telemetry replay queue and
+      # bounded BCC retries. Keep the limiter finite, but make the dev stack's
+      # actual repair/replay path capable of draining those queues. Production
+      # deployments must set this explicitly for their expected ingest volume.
+      TELEMETRY_RATE_LIMIT_PER_MINUTE: ${TELEMETRY_RATE_LIMIT_PER_MINUTE:-600}
       # reject | flag | off. Defaults to `reject` in code; `flag` here so development
       # collection (redaction off by operator decision) is STORED WITH the matched categories
       # recorded on the row rather than refused at the boundary. Production must not inherit
@@ -81,7 +97,7 @@ services:
       # Required in production. Keep unset only for explicitly local/dev VC issuance.
       VC_ISSUER_SEED: ${VC_ISSUER_SEED:-}
       AGENT_DIRECTORY_FINALIZED: ${AGENT_DIRECTORY_FINALIZED:-false}
-    ports: ["8080:8080", "4317:4317"]
+    ports: ["127.0.0.1:8080:8080", "127.0.0.1:4317:4317"]
     volumes:
       - ./deployments.baseSepolia.json:/deployments.baseSepolia.json
       - ./deployments.local.json:/deployments.local.json
@@ -109,6 +125,8 @@ services:
     environment:
       OPA_URL: http://opa:8181
       ORACLE_URL: http://oracle-backend:8080
+      # Observation is the safe local default; operators can explicitly opt into enforcement.
+      BCC_SHADOW_MODE: ${BCC_SHADOW_MODE:-true}
       RPC_URL: ${DOCKER_RPC_URL:-http://host.docker.internal:8545}
       # THE direct cause of the silent anchoring failure: this service was the only one
       # reading RPC_URL without also being told CHAIN_ID, so `config.py`'s default of
@@ -138,7 +156,7 @@ services:
       - ./deployments.local.json:/deployments.local.json
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    ports: ["8000:8000"]
+    ports: ["127.0.0.1:8000:8000"]
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8000/health').read()\""]
       interval: 30s
@@ -156,11 +174,11 @@ services:
       VITE_ORACLE_URL: http://localhost:8080
       VITE_BCC_MIDDLEWARE_URL: http://localhost:8000
       VITE_USERAPI_URL: http://localhost:8090
-      VITE_SHIELD_BACKEND_URL: http://localhost:8421
-      VITE_SHIELD_UI_URL: https://localhost:9444
-      VITE_CORTEX_UI_URL: https://localhost:9443
+      VITE_SHIELD_BACKEND_URL: http://localhost:8435
+      VITE_SHIELD_UI_URL: http://localhost:5193
+      VITE_CORTEX_UI_URL: http://localhost:5190
       VITE_CHAIN_ID: "84532"
-    ports: ["5173:5173"]
+    ports: ["127.0.0.1:5173:5173"]
 
   # Sibling repo (../xibalba-shield). Long-lived endpoint-agent daemon, not a web service --
   # exposes no ports, only exports outbound to bcc-middleware/oracle-backend. `--sensor dev`
@@ -233,11 +251,13 @@ services:
   # integrity-userapi never shares a database with the oracle, by design.
   userapi-postgres:
     image: postgres:16-alpine
+    mem_limit: 384m
+    cpus: 0.50
     environment:
       POSTGRES_DB: integrity_userapi
       POSTGRES_USER: integrity
       POSTGRES_PASSWORD: integrity_dev_only
-    ports: ["5435:5432"]
+    ports: ["127.0.0.1:5435:5432"]
     volumes: ["userapi_pgdata:/var/lib/postgresql/data"]
     # NOTE: `make test` runs integrity-userapi's pytest against this instance on :5435
     # but does not start it -- a fresh checkout running `make test` without `make up`
@@ -261,7 +281,11 @@ services:
     environment:
       DATABASE_URL: postgres://integrity:integrity_dev_only@userapi-postgres:5432/integrity_userapi
       ORACLE_URL: http://oracle-backend:8080
-    ports: ["8090:8090"]
+      # Local UIs run over plain HTTP on 127.0.0.1. The service must omit the
+      # Secure cookie attribute in this explicitly local compose profile or the
+      # browser will never send the HttpOnly session back to /me/agents.
+      USERAPI_INSECURE_COOKIES: "1"
+    ports: ["127.0.0.1:8090:8090"]
 
   shield-policy-publisher:
     # The durable production install is the systemd unit. Compose runs this
@@ -276,7 +300,7 @@ services:
       - policy_publisher_data:/var/lib/xibalba-integrity
     environment:
       CORE_ORACLE_URL: http://oracle-backend:8080
-      SHIELD_URL: ${SHIELD_URL:-http://host.docker.internal:8765}
+      SHIELD_URL: ${SHIELD_URL:-http://host.docker.internal:8435}
       SHIELD_ADMIN_TOKEN: ${SHIELD_BACKEND_TOKEN:-}
       SHIELD_TENANT_ID: "demo-tenant"
       CORE_POLICY_PUSH_INTERVAL_SECONDS: "60"

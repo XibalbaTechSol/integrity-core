@@ -20,22 +20,23 @@ import {
 } from '../../chain/bytecode';
 
 // Real on-chain agent registration (Class C), the ethers port of integrity-dashboard's
-// RegisterAgentModal. Runs the exact sequence integrity-sdk's registration.py does:
+// RegisterAgentModal. Core registration establishes identity + anchored memory; optional
+// capabilities remain an explicit follow-up instead of an implicit access gate:
 //   1. Deploy the agent's own SovereignAgent (account contract, DID baked in).
 //   2. Deploy its own StateAnchor (admin = the SovereignAgent).
-//   3. Fund the SovereignAgent with the enforced 100 ITK registration bond.
-//   4. Grant the oracle anchor role, anchor the non-zero genesis memory root as the
-//      agent, and approve the factory to pull the bond (all routed through execute).
-//   5. AgentPrimitivesFactory.registerPrimitives clones the remaining 5 primitives and
-//      atomically registers all 7 into XibalbaAgentRegistry.
-//   6. Record the agent in the oracle DB (which independently re-verifies the 7
+//   3. Grant the oracle anchor role and anchor the non-zero genesis memory root.
+//   4. AgentPrimitivesFactory.registerCore records identity + memory. The optional
+//      full path can still fund a bond and call registerPrimitives.
+//   5. Record the agent in the oracle DB (which independently re-verifies the
 //      addresses against the registry on-chain before accepting).
 // Progress is persisted after every confirmation so a browser or workstation restart
 // resumes from the confirmed step rather than orphaning deployed contracts.
 
 // Minimal factory ABI: just the write + the event we parse the clone addresses out of.
 const FACTORY_ABI = [
+  'function registerCore(address sovereignAgent, address stateAnchor, string did, bytes32 domainId)',
   'function registerPrimitives(address sovereignAgent, address stateAnchor, string did, bytes32 domainId, uint8 vertical, string profileURI) returns (address reputationRegistry, address slasher, address verifierRegistry, address complianceGate, address agentProfile)',
+  'event CoreRegistered(bytes32 indexed didHash, address indexed sovereignAgent, address indexed controller, address stateAnchor, bytes32 domainId)',
   'event PrimitivesRegistered(bytes32 indexed didHash, address indexed sovereignAgent, address indexed controller, address stateAnchor, address reputationRegistry, address slasher, address verifierRegistry, address complianceGate, address agentProfile, bytes32 domainId)',
 ] as const;
 
@@ -84,7 +85,30 @@ export function RegisterAgentModal({ onClose, onSuccess }: Props) {
 
   const [alias, setAlias] = React.useState('');
   const [vertical, setVertical] = React.useState<0 | 1>(0);
+  const [full, setFull] = React.useState(false);
   const [profileURI, setProfileURI] = React.useState('');
+  // Mandatory Oracle-local XNS handle -- every agent this modal registers must claim
+  // one in the same request (see oracle.ts's RegisterAgentRequest / migration 0022's
+  // header note). Independent of on-chain state; checked live as the operator types.
+  const [handle, setHandle] = React.useState('');
+  const [handleStatus, setHandleStatus] = React.useState<'idle' | 'checking' | 'available' | 'taken' | 'invalid'>('idle');
+  const [handleSuggestions, setHandleSuggestions] = React.useState<string[]>([]);
+  React.useEffect(() => {
+    const h = handle.trim().toLowerCase();
+    if (!h) { setHandleStatus('idle'); setHandleSuggestions([]); return; }
+    setHandleStatus('checking');
+    const t = setTimeout(async () => {
+      try {
+        const res = await oracle.xnsAvailable(h);
+        setHandleStatus(res.available ? 'available' : 'taken');
+        setHandleSuggestions(res.suggestions ?? []);
+      } catch {
+        setHandleStatus('invalid');
+        setHandleSuggestions([]);
+      }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [handle]);
   // Keep the generated DID as the safe default, but allow an operator to register
   // an existing identity (for example the Shield DID already bound to this device).
   // This must be chosen before the first wallet-signed step; changing an identity
@@ -179,7 +203,7 @@ export function RegisterAgentModal({ onClose, onSuccess }: Props) {
           if (!cancelled) setPreflight({ error: `No domain configured for this vertical.` });
           return;
         }
-        if (bondBalance < MIN_REGISTRATION_BOND) {
+        if (full && bondBalance < MIN_REGISTRATION_BOND) {
           if (!cancelled) setPreflight({ error: `The connected wallet and partially deployed SovereignAgent need at least 100 ITK combined for the enforced registration bond; current balance is ${ethers.formatEther(bondBalance)} ITK. Fund it through the approved Base Sepolia faucet/operator path before spending registration gas.` });
           return;
         }
@@ -193,16 +217,16 @@ export function RegisterAgentModal({ onClose, onSuccess }: Props) {
       }
     })();
     return () => { cancelled = true; };
-  }, [walletAddress, vertical, domainId, sovereignAgent]);
+  }, [walletAddress, vertical, domainId, sovereignAgent, full]);
 
   const stepState = (n: number): StepState => {
     if (busyStep === n) return 'busy';
     if (n === 1 && sovereignAgent) return 'done';
     if (n === 2 && stateAnchor) return 'done';
-    if (n === 3 && funded) return 'done';
+    if (n === 3 && (funded || !full)) return 'done';
     if (n === 4 && anchorGranted) return 'done';
     if (n === 5 && genesisAnchored) return 'done';
-    if (n === 6 && bondApproved) return 'done';
+    if (n === 6 && (bondApproved || !full)) return 'done';
     if (n === 7 && primitives) return 'done';
     if (n === 8 && oracleDone) return 'done';
     return 'idle';
@@ -327,8 +351,10 @@ export function RegisterAgentModal({ onClose, onSuccess }: Props) {
     const signer = await getSigner();
     const factory = new ethers.Contract(AGENT_PRIMITIVES_FACTORY_ADDRESS, FACTORY_ABI, signer);
     const domainId = vertical === 1 ? DOMAINS['healthcare.integrity'] : DOMAINS['general.integrity'];
-    addToast('info', 'Cloning + registering the 7-primitive set…');
-    const tx = await factory.registerPrimitives(sovereignAgent, stateAnchor, did, domainId, vertical, profileURI.trim() || 'ipfs://placeholder');
+    addToast('info', full ? 'Cloning + registering optional capabilities…' : 'Registering core identity + memory…');
+    const tx = full
+      ? await factory.registerPrimitives(sovereignAgent, stateAnchor, did, domainId, vertical, profileURI.trim() || 'ipfs://placeholder')
+      : await factory.registerCore(sovereignAgent, stateAnchor, did, domainId);
     const receipt = await tx.wait();
     // Parse the real clone addresses out of the PrimitivesRegistered event.
     let parsed: Record<string, string> | null = null;
@@ -347,23 +373,37 @@ export function RegisterAgentModal({ onClose, onSuccess }: Props) {
           };
           break;
         }
+        if (ev?.name === 'CoreRegistered') {
+          parsed = {
+            sovereign_agent: sovereignAgent,
+            state_anchor: stateAnchor,
+            reputation_registry: ethers.ZeroAddress,
+            slasher: ethers.ZeroAddress,
+            verifier_registry: ethers.ZeroAddress,
+            compliance_gate: ethers.ZeroAddress,
+            agent_profile: ethers.ZeroAddress,
+          };
+          break;
+        }
       } catch { /* not our event */ }
     }
     if (!parsed) throw new Error('registerPrimitives succeeded but PrimitivesRegistered was not found in the receipt.');
     setPrimitives(parsed);
     setLastTx(tx.hash);
-    addToast('success', 'All 7 primitives registered on-chain.');
+    addToast('success', full ? 'All 7 primitives registered on-chain.' : 'Core identity + memory registered on-chain.');
   });
 
   const registerWithOracle = () => run(8, async () => {
     if (!primitives) throw new Error('Register the primitives on-chain first.');
     addToast('info', 'Recording the agent in the oracle…');
-    // The oracle re-verifies these 7 addresses against XibalbaAgentRegistry before accepting.
+    // The oracle re-verifies the submitted addresses against XibalbaAgentRegistry before accepting.
+    if (handleStatus !== 'available') throw new Error('Choose an available XNS handle before recording in the oracle.');
     await oracle.register({
       did,
       did_document: { id: did, controller: walletAddress },
       primitives: primitives as any,
       eth_address_hex: walletAddress || undefined,
+      handle,
     });
     setOracleDone(true);
     setProgressLoaded(false);
@@ -375,12 +415,12 @@ export function RegisterAgentModal({ onClose, onSuccess }: Props) {
   const STEPS = [
     { n: 1, label: 'Deploy SovereignAgent', action: deploySovereignAgent, ready: preflight === 'ok' },
     { n: 2, label: 'Deploy StateAnchor', action: deployStateAnchor, ready: !!sovereignAgent },
-    { n: 3, label: 'Fund 100 ITK registration bond', action: fundRegistrationBond, ready: !!sovereignAgent },
+    { n: 3, label: full ? 'Fund 100 ITK registration bond' : 'Core registration (no bond)', action: fundRegistrationBond, ready: full ? !!sovereignAgent : true },
     { n: 4, label: 'Grant ANCHOR_ROLE to oracle', action: grantAnchorRole, ready: funded && !!stateAnchor },
     { n: 5, label: 'Anchor genesis memory root', action: anchorGenesisRoot, ready: anchorGranted },
-    { n: 6, label: 'Approve factory bond', action: approveRegistrationBond, ready: genesisAnchored },
-    { n: 7, label: 'Register 7 primitives (factory)', action: registerPrimitives, ready: bondApproved },
-    { n: 8, label: 'Record in oracle', action: registerWithOracle, ready: !!primitives },
+    { n: 6, label: full ? 'Approve factory bond' : 'Optional bond (not required)', action: approveRegistrationBond, ready: full ? genesisAnchored : true },
+    { n: 7, label: full ? 'Register 7 primitives (factory)' : 'Register core identity + memory', action: registerPrimitives, ready: full ? bondApproved : genesisAnchored },
+    { n: 8, label: 'Record in oracle', action: registerWithOracle, ready: !!primitives && handleStatus === 'available' },
   ];
 
   return (
@@ -396,7 +436,7 @@ export function RegisterAgentModal({ onClose, onSuccess }: Props) {
         </div>
 
         <div className="text-muted" style={{ fontSize: '0.8rem' }}>
-          Deploys this agent's own contracts, anchors its genesis memory, bonds 100 ITK, and registers its full 7-primitive set on Base Sepolia. Confirmed progress survives a browser or workstation restart. DID: <code style={{ color: 'var(--theme-accent)' }}>{did}</code>
+          Registers identity + anchored memory by default. Optional capabilities and the 100 ITK bond are separate; registration does not grant or remove tool access. Confirmed progress survives a browser or workstation restart. DID: <code style={{ color: 'var(--theme-accent)' }}>{did}</code>
         </div>
 
         <div className="form-group">
@@ -433,9 +473,40 @@ export function RegisterAgentModal({ onClose, onSuccess }: Props) {
               </div>
             </div>
             <div className="form-group">
+              <label className="form-label" htmlFor="ra-handle">XNS handle (required)</label>
+              <input
+                id="ra-handle"
+                className="input"
+                value={handle}
+                onChange={(e) => setHandle(e.target.value.toLowerCase())}
+                placeholder="atlas"
+                aria-describedby="ra-handle-help"
+              />
+              <small id="ra-handle-help" className="text-muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                {handleStatus === 'checking' && 'Checking availability…'}
+                {handleStatus === 'available' && <span style={{ color: 'var(--success, #10b981)' }}>Available -- this agent will be identified by this handle everywhere.</span>}
+                {handleStatus === 'taken' && <span style={{ color: 'var(--danger)' }}>Taken. Pick another, or one of the suggestions below.</span>}
+                {handleStatus === 'invalid' && <span style={{ color: 'var(--danger)' }}>3-32 chars, lowercase letters/digits/./-/_, starting with a letter.</span>}
+                {handleStatus === 'idle' && 'Unique across the whole ecosystem, chosen like a chat-app username. Agents without one are shown by DID.'}
+              </small>
+              {handleStatus === 'taken' && handleSuggestions.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                  {handleSuggestions.map((s) => (
+                    <button key={s} type="button" className="secondary-button" style={{ fontSize: '0.75rem', padding: '4px 10px' }} onClick={() => setHandle(s)}>
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="form-group">
               <label className="form-label" htmlFor="ra-uri">Profile URI (optional)</label>
               <input id="ra-uri" className="input" value={profileURI} onChange={(e) => setProfileURI(e.target.value)} placeholder="ipfs://…" />
             </div>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.8rem' }}>
+              <input type="checkbox" checked={full} onChange={(e) => setFull(e.target.checked)} disabled={sovereignAgent !== null} />
+              <span><strong>Provision optional capabilities now</strong><br /><span className="text-muted">Adds reputation, slasher, verifier, compliance, and profile modules plus the 100 ITK bond. Leave off for core identity + memory.</span></span>
+            </label>
 
             {preflight === 'checking' && (
               <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>

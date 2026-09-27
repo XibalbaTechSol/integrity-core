@@ -12,12 +12,14 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
+use std::time::Duration;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 pub async fn create_pool(database_url: &str) -> Result<PgPool, sqlx::Error> {
     PgPoolOptions::new()
-        .max_connections(10)
+        .max_connections(5)
+        .acquire_timeout(Duration::from_secs(5))
         .connect(database_url)
         .await
 }
@@ -110,6 +112,169 @@ pub async fn register_agent(
         }
         Err(e) => Err(RegisterAgentError::Db(e)),
     }
+}
+
+/// Insert into `agents` and claim its mandatory XNS handle in one transaction: either both
+/// succeed or neither does, so a taken handle can never leave a phantom agent row behind,
+/// and a duplicate agent registration can never silently squat a handle.
+pub async fn register_agent_with_handle(
+    pool: &PgPool,
+    id: &str,
+    ed25519_pubkey: Option<Vec<u8>>,
+    eth_address: Option<String>,
+    verification_tier: i32,
+    did_document: Option<serde_json::Value>,
+    handle: &str,
+) -> Result<AgentRow, RegisterAgentWithHandleError> {
+    let mut tx = pool.begin().await?;
+
+    let row = sqlx::query_as::<_, AgentRow>(
+        r#"
+        INSERT INTO agents (id, ed25519_pubkey, eth_address, verification_tier, did_document)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING id, ed25519_pubkey, eth_address, verification_tier, last_nonce, created_at, did_document
+        "#,
+    )
+    .bind(id)
+    .bind(&ed25519_pubkey)
+    .bind(&eth_address)
+    .bind(verification_tier)
+    .bind(&did_document)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|e| match &e {
+        sqlx::Error::Database(db_err) if db_err.code().as_deref() == Some("23505") => {
+            RegisterAgentWithHandleError::AgentAlreadyExists
+        }
+        _ => RegisterAgentWithHandleError::Db(sqlx::Error::from(e)),
+    })?;
+
+    sqlx::query("INSERT INTO xns_handles (agent_id, handle) VALUES ($1, $2)")
+        .bind(id)
+        .bind(handle)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| match &e {
+            sqlx::Error::Database(db_err) if db_err.code().as_deref() == Some("23505") => {
+                let constraint = db_err.constraint().unwrap_or("");
+                if constraint.contains("handle") {
+                    RegisterAgentWithHandleError::HandleTaken
+                } else {
+                    RegisterAgentWithHandleError::AgentAlreadyExists
+                }
+            }
+            _ => RegisterAgentWithHandleError::Db(sqlx::Error::from(e)),
+        })?;
+
+    tx.commit().await?;
+    Ok(row)
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum RegisterAgentWithHandleError {
+    #[error("agent already registered")]
+    AgentAlreadyExists,
+    #[error("xns handle already taken")]
+    HandleTaken,
+    #[error(transparent)]
+    Db(#[from] sqlx::Error),
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct XnsHandleRow {
+    pub agent_id: String,
+    pub handle: String,
+    pub claimed_at: DateTime<Utc>,
+}
+
+/// Standalone handle claim, independent of on-chain registration or an `agents` row --
+/// an agent may hold an XNS handle without ever registering on-chain (see migration
+/// 0022's header note). One handle per agent, one agent per handle.
+pub async fn claim_xns_handle(
+    pool: &PgPool,
+    agent_id: &str,
+    handle: &str,
+) -> Result<XnsHandleRow, ClaimXnsHandleError> {
+    let result = sqlx::query_as::<_, XnsHandleRow>(
+        r#"
+        INSERT INTO xns_handles (agent_id, handle)
+        VALUES ($1, $2)
+        RETURNING agent_id, handle, claimed_at
+        "#,
+    )
+    .bind(agent_id)
+    .bind(handle)
+    .fetch_one(pool)
+    .await;
+
+    match result {
+        Ok(row) => Ok(row),
+        Err(sqlx::Error::Database(db_err)) if db_err.code().as_deref() == Some("23505") => {
+            let constraint = db_err.constraint().unwrap_or("");
+            if constraint.contains("handle") {
+                Err(ClaimXnsHandleError::HandleTaken)
+            } else {
+                Err(ClaimXnsHandleError::AgentAlreadyHasHandle)
+            }
+        }
+        Err(e) => Err(ClaimXnsHandleError::Db(e)),
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ClaimXnsHandleError {
+    #[error("xns handle already taken")]
+    HandleTaken,
+    #[error("agent already holds a different xns handle")]
+    AgentAlreadyHasHandle,
+    #[error(transparent)]
+    Db(#[from] sqlx::Error),
+}
+
+pub async fn xns_handle_available(pool: &PgPool, handle: &str) -> Result<bool, sqlx::Error> {
+    let row: Option<(i32,)> =
+        sqlx::query_as("SELECT 1 FROM xns_handles WHERE lower(handle) = lower($1)")
+            .bind(handle)
+            .fetch_optional(pool)
+            .await?;
+    Ok(row.is_none())
+}
+
+pub async fn resolve_xns_handle(pool: &PgPool, handle: &str) -> Result<Option<String>, sqlx::Error> {
+    let row: Option<(String,)> =
+        sqlx::query_as("SELECT agent_id FROM xns_handles WHERE lower(handle) = lower($1)")
+            .bind(handle)
+            .fetch_optional(pool)
+            .await?;
+    Ok(row.map(|r| r.0))
+}
+
+pub async fn get_xns_handle_for_agent(
+    pool: &PgPool,
+    agent_id: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    let row: Option<(String,)> = sqlx::query_as("SELECT handle FROM xns_handles WHERE agent_id = $1")
+        .bind(agent_id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row.map(|r| r.0))
+}
+
+/// Batch form of `get_xns_handle_for_agent`, for list endpoints -- one query instead of
+/// N, keyed by agent_id so callers can look up each row's handle by simple map access.
+pub async fn get_xns_handles_for_agents(
+    pool: &PgPool,
+    agent_ids: &[String],
+) -> Result<std::collections::HashMap<String, String>, sqlx::Error> {
+    if agent_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let rows: Vec<(String, String)> =
+        sqlx::query_as("SELECT agent_id, handle FROM xns_handles WHERE agent_id = ANY($1)")
+            .bind(agent_ids)
+            .fetch_all(pool)
+            .await?;
+    Ok(rows.into_iter().collect())
 }
 
 pub async fn get_agent(pool: &PgPool, id: &str) -> Result<Option<AgentRow>, sqlx::Error> {

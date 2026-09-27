@@ -18,6 +18,9 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/agent/{id}", get(handlers::get_agent))
         .route("/v1/agents", get(handlers::list_agents))
         .route("/v1/agents/snapshot", get(handlers::agent_directory_snapshot))
+        .route("/v1/xns/available/{handle}", get(handlers::xns_available))
+        .route("/v1/xns/handle/{handle}", get(handlers::xns_resolve))
+        .route("/v1/xns/claim", post(handlers::xns_claim))
         .route("/v1/agent/{id}/ais", get(handlers::get_ais))
         .route(
             "/v1/agent/{id}/erc8004",

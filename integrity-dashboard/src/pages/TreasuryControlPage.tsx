@@ -53,9 +53,9 @@ export default function TreasuryControlPage() {
   return (
     <div className="control-page control-page-full treasury-page">
       <ControlHeader
-        eyebrow="Financial control plane"
-        title="Treasury & Finance"
-        description="Review agent-linked capital, staking, credit, markets, and stability controls with an explicit policy context."
+        eyebrow="Wallet and financial control"
+        title="Wallet & Finance"
+        description="One dedicated surface for operator wallets, agent-linked capital, staking, credit, markets, and stability controls."
       />
       <ControlTabs tabs={TABS} active={activeTab} onChange={setActiveTab} label="Treasury control views" />
       <div className="control-metric-grid treasury-metric-grid" aria-label="Treasury metrics">

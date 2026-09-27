@@ -84,6 +84,20 @@ export interface AgentMemorySummary {
     recent_memories: Memory[];
 }
 
+export interface CortexAgentWorkspace {
+    agent_id: string;
+    store_id: string;
+    profile_id: string;
+    store_access: 'writable' | 'read_only' | string;
+    writable: boolean;
+    agent_name?: string | null;
+    device_name?: string | null;
+    memories?: number;
+    sessions?: number;
+    memories_counted?: boolean;
+    sessions_counted?: boolean;
+}
+
 export interface StoreStatus {
     schema_version: number;
     journal_mode: string;

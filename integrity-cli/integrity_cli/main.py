@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import asdict, dataclass
 from typing import Optional
 
@@ -326,6 +327,19 @@ def _clear_registration_progress(identity_name: str) -> None:
         path.unlink()
 
 
+def _validate_xns_handle_format(handle: str) -> Optional[str]:
+    """Mirrors integrity-oracle's `handlers::validate_xns_handle` exactly (backend/src/
+    handlers.rs) -- keep both in sync if either changes. Returns None when valid, else a
+    human-readable reason."""
+    if not (3 <= len(handle) <= 32):
+        return "must be 3-32 characters"
+    if not handle[0].islower() or not handle[0].isalpha():
+        return "must start with a lowercase letter"
+    if not re.fullmatch(r"[a-z0-9._-]+", handle):
+        return "may only contain lowercase letters, digits, '.', '-', '_'"
+    return None
+
+
 def _post_registration_to_oracle(
     oracle_url: str,
     agent_did: str,
@@ -335,6 +349,7 @@ def _post_registration_to_oracle(
     evm_account,
     alias: str,
     description: str,
+    handle: str,
     *,
     idempotent: bool,
 ) -> None:
@@ -366,6 +381,7 @@ def _post_registration_to_oracle(
         "eth_address_hex": evm_account.address,
         "alias": alias,
         "description": description,
+        "handle": handle,
     }
     try:
         with console.status("[bold blue]Registering with Oracle..."):
@@ -416,13 +432,26 @@ def agent_register(
         help="Load the funder from an encrypted keystore (see `integrity wallet import`) instead of "
              "the raw FUNDER_PRIVATE_KEY env var. Preferred -- see that command's docstring for why.",
     ),
+    full: bool = typer.Option(
+        False,
+        "--full",
+        help="Provision all seven primitives and the 100 ITK bond. Core identity/memory is the default.",
+    ),
+    handle: Optional[str] = typer.Option(
+        None,
+        "--handle",
+        help="Unique XNS handle for this agent (Oracle-local directory, independent of on-chain "
+             "state -- see integrity-oracle migration 0022). Required by the Oracle's own "
+             "/v1/agent/register; defaults to a lowercased, sanitized form of --alias if omitted. "
+             "Use `integrity xns available <handle>` to check first.",
+    ),
 ):
     """
     Run the real self-sovereign on-chain registration sequence for a local
-    identity (fund wallet -> mint testnet ITK -> deploy SovereignAgent ->
-    deploy StateAnchor -> grant oracle ANCHOR_ROLE -> registerPrimitives),
-    then (unless --skip-oracle) POST the result to integrity-oracle for
-    independent on-chain re-verification.
+    identity. By default this registers only the core identity and memory
+    surface. Pass --full to also mint ITK, stake the registration bond, and
+    provision all five optional modules. Then (unless --skip-oracle) POST the
+    result to integrity-oracle for independent on-chain re-verification.
 
     This is a multi-transaction, multi-second flow signed by the identity's
     own EVM wallet (see wallet.py) -- not a single HTTP POST. Mirrors
@@ -441,9 +470,24 @@ def agent_register(
     pasted again). Neither takes the raw key as a CLI flag -- that would
     leak into shell history / a process list.
     """
+    if handle is None:
+        handle = re.sub(r"[^a-z0-9._-]", "", alias.lower()).lstrip("._-")[:32] or identity_name.lower()
+        if len(handle) < 3:
+            handle = (handle + identity_name.lower())[:32]
+        console.print(f"  [dim]info[/dim] --handle not given, defaulting to {handle!r} (derived from --alias)")
+    handle_error = _validate_xns_handle_format(handle)
+    if handle_error:
+        console.print(f"[bold red]Error:[/bold red] --handle {handle!r} is invalid: {handle_error}")
+        raise typer.Exit(1)
+
     if vertical not in _VERTICALS:
         console.print(
             f"[bold red]Error:[/bold red] --vertical must be one of {sorted(_VERTICALS)}, got {vertical!r}"
+        )
+        raise typer.Exit(1)
+    if vertical != "none" and not full:
+        console.print(
+            "[bold red]Error:[/bold red] --vertical requires --full because it provisions the optional compliance capability."
         )
         raise typer.Exit(1)
 
@@ -561,7 +605,7 @@ def agent_register(
         _clear_registration_progress(identity_name)
         if not skip_oracle:
             _post_registration_to_oracle(
-                oracle_url, agent_did, doc, registration, identity_name, evm_account, alias, description, idempotent=True
+                oracle_url, agent_did, doc, registration, identity_name, evm_account, alias, description, handle, idempotent=True
             )
         console.print(f"\n[bold green]Already registered:[/bold green] {agent_did}")
         return
@@ -691,7 +735,9 @@ def agent_register(
         #
         # Checked first on a retry, unlike grant_anchor_role below (idempotent by
         # construction) -- minting again would genuinely double-issue ITK.
-        if chain.itk_balance(w3, itk_address, sovereign_agent) >= _DEFAULT_TESTNET_ITK_ALLOCATION_WEI:
+        if not full:
+            console.print("  [dim]skip[/dim] optional ITK allocation (core registration)")
+        elif chain.itk_balance(w3, itk_address, sovereign_agent) >= _DEFAULT_TESTNET_ITK_ALLOCATION_WEI:
             console.print("  [dim]skip[/dim] SovereignAgent already holds enough testnet ITK -- skipping mint")
         else:
             funder = _resolve_funder()
@@ -725,42 +771,60 @@ def agent_register(
             next_nonce += 1
             time.sleep(3)
 
-        # Approve AgentPrimitivesFactory to pull the registration bond
-        itk_contract = w3.eth.contract(
-            address=w3.to_checksum_address(itk_address),
-            abi=[{"constant": True, "inputs": [{"name": "_owner", "type": "address"}, {"name": "_spender", "type": "address"}], "name": "allowance", "outputs": [{"name": "", "type": "uint256"}], "payable": False, "stateMutability": "view", "type": "function"}],
-        )
-        allowance = itk_contract.functions.allowance(
-            w3.to_checksum_address(sovereign_agent),
-            w3.to_checksum_address(factory_address)
-        ).call()
-        min_bond = 100 * 10**18
-        if allowance < min_bond:
-            with console.status("[bold blue]Approving AgentPrimitivesFactory to pull ITK bond..."):
-                chain.approve_factory_bond(w3, evm_account, sovereign_agent, itk_address, factory_address, min_bond, chain_id, nonce=next_nonce)
-            console.print("  [green]done[/green] approved ITK registration bond")
-            next_nonce += 1
-            time.sleep(3)
+        if full:
+            # Approve AgentPrimitivesFactory to pull the registration bond
+            itk_contract = w3.eth.contract(
+                address=w3.to_checksum_address(itk_address),
+                abi=[{"constant": True, "inputs": [{"name": "_owner", "type": "address"}, {"name": "_spender", "type": "address"}], "name": "allowance", "outputs": [{"name": "", "type": "uint256"}], "payable": False, "stateMutability": "view", "type": "function"}],
+            )
+            allowance = itk_contract.functions.allowance(
+                w3.to_checksum_address(sovereign_agent),
+                w3.to_checksum_address(factory_address)
+            ).call()
+            min_bond = 100 * 10**18
+            if allowance < min_bond:
+                with console.status("[bold blue]Approving AgentPrimitivesFactory to pull ITK bond..."):
+                    chain.approve_factory_bond(w3, evm_account, sovereign_agent, itk_address, factory_address, min_bond, chain_id, nonce=next_nonce)
+                console.print("  [green]done[/green] approved ITK registration bond")
+                next_nonce += 1
+                time.sleep(3)
+            else:
+                console.print("  [dim]skip[/dim] AgentPrimitivesFactory already has sufficient ITK allowance -- skipping")
         else:
-            console.print("  [dim]skip[/dim] AgentPrimitivesFactory already has sufficient ITK allowance -- skipping")
+            console.print("  [dim]skip[/dim] registration bond approval (core registration)")
 
         # domain_id was already computed above, in the precondition-check block that ran
         # before any gas was spent.
-        with console.status("[bold blue]Registering primitives..."):
-            result = chain.register_primitives(
-                w3,
-                evm_account,
-                factory_address,
-                sovereign_agent,
-                state_anchor,
-                agent_did,
-                domain_id,
-                _VERTICALS[vertical],
-                "",
-                chain_id,
-                nonce=next_nonce,
-            )
-        console.print("  [green]done[/green] registered 7 primitives")
+        with console.status("[bold blue]Registering agent..."):
+            if full:
+                result = chain.register_primitives(
+                    w3,
+                    evm_account,
+                    factory_address,
+                    sovereign_agent,
+                    state_anchor,
+                    agent_did,
+                    domain_id,
+                    _VERTICALS[vertical],
+                    "",
+                    chain_id,
+                    nonce=next_nonce,
+                )
+            else:
+                result = chain.register_core(
+                    w3,
+                    evm_account,
+                    factory_address,
+                    sovereign_agent,
+                    state_anchor,
+                    agent_did,
+                    domain_id,
+                    chain_id,
+                    nonce=next_nonce,
+                )
+        console.print(
+            "  [green]done[/green] " + ("registered all 7 primitives" if full else "registered core identity and memory")
+        )
     except typer.Exit:
         raise
     except Exception as e:  # noqa: BLE001 -- a partially-completed registration must be visible, not swallowed
@@ -793,7 +857,7 @@ def agent_register(
 
     if not skip_oracle:
         _post_registration_to_oracle(
-            oracle_url, agent_did, doc, registration, identity_name, evm_account, alias, description, idempotent=False
+            oracle_url, agent_did, doc, registration, identity_name, evm_account, alias, description, handle, idempotent=False
         )
 
     console.print(f"[bold green]Registered:[/bold green] {agent_did}")
@@ -1223,6 +1287,51 @@ def xns_release(
 
     console.print(f"[bold green]Released[/bold green] '{handle}'")
     console.print(f"[dim]tx: {receipt['transactionHash'].hex()}[/dim]")
+
+
+# The commands above (register/resolve/primary-handle/set-primary/release) are all
+# on-chain, wallet-signed calls against the deployed XibalbaNameService contract -- an
+# optional "list this handle as an on-chain alias" step. The two below are unrelated:
+# they talk to Oracle's own local `xns_handles` directory (integrity-oracle migration
+# 0022) -- no wallet, no gas, no chain at all. This is the mandatory, primary handle
+# every agent gets at `integrity agent register`; on-chain listing is separate and optional.
+
+@xns_app.command("available")
+def xns_available(
+    handle: str = typer.Argument(..., help="Candidate handle to check"),
+    oracle_url: Optional[str] = typer.Option(
+        None, "--oracle-url", help="integrity-oracle base URL (env/config ORACLE_URL)"
+    ),
+):
+    """Check whether a handle is free in Oracle's local XNS directory (no chain, no wallet)."""
+    oracle_client = IntegrityClient(base_url=oracle_url or config.get_config_value("ORACLE_URL"))
+    result = oracle_client.get(f"/v1/xns/available/{handle}")
+    if result.get("available"):
+        console.print(f"[bold green]Available:[/bold green] '{handle}'")
+    else:
+        console.print(f"[yellow]Taken:[/yellow] '{handle}'")
+        for s in result.get("suggestions", []):
+            console.print(f"  suggestion: {s}")
+
+
+@xns_app.command("claim")
+def xns_claim(
+    agent_id: str = typer.Argument(..., help="Agent DID (or bare agent_id) claiming this handle"),
+    handle: str = typer.Argument(..., help="Handle to claim"),
+    oracle_url: Optional[str] = typer.Option(
+        None, "--oracle-url", help="integrity-oracle base URL (env/config ORACLE_URL)"
+    ),
+):
+    """Claim a handle in Oracle's local XNS directory for an agent that already has one
+    without one, or that was registered before this feature existed. Not needed for a
+    fresh `integrity agent register`, which already requires --handle."""
+    oracle_client = IntegrityClient(base_url=oracle_url or config.get_config_value("ORACLE_URL"))
+    try:
+        result = oracle_client.post("/v1/xns/claim", json_data={"agent_id": agent_id, "handle": handle})
+    except ApiError as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+        raise typer.Exit(1)
+    console.print(f"[bold green]Claimed[/bold green] '{result['handle']}' for {result['agent_id']}")
 
 
 # --------------------------------------------------------------------------

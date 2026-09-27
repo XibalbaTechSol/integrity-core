@@ -1,7 +1,7 @@
 ---
 title: integrity-sdk
 created: 2026-07-07
-updated: 2026-09-15
+updated: 2026-09-18
 type: entity
 tags: [sdk, identity, metrics, infrastructure]
 confidence: high
@@ -331,6 +331,14 @@ provisioning, but a mismatched or missing file in an existing identity fails
 closed. `require_registered=True` makes Oracle registration a startup gate;
 unknown registration state is never treated as success. `device_id` is
 optional for ordinary agents and required when `require_device_binding=True`.
+
+When a harness profile root is supplied or discovered from its environment,
+the runtime binds that profile to an existing agent DID in
+`.integrity/identity.json`; conflicting slugs, DIDs, profile roots, or DID
+stores fail closed. BCC nonce allocation is persisted under the identity store
+and protected by a file lock so concurrent hook processes share a monotonic
+counter. Cross-system adapters also preserve canonical invocation/session
+identifiers and propagate identity attribution to Cortex and telemetry.
 
 The 2026-09-14 local attribution canary opened each configured harness identity
 and emitted `session_started` plus `model_call` lifecycle events. The batch

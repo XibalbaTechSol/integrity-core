@@ -3796,3 +3796,7 @@ writeup: PRODUCTION_GAPS.md §18.
   contracts are source-backed but live deployment requires independent
   evidence, the Xibalba operating model's runtime claims are externally
   scoped, and the cross-repository dependency boundaries remain current.
+## [2026-09-18] SDK profile identity and telemetry retention
+- Updated the SDK and Oracle entity pages for profile-bound identity continuity, durable BCC nonces, adapter attribution, and the OTEL retention migration.
+- SDK suite: 356 passed, 8 failed, 3 skipped; failures remain in health/market integration and sampled-content expectations.
+- Cortex and core changes are being published on feature branches; do not merge until CI and the failing cases are resolved.

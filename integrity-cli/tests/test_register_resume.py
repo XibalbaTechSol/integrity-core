@@ -116,16 +116,16 @@ def test_agent_register_resumes_from_partial_failure_without_redeploying(deploye
     keygen_result = runner.invoke(app, ["identity", "keygen"])
     assert keygen_result.exit_code == 0, keygen_result.stdout
 
-    real_register_primitives = chain_module.register_primitives
+    real_register_core = chain_module.register_core
     call_count = {"n": 0}
 
-    def flaky_register_primitives(*args, **kwargs):
+    def flaky_register_core(*args, **kwargs):
         call_count["n"] += 1
         if call_count["n"] == 1:
-            raise RuntimeError("simulated registerPrimitives revert (e.g. a missing role grant)")
-        return real_register_primitives(*args, **kwargs)
+            raise RuntimeError("simulated registerCore revert (e.g. a missing registrar role)")
+        return real_register_core(*args, **kwargs)
 
-    monkeypatch.setattr(chain_module, "register_primitives", flaky_register_primitives)
+    monkeypatch.setattr(chain_module, "register_core", flaky_register_core)
 
     first = runner.invoke(app, _register_args(deployed_chain))
     assert first.exit_code != 0, first.stdout

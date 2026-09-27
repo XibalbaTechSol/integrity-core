@@ -1,13 +1,13 @@
 import { test, expect } from '@playwright/test';
 import { collectPageErrors } from './test-utils';
 
-// IntelligencePage (src/pages/IntelligencePage.tsx, route "/intelligence") is mostly
+// AisPage (src/pages/AisPage.tsx, route "/ais"; "/intelligence" redirects there) is mostly
 // client-side: 4 static KaTeX formula cards, a Radar panel driven by DashboardContext's
 // selectedAgent (real oracle data), a filter toolbar, and a "custom telemetry" feature
 // persisted to localStorage (`integrity_custom_telemetry`) — no dedicated backend of its
 // own for that feature.
 
-test.describe('/intelligence (IntelligencePage)', () => {
+test.describe('/intelligence -> /ais (AisPage)', () => {
   test.beforeEach(async ({ page }) => {
     // Custom telemetry fields persist in localStorage across tests in the same browser
     // context — start each test from a clean slate so toolbar/modal assertions are
@@ -27,7 +27,7 @@ test.describe('/intelligence (IntelligencePage)', () => {
     // Titles verbatim from integrity-oracle/scoring-core/src/lib.rs's real formulas --
     // the previous titles ("Stability (Entropy Control)", "Grounding (Human-in-the-Loop)",
     // "Sacrifice (Economic Commitment)") described formulas that were fabricated and never
-    // matched what the oracle actually computes (see IntelligencePage.tsx's own comment on
+    // matched what the oracle actually computes (see AisPage.tsx's own comment on
     // the fix). "Compliance" was previously untested entirely.
     await page.goto('/intelligence');
     const titles = ['Stability (Entropy)', 'Grounding (Human Oversight)', 'Sacrifice (Compute Commitment)', 'Compliance', 'Overall Agent Integrity Score'];

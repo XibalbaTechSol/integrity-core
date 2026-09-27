@@ -112,10 +112,43 @@ def test_agent_register_without_identity_exits_nonzero():
     assert "No identity named 'default'" in result.stdout
 
 
-def test_agent_register_requires_funder_key(monkeypatch):
+def test_agent_register_requires_funder_key(monkeypatch, tmp_path):
+    """The funder is resolved lazily -- only once a funding step is actually needed --
+    so the missing-key error can only surface on a reachable chain where the fresh
+    agent wallet has no funds. Stub exactly the chain reads that come before that
+    first funding step (idempotency, registrar role, domain membership) so the test
+    runs without a live RPC; previously it only passed when something happened to be
+    listening on localhost:8545, and failed in CI."""
     monkeypatch.delenv("FUNDER_PRIVATE_KEY", raising=False)
+    # The agent wallet keystore is created before any funding step; give it a throwaway
+    # password so the run reaches the funder check (CI has none set).
+    monkeypatch.setenv("INTEGRITY_WALLET_PASSWORD", "test-only-password")
+
+    class _Eth(_FakeEth):
+        def get_balance(self, address) -> int:  # fresh wallet: nothing to spend
+            return 0
+
+    class _W3(_FakeConnectedW3):
+        eth = _Eth()
+
+    monkeypatch.setattr(chain, "get_w3", lambda rpc_url: _W3())
+    monkeypatch.setattr(chain, "resolve_did", lambda *a, **k: None)
+    monkeypatch.setattr(chain, "factory_has_registrar_role", lambda *a, **k: True)
+    monkeypatch.setattr(chain, "domain_exists", lambda *a, **k: True)
+    monkeypatch.setattr(chain, "can_join_domain", lambda *a, **k: True)
+    deployments_file = tmp_path / "deployments.local.json"
+    deployments_file.write_text(json.dumps({
+        "singletons": {
+            name: "0x" + f"{i:02x}" * 20
+            for i, name in enumerate(
+                ["AgentPrimitivesFactory", "IntegrityToken", "XibalbaAgentRegistry", "DomainRegistry"], start=1
+            )
+        },
+        "protocolAddresses": {"oracleSigner": "0x" + "55" * 20},
+    }))
+
     runner.invoke(app, ["identity", "keygen"])
-    result = runner.invoke(app, ["agent", "register", "--alias", "my-bot"])
+    result = runner.invoke(app, ["agent", "register", "--alias", "my-bot", "--deployments-file", str(deployments_file)])
     assert result.exit_code == 1
     # The funder wallet pays for the agent's on-chain deploys; without it, the command
     # must stop with a clear message rather than a confusing mid-sequence RPC failure.

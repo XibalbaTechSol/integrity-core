@@ -102,8 +102,10 @@ class Settings:
     # "would-have-blocked" report accumulate, and only then flip to enforcement.
     # In shadow mode the circuit breaker is never tripped (observing, not
     # enforcing -- locking out a well-behaved agent for a violation we didn't
-    # act on would be wrong). Default false: enforce, matching prior behavior.
-    shadow_mode: bool = field(default_factory=lambda: _bool_env("BCC_SHADOW_MODE", False))
+    # act on would be wrong). Observation is the safe adoption default: a
+    # missing compliance pack or an unreviewed policy must not stop an agent.
+    # Operators opt into blocking explicitly with BCC_SHADOW_MODE=false.
+    shadow_mode: bool = field(default_factory=lambda: _bool_env("BCC_SHADOW_MODE", True))
 
     # --- Circuit breaker ---
     circuit_breaker_violation_threshold: int = field(
@@ -221,10 +223,22 @@ class Settings:
     # (`spool.py::_backoff_seconds`: `min(spool_max_backoff_seconds, spool_retry_interval_seconds * 2**attempts)`).
     spool_retry_interval_seconds: int = field(default_factory=lambda: int(os.getenv("SPOOL_RETRY_INTERVAL_SECONDS", "30")))
     spool_max_backoff_seconds: int = field(default_factory=lambda: int(os.getenv("SPOOL_MAX_BACKOFF_SECONDS", "900")))
+    # Bound the amount of work one retry cycle can issue. Without this cap, a
+    # long outage can make every due row fire at once when the oracle returns,
+    # overwhelming its rate limiter and starving fresh audit reports.
+    spool_retry_batch_size: int = field(default_factory=lambda: int(os.getenv("SPOOL_RETRY_BATCH_SIZE", "100")))
+    # Upper bound on undelivered rows. At the cap a *new* report is refused and
+    # counted (spool_metrics.dropped_total) -- rows already queued are never
+    # deleted. 500k is ~a day of Oracle outage at the 2026-09-26 observed rate.
+    spool_max_rows: int = field(default_factory=lambda: int(os.getenv("BCC_SPOOL_MAX_ROWS", "500000")))
 
     def __post_init__(self) -> None:
         if self.merkle_anchor_interval_seconds <= 0:
             raise ValueError("merkle anchor interval must be greater than zero")
+        if self.spool_retry_batch_size <= 0:
+            raise ValueError("spool retry batch size must be greater than zero")
+        if self.spool_max_rows <= 0:
+            raise ValueError("spool max rows must be greater than zero")
 
     def load_deployments(self) -> dict:
         """

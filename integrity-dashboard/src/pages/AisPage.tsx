@@ -29,6 +29,9 @@ const FormulaCard = ({ title, description, formula, icon, accent = 'var(--primar
   <div
     style={{
       gridColumn: span ? '1 / -1' : undefined,
+      // Grid items default to min-width:auto (their content width), which let a wide
+      // formula stretch the card past a narrow viewport; 0 lets the card honour its track.
+      minWidth: 0,
       display: 'flex',
       flexDirection: 'column',
       gap: 'var(--space-4)',
@@ -68,7 +71,7 @@ const FormulaCard = ({ title, description, formula, icon, accent = 'var(--primar
       <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.3 }}>{title}</h3>
     </div>
 
-    <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: 1.5 }}>
+    <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', lineHeight: 1.5, overflowX: 'auto', overflowY: 'hidden' }}>
       {description}
     </div>
 
@@ -98,9 +101,9 @@ const FormulaCard = ({ title, description, formula, icon, accent = 'var(--primar
   </div>
 );
 
-// ─── IntelligencePage ────────────────────────────────────────────────────────
+// ─── AisPage ────────────────────────────────────────────────────────────────
 
-export function IntelligencePage() {
+export function AisPage() {
   const { stats, selectedAgent } = useDashboard() as any;
   const isMobile = useIsMobile();
 
@@ -170,7 +173,7 @@ export function IntelligencePage() {
             auto-fit) so 4 cards never orphan a lone card on its own half-empty row. */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
           <SectionLabel>AIS Component Formulas</SectionLabel>
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, 1fr)', gap: 'var(--space-6)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'repeat(2, minmax(0, 1fr))', gap: 'var(--space-6)' }}>
             <FormulaCard
               title="Stability (Entropy)"
               description={<span>Gaussian-style decay over reported task-performance variance <InlineMath math="v" />. Small variance barely moves the score; unbounded variance saturates toward 0.</span>}

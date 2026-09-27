@@ -67,6 +67,21 @@ def test_sampling_is_all_or_nothing_per_entry() -> None:
     assert out["token_usage"] == {"input_tokens": 1}
 
 
+def test_nested_envelope_content_is_redacted_and_bounded() -> None:
+    config = CollectionConfig.for_profile(CollectionProfile.DEVELOPMENT)
+    config = CollectionConfig(config.profile, True, True, 1.0, 24)
+    out = config.apply_nested({
+        "event_type": "tool_call_started",
+        "payload": {"arguments": {"query": "email alice@example.com " + "x" * 80}},
+        "metadata": {"token_usage": {"input_tokens": 7}},
+    })
+    text = out["payload"]["arguments"]["query"]
+    assert "alice@example.com" not in text
+    assert text.endswith("…[truncated]")
+    assert out["event_type"] == "tool_call_started"
+    assert out["metadata"]["token_usage"]["input_tokens"] == 7
+
+
 def test_env_overrides_one_axis_without_inventing_a_profile() -> None:
     config = CollectionConfig.from_env(
         {"INTEGRITY_COLLECTION_PROFILE": "development", "INTEGRITY_REDACT_CONTENT": "1", "INTEGRITY_MAX_CONTENT_CHARS": "10"}

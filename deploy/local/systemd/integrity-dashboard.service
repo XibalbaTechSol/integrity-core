@@ -1,0 +1,16 @@
+[Unit]
+Description=Integrity dashboard (local Vite preview of the built dist/ on 127.0.0.1:4173)
+Documentation=file:///home/xibalba/Projects/integrity-core/integrity-dashboard
+# Serves whatever `npm run build` last produced; rebuild, then restart this unit.
+
+[Service]
+Type=simple
+WorkingDirectory=/home/xibalba/Projects/integrity-core/integrity-dashboard
+Environment=PATH=/home/xibalba/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/xibalba/.local/bin/npm run preview -- --host 127.0.0.1 --port 4173 --strictPort
+Restart=on-failure
+RestartSec=5
+MemoryMax=256M
+
+[Install]
+WantedBy=default.target

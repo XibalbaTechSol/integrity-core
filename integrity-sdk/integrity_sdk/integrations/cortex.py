@@ -7,9 +7,16 @@ identity as provenance, but never treats a payload agent_id as authority.
 from __future__ import annotations
 
 import time
+import json
 from typing import Any, Iterable, Mapping
 
 import requests
+
+
+from ..collection import CONTENT_KEYS
+
+_MAX_EVENT_ATTRIBUTE_BYTES = 16_384
+_CONTENT_MARKER = "<content reduced: event byte cap>"
 
 
 class CortexTransport:
@@ -20,10 +27,17 @@ class CortexTransport:
         self.bearer_token = bearer_token
         self.timeout = timeout
         self.last_attempts: list[dict[str, Any]] = []
+        self.last_exported_event_ids: list[str] = []
 
     def export(self, events: Iterable[Mapping[str, Any]], *, session_id: str | None = None,
                max_attempts: int = 3, backoff_seconds: float = 0.2) -> dict[str, Any]:
-        rows = list(events)
+        # SDKAgent applies the shared collection policy before persisting or
+        # dispatching the canonical envelope. The adapter enforces only the
+        # final per-row byte ceiling and preserves every event class.
+        rows = [dict(event) for event in events]
+        self.last_exported_event_ids = [str(event["event_id"]) for event in rows if event.get("event_id")]
+        if not rows:
+            raise ValueError("Cortex export requires at least one event")
         resolved_session = session_id or next((str(e.get("session_id")) for e in rows if e.get("session_id")), None)
         if not resolved_session:
             raise ValueError("Cortex export requires session_id for agent-scoped persistence")
@@ -37,7 +51,7 @@ class CortexTransport:
                     "span_id": event.get("span_id") or event.get("invocation_id") or event.get("event_id"),
                     "parent_span_id": event.get("parent_event_id"),
                     "prompt_id": event.get("invocation_id"),
-                    "attributes": dict(event),
+                    "attributes": _bounded_attributes(event),
                     "idempotency_key": event.get("event_id"),
                 }
                 for event in rows
@@ -75,3 +89,51 @@ class CortexTransport:
                     time.sleep(backoff_seconds * (2 ** (attempt - 1)))
         assert last_error is not None
         raise last_error
+
+
+def _bounded_attributes(event: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep every event class and its sanitized context under a hard per-row cap."""
+    attributes = dict(event)
+    if len(json.dumps(attributes, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) <= _MAX_EVENT_ATTRIBUTE_BYTES:
+        return attributes
+
+    def candidates(node: Any, path: tuple[str, ...] = ()) -> list[tuple[int, tuple[str, ...]]]:
+        found: list[tuple[int, tuple[str, ...]]] = []
+        if isinstance(node, Mapping):
+            for key, value in node.items():
+                child_path = (*path, str(key))
+                if str(key).lower() in CONTENT_KEYS:
+                    found.append((len(json.dumps(value, ensure_ascii=False, default=str).encode("utf-8")), child_path))
+                else:
+                    found.extend(candidates(value, child_path))
+        elif isinstance(node, list):
+            for index, value in enumerate(node):
+                found.extend(candidates(value, (*path, str(index))))
+        return found
+
+    def parent(path: tuple[str, ...]) -> tuple[Any, str]:
+        node: Any = attributes
+        for key in path[:-1]:
+            node = node[int(key)] if isinstance(node, list) else node[key]
+        return node, path[-1]
+
+    for _, path in sorted(candidates(attributes), reverse=True):
+        container, key = parent(path)
+        old = container[int(key)] if isinstance(container, list) else container[key]
+        if isinstance(old, str) and len(old) > 256:
+            replacement: Any = old[:128] + "…[content capped]"
+        else:
+            replacement = _CONTENT_MARKER
+        if isinstance(container, list):
+            container[int(key)] = replacement
+        else:
+            container[key] = replacement
+        if len(json.dumps(attributes, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) <= _MAX_EVENT_ATTRIBUTE_BYTES:
+            return attributes
+
+    # A pathological structural payload still must not create an unbounded SQLite row.
+    return {
+        key: event[key]
+        for key in ("schema_version", "event_id", "event_type", "timestamp", "agent_id", "did", "session_id", "invocation_id")
+        if event.get(key) is not None
+    } | {"payload": _CONTENT_MARKER, "metadata": _CONTENT_MARKER}

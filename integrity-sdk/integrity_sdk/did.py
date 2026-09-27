@@ -202,17 +202,26 @@ def attach_evm_account(doc: dict, evm_address: str, chain_id: int) -> dict:
 
 
 def _default_did_home() -> Path:
+    """Choose an explicit Integrity store or the active harness profile store."""
     override = os.getenv("INTEGRITY_DID_HOME")
     if override:
         return Path(override).expanduser()
+    # Harness profile roots are the default identity boundary for interactive
+    # agents. The explicit Integrity override remains available to supervised
+    # provisioning tools and tests.
+    for variable in ("HERMES_HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR"):
+        profile_root = os.getenv(variable)
+        if profile_root:
+            return Path(profile_root).expanduser() / ".integrity" / "did"
     return Path.home() / ".integrity" / "did"
 
 
-def agent_dir(agent_id: Optional[str]) -> Path:
+def agent_dir(agent_id: Optional[str], *, did_home_root: str | Path | None = None) -> Path:
     """Public so other modules (bcc.py's NonceStore, client.py's offline
     cache) can co-locate their own per-agent state next to the DID files
-    without duplicating the path-resolution logic."""
-    base = _default_did_home()
+    without duplicating the path-resolution logic. Harness adapters can pass
+    a profile-scoped root; otherwise HERMES_HOME/CODEX_HOME are respected."""
+    base = Path(did_home_root).expanduser() if did_home_root is not None else _default_did_home()
     return base / (agent_id or "default")
 
 
@@ -237,10 +246,17 @@ class IdentityInconsistentError(RuntimeError):
     """
 
 
-def load_or_create_did(agent_id: Optional[str] = None) -> Tuple[str, Keypair, dict]:
+def load_or_create_did(
+    agent_id: Optional[str] = None,
+    *,
+    did_home_root: str | Path | None = None,
+) -> Tuple[str, Keypair, dict]:
     """
     Load the persisted DID/keypair for `agent_id`, or generate a fresh Ed25519 keypair and DID
     document if this is a genuinely new identity (neither file exists yet).
+
+    `did_home_root` selects an explicit identity-store root, normally the
+    `.integrity/did` directory beneath a harness profile root.
 
     Returns (did, keypair, did_document).
 
@@ -260,8 +276,14 @@ def load_or_create_did(agent_id: Optional[str] = None) -> Tuple[str, Keypair, di
     # load_or_create_did() yet. Fixed to call the module's actual public `agent_dir`.
     # Shadowing the module-level function name with this local variable is fine —
     # nothing below this line needs the function itself, only this specific path.
-    this_agent_dir = agent_dir(agent_id)
-    this_agent_dir.mkdir(parents=True, exist_ok=True)
+    this_agent_dir = agent_dir(agent_id, did_home_root=did_home_root)
+    this_agent_dir.parent.mkdir(parents=True, exist_ok=True, mode=stat.S_IRWXU)
+    this_agent_dir.mkdir(parents=True, exist_ok=True, mode=stat.S_IRWXU)
+    if did_home_root is not None:
+        # A profile-scoped identity store contains a signing key. Keep its
+        # directory boundary owner-only as well as the private-key file.
+        os.chmod(this_agent_dir.parent, stat.S_IRWXU)
+        os.chmod(this_agent_dir, stat.S_IRWXU)
     key_path = this_agent_dir / "private_key.pem"
     doc_path = this_agent_dir / "document.json"
 

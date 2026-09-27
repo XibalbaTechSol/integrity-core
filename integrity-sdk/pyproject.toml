@@ -47,13 +47,6 @@ dependencies = [
     "eth-account>=0.13.0",
     "web3>=7.4.0",
     "eth-utils>=5.1.0",
-    # MLflow GenAI tracing (telemetry/mlflow_tracing.py). The `-skinny` variant
-    # deliberately: it brings MLflow's tracing/autolog layer without the heavy
-    # ML-training stack (sklearn, full pandas/numpy pipeline). MLflow exports
-    # its spans through the SAME OpenTelemetry pipeline this SDK already uses,
-    # so this adds GenAI-shaped auto-instrumentation on top of OTel, not a
-    # competing observability system.
-    "mlflow-skinny>=3.0.0",
     "jcs>=0.2.1",
 ]
 
@@ -63,7 +56,9 @@ dependencies = [
 # agent installs the extra matching whatever LLM stack it actually uses.
 # telemetry/mlflow_tracing.configure_tracing enables whichever of these is
 # present and honestly reports the rest as skipped.
-autolog = ["pandas>=2.0.0"]
+# MLflow GenAI tracing is opt-in; native SDK OpenTelemetry does not require it.
+mlflow = ["mlflow-skinny>=3.0.0"]
+autolog = ["mlflow-skinny>=3.0.0", "pandas>=2.0.0"]
 openai = ["openai>=1.0.0", "pandas>=2.0.0"]
 # Anthropic wrapper (integrations/anthropic_integrity.py). Optional like the others: the
 # module imports cleanly without it, so an agent installs only the stack it actually uses.

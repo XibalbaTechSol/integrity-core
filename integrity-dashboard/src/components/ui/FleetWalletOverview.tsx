@@ -6,6 +6,7 @@ import { oracle } from '../../services/oracle';
 
 interface FleetRow {
   id: string;
+  namespaceKey: string;
   alias: string;
   eth_address: string;
   balance: number; // ITK, human units
@@ -31,9 +32,9 @@ export function FleetWalletOverview() {
         agents.map(async (a) => {
           try {
             const w = await oracle.getWallet(a.eth_address);
-            return { id: a.id, alias: a.alias || a.name || a.id, eth_address: a.eth_address, balance: Number(ethers.formatEther(w.itk_balance)), ais: a.current_ais ?? null };
+            return { id: a.id, namespaceKey: a.namespace_key || a.id, alias: a.alias || a.name || a.id, eth_address: a.eth_address, balance: Number(ethers.formatEther(w.itk_balance)), ais: a.current_ais ?? null };
           } catch {
-            return { id: a.id, alias: a.alias || a.name || a.id, eth_address: a.eth_address, balance: 0, ais: a.current_ais ?? null };
+            return { id: a.id, namespaceKey: a.namespace_key || a.id, alias: a.alias || a.name || a.id, eth_address: a.eth_address, balance: 0, ais: a.current_ais ?? null };
           }
         }),
       );
@@ -80,14 +81,14 @@ export function FleetWalletOverview() {
           {rows.map((r) => (
             <button
               className="fleet-wallet-row"
-              key={r.id}
+              key={r.namespaceKey}
               onClick={() => {
-                const agent = agents.find(a => a.id === r.id);
+                const agent = agents.find(a => (a.namespace_key || a.id) === r.namespaceKey);
                 if (agent) setSelectedAgent(agent);
               }}
               style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)',
-                padding: 'var(--space-3) var(--space-2)', background: r.id === selectedAgent?.id ? 'var(--theme-accent-muted)' : 'transparent',
+                padding: 'var(--space-3) var(--space-2)', background: r.namespaceKey === (selectedAgent?.namespace_key || selectedAgent?.id) ? 'var(--theme-accent-muted)' : 'transparent',
                 border: 'none', borderBottom: '1px solid var(--glass-border)', borderRadius: 'var(--radius-sm)',
                 cursor: 'pointer', textAlign: 'left', color: 'inherit', width: '100%',
               }}
@@ -97,7 +98,7 @@ export function FleetWalletOverview() {
                   <Coins size={16} />
                 </div>
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: '0.85rem', color: r.id === selectedAgent?.id ? 'var(--theme-accent)' : 'var(--text-primary)' }}>{r.alias}</div>
+                  <div style={{ fontWeight: 700, fontSize: '0.85rem', color: r.namespaceKey === (selectedAgent?.namespace_key || selectedAgent?.id) ? 'var(--theme-accent)' : 'var(--text-primary)' }}>{r.alias}</div>
                   <div className="mono" style={{ fontSize: '0.65rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.eth_address}</div>
                 </div>
               </div>

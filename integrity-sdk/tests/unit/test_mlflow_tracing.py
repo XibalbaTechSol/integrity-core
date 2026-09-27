@@ -8,8 +8,10 @@ against directly-constructed spans instead.
 
 from __future__ import annotations
 
-import mlflow
 import pytest
+
+# MLflow is the opt-in `mlflow` extra; skip (not error) where it is not installed.
+mlflow = pytest.importorskip("mlflow")
 
 from integrity_sdk.telemetry import mlflow_tracing
 

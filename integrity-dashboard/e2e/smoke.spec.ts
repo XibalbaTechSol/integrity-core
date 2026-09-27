@@ -13,6 +13,8 @@ const ROUTES = [
   '/dashboard',
   '/identity',
   '/financials',
+  '/agents',
+  '/ais',
   '/intelligence',
   '/prediction-markets',
   '/health',

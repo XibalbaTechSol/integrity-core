@@ -36,6 +36,11 @@ contract AgentPrimitivesFactory {
     using SafeERC20 for IERC20;
 
     uint256 public constant MIN_REGISTRATION_BOND = 100 ether;
+    uint256 public constant CAP_REPUTATION = 1 << 0;
+    uint256 public constant CAP_SLASHER = 1 << 1;
+    uint256 public constant CAP_VERIFIER = 1 << 2;
+    uint256 public constant CAP_COMPLIANCE = 1 << 3;
+    uint256 public constant CAP_PROFILE = 1 << 4;
 
     XibalbaAgentRegistry public immutable registry;
     DomainRegistry public immutable domainRegistry;
@@ -75,6 +80,7 @@ contract AgentPrimitivesFactory {
     error NotAgentController();
     error DomainJoinNotApproved();
     error MemoryNotInitialized();
+    error NoCapabilitiesRequested();
 
     constructor(
         address _registry,
@@ -195,5 +201,76 @@ contract AgentPrimitivesFactory {
             agentProfile,
             domainId
         );
+    }
+
+    /// @notice Registers only the core identity and memory surface. Optional
+    /// modules are provisioned later through `provisionOptional`.
+    function registerCore(
+        address sovereignAgent,
+        address stateAnchor,
+        string calldata did,
+        bytes32 domainId
+    ) external {
+        SovereignAgent sa = SovereignAgent(payable(sovereignAgent));
+        if (!sa.hasRole(sa.DEFAULT_ADMIN_ROLE(), msg.sender)) revert NotAgentController();
+        if (!domainRegistry.canJoin(domainId, msg.sender)) revert DomainJoinNotApproved();
+        if (StateAnchor(stateAnchor).latestRoot() == bytes32(0)) revert MemoryNotInitialized();
+
+        bytes32 didHash_ = registry.didHash(did);
+        registry.registerCore(didHash_, sovereignAgent, stateAnchor, msg.sender, domainId);
+        domainRegistry.recordJoin(domainId, msg.sender, sovereignAgent);
+    }
+
+    /// @notice Provisions a selected set of optional modules for a core agent.
+    /// The operation is additive and the registry rejects attempts to replace a
+    /// previously provisioned module.
+    function provisionOptional(
+        address sovereignAgent,
+        uint256 capabilityMask,
+        ComplianceGate.Vertical vertical,
+        string calldata profileURI
+    ) external returns (XibalbaAgentRegistry.PrimitiveSet memory additions) {
+        if (capabilityMask == 0) revert NoCapabilitiesRequested();
+        SovereignAgent sa = SovereignAgent(payable(sovereignAgent));
+        if (!sa.hasRole(sa.DEFAULT_ADMIN_ROLE(), msg.sender)) revert NotAgentController();
+
+        bytes32 didHash_ = registry.didHashOf(sovereignAgent);
+        XibalbaAgentRegistry.AgentRecord memory record = registry.resolveAgent(sovereignAgent);
+        additions.sovereignAgent = sovereignAgent;
+        additions.stateAnchor = record.primitives.stateAnchor;
+
+        if ((capabilityMask & CAP_REPUTATION) != 0) {
+            additions.reputationRegistry = Clones.clone(reputationRegistryImpl);
+            ReputationRegistry(additions.reputationRegistry).initializeWithAssuranceTierAuthority(
+                sovereignAgent, oracleSigner, initialZkVerifier, record.primitives.stateAnchor, governance
+            );
+        }
+
+        if ((capabilityMask & CAP_SLASHER) != 0) {
+            additions.slasher = Clones.clone(slasherImpl);
+            Slasher(additions.slasher).initialize(governance, disputer);
+            IERC20(itk).safeTransferFrom(sovereignAgent, address(this), MIN_REGISTRATION_BOND);
+            IERC20(itk).forceApprove(additions.slasher, MIN_REGISTRATION_BOND);
+            Slasher(additions.slasher).stakeFor(sovereignAgent, MIN_REGISTRATION_BOND);
+        }
+
+        if ((capabilityMask & CAP_VERIFIER) != 0) {
+            additions.verifierRegistry = Clones.clone(verifierRegistryImpl);
+            VerifierRegistry(additions.verifierRegistry).initialize(sovereignAgent, initialZkVerifier);
+        }
+
+        if ((capabilityMask & CAP_COMPLIANCE) != 0) {
+            additions.complianceGate = Clones.clone(complianceGateImpl);
+            ComplianceGate(additions.complianceGate).initialize(sovereignAgent, sovereignAgent, vertical);
+        }
+
+        if ((capabilityMask & CAP_PROFILE) != 0) {
+            additions.agentProfile = Clones.clone(agentProfileImpl);
+            AgentProfile(additions.agentProfile).initialize(
+                sovereignAgent, sovereignAgent, record.domainId, profileURI
+            );
+        }
+
+        registry.provisionPrimitives(didHash_, additions, capabilityMask);
     }
 }

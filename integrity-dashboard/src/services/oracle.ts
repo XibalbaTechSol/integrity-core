@@ -341,6 +341,28 @@ export interface AgentHandleDto {
     handle: string | null;
 }
 
+// Oracle-local XNS directory (backend::handlers -- xns_available/xns_resolve/xns_claim),
+// distinct from the on-chain XnsResolveDto/resolveXns above. An agent can hold one of
+// these without ever registering on-chain; every agent that completes full on-chain
+// registration is required to hold exactly one (see migration 0022's header note).
+export interface XnsAvailabilityDto {
+    handle: string;
+    available: boolean;
+    /** Populated only when `available` is false. */
+    suggestions: string[];
+}
+
+export interface XnsHandleResolveDto {
+    handle: string;
+    agent_id: string;
+}
+
+export interface XnsHandleDto {
+    agent_id: string;
+    handle: string;
+    claimed_at: string;
+}
+
 export interface CreditDto {
     agent_id: string;
     total_allocated: string;
@@ -372,6 +394,22 @@ export interface AuditLogEntryDto {
     reason_code: string | null;
     detail: string | null;
     created_at: string;
+}
+
+// backend::handlers::get_audit_invocation_join: every durable audit row for one
+// invocation id. Used to fill evidence that fell outside the per-agent reconciliation
+// window (db::reconcile_agent_intent_outcome is capped at 200 rows).
+export interface AuditInvocationDto {
+    invocation_id: string;
+    rows: Array<{
+        id: string;
+        agent_id: string | null;
+        event_type: string;
+        decision: string;
+        intent_type?: string | null;
+        metadata: { intended_state_hash?: string; invocation_id?: string; [key: string]: unknown };
+        created_at: string;
+    }>;
 }
 
 export interface IntentOutcomeDto {
@@ -446,11 +484,15 @@ export interface RegisterAgentRequest {
     primitives: PrimitiveSetDto;
     ed25519_pubkey_hex?: string;
     eth_address_hex?: string;
+    /** Mandatory: every agent completing this registration must claim a unique
+     *  Oracle-local XNS handle in the same request (see migration 0022's header note). */
+    handle: string;
 }
 
 export interface RegisterAgentResponse {
     id: string;
     verification_tier: number;
+    handle: string;
     primitives: PrimitiveSetDto;
     controller: string;
     domain_id: string;
@@ -605,6 +647,8 @@ export const oracle = {
     },
     getReconciliation: (agentId: string) =>
         get<IntentOutcomeDto[]>(`/v1/agent/${encodeURIComponent(agentId)}/reconciliation`),
+    getAuditInvocation: (invocationId: string) =>
+        get<AuditInvocationDto>(`/v1/audit/invocation/${encodeURIComponent(invocationId)}`),
 
     // Generic audit-log write, reused by the Guided System Test wizard's cross-system
     // fan-out (testResults.ts) so a dashboard-triggered test result is durably queryable
@@ -647,6 +691,19 @@ export const oracle = {
         get<XnsResolveDto>(`/v1/xns/resolve?handle=${encodeURIComponent(handle.replace(/^@/, ''))}`),
     // Reverse: the agent's primary XNS handle (backend::handlers::get_agent_handle).
     getAgentHandle: (id: string) => get<AgentHandleDto>(`/v1/agent/${encodeURIComponent(id)}/handle`),
+
+    // Oracle-local XNS directory: chat-app-style username search/claim, independent of
+    // on-chain state. Live-as-you-type availability check; returns close, currently-free
+    // suggestions when the requested handle is taken (backend::handlers::xns_available).
+    xnsAvailable: (handle: string) =>
+        get<XnsAvailabilityDto>(`/v1/xns/available/${encodeURIComponent(handle)}`),
+    // Resolve an Oracle-local handle to the agent that holds it (backend::handlers::xns_resolve).
+    xnsResolveHandle: (handle: string) =>
+        get<XnsHandleResolveDto>(`/v1/xns/handle/${encodeURIComponent(handle)}`),
+    // Claim a handle for an agent -- 409 if taken, or if that agent already holds a
+    // different one (backend::handlers::xns_claim).
+    xnsClaim: (agentId: string, handle: string) =>
+        post<XnsHandleDto>('/v1/xns/claim', { agent_id: agentId, handle }),
 
     // Live IntegrityGovernance proposals, newest first (backend::handlers::
     // get_governance_proposals). Returns 400 (MissingSingleton) until the Governance contract is deployed —

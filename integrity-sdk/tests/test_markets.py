@@ -93,7 +93,7 @@ _REPUTATION_ABI = [
 
 
 @pytest.fixture
-def two_agents(deployed_chain, tmp_path, monkeypatch, request):
+def two_agents(deployed_chain, tmp_path, monkeypatch, request, set_assurance_tier):
     monkeypatch.setenv("INTEGRITY_WALLET_HOME", str(tmp_path / "wallets"))
     monkeypatch.setenv("INTEGRITY_WALLET_PASSWORD", "test-only-password")
     # `deployed_chain` is session-scoped (one real anvil for the whole test
@@ -108,6 +108,9 @@ def two_agents(deployed_chain, tmp_path, monkeypatch, request):
     bob_wallet = wallet.generate_or_load_evm_wallet(f"market-bob-{suffix}")
     alice = _register_agent(deployed_chain, f"market-alice-{suffix}", alice_wallet)
     bob = _register_agent(deployed_chain, f"market-bob-{suffix}", bob_wallet)
+    # Tier 3 (ceiling 1000) so the pushed 900 is the effective score the markets check.
+    set_assurance_tier(alice.reputation_registry, 3)
+    set_assurance_tier(bob.reputation_registry, 3)
     _set_score(deployed_chain, alice.reputation_registry, alice.sovereign_agent, 900)
     _set_score(deployed_chain, bob.reputation_registry, bob.sovereign_agent, 900)
     return {"alice_wallet": alice_wallet, "alice": alice, "bob_wallet": bob_wallet, "bob": bob}

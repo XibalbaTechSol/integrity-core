@@ -124,7 +124,9 @@ jobs:
       # at all after the first miss. `npm cache clean --force` forces that re-fetch.
       - run: npm install || (npm cache clean --force && npm install) || (npm cache clean --force && npm install)
         working-directory: contracts
-      - run: uv sync
+      # mlflow is an opt-in extra (842371c); install it so the MLflow tracing
+      # tests keep running in CI.
+      - run: uv sync --extra mlflow
         working-directory: integrity-sdk
       - run: uv run pytest
         working-directory: integrity-sdk

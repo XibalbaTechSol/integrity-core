@@ -46,7 +46,7 @@ provider-agnostic and demoable against the existing `demo/` scenario engine.
 security/compliance tooling in *monitor* mode first (Cloudflare, Snyk, OPA-gatekeeper all did),
 watch what it would have caught, then enforce.
 
-**What shipped.** `BCC_SHADOW_MODE=true` (config `Settings.shadow_mode`). When on, the gate runs
+**What shipped.** `BCC_SHADOW_MODE=true` by default (config `Settings.shadow_mode`). When on, the gate runs
 the **full** authorization gauntlet and records every would-be decision, but never blocks and
 never trips the circuit breaker:
 - A commitment enforcement would deny returns `authorized=True, enforced=False,
@@ -54,6 +54,11 @@ never trips the circuit breaker:
 - The would-be denial is still written to the durable audit trail as
   `decision="shadow_deny"` (distinct from a real enforced `deny`), via `app/audit.py`.
 - `GET /health` reports `mode: "enforce" | "shadow"`.
+
+Observation is also the registration boundary: registering an agent does not grant or
+remove tool access, and the absence of an optional compliance pack is not a denial.
+Set `BCC_SHADOW_MODE=false` only when an operator has explicitly selected a policy pack
+and wants its decisions to block that workload.
 
 **Files.** `bcc_middleware/app/config.py` (flag), `app/schemas.py` (`enforced`,
 `shadow_would_deny`, health `mode`), `app/main.py` (`_deny` / `_record_violation` shadow-aware),

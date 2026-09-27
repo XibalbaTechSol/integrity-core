@@ -108,9 +108,10 @@ class DeliveryStore:
 
 def publish_once(store: DeliveryStore) -> dict:
     core = os.environ.get("CORE_ORACLE_URL", "http://127.0.0.1:8080").rstrip("/")
-    # Native systemd Shield listens on 8421; Docker integration overrides this
-    # explicitly with the shield-backend service on 8765.
-    shield = os.environ.get("SHIELD_URL", "http://127.0.0.1:8421").rstrip("/")
+    # The dedicated Shield backend used by the current local stack listens on
+    # 8435. Retired control planes on 8421/8765 must never be selected by
+    # default because they make discovery failures look like a Core outage.
+    shield = os.environ.get("SHIELD_URL", "http://127.0.0.1:8435").rstrip("/")
     tenant = os.environ["SHIELD_TENANT_ID"]
     policy = json.loads(os.environ.get("SHIELD_POLICY_JSON", '{"rules":[]}'))
     policy_version = str(os.environ.get("SHIELD_POLICY_VERSION", f"scheduler-{int(time.time())}"))

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Shield, Lock, CheckCircle, Loader2, AlertCircle, XCircle } from 'lucide-react';
@@ -27,6 +27,28 @@ export function ClaimAgentModal({ isOpen, defaultAddress = '', onClose, onSucces
   const [isChecking, setIsChecking] = useState(false);
   const [isLinking, setIsLinking] = useState(false);
   const [result, setResult] = useState<{ did: string; controls: boolean } | null>(null);
+  // Mandatory Oracle-local XNS handle -- this agent may already be on-chain, but linking
+  // it into the oracle for the first time still requires claiming a handle here (see
+  // oracle.ts's RegisterAgentRequest / migration 0022's header note).
+  const [handle, setHandle] = useState('');
+  const [handleStatus, setHandleStatus] = useState<'idle' | 'checking' | 'available' | 'taken' | 'invalid'>('idle');
+  const [handleSuggestions, setHandleSuggestions] = useState<string[]>([]);
+  useEffect(() => {
+    const h = handle.trim().toLowerCase();
+    if (!h) { setHandleStatus('idle'); setHandleSuggestions([]); return; }
+    setHandleStatus('checking');
+    const t = setTimeout(async () => {
+      try {
+        const res = await oracle.xnsAvailable(h);
+        setHandleStatus(res.available ? 'available' : 'taken');
+        setHandleSuggestions(res.suggestions ?? []);
+      } catch {
+        setHandleStatus('invalid');
+        setHandleSuggestions([]);
+      }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [handle]);
 
   const handleVerify = async () => {
     if (!ethers.isAddress(agentAddress)) {
@@ -56,6 +78,7 @@ export function ClaimAgentModal({ isOpen, defaultAddress = '', onClose, onSucces
 
   const handleLink = async () => {
     if (!result || !walletAddress) return;
+    if (handleStatus !== 'available') { addToast('error', 'Choose an available XNS handle before linking.'); return; }
     setIsLinking(true);
     try {
       // Resolve the real 7-primitive set the oracle derives from XibalbaAgentRegistry,
@@ -67,6 +90,7 @@ export function ClaimAgentModal({ isOpen, defaultAddress = '', onClose, onSucces
         did_document: { id: result.did, controller: walletAddress },
         primitives: detail.primitives,
         eth_address_hex: walletAddress,
+        handle,
       });
       addToast('success', 'Agent linked to your dashboard.');
       onSuccess();
@@ -128,7 +152,25 @@ export function ClaimAgentModal({ isOpen, defaultAddress = '', onClose, onSucces
                       <CheckCircle size={20} color="var(--success)" />
                       <div style={{ fontSize: '0.8rem', color: 'var(--success)', fontWeight: 600 }}>Your wallet holds this agent's controller role.</div>
                     </div>
-                    <button className="primary-button" onClick={handleLink} disabled={isLinking}>
+                    <div className="flex-col gap-2">
+                      <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)' }}>XNS handle (required)</label>
+                      <input type="text" placeholder="atlas" className="input" value={handle} onChange={(e) => setHandle(e.target.value.toLowerCase())} />
+                      <p style={{ fontSize: '0.72rem', margin: 0 }}>
+                        {handleStatus === 'checking' && <span style={{ color: 'var(--text-muted)' }}>Checking availability…</span>}
+                        {handleStatus === 'available' && <span style={{ color: 'var(--success)' }}>Available -- this agent will be identified by this handle everywhere.</span>}
+                        {handleStatus === 'taken' && <span style={{ color: 'var(--danger)' }}>Taken. Pick another, or a suggestion below.</span>}
+                        {handleStatus === 'invalid' && <span style={{ color: 'var(--danger)' }}>3-32 chars, lowercase letters/digits/./-/_, starting with a letter.</span>}
+                        {handleStatus === 'idle' && <span style={{ color: 'var(--text-muted)' }}>Unique across the whole ecosystem, like a chat-app username.</span>}
+                      </p>
+                      {handleStatus === 'taken' && handleSuggestions.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          {handleSuggestions.map((s) => (
+                            <button key={s} type="button" className="secondary-button" style={{ fontSize: '0.72rem', padding: '3px 8px' }} onClick={() => setHandle(s)}>{s}</button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <button className="primary-button" onClick={handleLink} disabled={isLinking || handleStatus !== 'available'}>
                       {isLinking ? <><Loader2 className="spin" size={18} /> Linking…</> : 'Link Agent to Dashboard'}
                     </button>
                   </div>

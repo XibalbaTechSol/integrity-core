@@ -668,7 +668,15 @@ async def spool_status() -> dict:
     return {
         "pending": result.pending,
         "oldest_pending_age_seconds": result.oldest_pending_age_seconds,
+        "max_rows": result.max_rows,
+        "dropped_total": result.dropped_total,
     }
+
+
+@app.get("/v1/audit/spool/receipts")
+async def spool_receipts(limit: int = 20) -> dict:
+    """Read-only map from a retried local row to Oracle's acknowledgment."""
+    return {"receipts": spool_module.recent_receipts(default_settings, limit=limit)}
 
 
 @app.post("/v1/bcc/verify_token", response_model=VerifyTokenResponse)

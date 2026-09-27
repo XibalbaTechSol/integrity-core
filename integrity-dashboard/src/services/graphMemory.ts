@@ -13,6 +13,7 @@ import type {
     HybridRetrieveResult,
     GraphMemoryStats,
     AgentMemorySummary,
+    CortexAgentWorkspace,
     GraphPayload,
     InferenceManifest,
     InferenceTask,
@@ -40,6 +41,7 @@ import type {
 
 export type {
     AgentMemorySummary,
+    CortexAgentWorkspace,
     Attachment,
     ContextContribution,
     EntityRelation,
@@ -83,7 +85,10 @@ export type {
 // ---------------------------------------------------------------------------
 
 async function getJson<T>(path: string): Promise<T> {
-    const response = await fetch(`${GRAPH_MEMORY_URL}${path}`, GRAPH_MEMORY_TOKEN ? { headers: { Authorization: `Bearer ${GRAPH_MEMORY_TOKEN}` } } : undefined);
+    const response = await fetch(`${GRAPH_MEMORY_URL}${path}`, {
+        credentials: 'include',
+        ...(GRAPH_MEMORY_TOKEN ? { headers: { Authorization: `Bearer ${GRAPH_MEMORY_TOKEN}` } } : {}),
+    });
     if (!response.ok) {
         const body = await response.json().catch(() => ({ error: response.statusText }));
         throw Object.assign(new Error(body.error ?? `request failed: ${response.status}`), { status: response.status });
@@ -112,15 +117,17 @@ async function postJson<T>(path: string, payload: Record<string, unknown>): Prom
 // ---------------------------------------------------------------------------
 
 export const graphMemory = {
+    accountMe: () => getJson<{ account?: { email?: string } }>('/api/auth/me'),
     // Read operations — store health & overview
     stats: () => getJson<GraphMemoryStats>('/api/stats'),
-    agentSummary: (agentId: string, limit = 8) =>
-        getJson<AgentMemorySummary>(`/api/agent/${encodeURIComponent(agentId)}/summary?limit=${limit}`),
+    agentSummary: (agentId: string, limit = 8, storeId?: string) =>
+        getJson<AgentMemorySummary>(`/api/agent/${encodeURIComponent(agentId)}/summary?limit=${limit}${storeId ? `&store_id=${encodeURIComponent(storeId)}` : ''}`),
+    agents: (limit = 100) => getJson<{ agents: CortexAgentWorkspace[]; primary_profile_id?: string; oracle_reachable?: boolean }>(`/api/agents?limit=${limit}`),
     status: () => getJson<StoreStatus>('/api/status'),
     integrityLinks: (limit = 50) => getJson<IntegrityLinksStatus>(`/api/integrity-links?limit=${limit}`),
 
     // Sessions
-    sessions: (limit = 100) => getJson<Session[]>(`/api/sessions?limit=${limit}`),
+    sessions: (limit = 100, agentId?: string, storeId?: string) => getJson<Session[]>(`/api/sessions?limit=${limit}${agentId ? `&agent_id=${encodeURIComponent(agentId)}` : ''}${storeId ? `&store_id=${encodeURIComponent(storeId)}` : ''}`),
     invocations: (limit = 100) => getJson<InvocationCorrelation[]>(`/api/invocations?limit=${limit}`),
     sessionOtel: (id: string) => getJson<OtelEvent[]>(`/api/session/${encodeURIComponent(id)}/otel`),
     // Cross-system test log write (~/.claude/plans/velvet-giggling-quill.md) -- browser-reachable
