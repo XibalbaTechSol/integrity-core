@@ -47,7 +47,7 @@ def _env(tmp_path, monkeypatch, deployed_chain):
 
 
 def test_register_agent_full_onchain_sequence():
-    result = registration.register_agent("registration-test-agent", skip_oracle_registration=True)
+    result = registration.register_agent("registration-test-agent", handle="test-handle", skip_oracle_registration=True, full_registration=True)
 
     assert result.did.startswith("did:integrity:")
     assert result.evm_address.startswith("0x")
@@ -80,7 +80,7 @@ def test_register_agent_full_onchain_sequence():
 def test_register_agent_persists_document_and_primitives(tmp_path):
     from integrity_sdk import did
 
-    result = registration.register_agent("persist-test-agent", skip_oracle_registration=True)
+    result = registration.register_agent("persist-test-agent", handle="test-handle", skip_oracle_registration=True)
 
     doc_path = did.agent_dir("persist-test-agent") / "document.json"
     primitives_path = did.agent_dir("persist-test-agent") / "primitives.json"
@@ -108,8 +108,8 @@ def test_register_agent_is_idempotent_for_an_already_registered_did():
     deploy. The second call must now short-circuit and return the SAME
     on-chain primitives, with no new SovereignAgent deployed.
     """
-    first = registration.register_agent("idempotent-test-agent", skip_oracle_registration=True)
-    second = registration.register_agent("idempotent-test-agent", skip_oracle_registration=True)
+    first = registration.register_agent("idempotent-test-agent", handle="test-handle", skip_oracle_registration=True)
+    second = registration.register_agent("idempotent-test-agent", handle="test-handle", skip_oracle_registration=True)
 
     assert second.sovereign_agent == first.sovereign_agent
     assert second.state_anchor == first.state_anchor
@@ -120,7 +120,17 @@ def test_register_agent_is_idempotent_for_an_already_registered_did():
     assert second.agent_profile == first.agent_profile
 
 
-def test_register_agent_resumes_from_partial_failure_without_redeploying(monkeypatch):
+# Both registration paths share the same progress/resume machinery, so each resume regression
+# runs against the legacy full path (registerPrimitives) and the default core path (registerCore).
+_REGISTRATION_PATHS = pytest.mark.parametrize(
+    "full_registration, step9_fn",
+    [(True, "register_primitives"), (False, "register_core")],
+    ids=["full", "core"],
+)
+
+
+@_REGISTRATION_PATHS
+def test_register_agent_resumes_from_partial_failure_without_redeploying(monkeypatch, full_registration, step9_fn):
     """
     Regression test for the real incidents in PRODUCTION_GAPS.md's registration entry
     (2026-08-14, 2026-08-17): a failure after SovereignAgent/StateAnchor deploy but before
@@ -136,7 +146,7 @@ def test_register_agent_resumes_from_partial_failure_without_redeploying(monkeyp
     """
     from integrity_sdk import chain as chain_module
 
-    real_register_primitives = chain_module.register_primitives
+    real_register_primitives = getattr(chain_module, step9_fn)
     call_count = {"n": 0}
 
     def flaky_register_primitives(*args, **kwargs):
@@ -145,21 +155,21 @@ def test_register_agent_resumes_from_partial_failure_without_redeploying(monkeyp
             raise RuntimeError("simulated registerPrimitives revert (e.g. a missing role grant)")
         return real_register_primitives(*args, **kwargs)
 
-    monkeypatch.setattr(chain_module, "register_primitives", flaky_register_primitives)
+    monkeypatch.setattr(chain_module, step9_fn, flaky_register_primitives)
 
     with pytest.raises(registration.RegistrationError, match="step 9"):
-        registration.register_agent("resume-test-agent", skip_oracle_registration=True)
+        registration.register_agent(f"resume-test-agent-{step9_fn}", handle="test-handle", skip_oracle_registration=True, full_registration=full_registration)
 
     # Progress must be recorded after the failed attempt.
     from integrity_sdk import did as did_module
 
-    progress_path = did_module.agent_dir("resume-test-agent") / "registration_progress.json"
+    progress_path = did_module.agent_dir(f"resume-test-agent-{step9_fn}") / "registration_progress.json"
     assert progress_path.exists()
     progress = json.loads(progress_path.read_text())
     assert progress["sovereign_agent"].startswith("0x")
     assert progress["state_anchor"].startswith("0x")
 
-    result = registration.register_agent("resume-test-agent", skip_oracle_registration=True)
+    result = registration.register_agent(f"resume-test-agent-{step9_fn}", handle="test-handle", skip_oracle_registration=True, full_registration=full_registration)
 
     assert result.sovereign_agent.lower() == progress["sovereign_agent"].lower()
     assert result.state_anchor.lower() == progress["state_anchor"].lower()
@@ -183,7 +193,7 @@ def test_register_agent_discards_stale_progress_with_no_bytecode(tmp_path, monke
         "state_anchor": "0x000000000000000000000000000000000000bEEF",
     }))
 
-    result = registration.register_agent("stale-progress-agent", skip_oracle_registration=True)
+    result = registration.register_agent("stale-progress-agent", handle="test-handle", skip_oracle_registration=True)
 
     assert result.sovereign_agent.lower() != "0x000000000000000000000000000000000000dead"
     assert result.state_anchor.lower() != "0x000000000000000000000000000000000000beef"
@@ -195,7 +205,7 @@ def test_register_agent_records_chain_id_in_progress_and_primitives():
     Both files must now carry the chain the deploy actually happened on."""
     from integrity_sdk import did as did_module
 
-    result = registration.register_agent("chain-id-test-agent", skip_oracle_registration=True)
+    result = registration.register_agent("chain-id-test-agent", handle="test-handle", skip_oracle_registration=True)
     assert result.chain_id != 0
 
     primitives_path = did_module.agent_dir("chain-id-test-agent") / "primitives.json"
@@ -203,7 +213,8 @@ def test_register_agent_records_chain_id_in_progress_and_primitives():
     assert primitives["chain_id"] == result.chain_id
 
 
-def test_register_agent_discards_progress_from_a_different_chain(monkeypatch):
+@_REGISTRATION_PATHS
+def test_register_agent_discards_progress_from_a_different_chain(monkeypatch, full_registration, step9_fn):
     """The exact collision the 2026-09-11 Shield registration handoff hit: CREATE-derived
     contract addresses (keccak(sender, nonce)) don't depend on chain, so a wallet reused across
     a local anvil run and Base Sepolia with the same nonce sequence can derive the SAME address
@@ -213,7 +224,7 @@ def test_register_agent_discards_progress_from_a_different_chain(monkeypatch):
     from integrity_sdk import chain as chain_module
     from integrity_sdk import did as did_module
 
-    real_register_primitives = chain_module.register_primitives
+    real_register_primitives = getattr(chain_module, step9_fn)
     call_count = {"n": 0}
 
     def flaky_register_primitives(*args, **kwargs):
@@ -222,12 +233,12 @@ def test_register_agent_discards_progress_from_a_different_chain(monkeypatch):
             raise RuntimeError("simulated registerPrimitives revert")
         return real_register_primitives(*args, **kwargs)
 
-    monkeypatch.setattr(chain_module, "register_primitives", flaky_register_primitives)
+    monkeypatch.setattr(chain_module, step9_fn, flaky_register_primitives)
 
     with pytest.raises(registration.RegistrationError, match="step 9"):
-        registration.register_agent("cross-chain-progress-agent", skip_oracle_registration=True)
+        registration.register_agent(f"cross-chain-progress-agent-{step9_fn}", handle="test-handle", skip_oracle_registration=True, full_registration=full_registration)
 
-    progress_path = did_module.agent_dir("cross-chain-progress-agent") / "registration_progress.json"
+    progress_path = did_module.agent_dir(f"cross-chain-progress-agent-{step9_fn}") / "registration_progress.json"
     progress = json.loads(progress_path.read_text())
     real_sovereign_agent = progress["sovereign_agent"]
     assert progress["chain_id"] != 0
@@ -238,8 +249,8 @@ def test_register_agent_discards_progress_from_a_different_chain(monkeypatch):
     progress["chain_id"] = progress["chain_id"] + 999999
     progress_path.write_text(json.dumps(progress))
 
-    monkeypatch.setattr(chain_module, "register_primitives", real_register_primitives)  # let the retry succeed
-    result = registration.register_agent("cross-chain-progress-agent", skip_oracle_registration=True)
+    monkeypatch.setattr(chain_module, step9_fn, real_register_primitives)  # let the retry succeed
+    result = registration.register_agent(f"cross-chain-progress-agent-{step9_fn}", handle="test-handle", skip_oracle_registration=True, full_registration=full_registration)
 
     assert result.sovereign_agent.lower() != real_sovereign_agent.lower(), (
         "a progress file recorded for a different chain_id must be discarded, even though its "
@@ -250,12 +261,12 @@ def test_register_agent_discards_progress_from_a_different_chain(monkeypatch):
 def test_register_agent_requires_funder_key(monkeypatch):
     monkeypatch.delenv("FUNDER_PRIVATE_KEY", raising=False)
     with pytest.raises(registration.RegistrationError, match="FUNDER_PRIVATE_KEY"):
-        registration.register_agent("no-funder-agent", skip_oracle_registration=True)
+        registration.register_agent("no-funder-agent", handle="test-handle", skip_oracle_registration=True)
 
 
 def test_register_agent_rejects_unknown_vertical():
     with pytest.raises(ValueError, match="compliance_vertical"):
-        registration.register_agent("bad-vertical-agent", compliance_vertical="not-a-real-vertical")
+        registration.register_agent("bad-vertical-agent", handle="test-handle", compliance_vertical="not-a-real-vertical")
 
 
 def test_testnet_convenience_is_rejected_on_mainnet():
@@ -291,7 +302,7 @@ def test_register_agent_self_registers_personal_domain_when_missing():
     domain_name = f"{agent_id}.integrity"
 
     result = registration.register_agent(
-        agent_id, domain_name=domain_name, skip_oracle_registration=True,
+        agent_id, handle="test-handle", domain_name=domain_name, skip_oracle_registration=True,
     )
 
     assert result.sovereign_agent.startswith("0x")
@@ -314,7 +325,7 @@ def test_register_agent_rejects_missing_nonpersonal_domain_before_spending_gas()
     agent_id = "domain-reject-agent"
     with pytest.raises(registration.RegistrationError, match="does not exist"):
         registration.register_agent(
-            agent_id, domain_name="some-domain-nobody-registered.integrity",
+            agent_id, handle="test-handle", domain_name="some-domain-nobody-registered.integrity",
             skip_oracle_registration=True,
         )
 
@@ -329,7 +340,7 @@ def test_register_agent_rejects_missing_personal_domain_when_auto_register_disab
     domain_name = f"{agent_id}.integrity"
     with pytest.raises(registration.RegistrationError, match="does not exist"):
         registration.register_agent(
-            agent_id, domain_name=domain_name, auto_register_domain=False,
+            agent_id, handle="test-handle", domain_name=domain_name, auto_register_domain=False,
             skip_oracle_registration=True,
         )
 

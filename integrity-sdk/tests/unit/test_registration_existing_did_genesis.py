@@ -107,7 +107,7 @@ def test_existing_primitives_with_zero_root_anchor_genesis_before_oracle_post(
     monkeypatch.setattr(registration.chain, "state_anchor_latest_root", latest_root)
     monkeypatch.setattr(registration.chain, "anchor_genesis_root", anchor_genesis)
 
-    result = registration.register_agent("existing-agent")
+    result = registration.register_agent("existing-agent", handle="test-handle")
 
     assert result.sovereign_agent == _existing_primitives().sovereign_agent
     assert events == ["latest_root", "anchor_genesis", "post_to_oracle"]
@@ -127,7 +127,7 @@ def test_existing_primitives_with_nonzero_root_do_not_reanchor(existing_did_harn
     monkeypatch.setattr(registration.chain, "state_anchor_latest_root", latest_root)
     monkeypatch.setattr(registration.chain, "anchor_genesis_root", anchor_genesis)
 
-    registration.register_agent("existing-agent")
+    registration.register_agent("existing-agent", handle="test-handle")
 
     assert events == ["latest_root", "post_to_oracle"]
 
@@ -149,6 +149,6 @@ def test_existing_primitives_anchor_failure_is_registration_error_without_oracle
     monkeypatch.setattr(registration.chain, "anchor_genesis_root", anchor_genesis)
 
     with pytest.raises(registration.RegistrationError, match="step 8b .*anchor_genesis_root"):
-        registration.register_agent("existing-agent")
+        registration.register_agent("existing-agent", handle="test-handle")
 
     assert events == ["latest_root", "anchor_genesis"]
