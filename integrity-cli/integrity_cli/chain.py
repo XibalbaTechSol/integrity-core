@@ -485,6 +485,48 @@ def register_primitives(
     )
 
 
+def register_core(
+    w3: Web3,
+    agent: LocalAccount,
+    factory_address: str,
+    sovereign_agent_address: str,
+    state_anchor_address: str,
+    did: str,
+    domain_id: bytes,
+    chain_id: int,
+    nonce: Optional[int] = None,
+) -> PrimitivesRegistered:
+    """Register only the core identity and anchored-memory primitives."""
+    factory = _contract(w3, "AgentPrimitivesFactory", address=factory_address)
+    tx_nonce = nonce if nonce is not None else w3.eth.get_transaction_count(agent.address)
+    tx = factory.functions.registerCore(
+        Web3.to_checksum_address(sovereign_agent_address),
+        Web3.to_checksum_address(state_anchor_address),
+        did,
+        domain_id,
+    ).build_transaction({
+        "from": agent.address,
+        "nonce": tx_nonce,
+        "chainId": chain_id,
+    })
+    signed = agent.sign_transaction(tx)
+    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+    _wait(w3, tx_hash, action="register_core")
+    zero = "0x0000000000000000000000000000000000000000"
+    return PrimitivesRegistered(
+        did_hash=keccak(text=did).hex(),
+        sovereign_agent=Web3.to_checksum_address(sovereign_agent_address),
+        controller=Web3.to_checksum_address(agent.address),
+        state_anchor=Web3.to_checksum_address(state_anchor_address),
+        reputation_registry=zero,
+        slasher=zero,
+        verifier_registry=zero,
+        compliance_gate=zero,
+        agent_profile=zero,
+        domain_id=domain_id.hex(),
+    )
+
+
 # --- XibalbaNameService (XNS, added 2026-07-11) -----------------------------------
 
 

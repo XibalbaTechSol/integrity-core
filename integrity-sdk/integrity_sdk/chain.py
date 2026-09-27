@@ -709,6 +709,91 @@ def register_primitives(
     )
 
 
+def register_core(
+    w3: Web3,
+    agent: LocalAccount,
+    factory_address: str,
+    sovereign_agent_address: str,
+    state_anchor_address: str,
+    did: str,
+    domain_id: bytes,
+    chain_id: int,
+) -> PrimitivesRegistered:
+    """Register only the core identity/memory pair.
+
+    Optional assurance, staking, verification, compliance, and profile modules
+    are deliberately absent (represented by the zero address) until the caller
+    provisions them explicitly.
+    """
+    factory = _contract(w3, "AgentPrimitivesFactory", address=factory_address)
+    _send_signed(
+        w3,
+        agent,
+        lambda nonce: factory.functions.registerCore(
+            Web3.to_checksum_address(sovereign_agent_address),
+            Web3.to_checksum_address(state_anchor_address),
+            did,
+            domain_id,
+        ).build_transaction({"from": agent.address, "nonce": nonce, "chainId": chain_id}),
+        action="register_core",
+    )
+    return PrimitivesRegistered(
+        did_hash=w3.keccak(text=did).hex(),
+        sovereign_agent=Web3.to_checksum_address(sovereign_agent_address),
+        controller=Web3.to_checksum_address(agent.address),
+        state_anchor=Web3.to_checksum_address(state_anchor_address),
+        reputation_registry="0x0000000000000000000000000000000000000000",
+        slasher="0x0000000000000000000000000000000000000000",
+        verifier_registry="0x0000000000000000000000000000000000000000",
+        compliance_gate="0x0000000000000000000000000000000000000000",
+        agent_profile="0x0000000000000000000000000000000000000000",
+        domain_id=domain_id.hex(),
+    )
+
+
+def provision_optional(
+    w3: Web3,
+    agent: LocalAccount,
+    factory_address: str,
+    registry_address: str,
+    sovereign_agent_address: str,
+    capability_mask: int,
+    vertical: int,
+    profile_uri: str,
+    chain_id: int,
+) -> PrimitivesRegistered:
+    """Provision selected optional modules and read back the canonical record."""
+    factory = _contract(w3, "AgentPrimitivesFactory", address=factory_address)
+    _send_signed(
+        w3,
+        agent,
+        lambda nonce: factory.functions.provisionOptional(
+            Web3.to_checksum_address(sovereign_agent_address),
+            capability_mask,
+            vertical,
+            profile_uri,
+        ).build_transaction({"from": agent.address, "nonce": nonce, "chainId": chain_id}),
+        action="provision_optional",
+    )
+    result = _contract(w3, "XibalbaAgentRegistry", address=registry_address).functions.resolveAgent(
+        Web3.to_checksum_address(sovereign_agent_address)
+    ).call()
+    primitives, controller, domain_id, _registered_at, _exists = result
+    sovereign, anchor, reputation, slasher, verifier, compliance, profile = primitives
+    return PrimitivesRegistered(
+        did_hash="",
+        sovereign_agent=sovereign,
+        controller=controller,
+        state_anchor=anchor,
+        reputation_registry=reputation,
+        slasher=slasher,
+        verifier_registry=verifier,
+        compliance_gate=compliance,
+        agent_profile=profile,
+        domain_id=domain_id.hex(),
+    )
+
+
 def domain_exists(w3: Web3, domain_registry_address: str, domain_id: bytes) -> bool:
     """Read-only check for whether `domain_id` has ever been claimed via
     `DomainRegistry.registerDomain` — the third element of the `domains` struct
