@@ -1,0 +1,46 @@
+{
+	admin off
+	# Keep Caddy's internal CA under the xibalba user's data dir (no root needed).
+	storage file_system /home/xibalba/.local/share/caddy
+	# Loopback-only, no port 80: skip the auto HTTP->HTTPS redirect listener, which needs
+	# a privileged bind this unprivileged-user service doesn't have.
+	auto_https disable_redirects
+}
+
+# Cortex: viewer + local API on one origin, so the Secure SameSite=Strict cookie round-trips.
+# (:8443 is taken by shield-backend's own TLS listener, hence 9443.)
+https://localhost:9443 {
+	# Loopback only: without this Caddy listens on every interface.
+	bind 127.0.0.1 ::1
+	tls internal
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+	}
+	# Explicit route: automatic directive sorting runs try_files (SPA fallback) before
+	# reverse_proxy, which rewrites every /api/* request to /index.html before the proxy
+	# matcher ever sees it. A route block executes in the order written instead.
+	route {
+		reverse_proxy /api/* 127.0.0.1:8420
+		root * /home/xibalba/Projects/xibalba-cortex/viewer/dist
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+# Shield: operator UI + control plane on one origin. Live backend listens on 8435.
+https://localhost:9444 {
+	# Loopback only: without this Caddy listens on every interface.
+	bind 127.0.0.1 ::1
+	tls internal
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+	}
+	route {
+		reverse_proxy /api/* 127.0.0.1:8435
+		root * /home/xibalba/Projects/xibalba-shield/ui/dist
+		try_files {path} /index.html
+		file_server
+	}
+}
