@@ -129,6 +129,19 @@ contract AgentPrimitivesFactoryTest is Test {
         sa.execute(address(itk), 0, abi.encodeWithSelector(itk.approve.selector, address(factory), registrationBond));
     }
 
+    function _initializeAgentWithoutBond(
+        SovereignAgent sa,
+        StateAnchor anchor,
+        address controller,
+        string memory did
+    ) internal {
+        bytes32 anchorRole = anchor.ANCHOR_ROLE();
+        vm.prank(controller);
+        sa.execute(address(anchor), 0, abi.encodeCall(AccessControl.grantRole, (anchorRole, oracleSigner)));
+        vm.prank(controller);
+        sa.execute(address(anchor), 0, abi.encodeCall(StateAnchor.anchorRoot, (keccak256(bytes(did)))));
+    }
+
     function test_fullRegistrationWiresAllSevenPrimitives() public {
         (address sovereignAgent, address stateAnchor) =
             _registerAgent("did:integrity:full-flow", ComplianceGate.Vertical.None);
@@ -143,6 +156,45 @@ contract AgentPrimitivesFactoryTest is Test {
         assertTrue(record.primitives.agentProfile != address(0));
         assertEq(record.controller, agentWallet);
         assertEq(record.domainId, domainId);
+    }
+
+    function test_coreRegistrationDefersOptionalCapabilities() public {
+        vm.prank(agentWallet);
+        SovereignAgent sa = new SovereignAgent("did:integrity:core-flow", agentWallet, oracleSigner, address(0));
+        vm.prank(agentWallet);
+        StateAnchor anchor = new StateAnchor(address(sa));
+        _initializeAgentWithoutBond(sa, anchor, agentWallet, "did:integrity:core-flow");
+
+        vm.prank(agentWallet);
+        factory.registerCore(address(sa), address(anchor), "did:integrity:core-flow", domainId);
+
+        XibalbaAgentRegistry.AgentRecord memory record = registry.resolveAgent(address(sa));
+        assertEq(record.primitives.sovereignAgent, address(sa));
+        assertEq(record.primitives.stateAnchor, address(anchor));
+        assertEq(record.primitives.reputationRegistry, address(0));
+        assertEq(record.primitives.slasher, address(0));
+        assertEq(registry.capabilityMask(address(sa)), 0);
+        assertTrue(domainRegistry.isMember(domainId, address(sa)));
+
+        uint256 reputationAndProfile = factory.CAP_REPUTATION() | factory.CAP_PROFILE();
+        vm.prank(agentWallet);
+        factory.provisionOptional(
+            address(sa),
+            reputationAndProfile,
+            ComplianceGate.Vertical.None,
+            "ipfs://core-profile"
+        );
+
+        record = registry.resolveAgent(address(sa));
+        assertTrue(record.primitives.reputationRegistry != address(0));
+        assertTrue(record.primitives.agentProfile != address(0));
+        assertEq(record.primitives.slasher, address(0));
+        assertEq(record.primitives.verifierRegistry, address(0));
+        assertEq(record.primitives.complianceGate, address(0));
+        assertEq(
+            registry.capabilityMask(address(sa)),
+            registry.CAP_REPUTATION() | registry.CAP_PROFILE()
+        );
     }
 
     function test_clonesAreAdminedBySovereignAgentNotTheEOA() public {
