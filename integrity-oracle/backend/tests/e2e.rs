@@ -309,6 +309,14 @@ async fn oracle_e2e_register_verify_ais_compliance() {
         false, // flagged
         true, // zk_verified
         &leaf_hash,
+        // content_hash / event_time were added to insert_telemetry_event (a91bdc3);
+        // derive them as the ingest handler does: a hash of the canonical payload bytes
+        // and the observation time.
+        &{
+            use sha2::Digest;
+            sha2::Sha256::digest(backend::crypto::canonical_json_bytes(&payload))
+        },
+        chrono::Utc::now(),
         &payload,
         None, // phi_flags — this fixture is clean, and None means "not flagged" (an empty
               // array would falsely assert "scanned and found clean")
