@@ -120,6 +120,9 @@ def test_agent_register_requires_funder_key(monkeypatch, tmp_path):
     runs without a live RPC; previously it only passed when something happened to be
     listening on localhost:8545, and failed in CI."""
     monkeypatch.delenv("FUNDER_PRIVATE_KEY", raising=False)
+    # The agent wallet keystore is created before any funding step; give it a throwaway
+    # password so the run reaches the funder check (CI has none set).
+    monkeypatch.setenv("INTEGRITY_WALLET_PASSWORD", "test-only-password")
 
     class _Eth(_FakeEth):
         def get_balance(self, address) -> int:  # fresh wallet: nothing to spend
