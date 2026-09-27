@@ -251,8 +251,14 @@ export default function KernelPage() {
       });
     } catch (e) {
       setKernel(null);
+      const message = e instanceof Error ? e.message : '';
+      const isCallException = /CALL_EXCEPTION|missing revert data|execution reverted/i.test(message);
       setError(
-        e instanceof Error ? `Could not read this address as an IntegrityAccount: ${e.message}` : 'Could not read this address as an IntegrityAccount.',
+        isCallException
+          ? 'This address did not respond as a compatible IntegrityAccount on the selected network. Verify the address and network, then retry.'
+          : message
+            ? `Could not read this address as an IntegrityAccount: ${message}`
+            : 'Could not read this address as an IntegrityAccount.',
       );
     } finally {
       setLoading(false);

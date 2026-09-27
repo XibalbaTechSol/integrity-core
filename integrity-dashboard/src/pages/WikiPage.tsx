@@ -39,18 +39,29 @@ function MermaidDiagram({ source }: { source: string }) {
 
   useEffect(() => {
     let cancelled = false;
+    setSvg('');
+    setError('');
+    const timeout = window.setTimeout(() => {
+      if (!cancelled) setError('Diagram rendering timed out. The source is shown below so the content remains inspectable.');
+    }, 8000);
     const render = async () => {
       try {
         const mermaid = await loadMermaid();
         const id = `wiki-mermaid-${reactId.replace(/[^a-zA-Z0-9_-]/g, '')}`;
         const result = await mermaid.render(id, source);
-        if (!cancelled) setSvg(result.svg);
+        if (!cancelled) {
+          window.clearTimeout(timeout);
+          setSvg(result.svg);
+        }
       } catch (reason) {
-        if (!cancelled) setError(reason instanceof Error ? reason.message : 'Unable to render diagram');
+        if (!cancelled) {
+          window.clearTimeout(timeout);
+          setError(reason instanceof Error ? reason.message : 'Unable to render diagram');
+        }
       }
     };
     render();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; window.clearTimeout(timeout); };
   }, [reactId, source]);
 
   if (error) return <div className="wiki-diagram-error" role="alert"><strong>Diagram could not be rendered.</strong><span>{error}</span><pre><code>{source}</code></pre></div>;

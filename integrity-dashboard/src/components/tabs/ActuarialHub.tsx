@@ -27,6 +27,7 @@ export function ActuarialHub({ mode }: { mode: 'markets' | 'stability' }) {
 
   const [markets, setMarkets] = useState<MarketSummaryDto[]>([]);
   const [loading, setLoading] = useState(false);
+  const [marketsError, setMarketsError] = useState<string | null>(null);
   const [logs, setLogs] = useState<ExecutionLog[]>([]);
   // Agent.eth_address holds the DID; the real on-chain SovereignAgent address (needed to
   // route every write via execute, and to tell if this agent created a market) is resolved.
@@ -50,17 +51,34 @@ export function ActuarialHub({ mode }: { mode: 'markets' | 'stability' }) {
 
   const fetchMarkets = useCallback(async () => {
     setLoading(true);
+    setMarketsError(null);
     try { setMarkets(await oracle.listMarkets()); }
-    catch { setMarkets([]); }
+    catch {
+      setMarkets([]);
+      setMarketsError('Live market data is unavailable. Check that the Oracle API is running, then retry.');
+    }
     finally { setLoading(false); }
   }, []);
 
   useEffect(() => { if (mode === 'markets') fetchMarkets(); }, [mode, fetchMarkets]);
 
   const [benchmarks, setBenchmarks] = useState<BenchmarkDto[]>([]);
+  const [benchmarksLoading, setBenchmarksLoading] = useState(false);
+  const [benchmarksError, setBenchmarksError] = useState<string | null>(null);
   useEffect(() => {
     if (mode !== 'stability') return;
-    oracle.getBenchmarks().then(setBenchmarks).catch(() => setBenchmarks([]));
+    let active = true;
+    setBenchmarksLoading(true);
+    setBenchmarksError(null);
+    oracle.getBenchmarks()
+      .then((value) => { if (active) setBenchmarks(value); })
+      .catch(() => {
+        if (!active) return;
+        setBenchmarks([]);
+        setBenchmarksError('Benchmark telemetry is unavailable. Check the Oracle API before retrying.');
+      })
+      .finally(() => { if (active) setBenchmarksLoading(false); });
+    return () => { active = false; };
   }, [mode]);
 
   useEffect(() => {
@@ -197,7 +215,11 @@ export function ActuarialHub({ mode }: { mode: 'markets' | 'stability' }) {
             <table className="table" style={{ fontSize: '0.85rem' }}>
               <thead><tr><th>Model</th><th>Provider</th><th>Sim. AIS</th><th>Stability</th><th>Grounding</th><th>Samples</th></tr></thead>
               <tbody>
-                {benchmarks.length === 0 ? (
+                {benchmarksLoading ? (
+                  <tr><td colSpan={6} style={{ textAlign: 'center', padding: '2rem' }} className="text-muted">Loading benchmark telemetry…</td></tr>
+                ) : benchmarksError ? (
+                  <tr><td colSpan={6} style={{ textAlign: 'center', padding: '2rem' }} className="text-muted" role="status">{benchmarksError}</td></tr>
+                ) : benchmarks.length === 0 ? (
                   <tr><td colSpan={6} style={{ textAlign: 'center', padding: '2rem' }} className="text-muted">No benchmark telemetry yet.</td></tr>
                 ) : benchmarks.map((b) => (
                   <tr key={b.model_name}>
@@ -291,6 +313,8 @@ export function ActuarialHub({ mode }: { mode: 'markets' | 'stability' }) {
             <tbody>
               {loading ? (
                 <tr><td colSpan={7} style={{ textAlign: 'center', padding: '2rem' }}>Loading real markets…</td></tr>
+              ) : marketsError ? (
+                <tr><td colSpan={7} style={{ textAlign: 'center', padding: '2rem' }} className="text-muted" role="status">{marketsError}</td></tr>
               ) : markets.length === 0 ? (
                 <tr><td colSpan={7} style={{ textAlign: 'center', padding: '2rem' }}>No markets deployed yet.</td></tr>
               ) : markets.map(m => {
