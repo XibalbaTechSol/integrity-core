@@ -22,7 +22,7 @@ if [ ! -f "$CONFIG_DIR/policy-publisher.env" ]; then
 else
   # Preserve operator overrides and secrets, but migrate the old packaged native
   # Shield default so upgrades do not keep pointing at the Docker-only port.
-  sed -i 's#^SHIELD_URL=http://127\.0\.0\.1:8765$#SHIELD_URL=http://127.0.0.1:8421#' "$CONFIG_DIR/policy-publisher.env"
+  sed -i 's#^SHIELD_URL=http://127\.0\.0\.1:8765$#SHIELD_URL=http://127.0.0.1:8435#' "$CONFIG_DIR/policy-publisher.env"
 fi
 systemctl daemon-reload
 systemctl enable xibalba-core-shield-policy.service

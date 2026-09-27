@@ -11,7 +11,7 @@ fi
 UNIT="${SHIELD_BACKEND_UNIT:-xibalba-shield-backend.service}"
 ENV_FILE="${SHIELD_BACKEND_ENV:-/etc/xibalba-shield/backend.env}"
 DEVICE_CONFIG="${SHIELD_DEVICE_CONFIG:-/home/xibalba/.xibalba-shield/device.json}"
-BASE_URL="${SHIELD_URL:-http://127.0.0.1:8421}/api/shield/exporter-status"
+BASE_URL="${SHIELD_URL:-http://127.0.0.1:8435}/api/shield/exporter-status"
 
 state="$(systemctl show "$UNIT" -p ActiveState --value 2>/dev/null || true)"
 [[ "$state" == "active" ]] || { echo "backend=not-active state=${state:-unknown}"; exit 1; }

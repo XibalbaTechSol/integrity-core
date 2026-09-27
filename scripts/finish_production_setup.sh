@@ -15,7 +15,7 @@ PUBLISHER_ENV="${PUBLISHER_ENV:-$INTEGRITY_CONFIG_DIR/policy-publisher.env}"
 SHIELD_BACKEND_ENV="${SHIELD_BACKEND_ENV:-$SHIELD_CONFIG_DIR/backend.env}"
 SHIELD_ADMIN_TOKEN_FILE="${SHIELD_ADMIN_TOKEN_FILE:-/home/xibalba/.xibalba-shield/backend-admin.token}"
 CORE_URL="${CORE_URL:-http://127.0.0.1:8080}"
-SHIELD_URL="${SHIELD_URL:-http://127.0.0.1:8421}"
+SHIELD_URL="${SHIELD_URL:-http://127.0.0.1:8435}"
 SHIELD_TENANT_ID="${SHIELD_TENANT_ID:-}"
 ROTATE_ISSUER_KEY="${ROTATE_ISSUER_KEY:-false}"
 ENABLE_FINALITY="${ENABLE_FINALITY:-false}"
@@ -138,7 +138,7 @@ path = Path(sys.argv[1])
 tenant = sys.argv[2]
 token = os.environ["SHIELD_ADMIN_TOKEN"]
 values = {
-    "SHIELD_URL": "http://127.0.0.1:8421",
+    "SHIELD_URL": "http://127.0.0.1:8435",
     "CORE_ORACLE_URL": "http://127.0.0.1:8080",
     "SHIELD_ADMIN_TOKEN": token,
     "SHIELD_TENANT_ID": tenant,
