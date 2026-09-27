@@ -1236,7 +1236,6 @@ dependencies = [
     { name = "eth-utils" },
     { name = "httpx" },
     { name = "jcs" },
-    { name = "mlflow-skinny" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-exporter-otlp-proto-grpc" },
     { name = "opentelemetry-sdk" },
@@ -1251,6 +1250,7 @@ anthropic = [
     { name = "pandas" },
 ]
 autolog = [
+    { name = "mlflow-skinny" },
     { name = "pandas" },
 ]
 langchain = [
@@ -1259,6 +1259,9 @@ langchain = [
 ]
 mcp = [
     { name = "mcp" },
+]
+mlflow = [
+    { name = "mlflow-skinny" },
 ]
 openai = [
     { name = "openai" },
@@ -1284,7 +1287,8 @@ requires-dist = [
     { name = "jcs", specifier = ">=0.2.1" },
     { name = "langchain-core", marker = "extra == 'langchain'", specifier = ">=0.3.0" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.0.0" },
-    { name = "mlflow-skinny", specifier = ">=3.0.0" },
+    { name = "mlflow-skinny", marker = "extra == 'autolog'", specifier = ">=3.0.0" },
+    { name = "mlflow-skinny", marker = "extra == 'mlflow'", specifier = ">=3.0.0" },
     { name = "openai", marker = "extra == 'openai'", specifier = ">=1.0.0" },
     { name = "opentelemetry-api", specifier = ">=1.42.1" },
     { name = "opentelemetry-exporter-otlp-proto-grpc", specifier = ">=1.42.1" },
@@ -1297,7 +1301,7 @@ requires-dist = [
     { name = "requests", specifier = ">=2.31.0" },
     { name = "web3", specifier = ">=7.4.0" },
 ]
-provides-extras = ["autolog", "openai", "anthropic", "langchain", "mcp"]
+provides-extras = ["mlflow", "autolog", "openai", "anthropic", "langchain", "mcp"]
 
 [package.metadata.requires-dev]
 dev = [
