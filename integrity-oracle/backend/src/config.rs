@@ -150,7 +150,7 @@ impl Config {
             telemetry_rate_limit_per_minute,
             phi_backstop_mode,
             kyc_provider_keys,
-            oracle_api_key: std::env::var("ORACLE_API_KEY").ok(),
+            oracle_api_key: parse_optional_api_key(std::env::var("ORACLE_API_KEY").ok()),
             agent_directory_finalized: env_or("AGENT_DIRECTORY_FINALIZED", "false").parse().map_err(|_| "AGENT_DIRECTORY_FINALIZED must be true or false" )?,
         })
     }
@@ -224,6 +224,15 @@ fn env_or(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
 }
 
+/// An unset *or blank* `ORACLE_API_KEY` means "no internal API key configured".
+/// docker-compose passes `${ORACLE_API_KEY:-}` through as an empty string when the
+/// host has no key; treating that as `Some("")` enabled key checking with an empty
+/// key, so every internal caller that sends no Authorization header (BCC audit
+/// reports) was rejected with 401.
+fn parse_optional_api_key(raw: Option<String>) -> Option<String> {
+    raw.map(|k| k.trim().to_string()).filter(|k| !k.is_empty())
+}
+
 /// Parses `"circuit_id=path,circuit_id2=path2"` into a map. Empty string yields
 /// an empty map (valid: an oracle with no telemetry containing ZK proofs yet,
 /// e.g. immediately after a fresh deploy, legitimately has nothing to register).
@@ -273,6 +282,14 @@ fn parse_ais_weights(raw: Option<String>) -> Result<AisWeights, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn blank_oracle_api_key_is_treated_as_unset() {
+        assert_eq!(parse_optional_api_key(None), None);
+        assert_eq!(parse_optional_api_key(Some(String::new())), None);
+        assert_eq!(parse_optional_api_key(Some("   ".into())), None);
+        assert_eq!(parse_optional_api_key(Some(" k3y ".into())), Some("k3y".to_string()));
+    }
 
     #[test]
     fn parses_multiple_vk_path_entries() {
