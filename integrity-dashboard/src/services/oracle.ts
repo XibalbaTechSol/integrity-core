@@ -396,6 +396,22 @@ export interface AuditLogEntryDto {
     created_at: string;
 }
 
+// backend::handlers::get_audit_invocation_join: every durable audit row for one
+// invocation id. Used to fill evidence that fell outside the per-agent reconciliation
+// window (db::reconcile_agent_intent_outcome is capped at 200 rows).
+export interface AuditInvocationDto {
+    invocation_id: string;
+    rows: Array<{
+        id: string;
+        agent_id: string | null;
+        event_type: string;
+        decision: string;
+        intent_type?: string | null;
+        metadata: { intended_state_hash?: string; invocation_id?: string; [key: string]: unknown };
+        created_at: string;
+    }>;
+}
+
 export interface IntentOutcomeDto {
     invocation_id: string | null;
     intended_state_hash: string | null;
@@ -631,6 +647,8 @@ export const oracle = {
     },
     getReconciliation: (agentId: string) =>
         get<IntentOutcomeDto[]>(`/v1/agent/${encodeURIComponent(agentId)}/reconciliation`),
+    getAuditInvocation: (invocationId: string) =>
+        get<AuditInvocationDto>(`/v1/audit/invocation/${encodeURIComponent(invocationId)}`),
 
     // Generic audit-log write, reused by the Guided System Test wizard's cross-system
     // fan-out (testResults.ts) so a dashboard-triggered test result is durably queryable

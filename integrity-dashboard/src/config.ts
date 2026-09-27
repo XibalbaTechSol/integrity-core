@@ -12,14 +12,18 @@ export const ALLOW_UNSCOPED_AGENT_DIRECTORY = import.meta.env.VITE_ALLOW_UNSCOPE
 //     --allowed-origin http://localhost:5173
 // Same-origin dev proxy keeps Cortex's HttpOnly cookie on the localhost host shared
 // by the three browser UIs. Production may override this with an explicit API origin.
-export const GRAPH_MEMORY_URL = import.meta.env.VITE_GRAPH_MEMORY_URL || (import.meta.env.DEV ? '/cortex-api' : 'http://127.0.0.1:8420');
+// The same-origin /cortex-api proxy (vite.config.ts) is served by both the dev server and
+// `vite preview`, and attaches the bearer token server-side.
+export const GRAPH_MEMORY_URL = import.meta.env.VITE_GRAPH_MEMORY_URL || '/cortex-api';
 // Cortex local_api requires an explicit bearer token. Keep this opt-in so a
 // production dashboard never silently sends a development credential.
 export const GRAPH_MEMORY_TOKEN = import.meta.env.VITE_GRAPH_MEMORY_TOKEN || '';
-// xibalba-shield's backend API (shield/backend/api.py — stdlib http.server). Run it with:
-//   uv run python -m shield.backend.api --admin-token dev-shield-admin
-export const SHIELD_BACKEND_URL = import.meta.env.VITE_SHIELD_BACKEND_URL || 'http://localhost:8765';
-export const SHIELD_BACKEND_TOKEN = import.meta.env.VITE_SHIELD_BACKEND_TOKEN || 'dev-shield-admin';
+// xibalba-shield's backend API (shield/backend/api.py). Default is same-origin: the
+// vite.config.ts `/api/shield` proxy forwards to the canonical control plane on
+// 127.0.0.1:8435 and attaches the admin token server-side, so no Shield credential is
+// compiled into this bundle. An explicit VITE_SHIELD_BACKEND_URL/TOKEN still overrides.
+export const SHIELD_BACKEND_URL = import.meta.env.VITE_SHIELD_BACKEND_URL || '';
+export const SHIELD_BACKEND_TOKEN = import.meta.env.VITE_SHIELD_BACKEND_TOKEN || '';
 // Shield's and Cortex's own operator UIs (not their backend API origins above) -- used for
 // "open console" deep links from the dashboard's summary cards. Each is a fully separate
 // app with its own cookie-authenticated login; the dashboard never proxies their UI.

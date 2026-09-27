@@ -4,6 +4,7 @@ import { useDashboard } from '../context/DashboardContext';
 import { graphMemory, type InvocationCorrelation } from '../services/graphMemory';
 import { oracle, type IntentOutcomeDto } from '../services/oracle';
 import { shieldBackend, type ShieldDecision } from '../services/shieldBackend';
+import { SHIELD_TENANT_ID } from '../config';
 
 type CombinedInvocation = {
   invocationId: string;
@@ -38,6 +39,14 @@ function shortId(value: string) {
   return `${value.slice(0, 8)}…${value.slice(-6)}`;
 }
 
+// Most recent timestamp any source recorded for a row (used for ordering).
+function lastSeen(row: CombinedInvocation): string {
+  return row.cortex?.last_seen_at ?? row.oracle?.outcome_at ?? row.oracle?.intent_at ?? row.shield?.received_at ?? '';
+}
+
+// Max direct Oracle invocation lookups per load for rows outside the reconciliation window.
+const INVOCATION_BACKFILL_LIMIT = 25;
+
 export default function CorrelationPage() {
   const { selectedAgent } = useDashboard();
   const [rows, setRows] = useState<CombinedInvocation[]>([]);
@@ -49,7 +58,9 @@ export default function CorrelationPage() {
   const load = useCallback(async () => {
     setLoading(true);
     const agentId = selectedAgent?.id;
-    const tenantId = selectedAgent?.eth_address;
+    // Shield tenants are control-plane namespaces, not agent addresses; same mapping as
+    // SystemSummaryCard (configured tenant first, selected agent as the demo fallback).
+    const tenantId = SHIELD_TENANT_ID || selectedAgent?.eth_address;
     const [cortexResult, oracleResult, shieldResult] = await Promise.allSettled([
       graphMemory.invocations(200),
       agentId ? oracle.getReconciliation(agentId) : Promise.resolve([]),
@@ -79,11 +90,33 @@ export default function CorrelationPage() {
       });
     } else if (shieldResult.status === 'rejected') nextErrors.push('Shield decision API unavailable');
 
-    setRows(Array.from(byId.values()).sort((a, b) => {
-      const at = a.cortex?.last_seen_at ?? a.oracle?.outcome_at ?? a.oracle?.intent_at ?? a.shield?.received_at ?? '';
-      const bt = b.cortex?.last_seen_at ?? b.oracle?.outcome_at ?? b.oracle?.intent_at ?? b.shield?.received_at ?? '';
-      return bt.localeCompare(at);
-    }));
+    // The per-agent reconciliation is capped at 200 rows, so busy agents push older
+    // invocations out of it even though the Oracle still holds their signed intent.
+    // For the most recent rows that other sources saw but the window missed, look the
+    // invocation up directly (bounded, so a page load stays a handful of requests).
+    const missing = Array.from(byId.values())
+      .filter(row => !row.oracle && (row.shield || row.cortex))
+      .sort((a, b) => lastSeen(b).localeCompare(lastSeen(a)))
+      .slice(0, INVOCATION_BACKFILL_LIMIT);
+    const backfill = await Promise.allSettled(missing.map(row => oracle.getAuditInvocation(row.invocationId)));
+    backfill.forEach((result, index) => {
+      if (result.status !== 'fulfilled') return;
+      // Only a BCC-admitted intent counts as signed-intent evidence.
+      const admitted = result.value.rows.find(audit => audit.decision === 'allow' && audit.metadata?.intended_state_hash);
+      if (!admitted) return;
+      missing[index].oracle = {
+        invocation_id: result.value.invocation_id,
+        intended_state_hash: admitted.metadata.intended_state_hash ?? null,
+        intent_type: admitted.intent_type ?? null,
+        intent_at: admitted.created_at,
+        tool: null,
+        outcome: null,
+        outcome_at: null,
+        status: 'intent_without_outcome',
+      };
+    });
+
+    setRows(Array.from(byId.values()).sort((a, b) => lastSeen(b).localeCompare(lastSeen(a))));
     setErrors(nextErrors);
     setLoading(false);
   }, [selectedAgent?.id, selectedAgent?.eth_address]);
