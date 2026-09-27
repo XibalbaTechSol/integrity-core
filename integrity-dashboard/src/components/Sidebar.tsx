@@ -16,7 +16,9 @@ export function Sidebar() {
   const handleLogout = async () => {
     try {
       await userapi.logout();
-    } catch(e) {}
+    } catch {
+      // Logout is best-effort: an expired or already-cleared session still goes to /auth.
+    }
     navigate('/auth');
   };
 

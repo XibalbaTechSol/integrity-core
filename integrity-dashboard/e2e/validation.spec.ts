@@ -105,6 +105,8 @@ async function assertBaseline(page: Page, info: TestInfo, route: string, evidenc
 }
 
 test.describe('Integrity Dashboard rendered validation', () => {
+  // Playwright requires the first test argument to be an object pattern; this test uses no fixtures.
+  // eslint-disable-next-line no-empty-pattern
   test('route inventory is complete and machine-readable', async ({}, info) => {
     const output = path.resolve(process.cwd(), 'test-results/route-inventory.json');
     fs.mkdirSync(path.dirname(output), { recursive: true });

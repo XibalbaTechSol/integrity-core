@@ -67,7 +67,6 @@ export function SystemSummaryCard({ system }: { system: 'shield' | 'cortex' }) {
     };
     void load();
     return () => { active = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [system, tenantId]);
 
   return (
