@@ -104,12 +104,18 @@ pub struct RegisterAgentRequest {
     /// field; it's kept on the wire only for backward request-shape compatibility.
     #[serde(default)]
     pub verification_tier: i32,
+    /// Mandatory unique username for this agent, chosen by the human operator the same
+    /// way one picks a chat-app handle -- checked for availability against Oracle's own
+    /// `xns_handles` directory (see migration 0022), independent of on-chain state.
+    /// Every agent that completes this registration holds exactly one.
+    pub handle: String,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct RegisterAgentResponse {
     pub id: String,
     pub verification_tier: i32,
+    pub handle: String,
     pub primitives: PrimitiveSetDto,
     pub controller: String,
     pub domain_id: String,
@@ -126,6 +132,35 @@ const SERVER_VERIFIED_TIER: i32 = 1;
 /// self-sovereign model being honest end-to-end: without this check, `/v1/agent/register`
 /// would just be recording whatever the client says, and the entire "the chain is the
 /// source of truth" premise (§6) would be decorative.
+/// Chat-app-style username rules: 3-32 chars, lowercase ASCII letters/digits/`.`/`-`/`_`,
+/// must start with a letter -- readable, URL-safe, and unambiguous against a `did:...`
+/// string or a hex address. Uniqueness itself is enforced by the DB (`xns_handles`'s
+/// unique index on `lower(handle)`), not here -- this only rejects malformed input.
+fn validate_xns_handle(handle: &str) -> Result<(), AppError> {
+    let len = handle.chars().count();
+    if !(3..=32).contains(&len) {
+        return Err(AppError::BadRequest(
+            "xns handle must be 3-32 characters".to_string(),
+        ));
+    }
+    let mut chars = handle.chars();
+    let first = chars.next().unwrap();
+    if !first.is_ascii_lowercase() {
+        return Err(AppError::BadRequest(
+            "xns handle must start with a lowercase letter".to_string(),
+        ));
+    }
+    if !handle
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '-' | '_'))
+    {
+        return Err(AppError::BadRequest(
+            "xns handle may only contain lowercase letters, digits, '.', '-', '_'".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 #[utoipa::path(
     post,
     path = "/v1/agent/register",
@@ -141,6 +176,7 @@ pub async fn register_agent(
     State(state): State<AppState>,
     Json(req): Json<RegisterAgentRequest>,
 ) -> Result<Json<RegisterAgentResponse>, AppError> {
+    validate_xns_handle(&req.handle)?;
     if req.ed25519_pubkey_hex.is_none() && req.eth_address_hex.is_none() {
         return Err(AppError::BadRequest(
             "agent must supply at least one of ed25519_pubkey_hex / eth_address_hex".to_string(),
@@ -187,18 +223,24 @@ pub async fn register_agent(
         .transpose()
         .map_err(|e| AppError::BadRequest(format!("invalid ed25519_pubkey_hex: {e}")))?;
 
-    let row = db::register_agent(
+    let row = db::register_agent_with_handle(
         &state.pool,
         &req.did,
         ed25519_pubkey,
         req.eth_address_hex.clone(),
         SERVER_VERIFIED_TIER,
         Some(req.did_document.clone()),
+        &req.handle,
     )
     .await
     .map_err(|e| match e {
-        db::RegisterAgentError::AlreadyExists => AppError::AgentAlreadyExists(req.did.clone()),
-        db::RegisterAgentError::Db(e) => AppError::Database(e),
+        db::RegisterAgentWithHandleError::AgentAlreadyExists => {
+            AppError::AgentAlreadyExists(req.did.clone())
+        }
+        db::RegisterAgentWithHandleError::HandleTaken => {
+            AppError::HandleTaken(req.handle.clone())
+        }
+        db::RegisterAgentWithHandleError::Db(e) => AppError::Database(e),
     })?;
 
     db::upsert_agent_primitives(
@@ -220,6 +262,7 @@ pub async fn register_agent(
     Ok(Json(RegisterAgentResponse {
         id: row.id,
         verification_tier: row.verification_tier,
+        handle: req.handle,
         primitives: req.primitives,
         controller: format!("{:#x}", record.controller),
         domain_id: record.domain_id.to_string(),
@@ -263,6 +306,9 @@ pub struct AgentResponse {
     /// backfill (see the "chain-backfill"/"unavailable" `primitives_source` cases below,
     /// which synthesize a response with no local `agents` row at all).
     pub did_document: Option<serde_json::Value>,
+    /// This agent's Oracle-local XNS handle, if any -- see migration 0022. Independent
+    /// of `oracle_registered`/on-chain state: a chain-only agent can still hold one.
+    pub handle: Option<String>,
 }
 
 #[utoipa::path(
@@ -326,6 +372,10 @@ pub async fn get_agent(
         },
     };
 
+    // Independent of `agents`/on-chain state -- a chain-only agent can still hold an
+    // Oracle-local XNS handle (see migration 0022's header note).
+    let handle = db::get_xns_handle_for_agent(&state.pool, &id).await?;
+
     let agent_row = match agent_row {
         Some(r) => r,
         None => {
@@ -342,6 +392,7 @@ pub async fn get_agent(
                 primitives,
                 primitives_source: source,
                 did_document: None,
+                handle,
             }));
         }
     };
@@ -370,6 +421,7 @@ pub async fn get_agent(
         primitives,
         primitives_source: source,
         did_document: agent_row.did_document,
+        handle,
     }))
 }
 
@@ -432,13 +484,13 @@ pub async fn list_agents(
         state.chain.chain_id() as i64,
     )
     .await?;
-    let handles = resolve_primary_handles(&state, &rows).await;
+    let agent_ids: Vec<String> = rows.iter().map(|r| r.id.clone()).collect();
+    let handles = db::get_xns_handles_for_agents(&state.pool, &agent_ids).await?;
     Ok(Json(
         rows.into_iter()
-            .enumerate()
-            .map(|(i, r)| AgentSummary {
+            .map(|r| AgentSummary {
                 controller: r.controller_address,
-                handle: handles.get(i).cloned().flatten(),
+                handle: handles.get(&r.id).cloned(),
                 name: r
                     .did_document
                     .as_ref()
@@ -521,8 +573,11 @@ pub async fn agent_directory_snapshot(
     }))
 }
 
-/// Best-effort XNS lookup for a whole agent list, returned positionally (one entry per
-/// input row, in the same order).
+/// Resolves each agent's *on-chain* XibalbaNameService handle (distinct from the
+/// Oracle-local `xns_handles` directory `list_agents`/`get_agent` now use as the primary
+/// `handle` field). Retained, unused for now, for the future "list my handle as an
+/// on-chain alias" opt-in step -- a separate, optional capability from the mandatory
+/// Oracle-local handle every registered agent already has. Not wired into any route yet.
 ///
 /// **Every failure degrades to `None` rather than propagating.** Unlike `get_agent_handle`
 /// — where the handle *is* the response, so a missing XNS singleton rightly surfaces as a
@@ -531,6 +586,7 @@ pub async fn agent_directory_snapshot(
 /// anvil genesis) or a transient RPC error bubble up would turn "no handles" into "no
 /// agents", which is a far worse failure than an unnamed agent. The reads run concurrently,
 /// same `join_all` pattern as `refresh_leaderboard_if_stale`.
+#[allow(dead_code)]
 async fn resolve_primary_handles(
     state: &AppState,
     rows: &[db::AgentListRow],
@@ -553,6 +609,165 @@ async fn resolve_primary_handles(
         }
     });
     futures::future::join_all(reads).await
+}
+
+// ---------------------------------------------------------------------------------
+// Oracle-local XNS directory (independent of on-chain state) — GET /v1/xns/available/{handle},
+// GET /v1/xns/resolve/{handle}, POST /v1/xns/claim
+// ---------------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct XnsAvailabilityDto {
+    pub handle: String,
+    pub available: bool,
+    /// Populated only when `available` is false: a handful of close, currently-free
+    /// variations on the requested handle, so a search UI can offer them immediately
+    /// instead of making the user guess-and-check one at a time.
+    pub suggestions: Vec<String>,
+}
+
+/// Deterministic, chat-app-style alternatives for a taken handle: numeric suffixes first
+/// (closest to the original, what most people expect/accept), then a couple of separator
+/// variants. Checked against the DB in order and stops at `limit` available hits, so a
+/// popular base handle doesn't fan out into dozens of wasted queries.
+async fn suggest_xns_handles(
+    pool: &sqlx::PgPool,
+    base: &str,
+    limit: usize,
+) -> Result<Vec<String>, sqlx::Error> {
+    let mut candidates = Vec::new();
+    for n in 1..=9u32 {
+        candidates.push(format!("{base}{n}"));
+    }
+    for n in [42u32, 99, 7] {
+        candidates.push(format!("{base}{n}"));
+    }
+    candidates.push(format!("{base}-agent"));
+    candidates.push(format!("{base}.agent"));
+    candidates.push(format!("{base}_"));
+
+    let mut suggestions = Vec::with_capacity(limit);
+    for candidate in candidates {
+        if suggestions.len() >= limit {
+            break;
+        }
+        // Only ever offer well-formed suggestions -- a generated candidate that fails
+        // validate_xns_handle (e.g. exceeds the 32-char cap) is silently skipped, not
+        // surfaced as a broken option the user can't actually claim.
+        if validate_xns_handle(&candidate).is_ok() && db::xns_handle_available(pool, &candidate).await? {
+            suggestions.push(candidate);
+        }
+    }
+    Ok(suggestions)
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/xns/available/{handle}",
+    params(("handle" = String, Path, description = "Candidate XNS handle to check")),
+    responses((status = 200, description = "Whether this handle is free to claim, with suggestions if not", body = XnsAvailabilityDto)),
+    tag = "identity",
+)]
+pub async fn xns_available(
+    State(state): State<AppState>,
+    Path(handle): Path<String>,
+) -> Result<Json<XnsAvailabilityDto>, AppError> {
+    // A malformed candidate is reported as simply unavailable rather than a 400 --
+    // this endpoint backs live-as-you-type search/registration UI, where "not a valid
+    // handle" and "already taken" both just mean "pick something else".
+    let valid = validate_xns_handle(&handle).is_ok();
+    let available = valid && db::xns_handle_available(&state.pool, &handle).await?;
+    let suggestions = if available {
+        Vec::new()
+    } else if valid {
+        suggest_xns_handles(&state.pool, &handle, 5).await?
+    } else {
+        Vec::new()
+    };
+    Ok(Json(XnsAvailabilityDto {
+        handle,
+        available,
+        suggestions,
+    }))
+}
+
+/// Oracle-local handle resolution (distinct from the pre-existing, on-chain
+/// `GET /v1/xns/resolve?handle=` / `XnsResolveDto` pair below, which resolves against the
+/// deployed XibalbaNameService contract instead).
+#[derive(Debug, Serialize, ToSchema)]
+pub struct XnsHandleResolveDto {
+    pub handle: String,
+    pub agent_id: String,
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/xns/handle/{handle}",
+    params(("handle" = String, Path, description = "XNS handle to resolve")),
+    responses(
+        (status = 200, description = "Handle resolved to its agent", body = XnsHandleResolveDto),
+        (status = 404, description = "No agent holds this handle"),
+    ),
+    tag = "identity",
+)]
+pub async fn xns_resolve(
+    State(state): State<AppState>,
+    Path(handle): Path<String>,
+) -> Result<Json<XnsHandleResolveDto>, AppError> {
+    let agent_id = db::resolve_xns_handle(&state.pool, &handle)
+        .await?
+        .ok_or_else(|| AppError::HandleNotFound(handle.clone()))?;
+    Ok(Json(XnsHandleResolveDto { handle, agent_id }))
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ClaimXnsHandleRequest {
+    /// The agent claiming this handle. Need not exist in `agents` -- see migration
+    /// 0022's header note: an agent may hold a handle without ever registering on-chain.
+    pub agent_id: String,
+    pub handle: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/xns/claim",
+    request_body = ClaimXnsHandleRequest,
+    responses(
+        (status = 200, description = "Handle claimed", body = XnsHandleDto),
+        (status = 400, description = "Malformed handle"),
+        (status = 409, description = "Handle taken, or this agent already holds a different one"),
+    ),
+    tag = "identity",
+)]
+pub async fn xns_claim(
+    State(state): State<AppState>,
+    Json(req): Json<ClaimXnsHandleRequest>,
+) -> Result<Json<XnsHandleDto>, AppError> {
+    validate_xns_handle(&req.handle)?;
+    let row = db::claim_xns_handle(&state.pool, &req.agent_id, &req.handle)
+        .await
+        .map_err(|e| match e {
+            db::ClaimXnsHandleError::HandleTaken => AppError::HandleTaken(req.handle.clone()),
+            db::ClaimXnsHandleError::AgentAlreadyHasHandle => {
+                AppError::HandleTaken(format!(
+                    "agent '{}' already holds a different xns handle",
+                    req.agent_id
+                ))
+            }
+            db::ClaimXnsHandleError::Db(e) => AppError::Database(e),
+        })?;
+    Ok(Json(XnsHandleDto {
+        agent_id: row.agent_id,
+        handle: row.handle,
+        claimed_at: row.claimed_at,
+    }))
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct XnsHandleDto {
+    pub agent_id: String,
+    pub handle: String,
+    pub claimed_at: DateTime<Utc>,
 }
 
 // ---------------------------------------------------------------------------------

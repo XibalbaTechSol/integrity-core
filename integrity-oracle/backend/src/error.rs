@@ -17,6 +17,12 @@ pub enum AppError {
     TraceNotFound(String),
     #[error("agent already registered: {0}")]
     AgentAlreadyExists(String),
+    /// XNS handle uniqueness: someone else already holds this handle, or this agent
+    /// already holds a different one (one handle per agent, one agent per handle).
+    #[error("xns handle unavailable: {0}")]
+    HandleTaken(String),
+    #[error("xns handle not found: {0}")]
+    HandleNotFound(String),
     #[error("invalid request: {0}")]
     BadRequest(String),
     #[error("signature verification failed")]
@@ -71,6 +77,8 @@ impl IntoResponse for AppError {
             AppError::AgentNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
             AppError::TraceNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
             AppError::AgentAlreadyExists(_) => (StatusCode::CONFLICT, self.to_string()),
+            AppError::HandleTaken(_) => (StatusCode::CONFLICT, self.to_string()),
+            AppError::HandleNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
             AppError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             AppError::Unauthorized => (StatusCode::UNAUTHORIZED, self.to_string()),
             AppError::NonceReplay { .. } => (StatusCode::CONFLICT, self.to_string()),

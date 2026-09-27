@@ -1034,18 +1034,19 @@ async fn oracle_e2e_trace_tree_reconstructs_real_span_nesting() {
     assert_eq!(resp.status(), 404, "an unknown trace_id must 404");
 }
 
-/// `GET /v1/agents` carries each agent's on-chain XNS handle, and — the part that matters —
-/// degrades to `handle: null` instead of failing the whole request when XNS can't be read.
+/// `GET /v1/agents` degrades to `handle: null` for an agent with no Oracle-local
+/// `xns_handles` row, instead of failing the whole request.
 ///
-/// This is the regression this test exists for: `get_agent_handle` (the single-agent route)
-/// deliberately surfaces a missing `XibalbaNameService` singleton as a 400, since there the
-/// handle *is* the response. `list_agents` must NOT copy that behavior — it's the route the
-/// dashboard's entire fleet list depends on, so a chain without XNS deployed (or a transient
-/// RPC error) turning "no handles" into "no agents" would be a hard regression.
-///
-/// Runs against a real anvil + real `deployments.local.json` with the `XibalbaNameService`
-/// key stripped out — a real deployment shape (XNS post-dates the genesis deploy), not a
-/// mocked chain client.
+/// Historical note: `list_agents`'s `handle` field used to be resolved live from the
+/// on-chain `XibalbaNameService` singleton, and this test originally exercised that
+/// degrading gracefully when XNS wasn't deployed (see git history / migration 0022's
+/// header note for why XNS handles moved to an Oracle-local directory, independent of
+/// on-chain state, instead). The chain-stripped `deployments.local.json` setup below is
+/// now incidental plumbing this test still uses to exercise the same chain-scoped
+/// `agent_primitives` LEFT JOIN it always did — the handle assertions just confirm the
+/// new source (no `xns_handles` row inserted for these test agents) degrades the same
+/// honest way `get_agent_handle` (the single-agent route, which still reads on-chain and
+/// surfaces a missing singleton as a 400 — there the handle *is* the response) does not.
 #[tokio::test]
 async fn oracle_e2e_agents_list_degrades_without_xns() {
     if std::env::var("ORACLE_E2E").ok().as_deref() != Some("1") {
