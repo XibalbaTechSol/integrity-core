@@ -15,7 +15,7 @@ services:
       POSTGRES_DB: integrity
       POSTGRES_USER: integrity
       POSTGRES_PASSWORD: integrity_dev_only
-    ports: ["5436:5432"]
+    ports: ["127.0.0.1:5436:5432"]
     command: ["postgres", "-c", "shared_preload_libraries=timescaledb", "-c", "shared_buffers=128MB", "-c", "work_mem=4MB", "-c", "maintenance_work_mem=64MB", "-c", "max_connections=25"]
     volumes: ["pgdata:/var/lib/postgresql/data"]
     healthcheck:
@@ -30,7 +30,7 @@ services:
     mem_limit: 128m
     cpus: 0.25
     command: ["redis-server", "--maxmemory", "96mb", "--maxmemory-policy", "noeviction"]
-    ports: ["6379:6379"]
+    ports: ["127.0.0.1:6379:6379"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -50,7 +50,7 @@ services:
     volumes:
       - ./bcc_middleware/policies:/policies:ro
       - ../xibalba-shield/shield/policies/rego/smb.rego:/shield-policies/selected.rego:ro
-    ports: ["8181:8181"]
+    ports: ["127.0.0.1:8181:8181"]
 
   oracle-backend:
     mem_limit: 512m
@@ -97,7 +97,7 @@ services:
       # Required in production. Keep unset only for explicitly local/dev VC issuance.
       VC_ISSUER_SEED: ${VC_ISSUER_SEED:-}
       AGENT_DIRECTORY_FINALIZED: ${AGENT_DIRECTORY_FINALIZED:-false}
-    ports: ["8080:8080", "4317:4317"]
+    ports: ["127.0.0.1:8080:8080", "127.0.0.1:4317:4317"]
     volumes:
       - ./deployments.baseSepolia.json:/deployments.baseSepolia.json
       - ./deployments.local.json:/deployments.local.json
@@ -156,7 +156,7 @@ services:
       - ./deployments.local.json:/deployments.local.json
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    ports: ["8000:8000"]
+    ports: ["127.0.0.1:8000:8000"]
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8000/health').read()\""]
       interval: 30s
@@ -178,7 +178,7 @@ services:
       VITE_SHIELD_UI_URL: http://localhost:5193
       VITE_CORTEX_UI_URL: http://localhost:5190
       VITE_CHAIN_ID: "84532"
-    ports: ["5173:5173"]
+    ports: ["127.0.0.1:5173:5173"]
 
   # Sibling repo (../xibalba-shield). Long-lived endpoint-agent daemon, not a web service --
   # exposes no ports, only exports outbound to bcc-middleware/oracle-backend. `--sensor dev`
@@ -257,7 +257,7 @@ services:
       POSTGRES_DB: integrity_userapi
       POSTGRES_USER: integrity
       POSTGRES_PASSWORD: integrity_dev_only
-    ports: ["5435:5432"]
+    ports: ["127.0.0.1:5435:5432"]
     volumes: ["userapi_pgdata:/var/lib/postgresql/data"]
     # NOTE: `make test` runs integrity-userapi's pytest against this instance on :5435
     # but does not start it -- a fresh checkout running `make test` without `make up`
@@ -285,7 +285,7 @@ services:
       # Secure cookie attribute in this explicitly local compose profile or the
       # browser will never send the HttpOnly session back to /me/agents.
       USERAPI_INSECURE_COOKIES: "1"
-    ports: ["8090:8090"]
+    ports: ["127.0.0.1:8090:8090"]
 
   shield-policy-publisher:
     # The durable production install is the systemd unit. Compose runs this
