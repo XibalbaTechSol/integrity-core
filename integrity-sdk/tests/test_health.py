@@ -116,7 +116,7 @@ def health_scenario(deployed_chain, tmp_path, monkeypatch):
     }
 
 
-def test_full_health_flow_grants_and_verifies_ehr_access(deployed_chain, health_scenario):
+def test_full_health_flow_grants_and_verifies_ehr_access(deployed_chain, health_scenario, set_assurance_tier):
     s = health_scenario
     w3, chain_id, addr = s["w3"], s["chain_id"], s["addr"]
     funder = deployed_chain["funder"]
@@ -168,6 +168,8 @@ def test_full_health_flow_grants_and_verifies_ehr_access(deployed_chain, health_
         chain_id,
     )
 
+    # Tier 3 (ceiling 1000) so the pushed 900 is the AIS EHRGate actually checks.
+    set_assurance_tier(s["primitives"].reputation_registry, 3)
     _push_score(deployed_chain, s["primitives"].reputation_registry, s["sovereign_agent"], 900)
 
     record_hash = keccak(text="record-1")

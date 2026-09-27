@@ -125,3 +125,39 @@ def deployed_chain():
     finally:
         proc.terminate()
         proc.wait(timeout=10)
+
+
+_SET_ASSURANCE_TIER_ABI = [
+    {
+        "inputs": [{"internalType": "uint8", "name": "tier", "type": "uint8"}],
+        "name": "setAssuranceTier",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function",
+    }
+]
+
+
+@pytest.fixture
+def set_assurance_tier(deployed_chain):
+    """Raise an agent ReputationRegistry's assurance tier.
+
+    Since a91bdc3, effectiveScore() is capped by the tier ceiling (tier 0 = 300,
+    1 = 600, 2 = 850, 3 = 1000), so a score pushed without a tier reads back as 300
+    and AIS-gated flows (markets, EHR access) reject the agent. The tier is set by the
+    factory's `governance` address -- deliberately not the oracle signer, which must
+    not raise the ceiling it benefits from -- and in the local Deploy.s.sol governance
+    defaults to the deployer, i.e. the funder key.
+    """
+    w3 = deployed_chain["w3"]
+    governance = deployed_chain["funder"]
+
+    def _set(reputation_registry_address: str, tier: int) -> None:
+        rep = w3.eth.contract(address=Web3.to_checksum_address(reputation_registry_address), abi=_SET_ASSURANCE_TIER_ABI)
+        tx = rep.functions.setAssuranceTier(tier).build_transaction(
+            {"from": governance.address, "nonce": w3.eth.get_transaction_count(governance.address), "chainId": deployed_chain["chain_id"]}
+        )
+        signed = governance.sign_transaction(tx)
+        w3.eth.wait_for_transaction_receipt(w3.eth.send_raw_transaction(signed.raw_transaction), timeout=30)
+
+    return _set
