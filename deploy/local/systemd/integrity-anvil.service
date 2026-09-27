@@ -1,0 +1,20 @@
+[Unit]
+Description=Local Anvil chain (Base Sepolia fallback; chain id 31337) with persisted state
+Documentation=file:///home/xibalba/Projects/integrity-core/contracts
+
+[Service]
+Type=simple
+WorkingDirectory=/home/xibalba/Projects/integrity-core/contracts
+# Loopback for host tools, and docker0 (172.17.0.1) so containers reach it as
+# host.docker.internal (oracle-backend-local). Never 0.0.0.0: Anvil runs with the
+# well-known public dev keys.
+# --state loads the chain on start and writes it back on a graceful stop.
+ExecStart=%h/.foundry/bin/anvil --host 127.0.0.1 --host 172.17.0.1 --port 8545 --state /home/xibalba/Projects/integrity-core/.anvil-state.json
+# Anvil only dumps state on SIGINT; systemd's default SIGTERM would lose it.
+KillSignal=SIGINT
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
