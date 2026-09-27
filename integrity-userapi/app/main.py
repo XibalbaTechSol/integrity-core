@@ -33,6 +33,11 @@ from app.schemas import (
     DemoRunUpdateRequest,
     LoginRequest,
     OwnedAgentResponse,
+    PolicyActivationRequest,
+    PolicyPackCreateRequest,
+    PolicyPackResponse,
+    PolicyRevisionCreateRequest,
+    PolicyRevisionResponse,
     RegisterRequest,
     TokenResponse,
     TransferRequest,
@@ -405,6 +410,119 @@ async def add_my_agent(
         live_data=lookup.live_data,
         error=lookup.error,
     )
+
+
+# --- Policy packs ------------------------------------------------------------
+
+
+def _policy_revision(row: asyncpg.Record | None) -> PolicyRevisionResponse | None:
+    if row is None:
+        return None
+    return PolicyRevisionResponse(
+        id=row["id"], version=row["version"], rules=row["rules"], mode=row["mode"],
+        change_note=row["change_note"], created_at=row["created_at"],
+    )
+
+
+async def _owned_policy_pack(pool: asyncpg.Pool, user_id: str, pack_id: UUID) -> asyncpg.Record:
+    row = await pool.fetchrow(
+        "SELECT * FROM policy_packs WHERE id = $1 AND user_id = $2", pack_id, UUID(user_id)
+    )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="policy pack not found")
+    return row
+
+
+@app.get("/me/policy-packs", response_model=list[PolicyPackResponse])
+async def list_policy_packs(
+    user_id: str = Depends(get_current_user_id),
+    pool: asyncpg.Pool = Depends(get_pool),
+) -> list[PolicyPackResponse]:
+    rows = await pool.fetch(
+        "SELECT * FROM policy_packs WHERE user_id = $1 ORDER BY updated_at DESC", UUID(user_id)
+    )
+    result: list[PolicyPackResponse] = []
+    for row in rows:
+        revision = await pool.fetchrow(
+            "SELECT * FROM policy_revisions WHERE pack_id = $1 ORDER BY version DESC LIMIT 1", row["id"]
+        )
+        result.append(PolicyPackResponse(**dict(row), latest_revision=_policy_revision(revision)))
+    return result
+
+
+@app.post("/me/policy-packs", response_model=PolicyPackResponse, status_code=status.HTTP_201_CREATED)
+async def create_policy_pack(
+    body: PolicyPackCreateRequest,
+    user_id: str = Depends(get_current_user_id),
+    pool: asyncpg.Pool = Depends(get_pool),
+) -> PolicyPackResponse:
+    uid = UUID(user_id)
+    if body.agent_did:
+        owned = await pool.fetchval(
+            "SELECT 1 FROM user_agents WHERE user_id = $1 AND agent_did = $2", uid, body.agent_did
+        )
+        if owned is None:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="agent is not owned by this user")
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            pack = await conn.fetchrow(
+                """INSERT INTO policy_packs (user_id, name, description, agent_did)
+                   VALUES ($1, $2, $3, $4) RETURNING *""",
+                uid, body.name.strip(), body.description.strip(), body.agent_did,
+            )
+            revision = await conn.fetchrow(
+                """INSERT INTO policy_revisions (pack_id, version, rules, change_note)
+                   VALUES ($1, 1, $2::jsonb, $3) RETURNING *""",
+                pack["id"], [rule.model_dump() for rule in body.rules], body.change_note.strip(),
+            )
+    return PolicyPackResponse(**dict(pack), latest_revision=_policy_revision(revision))
+
+
+@app.post("/me/policy-packs/{pack_id}/revisions", response_model=PolicyPackResponse)
+async def create_policy_revision(
+    pack_id: UUID,
+    body: PolicyRevisionCreateRequest,
+    user_id: str = Depends(get_current_user_id),
+    pool: asyncpg.Pool = Depends(get_pool),
+) -> PolicyPackResponse:
+    await _owned_policy_pack(pool, user_id, pack_id)
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            latest_version = await conn.fetchval(
+                "SELECT version FROM policy_revisions WHERE pack_id = $1 ORDER BY version DESC LIMIT 1 FOR UPDATE", pack_id
+            )
+            version = (latest_version or 0) + 1
+            await conn.execute(
+                "INSERT INTO policy_revisions (pack_id, version, rules, change_note) VALUES ($1, $2, $3::jsonb, $4)",
+                pack_id, version, [rule.model_dump() for rule in body.rules], body.change_note.strip(),
+            )
+            pack = await conn.fetchrow("UPDATE policy_packs SET updated_at = now() WHERE id = $1 RETURNING *", pack_id)
+            revision = await conn.fetchrow(
+                "SELECT * FROM policy_revisions WHERE pack_id = $1 AND version = $2", pack_id, version
+            )
+    return PolicyPackResponse(**dict(pack), latest_revision=_policy_revision(revision))
+
+
+@app.post("/me/policy-packs/{pack_id}/activate", response_model=PolicyPackResponse)
+async def activate_policy_pack(
+    pack_id: UUID,
+    body: PolicyActivationRequest,
+    user_id: str = Depends(get_current_user_id),
+    pool: asyncpg.Pool = Depends(get_pool),
+) -> PolicyPackResponse:
+    pack = await _owned_policy_pack(pool, user_id, pack_id)
+    revision = await pool.fetchrow(
+        "SELECT * FROM policy_revisions WHERE pack_id = $1 ORDER BY version DESC LIMIT 1", pack_id
+    )
+    if revision is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="policy pack has no revision")
+    # Activation is explicit. Observation is the default and enforcement is
+    # represented in the durable record for the downstream BCC resolver.
+    row = await pool.fetchrow(
+        """UPDATE policy_packs SET active_revision = $2, mode = $3, updated_at = now()
+           WHERE id = $1 RETURNING *""", pack_id, revision["version"], body.mode,
+    )
+    return PolicyPackResponse(**dict(row), latest_revision=_policy_revision(revision))
 
 
 # --- Demo runs ------------------------------------------------------------------

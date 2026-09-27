@@ -79,6 +79,35 @@ export interface OwnedAgentResponse {
     error: string | null;
 }
 
+export interface PolicyRule {
+    tool: string;
+    action: string;
+    resource: string;
+    effect: 'allow' | 'deny';
+    note: string;
+}
+
+export interface PolicyRevision {
+    id: string;
+    version: number;
+    rules: PolicyRule[];
+    mode: 'observe' | 'enforce';
+    change_note: string;
+    created_at: string;
+}
+
+export interface PolicyPack {
+    id: string;
+    name: string;
+    description: string;
+    agent_did: string | null;
+    mode: 'observe' | 'enforce';
+    active_revision: number | null;
+    created_at: string;
+    updated_at: string;
+    latest_revision: PolicyRevision | null;
+}
+
 class UserApiError extends Error {
     status: number;
     constructor(status: number, message: string) {
@@ -182,6 +211,13 @@ export const userapi = {
             method: 'POST',
             body: JSON.stringify({ agent_did: agentDid }),
         }, true),
+    policyPacks: () => request<PolicyPack[]>('/me/policy-packs', {}, true),
+    createPolicyPack: (payload: { name: string; description: string; agent_did: string | null; rules: PolicyRule[]; change_note: string }) =>
+        request<PolicyPack>('/me/policy-packs', { method: 'POST', body: JSON.stringify(payload) }, true),
+    createPolicyRevision: (packId: string, payload: { rules: PolicyRule[]; change_note: string }) =>
+        request<PolicyPack>(`/me/policy-packs/${encodeURIComponent(packId)}/revisions`, { method: 'POST', body: JSON.stringify(payload) }, true),
+    activatePolicyPack: (packId: string, mode: 'observe' | 'enforce') =>
+        request<PolicyPack>(`/me/policy-packs/${encodeURIComponent(packId)}/activate`, { method: 'POST', body: JSON.stringify({ mode }) }, true),
     getWallet: () => request<{ app_wallet_address: string; balance: number }>('/me/wallet', {}, true),
     walletTransfer: (recipient_address: string, amount: number) =>
         request<{ status: string; new_balance: number }>('/me/wallet/transfer', {

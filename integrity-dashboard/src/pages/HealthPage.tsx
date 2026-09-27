@@ -636,8 +636,11 @@ export default function HealthPage() {
               {/* Clinical Allowlist */}
               <Panel title="Clinical Allowlist (BCC Runtime Policy)" icon={<Shield size={18} color="var(--theme-accent)" />}>
                 <div className="flex-col gap-4">
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.22)', padding: '10px 12px', borderRadius: 'var(--radius-sm)' }}>
+                    <strong style={{ color: 'var(--success)' }}>Observation by default.</strong> This rule records which agents are configured for clinical workloads; it does not revoke tools or block a registered agent. An operator must explicitly switch BCC to enforcement for a selected policy/workload.
+                  </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span className="text-muted" style={{ fontSize: '0.85rem' }}>Agents permitted at runtime.</span>
+                    <span className="text-muted" style={{ fontSize: '0.85rem' }}>Agents observed for the clinical policy pack.</span>
                     <span style={{ fontSize: '0.75rem', background: 'var(--bg-secondary)', padding: '2px 8px', borderRadius: '12px' }}>{allowlist.length} agents</span>
                   </div>
                   {allowlistLoading ? <p className="text-muted" style={{ fontSize: '0.85rem' }}>Loading allowlist...</p> : (

@@ -68,6 +68,55 @@ class OwnedAgentResponse(BaseModel):
     error: str | None = None
 
 
+# --- Policy packs -----------------------------------------------------------
+
+
+class PolicyRule(BaseModel):
+    tool: str = Field(..., min_length=1, max_length=160)
+    action: str = Field(..., min_length=1, max_length=160)
+    resource: str = Field("*", min_length=1, max_length=240)
+    effect: str = Field("allow", pattern="^(allow|deny)$")
+    note: str = Field("", max_length=500)
+
+
+class PolicyPackCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+    description: str = Field("", max_length=1000)
+    agent_did: str | None = Field(None, max_length=240)
+    rules: list[PolicyRule] = Field(default_factory=list, max_length=200)
+    change_note: str = Field("Initial draft", max_length=500)
+
+
+class PolicyRevisionCreateRequest(BaseModel):
+    rules: list[PolicyRule] = Field(default_factory=list, max_length=200)
+    change_note: str = Field("", max_length=500)
+
+
+class PolicyActivationRequest(BaseModel):
+    mode: str = Field("observe", pattern="^(observe|enforce)$")
+
+
+class PolicyRevisionResponse(BaseModel):
+    id: UUID
+    version: int
+    rules: list[PolicyRule]
+    mode: str
+    change_note: str
+    created_at: datetime
+
+
+class PolicyPackResponse(BaseModel):
+    id: UUID
+    name: str
+    description: str
+    agent_did: str | None
+    mode: str
+    active_revision: int | None
+    created_at: datetime
+    updated_at: datetime
+    latest_revision: PolicyRevisionResponse | None = None
+
+
 # --- Demo runs -------------------------------------------------------------
 
 
