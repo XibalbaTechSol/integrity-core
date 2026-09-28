@@ -8,18 +8,19 @@ there is no second procedural authority under `.agents/`.
 ### What this repo is
 
 A monorepo implementing a self-sovereign agent identity and reputation protocol
-on Base (EVM). Eight packages, each with its own real test suite:
+on Base (EVM). Five packages, each with its own real test suite:
 
 | Package | Language / stack | Test command |
 |---|---|---|
 | `contracts/` | Solidity / Foundry | `forge test -vvv` |
-| `integrity-zkp/` | Noir / Barretenberg | `nargo test` |
 | `integrity-oracle/` | Rust / Axum | `cargo test --workspace` |
 | `integrity-sdk/` | Python / uv | `uv run pytest` |
 | `integrity-cli/` | Python / uv | `uv run pytest` |
 | `bcc_middleware/` | Python / uv + OPA | `uv run pytest && opa test policies/ -v` |
 
-CI runs all eight in parallel. See `.github/workflows/ci.yml`.
+CI runs all five in parallel (plus a `docs` job). See `.github/workflows/ci.yml`.
+`integrity-zkp/` was cut in A1 (`3739d3c5`) — ZK proving is retired for this phase; only stale
+build artifacts remain, no source. See `integrity-lab`'s cut-path manifest.
 
 ### Non-negotiable rules for any agent making code changes
 
@@ -107,7 +108,6 @@ The wiki entity map must stay aligned with these package owners:
 | Directory | Wiki entity |
 |---|---|
 | `contracts/` | `entities/contracts.md` |
-| `integrity-zkp/` | `entities/integrity-zkp.md` |
 | `integrity-oracle/` | `entities/integrity-oracle.md` |
 | `integrity-sdk/` | `entities/integrity-sdk.md` |
 | `integrity-cli/` | `entities/integrity-cli.md` |
