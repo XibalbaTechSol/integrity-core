@@ -81,3 +81,7 @@ integrity-mvp/
 
 # Playwright output at repo root (dashboard copy already ignored above)
 test-results/
+
+# SDK gas records live in ~/.integrity/gas_usage.jsonl (integrity_sdk.chain.gas_log_path);
+# a copy in the repo is a stray from an old relative-path write.
+gas_usage.jsonl

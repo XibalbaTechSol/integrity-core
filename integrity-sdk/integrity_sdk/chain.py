@@ -18,6 +18,7 @@ itself signed, not one the protocol signed on its behalf.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -30,6 +31,19 @@ from web3.contract import Contract
 from web3.exceptions import BadFunctionCallOutput, ContractCustomError
 
 _ABIS_DIR = Path(__file__).resolve().parent / "abis"
+
+
+def gas_log_path() -> Path:
+    """Where transaction gas records are appended (one JSON object per line).
+
+    ``INTEGRITY_GAS_LOG`` overrides it; the default is ``~/.integrity/gas_usage.jsonl``,
+    the SDK's existing per-user state root. It used to be the bare relative path
+    ``gas_usage.jsonl``, so every working directory a tool ran from grew its own copy --
+    four of them ended up committed to the repo. ``scripts/gas_optimizer.py`` reads the
+    same location.
+    """
+    override = os.environ.get("INTEGRITY_GAS_LOG", "").strip()
+    return Path(override).expanduser() if override else Path.home() / ".integrity" / "gas_usage.jsonl"
 
 
 @lru_cache(maxsize=8)
@@ -110,7 +124,9 @@ def _wait(w3: Web3, tx_hash: bytes, *, action: str):
             "cost_wei": cost_wei,
             "status": "success"
         }
-        with open("gas_usage.jsonl", "a") as f:
+        log_path = gas_log_path()
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(log_path, "a") as f:
             f.write(json.dumps(log_entry) + "\n")
     except Exception as e:
         print(f"Warning: failed to log gas usage: {e}")
