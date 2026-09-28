@@ -161,3 +161,49 @@ def test_no_anchor_report_when_anchoring_did_not_land(client, real_opa_server, m
         assert client.post("/v1/bcc/intercept", json=payload).json()["authorized"] is True
 
     assert anchored == [], "a failed/unsubmitted anchor must not be reported as linked"
+
+
+INVOCATION = "018f47a2-4e31-7c90-b187-8d4f82d6c921"
+
+
+@pytest.mark.parametrize("shadow_mode, decision", [(False, "deny"), (True, "shadow_deny")])
+def test_deny_decision_records_signed_correlation_keys(client, monkeypatch, shadow_mode, decision):
+    """A DENY (or shadow-mode would-be deny) must carry the same signed correlation keys
+    the ALLOW row does -- invocation_id and intended_state_hash -- so a denied intent can
+    be joined to its invocation (e.g. Shield event -> BCC deny) at evidence export.
+    A chain_id mismatch is used because it denies before any crypto/OPA/oracle I/O."""
+    settings = Settings(shadow_mode=shadow_mode)
+    monkeypatch.setattr(main_module, "default_settings", settings)
+    main_module.circuit_breaker.reset()
+    main_module.nonce_store.reset()
+
+    reported: list[dict] = []
+    monkeypatch.setattr(main_module.audit_module, "report_decision", lambda settings, **kw: reported.append(kw))
+
+    agent_id, private_key = new_agent()
+    payload = sign_commitment(private_key, agent_id=agent_id, nonce=1, chain_id=settings.chain_id + 1, invocation_id=INVOCATION)
+    body = client.post("/v1/bcc/intercept", json=payload).json()
+    assert body["authorized"] is shadow_mode
+    assert body["invocation_id"] == INVOCATION
+
+    rows = [r for r in _await_reported(reported) if r["decision"] == decision]
+    assert rows, f"a {decision} decision must be reported"
+    assert rows[-1]["reason_code"] == "BCC_CHAIN_MISMATCH"
+    assert rows[-1]["metadata"] == {"invocation_id": INVOCATION, "intended_state_hash": payload["intended_state_hash"]}
+
+
+def test_deny_without_invocation_id_still_carries_intended_state_hash(client, monkeypatch):
+    # Legacy commitments (no invocation_id) keep working; the row carries what exists.
+    settings = Settings(shadow_mode=False)
+    monkeypatch.setattr(main_module, "default_settings", settings)
+    main_module.circuit_breaker.reset()
+    main_module.nonce_store.reset()
+
+    reported: list[dict] = []
+    monkeypatch.setattr(main_module.audit_module, "report_decision", lambda settings, **kw: reported.append(kw))
+
+    agent_id, private_key = new_agent()
+    payload = sign_commitment(private_key, agent_id=agent_id, nonce=1, chain_id=settings.chain_id + 1)
+    client.post("/v1/bcc/intercept", json=payload)
+    rows = [r for r in _await_reported(reported) if r["decision"] == "deny"]
+    assert rows[-1]["metadata"] == {"intended_state_hash": payload["intended_state_hash"]}
