@@ -22,7 +22,7 @@ source_files:
   - docs/WHITEPAPER.md
   - docs/archive/2026-08/integrity-protocol-v3.2.md
   - spec/xibalba-shield-v1.md
-  - docs/audits/2026-08-06-cross-repository-status.md
+  - docs/archive/2026-09/audits/2026-08-06-cross-repository-status.md
 ---
 
 # Repository Implementation Plans

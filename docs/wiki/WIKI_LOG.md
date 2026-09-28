@@ -44,6 +44,11 @@
 - Moved the test-only `docs/packs/trading/` loopback adapter documentation to
   `docs/archive/2026-09/packs/trading/`; it is not an active pack authority or production adapter.
 
+## [2026-09-28] archive | moved the historical cross-repository status audit
+
+- Moved `docs/audits/2026-08-06-cross-repository-status.md` into the dated archive and updated
+  the repository implementation-plan wiki page's `source_files` binding.
+
 ## [2026-09-28] integrate | A3 Shield and Cortex migrations merged
 
 - Merged xibalba-shield#39: labeled/HMAC-protected Hermes exports, separate device-auth keys,

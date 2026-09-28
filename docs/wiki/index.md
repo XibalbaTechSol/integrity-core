@@ -43,7 +43,7 @@ The cross-repository implementation plan and audit ledger are maintained in
 [Repository Implementation Plans](architecture/repository-implementation-plans.md).
 Repository-local status pages are:
 
-- [`integrity-core` audit status](../audits/2026-08-06-cross-repository-status.md): strong testnet prototype; SDK has 2 failing tests; production readiness not established.
+- [`integrity-core` audit status](../archive/2026-09/audits/2026-08-06-cross-repository-status.md): historical strong-testnet-prototype assessment; production readiness was not established.
 - [`integrity-mvp` audit status](https://github.com/XibalbaTechSol/integrity-mvp/blob/main/docs/audits/2026-08-06-status.md): frontend build and unit tests pass; lint and dependency-security gaps remain.
 - [`xibalba-shield` audit status](https://github.com/XibalbaTechSol/xibalba-shield/blob/main/docs/audits/2026-08-06-status.md): Linux-first prototype; 2 of 3 eBPF probes verified; TCP-connect blocked.
 - [`xibalba-cortex` audit status](https://github.com/XibalbaTechSol/xibalba-cortex/blob/main/docs/audits/2026-08-06-status.md): local MCP memory prototype; tests pass with Drive extras; active worktree changes require review.
