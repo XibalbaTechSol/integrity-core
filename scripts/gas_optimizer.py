@@ -3,7 +3,9 @@ import os
 from collections import defaultdict
 from datetime import datetime
 
-LOG_FILE = "integrity-sdk/gas_usage.jsonl"
+# Same location the SDK writes to (integrity_sdk.chain.gas_log_path):
+# $INTEGRITY_GAS_LOG, else ~/.integrity/gas_usage.jsonl.
+LOG_FILE = os.environ.get("INTEGRITY_GAS_LOG", "").strip() or os.path.expanduser("~/.integrity/gas_usage.jsonl")
 REPORT_FILE = "docs/wiki/queries/gas-tracking.md"
 
 def analyze_gas():

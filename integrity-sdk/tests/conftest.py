@@ -27,6 +27,26 @@ CONTRACTS_DIR = Path(__file__).resolve().parents[2] / "contracts"
 ANVIL_DEV_PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 
 
+# Collection-policy env the SDK reads at runtime (integrity_sdk/collection.py). An
+# operator shell that exports one of these (e.g. INTEGRITY_COLLECTION_PROFILE=standard,
+# which samples content at 10%) made tests that assert on captured content fail locally
+# while passing in CI. Tests that need a profile set it explicitly with monkeypatch.
+_COLLECTION_ENV = (
+    "INTEGRITY_COLLECTION_PROFILE",
+    "INTEGRITY_CAPTURE_CONTENT",
+    "INTEGRITY_REDACT_CONTENT",
+    "INTEGRITY_CONTENT_SAMPLE_RATE",
+    "INTEGRITY_MAX_CONTENT_CHARS",
+    "INTEGRITY_GAS_LOG",
+)
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_collection_env(monkeypatch):
+    for name in _COLLECTION_ENV:
+        monkeypatch.delenv(name, raising=False)
+
+
 def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
