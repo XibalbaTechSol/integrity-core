@@ -454,7 +454,9 @@ paths or sibling Docker copies. Both pass independence CI against the SDK tag.
     `docs/DOCUMENT_STATUS.yaml` now points at this plan with `authority: execution`; the older
     `docs/IMPLEMENTATION_PLAN.md` is retained as historical context pending the remaining A5
     archive/merge work.
-  - [ ] merge root `AGENTS.md` with `.agents/AGENTS.md` into one file (`CLAUDE.md` = `@AGENTS.md`);
+  - [x] merge root `AGENTS.md` with `.agents/AGENTS.md` into one file (`CLAUDE.md` = `@AGENTS.md`).
+    Completed 2026-09-28: root `AGENTS.md` contains the quick-start and wiki procedure,
+    `CLAUDE.md` imports it, and the duplicate `.agents/AGENTS.md` authority was removed.
   - [x] create `STATUS.md` (≤150 lines), `ECOSYSTEM.md`, `DATA.md` and ADR-0001 (the six-function test).
     `STATUS.md` completed 2026-09-28 as the bounded current-state summary; the remaining three
     documents stay open.
@@ -469,8 +471,10 @@ paths or sibling Docker copies. Both pass independence CI against the SDK tag.
   merge-required, historical or removable. `PRODUCTION_GAPS.md` entries that are still open move to
   `STATUS.md` or an ADR.
 - **CI:**
-  - [ ] link, path, duplicate-claim and authority checks, plus the `STATUS.md` cap;
-  - [ ] `sync-wiki.yml` follows the consolidated set;
+  - [x] link, path, duplicate-claim and authority checks, plus the `STATUS.md` cap. Completed
+    2026-09-28 in `scripts/check_docs.py`, with `wiki_toc.py --check` retained as the TOC gate.
+  - [x] `sync-wiki.yml` follows the consolidated set: it validates canonical `docs/wiki/` and
+    publishes that source only.
   - [x] fix the two pages failing `wiki_toc.py --check` on `main` (`local-metrology.md`,
     `integrity-oracle.md`). Completed 2026-09-28 with the repository TOC generator; only stale
     anchors were regenerated.

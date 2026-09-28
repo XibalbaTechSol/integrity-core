@@ -1,5 +1,14 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-09-28] docs | consolidated repository guidance and documentation gates
+
+- Merged the root quick-start and wiki procedure into `AGENTS.md`; `CLAUDE.md` now imports it,
+  and the duplicate `.agents/AGENTS.md` procedural authority was removed.
+- Added `scripts/check_docs.py` and the CI documentation job for authority pointers, local Markdown
+  links, wiki index parity, a single execution authority, and the 150-line `STATUS.md` cap.
+- Repaired the stale foundational-primitives link to the current upgradeability decision source;
+  `python3 scripts/check_docs.py` and `python3 scripts/wiki_toc.py --check` pass locally.
+
 ## [2026-09-28] integrate | A3 Shield and Cortex migrations merged
 
 - Merged xibalba-shield#39: labeled/HMAC-protected Hermes exports, separate device-auth keys,

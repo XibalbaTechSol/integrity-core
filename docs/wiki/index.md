@@ -7,7 +7,7 @@ section below links to the real page. Governance/conventions:
 `WIKI_INDEX.md` (a retained legacy catalog),
 `WIKI_LOG.md` (chronological history, append-only). Cross-package
 decisions live in `../INTERFACE_CONTRACT.md`; how this wiki gets kept in
-sync with the code is `../../.agents/AGENTS.md`.
+sync with the code is `../../AGENTS.md`.
 
 **Start here** if you're new: [The Four Foundational Primitives](concepts/foundational-primitives.md)
 (the concepts), then [Agent Primitives](concepts/agent-primitives.md)

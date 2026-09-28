@@ -1,8 +1,7 @@
 # Integrity Protocol — Agent Instructions
 
-> **Full protocol** is in [`.agents/AGENTS.md`](.agents/AGENTS.md). Read that
-> file first. Everything below is a quick-start summary for agents (including
-> Jules) that read only the root `AGENTS.md`.
+This file is the single repository guidance authority. `CLAUDE.md` imports it;
+there is no second procedural authority under `.agents/`.
 
 ## Quick-start for Jules and other GitHub-integrated agents
 
@@ -19,8 +18,6 @@ on Base (EVM). Eight packages, each with its own real test suite:
 | `integrity-sdk/` | Python / uv | `uv run pytest` |
 | `integrity-cli/` | Python / uv | `uv run pytest` |
 | `bcc_middleware/` | Python / uv + OPA | `uv run pytest && opa test policies/ -v` |
-| `integrity-userapi/` | Python / uv + Postgres | `uv run pytest` (needs Postgres on 5435) |
-| `integrity-dashboard/` | React / Vite / TypeScript | `npm run test-e2e` (Playwright — no `npm test` unit-test script exists) |
 
 CI runs all eight in parallel. See `.github/workflows/ci.yml`.
 
@@ -43,7 +40,7 @@ CI runs all eight in parallel. See `.github/workflows/ci.yml`.
    cross-package schema, update that file in the same PR.
 
 5. **Update the wiki after every material change.** See the full loop in
-   `.agents/AGENTS.md` §2. Short version:
+   `AGENTS.md`'s Wiki-as-memory procedure. Short version:
    - Update the relevant `docs/wiki/entities/<package>.md` page.
    - Append one entry to `docs/wiki/WIKI_LOG.md` (append-only).
    - Update `docs/wiki/WIKI_INDEX.md` if pages were added or removed.
@@ -66,9 +63,63 @@ and open a PR. It should:
 
 ### Key files to read before making any change
 
-- `.agents/AGENTS.md` — full procedural schema (read this)
+- `AGENTS.md` — repository guidance and wiki procedural schema
 - `docs/INTERFACE_CONTRACT.md` — cross-package schemas, ports, decisions
 - `docs/wiki/WIKI_INDEX.md` — map of all 35 wiki pages (24 concepts, 8 entities, 2 architecture, 1 query)
 - `docs/wiki/WIKI_LOG.md` — recent session history (last ~10 entries)
 - `docs/TESTING.md` — test pyramid: what CI covers vs. what needs a live stack
 - Per-package `README.md` — setup, run, test instructions for each package
+
+## Wiki-as-memory procedure
+
+This repository's compiled wiki is governed here as part of the same guidance
+file. `docs/wiki/WIKI_SCHEMA.md` defines page content, `docs/INTERFACE_CONTRACT.md`
+defines cross-package contracts, and `docs/TESTING.md` defines the test pyramid.
+
+### Three-layer memory model
+
+| Layer | Location | Purpose | Mutability |
+|---|---|---|---|
+| Raw sources | `contracts/`, `integrity-*/`, `bcc_middleware/`, configs | Ground truth | Written normally during development |
+| Interface contract | `docs/INTERFACE_CONTRACT.md` | Cross-package decisions | Update when a boundary changes |
+| Compiled wiki | `docs/wiki/` | Synthesized, interlinked knowledge | Update after material changes |
+
+### Read → work → write → lint
+
+At the start of a material session, read `docs/wiki/WIKI_SCHEMA.md`,
+`docs/wiki/WIKI_INDEX.md`, the recent `docs/wiki/WIKI_LOG.md` entries, and the
+affected entity page. During work, record changed files, APIs, schemas,
+endpoints, and removed features. Afterward:
+
+1. Update the affected wiki entity or create one from the schema template.
+2. Update `docs/wiki/WIKI_INDEX.md` when pages are added or removed.
+3. Append one entry to `docs/wiki/WIKI_LOG.md`; never rewrite older entries.
+4. Update `docs/INTERFACE_CONTRACT.md` when a cross-package boundary changes.
+5. Run orphan, dead-link, source-drift, staleness, counter, and TOC checks.
+
+Only document behavior verified in source and tests. Unbuilt behavior is
+`[PLANNED]`; mocks must not be presented as real implementations.
+
+### Canonical repository structure
+
+The wiki entity map must stay aligned with these package owners:
+
+| Directory | Wiki entity |
+|---|---|
+| `contracts/` | `entities/contracts.md` |
+| `integrity-zkp/` | `entities/integrity-zkp.md` |
+| `integrity-oracle/` | `entities/integrity-oracle.md` |
+| `integrity-sdk/` | `entities/integrity-sdk.md` |
+| `integrity-cli/` | `entities/integrity-cli.md` |
+| `bcc_middleware/` | `entities/bcc_middleware.md` |
+
+Fix the table and wiki together if the repository structure changes. Every
+entity page's `source_files` must point to files that exist now.
+
+### Continuous test-coverage procedure
+
+For implementation changes, run the touched package's real validation, identify
+new coverage gaps, add deterministic tests against real dependencies, and rerun
+the suite. For multiple independent gaps, parallel test work is appropriate;
+the orchestrating session must rerun and verify the final suite before logging
+the result. A small, obvious gap may be covered inline.

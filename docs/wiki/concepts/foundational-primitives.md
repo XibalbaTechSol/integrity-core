@@ -156,7 +156,7 @@ bonded stake into ownership, and BCC + observability into reputation. Full deriv
 
 **Termination** — how an agent's standing *ends* — is formalized (invariants T1–T5) but not
 adopted, because it requires registry mutability, which is the same question the
-[upgradeability decision](../../archive/2026-08/upgradeability-decision.md) faces. Settling them
+[upgradeability decision](../../design/upgradeability-decision.md) faces. Settling them
 separately would risk two incompatible answers to one question. Today an agent can be
 abandoned but not ended.
 
