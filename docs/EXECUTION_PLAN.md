@@ -497,8 +497,10 @@ paths or sibling Docker copies. Both pass independence CI against the SDK tag.
 ## A6. Stable SaaS seams (M)
 
 SDK/API contracts plus local reference implementations (no billing code) for:
-- [ ] tenant and organization identity;
-- [ ] agent and device registration;
+- [x] tenant and organization identity. A dependency-light local registry now stores explicit
+  organization/tenant identity with atomic persistence and no private credentials.
+- [x] agent and device registration. The same registry enforces tenant-scoped agent/device
+  ownership, idempotent re-registration, pack-hash metadata, and fail-closed revocation checks.
 - [ ] signed pack distribution and version pinning;
 - [ ] receipt submission and local queueing;
 - [ ] offline verification;
