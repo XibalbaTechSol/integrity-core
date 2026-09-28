@@ -1,7 +1,8 @@
 # Execution Plan: The Xibalba Ecosystem, Balanced and Monetizable
 
-**Status:** Final draft, pending owner approval. Once approved, Phase A5 makes this the single
-execution-plan authority in `docs/DOCUMENT_STATUS.yaml` and archives the plans it supersedes.
+**Status:** Approved by the owner on 2026-09-28; execution in progress. Phase A5 records this plan as
+the single execution-plan authority in `docs/DOCUMENT_STATUS.yaml` and archives the plans it
+supersedes.
 **Scope:** integrity-core, xibalba-shield, xibalba-cortex, and two
 new repositories: integrity-console and integrity-lab.
 **Tracking:** work items are GitHub task-list checkboxes. Tick an item (`- [x]`) in the same commit
@@ -212,7 +213,7 @@ review:
 - [x] Keep agent private keys outside the harness root (`ad56d97`).
 - [x] Write this final draft (`8cf35bd`).
 - [x] Keep the name integrity-core; drop the rename (`5361cf7`).
-- [ ] Owner approves this plan.
+- [x] Owner approves this plan (2026-09-28).
 
 # Phase A: architectural and documentation simplicity
 
