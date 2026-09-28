@@ -84,7 +84,7 @@ def oracle_backend(deployed_chain):
     """
     Starts a REAL `integrity-oracle` backend (`cargo run`) pointed at the
     session's real anvil chain (`deployed_chain` from conftest.py, which
-    already ran the real `Deploy.s.sol` + `DeployMarkets.s.sol` genesis and,
+    already ran the real `Deploy.s.sol` genesis and,
     as a real side effect of those forge scripts, wrote a full
     `deployments.local.json` to the repo root — reused here as-is rather than
     hand-built, so the oracle resolves the exact same on-chain state the SDK

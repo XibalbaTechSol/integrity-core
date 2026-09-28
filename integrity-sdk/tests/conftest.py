@@ -91,27 +91,6 @@ def deployed_chain():
             if tx.get("transactionType") == "CREATE"
         }
 
-        # Market/application layer is a separate INCREMENTAL script (see
-        # contracts/script/DeployMarkets.s.sol's own NatSpec on why it's not
-        # folded into genesis Deploy.s.sol) -- run it here too, against the
-        # same fresh anvil + the deployments.local.json Deploy.s.sol just
-        # wrote, so tests exercising markets.py get real deployed addresses.
-        markets_result = subprocess.run(
-            ["forge", "script", "script/DeployMarkets.s.sol", "--rpc-url", rpc_url, "--broadcast"],
-            cwd=CONTRACTS_DIR,
-            capture_output=True,
-            text=True,
-            env=dict(os.environ, FUNDER_PRIVATE_KEY=ANVIL_DEV_PRIVATE_KEY),
-        )
-        if markets_result.returncode != 0:
-            raise RuntimeError(f"DeployMarkets.s.sol failed:\n{markets_result.stdout}\n{markets_result.stderr}")
-
-        markets_broadcast_path = CONTRACTS_DIR / "broadcast" / "DeployMarkets.s.sol" / "31337" / "run-latest.json"
-        markets_broadcast = json.loads(markets_broadcast_path.read_text())
-        for tx in markets_broadcast["transactions"]:
-            if tx.get("transactionType") == "CREATE":
-                addresses[tx["contractName"]] = Web3.to_checksum_address(tx["contractAddress"])
-
         w3 = Web3(Web3.HTTPProvider(rpc_url))
         funder = Account.from_key(ANVIL_DEV_PRIVATE_KEY)
 
