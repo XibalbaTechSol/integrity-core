@@ -9,7 +9,7 @@ from integrity_sdk.telemetry.privacy import PrivacyPolicy
 
 
 def test_shipped_schema_matches_envelope_required_fields():
-    schema = json.loads((Path(__file__).parents[2] / "integrity_sdk" / "schema" / "telemetry-envelope-v1.json").read_text())
+    schema = json.loads((Path(__file__).parents[2] / "integrity_sdk" / "schema" / "telemetry-envelope-v2.json").read_text())
     event = TelemetryEnvelope(event_type="session_started", agent_id="a").to_dict()
     assert schema["properties"]["schema_version"]["const"] == event["schema_version"]
     assert set(schema["required"]).issubset(event)
@@ -20,7 +20,7 @@ def test_envelope_is_versioned_hashed_and_redacts_nested_secrets():
         event_type="prompt_received", agent_id="agent-a", did="did:integrity:test",
         payload={"prompt": "email a@b.example", "api_key": "sk-super-secret"},
     ).to_dict()
-    assert event["schema_version"] == 1
+    assert event["schema_version"] == 2
     assert event["content_hash"]
     assert "a@b.example" not in json.dumps(event)
     assert "sk-super-secret" not in json.dumps(event)

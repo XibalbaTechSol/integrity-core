@@ -336,16 +336,24 @@ Both constants must move together. Rules, all load-bearing:
 Covered by `oracle_e2e_telemetry_schema_version_is_signed_and_backward_compatible`, which
 asserts legacy/v1 compatibility, unknown-version refusal, and signed-field tamper rejection.
 
-### 4.2b SDK developer telemetry envelope v1
+### 4.2b SDK developer telemetry envelope v2
 
 `integrity-sdk/integrity_sdk/telemetry/envelope.py` defines the developer-facing
-event envelope at `schema/telemetry-envelope-v1.json`. It is distinct from the
+event envelope at `schema/telemetry-envelope-v2.json`. It is distinct from the
 signed Oracle ingestion object in §4.2a: it is the common pre-projection shape
 for local JSONL/SQLite, authenticated Cortex export, Shield correlation, and
 dashboard adapters. It requires an event ID, event type, stable agent ID,
 timestamp sources, payload/metadata objects, privacy/redaction state, and
 content/payload hashes; optional fields preserve DID, harness, principal,
 device, session, invocation, trace, span, and parent relationships.
+
+`SCHEMA_VERSION` moved 1 → 2 in docs/EXECUTION_PLAN.md A3, when `canonical_bytes`
+switched from an ad-hoc `json.dumps(sort_keys=True)` encoding to RFC 8785 (JCS) —
+a v1 `content_hash`/`payload_hash` and a v2 one over the same payload differ.
+`schema/telemetry-envelope-v1.json` stays in the SDK as a historical record, not
+current. This envelope is never read back by the Oracle (§4.2a's schema version
+is a separate, independently-signed object over `otel_spans`), so there was no
+cross-package consumer to update.
 
 Serialization is UTF-8 JSON with sorted keys, no insignificant whitespace, and
 `ensure_ascii=false`; hashes are lowercase SHA-256 hex over the canonical
@@ -429,8 +437,15 @@ the same encoding, not a second one):
 ```
 { schema, agent_id, kind, content_hash, parents[], edge_type, timestamp, source }
 node_id = "0x" + keccak256(canonical(preimage))
-schema  = "integrity.memory.node.v1"
+schema  = "integrity.memory.node.v2"
 ```
+
+`schema` moved v1 → v2 in docs/EXECUTION_PLAN.md A3, when `canonical()` switched
+from an ad-hoc `json.dumps(sort_keys=True, ensure_ascii=True)` encoding (despite
+this section's pre-existing "RFC 8785 JCS" description above, which was the
+intent, not yet the implementation) to the real `integrity_sdk.core.jcs`. A v1
+node id and a v2 one over the same preimage fields differ only when a field
+contains non-ASCII text; v1 stays a historical, no-longer-current schema.
 
 Three rules are load-bearing:
 

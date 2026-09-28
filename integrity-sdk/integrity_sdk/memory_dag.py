@@ -36,9 +36,15 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from eth_utils import keccak
 
+from .core.jcs import canonical_bytes as _jcs_canonical_bytes
+
 #: Bumping this changes every node id. It is part of the hashed preimage precisely
-#: so that a schema change cannot silently produce ids that collide with v1 ids.
-SCHEMA = "integrity.memory.node.v1"
+#: so that a schema change cannot silently produce ids that collide with an earlier
+#: version's ids. Bumped v1 -> v2 (docs/EXECUTION_PLAN.md A3) when `canonical()`
+#: below switched from the ad-hoc `json.dumps(sort_keys=True, ensure_ascii=True)`
+#: encoding to RFC 8785 (JCS): a v1 node_id and a v2 node_id computed from the same
+#: preimage fields differ (JCS emits non-ASCII as UTF-8 rather than `\uXXXX`).
+SCHEMA = "integrity.memory.node.v2"
 
 #: Structural edge kinds. All point strictly backward in time — that is what makes
 #: the object graph a DAG without needing a cycle check anywhere.
@@ -53,15 +59,17 @@ def _vault_home() -> Path:
 
 
 def canonical(obj: Any) -> bytes:
-    """Canonical JSON — sorted keys, no whitespace, `ensure_ascii=True`.
+    """RFC 8785 (JCS) canonical bytes -- the protocol's one canonicalization (contract C1).
 
-    Byte-identical to the convention `integrity_sdk/bcc.py`, `integrity_cli/bcc.py`
-    and `bcc_middleware/app/canonical.py` already share. Reusing it rather than
-    inventing a second encoding is deliberate: the repo already carries one
-    documented non-ASCII disagreement between Python and Rust canonicalization, and
-    a second canonical form would be a second place for that class of bug to live.
+    Delegates to `integrity_sdk.core.jcs`. This module previously reimplemented the
+    older `json.dumps(sort_keys=True, ensure_ascii=True)` convention that
+    `integrity_sdk/bcc.py`, `integrity_cli/bcc.py` and
+    `bcc_middleware/app/canonical.py` used before their own migration to JCS
+    (docs/EXECUTION_PLAN.md A2); using JCS here too keeps one encoding across the
+    repo rather than two, and closes this module's share of the documented
+    non-ASCII Python/Rust disagreement.
     """
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    return _jcs_canonical_bytes(obj)
 
 
 def content_hash(body: str) -> str:

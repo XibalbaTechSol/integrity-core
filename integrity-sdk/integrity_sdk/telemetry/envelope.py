@@ -8,16 +8,22 @@ Cortex, Shield, or the dashboard.
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
+from ..core.jcs import canonical_bytes as _jcs_canonical_bytes
 from ..security.redactor import redact_text
 
-SCHEMA_VERSION = 1
+#: Bumped 1 -> 2 (docs/EXECUTION_PLAN.md A3) when `canonical_bytes` below switched
+#: from the ad-hoc `json.dumps(sort_keys=True, ensure_ascii=False)` encoding to
+#: RFC 8785 (JCS). `content_hash`/`payload_hash` computed under schema_version 1
+#: do not match the same payload hashed under 2 -- JCS sorts keys by UTF-16 code
+#: unit (ASCII-equivalent here) but formats numbers per ECMAScript's
+#: `Number.prototype.toString`, which can differ from Python's `repr` for floats.
+SCHEMA_VERSION = 2
 SECRET_KEY = re.compile(r"(private.?key|seed|password|api.?key|token|cookie|authorization|credential|keystore|recovery)", re.I)
 
 EVENT_TYPES = frozenset({
@@ -48,7 +54,13 @@ def _safe(value: Any) -> Any:
 
 
 def canonical_bytes(value: Mapping[str, Any]) -> bytes:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    """RFC 8785 (JCS) canonical bytes -- the SDK's one hashed encoding (contract C1).
+
+    Delegates to `integrity_sdk.core.jcs`; kept as a local wrapper so this module's
+    existing call sites (and any external importer of this name) are unaffected by
+    where the implementation lives.
+    """
+    return _jcs_canonical_bytes(value)
 
 
 @dataclass(frozen=True)

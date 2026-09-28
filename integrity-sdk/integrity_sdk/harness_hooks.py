@@ -6,20 +6,31 @@ fields so adapter behavior does not drift between Claude, Hermes, Codex, and Agy
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from typing import TYPE_CHECKING, Any, Mapping
+
+from .core.jcs import sha256_hex as _jcs_sha256_hex
 
 if TYPE_CHECKING:  # annotation only: keeps normalize_hook free of the client/telemetry stack
     from .agent_runtime import IntegrityAgent
 
 
 def _hash(value: Any) -> str | None:
+    """`sha256:<hex>` over `value`'s RFC 8785 (JCS) canonical bytes (contract C1).
+
+    `value` is an arbitrary harness-supplied payload (tool args/results are not
+    guaranteed JSON-native), so it is round-tripped through
+    `json.dumps(default=str)` first -- exactly what the previous ad-hoc encoding
+    already did to tolerate non-JSON-native values -- to get a JSON-native
+    structure before JCS canonicalizes it. This is telemetry-schema-visible:
+    `tool_input_hash`/`result_hash` ride inside `telemetry.envelope`'s payload, so
+    this changed value alongside that module's schema_version bump (1 -> 2).
+    """
     if value is None:
         return None
-    raw = json.dumps(value, sort_keys=True, default=str, ensure_ascii=False).encode()
-    return "sha256:" + hashlib.sha256(raw).hexdigest()
+    normalized = json.loads(json.dumps(value, default=str))
+    return _jcs_sha256_hex(normalized)
 
 
 def _hook_key(name: str) -> str:
