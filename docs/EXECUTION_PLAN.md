@@ -384,9 +384,15 @@ paths or sibling Docker copies. Both pass independence CI against the SDK tag.
   fix or a corrected assertion (they asserted the same impossible `"allow"`/no-op-`"deny"`
   outcomes) — full list in xibalba-shield's PR. `.venv/bin/python -m pytest`: 454 passed, 12
   skipped (was 451; net +3 after the one deletion).
-- [ ] Exports carry labels and HMAC-protected paths, never raw `cmdline` or content-bearing arguments.
-- [ ] Separate device-auth and agent keys.
-- [ ] Replace the seven canonical-JSON copies with SDK JCS, re-sign bundles, and bump the schema.
+- [x] Exports carry labels and HMAC-protected paths, never raw `cmdline` or content-bearing arguments.
+  Completed in xibalba-shield#39: Hermes references are HMAC-protected and the export contract
+  remains label-only, with no raw command content or content-bearing arguments.
+- [x] Separate device-auth and agent keys. Completed in xibalba-shield#39: device assertions use
+  an explicit device key path/env var and no longer fall back to the agent DID private key.
+- [x] Replace the seven canonical-JSON copies with SDK JCS, re-sign bundles, and bump the schema.
+  Completed in xibalba-shield#39: hashed/signature inputs use SDK JCS, signed policy/release
+  artifacts carry authenticated v2 schema/canonicalization metadata, and regression coverage
+  includes non-ASCII canonical bytes.
 - [x] Keep `mlflow` optional. Already true: `mlflow` is not a Shield dependency at all (checked
   `pyproject.toml`), so there is nothing non-optional to fix.
 - [x] Read the agent identity from the DID file, not `.integrity/identity.json`. Already true:
@@ -420,7 +426,7 @@ paths or sibling Docker copies. Both pass independence CI against the SDK tag.
   missing: `store.export_provider_telemetry()` has always called `domain_merkle_root(...,
   domain="provider_telemetry_export")`, but that domain was never in `events.MERKLE_DOMAINS` —
   every call raised `ValueError: unknown Merkle domain`, with zero test coverage.
-- [ ] Use SDK JCS. **Owner decision (2026-09-28): migration allowed, resolved.** `SPECIFICATION.md`
+- [x] Use SDK JCS. **Owner decision (2026-09-28): migration allowed, resolved.** `SPECIFICATION.md`
   §0's freeze covers the MCP tool contract and table shapes ("existing tools keep their current
   signatures... existing table shapes don't change field meaning") — it does not freeze the
   internal canonicalization behind a hash. Checked whether any real external verifier depends on
@@ -431,18 +437,15 @@ paths or sibling Docker copies. Both pass independence CI against the SDK tag.
   version bump + dual-hash verification window already used for `telemetry.envelope` and
   `memory_dag` above (v1 stays historical, not deleted; new writes use SDK JCS under a new tag).
   `SPECIFICATION.md` §0 gets its wording clarified to state the freeze scope explicitly, so this
-  doesn't get re-litigated. **Still not implemented** — `_canonical_json` has dozens of call
-  sites; this is real, multi-file work for its own session, not a quick fix.
+  doesn't get re-litigated. Completed in xibalba-cortex#32: store and Oracle receipt hash inputs
+  use SDK JCS with the existing schema/version migration and historical verification window.
 - [x] Bind create events to `content_hash`. Already true for the primary create path:
   `store_memory` computes `content_digest` and binds it into `source_payload["content_hash"]`
   before the row is written. Not re-verified against every ingestion path (OTLP, transcript,
   Drive, Codex backfill) in this pass.
-- [ ] Resolve agents from the DID file; `XIBALBA_AGENT_ID` becomes an explicit override only.
-  **Not done here, scoped as separate follow-up:** `XIBALBA_AGENT_ID` is read as a required
-  identifier in roughly 10 call sites (`server.py`, `store.py`, `provider_bridge.py`, the hook
-  bridges); `server.py`'s own docstring calls it "required: without it this server cannot scope
-  memory access." Making DID-file resolution primary is a real multi-file behavior change, not a
-  drop-in fix, and deserved its own pass rather than riding alongside the two bug fixes above.
+- [x] Resolve agents from the DID file; `XIBALBA_AGENT_ID` becomes an explicit override only.
+  Completed in xibalba-cortex#32: profile DID resolution is primary, with the environment value
+  retained only as an explicit override; missing identity fails closed.
 
 ## A5. Consolidate plans and documentation (M)
 

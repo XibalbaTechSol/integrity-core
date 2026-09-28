@@ -1,5 +1,14 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-09-28] integrate | A3 Shield and Cortex migrations merged
+
+- Merged xibalba-shield#39: labeled/HMAC-protected Hermes exports, separate device-auth keys,
+  SDK JCS for Shield hash/signature inputs, and v2 signed-artifact metadata with regression tests.
+- Merged xibalba-cortex#32: profile-DID-first identity resolution and SDK JCS for Cortex store and
+  Oracle receipt hash inputs; `XIBALBA_AGENT_ID` remains an explicit override.
+- Reconciled the A3 checkboxes in `docs/EXECUTION_PLAN.md`; remaining work is in later A5/A6 and
+  Phase B/C gates rather than the completed A3 sibling migrations.
+
 ## [2026-09-28] docs | execution-plan authority recorded
 
 - `docs/DOCUMENT_STATUS.yaml` now records `docs/EXECUTION_PLAN.md` as the current execution
