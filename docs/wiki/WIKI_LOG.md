@@ -13,6 +13,8 @@
   transport acknowledgements without losing receipts during an outage.
 - Added the offline verification facade with stable result codes for signed packs, receipt logs,
   and receipt inclusion proofs; it has no network dependency.
+- Added `StoreIdentity` to bind provider, store, tenant, and agent namespaces explicitly across
+  local and hosted-compatible memory providers.
 
 ## [2026-09-28] docs | consolidated mainnet-readiness authority
 

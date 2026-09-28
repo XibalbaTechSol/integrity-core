@@ -49,6 +49,7 @@ from .receipts import (
 )
 from .receipt_queue import ReceiptQueue, ReceiptQueueError
 from .signed_body import sign_body, verify_body
+from .store_identity import StoreIdentity, StoreIdentityError
 from .tenancy import (
     AgentRegistration,
     DeviceRegistration,
@@ -69,4 +70,5 @@ __all__ = [
     "ReceiptQueue", "ReceiptQueueError",
     "MEMORY_INTERFACE_VERSION", "MemoryProvider", "OpaClient", "OpaError", "sign_body", "verify_body",
     "TenantIdentity", "AgentRegistration", "DeviceRegistration", "LocalRegistry", "RegistryError",
+    "StoreIdentity", "StoreIdentityError",
 ]
