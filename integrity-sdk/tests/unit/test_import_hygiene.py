@@ -34,13 +34,13 @@ CORE_MODULES = (
     "integrity_sdk.harness_hooks",
 )
 
-# Modules A1 cuts. Importing the package must not load them.
-SCHEDULED_FOR_REMOVAL = (
+# Modules cut in A1 (now in integrity-lab). They must stay gone.
+REMOVED_IN_A1 = (
     "integrity_sdk.markets",
     "integrity_sdk.mcp_server",
-    "integrity_sdk.integrity",
     "integrity_sdk.prover",
     "integrity_sdk.opa_client",
+    "integrity_sdk.policy",
     "integrity_sdk.integrations.auto_hook",
 )
 
@@ -60,9 +60,11 @@ def test_core_module_imports_no_connector_dependency(module):
     assert _heavy_roots(_modules_after_import(f"import {module}")) == set()
 
 
-def test_package_import_loads_no_module_scheduled_for_removal():
-    loaded = _modules_after_import("import integrity_sdk")
-    assert loaded.isdisjoint(SCHEDULED_FOR_REMOVAL)
+@pytest.mark.parametrize("module", REMOVED_IN_A1)
+def test_modules_cut_in_a1_are_gone(module):
+    import importlib.util
+
+    assert importlib.util.find_spec(module) is None
 
 
 def test_lazy_exports_still_resolve():

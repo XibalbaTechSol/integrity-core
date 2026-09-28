@@ -286,7 +286,7 @@ def approve_erc20(w3: Web3, owner: LocalAccount, token_address: str, spender: st
     Generic ERC20 `approve`, signed by `owner`. Shared by every market/pool
     interaction that needs to let a spender contract pull ITK
     (`IntegrityMarket.enterPosition`, `A2ACapitalPool.allocate`) — kept here
-    rather than duplicated in markets.py since it's not market-specific.
+    rather than duplicated per application module since it's not app-specific.
     """
     token = _contract(w3, "IntegrityToken", address=token_address)
     _, tx_hash = _send_signed(
@@ -381,9 +381,9 @@ def execute_via_agent(
     direct call from the wallet to `MarketFactory`/`IntegrityMarket` would
     revert with `AgentNotRegistered`/`AgentNotRegistered` even for a fully
     registered agent, for exactly this reason -- this helper is what makes
-    every agent-identity-gated call (markets, Integrity Health) actually work
+    every agent-identity-gated call (Integrity Health) actually work
     end-to-end, mirroring `grant_anchor_role` below. Lives here, not in
-    markets.py, since Integrity Health depends on it and markets is being cut.
+    a single application module, since Integrity Health depends on it.
     """
     sovereign_agent = _contract(w3, "SovereignAgent", address=sovereign_agent_address)
     tx = sovereign_agent.functions.execute(Web3.to_checksum_address(target), 0, calldata).build_transaction(

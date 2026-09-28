@@ -41,7 +41,7 @@ wrong (different curves) and a security smell:
 
 | Key | Curve | Stored as | Signs |
 |---|---|---|---|
-| DID key (`did.py`) | Ed25519 | PKCS8 PEM (mode 0600) | BCC commitments, telemetry, ZK secrets |
+| DID key (`did.py`) | Ed25519 | PKCS8 PEM (mode 0600) | BCC commitments, telemetry |
 | EVM wallet (`wallet.py`) | secp256k1 | encrypted V3 keystore (`INTEGRITY_WALLET_PASSWORD`) | on-chain deploys + transactions |
 
 The DID document binds them: `attach_evm_account()` adds a CAIP-10
@@ -214,13 +214,6 @@ an eval harness (LangSmith or otherwise). See
 for the evaluation side; the SDK's job is producing faithful, structured traces
 to evaluate.
 
-## Zero-knowledge proving
-
-`prover.py` shells out to the real `nargo execute` + `bb prove` pipeline to
-generate a proof that an action matches its committed intent, verifiable on-chain
-by the agent's `VerifierRegistry` → `UltraPlonkVerifier`. See
-[`../integrity-zkp/README.md`](../integrity-zkp/README.md).
-
 ## TEE attestation (honest gap)
 
 `security/attestation.py` implements **real** AWS Nitro Enclave attestation
@@ -245,8 +238,8 @@ Unit tests (`tests/unit/`) cover wallet, DID, derivation, client, PII/PHI
 redaction (`test_redactor.py`), intent hashing/deviation (`test_intent.py`),
 and both tracing surfaces — MLflow autolog (`test_mlflow_tracing.py`) and the
 run-tree `trace_run`/`traceable` API (`test_tracing.py`). Integration tests
-(`tests/test_chain.py`, `tests/test_registration.py`, `tests/test_markets.py`)
-run the **real** registration and market sequences against a live anvil
+(`tests/test_chain.py`, `tests/test_registration.py`, `tests/test_health.py`)
+run the **real** registration and Integrity Health sequences against a live anvil
 chain running the real `contracts/script/Deploy.s.sol` — no mocked web3.
 `tests/test_registration_oracle_e2e.py` is opt-in (`ORACLE_E2E=1`, needs
 Docker + cargo on `PATH`) and re-verifies registration against a real
@@ -262,7 +255,7 @@ integrity_sdk/
   registration.py   the full self-sovereign registration orchestrator
   bcc.py            signed BCC commitment construction
   client.py         telemetry client → oracle
-  prover.py         nargo/bb ZK proof generation
+  core/             JCS, Merkle, signed packs, decision contract, receipts, OPA client
   abis/             trimmed contract ABIs (synced via make sync-abis)
   telemetry/        OTel core, MLflow tracing, run-tree tracing, AIS derivation
   integrations/     openai_integrity.py, langchain_callback.py

@@ -98,7 +98,7 @@ class Keypair:
     def private_bytes_raw(self) -> bytes:
         """Raw 32-byte Ed25519 seed. Callers should treat this as sensitive
         as the PEM itself — it exists for internal key-derivation use (see
-        prover.py's domain-separated ZK secret derivation), not for export."""
+        a domain-separated secret derivation), not for export."""
         return self._sk.private_bytes(
             serialization.Encoding.Raw,
             serialization.PrivateFormat.Raw,

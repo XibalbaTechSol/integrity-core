@@ -25,7 +25,6 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "AgentNotRegisteredError": (".agent_runtime", "AgentNotRegisteredError"),
     "IntegrityHookAdapter": (".harness_hooks", "IntegrityHookAdapter"),
     "normalize_hook": (".harness_hooks", "normalize_hook"),
-    "enable_auto_hooks": (".integrations.auto_hook", "enable_auto_hooks"),
     "integrity": (".integrity", "integrity"),
     "SDKAgent": (".integrity", "SDKAgent"),
     "ReadinessCheck": (".readiness", "ReadinessCheck"),
@@ -63,7 +62,6 @@ if TYPE_CHECKING:  # static analysers and IDEs see the real names
     from .did import migrate_identity_store
     from .harness_hooks import IntegrityHookAdapter, normalize_hook
     from .identity_registry import history as identity_history, latest as latest_identity
-    from .integrations.auto_hook import enable_auto_hooks
     from .integrity import SDKAgent, integrity
     from .readiness import ReadinessCheck, RegistrationReadiness, assess_local_readiness
     from .telemetry.privacy import PrivacyPolicy

@@ -10,7 +10,7 @@ Sequence (each step hard-depends on the previous one succeeding on-chain):
   3. Attach the EVM wallet as a CAIP-10 verification method on the DID doc.
   4. Fund the EVM wallet with ETH from the protocol's funder wallet (ETH
      pays gas for the wallet's own transactions, including every
-     SovereignAgent.execute() call in later steps and in markets.py).
+     SovereignAgent.execute() call in later steps and in health.py).
   5. The agent's own wallet directly deploys SovereignAgent.
   6. The agent's own wallet directly deploys StateAnchor.
   7. Mint a testnet ITK allocation to the SovereignAgent CONTRACT (not the
@@ -58,7 +58,7 @@ logger = logging.getLogger("integrity_sdk.registration")
 # declaring several. This is a self-declared badge for dashboard/discovery
 # purposes (mirrors the self-declared compliance flags below Healthcare in
 # the enum) -- it does NOT gate participation in IntegrityMarket/
-# A2ACapitalPool, which only ever check live AIS (see markets.py); an agent
+# A2ACapitalPool, which only ever check live AIS (the removed markets module did the same); an agent
 # can enter a market or receive a capital allocation regardless of which
 # vertical (if any) it declared here.
 _VERTICALS = {
@@ -650,15 +650,16 @@ def register_agent(
             raise RegistrationError(f"step 6b (set_execution_policy) failed: {exc}") from exc
 
     # Step 7: testnet ITK allocation, minted to the SovereignAgent CONTRACT
-    # address (not the wallet). Every AIS-gated application contract
-    # (IntegrityMarket.enterPosition, A2ACapitalPool via markets.py) checks
+    # address (not the wallet). Every agent-gated application contract that
+    # pulls ITK (SmartBAA's bond in health.py; the markets contracts did the same before they
+    # were cut) checks
     # `agentRegistry.isRegisteredAgent(msg.sender)` -- which only resolves
     # for the SovereignAgent contract address, never the raw controller
     # wallet (see XibalbaAgentRegistry.sol: `didHashOf` is keyed on
     # `primitives.sovereignAgent`). Since those same calls also pull ITK
     # FROM msg.sender, the collateral has to already be sitting on that same
-    # contract, or every real market/allocation transaction markets.py
-    # submits (via SovereignAgent.execute, see markets.py) would revert with
+    # contract, or every such transaction submitted via SovereignAgent.execute
+    # (`chain.execute_via_agent`) would revert with
     # an ERC20 insufficient-balance error despite the agent's wallet holding
     # plenty of ITK it can never spend through that call path.
     # Skip re-minting on a retry that already got this far -- unlike grant_anchor_role
