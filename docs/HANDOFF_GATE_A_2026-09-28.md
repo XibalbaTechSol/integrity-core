@@ -89,30 +89,41 @@ case (Identity), not a change to the count itself.
   - provenance export / `content_hash` binding: matches found in `tests/test_store.py` and
     `tests/test_retrieval_completeness.py` — not read line-by-line to confirm they assert the
     exact Gate A wording.
-- [ ] **Identity — confirmed BLOCKED, not just unchecked.** 23 live `private_key.pem` files
-  currently exist under harness/profile roots on this machine (paths, not contents, listed —
-  never print key material):
-  - `~/.codex/.integrity/did/codex/private_key.pem`
-  - `~/.gemini/antigravity-cli/.integrity/did/agy/private_key.pem`
-  - 12 more under `~/.gemini/antigravity-cli/brain/.../worktrees/subagent-*/.integrity/did/*/private_key.pem`
-  - `~/.hermes/did/*` (7 files) and `~/.hermes/.integrity/did/xibalba/private_key.pem`
-  - `~/.hermes/profiles/{xibalba-quant,xibalba-shield}/.integrity/did/*/private_key.pem` (4 files)
+- [ ] **Identity — partially resolved.** 23 live `private_key.pem` files were found under
+  harness/profile roots on this machine, all matching the **legacy in-root layout**
+  (`<harness root>/.integrity/did/<agent>/private_key.pem`) that `integrity_sdk/did.py`'s current
+  design (comment block, lines ~205-226) already moved away from by policy: DID document in the
+  harness root, private key in `<key home>` (`$INTEGRITY_DID_HOME` or `~/.integrity/did`) —
+  **outside** any harness root, confirmed as the intended design. The owner narrowed scope to the
+  five identities that matter (`xibalba.agent`, `xibalba.shield`, `xibalba.quant`, `codex`,
+  `claude`) — the other 18 (subagent worktree copies, test/demo agent fixtures) are extraneous and
+  were left untouched.
 
-  All match the **legacy in-root layout** (`<harness root>/.integrity/did/<agent>/private_key.pem`)
-  that `integrity_sdk/did.py`'s current design (comment block, lines ~205-226) already moved away
-  from by policy: DID document in the harness root, private key in `<key home>`
-  (`$INTEGRITY_DID_HOME` or `~/.integrity/did`) — **outside** any harness root, exactly the split
-  the user confirmed is the intended design. `migrate_identity_store()` is meant to relocate
-  legacy in-root keys on first use; these 23 are un-migrated. The **uncommitted edit in
-  `integrity-sdk/integrity_sdk/did.py`** (14 lines added to `migrate_identity_store`, still
-  present and untouched in this checkout) is mid-work on exactly this migration path — it handles
-  a destination directory that already has non-secret state (e.g. `bcc_nonce`) but no key/doc yet,
-  so migration doesn't wrongly treat it as corrupt. This item cannot pass until migration actually
-  runs against these 23 keys and is re-verified; **migrating live keys is an identity-boundary
-  change and was not performed this pass** — it needs explicit sign-off before executing, not
-  bundled into a validation pass. (Confirmed the only `PRIVATE KEY` string in the SDK's own test
-  fixtures, `tests/unit/test_redactor.py:56`, is a truncated synthetic placeholder, not live key
-  material, so the test suite itself isn't part of the blocker.)
+  For each of the five, on-chain registration was checked against `XibalbaAgentRegistry`
+  (`0x72e21e44AdD6d6e7CAa02eaedF078630afC40819`, Base Sepolia) via `integrity-cli`'s `resolve_did`
+  before touching anything:
+
+  | Identity | Finding | Action |
+  |---|---|---|
+  | `claude` | Already fully migrated in both profiles that use it; no legacy key exists anywhere. | None needed. |
+  | `xibalba.agent` | Two candidate keys existed for the same (profile, agent) slot: a legacy in-root copy (**not registered on-chain**) and an already-migrated copy (**registered on-chain**). The registered one is already correctly placed. | None needed. The unregistered legacy copy is a stale orphan, left alone (not urgent cleanup). |
+  | `xibalba.quant` | Same pattern as `xibalba.agent` — unregistered legacy copy vs. registered, already-migrated copy. | None needed; unregistered orphan left alone. |
+  | `codex` | Single legacy in-root key, not registered on-chain (no conflict risk). | **Relocated** — ran `_relocate_legacy_identity('codex', ...)`; DID confirmed unchanged (`did:integrity:d73b98dd...`) before and after; legacy directory now empty. |
+  | `xibalba.shield` | Single legacy in-root key, **registered on-chain** (the real, sole identity). | **Relocated** — ran `_relocate_legacy_identity('xibalba-shield', ...)`; DID confirmed unchanged (`did:integrity:2ea17967...`) before and after; on-chain registration unaffected (same DID, no re-registration needed). Confirmed `shield/integrity_exporter/exporter.py`, `preflight.py`, and `device_assertion.py` all resolve keys through `agent_dir()`/`load_or_create_did()` (which use `key_store_for_profile`, not a hardcoded legacy path), so the live systemd service is unaffected now and will resolve correctly on any future restart.
+
+  Both relocations used the SDK's existing copy-verify-delete logic directly (no new code written) —
+  copy first, confirm the copy derives an identical DID, only then delete the source. Executed by
+  the machine owner directly (agent-run write to private-key files was blocked by the permission
+  classifier, by design). The **uncommitted edit in `integrity-sdk/integrity_sdk/did.py`** (14 lines
+  added to `migrate_identity_store`, still present and untouched in this checkout) remains
+  in-progress work on a related edge case (a destination directory with non-secret state but no
+  key/doc yet) and was not needed for this relocation.
+
+  **Still open:** the 18 extraneous legacy keys (subagent worktree copies, test/demo fixtures) are
+  untouched by owner choice — this item can't be marked fully passed while they remain, but they're
+  explicitly out of scope for now, not an oversight. (Confirmed the only `PRIVATE KEY` string in the
+  SDK's own test fixtures, `tests/unit/test_redactor.py:56`, is a truncated synthetic placeholder,
+  not live key material.)
 - [ ] **Docs** — `scripts/check_docs.py` passes for `integrity-core` itself (49 authoritative, 55
   merge-required, 72 historical, 0 removable; authority/links/wiki-index/STATUS.md-cap all pass).
   One drift found and not yet fixed: `AGENTS.md` line 11 says "Eight packages" but the table under
@@ -190,11 +201,17 @@ Cross-repo, from each repo's root: `forge test -vvv` (contracts), `cargo test --
 1. **Owner decision needed**: whether/how to consolidate the three canonicalization
    implementations (SDK `jcs`, Shield `canonical_policy_json`, Cortex `_canonical_json`) onto one
    SDK-owned JCS implementation — this is the most concrete open "Builds" blocker, and it's a
-   signature-verification boundary change across repos.
-2. **Owner decision needed**: whether to run the legacy-key migration now against the 23 in-root
-   keys found on this machine, once `did.py`'s in-progress `migrate_identity_store` edit is
-   finished and reviewed — this is the Identity item's actual blocker.
-3. Merge or close `xibalba-cortex#34` (CI fix, currently green, unmerged).
+   signature-verification boundary change across repos. Confirmed the two schemes produce
+   different bytes for real payload shapes already in use (floats, e.g. Cortex's embedding-vector
+   hashing) — not a cosmetic difference. A safe path needs a format-version field on both Shield's
+   policy-bundle schema and Cortex's event schema before any canonicalization change, plus a
+   decision on new-writes-only vs. full backfill (backfill touches already-anchored Merkle roots
+   and is much higher risk).
+2. `codex` and `xibalba-shield` legacy keys relocated (owner-executed, verified — see Identity
+   above). Still open by owner choice: the 18 extraneous legacy keys (subagent worktrees, test/demo
+   fixtures) remain untouched, and `did.py`'s in-progress `migrate_identity_store` edit is still
+   uncommitted (a separate edge case, not required for the relocations done this pass).
+3. `xibalba-cortex#34` (CI fix) merged — Cortex's CI is green on `main` again.
 4. Re-run the Cortex suite against current `origin/main` (it was 1 commit behind at test time).
 5. Fix the `AGENTS.md` "eight packages" / six-row table drift.
 6. Finish the unconfirmed Shield/Cortex sub-item test mappings above (pack-hash exact assertion,
