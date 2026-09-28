@@ -2,7 +2,7 @@
 
 **Status:** Final draft, pending owner approval. Once approved, Phase A5 makes this the single
 execution-plan authority in `docs/DOCUMENT_STATUS.yaml` and archives the plans it supersedes.
-**Scope:** integrity-core (renamed integrity-kernel in C5), xibalba-shield, xibalba-cortex, and two
+**Scope:** integrity-core, xibalba-shield, xibalba-cortex, and two
 new repositories: integrity-console and integrity-lab.
 **Grounded against:** `main` @ `d22128b` (2026-09-28), plus the repository review recorded in
 [Appendix A](#appendix-a-pre-execution-review-2026-09-28).
@@ -62,7 +62,7 @@ key store: outside the harness root                     │
 |---|---|
 | xibalba-shield | On-device enforcement product (SaaS) |
 | xibalba-cortex | Memory, content and provenance product (SaaS) |
-| integrity-core → integrity-kernel | Trust substrate: SDK, contracts, oracle, BCC, CLI |
+| integrity-core | Trust substrate: SDK, contracts (including the on-chain `IntegrityKernel`), oracle, BCC, CLI |
 | integrity-console (new) | Operator UI and user API: dashboard, userapi, demo |
 | integrity-lab (new) | Frozen mirror of removed, historical and deferred code |
 
@@ -84,9 +84,9 @@ key store: outside the harness root                     │
 
 **Repositories**
 - Split the dashboard, userapi and demo into integrity-console in A1.
-- Rename integrity-core to integrity-kernel in C5.
+- Keep the name integrity-core. It names the whole trust substrate; `IntegrityKernel` stays the name
+  of one contract inside it. No repository rename.
 - Cut removed code into integrity-lab.
-- Until C5, new code uses repository-neutral names. GitHub's rename redirect is the interim alias.
 
 **Keep**
 - Health, XNS, integrity-cli, BCC, OPA, and AIS as the feedback loop.
@@ -201,7 +201,6 @@ review:
 1. Create integrity-lab and integrity-console. Push access to Shield and Cortex already exists.
 2. Approve any testnet broadcast (evidence anchor, genesis). Each is preceded by an Anvil dry run of
    the identical script.
-3. Approve the repository rename in C5.
 
 # Phase A: architectural and documentation simplicity
 
@@ -555,7 +554,6 @@ and roots with no provider behind them.
   as blocked.
 - Move the legacy account model, `SovereignAgent`, the PrimitiveSet templates, `IntegrityToken` and
   the ZK interfaces to integrity-lab.
-- Rename to integrity-kernel and remove old pins.
 - Rebuild the CLI on the SDK and remove duplicate implementations.
 
 ## Gate C
@@ -568,8 +566,8 @@ and roots with no provider behind them.
 - **Memory:** a provider-backed spot-check passes, a digest-only fake fails, and purged content is
   unrecoverable.
 - **Oversight:** replayed approvals are rejected.
-- **Cutover:** the dry run preserves DIDs, handles and history; no stale load-bearing references to
-  integrity-core remain.
+- **Cutover:** the dry run preserves DIDs, handles and history; no load-bearing references to the
+  legacy account model or cut code remain in active repositories.
 
 ## 9. Expected outcomes by gate
 
@@ -577,7 +575,7 @@ and roots with no provider behind them.
 |---|---|---|---|
 | Gate A | One trust layer (JCS, packs, receipts, identity with keys outside harness roots); about 22k lines moved to the console; cut code in the lab; a handful of authoritative docs with drift CI; Shield and Cortex standalone | "Simpler, consistent architecture; products run independently" | Any compliance or security guarantee |
 | Gate B-local | The Integrity Health demo on synthetic data: on-device HIPAA deny → signed receipt citing the control → offline verify → green Vanta test. Two pilot-ready, tenant-isolated products that survive outages | "Enforces configured policy with independently verifiable evidence" (pilot, synthetic data) | HIPAA certification, real-PHI readiness, real-funds safety |
-| Gate C | Proven kernel mediation, forgery-resistant registration, spot-checked memory, real purge, non-replayable approvals, a fresh testnet with the 15 agents' DIDs and handles preserved, the repo renamed | Readiness for real-PHI and real-funds pilots, subject to audit | Mainnet or audited status; HIPAA certification (still needs SOC 2 Type II and a BAA) |
+| Gate C | Proven kernel mediation, forgery-resistant registration, spot-checked memory, real purge, non-replayable approvals, a fresh testnet with the 15 agents' DIDs and handles preserved | Readiness for real-PHI and real-funds pilots, subject to audit | Mainnet or audited status; HIPAA certification (still needs SOC 2 Type II and a BAA) |
 
 **Not produced by this plan:**
 - automated revenue collection;
@@ -641,3 +639,4 @@ Findings from reviewing `main` before execution, and how this draft resolves eac
 | 9 | Sizes: about 105k code lines and 45k Markdown lines in this repo; console split about 21.8k lines | §9 and A1 updated |
 | 10 | Shield and Cortex push access exists; all repos public; siblings actively pushed | Checkpoint 1 reduced; A0 hygiene |
 | 11 | Toolchain missing in cloud sessions; solc host blocked | A0 |
+| 12 | The planned rename to integrity-kernel had no technical driver and would collide with the `IntegrityKernel` contract name | Owner decision 2026-09-28: keep integrity-core; rename, its checkpoint and interim naming rule removed |
