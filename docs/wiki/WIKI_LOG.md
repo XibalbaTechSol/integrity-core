@@ -7,6 +7,9 @@
 - Registrations are atomic, idempotent for identical metadata, conflict-refusing, and store
   public metadata only; hosted control planes and billing remain outside this slice.
 
+- Added `PackPinStore` for tenant-scoped signed-pack hash/version pinning. Resolution reuses the
+  SDK verifier and refuses tampering or replacement without the currently pinned hash.
+
 ## [2026-09-28] docs | consolidated mainnet-readiness authority
 
 - Added `docs/adr/ADR-0002-mainnet-readiness.md` as the current bounded deployment-readiness summary.

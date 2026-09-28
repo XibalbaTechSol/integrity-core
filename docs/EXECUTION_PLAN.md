@@ -501,7 +501,9 @@ SDK/API contracts plus local reference implementations (no billing code) for:
   organization/tenant identity with atomic persistence and no private credentials.
 - [x] agent and device registration. The same registry enforces tenant-scoped agent/device
   ownership, idempotent re-registration, pack-hash metadata, and fail-closed revocation checks.
-- [ ] signed pack distribution and version pinning;
+- [x] signed pack distribution and version pinning. `PackPinStore` records the tenant-scoped
+  verified hash/version/signer and re-verifies the source pack on every resolution; replacement
+  requires an explicit current-hash match.
 - [ ] receipt submission and local queueing;
 - [ ] offline verification;
 - [ ] Cortex provider and store identity;
