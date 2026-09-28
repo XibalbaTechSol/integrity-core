@@ -15,6 +15,13 @@
   interface contracts, or the gap register still cite them.
 - No historical evidence was deleted or silently rewritten.
 
+## [2026-09-28] decision | retained parked policy-pack branch
+
+- Kept `park/policy-packs-2026-09-26` preserved but outside the active authority set because it
+  introduces a separate userapi/Postgres pack authority.
+- Recorded that only its dashboard UI may be reconsidered for B0 after an explicit promotion
+  decision; no branch, migration, or historical work was deleted.
+
 ## [2026-09-28] docs | consolidated repository guidance and documentation gates
 
 - Merged the root quick-start and wiki procedure into `AGENTS.md`; `CLAUDE.md` now imports it,
