@@ -289,11 +289,13 @@ review:
 - [x] Snapshot the source and write a cut-path manifest. Mirror both to integrity-lab. Snapshot:
   `main` @ `761e019`; 91 files with history + manifest in integrity-lab#1 (open for merge).
 - [ ] **Split integrity-console** (about 21.8k lines: dashboard 18.1k, demo 1.6k, userapi 2.1k):
-  import in integrity-console#1 (open for merge).
+  import merged in integrity-console#1; ticked once integrity-console#4 merges.
   - [x] `git filter-repo` the dashboard, userapi and demo (191 commits, history kept);
   - [x] carry over or explicitly drop the unmerged `feat/cortex-operations-dashboard` branch (carried
     over, with `park/policy-packs-2026-09-26`);
-  - [ ] remove pages for cut features.
+  - [x] remove pages for cut features (integrity-console#4: Staking/Credit/Actuarial/Licence/Factory
+    pages, oracle DTOs for the cut routes, the demo's capital-allocation flow; Health's quarantine
+    scan now reads `Slasher.lockedStakeOf` on-chain).
 - **Move to integrity-lab:**
   - [x] `integrity-zkp`, `UltraPlonkVerifier`, the SDK prover (and the oracle's bb verifier);
   - [x] SDK `markets.py`, `mcp_server.py`, root `integrity.py`, the duplicate root `opa_client.py`,
