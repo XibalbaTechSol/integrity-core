@@ -11,6 +11,8 @@
   SDK verifier and refuses tampering or replacement without the currently pinned hash.
 - Added `ReceiptQueue` for atomic local persistence, offline restart verification, and explicit
   transport acknowledgements without losing receipts during an outage.
+- Added the offline verification facade with stable result codes for signed packs, receipt logs,
+  and receipt inclusion proofs; it has no network dependency.
 
 ## [2026-09-28] docs | consolidated mainnet-readiness authority
 

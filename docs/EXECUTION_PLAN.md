@@ -507,7 +507,8 @@ SDK/API contracts plus local reference implementations (no billing code) for:
 - [x] receipt submission and local queueing. `ReceiptQueue` durably persists the signed log,
   verifies it on restart, exposes pending receipts to a caller-owned transport, and retains
   unacknowledged receipts across failed submission.
-- [ ] offline verification;
+- [x] offline verification. `integrity_sdk.core.offline` exposes stable result codes for signed
+  pack, receipt-log, and receipt-inclusion verification without network access.
 - [ ] Cortex provider and store identity;
 - [ ] entitlements and capability checks;
 - [ ] redacted usage and audit metrics.
