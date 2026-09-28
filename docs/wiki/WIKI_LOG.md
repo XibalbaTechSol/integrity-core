@@ -1,5 +1,12 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-09-28] sdk | started A6 local SaaS seams
+
+- Added the dependency-light `integrity_sdk.core.tenancy` reference registry for explicit
+  organization/tenant identity and tenant-scoped agent/device registration.
+- Registrations are atomic, idempotent for identical metadata, conflict-refusing, and store
+  public metadata only; hosted control planes and billing remain outside this slice.
+
 ## [2026-09-28] docs | consolidated mainnet-readiness authority
 
 - Added `docs/adr/ADR-0002-mainnet-readiness.md` as the current bounded deployment-readiness summary.

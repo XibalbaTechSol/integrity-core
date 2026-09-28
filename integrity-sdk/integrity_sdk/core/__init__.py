@@ -46,6 +46,13 @@ from .receipts import (
     verify_receipt,
 )
 from .signed_body import sign_body, verify_body
+from .tenancy import (
+    AgentRegistration,
+    DeviceRegistration,
+    LocalRegistry,
+    RegistryError,
+    TenantIdentity,
+)
 
 __all__ = [
     "DECISION_CONTRACT", "DENY", "ENFORCE", "LOG_ONLY", "NO_MATCH", "PERMIT", "SHADOW", "Decision", "resolve",
@@ -55,4 +62,5 @@ __all__ = [
     "CHECKPOINT_VERSION", "RECEIPT_VERSION", "ReceiptError", "ReceiptLog", "hmac_identifier", "receipt_hash",
     "verify_checkpoint", "verify_inclusion", "verify_log", "verify_receipt",
     "MEMORY_INTERFACE_VERSION", "MemoryProvider", "OpaClient", "OpaError", "sign_body", "verify_body",
+    "TenantIdentity", "AgentRegistration", "DeviceRegistration", "LocalRegistry", "RegistryError",
 ]
