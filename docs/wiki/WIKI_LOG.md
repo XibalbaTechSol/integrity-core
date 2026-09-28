@@ -1,5 +1,20 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-09-28] refactor | IntegrityKernel: adapter-registry hook removed, assurance tier switchable
+
+- EXECUTION_PLAN.md A4. `IntegrityKernel` drops the `AdapterRegistry`/`IAdapter` hook (former
+  10th/11th constructor arguments) and gains an immutable `requireAssuranceTier` (10th argument).
+  `false` removes only the ZK assurance-tier gate; budgets, reputation floor and snapshot
+  staleness still bind. `evm_version = "cancun"` is pinned in `foundry.toml`.
+- Why the hook went: adapters are compile-time pack transducers, and the hook passed the outer
+  `execute()` `msg.value` (0 for a self-spend), so a spend adapter never denied (recorded live in
+  `SubmitKernelBridgeUserOp.s.sol`, Case 2).
+- Evidence: `forge test` 527 passed, 1 skipped (46 suites; the 7 registry-hook tests left with the
+  feature, 7 tier-flag tests added).
+- Boundary: the Base Sepolia `experimentalPhase1Reference` kernel is marked legacy in
+  `deployments.baseSepolia.json`; nothing was redeployed. `registry/` and `licence/` sources remain
+  until A1 cuts them.
+
 ## [2026-09-28] fix | Agent private keys leave the harness root
 
 - `integrity_sdk.did` now keeps private keys outside every harness root

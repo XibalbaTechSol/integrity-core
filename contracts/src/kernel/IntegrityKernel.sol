@@ -4,8 +4,6 @@ pragma solidity ^0.8.28;
 import {IERC7579Hook, MODULE_TYPE_HOOK} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ReputationRegistry} from "../oracle/ReputationRegistry.sol";
-import {AdapterRegistry} from "../registry/AdapterRegistry.sol";
-import {IAdapter} from "../registry/IAdapter.sol";
 
 /// @title IntegrityKernel
 /// @notice Phase I tracer-bullet slice (docs/plans/2026-08-17-phase1-tracer-bullet-proposal.md),
@@ -160,9 +158,6 @@ contract IntegrityKernel is IERC7579Hook {
     error ZeroReputationRegistry();
     error ZeroMinEffectiveScore();
     error ZeroEpochLength();
-    error ZeroRegistryAdapter();
-    error RegistryAdapterNotRegistered(address registryHook, address registryAdapter);
-    error RegistryAdapterExceededGasBound(address registryAdapter, uint256 declaredGasBound);
     error EpochLengthTooLong(uint256 requested, uint256 maxAllowed);
     error BoostConstantsMismatch(
         uint256 localBps, uint256 registryBps, uint256 localDenominator, uint256 registryDenominator
@@ -210,70 +205,20 @@ contract IntegrityKernel is IERC7579Hook {
     /// configurable address.
     ReputationRegistry public immutable reputationRegistry;
 
-    /// @dev Phase III adapter registry (`AdapterRegistry.sol`, `PRODUCTION_GAPS.md` §54/§55): a
-    /// SECOND, independent, additive precondition alongside the cached reputation/assurance-tier
-    /// checks above -- same `address(0)`-disables convention as `trackedToken`.
+    /// @dev Whether `preCheck` requires a live ZK-boosted assurance tier (the third reference
+    /// adapter, docs/plans/2026-08-17-phase1-assurance-tier-adapter-proposal.md). Immutable, like
+    /// every other gate parameter here. `false` disables only the tier gate: the budget checks and
+    /// the reputation floor still apply. The flag exists because the ZK boost is being retired as
+    /// a requirement (docs/EXECUTION_PLAN.md, A4) -- without it a kernel could only be deployed in
+    /// a configuration that reverts `AssuranceTierNotMet` for every agent without a live ZK proof.
     ///
-    /// **Gas mitigation (§55): the registry is consulted ONCE, at construction, never on the
-    /// `preCheck` hot path.** Re-reading whitepaper §6.4 ("R5 gates installability... without
-    /// operator override") more carefully than the first wiring did: the registry's actual job is
-    /// an INSTALL-TIME gate, not a per-transaction dispatcher. This kernel's constructor reads
-    /// `registryHook_.adapters(registryAdapter_)` once, reverts `RegistryAdapterNotRegistered` if
-    /// the adapter was never registered there, and mirrors `declaredGasBound` into the immutable
-    /// `registryAdapterGasBound` below. This pins only the registry's immutable gas metadata; the
-    /// kernel does not pin `specHash`, call `isInstallable()`, or pin adapter bytecode. `preCheck` then calls
-    /// `IAdapter(registryAdapter).check{gas: registryAdapterGasBound}(boundAccount, value)`
-    /// DIRECTLY, replicating `AdapterRegistry.evaluate`'s own adapter-rejection-vs-gas-bound-
-    /// exceeded distinguishing logic locally (see `preCheck`'s own doc comment) rather than
-    /// re-paying that contract's own external-call overhead on every check. The mirrored gas value
-    /// cannot drift from the immutable registry tuple. That fact does NOT prove adapter identity,
-    /// code immutability, installability, or hostile-adapter safety; registration currently permits
-    /// EOAs and upgradeable/proxy implementations, so deployment selection remains an unchecked
-    /// operator boundary.
-    ///
-    /// **Real, measured result (`PRODUCTION_GAPS.md` §55/§69): this mitigation is real and the
-    /// remaining cost is an explicitly scoped exception to the core target.**
-    /// It removes the `AdapterRegistry.evaluate` hop's own ~12.2k gas overhead (one fewer cold
-    /// external `CALL` plus its own `SLOAD`), but the underlying adapter's own live external read
-    /// (`ReputationFloorAdapter` reading `ReputationRegistry.effectiveScore`, ~15.5k gas cold) is
-    /// unavoidable without caching the SCORE itself -- which this kernel deliberately does NOT do
-    /// for a registry-installed adapter, because a stateful adapter like `SpendBudgetAdapter`
-    /// needs genuinely live, uncached evaluation on every call to mean anything at all; caching
-    /// would silently break that adapter's own guarantee for the sake of a number this kernel has
-    /// no way to know is safe to cache for an arbitrary, permissionlessly-installed adapter. See
-    /// §55 for the exact before/after gas figures. The selected `ReputationFloorAdapter` successful
-    /// cold path still measures ~49.3k, so it does NOT meet the whitepaper's 40k target. Under the
-    /// accepted `docs/SPEC.md` §4.6, this named adapter-inclusive profile is declared outside the
-    /// measured core/cached `preCheck` target rather than weakened or silently cached. This is
-    /// adapter-specific regression evidence, not a maximum for arbitrary adapters. The registry's
-    /// self-declared stipend is only the requested call stipend; without a caller-enforced maximum
-    /// and reserve it is not an end-to-end operation bound.
-    ///
-    /// `preCheck`, AFTER the existing cached reputation/assurance-tier checks, receives
-    /// `boundAccount` as the subject and `value` (the wrapped call's own native value -- the same
-    /// number the per-op/cumulative budget checks below ultimately measure a real delta against in
-    /// `postCheck`) as the amount; this does NOT independently verify a delta itself, it only
-    /// forwards the declared value to whatever adapter is registered. **Halmos coverage of the
-    /// registry-DISABLED configuration** (`HalmosKernelFixture.sol`'s `_deployRealKernel`, always
-    /// `AdapterRegistry(address(0))`) re-ran the six machine-checked properties above and confirmed
-    /// they still hold with this feature ADDED-BUT-DISABLED (6/6 passed, `PRODUCTION_GAPS.md` §54's
-    /// own record) -- proving this addition does not regress anyone who leaves it off. **As of
-    /// 2026-09-05, the registry-ENABLED configuration also has real, machine-checked coverage**:
-    /// `HalmosKernelFixture._deployRealKernelWithRegistry` builds the same reference adapter
-    /// (`ReputationFloorAdapter`) the concrete test below uses, and
-    /// `test/halmos/KernelPropertiesRegistryEnabled.t.sol` proves budget containment is
-    /// undisturbed by the installed-and-passing benign reference adapter, that the ordinary
-    /// account reentrancy property holds with that adapter, and -- the property no prior coverage (concrete
-    /// or Halmos) checked over the full symbolic score range -- that the registry adapter's floor
-    /// and this kernel's own cached floor are each independently, conjunctively enforced (neither
-    /// check ever substitutes for the other) across every reachable score (3/3 passed). This does
-    /// does not remove the measured registry-enabled gas crossing (§55/§56). §69 accepts only the
-    /// readiness decision to name this profile outside the core target; the performance fact remains
-    /// open. A Halmos property over the benign adapter does not prove gas cost, hostile-adapter
-    /// reentrancy safety, deployment readiness, or that arbitrary adapters fit the core target.
-    AdapterRegistry public immutable registryHook;
-    address public immutable registryAdapter;
-    uint256 public immutable registryAdapterGasBound;
+    /// The on-chain adapter registry hook (`AdapterRegistry`/`IAdapter`, formerly the 10th/11th
+    /// constructor parameters) was removed in A4. Adapters are compile-time transducers whose
+    /// output is a signed pack mapped onto this kernel's existing scalars (EXECUTION_PLAN.md §5),
+    /// not contracts consulted per operation. The removed path also forwarded the outer
+    /// `execute()` call's `msg.value` -- 0 for an ordinary self-spend -- so a registered spend
+    /// adapter could never deny (recorded in `script/SubmitKernelBridgeUserOp.s.sol`, Case 2).
+    bool public immutable requireAssuranceTier;
     uint256 public immutable minEffectiveScore;
 
     /// @dev Mirrors `ReputationRegistry.ZK_BOOST_BPS`/`BPS_DENOMINATOR` locally so
@@ -329,12 +274,8 @@ contract IntegrityKernel is IERC7579Hook {
         address trackedToken_,
         uint256 tokenPerOpBudgetWei_,
         uint256 tokenCumulativeBudgetWei_,
-        AdapterRegistry registryHook_,
-        address registryAdapter_
+        bool requireAssuranceTier_
     ) {
-        if (address(registryHook_) != address(0) && registryAdapter_ == address(0)) {
-            revert ZeroRegistryAdapter();
-        }
         if (boundAccount_ == address(0)) revert ZeroAccount();
         if (perOpBudgetWei_ == 0 || cumulativeBudgetWei_ == 0) revert ZeroBudget();
         if (reputationRegistry_ == address(0)) revert ZeroReputationRegistry();
@@ -359,19 +300,7 @@ contract IntegrityKernel is IERC7579Hook {
         reputationRegistry = registry;
         minEffectiveScore = minEffectiveScore_;
         epochLengthSeconds = epochLengthSeconds_;
-        registryHook = registryHook_;
-        registryAdapter = registryAdapter_;
-        // Mirror the registered gas bound ONCE, at deploy time, off the gas-constrained preCheck
-        // path. This value cannot drift from the immutable registry tuple, but the kernel does not
-        // pin specHash or bytecode and does not enforce isInstallable(); those remain deployment
-        // trust boundaries rather than properties of this mirror.
-        if (address(registryHook_) != address(0)) {
-            (uint256 declaredGasBound,, bool registered) = registryHook_.adapters(registryAdapter_);
-            if (!registered) revert RegistryAdapterNotRegistered(address(registryHook_), registryAdapter_);
-            registryAdapterGasBound = declaredGasBound;
-        } else {
-            registryAdapterGasBound = 0;
-        }
+        requireAssuranceTier = requireAssuranceTier_;
 
         // Verified once, at deploy time, not merely asserted in a test: the locally-mirrored
         // ZK_BOOST_BPS/BPS_DENOMINATOR must match the REAL bound registry's own values, or every
@@ -446,35 +375,7 @@ contract IntegrityKernel is IERC7579Hook {
         // also now read from the same cache, same staleness window as the score above -- kept
         // uniform deliberately, see the snapshot proposal doc's rejected-alternative section for
         // why a separately-cached raw zkBoostExpiry was considered and rejected.
-        if (!snapshotIsZkBoosted) revert AssuranceTierNotMet(boundAccount);
-
-        // Phase III adapter registry (PRODUCTION_GAPS.md #54/#55): a SECOND, independent
-        // additive precondition, AFTER the existing cached checks above, same address(0)-disables
-        // convention as trackedToken. See this contract's own top-level NatSpec for what this
-        // does and does not claim (including the enabled-configuration Halmos scope and the
-        // adapter-specific gas boundary).
-        //
-        // Calls the registered adapter DIRECTLY -- not through AdapterRegistry.evaluate -- using
-        // the gas bound already mirrored at construction (see the top-level NatSpec's "gas
-        // mitigation" section for why this is safe). Replicates AdapterRegistry.evaluate's own
-        // distinguishing logic locally: the adapter's own rejection reason is bubbled up
-        // UNCHANGED; a failure with zero-length returndata is reported as
-        // RegistryAdapterExceededGasBound. Same disclosed heuristic limitation as the registry's
-        // own version -- a bare `revert()` from an otherwise well-behaved adapter is
-        // indistinguishable from true out-of-gas.
-        if (address(registryHook) != address(0)) {
-            try IAdapter(registryAdapter).check{gas: registryAdapterGasBound}(boundAccount, value) {
-            // allowed
-            }
-            catch (bytes memory reason) {
-                if (reason.length == 0) {
-                    revert RegistryAdapterExceededGasBound(registryAdapter, registryAdapterGasBound);
-                }
-                assembly {
-                    revert(add(reason, 32), mload(reason))
-                }
-            }
-        }
+        if (requireAssuranceTier && !snapshotIsZkBoosted) revert AssuranceTierNotMet(boundAccount);
 
         armed = true;
         // Declared multi-asset value conservation: the tracked token's balance must be read

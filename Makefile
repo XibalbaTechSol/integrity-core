@@ -53,17 +53,16 @@ sync-abis:
 # existing per-package Python isolation. --ast is required: without it Halmos silently skips
 # every contract's build artifact ("KeyError: 'ast'") rather than erroring loudly. Creates the
 # venv on first run if missing. Runs the harness proof (KernelSwapHarnessTest -- the real
-# kernel installs via governance swap, PRODUCTION_GAPS.md §42), the six properties against the
-# registry-DISABLED configuration (KernelPropertiesTest -- PRODUCTION_GAPS.md §43), and, as of
-# 2026-09-05, the registry-ENABLED configuration (KernelPropertiesRegistryEnabledTest -- closes
-# the "Halmos has zero coverage for registry-enabled" gap §54/§55 disclosed).
+# kernel installs via governance swap, PRODUCTION_GAPS.md §42) and the six kernel properties
+# (KernelPropertiesTest -- PRODUCTION_GAPS.md §43). The registry-enabled configuration and its
+# KernelPropertiesRegistryEnabledTest were removed with the on-chain adapter registry
+# (docs/EXECUTION_PLAN.md, A4).
 verify-kernel:
 	cd contracts && [ -d .venv-halmos ] || uv venv .venv-halmos --python 3.12
 	cd contracts && uv pip install --python .venv-halmos/bin/python "halmos==0.3.3"
 	cd contracts && forge build --ast
 	cd contracts && .venv-halmos/bin/halmos --contract KernelSwapHarnessTest --root .
 	cd contracts && .venv-halmos/bin/halmos --contract KernelPropertiesTest --root .
-	cd contracts && .venv-halmos/bin/halmos --contract KernelPropertiesRegistryEnabledTest --root .
 
 # Is the running stack actually built from the code in this tree? On 2026-07-30 the
 # oracle image was three minutes older than the commit adding the Verification Ladder

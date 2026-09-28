@@ -8,7 +8,6 @@ import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {IntegrityAccount} from "../src/kernel/IntegrityAccount.sol";
 import {IntegrityKernel} from "../src/kernel/IntegrityKernel.sol";
 import {ReputationRegistry} from "../src/oracle/ReputationRegistry.sol";
-import {AdapterRegistry} from "../src/registry/AdapterRegistry.sol";
 
 /// @title DeployKernelReference
 /// @notice Workstream 4 of Phase I (`docs/plans/2026-08-24-phase1-testnet-deployment-proposal.md`,
@@ -129,8 +128,7 @@ contract DeployKernelReference is Script {
             address(0), // trackedToken disabled -- design decision 3
             0,
             0,
-            AdapterRegistry(address(0)),
-            address(0)
+            true // requireAssuranceTier: unchanged reference behaviour
         );
 
         account = new IntegrityAccount(

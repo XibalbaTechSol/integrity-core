@@ -237,12 +237,15 @@ review:
 
 ## A4. Minimal kernel patch (S)
 
-- [ ] Remove the adapter-registry branch (constructor parameters, `registryHook`/`registryAdapter`
-  immutables, the gas-bounded call).
-- [ ] Add a `requireAssuranceTier` flag, so a disabled tier no longer reverts `AssuranceTierNotMet`.
-- [ ] Set `evm_version = "cancun"`.
-- [ ] Update the kernel deploy scripts and tests.
-- [ ] Record the Base Sepolia `experimentalPhase1Reference` kernel as legacy; it is not redeployed.
+- [x] Remove the adapter-registry branch (constructor parameters, `registryHook`/`registryAdapter`
+  immutables, the gas-bounded call). The kernel no longer imports `registry/`.
+- [x] Add a `requireAssuranceTier` flag, so a disabled tier no longer reverts `AssuranceTierNotMet`.
+  7 tests in `test/kernel/IntegrityKernelAssuranceTier.t.sol`: tier off removes only that gate.
+- [x] Set `evm_version = "cancun"`.
+- [x] Update the kernel deploy scripts and tests. Registry-only tests removed with the feature
+  (`IntegrityKernelRegistryHook.t.sol`, `KernelPropertiesRegistryEnabled.t.sol`); `forge test` 527
+  passed, 1 skipped (46 suites).
+- [x] Record the Base Sepolia `experimentalPhase1Reference` kernel as legacy; it is not redeployed.
 - Constraint: no kernel rewrite and no on-chain policy compiler.
 
 ## A2. SDK core: C1–C7 (M)

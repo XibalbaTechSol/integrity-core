@@ -5,6 +5,10 @@ libs = ["lib", "node_modules"]
 test = "test"
 script = "script"
 solc_version = "0.8.28"
+# Pinned explicitly (docs/EXECUTION_PLAN.md A4) rather than left to the compiler default, so a solc
+# bump cannot silently change the target EVM. Cancun is Base mainnet/Sepolia's current baseline and
+# 0.8.28's own default, so this changes no bytecode today.
+evm_version = "cancun"
 optimizer = true
 optimizer_runs = 200
 # AgentPrimitivesFactory.registerPrimitives clones+initializes 5 contracts in one

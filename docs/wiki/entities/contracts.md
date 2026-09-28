@@ -113,17 +113,16 @@ even though the ordinary contract unit tests can pass.
   require this resolver to already be serialized in `deployments.<network>.json`;
   they do not deploy it against legacy registry bytecode as a side effect.
 
-- **IntegrityKernel registry-adapter gas boundary:** the successful cold
-  `ReputationFloorAdapter` profile historically measured 49,290 gas, above the v3
-  whitepaper's 40k `preCheck` target. The accepted `docs/SPEC.md` §4.6 defines the
-  core/cached measurement profile and permits deliberately live foreign-registry reads
-  to be named separately. This profile is therefore an explicit scoped exception, not a
-  claim that 40k was met; the performance crossing remains. The `(44k, 54k)` Foundry
-  range is current adapter-specific regression evidence, not a maximum for arbitrary
-  adapters. `IntegrityKernel` does not pin `specHash`, enforce `isInstallable()`, reject
-  EOAs, pin bytecode, or cap the registered stipend with a caller reserve. Enabled Halmos
-  evidence uses a benign reference adapter and does not prove hostile-adapter reentrancy
-  safety. These remain deployment blockers.
+- **IntegrityKernel gates (after EXECUTION_PLAN.md A4, 2026-09-28):** native (and optional
+  tracked-token) per-op/cumulative budgets, a cached reputation floor with fail-closed
+  staleness, and an assurance-tier gate that is now switchable at deployment
+  (`requireAssuranceTier`, immutable; `false` removes only that gate). The on-chain
+  adapter-registry hook (`AdapterRegistry`/`IAdapter`, the former 10th/11th constructor
+  arguments) was removed: adapters are compile-time pack transducers, and the hook forwarded
+  the outer `execute()` `msg.value` (0 for a self-spend), so a spend adapter could never deny.
+  Its 49,290-gas cold-path exception and its unpinned-adapter deployment blockers went with
+  it. The Base Sepolia `experimentalPhase1Reference` kernel predates this and is marked legacy
+  in `deployments.baseSepolia.json`.
 
 ## Key invariants
 

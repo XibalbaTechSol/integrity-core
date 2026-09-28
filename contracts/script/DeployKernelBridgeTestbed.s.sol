@@ -8,36 +8,27 @@ import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {IntegrityAccount} from "../src/kernel/IntegrityAccount.sol";
 import {IntegrityKernel} from "../src/kernel/IntegrityKernel.sol";
 import {ReputationRegistry} from "../src/oracle/ReputationRegistry.sol";
-import {AdapterRegistry} from "../src/registry/AdapterRegistry.sol";
-import {SpendBudgetAdapter} from "../src/registry/SpendBudgetAdapter.sol";
 
 /// @title DeployKernelBridgeTestbed
 /// @notice LOCAL-DEVNET-ONLY testbed for the "kernel-first intent-vs-outcome bridge" plan
 /// (~/.claude/plans/iridescent-stirring-kettle.md). Deploys a SECOND, independent
-/// IntegrityKernel/IntegrityAccount pair -- distinct from `experimentalPhase1Reference` in
-/// `deployments.local.json`, which is bound to `AdapterRegistry(address(0))` (no adapter wired)
-/// and so cannot exercise the registry-adapter path at all. This script deploys a real
-/// `AdapterRegistry` + `SpendBudgetAdapter` and binds a fresh kernel/account to them, so the
-/// off-chain bridge (Phase B of the plan) has something real to submit UserOperations against.
+/// IntegrityKernel/IntegrityAccount pair, distinct from `experimentalPhase1Reference` in
+/// `deployments.local.json`, so the off-chain bridge (Phase B of the plan) has a funded account
+/// of its own to submit UserOperations against. It originally also deployed an `AdapterRegistry`
+/// + `SpendBudgetAdapter` to exercise the kernel's registry-adapter hook; that hook was removed
+/// in docs/EXECUTION_PLAN.md A4 (see `IntegrityKernel.requireAssuranceTier`'s NatSpec), so the
+/// pair is now bound to the kernel's own budgets and reputation floor only.
 ///
 /// Same experimental-reference disclosure as `DeployKernelReference.s.sol`: NOT audited, NOT
 /// integrated with `XibalbaAgentRegistry` or any real registered agent. Writes its own separate
 /// `deployments.local.kernel-bridge.json` rather than touching `deployments.local.json`, so
 /// nothing that reads the canonical deployments file is affected by this testbed.
 ///
-/// Adapter budgets are deliberately TIGHTER than the kernel's own native-value budget
-/// (0.2/0.5 ether vs. the kernel's 1/3 ether) so a `value` between the two triggers a kernel
-/// PASS + adapter DENY -- the case that actually proves the registry-adapter path is being
-/// consulted, not just the kernel's pre-existing native-balance check.
-///
 /// @dev Run against local anvil with:
 ///   forge script script/DeployKernelBridgeTestbed.s.sol --rpc-url localhost --broadcast
 contract DeployKernelBridgeTestbed is Script {
     uint256 constant PER_OP_BUDGET = 1 ether;
     uint256 constant CUMULATIVE_BUDGET = 3 ether;
-    uint256 constant ADAPTER_PER_OP_BUDGET = 0.2 ether;
-    uint256 constant ADAPTER_CUMULATIVE_BUDGET = 0.5 ether;
-    uint256 constant ADAPTER_GAS_BOUND = 100_000;
     uint256 constant MIN_EFFECTIVE_SCORE = 500;
     uint256 constant REPUTATION_EPOCH_LENGTH = 3 days;
     uint256 constant MODULE_ACTION_TIMELOCK = 3 days;
@@ -51,8 +42,6 @@ contract DeployKernelBridgeTestbed is Script {
     address[] guardians;
 
     ReputationRegistry reputation;
-    AdapterRegistry registry;
-    SpendBudgetAdapter adapter;
     IntegrityKernel kernel;
     IntegrityAccount account;
 
@@ -81,10 +70,6 @@ contract DeployKernelBridgeTestbed is Script {
         reputation = ReputationRegistry(Clones.clone(reputationImplementation));
         reputation.initialize(deployer, deployer, address(0), address(0));
 
-        registry = new AdapterRegistry();
-        adapter = new SpendBudgetAdapter(ADAPTER_PER_OP_BUDGET, ADAPTER_CUMULATIVE_BUDGET);
-        registry.register(address(adapter), ADAPTER_GAS_BOUND, keccak256("spend-budget-v1-kernel-bridge-testbed"));
-
         // Same CREATE-nonce prediction pattern as DeployKernelReference.s.sol: read the deployer's
         // nonce BEFORE any further broadcast tx, account for updateScore + kernel deploy before
         // the account's own.
@@ -102,8 +87,7 @@ contract DeployKernelBridgeTestbed is Script {
             address(0),
             0,
             0,
-            registry,
-            address(adapter)
+            true // requireAssuranceTier: same gated configuration as the reference deployment
         );
 
         account = new IntegrityAccount(
@@ -125,10 +109,6 @@ contract DeployKernelBridgeTestbed is Script {
 
     function _logSummary() internal view {
         console2.log("=== Kernel-bridge testbed deployment (LOCAL DEVNET ONLY, EXPERIMENTAL) ===");
-        console2.log("AdapterRegistry:      ", address(registry));
-        console2.log("SpendBudgetAdapter:   ", address(adapter));
-        console2.log("  perOpBudgetWei:     ", ADAPTER_PER_OP_BUDGET);
-        console2.log("  cumulativeBudgetWei:", ADAPTER_CUMULATIVE_BUDGET);
         console2.log("ReputationRegistry:   ", address(reputation));
         console2.log("IntegrityKernel:      ", address(kernel));
         console2.log("  perOpBudgetWei:     ", PER_OP_BUDGET);
@@ -144,12 +124,8 @@ contract DeployKernelBridgeTestbed is Script {
         vm.serializeString(
             root,
             "disclosure",
-            "LOCAL DEVNET TESTBED, EXPERIMENTAL, NOT AUDITED. Second kernel/account pair, distinct from experimentalPhase1Reference, deployed specifically to exercise the AdapterRegistry path (which the reference deployment leaves at address(0))."
+            "LOCAL DEVNET TESTBED, EXPERIMENTAL, NOT AUDITED. Second kernel/account pair, distinct from experimentalPhase1Reference, for the off-chain kernel bridge. No adapter registry (removed in EXECUTION_PLAN.md A4)."
         );
-        vm.serializeAddress(root, "AdapterRegistry", address(registry));
-        vm.serializeAddress(root, "SpendBudgetAdapter", address(adapter));
-        vm.serializeUint(root, "adapterPerOpBudgetWei", ADAPTER_PER_OP_BUDGET);
-        vm.serializeUint(root, "adapterCumulativeBudgetWei", ADAPTER_CUMULATIVE_BUDGET);
         vm.serializeAddress(root, "ReputationRegistry", address(reputation));
         vm.serializeAddress(root, "IntegrityKernel", address(kernel));
         vm.serializeUint(root, "kernelPerOpBudgetWei", PER_OP_BUDGET);
