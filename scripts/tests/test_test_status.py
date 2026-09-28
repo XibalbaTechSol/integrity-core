@@ -109,11 +109,11 @@ def test_run_id_mismatch_cannot_mix_results(recorder):
 
 
 def _valid_status(tree: str = "0xaaa") -> dict:
-    suites = ["contracts", "zkp", "oracle", "sdk", "cli", "bcc", "userapi", "dashboard"]
+    suites = ["contracts", "oracle", "sdk", "cli", "bcc"]
     return {
         "schema_version": 2,
         "run_id": "test-run",
-        "suite_profile": "integrity-core-root-v1",
+        "suite_profile": "integrity-core-root-v2",
         "expected_suites": suites,
         "suites": {
             name: {"outcome": "pass", "detail": "", "at": 1, "tree_hash": tree}

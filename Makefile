@@ -1,4 +1,4 @@
-.PHONY: setup chain chain-reset up down test test-e2e sync-abis demo check-deploy verify-kernel
+.PHONY: setup chain chain-reset up down test sync-abis check-deploy verify-kernel
 
 setup:
 	cd contracts && npm install
@@ -6,8 +6,6 @@ setup:
 	cd integrity-sdk && uv sync
 	cd integrity-cli && uv sync
 	cd bcc_middleware && uv sync
-	cd integrity-dashboard && npm install
-	cd integrity-userapi && uv sync
 
 chain:
 	touch deployments.local.json
@@ -80,9 +78,7 @@ check-deploy:
 # instead of an mtime approximation.
 ORACLE_SOURCE_HASH := $(shell python3 scripts/service_content_hash.py oracle-backend)
 BCC_MIDDLEWARE_SOURCE_HASH := $(shell python3 scripts/service_content_hash.py bcc-middleware)
-DASHBOARD_SOURCE_HASH := $(shell python3 scripts/service_content_hash.py dashboard)
-USERAPI_SOURCE_HASH := $(shell python3 scripts/service_content_hash.py userapi)
-export ORACLE_SOURCE_HASH BCC_MIDDLEWARE_SOURCE_HASH DASHBOARD_SOURCE_HASH USERAPI_SOURCE_HASH
+export ORACLE_SOURCE_HASH BCC_MIDDLEWARE_SOURCE_HASH
 
 up:
 	docker-compose up --build
@@ -120,8 +116,8 @@ down:
 #     That is the worst possible failure direction for an evidence system, and it is a
 #     contributing cause of audit finding F5 (every leaf `unverified`).
 #  2. That crash then aborted `make test` at the first failing package, so the packages
-#     after it never ran at all — one bcc_middleware failure silently skipped userapi and
-#     dashboard entirely, while looking like a single ordinary failure.
+#     after it never ran at all — one bcc_middleware failure silently skipped every later
+#     suite, while looking like a single ordinary failure.
 #
 # Each suite branch records pass or fail and returns success so the remaining suites still run.
 # The finalizer derives the aggregate result and returns nonzero after all expected outcomes have
@@ -130,36 +126,13 @@ TEST_RUN_ID := $(shell python3 -c 'import uuid; print(uuid.uuid4())')
 TEST_STATUS := uv run --project $(CURDIR)/integrity-sdk python $(CURDIR)/scripts/record_test_status.py --run-id $(TEST_RUN_ID)
 
 test:
-	$(TEST_STATUS) --begin contracts zkp oracle sdk cli bcc userapi dashboard
+	$(TEST_STATUS) --begin contracts oracle sdk cli bcc
 	@if cd contracts && forge test; then $(TEST_STATUS) contracts pass; else $(TEST_STATUS) contracts fail; fi
-	@if cd integrity-zkp && nargo test; then $(TEST_STATUS) zkp pass; else $(TEST_STATUS) zkp fail; fi
 	@if cd integrity-oracle && cargo test; then $(TEST_STATUS) oracle pass; else $(TEST_STATUS) oracle fail; fi
 	@if cd integrity-sdk && uv run python -m pytest; then $(TEST_STATUS) sdk pass; else $(TEST_STATUS) sdk fail; fi
 	@if cd integrity-cli && uv run python -m pytest; then $(TEST_STATUS) cli pass; else $(TEST_STATUS) cli fail; fi
 	@if cd bcc_middleware && uv run python -m pytest; then $(TEST_STATUS) bcc pass; else $(TEST_STATUS) bcc fail; fi
-	@if cd integrity-userapi && uv run python -m pytest; then $(TEST_STATUS) userapi pass; else $(TEST_STATUS) userapi fail; fi
-	@if cd integrity-dashboard && npm run build && npm run lint; then $(TEST_STATUS) dashboard pass; else $(TEST_STATUS) dashboard fail; fi
 	$(TEST_STATUS) --finalize
 
-# Real browser (Playwright) end-to-end tests — a separate, slower layer from
-# `test` above, deliberately not folded into it. Playwright starts only the Vite
-# frontend; the real chain/backend stack must be started separately as described
-# in docs/TESTING.md.
-test-e2e:
-	cd integrity-dashboard && npx playwright test
-
-# Runs integrity-dashboard/demo's real 4-persona scenario engine (agent
-# registration + a live LLM-driven capital-allocation tool-call loop) --
-# was previously referenced by README/CLAUDE.md/docs/TESTING.md with no
-# actual Makefile target to back it. Against LIVE Base Sepolia by default
-# (whatever RPC_URL/CHAIN_ID/DEPLOYMENTS_FILE are set to, normally the root
-# .env's Base Sepolia values) -- real transactions, real gas. Needs
-# FUNDER_PRIVATE_KEY (funds each new agent wallet -- see FAUCET_INFO.md if
-# it's running low) and INTEGRITY_WALLET_PASSWORD (encrypts the generated
-# keystores) in the environment; the engine itself now checks the funder's
-# balance up front and fails clearly if it's short, rather than partially
-# registering agents and failing confusingly partway through.
-# To run against a local anvil instead: `make chain` first, then
-# `RPC_URL=http://localhost:8545 CHAIN_ID=31337 DEPLOYMENTS_FILE=../../deployments.local.json make demo`.
-demo:
-	cd integrity-dashboard/demo && uv sync && uv run integrity-demo
+# The dashboard, its Playwright e2e suite (`test-e2e`), userapi and the demo scenario engine
+# (`demo`) moved to github.com/XibalbaTechSol/integrity-console (docs/EXECUTION_PLAN.md A1).

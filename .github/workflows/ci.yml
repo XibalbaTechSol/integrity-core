@@ -25,11 +25,6 @@ concurrency:
 env:
   FOUNDRY_VERSION: v1.7.1
   RUST_VERSION: "1.96.0"
-  NARGO_VERSION: "1.0.0-beta.22"
-  # Full dated nightly string required -- "5.0.0-nightly" alone 404s against bbup's
-  # release lookup. Verified locally (`~/.bb/bb --version`) and against a clean
-  # ubuntu:24.04 container before pinning here, not guessed.
-  BB_VERSION: "5.0.0-nightly.20260522"
   NODE_VERSION: "22"
   PYTHON_VERSION: "3.12"
   UV_VERSION: "0.11.x"
@@ -57,19 +52,6 @@ jobs:
         working-directory: contracts
       - run: forge test -vvv
         working-directory: contracts
-
-  zkp:
-    name: integrity-zkp (nargo test)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Noir (nargo)
-        run: |
-          curl --fail -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
-          echo "$HOME/.nargo/bin" >> "$GITHUB_PATH"
-      - run: ~/.nargo/bin/noirup -v ${{ env.NARGO_VERSION }}
-      - run: nargo test --workspace
-        working-directory: integrity-zkp
 
   oracle:
     name: integrity-oracle (cargo test)
@@ -185,59 +167,6 @@ jobs:
         working-directory: bcc_middleware
       - run: opa test policies/ -v
         working-directory: bcc_middleware
-
-  userapi:
-    name: integrity-userapi (pytest)
-    runs-on: ubuntu-latest
-    services:
-      userapi-postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_DB: integrity_userapi
-          POSTGRES_USER: integrity
-          POSTGRES_PASSWORD: integrity_dev_only
-        ports:
-          - "5435:5432"
-        options: >-
-          --health-cmd "pg_isready -U integrity -d integrity_userapi"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
-        with:
-          version: ${{ env.UV_VERSION }}
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      - run: uv sync
-        working-directory: integrity-userapi
-      - run: uv run pytest
-        working-directory: integrity-userapi
-
-  dashboard:
-    name: integrity-dashboard (build + lint)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-      - uses: astral-sh/setup-uv@v3
-        with:
-          version: ${{ env.UV_VERSION }}
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      - run: npm ci --legacy-peer-deps
-        working-directory: integrity-dashboard
-      - run: npm run build
-        working-directory: integrity-dashboard
-      - run: npm run lint
-        working-directory: integrity-dashboard
-      - run: uv run pytest
-        working-directory: integrity-dashboard/demo
 
   # Jules dispatch is intentionally removed from repository CI. The malformed
   # direct API request previously used here created an untracked second control

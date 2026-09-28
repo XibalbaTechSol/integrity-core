@@ -2,6 +2,21 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **Restructure in progress (2026-09-28), read first.** `docs/EXECUTION_PLAN.md` is the approved
+> plan; its checkboxes show what is done. Phase A1 removed or moved:
+> - `integrity-zkp`, the SDK prover and markets, the MCP server, and the oracle's ZK verifier
+>   (ZK proving is retired; `RejectAllZkVerifier` is the genesis verifier);
+> - the `markets/`, `licence/` and `registry/` contracts, plus `CCIPReputationBridge`,
+>   `IntegrityGovernance` and `UltraPlonkVerifier`.
+>
+> These now live in [integrity-lab](https://github.com/XibalbaTechSol/integrity-lab).
+> `integrity-dashboard`, `integrity-userapi` and the demo moved to
+> [integrity-console](https://github.com/XibalbaTechSol/integrity-console). Agent private keys
+> live outside harness roots (see `integrity_sdk/did.py`).
+>
+> Sections below that describe the removed pieces are stale until A5 rewrites this file as
+> `AGENTS.md`. Prefer the plan and the code over the prose below.
+
 ## What this is
 
 Integrity Protocol — a trust/compliance layer for AI agents on Base L2. Agents deploy and own
