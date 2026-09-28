@@ -328,8 +328,19 @@ paths or sibling Docker copies. Both pass independence CI against the SDK tag.
   middleware's own vendored client, never used by the SDK) — Shield's policy engine could not be
   imported at all against current `main`. Restored with a Shield-owned copy of the same module,
   a behavior-preserving port, so this item can build on a working engine. Migrating that engine
-  onto `core.opa.OpaClient`/signed packs is still unstarted and needs a pack-signing key-custody
-  decision (who signs Shield's production packs) before it can proceed.
+  onto `core.opa.OpaClient`/signed packs is still unstarted.
+
+  **Owner decision (2026-09-28): pack-signing key custody, resolved.** A dedicated Ed25519
+  keypair, generated and held the same way as the existing release-signing key
+  (`shield/release/signing.py`'s lazy-generate/PEM/0600 convention) — a separate key file from
+  release signing, agent/device DID keys, and any other signing domain, per this repo's own
+  stated rule that different blast radii never share a key. Held by the operator, consistent
+  with the plan's existing "single-operator testnet setup" for every other key in the system
+  (guardian, HMAC, funder, oracle signer). Real HSM/multi-party custody stays deferred to a
+  later production-infra gate, same as the release-signing key and the no-signing-daemon-in-v1
+  decision already in this plan. `packaging/systemd/shield.env.example`'s
+  `XIBALBA_ORACLE_POLICY_PUBLIC_KEY=file:...` convention is the distribution mechanism for the
+  public half. This unblocks the migration; it does not itself complete it.
 - [ ] `permit` means permitted. No-match takes the pack's per-class default: `hipaa` agent tool calls
   deny; device sensor events are `log_only`. Depends on the packs migration above — `core.decision`
   already implements exactly this contract; Shield's Rego/engine don't speak it yet.
@@ -374,15 +385,19 @@ paths or sibling Docker copies. Both pass independence CI against the SDK tag.
   missing: `store.export_provider_telemetry()` has always called `domain_merkle_root(...,
   domain="provider_telemetry_export")`, but that domain was never in `events.MERKLE_DOMAINS` —
   every call raised `ValueError: unknown Merkle domain`, with zero test coverage.
-- [ ] Use SDK JCS. **Blocked on an owner decision, not done here:** `store.py`'s `_canonical_json`
-  underlies the entire hash-chain/Merkle-proof system across dozens of call sites, and the
-  repo's own README declares the store schema, hash-chain and Merkle model **frozen for v1**
-  (2026-08-12) — changing the canonicalization would silently invalidate every already-provisioned
-  profile's stored hashes and inclusion proofs without a carefully designed transition (a
-  domain/schema version bump plus a dual-hash verification window), unlike the SDK-internal
-  modules this same item covered for `integrity-core` itself (no live persisted data depended on
-  those). This conflicts with, and postdates, the plan's original premise that this was a free
-  swap — corrected here rather than repeated.
+- [ ] Use SDK JCS. **Owner decision (2026-09-28): migration allowed, resolved.** `SPECIFICATION.md`
+  §0's freeze covers the MCP tool contract and table shapes ("existing tools keep their current
+  signatures... existing table shapes don't change field meaning") — it does not freeze the
+  internal canonicalization behind a hash. Checked whether any real external verifier depends on
+  today's exact bytes: anchoring is opt-in and off by default
+  (`auto_anchor_on_session_end`/`XIBALBA_ANCHOR_URL`), and no evidence exists on this machine of a
+  Cortex Merkle root ever actually being anchored on-chain, so no third party currently holds a
+  proof computed under today's canonicalization. Migration proceeds with the same domain/schema
+  version bump + dual-hash verification window already used for `telemetry.envelope` and
+  `memory_dag` above (v1 stays historical, not deleted; new writes use SDK JCS under a new tag).
+  `SPECIFICATION.md` §0 gets its wording clarified to state the freeze scope explicitly, so this
+  doesn't get re-litigated. **Still not implemented** — `_canonical_json` has dozens of call
+  sites; this is real, multi-file work for its own session, not a quick fix.
 - [x] Bind create events to `content_hash`. Already true for the primary create path:
   `store_memory` computes `content_digest` and binds it into `source_payload["content_hash"]`
   before the row is written. Not re-verified against every ingestion path (OTLP, transcript,
