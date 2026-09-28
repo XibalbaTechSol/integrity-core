@@ -27,71 +27,15 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
-from eth_utils import keccak
+from .core.merkle import hash_pair, keccak256, merkle_proof, merkle_root, verify_leaf
 
 
 def _vault_home() -> Path:
     return Path(os.environ.get("INTEGRITY_VAULT_HOME", str(Path.home() / ".integrity" / "vault")))
 
 
-def hash_pair(a: bytes, b: bytes) -> bytes:
-    """Parent hash with the pair sorted ascending — the OpenZeppelin convention.
-
-    Sorting (rather than positional left/right) means a verifier does not need to know which
-    side a sibling was on, and it closes the ambiguity where two different trees could be built
-    from one leaf set by permuting children. The root becomes a function of the *set* of leaves.
-    """
-    return keccak(a + b) if a < b else keccak(b + a)
-
-
-def merkle_root(leaves: Sequence[bytes]) -> bytes:
-    """Root over pre-hashed leaves, matching `StateAnchor.verifyLeaf`.
-
-    An odd node at any level is promoted unchanged rather than duplicated. Duplicating it — the
-    other common convention — makes a tree with leaves [A, B, C] verify a proof for a
-    non-existent fourth leaf equal to C, which is a real forgery vector, not a style choice.
-    """
-    if not leaves:
-        raise ValueError("cannot compute a Merkle root over zero leaves")
-    level = list(leaves)
-    while len(level) > 1:
-        nxt: List[bytes] = []
-        for i in range(0, len(level) - 1, 2):
-            nxt.append(hash_pair(level[i], level[i + 1]))
-        if len(level) % 2 == 1:
-            nxt.append(level[-1])
-        level = nxt
-    return level[0]
-
-
-def merkle_proof(leaves: Sequence[bytes], index: int) -> List[bytes]:
-    """Sibling path for `leaves[index]`, verifiable by `StateAnchor.verifyLeaf`."""
-    if not 0 <= index < len(leaves):
-        raise IndexError(f"leaf index {index} out of range for {len(leaves)} leaves")
-    proof: List[bytes] = []
-    level = list(leaves)
-    idx = index
-    while len(level) > 1:
-        nxt: List[bytes] = []
-        for i in range(0, len(level) - 1, 2):
-            if i == idx or i + 1 == idx:
-                proof.append(level[i + 1] if i == idx else level[i])
-                idx = len(nxt)
-            nxt.append(hash_pair(level[i], level[i + 1]))
-        if len(level) % 2 == 1:
-            if idx == len(level) - 1:
-                idx = len(nxt)  # promoted unchanged; no sibling to add
-            nxt.append(level[-1])
-        level = nxt
-    return proof
-
-
-def verify_leaf(root: bytes, leaf: bytes, proof: Sequence[bytes]) -> bool:
-    """Local mirror of `StateAnchor.verifyLeaf`, for checking a proof before submitting it."""
-    computed = leaf
-    for sibling in proof:
-        computed = hash_pair(computed, sibling)
-    return computed == root
+# hash_pair / merkle_root / merkle_proof / verify_leaf live in `integrity_sdk.core.merkle`, the
+# single implementation of the StateAnchor convention; re-exported here for existing callers.
 
 
 @dataclass(frozen=True)
@@ -122,7 +66,7 @@ class VaultLeaf:
             commit_sha=commit_sha,
             test_result_hash=test_result_hash,
             timestamp=ts,
-            leaf_hash="0x" + keccak(text=preimage).hex(),
+            leaf_hash="0x" + keccak256(preimage.encode("utf-8")).hex(),
         )
 
     def hash_bytes(self) -> bytes:

@@ -1,5 +1,24 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-09-28] feat | SDK core: JCS, Merkle, signed packs, decision contract, receipts
+
+- New `integrity_sdk.core` (EXECUTION_PLAN.md A2), dependency-light (cryptography, base58, jcs,
+  pycryptodome, pyyaml):
+  - `jcs`: the single RFC 8785 canonicalization (`bcc.canonical_json_bytes` delegates to it).
+  - `merkle`: the StateAnchor/OpenZeppelin convention, shared with `vault.py`, checked against
+    `spec/vault-merkle` vectors.
+  - `packs`: every file, including Rego, is hashed; loading accepts only a trusted signature over
+    a byte-identical recompile, and hands the evaluator the bytes it verified.
+  - `decision`: `permit` means permitted; no-match takes the pack's per-class default;
+    evaluator errors, a missing pack, undeclared classes and malformed results deny;
+    `INTEGRITY_*` reason codes are reserved for the gate; shadow mode never blocks.
+  - `receipts`: Ed25519-signed, hash-chained, checkpointed; HMAC-protected identifiers; offline
+    inclusion proofs. A checkpoint detects tail truncation.
+- Evidence: SDK unit suite 332 passed, 8 skipped; core tests 60; the sample pack Rego was
+  evaluated with real OPA 1.18.2 (undefined result → no-match default).
+- Boundary: not yet used by Shield or BCC (B2); memory-provider interface, the single OPA client
+  and HTTP identity remain in A2.
+
 ## [2026-09-28] refactor | IntegrityKernel: adapter-registry hook removed, assurance tier switchable
 
 - EXECUTION_PLAN.md A4. `IntegrityKernel` drops the `AdapterRegistry`/`IAdapter` hook (former

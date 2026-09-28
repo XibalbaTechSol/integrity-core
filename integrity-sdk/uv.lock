@@ -1240,6 +1240,8 @@ dependencies = [
     { name = "opentelemetry-exporter-otlp-proto-grpc" },
     { name = "opentelemetry-sdk" },
     { name = "psutil" },
+    { name = "pycryptodome" },
+    { name = "pyyaml" },
     { name = "requests" },
     { name = "web3" },
 ]
@@ -1318,6 +1320,8 @@ requires-dist = [
     { name = "pandas", marker = "extra == 'openai'", specifier = ">=2.0.0" },
     { name = "psutil", specifier = ">=5.9.0" },
     { name = "psutil", marker = "extra == 'connector'", specifier = ">=5.9.0" },
+    { name = "pycryptodome", specifier = ">=3.20.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "requests", specifier = ">=2.31.0" },
     { name = "requests", marker = "extra == 'connector'", specifier = ">=2.31.0" },
     { name = "web3", specifier = ">=7.4.0" },

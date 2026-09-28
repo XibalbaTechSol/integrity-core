@@ -48,6 +48,10 @@ dependencies = [
     "web3>=7.4.0",
     "eth-utils>=5.1.0",
     "jcs>=0.2.1",
+    # SDK core (integrity_sdk.core): keccak-256 for the StateAnchor Merkle convention without
+    # eth-utils, and YAML pack manifests.
+    "pycryptodome>=3.20.0",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]

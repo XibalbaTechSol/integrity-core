@@ -23,10 +23,11 @@ import pytest
 # The connector stack: must stay out of every core import below.
 HEAVY = ("requests", "httpx", "web3", "eth_account", "eth_utils", "opentelemetry", "mlflow", "psutil", "cbor2")
 
-# Modules that make up the dependency-light core. `integrity_sdk.core` joins this list with A2's
-# core package; `normalize_hook` lives in harness_hooks.
+# Modules that make up the dependency-light core; `normalize_hook` lives in harness_hooks.
 CORE_MODULES = (
     "integrity_sdk",
+    "integrity_sdk.core",
+    "integrity_sdk.vault",
     "integrity_sdk.did",
     "integrity_sdk.bcc",
     "integrity_sdk.crypto.merkle",

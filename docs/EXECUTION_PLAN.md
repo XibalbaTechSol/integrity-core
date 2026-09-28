@@ -251,12 +251,20 @@ review:
 ## A2. SDK core: C1–C7 (M)
 
 - **Core, tagged `integrity-sdk-v0.x` and dependency-light:**
-  - [ ] JCS;
+  - [x] JCS (`core/jcs.py`; `bcc.canonical_json_bytes` delegates to it);
   - [x] DID and DID-file support (the layout from `ad56d97`);
-  - [ ] RFC 9162-style Merkle inclusion proofs;
-  - [ ] receipts (create, sign, chain, checkpoint, verify locally);
-  - [ ] pack schema, compile, sign and verify, with the decision contract;
-  - [ ] hook normalization, the memory-provider interface, the OPA client, agent identity over HTTP.
+  - [x] Merkle inclusion proofs in the protocol's one convention (OpenZeppelin semantics, what
+    `StateAnchor.verifyLeaf` checks), passing `spec/vault-merkle` vectors; `vault.py` now reuses it;
+  - [x] receipts (create, sign, chain, checkpoint, verify locally) (`core/receipts.py`);
+  - [x] pack schema, compile, sign and verify, with the decision contract (`core/packs.py`,
+    `core/decision.py`; sample Rego checked against real OPA 1.18.2);
+  - [x] hook normalization (`normalize_hook`, core-safe);
+  - [ ] the memory-provider interface (C6);
+  - [ ] the OPA client (one, replacing `opa_client.py` and `policy/opa_client.py`);
+  - [ ] agent identity over HTTP (signed requests with the agent key);
+  - [ ] move the remaining ad-hoc canonicalizations (`memory_dag.canonical`,
+    `telemetry/envelope.canonical_bytes`, `harness_hooks._hash`) onto core JCS; each changes stored
+    hashes, so each needs a version bump.
 - **Loading:**
   - [x] lazy (PEP 562) package initialization;
   - [x] import-hygiene tests: importing the core must not load `requests`, `web3`, `eth_account`,
@@ -367,8 +375,10 @@ semantics or receipt meaning.
   - [ ] the device key differs from the agent key.
 - [ ] **Cortex:** unauthenticated OTLP is rejected; provenance export works; create events bind
   `content_hash`.
-- [ ] **Kernel:** it no longer imports `registry/`; the tier-off test and Halmos pass.
-- [ ] **Receipts:** a receipt can be created, signed and verified locally, unanchored.
+- [x] **Kernel:** it no longer imports `registry/`; the tier-off test and Halmos pass. `make verify-kernel`: KernelSwapHarnessTest 2/2,
+  KernelPropertiesTest 6/6 (2026-09-28, after A4); tier-off covered by `IntegrityKernelAssuranceTier.t.sol`.
+- [x] **Receipts:** a receipt can be created, signed and verified locally, unanchored. `tests/unit/test_core_receipts.py`
+  (17 tests: sign/verify, chain, checkpoint, inclusion, tamper/truncation/foreign-key refusals).
 - [ ] **Identity:** no private key exists under any harness root in any test or pilot fixture.
 - [ ] **Docs:** every active normative document has an identified authority; superseded material is in
   integrity-lab; no active repository holds a competing plan or architecture register.
@@ -671,3 +681,4 @@ Findings from reviewing `main` before execution, and how this draft resolves eac
 | 10 | Shield and Cortex push access exists; all repos public; siblings actively pushed | Checkpoint 1 reduced; A0 hygiene |
 | 11 | Toolchain missing in cloud sessions; solc host blocked | A0 |
 | 12 | The planned rename to integrity-kernel had no technical driver and would collide with the `IntegrityKernel` contract name | Owner decision 2026-09-28: keep integrity-core; rename, its checkpoint and interim naming rule removed |
+| 13 | The plan said RFC 9162 Merkle proofs, but the repo already standardizes on OpenZeppelin semantics (`merkle-standardization.md`, `spec/vault-merkle`, `StateAnchor.verifyLeaf`) | A2 uses the existing convention; a second scheme would be a duplicate authority |
