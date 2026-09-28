@@ -51,6 +51,7 @@ from .receipts import (
 from .receipt_queue import ReceiptQueue, ReceiptQueueError
 from .signed_body import sign_body, verify_body
 from .store_identity import StoreIdentity, StoreIdentityError
+from .usage import RedactedUsageMeter, UsageMetricError, UsageSummary
 from .tenancy import (
     AgentRegistration,
     DeviceRegistration,
@@ -73,4 +74,5 @@ __all__ = [
     "MEMORY_INTERFACE_VERSION", "MemoryProvider", "OpaClient", "OpaError", "sign_body", "verify_body",
     "TenantIdentity", "AgentRegistration", "DeviceRegistration", "LocalRegistry", "RegistryError",
     "StoreIdentity", "StoreIdentityError",
+    "RedactedUsageMeter", "UsageMetricError", "UsageSummary",
 ]

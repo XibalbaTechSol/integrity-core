@@ -513,7 +513,9 @@ SDK/API contracts plus local reference implementations (no billing code) for:
   agent namespaces explicitly and rejects provider or namespace mismatches offline.
 - [x] entitlements and capability checks. `EntitlementSet` provides tenant-scoped, revisioned
   capabilities with expiry and stable fail-closed denial codes; it contains no billing logic.
-- [ ] redacted usage and audit metrics.
+- [x] redacted usage and audit metrics. `RedactedUsageMeter` accepts only bounded aggregate
+  dimensions and emits tenant-scoped summaries with no raw command, prompt, completion, or
+  payload fields.
 
 A customer can run locally and later move to hosted or anchored services with no change in policy
 semantics or receipt meaning.
