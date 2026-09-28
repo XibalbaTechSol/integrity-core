@@ -27,7 +27,7 @@ use crate::handlers;
         title = "Integrity Protocol — AIS API",
         version = "1.0.0",
         description = "Read-side wire protocol for querying an agent's Agent Integrity \
-            Score (AIS), on-chain primitive addresses, compliance status, market state, \
+            Score (AIS), on-chain primitive addresses, compliance status, \
             and wallet balances. This is the versioned, externally-supported surface — \
             /v1/* is additive-only for its lifetime; any field rename, type change, or \
             removal requires a /v2/* prefix. See spec/ais-api/v1/README.md for the \
@@ -50,8 +50,6 @@ use crate::handlers;
         handlers::get_traces,
         handlers::ingest_telemetry,
         handlers::get_compliance,
-        handlers::list_markets,
-        handlers::get_market,
         handlers::get_leaderboard,
     ),
     components(schemas(
@@ -79,9 +77,6 @@ use crate::handlers;
         handlers::TelemetryIngestRequest,
         handlers::TelemetryIngestResponse,
         handlers::ComplianceResponse,
-        handlers::MarketSummaryDto,
-        handlers::PositionDto,
-        handlers::MarketDetailDto,
         handlers::LeaderboardEntryDto,
     )),
     tags(
@@ -89,8 +84,7 @@ use crate::handlers;
         (name = "ais", description = "Agent Integrity Score and leaderboard"),
         (name = "telemetry", description = "Telemetry ingestion (feeds AIS computation)"),
         (name = "compliance", description = "HIPAA/Integrity Health vertical compliance status"),
-        (name = "markets", description = "IntegrityMarket prediction-market reads"),
-        (name = "wallet", description = "$ITK balance and open market positions"),
+        (name = "wallet", description = "$ITK balance"),
     ),
 )]
 pub struct ApiDocCore;
@@ -99,9 +93,8 @@ pub struct ApiDocCore;
 /// the 16-item limit goes here instead. See this module's doc comment.
 #[derive(OpenApi)]
 #[openapi(
-    paths(handlers::get_wallet, handlers::get_trace_tree, handlers::ingest_audit_log, handlers::ingest_anchor_events, handlers::get_provenance, handlers::get_stake, handlers::get_credit, handlers::get_agent_contracts, handlers::get_agent_baas, handlers::get_benchmarks, handlers::get_xns_resolve, handlers::get_agent_handle, handlers::get_governance_proposals, handlers::get_stats, handlers::get_audit_log, handlers::get_recent_traces, handlers::submit_audit_effect, handlers::get_audit_intent_join, handlers::get_audit_invocation_join),
+    paths(handlers::get_wallet, handlers::get_trace_tree, handlers::ingest_audit_log, handlers::ingest_anchor_events, handlers::get_provenance, handlers::get_agent_baas, handlers::get_benchmarks, handlers::get_xns_resolve, handlers::get_agent_handle, handlers::get_audit_log, handlers::get_recent_traces, handlers::submit_audit_effect, handlers::get_audit_intent_join, handlers::get_audit_invocation_join),
     components(schemas(
-        handlers::WalletPositionDto,
         handlers::WalletResponse,
         handlers::TelemetryEventDetailDto,
         handlers::AgentJudgeEvaluationDto,
@@ -112,16 +105,12 @@ pub struct ApiDocCore;
         handlers::AnchorEventIngestRequest,
         handlers::AnchorEventIngestResponse,
         handlers::ProvenanceEntryDto,
-        handlers::StakeDto,
-        handlers::CreditDto,
         handlers::BaaDto,
         handlers::BenchmarkDto,
         handlers::XnsResolveDto,
         handlers::AgentHandleDto,
-        handlers::ProposalDto,
         crate::anchor_coverage::AnchorCoverage,
         crate::anchor_coverage::AnchorCoverageStatus,
-        handlers::StatsDto,
         handlers::AuditLogEntryDto,
         handlers::RecentTraceDto,
     )),

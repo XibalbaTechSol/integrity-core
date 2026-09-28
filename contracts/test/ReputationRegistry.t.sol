@@ -6,7 +6,6 @@ import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {ReputationRegistry} from "../src/oracle/ReputationRegistry.sol";
 import {StateAnchor} from "../src/oracle/StateAnchor.sol";
 import {IZkVerifier} from "../src/oracle/IZkVerifier.sol";
-import {UltraPlonkVerifier} from "../src/oracle/UltraPlonkVerifier.sol";
 
 /// @notice Exercises the real division of labour described in ReputationRegistry's
 /// NatSpec: the oracle pushes a pre-boost `baseScore`, and the ZK_boost multiplier is

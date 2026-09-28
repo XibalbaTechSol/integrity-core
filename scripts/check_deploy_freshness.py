@@ -79,8 +79,6 @@ SERVICES = {
     "oracle-backend": ["integrity-oracle"],
     "bcc-middleware": ["bcc_middleware/app", "bcc_middleware/pyproject.toml",
                        "bcc_middleware/Dockerfile"],
-    "userapi": ["integrity-userapi"],
-    "dashboard": ["integrity-dashboard"],
 }
 
 # Paths whose changes take effect without a rebuild, listed so the reason is

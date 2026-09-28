@@ -5,6 +5,10 @@ libs = ["lib", "node_modules"]
 test = "test"
 script = "script"
 solc_version = "0.8.28"
+# Pinned explicitly (docs/EXECUTION_PLAN.md A4) rather than left to the compiler default, so a solc
+# bump cannot silently change the target EVM. Cancun is Base mainnet/Sepolia's current baseline and
+# 0.8.28's own default, so this changes no bytecode today.
+evm_version = "cancun"
 optimizer = true
 optimizer_runs = 200
 # AgentPrimitivesFactory.registerPrimitives clones+initializes 5 contracts in one
@@ -17,7 +21,6 @@ fs_permissions = [
   { access = "read-write", path = "../deployments.local.kernel-bridge.json" },
   { access = "read-write", path = "/home/runner/work/integrity-core/integrity-core/deployments.local.json" },
   { access = "read-write", path = "../deployments.baseSepolia.json" },
-  { access = "read-write", path = "script/adapter-admission-vectors" },
   { access = "read", path = "./" },
   { access = "read", path = "../contracts" },
   # Shared cross-implementation vectors (spec/vault-merkle, spec/token-accounting). Read-only
@@ -29,7 +32,6 @@ fs_permissions = [
 remappings = [
   "@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/",
   "@openzeppelin/contracts-upgradeable/=node_modules/@openzeppelin/contracts-upgradeable/",
-  "@chainlink/contracts-ccip/=node_modules/@chainlink/contracts-ccip/",
   "@openzeppelin/contracts@5.3.0/=node_modules/@openzeppelin/contracts/",
   "@openzeppelin/contracts@5.0.2/=node_modules/@openzeppelin/contracts-5.0.2/",
   "@openzeppelin/contracts@4.8.3/=node_modules/@openzeppelin/contracts-4.8.3/",

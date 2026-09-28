@@ -4,9 +4,12 @@ name: Reconcile conflicting Jules PRs
 # bounded controller owns dispatch, exact-head linkage, retries, and risk gates.
 # This workflow provides a visible GitHub-side signal without destroying work.
 
+# Schedule paused for Phase A of docs/EXECUTION_PLAN.md (A0): the restructure moves
+# and cuts whole packages, so every open Jules branch would conflict and be relabelled
+# every 15 minutes. Manual dispatch still works. Restore the schedule after Gate A.
 on:
-  schedule:
-    - cron: "*/15 * * * *"
+  # schedule:
+  #   - cron: "*/15 * * * *"
   workflow_dispatch: {}
 
 permissions:

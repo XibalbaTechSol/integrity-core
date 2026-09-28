@@ -13,34 +13,22 @@ import {IEntryPointExtra} from "@openzeppelin/contracts/account/utils/draft-ERC4
 /// ERC-4337 UserOperations directly against the canonical EntryPoint (no bundler -- `handleOps`
 /// called directly from this script, exactly as the plan's "good news" finding described), each
 /// a plain native-value transfer routed through `IntegrityAccount.execute()` so `IntegrityKernel
-/// .preCheck`/`postCheck` and the registered `SpendBudgetAdapter` genuinely fire.
+/// .preCheck`/`postCheck` genuinely fire.
 ///
-/// Case 1: value = 0.1 ether -- within both the kernel's native budget (1/3 ether) and the
-/// adapter's tighter budget (0.2/0.5 ether). Result (confirmed live, 2026-08-28): succeeds.
+/// Case 1: value = 0.1 ether -- within the kernel's native budget (1/3 ether). Result (confirmed
+/// live, 2026-08-28): succeeds.
 ///
-/// Case 2: value = 0.3 ether -- within the kernel's own 1 ether per-op budget, but OVER the
-/// adapter's 0.2 ether per-op budget. This was DESIGNED to prove the registry-adapter path is
-/// genuinely consulted (kernel allows, adapter should deny). **Real result (confirmed live,
-/// 2026-08-28): it also succeeds -- the adapter does NOT deny it.** Root cause, traced via
-/// `-vvvv`: `AccountERC7579Hooked`'s `withHook` modifier calls
-/// `hook.preCheck(msg.sender, msg.value, msg.data)` -- the OUTER `execute()` call's `msg.value`,
-/// not the amount encoded inside `executionCalldata`. For the standard "account spends its own
-/// balance" pattern (no ETH attached to the `execute()` call itself, which is how essentially
-/// every real UserOp of this shape works), that `msg.value` is always 0, and `preCheck` forwards
-/// it unchanged into `IAdapter(registryAdapter).check(boundAccount, value)`. So
-/// `SpendBudgetAdapter` always receives `amount=0` here and trivially approves regardless of the
-/// real spend -- not a mock, a genuine call, just checking the wrong number. This appears to be
-/// an undisclosed integration gap (not found in `PRODUCTION_GAPS.md` as of this writing) between
-/// `IntegrityKernel`'s registry-adapter hook and the standard ERC-7579 single-call self-spend
-/// pattern -- distinct from the kernel's OWN native per-op/cumulative budget check, which is
-/// unaffected (it measures the real `boundAccount.balance` delta in `postCheck`, independent of
-/// this `value` parameter) -- see Case 3.
+/// Case 2: value = 0.3 ether -- within the kernel's own 1 ether per-op budget. It was designed,
+/// when the kernel still had a registry-adapter hook, as "kernel allows, adapter denies" against
+/// a 0.2 ether `SpendBudgetAdapter`. Confirmed live on 2026-08-28 that it SUCCEEDED anyway: the
+/// hook forwarded the outer `execute()` call's `msg.value` (0 for an ordinary self-spend) rather
+/// than the spend encoded in `executionCalldata`, so the adapter always saw `amount=0`. That
+/// finding is one reason the hook was removed (docs/EXECUTION_PLAN.md A4). With the hook gone the
+/// case is simply a second within-budget spend: expected result, success.
 ///
-/// Case 3: value = 1.5 ether -- OVER the kernel's own 1 ether per-op budget (irrespective of the
-/// adapter). Result (confirmed live, 2026-08-28): correctly denied -- proves the kernel's own
-/// native budget enforcement genuinely works via real balance-delta measurement, isolating that
-/// the gap above is specific to the registry-adapter forwarding path, not the kernel mechanism
-/// as a whole.
+/// Case 3: value = 1.5 ether -- OVER the kernel's own 1 ether per-op budget. Result (confirmed
+/// live, 2026-08-28): correctly denied. The kernel's own native budget measures the real
+/// `boundAccount.balance` delta in `postCheck`, independent of the forwarded `value`.
 ///
 /// @dev Run against local anvil with:
 ///   forge script script/SubmitKernelBridgeUserOp.s.sol --rpc-url localhost --broadcast -vvvv
@@ -61,10 +49,10 @@ contract SubmitKernelBridgeUserOp is Script {
         signerKey = vm.envUint("FUNDER_PRIVATE_KEY");
         recipient = vm.addr(uint256(keccak256("kernel-bridge-testbed-recipient")));
 
-        console2.log("=== Case 1: matched intent (0.1 ether, within both budgets) ===");
+        console2.log("=== Case 1: matched intent (0.1 ether, within budget) ===");
         _submit(MATCHED_VALUE);
 
-        console2.log("=== Case 2: divergent intent (0.3 ether, kernel allows, adapter denies) ===");
+        console2.log("=== Case 2: second within-budget intent (0.3 ether, kernel allows) ===");
         _submit(DIVERGENT_VALUE);
 
         console2.log("=== Case 3: kernel-native-budget-exceeding intent (1.5 ether, over the kernel's own 1 ether per-op cap) ===");

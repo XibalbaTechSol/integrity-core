@@ -34,6 +34,19 @@ class _FakeResponse:
 
 
 @pytest.fixture(autouse=True)
+def _no_ambient_harness_roots(monkeypatch):
+    """Keep identity resolution hermetic.
+
+    `did.resolve_profile_root` reads the harness root variables. A developer
+    running the suite inside Claude Code, Codex or Hermes would otherwise have
+    tests write DID files into their real harness root, or trip the
+    ambiguous-root check. Tests that exercise these variables set them explicitly.
+    """
+    for name in ("HERMES_HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "INTEGRITY_PROFILE_ROOT"):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _no_real_nonce_sync_network_calls(monkeypatch):
     """`flush_telemetry` does a real GET to sync the nonce before a client's first flush.
 

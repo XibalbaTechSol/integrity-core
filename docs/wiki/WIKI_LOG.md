@@ -1,5 +1,57 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-09-28] feat | SDK core: JCS, Merkle, signed packs, decision contract, receipts
+
+- New `integrity_sdk.core` (EXECUTION_PLAN.md A2), dependency-light (cryptography, base58, jcs,
+  pycryptodome, pyyaml):
+  - `jcs`: the single RFC 8785 canonicalization (`bcc.canonical_json_bytes` delegates to it).
+  - `merkle`: the StateAnchor/OpenZeppelin convention, shared with `vault.py`, checked against
+    `spec/vault-merkle` vectors.
+  - `packs`: every file, including Rego, is hashed; loading accepts only a trusted signature over
+    a byte-identical recompile, and hands the evaluator the bytes it verified.
+  - `decision`: `permit` means permitted; no-match takes the pack's per-class default;
+    evaluator errors, a missing pack, undeclared classes and malformed results deny;
+    `INTEGRITY_*` reason codes are reserved for the gate; shadow mode never blocks.
+  - `receipts`: Ed25519-signed, hash-chained, checkpointed; HMAC-protected identifiers; offline
+    inclusion proofs. A checkpoint detects tail truncation.
+- Evidence: SDK unit suite 332 passed, 8 skipped; core tests 60; the sample pack Rego was
+  evaluated with real OPA 1.18.2 (undefined result → no-match default).
+- Boundary: not yet used by Shield or BCC (B2); memory-provider interface, the single OPA client
+  and HTTP identity remain in A2.
+
+## [2026-09-28] refactor | IntegrityKernel: adapter-registry hook removed, assurance tier switchable
+
+- EXECUTION_PLAN.md A4. `IntegrityKernel` drops the `AdapterRegistry`/`IAdapter` hook (former
+  10th/11th constructor arguments) and gains an immutable `requireAssuranceTier` (10th argument).
+  `false` removes only the ZK assurance-tier gate; budgets, reputation floor and snapshot
+  staleness still bind. `evm_version = "cancun"` is pinned in `foundry.toml`.
+- Why the hook went: adapters are compile-time pack transducers, and the hook passed the outer
+  `execute()` `msg.value` (0 for a self-spend), so a spend adapter never denied (recorded live in
+  `SubmitKernelBridgeUserOp.s.sol`, Case 2).
+- Evidence: `forge test` 527 passed, 1 skipped (46 suites; the 7 registry-hook tests left with the
+  feature, 7 tier-flag tests added).
+- Boundary: the Base Sepolia `experimentalPhase1Reference` kernel is marked legacy in
+  `deployments.baseSepolia.json`; nothing was redeployed. `registry/` and `licence/` sources remain
+  until A1 cuts them.
+
+## [2026-09-28] fix | Agent private keys leave the harness root
+
+- `integrity_sdk.did` now keeps private keys outside every harness root
+  (`$INTEGRITY_DID_HOME` or `~/.integrity/did`, under `profiles/<root hash>/`);
+  the root holds only the public `agent.did.json`. A key store configured
+  inside the root is rejected.
+- Harness roots are no longer chosen by env-var precedence: `HERMES_HOME`,
+  `CODEX_HOME` and `CLAUDE_CONFIG_DIR` must agree, or `INTEGRITY_PROFILE_ROOT`
+  must name one.
+- Keys from the previous in-root layout are relocated on first use (copy,
+  verify, delete); conflicts fail closed. The MCP server resolves keys through
+  the same function.
+- Evidence: SDK unit suite 262 passed, 8 skipped; the 10 new layout tests fail
+  against the previous code.
+- Boundary: xibalba-shield/xibalba-cortex callers of the SDK were not checked
+  in this change; any that read `.integrity/identity.json` directly need the
+  DID file instead.
+
 ## [2026-09-17] docs | AIS implementation handoff and deployment boundary
 
 - Added a dated handoff separating local mathematical correctness and

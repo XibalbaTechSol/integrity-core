@@ -286,7 +286,7 @@ def approve_erc20(w3: Web3, owner: LocalAccount, token_address: str, spender: st
     Generic ERC20 `approve`, signed by `owner`. Shared by every market/pool
     interaction that needs to let a spender contract pull ITK
     (`IntegrityMarket.enterPosition`, `A2ACapitalPool.allocate`) — kept here
-    rather than duplicated in markets.py since it's not market-specific.
+    rather than duplicated per application module since it's not app-specific.
     """
     token = _contract(w3, "IntegrityToken", address=token_address)
     _, tx_hash = _send_signed(
@@ -364,6 +364,38 @@ def approve_factory_bond(
         action="approve_factory_bond",
     )
     return tx_hash.hex()
+
+
+def execute_via_agent(
+    w3: Web3, controller: LocalAccount, sovereign_agent_address: str, target: str, calldata: bytes, chain_id: int
+) -> dict:
+    """
+    Routes a call through `SovereignAgent(sovereign_agent_address).execute(target, 0,
+    calldata)`, signed by `controller` (the agent's own wallet). Every
+    application-layer contract that gates on agent identity
+    (`agentRegistry.isRegisteredAgent(msg.sender)` /
+    `agentRegistry.resolveAgent(msg.sender)`) resolves `msg.sender` against
+    the SovereignAgent CONTRACT address, never the raw controller wallet --
+    see XibalbaAgentRegistry.sol (`didHashOf` is keyed on
+    `primitives.sovereignAgent`) and EHRGate.sol's identical convention. A
+    direct call from the wallet to `MarketFactory`/`IntegrityMarket` would
+    revert with `AgentNotRegistered`/`AgentNotRegistered` even for a fully
+    registered agent, for exactly this reason -- this helper is what makes
+    every agent-identity-gated call (Integrity Health) actually work
+    end-to-end, mirroring `grant_anchor_role` below. Lives here, not in
+    a single application module, since Integrity Health depends on it.
+    """
+    sovereign_agent = _contract(w3, "SovereignAgent", address=sovereign_agent_address)
+    tx = sovereign_agent.functions.execute(Web3.to_checksum_address(target), 0, calldata).build_transaction(
+        {
+            "from": controller.address,
+            "nonce": w3.eth.get_transaction_count(controller.address),
+            "chainId": chain_id,
+        }
+    )
+    signed = controller.sign_transaction(tx)
+    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+    return _wait(w3, tx_hash, action=f"execute_via_agent({target})")
 
 
 def grant_anchor_role(

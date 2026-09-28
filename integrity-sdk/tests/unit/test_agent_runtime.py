@@ -5,7 +5,6 @@ import pytest
 from integrity_sdk import IntegrityAgent
 from integrity_sdk.agent_runtime import AgentIdentityError
 from integrity_sdk import did
-from integrity_sdk.mcp_server import _load_doc_for, _load_keypair_for
 from integrity_sdk.identity_registry import history, latest
 
 
@@ -21,21 +20,22 @@ def test_each_slug_gets_a_stable_unique_identity(tmp_path, monkeypatch):
 
 def test_profile_root_scopes_identity_and_records_canonical_root(tmp_path, monkeypatch):
     monkeypatch.delenv("INTEGRITY_DID_HOME", raising=False)
-    monkeypatch.delenv("HERMES_HOME", raising=False)
-    monkeypatch.delenv("CODEX_HOME", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     profile_root = tmp_path / "profiles" / "agent-a"
     profile_root.mkdir(parents=True)
     agent = IntegrityAgent.open(
         "agent-a", harness="hermes", profile="agent-a", profile_root=profile_root,
         client_kwargs={"auto_flush": False, "enable_otel_export": False},
     )
-    canonical = profile_root / ".integrity" / "did" / "agent-a"
+    # Key material lives in the per-profile store outside the harness root.
+    canonical = did.key_store_for_profile(profile_root.resolve()) / "agent-a"
     assert (canonical / "document.json").is_file()
     assert (canonical / "private_key.pem").is_file()
+    assert not list(profile_root.rglob("*.pem"))
     snapshot = agent.identity_snapshot()
     assert snapshot["profile_root"] == str(profile_root.resolve())
     assert snapshot["identity_store_reference"] == str(canonical)
-    binding_path = profile_root / ".integrity" / "identity.json"
+    binding_path = profile_root / "agent.did.json"
     assert binding_path.is_file()
     reopened = IntegrityAgent.open(
         harness="hermes", profile_root=profile_root,
@@ -63,6 +63,7 @@ def test_profile_root_must_be_an_existing_directory(tmp_path, monkeypatch):
 
 def test_harness_home_environment_scopes_default_did_home(tmp_path, monkeypatch):
     monkeypatch.delenv("INTEGRITY_DID_HOME", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     profile_root = tmp_path / "codex-home"
     profile_root.mkdir()
     monkeypatch.setenv("CODEX_HOME", str(profile_root))
@@ -70,7 +71,9 @@ def test_harness_home_environment_scopes_default_did_home(tmp_path, monkeypatch)
         "agent-a", harness="codex",
         client_kwargs={"auto_flush": False, "enable_otel_export": False},
     )
-    assert (profile_root / ".integrity" / "did" / "agent-a" / "document.json").is_file()
+    assert (profile_root / "agent.did.json").is_file()
+    assert (did.key_store_for_profile(profile_root.resolve()) / "agent-a" / "private_key.pem").is_file()
+    assert not list(profile_root.rglob("*.pem"))
     assert agent.identity_snapshot()["profile_root"] == str(profile_root.resolve())
     agent.close(flush=False)
 
@@ -84,6 +87,7 @@ def test_expected_did_mismatch_refuses_attribution(tmp_path, monkeypatch):
 
 def test_profile_binding_rejects_conflicting_expected_did(tmp_path, monkeypatch):
     monkeypatch.delenv("INTEGRITY_DID_HOME", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     root = tmp_path / "bound-profile"
     root.mkdir()
     agent = IntegrityAgent.open(
@@ -97,7 +101,7 @@ def test_profile_binding_rejects_conflicting_expected_did(tmp_path, monkeypatch)
             expected_did="did:integrity:not-this-agent",
             client_kwargs={"auto_flush": False, "enable_otel_export": False},
         )
-    assert (root / ".integrity" / "identity.json").is_file()
+    assert (root / "agent.did.json").is_file()
 
 
 def test_shield_requires_device_binding(tmp_path, monkeypatch):
@@ -120,11 +124,13 @@ def test_lifecycle_events_carry_immutable_identity(tmp_path, monkeypatch):
     agent.close(flush=False)
 
 
-def test_mcp_loaders_use_the_canonical_sdk_identity_store(tmp_path, monkeypatch):
+def test_existing_identity_lookup_uses_the_canonical_sdk_identity_store(tmp_path, monkeypatch):
+    # Long-running helpers (formerly the MCP server's loaders) resolve through this function.
     monkeypatch.setenv("INTEGRITY_DID_HOME", str(tmp_path / "dids"))
     expected_did, expected_keypair, _ = did.load_or_create_did("mcp-agent")
-    assert _load_keypair_for("mcp-agent").private_bytes_raw() == expected_keypair.private_bytes_raw()
-    assert _load_doc_for("mcp-agent")["id"] == expected_did
+    keypair, document = did.find_existing_identity("mcp-agent")
+    assert keypair.private_bytes_raw() == expected_keypair.private_bytes_raw()
+    assert document["id"] == expected_did
 
 
 def test_identity_snapshot_is_non_secret_and_keeps_boundaries_distinct(tmp_path, monkeypatch):

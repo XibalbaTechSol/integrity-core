@@ -41,28 +41,15 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from .did import Keypair, public_key_multibase, verify_signature
-
-
-def _normalize_jcs_numbers(value: Any) -> Any:
-    """Normalize integral floats before JCS encoding for SDK/oracle parity."""
-    if isinstance(value, bool) or value is None:
-        return value
-    if isinstance(value, float) and value.is_integer():
-        return int(value)
-    if isinstance(value, dict):
-        return {key: _normalize_jcs_numbers(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_normalize_jcs_numbers(item) for item in value]
-    if isinstance(value, tuple):
-        return tuple(_normalize_jcs_numbers(item) for item in value)
-    return value
+from .core.jcs import canonical_bytes as _core_canonical_bytes
 
 
 def canonical_json_bytes(obj: Any) -> bytes:
     """The one and only canonicalization used across the SDK for anything
-    that gets hashed or signed. See module docstring for why each flag matters."""
-    import jcs
-    return jcs.canonicalize(_normalize_jcs_numbers(obj))
+    that gets hashed or signed: RFC 8785 JCS, implemented once in
+    `integrity_sdk.core.jcs` (SDK contract C1). Kept under this name because
+    the BCC wire format and its callers already use it."""
+    return _core_canonical_bytes(obj)
 
 
 def hash_intent_payload(intent_payload: Dict[str, Any]) -> str:

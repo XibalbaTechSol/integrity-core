@@ -56,15 +56,6 @@ CONTRACTS = [
     # stake collateral — see registration.py). Not deployed by the SDK itself,
     # just called.
     ("IntegrityToken", "IntegrityToken"),
-    # Market/application layer (see integrity_sdk/markets.py): MarketFactory
-    # is called to deploy+own a market; IntegrityMarket's ABI is needed to
-    # call the resulting clone's enterPosition/resolve/claimPayout (its
-    # address is only known at runtime, so the SDK reads this same ABI
-    # against whatever clone address MarketFactory.deployMarket returned);
-    # A2ACapitalPool is a fixed-address singleton.
-    ("MarketFactory", "MarketFactory"),
-    ("IntegrityMarket", "IntegrityMarket"),
-    ("A2ACapitalPool", "A2ACapitalPool"),
     # Integrity Health vertical (added for integrity-dashboard/demo's Clinician-Delta
     # persona, which is the first consumer to call these from Python):
     # ComplianceGate.setSelfDeclaredCompliance/isHealthcareCompliant,

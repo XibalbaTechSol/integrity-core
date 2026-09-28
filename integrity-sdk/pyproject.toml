@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "integrity-sdk"
 version = "0.1.0"
-description = "Integrity Protocol SDK: DID identity, BCC intent commitments, ZK proving, OPA-gated execution, and TEE attestation verification for AI agents."
+description = "Integrity Protocol SDK: DID identity, BCC intent commitments, signed policy packs and receipts, OPA-gated execution, and TEE attestation verification for AI agents."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
@@ -48,9 +48,32 @@ dependencies = [
     "web3>=7.4.0",
     "eth-utils>=5.1.0",
     "jcs>=0.2.1",
+    # SDK core (integrity_sdk.core): keccak-256 for the StateAnchor Merkle convention without
+    # eth-utils, and YAML pack manifests.
+    "pycryptodome>=3.20.0",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
+# Connector stack (docs/EXECUTION_PLAN.md A2): chain, registration, account, telemetry, the
+# hook runner and HTTP clients. The core -- `integrity_sdk.core`, `did`, `bcc`,
+# `harness_hooks.normalize_hook` -- needs only cryptography, base58 and jcs, and imports none
+# of these (tests/unit/test_import_hygiene.py). Transition: these packages stay in the base
+# `dependencies` above until xibalba-shield and xibalba-cortex request `[connector]` explicitly
+# (A3); then they are removed from the base list, so a core-only install stays lean without
+# breaking any consumer mid-migration.
+connector = [
+    "requests>=2.31.0",
+    "httpx>=0.27.0",
+    "cbor2>=5.6.0",
+    "psutil>=5.9.0",
+    "opentelemetry-api>=1.42.1",
+    "opentelemetry-sdk>=1.42.1",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.42.1",
+    "eth-account>=0.13.0",
+    "web3>=7.4.0",
+    "eth-utils>=5.1.0",
+]
 # Framework-specific MLflow autolog needs the framework itself plus pandas
 # (which mlflow-skinny omits). Kept optional so the base SDK stays light — an
 # agent installs the extra matching whatever LLM stack it actually uses.
@@ -64,19 +87,11 @@ openai = ["openai>=1.0.0", "pandas>=2.0.0"]
 # module imports cleanly without it, so an agent installs only the stack it actually uses.
 anthropic = ["anthropic>=0.40.0", "pandas>=2.0.0"]
 langchain = ["langchain-core>=0.3.0", "pandas>=2.0.0"]
-# MCP server — exposes SDK tools to Claude Desktop, Cursor, Antigravity, etc.
-mcp = [
-    "mcp>=1.0.0",
-]
-
-[project.scripts]
-integrity-mcp-server = "integrity_sdk.mcp_server:main"
 
 [dependency-groups]
 dev = [
     "pytest>=8.0.0",
     "pytest-cov>=5.0.0",
-    "mcp>=1.0.0",
 ]
 
 [tool.setuptools.packages.find]

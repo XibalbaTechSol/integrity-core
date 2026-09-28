@@ -17,7 +17,8 @@
     "IntegrityKernel": "0x3e05E67Fb6dd3eE382eD24150141ffcBE2C9c338",
     "ReputationRegistry": "0x5f235388aD02bc7c5426B7f8d2773a17DeB9A616",
     "deployedFromCommit": "10ff4ad44d087f589f6e305e08c925ab6d0feaa7",
-    "disclosure": "EXPERIMENTAL, NOT AUDITED, NOT integrated with XibalbaAgentRegistry or any real agent. See PRODUCTION_GAPS.md and README.md before treating as production."
+    "disclosure": "EXPERIMENTAL, NOT AUDITED, NOT integrated with XibalbaAgentRegistry or any real agent. See PRODUCTION_GAPS.md and README.md before treating as production.",
+    "status": "LEGACY: built from the pre-A4 IntegrityKernel (11-argument constructor with the removed adapter-registry hook; assurance tier always required). Not redeployed; source no longer matches. See docs/EXECUTION_PLAN.md A4."
   },
   "experimentalPhase2LicenceReference": {
     "AdapterRegistry": "0x41aCE438fA1550D095d4DC4563D07c8252522105",

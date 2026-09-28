@@ -9,14 +9,26 @@ from __future__ import annotations
 
 import re
 import time
-import os
 import json
-import stat
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
 from .client import IntegrityClient
-from .did import IdentityInconsistentError, Keypair, agent_dir, load_or_create_did
+from .did import (
+    AmbiguousProfileRootError,
+    DidFileError,
+    IdentityInconsistentError,
+    KeyStoreInsideProfileRootError,
+    Keypair,
+    _relocate_legacy_identity,
+    agent_dir,
+    key_store_for_profile,
+    legacy_in_root_store,
+    load_or_create_did,
+    read_did_file,
+    resolve_profile_root,
+    write_did_file,
+)
 from .identity_registry import record_identity
 
 _AGENT_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -30,12 +42,19 @@ class AgentNotRegisteredError(RuntimeError):
     """Raised when strict startup requires an Oracle-registered agent."""
 
 
-def _profile_binding_path(profile_root: Path) -> Path:
+def _legacy_binding_path(profile_root: Path) -> Path:
+    """Pre-DID-file binding, written by earlier builds next to the in-root key store."""
     return profile_root / ".integrity" / "identity.json"
 
 
-def _read_profile_binding(profile_root: Path) -> dict[str, Any] | None:
-    path = _profile_binding_path(profile_root)
+def _read_legacy_binding(profile_root: Path) -> dict[str, Any] | None:
+    """Read the legacy binding so an existing profile keeps its identity while migrating.
+
+    Only the fields that identify the agent are trusted (`agent_id`, `did`,
+    `profile_root`); the recorded `identity_store` path is ignored because the
+    key store is now derived from the root.
+    """
+    path = _legacy_binding_path(profile_root)
     if not path.exists():
         return None
     try:
@@ -49,31 +68,19 @@ def _read_profile_binding(profile_root: Path) -> dict[str, Any] | None:
     return binding
 
 
-def _write_profile_binding(
-    profile_root: Path,
-    *,
-    agent_slug: str,
-    did: str,
-    harness: str,
-    profile: str | None,
-    did_home_root: Path,
-) -> None:
-    path = _profile_binding_path(profile_root)
-    path.parent.mkdir(parents=True, exist_ok=True, mode=stat.S_IRWXU)
-    os.chmod(path.parent, stat.S_IRWXU)
-    payload = {
-        "identity_version": 1,
-        "agent_id": agent_slug,
-        "did": did,
-        "harness": harness,
-        "profile": profile,
-        "profile_root": str(profile_root),
-        "identity_store": str(agent_dir(agent_slug, did_home_root=did_home_root)),
-    }
-    temporary = path.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    os.chmod(temporary, stat.S_IRUSR | stat.S_IWUSR)
-    os.replace(temporary, path)
+def _retire_legacy_layout(profile_root: Path) -> None:
+    """Remove the legacy binding and any now-empty legacy directories from the root.
+
+    Called only after the public DID file has been written and the key has
+    been relocated, so nothing here holds information that exists nowhere else.
+    Non-empty directories are left alone.
+    """
+    _legacy_binding_path(profile_root).unlink(missing_ok=True)
+    for directory in (legacy_in_root_store(profile_root), profile_root / ".integrity"):
+        try:
+            directory.rmdir()
+        except OSError:
+            break
 
 
 class IntegrityAgent:
@@ -139,30 +146,34 @@ class IntegrityAgent:
         if require_device_binding and not device_id:
             raise AgentIdentityError("device_id is required when device binding is enabled")
 
-        resolved_profile_root: Path | None = None
+        # The harness root holds only the public DID file; the private key lives
+        # in a store outside it (see did.py's layout notes). The root comes from
+        # the explicit argument, $INTEGRITY_PROFILE_ROOT, or the harness
+        # variables -- which must agree, never resolved by precedence.
         did_home_root: Path | None = None
+        legacy_home: Path | None = None
         profile_binding: dict[str, Any] | None = None
-        profile_root_value = (
-            profile_root
-            or os.getenv("HERMES_HOME")
-            or os.getenv("CODEX_HOME")
-            or os.getenv("CLAUDE_CONFIG_DIR")
-        )
-        if profile_root_value is not None:
-            try:
-                resolved_profile_root = Path(profile_root_value).expanduser().resolve(strict=True)
-            except (OSError, RuntimeError) as exc:
-                raise AgentIdentityError("profile_root must resolve to an existing directory") from exc
+        binding_is_legacy = False
+        try:
+            resolved_profile_root = resolve_profile_root(profile_root)
+        except AmbiguousProfileRootError as exc:
+            raise AgentIdentityError(str(exc)) from exc
+        if resolved_profile_root is not None:
             if not resolved_profile_root.is_dir():
                 raise AgentIdentityError("profile_root must resolve to an existing directory")
-            configured_did_home = os.getenv("INTEGRITY_DID_HOME")
-            did_home_root = (
-                Path(configured_did_home).expanduser().resolve()
-                if configured_did_home
-                else resolved_profile_root / ".integrity" / "did"
-            )
+            try:
+                did_home_root = key_store_for_profile(resolved_profile_root)
+            except KeyStoreInsideProfileRootError as exc:
+                raise AgentIdentityError(str(exc)) from exc
+            legacy_home = legacy_in_root_store(resolved_profile_root)
 
-            profile_binding = _read_profile_binding(resolved_profile_root)
+            try:
+                profile_binding = read_did_file(resolved_profile_root)
+            except DidFileError as exc:
+                raise AgentIdentityError(str(exc)) from exc
+            if profile_binding is None:
+                profile_binding = _read_legacy_binding(resolved_profile_root)
+                binding_is_legacy = profile_binding is not None
             if profile_binding is not None:
                 bound_slug = profile_binding["agent_id"]
                 if agent_slug is None:
@@ -175,11 +186,6 @@ class IntegrityAgent:
                 if expected_did and expected_did != bound_did:
                     raise AgentIdentityError("expected DID conflicts with the profile identity binding")
                 expected_did = bound_did
-                bound_store = profile_binding.get("identity_store")
-                if bound_store and Path(bound_store).expanduser().resolve() != agent_dir(
-                    bound_slug, did_home_root=did_home_root
-                ).resolve():
-                    raise AgentIdentityError("profile identity store conflicts with the active DID store")
             elif agent_slug is None:
                 raise AgentIdentityError("profile_root has no identity binding; agent_slug is required for provisioning")
             elif expected_did or require_registered:
@@ -189,6 +195,12 @@ class IntegrityAgent:
 
         if not isinstance(agent_slug, str) or not _AGENT_SLUG_RE.fullmatch(agent_slug):
             raise AgentIdentityError("agent_slug must be 1-128 ASCII letters, digits, '.', '_' or '-'")
+
+        # Relocate a pre-existing in-root key before any existence check, so a
+        # legacy identity is found (and never shadowed by a new key). Runs only
+        # after the slug is validated, since the slug becomes a path component.
+        if legacy_home is not None and did_home_root is not None:
+            _relocate_legacy_identity(agent_slug, legacy_home=legacy_home, store_home=did_home_root)
 
         identity_path = agent_dir(agent_slug, did_home_root=did_home_root)
         if expected_did and not (identity_path / "private_key.pem").exists() and not (identity_path / "document.json").exists():
@@ -201,7 +213,7 @@ class IntegrityAgent:
             )
 
         did, keypair, did_document = load_or_create_did(
-            agent_slug, did_home_root=did_home_root
+            agent_slug, did_home_root=did_home_root, legacy_home=legacy_home
         )
         if profile_binding is not None and did != profile_binding["did"]:
             raise AgentIdentityError("profile identity binding DID does not match the stored key")
@@ -233,15 +245,19 @@ class IntegrityAgent:
             raise AgentNotRegisteredError(
                 f"agent {agent_slug!r} ({did}) is not confirmed registered with the Integrity Oracle"
             )
-        if resolved_profile_root is not None and profile_binding is None:
-            _write_profile_binding(
-                resolved_profile_root,
-                agent_slug=agent_slug,
-                did=did,
-                harness=harness,
-                profile=profile,
-                did_home_root=did_home_root,
-            )
+        if resolved_profile_root is not None and (profile_binding is None or binding_is_legacy):
+            try:
+                write_did_file(
+                    resolved_profile_root,
+                    did=did,
+                    public_key=keypair.public_bytes(),
+                    agent_id=agent_slug,
+                    harness=harness,
+                    profile=profile,
+                )
+            except DidFileError as exc:
+                raise AgentIdentityError(str(exc)) from exc
+            _retire_legacy_layout(resolved_profile_root)
         snapshot = runtime.identity_snapshot()
         snapshot["last_seen_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         record_identity(snapshot, event="identity_loaded", path=did_home_root)

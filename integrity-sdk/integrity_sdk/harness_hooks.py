@@ -9,9 +9,10 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
-from .agent_runtime import IntegrityAgent
+if TYPE_CHECKING:  # annotation only: keeps normalize_hook free of the client/telemetry stack
+    from .agent_runtime import IntegrityAgent
 
 
 def _hash(value: Any) -> str | None:

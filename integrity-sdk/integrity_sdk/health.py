@@ -10,7 +10,7 @@ Python wrapper functions called any of them; `integrity-dashboard/demo`'s Clinic
 persona (docs/INTERFACE_CONTRACT.md §11) has nothing to build against without this.
 
 Mirrors `markets.py`'s two-tier style exactly: thin, one-real-transaction-each wrappers
-around `chain._contract`, reusing `markets._execute_via_agent` for every call an
+around `chain._contract`, reusing `chain.execute_via_agent` for every call an
 application contract gates on `agentRegistry.isRegisteredAgent(msg.sender)` — i.e.
 `msg.sender` must be the agent's SovereignAgent CONTRACT, never its raw controller
 wallet (see that helper's own docstring for why).
@@ -38,7 +38,6 @@ from eth_account.signers.local import LocalAccount
 from web3 import Web3
 
 from . import chain
-from .markets import _execute_via_agent
 
 # CoveredEntityRegistry.EntityType enum values (contracts/src/health/CoveredEntityRegistry.sol).
 ENTITY_TYPE_UNREGISTERED = 0
@@ -137,11 +136,11 @@ def sign_baa(
     approve_calldata = itk.functions.approve(
         Web3.to_checksum_address(baa_address), required_collateral_wei
     ).build_transaction({"gas": 0})["data"]
-    _execute_via_agent(w3, controller, sovereign_agent_address, itk_address, approve_calldata, chain_id)
+    chain.execute_via_agent(w3, controller, sovereign_agent_address, itk_address, approve_calldata, chain_id)
 
     baa = chain._contract(w3, "SmartBAA", address=baa_address)
     sign_calldata = baa.functions.sign().build_transaction({"gas": 0})["data"]
-    receipt = _execute_via_agent(w3, controller, sovereign_agent_address, baa_address, sign_calldata, chain_id)
+    receipt = chain.execute_via_agent(w3, controller, sovereign_agent_address, baa_address, sign_calldata, chain_id)
     return receipt["transactionHash"].hex()
 
 
@@ -168,7 +167,7 @@ def set_self_declared_compliance(
     calldata = gate.functions.setSelfDeclaredCompliance(
         hipaa_eligible, zdr_enabled, external_web_access_declared, data_residency_region
     ).build_transaction({"gas": 0})["data"]
-    receipt = _execute_via_agent(w3, controller, sovereign_agent_address, compliance_gate_address, calldata, chain_id)
+    receipt = chain.execute_via_agent(w3, controller, sovereign_agent_address, compliance_gate_address, calldata, chain_id)
     return receipt["transactionHash"].hex()
 
 
@@ -263,5 +262,5 @@ def verify_and_log_access(
     calldata = gate.functions.verifyAndLogAccess(
         Web3.to_checksum_address(patient_address), record_hash
     ).build_transaction({"gas": 0})["data"]
-    receipt = _execute_via_agent(w3, controller, sovereign_agent_address, ehr_gate_address, calldata, chain_id)
+    receipt = chain.execute_via_agent(w3, controller, sovereign_agent_address, ehr_gate_address, calldata, chain_id)
     return receipt["transactionHash"].hex()

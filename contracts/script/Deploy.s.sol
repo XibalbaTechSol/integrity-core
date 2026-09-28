@@ -5,8 +5,7 @@ import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 
 import {IntegrityToken} from "../src/oracle/IntegrityToken.sol";
-import {IntegrityGovernance} from "../src/oracle/IntegrityGovernance.sol";
-import {UltraPlonkVerifier} from "../src/oracle/UltraPlonkVerifier.sol";
+import {RejectAllZkVerifier} from "../src/oracle/RejectAllZkVerifier.sol";
 import {XibalbaAgentRegistry} from "../src/framework/XibalbaAgentRegistry.sol";
 import {AgentAuthorityResolver} from "../src/framework/AgentAuthorityResolver.sol";
 import {XibalbaNameService} from "../src/framework/XibalbaNameService.sol";
@@ -22,9 +21,6 @@ import {ComplianceGate} from "../src/health/ComplianceGate.sol";
 import {AgentProfile} from "../src/framework/AgentProfile.sol";
 import {AgentPrimitivesFactory} from "../src/framework/AgentPrimitivesFactory.sol";
 import {IntegrityIdentityReadV1} from "../src/kernel/IntegrityIdentityReadV1.sol";
-import {IntegrityMarket} from "../src/markets/IntegrityMarket.sol";
-import {MarketFactory} from "../src/markets/MarketFactory.sol";
-import {A2ACapitalPool} from "../src/markets/A2ACapitalPool.sol";
 import {AllowlistAnchorPolicy} from "../src/core/AllowlistAnchorPolicy.sol";
 import {ConstraintExecutionPolicy} from "../src/core/ConstraintExecutionPolicy.sol";
 
@@ -46,15 +42,6 @@ contract Deploy is Script {
     // THRESHOLD constant. Mutable post-deploy via EHRGate.setThreshold, not frozen here.
     uint256 constant EHR_GATE_MIN_AIS_THRESHOLD = 800;
 
-    // IntegrityGovernance genesis parameters (testnet defaults). Voting window / timelock are
-    // short enough to exercise the full lifecycle on a testnet cadence; threshold + quorum are
-    // denominated in whole ITK. `governance` (the guardian) defaults to the deployer, same
-    // single-operator posture as every other protocol role here.
-    uint256 constant GOV_VOTING_PERIOD = 3 days;
-    uint256 constant GOV_TIMELOCK_DELAY = 2 days;
-    uint256 constant GOV_PROPOSAL_THRESHOLD = 1_000 ether;
-    uint256 constant GOV_QUORUM_VOTES = 10_000 ether;
-
     // Deployed/derived addresses, held as contract-level state purely so
     // `_writeDeploymentsFile` can read them after `run()`'s local variables are gone.
     address deployer;
@@ -62,11 +49,9 @@ contract Deploy is Script {
     address disputer;
     address governance;
     address arbitrator;
-    address resolverSigner;
 
     IntegrityToken itk;
-    IntegrityGovernance gov;
-    UltraPlonkVerifier verifier;
+    RejectAllZkVerifier verifier;
     XibalbaAgentRegistry registry;
     AgentAuthorityResolver authorityResolver;
     IntegrityIdentityReadV1 identityRead;
@@ -87,10 +72,6 @@ contract Deploy is Script {
 
     AgentPrimitivesFactory factory;
 
-    IntegrityMarket marketImpl;
-    MarketFactory marketFactory;
-    A2ACapitalPool capitalPool;
-
     bytes32 generalDomainId;
     bytes32 healthcareDomainId;
 
@@ -105,20 +86,13 @@ contract Deploy is Script {
         disputer = vm.envOr("DISPUTER_ADDRESS", deployer);
         governance = vm.envOr("GOVERNANCE_ADDRESS", deployer);
         arbitrator = vm.envOr("ARBITRATOR_ADDRESS", deployer);
-        // Demo resolver for IntegrityMarket -- see IntegrityMarket.sol's contract-level
-        // NatSpec on the RESOLVER_ROLE trust boundary. Defaults to the deployer for a
-        // single-operator testnet deployment, same as every other protocol-held role
-        // above; integrity-demo's scenario engine is the intended real holder once it
-        // deploys its own markets via MarketFactory.
-        resolverSigner = vm.envOr("RESOLVER_ADDRESS", deployer);
 
         if (block.chainid != 31337) {
             require(oracleSigner != deployer, "P0: oracleSigner cannot be deployer");
             require(disputer != deployer, "P0: disputer cannot be deployer");
             require(governance != deployer, "P0: governance cannot be deployer");
             require(arbitrator != deployer, "P0: arbitrator cannot be deployer");
-            require(resolverSigner != deployer, "P0: resolverSigner cannot be deployer");
-            require(oracleSigner != disputer && oracleSigner != resolverSigner, "P0: Oracle must be isolated");
+            require(oracleSigner != disputer, "P0: Oracle must be isolated");
         }
 
         vm.startBroadcast(deployerKey);
@@ -126,7 +100,6 @@ contract Deploy is Script {
         _deploySingletons();
         _deployCloneImplementations();
         _deployFactory();
-        _deployMarkets();
         _wireRoles();
         _bootstrapDomains();
 
@@ -141,12 +114,10 @@ contract Deploy is Script {
         // wallet (or a faucet contract, in a later phase) as a separate, auditable
         // step rather than baking an arbitrary genesis balance into the deploy tx.
         itk = new IntegrityToken(deployer, 0);
-        // Governance over protocol parameters; guardian = `governance` role (deployer on
-        // testnet). Locks ITK to propose/vote, so it depends only on `itk` above.
-        gov = new IntegrityGovernance(
-            governance, itk, GOV_VOTING_PERIOD, GOV_TIMELOCK_DELAY, GOV_PROPOSAL_THRESHOLD, GOV_QUORUM_VOTES
-        );
-        verifier = new UltraPlonkVerifier();
+        // ZK proving is retired (docs/EXECUTION_PLAN.md A1). The PrimitiveSet templates still
+        // need a verifier address until the Phase C cutover; this one rejects every proof, so the
+        // ZK boost is unreachable by construction. See RejectAllZkVerifier.sol.
+        verifier = new RejectAllZkVerifier();
         registry = new XibalbaAgentRegistry(deployer);
         authorityResolver = new AgentAuthorityResolver(address(registry));
 
@@ -181,7 +152,7 @@ contract Deploy is Script {
             address(baaFactory),
             address(authorityResolver),
             EHR_GATE_MIN_AIS_THRESHOLD,
-            block.chainid != 31337 ? address(gov) : deployer
+            block.chainid != 31337 ? governance : deployer
         );
     }
 
@@ -214,20 +185,6 @@ contract Deploy is Script {
         );
     }
 
-    /// @dev IntegrityMarket clones are deployed per-market by agents themselves via
-    /// MarketFactory (see MarketFactory.sol's NatSpec on why market *creation* is
-    /// deliberately ungated) -- this script only stands up the shared, non-initializable
-    /// implementation and the factory that clones it, exactly like
-    /// `_deployCloneImplementations`/`_deployFactory` do for the 5 identity primitives.
-    /// A2ACapitalPool is a directly-deployed singleton (not agent-clonable — see its own
-    /// NatSpec on why a shared allocator<->agent venue doesn't fit the per-creator
-    /// clone pattern).
-    function _deployMarkets() internal {
-        marketImpl = new IntegrityMarket(address(itk), address(registry));
-        marketFactory = new MarketFactory(address(registry), address(marketImpl));
-        capitalPool = new A2ACapitalPool(address(itk), address(registry), deployer);
-    }
-
     /// @dev Only AgentPrimitivesFactory should ever hold REGISTRAR_ROLE on either
     /// registry — see XibalbaAgentRegistry.sol / DomainRegistry.sol NatSpec for why
     /// that invariant matters (it's what guarantees "an agent exists" implies "it is
@@ -235,32 +192,29 @@ contract Deploy is Script {
     function _wireRoles() internal {
         registry.grantRole(registry.REGISTRAR_ROLE(), address(factory));
         domainRegistry.grantRole(domainRegistry.REGISTRAR_ROLE(), address(factory));
-        // The oracle signer is the one expected to actually call flagBreach (it's the
-        // party watching telemetry/Slasher disputes off-chain), not just the deployer
-        // admin the constructor already granted this to.
-        capitalPool.grantRole(capitalPool.BREACH_REPORTER_ROLE(), oracleSigner);
 
         if (block.chainid != 31337) {
-            // Mainnet Readiness P0 #1: transfer ITK minting to governance to separate it from oracle/scoring key
-            itk.grantRole(itk.MINTER_ROLE(), address(gov));
+            // Mainnet Readiness P0 #1: transfer ITK minting to governance to separate it from
+            // oracle/scoring key. `governance` is the configured governance address (a multisig in
+            // production); the IntegrityGovernance contract that used to hold these roles was cut in
+            // docs/EXECUTION_PLAN.md A1, and the deployer still never keeps admin off local chains.
+            itk.grantRole(itk.MINTER_ROLE(), governance);
             itk.revokeRole(itk.MINTER_ROLE(), deployer);
 
             // Transfer all singleton admin roles to governance
-            registry.grantRole(registry.DEFAULT_ADMIN_ROLE(), address(gov));
+            registry.grantRole(registry.DEFAULT_ADMIN_ROLE(), governance);
             registry.revokeRole(registry.DEFAULT_ADMIN_ROLE(), deployer);
-            domainRegistry.grantRole(domainRegistry.DEFAULT_ADMIN_ROLE(), address(gov));
+            domainRegistry.grantRole(domainRegistry.DEFAULT_ADMIN_ROLE(), governance);
             domainRegistry.revokeRole(domainRegistry.DEFAULT_ADMIN_ROLE(), deployer);
-            capitalPool.grantRole(capitalPool.DEFAULT_ADMIN_ROLE(), address(gov));
-            capitalPool.revokeRole(capitalPool.DEFAULT_ADMIN_ROLE(), deployer);
-            entityRegistry.grantRole(entityRegistry.DEFAULT_ADMIN_ROLE(), address(gov));
+            entityRegistry.grantRole(entityRegistry.DEFAULT_ADMIN_ROLE(), governance);
             entityRegistry.revokeRole(entityRegistry.DEFAULT_ADMIN_ROLE(), deployer);
-            itk.grantRole(itk.DEFAULT_ADMIN_ROLE(), address(gov));
+            itk.grantRole(itk.DEFAULT_ADMIN_ROLE(), governance);
             itk.revokeRole(itk.DEFAULT_ADMIN_ROLE(), deployer);
-            guardrailRegistry.grantRole(guardrailRegistry.DEFAULT_ADMIN_ROLE(), address(gov));
+            guardrailRegistry.grantRole(guardrailRegistry.DEFAULT_ADMIN_ROLE(), governance);
             guardrailRegistry.revokeRole(guardrailRegistry.DEFAULT_ADMIN_ROLE(), deployer);
-            defaultAnchorPolicy.grantRole(defaultAnchorPolicy.DEFAULT_ADMIN_ROLE(), address(gov));
+            defaultAnchorPolicy.grantRole(defaultAnchorPolicy.DEFAULT_ADMIN_ROLE(), governance);
             defaultAnchorPolicy.revokeRole(defaultAnchorPolicy.DEFAULT_ADMIN_ROLE(), deployer);
-            defaultExecutionPolicy.grantRole(defaultExecutionPolicy.DEFAULT_ADMIN_ROLE(), address(gov));
+            defaultExecutionPolicy.grantRole(defaultExecutionPolicy.DEFAULT_ADMIN_ROLE(), governance);
             defaultExecutionPolicy.revokeRole(defaultExecutionPolicy.DEFAULT_ADMIN_ROLE(), deployer);
         }
     }
@@ -279,8 +233,8 @@ contract Deploy is Script {
         console2.log("=== Integrity Protocol genesis deploy ===");
         console2.log("deployer:              ", deployer);
         console2.log("IntegrityToken:        ", address(itk));
-        console2.log("IntegrityGovernance:   ", address(gov));
-        console2.log("UltraPlonkVerifier:    ", address(verifier));
+        console2.log("ZkVerifier (reject-all):", address(verifier));
+        console2.log("governance (admin):    ", governance);
         console2.log("XibalbaAgentRegistry:  ", address(registry));
         console2.log("AgentAuthorityResolver:", address(authorityResolver));
         console2.log("AllowlistAnchorPolicy: ", address(defaultAnchorPolicy));
@@ -298,9 +252,6 @@ contract Deploy is Script {
         console2.log("ComplianceGateImpl:    ", address(complianceGateImpl));
         console2.log("AgentProfileImpl:      ", address(agentProfileImpl));
         console2.log("AgentPrimitivesFactory:", address(factory));
-        console2.log("IntegrityMarketImpl:   ", address(marketImpl));
-        console2.log("MarketFactory:         ", address(marketFactory));
-        console2.log("A2ACapitalPool:        ", address(capitalPool));
     }
 
     /// @dev Writes the new nested shape (singletons / cloneTemplates / protocolAddresses)
@@ -310,8 +261,7 @@ contract Deploy is Script {
     function _writeDeploymentsFile() internal {
         string memory singletons = "singletons";
         vm.serializeAddress(singletons, "IntegrityToken", address(itk));
-        vm.serializeAddress(singletons, "IntegrityGovernance", address(gov));
-        vm.serializeAddress(singletons, "UltraPlonkVerifier", address(verifier));
+        vm.serializeAddress(singletons, "ZkVerifier", address(verifier));
         vm.serializeAddress(singletons, "XibalbaAgentRegistry", address(registry));
         vm.serializeAddress(singletons, "AgentAuthorityResolver", address(authorityResolver));
         vm.serializeAddress(singletons, "AllowlistAnchorPolicy", address(defaultAnchorPolicy));
@@ -323,24 +273,20 @@ contract Deploy is Script {
         vm.serializeAddress(singletons, "CoveredEntityRegistry", address(entityRegistry));
         vm.serializeAddress(singletons, "SmartBAAFactory", address(baaFactory));
         vm.serializeAddress(singletons, "HIPAAGuardrailRegistry", address(guardrailRegistry));
-        vm.serializeAddress(singletons, "EHRGate", address(ehrGate));
-        vm.serializeAddress(singletons, "MarketFactory", address(marketFactory));
-        string memory singletonsJson = vm.serializeAddress(singletons, "A2ACapitalPool", address(capitalPool));
+        string memory singletonsJson = vm.serializeAddress(singletons, "EHRGate", address(ehrGate));
 
         string memory cloneTemplates = "cloneTemplates";
         vm.serializeAddress(cloneTemplates, "ReputationRegistry", address(reputationRegistryImpl));
         vm.serializeAddress(cloneTemplates, "Slasher", address(slasherImpl));
         vm.serializeAddress(cloneTemplates, "VerifierRegistry", address(verifierRegistryImpl));
         vm.serializeAddress(cloneTemplates, "ComplianceGate", address(complianceGateImpl));
-        vm.serializeAddress(cloneTemplates, "AgentProfile", address(agentProfileImpl));
-        string memory cloneTemplatesJson = vm.serializeAddress(cloneTemplates, "IntegrityMarket", address(marketImpl));
+        string memory cloneTemplatesJson = vm.serializeAddress(cloneTemplates, "AgentProfile", address(agentProfileImpl));
 
         string memory protocolAddresses = "protocolAddresses";
         vm.serializeAddress(protocolAddresses, "oracleSigner", oracleSigner);
         vm.serializeAddress(protocolAddresses, "disputer", disputer);
         vm.serializeAddress(protocolAddresses, "governance", governance);
         vm.serializeAddress(protocolAddresses, "arbitrator", arbitrator);
-        vm.serializeAddress(protocolAddresses, "resolverSigner", resolverSigner);
         string memory protocolAddressesJson = vm.serializeAddress(protocolAddresses, "funderWallet", deployer);
 
         string memory domains = "domains";

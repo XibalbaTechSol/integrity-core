@@ -15,7 +15,7 @@ use sha2::{Digest, Sha256};
 
 use crate::AppState;
 use crate::anchor_coverage::{self, AnchorCoverage};
-use crate::chain::{MarketDetail, PrimitiveSet as ChainPrimitiveSet};
+use crate::chain::PrimitiveSet as ChainPrimitiveSet;
 use crate::crypto::{self, AgentVerificationMethods};
 use crate::db;
 use crate::derive;
@@ -1435,58 +1435,11 @@ pub async fn ingest_telemetry(
         &serde_json::to_value(&req.otel_spans).map_err(|e| AppError::BadRequest(e.to_string()))?,
     ));
 
-    let zk_verified = match &req.zk_proof {
-        Some(proof) => {
-            use base64::Engine;
-            let proof_bytes = base64::engine::general_purpose::STANDARD
-                .decode(&proof.proof)
-                .map_err(|e| AppError::BadRequest(format!("invalid base64 zk_proof.proof: {e}")))?;
-            let inputs_bytes = base64::engine::general_purpose::STANDARD
-                .decode(&proof.public_inputs)
-                .map_err(|e| {
-                    AppError::BadRequest(format!("invalid base64 zk_proof.public_inputs: {e}"))
-                })?;
-            let primitives = db::get_agent_primitives_on_chain(
-                &state.pool,
-                &req.agent_id,
-                state.chain.chain_id() as i64,
-            )
-            .await?
-            .ok_or_else(|| {
-                AppError::BadRequest(
-                    "zk proof requires a registry resolved on the oracle's active chain"
-                        .to_string(),
-                )
-            })?;
-            let reputation_registry = Address::from_str(&primitives.reputation_registry_address)
-                .map_err(|e| {
-                    AppError::BadRequest(format!("invalid resolved reputation registry: {e}"))
-                })?;
-            let identity_commitment = state
-                .chain
-                .zk_identity_commitment(reputation_registry)
-                .await
-                .map_err(|_| {
-                    AppError::BadRequest(
-                        "zk proof requires a readable on-chain identity commitment".to_string(),
-                    )
-                })?;
-            crate::zk::validate_telemetry_public_inputs(
-                &inputs_bytes,
-                req.nonce,
-                state.chain.chain_id(),
-                reputation_registry,
-                identity_commitment.as_slice(),
-                &leaf_hash,
-            )
-            .map_err(AppError::BadRequest)?;
-            state
-                .zk
-                .verify(&proof.circuit_id, &proof_bytes, &inputs_bytes)
-                .await?
-        }
-        None => false,
-    };
+    // ZK proving is retired (docs/EXECUTION_PLAN.md A1): there is no circuit or verifier any
+    // more, and the on-chain verifier rejects every proof. A submitted `zk_proof` is recorded
+    // (its circuit id is kept in the stored span metadata below) but never verified, so it can
+    // never raise the AIS boost. Old clients that still attach one are not rejected for it.
+    let zk_verified = false;
 
     let compliance = oracle_compliance(&state, &req).await;
     // `compliance` is high-is-good (1.0 = clean, matching derive::self_reported_compliance
@@ -1727,233 +1680,14 @@ pub async fn get_compliance(
 }
 
 // ---------------------------------------------------------------------------------
-// GET /v1/markets, GET /v1/markets/{id} (§6.9)
+// Chain-read cache staleness
 // ---------------------------------------------------------------------------------
 
-/// How long a `markets_cache`/`markets_index_sync` row is trusted before a handler
-/// re-reads live chain state. A documented tradeoff, not silent staleness: real-money
-/// (well, real-$ITK) state that changes on every `enterPosition`/`resolve` could in
-/// principle always be read live, but that would mean every `GET /v1/markets` call
-/// fans out N+1 RPC calls (one per market) — 30s keeps the common case (repeated
-/// dashboard polling) cheap while keeping the worst-case staleness small and stated.
-const MARKETS_CACHE_STALENESS_SECS: i64 = 30;
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct MarketSummaryDto {
-    pub address: String,
-    pub creator: String,
-    pub question: String,
-    pub outcome_count: u8,
-    /// Decimal string — see migrations/0002's header note on why uint256 amounts are
-    /// never serialized as a JSON number.
-    pub min_ais_to_enter: String,
-    pub resolve_deadline: chrono::DateTime<Utc>,
-    pub resolved: bool,
-    pub winning_outcome: Option<u8>,
-    pub total_staked: String,
-    /// Per-outcome pari-mutuel pool, decimal strings, index = outcome index. Cheap
-    /// public-getter reads (`outcomeStaked(i)`), unlike per-holder positions (see
-    /// `MarketDetailDto`'s doc comment).
-    pub outcome_staked: Vec<String>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct PositionDto {
-    pub amount: String,
-    pub outcome_index: u8,
-    pub bcc_commitment_hash: String,
-    pub claimed: bool,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct MarketDetailDto {
-    #[serde(flatten)]
-    #[schema(inline)]
-    pub summary: MarketSummaryDto,
-    /// Only populated when the request carries `?agent=0x...` — a single, cheap
-    /// `getPosition(agent)` read. Real per-holder enumeration across ALL positions
-    /// would require indexing `PositionEntered` events, which this pass does not
-    /// build — a documented gap, not a silent omission.
-    pub your_position: Option<PositionDto>,
-    pub positions_note: &'static str,
-}
-
-fn market_cache_row_to_dto(row: db::MarketCacheRow) -> Result<MarketSummaryDto, AppError> {
-    let outcome_staked: Vec<String> = serde_json::from_value(row.outcome_staked).map_err(|e| {
-        AppError::Internal(anyhow::anyhow!("corrupt outcome_staked cache value: {e}"))
-    })?;
-    let resolve_deadline = chrono::DateTime::<Utc>::from_timestamp(row.resolve_deadline, 0)
-        .ok_or_else(|| {
-            AppError::Internal(anyhow::anyhow!(
-                "resolve_deadline {} out of range",
-                row.resolve_deadline
-            ))
-        })?;
-    Ok(MarketSummaryDto {
-        address: row.address,
-        creator: row.creator_address,
-        question: row.question,
-        outcome_count: row.outcome_count as u8,
-        min_ais_to_enter: row.min_ais_to_enter,
-        resolve_deadline,
-        resolved: row.resolved,
-        winning_outcome: if row.resolved {
-            Some(row.winning_outcome as u8)
-        } else {
-            None
-        },
-        total_staked: row.total_staked,
-        outcome_staked,
-    })
-}
-
-async fn upsert_market_detail(state: &AppState, detail: &MarketDetail) -> Result<(), AppError> {
-    let outcome_staked: Vec<String> = detail
-        .outcome_staked
-        .iter()
-        .map(|v| v.to_string())
-        .collect();
-    let outcome_staked_json = serde_json::to_value(&outcome_staked).map_err(|e| {
-        AppError::Internal(anyhow::anyhow!("failed to serialize outcome_staked: {e}"))
-    })?;
-    db::upsert_market_cache(
-        &state.pool,
-        &format!("{:#x}", detail.address),
-        &format!("{:#x}", detail.creator),
-        &detail.question,
-        detail.outcome_count as i16,
-        &detail.min_ais_to_enter.to_string(),
-        u64::try_from(detail.resolve_deadline).unwrap_or(u64::MAX) as i64,
-        detail.resolved,
-        detail.winning_outcome as i16,
-        &detail.total_staked.to_string(),
-        &outcome_staked_json,
-    )
-    .await?;
-    Ok(())
-}
-
-/// Re-enumerates `MarketFactory.allMarkets` and refreshes every market's cached row
-/// when the last full sync is older than [`MARKETS_CACHE_STALENESS_SECS`] — see that
-/// constant's doc comment. Re-enumerating (not just refreshing already-cached rows) is
-/// what lets a market created after the last sync actually show up.
-async fn refresh_markets_index_if_stale(state: &AppState) -> Result<(), AppError> {
-    let sync = db::get_markets_index_sync(&state.pool).await?;
-    let stale = match &sync {
-        None => true,
-        Some(s) => {
-            Utc::now().signed_duration_since(s.synced_at).num_seconds()
-                > MARKETS_CACHE_STALENESS_SECS
-        }
-    };
-    if !stale {
-        return Ok(());
-    }
-
-    let addresses = state.chain.all_market_addresses().await?;
-    let details = state.chain.read_markets(&addresses).await;
-    for detail in &details {
-        upsert_market_detail(state, detail).await?;
-    }
-    db::upsert_markets_index_sync(&state.pool, addresses.len() as i32, Utc::now()).await?;
-    Ok(())
-}
-
-#[utoipa::path(
-    get,
-    path = "/v1/markets",
-    responses((status = 200, description = "All known IntegrityMarket instances", body = Vec<MarketSummaryDto>)),
-    tag = "markets",
-)]
-pub async fn list_markets(
-    State(state): State<AppState>,
-) -> Result<Json<Vec<MarketSummaryDto>>, AppError> {
-    refresh_markets_index_if_stale(&state).await?;
-    let rows = db::list_market_cache(&state.pool).await?;
-    let dtos: Result<Vec<_>, _> = rows.into_iter().map(market_cache_row_to_dto).collect();
-    Ok(Json(dtos?))
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct MarketDetailQuery {
-    /// A `SovereignAgent` address to look up a single, real `getPosition` read for —
-    /// see `MarketDetailDto::your_position`.
-    pub agent: Option<String>,
-}
-
-#[utoipa::path(
-    get,
-    path = "/v1/markets/{id}",
-    params(
-        ("id" = String, Path, description = "IntegrityMarket contract address"),
-        ("agent" = Option<String>, Query, description = "SovereignAgent address to include a your_position read for"),
-    ),
-    responses(
-        (status = 200, description = "Market detail", body = MarketDetailDto),
-        (status = 400, description = "Invalid address / no readable IntegrityMarket at that address"),
-    ),
-    tag = "markets",
-)]
-pub async fn get_market(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-    Query(query): Query<MarketDetailQuery>,
-) -> Result<Json<MarketDetailDto>, AppError> {
-    let market_addr = Address::from_str(&id)
-        .map_err(|e| AppError::BadRequest(format!("invalid market address '{id}': {e}")))?;
-    let addr_key = format!("{:#x}", market_addr);
-
-    let cached = db::get_market_cache(&state.pool, &addr_key).await?;
-    let fresh = cached
-        .as_ref()
-        .map(|r| {
-            Utc::now()
-                .signed_duration_since(r.refreshed_at)
-                .num_seconds()
-                <= MARKETS_CACHE_STALENESS_SECS
-        })
-        .unwrap_or(false);
-
-    let row = if fresh {
-        cached.expect("fresh implies Some")
-    } else {
-        let live = state.chain.read_market(market_addr).await.map_err(|e| {
-            AppError::BadRequest(format!("no readable IntegrityMarket at {addr_key}: {e}"))
-        })?;
-        upsert_market_detail(&state, &live).await?;
-        db::get_market_cache(&state.pool, &addr_key)
-            .await?
-            .expect("just upserted")
-    };
-
-    let your_position = match &query.agent {
-        Some(agent_str) => {
-            let agent_addr = Address::from_str(agent_str)
-                .map_err(|e| AppError::BadRequest(format!("invalid agent address: {e}")))?;
-            let pos = state.chain.get_position(market_addr, agent_addr).await?;
-            if pos.amount.is_zero() {
-                None
-            } else {
-                Some(PositionDto {
-                    amount: pos.amount.to_string(),
-                    outcome_index: pos.outcome_index,
-                    bcc_commitment_hash: format!("0x{}", hex::encode(pos.bcc_commitment_hash)),
-                    claimed: pos.claimed,
-                })
-            }
-        }
-        None => None,
-    };
-
-    Ok(Json(MarketDetailDto {
-        summary: market_cache_row_to_dto(row)?,
-        your_position,
-        positions_note: "Per-holder position enumeration requires indexing PositionEntered \
-                          events, which this pass does not build; outcome_staked (the real \
-                          pari-mutuel pool per outcome) and your_position (single-address \
-                          getPosition read via ?agent=) are the real reads available today.",
-    }))
-}
+/// How long a cached chain-derived row (the leaderboard sync) is trusted before a handler
+/// re-reads live chain state: a stated tradeoff, not silent staleness. 30s keeps repeated
+/// dashboard polling cheap while bounding worst-case staleness. (The market cache this
+/// was first written for was removed with the markets contracts, EXECUTION_PLAN.md A1.)
+const CHAIN_CACHE_STALENESS_SECS: i64 = 30;
 
 // ---------------------------------------------------------------------------------
 // GET /v1/leaderboard
@@ -2022,11 +1756,11 @@ pub struct LeaderboardEntryDto {
 }
 
 /// Refreshes every agent's cached leaderboard row when the last full sync is older than
-/// [`MARKETS_CACHE_STALENESS_SECS`] (reused, not a separate constant — same tradeoff:
+/// [`CHAIN_CACHE_STALENESS_SECS`] (reused, not a separate constant — same tradeoff:
 /// bounded worst-case staleness vs. an N-agent RPC fan-out on every unauthenticated hit,
 /// see PRODUCTION_GAPS.md §2). Re-enumerates `agents` (not just already-cached rows) so
 /// a newly-registered agent actually appears, mirroring
-/// `refresh_markets_index_if_stale`'s exact pattern.
+/// the removed market cache's refresh pattern.
 async fn refresh_leaderboard_if_stale(state: &AppState) -> Result<(), AppError> {
     let chain_id = state.chain.chain_id() as i64;
     let sync = db::get_leaderboard_sync_on_chain(&state.pool, chain_id).await?;
@@ -2034,7 +1768,7 @@ async fn refresh_leaderboard_if_stale(state: &AppState) -> Result<(), AppError> 
         None => true,
         Some(s) => {
             Utc::now().signed_duration_since(s.synced_at).num_seconds()
-                > MARKETS_CACHE_STALENESS_SECS
+                > CHAIN_CACHE_STALENESS_SECS
         }
     };
     if !stale {
@@ -2126,17 +1860,6 @@ pub async fn get_leaderboard(
 // GET /v1/agent/{id}/wallet
 // ---------------------------------------------------------------------------------
 
-#[derive(Debug, Serialize, ToSchema)]
-pub struct WalletPositionDto {
-    pub market_address: String,
-    pub question: String,
-    pub outcome_index: u8,
-    pub amount: String,
-    pub market_resolved: bool,
-    /// `Some(bool)` only once the market has resolved; `None` while still open.
-    pub won: Option<bool>,
-}
-
 #[derive(Debug, Serialize, ToSchema, Clone)]
 pub struct TransactionDto {
     pub id: String,
@@ -2164,11 +1887,6 @@ pub struct WalletResponse {
     pub sovereign_agent: String,
     /// Real `IntegrityToken.balanceOf(sovereignAgent)` read, decimal string.
     pub itk_balance: String,
-    /// Unclaimed positions (amount > 0, `claimed == false`) across every market in the
-    /// markets cache, cross-referenced via a real `getPosition` read per market. Bounded
-    /// by the current market count — fine at this scale, would want indexing if the
-    /// market count grows into the hundreds+.
-    pub open_positions: Vec<WalletPositionDto>,
     /// Transfer/stake/payout history requires indexing on-chain events (`Transfer`,
     /// `PositionEntered`, `PayoutClaimed`, ...), which this pass does not build. `null`,
     /// never a fabricated transaction list. See `docs/wiki/entities/integrity-oracle.md`.
@@ -2181,7 +1899,7 @@ pub struct WalletResponse {
     path = "/v1/agent/{id}/wallet",
     params(("id" = String, Path, description = "Agent DID")),
     responses(
-        (status = 200, description = "$ITK balance + open market positions", body = WalletResponse),
+        (status = 200, description = "$ITK balance", body = WalletResponse),
         (status = 404, description = "Unknown DID"),
     ),
     tag = "wallet",
@@ -2201,45 +1919,10 @@ pub async fn get_wallet(
 
     let balance = state.chain.itk_balance_of(sovereign_agent).await?;
 
-    refresh_markets_index_if_stale(&state).await?;
-    let markets = db::list_market_cache(&state.pool).await?;
-
-    let reads = markets.into_iter().map(|m| {
-        let state = state.clone();
-        async move {
-            let market_addr = Address::from_str(&m.address).ok()?;
-            let pos = state
-                .chain
-                .get_position(market_addr, sovereign_agent)
-                .await
-                .ok()?;
-            if pos.amount.is_zero() || pos.claimed {
-                return None;
-            }
-            let dto = market_cache_row_to_dto(m).ok()?;
-            Some(WalletPositionDto {
-                market_address: dto.address,
-                question: dto.question,
-                outcome_index: pos.outcome_index,
-                amount: pos.amount.to_string(),
-                market_resolved: dto.resolved,
-                won: dto
-                    .resolved
-                    .then_some(dto.winning_outcome == Some(pos.outcome_index)),
-            })
-        }
-    });
-    let open_positions: Vec<WalletPositionDto> = futures::future::join_all(reads)
-        .await
-        .into_iter()
-        .flatten()
-        .collect();
-
     Ok(Json(WalletResponse {
         agent_id: id,
         sovereign_agent: row.sovereign_agent_address,
         itk_balance: balance.to_string(),
-        open_positions,
         transaction_history: None,
         allowances: None,
     }))
@@ -2861,153 +2544,6 @@ pub async fn get_provenance(
     Ok(Json(entries))
 }
 
-// Real on-chain stake (Class B, docs/design/dashboard-wiring.md). Reads the
-// agent's own Slasher clone. U256 values are serialized as decimal strings (wei
-// of $ITK) -- same convention as the market DTOs -- since they can exceed a
-// JSON-safe integer.
-#[derive(Debug, Clone, Serialize, ToSchema)]
-pub struct StakeDto {
-    pub agent_id: String,
-    pub total_stake: String,
-    pub locked_stake: String,
-    pub available_stake: String,
-    /// Count of the agent's currently-open (unresolved) slashing disputes. The
-    /// dashboard sums this across its agent loop for a real protocol-wide
-    /// `active_disputes` with no extra fan-out (Slashers are per-agent clones with
-    /// no singleton dispute index) — see docs/design/dashboard-wiring.md.
-    pub open_disputes: u64,
-}
-
-#[utoipa::path(
-    get,
-    path = "/v1/agent/{id}/stake",
-    params(("id" = String, Path, description = "Agent DID")),
-    responses(
-        (status = 200, description = "The agent's on-chain stake accounting", body = StakeDto),
-    ),
-    tag = "agent",
-)]
-pub async fn get_stake(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> Result<Json<StakeDto>, AppError> {
-    // Resolve the agent's own Slasher clone + staker address live from the
-    // registry (never guessed), then read its real stake accounting.
-    let record = state.chain.resolve_primitives_by_did(&id).await?;
-    let stake = state
-        .chain
-        .read_stake(record.primitives.slasher, record.primitives.sovereign_agent)
-        .await?;
-    Ok(Json(StakeDto {
-        agent_id: id,
-        total_stake: stake.total.to_string(),
-        locked_stake: stake.locked.to_string(),
-        available_stake: stake.available.to_string(),
-        open_disputes: stake.open_disputes,
-    }))
-}
-
-// Real capital position (Class B) aggregated from the A2ACapitalPool for the
-// agent. U256 as decimal strings (wei of $ITK). `escrowed` is the agent's live
-// available capital line; `released` has been disbursed.
-#[derive(Debug, Clone, Serialize, ToSchema)]
-pub struct CreditDto {
-    pub agent_id: String,
-    pub total_allocated: String,
-    pub escrowed: String,
-    pub released: String,
-    pub clawed_back: String,
-    pub breached: String,
-    pub allocation_count: u64,
-}
-
-#[utoipa::path(
-    get,
-    path = "/v1/agent/{id}/credit",
-    params(("id" = String, Path, description = "Agent DID")),
-    responses(
-        (status = 200, description = "The agent's aggregated A2ACapitalPool position", body = CreditDto),
-    ),
-    tag = "agent",
-)]
-pub async fn get_credit(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> Result<Json<CreditDto>, AppError> {
-    let pool = state
-        .chain
-        .a2a_capital_pool()
-        .ok_or(crate::chain::ChainError::MissingSingleton("A2ACapitalPool"))?;
-    let record = state.chain.resolve_primitives_by_did(&id).await?;
-    let credit = state
-        .chain
-        .read_credit(pool, record.primitives.sovereign_agent)
-        .await?;
-    Ok(Json(CreditDto {
-        agent_id: id,
-        total_allocated: credit.total_allocated.to_string(),
-        escrowed: credit.escrowed.to_string(),
-        released: credit.released.to_string(),
-        clawed_back: credit.clawed_back.to_string(),
-        breached: credit.breached.to_string(),
-        allocation_count: credit.allocation_count,
-    }))
-}
-
-/// `MarketDetail` (live chain read) -> `MarketSummaryDto`, mirroring
-/// `market_cache_row_to_dto`'s conventions (lowercase 0x-addresses, decimal-string
-/// uint256s, `winning_outcome` only when resolved) so a market looks identical whether
-/// it comes from the cache or a direct read.
-fn market_detail_to_dto(detail: MarketDetail) -> Result<MarketSummaryDto, AppError> {
-    let resolve_deadline =
-        chrono::DateTime::<Utc>::from_timestamp(detail.resolve_deadline.to::<u64>() as i64, 0)
-            .ok_or_else(|| AppError::Internal(anyhow::anyhow!("resolve_deadline out of range")))?;
-    Ok(MarketSummaryDto {
-        address: format!("{:#x}", detail.address),
-        creator: format!("{:#x}", detail.creator),
-        question: detail.question,
-        outcome_count: detail.outcome_count,
-        min_ais_to_enter: detail.min_ais_to_enter.to_string(),
-        resolve_deadline,
-        resolved: detail.resolved,
-        winning_outcome: if detail.resolved {
-            Some(detail.winning_outcome)
-        } else {
-            None
-        },
-        total_staked: detail.total_staked.to_string(),
-        outcome_staked: detail
-            .outcome_staked
-            .iter()
-            .map(|v| v.to_string())
-            .collect(),
-    })
-}
-
-#[utoipa::path(
-    get,
-    path = "/v1/agent/{id}/contracts",
-    params(("id" = String, Path, description = "Agent DID")),
-    responses((status = 200, description = "IntegrityMarket contracts this agent deployed and owns", body = Vec<MarketSummaryDto>)),
-    tag = "markets",
-)]
-pub async fn get_agent_contracts(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> Result<Json<Vec<MarketSummaryDto>>, AppError> {
-    // Real "contracts an agent owns": the IntegrityMarket clones it deployed via
-    // MarketFactory (marketsByCreator, keyed on the agent's SovereignAgent). Read live —
-    // there's no per-agent cache table for this, and the set is small per agent.
-    let record = state.chain.resolve_primitives_by_did(&id).await?;
-    let addresses = state
-        .chain
-        .markets_by_creator(record.primitives.sovereign_agent)
-        .await?;
-    let details = state.chain.read_markets(&addresses).await;
-    let dtos: Result<Vec<_>, _> = details.into_iter().map(market_detail_to_dto).collect();
-    Ok(Json(dtos?))
-}
-
 #[derive(Debug, Serialize, ToSchema)]
 pub struct BaaDto {
     pub address: String,
@@ -3252,133 +2788,6 @@ pub async fn get_agent_handle(
 // Live enumeration of IntegrityGovernance proposals. Returns 400 (MissingSingleton) until the
 // contract is deployed and wired into deployments.*.json — an honest "governance not live yet",
 // never a fabricated proposal list.
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct ProposalDto {
-    pub id: u64,
-    pub proposer: String,
-    pub target: String,
-    /// Decimal string, uint256 wei of native value the action would send (usually "0").
-    pub value: String,
-    pub start_time: u64,
-    pub end_time: u64,
-    /// Timelock ETA (unix seconds); 0 until queued.
-    pub eta: u64,
-    /// Decimal string, wei of ITK locked FOR.
-    pub for_votes: String,
-    /// Decimal string, wei of ITK locked AGAINST.
-    pub against_votes: String,
-    /// Active | Defeated | Succeeded | Queued | Executed | Expired | Canceled.
-    pub state: String,
-    pub description: String,
-}
-
-fn proposal_state_str(s: u8) -> &'static str {
-    match s {
-        0 => "Active",
-        1 => "Defeated",
-        2 => "Succeeded",
-        3 => "Queued",
-        4 => "Executed",
-        5 => "Expired",
-        6 => "Canceled",
-        _ => "Unknown",
-    }
-}
-
-#[utoipa::path(
-    get,
-    path = "/v1/governance/proposals",
-    responses((status = 200, description = "IntegrityGovernance proposals (newest first)", body = Vec<ProposalDto>)),
-    tag = "governance",
-)]
-pub async fn get_governance_proposals(
-    State(state): State<AppState>,
-) -> Result<Json<Vec<ProposalDto>>, AppError> {
-    let gov =
-        state
-            .chain
-            .integrity_governance()
-            .ok_or(crate::chain::ChainError::MissingSingleton(
-                "IntegrityGovernance",
-            ))?;
-    let proposals = state.chain.read_proposals(gov).await?;
-    let dtos = proposals
-        .into_iter()
-        .map(|p| ProposalDto {
-            id: p.id,
-            proposer: format!("{:#x}", p.proposer),
-            target: format!("{:#x}", p.target),
-            value: p.value.to_string(),
-            start_time: p.start_time,
-            end_time: p.end_time,
-            eta: p.eta,
-            for_votes: p.for_votes.to_string(),
-            against_votes: p.against_votes.to_string(),
-            state: proposal_state_str(p.state).to_string(),
-            description: p.description,
-        })
-        .collect();
-    Ok(Json(dtos))
-}
-
-// Protocol-wide aggregates (Class B, docs/design/dashboard-wiring.md). Deliberately
-// the *minimal supplement* to what the dashboard already derives client-side from its
-// per-agent loop (`active_nodes`, `aggregate_ais`, `protocol_staked_itk`,
-// `total_contracts`, and — summing StakeDto.open_disputes — `active_disputes`). This
-// endpoint only sources the fields that need a singleton read the dashboard can't cheaply
-// derive: marketplace volume (sum of cached market total_staked) and the A2ACapitalPool
-// totals (one unfiltered scan of the singleton pool). `tvl` is composed client-side as
-// protocol_staked_itk + escrowed_credit + total_marketplace_volume so there is exactly one
-// source of truth for stake. All amounts are decimal-string wei of $ITK.
-#[derive(Debug, Clone, Serialize, ToSchema)]
-pub struct StatsDto {
-    /// Number of prediction markets in the cached index.
-    pub market_count: u64,
-    /// Sum of `total_staked` across every market (pari-mutuel volume).
-    pub total_marketplace_volume: String,
-    /// A2ACapitalPool: capital currently escrowed (live available lines) across all agents.
-    pub escrowed_credit: String,
-    /// A2ACapitalPool: capital disbursed ("borrowed") across all agents — the real
-    /// `total_loans_volume`.
-    pub released_credit: String,
-    /// A2ACapitalPool: number of allocations scanned.
-    pub allocation_count: u64,
-}
-
-#[utoipa::path(
-    get,
-    path = "/v1/stats",
-    responses((status = 200, description = "Protocol-wide singleton aggregates (marketplace + capital pool)", body = StatsDto)),
-    tag = "ais",
-)]
-pub async fn get_stats(State(state): State<AppState>) -> Result<Json<StatsDto>, AppError> {
-    // Marketplace volume from the cached market index (refresh honoring the same
-    // staleness window the market/leaderboard reads use — no per-hit fan-out).
-    refresh_markets_index_if_stale(&state).await?;
-    let markets = db::list_market_cache(&state.pool).await?;
-    let market_count = markets.len() as u64;
-    let total_marketplace_volume: alloy::primitives::U256 = markets
-        .iter()
-        .map(|m| alloy::primitives::U256::from_str(&m.total_staked).unwrap_or_default())
-        .fold(alloy::primitives::U256::ZERO, |acc, v| acc + v);
-
-    // A2ACapitalPool totals: one unfiltered scan of the singleton pool (not an
-    // N-agent fan-out). If the market/capital layer isn't deployed on this network,
-    // the pool contributes zeros rather than failing the whole endpoint.
-    let pool_totals = match state.chain.a2a_capital_pool() {
-        Some(pool) => state.chain.read_pool_totals(pool).await?,
-        None => crate::chain::CreditInfo::default(),
-    };
-
-    Ok(Json(StatsDto {
-        market_count,
-        total_marketplace_volume: total_marketplace_volume.to_string(),
-        escrowed_credit: pool_totals.escrowed.to_string(),
-        released_credit: pool_totals.released.to_string(),
-        allocation_count: pool_totals.allocation_count,
-    }))
-}
 
 /// Real "shadow AI" discovery (Shield vertical): DIDs the oracle has telemetry/policy
 /// evidence for (`otel_spans`, `audit_log`) but that never registered via

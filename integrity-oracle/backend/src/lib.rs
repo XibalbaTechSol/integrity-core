@@ -25,7 +25,6 @@ pub mod span_schema;
 pub mod stream;
 pub mod trace_tree;
 pub mod verification;
-pub mod zk;
 
 use std::sync::Arc;
 
@@ -36,11 +35,10 @@ use tokio::sync::broadcast;
 use crate::chain::ChainClient;
 use crate::config::Config;
 use crate::stream::StreamEvent;
-use crate::zk::ZkVerifier;
 
 /// Shared application state, handed to every handler via Axum's `State` extractor.
 /// Everything here is cheap to clone (`Arc`/connection-pool internals), matching the
-/// existing crate's convention (`ZkVerifier` is already `Clone` for the same reason).
+/// existing crate's convention.
 /// `telemetry_tx` is a `broadcast::Sender`, itself cheap to clone (an `Arc` internally) —
 /// see `stream.rs`'s doc comment for why an in-process channel, not Redis/Postgres pub-sub.
 #[derive(Clone)]
@@ -48,7 +46,6 @@ pub struct AppState {
     pub pool: PgPool,
     pub redis: ConnectionManager,
     pub chain: ChainClient,
-    pub zk: ZkVerifier,
     pub config: Arc<Config>,
     pub telemetry_tx: broadcast::Sender<StreamEvent>,
 }

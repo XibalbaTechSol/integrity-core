@@ -40,8 +40,6 @@ pub enum AppError {
     #[error(transparent)]
     Verify(#[from] crate::crypto::VerifyError),
     #[error(transparent)]
-    Zk(#[from] crate::zk::ZkVerifyError),
-    #[error(transparent)]
     Database(#[from] sqlx::Error),
     #[error(transparent)]
     Redis(#[from] redis::RedisError),
@@ -85,7 +83,6 @@ impl IntoResponse for AppError {
             AppError::DuplicateTelemetry(_) => (StatusCode::CONFLICT, self.to_string()),
             AppError::RateLimited => (StatusCode::TOO_MANY_REQUESTS, self.to_string()),
             AppError::Verify(_) => (StatusCode::BAD_REQUEST, self.to_string()),
-            AppError::Zk(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             AppError::ChainMismatch(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             AppError::MemoryNotInitialized(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             AppError::PhiDetected(_) => (StatusCode::BAD_REQUEST, self.to_string()),

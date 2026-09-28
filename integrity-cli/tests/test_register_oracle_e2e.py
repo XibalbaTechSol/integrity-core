@@ -21,7 +21,7 @@ Mirrors integrity-sdk/tests/test_registration_oracle_e2e.py's harness
 (same ephemeral-Postgres/Redis-via-Docker + real `cargo run` oracle
 pattern) and this package's own tests/test_chain.py's real-anvil fixture
 convention (same `deployed_chain` shape: real anvil, real
-`Deploy.s.sol`/`DeployMarkets.s.sol`, addresses parsed from forge's own
+`Deploy.s.sol`, addresses parsed from forge's own
 broadcast log). Opt-in via `ORACLE_E2E=1` -- same gate name
 `integrity-oracle/backend/tests/e2e.rs` and the SDK's oracle e2e test use --
 since on top of this package's already-required `anvil`/`forge`, this test
@@ -95,7 +95,7 @@ def _wait_for_http_ok(url: str, timeout: float = 90.0) -> None:
 
 @pytest.fixture(scope="module")
 def deployed_chain():
-    """Real anvil + real Deploy.s.sol/DeployMarkets.s.sol, same as
+    """Real anvil + real Deploy.s.sol, same as
     tests/test_chain.py's own fixture (module-scoped there too), plus the
     market-layer script so the deployments.local.json this produces matches
     what a real integrity-oracle instance expects to resolve against."""
@@ -131,13 +131,6 @@ def deployed_chain():
         )
         if result.returncode != 0:
             raise RuntimeError(f"Deploy.s.sol failed:\n{result.stdout}\n{result.stderr}")
-
-        markets_result = subprocess.run(
-            ["forge", "script", "script/DeployMarkets.s.sol", "--rpc-url", rpc_url, "--broadcast"],
-            cwd=CONTRACTS_DIR, capture_output=True, text=True, env=env,
-        )
-        if markets_result.returncode != 0:
-            raise RuntimeError(f"DeployMarkets.s.sol failed:\n{markets_result.stdout}\n{markets_result.stderr}")
 
         deployments_file = REPO_ROOT / "deployments.local.json"
         assert deployments_file.exists(), "Deploy.s.sol should have written deployments.local.json to the repo root"

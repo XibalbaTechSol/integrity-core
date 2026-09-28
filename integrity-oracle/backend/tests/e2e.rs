@@ -28,7 +28,6 @@ use std::time::Duration;
 use backend::chain::ChainClient;
 use futures::StreamExt;
 use backend::config::Config;
-use backend::zk::ZkVerifier;
 use backend::{db, AppState};
 
 fn repo_root() -> PathBuf {
@@ -137,11 +136,10 @@ async fn build_state(rpc_url: &str, deployments_file: &PathBuf, db_url: &str, re
     let chain = ChainClient::connect(rpc_url, deployments_file).await.expect("chain client connects");
 
     let config = Config::from_env_for_test(rpc_url.to_string(), db_url.to_string(), redis_url.to_string());
-    let zk = ZkVerifier::new(config.zk_vk_paths.clone(), config.zk_verifier_target.clone(), config.bb_binary.clone(), config.zk_scratch_dir.clone());
 
     let (telemetry_tx, _) = tokio::sync::broadcast::channel(backend::stream::CHANNEL_CAPACITY);
 
-    AppState { pool, redis, chain, zk, config: Arc::new(config), telemetry_tx }
+    AppState { pool, redis, chain, config: Arc::new(config), telemetry_tx }
 }
 
 #[tokio::test]
@@ -240,16 +238,16 @@ async fn oracle_e2e_register_verify_ais_compliance() {
     let compliance: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(compliance["vertical"], "healthcare", "agent registered as healthcare vertical");
 
-    // 5. GET /v1/markets against the REAL, live-deployed MarketFactory (Deploy.s.sol
-    // deploys the market layer as part of genesis now, so this is exercising a real
-    // binding/parse/handler round-trip, not a mock) — no market has been created on this
-    // fresh anvil, so a real, honest empty list is the correct response, not an error.
-    let resp = http.get(format!("{base}/v1/markets")).send().await.unwrap();
-    assert_eq!(resp.status(), 200, "markets endpoint must return a status: {}", resp.text().await.unwrap());
-    let resp = http.get(format!("{base}/v1/markets")).send().await.unwrap();
-    let markets: serde_json::Value = resp.json().await.unwrap();
-    assert!(markets.is_array(), "markets response must be a JSON array");
-    assert_eq!(markets.as_array().unwrap().len(), 0, "no markets created yet on this fresh anvil");
+    // 5. The market, capital-pool, stake, stats and governance routes were removed with their
+    // contracts (docs/EXECUTION_PLAN.md A1). They must be gone, not answering with stale data.
+    for removed in ["/v1/markets", "/v1/stats", "/v1/governance/proposals"] {
+        let resp = http.get(format!("{base}{removed}")).send().await.unwrap();
+        assert_eq!(resp.status(), 404, "{removed} must no longer be served");
+    }
+    for removed in ["stake", "credit", "contracts"] {
+        let resp = http.get(format!("{base}/v1/agent/{}/{removed}", reg.did)).send().await.unwrap();
+        assert_eq!(resp.status(), 404, "/v1/agent/{{id}}/{removed} must no longer be served");
+    }
 
     // 6. GET /v1/leaderboard: a real ReputationRegistry.effectiveScore read for the one
     // real registered agent, ranked (trivially, with one entry) — no fabricated P&L.
@@ -263,15 +261,15 @@ async fn oracle_e2e_register_verify_ais_compliance() {
     assert!(entries[0]["realized_pnl"].is_null(), "realized P&L must be an honest null, never a fabricated number");
 
     // 7. GET /v1/agent/{id}/wallet: a real IntegrityToken.balanceOf read for the agent's
-    // real SovereignAgent contract address, plus (empty, since no markets exist) open
-    // positions and an honestly-null transaction history.
+    // real SovereignAgent contract address and an honestly-null transaction history. The
+    // market `open_positions` field left with the markets.
     let resp = http.get(format!("{base}/v1/agent/{}/wallet", reg.did)).send().await.unwrap();
     assert_eq!(resp.status(), 200, "wallet endpoint must return a status: {}", resp.text().await.unwrap());
     let resp = http.get(format!("{base}/v1/agent/{}/wallet", reg.did)).send().await.unwrap();
     let wallet: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(wallet["sovereign_agent"].as_str().unwrap().to_lowercase(), reg.sovereign_agent.to_lowercase(), "wallet balance must be read for the agent's real SovereignAgent address");
     assert!(wallet["itk_balance"].is_string(), "uint256 balance is serialized as a decimal string");
-    assert_eq!(wallet["open_positions"].as_array().unwrap().len(), 0);
+    assert!(wallet.get("open_positions").is_none(), "market positions were removed with the markets");
     assert!(wallet["transaction_history"].is_null(), "tx history must be an honest null, never fabricated");
 
     // 8. POST /v1/telemetry/ingest PHI backstop: the check runs before signature

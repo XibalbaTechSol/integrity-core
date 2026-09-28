@@ -30,7 +30,7 @@ from urllib.parse import urlparse
 
 import requests
 
-from . import bcc
+from .core.signed_body import sign_body
 from .batcher import TelemetryBatcher
 from .collection import CollectionConfig
 from .did import Keypair
@@ -537,12 +537,10 @@ class IntegrityClient:
             "zk_proof": zk_proof,
         }
         if self._keypair is not None:
-            c_bytes = bcc.canonical_json_bytes(signable)
-            signature = "0x" + self._keypair.sign(c_bytes).hex()
+            payload = sign_body(self._keypair, signable)
         else:
-            signature = ""  # deserializes fine; the oracle will 401 it (see docstring point 2)
-
-        payload = {**signable, "signature": signature}
+            # Deserializes fine; the oracle will 401 it (see docstring point 2).
+            payload = {**signable, "signature": ""}
 
         try:
             resp = requests.post(f"{self.oracle_url}/v1/telemetry/ingest", json=payload, timeout=10)
