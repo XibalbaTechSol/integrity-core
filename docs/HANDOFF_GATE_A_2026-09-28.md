@@ -73,23 +73,38 @@ case (Identity), not a change to the count itself.
     its source to answer a Gate A question** — a stale local tree produced a false "violated"
     finding here that took real investigation to walk back.
   - Not checked this pass: import hygiene beyond the kernel/registry check above.
-- **Shield** — suite green (465/12/1-deselected); mapped each sub-item to existing tests (not all
-  confirmed to assert the exact Gate A wording):
-  - pack hash: `tests/test_config.py::test_loads_policy_bundle_metadata_and_hash` — plausible
-    match, not read line-by-line to confirm it asserts *enforced* hash equality specifically.
-  - tamper/malformed/expired(~stale) refusal: `tests/test_config_signing.py`'s
+- **Shield** — suite green (465/12/1-deselected); re-checked each sub-item against `origin/main`
+  (not a stale local read this time):
+  - **Pack hash equality — confirmed enforced**, not just computed.
+    `tests/test_config.py::test_loads_policy_bundle_metadata_and_hash` only confirms a hash gets
+    computed with the right shape; the real enforcement is
+    `tests/test_distribution_siem_dlp.py::test_fetch_tenant_policy_rejects_untrusted_hash` and
+    `tests/test_hot_reload.py::test_rejects_untrusted_policy_hash_on_reload`, both of which reject
+    a policy whose hash isn't in `trusted_policy_hashes`.
+  - **Tamper/malformed/expired refusal — confirmed**: `tests/test_config_signing.py`'s
     `test_verify_rejects_tampered_policy_content`, `test_verify_rejects_a_tampered_signature`,
     `test_verify_rejects_an_expired_policy`, `test_verify_rejects_malformed_wrapper_shape`.
-    "Incompatible pack" (version-mismatch) specifically not found as a named test.
-  - no-match default: `tests/test_policy_engine.py::test_real_opa_unmatched_agent_event_defaults_to_deny_on_the_regulated_profile`.
-  - malformed/unknown/evaluator-error deny: `test_policy_engine.py::test_unknown_event_class_denies_in_enforce_mode`,
-    `::test_malformed_raw_decision_denies_in_enforce_mode`. "Evaluator-error" specifically not
-    isolated as its own test.
-  - no raw command content in exports: `tests/test_distribution_siem_dlp.py::test_content_classifier_uses_metadata_without_raw_content`.
-  - distinct device/agent keys: several binding tests exist (`test_backend.py`'s
-    `test_backend_binding_proof_requires_device_possession_and_agent_signature`,
-    `test_backend_cortex_memory_proxy_is_bound_to_device_agent_pair`) but none directly asserts
-    the two keys are cryptographically distinct — **not confirmed, treat as open**.
+  - **"Incompatible pack" — confirmed**, via `test_verify_rejects_legacy_canonicalization_metadata`
+    (added in `xibalba-shield#39` this morning alongside the JCS migration): a bundle whose
+    `schema`/`canonicalization` fields don't match the current version is rejected with
+    `"unsupported signed-bundle schema or canonicalization"`.
+  - **No-match default — confirmed**: `test_policy_engine.py::test_real_opa_unmatched_agent_event_defaults_to_deny_on_the_regulated_profile`.
+  - **Malformed/unknown/evaluator-error deny — confirmed**, all three cases now isolated:
+    `test_policy_engine.py::test_unknown_event_class_denies_in_enforce_mode`,
+    `::test_malformed_raw_decision_denies_in_enforce_mode`, and — the one this pass actually
+    found by reading `shield/policy_engine/engine.py`'s exception handler (it calls
+    `resolve_decision(..., evaluator_error=exc)` when OPA itself raises) —
+    `::test_opa_unavailable_fails_closed`, which asserts `decision.action == "deny"` when OPA
+    raises `OpaError`.
+  - **No raw command content in exports — confirmed**:
+    `tests/test_distribution_siem_dlp.py::test_content_classifier_uses_metadata_without_raw_content`.
+  - **Distinct device/agent keys — still open, and now a sharper finding.** `device_assertion.py`'s
+    `load_device_keypair()` reads from an explicit `SHIELD_DEVICE_KEY_PATH` env var, structurally
+    separate from the agent DID key path — so the two keys are distinct by construction, not by
+    runtime check. But **zero tests reference `load_device_keypair` or `SHIELD_DEVICE_KEY_PATH` at
+    all** — the function itself has no direct test coverage (the existing binding tests in
+    `test_backend.py` exercise device/agent *pairing*, not that the two key-loading paths actually
+    resolve to different files). Treat as open; a small, safe test to add later.
 - **Cortex** — suite green (own checkout, 1 commit stale — see above):
   - reject unauthenticated OTLP: `tests/test_otlp_receiver.py`'s `test_missing_bearer_token_is_rejected`,
     `test_invalid_bearer_token_is_rejected`, `test_read_only_token_is_rejected_for_ingestion`,
@@ -216,10 +231,16 @@ Cross-repo, from each repo's root: `forge test -vvv` (contracts), `cargo test --
    uncommitted (a separate edge case, not required for the relocations done this pass).
 3. `xibalba-cortex#34` (CI fix) merged — Cortex's CI is green on `main` again.
 4. Re-run the Cortex suite against current `origin/main` (it was 1 commit behind at test time).
-5. Fix the `AGENTS.md` "eight packages" / six-row table drift.
-6. Finish the unconfirmed Shield/Cortex sub-item test mappings above (pack-hash exact assertion,
-   incompatible-pack refusal, evaluator-error isolation, device-vs-agent key distinctness,
-   provenance-export/content_hash exact assertions).
+5. `AGENTS.md` "eight packages" / six-row table drift fixed in
+   [integrity-core#129](https://github.com/XibalbaTechSol/integrity-core/pull/129) (also dropped
+   the stale `integrity-zkp` row from the wiki-entity map) — merge when ready.
+6. Shield sub-item test mappings mostly confirmed this pass (pack-hash enforcement,
+   incompatible-pack, evaluator-error, no-match default, tamper/malformed refusal, export
+   redaction — see Shield above). **Still open:** distinct device/agent keys (structurally true by
+   separate env var, but `load_device_keypair`/`SHIELD_DEVICE_KEY_PATH` has zero direct test
+   coverage) and Cortex's provenance-export/`content_hash` exact assertions (matches found in
+   `tests/test_store.py`/`tests/test_retrieval_completeness.py`, not read line-by-line to confirm
+   wording).
 7. Check `gh run list --branch main` results going forward now that Cortex's CI is fixed, and run
    the Shield/Cortex independence CI check the Builds item actually asks for (a passing CI run,
    not just a local suite).
