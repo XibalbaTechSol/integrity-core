@@ -15,6 +15,8 @@
   and receipt inclusion proofs; it has no network dependency.
 - Added `StoreIdentity` to bind provider, store, tenant, and agent namespaces explicitly across
   local and hosted-compatible memory providers.
+- Added `EntitlementSet` for tenant-scoped, revisioned capability checks with expiry and stable
+  denial codes; billing remains outside the SDK seam.
 
 ## [2026-09-28] docs | consolidated mainnet-readiness authority
 

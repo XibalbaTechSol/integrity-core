@@ -511,7 +511,8 @@ SDK/API contracts plus local reference implementations (no billing code) for:
   pack, receipt-log, and receipt-inclusion verification without network access.
 - [x] Cortex provider and store identity. `StoreIdentity` binds provider, store, tenant, and
   agent namespaces explicitly and rejects provider or namespace mismatches offline.
-- [ ] entitlements and capability checks;
+- [x] entitlements and capability checks. `EntitlementSet` provides tenant-scoped, revisioned
+  capabilities with expiry and stable fail-closed denial codes; it contains no billing logic.
 - [ ] redacted usage and audit metrics.
 
 A customer can run locally and later move to hosted or anchored services with no change in policy
