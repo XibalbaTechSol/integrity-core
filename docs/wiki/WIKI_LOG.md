@@ -1,5 +1,23 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-09-28] fix | Agent private keys leave the harness root
+
+- `integrity_sdk.did` now keeps private keys outside every harness root
+  (`$INTEGRITY_DID_HOME` or `~/.integrity/did`, under `profiles/<root hash>/`);
+  the root holds only the public `agent.did.json`. A key store configured
+  inside the root is rejected.
+- Harness roots are no longer chosen by env-var precedence: `HERMES_HOME`,
+  `CODEX_HOME` and `CLAUDE_CONFIG_DIR` must agree, or `INTEGRITY_PROFILE_ROOT`
+  must name one.
+- Keys from the previous in-root layout are relocated on first use (copy,
+  verify, delete); conflicts fail closed. The MCP server resolves keys through
+  the same function.
+- Evidence: SDK unit suite 262 passed, 8 skipped; the 10 new layout tests fail
+  against the previous code.
+- Boundary: xibalba-shield/xibalba-cortex callers of the SDK were not checked
+  in this change; any that read `.integrity/identity.json` directly need the
+  DID file instead.
+
 ## [2026-09-17] docs | AIS implementation handoff and deployment boundary
 
 - Added a dated handoff separating local mathematical correctness and

@@ -117,67 +117,69 @@ _SIGNING_TOOLS_ENABLED = os.environ.get("INTEGRITY_MCP_ALLOW_SIGNING_TOOLS") == 
 
 def _load_keypair_for(agent_id: str) -> Optional[Any]:
     """Load the Ed25519 Keypair for *agent_id* from the SDK identity store,
-    or return None if not found (server still starts, flushes will 401)."""
-    from .did import Keypair
+    or return None if not found (server still starts, flushes will 401).
 
-    from .did import agent_dir
+    Resolution lives in `did.find_existing_identity`, shared with every other
+    SDK entry point, so the MCP server and the runtime can never disagree on
+    where a key is (or put one inside a harness root)."""
+    from .did import find_existing_identity
 
-    bare = agent_id.replace("did:integrity:", "")
-    root = agent_dir(bare)
-    candidates = [root / "private_key.pem", root / "private.pem", root / f"{bare}.pem"]
-    for path in candidates:
-        if path.exists():
-            try:
-                return Keypair.from_pem(path.read_bytes())
-            except Exception as exc:
-                logger.warning("found %s but could not load keypair: %s", path, exc)
-    logger.warning(
-        "no keypair found for agent_id=%r — flushes will be unsigned (401 from oracle)", agent_id
-    )
-    return None
+    try:
+        keypair, _ = find_existing_identity(agent_id)
+    except Exception as exc:
+        logger.warning("could not load keypair for agent_id=%r: %s", agent_id, exc)
+        return None
+    if keypair is None:
+        logger.warning(
+            "no keypair found for agent_id=%r — flushes will be unsigned (401 from oracle)", agent_id
+        )
+    return keypair
 
 
 def _load_doc_for(agent_id: str) -> Optional[Dict[str, Any]]:
     """Load the DID document from the SDK identity store."""
-    from .did import agent_dir
+    from .did import find_existing_identity
 
-    bare = agent_id.replace("did:integrity:", "")
-    root = agent_dir(bare)
-    candidates = [root / "document.json", root / f"{bare}.document.json"]
-    for path in candidates:
-        if path.exists():
-            try:
-                return json.loads(path.read_text())
-            except Exception:
-                pass
-    return None
+    try:
+        _, document = find_existing_identity(agent_id)
+    except Exception:
+        return None
+    return document
+
+
+def _profile_did_file() -> Optional[Dict[str, Any]]:
+    """Return the harness root's validated DID file, or None when no root is in effect.
+
+    Fails closed when a harness root is in effect but carries no valid DID file
+    (neither `agent.did.json` nor the legacy `.integrity/identity.json`)."""
+    from .did import read_did_file, resolve_profile_root
+
+    profile_root = resolve_profile_root()
+    if profile_root is None:
+        return None
+    binding = read_did_file(profile_root)
+    if binding is not None:
+        return binding
+    legacy_path = profile_root / ".integrity" / "identity.json"
+    try:
+        binding = json.loads(legacy_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"profile identity binding is unavailable or invalid under {profile_root}") from exc
+    if not isinstance(binding, dict) or binding.get("profile_root") != str(profile_root):
+        raise RuntimeError(f"profile root does not match identity binding: {legacy_path}")
+    return binding
 
 
 def _validate_profile_identity(agent_id: str) -> None:
-    """Fail closed when an MCP server is explicitly scoped to a harness root."""
-    profile_root_value = os.environ.get("HERMES_HOME") or os.environ.get("CODEX_HOME")
-    if not profile_root_value:
-        did_root_value = os.environ.get("INTEGRITY_DID_HOME")
-        if did_root_value:
-            did_root = Path(did_root_value).expanduser()
-            if did_root.name == "did" and did_root.parent.name == ".integrity":
-                profile_root_value = str(did_root.parent.parent)
-    if not profile_root_value:
+    """Fail closed when an MCP server is scoped to a harness root it is not bound to."""
+    binding = _profile_did_file()
+    if binding is None:
         return
-
-    profile_root = Path(profile_root_value).expanduser().resolve()
-    binding_path = profile_root / ".integrity" / "identity.json"
-    try:
-        binding = json.loads(binding_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"profile identity binding is unavailable or invalid: {binding_path}") from exc
     requested_slug = agent_id.removeprefix("did:integrity:")
     if agent_id != binding.get("did") and requested_slug != binding.get("agent_id"):
         raise RuntimeError(
             f"MCP agent_id {agent_id!r} conflicts with profile binding {binding.get('agent_id')!r}"
         )
-    if binding.get("profile_root") != str(profile_root):
-        raise RuntimeError(f"profile root does not match identity binding: {binding_path}")
 
 
 def build_server(agent_id: str, oracle_url: str) -> Any:
@@ -209,13 +211,9 @@ def build_server(agent_id: str, oracle_url: str) -> Any:
     # Resolve canonical DID from stored document if available.
     doc = _load_doc_for(agent_id)
     canonical_did = doc["id"] if doc else agent_id
-    profile_root = os.environ.get("HERMES_HOME") or os.environ.get("CODEX_HOME")
-    if profile_root:
-        binding = json.loads(
-            (Path(profile_root).expanduser().resolve() / ".integrity" / "identity.json").read_text(encoding="utf-8")
-        )
-        if binding.get("did") != canonical_did:
-            raise RuntimeError("profile identity DID does not match the stored DID document")
+    binding = _profile_did_file()
+    if binding is not None and binding.get("did") != canonical_did:
+        raise RuntimeError("profile identity DID does not match the stored DID document")
     keypair = _load_keypair_for(agent_id)
 
     client = IntegrityClient(

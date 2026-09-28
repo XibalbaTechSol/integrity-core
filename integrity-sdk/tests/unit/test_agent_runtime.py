@@ -21,21 +21,22 @@ def test_each_slug_gets_a_stable_unique_identity(tmp_path, monkeypatch):
 
 def test_profile_root_scopes_identity_and_records_canonical_root(tmp_path, monkeypatch):
     monkeypatch.delenv("INTEGRITY_DID_HOME", raising=False)
-    monkeypatch.delenv("HERMES_HOME", raising=False)
-    monkeypatch.delenv("CODEX_HOME", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     profile_root = tmp_path / "profiles" / "agent-a"
     profile_root.mkdir(parents=True)
     agent = IntegrityAgent.open(
         "agent-a", harness="hermes", profile="agent-a", profile_root=profile_root,
         client_kwargs={"auto_flush": False, "enable_otel_export": False},
     )
-    canonical = profile_root / ".integrity" / "did" / "agent-a"
+    # Key material lives in the per-profile store outside the harness root.
+    canonical = did.key_store_for_profile(profile_root.resolve()) / "agent-a"
     assert (canonical / "document.json").is_file()
     assert (canonical / "private_key.pem").is_file()
+    assert not list(profile_root.rglob("*.pem"))
     snapshot = agent.identity_snapshot()
     assert snapshot["profile_root"] == str(profile_root.resolve())
     assert snapshot["identity_store_reference"] == str(canonical)
-    binding_path = profile_root / ".integrity" / "identity.json"
+    binding_path = profile_root / "agent.did.json"
     assert binding_path.is_file()
     reopened = IntegrityAgent.open(
         harness="hermes", profile_root=profile_root,
@@ -63,6 +64,7 @@ def test_profile_root_must_be_an_existing_directory(tmp_path, monkeypatch):
 
 def test_harness_home_environment_scopes_default_did_home(tmp_path, monkeypatch):
     monkeypatch.delenv("INTEGRITY_DID_HOME", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     profile_root = tmp_path / "codex-home"
     profile_root.mkdir()
     monkeypatch.setenv("CODEX_HOME", str(profile_root))
@@ -70,7 +72,9 @@ def test_harness_home_environment_scopes_default_did_home(tmp_path, monkeypatch)
         "agent-a", harness="codex",
         client_kwargs={"auto_flush": False, "enable_otel_export": False},
     )
-    assert (profile_root / ".integrity" / "did" / "agent-a" / "document.json").is_file()
+    assert (profile_root / "agent.did.json").is_file()
+    assert (did.key_store_for_profile(profile_root.resolve()) / "agent-a" / "private_key.pem").is_file()
+    assert not list(profile_root.rglob("*.pem"))
     assert agent.identity_snapshot()["profile_root"] == str(profile_root.resolve())
     agent.close(flush=False)
 
@@ -84,6 +88,7 @@ def test_expected_did_mismatch_refuses_attribution(tmp_path, monkeypatch):
 
 def test_profile_binding_rejects_conflicting_expected_did(tmp_path, monkeypatch):
     monkeypatch.delenv("INTEGRITY_DID_HOME", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     root = tmp_path / "bound-profile"
     root.mkdir()
     agent = IntegrityAgent.open(
@@ -97,7 +102,7 @@ def test_profile_binding_rejects_conflicting_expected_did(tmp_path, monkeypatch)
             expected_did="did:integrity:not-this-agent",
             client_kwargs={"auto_flush": False, "enable_otel_export": False},
         )
-    assert (root / ".integrity" / "identity.json").is_file()
+    assert (root / "agent.did.json").is_file()
 
 
 def test_shield_requires_device_binding(tmp_path, monkeypatch):

@@ -333,9 +333,21 @@ unknown registration state is never treated as success. `device_id` is
 optional for ordinary agents and required when `require_device_binding=True`.
 
 When a harness profile root is supplied or discovered from its environment,
-the runtime binds that profile to an existing agent DID in
-`.integrity/identity.json`; conflicting slugs, DIDs, profile roots, or DID
-stores fail closed. BCC nonce allocation is persisted under the identity store
+the runtime binds that profile to one agent DID in a **public** DID file,
+`<root>/agent.did.json` (DID, public key, agent label, harness, root — no key
+material). The private key never lives in the harness root: it is kept at
+`$INTEGRITY_DID_HOME` (default `~/.integrity/did`) under
+`profiles/<sha256(root)[:32]>/<agent>/`, mode 0600 in a 0700 directory, and a
+key store configured inside the root is rejected. The root comes from the
+explicit argument, `$INTEGRITY_PROFILE_ROOT`, or `HERMES_HOME`/`CODEX_HOME`/
+`CLAUDE_CONFIG_DIR` — which must agree; two different roots fail closed rather
+than being resolved by precedence. Keys written by earlier builds to
+`<root>/.integrity/did/<agent>/` are relocated on first use (copy, verify the
+same DID, then delete the in-root copy; a conflicting external key fails closed
+and leaves the legacy key untouched), and the legacy `.integrity/identity.json`
+binding is replaced by the DID file. Conflicting slugs, DIDs, profile roots, a
+DID file whose DID does not derive from its public key, or one copied from
+another root all fail closed. BCC nonce allocation is persisted under the identity store
 and protected by a file lock so concurrent hook processes share a monotonic
 counter. Cross-system adapters also preserve canonical invocation/session
 identifiers and propagate identity attribution to Cortex and telemetry.
