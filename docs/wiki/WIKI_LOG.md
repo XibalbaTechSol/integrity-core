@@ -49,6 +49,13 @@
 - Moved `docs/audits/2026-08-06-cross-repository-status.md` into the dated archive and updated
   the repository implementation-plan wiki page's `source_files` binding.
 
+## [2026-09-28] docs | automated Markdown inventory classification
+
+- Extended `scripts/check_docs.py` to classify every tracked Markdown file as authoritative,
+  merge-required, historical, or removable; unknown/removable files fail the CI documentation job.
+- The classification is rule-based and report-only, preserving the no-new-hand-maintained-register
+  constraint while making future documentation additions explicit.
+
 ## [2026-09-28] integrate | A3 Shield and Cortex migrations merged
 
 - Merged xibalba-shield#39: labeled/HMAC-protected Hermes exports, separate device-auth keys,

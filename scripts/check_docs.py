@@ -101,8 +101,50 @@ def check_wiki_index(errors: list[str]) -> None:
         errors.append(f"WIKI_INDEX.md page count is not {len(actual)}")
 
 
+def classify_markdown(relative: str) -> str:
+    name = Path(relative).name
+    if relative.startswith("docs/archive/"):
+        return "historical"
+    if relative.startswith("docs/wiki/") or relative.startswith("spec/"):
+        return "authoritative"
+    if relative.startswith(("docs/design/", "docs/audits/", "docs/evidence/")):
+        return "merge-required"
+    if relative.startswith(("docs/architecture/", "docs/guides/", "docs/runbooks/", "docs/adr/")):
+        return "authoritative"
+    if name in {
+        "PRODUCTION_GAPS.md", "MAINNET_READINESS.md", "PRODUCTION_READINESS_PLAN.md",
+        "KEY_SPLIT_RUNBOOK.md", "M1_M5_MEDIATION.md", "SOURCE-OF-TRUTH-RECONCILIATION-2026-09-15.md",
+        "signer-role-rotation-2026-08.md",
+    }:
+        return "merge-required"
+    if name in {
+        "AGENTS.md", "CLAUDE.md", "README.md", "STATUS.md", "ECOSYSTEM.md", "DATA.md",
+        "SECURITY.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "FAUCET_INFO.md",
+        "DOCUMENT_STATUS.yaml", "SPEC.md", "WHITEPAPER.md", "CONTROLS_MATRIX.md",
+        "EXECUTION_PLAN.md", "INTERFACE_CONTRACT.md", "TESTING.md", "CONTRIBUTOR_VALIDATION.md",
+        "ENTERPRISE_ADOPTION.md", "INTEGRITY-SDK-ARCHITECTURE.md", "MAINTAINERS.md",
+        "demo-shield-integration.md", "PULL_REQUEST_TEMPLATE.md",
+    }:
+        return "authoritative"
+    return "removable"
+
+
+def check_markdown_inventory(errors: list[str]) -> dict[str, int]:
+    import subprocess
+
+    files = subprocess.check_output(["git", "ls-files", "*.md"], cwd=ROOT, text=True).splitlines()
+    counts = {category: 0 for category in ("authoritative", "merge-required", "historical", "removable")}
+    for relative in files:
+        category = classify_markdown(relative)
+        counts[category] += 1
+    if counts["removable"]:
+        errors.append(f"Markdown inventory has {counts['removable']} unclassified/removable file(s)")
+    return counts
+
+
 def main() -> int:
     errors: list[str] = []
+    counts = check_markdown_inventory(errors)
     check_status_cap(errors)
     check_authority_map(errors)
     check_markdown_links(errors)
@@ -111,7 +153,11 @@ def main() -> int:
         for error in errors:
             print(f"ERROR: {error}", file=sys.stderr)
         return 1
-    print("Documentation contracts pass: authority, links, wiki index, and STATUS.md cap.")
+    print(
+        "Documentation contracts pass: authority, links, wiki index, STATUS.md cap, "
+        f"and Markdown inventory ({counts['authoritative']} authoritative, "
+        f"{counts['merge-required']} merge-required, {counts['historical']} historical)."
+    )
     return 0
 
 
