@@ -32,6 +32,13 @@
 - Preserved the historical plan and recorded its archived path in `docs/DOCUMENT_STATUS.yaml`;
   `PRODUCTION_READINESS_PLAN.md` and `MAINNET_READINESS.md` remain active merge-required sources.
 
+## [2026-09-28] archive | moved unreferenced dated audit material
+
+- Moved unreferenced registration-readiness, cross-repository closure/validation, tri-repo audit,
+  AIS reconciliation, and harness-loop audit files into `docs/archive/2026-09/`.
+- Referenced audits and design decisions remain in place until their active claims are reconciled;
+  no historical evidence was deleted.
+
 ## [2026-09-28] integrate | A3 Shield and Cortex migrations merged
 
 - Merged xibalba-shield#39: labeled/HMAC-protected Hermes exports, separate device-auth keys,
