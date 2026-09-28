@@ -49,6 +49,12 @@
 - Moved `docs/audits/2026-08-06-cross-repository-status.md` into the dated archive and updated
   the repository implementation-plan wiki page's `source_files` binding.
 
+## [2026-09-28] archive | moved unreferenced reconciliation and AIS reports
+
+- Moved the unreferenced source-of-truth reconciliation and dated AIS consistency/validation
+  reports into `docs/archive/2026-09/`; active AIS decisions, runbooks, and evidence-linked design
+  documents remain in place.
+
 ## [2026-09-28] integrate | A3 Shield and Cortex migrations merged
 
 - Merged xibalba-shield#39: labeled/HMAC-protected Hermes exports, separate device-auth keys,
