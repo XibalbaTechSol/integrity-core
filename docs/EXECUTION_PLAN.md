@@ -462,8 +462,9 @@ paths or sibling Docker copies. Both pass independence CI against the SDK tag.
 - **CI:**
   - [ ] link, path, duplicate-claim and authority checks, plus the `STATUS.md` cap;
   - [ ] `sync-wiki.yml` follows the consolidated set;
-  - [ ] fix the two pages failing `wiki_toc.py --check` on `main` (`local-metrology.md`,
-    `integrity-oracle.md`).
+  - [x] fix the two pages failing `wiki_toc.py --check` on `main` (`local-metrology.md`,
+    `integrity-oracle.md`). Completed 2026-09-28 with the repository TOC generator; only stale
+    anchors were regenerated.
 - Constraint: no new hand-maintained registers.
 
 ## A6. Stable SaaS seams (M)

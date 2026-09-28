@@ -10,6 +10,12 @@
 - Refreshed `docs/wiki/architecture/repository-implementation-plans.md` to point at the new
   authority and retain the cross-repository plan map.
 
+## [2026-09-28] fix | wiki table-of-contents drift
+
+- Regenerated the two pages reported by `python3 scripts/wiki_toc.py --check`:
+  `concepts/local-metrology.md` and `entities/integrity-oracle.md`.
+- Only stale in-page anchors changed; the page content and source-backed claims were unchanged.
+
 ## [2026-09-28] feat | SDK core: JCS, Merkle, signed packs, decision contract, receipts
 
 - New `integrity_sdk.core` (EXECUTION_PLAN.md A2), dependency-light (cryptography, base58, jcs,

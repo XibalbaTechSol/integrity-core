@@ -36,7 +36,7 @@ is independently verified. All four client signals are normalized to
 - [deriveentropy — real Shannon entropy, not a type-token ratio](#deriveentropy-real-shannon-entropy-not-a-type-token-ratio)
 - [derivegrounding — a documented placeholder heuristic](#derivegrounding-a-documented-placeholder-heuristic)
 - [derivesacrifice — total tokens, log-scaled](#derivesacrifice-total-tokens-log-scaled)
-- [derivecompliance — self-report, but on-chain wins](#derivecompliance-self-report-but-on-chain-wins)
+- [derivecompliance — client proxy; Oracle evidence wins](#derivecompliance-client-proxy-oracle-evidence-wins)
 - [Where it's consumed](#where-it-s-consumed)
 - [What this page does NOT claim (correcting the old wiki)](#what-this-page-does-not-claim-correcting-the-old-wiki)
 
