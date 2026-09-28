@@ -321,14 +321,18 @@ review:
 Both depend on SDK core only and use lazy connector imports. Neither has hard-coded `/home/xibalba`
 paths or sibling Docker copies. Both pass independence CI against the SDK tag.
 
-**Shield:** (xibalba-shield#36 fixed a breakage this phase surfaced; the items below are unstarted)
-- [ ] Policy bundles become signed packs covering the Rego; the enforced pack hash equals the signed
+**Shield:** (xibalba-shield#36 fixed a breakage this phase surfaced)
+- [x] Policy bundles become signed packs covering the Rego; the enforced pack hash equals the signed
   pack hash. **Prerequisite found and fixed first (xibalba-shield#36):** `policy_engine/engine.py`
   imported the now-deleted `integrity_sdk.policy.opa_client` (A1 removed it; it was BCC
   middleware's own vendored client, never used by the SDK) — Shield's policy engine could not be
   imported at all against current `main`. Restored with a Shield-owned copy of the same module,
-  a behavior-preserving port, so this item can build on a working engine. Migrating that engine
-  onto `core.opa.OpaClient`/signed packs is still unstarted.
+  a behavior-preserving port, so this item can build on a working engine. Implemented and merged
+  in xibalba-shield#38 (`00eadda`): `PolicyEngine` now installs and queries the verified
+  `LoadedPack` through `integrity_sdk.core.opa.OpaClient`; the enforced hash is sourced from that
+  pack, explicit `--pack-dir` and trusted signer flags are supported, built-in profiles resolve
+  signed packs, and the zero-config path retains the existing permissive SMB fallback through a
+  verified ephemeral pack. Test seams were migrated to real pack-aware OPA behavior.
 
   **Owner decision (2026-09-28): pack-signing key custody, resolved.** A dedicated Ed25519
   keypair, generated and held the same way as the existing release-signing key
@@ -340,7 +344,7 @@ paths or sibling Docker copies. Both pass independence CI against the SDK tag.
   later production-infra gate, same as the release-signing key and the no-signing-daemon-in-v1
   decision already in this plan. `packaging/systemd/shield.env.example`'s
   `XIBALBA_ORACLE_POLICY_PUBLIC_KEY=file:...` convention is the distribution mechanism for the
-  public half. This unblocks the migration; it does not itself complete it.
+  public half. HSM/multi-party custody remains deferred to the production-infra gate.
 - [x] `permit` means permitted. No-match takes the pack's per-class default: `hipaa` agent tool calls
   deny; device sensor events are `log_only`. Done independently of the full signed-packs migration
   above: `shield/policies/rego/*.rego` each add `decision`/`reason_code` vars (the C3
