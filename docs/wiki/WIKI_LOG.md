@@ -17,6 +17,8 @@
   local and hosted-compatible memory providers.
 - Added `EntitlementSet` for tenant-scoped, revisioned capability checks with expiry and stable
   denial codes; billing remains outside the SDK seam.
+- Added `RedactedUsageMeter` for tenant-scoped aggregate usage and audit summaries with no raw
+  content fields or payload collection surface.
 
 ## [2026-09-28] docs | consolidated mainnet-readiness authority
 
