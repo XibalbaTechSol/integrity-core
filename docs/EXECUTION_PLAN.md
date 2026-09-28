@@ -203,7 +203,9 @@ review:
 | `DeployXnsGovernance.s.sol` couples XNS with governance | The script is split before governance is cut |
 
 **Owner checkpoints:**
-1. [ ] Create integrity-lab and integrity-console. Push access to Shield and Cortex already exists.
+1. [x] Create integrity-lab and integrity-console. Push access to Shield and Cortex already exists.
+   Both repos exist; integrity-lab#1 (cut-path import) and integrity-console#1/#4 (dashboard/userapi/
+   demo import, then cut-feature page removal) are merged.
 2. [ ] Approve any testnet broadcast (evidence anchor, genesis). Each is preceded by an Anvil dry run of
    the identical script.
 
@@ -250,8 +252,9 @@ review:
 
 ## A2. SDK core: C1–C7 (M)
 
-- [ ] Tag `integrity-sdk-v0.1.0` on `main` once this branch's PR merges (a tag on an unmerged branch
-  commit would not be on `main` history).
+- [x] Tag `integrity-sdk-v0.1.0` on `main` (`pyproject.toml` already reads `0.1.0`; tagged after #105
+  merged, so the tag includes the A3 canonicalization bumps — `telemetry.envelope` schema v2 and
+  `memory_dag` schema v2. Consumers pinning this tag get those hash changes.).
 - **Core, tagged `integrity-sdk-v0.x` and dependency-light:**
   - [x] JCS (`core/jcs.py`; `bcc.canonical_json_bytes` delegates to it);
   - [x] DID and DID-file support (the layout from `ad56d97`);
@@ -288,8 +291,8 @@ review:
 
 - [x] Snapshot the source and write a cut-path manifest. Mirror both to integrity-lab. Snapshot:
   `main` @ `761e019`; 91 files with history + manifest in integrity-lab#1 (open for merge).
-- [ ] **Split integrity-console** (about 21.8k lines: dashboard 18.1k, demo 1.6k, userapi 2.1k):
-  import merged in integrity-console#1; ticked once integrity-console#4 merges.
+- [x] **Split integrity-console** (about 21.8k lines: dashboard 18.1k, demo 1.6k, userapi 2.1k):
+  import merged in integrity-console#1; integrity-console#4 merged 2026-09-28T03:19Z.
   - [x] `git filter-repo` the dashboard, userapi and demo (191 commits, history kept);
   - [x] carry over or explicitly drop the unmerged `feat/cortex-operations-dashboard` branch (carried
     over, with `park/policy-packs-2026-09-26`);
