@@ -54,16 +54,6 @@ pub struct Config {
     /// already target by default (`telemetry/core.py`'s `endpoint="localhost:4317"`).
     pub otlp_grpc_addr: String,
 
-    /// circuit_id -> path to that circuit's trusted verification key. Populated
-    /// from `ZK_VK_PATHS` as `id1=/path/to/vk,id2=/path/to/vk2`. This is
-    /// intentionally the *only* source of VKs the ZK verifier trusts — see
-    /// `crate::zk` for why accepting a caller-supplied VK would defeat the point
-    /// of verification.
-    pub zk_vk_paths: HashMap<String, PathBuf>,
-    pub zk_verifier_target: String,
-    pub bb_binary: PathBuf,
-    pub zk_scratch_dir: PathBuf,
-
     pub deployments_file: PathBuf,
 
     pub ais_weights: AisWeights,
@@ -103,11 +93,6 @@ impl Config {
         let bind_addr = env_or("BIND_ADDR", "0.0.0.0:8080");
         let otlp_grpc_addr = env_or("OTLP_GRPC_ADDR", "0.0.0.0:4317");
 
-        let zk_vk_paths = parse_vk_paths(&env_or("ZK_VK_PATHS", ""))?;
-        let zk_verifier_target = env_or("ZK_VERIFIER_TARGET", "evm");
-        let bb_binary = PathBuf::from(env_or("BB_BINARY", "bb"));
-        let zk_scratch_dir =
-            PathBuf::from(env_or("ZK_SCRATCH_DIR", std::env::temp_dir().join("integrity-oracle-zk").to_string_lossy().as_ref()));
 
         // Repo-root-relative default per §6 of the interface contract; every
         // package that needs deployed addresses defaults to the same file.
@@ -139,10 +124,6 @@ impl Config {
             chain_id,
             bind_addr,
             otlp_grpc_addr,
-            zk_vk_paths,
-            zk_verifier_target,
-            bb_binary,
-            zk_scratch_dir,
             deployments_file,
             ais_weights,
             reporting_period_days,
@@ -167,10 +148,6 @@ impl Config {
             chain_id: 31337,
             bind_addr: "127.0.0.1:0".to_string(),
             otlp_grpc_addr: "127.0.0.1:0".to_string(),
-            zk_vk_paths: HashMap::new(),
-            zk_verifier_target: "evm".to_string(),
-            bb_binary: PathBuf::from("bb"),
-            zk_scratch_dir: std::env::temp_dir().join("integrity-oracle-zk-test"),
             deployments_file: PathBuf::from("../deployments.local.json"),
             ais_weights: AisWeights::default(),
             reporting_period_days: 30,
@@ -233,27 +210,6 @@ fn parse_optional_api_key(raw: Option<String>) -> Option<String> {
     raw.map(|k| k.trim().to_string()).filter(|k| !k.is_empty())
 }
 
-/// Parses `"circuit_id=path,circuit_id2=path2"` into a map. Empty string yields
-/// an empty map (valid: an oracle with no telemetry containing ZK proofs yet,
-/// e.g. immediately after a fresh deploy, legitimately has nothing to register).
-fn parse_vk_paths(raw: &str) -> Result<HashMap<String, PathBuf>, String> {
-    let mut map = HashMap::new();
-    if raw.trim().is_empty() {
-        return Ok(map);
-    }
-    for entry in raw.split(',') {
-        let entry = entry.trim();
-        if entry.is_empty() {
-            continue;
-        }
-        let (id, path) = entry
-            .split_once('=')
-            .ok_or_else(|| format!("malformed ZK_VK_PATHS entry '{entry}', expected circuit_id=path"))?;
-        map.insert(id.trim().to_string(), PathBuf::from(path.trim()));
-    }
-    Ok(map)
-}
-
 /// Parses `"wE,wG,wS,wC"` (four comma-separated floats) into `AisWeights`, or
 /// falls back to the interface-contract default if unset. Always validated
 /// (must sum to 1.0) before being accepted.
@@ -289,23 +245,6 @@ mod tests {
         assert_eq!(parse_optional_api_key(Some(String::new())), None);
         assert_eq!(parse_optional_api_key(Some("   ".into())), None);
         assert_eq!(parse_optional_api_key(Some(" k3y ".into())), Some("k3y".to_string()));
-    }
-
-    #[test]
-    fn parses_multiple_vk_path_entries() {
-        let map = parse_vk_paths("attestation-v1=/vks/a.vk, other=/vks/b.vk").unwrap();
-        assert_eq!(map.get("attestation-v1").unwrap(), &PathBuf::from("/vks/a.vk"));
-        assert_eq!(map.get("other").unwrap(), &PathBuf::from("/vks/b.vk"));
-    }
-
-    #[test]
-    fn empty_vk_paths_is_valid() {
-        assert!(parse_vk_paths("").unwrap().is_empty());
-    }
-
-    #[test]
-    fn rejects_malformed_vk_path_entry() {
-        assert!(parse_vk_paths("no-equals-sign").is_err());
     }
 
     #[test]

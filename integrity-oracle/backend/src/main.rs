@@ -11,7 +11,6 @@ use backend::otlp::{
     TraceServiceServer,
 };
 use backend::stream::CHANNEL_CAPACITY;
-use backend::zk::ZkVerifier;
 use backend::{db, AppState};
 
 #[tokio::main]
@@ -36,13 +35,6 @@ async fn main() -> anyhow::Result<()> {
     let chain = ChainClient::connect(&config.rpc_url, &config.deployments_file).await?;
     tracing::info!(deployments_file = %config.deployments_file.display(), "chain client connected");
 
-    let zk = ZkVerifier::new(
-        config.zk_vk_paths.clone(),
-        config.zk_verifier_target.clone(),
-        config.bb_binary.clone(),
-        config.zk_scratch_dir.clone(),
-    );
-
     let bind_addr = config.bind_addr.clone();
     let otlp_grpc_addr = config.otlp_grpc_addr.clone();
     let (telemetry_tx, _) = tokio::sync::broadcast::channel(CHANNEL_CAPACITY);
@@ -50,7 +42,6 @@ async fn main() -> anyhow::Result<()> {
         pool,
         redis,
         chain,
-        zk,
         config: Arc::new(config),
         telemetry_tx,
     };

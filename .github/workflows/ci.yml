@@ -82,15 +82,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: integrity-oracle
-      # backend/src/zk.rs's unit tests shell out to a real `bb verify` (see
-      # zk::tests::verifies_a_real_bb_generated_proof and
-      # ::rejects_a_proof_against_tampered_public_inputs) against a checked-in fixture —
-      # they need the `bb` binary on PATH even though this job never touches ORACLE_E2E.
-      - name: Install Barretenberg (bb)
-        run: |
-          curl --fail -L https://raw.githubusercontent.com/AztecProtocol/aztec-packages/next/barretenberg/bbup/install | bash
-          echo "$HOME/.bb" >> "$GITHUB_PATH"
-      - run: ~/.bb/bbup -v ${{ env.BB_VERSION }}
       # Real-toolchain (ORACLE_E2E=1) tests need Postgres/Redis/anvil/forge and are NOT
       # run here — this job runs `cargo test --workspace --lib` plus the e2e test
       # binary's default (skip-logging) path, matching what a bare `cargo test` does

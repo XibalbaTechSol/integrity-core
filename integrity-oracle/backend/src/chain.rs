@@ -105,47 +105,6 @@ sol! {
 }
 
 sol! {
-    // Slasher's per-agent stake accounting is exposed via two public mappings
-    // (contracts/src/oracle/Slasher.sol): total staked and the portion locked by
-    // open disputes. Available = total - locked. Read-only, keyed on the staker
-    // (the agent's SovereignAgent address).
-    #[sol(rpc)]
-    interface ISlasher {
-        function stakeOf(address account) external view returns (uint256);
-        function lockedStakeOf(address account) external view returns (uint256);
-        function nextDisputeId() external view returns (uint256);
-        function disputes(uint256 id) external view returns (
-            address agent,
-            uint256 amount,
-            uint256 raisedAt,
-            bool resolved,
-            bool slashed,
-            string reason
-        );
-    }
-}
-
-sol! {
-    // A2ACapitalPool (contracts/src/markets/A2ACapitalPool.sol) escrows ITK
-    // earmarked for an agent. There is no per-agent getter -- allocations are a
-    // flat id->struct mapping -- so an agent's capital view is aggregated by
-    // scanning allocations and filtering on the `agent` field. status: 0=Escrowed
-    // 1=Released 2=ClawedBack 3=Breached. Read-only.
-    #[sol(rpc)]
-    interface IA2ACapitalPool {
-        function nextAllocationId() external view returns (uint256);
-        function allocations(uint256 id) external view returns (
-            address allocator,
-            address agent,
-            uint256 amount,
-            uint256 minAisToMaintain,
-            uint8 status,
-            uint256 createdAt
-        );
-    }
-}
-
-sol! {
     #[sol(rpc)]
     interface IComplianceGate {
         function vertical() external view returns (uint8);
@@ -179,35 +138,6 @@ sol! {
 }
 
 sol! {
-    // IntegrityGovernance (contracts/src/oracle/IntegrityGovernance.sol): lock-to-vote,
-    // timelocked governance. Enumerated by index: proposalCount() then getProposal(i) +
-    // state(i) for i in 1..=count. ProposalState enum order matches the Solidity enum:
-    // 0=Active 1=Defeated 2=Succeeded 3=Queued 4=Executed 5=Expired 6=Canceled.
-    #[sol(rpc)]
-    interface IIntegrityGovernance {
-        struct Proposal {
-            address proposer;
-            address target;
-            uint256 value;
-            bytes callData;
-            uint64 startTime;
-            uint64 endTime;
-            uint64 eta;
-            uint256 forVotes;
-            uint256 againstVotes;
-            bool executed;
-            bool canceled;
-            string description;
-        }
-        function proposalCount() external view returns (uint256);
-        function getProposal(uint256 id) external view returns (Proposal memory);
-        function state(uint256 id) external view returns (uint8);
-        function quorumVotes() external view returns (uint256);
-        function votingPeriod() external view returns (uint256);
-    }
-}
-
-sol! {
     #[sol(rpc)]
     interface ISmartBAA {
         function coveredEntity() external view returns (address);
@@ -215,47 +145,6 @@ sol! {
         function agreementHash() external view returns (bytes32);
         function requiredCollateral() external view returns (uint256);
         function status() external view returns (uint8);
-    }
-}
-
-/// Hand-transcribed from `contracts/src/markets/MarketFactory.sol`. Note there is no
-/// `allMarkets()` full-array getter: `address[] public allMarkets` only auto-generates
-/// an indexed `allMarkets(uint256) returns (address)` getter, so enumerating every
-/// market requires `allMarketsCount()` + a loop/batch over `allMarkets(i)` (see
-/// `ChainClient::all_market_addresses`). `getMarketsByCreator` is the real full-array
-/// getter for the by-creator case (the `marketsByCreator` mapping's auto-getter would
-/// need an index too, same as `allMarkets`).
-sol! {
-    #[sol(rpc)]
-    interface IMarketFactory {
-        function allMarkets(uint256) external view returns (address);
-        function allMarketsCount() external view returns (uint256);
-        function getMarketsByCreator(address creator) external view returns (address[] memory);
-    }
-}
-
-/// Hand-transcribed from `contracts/src/markets/IntegrityMarket.sol`.
-sol! {
-    #[sol(rpc)]
-    interface IIntegrityMarket {
-        struct Position {
-            uint256 amount;
-            uint8 outcomeIndex;
-            bytes32 bccCommitmentHash;
-            bool claimed;
-        }
-
-        function creator() external view returns (address);
-        function question() external view returns (string memory);
-        function outcomeCount() external view returns (uint8);
-        function minAisToEnter() external view returns (uint256);
-        function resolveDeadline() external view returns (uint256);
-        function resolved() external view returns (bool);
-        function winningOutcome() external view returns (uint8);
-        function totalStaked() external view returns (uint256);
-        function outcomeStaked(uint8) external view returns (uint256);
-        function getPosition(address agent) external view returns (Position memory);
-        function wasCorrect(address agent) external view returns (bool);
     }
 }
 
@@ -306,55 +195,6 @@ pub struct AgentRecord {
     pub registered_at: U256,
 }
 
-/// An agent's on-chain stake accounting from its `Slasher` clone (read via
-/// `ChainClient::read_stake`). `available = total - locked`.
-#[derive(Debug, Clone)]
-pub struct StakeInfo {
-    pub total: U256,
-    pub locked: U256,
-    pub available: U256,
-    /// Count of this agent's currently-open (unresolved) disputes in its own Slasher
-    /// clone. The dashboard sums this across the agent set it already iterates to get
-    /// a real protocol-wide `active_disputes` with zero extra fan-out — see
-    /// docs/design/dashboard-wiring.md; there is no singleton dispute index to read
-    /// protocol-wide in one call.
-    pub open_disputes: u64,
-}
-
-/// An agent's aggregated capital position in the A2ACapitalPool (read via
-/// `ChainClient::read_credit`): totals by allocation status across every
-/// allocation earmarked for that agent. `escrowed` is capital currently held for
-/// the agent (its live available line); `released` has been disbursed.
-#[derive(Debug, Clone, Default)]
-pub struct CreditInfo {
-    pub total_allocated: U256,
-    pub escrowed: U256,
-    pub released: U256,
-    pub clawed_back: U256,
-    pub breached: U256,
-    pub allocation_count: u64,
-}
-
-/// One SmartBAA escrow's on-chain state, as read via `ChainClient::read_baas_for_agent`.
-/// `status`: 0=Proposed 1=Active 2=Disputed 3=Terminated (SmartBAA.Status).
-/// Plain-Rust mirror of one `IntegrityGovernance` proposal as read live by
-/// `ChainClient::read_proposals`. `state` is the contract's derived `ProposalState` (0=Active
-/// 1=Defeated 2=Succeeded 3=Queued 4=Executed 5=Expired 6=Canceled).
-#[derive(Debug, Clone)]
-pub struct ProposalInfo {
-    pub id: u64,
-    pub proposer: Address,
-    pub target: Address,
-    pub value: U256,
-    pub start_time: u64,
-    pub end_time: u64,
-    pub eta: u64,
-    pub for_votes: U256,
-    pub against_votes: U256,
-    pub state: u8,
-    pub description: String,
-}
-
 #[derive(Debug, Clone)]
 pub struct BaaInfo {
     pub address: Address,
@@ -363,45 +203,6 @@ pub struct BaaInfo {
     pub agreement_hash: B256,
     pub required_collateral: U256,
     pub status: u8,
-}
-
-/// Plain-Rust mirror of an `IntegrityMarket` clone's on-chain view state, as read live
-/// by `ChainClient::read_market` (§6.9). `outcome_staked[i]` is the pari-mutuel pool
-/// for outcome `i` (cheap, bounded by `outcome_count` public-getter reads) — real
-/// per-holder position enumeration would require indexing `PositionEntered` events,
-/// which this pass does not build (see `entities/integrity-oracle.md`).
-#[derive(Debug, Clone)]
-pub struct MarketDetail {
-    pub address: Address,
-    pub creator: Address,
-    pub question: String,
-    pub outcome_count: u8,
-    pub min_ais_to_enter: U256,
-    pub resolve_deadline: U256,
-    pub resolved: bool,
-    pub winning_outcome: u8,
-    pub total_staked: U256,
-    pub outcome_staked: Vec<U256>,
-}
-
-/// Plain-Rust mirror of `IIntegrityMarket::Position`.
-#[derive(Debug, Clone, Copy)]
-pub struct MarketPosition {
-    pub amount: U256,
-    pub outcome_index: u8,
-    pub bcc_commitment_hash: B256,
-    pub claimed: bool,
-}
-
-impl From<IIntegrityMarket::Position> for MarketPosition {
-    fn from(p: IIntegrityMarket::Position) -> Self {
-        Self {
-            amount: p.amount,
-            outcome_index: p.outcomeIndex,
-            bcc_commitment_hash: p.bccCommitmentHash,
-            claimed: p.claimed,
-        }
-    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -437,21 +238,8 @@ struct DeploymentsFile {
 struct Singletons {
     #[serde(rename = "XibalbaAgentRegistry")]
     xibalba_agent_registry: Address,
-    /// `Option` (not required): genesis-only deployments files (e.g. produced by a
-    /// `Deploy.s.sol` run that predates the market layer) may not have this key yet —
-    /// see `MarketFactory`/`A2ACapitalPool`'s addition via the incremental
-    /// `DeployMarkets.s.sol` (§6.6/§6.9). Handlers that need it report a clean
-    /// "market layer not deployed" error rather than this client failing to even
-    /// connect.
-    #[serde(rename = "MarketFactory", default)]
-    market_factory: Option<Address>,
     #[serde(rename = "IntegrityToken", default)]
     integrity_token: Option<Address>,
-    /// `Option` for the same incremental-deploy reason as `MarketFactory` — the
-    /// A2ACapitalPool singleton is added by `DeployMarkets.s.sol`; the credit
-    /// endpoint reports "capital pool not deployed" cleanly if it's absent.
-    #[serde(rename = "A2ACapitalPool", default)]
-    a2a_capital_pool: Option<Address>,
     /// `Option` — the Integrity Health vertical's SmartBAAFactory. Absent on non-Integrity-Health or
     /// genesis-only deployments; Integrity Health read endpoints report it cleanly if missing.
     #[serde(rename = "SmartBAAFactory", default)]
@@ -460,10 +248,6 @@ struct Singletons {
     /// it cleanly if missing.
     #[serde(rename = "XibalbaNameService", default)]
     xibalba_name_service: Option<Address>,
-    /// `Option` — IntegrityGovernance. Absent until deployed; the governance read endpoint
-    /// reports it cleanly (503) if missing.
-    #[serde(rename = "IntegrityGovernance", default)]
-    integrity_governance: Option<Address>,
 }
 
 /// Read-only on-chain client. Holds a connected `alloy` provider and the resolved
@@ -493,12 +277,9 @@ pub struct ChainClient {
     provider: DynProvider,
     chain_id: u64,
     registry_address: Address,
-    market_factory_address: Option<Address>,
     integrity_token_address: Option<Address>,
-    a2a_capital_pool_address: Option<Address>,
     smart_baa_factory_address: Option<Address>,
     xibalba_name_service_address: Option<Address>,
-    integrity_governance_address: Option<Address>,
 }
 
 /// True iff a failed contract `.call()` reverted with `UnknownDID()`
@@ -542,12 +323,9 @@ impl ChainClient {
             provider: provider.erased(),
             chain_id,
             registry_address: parsed.singletons.xibalba_agent_registry,
-            market_factory_address: parsed.singletons.market_factory,
             integrity_token_address: parsed.singletons.integrity_token,
-            a2a_capital_pool_address: parsed.singletons.a2a_capital_pool,
             smart_baa_factory_address: parsed.singletons.smart_baa_factory,
             xibalba_name_service_address: parsed.singletons.xibalba_name_service,
-            integrity_governance_address: parsed.singletons.integrity_governance,
         })
     }
 
@@ -563,35 +341,9 @@ impl ChainClient {
             provider: provider.erased(),
             chain_id,
             registry_address,
-            market_factory_address: None,
             integrity_token_address: None,
-            a2a_capital_pool_address: None,
             smart_baa_factory_address: None,
             xibalba_name_service_address: None,
-            integrity_governance_address: None,
-        })
-    }
-
-    /// Same as [`Self::with_registry_address`], but also wires the market/token
-    /// singletons — used by tests that need `GET /v1/markets`-family endpoints against
-    /// a locally-deployed `MarketFactory`/`IntegrityToken`.
-    pub async fn with_market_layer(
-        provider: impl Provider + 'static,
-        registry_address: Address,
-        market_factory_address: Address,
-        integrity_token_address: Address,
-    ) -> Result<Self, ChainError> {
-        let chain_id = provider.get_chain_id().await.map_err(ChainError::Transport)?;
-        Ok(Self {
-            provider: provider.erased(),
-            chain_id,
-            registry_address,
-            market_factory_address: Some(market_factory_address),
-            integrity_token_address: Some(integrity_token_address),
-            a2a_capital_pool_address: None,
-            smart_baa_factory_address: None,
-            xibalba_name_service_address: None,
-            integrity_governance_address: None,
         })
     }
 
@@ -723,84 +475,6 @@ impl ChainClient {
         Ok((configured, tier, ceiling))
     }
 
-    /// Reads an agent's real stake accounting from its own `Slasher` clone:
-    /// total staked and the portion locked by open disputes (available = total
-    /// - locked). `account` is the staker — the agent's SovereignAgent address.
-    /// Two `view` calls, no state change (this client only ever reads).
-    pub async fn read_stake(&self, slasher: Address, account: Address) -> Result<StakeInfo, ChainError> {
-        let contract = ISlasher::new(slasher, self.provider.clone());
-        let total = contract.stakeOf(account).call().await?;
-        let locked = contract.lockedStakeOf(account).call().await?;
-        // Open-dispute count: scan this clone's disputes and count the agent's
-        // unresolved ones. The Slasher is a per-agent clone, so `nextDisputeId` is
-        // bounded by just this agent's dispute history (cheap); the `d.agent ==
-        // account` filter is belt-and-suspenders against a shared/misconfigured clone.
-        let next_dispute_id = contract.nextDisputeId().call().await?.to::<u64>();
-        let mut open_disputes = 0u64;
-        for i in 0..next_dispute_id {
-            let d = contract.disputes(U256::from(i)).call().await?;
-            if !d.resolved && d.agent == account {
-                open_disputes += 1;
-            }
-        }
-        Ok(StakeInfo {
-            total,
-            locked,
-            available: total.saturating_sub(locked),
-            open_disputes,
-        })
-    }
-
-    /// The A2ACapitalPool singleton address, if the market/capital layer is
-    /// deployed (see `DeployMarkets.s.sol`). `None` -> handler reports it cleanly.
-    pub fn a2a_capital_pool(&self) -> Option<Address> {
-        self.a2a_capital_pool_address
-    }
-
-    /// Aggregates an agent's real capital position across every allocation in the
-    /// pool earmarked for `agent` (its SovereignAgent address). Scans allocations
-    /// 0..nextAllocationId -- O(N) view calls, acceptable at current scale; a
-    /// per-agent index would replace this if the pool grows large.
-    pub async fn read_credit(&self, pool: Address, agent: Address) -> Result<CreditInfo, ChainError> {
-        self.scan_allocations(pool, Some(agent)).await
-    }
-
-    /// Protocol-wide capital totals: the same allocation scan as `read_credit`, but
-    /// unfiltered (every allocation, all agents). Backs `GET /v1/stats`
-    /// (`total_loans_volume` = released, the escrowed slice of `tvl`) in a single pass
-    /// over the singleton pool — not an N-agent fan-out.
-    pub async fn read_pool_totals(&self, pool: Address) -> Result<CreditInfo, ChainError> {
-        self.scan_allocations(pool, None).await
-    }
-
-    /// Shared allocation scan. `agent = Some(a)` aggregates only `a`'s allocations
-    /// (per-agent credit view); `agent = None` aggregates every allocation
-    /// (protocol-wide totals). O(nextAllocationId) view calls either way.
-    async fn scan_allocations(&self, pool: Address, agent: Option<Address>) -> Result<CreditInfo, ChainError> {
-        let contract = IA2ACapitalPool::new(pool, self.provider.clone());
-        let count = contract.nextAllocationId().call().await?;
-        let n = count.to::<u64>();
-        let mut info = CreditInfo::default();
-        for i in 0..n {
-            let a = contract.allocations(U256::from(i)).call().await?;
-            if let Some(target) = agent {
-                if a.agent != target {
-                    continue;
-                }
-            }
-            info.allocation_count += 1;
-            info.total_allocated += a.amount;
-            match a.status {
-                0 => info.escrowed += a.amount,
-                1 => info.released += a.amount,
-                2 => info.clawed_back += a.amount,
-                3 => info.breached += a.amount,
-                _ => {}
-            }
-        }
-        Ok(info)
-    }
-
     /// 0 = `Vertical.None`, 1 = `Vertical.Healthcare` (see `ComplianceGate.sol`'s enum —
     /// deliberately read back as a raw `u8` here rather than a Rust enum, since this
     /// client has no business asserting which vertical values are valid; that's the
@@ -898,42 +572,6 @@ impl ChainClient {
         Ok(c.primaryHandle(agent).call().await?)
     }
 
-    /// The IntegrityGovernance singleton, if deployed.
-    pub fn integrity_governance(&self) -> Option<Address> {
-        self.integrity_governance_address
-    }
-
-    /// Enumerates every governance proposal by index (`proposalCount()` then `getProposal(i)` +
-    /// `state(i)` for i in 1..=count). Proposal ids are 1-based (see `propose`'s `++proposalCount`).
-    /// Newest-first. A per-proposal read error is skipped rather than failing the whole list.
-    pub async fn read_proposals(&self, gov: Address) -> Result<Vec<ProposalInfo>, ChainError> {
-        let c = IIntegrityGovernance::new(gov, self.provider.clone());
-        let count: U256 = c.proposalCount().call().await?;
-        let count = count.to::<u64>();
-        let mut out = Vec::new();
-        for id in (1..=count).rev() {
-            let p = match c.getProposal(U256::from(id)).call().await {
-                Ok(p) => p,
-                Err(_) => continue,
-            };
-            let state = c.state(U256::from(id)).call().await.unwrap_or(0u8);
-            out.push(ProposalInfo {
-                id,
-                proposer: p.proposer,
-                target: p.target,
-                value: p.value,
-                start_time: p.startTime,
-                end_time: p.endTime,
-                eta: p.eta,
-                for_votes: p.forVotes,
-                against_votes: p.againstVotes,
-                state,
-                description: p.description,
-            });
-        }
-        Ok(out)
-    }
-
     /// Enumerates every SmartBAA where `business_associate` (an agent's SovereignAgent) is
     /// the BA, by scanning `SmartBAAFactory.BAACreated` logs and reading each escrow's live
     /// status. There is no reverse index on-chain, so the event log is the only enumeration
@@ -968,122 +606,6 @@ impl ChainClient {
             });
         }
         Ok(out)
-    }
-
-    pub fn market_factory_address(&self) -> Option<Address> {
-        self.market_factory_address
-    }
-
-    fn market_factory(&self) -> Result<IMarketFactory::IMarketFactoryInstance<DynProvider>, ChainError> {
-        let addr = self.market_factory_address.ok_or(ChainError::MissingSingleton("MarketFactory"))?;
-        Ok(IMarketFactory::new(addr, self.provider.clone()))
-    }
-
-    /// Full membership of `MarketFactory.allMarkets` — `allMarketsCount()` first, then
-    /// every `allMarkets(i)` read concurrently (`futures::future::join_all`), since
-    /// there's no single-call full-array getter (see this module's `IMarketFactory` doc
-    /// comment). This is the source of truth GET /v1/markets re-enumerates against on a
-    /// cache-staleness miss, so a brand-new market (created after the last sync) is
-    /// actually discovered, not just existing cached rows refreshed in place.
-    pub async fn all_market_addresses(&self) -> Result<Vec<Address>, ChainError> {
-        let factory = self.market_factory()?;
-        let count: U256 = factory.allMarketsCount().call().await?;
-        let count: u64 = count.try_into().unwrap_or(u64::MAX);
-
-        let reads = (0..count).map(|i| {
-            let factory = &factory;
-            async move { factory.allMarkets(U256::from(i)).call().await }
-        });
-        let results = futures::future::join_all(reads).await;
-
-        let mut addresses = Vec::with_capacity(results.len());
-        for r in results {
-            addresses.push(r?);
-        }
-        Ok(addresses)
-    }
-
-    pub async fn markets_by_creator(&self, creator: Address) -> Result<Vec<Address>, ChainError> {
-        let factory = self.market_factory()?;
-        Ok(factory.getMarketsByCreator(creator).call().await?)
-    }
-
-    /// Reads one `IntegrityMarket` clone's full view state (question, outcome
-    /// structure, resolution status, and the per-outcome pari-mutuel pool — see
-    /// `MarketDetail`'s doc comment on what's cheap vs. what needs event indexing).
-    /// Every field read concurrently rather than sequentially awaited one-by-one.
-    pub async fn read_market(&self, market: Address) -> Result<MarketDetail, ChainError> {
-        let contract = IIntegrityMarket::new(market, self.provider.clone());
-
-        // Each `.call()` builder must be bound to a local before it's awaited
-        // inline in the macro below — alloy's `SolCallBuilder::call()` future
-        // borrows from the builder, so passing `contract.field().call()`
-        // directly as a macro argument makes the builder a dropped-too-early
-        // temporary (E0716). Naming each one keeps it alive for the join.
-        let creator_call = contract.creator();
-        let question_call = contract.question();
-        let outcome_count_call = contract.outcomeCount();
-        let min_ais_to_enter_call = contract.minAisToEnter();
-        let resolve_deadline_call = contract.resolveDeadline();
-        let resolved_call = contract.resolved();
-        let winning_outcome_call = contract.winningOutcome();
-        let total_staked_call = contract.totalStaked();
-
-        let (creator, question, outcome_count, min_ais_to_enter, resolve_deadline, resolved, winning_outcome, total_staked) = tokio::try_join!(
-            creator_call.call(),
-            question_call.call(),
-            outcome_count_call.call(),
-            min_ais_to_enter_call.call(),
-            resolve_deadline_call.call(),
-            resolved_call.call(),
-            winning_outcome_call.call(),
-            total_staked_call.call(),
-        )?;
-
-        let outcome_staked_reads = (0..outcome_count).map(|i| {
-            let contract = contract.clone();
-            async move { contract.outcomeStaked(i).call().await }
-        });
-        let outcome_staked_results = futures::future::join_all(outcome_staked_reads).await;
-        let mut outcome_staked = Vec::with_capacity(outcome_staked_results.len());
-        for r in outcome_staked_results {
-            outcome_staked.push(r?);
-        }
-
-        Ok(MarketDetail {
-            address: market,
-            creator,
-            question,
-            outcome_count,
-            min_ais_to_enter,
-            resolve_deadline,
-            resolved,
-            winning_outcome,
-            total_staked,
-            outcome_staked,
-        })
-    }
-
-    /// Batch version of [`Self::read_market`] for `GET /v1/markets` — concurrent, not a
-    /// serial loop (per the task brief: "there could be dozens"). A market whose read
-    /// fails (e.g. transient RPC hiccup) is logged and skipped rather than failing the
-    /// whole listing.
-    pub async fn read_markets(&self, addresses: &[Address]) -> Vec<MarketDetail> {
-        let reads = addresses.iter().map(|&addr| async move {
-            match self.read_market(addr).await {
-                Ok(detail) => Some(detail),
-                Err(e) => {
-                    tracing::warn!(market = %addr, error = %e, "skipping market in batch read");
-                    None
-                }
-            }
-        });
-        futures::future::join_all(reads).await.into_iter().flatten().collect()
-    }
-
-    pub async fn get_position(&self, market: Address, agent: Address) -> Result<MarketPosition, ChainError> {
-        let contract = IIntegrityMarket::new(market, self.provider.clone());
-        Ok(contract.getPosition(agent).call().await?.into())
     }
 
     /// Real `IntegrityToken.balanceOf` read for `GET /v1/agent/{id}/wallet`.
