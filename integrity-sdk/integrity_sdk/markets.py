@@ -57,36 +57,9 @@ class MarketInterceptDenied(RuntimeError):
 # --- low-level chain calls --------------------------------------------------------
 
 
-def _execute_via_agent(
-    w3: Web3, controller: LocalAccount, sovereign_agent_address: str, target: str, calldata: bytes, chain_id: int
-) -> dict:
-    """
-    Routes a call through `SovereignAgent(sovereign_agent_address).execute(target, 0,
-    calldata)`, signed by `controller` (the agent's own wallet). Every
-    application-layer contract that gates on agent identity
-    (`agentRegistry.isRegisteredAgent(msg.sender)` /
-    `agentRegistry.resolveAgent(msg.sender)`) resolves `msg.sender` against
-    the SovereignAgent CONTRACT address, never the raw controller wallet --
-    see XibalbaAgentRegistry.sol (`didHashOf` is keyed on
-    `primitives.sovereignAgent`) and EHRGate.sol's identical convention. A
-    direct call from the wallet to `MarketFactory`/`IntegrityMarket` would
-    revert with `AgentNotRegistered`/`AgentNotRegistered` even for a fully
-    registered agent, for exactly this reason -- this helper is what makes
-    every market/pool interaction below actually work end-to-end, mirroring
-    chain.py's `grant_anchor_role` (the one place this pattern was already
-    proven before markets.py existed).
-    """
-    sovereign_agent = chain._contract(w3, "SovereignAgent", address=sovereign_agent_address)
-    tx = sovereign_agent.functions.execute(Web3.to_checksum_address(target), 0, calldata).build_transaction(
-        {
-            "from": controller.address,
-            "nonce": w3.eth.get_transaction_count(controller.address),
-            "chainId": chain_id,
-        }
-    )
-    signed = controller.sign_transaction(tx)
-    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-    return chain._wait(w3, tx_hash, action=f"execute_via_agent({target})")
+# Moved to chain.execute_via_agent (EXECUTION_PLAN.md A2) so health.py no longer imports this
+# module, which A1 cuts. Kept as an alias for the market helpers below until then.
+_execute_via_agent = chain.execute_via_agent
 
 
 def deploy_market(

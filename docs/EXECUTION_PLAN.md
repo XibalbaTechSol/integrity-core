@@ -258,13 +258,18 @@ review:
   - [ ] pack schema, compile, sign and verify, with the decision contract;
   - [ ] hook normalization, the memory-provider interface, the OPA client, agent identity over HTTP.
 - **Loading:**
-  - [ ] lazy (PEP 562) package initialization;
-  - [ ] import-hygiene tests: importing the core must not load `requests`, `web3`, `eth_account`,
-    OpenTelemetry or MLflow.
-- [ ] **`[connector]` extra:** chain, registration, account, telemetry, hook runner, clients.
+  - [x] lazy (PEP 562) package initialization;
+  - [x] import-hygiene tests: importing the core must not load `requests`, `web3`, `eth_account`,
+    OpenTelemetry or MLflow. `tests/unit/test_import_hygiene.py` (fresh interpreter per import; 7 of 8
+    fail against the old eager `__init__`).
+- [x] **`[connector]` extra:** chain, registration, account, telemetry, hook runner, clients.
+  Defined; the same packages stay in the base dependencies until A3 moves Shield and Cortex onto
+  `[connector]`, then leave the base list.
+- [ ] Drop the connector packages from the base dependencies (after A3).
 - **Before A1:**
-  - [ ] move `_execute_via_agent` out of `markets.py`;
-  - [ ] move the MCP helpers still used elsewhere out of `mcp_server.py`.
+  - [x] move `_execute_via_agent` out of `markets.py` (now `chain.execute_via_agent`);
+  - [x] move the MCP helpers still used elsewhere out of `mcp_server.py` (`did.find_existing_identity`;
+    only `mcp_server`'s own tests still import it).
 
 ## A1. Clear the ground (M)
 

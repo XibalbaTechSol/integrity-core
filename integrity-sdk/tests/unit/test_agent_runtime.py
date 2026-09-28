@@ -5,7 +5,6 @@ import pytest
 from integrity_sdk import IntegrityAgent
 from integrity_sdk.agent_runtime import AgentIdentityError
 from integrity_sdk import did
-from integrity_sdk.mcp_server import _load_doc_for, _load_keypair_for
 from integrity_sdk.identity_registry import history, latest
 
 
@@ -125,11 +124,13 @@ def test_lifecycle_events_carry_immutable_identity(tmp_path, monkeypatch):
     agent.close(flush=False)
 
 
-def test_mcp_loaders_use_the_canonical_sdk_identity_store(tmp_path, monkeypatch):
+def test_existing_identity_lookup_uses_the_canonical_sdk_identity_store(tmp_path, monkeypatch):
+    # Long-running helpers (formerly the MCP server's loaders) resolve through this function.
     monkeypatch.setenv("INTEGRITY_DID_HOME", str(tmp_path / "dids"))
     expected_did, expected_keypair, _ = did.load_or_create_did("mcp-agent")
-    assert _load_keypair_for("mcp-agent").private_bytes_raw() == expected_keypair.private_bytes_raw()
-    assert _load_doc_for("mcp-agent")["id"] == expected_did
+    keypair, document = did.find_existing_identity("mcp-agent")
+    assert keypair.private_bytes_raw() == expected_keypair.private_bytes_raw()
+    assert document["id"] == expected_did
 
 
 def test_identity_snapshot_is_non_secret_and_keeps_boundaries_distinct(tmp_path, monkeypatch):
