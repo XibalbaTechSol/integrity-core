@@ -34,7 +34,7 @@ operational boundary and must be reflected in the execution plan and status summ
 ## References
 
 - [`STATUS.md`](../../STATUS.md) — bounded current-state summary
-- [`PRODUCTION_GAPS.md`](../PRODUCTION_GAPS.md) — detailed open gaps
+- [`PRODUCTION_GAPS.md`](../../PRODUCTION_GAPS.md) — detailed open gaps
 - [`docs/SPEC.md`](../SPEC.md) — normative protocol authority
 - [`docs/EXECUTION_PLAN.md`](../EXECUTION_PLAN.md) — execution authority
 - [`docs/archive/2026-09/MAINNET_READINESS.md`](../archive/2026-09/MAINNET_READINESS.md) — historical detailed register
