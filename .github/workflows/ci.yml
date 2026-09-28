@@ -103,9 +103,9 @@ jobs:
         run: |
           sudo curl --fail -L -o /usr/local/bin/opa https://openpolicyagent.org/downloads/v1.18.2/opa_linux_amd64_static
           sudo chmod +x /usr/local/bin/opa
-      # mlflow is an opt-in extra (842371c); install it so the MLflow tracing
-      # tests keep running in CI.
-      - run: uv sync --extra mlflow
+      # connector and mlflow are opt-in extras; install both so the full SDK
+      # suite exercises the product-facing integrations in CI.
+      - run: uv sync --extra connector --extra mlflow
         working-directory: integrity-sdk
       - run: uv run pytest
         working-directory: integrity-sdk

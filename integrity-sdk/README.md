@@ -19,7 +19,8 @@ participant:
 ## Install
 
 ```bash
-uv sync                              # base install + dev dependency group (pytest, etc.)
+uv sync                              # core install + dev dependency group (pytest, etc.)
+uv sync --extra connector            # + chain, registration, telemetry and HTTP connectors
 uv pip install -e ".[openai]"        # + OpenAI autolog (adds openai, pandas)
 uv pip install -e ".[langchain]"     # + LangChain autolog (adds langchain-core, pandas)
 ```
@@ -224,14 +225,14 @@ hardware this environment doesn't have — documented, not faked.
 ## Tests
 
 ```bash
-uv sync                                    # ensures .venv has pytest + all deps (see Install)
+uv sync --extra connector                  # ensures .venv has pytest + connector deps
 uv run pytest tests/                       # 97 tests, +1 opt-in (ORACLE_E2E=1) = 98
 ```
 
-`uv run` (or `.venv/bin/python -m pytest tests/` after `uv sync`) — running a
+`uv run` (or `.venv/bin/python -m pytest tests/` after `uv sync --extra connector`) — running a
 bare `pytest`/`python -m pytest` against an interpreter that never had `uv sync`
 run against it will fail collection at `tests/conftest.py`'s `from web3 import
-Web3` even though `web3` is a declared base dependency, because that
+Web3` because that
 interpreter was never populated by `uv sync` in the first place.
 
 Unit tests (`tests/unit/`) cover wallet, DID, derivation, client, PII/PHI

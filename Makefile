@@ -3,7 +3,7 @@
 setup:
 	cd contracts && npm install
 	cd integrity-oracle && cargo build
-	cd integrity-sdk && uv sync
+	cd integrity-sdk && uv sync --extra connector
 	cd integrity-cli && uv sync
 	cd bcc_middleware && uv sync
 

@@ -1,7 +1,7 @@
 ---
 title: integrity-sdk
 created: 2026-07-07
-updated: 2026-09-18
+updated: 2026-09-28
 type: entity
 tags: [sdk, identity, metrics, infrastructure]
 confidence: high
@@ -43,6 +43,7 @@ become a self-sovereign, on-chain, reputation-bearing participant.
 
 ## Table of contents
 
+- [Dependency boundary](#dependency-boundary)
 - [Two keypairs](#two-keypairs)
 - [Self-sovereign registration](#self-sovereign-registration)
 - [Registration preflight and personal domains](#registration-preflight-and-personal-domains)
@@ -59,6 +60,14 @@ become a self-sovereign, on-chain, reputation-bearing participant.
 - [Universal telemetry envelope, transports, and delivery](#universal-telemetry-envelope-transports-and-delivery)
 - [Privacy policy and retention](#privacy-policy-and-retention)
 - [Persistent Memory Bridge (memory.py, added 2026-07-30)](#persistent-memory-bridge-memory-py-added-2026-07-30)
+
+## Dependency boundary
+
+The default SDK install is core-only: cryptography, DID/base58, JCS, Merkle hashing, signed
+packs, receipts, and YAML manifests. Chain, registration, telemetry, hook, and HTTP connector
+packages are opt-in through `integrity-sdk[connector]`; framework integrations remain separate
+extras. The full suite is validated with the connector and MLflow extras rather than relying on
+transitive base dependencies.
 
 ## Two keypairs
 

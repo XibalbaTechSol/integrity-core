@@ -281,7 +281,11 @@ review:
 - [x] **`[connector]` extra:** chain, registration, account, telemetry, hook runner, clients.
   Defined; the same packages stay in the base dependencies until A3 moves Shield and Cortex onto
   `[connector]`, then leave the base list.
-- [ ] Drop the connector packages from the base dependencies (after A3).
+- [x] Drop the connector packages from the base dependencies (after A3). Completed 2026-09-28:
+  `integrity-sdk` keeps only the core cryptography/identity/pack dependencies by default;
+  chain, registration, telemetry, hook, and HTTP packages are installed through `[connector]`.
+  CI and the repository setup target explicitly install the extra; the SDK suite passed 440 with
+  connector and MLflow extras (3 skipped).
 - **Before A1:**
   - [x] move `_execute_via_agent` out of `markets.py` (now `chain.execute_via_agent`);
   - [x] move the MCP helpers still used elsewhere out of `mcp_server.py` (`did.find_existing_identity`;

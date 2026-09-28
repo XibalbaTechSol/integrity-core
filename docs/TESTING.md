@@ -112,7 +112,7 @@ breakdown.
 integrity-dashboard && npx playwright test`, but does **not** stand up the
 backend stack above first — see the manual steps). Requires `anvil`/`forge`
 on `PATH`, `cargo`, Docker, and the `integrity-sdk` `uv` venv already synced
-(`cd integrity-sdk && uv sync`) — same toolchain the rest of this repo
+(`cd integrity-sdk && uv sync --extra connector`) — same toolchain the rest of this repo
 already assumes, nothing E2E-specific to install beyond `npx playwright
 install chromium` once.
 

@@ -23,6 +23,14 @@
 - Linked it from the repository implementation-plan wiki page; detailed sequencing and evidence
   remain in `docs/EXECUTION_PLAN.md` and the cited source documents.
 
+## [2026-09-28] refactor | SDK connector dependencies become opt-in
+
+- Removed chain, registration, telemetry, hook, and HTTP connector packages from
+  `integrity-sdk`'s base dependencies; consumers that use those surfaces install the
+  `[connector]` extra explicitly.
+- Updated the SDK README, repository setup target, CI, and testing guidance; regenerated the
+  lockfile. Validation: SDK suite 440 passed, 3 skipped with connector and MLflow extras.
+
 ## [2026-09-28] feat | SDK core: JCS, Merkle, signed packs, decision contract, receipts
 
 - New `integrity_sdk.core` (EXECUTION_PLAN.md A2), dependency-light (cryptography, base58, jcs,
