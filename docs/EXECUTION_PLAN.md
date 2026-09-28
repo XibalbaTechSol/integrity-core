@@ -465,7 +465,8 @@ paths or sibling Docker copies. Both pass independence CI against the SDK tag.
     decisions; `docs/ARCHIVE_PLAN.md`, `docs/SPEC-v2.0.0-proposed.md`, and
     `docs/IMPLEMENTATION_PLAN.md` were moved to `docs/archive/2026-09/` on 2026-09-28.
   - [ ] the dated handoffs, reconciliations and audits;
-  - [ ] `docs/packs/trading/`;
+  - [x] `docs/packs/trading/` moved to `docs/archive/2026-09/packs/trading/` on 2026-09-28;
+    its loopback adapter remains preserved as test-only historical material.
   - [ ] the `park/policy-packs-2026-09-26` branch. It stores packs in userapi Postgres, a second pack
     authority; only its UI is reused, as the B0 promotion view.
 - [ ] **Inventory:** classify every Markdown file (188 files, about 45k lines) as authoritative,

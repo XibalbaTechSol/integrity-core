@@ -39,6 +39,11 @@
 - Referenced audits and design decisions remain in place until their active claims are reconciled;
   no historical evidence was deleted.
 
+## [2026-09-28] archive | parked trading pack documentation
+
+- Moved the test-only `docs/packs/trading/` loopback adapter documentation to
+  `docs/archive/2026-09/packs/trading/`; it is not an active pack authority or production adapter.
+
 ## [2026-09-28] integrate | A3 Shield and Cortex migrations merged
 
 - Merged xibalba-shield#39: labeled/HMAC-protected Hermes exports, separate device-auth keys,
