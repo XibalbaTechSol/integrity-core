@@ -48,22 +48,30 @@ case (Identity), not a change to the count itself.
   - Cut-path manifest: confirmed present and populated in `integrity-lab` (91 files, four
     categories: ZK proving, prediction markets/A2A capital pool, licence layer, and more) —
     **this sub-item is satisfied**, just never marked as checked before.
-  - **One SDK JCS implementation — found violated, not fixed.** At least three independent
-    canonicalization implementations exist across the ecosystem, not one shared SDK JCS:
-    - `integrity-sdk`'s own `jcs` dependency (the intended single implementation);
-    - `xibalba-shield/shield/config/signing.py`'s `canonical_policy_json()` — plain
-      `json.dumps(sort_keys=True, separators=(",", ":"))`, not RFC 8785 JCS, used to compute the
-      bytes a policy-bundle signature covers;
-    - `xibalba-cortex`'s own `_canonical_json` (two separate definitions: `telemetry_outbox.py:37`
-      and `store.py:1776`).
+  - **One SDK JCS implementation — RESOLVED.** An earlier pass of this same handoff (same day)
+    reported this as an open violation with three independent implementations, based on reading
+    `xibalba-shield` and `xibalba-cortex` checkouts that had **not been fetched** and were stale by
+    exactly the commits that fix this. Re-checked directly against `origin/main` for both repos:
+    - `xibalba-shield` (`xibalba-shield#39`, merged 2026-09-28): both `shield/config/signing.py`
+      (policy-bundle signatures) and `shield/release/signing.py` (release attestations) now call
+      SDK JCS via a shared `shield/canonical.py`, with explicit schema-version tags
+      (`xibalba.shield.policy-signature.v2`, `xibalba.shield.release-attestation.v2`) so
+      pre-migration and post-migration signed artifacts stay distinguishable. No backfill of
+      already-signed bundles was needed or attempted.
+    - `xibalba-cortex` (`xibalba-cortex#32`, merged 2026-09-28): `store.py`'s hash-chain/Merkle
+      canonicalization dispatches on a per-store flag set at store-open time
+      (`current_version == 0` → SDK JCS for brand-new stores; existing stores stay permanently on
+      the old convention) — the same new-writes-only, schema-versioned, no-backfill pattern
+      `integrity-sdk`'s own `memory_dag.py` used for its internal v1→v2 migration. One remaining
+      duplicate, `telemetry_outbox.py`'s separate `_canonical_json` (local/ephemeral outbox-queue
+      hashing, not part of the permanent hash chain), was found and fixed this pass in
+      [xibalba-cortex#35](https://github.com/XibalbaTechSol/xibalba-cortex/pull/35) — switched to
+      the same SDK JCS via `canonical.py`, no version gate needed since outbox rows are transient
+      (drained/purged, never a permanent ledger).
 
-    Shield's own docstring in `signing.py` explicitly acknowledges this: "matching the
-    canonicalization convention already used elsewhere in this ecosystem (e.g. xibalba-cortex's
-    `_canonical_json`)" — i.e. the duplication was a deliberate choice to match an existing
-    non-SDK convention, not an oversight. **This touches signature verification across repos — an
-    identity/security boundary. Per SOUL, consolidating these needs owner review (and likely a
-    Devil's Advocate pass on the migration plan) before any code change, not a unilateral fix.**
-    Left untouched this pass; flagged here as the item blocking "Builds" most concretely.
+    Lesson for future sessions: **always `git fetch` a live-service repo's checkout before reading
+    its source to answer a Gate A question** — a stale local tree produced a false "violated"
+    finding here that took real investigation to walk back.
   - Not checked this pass: import hygiene beyond the kernel/registry check above.
 - **Shield** — suite green (465/12/1-deselected); mapped each sub-item to existing tests (not all
   confirmed to assert the exact Gate A wording):
@@ -198,15 +206,10 @@ Cross-repo, from each repo's root: `forge test -vvv` (contracts), `cargo test --
 
 ## Recommended next sequence
 
-1. **Owner decision needed**: whether/how to consolidate the three canonicalization
-   implementations (SDK `jcs`, Shield `canonical_policy_json`, Cortex `_canonical_json`) onto one
-   SDK-owned JCS implementation — this is the most concrete open "Builds" blocker, and it's a
-   signature-verification boundary change across repos. Confirmed the two schemes produce
-   different bytes for real payload shapes already in use (floats, e.g. Cortex's embedding-vector
-   hashing) — not a cosmetic difference. A safe path needs a format-version field on both Shield's
-   policy-bundle schema and Cortex's event schema before any canonicalization change, plus a
-   decision on new-writes-only vs. full backfill (backfill touches already-anchored Merkle roots
-   and is much higher risk).
+1. JCS consolidation is done — resolved this pass (see Builds above). `xibalba-shield#39` and
+   `xibalba-cortex#32` already migrated Shield's policy/release signing and Cortex's store hash
+   chain to SDK JCS with proper schema-version gating; `xibalba-cortex#35` (this pass) closed the
+   last duplicate in `telemetry_outbox.py`. Merge #35 when ready; nothing else pending here.
 2. `codex` and `xibalba-shield` legacy keys relocated (owner-executed, verified — see Identity
    above). Still open by owner choice: the 18 extraneous legacy keys (subagent worktrees, test/demo
    fixtures) remain untouched, and `did.py`'s in-progress `migrate_identity_store` edit is still
