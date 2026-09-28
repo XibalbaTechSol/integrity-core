@@ -6,7 +6,7 @@ supersedes.
 **Scope:** integrity-core, xibalba-shield, xibalba-cortex, and two
 new repositories: integrity-console and integrity-lab.
 **Tracking:** work items are GitHub task-list checkboxes. Tick an item (`- [x]`) in the same commit
-that completes it, and name the commit. A gate item is ticked only when its check has actually run
+that completes it (`git blame` on the line finds that commit); name earlier commits explicitly. A gate item is ticked only when its check has actually run
 and passed. `python3 scripts/plan_progress.py` counts progress per section from the checkboxes, so
 there is no hand-maintained total to drift.
 **Grounded against:** `main` @ `d22128b` (2026-09-28), plus the repository review recorded in
@@ -219,13 +219,19 @@ review:
 
 ## A0. Preconditions (S)
 
-- [ ] **Toolchain:** install the pinned versions from `INTERFACE_CONTRACT.md` (forge/anvil 1.7.1, opa
+- [x] **Toolchain:** install the pinned versions from `INTERFACE_CONTRACT.md` (forge/anvil 1.7.1, opa
   1.18.2, cargo 1.96, node 22, uv). In cloud sessions `binaries.soliditylang.org` is blocked, so solc
   0.8.28 comes from the GitHub release. Gate A cannot pass without forge, Halmos and OPA.
-- [ ] **Jules:** pause `close-conflicting-jules-prs.yml` for Phase A; auto-merge is already disabled.
-- [ ] **Hygiene:** all three repositories are public. Mirrors and splits are made from a clean clone,
+  `scripts/install_toolchain.sh` installs forge/anvil/solc/opa from GitHub releases (build with
+  `FOUNDRY_OFFLINE=true`); Halmos comes from `make verify-kernel`. Baseline: `forge test` 527 passed,
+  1 skipped.
+- [x] **Jules:** pause `close-conflicting-jules-prs.yml` for Phase A; auto-merge is already disabled.
+  Schedule commented out (manual dispatch kept); restore after Gate A. The local Jules controller on
+  the owner's workstation is outside this repository and must be paused there.
+- [x] **Hygiene:** all three repositories are public. Mirrors and splits are made from a clean clone,
   never from a workstation that holds `contracts/.env` or the prover `secret_key`. A secret scan runs
-  before every push.
+  before every push: `scripts/secret_scan.sh [base]` (pinned gitleaks over `base..HEAD`, redacted;
+  verified to fail on a committed private key).
 - [ ] **Sibling repositories:** Shield and Cortex work branches from their latest `main`; no concurrent
   sessions run on them.
 
