@@ -1,5 +1,15 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-09-28] docs | execution-plan authority recorded
+
+- `docs/DOCUMENT_STATUS.yaml` now records `docs/EXECUTION_PLAN.md` as the current execution
+  authority; the older `docs/IMPLEMENTATION_PLAN.md` remains available as historical context
+  pending the rest of A5's archive/merge work.
+- The corresponding A5 checkbox is complete; `python3 scripts/plan_progress.py` reports 53/201
+  plan items complete.
+- Refreshed `docs/wiki/architecture/repository-implementation-plans.md` to point at the new
+  authority and retain the cross-repository plan map.
+
 ## [2026-09-28] feat | SDK core: JCS, Merkle, signed packs, decision contract, receipts
 
 - New `integrity_sdk.core` (EXECUTION_PLAN.md A2), dependency-light (cryptography, base58, jcs,

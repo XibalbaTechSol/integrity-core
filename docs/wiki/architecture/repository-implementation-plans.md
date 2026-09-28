@@ -2,11 +2,13 @@
 title: Repository Implementation Plans
 acronyms: [AIS, BCC, DID, MVP]
 created: 2026-08-06
-updated: 2026-09-08
+updated: 2026-09-28
 type: architecture
 tags: [infrastructure, planning, roadmap, documentation]
 confidence: high
 source_files:
+  - docs/EXECUTION_PLAN.md
+  - docs/DOCUMENT_STATUS.yaml
   - docs/IMPLEMENTATION_PLAN.md
   - docs/SPEC.md
   - README.md
@@ -29,12 +31,19 @@ rewritten; treat any status claim in it as historical, not current.
 
 This page is the cross-repository implementation and specification ledger for the Integrity Protocol product stack. Current repository names and authority differ from the historical checklist below:
 
-- `integrity-core/docs/IMPLEMENTATION_PLAN.md` and normative `integrity-core/docs/SPEC.md`
+- `integrity-core/docs/EXECUTION_PLAN.md` is the current cross-repository execution authority;
+  `integrity-core/docs/DOCUMENT_STATUS.yaml` records that pointer. The older
+  `integrity-core/docs/IMPLEMENTATION_PLAN.md` remains available as historical context until
+  the A5 archive/merge task is complete, alongside normative `integrity-core/docs/SPEC.md`.
 - `integrity-core/integrity-dashboard/` is governed by the core repository docs and its package README/configuration; it has no current root `SPECIFICATION.md`
 - `xibalba-shield/IMPLEMENTATION_PLAN.md` and `xibalba-shield/SPECIFICATION.md`
 - `xibalba-cortex/IMPLEMENTATION_PLAN.md` and `xibalba-cortex/SPECIFICATION.md`
 
-The root implementation plans and root specifications are the repo-local implementation/specification source of truth. The permanent audit ledger at `/home/xibalba/Documents/INTEGRITY — Cross-Repository Audit and Implementation Plan.md` and the repo-local `docs/audits/2026-08-06*.md` files provide the current verification evidence. This wiki page is the canonical cross-repo map used to see dependency direction, closed work, open work, and blockers in one place.
+The current execution plan and root specifications are the repo-local implementation/specification
+source of truth. The permanent audit ledger at `/home/xibalba/Documents/INTEGRITY — Cross-Repository Audit and Implementation Plan.md`
+and the repo-local `docs/audits/2026-08-06*.md` files provide verification evidence. This wiki page
+is the canonical cross-repo map used to see dependency direction, closed work, open work, and
+blockers in one place.
 
 ## Table of contents
 
@@ -255,4 +264,7 @@ integrity-core remains the protocol authority. Shield and graph memory do not be
 
 ## Update rule
 
-Update the owning repo root `IMPLEMENTATION_PLAN.md` first, then update this wiki page when a closed/planned/blocked status changes, a public interface changes, or a cross-repo dependency changes.
+Update the owning repo's current execution plan first, then update this wiki page when a
+closed/planned/blocked status changes, a public interface changes, or a cross-repo dependency
+changes. For integrity-core, that authority is `docs/EXECUTION_PLAN.md` as recorded in
+`docs/DOCUMENT_STATUS.yaml`.

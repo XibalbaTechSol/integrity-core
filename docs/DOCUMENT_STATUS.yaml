@@ -1,6 +1,6 @@
 # Single source for document authority and current-version pointers.
 # Consumers may render this metadata, but must not promote archived documents.
-updated: 2026-08-29
+updated: 2026-09-28
 
 normative:
   path: docs/SPEC.md
@@ -19,8 +19,13 @@ auditor_controls:
 
 implementation_plan:
   path: docs/IMPLEMENTATION_PLAN.md
+  status: superseded
+  authority: historical
+
+execution_plan:
+  path: docs/EXECUTION_PLAN.md
   status: current
-  authority: sequencing-only
+  authority: execution
 
 archived:
   - docs/archive/2026-08/integrity-protocol-v1.md

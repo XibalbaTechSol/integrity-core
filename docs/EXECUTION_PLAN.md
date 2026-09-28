@@ -443,7 +443,10 @@ paths or sibling Docker copies. Both pass independence CI against the SDK tag.
 ## A5. Consolidate plans and documentation (M)
 
 - **Authorities:**
-  - [ ] make this plan the execution authority in `DOCUMENT_STATUS.yaml`;
+  - [x] make this plan the execution authority in `DOCUMENT_STATUS.yaml`. Completed 2026-09-28:
+    `docs/DOCUMENT_STATUS.yaml` now points at this plan with `authority: execution`; the older
+    `docs/IMPLEMENTATION_PLAN.md` is retained as historical context pending the remaining A5
+    archive/merge work.
   - [ ] merge root `AGENTS.md` with `.agents/AGENTS.md` into one file (`CLAUDE.md` = `@AGENTS.md`);
   - [ ] create `STATUS.md` (≤150 lines), `ECOSYSTEM.md`, `DATA.md` and ADR-0001 (the six-function test).
 - **Archive or merge the competing authorities:**
