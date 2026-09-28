@@ -321,18 +321,33 @@ review:
 Both depend on SDK core only and use lazy connector imports. Neither has hard-coded `/home/xibalba`
 paths or sibling Docker copies. Both pass independence CI against the SDK tag.
 
-**Shield:**
+**Shield:** (xibalba-shield#36 fixed a breakage this phase surfaced; the items below are unstarted)
 - [ ] Policy bundles become signed packs covering the Rego; the enforced pack hash equals the signed
-  pack hash.
+  pack hash. **Prerequisite found and fixed first (xibalba-shield#36):** `policy_engine/engine.py`
+  imported the now-deleted `integrity_sdk.policy.opa_client` (A1 removed it; it was BCC
+  middleware's own vendored client, never used by the SDK) — Shield's policy engine could not be
+  imported at all against current `main`. Restored with a Shield-owned copy of the same module,
+  a behavior-preserving port, so this item can build on a working engine. Migrating that engine
+  onto `core.opa.OpaClient`/signed packs is still unstarted and needs a pack-signing key-custody
+  decision (who signs Shield's production packs) before it can proceed.
 - [ ] `permit` means permitted. No-match takes the pack's per-class default: `hipaa` agent tool calls
-  deny; device sensor events are `log_only`.
-- [ ] A missing, malformed, unknown or evaluator-error decision denies in enforce mode.
-- [ ] Replace the mocked test (`tests/test_policy_engine.py:60-77`) with real OPA output.
+  deny; device sensor events are `log_only`. Depends on the packs migration above — `core.decision`
+  already implements exactly this contract; Shield's Rego/engine don't speak it yet.
+- [ ] A missing, malformed, unknown or evaluator-error decision denies in enforce mode. Same
+  dependency as above.
+- [ ] Replace the mocked test (`tests/test_policy_engine.py:60-77`) with real OPA output. Same
+  dependency — the mock is of the now-restored `opa_evaluate`, and a real-OPA replacement makes
+  more sense once the engine speaks the decision contract, rather than mocking a shape about to change.
 - [ ] Exports carry labels and HMAC-protected paths, never raw `cmdline` or content-bearing arguments.
 - [ ] Separate device-auth and agent keys.
 - [ ] Replace the seven canonical-JSON copies with SDK JCS, re-sign bundles, and bump the schema.
-- [ ] Keep `mlflow` optional.
-- [ ] Read the agent identity from the DID file, not `.integrity/identity.json`.
+- [x] Keep `mlflow` optional. Already true: `mlflow` is not a Shield dependency at all (checked
+  `pyproject.toml`), so there is nothing non-optional to fix.
+- [x] Read the agent identity from the DID file, not `.integrity/identity.json`. Already true:
+  `integrity_exporter/exporter.py` and `preflight.py` both call `integrity_sdk.did.load_or_create_did`
+  (the current DID-file-based function, `ad56d97`); no `.integrity/identity.json` reference exists
+  anywhere in this repo. Likely landed independently as Shield's own development kept pace with
+  the SDK, before this plan item was written.
 
 **SDK canonicalizations, with their consumers (moved from A2):**
 - [x] `telemetry/envelope.canonical_bytes` → core JCS (`SCHEMA_VERSION` 1 → 2). Checked the oracle
@@ -350,12 +365,34 @@ paths or sibling Docker copies. Both pass independence CI against the SDK tag.
   `result_hash` ride inside `telemetry.envelope`'s payload, so they change value under the same
   `SCHEMA_VERSION` bump above rather than a separate one.
 
-**Cortex:**
-- [ ] Authenticate the OTLP receiver.
-- [ ] Register the `provider_telemetry_export` Merkle domain.
-- [ ] Use SDK JCS.
-- [ ] Bind create events to `content_hash`.
+**Cortex:** (xibalba-cortex#30)
+- [x] Authenticate the OTLP receiver. It had none at all — any local process (or, with a
+  non-default `--host`, any network caller) could inject provenance evidence with no
+  attribution. Now requires the same mandatory bearer token `local_api.py` already enforces
+  (`memory:write` scope), via the standard `OTEL_EXPORTER_OTLP_HEADERS` exporter header.
+- [x] Register the `provider_telemetry_export` Merkle domain. Found genuinely broken, not just
+  missing: `store.export_provider_telemetry()` has always called `domain_merkle_root(...,
+  domain="provider_telemetry_export")`, but that domain was never in `events.MERKLE_DOMAINS` —
+  every call raised `ValueError: unknown Merkle domain`, with zero test coverage.
+- [ ] Use SDK JCS. **Blocked on an owner decision, not done here:** `store.py`'s `_canonical_json`
+  underlies the entire hash-chain/Merkle-proof system across dozens of call sites, and the
+  repo's own README declares the store schema, hash-chain and Merkle model **frozen for v1**
+  (2026-08-12) — changing the canonicalization would silently invalidate every already-provisioned
+  profile's stored hashes and inclusion proofs without a carefully designed transition (a
+  domain/schema version bump plus a dual-hash verification window), unlike the SDK-internal
+  modules this same item covered for `integrity-core` itself (no live persisted data depended on
+  those). This conflicts with, and postdates, the plan's original premise that this was a free
+  swap — corrected here rather than repeated.
+- [x] Bind create events to `content_hash`. Already true for the primary create path:
+  `store_memory` computes `content_digest` and binds it into `source_payload["content_hash"]`
+  before the row is written. Not re-verified against every ingestion path (OTLP, transcript,
+  Drive, Codex backfill) in this pass.
 - [ ] Resolve agents from the DID file; `XIBALBA_AGENT_ID` becomes an explicit override only.
+  **Not done here, scoped as separate follow-up:** `XIBALBA_AGENT_ID` is read as a required
+  identifier in roughly 10 call sites (`server.py`, `store.py`, `provider_bridge.py`, the hook
+  bridges); `server.py`'s own docstring calls it "required: without it this server cannot scope
+  memory access." Making DID-file resolution primary is a real multi-file behavior change, not a
+  drop-in fix, and deserved its own pass rather than riding alongside the two bug fixes above.
 
 ## A5. Consolidate plans and documentation (M)
 
