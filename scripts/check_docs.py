@@ -52,7 +52,7 @@ def check_authority_map(errors: list[str]) -> None:
             errors.append(f"DOCUMENT_STATUS.yaml points to missing path: {pointer}")
     if "path: docs/EXECUTION_PLAN.md" not in text or "authority: execution" not in text:
         errors.append("docs/EXECUTION_PLAN.md is not recorded as the execution authority")
-    if "status: superseded" not in text or "path: docs/IMPLEMENTATION_PLAN.md" not in text:
+    if "status: historical" not in text or "path: docs/archive/2026-09/IMPLEMENTATION_PLAN.md" not in text:
         errors.append("historical implementation-plan status is not recorded")
     if text.count("authority: execution") != 1:
         errors.append("DOCUMENT_STATUS.yaml must have exactly one execution authority")

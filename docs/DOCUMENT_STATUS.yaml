@@ -18,8 +18,8 @@ auditor_controls:
   authority: informative
 
 implementation_plan:
-  path: docs/IMPLEMENTATION_PLAN.md
-  status: superseded
+  path: docs/archive/2026-09/IMPLEMENTATION_PLAN.md
+  status: historical
   authority: historical
 
 execution_plan:

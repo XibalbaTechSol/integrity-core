@@ -16,7 +16,7 @@ Three repositories, one closed loop:
 | [docs/SPEC.md](docs/SPEC.md) | Implementers (normative protocol grammar, invariants, status tags) |
 | [docs/WHITEPAPER.md](docs/WHITEPAPER.md) | Decision-makers and auditors (narrative, guarantees, architecture) |
 | [docs/CONTROLS_MATRIX.md](docs/CONTROLS_MATRIX.md) | Auditors (evidence map: HIPAA, NIST, OWASP, AIUC-1) |
-| [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) | Builders (build order and phase gates) |
+| [docs/EXECUTION_PLAN.md](docs/EXECUTION_PLAN.md) | Builders (build order and phase gates) |
 
 **Archived material is not normative.** Files moved to `docs/archive/` reflect the prior design iteration and remain accessible for historical context, but are not the source of truth. See [docs/archive/README.md](docs/archive/README.md).
 

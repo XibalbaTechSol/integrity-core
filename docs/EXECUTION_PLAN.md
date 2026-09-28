@@ -452,7 +452,7 @@ paths or sibling Docker copies. Both pass independence CI against the SDK tag.
 - **Authorities:**
   - [x] make this plan the execution authority in `DOCUMENT_STATUS.yaml`. Completed 2026-09-28:
     `docs/DOCUMENT_STATUS.yaml` now points at this plan with `authority: execution`; the older
-    `docs/IMPLEMENTATION_PLAN.md` is retained as historical context pending the remaining A5
+    `docs/archive/2026-09/IMPLEMENTATION_PLAN.md` is retained as historical context pending the remaining A5
     archive/merge work.
   - [x] merge root `AGENTS.md` with `.agents/AGENTS.md` into one file (`CLAUDE.md` = `@AGENTS.md`).
     Completed 2026-09-28: root `AGENTS.md` contains the quick-start and wiki procedure,
@@ -461,9 +461,9 @@ paths or sibling Docker copies. Both pass independence CI against the SDK tag.
     Completed 2026-09-28: the four documents are current bounded summaries/decisions and their
     paths are recorded in `docs/DOCUMENT_STATUS.yaml`.
 - **Archive or merge the competing authorities:**
-  - [ ] `docs/IMPLEMENTATION_PLAN.md`, `PRODUCTION_READINESS_PLAN.md`, and `MAINNET_READINESS.md`
-    still require merge/archive decisions; `docs/ARCHIVE_PLAN.md` and
-    `docs/SPEC-v2.0.0-proposed.md` were moved to `docs/archive/2026-09/` on 2026-09-28.
+  - [ ] `PRODUCTION_READINESS_PLAN.md` and `MAINNET_READINESS.md` still require merge/archive
+    decisions; `docs/ARCHIVE_PLAN.md`, `docs/SPEC-v2.0.0-proposed.md`, and
+    `docs/IMPLEMENTATION_PLAN.md` were moved to `docs/archive/2026-09/` on 2026-09-28.
   - [ ] the dated handoffs, reconciliations and audits;
   - [ ] `docs/packs/trading/`;
   - [ ] the `park/policy-packs-2026-09-26` branch. It stores packs in userapi Postgres, a second pack

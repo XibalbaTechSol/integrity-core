@@ -25,6 +25,13 @@
   normative specification.
 - Updated source comments, authority metadata, and the execution plan to point at the archive.
 
+## [2026-09-28] archive | retired the superseded implementation plan
+
+- Moved `docs/IMPLEMENTATION_PLAN.md` to `docs/archive/2026-09/IMPLEMENTATION_PLAN.md` and
+  changed active references to the current `docs/EXECUTION_PLAN.md` authority.
+- Preserved the historical plan and recorded its archived path in `docs/DOCUMENT_STATUS.yaml`;
+  `PRODUCTION_READINESS_PLAN.md` and `MAINNET_READINESS.md` remain active merge-required sources.
+
 ## [2026-09-28] integrate | A3 Shield and Cortex migrations merged
 
 - Merged xibalba-shield#39: labeled/HMAC-protected Hermes exports, separate device-auth keys,
