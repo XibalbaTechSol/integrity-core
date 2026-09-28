@@ -476,9 +476,12 @@ paths or sibling Docker copies. Both pass independence CI against the SDK tag.
     its loopback adapter remains preserved as test-only historical material.
   - [ ] the `park/policy-packs-2026-09-26` branch. It stores packs in userapi Postgres, a second pack
     authority; only its UI is reused, as the B0 promotion view.
-- [ ] **Inventory:** classify every tracked Markdown file (174 files at the 2026-09-28 baseline,
+- [x] **Inventory:** classify every tracked Markdown file (174 files at the 2026-09-28 baseline,
   including preserved archive material) as authoritative, merge-required, historical or removable.
-  `PRODUCTION_GAPS.md` entries that are still open move to `STATUS.md` or an ADR.
+  Completed 2026-09-28 in `scripts/check_docs.py`: canonical roots, ADRs, and wiki pages are
+  authoritative; archived files are historical; every other active Markdown file is conservatively
+  merge-required; no file is classified removable. `PRODUCTION_GAPS.md` entries that are still
+  open remain in the gap register until promoted to `STATUS.md` or an ADR.
 - **CI:**
   - [x] link, path, duplicate-claim and authority checks, plus the `STATUS.md` cap. Completed
     2026-09-28 in `scripts/check_docs.py`, with `wiki_toc.py --check` retained as the TOC gate.
