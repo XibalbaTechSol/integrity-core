@@ -85,7 +85,7 @@ Both are solved by separating layers, exactly as git separates objects from refs
 
 ```
 node = {
-  schema:       "integrity.memory.node.v1",
+  schema:       "integrity.memory.node.v2",
   agent_id:     "did:integrity:…",
   kind:         "memory" | "commit" | "session" | "test_result" | "lineage",
   content_hash: keccak256(canonical(body)),   # content itself stays local

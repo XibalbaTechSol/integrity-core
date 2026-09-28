@@ -52,10 +52,10 @@ def test_node_id_is_deterministic_and_independent_of_field_order():
     assert _node().node_id == _node().node_id
 
 
-def test_canonical_encoding_is_ascii_and_compact():
-    """Must match the BCC canonical form the rest of the repo already shares."""
+def test_canonical_encoding_is_jcs_and_compact():
+    """RFC 8785 (JCS): sorted keys, no whitespace, non-ASCII as raw UTF-8 (not \\uXXXX)."""
     out = canonical({"b": 1, "a": "é"})
-    assert out == b'{"a":"\\u00e9","b":1}'
+    assert out == '{"a":"é","b":1}'.encode("utf-8")
 
 
 def test_changing_a_parent_changes_the_descendant_id():

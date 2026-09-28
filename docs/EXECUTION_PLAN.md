@@ -289,11 +289,13 @@ review:
 - [x] Snapshot the source and write a cut-path manifest. Mirror both to integrity-lab. Snapshot:
   `main` @ `761e019`; 91 files with history + manifest in integrity-lab#1 (open for merge).
 - [ ] **Split integrity-console** (about 21.8k lines: dashboard 18.1k, demo 1.6k, userapi 2.1k):
-  import in integrity-console#1 (open for merge).
+  import merged in integrity-console#1; ticked once integrity-console#4 merges.
   - [x] `git filter-repo` the dashboard, userapi and demo (191 commits, history kept);
   - [x] carry over or explicitly drop the unmerged `feat/cortex-operations-dashboard` branch (carried
     over, with `park/policy-packs-2026-09-26`);
-  - [ ] remove pages for cut features.
+  - [x] remove pages for cut features (integrity-console#4: Staking/Credit/Actuarial/Licence/Factory
+    pages, oracle DTOs for the cut routes, the demo's capital-allocation flow; Health's quarantine
+    scan now reads `Slasher.lockedStakeOf` on-chain).
 - **Move to integrity-lab:**
   - [x] `integrity-zkp`, `UltraPlonkVerifier`, the SDK prover (and the oracle's bb verifier);
   - [x] SDK `markets.py`, `mcp_server.py`, root `integrity.py`, the duplicate root `opa_client.py`,
@@ -330,11 +332,20 @@ paths or sibling Docker copies. Both pass independence CI against the SDK tag.
 - [ ] Read the agent identity from the DID file, not `.integrity/identity.json`.
 
 **SDK canonicalizations, with their consumers (moved from A2):**
-- [ ] `telemetry/envelope.canonical_bytes` → core JCS, together with the oracle's verification of
-  `content_hash`/`payload_hash` (also closes the documented Rust/Python non-ASCII disagreement).
-- [ ] `memory_dag.canonical` → core JCS, with a node-id version bump (ids differ only for non-ASCII
-  or float content, but stored ids must not silently change).
-- [ ] `harness_hooks._hash` → core JCS, with the telemetry schema version bump.
+- [x] `telemetry/envelope.canonical_bytes` → core JCS (`SCHEMA_VERSION` 1 → 2). Checked the oracle
+  side first: it never reads this envelope's `content_hash`/`payload_hash` at all — its own
+  identically-named fields in `handlers.rs`'s telemetry-ingest path are computed independently
+  over the signed request, via `crypto::canonical_json_bytes`, not from this SDK-local dataclass.
+  So there is no oracle-side change here, and no non-ASCII disagreement to close on this specific
+  hash (that gap was about `bcc.py`'s wire format, already closed in A2) — corrected from the
+  plan's original wording, which conflated the two.
+- [x] `memory_dag.canonical` → core JCS, with a node-id version bump (`SCHEMA` v1 → v2; v1 stays
+  documented as historical, not deleted). No other package computes a `memory_dag` node id today
+  (Cortex's own future JCS migration is a separate A3 item, in that repo).
+- [x] `harness_hooks._hash` → core JCS (`json.dumps(default=str)` round-trip kept, to still tolerate
+  non-JSON-native tool args/results, before JCS canonicalizes the result); `tool_input_hash`/
+  `result_hash` ride inside `telemetry.envelope`'s payload, so they change value under the same
+  `SCHEMA_VERSION` bump above rather than a separate one.
 
 **Cortex:**
 - [ ] Authenticate the OTLP receiver.
