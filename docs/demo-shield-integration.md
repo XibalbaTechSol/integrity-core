@@ -54,7 +54,7 @@ Two things about this that aren't obvious from the script's own docstring or `.e
   Anvil/Hardhat default test key** (`0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266`) — fine for
   local anvil, useless on Base Sepolia (funding it further does nothing). The key that actually
   controls the funded `funderWallet` role address (`0x7530bd7Cb142C50d5cC742EdF02263f368e89E2f`
-  in `deployments.baseSepolia.json`, per the role-concentration issue in `MAINNET_READINESS.md`
+  in `deployments.baseSepolia.json`, per the role-concentration issue in ADR-0002's archived readiness register
   P0 #1 — `funderWallet`/`governance`/`oracleSigner` are currently the same EOA) is `.env`'s
   `ORACLE_SIGNER_PRIVATE_KEY`. Use that one, passed as `FUNDER_PRIVATE_KEY` to the script as
   shown above — don't assume the var named `FUNDER_PRIVATE_KEY` is the right key just because
@@ -115,7 +115,7 @@ which will redeploy the factory properly (with the new Safe/EOA roles) and super
   specific.
 - The single-signer role concentration this runbook's funder-key confusion is itself a symptom
   of (`funderWallet == governance == oracleSigner`) is a deliberate open decision, not a bug — see
-  `docs/MAINNET_READINESS.md` P0 #1. Don't "fix" it unilaterally; it's a key-custody decision.
+  ADR-0002's archived P0 #1. Don't "fix" it unilaterally; it's a key-custody decision.
 
 ## Status as of 2026-08-14
 

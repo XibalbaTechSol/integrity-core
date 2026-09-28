@@ -97,7 +97,7 @@ integrity-core remains the protocol authority. Shield and graph memory do not be
 the execution plan remains the authority for sequencing and completion, and the protocol
 specification remains authoritative for normative claims.
 
-**Specification authority (corrected 2026-09-08, see `docs/DOCUMENT_STATUS.yaml`):** `docs/SPEC.md` (v1.0.0-draft) is accepted normative authority; `docs/archive/2026-08/integrity-protocol-v0.4.md` and `integrity-protocol-v0.5-proposed.md` are both archived, not authoritative. `docs/WHITEPAPER.md` is the current v3.2 explanatory/non-normative whitepaper. Current implementation evidence is maintained by `README.md`, `PRODUCTION_GAPS.md`, `docs/INTERFACE_CONTRACT.md`, `docs/MAINNET_READINESS.md`, and `docs/wiki/`.
+**Specification authority (corrected 2026-09-08, see `docs/DOCUMENT_STATUS.yaml`):** `docs/SPEC.md` (v1.0.0-draft) is accepted normative authority; `docs/archive/2026-08/integrity-protocol-v0.4.md` and `integrity-protocol-v0.5-proposed.md` are both archived, not authoritative. `docs/WHITEPAPER.md` is the current v3.2 explanatory/non-normative whitepaper. Current implementation evidence is maintained by `README.md`, `PRODUCTION_GAPS.md`, `docs/INTERFACE_CONTRACT.md`, `docs/adr/ADR-0002-mainnet-readiness.md`, and `docs/wiki/`.
 
 **Audit checkpoint (2026-08-17):** Phase 0 is locally complete. The Foundry suite passes 209/209; `IntegrityIdentityReadV1` passes its 10 focused tests; the local generated verifier has real-proof negative-control coverage; and package Continuous Integration includes dashboard build/lint rather than a nonexistent unit-test script. Base Sepolia still lacks the identity facade and retains the older fail-closed verifier, so source capability is not deployed capability.
 
@@ -116,7 +116,7 @@ specification remains authoritative for normative claims.
 
 **Planned / todo:**
 
-- [ ] Close `docs/MAINNET_READINESS.md` blockers in consequence order.
+- [ ] Close the ADR-0002 mainnet-readiness blockers in consequence order.
 - [ ] Enforce agent-only genesis anchoring at the contract level.
 - [ ] Implement uniform minimum stake/tier elevation constraints.
 - [ ] Generalize Delegation instrument and authority resolution.

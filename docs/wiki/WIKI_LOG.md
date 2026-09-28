@@ -1,5 +1,13 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-09-28] docs | consolidated mainnet-readiness authority
+
+- Added `docs/adr/ADR-0002-mainnet-readiness.md` as the current bounded deployment-readiness summary.
+- Moved the detailed `MAINNET_READINESS.md` register to `docs/archive/2026-09/` and updated active
+  references and `docs/DOCUMENT_STATUS.yaml`.
+- Preserved the boundary that local, testnet, or simulated evidence does not authorize a mainnet
+  broadcast or deployment claim.
+
 ## [2026-09-28] docs | consolidated repository guidance and documentation gates
 
 - Merged the root quick-start and wiki procedure into `AGENTS.md`; `CLAUDE.md` now imports it,

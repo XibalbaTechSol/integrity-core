@@ -1,6 +1,6 @@
 # Upgradeability of the per-agent contracts — decision record
 
-**Decided 2026-07-29.** Resolves `docs/MAINNET_READINESS.md` item 6, the one pre-mainnet
+**Decided 2026-07-29.** Resolves `docs/adr/ADR-0002-mainnet-readiness.md` item 6, the one pre-mainnet
 choice that cannot be revisited after the first agent registers.
 
 **Decision: beacon proxy with a per-agent pin, beacon owned by a multisig initially and
