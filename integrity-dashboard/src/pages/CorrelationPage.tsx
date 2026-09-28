@@ -25,15 +25,18 @@ const STATUS: Record<string, { label: string; color: string; bg: string }> = {
   legacy_hash_only: { label: 'Legacy hash only', color: '#94a3b8', bg: 'rgba(148,163,184,.12)' },
 };
 
-function Stage({ present, label, warning = false }: { present: boolean; label: string; warning?: boolean }) {
+function Stage({ present, label, warning = false, title }: { present: boolean; label: string; warning?: boolean; title?: string }) {
   const color = warning ? '#f59e0b' : present ? '#10b981' : 'var(--text-muted)';
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color, fontSize: '0.76rem', whiteSpace: 'nowrap' }}>
+    <span title={title} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color, fontSize: '0.76rem', whiteSpace: 'nowrap' }}>
       {warning ? <AlertTriangle size={14} /> : present ? <CheckCircle2 size={14} /> : <CircleDashed size={14} />}
       {label}
     </span>
   );
 }
+
+const RUNTIME_HOOK_TITLE =
+  "Agent runtime pre-tool hook recorded in Cortex (root store). Shield event memories live in Shield's Cortex profile and are not shown in this stage.";
 
 function shortId(value: string) {
   return `${value.slice(0, 8)}…${value.slice(-6)}`;
@@ -184,7 +187,11 @@ export default function CorrelationPage() {
                 <span><code title={row.invocationId} style={{ color: 'var(--text-primary)' }}>{shortId(row.invocationId)}</code><small style={{ display: 'block', color: 'var(--text-muted)', marginTop: 4 }}>{row.cortex?.tool_name ?? row.oracle?.intent_type ?? 'Unclassified action'}</small></span>
                 <span style={{ color: tone.color, background: tone.bg, padding: '5px 8px', borderRadius: 4, width: 'fit-content', fontSize: '0.72rem', fontWeight: 600 }}>{tone.label}</span>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
-                  <Stage present={Boolean(row.cortex?.pre_tool)} label="Cortex" />
+                  {/* This stage is the agent runtime's pre-tool hook as recorded in Cortex (root store,
+                      GET /api/invocations). It is NOT "does Cortex hold this event": Shield's own
+                      event memories live in the Shield Cortex profile and are not joined here, so a
+                      Shield row can show this stage empty while Cortex holds its memory. */}
+                  <Stage present={Boolean(row.cortex?.pre_tool)} label="Runtime hook" title={RUNTIME_HOOK_TITLE} />
                   <Stage present={Boolean(row.shield)} label="Shield" />
                   <Stage present={Boolean(row.oracle?.intent_at)} label="BCC" />
                   <Stage present={Boolean(row.oracle?.outcome_at ?? row.cortex?.post_tool)} label="Outcome" warning={statusKey.includes('conflict') || statusKey.includes('duplicate')} />
@@ -193,7 +200,7 @@ export default function CorrelationPage() {
               </button>
               {open && (
                 <div className="correlation-detail" style={{ padding: '0 16px 18px 62px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-4)', background: 'var(--glass-surface-light)' }}>
-                  <section><h3 style={{ fontSize: '.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Runtime</h3><code style={{ fontSize: '.72rem', wordBreak: 'break-all' }}>{row.invocationId}</code><p style={{ color: 'var(--text-secondary)', fontSize: '.8rem' }}>{row.cortex?.pre_tool?.intent_rationale ?? 'No Cortex pre-tool evidence.'}</p></section>
+                  <section><h3 style={{ fontSize: '.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Runtime</h3><code style={{ fontSize: '.72rem', wordBreak: 'break-all' }}>{row.invocationId}</code><p style={{ color: 'var(--text-secondary)', fontSize: '.8rem' }}>{row.cortex?.pre_tool?.intent_rationale ?? 'No runtime pre-tool hook recorded in Cortex for this invocation.'}</p></section>
                   <section><h3 style={{ fontSize: '.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Shield / policy</h3><p style={{ color: 'var(--text-secondary)', fontSize: '.8rem' }}>{row.shield ? `${row.shield.decision.decision?.action ?? 'unknown'} · ${row.shield.decision.rule?.name ?? 'policy decision'}` : 'No Shield decision correlated.'}</p></section>
                   <section><h3 style={{ fontSize: '.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Signed intent</h3><code style={{ fontSize: '.72rem', wordBreak: 'break-all' }}>{row.oracle?.intended_state_hash ?? row.cortex?.pre_tool?.tool_input_hash ?? 'No signed BCC intent observed.'}</code></section>
                   <section><h3 style={{ fontSize: '.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Outcome</h3><p style={{ color: 'var(--text-secondary)', fontSize: '.8rem' }}>{row.oracle?.outcome ?? row.cortex?.post_tool?.outcome ?? 'No outcome reported.'}</p></section>
