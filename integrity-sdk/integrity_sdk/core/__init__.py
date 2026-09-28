@@ -33,6 +33,7 @@ from .memory import MEMORY_INTERFACE_VERSION, MemoryProvider
 from .merkle import hash_pair, keccak256, leaf_hash, merkle_proof, merkle_root, verify_leaf
 from .opa import OpaClient, OpaError
 from .packs import PACK_FORMAT, CompiledPack, LoadedPack, PackError, compile_pack, load_pack, sign_pack
+from .pack_distribution import PackPin, PackPinError, PackPinStore
 from .receipts import (
     CHECKPOINT_VERSION,
     RECEIPT_VERSION,
@@ -59,6 +60,7 @@ __all__ = [
     "canonical_bytes", "sha256_hex",
     "hash_pair", "keccak256", "leaf_hash", "merkle_proof", "merkle_root", "verify_leaf",
     "PACK_FORMAT", "CompiledPack", "LoadedPack", "PackError", "compile_pack", "load_pack", "sign_pack",
+    "PackPin", "PackPinError", "PackPinStore",
     "CHECKPOINT_VERSION", "RECEIPT_VERSION", "ReceiptError", "ReceiptLog", "hmac_identifier", "receipt_hash",
     "verify_checkpoint", "verify_inclusion", "verify_log", "verify_receipt",
     "MEMORY_INTERFACE_VERSION", "MemoryProvider", "OpaClient", "OpaError", "sign_body", "verify_body",
