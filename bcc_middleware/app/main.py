@@ -283,19 +283,36 @@ def _record_violation(agent_id: str | None, settings: Settings) -> None:
         circuit_breaker.record_violation(agent_id)
 
 
-def _deny(reason: str, *, agent_id: str | None, settings: Settings, intent_type: str | None = None) -> BCCInterceptResponse:
+def _deny_metadata(commitment: BCCCommitment | None) -> dict | None:
+    """Correlation keys for a deny/shadow_deny audit row -- the same two the ALLOW row
+    carries (see the allow path's metadata), minus the Merkle leaf a denied commitment
+    never gets. Without these a denied intent could not be joined to its invocation
+    (e.g. a Shield event -> BCC deny) at evidence-export time. Both values come from the
+    signed commitment; nothing unsigned is added."""
+    if commitment is None:
+        return None
+    metadata = {
+        "invocation_id": commitment.invocation_id,
+        "intended_state_hash": commitment.intended_state_hash,
+    }
+    metadata = {key: value for key, value in metadata.items() if value is not None}
+    return metadata or None
+
+
+def _deny(reason: str, *, agent_id: str | None, settings: Settings, intent_type: str | None = None, commitment: BCCCommitment | None = None) -> BCCInterceptResponse:
     # Reported in the background (not awaited) so a slow/unreachable oracle can
     # never add latency to this response -- see audit.py's module docstring for
     # why this is best-effort, same asymmetry as anchor.py's on-chain anchoring.
     code, _, detail = reason.partition(": ")
+    metadata = _deny_metadata(commitment)
     if settings.shadow_mode:
         # Monitor-only: record the would-be denial (decision="shadow_deny" so it
         # is distinguishable from a real, enforced deny in the audit trail) but
         # do NOT block -- surface what enforcement WOULD have done and let the
         # caller proceed.
-        _report_decision_background(settings, agent_id=agent_id, decision="shadow_deny", reason_code=code, detail=detail or reason, intent_type=intent_type)
+        _report_decision_background(settings, agent_id=agent_id, decision="shadow_deny", reason_code=code, detail=detail or reason, intent_type=intent_type, metadata=metadata)
         return BCCInterceptResponse(authorized=True, enforced=False, shadow_would_deny=True, reason=reason)
-    _report_decision_background(settings, agent_id=agent_id, decision="deny", reason_code=code, detail=detail or reason, intent_type=intent_type)
+    _report_decision_background(settings, agent_id=agent_id, decision="deny", reason_code=code, detail=detail or reason, intent_type=intent_type, metadata=metadata)
     return BCCInterceptResponse(authorized=False, reason=reason)
 
 
@@ -404,7 +421,7 @@ async def _run_intercept_inner(
     # --- 1. Circuit breaker -------------------------------------------------
     if circuit_breaker.is_locked_out(agent_id):
         remaining = int(circuit_breaker.lockout_remaining_seconds(agent_id))
-        resp = _deny(f"CIRCUIT_BREAKER_OPEN: agent is locked out for {remaining}s due to prior violations", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
+        resp = _deny(f"CIRCUIT_BREAKER_OPEN: agent is locked out for {remaining}s due to prior violations", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type, commitment=commitment)
         finalize_span("deny", resp.reason)
         return resp
 
@@ -416,7 +433,7 @@ async def _run_intercept_inner(
         _record_violation(agent_id, settings)
         resp = _deny(
             f"BCC_CHAIN_MISMATCH: commitment signed for chain_id {commitment.chain_id}, this deployment is chain_id {settings.chain_id}",
-            agent_id=agent_id, settings=settings, intent_type=commitment.intent_type,
+            agent_id=agent_id, settings=settings, intent_type=commitment.intent_type, commitment=commitment,
         )
         finalize_span("deny", resp.reason)
         return resp
@@ -426,7 +443,7 @@ async def _run_intercept_inner(
         _record_violation(agent_id, settings)
         resp = _deny(
             f"BCC_VERIFYING_CONTRACT_MISMATCH: commitment names verifying_contract {commitment.verifying_contract}, this deployment's XibalbaAgentRegistry is {configured_registry}",
-            agent_id=agent_id, settings=settings, intent_type=commitment.intent_type,
+            agent_id=agent_id, settings=settings, intent_type=commitment.intent_type, commitment=commitment,
         )
         finalize_span("deny", resp.reason)
         return resp
@@ -440,14 +457,14 @@ async def _run_intercept_inner(
         verify_commitment_signature(commitment)
     except SignatureVerificationError as exc:
         _record_violation(agent_id, settings)
-        resp = _deny(f"BCC_INVALID_SIGNATURE: {exc}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
+        resp = _deny(f"BCC_INVALID_SIGNATURE: {exc}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type, commitment=commitment)
         finalize_span("deny", resp.reason)
         return resp
 
     # --- 3. Replay protection ------------------------------------------------
     if not nonce_store.check_and_record(agent_id, commitment.nonce):
         _record_violation(agent_id, settings)
-        resp = _deny(f"BCC_NONCE_REPLAY: nonce {commitment.nonce} is not greater than the last accepted nonce for this agent", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
+        resp = _deny(f"BCC_NONCE_REPLAY: nonce {commitment.nonce} is not greater than the last accepted nonce for this agent", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type, commitment=commitment)
         finalize_span("deny", resp.reason)
         return resp
 
@@ -455,12 +472,12 @@ async def _run_intercept_inner(
     age_ms = (time.time() * 1000) - commitment.timestamp
     if age_ms > settings.max_commitment_age_ms:
         _record_violation(agent_id, settings)
-        resp = _deny(f"BCC_EXPIRED: commitment is {int(age_ms)}ms old, exceeds max age {settings.max_commitment_age_ms}ms", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
+        resp = _deny(f"BCC_EXPIRED: commitment is {int(age_ms)}ms old, exceeds max age {settings.max_commitment_age_ms}ms", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type, commitment=commitment)
         finalize_span("deny", resp.reason)
         return resp
     if age_ms < -settings.max_commitment_age_ms:
         _record_violation(agent_id, settings)
-        resp = _deny("BCC_EXPIRED: commitment timestamp is implausibly far in the future", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
+        resp = _deny("BCC_EXPIRED: commitment timestamp is implausibly far in the future", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type, commitment=commitment)
         finalize_span("deny", resp.reason)
         return resp
 
@@ -474,7 +491,7 @@ async def _run_intercept_inner(
     quarantine_status, quarantine_detail = await asyncio.to_thread(check_quarantine_status, settings, agent_id)
     if quarantine_status is QuarantineStatus.QUARANTINED:
         _record_violation(agent_id, settings)
-        resp = _deny(f"AGENT_QUARANTINED: {quarantine_detail}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
+        resp = _deny(f"AGENT_QUARANTINED: {quarantine_detail}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type, commitment=commitment)
         finalize_span("deny", resp.reason)
         return resp
     elif quarantine_status is QuarantineStatus.CANNOT_VERIFY:
@@ -485,6 +502,7 @@ async def _run_intercept_inner(
                 agent_id=agent_id,
                 settings=settings,
                 intent_type=commitment.intent_type,
+                commitment=commitment,
             )
             finalize_span("deny", resp.reason)
             return resp
@@ -523,14 +541,14 @@ async def _run_intercept_inner(
         # breaker (see circuit_breaker.py docstring). Still deny: this is
         # the fail-closed behavior the interface contract requires.
         logger.error("OPA unavailable, failing closed: %s", exc)
-        resp = _deny(f"BCC_POLICY_ENGINE_UNAVAILABLE: {exc}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
+        resp = _deny(f"BCC_POLICY_ENGINE_UNAVAILABLE: {exc}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type, commitment=commitment)
         finalize_span("deny", resp.reason)
         return resp
 
     if not decision.allow:
         _record_violation(agent_id, settings)
         reasons = "; ".join(decision.violations) or "policy denied without a specific reason"
-        resp = _deny(f"OPA_REJECTION: {reasons}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
+        resp = _deny(f"OPA_REJECTION: {reasons}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type, commitment=commitment)
         finalize_span("deny", resp.reason)
         return resp
 
@@ -543,7 +561,7 @@ async def _run_intercept_inner(
         )
         if not budget_ok:
             _record_violation(agent_id, settings)
-            resp = _deny(f"TOKEN_BUDGET_EXCEEDED: {budget_reason}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
+            resp = _deny(f"TOKEN_BUDGET_EXCEEDED: {budget_reason}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type, commitment=commitment)
             finalize_span("deny", resp.reason)
             return resp
 
@@ -561,7 +579,7 @@ async def _run_intercept_inner(
             # unverifiable BAA must never be treated as compliant.
             _record_violation(agent_id, settings)
             code = "BAA_INACTIVE" if status is BAAStatus.INACTIVE else "BAA_CANNOT_VERIFY"
-            resp = _deny(f"{code}: {detail}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type)
+            resp = _deny(f"{code}: {detail}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type, commitment=commitment)
             finalize_span("deny", resp.reason)
             return resp
 

@@ -52,7 +52,8 @@ def report_decision(
     `metadata` (evidence-export linkage, docs/design/evidence-export.md) carries
     the ALLOW row's Merkle `leaf` (plus batch_index / verification_token) so the
     anchor event later reported by `report_anchor_events` can be JOINed to this
-    decision at export time. Omitted for deny/shadow_deny rows, which have no leaf."""
+    decision at export time. Deny/shadow_deny rows have no leaf; they carry only the
+    signed correlation keys (`invocation_id`, `intended_state_hash`) when present."""
     payload = {
         "agent_id": agent_id,
         "source": "bcc_middleware",
