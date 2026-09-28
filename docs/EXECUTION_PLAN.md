@@ -250,6 +250,8 @@ review:
 
 ## A2. SDK core: C1–C7 (M)
 
+- [ ] Tag `integrity-sdk-v0.1.0` on `main` once this branch's PR merges (a tag on an unmerged branch
+  commit would not be on `main` history).
 - **Core, tagged `integrity-sdk-v0.x` and dependency-light:**
   - [x] JCS (`core/jcs.py`; `bcc.canonical_json_bytes` delegates to it);
   - [x] DID and DID-file support (the layout from `ad56d97`);
@@ -259,12 +261,15 @@ review:
   - [x] pack schema, compile, sign and verify, with the decision contract (`core/packs.py`,
     `core/decision.py`; sample Rego checked against real OPA 1.18.2);
   - [x] hook normalization (`normalize_hook`, core-safe);
-  - [ ] the memory-provider interface (C6);
-  - [ ] the OPA client (one, replacing `opa_client.py` and `policy/opa_client.py`);
-  - [ ] agent identity over HTTP (signed requests with the agent key);
-  - [ ] move the remaining ad-hoc canonicalizations (`memory_dag.canonical`,
-    `telemetry/envelope.canonical_bytes`, `harness_hooks._hash`) onto core JCS; each changes stored
-    hashes, so each needs a version bump.
+  - [x] the memory-provider interface (C6) (`core/memory.py`: interface only; how a verifier checks
+    retrievability without receiving PHI is C3);
+  - [x] the OPA client (one, replacing `opa_client.py` and `policy/opa_client.py`) (`core/opa.py`:
+    installs the verified Rego, reads it back, fails closed; tested against a real OPA server; the
+    two old clients leave in A1);
+  - [x] agent identity over HTTP (signed requests with the agent key) (`core/signed_body.py`,
+    byte-compatible with the oracle's current wire; `client.py` signs through it);
+  - Moved to A3: the remaining ad-hoc canonicalizations, because each hash is read by another
+    package and must change on both sides at once.
 - **Loading:**
   - [x] lazy (PEP 562) package initialization;
   - [x] import-hygiene tests: importing the core must not load `requests`, `web3`, `eth_account`,
@@ -315,6 +320,13 @@ paths or sibling Docker copies. Both pass independence CI against the SDK tag.
 - [ ] Replace the seven canonical-JSON copies with SDK JCS, re-sign bundles, and bump the schema.
 - [ ] Keep `mlflow` optional.
 - [ ] Read the agent identity from the DID file, not `.integrity/identity.json`.
+
+**SDK canonicalizations, with their consumers (moved from A2):**
+- [ ] `telemetry/envelope.canonical_bytes` → core JCS, together with the oracle's verification of
+  `content_hash`/`payload_hash` (also closes the documented Rust/Python non-ASCII disagreement).
+- [ ] `memory_dag.canonical` → core JCS, with a node-id version bump (ids differ only for non-ASCII
+  or float content, but stored ids must not silently change).
+- [ ] `harness_hooks._hash` → core JCS, with the telemetry schema version bump.
 
 **Cortex:**
 - [ ] Authenticate the OTLP receiver.
