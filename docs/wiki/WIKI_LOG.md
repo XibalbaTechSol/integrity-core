@@ -8,6 +8,13 @@
 - Preserved the boundary that local, testnet, or simulated evidence does not authorize a mainnet
   broadcast or deployment claim.
 
+## [2026-09-28] archive | reconciled dated documentation
+
+- Confirmed the unreferenced dated handoffs, reconciliations, and audits were moved to the
+  September archive; retained dated audit/evidence documents remain active where code, tests,
+  interface contracts, or the gap register still cite them.
+- No historical evidence was deleted or silently rewritten.
+
 ## [2026-09-28] docs | consolidated repository guidance and documentation gates
 
 - Merged the root quick-start and wiki procedure into `AGENTS.md`; `CLAUDE.md` now imports it,

@@ -467,7 +467,11 @@ paths or sibling Docker copies. Both pass independence CI against the SDK tag.
     `PRODUCTION_READINESS_PLAN.md` remains active pending a separate merge/archive decision;
     `docs/ARCHIVE_PLAN.md`, `docs/SPEC-v2.0.0-proposed.md`, and `docs/IMPLEMENTATION_PLAN.md`
     were moved to `docs/archive/2026-09/` on 2026-09-28.
-  - [ ] the dated handoffs, reconciliations and audits;
+  - [x] Reconcile the dated handoffs, reconciliations and audits. Completed 2026-09-28:
+    unreferenced registration/readiness, cross-repository, reconciliation, and harness-audit
+    reports were archived; the remaining dated audit/evidence documents stay active because
+    source comments, tests, interface contracts, or the append-style gap register still cite
+    them. No historical evidence was deleted.
   - [x] `docs/packs/trading/` moved to `docs/archive/2026-09/packs/trading/` on 2026-09-28;
     its loopback adapter remains preserved as test-only historical material.
   - [ ] the `park/policy-packs-2026-09-26` branch. It stores packs in userapi Postgres, a second pack
