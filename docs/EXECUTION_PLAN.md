@@ -474,8 +474,10 @@ paths or sibling Docker copies. Both pass independence CI against the SDK tag.
     them. No historical evidence was deleted.
   - [x] `docs/packs/trading/` moved to `docs/archive/2026-09/packs/trading/` on 2026-09-28;
     its loopback adapter remains preserved as test-only historical material.
-  - [ ] the `park/policy-packs-2026-09-26` branch. It stores packs in userapi Postgres, a second pack
-    authority; only its UI is reused, as the B0 promotion view.
+  - [x] Dispose of the `park/policy-packs-2026-09-26` branch as an authority. Completed 2026-09-28:
+    it remains parked and preserved, its userapi/Postgres pack authority is not adopted, and only
+    its UI may be reused as a B0 promotion view after an explicit design decision. No branch or
+    historical work was deleted.
 - [x] **Inventory:** classify every tracked Markdown file (174 files at the 2026-09-28 baseline,
   including preserved archive material) as authoritative, merge-required, historical or removable.
   Completed 2026-09-28 in `scripts/check_docs.py`: canonical roots, ADRs, and wiki pages are
