@@ -9,6 +9,8 @@
 
 - Added `PackPinStore` for tenant-scoped signed-pack hash/version pinning. Resolution reuses the
   SDK verifier and refuses tampering or replacement without the currently pinned hash.
+- Added `ReceiptQueue` for atomic local persistence, offline restart verification, and explicit
+  transport acknowledgements without losing receipts during an outage.
 
 ## [2026-09-28] docs | consolidated mainnet-readiness authority
 

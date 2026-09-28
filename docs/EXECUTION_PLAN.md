@@ -504,7 +504,9 @@ SDK/API contracts plus local reference implementations (no billing code) for:
 - [x] signed pack distribution and version pinning. `PackPinStore` records the tenant-scoped
   verified hash/version/signer and re-verifies the source pack on every resolution; replacement
   requires an explicit current-hash match.
-- [ ] receipt submission and local queueing;
+- [x] receipt submission and local queueing. `ReceiptQueue` durably persists the signed log,
+  verifies it on restart, exposes pending receipts to a caller-owned transport, and retains
+  unacknowledged receipts across failed submission.
 - [ ] offline verification;
 - [ ] Cortex provider and store identity;
 - [ ] entitlements and capability checks;
