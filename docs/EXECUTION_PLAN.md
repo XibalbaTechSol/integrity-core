@@ -448,7 +448,9 @@ paths or sibling Docker copies. Both pass independence CI against the SDK tag.
     `docs/IMPLEMENTATION_PLAN.md` is retained as historical context pending the remaining A5
     archive/merge work.
   - [ ] merge root `AGENTS.md` with `.agents/AGENTS.md` into one file (`CLAUDE.md` = `@AGENTS.md`);
-  - [ ] create `STATUS.md` (≤150 lines), `ECOSYSTEM.md`, `DATA.md` and ADR-0001 (the six-function test).
+  - [x] create `STATUS.md` (≤150 lines), `ECOSYSTEM.md`, `DATA.md` and ADR-0001 (the six-function test).
+    `STATUS.md` completed 2026-09-28 as the bounded current-state summary; the remaining three
+    documents stay open.
 - **Archive or merge the competing authorities:**
   - [ ] `docs/IMPLEMENTATION_PLAN.md`, `PRODUCTION_READINESS_PLAN.md`, `ARCHIVE_PLAN.md`,
     `SPEC-v2.0.0-proposed.md`, `MAINNET_READINESS.md`;

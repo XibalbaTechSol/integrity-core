@@ -9,6 +9,7 @@ confidence: high
 source_files:
   - docs/EXECUTION_PLAN.md
   - docs/DOCUMENT_STATUS.yaml
+  - STATUS.md
   - docs/IMPLEMENTATION_PLAN.md
   - docs/SPEC.md
   - README.md
@@ -86,6 +87,10 @@ integrity-core remains the protocol authority. Shield and graph memory do not be
 ## integrity-core
 
 **Role:** Protocol trust backend: contracts, SDK, CLI, BCC middleware, Oracle/AIS, user API, dashboard, ZKP, canonical wiki, and protocol specs.
+
+**Current status summary:** [`STATUS.md`](../../../STATUS.md) is the bounded current-state view;
+the execution plan remains the authority for sequencing and completion, and the protocol
+specification remains authoritative for normative claims.
 
 **Specification authority (corrected 2026-09-08, see `docs/DOCUMENT_STATUS.yaml`):** `docs/SPEC.md` (v1.0.0-draft) is accepted normative authority; `docs/archive/2026-08/integrity-protocol-v0.4.md` and `integrity-protocol-v0.5-proposed.md` are both archived, not authoritative. `docs/WHITEPAPER.md` is the current v3.2 explanatory/non-normative whitepaper. Current implementation evidence is maintained by `README.md`, `PRODUCTION_GAPS.md`, `docs/INTERFACE_CONTRACT.md`, `docs/MAINNET_READINESS.md`, and `docs/wiki/`.
 

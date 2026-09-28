@@ -16,6 +16,13 @@
   `concepts/local-metrology.md` and `entities/integrity-oracle.md`.
 - Only stale in-page anchors changed; the page content and source-backed claims were unchanged.
 
+## [2026-09-28] create | bounded ecosystem status summary
+
+- Added root `STATUS.md` (under the A5 150-line cap) as a current-state summary with explicit
+  phase, product-boundary, evidence, and readiness limits.
+- Linked it from the repository implementation-plan wiki page; detailed sequencing and evidence
+  remain in `docs/EXECUTION_PLAN.md` and the cited source documents.
+
 ## [2026-09-28] feat | SDK core: JCS, Merkle, signed packs, decision contract, receipts
 
 - New `integrity_sdk.core` (EXECUTION_PLAN.md A2), dependency-light (cryptography, base58, jcs,
