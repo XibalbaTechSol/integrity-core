@@ -31,7 +31,7 @@ contract IntegrityERC8004RegistryTest is Test {
 
     // ── Capability claims ──────────────────────────────────────────────────────
 
-    /// This contract is soulbound; the pinned ERC-8004 revision (SPEC-v2.0.0-proposed.md §5.1)
+    /// This contract is soulbound; the pinned ERC-8004 revision (docs/archive/2026-09/SPEC-v2.0.0-proposed.md §5.1)
     /// requires transferability ("the owner of the ERC-721 token... can transfer ownership").
     /// A soulbound registry cannot satisfy that, so this asserts the honest answer, not an
     /// aspirational one -- see test_transferReverts below for the concrete conflicting behavior.

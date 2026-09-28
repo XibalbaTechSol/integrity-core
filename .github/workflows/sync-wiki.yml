@@ -3,7 +3,7 @@ name: Sync GitHub Wiki
 # Publishes the separate <repo>.wiki.git repo (the rendered GitHub Wiki) as a
 # downstream mirror of docs/wiki/, the only canonical authoring source. Direct
 # edits in GitHub Wiki are overwritten on the next publication.
-# .agents/AGENTS.md) whenever it changes on main. Runs scripts/sync_wiki.py,
+# AGENTS.md) whenever it changes on main. Runs scripts/sync_wiki.py,
 # which flattens docs/wiki/'s concepts/entities/ subdirectories into a single
 # directory -- GitHub Wiki only generates a rendered page URL for files at
 # the wiki repo's root; anything in a subdirectory 302-redirects to raw,

@@ -1,6 +1,6 @@
 # M1–M5 mediation (production `SovereignAgent`)
 
-Companion to `docs/IMPLEMENTATION_PLAN.md` §2.1 and `SPEC.md` §5.3.
+Companion to `docs/EXECUTION_PLAN.md` §2.1 and `SPEC.md` §5.3.
 The production account is `SovereignAgent.execute`. The experimental kernel
 (`IntegrityAccountV1Experimental`) remains non-deployed and is not the v1 path.
 

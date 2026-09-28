@@ -234,5 +234,5 @@ is stable before five external protocols start depending on it.
    nothing to defer since the taxonomy alone requires no schema change).
 
 Each tranche is one focused PR with real tests, updated here and in `docs/wiki/` per
-`.agents/AGENTS.md`. No silent mocks — shipped rows are real and tested, everything else is an
+`AGENTS.md`. No silent mocks — shipped rows are real and tested, everything else is an
 honestly marked ⬜/🔨 gap.

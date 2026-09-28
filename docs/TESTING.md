@@ -1,7 +1,7 @@
 # Integrity Protocol — Testing Strategy
 
 > How every package in this monorepo is tested, and how the layers fit
-> together. See `.agents/AGENTS.md` §6 for the loop this feeds into
+> together. See `AGENTS.md` §6 for the loop this feeds into
 > (continuous test-coverage discipline, including when to fan work out to
 > parallel background agents) and `docs/INTERFACE_CONTRACT.md` for the
 > schemas/ports each layer talks to.

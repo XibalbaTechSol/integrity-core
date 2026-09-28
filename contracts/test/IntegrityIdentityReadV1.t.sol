@@ -174,7 +174,7 @@ contract IntegrityIdentityReadV1Test is Test {
     }
 
     /// Pins the on-chain-readable content hash to the exact bytes fetched and verified
-    /// 2026-09-12 (SPEC-v2.0.0-proposed.md §5.1) -- a change to this constant without an
+    /// 2026-09-12 (docs/archive/2026-09/SPEC-v2.0.0-proposed.md §5.1) -- a change to this constant without an
     /// accompanying, re-verified ERC8004_DRAFT_REFERENCE commit is exactly the drift this
     /// test exists to catch.
     function test_erc8004DraftContentHashMatchesVerifiedFetch() public {

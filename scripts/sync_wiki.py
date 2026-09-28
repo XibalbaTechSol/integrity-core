@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Syncs docs/wiki/ (this repo's compiled "memory" wiki, see .agents/AGENTS.md)
+Syncs docs/wiki/ (this repo's compiled "memory" wiki, see AGENTS.md)
 into the separate GitHub Wiki repo (<repo>.wiki.git), flattened.
 
 Why flattened: GitHub Wiki's rendered page URLs

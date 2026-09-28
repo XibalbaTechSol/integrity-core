@@ -2,7 +2,7 @@
 
 **Status:** Draft
 **Normative:** this document
-**Informative:** `WHITEPAPER.md`, `CONTROLS_MATRIX.md`, `IMPLEMENTATION_PLAN.md`
+**Informative:** `WHITEPAPER.md`, `CONTROLS_MATRIX.md`, `EXECUTION_PLAN.md`
 **Version:** 1.0.0-draft
 **Date:** August 2026
 **Author:** Jacob S. Vickers, Xibalba Solutions, LLC
@@ -29,7 +29,7 @@ A tag applies to the nearest heading or bullet. Untagged text is definitional.
 | Deciding whether to buy or enclose an agent | `WHITEPAPER.md`, then stop. Come back here only for a status tag. |
 | Implementing the hook, oracle, SDK, or a pack | This file, in order. §4–§7 are the contract. |
 | Mapping a control to HIPAA / NIST / OWASP | `CONTROLS_MATRIX.md`. It does not add requirements. |
-| Sequencing the work | `IMPLEMENTATION_PLAN.md`. It does not add requirements. |
+| Sequencing the work | `EXECUTION_PLAN.md`. It does not add requirements. |
 | Tracking what this file names but doesn't yet define | [`docs/design/spec-open-definitions.md`](design/spec-open-definitions.md). It does not add requirements either — it proposes fills for gaps this file already discloses (e.g. `scope` in §4.5). |
 
 ---
@@ -713,7 +713,7 @@ The reference evidence store's local hash-chain and session-Merkle-root construc
 | Unauthenticated anchor submission | The anchor POST carries no DID signature, no nonce — unlike every other producer's Path A telemetry (§8.2). | Anyone who can reach the configured URL and knows the expected shape could submit a claimed root. §8.3 Step 1 ("check `sig` against the agent's current keys") has nothing to check for this path today. |
 | Conformance vectors are a stub | The "portable event kernel" batch-Merkle profile is documented as reproducible by an independent implementation, with test vectors meant to prove it. The vector file is a 16-line placeholder. | Interoperable, cross-implementation verification of Cortex evidence is not yet demonstrable. |
 
-Closing these is protocol-side work (define the receiving contract, pick who owns the hash-space conversion) as much as Cortex-side work; see `IMPLEMENTATION_PLAN.md` §6.
+Closing these is protocol-side work (define the receiving contract, pick who owns the hash-space conversion) as much as Cortex-side work; see `EXECUTION_PLAN.md` §6.
 
 ---
 
@@ -980,7 +980,7 @@ exclusions:
 | `docs/WHITEPAPER.md` | Informative, public |
 | `docs/SPEC.md` | **Normative** |
 | `docs/CONTROLS_MATRIX.md` | Informative mapping |
-| `docs/IMPLEMENTATION_PLAN.md` | Informative roadmap. Sequences the work that closes the `[PARTIAL]`/`[PLANNED]`/`[EXPERIMENTAL]` gaps named in this file. It MUST NOT introduce a requirement this file doesn't already state. |
+| `docs/EXECUTION_PLAN.md` | Informative roadmap. Sequences the work that closes the `[PARTIAL]`/`[PLANNED]`/`[EXPERIMENTAL]` gaps named in this file. It MUST NOT introduce a requirement this file doesn't already state. |
 | `docs/archive/` | Historical. Do not implement from these. |
 
 When README, wiki, interface contract, and this file disagree, this file wins for protocol meaning; the disagreement MUST be repaired in the same change.

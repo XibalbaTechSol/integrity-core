@@ -1,5 +1,54 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-09-28] docs | consolidated repository guidance and documentation gates
+
+- Merged the root quick-start and wiki procedure into `AGENTS.md`; `CLAUDE.md` now imports it,
+  and the duplicate `.agents/AGENTS.md` procedural authority was removed.
+- Added `scripts/check_docs.py` and the CI documentation job for authority pointers, local Markdown
+  links, wiki index parity, a single execution authority, and the 150-line `STATUS.md` cap.
+- Repaired the stale foundational-primitives link to the current upgradeability decision source;
+  `python3 scripts/check_docs.py` and `python3 scripts/wiki_toc.py --check` pass locally.
+
+## [2026-09-28] docs | added bounded ecosystem, data, and six-function decision summaries
+
+- Added root `ECOSYSTEM.md` for repository/product boundaries and local-first operating rules.
+- Added root `DATA.md` for data classes, evidence semantics, retention, and outage boundaries.
+- Added `docs/adr/ADR-0001-six-function-test.md`; recorded all three documents in
+  `docs/DOCUMENT_STATUS.yaml` and linked them from the repository implementation-plan page.
+
+## [2026-09-28] archive | removed two non-authoritative planning files from the active set
+
+- Moved `docs/ARCHIVE_PLAN.md` to `docs/archive/2026-09/ARCHIVE_PLAN.md`; its cutover rules are
+  preserved as history now that the approved execution plan governs the work.
+- Moved `docs/SPEC-v2.0.0-proposed.md` to `docs/archive/2026-09/SPEC-v2.0.0-proposed.md`; the
+  proposal remains preserved and explicitly non-authoritative while `docs/SPEC.md` remains the
+  normative specification.
+- Updated source comments, authority metadata, and the execution plan to point at the archive.
+
+## [2026-09-28] archive | retired the superseded implementation plan
+
+- Moved `docs/IMPLEMENTATION_PLAN.md` to `docs/archive/2026-09/IMPLEMENTATION_PLAN.md` and
+  changed active references to the current `docs/EXECUTION_PLAN.md` authority.
+- Preserved the historical plan and recorded its archived path in `docs/DOCUMENT_STATUS.yaml`;
+  `PRODUCTION_READINESS_PLAN.md` and `MAINNET_READINESS.md` remain active merge-required sources.
+
+## [2026-09-28] archive | moved unreferenced dated audit material
+
+- Moved unreferenced registration-readiness, cross-repository closure/validation, tri-repo audit,
+  AIS reconciliation, and harness-loop audit files into `docs/archive/2026-09/`.
+- Referenced audits and design decisions remain in place until their active claims are reconciled;
+  no historical evidence was deleted.
+
+## [2026-09-28] archive | parked trading pack documentation
+
+- Moved the test-only `docs/packs/trading/` loopback adapter documentation to
+  `docs/archive/2026-09/packs/trading/`; it is not an active pack authority or production adapter.
+
+## [2026-09-28] archive | moved the historical cross-repository status audit
+
+- Moved `docs/audits/2026-08-06-cross-repository-status.md` into the dated archive and updated
+  the repository implementation-plan wiki page's `source_files` binding.
+
 ## [2026-09-28] integrate | A3 Shield and Cortex migrations merged
 
 - Merged xibalba-shield#39: labeled/HMAC-protected Hermes exports, separate device-auth keys,

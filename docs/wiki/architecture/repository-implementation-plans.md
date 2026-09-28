@@ -10,7 +10,10 @@ source_files:
   - docs/EXECUTION_PLAN.md
   - docs/DOCUMENT_STATUS.yaml
   - STATUS.md
-  - docs/IMPLEMENTATION_PLAN.md
+  - ECOSYSTEM.md
+  - DATA.md
+  - docs/adr/ADR-0001-six-function-test.md
+  - docs/archive/2026-09/IMPLEMENTATION_PLAN.md
   - docs/SPEC.md
   - README.md
   - docs/INTERFACE_CONTRACT.md
@@ -19,7 +22,7 @@ source_files:
   - docs/WHITEPAPER.md
   - docs/archive/2026-08/integrity-protocol-v3.2.md
   - spec/xibalba-shield-v1.md
-  - docs/audits/2026-08-06-cross-repository-status.md
+  - docs/archive/2026-09/audits/2026-08-06-cross-repository-status.md
 ---
 
 # Repository Implementation Plans
@@ -34,8 +37,10 @@ This page is the cross-repository implementation and specification ledger for th
 
 - `integrity-core/docs/EXECUTION_PLAN.md` is the current cross-repository execution authority;
   `integrity-core/docs/DOCUMENT_STATUS.yaml` records that pointer. The older
-  `integrity-core/docs/IMPLEMENTATION_PLAN.md` remains available as historical context until
+  `integrity-core/docs/archive/2026-09/IMPLEMENTATION_PLAN.md` remains available as historical context until
   the A5 archive/merge task is complete, alongside normative `integrity-core/docs/SPEC.md`.
+  `ECOSYSTEM.md`, `DATA.md`, and ADR-0001 are the bounded architecture/data/decision summaries;
+  they do not supersede the execution plan or normative specification.
 - `integrity-core/integrity-dashboard/` is governed by the core repository docs and its package README/configuration; it has no current root `SPECIFICATION.md`
 - `xibalba-shield/IMPLEMENTATION_PLAN.md` and `xibalba-shield/SPECIFICATION.md`
 - `xibalba-cortex/IMPLEMENTATION_PLAN.md` and `xibalba-cortex/SPECIFICATION.md`

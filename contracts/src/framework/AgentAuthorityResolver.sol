@@ -13,7 +13,7 @@ interface ISovereignAgentAis {
 }
 
 /// @title AgentAuthorityResolver
-/// @notice Additive parallel resolution path (docs/IMPLEMENTATION_PLAN.md Stream 2 / §5.2a).
+/// @notice Additive parallel resolution path (docs/EXECUTION_PLAN.md Stream 2 / §5.2a).
 /// @dev Resolution order for a given agent address:
 ///   1. Sovereign profile: `XibalbaAgentRegistry.isRegisteredAgent` — read AIS from that
 ///      agent's own `ReputationRegistry` clone (source of truth for that profile).

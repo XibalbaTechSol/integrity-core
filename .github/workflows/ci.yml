@@ -30,6 +30,14 @@ env:
   UV_VERSION: "0.11.x"
 
 jobs:
+  docs:
+    name: documentation contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/check_docs.py
+      - run: python3 scripts/wiki_toc.py --check
+
   contracts:
     name: contracts (forge test)
     runs-on: ubuntu-latest
