@@ -46,6 +46,7 @@ from .receipts import (
     verify_log,
     verify_receipt,
 )
+from .receipt_queue import ReceiptQueue, ReceiptQueueError
 from .signed_body import sign_body, verify_body
 from .tenancy import (
     AgentRegistration,
@@ -63,6 +64,7 @@ __all__ = [
     "PackPin", "PackPinError", "PackPinStore",
     "CHECKPOINT_VERSION", "RECEIPT_VERSION", "ReceiptError", "ReceiptLog", "hmac_identifier", "receipt_hash",
     "verify_checkpoint", "verify_inclusion", "verify_log", "verify_receipt",
+    "ReceiptQueue", "ReceiptQueueError",
     "MEMORY_INTERFACE_VERSION", "MemoryProvider", "OpaClient", "OpaError", "sign_body", "verify_body",
     "TenantIdentity", "AgentRegistration", "DeviceRegistration", "LocalRegistry", "RegistryError",
 ]
