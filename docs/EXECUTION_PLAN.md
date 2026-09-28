@@ -341,14 +341,39 @@ paths or sibling Docker copies. Both pass independence CI against the SDK tag.
   decision already in this plan. `packaging/systemd/shield.env.example`'s
   `XIBALBA_ORACLE_POLICY_PUBLIC_KEY=file:...` convention is the distribution mechanism for the
   public half. This unblocks the migration; it does not itself complete it.
-- [ ] `permit` means permitted. No-match takes the pack's per-class default: `hipaa` agent tool calls
-  deny; device sensor events are `log_only`. Depends on the packs migration above — `core.decision`
-  already implements exactly this contract; Shield's Rego/engine don't speak it yet.
-- [ ] A missing, malformed, unknown or evaluator-error decision denies in enforce mode. Same
-  dependency as above.
-- [ ] Replace the mocked test (`tests/test_policy_engine.py:60-77`) with real OPA output. Same
-  dependency — the mock is of the now-restored `opa_evaluate`, and a real-OPA replacement makes
-  more sense once the engine speaks the decision contract, rather than mocking a shape about to change.
+- [x] `permit` means permitted. No-match takes the pack's per-class default: `hipaa` agent tool calls
+  deny; device sensor events are `log_only`. Done independently of the full signed-packs migration
+  above: `shield/policies/rego/*.rego` each add `decision`/`reason_code` vars (the C3
+  `{"decision","reason_code","controls"}` shape) alongside the existing legacy vars, deliberately
+  with no `default` for either — undefined on no-match, which is what lets
+  `integrity_sdk.core.decision.resolve()` apply a per-`event.klass` default instead of one
+  hardcoded in Rego. `policy_engine/engine.py` now calls `resolve()` and translates its 3-way
+  permit/deny/log_only result back onto Shield's own frozen 5-way `Decision.action` vocabulary
+  (allow/deny/contain/log_only/escalate — spec §5.5) via the reason code's `_CONTAIN_`/`_ESCALATE_`
+  marker, so `router.py` and every existing consumer see the exact same action strings as before.
+  `REGULATED_EVENT_DEFAULTS` (agent_event → deny) is the literal "hipaa agent tool calls deny" case;
+  every other class stays `log_only`, unchanged. **Not yet wired into the live `shield run` path** —
+  `cli.py`'s `_run` has no "which profile is this device on" concept to select
+  `REGULATED_EVENT_DEFAULTS` vs. the default map; it currently always uses the default
+  (`log_only`-for-everything) map. Exercised for real against `shield local-run`'s three profiles.
+- [x] A missing, malformed, unknown or evaluator-error decision denies in enforce mode.
+  `resolve()` provides this directly — evaluator error (OPA unreachable) and an out-of-contract
+  `decision`/`reason_code` pair both already tested; an event class not in `event_defaults` now
+  denies rather than silently falling through (new test:
+  `test_unknown_event_class_denies_in_enforce_mode`).
+- [x] Replace the mocked test (`tests/test_policy_engine.py:60-77`, now
+  `test_opa_allow_translates_to_policy_decision`) with real OPA output. Deleted outright: its
+  premise (`action: "allow"` for a no-match result) is something no real Rego rule in this repo
+  can ever produce — `default action := "log_only"`, and no rule ever sets `action := "allow"` —
+  so the mock was testing a shape real OPA cannot return, the exact "mocked test hid a bug" case
+  `core.decision`'s own module docstring names. Real coverage already existed for this scenario
+  (`test_real_opa_unmatched_process_is_log_only`, all three profiles, unchanged). Two other mocked
+  unit tests in the same file needed their mock data updated (not replaced) to include
+  `decision`/`reason_code` so they still exercise the intended scenario post-fix, and 6 more
+  mocked tests across `test_cli.py`/`test_guardrail_hooks.py`/`test_hot_reload.py` needed the same
+  fix or a corrected assertion (they asserted the same impossible `"allow"`/no-op-`"deny"`
+  outcomes) — full list in xibalba-shield's PR. `.venv/bin/python -m pytest`: 454 passed, 12
+  skipped (was 451; net +3 after the one deletion).
 - [ ] Exports carry labels and HMAC-protected paths, never raw `cmdline` or content-bearing arguments.
 - [ ] Separate device-auth and agent keys.
 - [ ] Replace the seven canonical-JSON copies with SDK JCS, re-sign bundles, and bump the schema.
