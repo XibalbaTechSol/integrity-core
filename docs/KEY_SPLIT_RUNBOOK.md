@@ -1,4 +1,4 @@
-# Key-split runbook (§5.4 / MAINNET_READINESS P0-1)
+# Key-split runbook (§5.4 / ADR-0002 archived readiness register P0-1)
 
 ## Development posture (allowed)
 

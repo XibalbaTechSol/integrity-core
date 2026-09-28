@@ -24,7 +24,7 @@ Three repositories, one closed loop:
 
 **Current state (as of 2026-08-20).** This is a strong testnet prototype, not production-ready. For exact implementation status of each v1 requirement, see [docs/SPEC.md](docs/SPEC.md) §13 (Status tags). The testnet Base Sepolia deployment has all identity, reputation, and HIPAA/healthcare primitives live; the gateway middleware is tested locally; the dashboard is integrated against live chain and oracle reads/writes.
 
-**Honest gaps.** All six protocol roles (arbitrator, disputer, funder, governance, oracle, resolver) are currently a single operator EOA — appropriate for a testnet, not for any deployment where trust has economic value. The Base Sepolia ZK verifier holds older placeholder bytecode and does not verify real proofs yet (fixed and tested locally; deployment pending). `SovereignAgent`/`StateAnchor` are per-agent and non-upgradeable, so the upgrade-path strategy must be decided before the first mainnet agent exists. See [PRODUCTION_GAPS.md](PRODUCTION_GAPS.md) for the complete list, and [docs/MAINNET_READINESS.md](docs/MAINNET_READINESS.md) for deployment blockers.
+**Honest gaps.** All six protocol roles (arbitrator, disputer, funder, governance, oracle, resolver) are currently a single operator EOA — appropriate for a testnet, not for any deployment where trust has economic value. The Base Sepolia ZK verifier holds older placeholder bytecode and does not verify real proofs yet (fixed and tested locally; deployment pending). `SovereignAgent`/`StateAnchor` are per-agent and non-upgradeable, so the upgrade-path strategy must be decided before the first mainnet agent exists. See [PRODUCTION_GAPS.md](PRODUCTION_GAPS.md) for the complete list, and [ADR-0002](docs/adr/ADR-0002-mainnet-readiness.md) for the current deployment boundary.
 
 ## Packages and deliverables
 
@@ -152,7 +152,7 @@ Requires `FUNDER_PRIVATE_KEY` (testnet faucet) and `INTEGRITY_WALLET_PASSWORD`. 
 - `IntegrityToken` ($ITK): `0x0E87D408732BeC3d3997d9eCE2E20A6679C35655`
 - `CoveredEntityRegistry` (Integrity Health): `0x3E42C072BA8Ca6EE6E86c8DB011eB4063b8aac07`
 
-**Before mainnet:** read [docs/MAINNET_READINESS.md](docs/MAINNET_READINESS.md) for the consequence-ordered blocker list. The headline items: all six protocol roles are currently one EOA; the Base Sepolia ZK verifier holds placeholder bytecode; `SovereignAgent`/`StateAnchor` are per-agent and non-upgradeable.
+**Before mainnet:** read [ADR-0002](docs/adr/ADR-0002-mainnet-readiness.md) for the current deployment boundary and archived consequence-ordered register. The headline items: all six protocol roles are currently one EOA; the Base Sepolia ZK verifier holds placeholder bytecode; `SovereignAgent`/`StateAnchor` are per-agent and non-upgradeable.
 
 ---
 
@@ -162,7 +162,7 @@ Requires `FUNDER_PRIVATE_KEY` (testnet faucet) and `INTEGRITY_WALLET_PASSWORD`. 
 - **[docs/WHITEPAPER.md](docs/WHITEPAPER.md)** — narrative and architecture
 - **[docs/CONTROLS_MATRIX.md](docs/CONTROLS_MATRIX.md)** — audit controls map (HIPAA, NIST, OWASP, AIUC-1)
 - **[docs/INTERFACE_CONTRACT.md](docs/INTERFACE_CONTRACT.md)** — cross-package schemas, ports, env vars, registration sequence
-- **[docs/MAINNET_READINESS.md](docs/MAINNET_READINESS.md)** — deployment blockers
+- **[docs/adr/ADR-0002-mainnet-readiness.md](docs/adr/ADR-0002-mainnet-readiness.md)** — current deployment boundary
 - **[PRODUCTION_GAPS.md](PRODUCTION_GAPS.md)** — unbuilt requirements and disclosed limitations
 - **[docs/TESTING.md](docs/TESTING.md)** — test pyramid and E2E scope
 - **[docs/archive/](docs/archive/)** — historical specifications and design iterations (not normative)

@@ -461,9 +461,12 @@ paths or sibling Docker copies. Both pass independence CI against the SDK tag.
     Completed 2026-09-28: the four documents are current bounded summaries/decisions and their
     paths are recorded in `docs/DOCUMENT_STATUS.yaml`.
 - **Archive or merge the competing authorities:**
-  - [ ] `PRODUCTION_READINESS_PLAN.md` and `MAINNET_READINESS.md` still require merge/archive
-    decisions; `docs/ARCHIVE_PLAN.md`, `docs/SPEC-v2.0.0-proposed.md`, and
-    `docs/IMPLEMENTATION_PLAN.md` were moved to `docs/archive/2026-09/` on 2026-09-28.
+  - [x] Consolidate `MAINNET_READINESS.md` into a current ADR and archive the detailed register.
+    Completed 2026-09-28: `docs/adr/ADR-0002-mainnet-readiness.md` is the current bounded
+    summary and `docs/archive/2026-09/MAINNET_READINESS.md` preserves the detailed register.
+    `PRODUCTION_READINESS_PLAN.md` remains active pending a separate merge/archive decision;
+    `docs/ARCHIVE_PLAN.md`, `docs/SPEC-v2.0.0-proposed.md`, and `docs/IMPLEMENTATION_PLAN.md`
+    were moved to `docs/archive/2026-09/` on 2026-09-28.
   - [ ] the dated handoffs, reconciliations and audits;
   - [x] `docs/packs/trading/` moved to `docs/archive/2026-09/packs/trading/` on 2026-09-28;
     its loopback adapter remains preserved as test-only historical material.

@@ -157,7 +157,7 @@ or Oracle state is reported as `unknown`, never as ready.
 ## Evidence ledger and blockers
 
 - Documentation-confirmed: README, SPEC, INTERFACE_CONTRACT, and
-  MAINNET_READINESS define roles, registration, signed telemetry, and blockers.
+  ADR-0002 and its archived MAINNET_READINESS register define roles, registration, signed telemetry, and blockers.
 - Source-confirmed: DID persistence, signed Oracle request, collection/queue,
   Cortex SQLite/OTLP, Shield device/decision schemas, and dashboard projection.
 - Test-confirmed: SDK envelope redaction/hash/local idempotency plus existing

@@ -1,6 +1,6 @@
 # Signer-role custody rotation (2026-08) — setup guide
 
-Addresses `docs/MAINNET_READINESS.md` P0 #1: `funderWallet`/`governance`/`oracleSigner`/
+Addresses ADR-0002's archived P0 #1: `funderWallet`/`governance`/`oracleSigner`/
 `arbitrator`/`disputer` mostly collapsing to 1-2 EOAs the operator personally holds. Target:
 `governance`/`arbitrator` behind a 2-of-3 Gnosis Safe; `oracleSigner`/`disputer`/`funderWallet`
 each a distinct EOA. `resolverSigner` needs no action today — see the note at the bottom.

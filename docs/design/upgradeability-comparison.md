@@ -20,7 +20,7 @@ upgrade doesn't force every agent to move at once.
 
 ## What each can actually fix
 
-Change classes drawn from real items in `MAINNET_READINESS.md` and the current contracts,
+Change classes drawn from real items in the archived `MAINNET_READINESS.md` register and the current contracts,
 not hypotheticals:
 
 | Change needed | A. Beacon | B. Indirection | Notes |

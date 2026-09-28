@@ -98,7 +98,7 @@ Status: **built in one vertical, not yet generalized.** `SmartBAA` is already a 
 instrument (principal = covered entity, agent = business associate, `sign()`, `revoke()`,
 dispute/arbitration, posted collateral). Generalizing it is what turns
 `covered_entity_address` from a client claim into a resolution — see
-[`MAINNET_READINESS.md`](../../MAINNET_READINESS.md) item 8.
+[`ADR-0002-mainnet-readiness.md`](../../adr/ADR-0002-mainnet-readiness.md) item 8.
 
 Formal invariants A1–A5: [`thesis-extensions-formal.md`](../../archive/2026-08/thesis-extensions-formal.md).
 
