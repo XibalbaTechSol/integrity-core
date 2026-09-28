@@ -1,5 +1,12 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-09-28] handoff | A6 complete, Gate A next
+
+- Added `docs/HANDOFF_GATE_A_2026-09-28.md` with the merged A6 outcome, open Gate A checklist,
+  validation commands, evidence boundaries, and live-Checkout safety constraints.
+- The handoff records 78/201 plan progress and does not promote source or local-test evidence to
+  live-service, public-chain, or production proof.
+
 ## [2026-09-28] sdk | started A6 local SaaS seams
 
 - Added the dependency-light `integrity_sdk.core.tenancy` reference registry for explicit
