@@ -286,22 +286,30 @@ review:
 
 ## A1. Clear the ground (M)
 
-- [ ] Snapshot the source and write a cut-path manifest. Mirror both to integrity-lab.
+- [x] Snapshot the source and write a cut-path manifest. Mirror both to integrity-lab. Snapshot:
+  `main` @ `761e019`; 91 files with history + manifest in integrity-lab#1 (open for merge).
 - [ ] **Split integrity-console** (about 21.8k lines: dashboard 18.1k, demo 1.6k, userapi 2.1k):
-  - [ ] `git filter-repo` the dashboard, userapi and demo;
-  - [ ] carry over or explicitly drop the unmerged `feat/cortex-operations-dashboard` branch;
+  import in integrity-console#1 (open for merge).
+  - [x] `git filter-repo` the dashboard, userapi and demo (191 commits, history kept);
+  - [x] carry over or explicitly drop the unmerged `feat/cortex-operations-dashboard` branch (carried
+    over, with `park/policy-packs-2026-09-26`);
   - [ ] remove pages for cut features.
 - **Move to integrity-lab:**
-  - [ ] `integrity-zkp`, `UltraPlonkVerifier`, the SDK prover;
-  - [ ] SDK `markets.py`, `mcp_server.py`, root `integrity.py`, the duplicate root `opa_client.py`,
-    `auto_hook`;
-  - [ ] contracts `markets/`, `licence/`, `registry/`, `CCIPReputationBridge`, `IntegrityGovernance`, and
-    their scripts and tests;
-  - [ ] oracle routes `/v1/markets*`, `/v1/governance/proposals`, `/v1/agent/{id}/stake`.
+  - [x] `integrity-zkp`, `UltraPlonkVerifier`, the SDK prover (and the oracle's bb verifier);
+  - [x] SDK `markets.py`, `mcp_server.py`, root `integrity.py`, the duplicate root `opa_client.py`,
+    `auto_hook`. The `integrity.auto()` facade (`integrity_sdk/integrity.py`) is kept: it is the README
+    quickstart (Appendix A row 14);
+  - [x] contracts `markets/`, `licence/`, `registry/`, `CCIPReputationBridge`, `IntegrityGovernance`, and
+    their scripts and tests (XNS kept: `DeployXns.s.sol` replaces `DeployXnsGovernance.s.sol`);
+  - [x] oracle routes `/v1/markets*`, `/v1/governance/proposals`, `/v1/agent/{id}/stake` (also `credit`,
+    `contracts`, `/v1/stats`, which served only cut contracts; recorded in `spec/ais-api/CHANGELOG.md`
+    as an exception to v1's additive-only policy).
 - **Keep until Phase C (constraint):** `SovereignAgent`, the PrimitiveSet templates, `registerCore`,
   `IntegrityToken`, `IZkVerifier`, `VerifierRegistry` and `submitZkAttestation`. Live agents depend
   on them.
-- [ ] **Checks:** pre-cut test run, secret scan, post-cut manifest comparison.
+- [x] **Checks:** pre-cut test run, secret scan, post-cut manifest comparison. Each stage re-ran its
+  suites (forge 335, SDK 437 on Anvil, CLI 70, oracle 146+22); gitleaks on every push and on the
+  full lab/console histories; the lab manifest is derived from `git diff --diff-filter=D`.
 
 ## A3. Independent Shield and Cortex (M each)
 
@@ -694,3 +702,5 @@ Findings from reviewing `main` before execution, and how this draft resolves eac
 | 11 | Toolchain missing in cloud sessions; solc host blocked | A0 |
 | 12 | The planned rename to integrity-kernel had no technical driver and would collide with the `IntegrityKernel` contract name | Owner decision 2026-09-28: keep integrity-core; rename, its checkpoint and interim naming rule removed |
 | 13 | The plan said RFC 9162 Merkle proofs, but the repo already standardizes on OpenZeppelin semantics (`merkle-standardization.md`, `spec/vault-merkle`, `StateAnchor.verifyLeaf`) | A2 uses the existing convention; a second scheme would be a duplicate authority |
+| 14 | "Root `integrity.py`" was ambiguous; `integrity_sdk/integrity.py` is the SDK's documented quickstart (`integrity.auto()`) | Kept as the Access entry point; the other listed SDK modules were cut |
+| 15 | The oracle carried its own bb-backed ZK verifier and extra market-only routes (`credit`, `contracts`, `/v1/stats`) | Cut with ZK and markets; telemetry `zk_proof` is accepted but never verified |
