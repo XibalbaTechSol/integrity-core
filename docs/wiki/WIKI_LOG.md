@@ -16,6 +16,15 @@
 - Added `docs/adr/ADR-0001-six-function-test.md`; recorded all three documents in
   `docs/DOCUMENT_STATUS.yaml` and linked them from the repository implementation-plan page.
 
+## [2026-09-28] archive | removed two non-authoritative planning files from the active set
+
+- Moved `docs/ARCHIVE_PLAN.md` to `docs/archive/2026-09/ARCHIVE_PLAN.md`; its cutover rules are
+  preserved as history now that the approved execution plan governs the work.
+- Moved `docs/SPEC-v2.0.0-proposed.md` to `docs/archive/2026-09/SPEC-v2.0.0-proposed.md`; the
+  proposal remains preserved and explicitly non-authoritative while `docs/SPEC.md` remains the
+  normative specification.
+- Updated source comments, authority metadata, and the execution plan to point at the archive.
+
 ## [2026-09-28] integrate | A3 Shield and Cortex migrations merged
 
 - Merged xibalba-shield#39: labeled/HMAC-protected Hermes exports, separate device-auth keys,

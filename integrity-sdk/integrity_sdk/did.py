@@ -529,7 +529,7 @@ class IdentityInconsistentError(RuntimeError):
     Raised instead of silently regenerating a keypair. A prior version of this function treated
     a missing or mismatched `document.json` as license to call `Keypair.generate()` and
     overwrite `private_key.pem` -- which destroys the original signing key and mints a new DID,
-    with no way back. Per SPEC-v2.0.0-proposed.md §4.3: "Missing or inconsistent key state MUST
+    with no way back. Per docs/archive/2026-09/SPEC-v2.0.0-proposed.md §4.3: "Missing or inconsistent key state MUST
     fail closed. Ordinary startup MUST NOT generate a replacement key." A registered on-chain
     identity that loses its key this way cannot be recovered by regenerating one -- the new key
     derives a different DID that the chain has never heard of.

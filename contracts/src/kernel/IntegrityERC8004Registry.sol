@@ -104,7 +104,7 @@ contract IntegrityERC8004Registry is ERC721URIStorage, AccessControl {
 
     /// @notice Returns false. This contract is soulbound and therefore cannot satisfy the
     /// pinned ERC-8004 revision's transferability requirement -- see the header comment above
-    /// for the exact clause this fails. Per SPEC-v2.0.0-proposed.md §5.1, a source-level claim
+/// for the exact clause this fails. Per docs/archive/2026-09/SPEC-v2.0.0-proposed.md §5.1, a source-level claim
     /// here MUST NOT be used as independent evidence of conformance either way; this returns
     /// the honest, disprovable-if-wrong answer rather than an aspirational one.
     /// @dev IntegrityIdentityReadV1 also returns false, for a different reason (deliberately
