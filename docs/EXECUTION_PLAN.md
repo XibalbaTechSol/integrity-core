@@ -4,6 +4,10 @@
 execution-plan authority in `docs/DOCUMENT_STATUS.yaml` and archives the plans it supersedes.
 **Scope:** integrity-core, xibalba-shield, xibalba-cortex, and two
 new repositories: integrity-console and integrity-lab.
+**Tracking:** work items are GitHub task-list checkboxes. Tick an item (`- [x]`) in the same commit
+that completes it, and name the commit. A gate item is ticked only when its check has actually run
+and passed. `python3 scripts/plan_progress.py` counts progress per section from the checkboxes, so
+there is no hand-maintained total to drift.
 **Grounded against:** `main` @ `d22128b` (2026-09-28), plus the repository review recorded in
 [Appendix A](#appendix-a-pre-execution-review-2026-09-28).
 
@@ -198,70 +202,78 @@ review:
 | `DeployXnsGovernance.s.sol` couples XNS with governance | The script is split before governance is cut |
 
 **Owner checkpoints:**
-1. Create integrity-lab and integrity-console. Push access to Shield and Cortex already exists.
-2. Approve any testnet broadcast (evidence anchor, genesis). Each is preceded by an Anvil dry run of
+1. [ ] Create integrity-lab and integrity-console. Push access to Shield and Cortex already exists.
+2. [ ] Approve any testnet broadcast (evidence anchor, genesis). Each is preceded by an Anvil dry run of
    the identical script.
+
+## Pre-execution
+
+- [x] Review `main` before execution; findings in [Appendix A](#appendix-a-pre-execution-review-2026-09-28).
+- [x] Keep agent private keys outside the harness root (`ad56d97`).
+- [x] Write this final draft (`8cf35bd`).
+- [x] Keep the name integrity-core; drop the rename (`5361cf7`).
+- [ ] Owner approves this plan.
 
 # Phase A: architectural and documentation simplicity
 
 ## A0. Preconditions (S)
 
-- **Toolchain:** install the pinned versions from `INTERFACE_CONTRACT.md` (forge/anvil 1.7.1, opa
+- [ ] **Toolchain:** install the pinned versions from `INTERFACE_CONTRACT.md` (forge/anvil 1.7.1, opa
   1.18.2, cargo 1.96, node 22, uv). In cloud sessions `binaries.soliditylang.org` is blocked, so solc
   0.8.28 comes from the GitHub release. Gate A cannot pass without forge, Halmos and OPA.
-- **Jules:** pause `close-conflicting-jules-prs.yml` for Phase A; auto-merge is already disabled.
-- **Hygiene:** all three repositories are public. Mirrors and splits are made from a clean clone,
+- [ ] **Jules:** pause `close-conflicting-jules-prs.yml` for Phase A; auto-merge is already disabled.
+- [ ] **Hygiene:** all three repositories are public. Mirrors and splits are made from a clean clone,
   never from a workstation that holds `contracts/.env` or the prover `secret_key`. A secret scan runs
   before every push.
-- **Sibling repositories:** Shield and Cortex work branches from their latest `main`; no concurrent
+- [ ] **Sibling repositories:** Shield and Cortex work branches from their latest `main`; no concurrent
   sessions run on them.
 
 ## A4. Minimal kernel patch (S)
 
-- Remove the adapter-registry branch (constructor parameters, `registryHook`/`registryAdapter`
+- [ ] Remove the adapter-registry branch (constructor parameters, `registryHook`/`registryAdapter`
   immutables, the gas-bounded call).
-- Add a `requireAssuranceTier` flag, so a disabled tier no longer reverts `AssuranceTierNotMet`.
-- Set `evm_version = "cancun"`.
-- Update the kernel deploy scripts and tests.
-- Record the Base Sepolia `experimentalPhase1Reference` kernel as legacy; it is not redeployed.
-- No kernel rewrite and no on-chain policy compiler.
+- [ ] Add a `requireAssuranceTier` flag, so a disabled tier no longer reverts `AssuranceTierNotMet`.
+- [ ] Set `evm_version = "cancun"`.
+- [ ] Update the kernel deploy scripts and tests.
+- [ ] Record the Base Sepolia `experimentalPhase1Reference` kernel as legacy; it is not redeployed.
+- Constraint: no kernel rewrite and no on-chain policy compiler.
 
 ## A2. SDK core: C1–C7 (M)
 
 - **Core, tagged `integrity-sdk-v0.x` and dependency-light:**
-  - JCS;
-  - DID and DID-file support (the layout from `ad56d97`);
-  - RFC 9162-style Merkle inclusion proofs;
-  - receipts (create, sign, chain, checkpoint, verify locally);
-  - pack schema, compile, sign and verify, with the decision contract;
-  - hook normalization, the memory-provider interface, the OPA client, agent identity over HTTP.
+  - [ ] JCS;
+  - [x] DID and DID-file support (the layout from `ad56d97`);
+  - [ ] RFC 9162-style Merkle inclusion proofs;
+  - [ ] receipts (create, sign, chain, checkpoint, verify locally);
+  - [ ] pack schema, compile, sign and verify, with the decision contract;
+  - [ ] hook normalization, the memory-provider interface, the OPA client, agent identity over HTTP.
 - **Loading:**
-  - lazy (PEP 562) package initialization;
-  - import-hygiene tests: importing the core must not load `requests`, `web3`, `eth_account`,
+  - [ ] lazy (PEP 562) package initialization;
+  - [ ] import-hygiene tests: importing the core must not load `requests`, `web3`, `eth_account`,
     OpenTelemetry or MLflow.
-- **`[connector]` extra:** chain, registration, account, telemetry, hook runner, clients.
+- [ ] **`[connector]` extra:** chain, registration, account, telemetry, hook runner, clients.
 - **Before A1:**
-  - move `_execute_via_agent` out of `markets.py`;
-  - move the MCP helpers still used elsewhere out of `mcp_server.py`.
+  - [ ] move `_execute_via_agent` out of `markets.py`;
+  - [ ] move the MCP helpers still used elsewhere out of `mcp_server.py`.
 
 ## A1. Clear the ground (M)
 
-- Snapshot the source and write a cut-path manifest. Mirror both to integrity-lab.
-- **Split integrity-console** (about 21.8k lines: dashboard 18.1k, demo 1.6k, userapi 2.1k):
-  - `git filter-repo` the dashboard, userapi and demo;
-  - carry over or explicitly drop the unmerged `feat/cortex-operations-dashboard` branch;
-  - remove pages for cut features.
+- [ ] Snapshot the source and write a cut-path manifest. Mirror both to integrity-lab.
+- [ ] **Split integrity-console** (about 21.8k lines: dashboard 18.1k, demo 1.6k, userapi 2.1k):
+  - [ ] `git filter-repo` the dashboard, userapi and demo;
+  - [ ] carry over or explicitly drop the unmerged `feat/cortex-operations-dashboard` branch;
+  - [ ] remove pages for cut features.
 - **Move to integrity-lab:**
-  - `integrity-zkp`, `UltraPlonkVerifier`, the SDK prover;
-  - SDK `markets.py`, `mcp_server.py`, root `integrity.py`, the duplicate root `opa_client.py`,
+  - [ ] `integrity-zkp`, `UltraPlonkVerifier`, the SDK prover;
+  - [ ] SDK `markets.py`, `mcp_server.py`, root `integrity.py`, the duplicate root `opa_client.py`,
     `auto_hook`;
-  - contracts `markets/`, `licence/`, `registry/`, `CCIPReputationBridge`, `IntegrityGovernance`, and
+  - [ ] contracts `markets/`, `licence/`, `registry/`, `CCIPReputationBridge`, `IntegrityGovernance`, and
     their scripts and tests;
-  - oracle routes `/v1/markets*`, `/v1/governance/proposals`, `/v1/agent/{id}/stake`.
-- **Keep until Phase C:** `SovereignAgent`, the PrimitiveSet templates, `registerCore`,
+  - [ ] oracle routes `/v1/markets*`, `/v1/governance/proposals`, `/v1/agent/{id}/stake`.
+- **Keep until Phase C (constraint):** `SovereignAgent`, the PrimitiveSet templates, `registerCore`,
   `IntegrityToken`, `IZkVerifier`, `VerifierRegistry` and `submitZkAttestation`. Live agents depend
   on them.
-- **Checks:** pre-cut test run, secret scan, post-cut manifest comparison.
+- [ ] **Checks:** pre-cut test run, secret scan, post-cut manifest comparison.
 
 ## A3. Independent Shield and Cortex (M each)
 
@@ -269,81 +281,81 @@ Both depend on SDK core only and use lazy connector imports. Neither has hard-co
 paths or sibling Docker copies. Both pass independence CI against the SDK tag.
 
 **Shield:**
-- Policy bundles become signed packs covering the Rego; the enforced pack hash equals the signed
+- [ ] Policy bundles become signed packs covering the Rego; the enforced pack hash equals the signed
   pack hash.
-- `permit` means permitted. No-match takes the pack's per-class default: `hipaa` agent tool calls
+- [ ] `permit` means permitted. No-match takes the pack's per-class default: `hipaa` agent tool calls
   deny; device sensor events are `log_only`.
-- A missing, malformed, unknown or evaluator-error decision denies in enforce mode.
-- Replace the mocked test (`tests/test_policy_engine.py:60-77`) with real OPA output.
-- Exports carry labels and HMAC-protected paths, never raw `cmdline` or content-bearing arguments.
-- Separate device-auth and agent keys.
-- Replace the seven canonical-JSON copies with SDK JCS, re-sign bundles, and bump the schema.
-- Keep `mlflow` optional.
-- Read the agent identity from the DID file, not `.integrity/identity.json`.
+- [ ] A missing, malformed, unknown or evaluator-error decision denies in enforce mode.
+- [ ] Replace the mocked test (`tests/test_policy_engine.py:60-77`) with real OPA output.
+- [ ] Exports carry labels and HMAC-protected paths, never raw `cmdline` or content-bearing arguments.
+- [ ] Separate device-auth and agent keys.
+- [ ] Replace the seven canonical-JSON copies with SDK JCS, re-sign bundles, and bump the schema.
+- [ ] Keep `mlflow` optional.
+- [ ] Read the agent identity from the DID file, not `.integrity/identity.json`.
 
 **Cortex:**
-- Authenticate the OTLP receiver.
-- Register the `provider_telemetry_export` Merkle domain.
-- Use SDK JCS.
-- Bind create events to `content_hash`.
-- Resolve agents from the DID file; `XIBALBA_AGENT_ID` becomes an explicit override only.
+- [ ] Authenticate the OTLP receiver.
+- [ ] Register the `provider_telemetry_export` Merkle domain.
+- [ ] Use SDK JCS.
+- [ ] Bind create events to `content_hash`.
+- [ ] Resolve agents from the DID file; `XIBALBA_AGENT_ID` becomes an explicit override only.
 
 ## A5. Consolidate plans and documentation (M)
 
 - **Authorities:**
-  - make this plan the execution authority in `DOCUMENT_STATUS.yaml`;
-  - merge root `AGENTS.md` with `.agents/AGENTS.md` into one file (`CLAUDE.md` = `@AGENTS.md`);
-  - create `STATUS.md` (≤150 lines), `ECOSYSTEM.md`, `DATA.md` and ADR-0001 (the six-function test).
+  - [ ] make this plan the execution authority in `DOCUMENT_STATUS.yaml`;
+  - [ ] merge root `AGENTS.md` with `.agents/AGENTS.md` into one file (`CLAUDE.md` = `@AGENTS.md`);
+  - [ ] create `STATUS.md` (≤150 lines), `ECOSYSTEM.md`, `DATA.md` and ADR-0001 (the six-function test).
 - **Archive or merge the competing authorities:**
-  - `docs/IMPLEMENTATION_PLAN.md`, `PRODUCTION_READINESS_PLAN.md`, `ARCHIVE_PLAN.md`,
+  - [ ] `docs/IMPLEMENTATION_PLAN.md`, `PRODUCTION_READINESS_PLAN.md`, `ARCHIVE_PLAN.md`,
     `SPEC-v2.0.0-proposed.md`, `MAINNET_READINESS.md`;
-  - the dated handoffs, reconciliations and audits;
-  - `docs/packs/trading/`;
-  - the `park/policy-packs-2026-09-26` branch. It stores packs in userapi Postgres, a second pack
+  - [ ] the dated handoffs, reconciliations and audits;
+  - [ ] `docs/packs/trading/`;
+  - [ ] the `park/policy-packs-2026-09-26` branch. It stores packs in userapi Postgres, a second pack
     authority; only its UI is reused, as the B0 promotion view.
-- **Inventory:** classify every Markdown file (188 files, about 45k lines) as authoritative,
+- [ ] **Inventory:** classify every Markdown file (188 files, about 45k lines) as authoritative,
   merge-required, historical or removable. `PRODUCTION_GAPS.md` entries that are still open move to
   `STATUS.md` or an ADR.
 - **CI:**
-  - link, path, duplicate-claim and authority checks, plus the `STATUS.md` cap;
-  - `sync-wiki.yml` follows the consolidated set;
-  - fix the two pages failing `wiki_toc.py --check` on `main` (`local-metrology.md`,
+  - [ ] link, path, duplicate-claim and authority checks, plus the `STATUS.md` cap;
+  - [ ] `sync-wiki.yml` follows the consolidated set;
+  - [ ] fix the two pages failing `wiki_toc.py --check` on `main` (`local-metrology.md`,
     `integrity-oracle.md`).
-- No new hand-maintained registers.
+- Constraint: no new hand-maintained registers.
 
 ## A6. Stable SaaS seams (M)
 
 SDK/API contracts plus local reference implementations (no billing code) for:
-- tenant and organization identity;
-- agent and device registration;
-- signed pack distribution and version pinning;
-- receipt submission and local queueing;
-- offline verification;
-- Cortex provider and store identity;
-- entitlements and capability checks;
-- redacted usage and audit metrics.
+- [ ] tenant and organization identity;
+- [ ] agent and device registration;
+- [ ] signed pack distribution and version pinning;
+- [ ] receipt submission and local queueing;
+- [ ] offline verification;
+- [ ] Cortex provider and store identity;
+- [ ] entitlements and capability checks;
+- [ ] redacted usage and audit metrics.
 
 A customer can run locally and later move to hosted or anchored services with no change in policy
 semantics or receipt meaning.
 
 ## Gate A
 
-- **Builds:** relevant suites, import hygiene, Shield/Cortex independence CI and the console build
+- [ ] **Builds:** relevant suites, import hygiene, Shield/Cortex independence CI and the console build
   are green. The cut-path manifest is in integrity-lab. One SDK JCS implementation is used across
   active repositories.
 - **Shield:**
-  - the signed pack hash equals the enforced hash;
-  - tampered, malformed, stale or incompatible packs refuse to load;
-  - no-match follows the per-class default;
-  - malformed, unknown or evaluator-error decisions deny;
-  - exports contain no raw command content;
-  - the device key differs from the agent key.
-- **Cortex:** unauthenticated OTLP is rejected; provenance export works; create events bind
+  - [ ] the signed pack hash equals the enforced hash;
+  - [ ] tampered, malformed, stale or incompatible packs refuse to load;
+  - [ ] no-match follows the per-class default;
+  - [ ] malformed, unknown or evaluator-error decisions deny;
+  - [ ] exports contain no raw command content;
+  - [ ] the device key differs from the agent key.
+- [ ] **Cortex:** unauthenticated OTLP is rejected; provenance export works; create events bind
   `content_hash`.
-- **Kernel:** it no longer imports `registry/`; the tier-off test and Halmos pass.
-- **Receipts:** a receipt can be created, signed and verified locally, unanchored.
-- **Identity:** no private key exists under any harness root in any test or pilot fixture.
-- **Docs:** every active normative document has an identified authority; superseded material is in
+- [ ] **Kernel:** it no longer imports `registry/`; the tier-off test and Halmos pass.
+- [ ] **Receipts:** a receipt can be created, signed and verified locally, unanchored.
+- [ ] **Identity:** no private key exists under any harness root in any test or pilot fixture.
+- [ ] **Docs:** every active normative document has an identified authority; superseded material is in
   integrity-lab; no active repository holds a competing plan or architecture register.
 
 # Phase B: sellable Shield and Cortex SaaS
@@ -358,28 +370,28 @@ until Gate C.
 policy is configuration only. HA and Postgres are deferred.
 
 **Shared requirements:**
-- tenant-scoped agents, devices, packs, receipts, memory stores, exports and audit logs;
-- organization-admin and operator roles;
-- device enrollment and revocation;
-- entitlements (no billing);
-- configurable retention;
-- local-first pilot mode with hosted-compatible APIs;
-- usage and audit summaries;
-- backup, restore, tenant deletion and export.
+- [ ] tenant-scoped agents, devices, packs, receipts, memory stores, exports and audit logs;
+- [ ] organization-admin and operator roles;
+- [ ] device enrollment and revocation;
+- [ ] entitlements (no billing);
+- [ ] configurable retention;
+- [ ] local-first pilot mode with hosted-compatible APIs;
+- [ ] usage and audit summaries;
+- [ ] backup, restore, tenant deletion and export.
 
 **Shield slice:**
-- signed pack promotion and rollback (the console view reuses the parked policy-packs UI);
-- device health and key status;
-- on-device enforcement with local BCC fallback, and fail-closed regulated mode when both are down;
-- receipt queue and verification status;
-- shadow/enforce modes and signed break-glass.
+- [ ] signed pack promotion and rollback (the console view reuses the parked policy-packs UI);
+- [ ] device health and key status;
+- [ ] on-device enforcement with local BCC fallback, and fail-closed regulated mode when both are down;
+- [ ] receipt queue and verification status;
+- [ ] shadow/enforce modes and signed break-glass.
 
 **Cortex slice:**
-- tenant-scoped providers and stores;
-- agent-scoped content and provenance views;
-- retention, purge, export and provider health;
-- authenticated ingestion and retrieval;
-- spot-check API and proof status.
+- [ ] tenant-scoped providers and stores;
+- [ ] agent-scoped content and provenance views;
+- [ ] retention, purge, export and provider health;
+- [ ] authenticated ingestion and retrieval;
+- [ ] spot-check API and proof status.
 
 **Monetization:** pilots are sellable without billing code.
 - **Shield:** enforcement, devices, evidence retention and exports.
@@ -388,69 +400,69 @@ policy is configuration only. HA and Postgres are deferred.
 
 ## B1. Packs, adapters and the conformance kit (M)
 
-- `packs/base` and `packs/hipaa` each contain `pack.yaml` (with per-class defaults), `policy.rego`
+- [ ] `packs/base` and `packs/hipaa` each contain `pack.yaml` (with per-class defaults), `policy.rego`
   and `controls.yaml`, seeded from `CONTROLS_MATRIX.md`:
-  - HIPAA §164.312(a)(1)/(b) and §164.502(b);
-  - SOC 2 CC6.1/CC7.2;
-  - ISO 42001.
-- The compiler rejects policy relaxation.
-- `baa.py` is deterministic.
-- The adapter contract and conformance kit ship with a sample third-party adapter.
-- BAA conditions are operational controls; the evidence does not certify legal compliance.
+  - [ ] HIPAA §164.312(a)(1)/(b) and §164.502(b);
+  - [ ] SOC 2 CC6.1/CC7.2;
+  - [ ] ISO 42001.
+- [ ] The compiler rejects policy relaxation.
+- [ ] `baa.py` is deterministic.
+- [ ] The adapter contract and conformance kit ship with a sample third-party adapter.
+- [ ] BAA conditions are operational controls; the evidence does not certify legal compliance.
 
 ## B2. Gates emit receipts (M)
 
-- BCC and Shield evaluate the same compiled pack and pass shared conformance vectors in CI.
-- Both support atomic loads, fail-closed reason codes, shadow/enforce modes, and signed chained
+- [ ] BCC and Shield evaluate the same compiled pack and pass shared conformance vectors in CI.
+- [ ] Both support atomic loads, fail-closed reason codes, shadow/enforce modes, and signed chained
   receipts with checkpoints.
-- Shield's local gate daemon exposes a Unix socket for PreToolUse.
+- [ ] Shield's local gate daemon exposes a Unix socket for PreToolUse.
 
 ## B3. Claude Code hooks (S)
 
 `integrity hooks install --harness claude-code --gate shield|bcc --memory cortex` does three things:
-- writes the DID file into the harness root and the key outside it;
-- writes marker-tagged hooks;
-- is idempotent, and uninstall is exact.
+- [ ] writes the DID file into the harness root and the key outside it;
+- [ ] writes marker-tagged hooks;
+- [ ] is idempotent, and uninstall is exact.
 
 ## B4. Verifiable evidence (M)
 
-- A dedicated protocol evidence instance of `StateAnchor` (same code, separate from each agent's
+- [ ] A dedicated protocol evidence instance of `StateAnchor` (same code, separate from each agent's
   memory `StateAnchor`).
-- `anchor_batch_per_agent` stops writing receipt roots into agent anchors, whose `latestRoot` is the
+- [ ] `anchor_batch_per_agent` stops writing receipt roots into agent anchors, whose `latestRoot` is the
   memory root that registration checks.
-- Local Anvil in Phase B. Queued receipts anchor after recovery.
-- `integrity verify` checks signature, chain position, inclusion and anchor.
-- Testnet deployment needs owner approval.
+- [ ] Local Anvil in Phase B. Queued receipts anchor after recovery.
+- [ ] `integrity verify` checks signature, chain position, inclusion and anchor.
+- [ ] Testnet deployment needs owner approval.
 
 ## B5. Telemetry policy (S)
 
-- `regulated` is the default with `hipaa`: no content leaves the boundary; signals are derived at the
+- [ ] `regulated` is the default with `hipaa`: no content leaves the boundary; signals are derived at the
   edge and marked self-reported.
-- The receiver strips `user.email` and other prohibited identity fields.
-- Negative tests cover:
-  - prompts, tool arguments, file contents;
-  - environment variables, stdout/stderr;
-  - URLs and query strings, filenames, repository names;
-  - exception messages and stack traces.
+- [ ] The receiver strips `user.email` and other prohibited identity fields.
+- [ ] Negative tests cover:
+  - [ ] prompts, tool arguments, file contents;
+  - [ ] environment variables, stdout/stderr;
+  - [ ] URLs and query strings, filenames, repository names;
+  - [ ] exception messages and stack traces.
 
 ## B6. Pilot packaging (M)
 
 A reproducible pilot with:
-- one organization admin, and at least two tenant-scoped agents and devices;
-- policy promotion and rollback;
-- Cortex store creation, retention, purge and export;
-- a local receipt queue with verification;
-- operator-visible health;
-- synthetic-data reset and tenant teardown.
+- [ ] one organization admin, and at least two tenant-scoped agents and devices;
+- [ ] policy promotion and rollback;
+- [ ] Cortex store creation, retention, purge and export;
+- [ ] a local receipt queue with verification;
+- [ ] operator-visible health;
+- [ ] synthetic-data reset and tenant teardown.
 
 The pilot demonstrates that Shield and Cortex stay useful when the anchor, the oracle and vendors are
 down.
 
 ## B7. Revenue-facing exports (M)
 
-- A Vanta private integration linking per-control tests to receipts.
-- OCSF 6003 and JSONL exports.
-- Local acceptance uses Vanta fixtures.
+- [ ] A Vanta private integration linking per-control tests to receipts.
+- [ ] OCSF 6003 and JSONL exports.
+- [ ] Local acceptance uses Vanta fixtures.
 
 ## Gate B-local
 
@@ -459,30 +471,34 @@ synthetic regulated data and Claude Code hooks.
 
 **Required:**
 - **Enforcement:**
-  - a PreToolUse without an active BAA is denied on-device by `hipaa`, and the receipt cites the
+  - [ ] a PreToolUse without an active BAA is denied on-device by `hipaa`, and the receipt cites the
     control and pack hash;
-  - shadow mode records without enforcing.
+  - [ ] shadow mode records without enforcing.
 - **Evidence:**
-  - receipts anchor locally, and offline verify passes;
-  - tampered, wrong-key, wrong-proof and truncated-tail receipts fail;
-  - queued receipts anchor after recovery.
-- **Data boundary:** a traffic audit shows no content leaving the boundary.
+  - [ ] receipts anchor locally, and offline verify passes;
+  - [ ] tampered, wrong-key, wrong-proof and truncated-tail receipts fail;
+  - [ ] queued receipts anchor after recovery.
+- [ ] **Data boundary:** a traffic audit shows no content leaving the boundary.
 - **Packs:**
-  - golden hashes pass, and every rule cites a control;
-  - the sample adapter passes the conformance kit.
-- **Exports:** Vanta fixture tests pass.
+  - [ ] golden hashes pass, and every rule cites a control;
+  - [ ] the sample adapter passes the conformance kit.
+- [ ] **Exports:** Vanta fixture tests pass.
 - **Tenancy and devices:**
-  - two tenants cannot read or alter each other's data;
-  - revoked devices get no new packs and their receipts are rejected, while they still fail closed
+  - [ ] two tenants cannot read or alter each other's data;
+  - [ ] revoked devices get no new packs and their receipts are rejected, while they still fail closed
     locally.
-- **Resilience:** Shield and Cortex stay operational when the anchor and oracle are down.
-- **Retention:** purge removes content and keeps only permitted non-content evidence.
-- **Entitlements:** enforced without billing.
+- [ ] **Resilience:** Shield and Cortex stay operational when the anchor and oracle are down.
+- [ ] **Retention:** purge removes content and keeps only permitted non-content evidence.
+- [ ] **Entitlements:** enforced without billing.
 
 ## Gate B-integrations (optional)
 
-Base Sepolia evidence anchor, a Vanta sandbox run, and external oracle/BCC connectivity. Each result
-is classified as verified, unverified or blocked. None of these invalidates Gate B-local.
+Each result is recorded as verified, unverified or blocked; tick an item once it has a recorded
+result. None of these invalidates Gate B-local.
+
+- [ ] Base Sepolia evidence anchor (owner-approved broadcast).
+- [ ] Vanta sandbox run.
+- [ ] External oracle/BCC connectivity.
 
 # Phase C: production-grade Integrity trust
 
@@ -490,83 +506,83 @@ Phase C follows the first pilots and does not block synthetic-data sales.
 
 ## C1. Kernel mediation (L)
 
-- Disable ERC-1271. If analysis keeps it, it must not validate Permit/Permit2 typed data, and any
+- [ ] Disable ERC-1271. If analysis keeps it, it must not validate Permit/Permit2 typed data, and any
   signed approval counts as outflow.
-- EntryPoint is deposit-only; `withdrawTo` is blocked.
-- Approvals count as outflow.
-- The rescue sweep stays only as a documented, bounded exception.
-- Proofs: kernel M1 test, sequence invariant, ERC-7579 conformance, `mediation_audit.py`.
+- [ ] EntryPoint is deposit-only; `withdrawTo` is blocked.
+- [ ] Approvals count as outflow.
+- [ ] The rescue sweep stays only as a documented, bounded exception.
+- [ ] Proofs: kernel M1 test, sequence invariant, ERC-7579 conformance, `mediation_audit.py`.
 
 ## C2. Accounts and registration (M)
 
 Accounts deploy via standard CREATE2 from the canonical `IntegrityAccount`.
 
 **Registrar verification, off-chain:**
-- runtime bytecode is compared with the artifact, with immutables masked via
+- [ ] runtime bytecode is compared with the artifact, with immutables masked via
   `immutableReferences`;
-- immutable values are checked through getters;
-- the kernel binding and `packHash` are checked the same way;
-- re-verification runs on every `KernelSwapped` event;
-- BCC and Shield trust a `packHash` only after verification.
+- [ ] immutable values are checked through getters;
+- [ ] the kernel binding and `packHash` are checked the same way;
+- [ ] re-verification runs on every `KernelSwapped` event;
+- [ ] BCC and Shield trust a `packHash` only after verification.
 
 **Registration:**
-1. The account calls the registrar.
-2. The registrar verifies an Ed25519 attestation over the account, chain ID, DID, guardian, pack hash,
+1. [ ] The account calls the registrar.
+2. [ ] The registrar verifies an Ed25519 attestation over the account, chain ID, DID, guardian, pack hash,
    memory provider and XNS handle.
-3. The registrar verifies canonical bytecode and the kernel binding.
-4. A conforming memory provider completes genesis.
-5. The registry records the account, DID, provider and handle.
+3. [ ] The registrar verifies canonical bytecode and the kernel binding.
+4. [ ] A conforming memory provider completes genesis.
+5. [ ] The registry records the account, DID, provider and handle.
 
 Registration rejects forged or replayed attestations, non-canonical accounts, mismatched guardians,
 and roots with no provider behind them.
 
 **Also:**
-- a shared `ReputationRegistry`;
-- `integrity contracts claim` for ERC-173 recognition;
-- an authoritative, verified `packHash` pushed to Shield.
+- [ ] a shared `ReputationRegistry`;
+- [ ] `integrity contracts claim` for ERC-173 recognition;
+- [ ] an authoritative, verified `packHash` pushed to Shield.
 
 ## C3. Verified memory (M)
 
 **Cortex:**
-- store-wide append-only provenance;
-- encryption at rest;
-- `spot_check(root, index, nonce)`;
-- an anchorable provable root;
-- hard purge of content, FTS, blobs, embeddings, replicas and keys;
-- a PHI-redaction hook and pack-driven retention.
+- [ ] store-wide append-only provenance;
+- [ ] encryption at rest;
+- [ ] `spot_check(root, index, nonce)`;
+- [ ] an anchorable provable root;
+- [ ] hard purge of content, FTS, blobs, embeddings, replicas and keys;
+- [ ] a PHI-redaction hook and pack-driven retention.
 
 **The oracle:**
-- spot-checks without receiving PHI;
-- turns failures into `MemoryUnavailable` receipts.
+- [ ] spot-checks without receiving PHI;
+- [ ] turns failures into `MemoryUnavailable` receipts.
 
 ## C4. Human oversight (S)
 
-- Approval receipts are bound to the action HMAC, and both gates re-check them.
-- Break-glass approvals are signed and expire.
-- `pack simulate --since 90d` runs before enforcement changes.
-- Replayed, expired, wrong-action, wrong-pack and wrong-agent approvals are rejected.
+- [ ] Approval receipts are bound to the action HMAC, and both gates re-check them.
+- [ ] Break-glass approvals are signed and expire.
+- [ ] `pack simulate --since 90d` runs before enforcement changes.
+- [ ] Replayed, expired, wrong-action, wrong-pack and wrong-agent approvals are rejected.
 
 ## C5. Cutover (M)
 
-- Run an Anvil regenesis dry run, then broadcast a fresh Base Sepolia genesis with owner approval.
-- Migrate the 15 registered agents, from both the `registerPrimitives` and `registerCore` paths,
+- [ ] Run an Anvil regenesis dry run, then broadcast a fresh Base Sepolia genesis with owner approval.
+- [ ] Migrate the 15 registered agents, from both the `registerPrimitives` and `registerCore` paths,
   preserving DIDs, XNS handles and valid history. Agents without provider-backed memory are reported
   as blocked.
-- Move the legacy account model, `SovereignAgent`, the PrimitiveSet templates, `IntegrityToken` and
+- [ ] Move the legacy account model, `SovereignAgent`, the PrimitiveSet templates, `IntegrityToken` and
   the ZK interfaces to integrity-lab.
-- Rebuild the CLI on the SDK and remove duplicate implementations.
+- [ ] Rebuild the CLI on the SDK and remove duplicate implementations.
 
 ## Gate C
 
-- **Kernel:** mediation proofs and conformance pass; an over-budget UserOp reverts.
+- [ ] **Kernel:** mediation proofs and conformance pass; an over-budget UserOp reverts.
 - **Registration:**
-  - forged or replayed registrations are rejected;
-  - canonical verification is enforced, including after a kernel swap;
-  - no self-scoring.
-- **Memory:** a provider-backed spot-check passes, a digest-only fake fails, and purged content is
+  - [ ] forged or replayed registrations are rejected;
+  - [ ] canonical verification is enforced, including after a kernel swap;
+  - [ ] no self-scoring.
+- [ ] **Memory:** a provider-backed spot-check passes, a digest-only fake fails, and purged content is
   unrecoverable.
-- **Oversight:** replayed approvals are rejected.
-- **Cutover:** the dry run preserves DIDs, handles and history; no load-bearing references to the
+- [ ] **Oversight:** replayed approvals are rejected.
+- [ ] **Cutover:** the dry run preserves DIDs, handles and history; no load-bearing references to the
   legacy account model or cut code remain in active repositories.
 
 ## 9. Expected outcomes by gate
