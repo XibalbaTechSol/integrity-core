@@ -352,10 +352,12 @@ paths or sibling Docker copies. Both pass independence CI against the SDK tag.
   (allow/deny/contain/log_only/escalate — spec §5.5) via the reason code's `_CONTAIN_`/`_ESCALATE_`
   marker, so `router.py` and every existing consumer see the exact same action strings as before.
   `REGULATED_EVENT_DEFAULTS` (agent_event → deny) is the literal "hipaa agent tool calls deny" case;
-  every other class stays `log_only`, unchanged. **Not yet wired into the live `shield run` path** —
-  `cli.py`'s `_run` has no "which profile is this device on" concept to select
-  `REGULATED_EVENT_DEFAULTS` vs. the default map; it currently always uses the default
-  (`log_only`-for-everything) map. Exercised for real against `shield local-run`'s three profiles.
+  every other class stays `log_only`, unchanged. Exercised for real against `shield local-run`'s
+  three profiles. **Now wired into the live `shield run` path** (xibalba-shield `c7d4617`):
+  `DeviceConfig.policy_profile` names the compliance vertical, `event_defaults_for_profile()`
+  maps it to `EVENT_DEFAULTS_BY_PROFILE`, and `cli.py`'s `_run` passes that into `PolicyEngine`'s
+  construction. Unset/unrecognized values fall back to today's log_only-everywhere default, so an
+  operator who never sets the new field sees no behavior change.
 - [x] A missing, malformed, unknown or evaluator-error decision denies in enforce mode.
   `resolve()` provides this directly — evaluator error (OPA unreachable) and an out-of-contract
   `decision`/`reason_code` pair both already tested; an event class not in `event_defaults` now
