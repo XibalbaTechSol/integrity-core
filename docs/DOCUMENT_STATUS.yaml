@@ -27,6 +27,21 @@ execution_plan:
   status: current
   authority: execution
 
+ecosystem:
+  path: ECOSYSTEM.md
+  status: current
+  authority: architecture
+
+data:
+  path: DATA.md
+  status: current
+  authority: architecture
+
+adr_0001:
+  path: docs/adr/ADR-0001-six-function-test.md
+  status: current
+  authority: decision
+
 archived:
   - docs/archive/2026-08/integrity-protocol-v1.md
   - docs/archive/2026-08/integrity-protocol-v0.4.md

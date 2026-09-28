@@ -9,6 +9,13 @@
 - Repaired the stale foundational-primitives link to the current upgradeability decision source;
   `python3 scripts/check_docs.py` and `python3 scripts/wiki_toc.py --check` pass locally.
 
+## [2026-09-28] docs | added bounded ecosystem, data, and six-function decision summaries
+
+- Added root `ECOSYSTEM.md` for repository/product boundaries and local-first operating rules.
+- Added root `DATA.md` for data classes, evidence semantics, retention, and outage boundaries.
+- Added `docs/adr/ADR-0001-six-function-test.md`; recorded all three documents in
+  `docs/DOCUMENT_STATUS.yaml` and linked them from the repository implementation-plan page.
+
 ## [2026-09-28] integrate | A3 Shield and Cortex migrations merged
 
 - Merged xibalba-shield#39: labeled/HMAC-protected Hermes exports, separate device-auth keys,

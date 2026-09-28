@@ -458,8 +458,8 @@ paths or sibling Docker copies. Both pass independence CI against the SDK tag.
     Completed 2026-09-28: root `AGENTS.md` contains the quick-start and wiki procedure,
     `CLAUDE.md` imports it, and the duplicate `.agents/AGENTS.md` authority was removed.
   - [x] create `STATUS.md` (≤150 lines), `ECOSYSTEM.md`, `DATA.md` and ADR-0001 (the six-function test).
-    `STATUS.md` completed 2026-09-28 as the bounded current-state summary; the remaining three
-    documents stay open.
+    Completed 2026-09-28: the four documents are current bounded summaries/decisions and their
+    paths are recorded in `docs/DOCUMENT_STATUS.yaml`.
 - **Archive or merge the competing authorities:**
   - [ ] `docs/IMPLEMENTATION_PLAN.md`, `PRODUCTION_READINESS_PLAN.md`, `ARCHIVE_PLAN.md`,
     `SPEC-v2.0.0-proposed.md`, `MAINNET_READINESS.md`;
