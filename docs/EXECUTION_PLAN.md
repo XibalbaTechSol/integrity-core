@@ -509,7 +509,8 @@ SDK/API contracts plus local reference implementations (no billing code) for:
   unacknowledged receipts across failed submission.
 - [x] offline verification. `integrity_sdk.core.offline` exposes stable result codes for signed
   pack, receipt-log, and receipt-inclusion verification without network access.
-- [ ] Cortex provider and store identity;
+- [x] Cortex provider and store identity. `StoreIdentity` binds provider, store, tenant, and
+  agent namespaces explicitly and rejects provider or namespace mismatches offline.
 - [ ] entitlements and capability checks;
 - [ ] redacted usage and audit metrics.
 
