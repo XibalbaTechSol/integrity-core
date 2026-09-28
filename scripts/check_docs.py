@@ -15,8 +15,23 @@ LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)\s]+)")
 AUTHORITY_PATH_RE = re.compile(r"^\s+path:\s+([^\s#]+)\s*$", re.MULTILINE)
 INDEX_COUNT_RE = re.compile(r"Total pages:\s*(\d+)")
 
+INVENTORY_AUTHORITATIVE_ROOTS = {
+    "AGENTS.md",
+    "CLAUDE.md",
+    "README.md",
+    "STATUS.md",
+    "ECOSYSTEM.md",
+    "DATA.md",
+    "docs/SPEC.md",
+    "docs/EXECUTION_PLAN.md",
+}
+
 
 def markdown_files() -> list[Path]:
+    return [path for path in all_markdown_files() if not path.relative_to(ROOT).as_posix().startswith("docs/archive/")]
+
+
+def all_markdown_files() -> list[Path]:
     import subprocess
 
     tracked = subprocess.check_output(
@@ -25,10 +40,33 @@ def markdown_files() -> list[Path]:
     return [
         ROOT / relative
         for relative in tracked
-        if not relative.startswith("docs/archive/")
-        and "node_modules/" not in relative
+        if "node_modules/" not in relative
         and (ROOT / relative).exists()
     ]
+
+
+def classify_markdown(path: Path) -> str:
+    relative = path.relative_to(ROOT).as_posix()
+    if relative.startswith("docs/archive/"):
+        return "historical"
+    if relative in INVENTORY_AUTHORITATIVE_ROOTS or relative.startswith("docs/adr/") or relative.startswith("docs/wiki/"):
+        return "authoritative"
+    return "merge-required"
+
+
+def check_markdown_inventory(errors: list[str]) -> None:
+    categories = {"authoritative", "merge-required", "historical", "removable"}
+    classified = {classify_markdown(path) for path in all_markdown_files()}
+    unknown = classified - categories
+    if unknown:
+        errors.append(f"Markdown inventory has unknown categories: {sorted(unknown)}")
+    counts = {category: 0 for category in categories}
+    for path in all_markdown_files():
+        counts[classify_markdown(path)] += 1
+    print(
+        "Markdown inventory: "
+        + ", ".join(f"{category}={counts[category]}" for category in ("authoritative", "merge-required", "historical", "removable"))
+    )
 
 
 def check_status_cap(errors: list[str]) -> None:
@@ -105,6 +143,7 @@ def main() -> int:
     errors: list[str] = []
     check_status_cap(errors)
     check_authority_map(errors)
+    check_markdown_inventory(errors)
     check_markdown_links(errors)
     check_wiki_index(errors)
     if errors:
