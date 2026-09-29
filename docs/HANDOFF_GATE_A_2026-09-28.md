@@ -12,6 +12,14 @@ below before reading the rest of this document as current.
 
 ## Status update (2026-09-29)
 
+**Gate A Identity is now closed; Gate A is complete (12/12).** The final two legacy orphan
+identity directories were quarantined after stopping `hermes-gateway.service` and
+`xibalba-quant-paper-loop.service`, so no replacement DID was minted. SDK resolution was
+verified for the three registered identities (`xibalba`, `xibalba-quant`, and `xibalba-shield`)
+from the external profile-namespaced store. Both services restarted successfully and no
+`private_key.pem` reappeared under either Hermes harness root. The quarantined material remains
+recoverable under `~/.integrity-quarantine-2026-09-29/final-orphan-closure/`.
+
 Following this handoff's "Recommended next sequence": `xibalba-cortex#34`/`#35` and
 `xibalba-shield#40` merged (all CI-green); the Cortex suite was re-run fresh against `origin/main`
 in an isolated worktree (551 passed, 0 failed, 2 skipped, resolving the "1 commit behind" caveat

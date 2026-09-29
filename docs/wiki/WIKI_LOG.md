@@ -1,5 +1,14 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-09-29] handoff | Gate A complete, Identity closed
+
+- Gate A reached 12/12. The final two legacy Hermes orphan identity slots were quarantined while
+  `hermes-gateway.service` and `xibalba-quant-paper-loop.service` were stopped, preventing the
+  replacement-DID regeneration observed in the earlier attempt.
+- The registered `xibalba`, `xibalba-quant`, and `xibalba-shield` identities resolved successfully
+  from the external profile-namespaced SDK store; both services restarted cleanly, and no legacy
+  private key reappeared under either Hermes harness root. Quarantined material remains recoverable.
+
 ## [2026-09-29] handoff | Gate A Docs closed, Identity remains
 
 - Gate A moved from 2/12 to 11/12 across `integrity-core#132`/`#133`/`#134`: Builds, all six
