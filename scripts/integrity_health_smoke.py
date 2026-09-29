@@ -238,6 +238,19 @@ event_classes:
     receipt_result = verify_receipt_log_offline(log.receipts, trusted_signers=trusted, checkpoint=checkpoint)
     if not receipt_result.valid:
         raise AssertionError(receipt_result.detail)
+    vanta_fixture = {
+        "schema_version": "integrity.vanta-fixture/1",
+        "control_id": "HIPAA-164.312(b)",
+        "status": "pass",
+        "pack_hash": shield_decision.policy.hash,
+        "receipt_hash": receipts.receipt_hash(receipt),
+        "verification": receipt_result.code,
+    }
+    if vanta_fixture["verification"] != "OK" or not all(
+        isinstance(vanta_fixture[field], str) and vanta_fixture[field]
+        for field in ("control_id", "pack_hash", "receipt_hash")
+    ):
+        raise AssertionError("Vanta fixture is missing the control-to-receipt evidence link")
 
     tampered_receipt = dict(receipt)
     tampered_receipt["decision"] = decision_codes.PERMIT
@@ -384,6 +397,10 @@ event_classes:
             "missing_capability": "denied",
             "tenant_mismatch": "denied",
             "billing_dependency": "none",
+        },
+        "exports": {
+            "vanta_fixture": "verified",
+            "raw_content": "absent",
         },
     }, indent=2))
     return 0
