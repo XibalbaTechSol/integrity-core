@@ -411,6 +411,13 @@ event_classes:
             raise AssertionError("retention sweep did not produce a deletion receipt")
         if store.get_memory(retained["id"])["status"] != "forgotten":
             raise AssertionError("retention sweep did not forget the expired synthetic memory")
+        store_health = store.status(fast=True)
+        if (
+            store_health.get("profile_id") != "default"
+            or store_health.get("journal_mode") != "wal"
+            or not store_health.get("backup_ready")
+        ):
+            raise AssertionError(f"Cortex local store health is not ready: {store_health}")
         store.close()
 
         tenant_a_store = GraphStore(Path(temp_dir) / "tenant-a", profile_id="tenant-a")
@@ -454,6 +461,7 @@ event_classes:
             "tamper_rejection": "verified",
             "content_boundary": "synthetic_only",
             "retention_purge": "verified",
+            "store_health": "operational",
         },
         "data_boundary": {
             "shield_opa_scope": "loopback_only",
