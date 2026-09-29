@@ -366,6 +366,14 @@ event_classes:
         accepted = resumed_queue.submit(lambda pending: [receipt_hash(pending[0])])
         if accepted != [receipt_hash(queued)] or resumed_queue.pending():
             raise AssertionError("queue retry did not acknowledge exactly the submitted receipt")
+        queue_checkpoint = resumed_queue.checkpoint(timestamp="2026-09-29T00:00:05Z")
+        queue_verification = verify_receipt_log_offline(
+            resumed_queue.log.receipts,
+            trusted_signers=trusted,
+            checkpoint=queue_checkpoint,
+        )
+        if not queue_verification.valid:
+            raise AssertionError(f"recovered queue checkpoint did not verify: {queue_verification.detail}")
 
     with tempfile.TemporaryDirectory(prefix="integrity-health-smoke-") as temp_dir:
         store = GraphStore(Path(temp_dir) / "cortex")
@@ -481,6 +489,7 @@ event_classes:
             "wrong_signer_rejection": wrong_signer_result.code,
             "truncation_rejection": truncated_result.code,
             "queue_recovery": "verified",
+            "queue_checkpoint": "verified_local",
         },
         "cortex": {
             "provenance": "verified",
