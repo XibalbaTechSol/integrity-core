@@ -28,6 +28,7 @@ from .decision import (
     Decision,
     resolve,
 )
+from .break_glass import BreakGlassError, create_approval, verify_approval
 from .entitlements import CapabilityDenied, EntitlementSet, require_capability
 from .jcs import canonical_bytes, sha256_hex
 from .memory import MEMORY_INTERFACE_VERSION, MemoryProvider
@@ -62,6 +63,7 @@ from .tenancy import (
 
 __all__ = [
     "DECISION_CONTRACT", "DENY", "ENFORCE", "LOG_ONLY", "NO_MATCH", "PERMIT", "SHADOW", "Decision", "resolve",
+    "BreakGlassError", "create_approval", "verify_approval",
     "EntitlementSet", "CapabilityDenied", "require_capability",
     "canonical_bytes", "sha256_hex",
     "hash_pair", "keccak256", "leaf_hash", "merkle_proof", "merkle_root", "verify_leaf",
