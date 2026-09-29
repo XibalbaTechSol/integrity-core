@@ -1,0 +1,12 @@
+HIPAA-164.312(a)(1):
+  - access_control
+HIPAA-164.312(b):
+  - audit_controls
+HIPAA-164.502(b):
+  - minimum_necessary
+SOC2-CC6.1:
+  - logical_access
+SOC2-CC7.2:
+  - monitoring
+ISO42001:
+  - ai_management_system
