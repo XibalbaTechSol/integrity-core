@@ -48,6 +48,8 @@ from integrity_sdk.core import (
 )
 from integrity_sdk.did import Keypair, public_key_multibase
 from xibalba_cortex.store import GraphStore
+from xibalba_cortex.ingest_tokens import verify_token_record
+from xibalba_cortex.tenant_onboarding import provision_tenant
 
 
 def main() -> int:
@@ -446,6 +448,16 @@ event_classes:
             tenant_a_store.close()
             tenant_b_store.close()
 
+        provisioned = provision_tenant(Path(temp_dir) / "tenants", "tenant-c", ttl_hours=24, max_memories=10)
+        principal = verify_token_record(Path(provisioned["home"]), str(provisioned["token"]))
+        if (
+            provisioned.get("schema_version") != "xibalba.tenant_onboarding.v1"
+            or provisioned.get("profile_id") != "tenant-c"
+            or principal.get("profile_id") != "tenant-c"
+            or "memory:read" not in principal.get("scopes", [])
+        ):
+            raise AssertionError("temporary tenant onboarding did not bind the operator token to its profile")
+
     print(json.dumps({
         "scenario": "integrity_health_local",
         "shield": {
@@ -482,6 +494,7 @@ event_classes:
             "cross_tenant_lookup": "denied",
             "cross_tenant_authorization": "denied",
             "cortex_store_isolation": "verified",
+            "tenant_onboarding_auth": "verified",
             "revoked_device_authorization": "denied",
             "receipt_or_pack_gate": "fail_closed",
         },
