@@ -77,10 +77,41 @@ def main() -> int:
         controls=["HIPAA-164.312(a)(1)"],
         timestamp="2026-09-29T00:00:00Z",
     )
+    for sequence in (1, 2):
+        log.append(
+            agent_did="did:integrity:synthetic-health-agent-001",
+            device_id_hmac=receipts.hmac_identifier(b"synthetic-org-key-32-bytes-long-000", "device", event.device_id),
+            action_hmac=receipts.hmac_identifier(b"synthetic-org-key-32-bytes-long-000", "action", f"synthetic-health-inference-{sequence}"),
+            event_class="agent.tool_call",
+            pack_hash=shield_decision.policy.hash,
+            decision=decision_codes.DENY,
+            reason_code="REGULATED_NO_MATCH_DENY",
+            mode=decision_codes.ENFORCE,
+            controls=["HIPAA-164.312(a)(1)"],
+            timestamp=f"2026-09-29T00:00:0{sequence}Z",
+        )
     trusted = [public_key_multibase(signer.public_bytes())]
-    receipt_result = verify_receipt_log_offline(log.receipts, trusted_signers=trusted)
+    checkpoint = log.checkpoint(timestamp="2026-09-29T00:00:03Z")
+    receipt_result = verify_receipt_log_offline(log.receipts, trusted_signers=trusted, checkpoint=checkpoint)
     if not receipt_result.valid:
         raise AssertionError(receipt_result.detail)
+
+    tampered_receipt = dict(receipt)
+    tampered_receipt["decision"] = decision_codes.PERMIT
+    tampered_result = verify_receipt_log_offline([tampered_receipt] + log.receipts[1:], trusted_signers=trusted)
+    if tampered_result.valid or tampered_result.code != "BAD_SIGNATURE":
+        raise AssertionError(f"tampered receipt was not rejected: {tampered_result}")
+
+    foreign_signer = Keypair.generate()
+    wrong_signer_result = verify_receipt_log_offline(
+        log.receipts, trusted_signers=[public_key_multibase(foreign_signer.public_bytes())], checkpoint=checkpoint
+    )
+    if wrong_signer_result.valid or wrong_signer_result.code != "UNTRUSTED_SIGNER":
+        raise AssertionError(f"wrong signer was not rejected: {wrong_signer_result}")
+
+    truncated_result = verify_receipt_log_offline(log.receipts[:2], trusted_signers=trusted, checkpoint=checkpoint)
+    if truncated_result.valid or truncated_result.code != "TRUNCATED":
+        raise AssertionError(f"truncated log was not rejected: {truncated_result}")
 
     with tempfile.TemporaryDirectory(prefix="integrity-health-smoke-") as temp_dir:
         store = GraphStore(Path(temp_dir) / "cortex")
@@ -109,6 +140,19 @@ def main() -> int:
         if verified.returncode != 0:
             raise AssertionError(verified.stderr.strip() or "Cortex provenance verification failed")
 
+        tampered_bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+        tampered_bundle["memories"][0]["content"] += " TAMPERED"
+        tampered_path = Path(temp_dir) / "tampered-provenance.json"
+        tampered_path.write_text(json.dumps(tampered_bundle), encoding="utf-8")
+        tampered_verified = subprocess.run(
+            [sys.executable, str(verifier.resolve()), str(tampered_path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if tampered_verified.returncode != 1:
+            raise AssertionError("tampered Cortex provenance was not rejected")
+
     print(json.dumps({
         "scenario": "integrity_health_local",
         "shield": {
@@ -119,9 +163,13 @@ def main() -> int:
         "integrity": {
             "receipt_log": log.log_id,
             "offline_verification": receipt_result.code,
+            "tamper_rejection": tampered_result.code,
+            "wrong_signer_rejection": wrong_signer_result.code,
+            "truncation_rejection": truncated_result.code,
         },
         "cortex": {
             "provenance": "verified",
+            "tamper_rejection": "verified",
             "content_boundary": "synthetic_only",
         },
     }, indent=2))
