@@ -418,6 +418,14 @@ event_classes:
             or not store_health.get("backup_ready")
         ):
             raise AssertionError(f"Cortex local store health is not ready: {store_health}")
+        audit = store.audit_report(limit=25)
+        if (
+            audit.get("schema_version") != "xibalba.audit_report.v1"
+            or audit.get("profile_id") != "default"
+            or int(audit.get("forgotten_memory_count", 0)) < 1
+            or int(audit.get("memory_event_counts", {}).get("create", 0)) < 1
+        ):
+            raise AssertionError(f"Cortex audit summary is incomplete: {audit}")
         store.close()
 
         tenant_a_store = GraphStore(Path(temp_dir) / "tenant-a", profile_id="tenant-a")
@@ -462,6 +470,7 @@ event_classes:
             "content_boundary": "synthetic_only",
             "retention_purge": "verified",
             "store_health": "operational",
+            "audit_summary": "verified",
         },
         "data_boundary": {
             "shield_opa_scope": "loopback_only",
