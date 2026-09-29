@@ -581,34 +581,18 @@ semantics or receipt meaning.
   KernelPropertiesTest 6/6 (2026-09-28, after A4); tier-off covered by `IntegrityKernelAssuranceTier.t.sol`.
 - [x] **Receipts:** a receipt can be created, signed and verified locally, unanchored. `tests/unit/test_core_receipts.py`
   (17 tests: sign/verify, chain, checkpoint, inclusion, tamper/truncation/foreign-key refusals).
-- [ ] **Identity:** no private key exists under any harness root in any test or pilot fixture.
-  Evidence (2026-09-29): 15 of the 18 extraneous legacy in-root `integrity_sdk` keys the
-  2026-09-28 handoff left untouched are resolved by owner-run action (agent-run writes to key
-  files are blocked by the permission classifier, by design; a dry-run/`--apply` script was
-  handed to the owner to execute each time). Of 17 confirmed-present legacy keys under real
-  harness roots (the 18th, `codex`, was already relocated in a prior session):
-  - `agy` (`.gemini/antigravity-cli`) — relocated via the SDK's normal `load_or_create_did` path
-    (copy-verify-delete); DID confirmed unchanged (`did:integrity:b1a72980...`) before and after.
-  - 2 duplicate copies of the live, on-chain-registered `xibalba` identity's key material, sitting
-    unprotected under the `xibalba-quant` and `xibalba-shield` Hermes profile roots in addition to
-    its one correctly-placed copy under the main `.hermes` profile — quarantined (moved, not
-    deleted, to `~/.integrity-quarantine-2026-09-29/`, manifest recorded).
-  - 12 dead Antigravity subagent-worktree fixture keys (`did:xibalba:` legacy method, duplicated
-    identically across 4 abandoned worktrees) — quarantined.
-
-  **Still open — reverted at the owner's explicit request:** quarantining the 2 remaining
-  unregistered orphan legacy keys (main `.hermes` profile's `xibalba` slot, DID `a453c75e...`; the
-  `xibalba-quant` profile's own `xibalba-quant` slot, DID `de5c4146...`) triggered a live process —
-  not yet root-caused; candidates are the Hermes gateway process or `xibalba-quant-framework`'s
-  paper-trading loop, both of which run continuously against these profiles — to silently mint a
-  brand-new, unregistered DID in each of those two exact legacy paths within seconds of the
-  quarantine (confirmed stable, no further regeneration; confirmed paper-trading only, no live
-  capital). The owner asked to revert both rather than continue: the freshly-minted DIDs were
-  moved aside (not deleted, to `~/.integrity-quarantine-2026-09-29/superseded-regenerated/`) and
-  the original pre-session orphan keys were restored to their harness-root paths, pending the
-  owner's own investigation into what resolves identity for those two profiles outside
-  `integrity_sdk`'s profile-scoped key-home design. This checkbox stays unticked: 2 private keys
-  are, by deliberate current choice, back under harness roots.
+- [x] **Identity:** no private key exists under any harness root in any test or pilot fixture.
+  Evidence (2026-09-29): all 18 extraneous legacy in-root `integrity_sdk` keys were resolved by
+  owner-run, reversible relocation/quarantine. The final two orphan slots were quarantined only
+  after stopping their owning services (`hermes-gateway.service` and
+  `xibalba-quant-paper-loop.service`), preventing the earlier replacement-DID regeneration.
+  The registered identities remain in the SDK's external, profile-namespaced key store:
+  `xibalba` → `did:integrity:68fed133...`, `xibalba-quant` →
+  `did:integrity:7d0ecae5...`, and `xibalba-shield` → `did:integrity:2ea17967...`.
+  The SDK `load_or_create_did()` resolution was re-run successfully for all three; both services
+  were restarted and remained active; no `private_key.pem` exists under either Hermes harness
+  root after restart. All moved material remains under
+  `~/.integrity-quarantine-2026-09-29/`, never deleted.
 - [x] **Docs:** every active normative document has an identified authority; superseded material is in
   integrity-lab; no active repository holds a competing plan or architecture register. Evidence
   (2026-09-29), applying A5's own standard (§"Inventory": classify as authoritative/merge-required/
