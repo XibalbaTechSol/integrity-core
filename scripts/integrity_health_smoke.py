@@ -17,6 +17,7 @@ import json
 import subprocess
 import sys
 import tempfile
+from urllib.parse import urlparse
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,6 +55,9 @@ def main() -> int:
     )
 
     with supervised_opa("regulated") as (opa_url, pack):
+        opa_host = urlparse(opa_url).hostname
+        if opa_host not in {"127.0.0.1", "localhost", "::1"}:
+            raise AssertionError(f"Shield OPA endpoint escaped the local boundary: {opa_url}")
         shield_decision = PolicyEngine(opa_url=opa_url, pack=pack).evaluate(event, context)
 
     if shield_decision.decision.action != "deny":
@@ -91,6 +95,9 @@ def main() -> int:
             timestamp=f"2026-09-29T00:00:0{sequence}Z",
         )
     trusted = [public_key_multibase(signer.public_bytes())]
+    synthetic_content = "Synthetic regulated inference was denied because no active BAA was present."
+    if synthetic_content in json.dumps(receipt):
+        raise AssertionError("raw synthetic content entered the signed Shield receipt")
     checkpoint = log.checkpoint(timestamp="2026-09-29T00:00:03Z")
     receipt_result = verify_receipt_log_offline(log.receipts, trusted_signers=trusted, checkpoint=checkpoint)
     if not receipt_result.valid:
@@ -116,7 +123,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="integrity-health-smoke-") as temp_dir:
         store = GraphStore(Path(temp_dir) / "cortex")
         memory = store.store_memory(
-            "Synthetic regulated inference was denied because no active BAA was present.",
+            synthetic_content,
             source={
                 "kind": "integrity_health_smoke",
                 "tenant_id": context.tenant_id,
@@ -171,6 +178,12 @@ def main() -> int:
             "provenance": "verified",
             "tamper_rejection": "verified",
             "content_boundary": "synthetic_only",
+        },
+        "data_boundary": {
+            "shield_opa_scope": "loopback_only",
+            "cortex_storage": "temporary_local_filesystem",
+            "external_content_transport": 0,
+            "receipt_raw_content": "absent",
         },
     }, indent=2))
     return 0
