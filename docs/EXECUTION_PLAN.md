@@ -582,8 +582,61 @@ semantics or receipt meaning.
 - [x] **Receipts:** a receipt can be created, signed and verified locally, unanchored. `tests/unit/test_core_receipts.py`
   (17 tests: sign/verify, chain, checkpoint, inclusion, tamper/truncation/foreign-key refusals).
 - [ ] **Identity:** no private key exists under any harness root in any test or pilot fixture.
-- [ ] **Docs:** every active normative document has an identified authority; superseded material is in
-  integrity-lab; no active repository holds a competing plan or architecture register.
+  Evidence (2026-09-29): 15 of the 18 extraneous legacy in-root `integrity_sdk` keys the
+  2026-09-28 handoff left untouched are resolved by owner-run action (agent-run writes to key
+  files are blocked by the permission classifier, by design; a dry-run/`--apply` script was
+  handed to the owner to execute each time). Of 17 confirmed-present legacy keys under real
+  harness roots (the 18th, `codex`, was already relocated in a prior session):
+  - `agy` (`.gemini/antigravity-cli`) — relocated via the SDK's normal `load_or_create_did` path
+    (copy-verify-delete); DID confirmed unchanged (`did:integrity:b1a72980...`) before and after.
+  - 2 duplicate copies of the live, on-chain-registered `xibalba` identity's key material, sitting
+    unprotected under the `xibalba-quant` and `xibalba-shield` Hermes profile roots in addition to
+    its one correctly-placed copy under the main `.hermes` profile — quarantined (moved, not
+    deleted, to `~/.integrity-quarantine-2026-09-29/`, manifest recorded).
+  - 12 dead Antigravity subagent-worktree fixture keys (`did:xibalba:` legacy method, duplicated
+    identically across 4 abandoned worktrees) — quarantined.
+
+  **Still open — reverted at the owner's explicit request:** quarantining the 2 remaining
+  unregistered orphan legacy keys (main `.hermes` profile's `xibalba` slot, DID `a453c75e...`; the
+  `xibalba-quant` profile's own `xibalba-quant` slot, DID `de5c4146...`) triggered a live process —
+  not yet root-caused; candidates are the Hermes gateway process or `xibalba-quant-framework`'s
+  paper-trading loop, both of which run continuously against these profiles — to silently mint a
+  brand-new, unregistered DID in each of those two exact legacy paths within seconds of the
+  quarantine (confirmed stable, no further regeneration; confirmed paper-trading only, no live
+  capital). The owner asked to revert both rather than continue: the freshly-minted DIDs were
+  moved aside (not deleted, to `~/.integrity-quarantine-2026-09-29/superseded-regenerated/`) and
+  the original pre-session orphan keys were restored to their harness-root paths, pending the
+  owner's own investigation into what resolves identity for those two profiles outside
+  `integrity_sdk`'s profile-scoped key-home design. This checkbox stays unticked: 2 private keys
+  are, by deliberate current choice, back under harness roots.
+- [x] **Docs:** every active normative document has an identified authority; superseded material is in
+  integrity-lab; no active repository holds a competing plan or architecture register. Evidence
+  (2026-09-29), applying A5's own standard (§"Inventory": classify as authoritative/merge-required/
+  historical, not "every file must carry an explicit deferral" — `PRODUCTION_READINESS_PLAN.md`
+  stayed active un-deferred under that same standard) across all plan/spec/architecture/status-shaped
+  tracked Markdown in the other three active repos, checked directly against each repo's
+  `origin/main`:
+  - **Shield:** `README.md`, `SPECIFICATION.md` (repository-normative, explicit authority table),
+    `docs/PRODUCTION_READINESS_PLAN.md` (explicitly disclaims authority over `SPECIFICATION.md`,
+    carries a "not the active execution order" sequencing note), `docs/wiki/architecture/*` — no
+    conflicts found.
+  - **Cortex:** `README.md`, `SPECIFICATION.md` / `spec/xibalba-cortex-v1.md` (a deliberate,
+    declared two-tier entry-point/normative split, not a conflict), `docs/PROJECT_STATE.md`
+    (declares itself "the single resume authority" but scoped to Cortex's own resume/session
+    state, not competing with protocol authority — its "Last verified: 2026-09-14" staleness is a
+    freshness gap, not an authority conflict), and the six `docs/architecture/*.md` decision
+    records (each carries its own scoped status line — Accepted/decided/implemented — and
+    `spec/xibalba-cortex-v1.md` already explicitly names them "historical design records" in its
+    own text) — no conflicts found.
+  - **integrity-console:** found and fixed the one real drift this pass surfaced —
+    `integrity-dashboard/SPECIFICATION.md`, `IMPLEMENTATION_PLAN.md`, and `README.md` claimed to be
+    "a component of `integrity-core`, not a separate repository," true before the A1 split, wrong
+    since (`integrity-console#5`, merged). `PRODUCTION_GAPS.md` is an explicitly historical
+    evidence register (its own header disclaims silent rewriting); its stale `integrity-mvp` title
+    is a naming artifact, not an authority claim. No other conflicts found.
+  - Cross-repository doc-authority checks were not re-run for `integrity-lab` itself (its cut-path
+    manifest was independently confirmed present in the same-day validation pass; see the "Builds"
+    item above) or for subagent-worktree-local documentation, which is out of scope for this item.
 
 # Phase B: sellable Shield and Cortex SaaS
 
