@@ -33,6 +33,7 @@ from shield.schemas.events import AgentContext, AgentEvent, AgentInfo, AgentActi
 from integrity_sdk.core import decision as decision_codes
 from integrity_sdk.core import receipts
 from integrity_sdk.core.offline import verify_receipt_log_offline
+from integrity_sdk.core import packs
 from integrity_sdk.core import (
     AgentRegistration,
     DeviceRegistration,
@@ -69,6 +70,51 @@ def main() -> int:
 
     if shield_decision.decision.action != "deny":
         raise AssertionError(f"expected regulated no-BAA deny, got {shield_decision.decision.action}")
+
+    # Sign and reload a synthetic pack, then prove that a policy relaxation is
+    # rejected before it can become an enforcement input.
+    with tempfile.TemporaryDirectory(prefix="integrity-health-pack-") as pack_dir_name:
+        pack_dir = Path(pack_dir_name)
+        (pack_dir / "pack.yaml").write_text(
+            """pack_format: integrity.pack/1
+name: synthetic-health
+version: 1.0.0
+kernel_range: ">=1.0.0 <2.0.0"
+decision_contract: integrity.decision/1
+entrypoint: data.integrity.pack.decision
+event_classes:
+  agent.tool_call: {no_match: deny}
+""",
+            encoding="utf-8",
+        )
+        (pack_dir / "policy.rego").write_text(
+            'package integrity.pack\n\ndecision := {"decision": "deny", "reason_code": "NO_BAA"} if { not input.baa_active }\n',
+            encoding="utf-8",
+        )
+        (pack_dir / "controls.yaml").write_text("NO_BAA: [HIPAA-164.502(b)]\n", encoding="utf-8")
+        pack_signer = Keypair.generate()
+        compiled_pack = packs.sign_pack(pack_dir, pack_signer)
+        loaded_pack = packs.load_pack(
+            pack_dir,
+            trusted_signers=[public_key_multibase(pack_signer.public_bytes())],
+            expected_pack_hash=compiled_pack.pack_hash,
+        )
+        if loaded_pack.pack_hash != compiled_pack.pack_hash:
+            raise AssertionError("verified pack hash did not match the signed pack")
+        (pack_dir / "pack.yaml").write_text(
+            (pack_dir / "pack.yaml").read_text(encoding="utf-8").replace("no_match: deny", "no_match: permit"),
+            encoding="utf-8",
+        )
+        try:
+            packs.load_pack(
+                pack_dir,
+                trusted_signers=[public_key_multibase(pack_signer.public_bytes())],
+            )
+        except packs.PackError as refused:
+            if refused.code != "TAMPERED":
+                raise AssertionError(f"relaxed pack failed with {refused.code}, not TAMPERED")
+        else:
+            raise AssertionError("relaxed signed pack was accepted")
 
     # Exercise the local tenancy boundary before creating any receipt. A device
     # must be active, belong to the requested tenant, and belong to the agent
@@ -250,6 +296,11 @@ def main() -> int:
             "cross_tenant_authorization": "denied",
             "revoked_device_authorization": "denied",
             "receipt_or_pack_gate": "fail_closed",
+        },
+        "packs": {
+            "signed_load": "verified",
+            "hash_pin": "verified",
+            "policy_relaxation": "rejected",
         },
     }, indent=2))
     return 0
