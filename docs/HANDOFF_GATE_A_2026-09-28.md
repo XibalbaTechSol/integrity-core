@@ -98,20 +98,32 @@ case (Identity), not a change to the count itself.
     raises `OpaError`.
   - **No raw command content in exports — confirmed**:
     `tests/test_distribution_siem_dlp.py::test_content_classifier_uses_metadata_without_raw_content`.
-  - **Distinct device/agent keys — still open, and now a sharper finding.** `device_assertion.py`'s
+  - **Distinct device/agent keys — CONFIRMED, tests added.** `device_assertion.py`'s
     `load_device_keypair()` reads from an explicit `SHIELD_DEVICE_KEY_PATH` env var, structurally
-    separate from the agent DID key path — so the two keys are distinct by construction, not by
-    runtime check. But **zero tests reference `load_device_keypair` or `SHIELD_DEVICE_KEY_PATH` at
-    all** — the function itself has no direct test coverage (the existing binding tests in
-    `test_backend.py` exercise device/agent *pairing*, not that the two key-loading paths actually
-    resolve to different files). Treat as open; a small, safe test to add later.
+    separate from the agent DID key path, but had zero direct test coverage. Added three tests in
+    [xibalba-shield#40](https://github.com/XibalbaTechSol/xibalba-shield/pull/40):
+    `test_load_device_keypair_returns_none_without_a_configured_path` (no silent fallback),
+    `test_load_device_keypair_reads_the_key_at_the_configured_path` (round-trip fidelity), and
+    `test_device_key_is_cryptographically_distinct_from_the_agent_identity_key` (the load-bearing
+    one — asserts the device key differs from whatever `load_or_create_did()` mints for the agent
+    identity in the same harness root). 12/12 pass in `test_device_assertion.py`.
+
+    **Unrelated finding while running the full suite from a worktree**: 11 failures in
+    `test_cli.py`/`test_privileged_socket_sensor.py` reproduce identically on an untouched
+    checkout of current `main`, but the latest `main` CI run is green — local-machine
+    environmental noise (this machine runs a live Shield systemd install concurrently), not a
+    real regression. Not investigated further; flagged in case it recurs.
 - **Cortex** — suite green (own checkout, 1 commit stale — see above):
   - reject unauthenticated OTLP: `tests/test_otlp_receiver.py`'s `test_missing_bearer_token_is_rejected`,
     `test_invalid_bearer_token_is_rejected`, `test_read_only_token_is_rejected_for_ingestion`,
     `test_revoked_token_is_rejected` — solid coverage.
-  - provenance export / `content_hash` binding: matches found in `tests/test_store.py` and
-    `tests/test_retrieval_completeness.py` — not read line-by-line to confirm they assert the
-    exact Gate A wording.
+  - **Provenance export — CONFIRMED**, and it's rigorous, not just a self-reported hash:
+    `test_store.py::test_export_provider_telemetry_returns_a_verifiable_merkle_export` exports
+    provider telemetry, then independently re-derives and checks the Merkle proof via
+    `verify_domain_merkle_proof` for every leaf — not just trusting `export()`'s own claimed root.
+  - **`content_hash` on create — CONFIRMED**: `test_store.py::test_store_memory_preserves_provenance_and_is_idempotent`
+    asserts `store_memory`'s primary create path returns a correctly-shaped `content_hash`
+    (`re.fullmatch(r"sha256:[0-9a-f]{64}", ...)`).
 - [ ] **Identity — partially resolved.** 23 live `private_key.pem` files were found under
   harness/profile roots on this machine, all matching the **legacy in-root layout**
   (`<harness root>/.integrity/did/<agent>/private_key.pem`) that `integrity_sdk/did.py`'s current
@@ -234,15 +246,16 @@ Cross-repo, from each repo's root: `forge test -vvv` (contracts), `cargo test --
 5. `AGENTS.md` "eight packages" / six-row table drift fixed in
    [integrity-core#129](https://github.com/XibalbaTechSol/integrity-core/pull/129) (also dropped
    the stale `integrity-zkp` row from the wiki-entity map) — merge when ready.
-6. Shield sub-item test mappings mostly confirmed this pass (pack-hash enforcement,
+6. All Shield and Cortex sub-item test mappings now confirmed — pack-hash enforcement,
    incompatible-pack, evaluator-error, no-match default, tamper/malformed refusal, export
-   redaction — see Shield above). **Still open:** distinct device/agent keys (structurally true by
-   separate env var, but `load_device_keypair`/`SHIELD_DEVICE_KEY_PATH` has zero direct test
-   coverage) and Cortex's provenance-export/`content_hash` exact assertions (matches found in
-   `tests/test_store.py`/`tests/test_retrieval_completeness.py`, not read line-by-line to confirm
-   wording).
+   redaction, distinct device/agent keys (test added in
+   [xibalba-shield#40](https://github.com/XibalbaTechSol/xibalba-shield/pull/40)), and Cortex's
+   provenance-export/`content_hash` binding — see Shield and Cortex above. Nothing left unconfirmed
+   in this list.
 7. Check `gh run list --branch main` results going forward now that Cortex's CI is fixed, and run
    the Shield/Cortex independence CI check the Builds item actually asks for (a passing CI run,
    not just a local suite).
 8. Update `STATUS.md`, `docs/EXECUTION_PLAN.md`, and this handoff only after the above evidence is
-   fresh — nothing in this pass ticked a checkbox.
+   fresh — nothing in this pass ticked a checkbox. With items 1, 5, and 6 now resolved, Gate A's
+   remaining open work is narrower: the CI-vs-local-suite distinction in item 7, the 18 extraneous
+   legacy keys (owner choice, item 2), and re-running Cortex fresh (item 4).
