@@ -22,8 +22,19 @@ CI was confirmed pinning `integrity-core` to a full SHA as a sibling checkout, g
 the console build was re-run clean. **Gate A moved from 2/12 to 10/12** (`integrity-core#132`,
 `STATUS.md` and `docs/EXECUTION_PLAN.md` updated with the evidence). Still open: **Identity** (18
 extraneous legacy keys remain, by owner choice, not fixable by an agent per the permission
-classifier) and **Docs** (the cross-repository competing-plan/architecture-register check across
-Shield, Cortex, and the console has not been run).
+classifier) and **Docs** (partial progress 2026-09-29: checked Shield's `PRODUCTION_READINESS_PLAN.md`
+(explicitly disclaims authority over `SPECIFICATION.md` — fine), Cortex's `SPECIFICATION.md` /
+`spec/xibalba-cortex-v1.md` (a deliberate two-tier entry-point/normative split, not a conflict —
+fine) and `PROJECT_STATE.md` (declares itself "the single resume authority" but scoped to Cortex's
+own resume state, not competing with protocol authority — fine, though its "Last verified:
+2026-09-14" is 15 days stale and worth a refresh), and found + fixed one real drift: the console's
+`integrity-dashboard/SPECIFICATION.md`, `IMPLEMENTATION_PLAN.md`, and `README.md` still said this
+directory was "a component of `integrity-core`, not a separate/fourth repository" — true when
+written, wrong since `integrity-core`#A1 split it back out into its own repo on 2026-09-28 (fixed
+in `integrity-console#5`). **Not yet done:** the item's full text asks that "every active normative
+document has an identified authority" — this pass spot-checked for competing-plan/authority
+conflicts specifically, not an exhaustive per-document authority audit across all four repos'
+active docs. Docs remains open.
 
 ## Outcome at handoff (as of 2026-09-28, historical)
 
