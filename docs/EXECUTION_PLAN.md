@@ -522,18 +522,61 @@ semantics or receipt meaning.
 
 ## Gate A
 
-- [ ] **Builds:** relevant suites, import hygiene, Shield/Cortex independence CI and the console build
+- [x] **Builds:** relevant suites, import hygiene, Shield/Cortex independence CI and the console build
   are green. The cut-path manifest is in integrity-lab. One SDK JCS implementation is used across
-  active repositories.
+  active repositories. Evidence (2026-09-29, against each repo's `origin/main`): `integrity-sdk`'s
+  `tests/unit/test_import_hygiene.py` 15/15 pass (core modules stay free of the connector stack;
+  the six A1-removed modules stay unimportable); a grep sweep of Shield, Cortex, `integrity-cli`,
+  `bcc_middleware`, and `contracts/src` for the same removed modules and `registry/` found none
+  (only the hygiene test's own module-name list and a historical comment in
+  `shield/opa_client.py`). Shield's CI (`ci.yml`) checks out `integrity-core` at a pinned 40-char
+  SHA (`d1848cde...`) and installs it as a sibling — no `/home/xibalba` path or Docker copy;
+  Cortex's CI does the same (pinned SHA `ef5bf6072eb66183372e3ba78a4bc5d4a8542bf9`, confirmed an
+  ancestor of current `integrity-core` main). Both repos' `main`-branch CI runs are green as of
+  their latest merges (Cortex run 36496631881 after #35; Shield run 36513669447 after #40).
+  `integrity-console/integrity-dashboard`'s `npm run build` succeeds cleanly (warnings only, no
+  errors) against its own current `origin/main`. This PR's own CI confirms `integrity-sdk (pytest)`
+  green (run 36514545811/job 109233820371), settling the local run's 28 Anvil-dependent errors
+  (`test_chain`/`test_health`/`test_registration`) as an environment gap, not a suite failure.
+  Cut-path manifest and single-SDK-JCS-implementation status carried over from the same-day
+  validation pass (see `docs/HANDOFF_GATE_A_2026-09-28.md`'s "Builds" section and
+  `xibalba-shield#39`/`xibalba-cortex#32`/`xibalba-cortex#35`, not re-verified fresh this pass).
 - **Shield:**
-  - [ ] the signed pack hash equals the enforced hash;
-  - [ ] tampered, malformed, stale or incompatible packs refuse to load;
-  - [ ] no-match follows the per-class default;
-  - [ ] malformed, unknown or evaluator-error decisions deny;
-  - [ ] exports contain no raw command content;
-  - [ ] the device key differs from the agent key.
-- [ ] **Cortex:** unauthenticated OTLP is rejected; provenance export works; create events bind
-  `content_hash`.
+  - [x] the signed pack hash equals the enforced hash. `tests/test_distribution_siem_dlp.py::test_fetch_tenant_policy_rejects_untrusted_hash`
+    and `tests/test_hot_reload.py::test_rejects_untrusted_policy_hash_on_reload` reject a policy
+    whose hash isn't in `trusted_policy_hashes`.
+  - [x] tampered, malformed, stale or incompatible packs refuse to load. "Stale" is covered as
+    calendar expiry, unconditionally: `tests/test_config_signing.py::test_verify_rejects_an_expired_policy`.
+    Tampered/malformed/incompatible: `test_verify_rejects_tampered_policy_content`,
+    `test_verify_rejects_a_tampered_signature`, `test_verify_rejects_malformed_wrapper_shape`, and
+    `test_verify_rejects_legacy_canonicalization_metadata` (incompatible schema/canonicalization,
+    added in `xibalba-shield#39`). A second, narrower reading of "stale" as a policy-version
+    regression is also covered, but only when opted in:
+    `tests/test_hot_reload.py::test_rejects_policy_downgrade_when_enabled` requires
+    `PolicyHotReloader(reject_downgrades=True)`, and `shield/config/loader.py`'s
+    `reject_policy_downgrades` device-config field defaults to `False` — `shield run`/`local-run`
+    only enable it when an operator sets that flag. Not counted as the item's evidence; noted as
+    available defense-in-depth.
+  - [x] no-match follows the per-class default. `tests/test_policy_engine.py::test_real_opa_unmatched_agent_event_defaults_to_deny_on_the_regulated_profile`.
+  - [x] malformed, unknown or evaluator-error decisions deny. `tests/test_policy_engine.py::test_unknown_event_class_denies_in_enforce_mode`,
+    `::test_malformed_raw_decision_denies_in_enforce_mode`, `::test_opa_unavailable_fails_closed`
+    (OPA itself raising `OpaError` still resolves to `deny`).
+  - [x] exports contain no raw command content. `tests/test_distribution_siem_dlp.py::test_content_classifier_uses_metadata_without_raw_content`.
+  - [x] the device key differs from the agent key. `tests/test_device_assertion.py::test_device_key_is_cryptographically_distinct_from_the_agent_identity_key`
+    (plus `test_load_device_keypair_returns_none_without_a_configured_path` and
+    `test_load_device_keypair_reads_the_key_at_the_configured_path`), added in `xibalba-shield#40`.
+
+  All six re-run 2026-09-29 in an isolated worktree off `xibalba-shield`'s `origin/main`
+  (post-#40): 98/98 pass across the six test files above.
+- [x] **Cortex:** unauthenticated OTLP is rejected; provenance export works; create events bind
+  `content_hash`. `tests/test_otlp_receiver.py`'s `test_missing_bearer_token_is_rejected`,
+  `test_invalid_bearer_token_is_rejected`, `test_read_only_token_is_rejected_for_ingestion`,
+  `test_revoked_token_is_rejected`; `tests/test_store.py::test_export_provider_telemetry_returns_a_verifiable_merkle_export`
+  (independently re-derives and checks the Merkle proof per leaf, not just trusting the export's
+  own claimed root) and `::test_store_memory_preserves_provenance_and_is_idempotent` (asserts a
+  correctly-shaped `content_hash` on the create path). Re-run 2026-09-29 in an isolated worktree
+  off `xibalba-cortex`'s `origin/main` (`a74d328`, after #35): full suite 551 passed, 0 failed,
+  0 errors, 2 skipped.
 - [x] **Kernel:** it no longer imports `registry/`; the tier-off test and Halmos pass. `make verify-kernel`: KernelSwapHarnessTest 2/2,
   KernelPropertiesTest 6/6 (2026-09-28, after A4); tier-off covered by `IntegrityKernelAssuranceTier.t.sol`.
 - [x] **Receipts:** a receipt can be created, signed and verified locally, unanchored. `tests/unit/test_core_receipts.py`

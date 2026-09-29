@@ -1,13 +1,31 @@
 # Handoff: Gate A validation pass, after A6
 
-**Date:** 2026-09-28
+**Date:** 2026-09-28 (superseded 2026-09-29 — see status update below)
 **Repository:** `integrity-core`
 **Authority:** [`docs/EXECUTION_PLAN.md`](EXECUTION_PLAN.md)
 **Current status:** A6 complete; Gate A not passed. A full validation pass ran against all 10 open
 items this session (superseding the same-day handoff written right after A6 merged). No
-`EXECUTION_PLAN.md` checkboxes were ticked — nothing here should be read as the gate passing.
+`EXECUTION_PLAN.md` checkboxes were ticked in this pass — nothing in the text below should be read
+as the gate passing on its own. **A later pass (2026-09-29, integrity-core#132) ticked 8 of this
+handoff's open items** — see the status update immediately below before reading the rest of this
+document as current.
 
-## Outcome at handoff
+## Status update (2026-09-29)
+
+Following this handoff's "Recommended next sequence": `xibalba-cortex#34`/`#35` and
+`xibalba-shield#40` merged (all CI-green); the Cortex suite was re-run fresh against `origin/main`
+in an isolated worktree (551 passed, 0 failed, 2 skipped, resolving the "1 commit behind" caveat
+below); Shield's six sub-items were re-run fresh against `origin/main` in an isolated worktree
+(98/98 pass); import hygiene was checked (`integrity-sdk`'s `test_import_hygiene.py` 15/15, plus a
+grep sweep of Shield/Cortex/CLI/bcc_middleware/contracts for A1-cut modules, clean); both repos'
+CI was confirmed pinning `integrity-core` to a full SHA as a sibling checkout, green post-merge;
+the console build was re-run clean. **Gate A moved from 2/12 to 10/12** (`integrity-core#132`,
+`STATUS.md` and `docs/EXECUTION_PLAN.md` updated with the evidence). Still open: **Identity** (18
+extraneous legacy keys remain, by owner choice, not fixable by an agent per the permission
+classifier) and **Docs** (the cross-repository competing-plan/architecture-register check across
+Shield, Cortex, and the console has not been run).
+
+## Outcome at handoff (as of 2026-09-28, historical)
 
 The execution plan is at **78/201 checkboxes (38%)**, unchanged this session. A0-A6 are complete
 (see prior handoff content, preserved below under "A6 recap"). Gate A is now **2/12 items
