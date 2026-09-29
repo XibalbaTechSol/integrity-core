@@ -34,6 +34,7 @@ from integrity_sdk.core import decision as decision_codes
 from integrity_sdk.core import receipts
 from integrity_sdk.core.offline import verify_receipt_log_offline
 from integrity_sdk.core import packs
+from integrity_sdk.core import ReceiptQueue, receipt_hash
 from integrity_sdk.core import (
     AgentRegistration,
     DeviceRegistration,
@@ -226,6 +227,36 @@ event_classes:
     if truncated_result.valid or truncated_result.code != "TRUNCATED":
         raise AssertionError(f"truncated log was not rejected: {truncated_result}")
 
+    # Verify that an offline transport failure preserves receipts and that a
+    # later retry acknowledges exactly the submitted item.
+    with tempfile.TemporaryDirectory(prefix="integrity-health-queue-") as queue_dir:
+        queue_path = Path(queue_dir) / "receipts.json"
+        queue = ReceiptQueue(signer, "shield:synthetic-device-queue", queue_path)
+        queued = queue.append(
+            agent_did="did:integrity:synthetic-health-agent-001",
+            device_id_hmac=receipts.hmac_identifier(b"synthetic-org-key-32-bytes-long-000", "device", event.device_id),
+            action_hmac=receipts.hmac_identifier(b"synthetic-org-key-32-bytes-long-000", "action", "queue-test"),
+            event_class="agent.tool_call",
+            pack_hash=shield_decision.policy.hash,
+            decision=decision_codes.DENY,
+            reason_code="REGULATED_NO_MATCH_DENY",
+            mode=decision_codes.ENFORCE,
+            controls=["HIPAA-164.312(b)"],
+            timestamp="2026-09-29T00:00:04Z",
+        )
+        try:
+            queue.submit(lambda _pending: (_ for _ in ()).throw(RuntimeError("offline")))
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("offline queue submission unexpectedly succeeded")
+        resumed_queue = ReceiptQueue(signer, "shield:synthetic-device-queue", queue_path)
+        if resumed_queue.pending() != [queued]:
+            raise AssertionError("offline submission did not preserve the pending receipt")
+        accepted = resumed_queue.submit(lambda pending: [receipt_hash(pending[0])])
+        if accepted != [receipt_hash(queued)] or resumed_queue.pending():
+            raise AssertionError("queue retry did not acknowledge exactly the submitted receipt")
+
     with tempfile.TemporaryDirectory(prefix="integrity-health-smoke-") as temp_dir:
         store = GraphStore(Path(temp_dir) / "cortex")
         memory = store.store_memory(
@@ -279,6 +310,7 @@ event_classes:
             "tamper_rejection": tampered_result.code,
             "wrong_signer_rejection": wrong_signer_result.code,
             "truncation_rejection": truncated_result.code,
+            "queue_recovery": "verified",
         },
         "cortex": {
             "provenance": "verified",
