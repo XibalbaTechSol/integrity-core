@@ -30,6 +30,7 @@ for path in (SHIELD_ROOT, CORTEX_SRC, SDK_ROOT):
 from shield.opa_local import supervised_opa
 from shield.policy_engine.engine import EvaluationContext, PolicyEngine
 from shield.schemas.events import AgentContext, AgentEvent, AgentInfo, AgentActivity
+from shield.integrations.siem import export_decision_log_to_jsonl
 from integrity_sdk.core import decision as decision_codes
 from integrity_sdk.core import receipts
 from integrity_sdk.core.offline import verify_receipt_log_offline
@@ -251,6 +252,28 @@ event_classes:
         for field in ("control_id", "pack_hash", "receipt_hash")
     ):
         raise AssertionError("Vanta fixture is missing the control-to-receipt evidence link")
+    with tempfile.TemporaryDirectory(prefix="integrity-health-ocsf-") as export_dir_name:
+        export_dir = Path(export_dir_name)
+        source = export_dir / "decisions.jsonl"
+        destination = export_dir / "ocsf.jsonl"
+        source.write_text(
+            json.dumps(
+                {
+                    "class": "policy_decision",
+                    "device_id": event.device_id,
+                    "decision": {"action": shield_decision.decision.action},
+                    "policy": {"hash": shield_decision.policy.hash},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        export_result = export_decision_log_to_jsonl(source, destination)
+        exported_row = json.loads(destination.read_text(encoding="utf-8").strip())
+        if export_result.exported != 1 or exported_row.get("event.module") != "xibalba-shield":
+            raise AssertionError("OCSF-style JSONL export did not produce the expected module record")
+        if "content" in exported_row or "prompt" in exported_row:
+            raise AssertionError("OCSF-style JSONL export included raw content")
 
     tampered_receipt = dict(receipt)
     tampered_receipt["decision"] = decision_codes.PERMIT
@@ -400,6 +423,7 @@ event_classes:
         },
         "exports": {
             "vanta_fixture": "verified",
+            "ocsf_jsonl": "verified",
             "raw_content": "absent",
         },
     }, indent=2))
