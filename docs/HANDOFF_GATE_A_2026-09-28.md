@@ -6,9 +6,9 @@
 **Current status:** A6 complete; Gate A not passed. A full validation pass ran against all 10 open
 items this session (superseding the same-day handoff written right after A6 merged). No
 `EXECUTION_PLAN.md` checkboxes were ticked in this pass — nothing in the text below should be read
-as the gate passing on its own. **A later pass (2026-09-29, integrity-core#132) ticked 8 of this
-handoff's open items** — see the status update immediately below before reading the rest of this
-document as current.
+as the gate passing on its own. **Later passes the same day (integrity-core#132, #133, #134) ticked
+9 of this handoff's 10 open items, leaving only Docs** — see the status update immediately below
+before reading the rest of this document as current.
 
 ## Status update (2026-09-29)
 
@@ -20,21 +20,39 @@ below); Shield's six sub-items were re-run fresh against `origin/main` in an iso
 grep sweep of Shield/Cortex/CLI/bcc_middleware/contracts for A1-cut modules, clean); both repos'
 CI was confirmed pinning `integrity-core` to a full SHA as a sibling checkout, green post-merge;
 the console build was re-run clean. **Gate A moved from 2/12 to 10/12** (`integrity-core#132`,
-`STATUS.md` and `docs/EXECUTION_PLAN.md` updated with the evidence). Still open: **Identity** (18
-extraneous legacy keys remain, by owner choice, not fixable by an agent per the permission
-classifier) and **Docs** (partial progress 2026-09-29: checked Shield's `PRODUCTION_READINESS_PLAN.md`
-(explicitly disclaims authority over `SPECIFICATION.md` — fine), Cortex's `SPECIFICATION.md` /
-`spec/xibalba-cortex-v1.md` (a deliberate two-tier entry-point/normative split, not a conflict —
-fine) and `PROJECT_STATE.md` (declares itself "the single resume authority" but scoped to Cortex's
-own resume state, not competing with protocol authority — fine, though its "Last verified:
-2026-09-14" is 15 days stale and worth a refresh), and found + fixed one real drift: the console's
-`integrity-dashboard/SPECIFICATION.md`, `IMPLEMENTATION_PLAN.md`, and `README.md` still said this
-directory was "a component of `integrity-core`, not a separate/fourth repository" — true when
-written, wrong since `integrity-core`#A1 split it back out into its own repo on 2026-09-28 (fixed
-in `integrity-console#5`). **Not yet done:** the item's full text asks that "every active normative
+`STATUS.md` and `docs/EXECUTION_PLAN.md` updated with the evidence), **then to 11/12**
+(`integrity-core#134`, this same day) once Identity was resolved. **Docs** (partial progress
+2026-09-29: checked Shield's `PRODUCTION_READINESS_PLAN.md` (explicitly disclaims authority over
+`SPECIFICATION.md` — fine), Cortex's `SPECIFICATION.md` / `spec/xibalba-cortex-v1.md` (a deliberate
+two-tier entry-point/normative split, not a conflict — fine) and `PROJECT_STATE.md` (declares
+itself "the single resume authority" but scoped to Cortex's own resume state, not competing with
+protocol authority — fine, though its "Last verified: 2026-09-14" is 15 days stale and worth a
+refresh), and found + fixed one real drift: the console's `integrity-dashboard/SPECIFICATION.md`,
+`IMPLEMENTATION_PLAN.md`, and `README.md` still said this directory was "a component of
+`integrity-core`, not a separate/fourth repository" — true when written, wrong since
+`integrity-core`#A1 split it back out into its own repo on 2026-09-28 (fixed in
+`integrity-console#5`). **Not yet done:** the item's full text asks that "every active normative
 document has an identified authority" — this pass spot-checked for competing-plan/authority
 conflicts specifically, not an exhaustive per-document authority audit across all four repos'
-active docs. Docs remains open.
+active docs. Docs remains the sole open Gate A item.
+
+**Identity (2026-09-29): resolved, with one disclosed follow-up.** The 18 extraneous legacy keys
+were relocated/quarantined via an owner-run script (agent-run writes to key files are blocked by
+the permission classifier, by design — a dry-run/`--apply` script was handed to the owner instead
+of attempted directly): `agy` relocated cleanly (no conflict); 2 unregistered orphans and 2
+duplicate copies of the live on-chain `xibalba` identity's key material (found unexpectedly
+scattered across the `xibalba-quant` and `xibalba-shield` Hermes profile roots in addition to its
+one correct copy under main `.hermes`) and 12 dead Antigravity subagent-worktree fixture keys were
+all quarantined (moved to `~/.integrity-quarantine-2026-09-29/`, not deleted). **Side effect, still
+under the owner's own investigation, not this session's:** quarantining 2 of the orphans (main
+`.hermes` profile's `xibalba` slot and `xibalba-quant` profile's own `xibalba-quant` slot)
+triggered a live process — not yet root-caused, candidates are the Hermes gateway or
+`xibalba-quant-framework`'s paper-trading loop — to mint a brand-new unregistered DID in each spot
+within seconds. Stable since (no further regeneration), and confirmed paper-trading only (no real
+capital). Whatever resolves identity for those two profiles is bypassing `integrity_sdk`'s
+profile-scoped key-home design and reading/writing the legacy in-root path directly; finding that
+call site is the actual next step here, separate from the original 18-key cleanup this item was
+about.
 
 ## Outcome at handoff (as of 2026-09-28, historical)
 

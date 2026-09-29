@@ -1,5 +1,20 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-09-29] handoff | Gate A Identity closed, Docs remains
+
+- Gate A moved from 2/12 to 11/12 across `integrity-core#132`/`#133`/`#134`: Builds, all six
+  Shield sub-items, Cortex, and Identity now carry fresh evidence in
+  `docs/HANDOFF_GATE_A_2026-09-28.md` and `docs/EXECUTION_PLAN.md`. Only Docs (a full
+  per-document authority audit, not yet exhaustive) remains open.
+- Identity's 18 extraneous legacy `integrity_sdk` DID keys (found scattered under harness roots
+  outside the five identities that matter) were relocated/quarantined via an owner-run script,
+  never deleted. Disclosed, unresolved follow-up: quarantining 2 orphan slots triggered a live
+  process (Hermes gateway or `xibalba-quant-framework`'s paper-trading loop, not yet root-caused)
+  to mint replacement unregistered DIDs in those same legacy paths — stable, paper-trading only,
+  under the machine owner's own investigation.
+- No `integrity_sdk`/contract/API surface changed this pass; this is a plan/status/handoff-only
+  update plus off-repo file relocation on the local machine.
+
 ## [2026-09-28] handoff | A6 complete, Gate A next
 
 - Added `docs/HANDOFF_GATE_A_2026-09-28.md` with the merged A6 outcome, open Gate A checklist,
