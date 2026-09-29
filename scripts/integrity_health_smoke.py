@@ -413,6 +413,24 @@ event_classes:
             raise AssertionError("retention sweep did not forget the expired synthetic memory")
         store.close()
 
+        tenant_a_store = GraphStore(Path(temp_dir) / "tenant-a", profile_id="tenant-a")
+        tenant_b_store = GraphStore(Path(temp_dir) / "tenant-b", profile_id="tenant-b")
+        try:
+            tenant_a_memory = tenant_a_store.store_memory(
+                "tenant-a synthetic evidence", source={"kind": "integrity_health_smoke"}, status="confirmed"
+            )
+            try:
+                tenant_b_store.get_memory(tenant_a_memory["id"])
+            except KeyError:
+                pass
+            else:
+                raise AssertionError("tenant B read tenant A memory")
+            if tenant_b_store.search("tenant-a synthetic", limit=10):
+                raise AssertionError("tenant B search returned tenant A memory")
+        finally:
+            tenant_a_store.close()
+            tenant_b_store.close()
+
     print(json.dumps({
         "scenario": "integrity_health_local",
         "shield": {
@@ -446,6 +464,7 @@ event_classes:
         "tenancy": {
             "cross_tenant_lookup": "denied",
             "cross_tenant_authorization": "denied",
+            "cortex_store_isolation": "verified",
             "revoked_device_authorization": "denied",
             "receipt_or_pack_gate": "fail_closed",
         },
