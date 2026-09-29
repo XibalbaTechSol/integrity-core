@@ -73,6 +73,15 @@ def main() -> int:
 
     if shield_decision.decision.action != "deny":
         raise AssertionError(f"expected regulated no-BAA deny, got {shield_decision.decision.action}")
+    shadow_result = decision_codes.resolve(
+        "agent.tool_call",
+        {"decision": decision_codes.DENY, "reason_code": "REGULATED_NO_MATCH_DENY"},
+        event_defaults=pack.event_defaults,
+        mode=decision_codes.SHADOW,
+        pack_hash=pack.pack_hash,
+    )
+    if shadow_result.decision != decision_codes.DENY or shadow_result.blocks:
+        raise AssertionError("shadow mode did not record the deny without blocking")
 
     # Simulate the local policy sidecar disappearing after a verified pack is
     # installed. The configured pack must still fail closed rather than turn a
@@ -383,6 +392,7 @@ event_classes:
             "reason_code": receipt["reason_code"],
             "pack_hash": shield_decision.policy.hash,
             "policy_sidecar_outage": "fail_closed",
+            "shadow_mode": "recorded_without_blocking",
         },
         "integrity": {
             "receipt_log": log.log_id,
