@@ -1,0 +1,10 @@
+pack_format: integrity.pack/1
+name: base
+version: 0.1.0
+kernel_range: ">=1.0.0 <2.0.0"
+decision_contract: integrity.decision/1
+entrypoint: data.integrity.pack.decision
+event_classes:
+  agent.tool_call: {no_match: deny}
+  agent.read: {no_match: permit}
+  device.sensor: {no_match: log_only}
