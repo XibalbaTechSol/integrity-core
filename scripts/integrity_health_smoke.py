@@ -33,6 +33,13 @@ from shield.schemas.events import AgentContext, AgentEvent, AgentInfo, AgentActi
 from integrity_sdk.core import decision as decision_codes
 from integrity_sdk.core import receipts
 from integrity_sdk.core.offline import verify_receipt_log_offline
+from integrity_sdk.core import (
+    AgentRegistration,
+    DeviceRegistration,
+    LocalRegistry,
+    RegistryError,
+    TenantIdentity,
+)
 from integrity_sdk.did import Keypair, public_key_multibase
 from xibalba_cortex.store import GraphStore
 
@@ -62,6 +69,59 @@ def main() -> int:
 
     if shield_decision.decision.action != "deny":
         raise AssertionError(f"expected regulated no-BAA deny, got {shield_decision.decision.action}")
+
+    # Exercise the local tenancy boundary before creating any receipt. A device
+    # must be active, belong to the requested tenant, and belong to the agent
+    # named by the request. This is synthetic registry metadata only; no hosted
+    # control plane or private credential is involved.
+    with tempfile.TemporaryDirectory(prefix="integrity-health-registry-") as registry_dir:
+        registry = LocalRegistry(Path(registry_dir) / "registry.json")
+        tenant_a = TenantIdentity("org-a", "tenant-a", "Tenant A")
+        tenant_b = TenantIdentity("org-b", "tenant-b", "Tenant B")
+        agent_a = AgentRegistration(tenant_a.tenant_id, "did:integrity:agent-a", "Agent A")
+        agent_b = AgentRegistration(tenant_b.tenant_id, "did:integrity:agent-b", "Agent B")
+        device_a = DeviceRegistration(
+            tenant_a.tenant_id, "device-a", agent_a.agent_did, "zsynthetic-a", shield_decision.policy.hash
+        )
+        revoked_device = DeviceRegistration(
+            tenant_b.tenant_id,
+            "device-b",
+            agent_b.agent_did,
+            "zsynthetic-b",
+            shield_decision.policy.hash,
+            status="revoked",
+        )
+        for tenant in (tenant_a, tenant_b):
+            registry.register_tenant(tenant)
+        for agent in (agent_a, agent_b):
+            registry.register_agent(agent)
+        registry.register_device(device_a)
+        registry.register_device(revoked_device)
+
+        if registry.get_device(device_a.device_id, tenant_id=tenant_b.tenant_id) is not None:
+            raise AssertionError("cross-tenant device lookup was not isolated")
+        if registry.get_agent(agent_a.agent_did, tenant_id=tenant_b.tenant_id) is not None:
+            raise AssertionError("cross-tenant agent lookup was not isolated")
+        if registry.authorize_device(
+            tenant_id=tenant_a.tenant_id, agent_did=agent_a.agent_did, device_id=device_a.device_id
+        ) != device_a:
+            raise AssertionError("active device was not authorized for its own tenant")
+        try:
+            registry.authorize_device(
+                tenant_id=tenant_b.tenant_id, agent_did=agent_a.agent_did, device_id=device_a.device_id
+            )
+        except RegistryError:
+            pass
+        else:
+            raise AssertionError("cross-tenant device authorization was not rejected")
+        try:
+            registry.authorize_device(
+                tenant_id=tenant_b.tenant_id, agent_did=agent_b.agent_did, device_id=revoked_device.device_id
+            )
+        except RegistryError:
+            pass
+        else:
+            raise AssertionError("revoked device was authorized to receive a pack or append a receipt")
 
     signer = Keypair.generate()
     log = receipts.ReceiptLog(signer, "shield:synthetic-device-001")
@@ -184,6 +244,12 @@ def main() -> int:
             "cortex_storage": "temporary_local_filesystem",
             "external_content_transport": 0,
             "receipt_raw_content": "absent",
+        },
+        "tenancy": {
+            "cross_tenant_lookup": "denied",
+            "cross_tenant_authorization": "denied",
+            "revoked_device_authorization": "denied",
+            "receipt_or_pack_gate": "fail_closed",
         },
     }, indent=2))
     return 0
