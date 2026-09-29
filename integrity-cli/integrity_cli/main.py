@@ -25,7 +25,8 @@ import json
 import os
 import re
 from dataclasses import asdict, dataclass
-from typing import Optional
+from pathlib import Path
+from typing import Any, Optional
 
 import typer
 from dotenv import load_dotenv
@@ -35,7 +36,7 @@ from rich.console import Console
 from rich.table import Table
 from web3 import Web3
 
-from . import bcc, chain, config, identity, vault, wallet
+from . import bcc, chain, config, identity, vault, verify, wallet
 from .client import ApiError, BccClient, IntegrityClient
 from .config import get_auth_token, load_config, set_config_value
 
@@ -73,6 +74,69 @@ app.add_typer(vault_app, name="vault")
 
 wallet_app = typer.Typer(help="EVM wallet keystores -- import a raw key once, then reference it by name")
 app.add_typer(wallet_app, name="wallet")
+
+
+@app.command("verify")
+def verify_command(
+    receipts: Path = typer.Option(..., "--receipts", exists=True, readable=True, help="Receipt bundle JSON file or JSON array"),
+    trusted_signer: list[str] = typer.Option([], "--trusted-signer", help="Trusted z-prefixed Ed25519 public key; repeatable"),
+    checkpoint: Optional[Path] = typer.Option(None, "--checkpoint", exists=True, readable=True, help="Checkpoint JSON file"),
+    proof: Optional[Path] = typer.Option(None, "--proof", exists=True, readable=True, help="Inclusion proof JSON file"),
+    anchor_root: Optional[str] = typer.Option(None, "--anchor-root", help="Read-back anchor root for local comparison (0x + 32 bytes)"),
+    json_output: bool = typer.Option(False, "--json-output", help="Emit machine-readable JSON"),
+) -> None:
+    """Verify receipt signatures, chain, checkpoint, and optional inclusion proof offline.
+
+    This command never claims public-chain finality.  ``--anchor-root`` only
+    compares a supplied read-back root to the verified checkpoint root.
+    """
+    result: dict[str, Any] = {"scope": "local", "valid": False, "signature": "not_checked", "chain": "not_checked", "checkpoint": "not_requested", "inclusion": "not_requested", "anchor": "not_requested"}
+    try:
+        if not trusted_signer:
+            raise verify.VerifyError("MALFORMED", "at least one --trusted-signer is required")
+        bundle = verify.load_json(receipts)
+        if isinstance(bundle, list):
+            receipt_values = bundle
+            bundle_checkpoint = None
+        elif isinstance(bundle, dict) and isinstance(bundle.get("receipts"), list):
+            receipt_values = bundle["receipts"]
+            bundle_checkpoint = bundle.get("checkpoint")
+        else:
+            raise verify.VerifyError("MALFORMED", "receipt input must be an array or {receipts, checkpoint}")
+        selected_checkpoint = verify.load_json(checkpoint) if checkpoint else bundle_checkpoint
+        summary = verify.verify_bundle(receipt_values, trusted_signer, selected_checkpoint)
+        result.update({"signature": "pass", "chain": "pass", "receipts": summary["receipts"], "log_id": summary["log_id"]})
+        if selected_checkpoint is not None:
+            result["checkpoint"] = "pass"
+        if proof:
+            proof_doc = verify.load_json(proof)
+            if not isinstance(proof_doc, dict) or not isinstance(proof_doc.get("proof"), list):
+                raise verify.VerifyError("MALFORMED", "proof input must be {receipt, proof, checkpoint?}")
+            proof_checkpoint = proof_doc.get("checkpoint", selected_checkpoint)
+            if proof_checkpoint is None:
+                raise verify.VerifyError("MALFORMED", "inclusion proof requires a checkpoint")
+            verify.verify_inclusion(proof_doc.get("receipt"), proof_doc["proof"], proof_checkpoint, trusted_signer)
+            result["inclusion"] = "pass"
+        if anchor_root is not None:
+            if selected_checkpoint is None:
+                raise verify.VerifyError("MALFORMED", "--anchor-root requires a checkpoint")
+            if not verify.is_hex32(anchor_root):
+                raise verify.VerifyError("MALFORMED", "--anchor-root must be 0x + 64 lowercase hex")
+            result["anchor"] = "pass" if anchor_root == selected_checkpoint["root"] else "fail"
+            if result["anchor"] == "fail":
+                raise verify.VerifyError("ROOT_MISMATCH", "anchor root differs from checkpoint root")
+        result["valid"] = True
+    except verify.VerifyError as exc:
+        result.update({"valid": False, "error": {"code": exc.code, "detail": exc.detail}})
+    if json_output:
+        # Rich wraps long strings to terminal width; machine-readable output
+        # must remain one valid JSON document even for verbose error details.
+        typer.echo(json.dumps(result, sort_keys=True, separators=(",", ":")))
+    else:
+        console.print("[green]PASS[/green] local receipt verification" if result["valid"] else f"[red]FAIL[/red] {result.get('error', {}).get('code', 'verification failed')}")
+        console.print(json.dumps(result, indent=2, sort_keys=True))
+    if not result["valid"]:
+        raise typer.Exit(1)
 
 
 # --------------------------------------------------------------------------
