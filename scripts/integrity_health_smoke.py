@@ -35,6 +35,7 @@ from integrity_sdk.core import receipts
 from integrity_sdk.core.offline import verify_receipt_log_offline
 from integrity_sdk.core import packs
 from integrity_sdk.core import ReceiptQueue, receipt_hash
+from integrity_sdk.core import CapabilityDenied, EntitlementSet, require_capability
 from integrity_sdk.core import (
     AgentRegistration,
     DeviceRegistration,
@@ -169,6 +170,21 @@ event_classes:
             pass
         else:
             raise AssertionError("revoked device was authorized to receive a pack or append a receipt")
+
+    entitlements = EntitlementSet("tenant-a", frozenset({"shield.enforce", "cortex.write"}))
+    require_capability(entitlements, "shield.enforce", tenant_id="tenant-a")
+    try:
+        require_capability(entitlements, "billing.admin", tenant_id="tenant-a")
+    except CapabilityDenied:
+        pass
+    else:
+        raise AssertionError("ungranted entitlement was accepted")
+    try:
+        require_capability(entitlements, "shield.enforce", tenant_id="tenant-b")
+    except CapabilityDenied:
+        pass
+    else:
+        raise AssertionError("cross-tenant entitlement was accepted")
 
     signer = Keypair.generate()
     log = receipts.ReceiptLog(signer, "shield:synthetic-device-001")
@@ -348,6 +364,12 @@ event_classes:
             "signed_load": "verified",
             "hash_pin": "verified",
             "policy_relaxation": "rejected",
+        },
+        "entitlements": {
+            "granted_capability": "verified",
+            "missing_capability": "denied",
+            "tenant_mismatch": "denied",
+            "billing_dependency": "none",
         },
     }, indent=2))
     return 0
