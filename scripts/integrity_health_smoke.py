@@ -270,7 +270,6 @@ event_classes:
             status="confirmed",
         )
         bundle = store.export_memory_bundle(memory_ids=[memory["id"]])
-        store.close()
 
         bundle_path = Path(temp_dir) / "provenance.json"
         bundle_path.write_text(json.dumps(bundle), encoding="utf-8")
@@ -297,6 +296,21 @@ event_classes:
         if tampered_verified.returncode != 1:
             raise AssertionError("tampered Cortex provenance was not rejected")
 
+        retention_session = "integrity-health-retention"
+        store.start_session(retention_session, retention_tier="digest")
+        retained = store.store_memory(
+            "Synthetic retention candidate",
+            source={"kind": "integrity_health_smoke", "session_id": retention_session},
+            status="confirmed",
+        )
+        store.end_session(retention_session)
+        retention = store.retention_sweep(max_age_days={"digest": 0}, apply=True)
+        if retention["candidate_count"] != 1 or not retention["deletion_receipts"]:
+            raise AssertionError("retention sweep did not produce a deletion receipt")
+        if store.get_memory(retained["id"])["status"] != "forgotten":
+            raise AssertionError("retention sweep did not forget the expired synthetic memory")
+        store.close()
+
     print(json.dumps({
         "scenario": "integrity_health_local",
         "shield": {
@@ -316,6 +330,7 @@ event_classes:
             "provenance": "verified",
             "tamper_rejection": "verified",
             "content_boundary": "synthetic_only",
+            "retention_purge": "verified",
         },
         "data_boundary": {
             "shield_opa_scope": "loopback_only",
