@@ -8,6 +8,7 @@ from eth_utils import keccak
 from typer.testing import CliRunner
 
 from integrity_cli.main import app
+from integrity_cli import main as main_module
 
 
 runner = CliRunner()
@@ -96,3 +97,43 @@ def test_verify_rejects_tampered_receipt(tmp_path):
     output = json.loads(result.stdout)
     assert output["valid"] is False
     assert output["error"]["code"] == "BAD_SIGNATURE"
+
+
+def test_verify_reads_local_state_anchor(tmp_path, monkeypatch):
+    bundle, proof, signer, root = _bundle(tmp_path)
+
+    class _Call:
+        def __init__(self, value):
+            self.value = value
+
+        def call(self):
+            return self.value
+
+    class _Functions:
+        def latestRoot(self):
+            return _Call(bytes.fromhex(root[2:]))
+
+        def verifyLeaf(self, supplied_root, leaf, proof_nodes):
+            assert supplied_root == bytes.fromhex(root[2:])
+            assert len(leaf) == 32
+            assert proof_nodes == []
+            return _Call(True)
+
+    class _Anchor:
+        functions = _Functions()
+
+    class _W3:
+        def is_connected(self):
+            return True
+
+    monkeypatch.setattr(main_module.chain, "get_w3", lambda _url: _W3())
+    monkeypatch.setattr(main_module.chain, "_contract", lambda *_args, **_kwargs: _Anchor())
+    result = runner.invoke(app, [
+        "verify", "--receipts", str(bundle), "--trusted-signer", signer,
+        "--proof", str(proof), "--anchor-contract", "0x" + "11" * 20,
+        "--json-output",
+    ])
+    assert result.exit_code == 0, result.stdout
+    document = json.loads(result.stdout)
+    assert document["anchor"] == "pass"
+    assert document["anchor_scope"] == "local_rpc"

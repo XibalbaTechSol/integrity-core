@@ -111,6 +111,11 @@ def _leaf(receipt: Mapping[str, Any]) -> bytes:
     return keccak(keccak(domain + preimage))
 
 
+def receipt_leaf(receipt: Mapping[str, Any]) -> bytes:
+    """Return the bytes32 Merkle leaf used by StateAnchor.verifyLeaf."""
+    return _leaf(receipt)
+
+
 def _hash_pair(left: bytes, right: bytes) -> bytes:
     return keccak(left + right) if left < right else keccak(right + left)
 

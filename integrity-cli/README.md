@@ -143,13 +143,17 @@ integrity verify \
   --trusted-signer z<base58btc-ed25519-public-key> \
   [--proof inclusion-proof.json] \
   [--anchor-root 0x<checkpoint-root>] \
+  [--anchor-contract 0x<StateAnchor> --rpc-url http://127.0.0.1:8545] \
   --json-output
 ```
 
 The command checks Ed25519 signatures, receipt sequence and hash-chain
 continuity, checkpoint roots, and optional Merkle inclusion proofs. An
 `--anchor-root` value is only compared locally with the verified checkpoint;
-it does not claim public-chain anchoring or finality.
+it does not claim public-chain anchoring or finality. With
+`--anchor-contract`, the CLI performs a read-only `latestRoot` and
+`verifyLeaf` check against the supplied RPC (intended for local Anvil); this
+is reported as local RPC evidence, not testnet or production finality.
 
 ## The BCC signature scheme (reconciled)
 
