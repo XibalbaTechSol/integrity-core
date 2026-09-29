@@ -73,6 +73,19 @@ def main() -> int:
     if shield_decision.decision.action != "deny":
         raise AssertionError(f"expected regulated no-BAA deny, got {shield_decision.decision.action}")
 
+    # Simulate the local policy sidecar disappearing after a verified pack is
+    # installed. The configured pack must still fail closed rather than turn a
+    # transport error into a permit.
+    unavailable_engine = PolicyEngine(opa_url="http://127.0.0.1:1")
+    unavailable_engine._pack = pack  # test-only injection; no network is used
+    unavailable_engine._opa_client._installed_pack_hash = pack.pack_hash  # preserve the verified-pack branch
+    unavailable_decision = unavailable_engine.evaluate(event, context)
+    if unavailable_decision.decision.action != "deny":
+        raise AssertionError(
+            "policy-sidecar outage did not fail closed: "
+            f"{unavailable_decision.decision.action}"
+        )
+
     # Sign and reload a synthetic pack, then prove that a policy relaxation is
     # rejected before it can become an enforcement input.
     with tempfile.TemporaryDirectory(prefix="integrity-health-pack-") as pack_dir_name:
@@ -333,6 +346,7 @@ event_classes:
             "decision": shield_decision.decision.action,
             "reason_code": receipt["reason_code"],
             "pack_hash": shield_decision.policy.hash,
+            "policy_sidecar_outage": "fail_closed",
         },
         "integrity": {
             "receipt_log": log.log_id,
