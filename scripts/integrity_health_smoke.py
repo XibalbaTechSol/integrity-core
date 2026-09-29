@@ -39,6 +39,7 @@ from integrity_sdk.core import packs
 from integrity_sdk.core import ReceiptQueue, receipt_hash
 from integrity_sdk.core import CapabilityDenied, EntitlementSet, require_capability
 from integrity_sdk.core import BreakGlassError, create_approval, verify_approval
+from integrity_sdk.core import run_adapter_conformance
 from integrity_sdk.core import (
     AgentRegistration,
     DeviceRegistration,
@@ -50,6 +51,7 @@ from integrity_sdk.did import Keypair, public_key_multibase
 from xibalba_cortex.store import GraphStore
 from xibalba_cortex.ingest_tokens import verify_token_record
 from xibalba_cortex.tenant_onboarding import provision_tenant
+from integrity_sdk.integrations.sample_adapter import adapt_event
 
 
 def main() -> int:
@@ -238,6 +240,10 @@ event_classes:
         pass
     else:
         raise AssertionError("cross-tenant entitlement was accepted")
+
+    adapter_result = run_adapter_conformance(adapt_event)
+    if adapter_result["tenant_id"] != "tenant-a":
+        raise AssertionError("sample adapter changed the tenant identity scope")
 
     signer = Keypair.generate()
     log = receipts.ReceiptLog(signer, "shield:synthetic-device-001")
@@ -508,6 +514,10 @@ event_classes:
             "missing_capability": "denied",
             "tenant_mismatch": "denied",
             "billing_dependency": "none",
+        },
+        "adapter": {
+            "conformance": "verified",
+            "payload_export": "hash_only",
         },
         "exports": {
             "vanta_fixture": "verified",
