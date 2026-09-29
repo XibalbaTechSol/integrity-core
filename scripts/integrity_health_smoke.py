@@ -17,6 +17,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import datetime as dt
 from urllib.parse import urlparse
 from pathlib import Path
 
@@ -37,6 +38,7 @@ from integrity_sdk.core.offline import verify_receipt_log_offline
 from integrity_sdk.core import packs
 from integrity_sdk.core import ReceiptQueue, receipt_hash
 from integrity_sdk.core import CapabilityDenied, EntitlementSet, require_capability
+from integrity_sdk.core import BreakGlassError, create_approval, verify_approval
 from integrity_sdk.core import (
     AgentRegistration,
     DeviceRegistration,
@@ -82,6 +84,32 @@ def main() -> int:
     )
     if shadow_result.decision != decision_codes.DENY or shadow_result.blocks:
         raise AssertionError("shadow mode did not record the deny without blocking")
+    break_glass_signer = Keypair.generate()
+    break_glass = create_approval(
+        break_glass_signer,
+        tenant_id=context.tenant_id,
+        agent_did="did:integrity:synthetic-health-agent-001",
+        reason="synthetic incident response",
+        issued_at="2026-09-29T00:00:00Z",
+        expires_at="2026-09-29T01:00:00Z",
+        nonce="integrity-health-smoke",
+    )
+    verify_approval(
+        break_glass,
+        trusted_signers=[break_glass["signer_key"]],
+        now=dt.datetime(2026, 9, 29, 0, 30, tzinfo=dt.timezone.utc),
+    )
+    try:
+        verify_approval(
+            break_glass,
+            trusted_signers=[break_glass["signer_key"]],
+            now=dt.datetime(2026, 9, 29, 1, 0, tzinfo=dt.timezone.utc),
+        )
+    except BreakGlassError as expired:
+        if expired.code != "EXPIRED":
+            raise AssertionError(f"break-glass expiry failed with {expired.code}")
+    else:
+        raise AssertionError("expired break-glass approval was accepted")
 
     # Simulate the local policy sidecar disappearing after a verified pack is
     # installed. The configured pack must still fail closed rather than turn a
@@ -393,6 +421,7 @@ event_classes:
             "pack_hash": shield_decision.policy.hash,
             "policy_sidecar_outage": "fail_closed",
             "shadow_mode": "recorded_without_blocking",
+            "break_glass": "signed_and_expiring",
         },
         "integrity": {
             "receipt_log": log.log_id,
