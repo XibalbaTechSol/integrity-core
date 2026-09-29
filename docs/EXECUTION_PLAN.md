@@ -535,20 +535,28 @@ semantics or receipt meaning.
   ancestor of current `integrity-core` main). Both repos' `main`-branch CI runs are green as of
   their latest merges (Cortex run 36496631881 after #35; Shield run 36513669447 after #40).
   `integrity-console/integrity-dashboard`'s `npm run build` succeeds cleanly (warnings only, no
-  errors) against its own current `origin/main`. Cut-path manifest and single-SDK-JCS-implementation
-  status carried over from the same-day validation pass (see "A6 recap" / prior handoff content).
+  errors) against its own current `origin/main`. This PR's own CI confirms `integrity-sdk (pytest)`
+  green (run 36514545811/job 109233820371), settling the local run's 28 Anvil-dependent errors
+  (`test_chain`/`test_health`/`test_registration`) as an environment gap, not a suite failure.
+  Cut-path manifest and single-SDK-JCS-implementation status carried over from the same-day
+  validation pass (see `docs/HANDOFF_GATE_A_2026-09-28.md`'s "Builds" section and
+  `xibalba-shield#39`/`xibalba-cortex#32`/`xibalba-cortex#35`, not re-verified fresh this pass).
 - **Shield:**
   - [x] the signed pack hash equals the enforced hash. `tests/test_distribution_siem_dlp.py::test_fetch_tenant_policy_rejects_untrusted_hash`
     and `tests/test_hot_reload.py::test_rejects_untrusted_policy_hash_on_reload` reject a policy
     whose hash isn't in `trusted_policy_hashes`.
-  - [x] tampered, malformed, stale or incompatible packs refuse to load. "Stale" is a policy-version
-    regression, not calendar expiry, and both exist as distinct tests:
-    `tests/test_hot_reload.py::test_rejects_policy_downgrade_when_enabled` (an older `revision`
-    number is rejected) plus `tests/test_config_signing.py`'s
-    `test_verify_rejects_tampered_policy_content`, `test_verify_rejects_a_tampered_signature`,
-    `test_verify_rejects_an_expired_policy`, `test_verify_rejects_malformed_wrapper_shape`, and
+  - [x] tampered, malformed, stale or incompatible packs refuse to load. "Stale" is covered as
+    calendar expiry, unconditionally: `tests/test_config_signing.py::test_verify_rejects_an_expired_policy`.
+    Tampered/malformed/incompatible: `test_verify_rejects_tampered_policy_content`,
+    `test_verify_rejects_a_tampered_signature`, `test_verify_rejects_malformed_wrapper_shape`, and
     `test_verify_rejects_legacy_canonicalization_metadata` (incompatible schema/canonicalization,
-    added in `xibalba-shield#39`).
+    added in `xibalba-shield#39`). A second, narrower reading of "stale" as a policy-version
+    regression is also covered, but only when opted in:
+    `tests/test_hot_reload.py::test_rejects_policy_downgrade_when_enabled` requires
+    `PolicyHotReloader(reject_downgrades=True)`, and `shield/config/loader.py`'s
+    `reject_policy_downgrades` device-config field defaults to `False` — `shield run`/`local-run`
+    only enable it when an operator sets that flag. Not counted as the item's evidence; noted as
+    available defense-in-depth.
   - [x] no-match follows the per-class default. `tests/test_policy_engine.py::test_real_opa_unmatched_agent_event_defaults_to_deny_on_the_regulated_profile`.
   - [x] malformed, unknown or evaluator-error decisions deny. `tests/test_policy_engine.py::test_unknown_event_class_denies_in_enforce_mode`,
     `::test_malformed_raw_decision_denies_in_enforce_mode`, `::test_opa_unavailable_fails_closed`
