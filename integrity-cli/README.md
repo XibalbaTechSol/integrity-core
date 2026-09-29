@@ -131,6 +131,26 @@ Builds a real, signed BCC commitment and POSTs it (as the bare object, per the
 contract) to `bcc_middleware`'s `POST /v1/bcc/intercept`. Exit code `1` on a
 policy rejection, so it's scriptable: `integrity agent intercept … && do_the_thing`.
 
+### `integrity verify` — offline receipt verification
+
+Verify a signed receipt bundle without contacting an Oracle, chain, or hosted
+service. The input is either a JSON array of receipts or an object containing
+`receipts` and an optional signed `checkpoint`.
+
+```bash
+integrity verify \
+  --receipts receipt-bundle.json \
+  --trusted-signer z<base58btc-ed25519-public-key> \
+  [--proof inclusion-proof.json] \
+  [--anchor-root 0x<checkpoint-root>] \
+  --json-output
+```
+
+The command checks Ed25519 signatures, receipt sequence and hash-chain
+continuity, checkpoint roots, and optional Merkle inclusion proofs. An
+`--anchor-root` value is only compared locally with the verified checkpoint;
+it does not claim public-chain anchoring or finality.
+
 ## The BCC signature scheme (reconciled)
 
 The commitment signs 7 fields in canonical JSON (`sort_keys`, no whitespace,
