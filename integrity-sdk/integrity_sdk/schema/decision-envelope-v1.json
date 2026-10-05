@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://integrity.protocol/schemas/decision-envelope-v1.json",
+  "title": "Integrity DecisionEnvelope v1",
+  "type": "object",
+  "required": ["envelope_version", "tenant_id", "agent_id", "trace_id", "event_id", "event_type", "timestamp", "parent_event_hash", "metadata", "redaction_status", "causal_claim"],
+  "properties": {
+    "envelope_version": {"const": "integrity.decision-envelope/1"},
+    "tenant_id": {"type": "string", "minLength": 1},
+    "agent_id": {"type": "string", "minLength": 1},
+    "trace_id": {"type": "string", "minLength": 1},
+    "event_id": {"type": "string", "minLength": 1},
+    "event_type": {"type": "string", "minLength": 1},
+    "timestamp": {"type": "string", "format": "date-time"},
+    "session_id": {"type": ["string", "null"]},
+    "turn_id": {"type": ["string", "null"]},
+    "invocation_id": {"type": ["string", "null"]},
+    "tool_call_id": {"type": ["string", "null"]},
+    "parent_event_hash": {"type": "string", "pattern": "^0x[0-9a-f]{64}$"},
+    "policy_ref": {"type": ["string", "null"]},
+    "policy_decision": {"type": ["string", "null"]},
+    "metadata": {"type": "object"},
+    "redaction_status": {"const": "redacted"},
+    "causal_claim": {"const": false}
+  },
+  "additionalProperties": false
+}

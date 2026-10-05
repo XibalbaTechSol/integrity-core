@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://integrity.protocol/schemas/decision-trace-v1.json",
+  "title": "Integrity DecisionTrace v1",
+  "type": "object",
+  "required": ["trace_version", "trace_id", "tenant_id", "agent_id", "events", "causal_claim"],
+  "properties": {
+    "trace_version": {"const": "integrity.decision-trace/1"},
+    "trace_id": {"type": "string", "minLength": 1},
+    "tenant_id": {"type": "string", "minLength": 1},
+    "agent_id": {"type": "string", "minLength": 1},
+    "events": {"type": "array", "items": {"$ref": "decision-envelope-v1.json"}},
+    "merkle_root": {"type": ["string", "null"], "pattern": "^0x[0-9a-f]{64}$"},
+    "causal_claim": {"const": false}
+  },
+  "additionalProperties": false
+}

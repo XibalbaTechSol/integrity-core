@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from .packs import LoadedPack, PackError, load_pack
-from .receipts import ReceiptError, verify_inclusion, verify_log
+from .receipts import ReceiptError, verify_inclusion, verify_log, verify_receipt
+from .decision_trace import DecisionTrace, DecisionTraceEvidence, DecisionTraceError, verify_trace_evidence
 
 
 @dataclass(frozen=True)
@@ -61,3 +62,21 @@ def verify_receipt_inclusion_offline(
     except ReceiptError as exc:
         return VerificationResult("receipt_inclusion", False, exc.code, str(exc))
     return VerificationResult("receipt_inclusion", True, "OK", "receipt inclusion verified offline", str(receipt["log_id"]))
+
+
+def verify_decision_trace_offline(
+    trace: DecisionTrace,
+    evidence: DecisionTraceEvidence,
+    *,
+    receipt: Mapping[str, Any] | None = None,
+    trusted_signers: Collection[str] = (),
+) -> VerificationResult:
+    """Verify trace links/root and, when supplied, the linked receipt without a network call."""
+    try:
+        if receipt is not None:
+            verify_receipt(receipt, trusted_signers=trusted_signers)
+        if not verify_trace_evidence(trace, evidence, receipt):
+            raise DecisionTraceError("trace root, parent links, event count or receipt link mismatched")
+    except (DecisionTraceError, ReceiptError, ValueError) as exc:
+        return VerificationResult("decision_trace", False, "INVALID", str(exc), evidence.trace_id)
+    return VerificationResult("decision_trace", True, "OK", "DecisionTrace and linked receipt verified offline", evidence.trace_id)

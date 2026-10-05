@@ -28,6 +28,21 @@ from .decision import (
     Decision,
     resolve,
 )
+from .decision_trace import (
+    DECISION_ENVELOPE_VERSION,
+    DECISION_TRACE_VERSION,
+    GENESIS_PARENT,
+    TRACE_LEAF_KIND,
+    DecisionEnvelope,
+    DecisionTrace,
+    DecisionTraceEvidence,
+    DecisionTraceError,
+    FixtureJevProvider,
+    JevAnalysis,
+    JevProvider,
+    build_trace_evidence,
+    verify_trace_evidence,
+)
 from .break_glass import BreakGlassError, create_approval, verify_approval
 from .adapter_conformance import AdapterConformanceError, run_adapter_conformance
 from .entitlements import CapabilityDenied, EntitlementSet, require_capability
@@ -35,7 +50,13 @@ from .jcs import canonical_bytes, sha256_hex
 from .memory import MEMORY_INTERFACE_VERSION, MemoryProvider
 from .merkle import hash_pair, keccak256, leaf_hash, merkle_proof, merkle_root, verify_leaf
 from .opa import OpaClient, OpaError
-from .offline import VerificationResult, verify_pack_offline, verify_receipt_inclusion_offline, verify_receipt_log_offline
+from .offline import (
+    VerificationResult,
+    verify_decision_trace_offline,
+    verify_pack_offline,
+    verify_receipt_inclusion_offline,
+    verify_receipt_log_offline,
+)
 from .packs import PACK_FORMAT, CompiledPack, LoadedPack, PackError, compile_pack, load_pack, sign_pack
 from .pack_distribution import PackPin, PackPinError, PackPinStore
 from .receipts import (
@@ -64,6 +85,9 @@ from .tenancy import (
 
 __all__ = [
     "DECISION_CONTRACT", "DENY", "ENFORCE", "LOG_ONLY", "NO_MATCH", "PERMIT", "SHADOW", "Decision", "resolve",
+    "DECISION_ENVELOPE_VERSION", "DECISION_TRACE_VERSION", "GENESIS_PARENT", "TRACE_LEAF_KIND",
+    "DecisionEnvelope", "DecisionTrace", "DecisionTraceEvidence", "DecisionTraceError", "build_trace_evidence",
+    "verify_trace_evidence", "JevAnalysis", "JevProvider", "FixtureJevProvider",
     "BreakGlassError", "create_approval", "verify_approval",
     "AdapterConformanceError", "run_adapter_conformance",
     "EntitlementSet", "CapabilityDenied", "require_capability",
@@ -71,6 +95,7 @@ __all__ = [
     "hash_pair", "keccak256", "leaf_hash", "merkle_proof", "merkle_root", "verify_leaf",
     "PACK_FORMAT", "CompiledPack", "LoadedPack", "PackError", "compile_pack", "load_pack", "sign_pack",
     "VerificationResult", "verify_pack_offline", "verify_receipt_log_offline", "verify_receipt_inclusion_offline",
+    "verify_decision_trace_offline",
     "PackPin", "PackPinError", "PackPinStore",
     "CHECKPOINT_VERSION", "RECEIPT_VERSION", "ReceiptError", "ReceiptLog", "hmac_identifier", "receipt_hash",
     "verify_checkpoint", "verify_inclusion", "verify_log", "verify_receipt",

@@ -136,6 +136,10 @@ key store: outside the harness root                     │
 | C5 Hook | The runner calls the local Shield gate if present, otherwise BCC. |
 | C6 Memory provider | Genesis, append-only provenance metadata, and nonce spot-checks returning `H(nonce‖content)` with a proof. Encrypted content is required in the regulated profile. |
 | C7 Data boundary | Customer content stays in the customer environment unless it is classified as permitted metadata. |
+| C8 Decision envelope | A versioned, redacted decision envelope carries tenant, agent, session, invocation, policy, provider and outcome metadata without raw prompts, completions, tool arguments or chain-of-thought. |
+| C9 Decision trace | A trace is an append-only, parent-linked sequence of envelopes. It records observed transitions and confidence-bearing hypotheses; it never claims causal proof. |
+| C10 Trace evidence | Trace leaves use a separate domain-separated Merkle tree and may be included in the existing signed receipt/checkpoint flow. Existing receipt and offline-verification semantics remain authoritative. |
+| C11 Jev boundary | Jev is an advisory provider behind a local gateway. Provider output is schema-validated, redacted, timeout-bounded and fail-open for observability; it cannot permit, deny, sign, anchor or bypass Shield, BCC, identity or Integrity. |
 
 **Versioning:**
 - The contracts follow semver.
@@ -175,7 +179,8 @@ key store: outside the harness root                     │
 - A memory checkpoint chain beyond provenance/root evidence.
 - Session keys, staking, paymasters, tokens, the signing daemon, or billing code.
 - Formal SMT analysis, or LLM-judged rules in a gate.
-- Codex, Agy or Hermes hooks (Claude Code comes first).
+- Codex and Agy hooks (Hermes is the first non-Claude observer integration; later harnesses reuse C8–C11).
+- Raw chain-of-thought capture, causal claims, or an LLM/Jev judgment inside an enforcement gate.
 - A runtime adapter sandbox.
 - Any public-chain or vendor dependency for local demos, tests, acceptance, or normal runtime
   enforcement.
@@ -188,7 +193,7 @@ key store: outside the harness root                     │
 **History:** commit series grouped by phase and repository on `claude/quirky-wright-g7yl7g`, plus one
 branch per sibling repository. Draft PRs open as each repository's Phase A goes green.
 
-**Phase A order:** **A0 → A4 → A2 → A1 → A3 → A5 → A6.** The order is forced by dependencies found in
+**Phase A order:** **A0 → A4 → A2 → A1 → A3 → A5 → A6 → A7.** The order is forced by dependencies found in
 review:
 
 | Constraint | Consequence |
@@ -520,6 +525,84 @@ SDK/API contracts plus local reference implementations (no billing code) for:
 A customer can run locally and later move to hosted or anchored services with no change in policy
 semantics or receipt meaning.
 
+## A7. DecisionTrace and Jev foundation (M)
+
+This is the execution-plan integration point for the decision-correlation architecture. Integrity
+verifies evidence, Shield enforces policy, Cortex stores and renders provenance, Hermes supplies
+observer events, and Jev produces bounded advisory analysis.
+
+**Shared Integrity SDK contracts (C8–C11):** (this repo, `integrity-sdk/integrity_sdk/core/decision_trace.py`,
+branch `feat/sdk-decision-trace`, not yet merged)
+- [x] Add `DecisionEnvelope` and `DecisionTrace` schemas with JCS canonicalization, version fields,
+  tenant/agent/session/invocation correlation, policy references, provider metadata, redaction
+  status, confidence bounds and explicit `causal_claim: false`.
+- [x] Add domain-separated trace leaf hashing, parent-link validation and trace Merkle roots while
+  reusing the existing Merkle implementation and signed receipt/checkpoint/offline-verification
+  primitives. Do not create a second receipt format or identity system.
+- [x] Add a dependency-light Jev provider interface plus deterministic fixture provider. HTTP/local
+  providers are connectors and cannot be imported by the SDK core.
+- [x] Add negative tests for malformed output, provider timeout, replayed parent, tenant mismatch,
+  raw-content leakage, trace truncation and proof/root tampering. `tests/unit/test_core_decision_trace.py`:
+  4 tests cover wrong parent/namespace rejection, raw-content/causal-claim rejection, and receipt-linked
+  evidence tamper detection. Provider-timeout and trace-truncation are not yet covered here; see the open
+  A7 exit-evidence item below.
+
+**Hermes/Cortex observer path:** (`xibalba-cortex` PR [#36](https://github.com/XibalbaTechSol/xibalba-cortex/pull/36),
+not yet merged; depends on the SDK branch above)
+- [x] Extend the existing Hermes observer/bridge correlation IDs into DecisionTrace events at
+  session, LLM, tool, approval and subagent boundaries. `HermesObserverAdapter._record_decision_event`
+  covers session/LLM/subagent boundaries; tool and approval boundaries are not yet wired.
+- [x] Persist trace events in Cortex's profile/tenant-scoped provenance store with idempotency,
+  retention classification, redacted payload commitments and a read-only trace/proof API.
+  `GraphStore.record_decision_trace_event`/`session_decision_trace`, `local_api.py`'s
+  `.../decision-trace` and `.../decision-trace.html` routes (session-access scoped).
+- [x] Store Jev classifications and transition probabilities as advisory projections linked to the
+  observed event hash; provider failure leaves the trace valid and marks analysis unavailable.
+  `jev_gateway.py`; `tests/test_decision_trace.py`.
+
+**Shield shadow path:** (`xibalba-shield` PR [#43](https://github.com/XibalbaTechSol/xibalba-shield/pull/43),
+not yet merged)
+- [x] Add a shadow-only analyzer after local policy evaluation and before export. It may recommend
+  risk categories, likely next transitions and escalation; it cannot alter the policy decision,
+  BCC result, receipt signer, enforcement mode or break-glass state. `shield/policy_engine/jev_shadow.py`
+  (`JevShadowAnalyzer`), wired into `EventRouter` in `shield/agent_core/router.py`: analysis runs after
+  the decision is already computed, and a raised exception is caught and logged, never propagated.
+- [x] Add tenant-configurable advisory provider dispatch in Shield: deterministic Jev fixture,
+  bounded local classifier, Lila-compatible JSON adapter, and OpenAI-compatible LLM adapter.
+  `shield/policy_engine/inference.py` (`build_inference_provider`); `shield/backend/settings.py`'s
+  `inference*` fields (provider, model, endpoint, prompt profile, timeout/tokens/temperature budgets,
+  event scope, failure mode, `secret://` reference) are validated server-side.
+  **Not yet done:** the Settings UI itself (`ui/src/components/SettingsView.jsx`) has no corresponding
+  form fields — an operator can configure this today only through the validated settings API, not the
+  console. Moved to B0 as a UI task; not claimed complete here.
+- [x] Validate inference settings at the backend boundary: shadow mode is the only execution mode,
+  redaction is strict, timeout/tokens/temperature are bounded, secret references use `secret://`,
+  and non-loopback HTTP endpoints are rejected in favor of HTTPS. `tests/test_settings_control.py`.
+- [x] Emit a normal Shield policy/evidence record plus an optional DecisionTrace projection, using
+  the same invocation/session IDs and existing receipt queue. Never transmit raw action content.
+  `shield/cli.py`'s `_run` wires `JevShadowAnalyzer` to a `JsonlDecisionTraceSink`, independent of the
+  existing evidence/receipt publishers.
+- [x] Add a local fixture scenario proving `allow`, `deny`, `contain`, `log_only` and provider-error
+  paths remain controlled by deterministic policy while Jev is present, absent or contradictory.
+  `tests/test_jev_shadow.py`, `tests/test_inference_providers.py` (11 tests total).
+
+**A7 exit evidence:**
+- [x] A synthetic Hermes → Cortex → Jev → Shield trace is rendered and exported locally.
+  `xibalba-cortex/scripts/decision_trace_e2e.py --shield-root <xibalba-shield#43 branch>`: run
+  2026-10-05, output `jev_statuses` all `available`, `shield_decision: deny`, `receipt_verified: true`,
+  `trace_evidence_verified: true`.
+- [x] Offline verification proves signature, trace parent links, trace inclusion and any receipt
+  inclusion; verification distinguishes missing advisory analysis from invalid evidence.
+  `integrity_sdk.core.verify_decision_trace_offline`, exercised by the e2e script above and
+  `test_core_decision_trace.py::test_trace_evidence_reuses_existing_signed_receipt_hash`.
+- [ ] Shield provider selection, settings bounds, and local classifier behavior are covered by focused
+  tests (`tests/test_jev_shadow.py`, `tests/test_inference_providers.py`); unavailable-provider handling
+  and the Settings browser flow (desktop/390px) are not — there is no Settings UI yet (see above), so
+  there is nothing to browser-test. Corrected from an earlier draft that claimed both; only the two
+  backend test files are actual evidence.
+- [ ] A provider outage, malformed response, tenant mismatch and tamper test preserve local
+  enforcement and produce an operator-readable reason code.
+
 ## Gate A
 
 - [x] **Builds:** relevant suites, import hygiene, Shield/Cortex independence CI and the console build
@@ -622,6 +705,11 @@ semantics or receipt meaning.
     manifest was independently confirmed present in the same-day validation pass; see the "Builds"
     item above) or for subagent-worktree-local documentation, which is out of scope for this item.
 
+# Gate A DecisionTrace exit criterion
+
+- [x] A7 contracts, fixture provider, trace hashing and local offline verification pass in Integrity;
+  provider output cannot change a policy decision or cross a tenant boundary.
+
 # Phase B: sellable Shield and Cortex SaaS
 
 **Outcome:** independently deployable, tenant-isolated, pilot-ready products. The first package is
@@ -656,6 +744,11 @@ policy is configuration only. HA and Postgres are deferred.
 - [ ] retention, purge, export and provider health;
 - [ ] authenticated ingestion and retrieval;
 - [ ] spot-check API and proof status.
+- [ ] DecisionTrace timeline, event detail, advisory Jev classification and trace-proof views in the
+  Cortex viewer app. **Partial:** a profile/tenant/session-scoped read-only HTML render exists
+  (`xibalba-cortex` PR #36, `.../decision-trace.html`, `decision_trace_view.py`) and remains useful
+  when Jev is unavailable, but there is no `viewer/` panel yet — corrected from an earlier draft that
+  ticked this as the full item.
 
 **Monetization:** pilots are sellable without billing code.
 - **Shield:** enforcement, devices, evidence retention and exports.
@@ -681,6 +774,30 @@ policy is configuration only. HA and Postgres are deferred.
   receipts with checkpoints.
 - [ ] Shield's local gate daemon exposes a Unix socket for PreToolUse.
 
+## B2a. Jev-assisted DecisionTrace (M)
+
+- [x] Hermes observer hooks feed normalized, redacted events into the shared DecisionTrace gateway;
+  the gateway is local-first and records advisory-unavailable status when no provider is available.
+- [ ] Queue/retry advisory analysis for a later provider recovery without delaying local capture.
+- [x] Cortex exposes trace ingest, timeline, event detail, transition-probability and proof endpoints
+  scoped by tenant, agent and profile store. It stores commitments and bounded metadata, never raw
+  reasoning or unrestricted transcript content.
+- [x] Shield runs Jev in shadow mode after deterministic policy evaluation. Jev may classify risk,
+  suggest escalation and estimate likely next states, but only OPA/BCC/Shield can decide enforcement.
+- [x] Provider adapters include a deterministic local fixture and an optional HTTP connector with
+  explicit timeout, payload limits, schema validation, redaction and failure reason codes.
+- [x] Duplicate events are idempotent; missing parents, conflicting parents and tenant mismatches are
+  rejected without modifying the accepted policy receipt.
+- [x] Every advisory projection links to the observed event hash and, where enabled, the existing
+  signed receipt/checkpoint. No causal claim is emitted; UI labels all probabilities as observational.
+- [ ] Shield's dedicated Settings surface documents the provider choice and authority boundary in
+  product, while Cortex's trace view documents provider status, probabilities, Merkle evidence, and
+  the distinction between declared sequence and proven causality. **Not yet done:** Shield's backend
+  validates and stores the provider configuration (`shield/backend/settings.py`), but
+  `SettingsView.jsx` has no corresponding form; Cortex's read-only HTML render
+  (`decision_trace_view.py`) carries the causality disclaimer, but there is no `viewer/` trace view.
+  Both are B0 UI work, not yet started.
+
 ## B3. Claude Code hooks (S)
 
 `integrity hooks install --harness claude-code --gate shield|bcc --memory cortex` does three things:
@@ -696,6 +813,8 @@ policy is configuration only. HA and Postgres are deferred.
   memory root that registration checks.
 - [ ] Local Anvil in Phase B. Queued receipts anchor after recovery.
 - [ ] `integrity verify` checks signature, chain position, inclusion and anchor.
+- [ ] `integrity verify` additionally verifies DecisionTrace parent links and domain-separated Merkle
+  inclusion, and reports advisory-provider failure separately from evidence failure.
 - [ ] Testnet deployment needs owner approval.
 
 ## B5. Telemetry policy (S)
@@ -708,6 +827,8 @@ policy is configuration only. HA and Postgres are deferred.
   - [ ] environment variables, stdout/stderr;
   - [ ] URLs and query strings, filenames, repository names;
   - [ ] exception messages and stack traces.
+- [ ] DecisionTrace/Jev negative tests cover raw prompts, completions, chain-of-thought, tool payloads,
+  secrets and provider-returned content; only bounded redacted metadata and commitments are retained.
 
 ## B6. Pilot packaging (M)
 
@@ -742,6 +863,10 @@ synthetic regulated data and Claude Code hooks.
   - [ ] receipts anchor locally, and offline verify passes;
   - [ ] tampered, wrong-key, wrong-proof and truncated-tail receipts fail;
   - [ ] queued receipts anchor after recovery.
+  - [x] a rendered trace shows Hermes event → Shield policy result → Jev advisory projection → Integrity
+    proof, with transition probabilities labeled observational and no causal claim;
+  - [x] Jev timeout, malformed output and contradictory advice leave the deterministic Shield result
+    unchanged while Cortex records an unavailable/rejected advisory status.
 - [ ] **Data boundary:** a traffic audit shows no content leaving the boundary.
 - **Packs:**
   - [ ] golden hashes pass, and every rule cites a control;
@@ -825,6 +950,8 @@ and roots with no provider behind them.
 - [ ] Break-glass approvals are signed and expire.
 - [ ] `pack simulate --since 90d` runs before enforcement changes.
 - [ ] Replayed, expired, wrong-action, wrong-pack and wrong-agent approvals are rejected.
+- [ ] Jev may recommend an escalation or approval review, but it cannot create, approve, replay or
+  substitute for an Integrity approval receipt.
 
 ## C5. Cutover (M)
 
@@ -861,7 +988,7 @@ and roots with no provider behind them.
 - automated revenue collection;
 - an independent audit;
 - non-Linux Shield;
-- harnesses other than Claude Code;
+- harnesses other than Claude Code and Hermes (the latter as an observer only, per §7);
 - a validated AIS.
 
 ## 10. Risks
@@ -895,7 +1022,7 @@ and roots with no provider behind them.
 | Regulation packs | EU AI Act pack before December 2027 |
 | Integrations | Drata/Secureframe, gRPC ext_authz PEP, ERC-7579 registry listing, ERC-8004 write-back |
 | Platform | Shield macOS/Windows, LSM pre-blocking, DNS controls; Cortex team profiles; HA/Postgres |
-| Hooks | Codex, Agy, Hermes |
+| Hooks | Codex, Agy (Hermes observer capture is covered under A7/B2a, not deferred) |
 | Analysis | Formal SMT pack analysis; runtime adapter sandbox |
 | Accounts | Session keys, staking, paymaster, signing daemon |
 | Research | AIS predictive validation; ZK |
