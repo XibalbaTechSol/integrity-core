@@ -153,12 +153,22 @@ class Settings:
     )
 
     # --- Merkle anchoring ---
-    # NOTE: StateAnchor is now a PER-AGENT primitive, not a global singleton, so
-    # there is no single deployments-file key for it — anchoring resolves each
-    # agent's own StateAnchor clone via the oracle (see app/anchor.py). This
-    # setting is retained only as a legacy/override escape hatch.
+    # Historical note: StateAnchor is a PER-AGENT primitive for memory roots, with no single
+    # deployments-file key — this setting is retained only as a legacy/override escape hatch
+    # for code that still resolves a per-agent clone directly.
     state_anchor_contract_name: str = field(
         default_factory=lambda: os.getenv("STATE_ANCHOR_CONTRACT_NAME", "StateAnchor")
+    )
+    # The dedicated, protocol-wide evidence anchor (docs/EXECUTION_PLAN.md B4;
+    # contracts/script/DeployProtocolEvidenceAnchor.s.sol) that BCC batch roots anchor into.
+    # A single `singletons` entry, resolved the same way every other singleton is
+    # (Settings.contract_address) -- unlike a per-agent memory StateAnchor, this one is never
+    # resolved via the oracle: `anchor_batch_per_agent` previously anchored BCC receipt roots
+    # into each agent's OWN memory StateAnchor, the same contract C2 registration reads
+    # `latestRoot()` from as the memory root, so a flushed batch and a memory-root anchor
+    # silently raced for the same on-chain slot. This setting is that fix's target.
+    protocol_evidence_anchor_contract_name: str = field(
+        default_factory=lambda: os.getenv("PROTOCOL_EVIDENCE_ANCHOR_CONTRACT_NAME", "ProtocolEvidenceAnchor")
     )
     merkle_batch_size: int = field(default_factory=lambda: int(os.getenv("BCC_MERKLE_BATCH_SIZE", "8")))
     # Maximum time a low-traffic approved commitment may wait for a flush.

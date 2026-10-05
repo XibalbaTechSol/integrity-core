@@ -846,14 +846,41 @@ install time, citing B2, rather than silently falling back or no-opping):
 
 ## B4. Verifiable evidence (M)
 
-- [ ] A dedicated protocol evidence instance of `StateAnchor` (same code, separate from each agent's
-  memory `StateAnchor`).
-- [ ] `anchor_batch_per_agent` stops writing receipt roots into agent anchors, whose `latestRoot` is the
-  memory root that registration checks.
-- [ ] Local Anvil in Phase B. Queued receipts anchor after recovery.
-- [ ] `integrity verify` checks signature, chain position, inclusion and anchor.
-- [ ] `integrity verify` additionally verifies DecisionTrace parent links and domain-separated Merkle
-  inclusion, and reports advisory-provider failure separately from evidence failure.
+- [x] A dedicated protocol evidence instance of `StateAnchor` (same code, separate from each agent's
+  memory `StateAnchor`). `contracts/script/DeployProtocolEvidenceAnchor.s.sol`, the same incremental-
+  deploy pattern `DeployXns.s.sol` already uses (writes `.singletons.ProtocolEvidenceAnchor`; admin
+  is the funder EOA directly, not a `SovereignAgent`, since this is a protocol singleton, not an
+  agent-owned primitive). Verified against a real local anvil: deploys cleanly, address confirmed via
+  the script's own broadcast log (2026-10-05).
+- [x] `anchor_batch_per_agent` stops writing receipt roots into agent anchors, whose `latestRoot` is the
+  memory root that registration checks. `bcc_middleware/app/anchor.py`: per-agent sub-roots now anchor
+  to the one configured `protocol_evidence_anchor_contract_name` address instead of each agent's own
+  memory `StateAnchor` resolved via the oracle. `tests/test_anchor_per_agent.py` (3/3, rewritten
+  against a real anvil-deployed mock) and `tests/test_chain_baa_anchor.py`'s full real-chain intercept
+  flow (12/12) both pass. Also fixed a latent bug this change exposed: `integrity-cli`'s
+  `--anchor-contract` verify path required the supplied root to equal `StateAnchor.latestRoot()` —
+  true for a per-agent anchor, false in general for a shared one — now relies on `verifyLeaf`'s own
+  `isAnchoredRoot` check instead, which was always the real guarantee.
+- [x] Local Anvil in Phase B. Queued receipts anchor after recovery. `integrity_sdk/evidence_anchor.py`
+  (new connector module): `anchor_pending_receipts(queue, ...)` checkpoints and anchors a
+  `ReceiptQueue`'s pending receipts via `ReceiptQueue.submit`, whose own durable `submitted_hashes`
+  tracking means a failed anchor call (this function raises) leaves every receipt in the batch
+  pending for the next attempt, and a successful one is never re-submitted.
+  `integrity-sdk/tests/test_evidence_anchor.py` (3/3, real anvil + the deploy script above): a
+  checkpoint-anchor-verify round trip, a full queue-submit-and-acknowledge cycle (confirmed durable
+  across a fresh `ReceiptQueue` reload), and the submission-failure/still-pending case.
+- [x] `integrity verify` checks signature, chain position, inclusion and anchor. Landed in #159/#160
+  (`integrity-cli/integrity_cli/main.py`'s `verify` command, `verify.py`), predating this B4 pass.
+- [x] `integrity verify` additionally verifies DecisionTrace parent links and domain-separated Merkle
+  inclusion, and reports advisory-provider failure separately from evidence failure. New
+  `--decision-trace`/`--trace-evidence` options call `integrity_sdk.core.verify_decision_trace_offline`
+  and report a carried Jev advisory status (`available`/`unavailable`/`rejected`/`not_present`) as its
+  own `advisory_status` field, which never fails the command on its own — only a genuinely broken
+  trace does (C11: Jev is advisory, never authoritative).
+  `integrity-cli/tests/test_verify_decision_trace.py` (5/5): a passing trace with a linked receipt, an
+  `unavailable`-advisory trace that still passes, no-advisory reporting `not_present`, a tampered
+  event failing with `TRACE_INVALID`, and the `--decision-trace`/`--trace-evidence` pairing
+  requirement.
 - [ ] Testnet deployment needs owner approval.
 
 ## B5. Telemetry policy (S)

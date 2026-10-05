@@ -32,7 +32,7 @@ from dataclasses import dataclass
 from eth_account import Account
 from web3.exceptions import Web3Exception
 
-from app.chain import AgentResolutionError, get_w3, resolve_agent_primitives
+from app.chain import get_w3
 from app.config import Settings
 from app.merkle import BatchLeaf, merkle_root
 from app.nonce_lock import send_with_managed_nonce, signer_lock
@@ -110,27 +110,36 @@ def anchor_root(settings: Settings, root: bytes, *, contract_address: str | None
 
 def anchor_batch_per_agent(settings: Settings, leaves: list[BatchLeaf]) -> dict[str, AnchorResult]:
     """
-    Anchor a flushed batch to each agent's OWN StateAnchor, respecting the
-    per-agent-primitive model (there is no longer one global StateAnchor).
+    Anchor a flushed batch, split into per-agent sub-roots, into the one dedicated
+    protocol evidence StateAnchor (docs/EXECUTION_PLAN.md B4).
 
     A `MerkleBatcher` accumulates approved commitments across *all* agents, so a
-    flushed batch is a mix. This function splits that mix by `agent_id`, builds a
-    per-agent sub-tree over just that agent's leaves, resolves that agent's own
-    `StateAnchor` clone address (via the oracle — see
-    chain.resolve_agent_primitives), and anchors the sub-root there. Each agent's
-    StateAnchor therefore only ever accumulates that agent's own commitments — a
-    genuinely per-agent, tamper-evident audit trail, which is more correct than a
-    single cross-agent root anchored to some arbitrary agent's contract.
+    flushed batch is a mix. This function splits that mix by `agent_id` and builds
+    a per-agent sub-tree over just that agent's leaves, exactly as before — but the
+    sub-root now anchors to `settings.protocol_evidence_anchor_contract_name`, a
+    single configured address, not each agent's own memory StateAnchor resolved via
+    the oracle.
 
-    Best-effort, exactly like the single-anchor path: an agent whose StateAnchor
-    can't be resolved (unknown to the oracle, oracle down) or whose anchor tx
-    fails is logged and skipped, never raised — anchoring happens *after*
-    authorization and is an audit trail, not a gate. Returns a per-agent map of
-    AnchorResult so the caller can log the outcome per agent.
+    This split existed before (2026-09 PRODUCTION_GAPS.md §5) to give each agent a
+    real, independently verifiable sub-root instead of one cross-agent root anchored
+    to an arbitrary agent's contract. The *target* changed because the old target
+    was wrong in a different way: each agent's own memory StateAnchor is the same
+    contract C2 registration reads `latestRoot()` from as the memory root, so a BCC
+    batch anchor and a memory-root anchor were racing for the same on-chain slot.
+    The dedicated evidence anchor has no such meaning to collide with — nothing
+    reads its `latestRoot` as authoritative for anything; every verification is
+    against a specific historically-anchored root via `verifyLeaf`, which
+    StateAnchor.sol retains for every root it has ever anchored, not just the latest.
 
-    N transactions per flush (one per distinct agent) is the accepted cost of
-    per-agent anchoring at this scale — the same tradeoff integrity-oracle makes
-    for its own epoch anchoring.
+    Best-effort, exactly like the single-anchor path: a missing evidence-anchor
+    configuration or a failed anchor tx is logged and skipped per agent, never
+    raised — anchoring happens *after* authorization and is an audit trail, not a
+    gate. Returns a per-agent map of AnchorResult so the caller can log the outcome
+    per agent.
+
+    N transactions per flush (one per distinct agent, all to the same contract) is
+    the accepted cost of per-agent sub-roots at this scale — the same tradeoff
+    integrity-oracle makes for its own epoch anchoring.
     """
     results: dict[str, AnchorResult] = {}
     by_agent = {
@@ -141,24 +150,22 @@ def anchor_batch_per_agent(settings: Settings, leaves: list[BatchLeaf]) -> dict[
         )
     }
 
+    evidence_anchor_address = settings.contract_address(settings.protocol_evidence_anchor_contract_name)
+
     for agent_id, agent_leaves in by_agent.items():
-        try:
-            primitives = resolve_agent_primitives(settings.oracle_url, agent_id)
-            state_anchor_address = primitives.get("state_anchor")
-        except AgentResolutionError as exc:
-            logger.warning("cannot anchor batch for agent %s: %s -- recorded in logs only", agent_id, exc)
-            results[agent_id] = AnchorResult(submitted=False, detail=f"could not resolve StateAnchor: {exc}")
-            continue
-        if not state_anchor_address:
-            results[agent_id] = AnchorResult(submitted=False, detail="oracle returned no state_anchor for agent")
+        if not evidence_anchor_address:
+            results[agent_id] = AnchorResult(
+                submitted=False,
+                detail=f"no '{settings.protocol_evidence_anchor_contract_name}' address in {settings.deployments_file}",
+            )
             continue
 
         sub_root = merkle_root([leaf.leaf_hash for leaf in agent_leaves])
-        result = anchor_root(settings, sub_root, contract_address=state_anchor_address)
+        result = anchor_root(settings, sub_root, contract_address=evidence_anchor_address)
         result.root = sub_root
         results[agent_id] = result
         if result.submitted:
-            logger.info("anchored %d leaves for agent %s to StateAnchor %s tx=%s", len(agent_leaves), agent_id, state_anchor_address, result.tx_hash)
+            logger.info("anchored %d leaves for agent %s to evidence anchor %s tx=%s", len(agent_leaves), agent_id, evidence_anchor_address, result.tx_hash)
         else:
             logger.warning("could not anchor %d leaves for agent %s: %s -- recorded in logs only", len(agent_leaves), agent_id, result.detail)
 

@@ -132,17 +132,34 @@ def verify_command(
     anchor_root: Optional[str] = typer.Option(None, "--anchor-root", help="Read-back anchor root for local comparison (0x + 32 bytes)"),
     anchor_contract: Optional[str] = typer.Option(None, "--anchor-contract", help="StateAnchor address for local Anvil read-back"),
     rpc_url: Optional[str] = typer.Option(None, "--rpc-url", help="RPC URL used with --anchor-contract (defaults to RPC_URL or localhost)"),
+    decision_trace: Optional[Path] = typer.Option(None, "--decision-trace", exists=True, readable=True, help="DecisionTrace events JSON file (array of DecisionEnvelope-shaped objects, each optionally carrying an 'advisory' field)"),
+    trace_evidence: Optional[Path] = typer.Option(None, "--trace-evidence", exists=True, readable=True, help="DecisionTraceEvidence JSON file (trace_id, root, event_count, receipt_hash?, checkpoint_root?)"),
     json_output: bool = typer.Option(False, "--json-output", help="Emit machine-readable JSON"),
 ) -> None:
     """Verify receipt signatures, chain, checkpoint, and optional inclusion proof offline.
 
     This command never claims public-chain finality.  ``--anchor-root`` only
     compares a supplied read-back root to the verified checkpoint root.
+
+    ``--decision-trace``/``--trace-evidence`` additionally verify a B4
+    DecisionTrace's parent links and domain-separated Merkle inclusion
+    (``integrity_sdk.core.verify_decision_trace_offline``), and report any
+    carried Jev advisory status (``available``/``unavailable``/``rejected``)
+    separately from evidence validity -- a missing or failed advisory never
+    fails this command on its own; only a genuinely broken trace does.
     """
-    result: dict[str, Any] = {"scope": "local", "valid": False, "signature": "not_checked", "chain": "not_checked", "checkpoint": "not_requested", "inclusion": "not_requested", "anchor": "not_requested"}
+    result: dict[str, Any] = {
+        "scope": "local", "valid": False, "signature": "not_checked", "chain": "not_checked",
+        "checkpoint": "not_requested", "inclusion": "not_requested", "anchor": "not_requested",
+        "decision_trace": "not_requested", "advisory_status": "not_requested",
+    }
     try:
         if not trusted_signer:
             raise verify.VerifyError("MALFORMED", "at least one --trusted-signer is required")
+        if trace_evidence is not None and decision_trace is None:
+            raise verify.VerifyError("MALFORMED", "--trace-evidence requires --decision-trace")
+        if decision_trace is not None and trace_evidence is None:
+            raise verify.VerifyError("MALFORMED", "--decision-trace requires --trace-evidence")
         bundle = verify.load_json(receipts)
         if isinstance(bundle, list):
             receipt_values = bundle
@@ -176,17 +193,20 @@ def verify_command(
                 if not w3.is_connected():
                     raise RuntimeError("RPC is not reachable")
                 state_anchor = chain._contract(w3, "StateAnchor", address=anchor_contract)
-                latest_root = state_anchor.functions.latestRoot().call()
-                latest_root_hex = "0x" + bytes(latest_root).hex()
-                if latest_root_hex != selected_checkpoint["root"]:
-                    raise verify.VerifyError("ROOT_MISMATCH", "StateAnchor.latestRoot differs from checkpoint root")
+                # Not `latestRoot() == checkpoint.root`: B4's dedicated protocol evidence
+                # anchor is shared across every agent/gate, so a checkpoint anchored a
+                # moment before a different one is no less valid -- StateAnchor.sol keeps
+                # every root it has ever anchored individually verifiable
+                # (`isAnchoredRoot`), and `verifyLeaf` already checks exactly that. Requiring
+                # "latest" here would make this command spuriously fail for any checkpoint
+                # that wasn't the single most recent one anchored to a shared contract.
                 proof_nodes = [bytes.fromhex(node.removeprefix("0x")) for node in proof_doc["proof"]]
                 if not state_anchor.functions.verifyLeaf(
                     bytes.fromhex(selected_checkpoint["root"][2:]),
                     verify.receipt_leaf(proof_doc["receipt"]),
                     proof_nodes,
                 ).call():
-                    raise verify.VerifyError("NOT_INCLUDED", "StateAnchor rejected the receipt inclusion proof")
+                    raise verify.VerifyError("NOT_INCLUDED", "StateAnchor did not anchor this root, or rejected the inclusion proof")
                 result["anchor"] = "pass"
                 result["anchor_scope"] = "local_rpc"
             except verify.VerifyError:
@@ -201,6 +221,59 @@ def verify_command(
             result["anchor"] = "pass" if anchor_root == selected_checkpoint["root"] else "fail"
             if result["anchor"] == "fail":
                 raise verify.VerifyError("ROOT_MISMATCH", "anchor root differs from checkpoint root")
+        if decision_trace is not None:
+            from integrity_sdk.core import (
+                DecisionEnvelope, DecisionTrace, DecisionTraceError, DecisionTraceEvidence,
+                verify_decision_trace_offline,
+            )
+
+            raw_events = verify.load_json(decision_trace)
+            if not isinstance(raw_events, list) or not raw_events:
+                raise verify.VerifyError("MALFORMED", "--decision-trace must be a non-empty JSON array")
+            advisory_statuses: list[str] = []
+            try:
+                envelopes = []
+                for item in raw_events:
+                    if not isinstance(item, dict):
+                        raise verify.VerifyError("MALFORMED", "each decision-trace event must be a JSON object")
+                    fields = {k: v for k, v in item.items() if k not in ("envelope_version", "advisory")}
+                    advisory = item.get("advisory")
+                    if isinstance(advisory, dict) and advisory.get("status"):
+                        advisory_statuses.append(str(advisory["status"]))
+                    envelopes.append(DecisionEnvelope(**fields))
+                trace = DecisionTrace(envelopes[0].trace_id, envelopes[0].tenant_id, envelopes[0].agent_id)
+                for envelope in envelopes:
+                    trace = trace.append(envelope)
+                evidence_doc = verify.load_json(trace_evidence)
+                if not isinstance(evidence_doc, dict):
+                    raise verify.VerifyError("MALFORMED", "--trace-evidence must be a JSON object")
+                evidence = DecisionTraceEvidence(
+                    trace_id=evidence_doc["trace_id"], root=evidence_doc["root"],
+                    event_count=evidence_doc["event_count"], receipt_hash=evidence_doc.get("receipt_hash"),
+                    checkpoint_root=evidence_doc.get("checkpoint_root"),
+                )
+                # Cross-check against this same invocation's already-verified receipt, when the
+                # evidence names one and exactly one receipt was supplied -- never a network call.
+                linked_receipt = receipt_values[0] if evidence.receipt_hash is not None and len(receipt_values) == 1 else None
+                trace_result = verify_decision_trace_offline(
+                    trace, evidence, receipt=linked_receipt, trusted_signers=trusted_signer,
+                )
+            except (DecisionTraceError, KeyError, TypeError) as exc:
+                raise verify.VerifyError("TRACE_INVALID", str(exc)) from exc
+            if not trace_result.valid:
+                raise verify.VerifyError("TRACE_INVALID", trace_result.detail)
+            result["decision_trace"] = "pass"
+            # Advisory status is reported, never a reason this command fails: a provider
+            # outage or a missing projection is a visible fact about the trace, not a
+            # defect in the evidence (C11 -- Jev is advisory, never authoritative).
+            if not advisory_statuses:
+                result["advisory_status"] = "not_present"
+            elif all(status == "available" for status in advisory_statuses):
+                result["advisory_status"] = "available"
+            elif any(status == "rejected" for status in advisory_statuses):
+                result["advisory_status"] = "rejected"
+            else:
+                result["advisory_status"] = "unavailable"
         result["valid"] = True
     except verify.VerifyError as exc:
         result.update({"valid": False, "error": {"code": exc.code, "detail": exc.detail}})

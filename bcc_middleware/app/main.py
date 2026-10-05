@@ -363,8 +363,8 @@ def _flush_and_anchor(
         if flushed is None:
             return None
         _root, leaves = flushed
-        # Anchor per-agent: each agent's leaves go to that agent's own StateAnchor
-        # (StateAnchor is a per-agent primitive now — see anchor.anchor_batch_per_agent).
+        # Per-agent sub-roots, all anchored to the one dedicated protocol evidence
+        # StateAnchor (docs/EXECUTION_PLAN.md B4 — see anchor.anchor_batch_per_agent).
         results = anchor_module.anchor_batch_per_agent(settings, leaves)
         # Link the anchored leaves back to their decisions (evidence export).
         _report_anchor_events(settings, leaves, results)

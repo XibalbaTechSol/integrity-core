@@ -1,7 +1,7 @@
 ---
 title: integrity-sdk
 created: 2026-07-07
-updated: 2026-09-28
+updated: 2026-10-05
 type: entity
 tags: [sdk, identity, metrics, infrastructure]
 confidence: high
@@ -23,6 +23,8 @@ source_files:
   - integrity-sdk/integrity_sdk/integrations/auto_hook.py
   - integrity-sdk/integrity_sdk/security/redactor.py
   - integrity-sdk/integrity_sdk/mcp_server.py
+  - integrity-sdk/integrity_sdk/evidence_anchor.py
+  - integrity-sdk/tests/test_evidence_anchor.py
   - integrity-sdk/integrity_sdk/memory.py
   - integrity-sdk/integrity_sdk/posttool_report.py
   - integrity-sdk/integrity_sdk/agent_runtime.py
@@ -60,6 +62,7 @@ become a self-sovereign, on-chain, reputation-bearing participant.
 - [Universal telemetry envelope, transports, and delivery](#universal-telemetry-envelope-transports-and-delivery)
 - [Privacy policy and retention](#privacy-policy-and-retention)
 - [Persistent Memory Bridge (memory.py, added 2026-07-30)](#persistent-memory-bridge-memory-py-added-2026-07-30)
+- [evidenceanchor.py, added 2026-10-05 (B4)](#evidenceanchor-py-added-2026-10-05-b4)
 
 ## Dependency boundary
 
@@ -447,3 +450,19 @@ Instead of treating memory sync as an ad-hoc cron job, agents use the SDK to exp
 
 **Pre-Flight Verification**:
 When `vault.session(platform=...)` begins, the SDK invokes `verify_preflight()`. This queries the `integrity-oracle` for the agent's `StateAnchor` address, reads the `currentRoot()` directly from the EVM (via `web3.py`), and compares it against the local backend's derived `state_root`. If they mismatch, the session panics, protecting the agent from acting on tampered or out-of-sync local memory.
+
+## `evidence_anchor.py`, added 2026-10-05 (B4)
+
+Connector-only module anchoring `core.receipt_queue.ReceiptQueue` checkpoints to the
+dedicated protocol evidence `StateAnchor` (see [contracts](contracts.md)'s
+`DeployProtocolEvidenceAnchor.s.sol` and [bcc_middleware](bcc_middleware.md)'s matching
+change). Unlike `chain.py`'s per-agent `anchor_vault_root`/`anchor_genesis_root`, this
+anchors with a direct signed EOA call — this contract's admin is the protocol
+operator's own key, not a `SovereignAgent`, so there is no `execute()` routing to do.
+`anchor_pending_receipts(queue, ...)` is "queued receipts anchor after recovery": it
+drives `ReceiptQueue.submit`, whose own durable `submitted_hashes` tracking means a
+failed anchor call (this function raises) leaves every receipt in the batch still
+pending for the next attempt, while a successful one is acknowledged and never
+re-submitted. `tests/test_evidence_anchor.py` (3/3) runs the real
+`DeployProtocolEvidenceAnchor.s.sol` script against the shared `deployed_chain` anvil
+fixture — not a mock.

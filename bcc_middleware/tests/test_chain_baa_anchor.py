@@ -235,7 +235,13 @@ async def test_full_intercept_flow_gates_on_real_on_chain_baa_status(
         json.dumps(
             {
                 "chainId": anvil_chain["chain_id"],
-                "singletons": {"SmartBAAFactory": anvil_chain["baa_address"]},
+                "singletons": {
+                    "SmartBAAFactory": anvil_chain["baa_address"],
+                    # B4: the dedicated evidence anchor step 7's real anchoring below
+                    # targets, instead of resolving a per-agent memory StateAnchor
+                    # via the (stubbed) oracle.
+                    "ProtocolEvidenceAnchor": anvil_chain["anchor_address"],
+                },
             }
         )
     )
@@ -280,10 +286,11 @@ async def test_full_intercept_flow_gates_on_real_on_chain_baa_status(
     # isn't testing the oracle boundary itself -- that's
     # mock_oracle_agent_resolution's job in the other tests in this file),
     # monkeypatch resolve_agent_primitives directly instead. It's imported by
-    # value into both app.chain (via check_baa_status -> agent_id_to_address)
-    # and app.anchor (via `from app.chain import resolve_agent_primitives`),
-    # so both bindings must be patched or per-agent anchoring in step 3 would
-    # hit the real (unmocked) oracle URL and silently no-op.
+    # value into app.chain (via check_baa_status -> agent_id_to_address), so
+    # that binding must be patched. app.anchor no longer resolves agent
+    # primitives at all (B4: it anchors to the one dedicated evidence
+    # contract configured in the deployments file above), so there is
+    # nothing left to patch there.
     primitives = {
         "sovereign_agent": agent_address,
         "state_anchor": anvil_chain["anchor_address"],
@@ -300,7 +307,6 @@ async def test_full_intercept_flow_gates_on_real_on_chain_baa_status(
     monkeypatch.setattr("app.chain.resolve_verification_tier", lambda *_args, **_kwargs: 0)
     monkeypatch.setattr("app.main.resolve_verification_tier", lambda *_args, **_kwargs: 0)
     monkeypatch.setattr("app.baa.agent_id_to_address", lambda *_args, **_kwargs: agent_address)
-    monkeypatch.setattr("app.anchor.resolve_agent_primitives", _fake_resolve)
     monkeypatch.setattr("app.quarantine.resolve_agent_primitives", _fake_resolve)
 
     # 1. BAA inactive -> denied. `covered_entity_address` is set (a real

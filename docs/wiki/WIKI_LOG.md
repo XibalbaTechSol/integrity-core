@@ -4026,3 +4026,11 @@ writeup: PRODUCTION_GAPS.md §18.
 - Updated the `integrity-cli` entity page with the new command group and the owner-approved, narrow exception to that package's no-SDK-import rule.
 - SDK suite: 477 passed, 3 skipped. integrity-cli suite: 85 passed, 1 skipped. 22 new tests total across both.
 - `docs/EXECUTION_PLAN.md` B3 checklist ticked with these commits/tests as citations.
+## [2026-10-05] B4 verifiable evidence
+- Added `contracts/script/DeployProtocolEvidenceAnchor.s.sol` (dedicated protocol-wide evidence `StateAnchor`, same incremental-deploy pattern as `DeployXns.s.sol`).
+- `bcc_middleware/app/anchor.py::anchor_batch_per_agent` now anchors per-agent sub-roots to that one configured contract instead of resolving each agent's own memory `StateAnchor` via the oracle, closing the receipt-root/memory-root collision B4 names. Rewrote 3 tests in `test_anchor_per_agent.py` and fixed `test_chain_baa_anchor.py`'s stale `app.anchor.resolve_agent_primitives` monkeypatch.
+- Added `integrity_sdk/evidence_anchor.py` (connector-only): `anchor_pending_receipts` drives `ReceiptQueue.submit` against the dedicated anchor, giving B4's "queued receipts anchor after recovery."
+- Extended `integrity verify` with `--decision-trace`/`--trace-evidence` (DecisionTrace parent-link/inclusion verification plus a separate `advisory_status` field), and fixed a latent bug in `--anchor-contract` (required exact `latestRoot` match, which breaks on a shared evidence anchor; now relies on `verifyLeaf`'s own `isAnchoredRoot` check).
+- Updated `bcc_middleware`, `contracts`, `integrity-sdk`, and `integrity-cli` entity pages.
+- Full suites green: `integrity-sdk` 480 passed/3 skipped, `integrity-cli` 90 passed/1 skipped, `bcc_middleware` 160 passed/1 pre-existing unrelated flake (confirmed flaky on `main` without this change too), `contracts` 335 passed (forge test).
+- `docs/EXECUTION_PLAN.md` B4 ticked 5/6 (testnet deployment deferred, needs owner approval per the plan).

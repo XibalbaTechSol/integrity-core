@@ -1,7 +1,7 @@
 ---
 title: bcc_middleware
 created: 2026-07-07
-updated: 2026-09-09
+updated: 2026-10-05
 type: entity
 tags: [infrastructure, compliance, cryptography, metrics]
 confidence: high
@@ -10,6 +10,7 @@ source_files:
   - bcc_middleware/app/canonical.py
   - bcc_middleware/app/baa.py
   - bcc_middleware/app/chain.py
+  - bcc_middleware/app/anchor.py
   - bcc_middleware/app/merkle.py
   - bcc_middleware/app/reputation.py
   - bcc_middleware/app/scoring_loop.py
@@ -19,6 +20,7 @@ source_files:
   - bcc_middleware/app/verification_token.py
   - bcc_middleware/app/audit.py
   - bcc_middleware/tests/test_periodic_anchor.py
+  - bcc_middleware/tests/test_anchor_per_agent.py
   - bcc_middleware/tests/test_shutdown_drain.py
   - bcc_middleware/tests/test_opa_fail_closed.py
   - bcc_middleware/policies/bcc.rego
@@ -42,6 +44,7 @@ in the monorepo that closes that loop.
 - [Async hot-path + hardening fixes, 2026-07-15](#async-hot-path-hardening-fixes-2026-07-15)
 - [State](#state)
 - [Resolved gap (found stale during integrity-dashboard/demo work, 2026-07-09)](#resolved-gap-found-stale-during-integrity-dashboard-demo-work-2026-07-09)
+- [Evidence anchoring now targets a dedicated contract, not each agent's memory StateAnchor (B4, 2026-10-05)](#evidence-anchoring-now-targets-a-dedicated-contract-not-each-agent-s-memory-stateanchor-b4-2026-10-05)
 
 ## Pipeline
 
@@ -266,6 +269,23 @@ agent_id)` (an oracle lookup), matching what `EHRGate.checkAccess`/
 end-to-end against a live current-schema oracle this session (see
 [integrity-dashboard](integrity-dashboard.md)'s demo section: no such oracle instance was
 running), but the placeholder code path itself is confirmed gone from source.
+
+## Evidence anchoring now targets a dedicated contract, not each agent's memory StateAnchor (B4, 2026-10-05)
+
+`app/anchor.py::anchor_batch_per_agent` used to resolve each agent's OWN memory
+`StateAnchor` via the oracle and anchor BCC batch sub-roots there — the same contract
+C2 registration reads `latestRoot()` from as the memory root, so a flushed batch and a
+memory-root anchor silently raced for the same on-chain slot. It now anchors every
+agent's sub-root to one configured address,
+`settings.contract_address(settings.protocol_evidence_anchor_contract_name)`
+(default name `ProtocolEvidenceAnchor`, resolved from the deployments file's
+`singletons` section like any other singleton) — no oracle call needed for the anchor
+target anymore. See `contracts/script/DeployProtocolEvidenceAnchor.s.sol` in
+[contracts](contracts.md) for the deploy side; `isAnchoredRoot` on a shared contract
+still makes every individual root independently verifiable via `verifyLeaf`, even
+though `latestRoot` itself no longer means anything agent-specific on this contract.
+Re-verified against a real local anvil: `tests/test_anchor_per_agent.py` (3/3) and
+`tests/test_chain_baa_anchor.py`'s full real-chain intercept flow (12/12).
 
 Related: [BCC](../concepts/bcc.md),
 [ComplianceGate](../concepts/compliance-gate.md),
