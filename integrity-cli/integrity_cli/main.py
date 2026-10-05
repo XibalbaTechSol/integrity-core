@@ -83,6 +83,8 @@ def verify_command(
     checkpoint: Optional[Path] = typer.Option(None, "--checkpoint", exists=True, readable=True, help="Checkpoint JSON file"),
     proof: Optional[Path] = typer.Option(None, "--proof", exists=True, readable=True, help="Inclusion proof JSON file"),
     anchor_root: Optional[str] = typer.Option(None, "--anchor-root", help="Read-back anchor root for local comparison (0x + 32 bytes)"),
+    anchor_contract: Optional[str] = typer.Option(None, "--anchor-contract", help="StateAnchor address for local Anvil read-back"),
+    rpc_url: Optional[str] = typer.Option(None, "--rpc-url", help="RPC URL used with --anchor-contract (defaults to RPC_URL or localhost)"),
     json_output: bool = typer.Option(False, "--json-output", help="Emit machine-readable JSON"),
 ) -> None:
     """Verify receipt signatures, chain, checkpoint, and optional inclusion proof offline.
@@ -117,6 +119,33 @@ def verify_command(
                 raise verify.VerifyError("MALFORMED", "inclusion proof requires a checkpoint")
             verify.verify_inclusion(proof_doc.get("receipt"), proof_doc["proof"], proof_checkpoint, trusted_signer)
             result["inclusion"] = "pass"
+        if anchor_contract is not None:
+            if selected_checkpoint is None or not proof:
+                raise verify.VerifyError("MALFORMED", "--anchor-contract requires a checkpoint and --proof")
+            if not isinstance(proof_doc.get("receipt"), dict):
+                raise verify.VerifyError("MALFORMED", "proof receipt must be a JSON object")
+            try:
+                w3 = chain.get_w3(rpc_url or os.getenv("RPC_URL", "http://localhost:8545"))
+                if not w3.is_connected():
+                    raise RuntimeError("RPC is not reachable")
+                state_anchor = chain._contract(w3, "StateAnchor", address=anchor_contract)
+                latest_root = state_anchor.functions.latestRoot().call()
+                latest_root_hex = "0x" + bytes(latest_root).hex()
+                if latest_root_hex != selected_checkpoint["root"]:
+                    raise verify.VerifyError("ROOT_MISMATCH", "StateAnchor.latestRoot differs from checkpoint root")
+                proof_nodes = [bytes.fromhex(node.removeprefix("0x")) for node in proof_doc["proof"]]
+                if not state_anchor.functions.verifyLeaf(
+                    bytes.fromhex(selected_checkpoint["root"][2:]),
+                    verify.receipt_leaf(proof_doc["receipt"]),
+                    proof_nodes,
+                ).call():
+                    raise verify.VerifyError("NOT_INCLUDED", "StateAnchor rejected the receipt inclusion proof")
+                result["anchor"] = "pass"
+                result["anchor_scope"] = "local_rpc"
+            except verify.VerifyError:
+                raise
+            except (ValueError, TypeError, OSError, RuntimeError) as exc:
+                raise verify.VerifyError("ANCHOR_UNAVAILABLE", str(exc)) from exc
         if anchor_root is not None:
             if selected_checkpoint is None:
                 raise verify.VerifyError("MALFORMED", "--anchor-root requires a checkpoint")
