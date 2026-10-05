@@ -36,7 +36,7 @@ from rich.console import Console
 from rich.table import Table
 from web3 import Web3
 
-from . import bcc, chain, config, identity, vault, verify, wallet
+from . import bcc, chain, config, hooks, identity, vault, verify, wallet
 from .client import ApiError, BccClient, IntegrityClient
 from .config import get_auth_token, load_config, set_config_value
 
@@ -74,6 +74,53 @@ app.add_typer(vault_app, name="vault")
 
 wallet_app = typer.Typer(help="EVM wallet keystores -- import a raw key once, then reference it by name")
 app.add_typer(wallet_app, name="wallet")
+
+hooks_app = typer.Typer(help="Install/uninstall harness PreToolUse and memory hooks (gate: bcc; memory: cortex)")
+app.add_typer(hooks_app, name="hooks")
+
+
+@hooks_app.command("install")
+def hooks_install(
+    harness: str = typer.Option(..., "--harness", help=f"Harness to install into; supported: {', '.join(hooks.SUPPORTED_HARNESSES)}"),
+    gate: str = typer.Option(..., "--gate", help=f"PreToolUse gate; supported today: {', '.join(hooks.SUPPORTED_GATES)} (shield is pending B2)"),
+    memory: Optional[str] = typer.Option(None, "--memory", help=f"PostToolUse memory target; supported: {', '.join(hooks.SUPPORTED_MEMORY)}"),
+    profile_root: Optional[Path] = typer.Option(None, "--profile-root", help="Harness root; defaults to $CLAUDE_CONFIG_DIR or ~/.claude for claude-code"),
+    agent_id: str = typer.Option("default", "--agent-id", help="Local identity name for this harness profile"),
+):
+    """
+    Write a public agent.did.json into the harness root (private key stored
+    outside it, via integrity_sdk's harness-root DID layout) and marker-tagged
+    PreToolUse/PostToolUse hooks into the harness's settings.json.
+
+    Idempotent: running this twice leaves settings.json unchanged beyond the
+    first run (no duplicate entries, no new key, same DID).
+    """
+    try:
+        result = hooks.install(harness=harness, gate=gate, memory=memory, profile_root=profile_root, agent_id=agent_id)
+    except hooks.HookInstallError as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+        raise typer.Exit(1)
+    console.print(f"[bold green]Installed[/bold green] hooks for {harness!r} at [cyan]{result['profile_root']}[/cyan]")
+    console.print_json(data=result)
+
+
+@hooks_app.command("uninstall")
+def hooks_uninstall(
+    harness: str = typer.Option(..., "--harness", help=f"Harness to uninstall from; supported: {', '.join(hooks.SUPPORTED_HARNESSES)}"),
+    profile_root: Optional[Path] = typer.Option(None, "--profile-root", help="Harness root; defaults to $CLAUDE_CONFIG_DIR or ~/.claude for claude-code"),
+):
+    """
+    Remove exactly the marker-tagged hook entries `hooks install` wrote.
+    Leaves agent.did.json and the private key in place -- identity outlives
+    hook configuration. A no-op if nothing is installed.
+    """
+    try:
+        result = hooks.uninstall(harness=harness, profile_root=profile_root)
+    except hooks.HookInstallError as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+        raise typer.Exit(1)
+    console.print(f"[green]done[/green] removed {result['removed_hook_entries']} hook entr{'y' if result['removed_hook_entries'] == 1 else 'ies'} from [cyan]{result['settings_file']}[/cyan]")
+    console.print_json(data=result)
 
 
 @app.command("verify")

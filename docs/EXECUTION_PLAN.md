@@ -820,10 +820,29 @@ rule each; Gate B-local's "every rule cites a control" needs re-checking once B1
 
 ## B3. Claude Code hooks (S)
 
-`integrity hooks install --harness claude-code --gate shield|bcc --memory cortex` does three things:
-- [ ] writes the DID file into the harness root and the key outside it;
-- [ ] writes marker-tagged hooks;
-- [ ] is idempotent, and uninstall is exact.
+`integrity hooks install --harness claude-code --gate bcc --memory cortex` (new
+`integrity-cli` command, `integrity_cli/hooks.py`, backed by the new
+`integrity_sdk.hook_runner` connector module; `--gate shield` is refused at
+install time, citing B2, rather than silently falling back or no-opping):
+- [x] writes the DID file into the harness root and the key outside it.
+  `did.write_did_file`/`did.key_store_for_profile`, re-verified
+  2026-10-05: `test_install_writes_did_file_and_key_outside_root` (key mode
+  0600, outside `profile_root`, no secret fields in `agent.did.json`).
+- [x] writes marker-tagged hooks. `HOOK_MARKER = "# integrity-hooks:v1"`,
+  carried in the installed command string, not a side-car manifest.
+  `test_install_writes_marked_pretooluse_hook_only_for_gate`,
+  `test_install_writes_marked_posttooluse_hook_when_memory_given`,
+  `test_install_preserves_pre_existing_user_hooks`.
+- [x] is idempotent, and uninstall is exact. `test_install_is_idempotent`
+  (JSON-equal settings, same DID, no second key on reinstall);
+  `test_uninstall_removes_only_marked_entries_and_restores_original_shape`
+  (byte-for-byte original settings restored, DID/key untouched);
+  `test_uninstall_with_nothing_installed_is_a_noop` (no file ever written).
+  `integrity-cli/tests/test_hooks.py`: 12/12 pass. `integrity-sdk/tests/unit/test_hook_runner.py`:
+  10/10 pass (BCC-path decision logic, raw-tool-input exclusion, fail-open-on-unreachable,
+  the Claude Code `hookSpecificOutput` deny shape, and a real subprocess invocation of
+  `python -m integrity_sdk.hook_runner`). Full suites: `integrity-sdk` 477 passed/3 skipped
+  (was 467/3); `integrity-cli` 85 passed/1 skipped (was unmeasured against this item before).
 
 ## B4. Verifiable evidence (M)
 
