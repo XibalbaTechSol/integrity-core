@@ -4021,3 +4021,8 @@ writeup: PRODUCTION_GAPS.md §18.
 - Updated the SDK and Oracle entity pages for profile-bound identity continuity, durable BCC nonces, adapter attribution, and the OTEL retention migration.
 - SDK suite: 356 passed, 8 failed, 3 skipped; failures remain in health/market integration and sampled-content expectations.
 - Cortex and core changes are being published on feature branches; do not merge until CI and the failing cases are resolved.
+## [2026-10-05] B3 Claude Code hooks installer
+- Added `integrity_sdk/hook_runner.py` (connector-only; `--gate bcc` real, `--gate shield` refused pending B2; `--memory cortex` posts to Cortex's `/api/otel/batch`) and `integrity-cli`'s `hooks install`/`hooks uninstall` commands.
+- Updated the `integrity-cli` entity page with the new command group and the owner-approved, narrow exception to that package's no-SDK-import rule.
+- SDK suite: 477 passed, 3 skipped. integrity-cli suite: 85 passed, 1 skipped. 22 new tests total across both.
+- `docs/EXECUTION_PLAN.md` B3 checklist ticked with these commits/tests as citations.

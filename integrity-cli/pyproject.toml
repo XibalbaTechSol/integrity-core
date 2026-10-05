@@ -21,6 +21,19 @@ dependencies = [
     "web3>=7.4.0",
     "eth-utils>=5.1.0",
     "jcs>=0.2.1",
+    # `hooks install`/`hooks uninstall` only: imports integrity_sdk.did for the
+    # harness-root DID layout (public agent.did.json in the root, private key
+    # outside it). This is a deliberate, narrow exception to this package's
+    # longstanding no-SDK-import convention (see identity.py's module
+    # docstring) -- that convention exists for the on-chain registration/
+    # wallet code, decoupled from the SDK's own build order while both were in
+    # flux; `hooks install`'s entire job is to install the SDK's own layout, so
+    # reimplementing it a third time here would create exactly the "same name,
+    # two DIDs" drift identity.py already warns about. Owner-approved
+    # 2026-10-05. Base extra only -- requests/web3-backed connector code lives
+    # in integrity_sdk.hook_runner (the SDK side this command's hooks invoke
+    # out-of-process), never imported here.
+    "integrity-sdk",
 ]
 
 [project.scripts]
@@ -32,6 +45,12 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["integrity_cli"]
+
+[tool.uv.sources]
+integrity-sdk = { path = "../integrity-sdk", editable = true }
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [dependency-groups]
 dev = [

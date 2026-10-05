@@ -1,7 +1,7 @@
 ---
 title: integrity-cli
 created: 2026-07-07
-updated: 2026-09-15
+updated: 2026-10-05
 type: entity
 tags: [sdk, identity]
 confidence: high
@@ -13,8 +13,11 @@ source_files:
   - integrity-cli/integrity_cli/bcc.py
   - integrity-cli/integrity_cli/config.py
   - integrity-cli/integrity_cli/vault.py
+  - integrity-cli/integrity_cli/hooks.py
+  - integrity-sdk/integrity_sdk/hook_runner.py
   - integrity-cli/tests/test_register_oracle_e2e.py
   - integrity-cli/tests/test_chain.py
+  - integrity-cli/tests/test_hooks.py
 ---
 
 ## Table of contents
@@ -114,6 +117,25 @@ SDK test's `oracle_backend` fixture pattern — ephemeral Docker Postgres/Redis
 `GET /v1/agent/{did}` + `GET /v1/agents` calls. Ran green standalone
 (`ORACLE_E2E=1 uv run pytest tests/test_register_oracle_e2e.py`) and as part
 of the full suite (skipped when `ORACLE_E2E` unset, as designed).
+
+**`hooks install`/`hooks uninstall`, added 2026-10-05 (B3)**: installs
+marker-tagged (`# integrity-hooks:v1`, carried in the command string itself,
+not a side-car manifest) PreToolUse/PostToolUse hook entries into a harness's
+`settings.json`, plus a public `agent.did.json` in the harness root with the
+private key stored outside it (`integrity_sdk.did`'s harness-root layout).
+This is the one command in this package that imports `integrity_sdk` --
+a deliberate, owner-approved exception to the "no sibling dependency" rule
+the rest of this file documents, because this command's whole job is to
+install the SDK's own identity layout (see `hooks.py`'s module docstring for
+the full rationale). Installed hooks invoke
+`python -m integrity_sdk.hook_runner` out-of-process (`--gate bcc`: a real
+signed BCC commitment POSTed to `bcc_middleware`; `--gate shield` is refused
+at install time, not stubbed, because Shield's local gate daemon is Phase B's
+unbuilt B2; `--memory cortex`: a redacted event POSTed to Cortex's
+`/api/otel/batch`). Idempotent (reinstall leaves `settings.json` JSON-equal);
+uninstall removes exactly the marked entries and never touches the DID file
+or key. 22 new tests across both packages (`integrity-sdk/tests/unit/test_hook_runner.py`,
+`integrity-cli/tests/test_hooks.py`).
 
 Related: [integrity-sdk](integrity-sdk.md),
 [agent primitives](../concepts/agent-primitives.md),
