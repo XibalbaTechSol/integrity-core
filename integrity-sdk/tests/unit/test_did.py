@@ -44,6 +44,34 @@ def test_identity_store_migration_copies_without_regeneration(tmp_path):
     assert did.migrate_identity_store("migrating-agent", source_home=source, destination_home=destination) == original_did
 
 
+def test_identity_store_migration_preserves_state_only_destination(tmp_path):
+    """A profile-scoped destination may hold non-secret state (e.g. bcc_nonce) created
+    before the DID files were relocated there. Migration must add the validated identity
+    without destroying that pre-existing state or treating the directory as corrupt."""
+    source = tmp_path / "source"
+    destination = tmp_path / "destination"
+    original_did, original_keypair, _ = did.load_or_create_did("migrating-agent")
+    source_agent = source / "migrating-agent"
+    source_agent.mkdir(parents=True)
+    source_agent.joinpath("private_key.pem").write_bytes(original_keypair.private_pem())
+    source_agent.joinpath("document.json").write_text(json.dumps(did.build_did_document(original_keypair.public_bytes())))
+    destination_agent = destination / "migrating-agent"
+    destination_agent.mkdir(parents=True)
+    destination_agent.joinpath("bcc_nonce").write_text("42")
+    record_identity({"identity_version": 1, "agent_id": "migrating-agent", "harness": "hermes",
+                     "did": original_did, "key_fingerprint": original_did.rsplit(":", 1)[-1]}, path=source)
+
+    assert did.migrate_identity_store("migrating-agent", source_home=source, destination_home=destination) == original_did
+
+    assert destination_agent.joinpath("bcc_nonce").read_text() == "42"
+    assert destination_agent.joinpath("private_key.pem").read_bytes() == original_keypair.private_pem()
+    assert json.loads(destination_agent.joinpath("document.json").read_text())["id"] == original_did
+    assert len(history("migrating-agent", path=destination)) == 1
+    # Idempotent: a second call with the identity now present takes the existing-destination path.
+    assert did.migrate_identity_store("migrating-agent", source_home=source, destination_home=destination) == original_did
+    assert destination_agent.joinpath("bcc_nonce").read_text() == "42"
+
+
 def test_identity_store_migration_refuses_destination_did_mismatch(tmp_path):
     source = tmp_path / "source"
     destination = tmp_path / "destination"

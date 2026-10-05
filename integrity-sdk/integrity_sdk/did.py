@@ -658,6 +658,20 @@ def migrate_identity_store(agent_id: str, *, source_home: str | Path, destinatio
         raise IdentityInconsistentError(f"cannot migrate {agent_id!r}: source document does not match its key")
 
     if destination.exists():
+        destination_key = destination / "private_key.pem"
+        destination_doc = destination / "document.json"
+        if not destination_key.exists() and not destination_doc.exists():
+            # A profile-scoped destination may already contain non-secret
+            # state (for example bcc_nonce) created before the DID files were
+            # relocated. Preserve that state and add the validated identity;
+            # treating this state-only directory as corrupt would either block
+            # safe migration or tempt callers to reset the nonce.
+            shutil.copy2(source_key, destination_key)
+            os.chmod(destination_key, stat.S_IRUSR | stat.S_IWUSR)
+            shutil.copy2(source_doc, destination_doc)
+            os.chmod(destination, stat.S_IRWXU)
+            _merge_identity_registry(agent_id, source_home=Path(source_home), destination_home=Path(destination_home))
+            return expected_did
         try:
             existing_did, _, _ = _load_did_from_dir(destination)
         except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
