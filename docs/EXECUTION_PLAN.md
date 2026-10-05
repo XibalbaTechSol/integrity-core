@@ -757,15 +757,35 @@ policy is configuration only. HA and Postgres are deferred.
 
 ## B1. Packs, adapters and the conformance kit (M)
 
-- [ ] `packs/base` and `packs/hipaa` each contain `pack.yaml` (with per-class defaults), `policy.rego`
+**Already landed** (PRs #152–156, merged before this section was first drafted; re-verified
+2026-10-05 — this item was previously left unticked with no commit citation, the inverse of the A7/B2a
+over-ticking corrected above):
+- [x] `packs/base` and `packs/hipaa` each contain `pack.yaml` (with per-class defaults), `policy.rego`
   and `controls.yaml`, seeded from `CONTROLS_MATRIX.md`:
-  - [ ] HIPAA §164.312(a)(1)/(b) and §164.502(b);
-  - [ ] SOC 2 CC6.1/CC7.2;
-  - [ ] ISO 42001.
-- [ ] The compiler rejects policy relaxation.
-- [ ] `baa.py` is deterministic.
-- [ ] The adapter contract and conformance kit ship with a sample third-party adapter.
-- [ ] BAA conditions are operational controls; the evidence does not certify legal compliance.
+  - [x] HIPAA §164.312(a)(1)/(b) and §164.502(b);
+  - [x] SOC 2 CC6.1/CC7.2;
+  - [x] ISO 42001.
+  `integrity-sdk/tests/unit/test_core_pack_fixtures.py::test_base_and_hipaa_fixtures_compile_with_required_controls`
+  pins both packs' compiled hash (`sha256:407b27b4...` / `sha256:5c3c1c2e...`) and asserts all six
+  control IDs are present in `controls.yaml`. 3/3 pass (2026-10-05).
+- [x] The compiler rejects policy relaxation.
+  `test_core_decision_packs.py::test_any_change_after_signing_is_refused[default-relaxed]` — a
+  post-sign edit from `{no_match: deny}` to `{no_match: permit}` is refused with `PackError(TAMPERED)`,
+  under the same signature check as a Rego edit, added/removed file, or any other post-sign mutation.
+- [x] `baa.py` is deterministic. `bcc_middleware/app/baa.py`: a real `eth_call` against
+  `SmartBAAFactory.isBAAActive(coveredEntity, businessAssociate)`; same inputs/chain state always
+  produce the same result, and every ambiguous case (no contract configured, missing
+  `covered_entity_address`, RPC unreachable, call reverts, ABI mismatch) resolves to `CANNOT_VERIFY`,
+  which the caller treats identically to `INACTIVE` — never "assume compliant."
+- [x] The adapter contract and conformance kit ship with a sample third-party adapter.
+  `integrity_sdk/integrations/sample_adapter.py`; `test_core_adapter_conformance.py` passes against it.
+- [x] BAA conditions are operational controls; the evidence does not certify legal compliance.
+  Stated directly in `baa.py`'s module docstring and `docs/CONTROLS_MATRIX.md` §0's three-layer
+  responsibility model (protocol/product/deployer).
+
+**Not yet verified in this pass:** whether `packs/base`/`packs/hipaa`'s actual `policy.rego` rules each
+carry a `controls.yaml` citation at the per-rule level (today's policies are a single `NO_ACTIVE_BAA`
+rule each; Gate B-local's "every rule cites a control" needs re-checking once B1 grows past that one rule).
 
 ## B2. Gates emit receipts (M)
 
@@ -869,8 +889,11 @@ synthetic regulated data and Claude Code hooks.
     unchanged while Cortex records an unavailable/rejected advisory status.
 - [ ] **Data boundary:** a traffic audit shows no content leaving the boundary.
 - **Packs:**
-  - [ ] golden hashes pass, and every rule cites a control;
-  - [ ] the sample adapter passes the conformance kit.
+  - [x] golden hashes pass (B1, `test_core_pack_fixtures.py`); every rule cites a control is not
+    fully re-verified — today's `base`/`hipaa` policies are a single `NO_ACTIVE_BAA` rule each, and
+    `controls.yaml` lists six control IDs at the pack level, not a verified one-to-one rule↔control
+    mapping. Re-check once B1 adds more rules.
+  - [x] the sample adapter passes the conformance kit (B1, `test_core_adapter_conformance.py`).
 - [ ] **Exports:** Vanta fixture tests pass.
 - **Tenancy and devices:**
   - [ ] two tenants cannot read or alter each other's data;
