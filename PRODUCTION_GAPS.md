@@ -4189,3 +4189,35 @@ of these now resolves the agent card labeled "IDENTIFIED BY: XNS handle," not DI
 **Still open, not addressed in this pass:** the 3 pre-existing `integrity-sdk` test failures tied
 to the core/full registration-path split (unrelated concurrent work) remain unfixed; on-chain
 alias listing for an Oracle-claimed handle is not built.
+
+## 72. The direct-push-to-`main` workflow is retired; merge gating is unblocked (2026-10-06)
+
+**Owner decision, 2026-10-06: never push directly to `main` unless explicitly told to.** This
+settles a contradiction that had stood in this repository's own docs and had a real cost.
+
+`AGENTS.md` rule 3 has always said "Never push directly to `main`. Open a PR. CI must be green
+before merge." But §8's 2026-07-16 entry above records a required-status-check being added to
+`main` and then **removed again** because it "blocks *direct* pushes to `main`, not just PR
+merges — removed again since that conflicts with this repo's established direct-push workflow."
+Per this document's append-only rule that entry is not rewritten; it stands as the accurate record
+of what was done then and why.
+
+What changes is the premise. There is no direct-push workflow to protect any more, so the reason
+that gate was reverted no longer applies, and a required status check on `main` can be configured
+without a ruleset bypass actor and without conflicting with how this repository is worked.
+
+**Why this matters beyond this repo.** The same missing gate is what let two sibling PRs merge
+with CI already red on 2026-10-05: `xibalba-shield#43` (`root-free-tests`, two runs, both
+`failure`) and `xibalba-cortex#36` (`xibalba-cortex (pytest)`, `failure`). `main` reads
+`protected: false` in both siblings. Auto-merge was not the cause and stays enabled by owner
+decision — it merges when permitted, and nothing made CI a condition of being permitted. See the
+A0 **Sibling repositories** precondition in `docs/EXECUTION_PLAN.md` for the full root-cause
+record.
+
+**Still open, not addressed in this pass:** the gate itself is a GitHub repository setting and
+cannot be committed, so it remains an owner action in all three repositories. This repository's
+current ruleset state is also still unverified — §8's 2026-07-16 entry both records a
+`required_status_checks` ruleset over the eight real `ci.yml` job names *and* closes by saying
+"only the auto-close-conflicting-PRs workflow was kept," which cannot both be true, and
+`list_branches`'s `protected` flag does not report rulesets. Check Settings → Rules before
+configuring anything here. GitHub Merge Queue remains unavailable on this account.

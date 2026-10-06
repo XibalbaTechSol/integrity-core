@@ -270,34 +270,32 @@ review:
   relationship to be encoded. This adds no CI code; it marks the check that already exists, and
   that already caught both failures, as one that must pass.
 
-  **This repository is a separate question, not settled here.** `main` also reads
-  `protected: false`, but that flag reflects legacy branch protection and does not report
-  repository rulesets, and `PRODUCTION_GAPS.md`'s 2026-07-16 entry records a
-  `required_status_checks` *ruleset* naming this repo's eight real `ci.yml` job names — while the
-  same entry's closing note says "only the auto-close-conflicting-PRs workflow was kept," which
-  reads as though the ruleset was reverted too. Those two statements cannot both be right, and the
-  ruleset state cannot be read with the tooling available to this session. An owner should check
-  Settings → Rules before changing anything here.
+  **This repository too, now that the direct-push question is settled.** An owner decision of
+  2026-10-06 — *never push directly to `main` unless explicitly told to* — removes the one
+  objection that had kept this gate off here. `PRODUCTION_GAPS.md` §8's 2026-07-16 entry records a
+  required-status-check being added to `main` and then reverted because it "blocks *direct* pushes
+  to `main`, not just PR merges," conflicting with "this repo's established direct-push workflow."
+  That workflow is retired, so the premise is gone: the check can be required here with no ruleset
+  bypass actor, and `AGENTS.md` rule 3 ("Never push directly to `main`. Open a PR. CI must be green
+  before merge.") becomes an enforced invariant rather than a convention. Recorded as
+  `PRODUCTION_GAPS.md` §72.
 
-  Two constraints from that same entry apply to any fix and should not be rediscovered:
+  Two facts still constrain *how*, and should not be rediscovered:
 
   - **GitHub Merge Queue is unavailable on this account** (a `merge_queue` ruleset rule is rejected
     while `required_status_checks` succeeds; likely a personal-account plan restriction).
-  - **A plain required-status-check on `main` also blocks direct pushes,** not just PR merges. That
-    is why an earlier attempt here was reverted. If a direct-push path must stay open, add the
-    owner as a ruleset **bypass actor** rather than dropping the requirement — that gates PR
-    merges while leaving the owner's own pushes unblocked.
-
-  Note this leaves `AGENTS.md` rule 3 ("Never push directly to `main`. Open a PR. CI must be green
-  before merge.") in direct conflict with the "established direct-push workflow" that
-  `PRODUCTION_GAPS.md` cites as the reason that gate was removed. One of the two should be
-  retired; which one is an owner decision, and it is not made here.
+  - **This repository's current ruleset state is unverified.** §8's entry both records a
+    `required_status_checks` ruleset over the eight real `ci.yml` job names *and* closes by saying
+    "only the auto-close-conflicting-PRs workflow was kept." Those cannot both be true, and
+    `list_branches`'s `protected` flag does not report rulesets, so it is not readable with this
+    session's tooling. Check Settings → Rules before configuring anything here.
 
   **Remaining owner action (blocks this checkbox):** required status checks are a GitHub
   repository setting (Settings → Rules, or Settings → Branches), not a file in any repository, so
-  this cannot be committed. Configure it on `main` in `xibalba-shield` and `xibalba-cortex`, settle
-  this repository's own gate per the above, then tick this item. The "no concurrent sessions" half
-  remains an operating convention with no mechanical enforcement.
+  this cannot be committed. Configure it on `main` in all three repositories — `root-free-tests`
+  for Shield, `xibalba-cortex (pytest)` for Cortex, and this repo's eight `ci.yml` jobs plus
+  `documentation contracts` — then tick this item. The "no concurrent sessions" half remains an
+  operating convention with no mechanical enforcement.
 
 ## A4. Minimal kernel patch (S)
 
