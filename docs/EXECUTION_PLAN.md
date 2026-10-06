@@ -242,24 +242,62 @@ review:
 - [ ] **Sibling repositories:** Shield and Cortex work branches from their latest `main`; no concurrent
   sessions run on them.
 
-  **Owner decision (2026-10-06): enforce by disabling auto-merge, not by a CI guard.** This
-  precondition failed twice on 2026-10-05, independently and from the same cause: a sibling PR
-  imported an `integrity_sdk` symbol that its pinned `integrity-core` ref did not yet contain, and
-  auto-merge landed it before the pin bump. `xibalba-shield#43` and `xibalba-cortex#36` each broke
-  their own `main` CI this way, and each needed a follow-up repair PR that changed nothing but the
-  pin (`xibalba-shield#44`, `xibalba-cortex#37`; both repos' `ci.yml` comments record the
-  post-mortem). The alternative mechanism considered and rejected was a CI step failing when a
-  sibling imports an SDK symbol absent from its pinned ref: it adds a second place for the pin
-  relationship to be encoded, and it only reports the breakage after the PR is already open.
-  Instead, **"Allow auto-merge" is turned off in the GitHub repository settings of both
-  xibalba-shield and xibalba-cortex**, so a pin bump and the code depending on it can never land
-  out of order. A0's existing "auto-merge is already disabled" claim covered this repository only;
-  it did not hold for the siblings.
+  **Owner decision (2026-10-06, corrected): keep auto-merge enabled; gate merges with a required
+  status check.** An earlier revision of this entry recorded the decision as "turn off Allow
+  auto-merge." That was wrong on both the owner's choice and the diagnosis, and is corrected here
+  rather than silently dropped.
 
-  **Remaining owner action (blocks this checkbox):** the toggle is a GitHub repository setting
-  (Settings → General → Pull Requests → "Allow auto-merge"), not a file in any repository, so it
-  cannot be committed. Turn it off in both sibling repositories, then tick this item. The "no
-  concurrent sessions" half remains an operating convention with no mechanical enforcement.
+  **Root cause, established from the check runs rather than inferred.** This precondition failed
+  twice on 2026-10-05, in `xibalba-shield#43` and `xibalba-cortex#36`. Both PRs did import an
+  `integrity_sdk` symbol their pinned `integrity-core` ref did not contain — but their CI
+  *reported that correctly and failed*:
+
+  - `xibalba-shield#43` — `root-free-tests`, two runs, both `conclusion: failure`.
+  - `xibalba-cortex#36` — `xibalba-cortex (pytest)`, `conclusion: failure`.
+
+  Each merged anyway, and `main` is `protected: false` in both sibling repositories. So auto-merge
+  was not the defect, and disabling it would not have closed the hole: it would only have slowed
+  things down until a human noticed red, and a manual merge could still land a failing PR. The
+  defect is that **nothing in either sibling gates a merge on CI**. Auto-merge on an ungated
+  branch merges as soon as it is permitted to, red or green — it was doing exactly what it is
+  specified to do.
+
+  **Mechanism (siblings).** Require each package's existing CI check on `main` — `root-free-tests`
+  for Shield, `xibalba-cortex (pytest)` for Cortex. Auto-merge then becomes the safe path rather
+  than the risk: it waits for required checks and merges only once they pass, so a pin bump and the
+  code depending on it cannot land out of order. This is **not** the rejected CI guard — that
+  proposal was a new CI step detecting SDK-symbol drift, adding a second place for the pin
+  relationship to be encoded. This adds no CI code; it marks the check that already exists, and
+  that already caught both failures, as one that must pass.
+
+  **This repository is a separate question, not settled here.** `main` also reads
+  `protected: false`, but that flag reflects legacy branch protection and does not report
+  repository rulesets, and `PRODUCTION_GAPS.md`'s 2026-07-16 entry records a
+  `required_status_checks` *ruleset* naming this repo's eight real `ci.yml` job names — while the
+  same entry's closing note says "only the auto-close-conflicting-PRs workflow was kept," which
+  reads as though the ruleset was reverted too. Those two statements cannot both be right, and the
+  ruleset state cannot be read with the tooling available to this session. An owner should check
+  Settings → Rules before changing anything here.
+
+  Two constraints from that same entry apply to any fix and should not be rediscovered:
+
+  - **GitHub Merge Queue is unavailable on this account** (a `merge_queue` ruleset rule is rejected
+    while `required_status_checks` succeeds; likely a personal-account plan restriction).
+  - **A plain required-status-check on `main` also blocks direct pushes,** not just PR merges. That
+    is why an earlier attempt here was reverted. If a direct-push path must stay open, add the
+    owner as a ruleset **bypass actor** rather than dropping the requirement — that gates PR
+    merges while leaving the owner's own pushes unblocked.
+
+  Note this leaves `AGENTS.md` rule 3 ("Never push directly to `main`. Open a PR. CI must be green
+  before merge.") in direct conflict with the "established direct-push workflow" that
+  `PRODUCTION_GAPS.md` cites as the reason that gate was removed. One of the two should be
+  retired; which one is an owner decision, and it is not made here.
+
+  **Remaining owner action (blocks this checkbox):** required status checks are a GitHub
+  repository setting (Settings → Rules, or Settings → Branches), not a file in any repository, so
+  this cannot be committed. Configure it on `main` in `xibalba-shield` and `xibalba-cortex`, settle
+  this repository's own gate per the above, then tick this item. The "no concurrent sessions" half
+  remains an operating convention with no mechanical enforcement.
 
 ## A4. Minimal kernel patch (S)
 
