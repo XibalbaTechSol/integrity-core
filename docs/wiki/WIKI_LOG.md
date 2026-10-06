@@ -4050,3 +4050,20 @@ writeup: PRODUCTION_GAPS.md §18.
 - Updated `STATUS.md` (regenerated count, A7/B2/B3 rows) and `INTERFACE_CONTRACT.md` 15.5's status,
   which still called the daemon an unmerged draft.
 - Still open: B2 signed chained receipts and shared BCC/Shield conformance vectors; A7's Settings UI.
+
+## [2026-10-07] update | BCC migration stage 1: ported signed pack and differential harness (B2)
+
+- Owner chose a staged migration of `bcc_middleware` onto the shared signed pack. Added `packs/bcc/`
+  (not yet loaded by the service), `integrity-sdk/tests/unit/test_core_bcc_pack_equivalence.py` and
+  `docs/design/bcc-shared-pack-migration.md`. No `bcc_middleware` code changed.
+- The harness runs `bcc.rego` and the pack in two real OPA servers over 2,000+ deterministic cases:
+  same verdict, a reason code recomputed from the old messages, same clinical sets. Coverage guards
+  fail the build if a rule or a feasible pair of rules goes unexercised. 14 of 15 deliberate
+  breakages are caught; the fifteenth is unobservable by construction.
+- Findings: (1) `bcc.rego` fails open on a commitment with no `agent_id` or `intent_type` (undefined
+  Rego rules do not fire); unreachable via the service's schema, denied by the pack, pinned by a test.
+  (2) `bcc_middleware` has no `integrity-sdk` dependency, so stage 2 changes pyproject, lockfile,
+  Dockerfile build context and CI. (3) the first corpus never made two rules fire together, so a
+  priority swap went unnoticed until mutation testing exposed it.
+- Open: what "BCC and Shield evaluate the same compiled pack" means given different input vocabularies
+  (see the design page). Stages 2-4 `[PLANNED]`; B2 stays unticked.

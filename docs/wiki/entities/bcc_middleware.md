@@ -1,7 +1,7 @@
 ---
 title: bcc_middleware
 created: 2026-07-07
-updated: 2026-10-05
+updated: 2026-10-07
 type: entity
 tags: [infrastructure, compliance, cryptography, metrics]
 confidence: high
@@ -24,6 +24,7 @@ source_files:
   - bcc_middleware/tests/test_shutdown_drain.py
   - bcc_middleware/tests/test_opa_fail_closed.py
   - bcc_middleware/policies/bcc.rego
+  - packs/bcc/policy.rego
 ---
 
 The pre-execution policy gate (FastAPI + OPA). An agent signs a
@@ -44,6 +45,7 @@ in the monorepo that closes that loop.
 - [Async hot-path + hardening fixes, 2026-07-15](#async-hot-path-hardening-fixes-2026-07-15)
 - [State](#state)
 - [Resolved gap (found stale during integrity-dashboard/demo work, 2026-07-09)](#resolved-gap-found-stale-during-integrity-dashboard-demo-work-2026-07-09)
+- [Migration onto the shared signed pack: stage 1 (B2, 2026-10-07)](#migration-onto-the-shared-signed-pack-stage-1-b2-2026-10-07)
 - [Evidence anchoring now targets a dedicated contract, not each agent's memory StateAnchor (B4, 2026-10-05)](#evidence-anchoring-now-targets-a-dedicated-contract-not-each-agent-s-memory-stateanchor-b4-2026-10-05)
 
 ## Pipeline
@@ -290,3 +292,20 @@ Re-verified against a real local anvil: `tests/test_anchor_per_agent.py` (3/3) a
 Related: [BCC](../concepts/bcc.md),
 [ComplianceGate](../concepts/compliance-gate.md),
 [Merkle batching](../concepts/merkle-batching.md).
+
+## Migration onto the shared signed pack: stage 1 (B2, 2026-10-07)
+
+`bcc_middleware` still decides with `policies/bcc.rego` (boolean `allow`, a set of `violation`
+messages, `requires_baa`); it does not yet use the signed-pack decision contract or emit receipts, and
+it has no `integrity-sdk` dependency. Stage 1 of the staged migration adds `packs/bcc/`, a signed-pack
+re-expression of `bcc.rego` that **is not loaded by this service yet**, and a differential harness
+(`integrity-sdk/tests/unit/test_core_bcc_pack_equivalence.py`) that runs both in real OPA over 2,000+
+cases and fails on any disagreement. Design and the remaining stages: `docs/design/bcc-shared-pack-migration.md`.
+
+Finding, unreachable through this service but real in the policy: `bcc.rego` **allows** a commitment with
+no `agent_id` or no `intent_type`, because a Rego rule that reads an absent field (or negates a membership
+test on one) silently does not fire. This service always sends both, validated, so it is not a live
+bypass; the new pack denies such input (`BCC_MALFORMED_COMMITMENT`). The pack reports one reason code
+(highest priority) where `bcc.rego` reports a set; the set of denials is unchanged. `packs/bcc/controls.yaml`
+cites only the controls the old policy already claimed; "every rule cites a control" is not yet met.
+

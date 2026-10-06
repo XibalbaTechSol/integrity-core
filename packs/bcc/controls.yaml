@@ -1,0 +1,11 @@
+# Controls this pack's rules cite. Only controls the original bcc.rego already claimed are cited:
+# its header ties the clinical allowlist to HIPAA 164.312(a)(1) access control and calls the
+# verification-tier gates defense-in-depth on that allowlist, and its AOS section exists to put a
+# trace id, span id and stated rationale into the audit record. The evidence does not certify legal
+# compliance (docs/CONTROLS_MATRIX.md section 0). A rule with no citation here (the intent-label
+# pattern checks and the token budget) cites none, which is a stated gap for the compliance owner
+# to close, not an oversight.
+HIPAA-164.312(a)(1):
+  - access_control
+HIPAA-164.312(b):
+  - audit_controls
