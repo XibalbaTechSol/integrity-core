@@ -1,7 +1,7 @@
 ---
 title: integrity-sdk
 created: 2026-07-07
-updated: 2026-10-05
+updated: 2026-10-06
 type: entity
 tags: [sdk, identity, metrics, infrastructure]
 confidence: high
@@ -25,6 +25,8 @@ source_files:
   - integrity-sdk/integrity_sdk/mcp_server.py
   - integrity-sdk/integrity_sdk/evidence_anchor.py
   - integrity-sdk/tests/test_evidence_anchor.py
+  - integrity-sdk/integrity_sdk/hook_runner.py
+  - integrity-sdk/tests/unit/test_hook_runner.py
   - integrity-sdk/integrity_sdk/memory.py
   - integrity-sdk/integrity_sdk/posttool_report.py
   - integrity-sdk/integrity_sdk/agent_runtime.py
@@ -63,6 +65,7 @@ become a self-sovereign, on-chain, reputation-bearing participant.
 - [Privacy policy and retention](#privacy-policy-and-retention)
 - [Persistent Memory Bridge (memory.py, added 2026-07-30)](#persistent-memory-bridge-memory-py-added-2026-07-30)
 - [evidenceanchor.py, added 2026-10-05 (B4)](#evidenceanchor-py-added-2026-10-05-b4)
+- [hookrunner.py: harness PreToolUse gate client (B3; Shield gate added 2026-10-06, B2)](#hookrunner-py-harness-pretooluse-gate-client-b3-shield-gate-added-2026-10-06-b2)
 
 ## Dependency boundary
 
@@ -466,3 +469,42 @@ pending for the next attempt, while a successful one is acknowledged and never
 re-submitted. `tests/test_evidence_anchor.py` (3/3) runs the real
 `DeployProtocolEvidenceAnchor.s.sol` script against the shared `deployed_chain` anvil
 fixture — not a mock.
+
+## `hook_runner.py`: harness PreToolUse gate client (B3; Shield gate added 2026-10-06, B2)
+
+Connector module run out-of-process as `python -m integrity_sdk.hook_runner` from a harness's
+hook configuration (installed by [integrity-cli](integrity-cli.md)'s `hooks install`). It never
+runs inside `core`, and importing it loads no connector library (`requests` stays lazy).
+
+`--gate bcc` signs a BCC commitment and POSTs it to `bcc_middleware`. **`--gate shield`** asks
+`xibalba-shield`'s `shield gate-daemon` over a Unix socket (`docs/INTERFACE_CONTRACT.md` 15.5):
+`query_shield_gate` sends one v1 JSON request and reads one v1 response. The request carries the
+agent's **DID** and a JCS SHA-256 digest of the tool input (`tool_input_digest`) — **never the
+input itself**, the same rule the BCC path follows. The socket path rule
+(`default_shield_socket_path`: `XIBALBA_SHIELD_GATE_SOCKET`, else `$XDG_RUNTIME_DIR`, else
+`~/.xibalba-shield`) is a deliberate copy of Shield's own because the SDK must not import
+Shield; both repositories pin the same three cases in tests.
+
+**Fail-open, and now actually loud.** If the daemon is missing, refusing connections, slower than
+5 s, or answers incoherently (bad JSON, wrong `v`, a `decision` that is not `allow`/`deny`,
+over 64 KiB), the call proceeds with `checked: false` — never read as an authorized allow. The
+module always documented that this is "logged to stderr, never silently swallowed", but `main()`
+only logged *exceptions*: an unreachable gate allowed the call with no trace, on the BCC path as
+well. `main()` now writes `integrity hook_runner: <gate> gate UNCHECKED, allowing <tool>: <why>`
+for both gates. Consequently an installed `--gate shield` hook with no daemon behind it enforces
+nothing, which is why `hooks install` reports whether one is listening.
+
+A deny is surfaced in Claude Code's `hookSpecificOutput` shape, with the daemon's `reason`. The
+response's `rule_id`, `policy_hash`, `action` and `enforced` are passed through so a caller can
+record *which policy* ruled and what an observe-mode daemon would have enforced.
+
+**Verified against the real daemon, not only a test double.** `tests/unit/test_hook_runner.py`
+runs the client against a stand-in speaking the documented v1 format (it is a double for the
+*other repository's* end of a wire contract, labelled as such). Separately, the real
+`integrity hooks install --gate shield`, the real runner, and the real `shield gate-daemon` over
+real OPA and a signed pack were driven end to end: a registered agent was allowed, an
+unregistered agent was denied by Shield's genuine Rego rule, the daemon's log held digests and none
+of the command, and with the daemon stopped the hook failed open with a stderr line.
+
+`[PLANNED]`: signed, chained per-decision receipts, and BCC/Shield conformance over a shared
+compiled pack (the rest of `docs/EXECUTION_PLAN.md` B2).

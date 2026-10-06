@@ -75,14 +75,14 @@ app.add_typer(vault_app, name="vault")
 wallet_app = typer.Typer(help="EVM wallet keystores -- import a raw key once, then reference it by name")
 app.add_typer(wallet_app, name="wallet")
 
-hooks_app = typer.Typer(help="Install/uninstall harness PreToolUse and memory hooks (gate: bcc; memory: cortex)")
+hooks_app = typer.Typer(help="Install/uninstall harness PreToolUse and memory hooks (gate: bcc or shield; memory: cortex)")
 app.add_typer(hooks_app, name="hooks")
 
 
 @hooks_app.command("install")
 def hooks_install(
     harness: str = typer.Option(..., "--harness", help=f"Harness to install into; supported: {', '.join(hooks.SUPPORTED_HARNESSES)}"),
-    gate: str = typer.Option(..., "--gate", help=f"PreToolUse gate; supported today: {', '.join(hooks.SUPPORTED_GATES)} (shield is pending B2)"),
+    gate: str = typer.Option(..., "--gate", help=f"PreToolUse gate; supported: {', '.join(hooks.SUPPORTED_GATES)}"),
     memory: Optional[str] = typer.Option(None, "--memory", help=f"PostToolUse memory target; supported: {', '.join(hooks.SUPPORTED_MEMORY)}"),
     profile_root: Optional[Path] = typer.Option(None, "--profile-root", help="Harness root; defaults to $CLAUDE_CONFIG_DIR or ~/.claude for claude-code"),
     agent_id: str = typer.Option("default", "--agent-id", help="Local identity name for this harness profile"),
@@ -102,6 +102,21 @@ def hooks_install(
         raise typer.Exit(1)
     console.print(f"[bold green]Installed[/bold green] hooks for {harness!r} at [cyan]{result['profile_root']}[/cyan]")
     console.print_json(data=result)
+    shield = result.get("shield_gate")
+    if shield is not None:
+        # The runner fails OPEN when its gate is unreachable, so an installed shield hook with no
+        # daemon behind it enforces nothing -- which is exactly what the old install-time refusal
+        # prevented. Say so here rather than leave it to be discovered from a silent allow.
+        if not shield["listening"]:
+            console.print(
+                f"[bold yellow]Warning:[/bold yellow] no Shield gate daemon is listening at "
+                f"[cyan]{shield['socket']}[/cyan]. Until one is, tool calls proceed [bold]UNCHECKED[/bold] "
+                "(the runner fails open and logs each one to stderr)."
+            )
+        console.print(
+            "Shield denies tool calls from any agent not registered with the daemon. Start it with:\n"
+            f"  shield gate-daemon --device-id <id> --register-agent {shield['register_agent']}"
+        )
 
 
 @hooks_app.command("uninstall")

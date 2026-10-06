@@ -8,10 +8,12 @@ inside each function, never at module scope) and must never be imported from
 ``integrity-cli``'s ``hooks install`` command, the installer for this module).
 
 C5's hook contract is "the runner calls the local Shield gate if present, otherwise
-BCC." Shield's local gate daemon (a Unix socket for PreToolUse, B2) does not exist
-yet, so ``SUPPORTED_GATES`` below names only ``bcc`` -- this module refuses a
-``shield`` gate explicitly rather than silently falling back to BCC or (worse) a
-no-op allow, per this repository's "no silent mocks" rule.
+BCC." ``--gate shield`` speaks to ``xibalba-shield``'s ``shield gate-daemon`` over a Unix
+socket (docs/INTERFACE_CONTRACT.md 15.5). It never falls back to BCC on its own: the caller
+names one gate, and a missing Shield daemon is reported as an *unchecked* allow rather than
+quietly re-routed to a different policy engine, per this repository's "no silent mocks"
+rule. Only a digest of ``tool_input`` crosses that socket, never the input itself -- the
+same rule as the BCC path, and Shield's evaluation reads no tool content anyway.
 
 Fail-open posture for PreToolUse, deliberately, same ratified tradeoff as the
 single-operator Claude-Code hook this module generalizes
@@ -26,20 +28,156 @@ observability, not enforcement.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import socket
 import sys
 from pathlib import Path
 from typing import Any, Mapping
 
 from . import bcc, did
+from .core.jcs import canonical_bytes
 
-SUPPORTED_GATES = ("bcc",)
+SUPPORTED_GATES = ("bcc", "shield")
 SUPPORTED_MEMORY = ("cortex",)
+
+# --- Shield gate socket client (docs/INTERFACE_CONTRACT.md 15.5) ------------------------
+SHIELD_GATE_PROTOCOL_VERSION = 1
+
+# A PreToolUse hook sits on the harness's critical path, so an unresponsive daemon must not
+# stall the session for long. Five seconds is far above a warm OPA query and far below
+# "the user thinks the harness hung".
+SHIELD_GATE_TIMEOUT_SECONDS = 5.0
+
+# A well-formed response is a few hundred bytes. This only bounds a daemon that has gone
+# wrong, so a runaway cannot make every hook allocate without limit.
+MAX_SHIELD_RESPONSE_BYTES = 64 * 1024
+
+#: Marker used when a tool input cannot be canonicalized (for example a NaN, which JCS
+#: rejects). An input that cannot be hashed must not turn into a failed tool call.
+UNCANONICALIZABLE_DIGEST = "uncanonicalizable"
 
 
 class HookRunnerError(RuntimeError):
     """A gate/memory target this runner does not (yet) support, or a malformed call."""
+
+
+def default_shield_socket_path() -> Path:
+    """Where ``shield gate-daemon`` listens when no path is given.
+
+    This is the **same rule** as ``xibalba-shield``'s ``gate_daemon.default_socket_path``,
+    deliberately duplicated because the SDK must not import Shield. Both repositories pin it
+    with a test against the three cases below, and 15.5 of docs/INTERFACE_CONTRACT.md is the
+    single statement of it; change all three together or a hook will look for a socket the
+    daemon is not listening on.
+
+    ``XIBALBA_SHIELD_GATE_SOCKET`` wins; otherwise ``$XDG_RUNTIME_DIR/xibalba-shield/gate.sock``;
+    otherwise ``~/.xibalba-shield/gate.sock``.
+    """
+    override = os.environ.get("XIBALBA_SHIELD_GATE_SOCKET")
+    if override:
+        return Path(override)
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
+    if runtime_dir:
+        return Path(runtime_dir) / "xibalba-shield" / "gate.sock"
+    return Path.home() / ".xibalba-shield" / "gate.sock"
+
+
+def tool_input_digest(tool_input: Mapping[str, Any]) -> str:
+    """JCS (RFC 8785) SHA-256 of ``tool_input`` as lowercase hex.
+
+    Uses the SDK's own canonicalizer, the same one Shield wraps, so the digest a daemon logs
+    is comparable with one computed anywhere else in the ecosystem. Returns
+    ``UNCANONICALIZABLE_DIGEST`` rather than raising for an input JCS rejects.
+    """
+    try:
+        return hashlib.sha256(canonical_bytes(dict(tool_input))).hexdigest()
+    except (TypeError, ValueError):
+        return UNCANONICALIZABLE_DIGEST
+
+
+def query_shield_gate(
+    request: Mapping[str, Any], *, socket_path: Path, timeout: float = SHIELD_GATE_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    """One request/response exchange with ``shield gate-daemon``.
+
+    Raises ``OSError`` (including ``TimeoutError``) for any transport failure and
+    ``ValueError`` for a response that is not a well-formed v1 verdict. The caller decides
+    what an unreachable or incoherent daemon means; this function only reports it.
+    """
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    client.settimeout(timeout)
+    try:
+        client.connect(str(socket_path))
+        client.sendall(json.dumps(dict(request)).encode("utf-8") + b"\n")
+        line = client.makefile("rb").readline(MAX_SHIELD_RESPONSE_BYTES + 1)
+    finally:
+        client.close()
+
+    if not line:
+        raise ValueError("daemon closed the connection without answering")
+    if len(line) > MAX_SHIELD_RESPONSE_BYTES:
+        raise ValueError(f"response exceeds {MAX_SHIELD_RESPONSE_BYTES} bytes")
+    try:
+        response = json.loads(line.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"response is not valid UTF-8 JSON: {exc}") from exc
+    if not isinstance(response, Mapping):
+        raise ValueError("response is not a JSON object")
+    if response.get("v") != SHIELD_GATE_PROTOCOL_VERSION:
+        raise ValueError(
+            f"unsupported response protocol version {response.get('v')!r}; "
+            f"this runner speaks v{SHIELD_GATE_PROTOCOL_VERSION}"
+        )
+    if response.get("decision") not in ("allow", "deny"):
+        raise ValueError(f"response decision is {response.get('decision')!r}, not allow or deny")
+    return dict(response)
+
+
+def _evaluate_shield(
+    payload: Mapping[str, Any], *, agent_did: str, socket_path: Path, timeout: float,
+) -> dict[str, Any]:
+    """Ask Shield's local gate daemon. Fails OPEN, loudly, exactly like the BCC path.
+
+    The daemon itself fails closed; this shim is the dev-shell-facing layer whose ratified
+    posture is to let the harness proceed rather than brick the session when its gate is
+    unreachable. ``checked`` is the distinction a caller must preserve: an unchecked allow is
+    never an authorized one.
+    """
+    tool_name = str(payload.get("tool_name", ""))
+    tool_input = payload.get("tool_input") or {}
+    if not isinstance(tool_input, Mapping):
+        tool_input = {}
+
+    request = {
+        "v": SHIELD_GATE_PROTOCOL_VERSION,
+        "event": "pre_tool_use",
+        "agent_id": agent_did,
+        "tool_name": tool_name,
+        # Only the digest crosses the socket -- see the module docstring.
+        "tool_input_sha256": tool_input_digest(tool_input),
+    }
+    try:
+        response = query_shield_gate(request, socket_path=socket_path, timeout=timeout)
+    except (OSError, ValueError) as exc:
+        return {
+            "decision": "allow",
+            "checked": False,
+            "reason": f"shield gate unreachable or incoherent at {socket_path}: {exc!r}",
+        }
+
+    result = {
+        "decision": str(response["decision"]),
+        "checked": True,
+        "reason": str(response.get("reason") or "no reason given"),
+    }
+    # Carried through so the caller can record WHICH policy ruled, and what an observe-mode
+    # daemon would have enforced.
+    for key in ("rule_id", "policy_hash", "action", "enforced"):
+        if key in response:
+            result[key] = response[key]
+    return result
 
 
 def evaluate_pre_tool_use(
@@ -51,6 +189,8 @@ def evaluate_pre_tool_use(
     bcc_middleware_url: str | None = None,
     chain_id: int | None = None,
     verifying_contract: str | None = None,
+    shield_socket: str | Path | None = None,
+    shield_timeout: float = SHIELD_GATE_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     """Evaluate one PreToolUse payload against ``gate`` and return a decision.
 
@@ -61,10 +201,7 @@ def evaluate_pre_tool_use(
     ``~/.claude/xibalba/pretool_gate.py``'s ``GateOutcome.checked`` makes.
     """
     if gate not in SUPPORTED_GATES:
-        raise HookRunnerError(
-            f"unsupported gate {gate!r}; supported today: {SUPPORTED_GATES}. "
-            "'shield' is not available until Shield's local gate daemon (B2) ships."
-        )
+        raise HookRunnerError(f"unsupported gate {gate!r}; supported: {SUPPORTED_GATES}")
     tool_name = str(payload.get("tool_name", ""))
     tool_input = payload.get("tool_input") or {}
     if not isinstance(tool_input, Mapping):
@@ -72,6 +209,14 @@ def evaluate_pre_tool_use(
 
     store_home = did.key_store_for_profile(Path(profile_root))
     agent_did, keypair, _ = did.load_or_create_did(agent_id, did_home_root=store_home)
+
+    if gate == "shield":
+        return _evaluate_shield(
+            payload,
+            agent_did=agent_did,
+            socket_path=Path(shield_socket) if shield_socket is not None else default_shield_socket_path(),
+            timeout=shield_timeout,
+        )
 
     bcc_middleware_url = (bcc_middleware_url or os.getenv("BCC_MIDDLEWARE_URL", "http://localhost:8000")).rstrip("/")
     chain_id = chain_id if chain_id is not None else int(os.getenv("CHAIN_ID", "84532"))
@@ -176,6 +321,15 @@ def main(argv: list[str] | None = None) -> int:
             if result["decision"] == "deny":
                 reason = result["reason"] if result["checked"] else f"policy unavailable; {result['reason']}"
                 _emit_deny(f"Integrity {args.gate} gate denied this {payload.get('tool_name', 'tool')} action: {reason}")
+            elif not result["checked"]:
+                # This module's docstring promises a fail-open allow is "always logged to
+                # stderr, never silently swallowed", but until now only exceptions were. An
+                # unreachable gate allowed the call and left no trace -- which for a gate that
+                # may simply not be running means silently unenforced.
+                sys.stderr.write(
+                    f"integrity hook_runner: {args.gate} gate UNCHECKED, allowing "
+                    f"{payload.get('tool_name', 'tool')}: {result['reason']}\n"
+                )
         elif args.event == "post_tool_use" and args.memory:
             token = os.getenv("XIBALBA_CORTEX_TOKEN", "")
             if token:
