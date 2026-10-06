@@ -280,15 +280,22 @@ review:
   before merge.") becomes an enforced invariant rather than a convention. Recorded as
   `PRODUCTION_GAPS.md` §72.
 
-  Two facts still constrain *how*, and should not be rediscovered:
+  One fact still constrains *how*, and should not be rediscovered: **GitHub Merge Queue is
+  unavailable on this account** (a `merge_queue` ruleset rule is rejected while
+  `required_status_checks` succeeds; likely a personal-account plan restriction).
 
-  - **GitHub Merge Queue is unavailable on this account** (a `merge_queue` ruleset rule is rejected
-    while `required_status_checks` succeeds; likely a personal-account plan restriction).
-  - **This repository's current ruleset state is unverified.** §8's entry both records a
-    `required_status_checks` ruleset over the eight real `ci.yml` job names *and* closes by saying
-    "only the auto-close-conflicting-PRs workflow was kept." Those cannot both be true, and
-    `list_branches`'s `protected` flag does not report rulesets, so it is not readable with this
-    session's tooling. Check Settings → Rules before configuring anything here.
+  **§8's apparent contradiction is resolved, and this repository had no active gate.** An earlier
+  revision of this entry called the ruleset state unverifiable, on the claim that `list_branches`'s
+  `protected` flag does not report rulesets. That claim was wrong: the
+  [List branches response](https://docs.github.com/en/rest/branches/branches#list-branches)'s
+  `protected` covers both branch-protection rules and rulesets. Demonstrated directly on
+  2026-10-06 — `main` read `protected: false` in all three repositories, a ruleset was then created
+  in each with nothing else changed, and all three flipped to `protected: true`. So the earlier
+  `protected: false` readings did rule out an active ruleset: §8's 2026-07-16
+  `required_status_checks` ruleset was **not** live, which is consistent with that entry's closing
+  "only the auto-close-conflicting-PRs workflow was kept." Rulesets left `inactive` or in
+  `evaluate` mode can still exist in Settings without enforcing, but nothing here was an unknown
+  enforced gate.
 
   **The rule, settled 2026-10-06 and identical in all three repositories.** Changes reach the
   default branch through a pull request, and that branch's CI must pass before it can merge. Two
@@ -318,9 +325,24 @@ review:
   are six and `documentation contracts` is one of them. `PRODUCTION_GAPS.md` §8's reference to
   "8 real CI job names" is likewise stale against today's workflow.
 
-  CodeQL, the `Analyze (...)` jobs and `github-advanced-security` are deliberately **not** required:
-  they report `neutral` on commits with no analyzable change — any documentation-only PR — and a
-  check that can legitimately come back neutral must never be required.
+  **Code scanning must still be gated, and the reason first given for excluding it was wrong.** An
+  earlier revision excluded CodeQL, the `Analyze (...)` jobs and `github-advanced-security` on the
+  grounds that they report `neutral` on commits with no analyzable change (any documentation-only
+  PR) and that a check which can come back neutral must never be required. The premise does not
+  hold: GitHub counts `neutral` as a
+  [passing conclusion for a required check](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks#required-check-needs-to-succeed-against-the-latest-commit-sha),
+  alongside `success` and `skipped`, so a neutral code-scanning result would not have blocked
+  anything. Excluding those contexts while configuring nothing else in their place means a genuine
+  CodeQL **failure** on an analyzable change does not block merge — with auto-merge armed, it would
+  merge straight through a real security finding.
+
+  Close it with the ruleset's own **code scanning** rule, which gates on code-scanning alerts rather
+  than on check-run contexts and so does not depend on which analyses ran for a given diff. If that
+  rule is unavailable on this account — as `merge_queue` is — require the `Analyze (...)` contexts
+  instead; they were observed reporting on documentation-only PRs #164 and #165, so they do run on
+  every pull request here. Not independently verified in this session: GitHub's exact treatment of
+  `skipped` for a required check. `neutral` resolving to `success` was observed on both of those
+  PRs.
 
   **Remaining owner action (blocks this checkbox):** a ruleset is a GitHub repository setting
   (Settings → Rules), not a file in any repository, so this cannot be committed. Configure the rule

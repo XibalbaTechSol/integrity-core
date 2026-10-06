@@ -4221,3 +4221,46 @@ current ruleset state is also still unverified — §8's 2026-07-16 entry both r
 "only the auto-close-conflicting-PRs workflow was kept," which cannot both be true, and
 `list_branches`'s `protected` flag does not report rulesets. Check Settings → Rules before
 configuring anything here. GitHub Merge Queue remains unavailable on this account.
+
+> **Corrected by §73 (2026-10-06, same day):** the sentence above claiming `list_branches`'s
+> `protected` flag does not report rulesets is wrong, and the "unverified ruleset state" it rests on
+> is false uncertainty. §73 shows `protected` covers rulesets too, which resolves §8's apparent
+> contradiction. The rest of this entry stands.
+
+
+## 73. Corrects §72: `protected` does report rulesets, so §8's contradiction resolves (2026-10-06)
+
+§72, written earlier the same day, claimed that the REST
+[List branches](https://docs.github.com/en/rest/branches/branches#list-branches) response's
+`protected` field reflects only legacy branch protection and not rulesets, and concluded that this
+repository's ruleset state was unverifiable from the API. Both the claim and the conclusion are
+wrong, and a review of PR #165 caught it.
+
+`protected` covers **both** branch-protection rules and rulesets. This was demonstrated directly,
+not read off documentation: on 2026-10-06 `main` reported `protected: false` in all three
+repositories; a ruleset was then created in each one with nothing else changed; all three
+immediately reported `protected: true`. The before/after is the proof, and it was observed in the
+same session that wrote the incorrect claim.
+
+**What this resolves.** Because `main` here read `protected: false` before that change, there was no
+active ruleset on it — so §8's 2026-07-16 `required_status_checks` ruleset was **not** live. That is
+consistent with the same entry's closing "only the auto-close-conflicting-PRs workflow was kept,"
+and the two statements were never actually in contradiction. There is no unknown enforced gate to go
+looking for. A ruleset left `inactive` or in `evaluate` mode can still exist in Settings without
+enforcing, which is worth knowing but is not an enforced gate.
+
+**Second correction, from the same review: code scanning was left ungated.** §72's companion entry
+in `docs/EXECUTION_PLAN.md` excluded CodeQL, the `Analyze (...)` jobs and
+`github-advanced-security` from the required checks on the grounds that they report `neutral` on
+commits with no analyzable change, and that a check which can return neutral must never be required.
+That premise is also wrong: GitHub counts `neutral` as a
+[passing conclusion for a required check](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks#required-check-needs-to-succeed-against-the-latest-commit-sha),
+alongside `success` and `skipped`. A neutral code-scanning result would not have blocked anything,
+so the exclusion bought nothing — while leaving a genuine CodeQL **failure** on an analyzable change
+free to merge, and with auto-merge armed it would merge straight through a real security finding.
+The plan now calls for the ruleset's own code-scanning rule, or the `Analyze (...)` contexts if that
+rule is unavailable on this account as `merge_queue` is.
+
+**Still open, not addressed in this pass:** the code-scanning gate is a repository setting and
+remains an owner action. GitHub's exact treatment of `skipped` for a required check was not
+independently verified here; `neutral` resolving to `success` was observed on PRs #164 and #165.
