@@ -290,12 +290,50 @@ review:
     `list_branches`'s `protected` flag does not report rulesets, so it is not readable with this
     session's tooling. Check Settings → Rules before configuring anything here.
 
-  **Remaining owner action (blocks this checkbox):** required status checks are a GitHub
-  repository setting (Settings → Rules, or Settings → Branches), not a file in any repository, so
-  this cannot be committed. Configure it on `main` in all three repositories — `root-free-tests`
-  for Shield, `xibalba-cortex (pytest)` for Cortex, and this repo's eight `ci.yml` jobs plus
-  `documentation contracts` — then tick this item. The "no concurrent sessions" half remains an
-  operating convention with no mechanical enforcement.
+  **The rule, settled 2026-10-06 and identical in all three repositories.** Changes reach the
+  default branch through a pull request, and that branch's CI must pass before it can merge. Two
+  ruleset rules express it, and nothing else is configured:
+
+  - `pull_request`, with `required_approving_review_count: 0`;
+  - `required_status_checks`, with `strict_required_status_checks_policy: false`.
+
+  The approval count is 0 deliberately: nobody can approve their own pull request, so requiring one
+  or more on a single-maintainer repository would mean auto-merge can never fire and every PR waits
+  on an approval that cannot arrive. CI is the gate, not a person. `strict` is false deliberately:
+  true forces every PR to be brought up to date with the default branch each time it moves, which
+  is churn at this scale.
+
+  Only the required check names differ, because the CI jobs differ. Verified 2026-10-06 against
+  each repository's `.github/workflows/ci.yml`:
+
+  | Repository | Required checks |
+  |---|---|
+  | `integrity-core` | `documentation contracts`, `contracts (forge test)`, `integrity-oracle (cargo test)`, `integrity-sdk (pytest)`, `integrity-cli (pytest)`, `bcc_middleware (pytest + opa test)` |
+  | `xibalba-shield` | `root-free-tests` |
+  | `xibalba-cortex` | `xibalba-cortex (pytest)` |
+
+  `integrity-core`'s `ci.yml` has **six** jobs, none conditional (no `if:`, no `paths:`), so all six
+  report on every PR — which is what makes requiring them safe. An earlier revision of this entry
+  said "eight `ci.yml` jobs plus `documentation contracts`"; that was wrong twice over, since there
+  are six and `documentation contracts` is one of them. `PRODUCTION_GAPS.md` §8's reference to
+  "8 real CI job names" is likewise stale against today's workflow.
+
+  CodeQL, the `Analyze (...)` jobs and `github-advanced-security` are deliberately **not** required:
+  they report `neutral` on commits with no analyzable change — any documentation-only PR — and a
+  check that can legitimately come back neutral must never be required.
+
+  **Remaining owner action (blocks this checkbox):** a ruleset is a GitHub repository setting
+  (Settings → Rules), not a file in any repository, so this cannot be committed. Configure the rule
+  above on the default branch of all three repositories, then tick this item.
+
+  Two hazards to avoid while doing it. **A required check whose name never reports blocks every PR
+  forever**, with no clear reason surfaced — which is why the stale eight-name list matters and why
+  names should only be required once seen reporting on a real PR. And **branch protection and a
+  ruleset stack their requirements** if both are configured, so use one mechanism; the rule above
+  assumes rulesets and leaves branch protection alone.
+
+  The "no concurrent sessions" half of this precondition remains an operating convention with no
+  mechanical enforcement.
 
 ## A4. Minimal kernel patch (S)
 
