@@ -337,16 +337,51 @@ review:
   merge straight through a real security finding.
 
   Close it with the ruleset's own **code scanning** rule, which gates on code-scanning alerts rather
-  than on check-run contexts and so does not depend on which analyses ran for a given diff. If that
-  rule is unavailable on this account — as `merge_queue` is — require the `Analyze (...)` contexts
-  instead; they were observed reporting on documentation-only PRs #164 and #165, so they do run on
-  every pull request here. Not independently verified in this session: GitHub's exact treatment of
-  `skipped` for a required check. `neutral` resolving to `success` was observed on both of those
-  PRs.
+  than on check-run contexts and so does not depend on which analyses ran for a given diff.
+  Selecting that rule is not sufficient on its own: it takes a tool plus **both** thresholds, and
+  each threshold accepts `none`, which blocks nothing — so a rule can be enabled and still gate
+  nothing. Record the intended values rather than leaving them to a default:
+
+  | Parameter | Value |
+  |---|---|
+  | `tool` | `CodeQL` |
+  | `alerts_threshold` | `errors` |
+  | `security_alerts_threshold` | `high_or_higher` |
+
+  `errors` blocks on CodeQL errors while letting warnings and notes through, so routine notes do not
+  stall a PR; `high_or_higher` blocks high and critical security alerts. Tighten to
+  `errors_and_warnings` / `medium_or_higher` if this repository's compliance posture warrants it —
+  but never leave either at `none`, which is the setting that silently reproduces the ungated state
+  this section exists to close. See the
+  [repository rules API](https://docs.github.com/en/rest/repos/rules) for the full value sets.
+
+  If the code-scanning rule is unavailable on this account — as `merge_queue` is — require the
+  `Analyze (...)` contexts instead; they were observed reporting on documentation-only PRs #164 and
+  #165, so they do run on every pull request here. Not independently verified in this session:
+  GitHub's exact treatment of `skipped` for a required check. `neutral` resolving to `success` was
+  observed on both of those PRs.
+
+  **Status, 2026-10-06: configured, then stood down. This precondition is open and the gate is not
+  in force.** The rule above was created on the default branch of all three repositories, and
+  `main` moved from `protected: false` to `protected: true` in each, confirming it enforced. It was
+  then removed by owner decision the same day, after it blocked PR #165 for a reason that was never
+  identified: that PR had all six required checks green, no merge conflict, a current base, zero
+  required approvals and non-draft status, and still reported `mergeable_state: "blocked"`.
+  Candidates not ruled out were an additional rule left ticked (`Require signed commits` is the
+  likeliest, since commits here are unsigned) and a required check name that never reports. Nothing
+  about the rule's shape above is known to be wrong; the open question is which additional setting
+  blocked, which the PR's own merge-box text would name.
+
+  **Consequence, stated plainly:** with no gate in force, a pull request with failing CI can merge
+  again in all three repositories — the exact condition that let `xibalba-shield#43` and
+  `xibalba-cortex#36` merge red on 2026-10-05. Auto-merge remains enabled, so this is not
+  hypothetical.
 
   **Remaining owner action (blocks this checkbox):** a ruleset is a GitHub repository setting
-  (Settings → Rules), not a file in any repository, so this cannot be committed. Configure the rule
-  above on the default branch of all three repositories, then tick this item.
+  (Settings → Rules), not a file in any repository, so this cannot be committed. Re-apply the rule
+  above on the default branch of all three repositories, resolve what blocked #165 first, then tick
+  this item. Prefer setting a ruleset's enforcement to `disabled` over deleting it when standing one
+  down temporarily: the configuration survives, and re-enabling is one field rather than a rebuild.
 
   Two hazards to avoid while doing it. **A required check whose name never reports blocks every PR
   forever**, with no clear reason surfaced — which is why the stale eight-name list matters and why
