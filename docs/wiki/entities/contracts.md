@@ -1,13 +1,15 @@
 ---
 title: contracts
 created: 2026-07-07
-updated: 2026-09-08
+updated: 2026-10-05
 type: entity
 tags: [layer-2, identity, tokenomics, compliance]
 confidence: high
 source_files:
   - contracts/src/framework/AgentPrimitivesFactory.sol
   - contracts/src/framework/XibalbaAgentRegistry.sol
+  - contracts/src/oracle/StateAnchor.sol
+  - contracts/script/DeployProtocolEvidenceAnchor.s.sol
   - contracts/src/framework/AgentAuthorityResolver.sol
   - contracts/src/kernel/IntegrityIdentityReadV1.sol
   - contracts/src/kernel/IntegrityKernel.sol
@@ -215,6 +217,16 @@ an otherwise rejected operation.
   admin. Still not deployed by `Deploy.s.sol` — but that's now a genuine
   operational decision (a peer bridge needs a second real chain to be meaningful),
   not a remaining code gap.
+
+**`DeployProtocolEvidenceAnchor.s.sol`, added 2026-10-05 (B4)**: an incremental deploy
+script (same pattern as `DeployXns.s.sol`) for a single, protocol-wide `StateAnchor`
+instance dedicated to BCC/receipt evidence — same contract code as every per-agent
+memory `StateAnchor`, but admin is the funder EOA directly (a protocol singleton, not
+an agent-owned primitive, so no `SovereignAgent.execute` routing is needed). Writes
+`.singletons.ProtocolEvidenceAnchor` when that key already exists in the deployments
+file, otherwise logs the address for a reviewed manual edit, exactly like `DeployXns`.
+See [bcc_middleware](bcc_middleware.md)'s "Evidence anchoring now targets a dedicated
+contract" section for why this exists. Verified end to end against a real local anvil.
 
 Related: [agent primitives](../concepts/agent-primitives.md),
 [ComplianceGate](../concepts/compliance-gate.md),

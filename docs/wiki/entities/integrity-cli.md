@@ -18,6 +18,9 @@ source_files:
   - integrity-cli/tests/test_register_oracle_e2e.py
   - integrity-cli/tests/test_chain.py
   - integrity-cli/tests/test_hooks.py
+  - integrity-cli/integrity_cli/verify.py
+  - integrity-cli/tests/test_verify.py
+  - integrity-cli/tests/test_verify_decision_trace.py
 ---
 
 ## Table of contents
@@ -136,6 +139,20 @@ unbuilt B2; `--memory cortex`: a redacted event POSTed to Cortex's
 uninstall removes exactly the marked entries and never touches the DID file
 or key. 22 new tests across both packages (`integrity-sdk/tests/unit/test_hook_runner.py`,
 `integrity-cli/tests/test_hooks.py`).
+
+**`integrity verify --decision-trace/--trace-evidence`, added 2026-10-05 (B4)**: the
+existing `verify` command (`main.py`, `verify.py` -- signature/chain/checkpoint/
+inclusion/anchor, independently reimplemented with no SDK import per the convention
+above) gained a second, explicitly SDK-backed path for B4's DecisionTrace evidence:
+`integrity_sdk.core.verify_decision_trace_offline` checks parent links and
+domain-separated Merkle inclusion, and any carried Jev advisory status is reported as
+its own `advisory_status` field (`available`/`unavailable`/`rejected`/`not_present`)
+that never fails the command by itself (C11: advisory, never authoritative). Also
+fixed a bug this session's bcc_middleware change exposed: `--anchor-contract` used to
+require the supplied root equal `StateAnchor.latestRoot()`, which only ever held for a
+per-agent anchor -- now relies on `verifyLeaf`'s own `isAnchoredRoot` check, the real
+guarantee, so it works correctly against B4's shared evidence anchor too.
+`tests/test_verify_decision_trace.py` (5/5).
 
 Related: [integrity-sdk](integrity-sdk.md),
 [agent primitives](../concepts/agent-primitives.md),
