@@ -740,3 +740,74 @@ confirmation, no new detail this sweep — Cloudflare/GoDaddy, FIDO Alliance TWG
 its original H2 2026-early 2027 timeline, no draft spec — Semantica, Trulioo+Worldpay,
 Visa/Mastercard/Ant KYA framework, and Observer Protocol); Baselayer's $35M Series A (already
 tracked 2026-09-24, no update). No changes to the §3 table this run.
+
+### 2026-10-06 — Ecosystem watch: RSA launches "Agent ID" for regulated-industry agent identity/compliance (no stake/slash); everything else unchanged since 2026-09-25
+
+Automated research sweep (scheduled tracking run, ~11 days after the prior run — wider than the
+usual cadence, so this sweep covers the full gap rather than just the last 7 days; branch
+`audit/harness-loop-2026-07-30` still existed, no recreation needed). Re-swept all nine named §3
+players, both §4/§2 fact-checks, and did a general sweep for a new entrant combining identity +
+staked reputation + compliance gating. One finding judged material enough to flag (an incumbent
+identity vendor entering the same regulated-industry niche this repo's Integrity Health vertical
+targets); everything else confirmed unchanged or not material.
+
+1. **RSA launched "Agent ID," an agentic identity platform explicitly targeted at "highly-regulated
+   industries" — finance, government, healthcare, and critical infrastructure — announced
+   2026-09-29/09-30 at The AI Conference in San Francisco.** Three modules: Discover (finds agents
+   and MCP servers, assigns owners/risk tiers), Secure (policy enforcement and human approval for
+   high-risk actions), and Govern (tamper-evident records of agent actions/access decisions, mapped
+   to **ten compliance frameworks** including NIST AI RMF 1.0, ISO/IEC 42001, DORA, and NYDFS Part
+   500). Discover and Secure reach general availability 2026-11-16; Govern follows in H1 2027.
+   Flagging this despite it **not** matching this doc's specific identity+staked-reputation+
+   compliance-gating combination — no staking, bonding, or slashing mechanism found anywhere in
+   coverage, same as the already-ruled-out Oasis Security/SecureAuth/Offroad/NewCore/Arcade.dev
+   enterprise-IAM entries — because RSA is a large, established identity-security incumbent (not a
+   startup) explicitly naming healthcare as a target vertical and building a compliance-framework-
+   mapping module, which is a closer buyer-overlap to Integrity Health specifically than most
+   previously-tracked rows. Not added as a new §3 table row, consistent with this doc's convention
+   for notable-but-non-matching finds (Baselayer, KYA Lab, AgentFacts before it).
+   Sources: [RSA, RSA Agent ID: The agentic identity security platform for highly-regulated industries](https://www.rsa.com/products/rsa-agent-id/),
+   [RSA, Every agent answers to someone](https://www.rsa.com/resources/blog/products-and-solutions/every-agent-answers-to-someone/),
+   [MarkTechPost, RSA Launches Agent ID to Discover, Secure and Govern AI Agents in Regulated Industries (2026-09-29)](https://www.marktechpost.com/2026/09/29/rsa-launches-agent-id-to-discover-secure-and-govern-ai-agents-in-regulated-industries/),
+   [cybersecuritynews.com, RSA Launches Agent ID Platform to Secure AI Agents and MCP Servers](https://cybersecuritynews.com/rsa-agent-id/).
+
+2. **§4 fact-check (a), ERC-8004 Validation Registry: no change.** Re-confirmed across multiple
+   independent sources — Identity/Reputation registries remain live and widely replicated
+   (Ethereum mainnet and 40+ EVM networks) since 2026-01-29; Validation Registry remains explicitly
+   under active revision/discussion with the TEE community, no stable mainnet address, same status
+   tracked continuously since 2026-08-26.
+
+3. **EU AI Act (§2/§4b): no change to the confirmed dates, and no new primary-source resolution of
+   the still-open "Article 50/Annex III inspection wave" tension flagged 2026-09-25.** This sweep's
+   general search surfaced another secondary source (winzheng.com) repeating the same claim that the
+   AI Office and 24 national authorities opened a first inspection wave (resume screening, credit
+   assessment, medical triage) in September 2026 — but it is, again, secondary commentary with no
+   citation to an official Commission/AI Office announcement, so it does not advance past the
+   2026-09-25 entry's finding that this claim sits in tension with the Commission's own enforcement
+   page (Annex III high-risk rules "apply from 2 December 2027"). Not treated as new information.
+   Separately (not previously tracked, but not changing either fact-check): OpenAI reportedly filed
+   a formal EU AI Act incident report concerning an autonomous-agent incident, confirmed received by
+   the Commission 2026-09-07 — this is evidence the incident-reporting channel is active, not a
+   change to either the Annex III deadline or the GPAI-RFI enforcement finding already recorded
+   2026-09-22, so not logged as a separate material item.
+
+4. **General sweep for a new identity + staked-reputation + compliance-gating entrant: nothing
+   added.** No candidate found this sweep combines all three elements from a credible
+   (funded/institutional) source — RSA Agent ID (above) and the already-known KYA/Baselayer/Trulioo
+   rows remain identity+compliance without staking; Observer Protocol and the solo projects ruled
+   out in prior entries remain ruled out, no reversal found.
+
+Not material / considered and not added: NewCore ($66M seed, announced 2026-06-15, predates this
+doc's tracking window — split-key enterprise agent-identity platform, no staking/slashing) and
+Arcade.dev ($60M Series A, announced within the 2026-09-24 window per prior entries — enterprise
+agent *authorization*, not identity/reputation, no staking) both surfaced again in this sweep's
+general funding search but are pre-existing, already non-matching plays, not new; Ping Identity's
+"Identity Agents" on Google Cloud Marketplace (early October 2026) — enterprise IAM product
+agents, not an agent-identity-for-other-agents play, out of scope; all nine named §3 players
+otherwise re-swept with no updates beyond the 2026-09-25 entry (Injective Agents, ChaosChain/
+Genesis Studio, KYA `kya.link`/`agentecon.ai` — stake/slash question still open, still no
+successful primary-source fetch, same secondary-source description as every prior run since
+2026-09-01 — Cloudflare/GoDaddy, FIDO Alliance TWG — no draft spec yet — Semantica, Trulioo+
+Worldpay, Visa/Mastercard/Ant KYA framework — still "diplomatic layer, no specs, no governance, no
+timeline" per this sweep's sources, consistent with the 2026-09-13 entry — and Observer Protocol).
+No changes to the §3 table this run.
