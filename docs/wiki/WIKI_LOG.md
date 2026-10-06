@@ -4042,3 +4042,11 @@ writeup: PRODUCTION_GAPS.md §18.
 - No B2 checkbox ticked: the daemon is in xibalba-shield#46, which is unmerged. Test counts: `integrity-sdk` 501 passed / 3 skipped; `integrity-cli` 99 passed / 1 skipped. Run for real against the actual daemon over real OPA and a signed pack, not only a test double.
 - Pre-existing, not touched: `entities/integrity-sdk.md` lists several `source_files` that no longer exist (`markets.py`, `integrations/auto_hook.py`, `mcp_server.py`) and `entities/integrity-dashboard` entries likewise; flagged by `scripts/wiki_linter.py` before and after this change.
 - `STATUS.md` had gone stale again within a day: it still read 124/232 and "B4 0/6, open in PR #163" after #163 merged and ticked five B4 boxes. Refreshed against `scripts/plan_progress.py` to 129/232 (55%), and every phase row was checked against the generator, not only the two that moved. This change itself ticks no box; the 124 to 129 movement is entirely #163.
+
+## [2026-10-06] B2 daemon bullet and A7 failure coverage ticked after merge
+- Ticked `docs/EXECUTION_PLAN.md` B2's "Shield's local gate daemon exposes a Unix socket" bullet
+  (xibalba-shield#46, `ef240ba`; client in integrity-core#166) and A7's provider-outage / tamper /
+  reason-code item (xibalba-shield#47, `ee10099`). Plan total 131/232 (56%); B2 1/3, A7 15/16.
+- Updated `STATUS.md` (regenerated count, A7/B2/B3 rows) and `INTERFACE_CONTRACT.md` 15.5's status,
+  which still called the daemon an unmerged draft.
+- Still open: B2 signed chained receipts and shared BCC/Shield conformance vectors; A7's Settings UI.

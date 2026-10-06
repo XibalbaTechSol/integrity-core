@@ -750,8 +750,15 @@ not yet merged)
   and the Settings browser flow (desktop/390px) are not — there is no Settings UI yet (see above), so
   there is nothing to browser-test. Corrected from an earlier draft that claimed both; only the two
   backend test files are actual evidence.
-- [ ] A provider outage, malformed response, tenant mismatch and tamper test preserve local
-  enforcement and produce an operator-readable reason code.
+- [x] A provider outage, malformed response, tenant mismatch and tamper test preserve local
+  enforcement and produce an operator-readable reason code. Merged in
+  [xibalba-shield#47](https://github.com/XibalbaTechSol/xibalba-shield/pull/47) (`ee10099`):
+  `tests/test_jev_failure_modes.py` (81 tests) proves differentially, against a real OPA and a real
+  signed pack, that the `PolicyDecision` is identical under every failure mode, and the failed
+  advisory carries a stable `ADVISORY_*` reason code (trace reader: `TRACE_*`). The work also fixed
+  four defects: mismatched-event advice stored as `available`, `"false"` read as escalate, a rewritten
+  final trace event going undetected, and traces over 50 events reading invalid forever. Not covered:
+  truncation at either end of a trace needs an external anchor (B4).
 
 ## Gate A
 
@@ -942,13 +949,14 @@ rule each; Gate B-local's "every rule cites a control" needs re-checking once B1
 - [ ] BCC and Shield evaluate the same compiled pack and pass shared conformance vectors in CI.
 - [ ] Both support atomic loads, fail-closed reason codes, shadow/enforce modes, and signed chained
   receipts with checkpoints.
-- [ ] Shield's local gate daemon exposes a Unix socket for PreToolUse.
+- [x] Shield's local gate daemon exposes a Unix socket for PreToolUse.
 
-**Progress, 2026-10-06 — no box ticked yet.** The third bullet is built but not merged: the daemon
-is `shield gate-daemon` in [xibalba-shield#46](https://github.com/XibalbaTechSol/xibalba-shield/pull/46)
-(an open draft), the client is `integrity_sdk.hook_runner --gate shield` in this repository, and the
-wire contract is `docs/INTERFACE_CONTRACT.md` 15.5. The bullet ticks when #46 reaches Shield's `main`;
-ticking it now would claim something `main` does not yet have.
+**Progress, 2026-10-06 — one of three boxes ticked.** The third bullet is done and merged: the
+daemon is `shield gate-daemon` ([xibalba-shield#46](https://github.com/XibalbaTechSol/xibalba-shield/pull/46),
+`ef240ba`), the client is `integrity_sdk.hook_runner --gate shield`
+([#166](https://github.com/XibalbaTechSol/integrity-core/pull/166)), and the wire contract is
+`docs/INTERFACE_CONTRACT.md` 15.5. The first two bullets (shared conformance vectors, signed chained
+receipts with checkpoints) are not started.
 
 Evidence so far. `integrity-sdk`: 501 passed / 3 skipped (was 480), including 21 new `hook_runner`
 tests. `integrity-cli`: 99 passed / 1 skipped (was 90). `xibalba-shield`: 32 gate tests, including

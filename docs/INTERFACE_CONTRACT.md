@@ -1562,9 +1562,10 @@ telemetry-ingest paths (§2, §4.2 above) like any other agent's traffic.
 
 **Status.** The client is implemented here (`integrity_sdk.hook_runner`, `--gate shield`). The
 daemon is implemented in `xibalba-shield` as `shield gate-daemon`, in
-[xibalba-shield#46](https://github.com/XibalbaTechSol/xibalba-shield/pull/46), which was an open,
-unmerged draft when this section was written — until it merges there is no daemon on Shield's
-`main`, and `integrity hooks install --gate shield` will correctly report that nothing is listening.
+[xibalba-shield#46](https://github.com/XibalbaTechSol/xibalba-shield/pull/46), merged to Shield's
+`main` on 2026-10-06 (`ef240ba`). The daemon is not started by anything: an operator runs
+`shield gate-daemon`, and until one does, `integrity hooks install --gate shield` correctly reports
+that nothing is listening and the hook fails open.
 
 This is the boundary `docs/EXECUTION_PLAN.md` B2's third bullet names. It exists because a harness
 hook is a short-lived process spawned once per tool call and cannot hold a warm policy engine.
