@@ -944,6 +944,35 @@ rule each; Gate B-local's "every rule cites a control" needs re-checking once B1
   receipts with checkpoints.
 - [ ] Shield's local gate daemon exposes a Unix socket for PreToolUse.
 
+**Progress, 2026-10-06 — no box ticked yet.** The third bullet is built but not merged: the daemon
+is `shield gate-daemon` in [xibalba-shield#46](https://github.com/XibalbaTechSol/xibalba-shield/pull/46)
+(an open draft), the client is `integrity_sdk.hook_runner --gate shield` in this repository, and the
+wire contract is `docs/INTERFACE_CONTRACT.md` 15.5. The bullet ticks when #46 reaches Shield's `main`;
+ticking it now would claim something `main` does not yet have.
+
+Evidence so far. `integrity-sdk`: 501 passed / 3 skipped (was 480), including 21 new `hook_runner`
+tests. `integrity-cli`: 99 passed / 1 skipped (was 90). `xibalba-shield`: 32 gate tests, including
+three that drive the daemon over a real `AF_UNIX` socket against real OPA 1.18.2 and a real signed
+pack. And the whole chain was run for real, not only against a test double: `integrity hooks install
+--gate shield`, then the real `shield gate-daemon`, then the real runner as a harness invokes it. A
+registered agent was allowed, an unregistered agent was denied by Shield's genuine Rego rule in Claude
+Code's exact deny shape, the daemon's log held digests and none of the command, and with the daemon
+stopped the hook failed open with a stderr line.
+
+Two defects surfaced on the way and are fixed. Shield's daemon logged no decisions (Shield configures
+logging nowhere) and left a stale socket after SIGTERM. And `hook_runner.main()` never logged an
+unchecked allow, despite its docstring promising it did — an unreachable BCC middleware allowed the
+call with no trace; that is B3 code, fixed here for both gates.
+
+**Still open, so the other two bullets stay unticked:** the daemon does not yet emit signed, chained
+per-decision receipts, and BCC and Shield do not yet evaluate one shared compiled pack against shared
+conformance vectors.
+
+**Operational consequence to carry forward:** the runner fails open, so a `--gate shield` hook with
+no daemon listening enforces *nothing*. That is why `integrity hooks install --gate shield` now
+reports whether a daemon is listening and which DID to register with it, rather than refusing as it
+did before the daemon existed.
+
 ## B2a. Jev-assisted DecisionTrace (M)
 
 - [x] Hermes observer hooks feed normalized, redacted events into the shared DecisionTrace gateway;
@@ -972,8 +1001,9 @@ rule each; Gate B-local's "every rule cites a control" needs re-checking once B1
 
 `integrity hooks install --harness claude-code --gate bcc --memory cortex` (new
 `integrity-cli` command, `integrity_cli/hooks.py`, backed by the new
-`integrity_sdk.hook_runner` connector module; `--gate shield` is refused at
-install time, citing B2, rather than silently falling back or no-opping):
+`integrity_sdk.hook_runner` connector module; `--gate shield` was refused at
+install time until Shield's gate daemon (B2) existed, and is accepted since 2026-10-06, with install
+reporting whether a daemon is actually listening — see B2):
 - [x] writes the DID file into the harness root and the key outside it.
   `did.write_did_file`/`did.key_store_for_profile`, re-verified
   2026-10-05: `test_install_writes_did_file_and_key_outside_root` (key mode

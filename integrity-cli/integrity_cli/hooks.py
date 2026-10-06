@@ -1,7 +1,13 @@
 """Install/uninstall marker-tagged PreToolUse/memory hooks for a harness (B3).
 
 This is the one module in this package that imports `integrity_sdk` --
-specifically `integrity_sdk.did`, never the connector stack (requests/web3).
+specifically `integrity_sdk.did`, and, for `--gate shield` only,
+`integrity_sdk.hook_runner.default_shield_socket_path`. Neither pulls in the
+connector stack (requests/web3): importing `hook_runner` loads none of it, checked
+directly when that second import was added. The reason for the second import is the
+same drift argument as for `did`: the socket path the installer reports must be the
+one the runner will actually dial, and a third copy of that rule is how they
+silently disagree.
 `identity.py`'s module docstring states this package's longstanding rule
 against depending on integrity_sdk: it was written to decouple the CLI's
 on-chain registration/wallet code from the SDK's build order while both were
@@ -32,12 +38,15 @@ from typing import Any, Optional
 HOOK_MARKER = "# integrity-hooks:v1"
 
 SUPPORTED_HARNESSES = ("claude-code",)
-# "shield" is refused below, not listed here: Shield's local gate daemon (a Unix
-# socket for PreToolUse, B2) does not exist yet. Installing a hook that invokes
-# a gate with nothing listening would either hang or silently no-op -- refusing
-# at install time is the honest behavior, per this repository's "no silent
-# mocks" rule.
-SUPPORTED_GATES = ("bcc",)
+# Must equal `integrity_sdk.hook_runner.SUPPORTED_GATES`; this package deliberately does
+# not import it at module scope, so a test pins the two together instead.
+#
+# "shield" was refused here until Shield's local gate daemon (B2) existed, because a hook
+# invoking a gate with nothing listening would silently no-op. It is accepted now, but
+# install reports whether a daemon is actually listening (see `shield_gate` in
+# `install()`'s result) rather than staying quiet -- the runner fails OPEN when the
+# daemon is unreachable, so an installed-but-unserved gate enforces nothing.
+SUPPORTED_GATES = ("bcc", "shield")
 SUPPORTED_MEMORY = ("cortex",)
 
 
@@ -130,11 +139,7 @@ def install(
     if harness not in SUPPORTED_HARNESSES:
         raise HookInstallError(f"unsupported --harness {harness!r}; supported: {sorted(SUPPORTED_HARNESSES)}")
     if gate not in SUPPORTED_GATES:
-        raise HookInstallError(
-            f"--gate {gate!r} is not available yet. Only {sorted(SUPPORTED_GATES)} is wired today; "
-            "Shield's local gate daemon (Unix socket PreToolUse, B2) has not been built. Refusing "
-            "rather than installing a hook with nothing real to call."
-        )
+        raise HookInstallError(f"unsupported --gate {gate!r}; supported: {sorted(SUPPORTED_GATES)}")
     if memory is not None and memory not in SUPPORTED_MEMORY:
         raise HookInstallError(f"unsupported --memory {memory!r}; supported: {sorted(SUPPORTED_MEMORY)}")
 
@@ -171,13 +176,53 @@ def install(
         post_tool.append(_hook_entry(_POST_TOOL_MATCHER, _marked_command("post_tool_use", profile_root=root, agent_id=agent_id, memory=memory)))
 
     _write_settings_atomic(settings_path, settings)
-    return {
+    result: dict[str, Any] = {
         "did": agent_did,
         "did_file": str(did_path),
         "settings_file": str(settings_path),
         "profile_root": str(root),
         "gate": gate,
         "memory": memory,
+    }
+    if gate == "shield":
+        result["shield_gate"] = _shield_gate_report(agent_did)
+    return result
+
+
+def _shield_gate_listening(socket_path: Path, *, timeout: float = 0.5) -> bool:
+    """True only if something accepts a connection on `socket_path` right now.
+
+    Connecting, not `is_socket()`: a crashed daemon leaves its socket file behind, and a stale
+    file would read as "listening" while every hook silently failed open. The probe sends
+    nothing, which the daemon treats as an empty request and ignores.
+    """
+    import socket as _socket
+
+    probe = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+    try:
+        probe.settimeout(timeout)
+        probe.connect(str(socket_path))
+        return True
+    except OSError:
+        return False
+    finally:
+        probe.close()
+
+
+def _shield_gate_report(agent_did: str) -> dict[str, Any]:
+    """What an operator must know right after `--gate shield` is installed.
+
+    Two facts decide whether the gate does anything, and neither is visible from settings.json:
+    whether a daemon is listening (the runner fails open if not), and whether this agent's DID
+    is registered with it (every shipped Shield pack denies an unregistered agent's tool calls).
+    """
+    from integrity_sdk import hook_runner  # see module docstring for why this import exists here
+
+    socket_path = hook_runner.default_shield_socket_path()
+    return {
+        "socket": str(socket_path),
+        "listening": _shield_gate_listening(socket_path),
+        "register_agent": agent_did,
     }
 
 

@@ -81,6 +81,10 @@ against real policies. Don't write code you haven't run.
 | Postgres (userapi) | 5435 | integrity-userapi |
 | Integrity Dashboard (Vite dev) | 5173 | integrity-dashboard |
 
+Not every local endpoint is a port. **Shield's PreToolUse gate daemon listens on a Unix socket**,
+not a TCP port, so that nothing is reachable over loopback and the socket's file mode (`0600`)
+is what limits who can ask it. Its path rule and wire format are in §15.5.
+
 ## 3. Environment variables (shared names — use exactly these)
 
 - `DATABASE_URL` — Postgres connection string (oracle). Must point at a
@@ -96,6 +100,9 @@ against real policies. Don't write code you haven't run.
   `provider=hex-ed25519-public-key` form. Empty disables KYC receipt acceptance. Keys
   belong to independently operated commercial or self-hosted open-source verification
   stacks; clients never supply trust roots in requests.
+- `XIBALBA_SHIELD_GATE_SOCKET` — path of the Unix socket `shield gate-daemon` listens on and
+  `integrity_sdk.hook_runner --gate shield` dials. Read by **both** sides, which is why it is a
+  shared name; when unset each side derives the same default (§15.5).
 - `RPC_URL` — EVM RPC endpoint, defaults to `http://localhost:8545` (anvil) for local dev
 - `CHAIN_ID` — `31337` for local anvil
 - `OPA_URL` — `http://localhost:8181` (bcc_middleware, sdk)
@@ -1550,6 +1557,92 @@ here**, to avoid the exact two-copies-drift failure mode this document exists to
 Shield spec §4.5, not a new oracle endpoint. `integrity-oracle` requires **no route changes** to
 receive Shield telemetry — it arrives through the existing `POST /v1/bcc/intercept` and
 telemetry-ingest paths (§2, §4.2 above) like any other agent's traffic.
+
+### 15.5 Shield local gate socket v1 (`PreToolUse`)
+
+**Status.** The client is implemented here (`integrity_sdk.hook_runner`, `--gate shield`). The
+daemon is implemented in `xibalba-shield` as `shield gate-daemon`, in
+[xibalba-shield#46](https://github.com/XibalbaTechSol/xibalba-shield/pull/46), which was an open,
+unmerged draft when this section was written — until it merges there is no daemon on Shield's
+`main`, and `integrity hooks install --gate shield` will correctly report that nothing is listening.
+
+This is the boundary `docs/EXECUTION_PLAN.md` B2's third bullet names. It exists because a harness
+hook is a short-lived process spawned once per tool call and cannot hold a warm policy engine.
+
+**Transport.** `AF_UNIX` stream socket. **One request, one response, then close**; each is a single
+JSON object terminated by `\n`. The daemon caps a request at 4 MiB; the client caps a response at
+64 KiB. The daemon creates the socket `0600`, so it keeps other local *users* out; it does **not**
+separate processes running as the same user.
+
+**Socket path — one rule, stated once, implemented twice.** `XIBALBA_SHIELD_GATE_SOCKET` if set;
+otherwise `$XDG_RUNTIME_DIR/xibalba-shield/gate.sock` if `XDG_RUNTIME_DIR` is set; otherwise
+`~/.xibalba-shield/gate.sock`. The SDK must not import Shield, so each side carries its own copy
+(`integrity_sdk.hook_runner.default_shield_socket_path`, `shield.gate_daemon.default_socket_path`).
+**Both repositories pin the same three cases in tests.** If they disagree, a hook dials a socket
+the daemon is not on and the only symptom is an unchecked allow. Change both together. AF_UNIX
+paths are limited to roughly 100 bytes; the daemon rejects a longer one with a message naming the
+length.
+
+**Request** (`v` is the protocol version; the daemon ignores unknown fields):
+
+| Field | Type | Meaning |
+|---|---|---|
+| `v` | int | `1`. Anything else is rejected. |
+| `event` | string | `"pre_tool_use"`. The only event this daemon answers. |
+| `agent_id` | string | The agent's **DID** (`did:integrity:…`), not the local profile name. |
+| `tool_name` | string | e.g. `"Bash"`. Non-empty. |
+| `tool_input_sha256` | string, optional | 64 lowercase hex: SHA-256 of the RFC 8785 (JCS) canonical bytes of the tool's input object, or the literal `uncanonicalizable` when the input cannot be canonicalized (for example a NaN). Anything else is rejected. |
+
+**The tool's input never crosses the socket — only its digest does.** Nothing in evaluation reads
+tool content (Shield's `AgentEvent` carries only the tool *name*), and this is the same rule the
+BCC path already follows (`hook_runner`'s module docstring). If a future policy needs content,
+that is a new protocol version, not a quiet extra field. The digest is validated strictly because
+it is written to an audit log line.
+
+**Response:**
+
+| Field | Type | Meaning |
+|---|---|---|
+| `v` | int | `1` |
+| `decision` | `"allow"` \| `"deny"` | What the harness must do. The client trusts nothing else. |
+| `checked` | bool | `true` whenever the daemon ruled, **including** a deliberate refusal of a malformed request. |
+| `action` | string | The real five-way verdict: `allow`, `deny`, `contain`, `log_only`, `escalate`. |
+| `enforced` | bool | `false` in observe mode. |
+| `reason` | string | Human-readable; surfaced to the user on a deny. |
+| `rule_id` | string | The matching rule, or `_no_match` / `_bad_request` / `_evaluator_error` / `_no_pack`. |
+| `policy_version`, `policy_hash` | string | The enforced pack. A caller can record **which policy** ruled. |
+| `invocation_id` | string | Correlates with Shield's own records. |
+
+`contain` and `escalate` collapse to `deny`: this answer governs one pending tool call, while
+device containment and human escalation are Agent Core's job and cannot be carried out by a
+PreToolUse reply. `action` preserves the real verdict. In observe mode `decision` is always
+`allow` and `action` says what would have been enforced.
+
+**Two failure postures, deliberately different.**
+
+| Layer | Failure | Posture |
+|---|---|---|
+| `shield gate-daemon` | OPA outage, missing pack, malformed request, unexpected evaluator error | **Fails closed** — `deny` in enforce mode |
+| `integrity_sdk.hook_runner` | daemon missing, refusing connections, timing out (5 s), or answering incoherently | **Fails open** — `allow` with `checked: false`, **logged to stderr** |
+
+The enforcement component fails closed; the dev-shell-facing shim fails open so a stopped daemon
+does not brick a harness session. Consequently **an installed `--gate shield` hook with no daemon
+behind it enforces nothing.** A consumer must never treat `checked: false` as authorized, and
+`integrity hooks install --gate shield` reports whether a daemon is currently listening for
+exactly this reason. An incoherent response — bad JSON, wrong `v`, a `decision` that is not
+`allow`/`deny`, or one over the size cap — is treated as unreachable, never as a verdict.
+
+**Identity is self-asserted.** `agent_id` is whatever the client sends; nothing authenticates it.
+The socket's `0600` mode is a boundary against other users only. The decision is as meaningful as
+the pack loaded and the agent registry the daemon was started with.
+
+**Registration.** Shield's registry is in-memory and starts empty, and every shipped pack denies
+tool activity from an unregistered agent. The DID `hooks install` creates must be passed to
+`shield gate-daemon --register-agent`; `hooks install --gate shield` prints it. With nothing
+registered the daemon denies every call, which is correct behaviour rather than a fault.
+
+**Not covered here — `[PLANNED]`:** signed, chained per-decision receipts (the rest of B2's second
+bullet), and shared BCC↔Shield conformance vectors over a common compiled pack (B2's first).
 
 ## 16. Whitepaper v3.2 amendment interface status (updated 2026-09-08)
 

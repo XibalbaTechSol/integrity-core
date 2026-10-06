@@ -388,3 +388,39 @@ def test_xns_release_requires_wallet_password(monkeypatch, tmp_path, httpx_mock)
     )
     assert result.exit_code == 1
     assert "INTEGRITY_WALLET_PASSWORD" in result.stdout
+
+
+# --------------------------------------------------------------------------
+# hooks install --gate shield: what the operator is told
+# --------------------------------------------------------------------------
+
+def test_hooks_install_shield_warns_that_the_runner_fails_open_without_a_daemon(tmp_path, monkeypatch):
+    for var in ("HERMES_HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "INTEGRITY_PROFILE_ROOT"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("INTEGRITY_DID_HOME", str(tmp_path / "did_home"))
+    monkeypatch.setenv("XIBALBA_SHIELD_GATE_SOCKET", str(tmp_path / "gate.sock"))
+    root = tmp_path / "harness_root"
+    root.mkdir()
+
+    result = runner.invoke(app, ["hooks", "install", "--harness", "claude-code", "--gate", "shield",
+                                 "--profile-root", str(root)])
+
+    assert result.exit_code == 0, result.output
+    output = " ".join(result.output.split())  # rich wraps lines; compare on normalized text
+    assert "no Shield gate daemon is listening" in output
+    assert "UNCHECKED" in output
+    assert "--register-agent did:" in output, "the operator needs the DID to give the daemon"
+
+
+def test_hooks_install_bcc_prints_no_shield_guidance(tmp_path, monkeypatch):
+    for var in ("HERMES_HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "INTEGRITY_PROFILE_ROOT"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("INTEGRITY_DID_HOME", str(tmp_path / "did_home"))
+    root = tmp_path / "harness_root"
+    root.mkdir()
+
+    result = runner.invoke(app, ["hooks", "install", "--harness", "claude-code", "--gate", "bcc",
+                                 "--profile-root", str(root)])
+
+    assert result.exit_code == 0, result.output
+    assert "Shield" not in result.output

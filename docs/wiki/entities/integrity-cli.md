@@ -126,15 +126,18 @@ marker-tagged (`# integrity-hooks:v1`, carried in the command string itself,
 not a side-car manifest) PreToolUse/PostToolUse hook entries into a harness's
 `settings.json`, plus a public `agent.did.json` in the harness root with the
 private key stored outside it (`integrity_sdk.did`'s harness-root layout).
-This is the one command in this package that imports `integrity_sdk` --
+This is the one command in this package that imports `integrity_sdk` (`did`, and for
+`--gate shield` `hook_runner.default_shield_socket_path`; neither loads the connector stack) --
 a deliberate, owner-approved exception to the "no sibling dependency" rule
 the rest of this file documents, because this command's whole job is to
 install the SDK's own identity layout (see `hooks.py`'s module docstring for
 the full rationale). Installed hooks invoke
 `python -m integrity_sdk.hook_runner` out-of-process (`--gate bcc`: a real
-signed BCC commitment POSTed to `bcc_middleware`; `--gate shield` is refused
-at install time, not stubbed, because Shield's local gate daemon is Phase B's
-unbuilt B2; `--memory cortex`: a redacted event POSTed to Cortex's
+signed BCC commitment POSTed to `bcc_middleware`; `--gate shield`: a digest of the
+tool input sent to Shield's local gate daemon over a Unix socket — accepted since
+2026-10-06, and install then **reports whether a daemon is actually listening** and
+which DID to register with it, because the runner fails open when the daemon is
+unreachable and an unserved hook enforces nothing; `--memory cortex`: a redacted event POSTed to Cortex's
 `/api/otel/batch`). Idempotent (reinstall leaves `settings.json` JSON-equal);
 uninstall removes exactly the marked entries and never touches the DID file
 or key. 22 new tests across both packages (`integrity-sdk/tests/unit/test_hook_runner.py`,
