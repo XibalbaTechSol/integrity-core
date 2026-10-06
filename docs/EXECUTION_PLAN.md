@@ -242,6 +242,156 @@ review:
 - [ ] **Sibling repositories:** Shield and Cortex work branches from their latest `main`; no concurrent
   sessions run on them.
 
+  **Owner decision (2026-10-06, corrected): keep auto-merge enabled; gate merges with a required
+  status check.** An earlier revision of this entry recorded the decision as "turn off Allow
+  auto-merge." That was wrong on both the owner's choice and the diagnosis, and is corrected here
+  rather than silently dropped.
+
+  **Root cause, established from the check runs rather than inferred.** This precondition failed
+  twice on 2026-10-05, in `xibalba-shield#43` and `xibalba-cortex#36`. Both PRs did import an
+  `integrity_sdk` symbol their pinned `integrity-core` ref did not contain — but their CI
+  *reported that correctly and failed*:
+
+  - `xibalba-shield#43` — `root-free-tests`, two runs, both `conclusion: failure`.
+  - `xibalba-cortex#36` — `xibalba-cortex (pytest)`, `conclusion: failure`.
+
+  Each merged anyway, and `main` is `protected: false` in both sibling repositories. So auto-merge
+  was not the defect, and disabling it would not have closed the hole: it would only have slowed
+  things down until a human noticed red, and a manual merge could still land a failing PR. The
+  defect is that **nothing in either sibling gates a merge on CI**. Auto-merge on an ungated
+  branch merges as soon as it is permitted to, red or green — it was doing exactly what it is
+  specified to do.
+
+  **Mechanism (siblings).** Require each package's existing CI check on `main` — `root-free-tests`
+  for Shield, `xibalba-cortex (pytest)` for Cortex. Auto-merge then becomes the safe path rather
+  than the risk: it waits for required checks and merges only once they pass, so a pin bump and the
+  code depending on it cannot land out of order. This is **not** the rejected CI guard — that
+  proposal was a new CI step detecting SDK-symbol drift, adding a second place for the pin
+  relationship to be encoded. This adds no CI code; it marks the check that already exists, and
+  that already caught both failures, as one that must pass.
+
+  **This repository too, now that the direct-push question is settled.** An owner decision of
+  2026-10-06 — *never push directly to `main` unless explicitly told to* — removes the one
+  objection that had kept this gate off here. `PRODUCTION_GAPS.md` §8's 2026-07-16 entry records a
+  required-status-check being added to `main` and then reverted because it "blocks *direct* pushes
+  to `main`, not just PR merges," conflicting with "this repo's established direct-push workflow."
+  That workflow is retired, so the premise is gone: the check can be required here with no ruleset
+  bypass actor, and `AGENTS.md` rule 3 ("Never push directly to `main`. Open a PR. CI must be green
+  before merge.") becomes an enforced invariant rather than a convention. Recorded as
+  `PRODUCTION_GAPS.md` §72.
+
+  One fact still constrains *how*, and should not be rediscovered: **GitHub Merge Queue is
+  unavailable on this account** (a `merge_queue` ruleset rule is rejected while
+  `required_status_checks` succeeds; likely a personal-account plan restriction).
+
+  **§8's apparent contradiction is resolved, and this repository had no active gate.** An earlier
+  revision of this entry called the ruleset state unverifiable, on the claim that `list_branches`'s
+  `protected` flag does not report rulesets. That claim was wrong: the
+  [List branches response](https://docs.github.com/en/rest/branches/branches#list-branches)'s
+  `protected` covers both branch-protection rules and rulesets. Demonstrated directly on
+  2026-10-06 — `main` read `protected: false` in all three repositories, a ruleset was then created
+  in each with nothing else changed, and all three flipped to `protected: true`. So the earlier
+  `protected: false` readings did rule out an active ruleset: §8's 2026-07-16
+  `required_status_checks` ruleset was **not** live, which is consistent with that entry's closing
+  "only the auto-close-conflicting-PRs workflow was kept." Rulesets left `inactive` or in
+  `evaluate` mode can still exist in Settings without enforcing, but nothing here was an unknown
+  enforced gate.
+
+  **The rule, settled 2026-10-06 and identical in all three repositories.** Changes reach the
+  default branch through a pull request, and that branch's CI must pass before it can merge. Two
+  ruleset rules express it, and nothing else is configured:
+
+  - `pull_request`, with `required_approving_review_count: 0`;
+  - `required_status_checks`, with `strict_required_status_checks_policy: false`.
+
+  The approval count is 0 deliberately: nobody can approve their own pull request, so requiring one
+  or more on a single-maintainer repository would mean auto-merge can never fire and every PR waits
+  on an approval that cannot arrive. CI is the gate, not a person. `strict` is false deliberately:
+  true forces every PR to be brought up to date with the default branch each time it moves, which
+  is churn at this scale.
+
+  Only the required check names differ, because the CI jobs differ. Verified 2026-10-06 against
+  each repository's `.github/workflows/ci.yml`:
+
+  | Repository | Required checks |
+  |---|---|
+  | `integrity-core` | `documentation contracts`, `contracts (forge test)`, `integrity-oracle (cargo test)`, `integrity-sdk (pytest)`, `integrity-cli (pytest)`, `bcc_middleware (pytest + opa test)` |
+  | `xibalba-shield` | `root-free-tests` |
+  | `xibalba-cortex` | `xibalba-cortex (pytest)` |
+
+  `integrity-core`'s `ci.yml` has **six** jobs, none conditional (no `if:`, no `paths:`), so all six
+  report on every PR — which is what makes requiring them safe. An earlier revision of this entry
+  said "eight `ci.yml` jobs plus `documentation contracts`"; that was wrong twice over, since there
+  are six and `documentation contracts` is one of them. `PRODUCTION_GAPS.md` §8's reference to
+  "8 real CI job names" is likewise stale against today's workflow.
+
+  **Code scanning must still be gated, and the reason first given for excluding it was wrong.** An
+  earlier revision excluded CodeQL, the `Analyze (...)` jobs and `github-advanced-security` on the
+  grounds that they report `neutral` on commits with no analyzable change (any documentation-only
+  PR) and that a check which can come back neutral must never be required. The premise does not
+  hold: GitHub counts `neutral` as a
+  [passing conclusion for a required check](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks#required-check-needs-to-succeed-against-the-latest-commit-sha),
+  alongside `success` and `skipped`, so a neutral code-scanning result would not have blocked
+  anything. Excluding those contexts while configuring nothing else in their place means a genuine
+  CodeQL **failure** on an analyzable change does not block merge — with auto-merge armed, it would
+  merge straight through a real security finding.
+
+  Close it with the ruleset's own **code scanning** rule, which gates on code-scanning alerts rather
+  than on check-run contexts and so does not depend on which analyses ran for a given diff.
+  Selecting that rule is not sufficient on its own: it takes a tool plus **both** thresholds, and
+  each threshold accepts `none`, which blocks nothing — so a rule can be enabled and still gate
+  nothing. Record the intended values rather than leaving them to a default:
+
+  | Parameter | Value |
+  |---|---|
+  | `tool` | `CodeQL` |
+  | `alerts_threshold` | `errors` |
+  | `security_alerts_threshold` | `high_or_higher` |
+
+  `errors` blocks on CodeQL errors while letting warnings and notes through, so routine notes do not
+  stall a PR; `high_or_higher` blocks high and critical security alerts. Tighten to
+  `errors_and_warnings` / `medium_or_higher` if this repository's compliance posture warrants it —
+  but never leave either at `none`, which is the setting that silently reproduces the ungated state
+  this section exists to close. See the
+  [repository rules API](https://docs.github.com/en/rest/repos/rules) for the full value sets.
+
+  If the code-scanning rule is unavailable on this account — as `merge_queue` is — require the
+  `Analyze (...)` contexts instead; they were observed reporting on documentation-only PRs #164 and
+  #165, so they do run on every pull request here. Not independently verified in this session:
+  GitHub's exact treatment of `skipped` for a required check. `neutral` resolving to `success` was
+  observed on both of those PRs.
+
+  **Status, 2026-10-06: configured, then stood down. This precondition is open and the gate is not
+  in force.** The rule above was created on the default branch of all three repositories, and
+  `main` moved from `protected: false` to `protected: true` in each, confirming it enforced. It was
+  then removed by owner decision the same day, after it blocked PR #165 for a reason that was never
+  identified: that PR had all six required checks green, no merge conflict, a current base, zero
+  required approvals and non-draft status, and still reported `mergeable_state: "blocked"`.
+  Candidates not ruled out were an additional rule left ticked (`Require signed commits` is the
+  likeliest, since commits here are unsigned) and a required check name that never reports. Nothing
+  about the rule's shape above is known to be wrong; the open question is which additional setting
+  blocked, which the PR's own merge-box text would name.
+
+  **Consequence, stated plainly:** with no gate in force, a pull request with failing CI can merge
+  again in all three repositories — the exact condition that let `xibalba-shield#43` and
+  `xibalba-cortex#36` merge red on 2026-10-05. Auto-merge remains enabled, so this is not
+  hypothetical.
+
+  **Remaining owner action (blocks this checkbox):** a ruleset is a GitHub repository setting
+  (Settings → Rules), not a file in any repository, so this cannot be committed. Re-apply the rule
+  above on the default branch of all three repositories, resolve what blocked #165 first, then tick
+  this item. Prefer setting a ruleset's enforcement to `disabled` over deleting it when standing one
+  down temporarily: the configuration survives, and re-enabling is one field rather than a rebuild.
+
+  Two hazards to avoid while doing it. **A required check whose name never reports blocks every PR
+  forever**, with no clear reason surfaced — which is why the stale eight-name list matters and why
+  names should only be required once seen reporting on a real PR. And **branch protection and a
+  ruleset stack their requirements** if both are configured, so use one mechanism; the rule above
+  assumes rulesets and leaves branch protection alone.
+
+  The "no concurrent sessions" half of this precondition remains an operating convention with no
+  mechanical enforcement.
+
 ## A4. Minimal kernel patch (S)
 
 - [x] Remove the adapter-registry branch (constructor parameters, `registryHook`/`registryAdapter`
