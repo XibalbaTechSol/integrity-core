@@ -242,6 +242,25 @@ review:
 - [ ] **Sibling repositories:** Shield and Cortex work branches from their latest `main`; no concurrent
   sessions run on them.
 
+  **Owner decision (2026-10-06): enforce by disabling auto-merge, not by a CI guard.** This
+  precondition failed twice on 2026-10-05, independently and from the same cause: a sibling PR
+  imported an `integrity_sdk` symbol that its pinned `integrity-core` ref did not yet contain, and
+  auto-merge landed it before the pin bump. `xibalba-shield#43` and `xibalba-cortex#36` each broke
+  their own `main` CI this way, and each needed a follow-up repair PR that changed nothing but the
+  pin (`xibalba-shield#44`, `xibalba-cortex#37`; both repos' `ci.yml` comments record the
+  post-mortem). The alternative mechanism considered and rejected was a CI step failing when a
+  sibling imports an SDK symbol absent from its pinned ref: it adds a second place for the pin
+  relationship to be encoded, and it only reports the breakage after the PR is already open.
+  Instead, **"Allow auto-merge" is turned off in the GitHub repository settings of both
+  xibalba-shield and xibalba-cortex**, so a pin bump and the code depending on it can never land
+  out of order. A0's existing "auto-merge is already disabled" claim covered this repository only;
+  it did not hold for the siblings.
+
+  **Remaining owner action (blocks this checkbox):** the toggle is a GitHub repository setting
+  (Settings → General → Pull Requests → "Allow auto-merge"), not a file in any repository, so it
+  cannot be committed. Turn it off in both sibling repositories, then tick this item. The "no
+  concurrent sessions" half remains an operating convention with no mechanical enforcement.
+
 ## A4. Minimal kernel patch (S)
 
 - [x] Remove the adapter-registry branch (constructor parameters, `registryHook`/`registryAdapter`
