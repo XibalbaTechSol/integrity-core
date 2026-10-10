@@ -21,6 +21,11 @@ from dotenv import load_dotenv
 load_dotenv()  # no-op in prod if no .env file is present; picks it up for local dev
 
 
+#: Shortest accepted admin token. Chosen so a hex token from `openssl rand -hex 16` (32 chars, 128 bits) passes
+#: and anything a person would type does not.
+MIN_ADMIN_TOKEN_LENGTH = 32
+
+
 def _bool_env(name: str, default: bool) -> bool:
     val = os.getenv(name)
     if val is None:
@@ -50,6 +55,13 @@ class Settings:
     # different origin is blocked before it ever reaches an endpoint, even though a plain
     # curl (no CORS enforcement) works fine -- this was a real, previously-silent gap.
     cors_allowed_origins: str = field(default_factory=lambda: os.getenv("CORS_ALLOWED_ORIGINS", "*"))
+
+    # --- Admin API authentication (app/main.py::require_admin) ---
+    # Bearer token for every /v1/admin/* route. UNSET MEANS THE ADMIN API IS DISABLED (503), not open:
+    # these routes change who may commit clinical intents, and they had no authentication at all.
+    # Generate with e.g. `openssl rand -hex 32`. A set-but-short token is a startup error rather than a
+    # weak secret that looks like protection.
+    admin_token: str | None = field(default_factory=lambda: os.getenv("BCC_ADMIN_TOKEN") or None)
 
     # --- OPA policy document coordinates (§7) ---
     # We evaluate the whole `integrity/bcc` package document in one call rather
@@ -243,6 +255,8 @@ class Settings:
     spool_max_rows: int = field(default_factory=lambda: int(os.getenv("BCC_SPOOL_MAX_ROWS", "500000")))
 
     def __post_init__(self) -> None:
+        if self.admin_token is not None and len(self.admin_token) < MIN_ADMIN_TOKEN_LENGTH:
+            raise ValueError(f"BCC_ADMIN_TOKEN must be at least {MIN_ADMIN_TOKEN_LENGTH} characters (try `openssl rand -hex 32`)")
         if self.merkle_anchor_interval_seconds <= 0:
             raise ValueError("merkle anchor interval must be greater than zero")
         if self.spool_retry_batch_size <= 0:

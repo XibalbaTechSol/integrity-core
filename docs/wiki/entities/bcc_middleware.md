@@ -45,6 +45,7 @@ in the monorepo that closes that loop.
 - [State](#state)
 - [Resolved gap (found stale during integrity-dashboard/demo work, 2026-07-09)](#resolved-gap-found-stale-during-integrity-dashboard-demo-work-2026-07-09)
 - [Evidence anchoring now targets a dedicated contract, not each agent's memory StateAnchor (B4, 2026-10-05)](#evidence-anchoring-now-targets-a-dedicated-contract-not-each-agent-s-memory-stateanchor-b4-2026-10-05)
+- [Admin API authentication (2026-10-10)](#admin-api-authentication-2026-10-10)
 
 ## Pipeline
 
@@ -290,3 +291,18 @@ Re-verified against a real local anvil: `tests/test_anchor_per_agent.py` (3/3) a
 Related: [BCC](../concepts/bcc.md),
 [ComplianceGate](../concepts/compliance-gate.md),
 [Merkle batching](../concepts/merkle-batching.md).
+
+## Admin API authentication (2026-10-10)
+
+`GET`/`PUT /v1/admin/clinical-allowlist` decide which agents may commit clinical intents under `bcc.rego`, and
+had **no authentication** (CORS is `*`): anyone who could reach the port could authorize any agent. Every
+`/v1/admin/*` route now depends on `require_admin` (`app/main.py`): a bearer token from `BCC_ADMIN_TOKEN`, compared
+in constant time. **Unset disables the admin API (503) rather than leaving it open**; a token under 32 characters
+stops the service starting; a rejected request is logged by method and path, never the credential. A test walks the
+route table so a future `/v1/admin/*` route cannot ship without it.
+
+Still unauthenticated, reported and not changed: `POST /v1/reputation/sync`, `POST /v1/bcc/anchor/flush` and
+`POST /v1/audit/spool/retry`, which make the service sign and send chain transactions or retry deliveries. No caller
+of any of them exists in this repository. Verified: 19 new tests (the 161 pre-existing tests are unaffected) and 9
+mutation checks of the protections, all caught (one more is an equivalent mutant: an empty credential is already
+rejected by the comparison).

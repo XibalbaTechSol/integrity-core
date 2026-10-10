@@ -4042,3 +4042,14 @@ writeup: PRODUCTION_GAPS.md §18.
 - No B2 checkbox ticked: the daemon is in xibalba-shield#46, which is unmerged. Test counts: `integrity-sdk` 501 passed / 3 skipped; `integrity-cli` 99 passed / 1 skipped. Run for real against the actual daemon over real OPA and a signed pack, not only a test double.
 - Pre-existing, not touched: `entities/integrity-sdk.md` lists several `source_files` that no longer exist (`markets.py`, `integrations/auto_hook.py`, `mcp_server.py`) and `entities/integrity-dashboard` entries likewise; flagged by `scripts/wiki_linter.py` before and after this change.
 - `STATUS.md` had gone stale again within a day: it still read 124/232 and "B4 0/6, open in PR #163" after #163 merged and ticked five B4 boxes. Refreshed against `scripts/plan_progress.py` to 129/232 (55%), and every phase row was checked against the generator, not only the two that moved. This change itself ticks no box; the 124 to 129 movement is entirely #163.
+
+## [2026-10-10] fix | bcc_middleware: authentication on /v1/admin/* (clinical allowlist)
+
+- `GET`/`PUT /v1/admin/clinical-allowlist` had no authentication and CORS is `*`: anyone who could reach the port could
+  make any agent clinically authorized under `bcc.rego`. Found while reading BCC for the signed-pack migration; fixed in
+  its own change at the owner's request. Every `/v1/admin/*` route now requires `Authorization: Bearer
+  $BCC_ADMIN_TOKEN` (constant-time compare). Unset disables the admin API (503); a token under 32 characters stops startup.
+- Reported, not changed: `POST /v1/reputation/sync`, `POST /v1/bcc/anchor/flush`, `POST /v1/audit/spool/retry` are still
+  unauthenticated and drive chain transactions. No in-repo callers.
+- 19 new tests incl. a route-table walk; 9 mutation checks caught (a weak first "constant-time" test that only searched
+  the source for a string let `==` survive and was replaced with a call spy).
