@@ -4042,3 +4042,46 @@ writeup: PRODUCTION_GAPS.md §18.
 - No B2 checkbox ticked: the daemon is in xibalba-shield#46, which is unmerged. Test counts: `integrity-sdk` 501 passed / 3 skipped; `integrity-cli` 99 passed / 1 skipped. Run for real against the actual daemon over real OPA and a signed pack, not only a test double.
 - Pre-existing, not touched: `entities/integrity-sdk.md` lists several `source_files` that no longer exist (`markets.py`, `integrations/auto_hook.py`, `mcp_server.py`) and `entities/integrity-dashboard` entries likewise; flagged by `scripts/wiki_linter.py` before and after this change.
 - `STATUS.md` had gone stale again within a day: it still read 124/232 and "B4 0/6, open in PR #163" after #163 merged and ticked five B4 boxes. Refreshed against `scripts/plan_progress.py` to 129/232 (55%), and every phase row was checked against the generator, not only the two that moved. This change itself ticks no box; the 124 to 129 movement is entirely #163.
+
+## [2026-10-06] B2 daemon bullet and A7 failure coverage ticked after merge
+- Ticked `docs/EXECUTION_PLAN.md` B2's "Shield's local gate daemon exposes a Unix socket" bullet
+  (xibalba-shield#46, `ef240ba`; client in integrity-core#166) and A7's provider-outage / tamper /
+  reason-code item (xibalba-shield#47, `ee10099`). Plan total 131/232 (56%); B2 1/3, A7 15/16.
+- Updated `STATUS.md` (regenerated count, A7/B2/B3 rows) and `INTERFACE_CONTRACT.md` 15.5's status,
+  which still called the daemon an unmerged draft.
+- Still open: B2 signed chained receipts and shared BCC/Shield conformance vectors; A7's Settings UI.
+
+## [2026-10-07] update | BCC migration stage 1: ported signed pack and differential harness (B2)
+
+- Owner chose a staged migration of `bcc_middleware` onto the shared signed pack. Added `packs/bcc/`
+  (not yet loaded by the service), `integrity-sdk/tests/unit/test_core_bcc_pack_equivalence.py` and
+  `docs/design/bcc-shared-pack-migration.md`. No `bcc_middleware` code changed.
+- The harness runs `bcc.rego` and the pack in two real OPA servers over 2,000+ deterministic cases:
+  same verdict, a reason code recomputed from the old messages, same clinical sets. Coverage guards
+  fail the build if a rule or a feasible pair of rules goes unexercised. 14 of 15 deliberate
+  breakages are caught; the fifteenth is unobservable by construction.
+- Findings: (1) `bcc.rego` fails open on a commitment with no `agent_id` or `intent_type` (undefined
+  Rego rules do not fire); unreachable via the service's schema, denied by the pack, pinned by a test.
+  (2) `bcc_middleware` has no `integrity-sdk` dependency, so stage 2 changes pyproject, lockfile,
+  Dockerfile build context and CI. (3) the first corpus never made two rules fire together, so a
+  priority swap went unnoticed until mutation testing exposed it.
+- Open: what "BCC and Shield evaluate the same compiled pack" means given different input vocabularies
+  (see the design page). Stages 2-4 `[PLANNED]`; B2 stays unticked.
+
+## [2026-10-10] update | BCC migration stage 2: signed pack loading and dual-run, behind flags (B2)
+
+- `bcc_middleware` can now load and use `packs/bcc`: `app/pack_policy.py` (verify with trusted signers and an optional
+  pinned hash, install into a dedicated OPA, decide through `resolve()`), `app/clinical_allowlist.py` (hot-reloaded file,
+  fails closed), and a `_policy_outcome` layer in `app/main.py`. Off by default; with no pack configured the 161
+  pre-existing tests pass unchanged. 226 pass with the 65 new ones.
+- Owner decisions (2026-10-10): dual-run then a flag; reuse Shield's operator key to sign the pack (design had
+  recommended a separate key); a hot-reloaded allowlist file; strict receipts for BCC; stage 4 is shared rulebook vectors.
+- Packaging: `integrity-sdk` is now a path dependency; the image build context moved to the repo root; the SDK is part
+  of the stale-image check; compose gains a dedicated `opa-bcc-pack` (profile `policy-pack`). Docker image build not run
+  (no daemon); the layout was verified by simulation and `docker compose config` validates.
+- Findings: sharing one OPA lets two gates overwrite each other's pack (policy-id collision); `PUT
+  /v1/admin/clinical-allowlist` has no authentication (pre-existing, not fixed; refused with 409 in pack mode); a
+  second `__post_init__` silently replaces the first; the first draft of `wiki_toc` entries failed CI, so every wiki edit
+  now runs `wiki_toc.py --check` as well as `check_docs.py`.
+- Docs: `docs/runbooks/bcc-policy-pack.md`, `docs/design/bcc-shared-pack-migration.md`, `bcc_middleware/{CLAUDE,README}.md`,
+  `.env.example`. Stages 3-4 `[PLANNED]`; B2 stays at 1/3.

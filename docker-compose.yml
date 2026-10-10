@@ -51,6 +51,16 @@ services:
       - ../xibalba-shield/shield/policies/rego/smb.rego:/shield-policies/selected.rego:ro
     ports: ["127.0.0.1:8181:8181"]
 
+  # A DEDICATED OPA for bcc_middleware's signed policy pack. Not the `opa` service above: the SDK's
+  # OpaClient owns and replaces every policy under one fixed id prefix, and every gate's pack file is
+  # named policy.rego, so two gates pointed at one OPA silently overwrite each other's pack. Started
+  # only with `--profile policy-pack`. No published port: only bcc-middleware talks to it. The version
+  # matches the OPA the equivalence tests run against (CI installs v1.18.2).
+  opa-bcc-pack:
+    image: openpolicyagent/opa:1.18.2
+    command: ["run", "--server", "--addr=0.0.0.0:8181"]
+    profiles: ["policy-pack"]
+
   oracle-backend:
     mem_limit: 512m
     cpus: 0.50
@@ -117,7 +127,11 @@ services:
 
   bcc-middleware:
     build:
-      context: ./bcc_middleware
+      # Repository root, not ./bcc_middleware: the service depends on ../integrity-sdk as a path
+      # dependency, which a build context scoped to the service directory cannot see.
+      # bcc_middleware/Dockerfile.dockerignore keeps this wide context to the files the build needs.
+      context: .
+      dockerfile: bcc_middleware/Dockerfile
       args:
         SOURCE_HASH: ${BCC_MIDDLEWARE_SOURCE_HASH:-unknown}
     depends_on: [opa, oracle-backend]
@@ -150,9 +164,24 @@ services:
       # own development evidence ("retained in logs only"). Both files are mounted so the
       # two services can never drift onto different chains again.
       DEPLOYMENTS_FILE: ${DOCKER_DEPLOYMENTS_FILE:-/deployments.local.json}
+      # --- Signed policy pack (docs/design/bcc-shared-pack-migration.md, stage 2) ---------------
+      # All off by default: with BCC_POLICY_PACK_DIR empty, bcc.rego decides exactly as before.
+      # To DUAL-RUN (pack evaluated beside bcc.rego, disagreements logged, bcc.rego decides), start
+      # with `--profile policy-pack` and set BCC_POLICY_PACK_DIR=/pack-config/pack plus
+      # BCC_TRUSTED_PACK_SIGNERS (and ideally BCC_POLICY_PACK_HASH). BCC_POLICY_ENGINE=pack then
+      # makes the pack decide; setting it back to `rego` is the rollback. Runbook:
+      # docs/runbooks/bcc-policy-pack.md.
+      BCC_POLICY_ENGINE: ${BCC_POLICY_ENGINE:-rego}
+      BCC_POLICY_PACK_DIR: ${BCC_POLICY_PACK_DIR:-}
+      BCC_POLICY_PACK_HASH: ${BCC_POLICY_PACK_HASH:-}
+      BCC_TRUSTED_PACK_SIGNERS: ${BCC_TRUSTED_PACK_SIGNERS:-}
+      BCC_PACK_OPA_URL: ${BCC_PACK_OPA_URL:-http://opa-bcc-pack:8181}
+      BCC_CLINICAL_ALLOWLIST_FILE: ${BCC_CLINICAL_ALLOWLIST_FILE:-}
     volumes:
       - ./deployments.baseSepolia.json:/deployments.baseSepolia.json
       - ./deployments.local.json:/deployments.local.json
+      # Signed pack + clinical-allowlist.json live here (read-only). See that directory's README.
+      - ${BCC_PACK_CONFIG_DIR:-./bcc_middleware/pack-config}:/pack-config:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports: ["127.0.0.1:8000:8000"]

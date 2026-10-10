@@ -1,0 +1,13 @@
+# Used with `docker build -f bcc_middleware/Dockerfile .` from the repository root (BuildKit reads
+# <Dockerfile>.dockerignore next to the Dockerfile). Deny by default so the root-sized context stays
+# small and nothing secret-adjacent (.env, keys, deployments files) can be copied by accident.
+*
+!integrity-sdk/pyproject.toml
+!integrity-sdk/README.md
+!integrity-sdk/integrity_sdk
+!bcc_middleware/pyproject.toml
+!bcc_middleware/uv.lock
+!bcc_middleware/app
+!bcc_middleware/policies
+**/__pycache__
+**/*.pyc

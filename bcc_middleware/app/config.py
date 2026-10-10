@@ -63,6 +63,27 @@ class Settings:
     opa_package_path: str = field(default_factory=lambda: os.getenv("OPA_PACKAGE_PATH", "/v1/data/integrity/bcc"))
     opa_timeout_seconds: float = field(default_factory=lambda: float(os.getenv("OPA_TIMEOUT_SECONDS", "3.0")))
 
+    # --- Signed policy pack (docs/design/bcc-shared-pack-migration.md, stage 2) ---
+    # Everything here is optional and off by default: with none of it set, BCC decides with
+    # policies/bcc.rego exactly as before. Setting BCC_POLICY_PACK_DIR turns on DUAL-RUN: the signed
+    # pack is evaluated beside bcc.rego on every request, any disagreement is logged and counted, and
+    # bcc.rego still decides. BCC_POLICY_ENGINE=pack then flips the decider; flipping it back is the
+    # rollback. See app/pack_policy.py for the failure postures.
+    policy_engine: str = field(default_factory=lambda: os.getenv("BCC_POLICY_ENGINE", "rego").strip().lower())
+    policy_pack_dir: str | None = field(default_factory=lambda: os.getenv("BCC_POLICY_PACK_DIR") or None)
+    # Pin the exact pack hash (`sha256:...`). Optional but recommended: with it, a pack that verifies
+    # under a trusted signer but is not THE pack the operator approved is still refused.
+    policy_pack_hash: str | None = field(default_factory=lambda: os.getenv("BCC_POLICY_PACK_HASH") or None)
+    # Multibase Ed25519 public keys allowed to have signed the pack, comma-separated. Required with a pack.
+    trusted_pack_signers: frozenset[str] = field(default_factory=lambda: _csv_env("BCC_TRUSTED_PACK_SIGNERS", ()))
+    # A DEDICATED OPA for the pack. There is deliberately no fallback to `opa_url`: OpaClient owns, and
+    # replaces, every policy under one fixed id prefix, and two gates' packs are both `policy.rego`, so
+    # sharing one OPA would have each gate silently overwrite the other's pack.
+    pack_opa_url: str | None = field(default_factory=lambda: os.getenv("BCC_PACK_OPA_URL") or None)
+    # JSON file `{"agents": ["did:..."]}`: extra agents allowed to commit clinical intents, re-read when
+    # it changes. A signed pack cannot carry a runtime data document, so the gate supplies it as input.
+    clinical_allowlist_file: str | None = field(default_factory=lambda: os.getenv("BCC_CLINICAL_ALLOWLIST_FILE") or None)
+
     # --- Commitment freshness / replay window ---
     # A signed commitment older than this is refused even if everything else
     # checks out -- this bounds how long a captured-and-replayed commitment
@@ -243,6 +264,9 @@ class Settings:
     spool_max_rows: int = field(default_factory=lambda: int(os.getenv("BCC_SPOOL_MAX_ROWS", "500000")))
 
     def __post_init__(self) -> None:
+        # One __post_init__ only: a second definition in this class would silently replace this one.
+        if self.policy_engine not in ("rego", "pack"):
+            raise ValueError(f"BCC_POLICY_ENGINE must be 'rego' or 'pack', got {self.policy_engine!r}")
         if self.merkle_anchor_interval_seconds <= 0:
             raise ValueError("merkle anchor interval must be greater than zero")
         if self.spool_retry_batch_size <= 0:
