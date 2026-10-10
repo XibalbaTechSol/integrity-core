@@ -96,6 +96,23 @@ class Settings:
     # it changes. A signed pack cannot carry a runtime data document, so the gate supplies it as input.
     clinical_allowlist_file: str | None = field(default_factory=lambda: os.getenv("BCC_CLINICAL_ALLOWLIST_FILE") or None)
 
+    # --- Signed decision receipts (integrity-core B2 stage 3) ---
+    # Set BCC_RECEIPT_DIR (with both key files) to record a signed, hash-chained, checkpointed receipt for every
+    # decision made AFTER the commitment's signature verifies. Unauthenticated denials get none: the agent id
+    # on them is attacker-chosen, so a receipt would attribute a forgery to a real agent. Unset = no receipts.
+    receipt_dir: str | None = field(default_factory=lambda: os.getenv("BCC_RECEIPT_DIR") or None)
+    receipt_key_file: str | None = field(default_factory=lambda: os.getenv("BCC_RECEIPT_KEY_FILE") or None)
+    receipt_hmac_key_file: str | None = field(default_factory=lambda: os.getenv("BCC_RECEIPT_HMAC_KEY_FILE") or None)
+    # Names this gate inside the receipts (as an HMAC, never in the clear).
+    receipt_gate_id: str = field(default_factory=lambda: os.getenv("BCC_GATE_ID", "bcc-middleware"))
+    receipt_checkpoint_every: int = field(default_factory=lambda: int(os.getenv("BCC_RECEIPT_CHECKPOINT_EVERY", "1000")))
+    # A log is closed and a new epoch (new log_id, fresh chain) opened at whichever bound is hit first. 0 disables a bound.
+    receipt_epoch_max_receipts: int = field(default_factory=lambda: int(os.getenv("BCC_RECEIPT_EPOCH_MAX_RECEIPTS", "50000")))
+    receipt_epoch_max_age_seconds: float = field(default_factory=lambda: float(os.getenv("BCC_RECEIPT_EPOCH_MAX_AGE_SECONDS", "86400")))
+    # STRICT is the default: in enforce mode an allow whose receipt cannot be written is denied. Lenient lets it
+    # through (receipt_status "failed" on the response, CRITICAL log). Shadow mode never blocks either way.
+    lenient_receipts: bool = field(default_factory=lambda: _bool_env("BCC_LENIENT_RECEIPTS", False))
+
     # --- Commitment freshness / replay window ---
     # A signed commitment older than this is refused even if everything else
     # checks out -- this bounds how long a captured-and-replayed commitment
@@ -281,6 +298,12 @@ class Settings:
             raise ValueError(f"BCC_POLICY_ENGINE must be 'rego' or 'pack', got {self.policy_engine!r}")
         if self.admin_token is not None and len(self.admin_token) < MIN_ADMIN_TOKEN_LENGTH:
             raise ValueError(f"BCC_ADMIN_TOKEN must be at least {MIN_ADMIN_TOKEN_LENGTH} characters (try `openssl rand -hex 32`)")
+        if self.receipt_dir is not None and not (self.receipt_key_file and self.receipt_hmac_key_file):
+            raise ValueError("BCC_RECEIPT_DIR requires BCC_RECEIPT_KEY_FILE and BCC_RECEIPT_HMAC_KEY_FILE")
+        if self.receipt_dir is None and (self.receipt_key_file or self.receipt_hmac_key_file):
+            raise ValueError("BCC_RECEIPT_KEY_FILE / BCC_RECEIPT_HMAC_KEY_FILE are set but BCC_RECEIPT_DIR is not")
+        if self.receipt_checkpoint_every < 1 or self.receipt_epoch_max_receipts < 0 or self.receipt_epoch_max_age_seconds < 0:
+            raise ValueError("receipt checkpoint/epoch bounds must be positive (epoch bounds may be 0 to disable)")
         if self.merkle_anchor_interval_seconds <= 0:
             raise ValueError("merkle anchor interval must be greater than zero")
         if self.spool_retry_batch_size <= 0:

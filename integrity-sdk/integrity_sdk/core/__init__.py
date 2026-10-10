@@ -71,6 +71,22 @@ from .receipts import (
     verify_log,
     verify_receipt,
 )
+from .receipt_writer import (
+    CHECKPOINTS_FILENAME,
+    DEFAULT_CHECKPOINT_EVERY,
+    RECEIPTS_FILENAME,
+    EpochAudit,
+    GateReceiptWriter,
+    ReceiptRef,
+    ReceiptSetupError,
+    ReceiptWriteError,
+    RotationPolicy,
+    derive_log_id,
+    epoch_log_id,
+    load_hmac_key,
+    load_signer,
+    verify_epoch_directory,
+)
 from .receipt_queue import ReceiptQueue, ReceiptQueueError
 from .signed_body import sign_body, verify_body
 from .store_identity import StoreIdentity, StoreIdentityError
@@ -84,6 +100,9 @@ from .tenancy import (
 )
 
 __all__ = [
+    "CHECKPOINTS_FILENAME", "DEFAULT_CHECKPOINT_EVERY", "RECEIPTS_FILENAME", "EpochAudit", "GateReceiptWriter",
+    "ReceiptRef", "ReceiptSetupError", "ReceiptWriteError", "RotationPolicy", "derive_log_id", "epoch_log_id",
+    "load_hmac_key", "load_signer", "verify_epoch_directory",
     "DECISION_CONTRACT", "DENY", "ENFORCE", "LOG_ONLY", "NO_MATCH", "PERMIT", "SHADOW", "Decision", "resolve",
     "DECISION_ENVELOPE_VERSION", "DECISION_TRACE_VERSION", "GENESIS_PARENT", "TRACE_LEAF_KIND",
     "DecisionEnvelope", "DecisionTrace", "DecisionTraceEvidence", "DecisionTraceError", "build_trace_evidence",

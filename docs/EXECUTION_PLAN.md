@@ -972,6 +972,12 @@ logging nowhere) and left a stale socket after SIGTERM. And `hook_runner.main()`
 unchecked allow, despite its docstring promising it did — an unreachable BCC middleware allowed the
 call with no trace; that is B3 code, fixed here for both gates.
 
+**Progress, 2026-10-10 (stage 3):** BCC now emits strict signed receipts for every authenticated decision
+(`bcc_middleware/app/gate_receipts.py`, on the SDK's shared `GateReceiptWriter`, verified live with
+`integrity-cli verify`). No box is ticked: the first bullet needs the shared rulebook vectors in both CIs (stage 4),
+and the second needs the same on Shield's side (Shield still carries its own copy of the writer until the swap PR).
+Design and evidence: `docs/design/bcc-shared-pack-migration.md`.
+
 **Still open, so the other two bullets stay unticked:** the daemon does not yet emit signed, chained
 per-decision receipts, and BCC and Shield do not yet evaluate one shared compiled pack against shared
 conformance vectors.

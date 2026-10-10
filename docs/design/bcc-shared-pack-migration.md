@@ -111,11 +111,40 @@ behaves as before (the 161 pre-existing tests pass unchanged; 226 pass with the 
 4. **`BCC_SHADOW_MODE` defaults to true.** By default BCC records would-be denials but blocks nothing, so strict
    receipts (stage 3) will not block anything until an operator turns enforcement on.
 
-**Stage 3: one receipt writer.** `shield/gate_receipts.py` is Shield-local today. BCC must not get a
-second copy: move `GateReceiptWriter` into `integrity-sdk` (stdlib and `core` only, so the import
-hygiene rule holds) and have both gates use it. BCC is an async, concurrent HTTP service, so the writer's
-single lock plus a blocking `fsync` must run off the event loop (a thread). Strict, per the owner's decision.
-The receipt records the final decision *after* the BAA check, with the pack hash that decided.
+### Stage 3 (delivered): one receipt writer, and BCC emits receipts
+
+`GateReceiptWriter` moved from Shield into `integrity-sdk` (`integrity_sdk/core/receipt_writer.py`; stdlib and `core`
+only, so the import hygiene rule holds) with epoch rotation added. `bcc_middleware/app/gate_receipts.py` adapts it
+(the blocking `fsync` runs in a thread, off the event loop). Shield keeps its own copy until a follow-up swaps it for
+the SDK's after a pin bump `[PLANNED]`; a golden vector (fixed key, timestamps and inputs -> pinned receipt hashes)
+lets Shield pin the same values so the two cannot drift.
+
+Decisions applied (owner, 2026-10-10): receipts for **authenticated outcomes only**; log scaling by **epochs**;
+**strict** like Shield.
+
+* **What gets a receipt:** everything after the Ed25519 signature verifies (replay, expiry, quarantine, policy deny,
+  token budget, BAA, allow). Not the breaker, chain/contract mismatch or bad-signature denials: until the signature
+  verifies `agent_id` is whatever the caller typed, and a signed receipt naming a real agent for a forged request
+  would be evidence the protocol manufactured against the wrong party.
+* **Strict, before admission.** The allow receipt is written before the commitment is admitted to the Merkle batch
+  and before the verification token is issued. If it cannot be written, enforce mode denies as
+  `BCC_RECEIPT_UNAVAILABLE` with nothing to undo and without charging the agent's breaker. `BCC_LENIENT_RECEIPTS=1`
+  lets the allow through (`receipt_status: "failed"`, CRITICAL log). Shadow mode never blocks. A denial that cannot
+  be recorded stays a denial.
+* **The receipt names the policy that decided.** Pack mode: the pack hash and the pack's specific reason code and
+  controls. `bcc.rego` (including dual-run, where the pack is only advisory): the all-zero `NO_PACK_HASH` sentinel and
+  `BCC_REGO_POLICY_PERMIT/DENY`.
+* **Epochs.** At `BCC_RECEIPT_EPOCH_MAX_RECEIPTS` (50,000) or `BCC_RECEIPT_EPOCH_MAX_AGE_SECONDS` (86,400) the epoch is
+  closed with a covering checkpoint and a new one opens with a new `log_id` and a fresh chain. No format or verifier
+  change. Cost, stated: nothing links epoch N to N+1 in the files; deleting a *middle* epoch is refused at start, but
+  deleting the *newest* epoch(s) cannot be seen without anchoring (B4, `[PLANNED]` for gates). Start-up verifies only
+  the newest epoch; `verify_epoch_directory` is the full offline audit.
+* **Accepted cost:** the token budget is charged before the receipt, so a receipt outage costs an agent budget for
+  requests we then refuse. Bounded by the budget; clears at the daily reset.
+
+Verified: 23 SDK tests and 25 BCC pipeline tests; mutation checks (7 on the writer, 12 on the pipeline, the survivors
+strengthened and re-caught); and a live run: real uvicorn BCC, real OPA, real signed commitments over HTTP, checked
+with `integrity-cli verify` (intact passes; a flipped decision is `BAD_SIGNATURE`; a truncated tail is `TRUNCATED`).
 
 **Stage 4: shared rulebook vectors.** One JSON file of `(policy result -> expected decision)` cases covering
 the contract's rules (no match takes the pack default, a malformed result denies, reserved reason codes are

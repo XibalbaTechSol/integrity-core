@@ -4096,3 +4096,15 @@ writeup: PRODUCTION_GAPS.md §18.
   unauthenticated and drive chain transactions. No in-repo callers.
 - 19 new tests incl. a route-table walk; 9 mutation checks caught (a weak first "constant-time" test that only searched
   the source for a string let `==` survive and was replaced with a call spy).
+
+## [2026-10-10] update | BCC emits signed decision receipts; shared writer moved to the SDK (B2 stage 3)
+
+- Moved Shield's durable receipt writer into `integrity-sdk` (`core/receipt_writer.py`) and added epoch rotation
+  (new `log_id` and fresh chain per epoch, covering checkpoint before closing), a `timestamp` parameter and
+  `verify_epoch_directory`. `bcc_middleware` now records a strict, signed receipt for every decision after the
+  signature verifies (`app/gate_receipts.py`); allow receipts are written before admission. Owner decisions:
+  authenticated outcomes only, epochs, strict, SDK + BCC first and Shield later.
+- Verified: SDK 532 passed; BCC pipeline suite 25 tests; mutation checks (all caught after strengthening 3 tests); a live
+  run checked with `integrity-cli verify`.
+- Not done: Shield swap to the SDK writer; stage 4 vectors; anchoring of closed epochs. B2 stays 1/3.
+

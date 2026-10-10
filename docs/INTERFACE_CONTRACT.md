@@ -191,6 +191,11 @@ intent/outcome reconciliation claim.
   "signature": "0x<hex, Ed25519 sig over the above fields except signature itself, canonical JSON>"
 }
 ```
+> Response additions (B2 stage 3, additive; older clients ignore them): `BCCInterceptResponse` may carry
+> `receipt` (`{log_id, seq, hash}` of the signed decision receipt) and `receipt_status` (`"recorded"`/`"failed"`;
+> absent when receipts are off or the decision predates authentication). A new deny code `BCC_RECEIPT_UNAVAILABLE`
+> means a strict gate could not record an allow. `GET /health` gains `receipts`. See `docs/runbooks/bcc-policy-pack.md` section 5.
+
 This exact shape is POSTed by `integrity-sdk` and `integrity-cli` to
 `bcc_middleware`'s `POST /v1/bcc/intercept`. Field names are load-bearing —
 don't rename them per-package.
