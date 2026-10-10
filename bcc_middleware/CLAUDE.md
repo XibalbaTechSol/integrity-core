@@ -32,8 +32,8 @@ opa run --server --addr=127.0.0.1:8181 policies/ # 1. real OPA server
 anvil --port 8545                                # 2. local chain (for BAA check / anchoring)
 uv run uvicorn app.main:app --host 0.0.0.0 --port 8000   # 3. the service
 
-opa test policies/ -v                            # 28 OPA policy unit tests
-uv run pytest -q                                 # 75 tests — see below
+opa test policies/ -v                            # 48 OPA policy unit tests (2026-10-10)
+uv run pytest -q                                 # 226 tests (2026-10-10) — see below
 uv run pytest tests/test_merkle.py::test_name    # single test
 ```
 
@@ -68,7 +68,9 @@ cheapest-and-most-certain-first:
 4b. active quarantine check (app/quarantine.py)      -- denies only on a POSITIVELY
     CONFIRMED locked-stake dispute; fails OPEN (unlike step 6) since it runs on every
     request, not just a narrow intent class -- see app/quarantine.py's docstring
-5. OPA policy evaluation (app/opa_client.py)         -- FAIL CLOSED if OPA unreachable
+5. policy evaluation (app/main.py::_policy_outcome)   -- FAIL CLOSED if the engine is unreachable.
+    Default engine: bcc.rego via app/opa_client.py. Optional: the SIGNED PACK (app/pack_policy.py),
+    dual-run beside bcc.rego or, with BCC_POLICY_ENGINE=pack, deciding alone -- see below
 6. on-chain BAA check, only if OPA says requires_baa -- FAIL CLOSED if can't verify
    (app/baa.py, real eth_call via web3.py)
 7. admit to Merkle batch + best-effort on-chain anchor -- NOT a gate (app/merkle.py, app/anchor.py)
@@ -94,6 +96,31 @@ Every deny path encodes its reason as `SOME_CODE: detail` in the response
 `AGENT_QUARANTINED`, `BCC_POLICY_ENGINE_UNAVAILABLE`,
 `OPA_REJECTION`, `BAA_INACTIVE`, `BAA_CANNOT_VERIFY`, `CIRCUIT_BREAKER_OPEN`) so
 callers/tests can pattern-match on failure category.
+
+### Signed policy pack (`app/pack_policy.py`, `app/clinical_allowlist.py`) -- B2 stage 2
+
+`policies/bcc.rego` is being replaced by the signed pack `packs/bcc` (design and findings:
+`docs/design/bcc-shared-pack-migration.md`; operations: `docs/runbooks/bcc-policy-pack.md`). With no pack
+configured nothing changes. `BCC_POLICY_PACK_DIR` turns on **dual-run**: the pack is evaluated beside
+`bcc.rego` on every request, disagreements are logged (`POLICY DIVERGENCE`) and counted on `/health`, and
+`bcc.rego` still decides -- the pack cannot change a response in this mode. `BCC_POLICY_ENGINE=pack` makes the
+pack decide; **loading is fail-closed** (the service refuses to start if the pack does not verify, rather than
+deciding with a different policy), **evaluation is fail-closed** (an unreachable or forgetful pack OPA denies as
+`BCC_POLICY_ENGINE_UNAVAILABLE` and never charges the agent's circuit breaker).
+
+Things that will bite if forgotten:
+- The pack needs its **own OPA** (`BCC_PACK_OPA_URL`, no fallback to `OPA_URL`): the SDK installer owns and
+  replaces every policy under one id prefix and every gate's pack file is `policy.rego`.
+- `requires_baa` is **not a policy output** under the decision contract. It is the constant
+  `pack_policy.CLINICAL_INTENT_TYPES`, pinned to `bcc.rego` and the pack by `tests/test_pack_policy.py`; a sixth
+  clinical type must be added in all three places or the BAA check is silently skipped.
+- The clinical allowlist is a **hot-reloaded file** in pack mode (`BCC_CLINICAL_ALLOWLIST_FILE`), and an invalid
+  file authorizes no extra agents -- it deliberately does *not* keep the last good list, because that would
+  leave a revoked agent authorized. `PUT /v1/admin/clinical-allowlist` returns 409 in pack mode.
+- `/v1/admin/*` requires `Authorization: Bearer $BCC_ADMIN_TOKEN` (`require_admin`; unset = 503, token under 32
+  characters stops startup). The three other state-changing endpoints (reputation sync, anchor flush, spool retry)
+  are still unauthenticated.
+- `Settings.__post_init__` must stay a single method; a second definition silently replaces the first.
 
 ### Reputation sync loop (`app/reputation.py`, `app/scoring_loop.py`)
 

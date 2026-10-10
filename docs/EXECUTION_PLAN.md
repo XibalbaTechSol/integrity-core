@@ -750,8 +750,15 @@ not yet merged)
   and the Settings browser flow (desktop/390px) are not — there is no Settings UI yet (see above), so
   there is nothing to browser-test. Corrected from an earlier draft that claimed both; only the two
   backend test files are actual evidence.
-- [ ] A provider outage, malformed response, tenant mismatch and tamper test preserve local
-  enforcement and produce an operator-readable reason code.
+- [x] A provider outage, malformed response, tenant mismatch and tamper test preserve local
+  enforcement and produce an operator-readable reason code. Merged in
+  [xibalba-shield#47](https://github.com/XibalbaTechSol/xibalba-shield/pull/47) (`ee10099`):
+  `tests/test_jev_failure_modes.py` (81 tests) proves differentially, against a real OPA and a real
+  signed pack, that the `PolicyDecision` is identical under every failure mode, and the failed
+  advisory carries a stable `ADVISORY_*` reason code (trace reader: `TRACE_*`). The work also fixed
+  four defects: mismatched-event advice stored as `available`, `"false"` read as escalate, a rewritten
+  final trace event going undetected, and traces over 50 events reading invalid forever. Not covered:
+  truncation at either end of a trace needs an external anchor (B4).
 
 ## Gate A
 
@@ -942,13 +949,14 @@ rule each; Gate B-local's "every rule cites a control" needs re-checking once B1
 - [ ] BCC and Shield evaluate the same compiled pack and pass shared conformance vectors in CI.
 - [ ] Both support atomic loads, fail-closed reason codes, shadow/enforce modes, and signed chained
   receipts with checkpoints.
-- [ ] Shield's local gate daemon exposes a Unix socket for PreToolUse.
+- [x] Shield's local gate daemon exposes a Unix socket for PreToolUse.
 
-**Progress, 2026-10-06 — no box ticked yet.** The third bullet is built but not merged: the daemon
-is `shield gate-daemon` in [xibalba-shield#46](https://github.com/XibalbaTechSol/xibalba-shield/pull/46)
-(an open draft), the client is `integrity_sdk.hook_runner --gate shield` in this repository, and the
-wire contract is `docs/INTERFACE_CONTRACT.md` 15.5. The bullet ticks when #46 reaches Shield's `main`;
-ticking it now would claim something `main` does not yet have.
+**Progress, 2026-10-06 — one of three boxes ticked.** The third bullet is done and merged: the
+daemon is `shield gate-daemon` ([xibalba-shield#46](https://github.com/XibalbaTechSol/xibalba-shield/pull/46),
+`ef240ba`), the client is `integrity_sdk.hook_runner --gate shield`
+([#166](https://github.com/XibalbaTechSol/integrity-core/pull/166)), and the wire contract is
+`docs/INTERFACE_CONTRACT.md` 15.5. The first two bullets (shared conformance vectors, signed chained
+receipts with checkpoints) are not started.
 
 Evidence so far. `integrity-sdk`: 501 passed / 3 skipped (was 480), including 21 new `hook_runner`
 tests. `integrity-cli`: 99 passed / 1 skipped (was 90). `xibalba-shield`: 32 gate tests, including
@@ -967,6 +975,17 @@ call with no trace; that is B3 code, fixed here for both gates.
 **Still open, so the other two bullets stay unticked:** the daemon does not yet emit signed, chained
 per-decision receipts, and BCC and Shield do not yet evaluate one shared compiled pack against shared
 conformance vectors.
+
+**Progress, 2026-10-10 — still one of three boxes ticked.** Shield's half of bullet 2 is built: signed, chained,
+checkpointed receipts per gate decision (`shield gate-daemon --receipt-dir`, xibalba-shield#48 merged; strict by
+default in #49, open at the time of writing), verified end to end with `integrity-cli`'s independent verifier. BCC's
+half is a staged migration, because `bcc_middleware` was not on the signed-pack decision contract at all
+(`docs/design/bcc-shared-pack-migration.md`): stage 1, `packs/bcc` plus a differential harness against `bcc.rego`
+(`integrity-sdk/tests/unit/test_core_bcc_pack_equivalence.py`); stage 2, loading and dual-run behind flags, default off
+(`bcc_middleware/app/pack_policy.py`, runbook `docs/runbooks/bcc-policy-pack.md`). **Stage 3 (BCC emits the receipts via one
+shared writer) and stage 4 (shared rulebook vectors in both CIs) are not started**, so bullets 1 and 2 stay open.
+Findings that outlive the migration: `bcc.rego` fails open on a commitment missing `agent_id` or `intent_type` (not
+reachable through the service's schema), and `PUT /v1/admin/clinical-allowlist` is unauthenticated.
 
 **Operational consequence to carry forward:** the runner fails open, so a `--gate shield` hook with
 no daemon listening enforces *nothing*. That is why `integrity hooks install --gate shield` now

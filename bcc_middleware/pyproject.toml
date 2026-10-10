@@ -23,6 +23,7 @@ dependencies = [
     # uses to encode `publicKeyMultibase`.
     "base58>=2.1.0",
     "jcs>=0.2.1",
+    "integrity-sdk",
 ]
 
 [dependency-groups]
@@ -38,3 +39,6 @@ packages = ["app"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.uv.sources]
+integrity-sdk = { path = "../integrity-sdk", editable = true }

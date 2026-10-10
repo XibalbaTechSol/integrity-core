@@ -1,0 +1,12 @@
+pack_format: integrity.pack/1
+name: bcc
+version: 0.1.0
+kernel_range: ">=1.0.0 <2.0.0"
+decision_contract: integrity.decision/1
+entrypoint: data.integrity.pack.decision
+description: >-
+  bcc_middleware's pre-execution policy (bcc_middleware/policies/bcc.rego) expressed in the shared
+  decision contract. Stage 1 of the BCC migration: not yet loaded by bcc_middleware. Equivalence with
+  bcc.rego is enforced by integrity-sdk/tests/unit/test_core_bcc_pack_equivalence.py.
+event_classes:
+  agent.tool_call: {no_match: deny}

@@ -13,11 +13,19 @@ WORKDIR /app
 # the monorepo's Python packages (integrity-sdk, integrity-cli).
 RUN pip install --no-cache-dir uv
 
-COPY pyproject.toml uv.lock ./
+# The build context is the REPOSITORY ROOT (docker-compose.yml: `build.context: .`, `dockerfile:
+# bcc_middleware/Dockerfile`), not this directory, because bcc_middleware depends on ../integrity-sdk as a
+# path dependency (pyproject.toml [tool.uv.sources]). The relative path survives the move into the image:
+# /app/../integrity-sdk is /integrity-sdk. Only what the SDK build needs is copied (see
+# Dockerfile.dockerignore); the SDK is installed editable from there, as in a local checkout.
+COPY integrity-sdk/pyproject.toml integrity-sdk/README.md /integrity-sdk/
+COPY integrity-sdk/integrity_sdk /integrity-sdk/integrity_sdk
+
+COPY bcc_middleware/pyproject.toml bcc_middleware/uv.lock ./
 RUN uv sync --frozen --no-dev
 
-COPY app ./app
-COPY policies ./policies
+COPY bcc_middleware/app ./app
+COPY bcc_middleware/policies ./policies
 
 # docker-compose.yml's bcc-middleware service sets OPA_URL / ORACLE_URL and
 # maps port 8000 -- see docs/INTERFACE_CONTRACT.md §2.

@@ -49,6 +49,7 @@ import logging
 import threading
 import time
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -62,7 +63,8 @@ from app.circuit_breaker import AgentCircuitBreaker
 from app.config import Settings, settings as default_settings
 from app.merkle import MerkleBatcher, leaf_hash
 from app.nonce_store import NonceStore
-from app.opa_client import OPAUnavailableError, evaluate as opa_evaluate
+from app.opa_client import OPADecision, OPAUnavailableError, evaluate as opa_evaluate
+from app.pack_policy import PackPolicy, PackPolicyError, requires_baa as pack_requires_baa
 from app.token_budget import TokenBudgetEnforcer, token_budget_enforcer
 from app.schemas import (
     BCCCommitment,
@@ -193,10 +195,32 @@ async def _drain_audit_reports(timeout: float = 10.0) -> None:
         _audit_report_tasks.difference_update(pending)
 
 
+async def _init_pack_policy(settings: Settings) -> None:
+    """Load the signed pack if one is configured (or required).
+
+    Pack mode REFUSES TO START if the pack does not verify or install: the operator asked for the pack to
+    decide, and quietly falling back to bcc.rego would be a different policy than the one they approved.
+    In dual-run the pack is advisory, so a failure is logged loudly, surfaced on /health, and bcc.rego
+    keeps deciding.
+    """
+    global pack_policy, pack_policy_error
+    pack_policy, pack_policy_error = None, None
+    if settings.policy_engine != "pack" and not settings.policy_pack_dir:
+        return
+    try:
+        pack_policy = await asyncio.to_thread(PackPolicy.load, settings)
+    except PackPolicyError as exc:
+        if settings.policy_engine == "pack":
+            raise
+        pack_policy_error = str(exc)
+        logger.error("policy pack not loaded, dual-run disabled (bcc.rego still decides): %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _score_sync_task, _spool_retry_task, _anchor_flush_task, _audit_shutdown_started
     _audit_shutdown_started = False
+    await _init_pack_policy(default_settings)
     if default_settings.score_sync_enabled:
         _score_sync_task = asyncio.create_task(_score_sync_loop(default_settings))
     if default_settings.spool_enabled:
@@ -241,6 +265,71 @@ circuit_breaker = AgentCircuitBreaker(
 )
 nonce_store = NonceStore()
 batcher = MerkleBatcher(batch_size=default_settings.merkle_batch_size)
+
+# The signed policy pack (app/pack_policy.py), loaded at startup when BCC_POLICY_PACK_DIR is set.
+# None means "not configured" (bcc.rego decides alone) or "failed to load while only dual-running";
+# `pack_policy_error` says which. In pack mode a load failure stops the service instead.
+pack_policy: PackPolicy | None = None
+pack_policy_error: str | None = None
+
+
+@dataclass(frozen=True)
+class _PolicyOutcome:
+    """The two things the pipeline needs from policy, whichever engine produced them."""
+
+    allow: bool
+    reasons: str  # shown to the caller after "OPA_REJECTION: " when denied
+    requires_baa: bool
+
+
+def _rego_outcome(decision: OPADecision) -> _PolicyOutcome:
+    return _PolicyOutcome(
+        allow=decision.allow,
+        reasons="; ".join(decision.violations) or "policy denied without a specific reason",
+        requires_baa=decision.requires_baa,
+    )
+
+
+async def _policy_outcome(settings: Settings, opa_input: dict, intent_type: str) -> _PolicyOutcome:
+    """Decide the commitment with the configured engine. Raises OPAUnavailableError to fail closed.
+
+    * engine "pack": the signed pack decides; bcc.rego is not consulted. Any failure to evaluate it is
+      reported as OPAUnavailableError, so it denies and never counts against the agent.
+    * engine "rego" (default): bcc.rego decides exactly as before. If a pack is loaded it is evaluated
+      CONCURRENTLY and compared (dual-run); nothing about that comparison can change the response or
+      raise -- a failing or disagreeing pack is logged and counted, never acted on.
+    """
+    policy = pack_policy
+    if settings.policy_engine == "pack":
+        if policy is None:
+            raise OPAUnavailableError(f"policy engine 'pack' is selected but no pack is loaded ({pack_policy_error})")
+        try:
+            verdict = await policy.decide(opa_input)
+        except PackPolicyError as exc:
+            raise OPAUnavailableError(str(exc)) from exc
+        reasons = "" if verdict.allow else f"{verdict.reason_code}: denied by policy pack {policy.name} {policy.version}"
+        return _PolicyOutcome(allow=verdict.allow, reasons=reasons, requires_baa=pack_requires_baa(intent_type))
+
+    if policy is None:
+        return _rego_outcome(await opa_evaluate(settings, opa_input))
+
+    old, new = await asyncio.gather(
+        opa_evaluate(settings, opa_input), policy.decide(opa_input), return_exceptions=True
+    )
+    if isinstance(old, BaseException):
+        raise old  # bcc.rego failing is handled exactly as it always was
+    if isinstance(new, BaseException):
+        policy.stats.record(error=True)
+        logger.warning("policy pack dual-run could not evaluate (bcc.rego decided): %s", new)
+    else:
+        difference = PackPolicy.divergence(old, new, intent_type)
+        policy.stats.record(divergence=difference)
+        if difference is not None:
+            logger.warning(
+                "POLICY DIVERGENCE agent=%s intent_type=%s pack=%s: %s",
+                opa_input.get("agent_id"), intent_type, policy.pack_hash[:19], difference,
+            )
+    return _rego_outcome(old)
 
 
 # Holds references to in-flight audit-report background tasks so asyncio doesn't
@@ -536,7 +625,7 @@ async def _run_intercept_inner(
         "daily_token_spend": token_budget_enforcer.get_daily_spend(agent_id),
     }
     try:
-        decision = await opa_evaluate(settings, opa_input)
+        decision = await _policy_outcome(settings, opa_input, commitment.intent_type)
     except OPAUnavailableError as exc:
         # Infra failure, NOT an agent violation -- do not trip the circuit
         # breaker (see circuit_breaker.py docstring). Still deny: this is
@@ -548,8 +637,7 @@ async def _run_intercept_inner(
 
     if not decision.allow:
         _record_violation(agent_id, settings)
-        reasons = "; ".join(decision.violations) or "policy denied without a specific reason"
-        resp = _deny(f"OPA_REJECTION: {reasons}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type, commitment=commitment)
+        resp = _deny(f"OPA_REJECTION: {decision.reasons}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type, commitment=commitment)
         finalize_span("deny", resp.reason)
         return resp
 
@@ -776,7 +864,12 @@ async def get_clinical_allowlist() -> ClinicalAllowlistResponse:
     restarting the opa service. Returns an empty list if nothing has been set
     yet -- that's the real Rego default (`default _extra_clinical_agents :=
     []`), not a fabricated placeholder.
+
+    In pack mode (BCC_POLICY_ENGINE=pack) the list is the hot-reloaded file named by
+    BCC_CLINICAL_ALLOWLIST_FILE, so this returns what the pack is actually using.
     """
+    if default_settings.policy_engine == "pack" and pack_policy is not None:
+        return ClinicalAllowlistResponse(agents=pack_policy.allowlist.current())
     url = f"{default_settings.opa_url.rstrip('/')}/v1/data/clinical_allowlist/agents"
     try:
         async with httpx.AsyncClient(timeout=default_settings.opa_timeout_seconds) as client:
@@ -800,7 +893,19 @@ async def set_clinical_allowlist(request: ClinicalAllowlistRequest) -> ClinicalA
     file. That's an accepted limitation of this being the narrow, real
     extension point rather than general policy editing (which does require a
     redeploy) -- not silently pretended to be durable.
+
+    Refused in pack mode (409). The pack reads BCC_CLINICAL_ALLOWLIST_FILE, which this endpoint cannot
+    write, so accepting the call would be a silent no-op (the operator believes an agent was granted
+    clinical authority; the pack ignores it). Making it write that file would instead hand an
+    UNAUTHENTICATED caller -- this endpoint has no authentication -- a way to grant authority to the
+    pack. Edit the file instead. During dual-run this still writes bcc.rego's data document, and any
+    disagreement with the file shows up as a POLICY DIVERGENCE log line.
     """
+    if default_settings.policy_engine == "pack":
+        raise HTTPException(
+            status_code=409,
+            detail="the clinical allowlist is managed by BCC_CLINICAL_ALLOWLIST_FILE while BCC_POLICY_ENGINE=pack",
+        )
     url = f"{default_settings.opa_url.rstrip('/')}/v1/data/clinical_allowlist/agents"
     try:
         async with httpx.AsyncClient(timeout=default_settings.opa_timeout_seconds) as client:
@@ -827,4 +932,9 @@ async def health() -> HealthResponse:
         chain_reachable=chain_ok,
         pending_batch_size=batcher.pending_count,
         mode="shadow" if default_settings.shadow_mode else "enforce",
+        policy={
+            "engine": default_settings.policy_engine,
+            "pack": pack_policy.health() if pack_policy is not None else None,
+            "pack_error": pack_policy_error,
+        },
     )

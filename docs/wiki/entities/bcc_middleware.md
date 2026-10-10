@@ -1,7 +1,7 @@
 ---
 title: bcc_middleware
 created: 2026-07-07
-updated: 2026-10-05
+updated: 2026-10-10
 type: entity
 tags: [infrastructure, compliance, cryptography, metrics]
 confidence: high
@@ -24,6 +24,11 @@ source_files:
   - bcc_middleware/tests/test_shutdown_drain.py
   - bcc_middleware/tests/test_opa_fail_closed.py
   - bcc_middleware/policies/bcc.rego
+  - packs/bcc/policy.rego
+  - bcc_middleware/app/pack_policy.py
+  - bcc_middleware/app/clinical_allowlist.py
+  - bcc_middleware/tests/test_pack_policy.py
+  - bcc_middleware/tests/test_policy_engine_switch.py
 ---
 
 The pre-execution policy gate (FastAPI + OPA). An agent signs a
@@ -45,6 +50,8 @@ in the monorepo that closes that loop.
 - [State](#state)
 - [Resolved gap (found stale during integrity-dashboard/demo work, 2026-07-09)](#resolved-gap-found-stale-during-integrity-dashboard-demo-work-2026-07-09)
 - [Evidence anchoring now targets a dedicated contract, not each agent's memory StateAnchor (B4, 2026-10-05)](#evidence-anchoring-now-targets-a-dedicated-contract-not-each-agent-s-memory-stateanchor-b4-2026-10-05)
+- [Migration onto the shared signed pack: stage 1 (B2, 2026-10-07)](#migration-onto-the-shared-signed-pack-stage-1-b2-2026-10-07)
+- [Signed policy pack: stage 2, loading and dual-run (B2, 2026-10-10)](#signed-policy-pack-stage-2-loading-and-dual-run-b2-2026-10-10)
 - [Admin API authentication (2026-10-10)](#admin-api-authentication-2026-10-10)
 
 ## Pipeline
@@ -291,6 +298,49 @@ Re-verified against a real local anvil: `tests/test_anchor_per_agent.py` (3/3) a
 Related: [BCC](../concepts/bcc.md),
 [ComplianceGate](../concepts/compliance-gate.md),
 [Merkle batching](../concepts/merkle-batching.md).
+
+## Migration onto the shared signed pack: stage 1 (B2, 2026-10-07)
+
+`bcc_middleware` still decides with `policies/bcc.rego` (boolean `allow`, a set of `violation`
+messages, `requires_baa`); it does not yet use the signed-pack decision contract or emit receipts, and
+it has no `integrity-sdk` dependency. Stage 1 of the staged migration adds `packs/bcc/`, a signed-pack
+re-expression of `bcc.rego` that **is not loaded by this service yet**, and a differential harness
+(`integrity-sdk/tests/unit/test_core_bcc_pack_equivalence.py`) that runs both in real OPA over 2,000+
+cases and fails on any disagreement. Design and the remaining stages: `docs/design/bcc-shared-pack-migration.md`.
+
+Finding, unreachable through this service but real in the policy: `bcc.rego` **allows** a commitment with
+no `agent_id` or no `intent_type`, because a Rego rule that reads an absent field (or negates a membership
+test on one) silently does not fire. This service always sends both, validated, so it is not a live
+bypass; the new pack denies such input (`BCC_MALFORMED_COMMITMENT`). The pack reports one reason code
+(highest priority) where `bcc.rego` reports a set; the set of denials is unchanged. `packs/bcc/controls.yaml`
+cites only the controls the old policy already claimed; "every rule cites a control" is not yet met.
+
+## Signed policy pack: stage 2, loading and dual-run (B2, 2026-10-10)
+
+Stage 2 makes `bcc_middleware` able to load and use the signed pack. It is **off by default**: with
+`BCC_POLICY_PACK_DIR` unset, `policies/bcc.rego` decides exactly as before (the 161 pre-existing tests still
+pass unchanged). `app/pack_policy.py` verifies the pack (`load_pack`, trusted signers, optional pinned hash),
+installs it into a **dedicated OPA** (`BCC_PACK_OPA_URL`; the installer replaces every policy under one id prefix,
+so a shared OPA would let two gates overwrite each other), and decides through `integrity_sdk.core.decision.resolve`.
+
+* **Dual-run** (pack configured, `BCC_POLICY_ENGINE=rego`): the pack is evaluated concurrently with `bcc.rego`;
+  disagreements are logged (`POLICY DIVERGENCE`) and counted on `/health`; `bcc.rego` decides and the response is
+  byte-identical. A failing pack is counted, never acted on.
+* **Pack mode** (`BCC_POLICY_ENGINE=pack`): the pack decides. Fail closed at load (the service refuses to start) and
+  at evaluation (`BCC_POLICY_ENGINE_UNAVAILABLE`, no circuit-breaker charge). Rollback is the flag.
+* `requires_baa` is no longer a policy output; the gate's `CLINICAL_INTENT_TYPES` constant replaces it and is pinned
+  to `bcc.rego` and the pack by tests. The BAA check still runs after policy, only for clinical intents.
+* The clinical allowlist is a **hot-reloaded file** (`BCC_CLINICAL_ALLOWLIST_FILE`); an invalid file authorizes no extra
+  agents rather than keeping the last good list (which would leave a revoked agent authorized).
+
+Verified: 226 tests pass (65 new), including a pipeline-level differential in which 17 real signed scenarios give the
+same outcome under `rego`, dual-run and `pack`, each also asserting its expected reason code, and 11 mutation
+checks of the new guards (all caught). Not verified here: the Docker image build (no daemon; the layout was verified
+by simulation and `docker compose config` validates). Not built: hot reload of the pack, receipts (stage 3).
+
+**Finding, pre-existing:** `PUT /v1/admin/clinical-allowlist` had no authentication; fixed separately (see "Admin API
+authentication" below). In pack mode the endpoint is refused (409) instead of becoming a silent no-op.
+Operations: `docs/runbooks/bcc-policy-pack.md`.
 
 ## Admin API authentication (2026-10-10)
 
