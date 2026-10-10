@@ -44,6 +44,7 @@ on the failure category.
 from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
 import threading
 import time
@@ -51,7 +52,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.baa import BAAStatus, check_baa_status
@@ -930,7 +931,26 @@ async def force_flush() -> dict:
     }
 
 
-@app.get("/v1/admin/clinical-allowlist", response_model=ClinicalAllowlistResponse)
+async def require_admin(request: Request) -> None:
+    """Authenticate an /v1/admin/* request with the bearer token in `BCC_ADMIN_TOKEN`.
+
+    Fails CLOSED in both directions: with no token configured the admin API is disabled (503) rather than
+    open, and anything other than exactly `Authorization: Bearer <token>` is a 401. The comparison is
+    constant-time (`hmac.compare_digest`) so response timing cannot be used to recover the token one
+    character at a time. A rejected request is logged with its method and path only, never the header.
+
+    Reads `default_settings` at call time so it follows the module attribute, like the rest of this module.
+    """
+    token = default_settings.admin_token
+    if token is None:
+        raise HTTPException(status_code=503, detail="admin API disabled: BCC_ADMIN_TOKEN is not set")
+    scheme, _, supplied = request.headers.get("authorization", "").partition(" ")
+    if scheme.lower() != "bearer" or not supplied or not hmac.compare_digest(supplied.encode("utf-8"), token.encode("utf-8")):
+        logger.warning("admin API: rejected %s %s (missing or wrong bearer token)", request.method, request.url.path)
+        raise HTTPException(status_code=401, detail="admin authentication required", headers={"WWW-Authenticate": "Bearer"})
+
+
+@app.get("/v1/admin/clinical-allowlist", response_model=ClinicalAllowlistResponse, dependencies=[Depends(require_admin)])
 async def get_clinical_allowlist() -> ClinicalAllowlistResponse:
     """
     Reads the runtime clinical-agent allowlist OPA data document
@@ -962,7 +982,7 @@ async def get_clinical_allowlist() -> ClinicalAllowlistResponse:
     return ClinicalAllowlistResponse(agents=[str(a) for a in agents] if isinstance(agents, list) else [])
 
 
-@app.put("/v1/admin/clinical-allowlist", response_model=ClinicalAllowlistResponse)
+@app.put("/v1/admin/clinical-allowlist", response_model=ClinicalAllowlistResponse, dependencies=[Depends(require_admin)])
 async def set_clinical_allowlist(request: ClinicalAllowlistRequest) -> ClinicalAllowlistResponse:
     """
     Full-replacement write to the same data document `get_clinical_allowlist`

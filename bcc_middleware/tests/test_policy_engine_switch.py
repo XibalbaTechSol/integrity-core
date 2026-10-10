@@ -315,11 +315,12 @@ def test_health_without_a_pack_still_reports_the_engine(monkeypatch):
 
 def test_the_admin_allowlist_write_is_refused_in_pack_mode_and_reads_the_file(world, monkeypatch):
     """In pack mode this endpoint would otherwise be a silent no-op (the pack reads the file, not OPA's data
-    document) -- or, if it wrote the file, an UNAUTHENTICATED way to grant clinical authority."""
+    document) -- or, if it wrote the file, an way to grant clinical authority."""
     _run, policy, base, allowlist_file = world
-    monkeypatch.setattr(main_module, "default_settings", Settings(**{**base, "policy_engine": "pack"}))
+    token = "t" * 40  # /v1/admin/* requires a bearer token (fix/bcc-admin-auth)
+    monkeypatch.setattr(main_module, "default_settings", Settings(**{**base, "policy_engine": "pack", "admin_token": token}))
     monkeypatch.setattr(main_module, "pack_policy", policy)
-    client = TestClient(main_module.app)
+    client = TestClient(main_module.app, headers={"Authorization": f"Bearer {token}"})
     refused = client.put("/v1/admin/clinical-allowlist", json={"agents": ["did:integrity:attacker"]})
     assert refused.status_code == 409 and "BCC_CLINICAL_ALLOWLIST_FILE" in refused.json()["detail"]
     on_disk = json.loads(allowlist_file.read_text())["agents"]

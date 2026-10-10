@@ -117,8 +117,9 @@ Things that will bite if forgotten:
 - The clinical allowlist is a **hot-reloaded file** in pack mode (`BCC_CLINICAL_ALLOWLIST_FILE`), and an invalid
   file authorizes no extra agents -- it deliberately does *not* keep the last good list, because that would
   leave a revoked agent authorized. `PUT /v1/admin/clinical-allowlist` returns 409 in pack mode.
-- **That admin endpoint has no authentication** (and CORS is `*`): anyone who can reach this port can grant any
-  agent clinical authority under `bcc.rego`. Pre-existing and not fixed here; see the design doc.
+- `/v1/admin/*` requires `Authorization: Bearer $BCC_ADMIN_TOKEN` (`require_admin`; unset = 503, token under 32
+  characters stops startup). The three other state-changing endpoints (reputation sync, anchor flush, spool retry)
+  are still unauthenticated.
 - `Settings.__post_init__` must stay a single method; a second definition silently replaces the first.
 
 ### Signed decision receipts (`app/gate_receipts.py`) -- B2 stage 3
@@ -167,6 +168,14 @@ Per-agent primitive instances (a given agent's own `ReputationRegistry`,
 they're resolved live via the oracle (`app/chain.py::resolve_agent_primitives`),
 since the protocol's clone-per-agent model means there's no single static
 address for these.
+
+**Admin authentication.** Every `/v1/admin/*` route depends on `app/main.py::require_admin`: a bearer token from
+`BCC_ADMIN_TOKEN`, compared in constant time. **Unset means disabled (503), not open**, and a token under 32
+characters stops the service starting. `tests/test_admin_auth.py` walks the route table, so a new `/v1/admin/*`
+route without the dependency fails the build. Other routes are *not* behind it: `POST /v1/reputation/sync`,
+`POST /v1/bcc/anchor/flush` and `POST /v1/audit/spool/retry` are unauthenticated and make the service sign and
+send chain transactions or retry deliveries. They are a known, reported exposure; protecting one is adding
+`dependencies=[Depends(require_admin)]` to its decorator.
 
 ### State is in-memory, single-process (accepted, not a bug)
 

@@ -52,6 +52,7 @@ in the monorepo that closes that loop.
 - [Evidence anchoring now targets a dedicated contract, not each agent's memory StateAnchor (B4, 2026-10-05)](#evidence-anchoring-now-targets-a-dedicated-contract-not-each-agent-s-memory-stateanchor-b4-2026-10-05)
 - [Migration onto the shared signed pack: stage 1 (B2, 2026-10-07)](#migration-onto-the-shared-signed-pack-stage-1-b2-2026-10-07)
 - [Signed policy pack: stage 2, loading and dual-run (B2, 2026-10-10)](#signed-policy-pack-stage-2-loading-and-dual-run-b2-2026-10-10)
+- [Admin API authentication (2026-10-10)](#admin-api-authentication-2026-10-10)
 - [Signed decision receipts: stage 3 (B2, 2026-10-10)](#signed-decision-receipts-stage-3-b2-2026-10-10)
 
 ## Pipeline
@@ -338,10 +339,24 @@ same outcome under `rego`, dual-run and `pack`, each also asserting its expected
 checks of the new guards (all caught). Not verified here: the Docker image build (no daemon; the layout was verified
 by simulation and `docker compose config` validates). Not built: hot reload of the pack, receipts (stage 3).
 
-**Finding, pre-existing and not fixed:** `PUT /v1/admin/clinical-allowlist` has no authentication and CORS is `*`, so
-anyone who can reach the port can grant any agent clinical authority under `bcc.rego`. In pack mode the endpoint is
-refused (409) instead of becoming a silent no-op or an unauthenticated writer of the pack's authority.
+**Finding, pre-existing:** `PUT /v1/admin/clinical-allowlist` had no authentication; fixed separately (see "Admin API
+authentication" below). In pack mode the endpoint is refused (409) instead of becoming a silent no-op.
 Operations: `docs/runbooks/bcc-policy-pack.md`.
+
+## Admin API authentication (2026-10-10)
+
+`GET`/`PUT /v1/admin/clinical-allowlist` decide which agents may commit clinical intents under `bcc.rego`, and
+had **no authentication** (CORS is `*`): anyone who could reach the port could authorize any agent. Every
+`/v1/admin/*` route now depends on `require_admin` (`app/main.py`): a bearer token from `BCC_ADMIN_TOKEN`, compared
+in constant time. **Unset disables the admin API (503) rather than leaving it open**; a token under 32 characters
+stops the service starting; a rejected request is logged by method and path, never the credential. A test walks the
+route table so a future `/v1/admin/*` route cannot ship without it.
+
+Still unauthenticated, reported and not changed: `POST /v1/reputation/sync`, `POST /v1/bcc/anchor/flush` and
+`POST /v1/audit/spool/retry`, which make the service sign and send chain transactions or retry deliveries. No caller
+of any of them exists in this repository. Verified: 19 new tests (the 161 pre-existing tests are unaffected) and 9
+mutation checks of the protections, all caught (one more is an equivalent mutant: an empty credential is already
+rejected by the comparison).
 
 ## Signed decision receipts: stage 3 (B2, 2026-10-10)
 
