@@ -296,17 +296,14 @@ class Settings:
         # One __post_init__ only: a second definition in this class would silently replace this one.
         if self.policy_engine not in ("rego", "pack"):
             raise ValueError(f"BCC_POLICY_ENGINE must be 'rego' or 'pack', got {self.policy_engine!r}")
-<<<<<<< HEAD
+        if self.admin_token is not None and len(self.admin_token) < MIN_ADMIN_TOKEN_LENGTH:
+            raise ValueError(f"BCC_ADMIN_TOKEN must be at least {MIN_ADMIN_TOKEN_LENGTH} characters (try `openssl rand -hex 32`)")
         if self.receipt_dir is not None and not (self.receipt_key_file and self.receipt_hmac_key_file):
             raise ValueError("BCC_RECEIPT_DIR requires BCC_RECEIPT_KEY_FILE and BCC_RECEIPT_HMAC_KEY_FILE")
         if self.receipt_dir is None and (self.receipt_key_file or self.receipt_hmac_key_file):
             raise ValueError("BCC_RECEIPT_KEY_FILE / BCC_RECEIPT_HMAC_KEY_FILE are set but BCC_RECEIPT_DIR is not")
         if self.receipt_checkpoint_every < 1 or self.receipt_epoch_max_receipts < 0 or self.receipt_epoch_max_age_seconds < 0:
             raise ValueError("receipt checkpoint/epoch bounds must be positive (epoch bounds may be 0 to disable)")
-=======
-        if self.admin_token is not None and len(self.admin_token) < MIN_ADMIN_TOKEN_LENGTH:
-            raise ValueError(f"BCC_ADMIN_TOKEN must be at least {MIN_ADMIN_TOKEN_LENGTH} characters (try `openssl rand -hex 32`)")
->>>>>>> origin/main
         if self.merkle_anchor_interval_seconds <= 0:
             raise ValueError("merkle anchor interval must be greater than zero")
         if self.spool_retry_batch_size <= 0:
