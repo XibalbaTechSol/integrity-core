@@ -1,8 +1,18 @@
 # BCC onto the shared signed pack and receipts (B2)
 
-**Status:** stage 1 of 4 delivered; stages 2-4 are `[PLANNED]`. **Owner decision recorded:** staged
+**Status:** stages 1 and 2 of 4 delivered; stages 3-4 are `[PLANNED]`. **Owner decision recorded:** staged
 migration, chosen over "receipts on today's unsigned Rego" and over "conformance vectors first"
 (2026-10-06). Execution authority is `docs/EXECUTION_PLAN.md` B2; this page is the design behind it.
+
+## Decisions recorded (owner, 2026-10-10)
+
+| Question | Decision | Consequence stated |
+|---|---|---|
+| Rollout | **Dual-run, then a flag** | Two evaluations per request until cutover; the pack cannot change a response while `bcc.rego` decides. Rollback is the flag. |
+| Who signs the pack | **Reuse Shield's operator key** (the design recommended a separate BCC key) | One leaked key signs policy both products trust. Mitigated, not removed, by pinning the pack hash. |
+| Clinical allowlist | **Hot-reloaded config file** | Oracle sync stays `[PLANNED]`. An invalid file authorizes no extra agents. |
+| BCC receipts | **Strict, as for Shield** | A receipt that cannot be recorded denies the request (observe/shadow never blocks). A disk fault takes the gate down; that cost was accepted for Shield. |
+| "Same compiled pack" (stage 4) | **Shared rulebook vectors** | One set of `(policy result -> expected decision)` vectors that BCC's CI and Shield's CI both run through `resolve()`. Not a unified pack. |
 
 ## Why this is not a wiring job
 
@@ -64,34 +74,55 @@ caught that too.
 
 ## Stages 2-4 (`[PLANNED]`)
 
-**Stage 2: BCC loads the pack and decides through `resolve()`.** Add `integrity-sdk` as a dependency
-(this changes `bcc_middleware/pyproject.toml`, `uv.lock`, the Dockerfile build context, which today
-copies only the service directory, and the CI job). Load with `load_pack` against a configured trusted
-pack signer, install through `OpaClient`, replace `opa_client.evaluate` with `query` + `resolve`.
-Ordering is preserved: policy first, the on-chain BAA check after, only for clinical intents, so a
-request the policy denies still costs no chain call. The final decision (after BAA) is what gets a
-receipt. Existing deny strings (`OPA_REJECTION`, `BAA_INACTIVE`, ...) keep their shape; the reason code
-becomes the detail. A differential run of old-vs-new through the *HTTP intercept path* (not only the
-policies) gates the switch.
+**Stage 2 (delivered): BCC loads the pack, in dual-run, behind a flag.** `bcc_middleware/app/pack_policy.py`,
+`app/clinical_allowlist.py`, and the `_policy_outcome` layer in `app/main.py`; runbook
+`docs/runbooks/bcc-policy-pack.md`. Everything is optional and off by default, so with no pack configured BCC
+behaves as before (the 161 pre-existing tests pass unchanged; 226 pass with the 65 new ones).
+
+* **Packaging.** `integrity-sdk` is a path dependency (`bcc_middleware/pyproject.toml`, `uv.lock`); the SDK core adds
+  only `base58`, `cryptography`, `jcs`, `pycryptodome`, `pyyaml`. The image build context moved to the repository
+  root (`Dockerfile`, `Dockerfile.dockerignore`, `docker-compose.yml`), and the SDK is now part of the
+  stale-image check (`scripts/check_deploy_freshness.py`).
+* **Behaviour.** Dual-run evaluates the pack concurrently with `bcc.rego` and logs and counts any disagreement;
+  `BCC_POLICY_ENGINE=pack` makes the pack decide. Policy still runs before the on-chain BAA check, only for clinical
+  intents, so a request the policy denies still costs no chain call. `requires_baa` is the gate's constant
+  `CLINICAL_INTENT_TYPES`, pinned to `bcc.rego` and the pack by tests. Deny strings keep their shape
+  (`OPA_REJECTION: <CODE>: ...`).
+* **Failure postures.** Loading is fail-closed (in pack mode the service refuses to start). Evaluation is
+  fail-closed and never charges the agent's circuit breaker. A pack OPA that restarted and forgot the pack gets one
+  throttled re-install; until then the pack's default deny applies.
+* **Verification.** A pipeline-level differential sends 17 real signed commitments through `run_intercept` under
+  `rego`, dual-run and `pack`; all three must agree, byte-for-byte for dual-run, and each scenario states its
+  expected reason code. 11 mutation checks of the new guards were all caught. **Not verified here:** the Docker image
+  build and the pulled `opa-bcc-pack` image tag (no Docker daemon in the build environment). The image layout was
+  verified by simulating the exact `uv sync --frozen --no-dev` layout, and `docker compose config` validates.
+
+### Findings from stage 2
+
+1. **Sharing one OPA corrupts both gates.** `OpaClient.install` deletes and replaces every policy under one fixed id
+   prefix, and every pack's file is `policy.rego`, so two gates' packs on one OPA overwrite each other. BCC therefore
+   requires `BCC_PACK_OPA_URL` with no fallback to `OPA_URL`, and compose gets a dedicated `opa-bcc-pack`.
+2. **`PUT /v1/admin/clinical-allowlist` has no authentication** and CORS is `*`. Anyone who can reach BCC's port can
+   grant any agent clinical authority under `bcc.rego`. Pre-existing; **not fixed here.** In pack mode the endpoint
+   returns 409, so it is neither a silent no-op nor an unauthenticated way to write the pack's authority. Fixing the
+   endpoint for the default mode is a separate change that should not wait for the cutover.
+3. **A second `__post_init__` silently replaces the first.** `Settings` already had one, so the engine validation I
+   first added would have been dead code. Merged into the existing method, with a test.
+4. **`BCC_SHADOW_MODE` defaults to true.** By default BCC records would-be denials but blocks nothing, so strict
+   receipts (stage 3) will not block anything until an operator turns enforcement on.
 
 **Stage 3: one receipt writer.** `shield/gate_receipts.py` is Shield-local today. BCC must not get a
 second copy: move `GateReceiptWriter` into `integrity-sdk` (stdlib and `core` only, so the import
-hygiene rule holds) and have both gates use it. BCC specifics to decide then: it is an async, concurrent
-HTTP service (the writer's single lock plus a blocking `fsync` must not stall the event loop; run it in
-a thread), and the strict-by-default posture decided for Shield applies unless the owner says otherwise.
+hygiene rule holds) and have both gates use it. BCC is an async, concurrent HTTP service, so the writer's
+single lock plus a blocking `fsync` must run off the event loop (a thread). Strict, per the owner's decision.
+The receipt records the final decision *after* the BAA check, with the pack hash that decided.
 
-**Stage 4: shared conformance vectors.** One JSON file of `(input, expected decision)` evaluated by
-BCC's CI and Shield's CI.
-
-### Open question for the owner
-
-"BCC and Shield evaluate the same compiled pack" needs a definition. BCC's vocabulary is *intent
-commitments* (`EMR_WRITE`, `claude_tool:<Tool>:<risk>`); Shield's is *agent events* (`agent_event`,
-`process`, ...). `packs/bcc` and Shield's `regulated` pack are different policies over different
-inputs. Two readings: (a) both gates load the same pack(s) in `packs/` (`base`, `hipaa`) for the
-overlapping rules and keep gate-specific packs for the rest, with vectors over the shared one; or
-(b) the vectors are over the decision *contract* (every pack, every gate, same `resolve()` semantics).
-Stage 4 cannot start until this is settled; stages 2-3 do not depend on it.
+**Stage 4: shared rulebook vectors.** One JSON file of `(policy result -> expected decision)` cases covering
+the contract's rules (no match takes the pack default, a malformed result denies, reserved reason codes are
+rejected, deny wins, shadow mode never blocks), evaluated through `resolve()` by BCC's CI and Shield's CI.
+This is what "BCC and Shield evaluate the same compiled pack" is taken to mean (decision recorded above): the
+two gates keep different packs over different inputs, and what they must share is how any policy result is
+interpreted.
 
 ### Gap carried forward, stated
 

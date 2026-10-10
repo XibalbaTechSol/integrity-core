@@ -260,3 +260,6 @@ class HealthResponse(BaseModel):
     # blocked, would-be denials are recorded). Lets operators/the dashboard
     # see at a glance which posture the gate is deployed in.
     mode: str = "shadow"
+    # Which policy engine decides and, if a signed pack is configured, its identity and dual-run counters.
+    # Additive: absent in older responses, ignored by older clients.
+    policy: dict | None = None

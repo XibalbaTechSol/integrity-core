@@ -77,14 +77,18 @@ REPO = Path(__file__).resolve().parent.parent
 # bcc-middleware and are likewise excluded.
 SERVICES = {
     "oracle-backend": ["integrity-oracle"],
+    # integrity-sdk is in this image since B2 stage 2 (bcc_middleware depends on it as a path
+    # dependency), so a change to the SDK makes a running BCC image stale too.
     "bcc-middleware": ["bcc_middleware/app", "bcc_middleware/pyproject.toml",
-                       "bcc_middleware/Dockerfile"],
+                       "bcc_middleware/Dockerfile", "bcc_middleware/uv.lock",
+                       "integrity-sdk/integrity_sdk", "integrity-sdk/pyproject.toml"],
 }
 
 # Paths whose changes take effect without a rebuild, listed so the reason is
 # discoverable rather than implicit in an omission.
 BIND_MOUNTED = {
     "bcc_middleware/policies": "mounted into the `opa` container; restart opa, no rebuild",
+    "bcc_middleware/pack-config": "mounted read-only into bcc-middleware at /pack-config; restart the service, no rebuild",
     "deployments.baseSepolia.json": "mounted into oracle-backend / bcc-middleware",
     "deployments.local.json": "mounted into oracle-backend / bcc-middleware",
 }

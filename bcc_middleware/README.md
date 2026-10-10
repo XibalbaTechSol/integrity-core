@@ -293,3 +293,12 @@ everywhere in code comments; summarized here:
     file. This is the production path its own PRODUCTION NOTE called for (keep
     the data document in sync with the on-chain `DomainRegistry`/
     `ReputationRegistry` via `integrity-oracle`). 12/12 policy tests still pass.
+
+## Signed policy pack (optional, off by default)
+
+`policies/bcc.rego` can be replaced by the signed pack `packs/bcc`, evaluated through the shared decision
+contract in `integrity-sdk`. With `BCC_POLICY_PACK_DIR` unset nothing changes. Set it and the pack runs in
+**dual-run** beside `bcc.rego` (disagreements are logged and counted on `GET /health`; `bcc.rego` still decides);
+`BCC_POLICY_ENGINE=pack` then makes it decide, and setting it back is the rollback. The pack needs its own OPA
+(`BCC_PACK_OPA_URL`) and a trusted signer (`BCC_TRUSTED_PACK_SIGNERS`). Settings: `.env.example`. Procedure:
+`docs/runbooks/bcc-policy-pack.md`. Design and the findings behind it: `docs/design/bcc-shared-pack-migration.md`.

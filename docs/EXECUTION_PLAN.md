@@ -976,6 +976,17 @@ call with no trace; that is B3 code, fixed here for both gates.
 per-decision receipts, and BCC and Shield do not yet evaluate one shared compiled pack against shared
 conformance vectors.
 
+**Progress, 2026-10-10 — still one of three boxes ticked.** Shield's half of bullet 2 is built: signed, chained,
+checkpointed receipts per gate decision (`shield gate-daemon --receipt-dir`, xibalba-shield#48 merged; strict by
+default in #49, open at the time of writing), verified end to end with `integrity-cli`'s independent verifier. BCC's
+half is a staged migration, because `bcc_middleware` was not on the signed-pack decision contract at all
+(`docs/design/bcc-shared-pack-migration.md`): stage 1, `packs/bcc` plus a differential harness against `bcc.rego`
+(`integrity-sdk/tests/unit/test_core_bcc_pack_equivalence.py`); stage 2, loading and dual-run behind flags, default off
+(`bcc_middleware/app/pack_policy.py`, runbook `docs/runbooks/bcc-policy-pack.md`). **Stage 3 (BCC emits the receipts via one
+shared writer) and stage 4 (shared rulebook vectors in both CIs) are not started**, so bullets 1 and 2 stay open.
+Findings that outlive the migration: `bcc.rego` fails open on a commitment missing `agent_id` or `intent_type` (not
+reachable through the service's schema), and `PUT /v1/admin/clinical-allowlist` is unauthenticated.
+
 **Operational consequence to carry forward:** the runner fails open, so a `--gate shield` hook with
 no daemon listening enforces *nothing*. That is why `integrity hooks install --gate shield` now
 reports whether a daemon is listening and which DID to register with it, rather than refusing as it

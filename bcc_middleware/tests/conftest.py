@@ -231,3 +231,66 @@ def real_opa_server():
     finally:
         proc.terminate()
         proc.wait(timeout=10)
+
+
+# --- Signed policy pack fixtures (B2 stage 2, tests/test_pack_policy.py) ------------------------
+
+BCC_PACK_SOURCE = Path(__file__).resolve().parents[2] / "packs" / "bcc"
+
+
+@pytest.fixture()
+def start_empty_opa():
+    """Factory for real, EMPTY `opa run --server` processes: the pack is installed over REST, exactly as
+    `OpaClient.install` does in production. Every process started is stopped at teardown."""
+    processes: list[subprocess.Popen] = []
+
+    def start() -> str:
+        port = _free_port()
+        url = f"http://127.0.0.1:{port}"
+        processes.append(
+            subprocess.Popen(["opa", "run", "--server", f"--addr=127.0.0.1:{port}"],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        )
+        _wait_for_http_health(f"{url}/health")
+        return url
+
+    yield start
+    for process in processes:
+        process.terminate()
+        process.wait(timeout=10)
+
+
+@pytest.fixture()
+def make_signed_pack(tmp_path):
+    """Factory: a signed copy of packs/bcc, optionally with policy.rego rewritten before signing.
+
+    Returns `(pack_dir, signer_multibase)`. `edit_manifest` rewrites pack.yaml before signing. `sign=False`
+    leaves it unsigned; `tamper_after` edits
+    policy.rego AFTER signing, which `load_pack` must refuse.
+    """
+    from integrity_sdk.core.packs import sign_pack
+    from integrity_sdk.did import Keypair, public_key_multibase
+
+    counter = [0]
+
+    def make(*, edit=None, edit_manifest=None, sign: bool = True, tamper_after=None) -> tuple[str, str]:
+        import shutil
+
+        counter[0] += 1
+        directory = tmp_path / f"bcc-pack-{counter[0]}"
+        shutil.copytree(BCC_PACK_SOURCE, directory)
+        if edit is not None:
+            source = directory / "policy.rego"
+            source.write_text(edit(source.read_text()))
+        if edit_manifest is not None:
+            manifest = directory / "pack.yaml"
+            manifest.write_text(edit_manifest(manifest.read_text()))
+        signer = Keypair.generate()
+        if sign:
+            sign_pack(directory, signer)
+        if tamper_after is not None:
+            source = directory / "policy.rego"
+            source.write_text(tamper_after(source.read_text()))
+        return str(directory), public_key_multibase(signer.public_bytes())
+
+    return make

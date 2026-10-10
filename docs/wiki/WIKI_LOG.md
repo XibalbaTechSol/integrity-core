@@ -4067,3 +4067,21 @@ writeup: PRODUCTION_GAPS.md §18.
   priority swap went unnoticed until mutation testing exposed it.
 - Open: what "BCC and Shield evaluate the same compiled pack" means given different input vocabularies
   (see the design page). Stages 2-4 `[PLANNED]`; B2 stays unticked.
+
+## [2026-10-10] update | BCC migration stage 2: signed pack loading and dual-run, behind flags (B2)
+
+- `bcc_middleware` can now load and use `packs/bcc`: `app/pack_policy.py` (verify with trusted signers and an optional
+  pinned hash, install into a dedicated OPA, decide through `resolve()`), `app/clinical_allowlist.py` (hot-reloaded file,
+  fails closed), and a `_policy_outcome` layer in `app/main.py`. Off by default; with no pack configured the 161
+  pre-existing tests pass unchanged. 226 pass with the 65 new ones.
+- Owner decisions (2026-10-10): dual-run then a flag; reuse Shield's operator key to sign the pack (design had
+  recommended a separate key); a hot-reloaded allowlist file; strict receipts for BCC; stage 4 is shared rulebook vectors.
+- Packaging: `integrity-sdk` is now a path dependency; the image build context moved to the repo root; the SDK is part
+  of the stale-image check; compose gains a dedicated `opa-bcc-pack` (profile `policy-pack`). Docker image build not run
+  (no daemon); the layout was verified by simulation and `docker compose config` validates.
+- Findings: sharing one OPA lets two gates overwrite each other's pack (policy-id collision); `PUT
+  /v1/admin/clinical-allowlist` has no authentication (pre-existing, not fixed; refused with 409 in pack mode); a
+  second `__post_init__` silently replaces the first; the first draft of `wiki_toc` entries failed CI, so every wiki edit
+  now runs `wiki_toc.py --check` as well as `check_docs.py`.
+- Docs: `docs/runbooks/bcc-policy-pack.md`, `docs/design/bcc-shared-pack-migration.md`, `bcc_middleware/{CLAUDE,README}.md`,
+  `.env.example`. Stages 3-4 `[PLANNED]`; B2 stays at 1/3.
