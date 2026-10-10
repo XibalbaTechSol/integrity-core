@@ -121,6 +121,19 @@ Things that will bite if forgotten:
   agent clinical authority under `bcc.rego`. Pre-existing and not fixed here; see the design doc.
 - `Settings.__post_init__` must stay a single method; a second definition silently replaces the first.
 
+### Signed decision receipts (`app/gate_receipts.py`) -- B2 stage 3
+
+With `BCC_RECEIPT_DIR` set, every decision made AFTER the signature verifies gets a signed, chained, checkpointed
+receipt (SDK `GateReceiptWriter`; format = `integrity_sdk.core.receipts`). Rules that will bite if forgotten:
+- **Authenticated only.** Breaker / chain mismatch / bad-signature denials get no receipt (`_Trace.authenticated`),
+  because the agent id on them is unproven. Do not widen this.
+- **Allow receipt is written BEFORE admission** (step 6b). Strict (default): failure denies as
+  `BCC_RECEIPT_UNAVAILABLE`, never charges the breaker. Shadow never blocks. Denials are recorded after the fact by
+  `_attach_receipt` and a failure to record one never changes the response.
+- The receipt's `pack_hash` is the policy that DECIDED: the pack hash in pack mode, `NO_PACK_HASH` under `bcc.rego`
+  (also in dual-run, where the pack is advisory).
+- An unusable log or key refuses start (`_init_receipts`). Runbook: `docs/runbooks/bcc-policy-pack.md` section 5.
+
 ### Reputation sync loop (`app/reputation.py`, `app/scoring_loop.py`)
 
 A background asyncio task (started in `app/main.py`'s lifespan, interval

@@ -177,6 +177,14 @@ services:
       BCC_TRUSTED_PACK_SIGNERS: ${BCC_TRUSTED_PACK_SIGNERS:-}
       BCC_PACK_OPA_URL: ${BCC_PACK_OPA_URL:-http://opa-bcc-pack:8181}
       BCC_CLINICAL_ALLOWLIST_FILE: ${BCC_CLINICAL_ALLOWLIST_FILE:-}
+      # Signed decision receipts (B2). Off unless BCC_RECEIPT_DIR is set; the directory and both key files must
+      # be mounted and the keys mode 0600. Strict by default. See docs/runbooks/bcc-policy-pack.md section 5.
+      BCC_RECEIPT_DIR: ${BCC_RECEIPT_DIR:-}
+      BCC_RECEIPT_KEY_FILE: ${BCC_RECEIPT_KEY_FILE:-}
+      BCC_RECEIPT_HMAC_KEY_FILE: ${BCC_RECEIPT_HMAC_KEY_FILE:-}
+      BCC_GATE_ID: ${BCC_GATE_ID:-bcc-middleware}
+      BCC_RECEIPT_EPOCH_MAX_RECEIPTS: ${BCC_RECEIPT_EPOCH_MAX_RECEIPTS:-50000}
+      BCC_LENIENT_RECEIPTS: ${BCC_LENIENT_RECEIPTS:-false}
     volumes:
       - ./deployments.baseSepolia.json:/deployments.baseSepolia.json
       - ./deployments.local.json:/deployments.local.json

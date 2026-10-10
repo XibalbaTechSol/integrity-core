@@ -62,8 +62,30 @@ still editing the allowlist in two places (the file and the `PUT` endpoint) is e
 * `PUT /v1/admin/clinical-allowlist` returns 409 in pack mode; `GET` returns the file's current list.
 * Roll back: `BCC_POLICY_ENGINE=rego`, restart. The pack stays loaded and keeps dual-running.
 
+## 5. Signed decision receipts
+
+Independent of the policy engine: works under `bcc.rego`, dual-run and pack mode.
+
+1. Make an Ed25519 receipt-signing key (`integrity_sdk.did.Keypair.generate().private_pem()`) and a >= 32-byte HMAC
+   key (`head -c 32 /dev/urandom`). Both files mode `0600`, readable only by the BCC user. Publish the signing
+   key's multibase public key (`GET /health` -> `receipts.signer_key`) to whoever will verify.
+2. Set `BCC_RECEIPT_DIR`, `BCC_RECEIPT_KEY_FILE`, `BCC_RECEIPT_HMAC_KEY_FILE` and restart. The service **refuses to
+   start** if the log in that directory does not verify with this key (tampered, truncated below a checkpoint,
+   another gate's, signed by a rotated key). Move it aside deliberately; there is no auto-repair.
+3. **Strict is the default.** With `BCC_SHADOW_MODE=false`, an allow that cannot be recorded (disk full, I/O error)
+   is denied as `BCC_RECEIPT_UNAVAILABLE` and the agent's breaker is not charged. Recovery needs no repair: a failed
+   write never advances the chain. `BCC_LENIENT_RECEIPTS=true` trades that for availability. Shadow mode never blocks.
+4. Verify offline, no BCC needed: put the epoch's `receipts.jsonl` lines and its newest checkpoint into a bundle
+   `{"receipts": [...], "checkpoint": {...}}` and run `integrity verify --receipts bundle.json --trusted-signer <signer_key>`; or
+   `integrity_sdk.core.verify_epoch_directory(dir, base_log_id=..., trusted_signers=[...])` for every epoch.
+5. Watch `GET /health` -> `receipts` (`log_id`, `epoch`, `receipts_in_epoch`, `strict`). Responses carry
+   `receipt` (`log_id`, `seq`, `hash`) and `receipt_status` (`recorded` / `failed` / absent).
+
+What a receipt does **not** cover: denials before the signature verifies (open breaker, chain mismatch, bad
+signature). Rotating the signing or HMAC key starts a new log; keep the old directory for audit. Nothing links an
+epoch to the next, so deleting the newest epoch is undetectable until anchoring of closed epochs exists `[PLANNED]`.
+
 ## What is not built
 
-Hot reload of the pack itself (a new pack is a restart); receipts from BCC (stage 3: one shared writer in
-`integrity-sdk`); shared conformance vectors (stage 4); authentication on the admin endpoints (see the finding
+Hot reload of the pack itself (a new pack is a restart); shared conformance vectors (stage 4); authentication on the admin endpoints (see the finding
 in the design doc).

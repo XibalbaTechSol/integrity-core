@@ -63,6 +63,8 @@ from app.config import Settings, settings as default_settings
 from app.merkle import MerkleBatcher, leaf_hash
 from app.nonce_store import NonceStore
 from app.opa_client import OPADecision, OPAUnavailableError, evaluate as opa_evaluate
+from app.gate_receipts import NO_PACK_HASH, REASON_RECEIPT_UNAVAILABLE, REASON_REGO_DENY, REASON_REGO_PERMIT, BccReceipts, RecordResult
+from integrity_sdk.core import ReceiptSetupError
 from app.pack_policy import PackPolicy, PackPolicyError, requires_baa as pack_requires_baa
 from app.token_budget import TokenBudgetEnforcer, token_budget_enforcer
 from app.schemas import (
@@ -215,11 +217,27 @@ async def _init_pack_policy(settings: Settings) -> None:
         logger.error("policy pack not loaded, dual-run disabled (bcc.rego still decides): %s", exc)
 
 
+def _init_receipts(settings: Settings) -> None:
+    """Open the receipt log if configured. A log or key that cannot be used REFUSES START: carrying on without
+    the evidence the operator asked for, or beside a log that fails verification, would be silent."""
+    global receipts
+    receipts = None
+    try:
+        receipts = BccReceipts.from_settings(settings)
+    except ReceiptSetupError as exc:
+        logger.critical("receipts are configured but unusable, refusing to start: %s", exc)
+        raise
+    if receipts is not None:
+        logger.info("decision receipts on: log %s, signer %s, %s", receipts.health()["log_id"], receipts.signer_key,
+                    "lenient" if receipts.lenient else "strict")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _score_sync_task, _spool_retry_task, _anchor_flush_task, _audit_shutdown_started
     _audit_shutdown_started = False
     await _init_pack_policy(default_settings)
+    _init_receipts(default_settings)
     if default_settings.score_sync_enabled:
         _score_sync_task = asyncio.create_task(_score_sync_loop(default_settings))
     if default_settings.spool_enabled:
@@ -243,6 +261,8 @@ async def lifespan(app: FastAPI):
         _anchor_flush_task = None
         _audit_shutdown_started = True
         await _drain_audit_reports()
+        if receipts is not None:
+            await asyncio.to_thread(receipts.close)
 
 
 app = FastAPI(title="BCC Middleware", version="3.0.0", lifespan=lifespan)
@@ -265,6 +285,19 @@ circuit_breaker = AgentCircuitBreaker(
 nonce_store = NonceStore()
 batcher = MerkleBatcher(batch_size=default_settings.merkle_batch_size)
 
+# Signed decision receipts (app/gate_receipts.py), opened at startup when BCC_RECEIPT_DIR is set. None = disabled.
+receipts: BccReceipts | None = None
+
+
+@dataclass
+class _Trace:
+    """What the pipeline learned about one request, for its receipt. Filled in as stages complete."""
+
+    authenticated: bool = False  # the commitment's signature verified: only then does a decision get a receipt
+    outcome: "_PolicyOutcome | None" = None
+    result: "RecordResult | None" = None  # set once a receipt for this request has been attempted
+
+
 # The signed policy pack (app/pack_policy.py), loaded at startup when BCC_POLICY_PACK_DIR is set.
 # None means "not configured" (bcc.rego decides alone) or "failed to load while only dual-running";
 # `pack_policy_error` says which. In pack mode a load failure stops the service instead.
@@ -279,6 +312,11 @@ class _PolicyOutcome:
     allow: bool
     reasons: str  # shown to the caller after "OPA_REJECTION: " when denied
     requires_baa: bool
+    # What a receipt records about this decision (app/gate_receipts.py). `pack_hash` is set only when the signed
+    # pack DECIDED; under bcc.rego (including dual-run, where the pack is advisory) it is None.
+    reason_code: str = ""
+    controls: tuple = ()
+    pack_hash: str | None = None
 
 
 def _rego_outcome(decision: OPADecision) -> _PolicyOutcome:
@@ -286,6 +324,7 @@ def _rego_outcome(decision: OPADecision) -> _PolicyOutcome:
         allow=decision.allow,
         reasons="; ".join(decision.violations) or "policy denied without a specific reason",
         requires_baa=decision.requires_baa,
+        reason_code=REASON_REGO_PERMIT if decision.allow else REASON_REGO_DENY,
     )
 
 
@@ -307,7 +346,10 @@ async def _policy_outcome(settings: Settings, opa_input: dict, intent_type: str)
         except PackPolicyError as exc:
             raise OPAUnavailableError(str(exc)) from exc
         reasons = "" if verdict.allow else f"{verdict.reason_code}: denied by policy pack {policy.name} {policy.version}"
-        return _PolicyOutcome(allow=verdict.allow, reasons=reasons, requires_baa=pack_requires_baa(intent_type))
+        return _PolicyOutcome(
+            allow=verdict.allow, reasons=reasons, requires_baa=pack_requires_baa(intent_type),
+            reason_code=verdict.reason_code, controls=tuple(verdict.controls), pack_hash=policy.pack_hash,
+        )
 
     if policy is None:
         return _rego_outcome(await opa_evaluate(settings, opa_input))
@@ -493,11 +535,42 @@ async def run_intercept(commitment: BCCCommitment, settings: Settings) -> BCCInt
             _span_ctx.set_status(OtelStatus(OtelStatusCode.OK))
         _span_ctx.end()
 
+    trace = _Trace()
     try:
-        return await _run_intercept_inner(commitment, settings, agent_id, _finalize_span)
+        resp = await _run_intercept_inner(commitment, settings, agent_id, _finalize_span, trace)
+        return await _attach_receipt(commitment, settings, trace, resp)
     except Exception:
         _finalize_span("error")
         raise
+
+
+async def _attach_receipt(commitment: BCCCommitment, settings: Settings, trace: _Trace, resp: BCCInterceptResponse) -> BCCInterceptResponse:
+    """Record the receipt for a decision made after authentication and put its reference on the response.
+
+    The allow path records its own receipt BEFORE admitting the commitment (so a strict failure can still deny
+    with nothing to undo), which leaves only denials for this function. A failure to record a denial changes
+    nothing about the response -- it is already the safe one -- but is logged CRITICAL and reported.
+    """
+    if receipts is None or not trace.authenticated:
+        return resp
+    if trace.result is None:
+        if resp.authorized and not resp.shadow_would_deny:
+            return resp  # an allow that skipped its own receipt cannot happen; do not invent one
+        code = (resp.reason or "").partition(": ")[0] or "BCC_DENIED"
+        outcome = trace.outcome
+        policy_deny = code == "OPA_REJECTION" and outcome is not None
+        trace.result = await receipts.record(
+            agent_id=commitment.agent_id, intent_type=commitment.intent_type,
+            intended_state_hash=commitment.intended_state_hash, permit=False,
+            reason_code=outcome.reason_code if policy_deny else code,
+            pack_hash=outcome.pack_hash if outcome is not None else None,
+            controls=outcome.controls if policy_deny else (), shadow=settings.shadow_mode,
+        )
+        if trace.result.ref is None:
+            logger.critical("denial for %s was NOT recorded as a receipt: %s", commitment.agent_id, trace.result.error)
+    resp.receipt = trace.result.as_response()
+    resp.receipt_status = trace.result.status
+    return resp
 
 
 async def _run_intercept_inner(
@@ -505,6 +578,7 @@ async def _run_intercept_inner(
     settings: Settings,
     agent_id: str,
     finalize_span,
+    trace: _Trace,
 ) -> BCCInterceptResponse:
 
     # --- 1. Circuit breaker -------------------------------------------------
@@ -549,6 +623,8 @@ async def _run_intercept_inner(
         resp = _deny(f"BCC_INVALID_SIGNATURE: {exc}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type, commitment=commitment)
         finalize_span("deny", resp.reason)
         return resp
+    # Everything below decides about an agent that has PROVEN it wrote this commitment, so it gets a receipt.
+    trace.authenticated = True
 
     # --- 3. Replay protection ------------------------------------------------
     if not nonce_store.check_and_record(agent_id, commitment.nonce):
@@ -634,6 +710,7 @@ async def _run_intercept_inner(
         finalize_span("deny", resp.reason)
         return resp
 
+    trace.outcome = decision
     if not decision.allow:
         _record_violation(agent_id, settings)
         resp = _deny(f"OPA_REJECTION: {decision.reasons}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type, commitment=commitment)
@@ -670,6 +747,27 @@ async def _run_intercept_inner(
             resp = _deny(f"{code}: {detail}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type, commitment=commitment)
             finalize_span("deny", resp.reason)
             return resp
+
+    # --- 6b. Signed receipt for the allow (STRICT by default) ---------------------
+    # Written BEFORE admission, so if it cannot be written the request is denied with nothing to undo: no
+    # Merkle leaf, no verification token. Shadow mode never blocks on this; lenient mode lets it through.
+    # (The token budget above has already been charged; a receipt outage therefore costs the agent budget for
+    # a request we then refuse. Accepted: it is bounded by the budget and clears at the daily reset.)
+    if receipts is not None:
+        trace.result = await receipts.record(
+            agent_id=agent_id, intent_type=commitment.intent_type, intended_state_hash=commitment.intended_state_hash,
+            permit=True, reason_code=decision.reason_code, pack_hash=decision.pack_hash,
+            controls=decision.controls, shadow=settings.shadow_mode,
+        )
+        if trace.result.ref is None:
+            logger.critical("allow for %s has NO receipt: %s", agent_id, trace.result.error)
+            if not settings.shadow_mode and not receipts.lenient:
+                resp = _deny(
+                    f"{REASON_RECEIPT_UNAVAILABLE}: the decision could not be recorded as a signed receipt ({trace.result.error})",
+                    agent_id=agent_id, settings=settings, intent_type=commitment.intent_type, commitment=commitment,
+                )
+                finalize_span("deny", resp.reason)
+                return resp
 
     # --- 7. Approved: admit to the merkle batch, issue a verification token ---
     batch_index = batcher.add(commitment)
@@ -917,4 +1015,5 @@ async def health() -> HealthResponse:
             "pack": pack_policy.health() if pack_policy is not None else None,
             "pack_error": pack_policy_error,
         },
+        receipts=receipts.health() if receipts is not None else {"enabled": False},
     )

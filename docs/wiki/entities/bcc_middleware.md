@@ -52,6 +52,7 @@ in the monorepo that closes that loop.
 - [Evidence anchoring now targets a dedicated contract, not each agent's memory StateAnchor (B4, 2026-10-05)](#evidence-anchoring-now-targets-a-dedicated-contract-not-each-agent-s-memory-stateanchor-b4-2026-10-05)
 - [Migration onto the shared signed pack: stage 1 (B2, 2026-10-07)](#migration-onto-the-shared-signed-pack-stage-1-b2-2026-10-07)
 - [Signed policy pack: stage 2, loading and dual-run (B2, 2026-10-10)](#signed-policy-pack-stage-2-loading-and-dual-run-b2-2026-10-10)
+- [Signed decision receipts: stage 3 (B2, 2026-10-10)](#signed-decision-receipts-stage-3-b2-2026-10-10)
 
 ## Pipeline
 
@@ -341,3 +342,26 @@ by simulation and `docker compose config` validates). Not built: hot reload of t
 anyone who can reach the port can grant any agent clinical authority under `bcc.rego`. In pack mode the endpoint is
 refused (409) instead of becoming a silent no-op or an unauthenticated writer of the pack's authority.
 Operations: `docs/runbooks/bcc-policy-pack.md`.
+
+## Signed decision receipts: stage 3 (B2, 2026-10-10)
+
+With `BCC_RECEIPT_DIR` set, every decision made **after the commitment's signature verifies** (replay, expiry,
+quarantine, policy deny, token budget, BAA, allow) gets a signed, hash-chained, checkpointed receipt, written by the
+SDK's shared `GateReceiptWriter` (`integrity-sdk/integrity_sdk/core/receipt_writer.py`; BCC's adapter is
+`app/gate_receipts.py`). Denials before the signature verifies get none: the agent id on them is unproven.
+
+- **Strict by default.** The allow receipt is written before the commitment is admitted to a Merkle batch or given a
+  token; if it cannot be written, enforce mode denies as `BCC_RECEIPT_UNAVAILABLE` (breaker not charged).
+  `BCC_LENIENT_RECEIPTS=1` opts out; shadow mode never blocks. An unusable key or a log that fails verification
+  refuses start.
+- **The receipt names the policy that decided:** the pack hash plus the pack's code and controls in pack mode;
+  `NO_PACK_HASH` and `BCC_REGO_POLICY_PERMIT/DENY` under `bcc.rego`, including dual-run.
+- **Epochs** (`BCC_RECEIPT_EPOCH_MAX_RECEIPTS` / `_MAX_AGE_SECONDS`) bound memory and checkpoint cost: a new `log_id`
+  and a fresh chain per epoch, with a covering checkpoint before closing. Deleting the newest epoch is undetectable
+  until anchoring of closed epochs exists (`[PLANNED]`).
+- **Response additions (additive):** `receipt` `{log_id, seq, hash}`, `receipt_status`; `/health` gains `receipts`.
+
+Verified: 23 SDK + 25 BCC pipeline tests, mutation checks, and a live run (real uvicorn, OPA, signed commitments)
+checked with `integrity-cli verify` (intact passes; tamper = `BAD_SIGNATURE`; truncation = `TRUNCATED`). Not built:
+Shield's swap to the SDK writer; shared rulebook vectors (stage 4); anchoring of epochs. Design:
+`docs/design/bcc-shared-pack-migration.md`; operations: `docs/runbooks/bcc-policy-pack.md` section 5.

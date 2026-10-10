@@ -219,6 +219,11 @@ class BCCInterceptResponse(BaseModel):
     # look up the anchoring transaction once the batch flushes).
     verification_token: str | None = None
     batch_index: int | None = None
+    # Signed decision receipt (integrity-core B2). Additive. `receipt` is {log_id, seq, hash} of the receipt
+    # recorded for this decision, or None; `receipt_status` is "recorded", "failed", or None when receipts are
+    # off or the decision predates authentication (no receipt is made for those).
+    receipt: dict | None = None
+    receipt_status: str | None = None
     # Remaining daily token budget for this agent after this request (None if
     # token_count was not provided or agent is unlimited-tier).
     token_budget_remaining: int | None = None
@@ -263,3 +268,5 @@ class HealthResponse(BaseModel):
     # Which policy engine decides and, if a signed pack is configured, its identity and dual-run counters.
     # Additive: absent in older responses, ignored by older clients.
     policy: dict | None = None
+    # Signed decision receipts: {"enabled": False} or the live log's id/epoch/count/strictness/signer key.
+    receipts: dict | None = None

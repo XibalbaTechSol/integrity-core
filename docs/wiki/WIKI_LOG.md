@@ -4085,3 +4085,15 @@ writeup: PRODUCTION_GAPS.md §18.
   now runs `wiki_toc.py --check` as well as `check_docs.py`.
 - Docs: `docs/runbooks/bcc-policy-pack.md`, `docs/design/bcc-shared-pack-migration.md`, `bcc_middleware/{CLAUDE,README}.md`,
   `.env.example`. Stages 3-4 `[PLANNED]`; B2 stays at 1/3.
+
+## [2026-10-10] update | BCC emits signed decision receipts; shared writer moved to the SDK (B2 stage 3)
+
+- Moved Shield's durable receipt writer into `integrity-sdk` (`core/receipt_writer.py`) and added epoch rotation
+  (new `log_id` and fresh chain per epoch, covering checkpoint before closing), a `timestamp` parameter and
+  `verify_epoch_directory`. `bcc_middleware` now records a strict, signed receipt for every decision after the
+  signature verifies (`app/gate_receipts.py`); allow receipts are written before admission. Owner decisions:
+  authenticated outcomes only, epochs, strict, SDK + BCC first and Shield later.
+- Verified: SDK 532 passed; BCC pipeline suite 25 tests; mutation checks (all caught after strengthening 3 tests); a live
+  run checked with `integrity-cli verify`.
+- Not done: Shield swap to the SDK writer; stage 4 vectors; anchoring of closed epochs. B2 stays 1/3.
+
