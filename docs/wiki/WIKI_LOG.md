@@ -4085,3 +4085,14 @@ writeup: PRODUCTION_GAPS.md §18.
   now runs `wiki_toc.py --check` as well as `check_docs.py`.
 - Docs: `docs/runbooks/bcc-policy-pack.md`, `docs/design/bcc-shared-pack-migration.md`, `bcc_middleware/{CLAUDE,README}.md`,
   `.env.example`. Stages 3-4 `[PLANNED]`; B2 stays at 1/3.
+
+## [2026-10-10] fix | bcc_middleware: authentication on /v1/admin/* (clinical allowlist)
+
+- `GET`/`PUT /v1/admin/clinical-allowlist` had no authentication and CORS is `*`: anyone who could reach the port could
+  make any agent clinically authorized under `bcc.rego`. Found while reading BCC for the signed-pack migration; fixed in
+  its own change at the owner's request. Every `/v1/admin/*` route now requires `Authorization: Bearer
+  $BCC_ADMIN_TOKEN` (constant-time compare). Unset disables the admin API (503); a token under 32 characters stops startup.
+- Reported, not changed: `POST /v1/reputation/sync`, `POST /v1/bcc/anchor/flush`, `POST /v1/audit/spool/retry` are still
+  unauthenticated and drive chain transactions. No in-repo callers.
+- 19 new tests incl. a route-table walk; 9 mutation checks caught (a weak first "constant-time" test that only searched
+  the source for a string let `==` survive and was replaced with a call spy).

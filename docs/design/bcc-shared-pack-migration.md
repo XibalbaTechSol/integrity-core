@@ -103,9 +103,9 @@ behaves as before (the 161 pre-existing tests pass unchanged; 226 pass with the 
    prefix, and every pack's file is `policy.rego`, so two gates' packs on one OPA overwrite each other. BCC therefore
    requires `BCC_PACK_OPA_URL` with no fallback to `OPA_URL`, and compose gets a dedicated `opa-bcc-pack`.
 2. **`PUT /v1/admin/clinical-allowlist` has no authentication** and CORS is `*`. Anyone who can reach BCC's port can
-   grant any agent clinical authority under `bcc.rego`. Pre-existing; **not fixed here.** In pack mode the endpoint
-   returns 409, so it is neither a silent no-op nor an unauthenticated way to write the pack's authority. Fixing the
-   endpoint for the default mode is a separate change that should not wait for the cutover.
+   grant any agent clinical authority under `bcc.rego`. Pre-existing; **fixed separately** (every `/v1/admin/*` route
+   now requires `BCC_ADMIN_TOKEN`). In pack mode the endpoint also returns 409, so it is neither a silent no-op nor a
+   writer of the pack's authority.
 3. **A second `__post_init__` silently replaces the first.** `Settings` already had one, so the engine validation I
    first added would have been dead code. Merged into the existing method, with a test.
 4. **`BCC_SHADOW_MODE` defaults to true.** By default BCC records would-be denials but blocks nothing, so strict
