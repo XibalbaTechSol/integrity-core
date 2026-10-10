@@ -110,6 +110,42 @@ def test_an_empty_environment_variable_means_unset(monkeypatch):
     assert Settings().admin_token is None
 
 
+# ------------------------------------------------- the operational hooks that sign and send transactions
+
+#: POST hooks that make the service sign/send chain transactions or retry deliveries. Same token as /v1/admin.
+OPS_HOOKS = ["/v1/reputation/sync", "/v1/bcc/anchor/flush", "/v1/audit/spool/retry"]
+
+
+@pytest.mark.parametrize("path", OPS_HOOKS)
+def test_ops_hooks_are_disabled_without_a_token_and_reject_a_wrong_one(monkeypatch, real_opa_server, path):
+    client = _client(monkeypatch, real_opa_server, token=None)
+    assert client.post(path).status_code == 503
+    client = _client(monkeypatch, real_opa_server)
+    assert client.post(path).status_code == 401
+    assert client.post(path, headers={"Authorization": "Bearer " + "x" * 40}).status_code == 401
+
+
+@pytest.mark.parametrize("path", OPS_HOOKS)
+def test_ops_hooks_run_with_the_token(monkeypatch, real_opa_server, path):
+    ran = []
+    monkeypatch.setattr(main_module.scoring_loop_module, "run_sync_cycle", lambda *a, **k: ran.append(path) or type("R", (), {"agents_seen": 0, "errors": 0, "results": []})())
+    monkeypatch.setattr(main_module.spool_module, "run_retry_cycle", lambda *a, **k: ran.append(path) or type("R", (), {"attempted": 0, "delivered": 0, "still_pending": 0})())
+    client = _client(monkeypatch, real_opa_server)
+    response = client.post(path, headers={"Authorization": f"Bearer {TOKEN}"})
+    assert response.status_code == 200, response.text
+
+
+def test_every_state_changing_ops_route_is_in_the_protected_list():
+    """Structural: any POST route outside the public agent-facing ones must carry require_admin, so a new
+    ops hook cannot ship open. The public set is deliberate and small."""
+    public = {"/v1/bcc/intercept", "/v1/bcc/verify_token"}
+    for route in main_module.app.routes:
+        if not isinstance(route, APIRoute) or "POST" not in route.methods or route.path in public:
+            continue
+        calls = [d.call for d in route.dependant.dependencies]
+        assert main_module.require_admin in calls, f"POST {route.path} is unauthenticated: add require_admin or list it as public"
+
+
 # ---------------------------------------------------------------------- nothing else changed
 
 

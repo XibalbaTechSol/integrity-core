@@ -819,7 +819,26 @@ async def intercept(commitment: BCCCommitment) -> BCCInterceptResponse:
     return response
 
 
-@app.post("/v1/reputation/sync")
+async def require_admin(request: Request) -> None:
+    """Authenticate an /v1/admin/* request with the bearer token in `BCC_ADMIN_TOKEN`.
+
+    Fails CLOSED in both directions: with no token configured the admin API is disabled (503) rather than
+    open, and anything other than exactly `Authorization: Bearer <token>` is a 401. The comparison is
+    constant-time (`hmac.compare_digest`) so response timing cannot be used to recover the token one
+    character at a time. A rejected request is logged with its method and path only, never the header.
+
+    Reads `default_settings` at call time so it follows the module attribute, like the rest of this module.
+    """
+    token = default_settings.admin_token
+    if token is None:
+        raise HTTPException(status_code=503, detail="admin API disabled: BCC_ADMIN_TOKEN is not set")
+    scheme, _, supplied = request.headers.get("authorization", "").partition(" ")
+    if scheme.lower() != "bearer" or not supplied or not hmac.compare_digest(supplied.encode("utf-8"), token.encode("utf-8")):
+        logger.warning("admin API: rejected %s %s (missing or wrong bearer token)", request.method, request.url.path)
+        raise HTTPException(status_code=401, detail="admin authentication required", headers={"WWW-Authenticate": "Bearer"})
+
+
+@app.post("/v1/reputation/sync", dependencies=[Depends(require_admin)])
 async def force_score_sync() -> dict:
     """
     Operational/testing hook: run one score-sync cycle right now instead of
@@ -844,7 +863,7 @@ async def force_score_sync() -> dict:
     }
 
 
-@app.post("/v1/audit/spool/retry")
+@app.post("/v1/audit/spool/retry", dependencies=[Depends(require_admin)])
 async def force_spool_retry() -> dict:
     """
     Operational/testing hook: run one spool retry cycle right now instead of
@@ -897,7 +916,7 @@ async def verify_token(request: VerifyTokenRequest) -> VerifyTokenResponse:
     return VerifyTokenResponse(valid=valid)
 
 
-@app.post("/v1/bcc/anchor/flush")
+@app.post("/v1/bcc/anchor/flush", dependencies=[Depends(require_admin)])
 async def force_flush() -> dict:
     """
     Operational/testing hook: anchor whatever's pending right now instead of
@@ -929,25 +948,6 @@ async def force_flush() -> dict:
             for agent_id, r in results.items()
         },
     }
-
-
-async def require_admin(request: Request) -> None:
-    """Authenticate an /v1/admin/* request with the bearer token in `BCC_ADMIN_TOKEN`.
-
-    Fails CLOSED in both directions: with no token configured the admin API is disabled (503) rather than
-    open, and anything other than exactly `Authorization: Bearer <token>` is a 401. The comparison is
-    constant-time (`hmac.compare_digest`) so response timing cannot be used to recover the token one
-    character at a time. A rejected request is logged with its method and path only, never the header.
-
-    Reads `default_settings` at call time so it follows the module attribute, like the rest of this module.
-    """
-    token = default_settings.admin_token
-    if token is None:
-        raise HTTPException(status_code=503, detail="admin API disabled: BCC_ADMIN_TOKEN is not set")
-    scheme, _, supplied = request.headers.get("authorization", "").partition(" ")
-    if scheme.lower() != "bearer" or not supplied or not hmac.compare_digest(supplied.encode("utf-8"), token.encode("utf-8")):
-        logger.warning("admin API: rejected %s %s (missing or wrong bearer token)", request.method, request.url.path)
-        raise HTTPException(status_code=401, detail="admin authentication required", headers={"WWW-Authenticate": "Bearer"})
 
 
 @app.get("/v1/admin/clinical-allowlist", response_model=ClinicalAllowlistResponse, dependencies=[Depends(require_admin)])

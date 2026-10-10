@@ -172,10 +172,10 @@ address for these.
 **Admin authentication.** Every `/v1/admin/*` route depends on `app/main.py::require_admin`: a bearer token from
 `BCC_ADMIN_TOKEN`, compared in constant time. **Unset means disabled (503), not open**, and a token under 32
 characters stops the service starting. `tests/test_admin_auth.py` walks the route table, so a new `/v1/admin/*`
-route without the dependency fails the build. Other routes are *not* behind it: `POST /v1/reputation/sync`,
-`POST /v1/bcc/anchor/flush` and `POST /v1/audit/spool/retry` are unauthenticated and make the service sign and
-send chain transactions or retry deliveries. They are a known, reported exposure; protecting one is adding
-`dependencies=[Depends(require_admin)]` to its decorator.
+route without the dependency fails the build. The three operational hooks that make the service sign and send chain
+transactions or retry deliveries (`POST /v1/reputation/sync`, `/v1/bcc/anchor/flush`, `/v1/audit/spool/retry`) use the
+same dependency and token. A second structural test requires every POST route except the two public agent-facing
+ones (`/v1/bcc/intercept`, `/v1/bcc/verify_token`) to carry it, so a new ops hook cannot ship open.
 
 ### State is in-memory, single-process (accepted, not a bug)
 
