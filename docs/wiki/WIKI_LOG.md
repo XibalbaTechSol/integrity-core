@@ -4108,3 +4108,10 @@ writeup: PRODUCTION_GAPS.md §18.
   run checked with `integrity-cli verify`.
 - Not done: Shield swap to the SDK writer; stage 4 vectors; anchoring of closed epochs. B2 stays 1/3.
 
+## [2026-10-10] fix | bcc_middleware: the three operational hooks now require the admin token
+
+- `POST /v1/reputation/sync`, `POST /v1/bcc/anchor/flush` and `POST /v1/audit/spool/retry` (they make the service sign and
+  send chain transactions or retry deliveries) were unauthenticated. They now use `require_admin` and `BCC_ADMIN_TOKEN`
+  (unset = 503). Owner decision. 7 new tests incl. a structural check that every POST route outside the two public
+  agent-facing ones carries the dependency; one mutation (dropping it from a route) is caught. BCC suite 277 passed.
+

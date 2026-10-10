@@ -352,9 +352,10 @@ in constant time. **Unset disables the admin API (503) rather than leaving it op
 stops the service starting; a rejected request is logged by method and path, never the credential. A test walks the
 route table so a future `/v1/admin/*` route cannot ship without it.
 
-Still unauthenticated, reported and not changed: `POST /v1/reputation/sync`, `POST /v1/bcc/anchor/flush` and
-`POST /v1/audit/spool/retry`, which make the service sign and send chain transactions or retry deliveries. No caller
-of any of them exists in this repository. Verified: 19 new tests (the 161 pre-existing tests are unaffected) and 9
+Follow-up (same day): `POST /v1/reputation/sync`, `POST /v1/bcc/anchor/flush` and `POST /v1/audit/spool/retry`, which
+make the service sign and send chain transactions or retry deliveries, now use the same `require_admin` and token
+(no caller of any of them exists in this repository, so nothing broke). A structural test requires every POST route
+other than `/v1/bcc/intercept` and `/v1/bcc/verify_token` to carry it. Verified: 19 new tests (the 161 pre-existing tests are unaffected) and 9
 mutation checks of the protections, all caught (one more is an equivalent mutant: an empty credential is already
 rejected by the comparison).
 
