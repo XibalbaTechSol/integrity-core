@@ -45,8 +45,8 @@ in the monorepo that closes that loop.
 - [Async hot-path + hardening fixes, 2026-07-15](#async-hot-path-hardening-fixes-2026-07-15)
 - [State](#state)
 - [Resolved gap (found stale during integrity-dashboard/demo work, 2026-07-09)](#resolved-gap-found-stale-during-integrity-dashboard-demo-work-2026-07-09)
-- [Migration onto the shared signed pack: stage 1 (B2, 2026-10-07)](#migration-onto-the-shared-signed-pack-stage-1-b2-2026-10-07)
 - [Evidence anchoring now targets a dedicated contract, not each agent's memory StateAnchor (B4, 2026-10-05)](#evidence-anchoring-now-targets-a-dedicated-contract-not-each-agent-s-memory-stateanchor-b4-2026-10-05)
+- [Migration onto the shared signed pack: stage 1 (B2, 2026-10-07)](#migration-onto-the-shared-signed-pack-stage-1-b2-2026-10-07)
 
 ## Pipeline
 
@@ -308,4 +308,3 @@ test on one) silently does not fire. This service always sends both, validated, 
 bypass; the new pack denies such input (`BCC_MALFORMED_COMMITMENT`). The pack reports one reason code
 (highest priority) where `bcc.rego` reports a set; the set of denials is unchanged. `packs/bcc/controls.yaml`
 cites only the controls the old policy already claimed; "every rule cites a control" is not yet met.
-
