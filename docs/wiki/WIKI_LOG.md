@@ -4126,3 +4126,10 @@ writeup: PRODUCTION_GAPS.md §18.
 - Verified: SDK 66 and BCC 50 vector tests; 17 mutations of `resolve()` and 4 of BCC's glue caught. B2 stays unticked until
   Shield's half merges and the plan's remaining wording (atomic loads) is checked against both gates.
 
+## [2026-10-11] test | The signed BCC pack's uncited rules are now a pinned, named gap
+
+- `packs/bcc` still cites controls for only the access-control and audit rules (the only ones `docs/CONTROLS_MATRIX.md` maps).
+  A new test pins the four codes that cite none, with the reason for each, so adding a rule forces a choice: cite a control, or
+  list it. The gap is deliberately left open for the compliance owner; no citation was invented. One mutation (a new code
+  with no control) fails the test.
+
