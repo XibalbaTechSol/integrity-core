@@ -66,6 +66,7 @@ become a self-sovereign, on-chain, reputation-bearing participant.
 - [Persistent Memory Bridge (memory.py, added 2026-07-30)](#persistent-memory-bridge-memory-py-added-2026-07-30)
 - [evidenceanchor.py, added 2026-10-05 (B4)](#evidenceanchor-py-added-2026-10-05-b4)
 - [hookrunner.py: harness PreToolUse gate client (B3; Shield gate added 2026-10-06, B2)](#hookrunner-py-harness-pretooluse-gate-client-b3-shield-gate-added-2026-10-06-b2)
+- [Shared decision-contract vectors (B2 stage 4, 2026-10-11)](#shared-decision-contract-vectors-b2-stage-4-2026-10-11)
 
 ## Dependency boundary
 
@@ -508,3 +509,10 @@ of the command, and with the daemon stopped the hook failed open with a stderr l
 
 `[PLANNED]`: signed, chained per-decision receipts, and BCC/Shield conformance over a shared
 compiled pack (the rest of `docs/EXECUTION_PLAN.md` B2).
+
+## Shared decision-contract vectors (B2 stage 4, 2026-10-11)
+
+`tests/conformance/decision_vectors.json` states how a policy result is interpreted under the decision contract (C3):
+63 hand-written vectors, run by the SDK through `resolve()` (`tests/unit/test_core_decision_vectors.py`), by BCC through
+`PackPolicy.decide_sync`, and by Shield through its engine, so the gates cannot drift apart. Changing a vector is a
+change to the contract surface. See `docs/design/bcc-shared-pack-migration.md`.
