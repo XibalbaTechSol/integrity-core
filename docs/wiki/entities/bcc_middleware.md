@@ -55,6 +55,7 @@ in the monorepo that closes that loop.
 - [Admin API authentication (2026-10-10)](#admin-api-authentication-2026-10-10)
 - [Signed decision receipts: stage 3 (B2, 2026-10-10)](#signed-decision-receipts-stage-3-b2-2026-10-10)
 - [Shared decision vectors (B2 stage 4, 2026-10-11)](#shared-decision-vectors-b2-stage-4-2026-10-11)
+- [Hot reload of the signed pack (B2, 2026-10-11)](#hot-reload-of-the-signed-pack-b2-2026-10-11)
 
 ## Pipeline
 
@@ -338,7 +339,7 @@ so a shared OPA would let two gates overwrite each other), and decides through `
 Verified: 226 tests pass (65 new), including a pipeline-level differential in which 17 real signed scenarios give the
 same outcome under `rego`, dual-run and `pack`, each also asserting its expected reason code, and 11 mutation
 checks of the new guards (all caught). Not verified here: the Docker image build (no daemon; the layout was verified
-by simulation and `docker compose config` validates). Not built: hot reload of the pack, receipts (stage 3).
+by simulation and `docker compose config` validates). Hot reload of the pack: added 2026-10-11, see "Hot reload of the signed pack" below. Receipts: stage 3.
 
 **Finding, pre-existing:** `PUT /v1/admin/clinical-allowlist` had no authentication; fixed separately (see "Admin API
 authentication" below). In pack mode the endpoint is refused (409) instead of becoming a silent no-op.
@@ -389,3 +390,14 @@ Shield's swap to the SDK writer; shared rulebook vectors (stage 4); anchoring of
 through `PackPolicy.decide_sync` with only the OPA transport stubbed, so BCC's own interpretation of a policy result is
 checked against the same file the SDK and Shield run. BCC passes all of them; a mutation that filtered results the way Shield
 used to fails 12. Design: `docs/design/bcc-shared-pack-migration.md`.
+
+## Hot reload of the signed pack (B2, 2026-10-11)
+
+`POST /v1/admin/policy-pack/reload` (admin token) with `{"expected_pack_hash"}` replaces the running pack without a restart
+(`PackPolicy.reload`). All-or-nothing: the candidate is verified first (trusted signers from startup, manifest, file hashes,
+expiry, declared event class) and must hash to the named value; only then installed, and on any failure the previous pack
+is put back (if even that fails, every decision denies, CRITICAL). Each decision uses one snapshot of the pack; decisions
+that start during the swap wait up to 5 s, and one already in flight fails closed. Trusted signers and the pack OPA URL
+stay startup configuration, and `BCC_POLICY_PACK_HASH` (if pinned) must be updated by the operator. Verified: 20 tests
+against a real OPA and real signed packs (including a 4-thread hammer across 12 reloads: every outcome is a clean A allow, a
+clean B allow or a fail-closed error), and 10 mutations all caught. Runbook: `docs/runbooks/bcc-policy-pack.md` section 6.

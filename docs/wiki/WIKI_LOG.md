@@ -4133,3 +4133,12 @@ writeup: PRODUCTION_GAPS.md §18.
   list it. The gap is deliberately left open for the compliance owner; no citation was invented. One mutation (a new code
   with no control) fails the test.
 
+## [2026-10-11] feat | BCC can replace its signed pack at runtime
+
+- Added `PackPolicy.reload` and `POST /v1/admin/policy-pack/reload` (admin token, required `expected_pack_hash`). The candidate is
+  verified before anything is installed; any failure keeps (or restores) the previous pack; each decision uses one pack
+  snapshot; decisions wait out the short swap or fail closed. Trusted signers and the pack OPA URL remain startup
+  configuration. Removes the "a new pack is a restart" limit recorded when B2 was ticked.
+- Verified: 20 tests (real OPA, real signed packs, a concurrent hammer across 12 reloads) and 10 mutations caught, one added
+  after a first survivor (a swap that never times out).
+

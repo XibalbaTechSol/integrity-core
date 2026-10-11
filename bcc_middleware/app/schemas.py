@@ -256,6 +256,20 @@ class ClinicalAllowlistResponse(BaseModel):
     agents: list[str]
 
 
+class PolicyPackReloadRequest(BaseModel):
+    """Which pack the operator means to run. Required, so a file swapped on disk cannot be activated by a bare 'reload'."""
+
+    expected_pack_hash: str = Field(min_length=1)
+
+
+class PolicyPackReloadResponse(BaseModel):
+    changed: bool
+    previous_hash: str
+    pack_hash: str
+    name: str
+    version: str
+
+
 class HealthResponse(BaseModel):
     status: str
     opa_reachable: bool

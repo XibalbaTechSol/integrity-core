@@ -1007,8 +1007,9 @@ reachable through the service's schema), and `PUT /v1/admin/clinical-allowlist` 
   ever blocks on a receipt. **"Atomic loads" is read as all-or-nothing, never half-installed**: both gates install through
   `OpaClient.install`, which verifies the pack, replaces OPA's policies and checks they match exactly, and on any failure
   leaves no installed pack so every evaluation denies; BCC refuses to start rather than decide with a different policy, and
-  Shield's `install_pack` holds a lock so an evaluation never sees the gap. It is **not** a zero-downtime hot swap: BCC
-  loads its pack at start-up and a new pack is a restart (`[PLANNED]`).
+  Shield's `install_pack` holds a lock so an evaluation never sees the gap. BCC can also replace its pack at runtime
+  (`POST /v1/admin/policy-pack/reload`, 2026-10-11): verified first, named by hash, old pack kept on any failure; decisions wait
+  out the short swap or fail closed, so it is not a zero-downtime guarantee but never allows by the wrong pack.
 
 **Operational consequence to carry forward:** the runner fails open, so a `--gate shield` hook with
 no daemon listening enforces *nothing*. That is why `integrity hooks install --gate shield` now
