@@ -9,6 +9,7 @@ action or create an Integrity receipt.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Protocol, Sequence
 
@@ -197,6 +198,14 @@ def verify_trace_evidence(
     return True
 
 
+# B5: a Jev provider is an outside party, and whatever it returns lands in the trace. Only a closed
+# vocabulary and bounded identifiers are retained, so a provider cannot smuggle free text (a prompt
+# echo, a completion, a secret) through ``risk_category`` or a probability label.
+RISK_CATEGORIES = frozenset({"low", "medium", "high", "critical", "unknown"})
+_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$")
+_EVENT_HASH = re.compile(r"^0x[0-9a-f]{64}$")
+
+
 @dataclass(frozen=True)
 class JevAnalysis:
     provider_id: str
@@ -212,6 +221,15 @@ class JevAnalysis:
             raise DecisionTraceError("invalid Jev analysis status")
         if self.causal_claim:
             raise DecisionTraceError("Jev analysis cannot make causal claims")
+        if not isinstance(self.provider_id, str) or not _IDENTIFIER.match(self.provider_id):
+            raise DecisionTraceError("Jev provider_id must be a short identifier")
+        if self.risk_category is not None and self.risk_category not in RISK_CATEGORIES:
+            raise DecisionTraceError("Jev risk_category outside the allowed set")
+        if self.observed_event_hash is not None and not (
+                isinstance(self.observed_event_hash, str) and _EVENT_HASH.match(self.observed_event_hash)):
+            raise DecisionTraceError("Jev observed_event_hash must be a 0x-prefixed sha256 hex")
+        if any(not isinstance(key, str) or not _IDENTIFIER.match(key) for key in self.transition_probabilities):
+            raise DecisionTraceError("Jev transition labels must be short identifiers")
         if any(not 0 <= float(value) <= 1 for value in self.transition_probabilities.values()):
             raise DecisionTraceError("transition probabilities must be between 0 and 1")
         if len(self.transition_probabilities) > 32:
@@ -243,5 +261,5 @@ __all__ = [
     "DECISION_ENVELOPE_VERSION", "DECISION_TRACE_VERSION", "GENESIS_PARENT", "TRACE_LEAF_KIND",
     "DecisionEnvelope", "DecisionTrace", "DecisionTraceError", "DecisionTraceEvidence", "build_trace_evidence",
     "verify_trace_evidence", "JevAnalysis", "JevProvider",
-    "FixtureJevProvider",
+    "FixtureJevProvider", "RISK_CATEGORIES",
 ]

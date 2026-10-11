@@ -65,9 +65,9 @@ def anchor_pending_epochs(settings: Settings, receipts: BccReceipts) -> AnchorSw
             return AnchorSweep(failed=1, details=[f"closed epoch does not verify: {exc}"])
         if not pending:
             return AnchorSweep()
-        address = settings.contract_address(settings.protocol_evidence_anchor_contract_name)
+        address = settings.contract_address(settings.receipt_anchor_target)
         if not address:
-            detail = f"no '{settings.protocol_evidence_anchor_contract_name}' address in {settings.deployments_file}"
+            detail = f"no '{settings.receipt_anchor_target}' address in {settings.deployments_file}"
             logger.warning("cannot anchor %d closed receipt epoch(s): %s; they stay pending", len(pending), detail)
             return AnchorSweep(attempted=len(pending), failed=len(pending), details=[detail])
 

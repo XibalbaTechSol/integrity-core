@@ -413,3 +413,10 @@ Best-effort and off the request path; a closed epoch that no longer verifies is 
 not anchored until it closes (one-epoch window, stated). Verified: 14 BCC tests on a real anvil chain (roots read back from the
 contract's events, removal of the newest closed epoch detected against them, outage and partial-failure paths, the real app
 lifespan) and 12 SDK tests; mutations caught after strengthening 4 survivors. Runbook: `docs/runbooks/bcc-policy-pack.md` section 7.
+
+`BCC_RECEIPT_ANCHOR_CONTRACT_NAME` (2026-10-11) picks the deployments-file entry that receives the epoch roots; empty falls back to
+the protocol evidence anchor, which BCC's own per-agent Merkle sub-roots also write to, so a verifier given every root there reports
+those as a removed epoch. Found by running the built image against two real contracts; use a dedicated contract. The image's `CMD` is
+`uv run --no-sync ...`: without `--no-sync`, `uv run` re-synced at every start and tried to download the dev group (pytest) into the
+production image, which fails with no package-index access. `docker-compose.anchor-dev.yml` is a local-stack overlay for receipts
+plus anchoring.

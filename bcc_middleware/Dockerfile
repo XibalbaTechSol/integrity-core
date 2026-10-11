@@ -35,4 +35,7 @@ ENV OPA_URL=http://opa:8181 \
 
 EXPOSE 8000
 
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# --no-sync: the environment was fully resolved by `uv sync --frozen --no-dev` above. Without it, `uv run`
+# re-syncs at every container start and tries to download the dev group (pytest, ...), which fails on a host
+# with no package-index access and otherwise silently installs test tooling into a production image.
+CMD ["uv", "run", "--no-sync", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

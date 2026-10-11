@@ -146,6 +146,30 @@ async def test_a_missing_evidence_anchor_address_or_signer_leaves_epochs_pending
     assert [c.epoch for c in world.receipts.pending_anchors()] == [1] and world.chain_roots() == []
 
 
+async def test_epoch_roots_go_to_the_configured_contract_not_the_shared_evidence_anchor(world, tmp_path):
+    """The evidence anchor also receives per-agent Merkle sub-roots; BCC_RECEIPT_ANCHOR_CONTRACT_NAME keeps the epochs apart."""
+    await world.record(3)
+    real = world.chain["anchor_address"]
+    deployments = tmp_path / "split.json"
+    # ProtocolEvidenceAnchor points at an address with no contract: if the sweep used it, the transaction would not land.
+    deployments.write_text(json.dumps({"singletons": {"ProtocolEvidenceAnchor": "0x000000000000000000000000000000000000dEaD",
+                                                       "ReceiptEpochAnchor": real}}))
+    split = Settings(**{**world.settings.__dict__, "deployments_file": str(deployments), "receipt_anchor_contract_name": "ReceiptEpochAnchor"})
+    assert split.receipt_anchor_target == "ReceiptEpochAnchor"
+    sweep = await asyncio.to_thread(anchor_pending_epochs, split, world.receipts)
+    assert (sweep.anchored, sweep.failed) == (1, 0), sweep.details
+    assert len(world.chain_roots()) == 1
+
+    missing = Settings(**{**split.__dict__, "receipt_anchor_contract_name": "NoSuchAnchor"})
+    await world.record(2)  # closes epoch 2
+    sweep = await asyncio.to_thread(anchor_pending_epochs, missing, world.receipts)
+    assert sweep.failed == 1 and "NoSuchAnchor" in sweep.details[0]
+
+
+def test_the_receipt_anchor_target_defaults_to_the_evidence_anchor():
+    assert Settings().receipt_anchor_target == Settings().protocol_evidence_anchor_contract_name
+
+
 async def test_a_closed_epoch_that_no_longer_verifies_is_never_anchored(world, caplog):
     await world.record(3)
     path = world.dir / "epoch-000001" / "checkpoints.jsonl"
