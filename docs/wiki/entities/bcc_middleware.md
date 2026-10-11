@@ -56,6 +56,7 @@ in the monorepo that closes that loop.
 - [Signed decision receipts: stage 3 (B2, 2026-10-10)](#signed-decision-receipts-stage-3-b2-2026-10-10)
 - [Shared decision vectors (B2 stage 4, 2026-10-11)](#shared-decision-vectors-b2-stage-4-2026-10-11)
 - [Hot reload of the signed pack (B2, 2026-10-11)](#hot-reload-of-the-signed-pack-b2-2026-10-11)
+- [Anchoring closed receipt epochs (B4, 2026-10-11)](#anchoring-closed-receipt-epochs-b4-2026-10-11)
 
 ## Pipeline
 
@@ -375,8 +376,8 @@ SDK's shared `GateReceiptWriter` (`integrity-sdk/integrity_sdk/core/receipt_writ
 - **The receipt names the policy that decided:** the pack hash plus the pack's code and controls in pack mode;
   `NO_PACK_HASH` and `BCC_REGO_POLICY_PERMIT/DENY` under `bcc.rego`, including dual-run.
 - **Epochs** (`BCC_RECEIPT_EPOCH_MAX_RECEIPTS` / `_MAX_AGE_SECONDS`) bound memory and checkpoint cost: a new `log_id`
-  and a fresh chain per epoch, with a covering checkpoint before closing. Deleting the newest epoch is undetectable
-  until anchoring of closed epochs exists (`[PLANNED]`).
+  and a fresh chain per epoch, with a covering checkpoint before closing. Deleting the newest closed epoch becomes
+  detectable once closed epochs are anchored (below).
 - **Response additions (additive):** `receipt` `{log_id, seq, hash}`, `receipt_status`; `/health` gains `receipts`.
 
 Verified: 23 SDK + 25 BCC pipeline tests, mutation checks, and a live run (real uvicorn, OPA, signed commitments)
@@ -401,3 +402,14 @@ that start during the swap wait up to 5 s, and one already in flight fails close
 stay startup configuration, and `BCC_POLICY_PACK_HASH` (if pinned) must be updated by the operator. Verified: 20 tests
 against a real OPA and real signed packs (including a 4-thread hammer across 12 reloads: every outcome is a clean A allow, a
 clean B allow or a fail-closed error), and 10 mutations all caught. Runbook: `docs/runbooks/bcc-policy-pack.md` section 6.
+
+## Anchoring closed receipt epochs (B4, 2026-10-11)
+
+With `BCC_RECEIPT_ANCHOR_ENABLED`, `app/receipt_anchor.py` anchors each CLOSED receipt epoch's signed final checkpoint root on the
+dedicated evidence `StateAnchor` (existing signer path) and records it in `anchors.jsonl`; `verify_epoch_directory(...,
+anchored_roots=<this gate's roots from the chain>)` then reports a deleted or rewritten epoch. The SDK side is `GateReceiptWriter.
+closed_epochs / pending_anchors / mark_anchored`; roots always come from each epoch's own signed checkpoint, never the ledger.
+Best-effort and off the request path; a closed epoch that no longer verifies is CRITICAL and never anchored. The open epoch is
+not anchored until it closes (one-epoch window, stated). Verified: 14 BCC tests on a real anvil chain (roots read back from the
+contract's events, removal of the newest closed epoch detected against them, outage and partial-failure paths, the real app
+lifespan) and 12 SDK tests; mutations caught after strengthening 4 survivors. Runbook: `docs/runbooks/bcc-policy-pack.md` section 7.

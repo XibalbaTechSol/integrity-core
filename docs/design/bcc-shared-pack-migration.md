@@ -137,7 +137,9 @@ Decisions applied (owner, 2026-10-10): receipts for **authenticated outcomes onl
 * **Epochs.** At `BCC_RECEIPT_EPOCH_MAX_RECEIPTS` (50,000) or `BCC_RECEIPT_EPOCH_MAX_AGE_SECONDS` (86,400) the epoch is
   closed with a covering checkpoint and a new one opens with a new `log_id` and a fresh chain. No format or verifier
   change. Cost, stated: nothing links epoch N to N+1 in the files; deleting a *middle* epoch is refused at start, but
-  deleting the *newest* epoch(s) cannot be seen without anchoring (B4, `[PLANNED]` for gates). Start-up verifies only
+  deleting the *newest* epoch(s) cannot be seen from the files alone. **Closed epochs can now be anchored** (2026-10-11,
+  `BCC_RECEIPT_ANCHOR_ENABLED`; runbook section 7), which makes their removal detectable against the chain; the open epoch is
+  covered only once it closes. Start-up verifies only
   the newest epoch; `verify_epoch_directory` is the full offline audit.
 * **Accepted cost:** the token budget is charged before the receipt, so a receipt outage costs an agent budget for
   requests we then refuse. Bounded by the budget; clears at the daily reset.

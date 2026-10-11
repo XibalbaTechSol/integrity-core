@@ -118,8 +118,7 @@ Things that will bite if forgotten:
   file authorizes no extra agents -- it deliberately does *not* keep the last good list, because that would
   leave a revoked agent authorized. `PUT /v1/admin/clinical-allowlist` returns 409 in pack mode.
 - `/v1/admin/*` requires `Authorization: Bearer $BCC_ADMIN_TOKEN` (`require_admin`; unset = 503, token under 32
-  characters stops startup). The three other state-changing endpoints (reputation sync, anchor flush, spool retry)
-  are still unauthenticated.
+  characters stops startup). The operational hooks (reputation sync, anchor flush, spool retry) use the same token.
 - The pack can be replaced at runtime: `POST /v1/admin/policy-pack/reload {"expected_pack_hash"}` (admin token). Verified first,
   named by hash, old pack kept on any failure; each decision uses ONE pack snapshot (`PackPolicy.decide_sync`), and
   `_reinstall_if_forgotten(pack)` must never re-install a pack that is no longer the enforced one. Trusted signers and the

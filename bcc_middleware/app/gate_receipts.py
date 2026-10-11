@@ -43,7 +43,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from integrity_sdk.core import (
-    DENY, ENFORCE, PERMIT, SHADOW, GateReceiptWriter, ReceiptRef, ReceiptSetupError, ReceiptWriteError,
+    DENY, ENFORCE, PERMIT, SHADOW, EpochClosure, GateReceiptWriter, ReceiptRef, ReceiptSetupError, ReceiptWriteError,
     RotationPolicy, derive_log_id, load_hmac_key, load_signer,
 )
 
@@ -107,9 +107,16 @@ class BccReceipts:
     def signer_key(self) -> str:
         return self._writer.signer_key
 
+    def pending_anchors(self) -> list[EpochClosure]:
+        return self._writer.pending_anchors()
+
+    def mark_anchored(self, closure: EpochClosure, tx_hash: str) -> None:
+        self._writer.mark_anchored(closure, tx_hash)
+
     def health(self) -> dict:
         return {"enabled": True, "log_id": self._writer.log_id, "epoch": self._writer.epoch,
                 "receipts_in_epoch": self._writer.receipt_count, "strict": not self.lenient,
+                "pending_anchors": self._writer.pending_anchor_count(),
                 "signer_key": self.signer_key}
 
     async def record(

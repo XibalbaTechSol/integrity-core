@@ -72,10 +72,12 @@ from .receipts import (
     verify_receipt,
 )
 from .receipt_writer import (
+    ANCHORS_FILENAME,
     CHECKPOINTS_FILENAME,
     DEFAULT_CHECKPOINT_EVERY,
     RECEIPTS_FILENAME,
     EpochAudit,
+    EpochClosure,
     GateReceiptWriter,
     ReceiptRef,
     ReceiptSetupError,
@@ -100,7 +102,7 @@ from .tenancy import (
 )
 
 __all__ = [
-    "CHECKPOINTS_FILENAME", "DEFAULT_CHECKPOINT_EVERY", "RECEIPTS_FILENAME", "EpochAudit", "GateReceiptWriter",
+    "ANCHORS_FILENAME", "CHECKPOINTS_FILENAME", "DEFAULT_CHECKPOINT_EVERY", "EpochClosure", "RECEIPTS_FILENAME", "EpochAudit", "GateReceiptWriter",
     "ReceiptRef", "ReceiptSetupError", "ReceiptWriteError", "RotationPolicy", "derive_log_id", "epoch_log_id",
     "load_hmac_key", "load_signer", "verify_epoch_directory",
     "DECISION_CONTRACT", "DENY", "ENFORCE", "LOG_ONLY", "NO_MATCH", "PERMIT", "SHADOW", "Decision", "resolve",

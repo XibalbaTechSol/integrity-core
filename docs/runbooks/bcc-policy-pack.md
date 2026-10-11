@@ -83,7 +83,7 @@ Independent of the policy engine: works under `bcc.rego`, dual-run and pack mode
 
 What a receipt does **not** cover: denials before the signature verifies (open breaker, chain mismatch, bad
 signature). Rotating the signing or HMAC key starts a new log; keep the old directory for audit. Nothing links an
-epoch to the next, so deleting the newest epoch is undetectable until anchoring of closed epochs exists `[PLANNED]`.
+epoch to the next, so deleting the newest epoch is undetectable unless closed epochs are anchored (section 7).
 
 ## 6. Replacing the pack without a restart
 
@@ -106,6 +106,25 @@ What a reload does **not** change: the trusted signers and `BCC_PACK_OPA_URL` (s
 not a runtime call). It also does not edit `BCC_POLICY_PACK_HASH`: **if you pin it, update the pin when you reload**, or the
 next restart will refuse the new pack, which is the pin working as designed. The reload is logged and counted but is not a
 signed receipt `[PLANNED]`.
+
+## 7. Anchoring closed receipt epochs
+
+With receipt epochs on (section 5) set `BCC_RECEIPT_ANCHOR_ENABLED=true`. BCC then anchors each CLOSED epoch's signed final
+checkpoint root on the dedicated evidence `StateAnchor` (the same signer, address and nonce lock as the Merkle-leaf
+anchoring; `BCC_RECEIPT_ANCHOR_INTERVAL_SECONDS`, default 300), oldest first, and records it in `anchors.jsonl` in the receipt
+directory. `POST /v1/admin/receipts/anchor` runs one sweep now; `GET /health` -> `receipts.pending_anchors` is what is waiting.
+
+* **Best-effort.** An unreachable chain, a missing evidence-anchor address or a missing signer leaves the epoch pending and
+  retried; a sweep stops at its first failure. It never blocks recording a receipt or a decision. If a closed epoch's final
+  checkpoint no longer verifies, that is logged CRITICAL and nothing is anchored for it: investigate, do not retry.
+* **Verify against the chain.** Collect the roots this gate anchored (the evidence anchor's `RootAnchored` events from the gate's
+  anchoring account; the contract also holds other gates' and agents' roots) and run
+  `verify_epoch_directory(dir, base_log_id=..., trusted_signers=[...], anchored_roots=[...])`. Every root must equal some
+  epoch's final checkpoint root: one that matches none means an epoch was removed or rewritten. If `anchors.jsonl` survives, it
+  is cross-checked against the epochs too.
+* **What it does not cover.** The OPEN epoch is not anchored until it closes, so removing only the open epoch is undetectable
+  for up to one epoch. `anchors.jsonl` is a worklist, not evidence: the signed checkpoints and the chain are. A root anchored
+  on-chain whose ledger write then failed is anchored again next sweep (a duplicate root is harmless to verification).
 
 ## What is not built
 
