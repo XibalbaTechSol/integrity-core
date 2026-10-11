@@ -4183,3 +4183,11 @@ writeup: PRODUCTION_GAPS.md §18.
   the response gains `receipt` and `receipt_status`. Removes the last `[PLANNED]` recorded against hot reload. The swap is not undone
   if its receipt cannot be written (it already happened): `failed` plus a CRITICAL log, and strict mode denies allows while the writer is broken.
 - Verified: 6 tests (real OPA, real signed packs, the SDK's `verify_log`), mutations on the refusal, the active hash and the decision all caught.
+
+## [2026-10-11] docs | A7 closed; B2a and B5 notes; BCC CLAUDE.md refreshed
+
+- A7's last exit-evidence box is ticked with its evidence (xibalba-shield#47 for unavailable-provider handling, xibalba-shield#54 for the
+  Settings browser flow at desktop and 390px); plan progress regenerated with `scripts/plan_progress.py` (134/232). B2a stays open: the
+  Shield form landed but Cortex's `viewer/` trace panel and queue/retry of advisory analysis have not.
+- B5's DecisionTrace/Jev negative-test box carries a partial note (the Jev field bounds, #176) and stays unticked.
+- `bcc_middleware/CLAUDE.md`: test count (369), the image `CMD` rule, the dev anchoring overlay and the dedicated-anchor-contract caveat.
