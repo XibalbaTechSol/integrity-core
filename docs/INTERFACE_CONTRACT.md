@@ -195,6 +195,7 @@ intent/outcome reconciliation claim.
 > `receipt` (`{log_id, seq, hash}` of the signed decision receipt) and `receipt_status` (`"recorded"`/`"failed"`;
 > absent when receipts are off or the decision predates authentication). A new deny code `BCC_RECEIPT_UNAVAILABLE`
 > means a strict gate could not record an allow. `GET /health` gains `receipts`. See `docs/runbooks/bcc-policy-pack.md` section 5.
+> `POST /v1/admin/policy-pack/reload` also gains `receipt` and `receipt_status` (same meaning; a reload is a `gate.pack_reload` receipt, see section 6 of the runbook).
 
 This exact shape is POSTed by `integrity-sdk` and `integrity-cli` to
 `bcc_middleware`'s `POST /v1/bcc/intercept`. Field names are load-bearing —

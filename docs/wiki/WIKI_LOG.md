@@ -4175,3 +4175,11 @@ writeup: PRODUCTION_GAPS.md §18.
   `provider_id` and transition labels, and a canonical `0x` sha256 for `observed_event_hash`, so a provider cannot carry free text
   (a prompt echo, a secret) into a retained trace. 11 new tests; two mutations caught. The other B5 boxes (receiver stripping
   `user.email`, the telemetry negative tests) are untouched and stay unticked.
+
+## [2026-10-11] feat | A pack reload is itself a signed receipt
+
+- `POST /v1/admin/policy-pack/reload` now writes a `gate.pack_reload` receipt (installed / unchanged = permit, refused = deny) into the
+  same chained log as the decisions, so "decisions under pack A, the swap, decisions under pack B" is one tamper-evident sequence;
+  the response gains `receipt` and `receipt_status`. Removes the last `[PLANNED]` recorded against hot reload. The swap is not undone
+  if its receipt cannot be written (it already happened): `failed` plus a CRITICAL log, and strict mode denies allows while the writer is broken.
+- Verified: 6 tests (real OPA, real signed packs, the SDK's `verify_log`), mutations on the refusal, the active hash and the decision all caught.

@@ -104,8 +104,15 @@ epoch to the next, so deleting the newest epoch is undetectable unless closed ep
 
 What a reload does **not** change: the trusted signers and `BCC_PACK_OPA_URL` (startup configuration; who may sign policy is
 not a runtime call). It also does not edit `BCC_POLICY_PACK_HASH`: **if you pin it, update the pin when you reload**, or the
-next restart will refuse the new pack, which is the pin working as designed. The reload is logged and counted but is not a
-signed receipt `[PLANNED]`.
+next restart will refuse the new pack, which is the pin working as designed.
+
+**Signed receipt for the reload (receipts on).** Each attempt writes one receipt into the same chained log as the decisions,
+`event_class: gate.pack_reload`, `agent_did: gate:bcc-middleware` (the gate itself: an admin-token caller has no DID, and none is
+invented). `reason_code` is `BCC_PACK_RELOAD_INSTALLED` / `_UNCHANGED` (decision `permit`) or `BCC_PACK_RELOAD_REFUSED` (decision
+`deny`); `pack_hash` is the pack in force AFTER the attempt; the action HMAC binds the previous hash and the hash you named. A
+refusal's error text is not in the receipt. The response carries `receipt` and `receipt_status`. If the receipt cannot be written
+the swap has still happened: `receipt_status` is `failed`, it is logged CRITICAL, and the response is then the only record of it
+(a broken writer also makes strict mode deny every allow, so it degrades safely).
 
 ## 7. Anchoring closed receipt epochs
 
@@ -134,4 +141,4 @@ directory. `POST /v1/admin/receipts/anchor` runs one sweep now; `GET /health` ->
 
 ## What is not built
 
-A signed receipt for a pack reload itself (it is logged and counted on `/health`, not signed) `[PLANNED]`.
+Nothing from the B2 list is outstanding here; see `docs/EXECUTION_PLAN.md` for what is open elsewhere.

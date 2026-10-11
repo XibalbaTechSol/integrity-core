@@ -1051,14 +1051,34 @@ async def reload_policy_pack(request: PolicyPackReloadRequest) -> PolicyPackRelo
     policy = pack_policy
     if policy is None:
         raise HTTPException(status_code=409, detail=f"no policy pack is loaded ({pack_policy_error or 'BCC_POLICY_PACK_DIR is not set'})")
+    previous_hash = policy.pack_hash
     try:
         result = await asyncio.to_thread(policy.reload, default_settings, expected_pack_hash=request.expected_pack_hash)
     except PackPolicyError as exc:
+        # A refused reload is evidence too (someone tried to activate a pack and was stopped): record it, then refuse.
+        refusal = await _record_pack_reload("refused", previous_hash, request.expected_pack_hash, policy.pack_hash)
+        if refusal is not None and refusal.ref is None:
+            logger.critical("a refused pack reload could not be recorded as a receipt: %s", refusal.error)
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    recorded = await _record_pack_reload("installed" if result.changed else "unchanged", result.previous_hash,
+                                         request.expected_pack_hash, result.pack_hash)
+    if recorded is not None and recorded.ref is None:
+        logger.critical("pack reload %s -> %s HAPPENED but its receipt could not be written: %s",
+                        result.previous_hash, result.pack_hash, recorded.error)
     return PolicyPackReloadResponse(
         changed=result.changed, previous_hash=result.previous_hash, pack_hash=result.pack_hash,
         name=result.name, version=result.version,
+        receipt=recorded.as_response() if recorded is not None else None,
+        receipt_status=recorded.status if recorded is not None else None,
     )
+
+
+async def _record_pack_reload(outcome: str, previous_hash: str, requested_hash: str, active_hash: str):
+    """Signed receipt for a reload attempt, or None when receipts are off. Never raises."""
+    if receipts is None:
+        return None
+    return await receipts.record_pack_reload(outcome=outcome, previous_hash=previous_hash,
+                                             requested_hash=requested_hash, active_hash=active_hash)
 
 
 @app.post("/v1/admin/receipts/anchor", dependencies=[Depends(require_admin)])

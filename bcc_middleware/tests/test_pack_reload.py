@@ -302,3 +302,97 @@ def test_the_endpoint_is_409_when_no_pack_is_loaded(monkeypatch):
     monkeypatch.setattr(main_module, "pack_policy", None)
     response = TestClient(main_module.app).post(RELOAD, json={"expected_pack_hash": "sha256:" + "00" * 32}, headers=AUTH)
     assert response.status_code == 409 and "no policy pack is loaded" in response.json()["detail"]
+
+
+# ------------------------------------------------------------------------------------ signed reload receipts
+# A reload is the operator replacing the policy that decides. It lands in the same signed, chained log as the decisions,
+# so "decisions under A, the swap, decisions under B" is one tamper-evident sequence.
+
+import json  # noqa: E402
+
+from app.gate_receipts import BccReceipts, RELOAD_EVENT_CLASS, RELOAD_SUBJECT  # noqa: E402
+from integrity_sdk.core import verify_log  # noqa: E402
+from integrity_sdk.did import Keypair  # noqa: E402
+
+
+@pytest.fixture()
+def rclient(client, world, tmp_path, monkeypatch):
+    pem, hmac = tmp_path / "r.pem", tmp_path / "r.hmac"
+    pem.write_bytes(Keypair.generate().private_pem())
+    hmac.write_bytes(bytes(range(32)))
+    pem.chmod(0o600), hmac.chmod(0o600)
+    settings = Settings(**{**world.settings.__dict__, "receipt_dir": str(tmp_path / "rc"), "receipt_key_file": str(pem),
+                           "receipt_hmac_key_file": str(hmac), "receipt_checkpoint_every": 1,
+                           "receipt_epoch_max_receipts": 0, "receipt_epoch_max_age_seconds": 0})
+    receipts = BccReceipts.from_settings(settings)
+    monkeypatch.setattr(main_module, "receipts", receipts)
+    world.receipts, world.rdir = receipts, tmp_path / "rc"
+    yield client
+    receipts.close()
+
+
+def _log(world):
+    return [json.loads(line) for line in (world.rdir / "receipts.jsonl").read_text().splitlines()]
+
+
+def test_an_installed_reload_is_a_signed_receipt_naming_the_pack_now_in_force(rclient, world):
+    stage(world, "b")
+    body = rclient.post(RELOAD, json={"expected_pack_hash": world.hash["b"]}, headers=AUTH).json()
+    assert body["receipt_status"] == "recorded" and body["receipt"]["seq"] == 0
+    (row,) = _log(world)
+    assert (row["event_class"], row["agent_did"], row["decision"], row["reason_code"]) == (
+        RELOAD_EVENT_CLASS, RELOAD_SUBJECT, "permit", "BCC_PACK_RELOAD_INSTALLED")
+    assert row["pack_hash"] == world.hash["b"]  # the pack now deciding
+    verify_log(_log(world), trusted_signers=[world.receipts.signer_key])
+    assert world.hash["a"] not in json.dumps(row), "the previous hash is bound through the action HMAC, not stored in clear"
+
+
+def test_a_refused_reload_is_a_deny_receipt_that_names_the_pack_still_in_force(rclient, world):
+    stage(world, "b")
+    response = rclient.post(RELOAD, json={"expected_pack_hash": world.hash["a"]}, headers=AUTH)  # wrong hash for what is staged
+    assert response.status_code == 409
+    (row,) = _log(world)
+    assert (row["decision"], row["reason_code"], row["pack_hash"]) == ("deny", "BCC_PACK_RELOAD_REFUSED", world.hash["a"])
+    assert "failed verification" not in json.dumps(row), "an error message can quote paths and OPA output: it stays out of the receipt"
+
+
+def test_reloading_the_running_pack_is_recorded_as_unchanged(rclient, world):
+    body = rclient.post(RELOAD, json={"expected_pack_hash": world.hash["a"]}, headers=AUTH).json()
+    assert body["changed"] is False
+    (row,) = _log(world)
+    assert (row["decision"], row["reason_code"], row["pack_hash"]) == ("permit", "BCC_PACK_RELOAD_UNCHANGED", world.hash["a"])
+
+
+def test_decisions_before_and_after_a_reload_share_one_chain_that_shows_the_swap(rclient, world):
+    async def decide():
+        verdict = await world.policy.decide(dict(INPUT))
+        return await world.receipts.record(agent_id=AGENT, intent_type="payment", intended_state_hash="0x1", permit=verdict.allow,
+                                           reason_code=verdict.reason_code, pack_hash=world.policy.pack_hash, controls=(), shadow=False)
+
+    import asyncio
+    assert asyncio.run(decide()).ref is not None
+    stage(world, "b")
+    rclient.post(RELOAD, json={"expected_pack_hash": world.hash["b"]}, headers=AUTH)
+    assert asyncio.run(decide()).ref is not None
+    rows = _log(world)
+    assert [r["event_class"] for r in rows] == ["agent.tool_call", RELOAD_EVENT_CLASS, "agent.tool_call"]
+    assert [r["pack_hash"] for r in rows] == [world.hash["a"], world.hash["b"], world.hash["b"]]
+    verify_log(rows, trusted_signers=[world.receipts.signer_key])
+
+
+def test_a_receipt_that_cannot_be_written_does_not_undo_the_reload_and_says_so(rclient, world, caplog):
+    stage(world, "b")
+    world.receipts.close()  # the writer now refuses every record
+    response = rclient.post(RELOAD, json={"expected_pack_hash": world.hash["b"]}, headers=AUTH)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["changed"] is True and body["receipt_status"] == "failed" and body["receipt"] is None
+    assert world.policy.pack_hash == world.hash["b"], "the swap happened, so the response is its only record"
+    assert any("HAPPENED but its receipt could not be written" in r.message for r in caplog.records)
+
+
+def test_without_receipts_the_reload_response_has_no_receipt_fields(client, world, monkeypatch):
+    monkeypatch.setattr(main_module, "receipts", None)
+    stage(world, "b")
+    body = client.post(RELOAD, json={"expected_pack_hash": world.hash["b"]}, headers=AUTH).json()
+    assert body["receipt"] is None and body["receipt_status"] is None

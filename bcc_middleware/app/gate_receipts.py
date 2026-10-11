@@ -52,6 +52,17 @@ from app.config import Settings
 logger = logging.getLogger(__name__)
 
 EVENT_CLASS = "agent.tool_call"
+#: A receipt for the operator replacing the signed pack, not for an agent's action. It sits in the same chained,
+#: signed log so the order "decisions under pack A, then the swap, then decisions under pack B" is one tamper-evident
+#: sequence. `agent_did` is the gate itself (`RELOAD_SUBJECT`): an operator authenticated by the admin token has no DID,
+#: and inventing one would put a name on the receipt that nobody holds.
+RELOAD_EVENT_CLASS = "gate.pack_reload"
+RELOAD_SUBJECT = "gate:bcc-middleware"
+RELOAD_OUTCOMES = {
+    "installed": (PERMIT, "BCC_PACK_RELOAD_INSTALLED"),
+    "unchanged": (PERMIT, "BCC_PACK_RELOAD_UNCHANGED"),
+    "refused": (DENY, "BCC_PACK_RELOAD_REFUSED"),
+}
 #: pack_hash for a decision no signed pack made (bcc.rego decided, or no policy ran). All zero on purpose: it
 #: cannot be mistaken for a real hash, and a verifier can recognise it.
 NO_PACK_HASH = "sha256:" + "00" * 32
@@ -136,6 +147,31 @@ class BccReceipts:
             return RecordResult(None, str(exc))
         except Exception as exc:  # the writer must never be able to crash a request
             logger.exception("unexpected error recording a receipt")
+            return RecordResult(None, f"{type(exc).__name__}: {exc}")
+        return RecordResult(ref, None)
+
+    async def record_pack_reload(self, *, outcome: str, previous_hash: str, requested_hash: str, active_hash: str) -> RecordResult:
+        """Record one pack reload attempt. Never raises; the caller reports the result (the swap has already happened).
+
+        `outcome` is `installed`, `unchanged` or `refused`. `pack_hash` is the pack in force AFTER the attempt (the
+        new one when installed, the previous one when refused); `action` binds the previous hash and the hash the
+        operator asked for, so the receipt identifies this exact request. A refusal's error text is deliberately not
+        in the receipt: it can quote file paths and OPA output.
+        """
+        if outcome not in RELOAD_OUTCOMES:
+            raise ValueError(f"unknown reload outcome {outcome!r}")
+        decision, reason = RELOAD_OUTCOMES[outcome]
+        try:
+            ref = await asyncio.to_thread(
+                self._writer.record,
+                agent_did=RELOAD_SUBJECT, device_id=self.gate_id, action=f"pack_reload|{previous_hash}|{requested_hash}",
+                event_class=RELOAD_EVENT_CLASS, pack_hash=active_hash, decision=decision, reason_code=reason,
+                mode=ENFORCE, controls=(),
+            )
+        except ReceiptWriteError as exc:
+            return RecordResult(None, str(exc))
+        except Exception as exc:
+            logger.exception("unexpected error recording a pack-reload receipt")
             return RecordResult(None, f"{type(exc).__name__}: {exc}")
         return RecordResult(ref, None)
 
