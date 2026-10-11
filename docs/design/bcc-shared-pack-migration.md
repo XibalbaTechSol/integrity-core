@@ -146,12 +146,33 @@ Verified: 23 SDK tests and 25 BCC pipeline tests; mutation checks (7 on the writ
 strengthened and re-caught); and a live run: real uvicorn BCC, real OPA, real signed commitments over HTTP, checked
 with `integrity-cli verify` (intact passes; a flipped decision is `BAD_SIGNATURE`; a truncated tail is `TRUNCATED`).
 
-**Stage 4: shared rulebook vectors.** One JSON file of `(policy result -> expected decision)` cases covering
-the contract's rules (no match takes the pack default, a malformed result denies, reserved reason codes are
-rejected, deny wins, shadow mode never blocks), evaluated through `resolve()` by BCC's CI and Shield's CI.
-This is what "BCC and Shield evaluate the same compiled pack" is taken to mean (decision recorded above): the
-two gates keep different packs over different inputs, and what they must share is how any policy result is
-interpreted.
+### Stage 4 (delivered here; Shield's half is xibalba-shield's PR): shared decision vectors
+
+`integrity-sdk/tests/conformance/decision_vectors.json` is the single statement of how a policy result is
+interpreted: 63 vectors, 49 `scope: result` (run by every gate) and 14 `scope: resolve` (plumbing a gate reaches
+without an evaluator result: no pack, evaluator error, unknown event class, shadow mode, bad mode). It covers the
+three declared defaults, explicit permit/deny/log_only, control pass-through, every malformed shape (missing or
+unknown fields, wrong types, the reason-code charset and 64/65 length edge, a trailing newline, a Unicode look-alike,
+the reserved `INTEGRITY_` prefix, string/list/number/boolean results, falsy non-objects) and shadow never blocking.
+**Expectations are written by hand, not generated from `resolve()`**, so the file can disagree with the code.
+
+It runs in three places: the SDK (through `resolve()`, `tests/unit/test_core_decision_vectors.py`), BCC (through its own
+`PackPolicy.decide_sync` with only the OPA transport stubbed, `bcc_middleware/tests/test_decision_vectors.py`), and
+Shield (through `PolicyEngine.evaluate_with_basis`, in its own repo, pinned to an integrity-core ref that carries the
+file). Running it through each gate's own glue, rather than only through `resolve()`, is the point: that is where a
+gate can disagree with the contract while `resolve()` is right.
+
+What it found: before this stage Shield's engine only treated a result as a decision when it had both `decision` and
+`reason_code`, and treated any non-object result as "no rule matched". So a result of `{"decision": "deny"}` or the
+string `"deny"` took the event class's default (`log_only` or `permit` for some classes) instead of failing closed as
+BCC and the contract do. Fixed in Shield's PR; the vectors are what make that fix stay fixed. Twelve vectors failed
+in Shield at first: ten were this fail-open; two (`{}`) are a documented, pinned Shield exception, because its evaluator
+returns the whole package object (display variables carry Rego defaults), so an object with none of
+`decision`/`reason_code`/`controls` means "no rule matched" there. Exceptions live in the vector file (`exceptions`), are
+validated by the SDK runner, and are capped at two.
+
+Verified: 66 SDK tests and 50 BCC tests; 17 mutations of `resolve()` and 4 of BCC's glue are caught (one first survivor,
+the defensive invalid-default branch, got its own vector; a Shield-style filter in BCC's glue fails 12 vectors).
 
 ### Gap carried forward, stated
 

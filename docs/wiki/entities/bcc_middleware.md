@@ -54,6 +54,7 @@ in the monorepo that closes that loop.
 - [Signed policy pack: stage 2, loading and dual-run (B2, 2026-10-10)](#signed-policy-pack-stage-2-loading-and-dual-run-b2-2026-10-10)
 - [Admin API authentication (2026-10-10)](#admin-api-authentication-2026-10-10)
 - [Signed decision receipts: stage 3 (B2, 2026-10-10)](#signed-decision-receipts-stage-3-b2-2026-10-10)
+- [Shared decision vectors (B2 stage 4, 2026-10-11)](#shared-decision-vectors-b2-stage-4-2026-10-11)
 
 ## Pipeline
 
@@ -381,3 +382,10 @@ Verified: 23 SDK + 25 BCC pipeline tests, mutation checks, and a live run (real 
 checked with `integrity-cli verify` (intact passes; tamper = `BAD_SIGNATURE`; truncation = `TRUNCATED`). Not built:
 Shield's swap to the SDK writer; shared rulebook vectors (stage 4); anchoring of epochs. Design:
 `docs/design/bcc-shared-pack-migration.md`; operations: `docs/runbooks/bcc-policy-pack.md` section 5.
+
+## Shared decision vectors (B2 stage 4, 2026-10-11)
+
+`tests/test_decision_vectors.py` runs the 49 `scope: result` vectors of `integrity-sdk/tests/conformance/decision_vectors.json`
+through `PackPolicy.decide_sync` with only the OPA transport stubbed, so BCC's own interpretation of a policy result is
+checked against the same file the SDK and Shield run. BCC passes all of them; a mutation that filtered results the way Shield
+used to fails 12. Design: `docs/design/bcc-shared-pack-migration.md`.

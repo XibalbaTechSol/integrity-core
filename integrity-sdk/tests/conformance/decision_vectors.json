@@ -1,0 +1,1090 @@
+{
+ "contract": "integrity.decision/1",
+ "about": "Shared conformance vectors for the decision contract (SDK contract C3). Expectations are stated by hand, never computed from resolve(), so a bug in resolve() cannot make its own vector pass. scope=result vectors are run by the SDK through resolve() AND by each gate through its own code path (BCC: PackPolicy.decide_sync; Shield: PolicyEngine.evaluate_with_basis) with the evaluator's raw result stubbed; scope=resolve vectors cover plumbing a gate reaches without an evaluator result and run through resolve() only. Result encoding: {\"$undefined\": true} is an evaluator result that was undefined (no rule matched). Changing a vector is a change to the contract surface, not a routine test update.",
+ "vectors": [
+  {
+   "name": "permit_means_permitted",
+   "why": "A permit is a permit even when the event class defaults to deny",
+   "scope": "result",
+   "default": "deny",
+   "mode": "enforce",
+   "result": {
+    "decision": "permit",
+    "reason_code": "BAA_ACTIVE"
+   },
+   "expect": {
+    "decision": "permit",
+    "reason_code": "BAA_ACTIVE",
+    "controls": [],
+    "blocks": false
+   }
+  },
+  {
+   "name": "deny_blocks_in_enforce",
+   "why": "A deny blocks when enforcing",
+   "scope": "result",
+   "default": "deny",
+   "mode": "enforce",
+   "result": {
+    "decision": "deny",
+    "reason_code": "NO_BAA"
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "NO_BAA",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "log_only_never_blocks",
+   "why": "log_only is recorded, never enforced, whatever the default",
+   "scope": "result",
+   "default": "deny",
+   "mode": "enforce",
+   "result": {
+    "decision": "log_only",
+    "reason_code": "WATCH_ONLY"
+   },
+   "expect": {
+    "decision": "log_only",
+    "reason_code": "WATCH_ONLY",
+    "controls": [],
+    "blocks": false
+   }
+  },
+  {
+   "name": "controls_are_carried_through",
+   "why": "Control ids reach the receipt in order",
+   "scope": "result",
+   "default": "deny",
+   "mode": "enforce",
+   "result": {
+    "decision": "deny",
+    "reason_code": "NO_BAA",
+    "controls": [
+     "HIPAA-164.502(b)",
+     "HIPAA-164.312(a)(1)"
+    ]
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "NO_BAA",
+    "controls": [
+     "HIPAA-164.502(b)",
+     "HIPAA-164.312(a)(1)"
+    ],
+    "blocks": true
+   }
+  },
+  {
+   "name": "empty_controls_are_fine",
+   "why": "controls may be an empty list",
+   "scope": "result",
+   "default": "deny",
+   "mode": "enforce",
+   "result": {
+    "decision": "permit",
+    "reason_code": "OK",
+    "controls": []
+   },
+   "expect": {
+    "decision": "permit",
+    "reason_code": "OK",
+    "controls": [],
+    "blocks": false
+   }
+  },
+  {
+   "name": "explicit_permit_overrides_a_log_only_default",
+   "why": "The default only applies when nothing matched",
+   "scope": "result",
+   "default": "log_only",
+   "mode": "enforce",
+   "result": {
+    "decision": "permit",
+    "reason_code": "OK"
+   },
+   "expect": {
+    "decision": "permit",
+    "reason_code": "OK",
+    "controls": [],
+    "blocks": false
+   }
+  },
+  {
+   "name": "explicit_deny_overrides_a_permit_default",
+   "why": "The default only applies when nothing matched",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "decision": "deny",
+    "reason_code": "NO"
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "NO",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "reason_code_of_64_characters_is_valid",
+   "why": "The length limit is 64 inclusive",
+   "scope": "result",
+   "default": "deny",
+   "mode": "enforce",
+   "result": {
+    "decision": "permit",
+    "reason_code": "ABBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+   },
+   "expect": {
+    "decision": "permit",
+    "reason_code": "ABBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+    "controls": [],
+    "blocks": false
+   }
+  },
+  {
+   "name": "reason_code_may_contain_digits_and_underscores",
+   "why": "Charset is A-Z, 0-9, underscore after a letter",
+   "scope": "result",
+   "default": "deny",
+   "mode": "enforce",
+   "result": {
+    "decision": "permit",
+    "reason_code": "RULE_7_OK"
+   },
+   "expect": {
+    "decision": "permit",
+    "reason_code": "RULE_7_OK",
+    "controls": [],
+    "blocks": false
+   }
+  },
+  {
+   "name": "integrity_without_underscore_is_not_reserved",
+   "why": "Only the exact INTEGRITY_ prefix is reserved",
+   "scope": "result",
+   "default": "deny",
+   "mode": "enforce",
+   "result": {
+    "decision": "permit",
+    "reason_code": "INTEGRITY"
+   },
+   "expect": {
+    "decision": "permit",
+    "reason_code": "INTEGRITY",
+    "controls": [],
+    "blocks": false
+   }
+  },
+  {
+   "name": "integrity_prefix_in_the_middle_is_not_reserved",
+   "why": "Reserved means a prefix",
+   "scope": "result",
+   "default": "deny",
+   "mode": "enforce",
+   "result": {
+    "decision": "permit",
+    "reason_code": "X_INTEGRITY_Y"
+   },
+   "expect": {
+    "decision": "permit",
+    "reason_code": "X_INTEGRITY_Y",
+    "controls": [],
+    "blocks": false
+   }
+  },
+  {
+   "name": "no_match_takes_the_deny_default",
+   "why": "An undefined result takes the event class's declared default (deny)",
+   "scope": "result",
+   "default": "deny",
+   "mode": "enforce",
+   "result": {
+    "$undefined": true
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_NO_MATCH",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "no_match_takes_the_log_only_default",
+   "why": "An undefined result takes the event class's declared default (log_only)",
+   "scope": "result",
+   "default": "log_only",
+   "mode": "enforce",
+   "result": {
+    "$undefined": true
+   },
+   "expect": {
+    "decision": "log_only",
+    "reason_code": "INTEGRITY_NO_MATCH",
+    "controls": [],
+    "blocks": false
+   }
+  },
+  {
+   "name": "no_match_takes_the_permit_default",
+   "why": "An undefined result takes the event class's declared default (permit)",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "$undefined": true
+   },
+   "expect": {
+    "decision": "permit",
+    "reason_code": "INTEGRITY_NO_MATCH",
+    "controls": [],
+    "blocks": false
+   }
+  },
+  {
+   "name": "empty_object_is_malformed",
+   "why": "Anything the gate cannot interpret fails closed",
+   "scope": "result",
+   "default": "deny",
+   "mode": "enforce",
+   "result": {},
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   },
+   "exceptions": {
+    "shield": {
+     "why": "Shield's evaluator entrypoint is the whole data.shield.policy package object, whose display variables (rule_id, name, message) carry Rego defaults, so an object with none of decision/reason_code/controls means no rule matched. Shield therefore takes the event class default for it. Any contract key present is a rule match and goes to resolve() as it is (see the neighbouring vectors).",
+     "expect": {
+      "decision": "deny",
+      "reason_code": "INTEGRITY_NO_MATCH",
+      "controls": [],
+      "blocks": true
+     }
+    }
+   }
+  },
+  {
+   "name": "empty_object_is_malformed_even_if_the_default_permits",
+   "why": "Anything the gate cannot interpret fails closed (a permissive default must not rescue it)",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {},
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   },
+   "exceptions": {
+    "shield": {
+     "why": "Shield's evaluator entrypoint is the whole data.shield.policy package object, whose display variables (rule_id, name, message) carry Rego defaults, so an object with none of decision/reason_code/controls means no rule matched. Shield therefore takes the event class default for it. Any contract key present is a rule match and goes to resolve() as it is (see the neighbouring vectors).",
+     "expect": {
+      "decision": "permit",
+      "reason_code": "INTEGRITY_NO_MATCH",
+      "controls": [],
+      "blocks": false
+     }
+    }
+   }
+  },
+  {
+   "name": "missing_reason_code_is_malformed",
+   "why": "A decision without a reason code cannot be recorded",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "decision": "deny"
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "missing_decision_is_malformed",
+   "why": "A reason code without a decision is not a decision",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "reason_code": "NO"
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "unknown_decision_is_malformed",
+   "why": "Anything the gate cannot interpret fails closed",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "decision": "allow",
+    "reason_code": "OK"
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "uppercase_decision_is_malformed",
+   "why": "Decision values are case-sensitive",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "decision": "PERMIT",
+    "reason_code": "OK"
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "boolean_decision_is_malformed",
+   "why": "Anything the gate cannot interpret fails closed",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "decision": true,
+    "reason_code": "OK"
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "null_decision_is_malformed",
+   "why": "Anything the gate cannot interpret fails closed",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "decision": null,
+    "reason_code": "OK"
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "numeric_reason_code_is_malformed",
+   "why": "Anything the gate cannot interpret fails closed",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "decision": "permit",
+    "reason_code": 7
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "null_reason_code_is_malformed",
+   "why": "Anything the gate cannot interpret fails closed",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "decision": "permit",
+    "reason_code": null
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "empty_reason_code_is_malformed",
+   "why": "Anything the gate cannot interpret fails closed",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "decision": "permit",
+    "reason_code": ""
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "lowercase_reason_code_is_malformed",
+   "why": "Reason codes are upper snake case",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "decision": "permit",
+    "reason_code": "ok"
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "reason_code_starting_with_a_digit_is_malformed",
+   "why": "Anything the gate cannot interpret fails closed",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "decision": "permit",
+    "reason_code": "7OK"
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "reason_code_starting_with_underscore_is_malformed",
+   "why": "Anything the gate cannot interpret fails closed",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "decision": "permit",
+    "reason_code": "_OK"
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "reason_code_with_hyphen_is_malformed",
+   "why": "Anything the gate cannot interpret fails closed",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "decision": "permit",
+    "reason_code": "NO-BAA"
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "reason_code_with_space_is_malformed",
+   "why": "Anything the gate cannot interpret fails closed",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "decision": "permit",
+    "reason_code": "NO BAA"
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "reason_code_with_trailing_newline_is_malformed",
+   "why": "A trailing newline must not slip past an anchored pattern",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "decision": "permit",
+    "reason_code": "OK\n"
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "reason_code_of_65_characters_is_malformed",
+   "why": "The limit is 64",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "decision": "permit",
+    "reason_code": "ABBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "unicode_lookalike_reason_code_is_malformed",
+   "why": "A Greek capital alpha is not A-Z",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "decision": "permit",
+    "reason_code": "\u0391BC"
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "reserved_reason_code_is_malformed",
+   "why": "INTEGRITY_ is the gate's namespace; a policy cannot impersonate it",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "decision": "permit",
+    "reason_code": "INTEGRITY_NO_MATCH"
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "another_reserved_reason_code_is_malformed",
+   "why": "Any INTEGRITY_ code, not just the ones in use",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_ANYTHING"
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "controls_as_a_string_is_malformed",
+   "why": "A string is iterable but is not a list of ids",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "decision": "permit",
+    "reason_code": "OK",
+    "controls": "HIPAA-1"
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "controls_as_null_is_malformed",
+   "why": "Anything the gate cannot interpret fails closed",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "decision": "permit",
+    "reason_code": "OK",
+    "controls": null
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "controls_as_an_object_is_malformed",
+   "why": "Anything the gate cannot interpret fails closed",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "decision": "permit",
+    "reason_code": "OK",
+    "controls": {
+     "a": "b"
+    }
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "a_non_string_control_is_malformed",
+   "why": "Anything the gate cannot interpret fails closed",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "decision": "permit",
+    "reason_code": "OK",
+    "controls": [
+     "A-1",
+     5
+    ]
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "an_empty_control_is_malformed",
+   "why": "Anything the gate cannot interpret fails closed",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "decision": "permit",
+    "reason_code": "OK",
+    "controls": [
+     "A-1",
+     ""
+    ]
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "a_null_control_is_malformed",
+   "why": "Anything the gate cannot interpret fails closed",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "decision": "permit",
+    "reason_code": "OK",
+    "controls": [
+     null
+    ]
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "a_string_result_is_malformed",
+   "why": "The result must be an object",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": "permit",
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "a_list_result_is_malformed",
+   "why": "Anything the gate cannot interpret fails closed",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": [
+    {
+     "decision": "deny",
+     "reason_code": "NO"
+    }
+   ],
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "a_number_result_is_malformed",
+   "why": "Anything the gate cannot interpret fails closed",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": 1,
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "a_boolean_true_result_is_malformed",
+   "why": "OPA 'allow'-style booleans are not decisions",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": true,
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "a_boolean_false_result_is_malformed",
+   "why": "False is not 'nothing matched'",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": false,
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "zero_is_malformed",
+   "why": "A falsy non-object is still not 'nothing matched'",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": 0,
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "an_empty_string_result_is_malformed",
+   "why": "A falsy non-object is still not 'nothing matched'",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": "",
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "an_empty_list_result_is_malformed",
+   "why": "A falsy non-object is still not 'nothing matched'",
+   "scope": "result",
+   "default": "permit",
+   "mode": "enforce",
+   "result": [],
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "explicit_null_result_is_the_same_as_undefined",
+   "why": "None and NO_MATCH are one thing in the Python API",
+   "scope": "resolve",
+   "default": "deny",
+   "mode": "enforce",
+   "result": null,
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_NO_MATCH",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "extra_keys_are_malformed_at_the_contract",
+   "why": "The contract result is exactly {decision, reason_code[, controls]}. (Shield strips its own display keys before resolving; see its runner.)",
+   "scope": "resolve",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "decision": "permit",
+    "reason_code": "OK",
+    "rule_id": "r1"
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  },
+  {
+   "name": "deny_does_not_block_in_shadow_mode",
+   "why": "Shadow records the would-be decision and never blocks",
+   "scope": "resolve",
+   "default": "deny",
+   "mode": "shadow",
+   "result": {
+    "decision": "deny",
+    "reason_code": "NO"
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "NO",
+    "controls": [],
+    "blocks": false
+   }
+  },
+  {
+   "name": "malformed_does_not_block_in_shadow_mode",
+   "why": "Even a fail-closed outcome is only recorded in shadow",
+   "scope": "resolve",
+   "default": "deny",
+   "mode": "shadow",
+   "result": {
+    "decision": "allow",
+    "reason_code": "OK"
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": false
+   }
+  },
+  {
+   "name": "no_match_default_deny_does_not_block_in_shadow_mode",
+   "why": "Shadow never blocks, including defaults",
+   "scope": "resolve",
+   "default": "deny",
+   "mode": "shadow",
+   "result": {
+    "$undefined": true
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_NO_MATCH",
+    "controls": [],
+    "blocks": false
+   }
+  },
+  {
+   "name": "permit_in_shadow_mode_is_permit",
+   "why": "Shadow changes blocking only",
+   "scope": "resolve",
+   "default": "deny",
+   "mode": "shadow",
+   "result": {
+    "decision": "permit",
+    "reason_code": "OK"
+   },
+   "expect": {
+    "decision": "permit",
+    "reason_code": "OK",
+    "controls": [],
+    "blocks": false
+   }
+  },
+  {
+   "name": "no_verified_pack_denies",
+   "why": "No pack means nothing was verified: fail closed",
+   "scope": "resolve",
+   "default": "deny",
+   "mode": "enforce",
+   "result": {
+    "decision": "permit",
+    "reason_code": "OK"
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_NO_PACK",
+    "controls": [],
+    "blocks": true
+   },
+   "no_pack": true
+  },
+  {
+   "name": "no_verified_pack_denies_even_with_no_result",
+   "why": "No pack outranks everything",
+   "scope": "resolve",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "$undefined": true
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_NO_PACK",
+    "controls": [],
+    "blocks": true
+   },
+   "no_pack": true
+  },
+  {
+   "name": "evaluator_error_denies",
+   "why": "An evaluator that failed cannot have permitted anything",
+   "scope": "resolve",
+   "default": "permit",
+   "mode": "enforce",
+   "result": {
+    "$undefined": true
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_EVALUATOR_ERROR",
+    "controls": [],
+    "blocks": true
+   },
+   "evaluator_error": true
+  },
+  {
+   "name": "evaluator_error_outranks_a_result",
+   "why": "If the evaluator errored, any result it also returned is ignored",
+   "scope": "resolve",
+   "default": "deny",
+   "mode": "enforce",
+   "result": {
+    "decision": "permit",
+    "reason_code": "OK"
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_EVALUATOR_ERROR",
+    "controls": [],
+    "blocks": true
+   },
+   "evaluator_error": true
+  },
+  {
+   "name": "unknown_event_class_denies",
+   "why": "An event class the pack does not declare is not 'permitted by default'",
+   "scope": "resolve",
+   "default": "deny",
+   "mode": "enforce",
+   "result": {
+    "decision": "permit",
+    "reason_code": "OK"
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_UNKNOWN_EVENT_CLASS",
+    "controls": [],
+    "blocks": true
+   },
+   "unknown_event_class": true
+  },
+  {
+   "name": "evaluator_error_in_shadow_mode_does_not_block",
+   "why": "Shadow never blocks",
+   "scope": "resolve",
+   "default": "deny",
+   "mode": "shadow",
+   "result": {
+    "$undefined": true
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_EVALUATOR_ERROR",
+    "controls": [],
+    "blocks": false
+   },
+   "evaluator_error": true
+  },
+  {
+   "name": "an_unknown_mode_is_a_configuration_error",
+   "why": "A bad mode is a bug, not a policy outcome",
+   "scope": "resolve",
+   "default": "deny",
+   "mode": "observe",
+   "result": {
+    "decision": "permit",
+    "reason_code": "OK"
+   },
+   "expect": {
+    "raises": "ValueError"
+   }
+  },
+  {
+   "name": "an_undeclared_default_value_is_malformed",
+   "why": "A verified pack cannot declare one, but if a gate is ever handed a default outside deny/log_only/permit it must fail closed rather than guess",
+   "scope": "resolve",
+   "default": "deny",
+   "invalid_default": "block",
+   "mode": "enforce",
+   "result": {
+    "$undefined": true
+   },
+   "expect": {
+    "decision": "deny",
+    "reason_code": "INTEGRITY_MALFORMED_DECISION",
+    "controls": [],
+    "blocks": true
+   }
+  }
+ ]
+}

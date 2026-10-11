@@ -4115,3 +4115,14 @@ writeup: PRODUCTION_GAPS.md §18.
   (unset = 503). Owner decision. 7 new tests incl. a structural check that every POST route outside the two public
   agent-facing ones carries the dependency; one mutation (dropping it from a route) is caught. BCC suite 277 passed.
 
+## [2026-10-11] update | Shared decision-contract vectors (B2 stage 4)
+
+- Added `integrity-sdk/tests/conformance/decision_vectors.json` (63 hand-written vectors, 49 gate-level) and runners in the
+  SDK (through `resolve()`) and `bcc_middleware` (through `PackPolicy.decide_sync`, OPA transport stubbed). Shield's runner
+  and its glue fix are a separate PR in xibalba-shield. Expectations are not generated from the implementation.
+- Finding: Shield's engine treated a result with `decision` but no `reason_code`, and any non-object result, as "no rule
+  matched", so those took the event class's default instead of failing closed as the contract requires. Fixed in Shield's PR (10 of its 12 initial failures; the other 2, `{}`, are a documented Shield exception recorded in the
+  vector file).
+- Verified: SDK 66 and BCC 50 vector tests; 17 mutations of `resolve()` and 4 of BCC's glue caught. B2 stays unticked until
+  Shield's half merges and the plan's remaining wording (atomic loads) is checked against both gates.
+
