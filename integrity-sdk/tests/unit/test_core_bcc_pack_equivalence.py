@@ -264,6 +264,31 @@ def test_every_control_the_pack_cites_is_declared_in_controls_yaml(loaded_pack, 
     assert cited and cited <= declared
 
 
+#: Reason codes the pack can report that cite NO control. This is a stated gap for the compliance owner, not an oversight:
+#: docs/CONTROLS_MATRIX.md maps only access control (164.312(a)) and audit controls (164.312(b)), which are exactly the
+#: rules that cite them. Mapping the rest would be inventing a compliance claim, so they cite none. The test below pins this
+#: list, so adding a rule forces a conscious choice: cite a control, or add the code here and say why.
+CODES_WITHOUT_A_CONTROL = {
+    "BCC_MALFORMED_COMMITMENT",          # an unreadable request; no control applies
+    "HIPAA_TECHNICAL_SAFEGUARD_FAILURE",  # SSN/PHI-shaped intent labels; the matrix does not map it to a sub-control
+    "POLICY_VIOLATION",                  # suspicious-label pattern checks
+    "TOKEN_BUDGET_OPA",                  # cost control, not a HIPAA safeguard
+}
+
+
+def test_the_rules_that_cite_no_control_are_exactly_the_known_gap():
+    import re
+
+    source = (PACK_DIR / "policy.rego").read_text()
+    priority = set(re.findall(r'"([A-Z_]+)"', source[source.index("_priority := ["):source.index("]", source.index("_priority := ["))]))
+    controls_block = source[source.index("_controls := {"):source.index("}", source.index("_controls := {"))]
+    cited = set(re.findall(r'"([A-Z_]+)":', controls_block))
+    assert cited <= priority, "a control is attached to a code that cannot be reported"
+    assert priority - cited == CODES_WITHOUT_A_CONTROL, (
+        "a rule gained or lost a control citation: cite a control, or add the code to CODES_WITHOUT_A_CONTROL with the reason"
+    )
+
+
 def test_an_event_class_the_pack_does_not_declare_denies(loaded_pack, pack_client):
     raw = pack_client.query(loaded_pack, {**_BASE, "event_class": "device.sensor"})
     decision = d.resolve("device.sensor", raw, event_defaults=loaded_pack.event_defaults, pack_hash=loaded_pack.pack_hash)
