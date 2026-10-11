@@ -181,3 +181,9 @@ the defensive invalid-default branch, got its own vector; a Shield-style filter 
 pattern checks and the token budget cite none. Gate B-local's "every rule cites a control" is **not**
 met for this pack; closing it is a compliance-owner decision, and the evidence does not certify legal
 compliance (`docs/CONTROLS_MATRIX.md` section 0).
+
+**Now machine-checked (2026-10-11).** `test_the_rules_that_cite_no_control_are_exactly_the_known_gap` pins the four codes that cite
+no control (`BCC_MALFORMED_COMMITMENT`, `HIPAA_TECHNICAL_SAFEGUARD_FAILURE`, `POLICY_VIOLATION`, `TOKEN_BUDGET_OPA`) with the
+reason for each, so a new rule must either cite a control or be added to that list on purpose. The gap itself stays open on
+purpose: `docs/CONTROLS_MATRIX.md` maps only access control and audit controls, and citing a HIPAA sub-control for the others
+would be inventing a compliance claim that the compliance owner has not made.
