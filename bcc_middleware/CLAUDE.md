@@ -120,6 +120,10 @@ Things that will bite if forgotten:
 - `/v1/admin/*` requires `Authorization: Bearer $BCC_ADMIN_TOKEN` (`require_admin`; unset = 503, token under 32
   characters stops startup). The three other state-changing endpoints (reputation sync, anchor flush, spool retry)
   are still unauthenticated.
+- The pack can be replaced at runtime: `POST /v1/admin/policy-pack/reload {"expected_pack_hash"}` (admin token). Verified first,
+  named by hash, old pack kept on any failure; each decision uses ONE pack snapshot (`PackPolicy.decide_sync`), and
+  `_reinstall_if_forgotten(pack)` must never re-install a pack that is no longer the enforced one. Trusted signers and the
+  pack OPA URL stay startup configuration. Update `BCC_POLICY_PACK_HASH` when you reload if you pin it.
 - `Settings.__post_init__` must stay a single method; a second definition silently replaces the first.
 
 ### Signed decision receipts (`app/gate_receipts.py`) -- B2 stage 3

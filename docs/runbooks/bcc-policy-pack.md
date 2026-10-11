@@ -85,7 +85,28 @@ What a receipt does **not** cover: denials before the signature verifies (open b
 signature). Rotating the signing or HMAC key starts a new log; keep the old directory for audit. Nothing links an
 epoch to the next, so deleting the newest epoch is undetectable until anchoring of closed epochs exists `[PLANNED]`.
 
+## 6. Replacing the pack without a restart
+
+`POST /v1/admin/policy-pack/reload` (admin bearer token) with `{"expected_pack_hash": "sha256:..."}`.
+
+1. Sign the new pack with a key already in `BCC_TRUSTED_PACK_SIGNERS` and put it in `BCC_POLICY_PACK_DIR` (replace the files
+   there). Note its hash.
+2. Call the endpoint naming that hash. The candidate is verified FIRST (signature, manifest, every file hash, expiry,
+   declared event class) and must hash to what you named; a pack swapped on disk by someone else cannot be activated by a
+   call that does not know its hash. Only then is it installed.
+3. All-or-nothing: on any failure the previous pack keeps enforcing (HTTP 409 with the reason). If the install fails after
+   verification, the previous pack is put back; if even that fails, **every decision denies** until a reload succeeds or
+   the service restarts (CRITICAL in the log). Reloading the pack already running is a no-op (`changed: false`).
+4. Decisions that start during the swap wait (up to 5 s) instead of being denied; a decision already in flight when OPA's
+   policy is replaced fails closed as `BCC_POLICY_ENGINE_UNAVAILABLE` and is never charged to the agent. Nothing can be
+   allowed by the wrong pack: each decision uses one snapshot of the pack for its hash, defaults and evaluated policy.
+5. `GET /health` -> `policy.pack` shows the running `hash`, `reloads` and `last_reload`.
+
+What a reload does **not** change: the trusted signers and `BCC_PACK_OPA_URL` (startup configuration; who may sign policy is
+not a runtime call). It also does not edit `BCC_POLICY_PACK_HASH`: **if you pin it, update the pin when you reload**, or the
+next restart will refuse the new pack, which is the pin working as designed. The reload is logged and counted but is not a
+signed receipt `[PLANNED]`.
+
 ## What is not built
 
-Hot reload of the pack itself (a new pack is a restart); shared conformance vectors (stage 4); authentication on the admin endpoints (see the finding
-in the design doc).
+A signed receipt for a pack reload itself (it is logged and counted on `/health`, not signed) `[PLANNED]`.

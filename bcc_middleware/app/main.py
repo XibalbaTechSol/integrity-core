@@ -73,6 +73,8 @@ from app.schemas import (
     BCCInterceptResponse,
     ClinicalAllowlistRequest,
     ClinicalAllowlistResponse,
+    PolicyPackReloadRequest,
+    PolicyPackReloadResponse,
     HealthResponse,
     VerifyTokenRequest,
     VerifyTokenResponse,
@@ -1013,6 +1015,29 @@ async def set_clinical_allowlist(request: ClinicalAllowlistRequest) -> ClinicalA
     if resp.status_code not in (200, 204):
         raise HTTPException(status_code=502, detail=f"OPA returned HTTP {resp.status_code}: {resp.text[:500]}")
     return ClinicalAllowlistResponse(agents=request.agents)
+
+
+@app.post("/v1/admin/policy-pack/reload", response_model=PolicyPackReloadResponse, dependencies=[Depends(require_admin)])
+async def reload_policy_pack(request: PolicyPackReloadRequest) -> PolicyPackReloadResponse:
+    """Replace the running signed pack with the one now in BCC_POLICY_PACK_DIR, or change nothing.
+
+    All-or-nothing: the candidate is verified (signature against the startup trusted signers, manifest, file hashes,
+    expiry) and must hash to `expected_pack_hash` BEFORE anything is installed; on any failure the previous pack keeps
+    enforcing (see app/pack_policy.py, "Hot reload"). 409 when no pack is loaded or the reload is refused. The trusted
+    signers and the pack OPA URL are startup configuration and are not changed here. Update BCC_POLICY_PACK_HASH if you
+    pin it, or the next restart will refuse the new pack.
+    """
+    policy = pack_policy
+    if policy is None:
+        raise HTTPException(status_code=409, detail=f"no policy pack is loaded ({pack_policy_error or 'BCC_POLICY_PACK_DIR is not set'})")
+    try:
+        result = await asyncio.to_thread(policy.reload, default_settings, expected_pack_hash=request.expected_pack_hash)
+    except PackPolicyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return PolicyPackReloadResponse(
+        changed=result.changed, previous_hash=result.previous_hash, pack_hash=result.pack_hash,
+        name=result.name, version=result.version,
+    )
 
 
 @app.get("/health", response_model=HealthResponse)
