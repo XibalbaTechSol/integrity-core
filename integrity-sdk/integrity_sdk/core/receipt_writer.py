@@ -54,10 +54,26 @@ them at each checkpoint, so one eternal log grows without bound. Rotation caps b
 
 * Nothing in the files links epoch *N* to epoch *N+1*. At start-up the numbering must be contiguous, so
   deleting an epoch from the *middle* is refused, but deleting the *newest* epoch(s), or the whole
-  directory, cannot be detected from the files. Anchoring each closed epoch's final checkpoint (B4) is what
-  closes that, and is `[PLANNED]` for gates.
+  directory, cannot be detected from the files alone. Anchoring each closed epoch's final checkpoint (see
+  "Anchoring closed epochs" below) is what closes that for every epoch that has closed.
 * Only the newest epoch is verified at start-up (verifying all of them is O(total) and a restart should not
   scale with history). `verify_epoch_directory` does the full audit offline.
+
+Anchoring closed epochs (what makes deleting the newest epoch detectable)
+------------------------------------------------------------------------
+Every epoch below the current one is closed by construction: rotation writes its covering final checkpoint before the next
+epoch opens. `GateReceiptWriter.pending_anchors()` lists the closed epochs whose final checkpoint root has not yet been
+anchored; the gate (never this module -- `core` imports no web3) anchors each root, e.g. with
+`integrity_sdk.evidence_anchor.anchor_checkpoint_root`, then calls `mark_anchored(closure, tx_hash)`. That appends one line to
+`anchors.jsonl` in the epoch directory. Roots always come from the epoch's own *signed* final checkpoint, never from the
+ledger, so editing the ledger cannot make a wrong root look anchored.
+
+`verify_epoch_directory(..., anchored_roots=...)` then closes the gap this module used to state as a limit: pass the roots the
+chain holds for this gate (filter by the gate's anchoring account; the chain also holds other gates' roots) and every one
+must equal some epoch's final root, so a deleted or rewritten epoch is reported. If the ledger survives, each anchored
+entry is also cross-checked against the epoch directory. What this does NOT cover, stated: the *open* epoch is not anchored
+until it closes, so deleting it (and only it) is undetectable for up to one epoch; and the ledger is a worklist, not
+evidence -- the signed checkpoints and the chain are.
 
 Other known limits
 ------------------
@@ -79,6 +95,7 @@ this module.
 from __future__ import annotations
 
 import calendar
+import dataclasses
 import json
 import logging
 import os
@@ -91,12 +108,14 @@ from pathlib import Path
 from typing import Any, Callable, Collection, Mapping, Optional, Sequence
 
 from ..did import Keypair
-from .receipts import ReceiptError, ReceiptLog, hmac_identifier, receipt_hash, verify_log
+from .receipts import ReceiptError, ReceiptLog, hmac_identifier, receipt_hash, verify_checkpoint, verify_log
 
 logger = logging.getLogger(__name__)
 
 RECEIPTS_FILENAME = "receipts.jsonl"
 CHECKPOINTS_FILENAME = "checkpoints.jsonl"
+#: Rotation mode only: one line per closed epoch whose final checkpoint root has been anchored.
+ANCHORS_FILENAME = "anchors.jsonl"
 
 #: Receipts between automatic checkpoints. A clean close always writes a final one.
 DEFAULT_CHECKPOINT_EVERY = 100
@@ -125,6 +144,17 @@ class ReceiptRef:
     hash: str
     #: The log (epoch) the receipt is in. `seq` alone is ambiguous once logs rotate.
     log_id: str = ""
+
+
+@dataclass(frozen=True)
+class EpochClosure:
+    """A closed epoch and the signed final-checkpoint root that needs anchoring (or is anchored)."""
+
+    epoch: int
+    log_id: str
+    tree_size: int
+    root: str  # 0x + 64 hex, from the epoch's own signed final checkpoint
+    directory: Path
 
 
 @dataclass(frozen=True)
@@ -470,6 +500,79 @@ class GateReceiptWriter:
         self._current, self._epoch_number = fresh, number
         logger.info("receipt epoch %d closed (%d receipts); epoch %d opened", number - 1, old.count, number)
 
+    # ------------------------------------------------------------------ anchoring closed epochs
+
+    def _closure_of(self, number: int) -> EpochClosure:
+        """The closure of epoch `number`, from its SIGNED final checkpoint. Refuses an epoch that is not covered."""
+        folder = self._epoch_dir(number)
+        expected = epoch_log_id(self._base_log_id, number)
+        receipts = _read_readonly(folder / RECEIPTS_FILENAME)
+        checkpoints = _read_readonly(folder / CHECKPOINTS_FILENAME)
+        if not checkpoints:
+            raise ReceiptSetupError(f"closed epoch {number} has no checkpoint: it cannot be anchored")
+        final = checkpoints[-1]
+        try:
+            verify_checkpoint(final, trusted_signers=[self.signer_key])
+        except ReceiptError as exc:
+            raise ReceiptSetupError(f"closed epoch {number}'s final checkpoint does not verify: {exc}") from exc
+        if final.get("log_id") != expected or final["tree_size"] != len(receipts):
+            raise ReceiptSetupError(f"closed epoch {number}'s final checkpoint does not cover all {len(receipts)} of its receipts")
+        return EpochClosure(epoch=number, log_id=expected, tree_size=final["tree_size"], root=final["root"], directory=folder)
+
+    def _anchored_epochs(self) -> dict[int, dict[str, Any]]:
+        path = self.directory / ANCHORS_FILENAME
+        return {int(row["epoch"]): row for row in _read_readonly(path)} if path.exists() else {}
+
+    def closed_epochs(self) -> list[EpochClosure]:
+        """Every closed epoch (all below the current one), each rooted in its own signed final checkpoint. [] without rotation."""
+        with self._lock:
+            if self._rotation is None or self._epoch_number is None:
+                return []
+            return [self._closure_of(n) for n in range(1, self._epoch_number)]
+
+    def pending_anchors(self) -> list[EpochClosure]:
+        """Closed epochs whose final checkpoint root has not been recorded as anchored, oldest first."""
+        anchored = self._anchored_epochs()
+        return [c for c in self.closed_epochs() if c.epoch not in anchored]
+
+    def pending_anchor_count(self) -> int:
+        """How many closed epochs still need anchoring, WITHOUT re-verifying their checkpoints (cheap enough for /health)."""
+        with self._lock:
+            if self._rotation is None or self._epoch_number is None:
+                return 0
+            closed = range(1, self._epoch_number)
+        anchored = self._anchored_epochs()
+        return sum(1 for n in closed if n not in anchored)
+
+    def mark_anchored(self, closure: EpochClosure, tx_hash: str) -> None:
+        """Record that `closure`'s root is anchored (`tx_hash` names where). Raises if it is not a closed epoch of this log
+        or its root is not the epoch's signed final root, so the ledger can never claim a root the epoch does not have."""
+        if not tx_hash:
+            raise ReceiptWriteError("mark_anchored needs the anchoring transaction hash")
+        with self._lock:
+            if self._rotation is None or self._epoch_number is None or not 1 <= closure.epoch < self._epoch_number:
+                raise ReceiptWriteError(f"epoch {closure.epoch} is not a closed epoch of this log")
+            actual = self._closure_of(closure.epoch)
+            if actual.root != closure.root:
+                raise ReceiptWriteError(f"epoch {closure.epoch}'s root is {actual.root}, not {closure.root}")
+            path = self.directory / ANCHORS_FILENAME
+            existed = path.exists()
+            line = json.dumps({"epoch": actual.epoch, "log_id": actual.log_id, "root": actual.root, "tx_hash": tx_hash,
+                               "at": int(self._clock())}, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n"
+            fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+            try:
+                try:
+                    view = memoryview(line)
+                    while view:
+                        view = view[os.write(fd, view):]
+                    os.fsync(fd)
+                except OSError as exc:
+                    raise ReceiptWriteError(f"could not record the anchor: {exc}") from exc
+            finally:
+                os.close(fd)
+            if not existed:
+                _fsync_directory(self.directory)
+
     # ----------------------------------------------------------------------- writing
 
     def record(
@@ -548,16 +651,28 @@ class EpochAudit:
     log_id: str
     receipts: int
     closed: bool  # True when its newest checkpoint covers every receipt
+    #: True when the anchor ledger or the supplied chain roots cover this epoch; None when neither was available to say.
+    anchored: Optional[bool] = None
 
 
-def verify_epoch_directory(directory: str | os.PathLike[str], *, base_log_id: str, trusted_signers: Collection[str]) -> list[EpochAudit]:
+def verify_epoch_directory(
+    directory: str | os.PathLike[str],
+    *,
+    base_log_id: str,
+    trusted_signers: Collection[str],
+    anchored_roots: Optional[Collection[str]] = None,
+) -> list[EpochAudit]:
     """Fully verify every epoch under `directory` with the SDK's own `verify_log`. Raises `ReceiptError`/`ReceiptSetupError`.
 
     This is the O(total) audit the writer's start-up deliberately does not do. It checks, for each epoch: the
     numbering is contiguous from 1; every receipt and checkpoint carries that epoch's log id; the whole chain and
     its newest checkpoint verify; and every epoch except the newest is *closed*, i.e. its newest checkpoint covers
     all of its receipts (an epoch closed without covering its tail is an epoch whose tail could be cut unseen).
-    It cannot tell that the newest epoch(s), or the whole directory, were removed: that needs anchoring (B4).
+    `anchored_roots` is what makes removal detectable: pass the checkpoint roots the chain holds for THIS gate (the chain also
+    holds other gates' roots, so filter by the gate's anchoring account). Every one must equal some epoch's final checkpoint
+    root; one that matches none means an epoch was deleted or rewritten, and is reported. If `anchors.jsonl` survives, each of
+    its entries is also cross-checked against the epoch it names. Without `anchored_roots` the newest epoch(s), or the whole
+    directory, being removed cannot be detected from the files. The open epoch is not anchored until it closes.
     """
     root = Path(directory)
     numbers = _epoch_numbers(root)
@@ -566,6 +681,7 @@ def verify_epoch_directory(directory: str | os.PathLike[str], *, base_log_id: st
     if numbers != list(range(1, numbers[-1] + 1)):
         raise ReceiptSetupError(f"{root} is missing epoch(s) {sorted(set(range(1, numbers[-1] + 1)) - set(numbers))}")
     audits: list[EpochAudit] = []
+    final_roots: dict[int, str] = {}
     for number in numbers:
         folder = root / f"epoch-{number:06d}"
         expected = epoch_log_id(base_log_id, number)
@@ -578,8 +694,32 @@ def verify_epoch_directory(directory: str | os.PathLike[str], *, base_log_id: st
         closed = bool(checkpoints) and checkpoints[-1]["tree_size"] == len(receipts)
         if number != numbers[-1] and not closed:
             raise ReceiptSetupError(f"epoch {number} is not the newest but its checkpoints do not cover all {len(receipts)} receipts")
+        if checkpoints:
+            final_roots[number] = checkpoints[-1]["root"]
         audits.append(EpochAudit(number=number, log_id=expected, receipts=len(receipts), closed=closed))
-    return audits
+
+    ledger_path = root / ANCHORS_FILENAME
+    ledger = _read_readonly(ledger_path) if ledger_path.exists() else []
+    for entry in ledger:
+        number = entry.get("epoch")
+        if number not in final_roots:
+            raise ReceiptSetupError(f"{ANCHORS_FILENAME} records epoch {number} as anchored, but that epoch is not in {root}")
+        if entry.get("root") != final_roots[number]:
+            raise ReceiptSetupError(f"{ANCHORS_FILENAME} records a root for epoch {number} that is not its final checkpoint root")
+    if anchored_roots is not None:
+        known = set(final_roots.values())
+        unmatched = sorted(set(anchored_roots) - known)
+        if unmatched:
+            raise ReceiptSetupError(
+                f"{len(unmatched)} anchored root(s) match no epoch in {root} (first: {unmatched[0]}): an epoch was removed or rewritten"
+            )
+    ledger_epochs = {entry["epoch"] for entry in ledger}
+    anchored_set = set(anchored_roots) if anchored_roots is not None else set()
+    return [
+        dataclasses.replace(a, anchored=(a.number in ledger_epochs or final_roots.get(a.number) in anchored_set)
+                            if (ledger or anchored_roots is not None) else None)
+        for a in audits
+    ]
 
 
 def _read_readonly(path: Path) -> list[dict[str, Any]]:

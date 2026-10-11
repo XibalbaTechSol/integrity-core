@@ -187,6 +187,8 @@ services:
       BCC_GATE_ID: ${BCC_GATE_ID:-bcc-middleware}
       BCC_RECEIPT_EPOCH_MAX_RECEIPTS: ${BCC_RECEIPT_EPOCH_MAX_RECEIPTS:-50000}
       BCC_LENIENT_RECEIPTS: ${BCC_LENIENT_RECEIPTS:-false}
+      BCC_RECEIPT_ANCHOR_ENABLED: ${BCC_RECEIPT_ANCHOR_ENABLED:-false}
+      BCC_RECEIPT_ANCHOR_INTERVAL_SECONDS: ${BCC_RECEIPT_ANCHOR_INTERVAL_SECONDS:-300}
     volumes:
       - ./deployments.baseSepolia.json:/deployments.baseSepolia.json
       - ./deployments.local.json:/deployments.local.json

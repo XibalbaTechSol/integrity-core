@@ -7,14 +7,16 @@ file descriptor, a directory in place of a file), not stubs of the writer's own 
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
+import shutil
 import threading
 
 import pytest
 
 from integrity_sdk.core import (
-    GateReceiptWriter, ReceiptSetupError, ReceiptWriteError, RotationPolicy, derive_log_id, epoch_log_id,
+    EpochClosure, GateReceiptWriter, ReceiptSetupError, ReceiptWriteError, RotationPolicy, derive_log_id, epoch_log_id,
     hmac_identifier, load_hmac_key, load_signer, verify_epoch_directory, verify_log,
 )
 from integrity_sdk.core.receipts import verify_checkpoint
@@ -312,3 +314,174 @@ def test_checkpoints_are_periodic_not_per_record(tmp_path):
     assert sizes == [3, 6], "a checkpoint every 3 receipts, and none in between"
     writer.close()
     assert [c["tree_size"] for c in _rows(tmp_path / "r" / "checkpoints.jsonl")] == [3, 6, 7]
+
+
+# ------------------------------------------------------------------------------------ anchoring closed epochs
+
+
+def _rotated(tmp_path, receipts=5, per_epoch=2):
+    """Epochs 1 and 2 closed (2 receipts each), epoch 3 open with 1 receipt."""
+    signer = Keypair.generate()
+    writer = GateReceiptWriter(tmp_path / "e", signer=signer, hmac_key=HMAC_KEY, log_id="t:1", rotation=RotationPolicy(max_receipts=per_epoch))
+    for _ in range(receipts):
+        writer.record(**KW)
+    return writer, signer
+
+
+def _final_root(directory, number):
+    return _rows(directory / f"epoch-{number:06d}" / "checkpoints.jsonl")[-1]["root"]
+
+
+def test_closed_epochs_are_rooted_in_their_signed_final_checkpoints(tmp_path):
+    writer, _ = _rotated(tmp_path)
+    closed = writer.closed_epochs()
+    assert [(c.epoch, c.tree_size) for c in closed] == [(1, 2), (2, 2)]
+    assert [c.root for c in closed] == [_final_root(tmp_path / "e", 1), _final_root(tmp_path / "e", 2)]
+    assert [c.log_id for c in closed] == [epoch_log_id("t:1", 1), epoch_log_id("t:1", 2)]
+    assert writer.pending_anchors() == closed
+    writer.close()
+
+
+def test_marking_an_epoch_anchored_removes_it_from_pending_and_survives_a_restart(tmp_path):
+    writer, signer = _rotated(tmp_path)
+    first = writer.pending_anchors()[0]
+    writer.mark_anchored(first, "0xtx1")
+    assert [c.epoch for c in writer.pending_anchors()] == [2]
+    writer.close()
+    reopened = GateReceiptWriter(tmp_path / "e", signer=signer, hmac_key=HMAC_KEY, log_id="t:1", rotation=RotationPolicy(max_receipts=2))
+    assert [c.epoch for c in reopened.pending_anchors()] == [2], "the ledger is durable"
+    ledger = _rows(tmp_path / "e" / "anchors.jsonl")
+    assert [(r["epoch"], r["root"], r["tx_hash"]) for r in ledger] == [(1, first.root, "0xtx1")]
+    assert (tmp_path / "e" / "anchors.jsonl").stat().st_mode & 0o777 == 0o600
+    reopened.close()
+
+
+def test_a_new_epoch_closing_adds_to_pending(tmp_path):
+    writer, _ = _rotated(tmp_path)
+    for closure in writer.pending_anchors():
+        writer.mark_anchored(closure, "0xtx")
+    assert writer.pending_anchors() == []
+    writer.record(**KW)  # fills epoch 3 (2 receipts)
+    writer.record(**KW)  # rotates: epoch 3 closes, epoch 4 opens
+    assert [c.epoch for c in writer.pending_anchors()] == [3]
+    writer.close()
+
+
+def test_mark_anchored_refuses_what_the_log_does_not_have(tmp_path):
+    writer, _ = _rotated(tmp_path)
+    closure = writer.pending_anchors()[0]
+    with pytest.raises(ReceiptWriteError, match="transaction hash"):
+        writer.mark_anchored(closure, "")
+    with pytest.raises(ReceiptWriteError, match="not a closed epoch"):  # the OPEN epoch cannot be anchored
+        writer.mark_anchored(dataclasses.replace(closure, epoch=3), "0xtx")
+    with pytest.raises(ReceiptWriteError, match="not a closed epoch"):
+        writer.mark_anchored(dataclasses.replace(closure, epoch=9), "0xtx")
+    with pytest.raises(ReceiptWriteError, match="root is"):  # a root the epoch's signed checkpoint does not have
+        writer.mark_anchored(dataclasses.replace(closure, root="0x" + "ab" * 32), "0xtx")
+    assert not (tmp_path / "e" / "anchors.jsonl").exists()
+    writer.close()
+
+
+def test_a_tampered_final_checkpoint_cannot_be_anchored(tmp_path):
+    writer, _ = _rotated(tmp_path)
+    path = tmp_path / "e" / "epoch-000001" / "checkpoints.jsonl"
+    row = _rows(path)[-1]
+    row["root"] = "0x" + "cd" * 32  # signature no longer covers this
+    path.write_text(json.dumps(row) + "\n")
+    with pytest.raises(ReceiptSetupError, match="does not verify"):
+        writer.pending_anchors()
+    writer.close()
+
+
+def test_without_rotation_there_is_nothing_to_anchor(tmp_path):
+    writer = _writer(tmp_path)
+    writer.record(**KW)
+    assert writer.closed_epochs() == [] and writer.pending_anchors() == []
+    with pytest.raises(ReceiptWriteError):
+        writer.mark_anchored(EpochClosure(1, "t:1.e000001", 1, "0x" + "00" * 32, tmp_path), "0xtx")
+    writer.close()
+
+
+def test_audit_detects_a_removed_newest_closed_epoch_given_the_chains_roots(tmp_path):
+    writer, signer = _rotated(tmp_path)
+    chain_roots = [c.root for c in writer.pending_anchors()]  # what the gate anchored: epochs 1 and 2
+    writer.close()
+    signers = [writer.signer_key]
+    audits = verify_epoch_directory(tmp_path / "e", base_log_id="t:1", trusted_signers=signers, anchored_roots=chain_roots)
+    assert [(a.number, a.anchored) for a in audits] == [(1, True), (2, True), (3, False)]
+
+    shutil.rmtree(tmp_path / "e" / "epoch-000003")
+    shutil.rmtree(tmp_path / "e" / "epoch-000002")  # the attacker removes the newest closed epoch (and the open one)
+    with pytest.raises(ReceiptSetupError, match="match no epoch"):
+        verify_epoch_directory(tmp_path / "e", base_log_id="t:1", trusted_signers=signers, anchored_roots=chain_roots)
+    # ...and without the chain's roots the removal is, as documented, invisible:
+    assert len(verify_epoch_directory(tmp_path / "e", base_log_id="t:1", trusted_signers=signers)) == 1
+
+
+def test_audit_ignores_chain_roots_it_was_not_given_but_requires_every_one_it_was(tmp_path):
+    writer, _ = _rotated(tmp_path)
+    writer.close()
+    signers = [writer.signer_key]
+    with pytest.raises(ReceiptSetupError, match="match no epoch"):
+        verify_epoch_directory(tmp_path / "e", base_log_id="t:1", trusted_signers=signers, anchored_roots=["0x" + "ee" * 32])
+    assert verify_epoch_directory(tmp_path / "e", base_log_id="t:1", trusted_signers=signers, anchored_roots=[])  # nothing to check
+
+
+def test_audit_cross_checks_the_ledger_against_the_epochs(tmp_path):
+    writer, _ = _rotated(tmp_path)
+    for closure in writer.pending_anchors():
+        writer.mark_anchored(closure, "0xtx")
+    writer.close()
+    signers = [writer.signer_key]
+    audits = verify_epoch_directory(tmp_path / "e", base_log_id="t:1", trusted_signers=signers)
+    assert [(a.number, a.anchored) for a in audits] == [(1, True), (2, True), (3, False)]
+
+    ledger = tmp_path / "e" / "anchors.jsonl"
+    original = ledger.read_text()
+    rows = _rows(ledger)
+    rows[0]["root"] = "0x" + "ff" * 32
+    ledger.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    with pytest.raises(ReceiptSetupError, match="not its final checkpoint root"):
+        verify_epoch_directory(tmp_path / "e", base_log_id="t:1", trusted_signers=signers)
+    ledger.write_text(original)
+    shutil.rmtree(tmp_path / "e" / "epoch-000003")
+    shutil.rmtree(tmp_path / "e" / "epoch-000002")
+    with pytest.raises(ReceiptSetupError, match="not in"):  # the ledger survived the deletion and says epoch 2 existed
+        verify_epoch_directory(tmp_path / "e", base_log_id="t:1", trusted_signers=signers)
+
+
+def test_anchored_is_unknown_when_nothing_can_say(tmp_path):
+    writer, _ = _rotated(tmp_path)
+    writer.close()
+    audits = verify_epoch_directory(tmp_path / "e", base_log_id="t:1", trusted_signers=[writer.signer_key])
+    assert [a.anchored for a in audits] == [None, None, None]
+
+
+def test_an_epoch_whose_final_checkpoint_does_not_cover_its_receipts_cannot_be_anchored(tmp_path):
+    """Rotation closes an epoch only after a covering checkpoint. If that checkpoint was cut away, anchoring the earlier one would
+    anchor a root that leaves the epoch's tail uncovered -- refuse rather than certify a truncatable log."""
+    signer = Keypair.generate()
+    writer = GateReceiptWriter(tmp_path / "e", signer=signer, hmac_key=HMAC_KEY, log_id="t:1", checkpoint_every=1,
+                               rotation=RotationPolicy(max_receipts=2))
+    for _ in range(3):
+        writer.record(**KW)  # epoch 1: receipts 0,1 with checkpoints at sizes 1 and 2; epoch 2 open
+    path = tmp_path / "e" / "epoch-000001" / "checkpoints.jsonl"
+    path.write_text("\n".join(path.read_text().splitlines()[:-1]) + "\n")  # drop the covering (size 2) checkpoint
+    with pytest.raises(ReceiptSetupError, match="does not cover"):
+        writer.pending_anchors()
+    writer.close()
+
+
+def test_the_first_ledger_entry_makes_the_new_files_name_durable(tmp_path, monkeypatch):
+    import integrity_sdk.core.receipt_writer as module
+
+    synced: list[str] = []
+    real = module._fsync_directory
+    monkeypatch.setattr(module, "_fsync_directory", lambda directory: (synced.append(directory.name), real(directory))[1])
+    writer, _ = _rotated(tmp_path)
+    synced.clear()
+    first, second = writer.pending_anchors()
+    writer.mark_anchored(first, "0xa")
+    writer.mark_anchored(second, "0xb")
+    assert synced == ["e"], "the directory is synced once, when anchors.jsonl is created, not on every append"
+    writer.close()

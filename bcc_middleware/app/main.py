@@ -64,6 +64,7 @@ from app.config import Settings, settings as default_settings
 from app.merkle import MerkleBatcher, leaf_hash
 from app.nonce_store import NonceStore
 from app.opa_client import OPADecision, OPAUnavailableError, evaluate as opa_evaluate
+from app.receipt_anchor import anchor_pending_epochs
 from app.gate_receipts import NO_PACK_HASH, REASON_RECEIPT_UNAVAILABLE, REASON_REGO_DENY, REASON_REGO_PERMIT, BccReceipts, RecordResult
 from integrity_sdk.core import ReceiptSetupError
 from app.pack_policy import PackPolicy, PackPolicyError, requires_baa as pack_requires_baa
@@ -99,6 +100,7 @@ logger = logging.getLogger("bcc_middleware")
 _score_sync_task: asyncio.Task | None = None
 _spool_retry_task: asyncio.Task | None = None
 _anchor_flush_task: asyncio.Task | None = None
+_receipt_anchor_task: asyncio.Task | None = None
 _audit_shutdown_started = False
 _anchor_flush_lock = threading.Lock()
 
@@ -170,6 +172,22 @@ async def _anchor_flush_loop(settings: Settings) -> None:
             logger.exception("periodic Merkle anchor cycle crashed, will retry next interval")
 
 
+async def _receipt_anchor_loop(settings: Settings) -> None:
+    """Anchor closed receipt epochs on a bounded periodic cadence (app/receipt_anchor.py). Best-effort."""
+    while True:
+        await asyncio.sleep(settings.receipt_anchor_interval_seconds)
+        if receipts is None:
+            continue
+        sweep_task = asyncio.create_task(asyncio.to_thread(anchor_pending_epochs, settings, receipts))
+        try:
+            await asyncio.shield(sweep_task)
+        except asyncio.CancelledError:
+            await sweep_task  # a running sweep cannot be stopped mid-transaction; let it finish before shutdown continues
+            raise
+        except Exception:
+            logger.exception("periodic receipt-epoch anchor sweep crashed, will retry next interval")
+
+
 async def _drain_audit_reports(timeout: float = 10.0) -> None:
     """Drain audit tasks admitted before shutdown, with a hard deadline.
 
@@ -237,7 +255,7 @@ def _init_receipts(settings: Settings) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _score_sync_task, _spool_retry_task, _anchor_flush_task, _audit_shutdown_started
+    global _score_sync_task, _spool_retry_task, _anchor_flush_task, _receipt_anchor_task, _audit_shutdown_started
     _audit_shutdown_started = False
     await _init_pack_policy(default_settings)
     _init_receipts(default_settings)
@@ -247,12 +265,14 @@ async def lifespan(app: FastAPI):
         _spool_retry_task = asyncio.create_task(_spool_retry_loop(default_settings))
     if default_settings.merkle_anchor_enabled:
         _anchor_flush_task = asyncio.create_task(_anchor_flush_loop(default_settings))
+    if default_settings.receipt_anchor_enabled and receipts is not None:
+        _receipt_anchor_task = asyncio.create_task(_receipt_anchor_loop(default_settings))
     try:
         yield
     finally:
         background_tasks = [
             task
-            for task in (_score_sync_task, _spool_retry_task, _anchor_flush_task)
+            for task in (_score_sync_task, _spool_retry_task, _anchor_flush_task, _receipt_anchor_task)
             if task is not None
         ]
         for task in background_tasks:
@@ -262,6 +282,7 @@ async def lifespan(app: FastAPI):
         _score_sync_task = None
         _spool_retry_task = None
         _anchor_flush_task = None
+        _receipt_anchor_task = None
         _audit_shutdown_started = True
         await _drain_audit_reports()
         if receipts is not None:
@@ -1038,6 +1059,20 @@ async def reload_policy_pack(request: PolicyPackReloadRequest) -> PolicyPackRelo
         changed=result.changed, previous_hash=result.previous_hash, pack_hash=result.pack_hash,
         name=result.name, version=result.version,
     )
+
+
+@app.post("/v1/admin/receipts/anchor", dependencies=[Depends(require_admin)])
+async def anchor_receipt_epochs() -> dict:
+    """Run one anchor sweep now: anchor every closed receipt epoch's signed final checkpoint root (app/receipt_anchor.py).
+
+    Best-effort and idempotent: a failure leaves the epoch pending for the next sweep. 409 when receipts are not enabled
+    or the receipt log has no epochs. Reports what was attempted and anchored.
+    """
+    if receipts is None:
+        raise HTTPException(status_code=409, detail="receipts are not enabled (BCC_RECEIPT_DIR is not set)")
+    sweep = await asyncio.to_thread(anchor_pending_epochs, default_settings, receipts)
+    return {"attempted": sweep.attempted, "anchored": sweep.anchored, "failed": sweep.failed, "skipped": sweep.skipped,
+            "details": sweep.details}
 
 
 @app.get("/health", response_model=HealthResponse)

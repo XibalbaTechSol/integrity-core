@@ -4142,3 +4142,14 @@ writeup: PRODUCTION_GAPS.md §18.
 - Verified: 20 tests (real OPA, real signed packs, a concurrent hammer across 12 reloads) and 10 mutations caught, one added
   after a first survivor (a swap that never times out).
 
+## [2026-10-11] feat | Closed receipt epochs are anchored on-chain; their removal is detectable (B4)
+
+- SDK: `GateReceiptWriter.closed_epochs / pending_anchors / pending_anchor_count / mark_anchored`, an `anchors.jsonl` worklist, and
+  `verify_epoch_directory(..., anchored_roots=...)` which reports an anchored root that matches no epoch (an epoch removed or
+  rewritten) and cross-checks the ledger. Roots come from each epoch's own signed final checkpoint, never from the ledger.
+- BCC: `app/receipt_anchor.py` sweeps pending closed epochs to the evidence `StateAnchor` (periodic loop, `BCC_RECEIPT_ANCHOR_ENABLED`,
+  default off, plus `POST /v1/admin/receipts/anchor`). Best-effort, oldest first, stops at the first failure; an unverifiable closed
+  epoch is CRITICAL. The open epoch is not anchored until it closes (one-epoch window).
+- Removes the "deleting the newest epoch is undetectable" limit recorded with the epoch work. 12 SDK tests and 14 BCC tests (real
+  anvil chain, roots read back from the contract's events); mutations caught after strengthening 4 survivors.
+
