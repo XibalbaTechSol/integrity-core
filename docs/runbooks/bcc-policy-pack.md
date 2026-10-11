@@ -104,21 +104,30 @@ epoch to the next, so deleting the newest epoch is undetectable unless closed ep
 
 What a reload does **not** change: the trusted signers and `BCC_PACK_OPA_URL` (startup configuration; who may sign policy is
 not a runtime call). It also does not edit `BCC_POLICY_PACK_HASH`: **if you pin it, update the pin when you reload**, or the
-next restart will refuse the new pack, which is the pin working as designed. The reload is logged and counted but is not a
-signed receipt `[PLANNED]`.
+next restart will refuse the new pack, which is the pin working as designed.
+
+**Signed receipt for the reload (receipts on).** Each attempt writes one receipt into the same chained log as the decisions,
+`event_class: gate.pack_reload`, `agent_did: gate:bcc-middleware` (the gate itself: an admin-token caller has no DID, and none is
+invented). `reason_code` is `BCC_PACK_RELOAD_INSTALLED` / `_UNCHANGED` (decision `permit`) or `BCC_PACK_RELOAD_REFUSED` (decision
+`deny`); `pack_hash` is the pack in force AFTER the attempt; the action HMAC binds the previous hash and the hash you named. A
+refusal's error text is not in the receipt. The response carries `receipt` and `receipt_status`. If the receipt cannot be written
+the swap has still happened: `receipt_status` is `failed`, it is logged CRITICAL, and the response is then the only record of it
+(a broken writer also makes strict mode deny every allow, so it degrades safely).
 
 ## 7. Anchoring closed receipt epochs
 
 With receipt epochs on (section 5) set `BCC_RECEIPT_ANCHOR_ENABLED=true`. BCC then anchors each CLOSED epoch's signed final
-checkpoint root on the dedicated evidence `StateAnchor` (the same signer, address and nonce lock as the Merkle-leaf
-anchoring; `BCC_RECEIPT_ANCHOR_INTERVAL_SECONDS`, default 300), oldest first, and records it in `anchors.jsonl` in the receipt
+checkpoint root on a `StateAnchor` (the same signer and nonce lock as the Merkle-leaf anchoring;
+`BCC_RECEIPT_ANCHOR_INTERVAL_SECONDS`, default 300). **Use a dedicated contract for this**: set `BCC_RECEIPT_ANCHOR_CONTRACT_NAME`
+to a deployments-file entry of its own (for example `ReceiptEpochAnchor`). Left empty it falls back to the protocol evidence anchor,
+which BCC's own per-agent Merkle sub-roots also write to, and a verifier handed every root on that contract reports those
+sub-roots as a removed epoch (seen in a live run of the built image), oldest first, and records it in `anchors.jsonl` in the receipt
 directory. `POST /v1/admin/receipts/anchor` runs one sweep now; `GET /health` -> `receipts.pending_anchors` is what is waiting.
 
 * **Best-effort.** An unreachable chain, a missing evidence-anchor address or a missing signer leaves the epoch pending and
   retried; a sweep stops at its first failure. It never blocks recording a receipt or a decision. If a closed epoch's final
   checkpoint no longer verifies, that is logged CRITICAL and nothing is anchored for it: investigate, do not retry.
-* **Verify against the chain.** Collect the roots this gate anchored (the evidence anchor's `RootAnchored` events from the gate's
-  anchoring account; the contract also holds other gates' and agents' roots) and run
+* **Verify against the chain.** Collect the roots on the dedicated contract (its `RootAnchored` events) and run
   `verify_epoch_directory(dir, base_log_id=..., trusted_signers=[...], anchored_roots=[...])`. Every root must equal some
   epoch's final checkpoint root: one that matches none means an epoch was removed or rewritten. If `anchors.jsonl` survives, it
   is cross-checked against the epochs too.
@@ -126,6 +135,10 @@ directory. `POST /v1/admin/receipts/anchor` runs one sweep now; `GET /health` ->
   for up to one epoch. `anchors.jsonl` is a worklist, not evidence: the signed checkpoints and the chain are. A root anchored
   on-chain whose ledger write then failed is anchored again next sweep (a duplicate root is harmless to verification).
 
+* **Local dev stack.** `docker-compose.anchor-dev.yml` turns receipts and anchoring on with tiny epochs (20 receipts) against the
+  local chain; it is never for a shared or production chain. `docker compose -f docker-compose.yml -f docker-compose.anchor-dev.yml config`
+  validates it; the keys and receipts live in git-ignored `bcc_middleware/receipts-dev*`.
+
 ## What is not built
 
-A signed receipt for a pack reload itself (it is logged and counted on `/health`, not signed) `[PLANNED]`.
+Nothing from the B2 list is outstanding here; see `docs/EXECUTION_PLAN.md` for what is open elsewhere.

@@ -122,7 +122,8 @@ Things that will bite if forgotten:
 - The pack can be replaced at runtime: `POST /v1/admin/policy-pack/reload {"expected_pack_hash"}` (admin token). Verified first,
   named by hash, old pack kept on any failure; each decision uses ONE pack snapshot (`PackPolicy.decide_sync`), and
   `_reinstall_if_forgotten(pack)` must never re-install a pack that is no longer the enforced one. Trusted signers and the
-  pack OPA URL stay startup configuration. Update `BCC_POLICY_PACK_HASH` when you reload if you pin it.
+  pack OPA URL stay startup configuration. Update `BCC_POLICY_PACK_HASH` when you reload if you pin it. With receipts on, every
+  reload attempt (installed, unchanged, refused) is a `gate.pack_reload` receipt in the same log; its failure never undoes the swap.
 - `Settings.__post_init__` must stay a single method; a second definition silently replaces the first.
 
 ### Signed decision receipts (`app/gate_receipts.py`) -- B2 stage 3

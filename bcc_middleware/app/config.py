@@ -115,6 +115,11 @@ class Settings:
     # blocks recording or a decision. OFF by default because it sends chain transactions.
     receipt_anchor_enabled: bool = field(default_factory=lambda: _bool_env("BCC_RECEIPT_ANCHOR_ENABLED", False))
     receipt_anchor_interval_seconds: int = field(default_factory=lambda: int(os.getenv("BCC_RECEIPT_ANCHOR_INTERVAL_SECONDS", "300")))
+    # Which deployments-file entry receives the epoch roots. Empty means the protocol evidence anchor, which ALSO receives
+    # this service's per-agent Merkle sub-roots; a verifier handed every root on that contract then sees roots that are no
+    # epoch's and reports them as a removed epoch. Pointing this at a dedicated StateAnchor deployment keeps the contract's
+    # roots exactly this gate's epochs, which is what verify_epoch_directory(anchored_roots=...) expects.
+    receipt_anchor_contract_name: str = field(default_factory=lambda: os.getenv("BCC_RECEIPT_ANCHOR_CONTRACT_NAME", ""))
     # STRICT is the default: in enforce mode an allow whose receipt cannot be written is denied. Lenient lets it
     # through (receipt_status "failed" on the response, CRITICAL log). Shadow mode never blocks either way.
     lenient_receipts: bool = field(default_factory=lambda: _bool_env("BCC_LENIENT_RECEIPTS", False))
@@ -340,6 +345,11 @@ class Settings:
             return json.loads(path.read_text())
         except (json.JSONDecodeError, OSError):
             return {}
+
+    @property
+    def receipt_anchor_target(self) -> str:
+        """Deployments-file name of the contract that receives receipt-epoch roots."""
+        return self.receipt_anchor_contract_name or self.protocol_evidence_anchor_contract_name
 
     def contract_address(self, name: str) -> str | None:
         """

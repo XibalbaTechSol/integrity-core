@@ -268,6 +268,10 @@ class PolicyPackReloadResponse(BaseModel):
     pack_hash: str
     name: str
     version: str
+    # Signed receipt for this reload (additive). Absent when receipts are off; `receipt_status` "failed" means the swap
+    # HAPPENED but could not be recorded (CRITICAL in the log): the response is the only record, so keep it.
+    receipt: dict | None = None
+    receipt_status: str | None = None
 
 
 class HealthResponse(BaseModel):

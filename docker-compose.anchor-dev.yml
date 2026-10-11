@@ -1,0 +1,23 @@
+# Dev-stack overlay: turn on signed decision receipts AND on-chain anchoring of closed receipt epochs
+# (B2/B4). Anchoring is off in the base file because it sends chain transactions; this overlay is for the
+# LOCAL stack (anvil via RPC_URL) so the path is exercised, never for a shared or production chain.
+#
+#   mkdir -p bcc_middleware/receipts-dev bcc_middleware/receipts-dev-keys && chmod 700 bcc_middleware/receipts-dev bcc_middleware/receipts-dev-keys
+#   # generate the two 0600 key files (see docs/runbooks/bcc-policy-pack.md section 5), then:
+#   docker compose -f docker-compose.yml -f docker-compose.anchor-dev.yml up -d bcc-middleware
+#
+# Epochs are deliberately tiny so a closed epoch (the only thing that gets anchored) exists within a handful
+# of requests; the production defaults are 50,000 receipts / 24 h.
+services:
+  bcc-middleware:
+    environment:
+      BCC_RECEIPT_DIR: /receipts
+      BCC_RECEIPT_KEY_FILE: /receipts-keys/receipt.pem
+      BCC_RECEIPT_HMAC_KEY_FILE: /receipts-keys/hmac.key
+      BCC_RECEIPT_EPOCH_MAX_RECEIPTS: ${BCC_RECEIPT_EPOCH_MAX_RECEIPTS:-20}
+      BCC_RECEIPT_CHECKPOINT_EVERY: ${BCC_RECEIPT_CHECKPOINT_EVERY:-5}
+      BCC_RECEIPT_ANCHOR_ENABLED: "true"
+      BCC_RECEIPT_ANCHOR_INTERVAL_SECONDS: ${BCC_RECEIPT_ANCHOR_INTERVAL_SECONDS:-30}
+    volumes:
+      - ${BCC_RECEIPT_HOST_DIR:-./bcc_middleware/receipts-dev}:/receipts
+      - ${BCC_RECEIPT_KEYS_DIR:-./bcc_middleware/receipts-dev-keys}:/receipts-keys:ro

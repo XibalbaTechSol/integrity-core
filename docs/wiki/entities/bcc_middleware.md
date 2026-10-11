@@ -403,6 +403,11 @@ stay startup configuration, and `BCC_POLICY_PACK_HASH` (if pinned) must be updat
 against a real OPA and real signed packs (including a 4-thread hammer across 12 reloads: every outcome is a clean A allow, a
 clean B allow or a fail-closed error), and 10 mutations all caught. Runbook: `docs/runbooks/bcc-policy-pack.md` section 6.
 
+Each reload attempt is now also a signed receipt (`gate.pack_reload`, 2026-10-11) in the same chained log as the decisions:
+`BCC_PACK_RELOAD_INSTALLED`/`_UNCHANGED` (permit) or `_REFUSED` (deny), `pack_hash` = the pack in force afterwards, subject `gate:bcc-middleware`
+(an admin-token caller has no DID). A receipt that cannot be written does not undo the swap: the response says `receipt_status: failed` and the log is
+CRITICAL. 6 tests (real OPA, signed packs, real verifier); 3 mutations caught after one survivor (a permit/deny swap on `unchanged`) was closed.
+
 ## Anchoring closed receipt epochs (B4, 2026-10-11)
 
 With `BCC_RECEIPT_ANCHOR_ENABLED`, `app/receipt_anchor.py` anchors each CLOSED receipt epoch's signed final checkpoint root on the
@@ -413,3 +418,10 @@ Best-effort and off the request path; a closed epoch that no longer verifies is 
 not anchored until it closes (one-epoch window, stated). Verified: 14 BCC tests on a real anvil chain (roots read back from the
 contract's events, removal of the newest closed epoch detected against them, outage and partial-failure paths, the real app
 lifespan) and 12 SDK tests; mutations caught after strengthening 4 survivors. Runbook: `docs/runbooks/bcc-policy-pack.md` section 7.
+
+`BCC_RECEIPT_ANCHOR_CONTRACT_NAME` (2026-10-11) picks the deployments-file entry that receives the epoch roots; empty falls back to
+the protocol evidence anchor, which BCC's own per-agent Merkle sub-roots also write to, so a verifier given every root there reports
+those as a removed epoch. Found by running the built image against two real contracts; use a dedicated contract. The image's `CMD` is
+`uv run --no-sync ...`: without `--no-sync`, `uv run` re-synced at every start and tried to download the dev group (pytest) into the
+production image, which fails with no package-index access. `docker-compose.anchor-dev.yml` is a local-stack overlay for receipts
+plus anchoring.

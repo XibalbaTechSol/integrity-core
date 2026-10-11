@@ -4153,3 +4153,33 @@ writeup: PRODUCTION_GAPS.md §18.
 - Removes the "deleting the newest epoch is undetectable" limit recorded with the epoch work. 12 SDK tests and 14 BCC tests (real
   anvil chain, roots read back from the contract's events); mutations caught after strengthening 4 survivors.
 
+## [2026-10-11] fix | The BCC image's CMD no longer re-syncs dev dependencies at every start
+
+- First real build and run of `bcc_middleware/Dockerfile`: it builds, but `uv run uvicorn ...` re-synced the project at container start
+  and tried to download the dev group (pytest), which fails without package-index access and otherwise installs test tooling into a
+  production image. The `CMD` is now `uv run --no-sync ...`. Verified by running the rebuilt image against a real OPA: signed
+  receipts written, an independent `integrity verify` passes the bundle and fails a tampered and a truncated one.
+- The sandbox's TLS-intercepting proxy blocked the build's package downloads; the check used a scratchpad copy of the Dockerfile that
+  mounts the proxy CA for the two network steps, every other instruction verbatim. The repo Dockerfile has no CA workaround.
+
+## [2026-10-11] feat | Receipt-epoch roots can go to a dedicated anchor contract
+
+- New `BCC_RECEIPT_ANCHOR_CONTRACT_NAME` (empty = the evidence anchor, as before). The live image run showed why it matters: BCC's own
+  Merkle sub-roots land on the same contract, so `verify_epoch_directory(anchored_roots=<all roots there>)` flagged one as a removed
+  epoch. With a dedicated contract the image anchored exactly its two closed epochs and the audit passed; deleting an epoch directory
+  was then reported. 2 new BCC tests (one mutation caught). Added `docker-compose.anchor-dev.yml` (local receipts + anchoring).
+
+## [2026-10-11] feat | Jev analysis fields are bounded (B5)
+
+- `JevAnalysis` now accepts only a closed `risk_category` vocabulary (`low|medium|high|critical|unknown`), a short identifier for
+  `provider_id` and transition labels, and a canonical `0x` sha256 for `observed_event_hash`, so a provider cannot carry free text
+  (a prompt echo, a secret) into a retained trace. 11 new tests; two mutations caught. The other B5 boxes (receiver stripping
+  `user.email`, the telemetry negative tests) are untouched and stay unticked.
+
+## [2026-10-11] feat | A pack reload is itself a signed receipt
+
+- `POST /v1/admin/policy-pack/reload` now writes a `gate.pack_reload` receipt (installed / unchanged = permit, refused = deny) into the
+  same chained log as the decisions, so "decisions under pack A, the swap, decisions under pack B" is one tamper-evident sequence;
+  the response gains `receipt` and `receipt_status`. Removes the last `[PLANNED]` recorded against hot reload. The swap is not undone
+  if its receipt cannot be written (it already happened): `failed` plus a CRITICAL log, and strict mode denies allows while the writer is broken.
+- Verified: 6 tests (real OPA, real signed packs, the SDK's `verify_log`), mutations on the refusal, the active hash and the decision all caught.
