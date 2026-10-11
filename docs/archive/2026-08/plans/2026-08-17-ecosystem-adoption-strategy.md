@@ -811,3 +811,74 @@ successful primary-source fetch, same secondary-source description as every prio
 Worldpay, Visa/Mastercard/Ant KYA framework — still "diplomatic layer, no specs, no governance, no
 timeline" per this sweep's sources, consistent with the 2026-09-13 entry — and Observer Protocol).
 No changes to the §3 table this run.
+
+### 2026-10-11 — Ecosystem watch: Mastercard ships concrete Agent Pay trust layer (Skyfire KYA + Cloudflare, probability score in testing); no stake/slash, everything else unchanged since 2026-10-06
+
+Automated research sweep (scheduled tracking run, ~5 days after the prior run; branch
+`audit/harness-loop-2026-07-30` still existed, no recreation needed). Re-swept all nine named §3
+players, both §4/§2 fact-checks, and did a general sweep for a new entrant combining identity +
+staked reputation + compliance gating. One finding judged material enough to log (a concrete
+product rollout on the already-tracked Visa TAP/Mastercard Agent Pay row, moving it past the
+"diplomatic layer, no specs" status recorded 2026-10-06); everything else confirmed unchanged or
+not material.
+
+1. **Mastercard rolled out a named trust/intelligence layer for Agent Pay — Skyfire supplying the
+   "Know Your Agent" identity piece, Cloudflare contributing web/payment signals, and a
+   per-transaction "probability score" currently in testing — announced 2026-09-30 (initial search
+   results mis-dated this 2026-10-08, corrected after checking secondary coverage directly;
+   2026-09-30 is itself ~6 days before the 2026-10-06 entry's own sweep, so this should have
+   surfaced then and didn't — flagging for future runs that "diplomatic layer, no specs" framing
+   needs re-checking per-company, not just at the tripartite-announcement level). Mastercard
+   frames Agent Pay as five components — identity, intent, controls, execution, intelligence — and
+   this announcement is specifically the intelligence layer (fraud/behavioral signals feeding the
+   probability score) plus a concrete identity-layer partner (Skyfire), not the three-company
+   Visa/Mastercard/Ant "common principles" MAS-Singapore announcement from 2026-09-10 already
+   tracked in the 2026-09-13 entry — **these are two distinct developments on the same company,
+   do not conflate them in future sweeps** (same caution already given for the multiple unrelated
+   "KYA"-branded efforts). Checked Skyfire's own KYA mechanism directly since it's now load-bearing
+   for Mastercard's identity layer: it is a credential/revocation model (OAuth2/JWT/JWKS-signed
+   agent IDs, vetted via provider/policy/purpose review, enforced by revocation) with spend caps
+   handled as a separately-signed JWT, not an economic stake — **no staking, bonding, or slashing
+   mechanism found**, so this stays in the existing §3 row's "adjacent, payments-identity, track for
+   interop only" bucket rather than becoming a direct identity+staked-reputation+compliance-gating
+   competitor. Coverage is explicit that the probability score is in testing, "does not certify user
+   consent or replace an issuer's authorization decision," and does not confirm live, general
+   availability to every Agent Pay participant — material as a concretization of the row, not as a
+   finished, universally-live product. Not added as a new §3 table row (it's the existing Mastercard
+   row gaining detail, not a new entrant); flagging here per this doc's convention of logging
+   concretizations of tracked rows in the Changelog rather than silently editing §3.
+   Sources: [Mastercard, Who's behind the AI agent? Solving the identity challenge in agentic commerce](https://www.mastercard.com/global/en/news-and-trends/stories/2026/agentic-commerce-identity-know-your-agent.html),
+   [The Paypers, Mastercard expands Agent Pay with trust and intelligence services](https://thepaypers.com/payments/news/mastercard-expands-agent-pay-with-trust-and-intelligence-services),
+   [Finextra, Mastercard rolls out trust and intelligence services for agentic commerce](https://www.finextra.com/pressarticle/111213/mastercard-rolls-out-trust-and-intelligence-services-for-agentic-commerce),
+   [Yahoo Finance, Mastercard's Probability Score Shifts the Agent Commerce Question From Identity to Trust](https://finance.yahoo.com/technology/ai/articles/mastercard-probability-score-shifts-agent-083853573.html),
+   [Skyfire, Skyfire's KYA Protocol Is Now the Identity Layer for Experian's Know Your Agent Framework](https://skyfire.xyz/skyfires-kya-protocol-is-now-the-identity-layer-for-experians-know-your-agent-framework/).
+
+2. **§4 fact-check (a), ERC-8004 Validation Registry: no change.** Re-confirmed — Identity/
+   Reputation registries remain live since 2026-01-29 (40+ EVM networks including Ethereum
+   mainnet); Validation Registry remains mainnet-pending per the freshest reference found this
+   sweep (QuickNode's contract-reference page lists it "(mainnet pending)" across Ethereum, Base,
+   and BNB Chain), consistent with every entry since 2026-08-26. No new mainnet address.
+
+3. **EU AI Act (§2/§4b): no change to the confirmed dates.** Annex III high-risk conformity
+   2027-12-02 and Annex I 2028-08-02 reconfirmed against fresh sources this sweep (Digital Omnibus,
+   Regulation (EU) 2026/1744, in force 2026-07-27). The first GPAI RFIs (Article 91, sent 2026-08-29)
+   remain the most recent concrete enforcement action; no new RFI, fine, or formal infringement
+   finding surfaced. The "Article 50/Annex III inspection wave" claim flagged unconfirmed since
+   2026-09-22/09-25 was not re-surfaced this sweep; status unchanged (still no identifiable primary
+   EU source).
+
+4. **General sweep for a new identity + staked-reputation + compliance-gating entrant: nothing
+   added.** Checked Oak (Israeli IAM startup, $60M seed, announced 2026-07-15 — surfaced this sweep
+   for the first time in this doc, but it predates this doc's entire tracking window and is an
+   enterprise human/machine/agent IAM platform with no staking disclosed, same non-matching bucket
+   as NewCore/Oasis Security/SecureAuth/Offroad/Arcade.dev) and GenLayer's "Internet Court"
+   (agent-to-agent dispute resolution via AI validators, not staking, token launch planned "later in
+   2026," announced 2026-07-10) — neither matches the combination or is new this week. No other
+   candidate surfaced.
+
+Not material / considered and not added: Injective Agents, ChaosChain/Genesis Studio, KYA
+`kya.link`/`agentecon.ai` (stake/slash question still open, still no successful primary-source
+fetch), FIDO Alliance TWG (no draft spec yet), Cloudflare/GoDaddy, Semantica (no update since
+v0.6.5, 2026-08-11), Trulioo+Worldpay Digital Agent Passport (no update since the 2025-08-14
+partnership), Observer Protocol (no reversal of the 2026-09-15 correction) — all re-swept, no
+updates beyond what's already tracked as of 2026-10-06. No changes to the §3 table this run.
