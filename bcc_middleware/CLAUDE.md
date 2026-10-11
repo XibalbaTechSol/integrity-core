@@ -33,7 +33,7 @@ anvil --port 8545                                # 2. local chain (for BAA check
 uv run uvicorn app.main:app --host 0.0.0.0 --port 8000   # 3. the service
 
 opa test policies/ -v                            # 48 OPA policy unit tests (2026-10-10)
-uv run pytest -q                                 # 226 tests (2026-10-10) — see below
+uv run pytest -q                                 # 369 tests (2026-10-11) — see below
 uv run pytest tests/test_merkle.py::test_name    # single test
 ```
 
@@ -50,7 +50,10 @@ and the OPA subprocess to work.
 
 Docker: `docker build -t bcc-middleware .` matches the root
 `docker-compose.yml`'s `bcc-middleware` service (port 8000, depends on `opa`
-and `oracle-backend`).
+and `oracle-backend`). The image's `CMD` is `uv run --no-sync ...`: plain `uv run` re-syncs at every start and tries to
+download the dev group (pytest) into the production image. `docker-compose.anchor-dev.yml` is a local-stack overlay (receipts plus
+anchoring, tiny epochs). Put epoch roots on their own contract with `BCC_RECEIPT_ANCHOR_CONTRACT_NAME`; the evidence anchor also
+receives BCC's own Merkle sub-roots, and an audit given every root there reports one as a removed epoch.
 
 ## Architecture
 

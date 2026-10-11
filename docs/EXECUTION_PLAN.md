@@ -745,11 +745,15 @@ not yet merged)
   inclusion; verification distinguishes missing advisory analysis from invalid evidence.
   `integrity_sdk.core.verify_decision_trace_offline`, exercised by the e2e script above and
   `test_core_decision_trace.py::test_trace_evidence_reuses_existing_signed_receipt_hash`.
-- [ ] Shield provider selection, settings bounds, and local classifier behavior are covered by focused
-  tests (`tests/test_jev_shadow.py`, `tests/test_inference_providers.py`); unavailable-provider handling
-  and the Settings browser flow (desktop/390px) are not — there is no Settings UI yet (see above), so
-  there is nothing to browser-test. Corrected from an earlier draft that claimed both; only the two
-  backend test files are actual evidence.
+- [x] Shield provider selection, settings bounds, and local classifier behavior are covered by focused
+  tests (`tests/test_jev_shadow.py`, `tests/test_inference_providers.py`), unavailable-provider handling
+  by `tests/test_jev_failure_modes.py` ([xibalba-shield#47](https://github.com/XibalbaTechSol/xibalba-shield/pull/47)),
+  and the Settings browser flow at desktop width and 390px by `ui/e2e/inference-settings.spec.ts`
+  ([xibalba-shield#54](https://github.com/XibalbaTechSol/xibalba-shield/pull/54), 4 Playwright tests: local
+  refusals, the exact POSTed payload with no raw secret, a backend 422 shown verbatim, no horizontal
+  scroll at 390px). Not covered: a live provider call from the console, and the real backend behind the
+  form (the control plane is mocked at HTTP; `tests/test_settings_control.py` covers its validation).
+  Closed 2026-10-11; an earlier draft claimed this with no Settings UI, and was corrected.
 - [x] A provider outage, malformed response, tenant mismatch and tamper test preserve local
   enforcement and produce an operator-readable reason code. Merged in
   [xibalba-shield#47](https://github.com/XibalbaTechSol/xibalba-shield/pull/47) (`ee10099`):
@@ -1034,11 +1038,12 @@ did before the daemon existed.
   signed receipt/checkpoint. No causal claim is emitted; UI labels all probabilities as observational.
 - [ ] Shield's dedicated Settings surface documents the provider choice and authority boundary in
   product, while Cortex's trace view documents provider status, probabilities, Merkle evidence, and
-  the distinction between declared sequence and proven causality. **Not yet done:** Shield's backend
-  validates and stores the provider configuration (`shield/backend/settings.py`), but
-  `SettingsView.jsx` has no corresponding form; Cortex's read-only HTML render
-  (`decision_trace_view.py`) carries the causality disclaimer, but there is no `viewer/` trace view.
-  Both are B0 UI work, not yet started.
+  the distinction between declared sequence and proven causality. **Shield half done 2026-10-11:** the
+  Settings tab "Advisory Inference" (`ui/src/components/InferenceSettings.jsx`,
+  [xibalba-shield#54](https://github.com/XibalbaTechSol/xibalba-shield/pull/54)) documents the shadow-only
+  authority boundary on the form and shows execution mode and redaction as fixed. **Not yet done:** Cortex's
+  read-only HTML render (`decision_trace_view.py`) carries the causality disclaimer, but there is no
+  `viewer/` trace view; that is why this box stays open.
 
 ## B3. Claude Code hooks (S)
 
@@ -1118,6 +1123,10 @@ reporting whether a daemon is actually listening — see B2):
   - [ ] exception messages and stack traces.
 - [ ] DecisionTrace/Jev negative tests cover raw prompts, completions, chain-of-thought, tool payloads,
   secrets and provider-returned content; only bounded redacted metadata and commitments are retained.
+  **Partial 2026-10-11 (#176):** `JevAnalysis` now accepts only a closed `risk_category` vocabulary, short identifiers for
+  `provider_id` and transition labels, and a canonical `0x` sha256 for `observed_event_hash`, so provider text cannot reach a
+  retained trace (`test_core_decision_trace.py`, 11 new tests). Still open: the telemetry receiver's field stripping and the
+  prompts/env/stdout/URL/exception negative tests above.
 
 ## B6. Pilot packaging (M)
 
