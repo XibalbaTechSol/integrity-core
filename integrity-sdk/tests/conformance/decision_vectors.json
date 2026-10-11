@@ -257,6 +257,17 @@
     "reason_code": "INTEGRITY_MALFORMED_DECISION",
     "controls": [],
     "blocks": true
+   },
+   "exceptions": {
+    "shield": {
+     "why": "Shield's evaluator entrypoint is the whole data.shield.policy package object, whose display variables (rule_id, name, message) carry Rego defaults, so an object with none of decision/reason_code/controls means no rule matched. Shield therefore takes the event class default for it. Any contract key present is a rule match and goes to resolve() as it is (see the neighbouring vectors).",
+     "expect": {
+      "decision": "deny",
+      "reason_code": "INTEGRITY_NO_MATCH",
+      "controls": [],
+      "blocks": true
+     }
+    }
    }
   },
   {
@@ -271,6 +282,17 @@
     "reason_code": "INTEGRITY_MALFORMED_DECISION",
     "controls": [],
     "blocks": true
+   },
+   "exceptions": {
+    "shield": {
+     "why": "Shield's evaluator entrypoint is the whole data.shield.policy package object, whose display variables (rule_id, name, message) carry Rego defaults, so an object with none of decision/reason_code/controls means no rule matched. Shield therefore takes the event class default for it. Any contract key present is a rule match and goes to resolve() as it is (see the neighbouring vectors).",
+     "expect": {
+      "decision": "permit",
+      "reason_code": "INTEGRITY_NO_MATCH",
+      "controls": [],
+      "blocks": false
+     }
+    }
    }
   },
   {

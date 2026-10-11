@@ -165,7 +165,11 @@ gate can disagree with the contract while `resolve()` is right.
 What it found: before this stage Shield's engine only treated a result as a decision when it had both `decision` and
 `reason_code`, and treated any non-object result as "no rule matched". So a result of `{"decision": "deny"}` or the
 string `"deny"` took the event class's default (`log_only` or `permit` for some classes) instead of failing closed as
-BCC and the contract do. Fixed in Shield's PR; the vectors are what make that fix stay fixed.
+BCC and the contract do. Fixed in Shield's PR; the vectors are what make that fix stay fixed. Twelve vectors failed
+in Shield at first: ten were this fail-open; two (`{}`) are a documented, pinned Shield exception, because its evaluator
+returns the whole package object (display variables carry Rego defaults), so an object with none of
+`decision`/`reason_code`/`controls` means "no rule matched" there. Exceptions live in the vector file (`exceptions`), are
+validated by the SDK runner, and are capped at two.
 
 Verified: 66 SDK tests and 50 BCC tests; 17 mutations of `resolve()` and 4 of BCC's glue are caught (one first survivor,
 the defensive invalid-default branch, got its own vector; a Shield-style filter in BCC's glue fails 12 vectors).

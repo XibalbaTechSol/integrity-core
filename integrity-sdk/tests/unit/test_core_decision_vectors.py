@@ -55,6 +55,12 @@ def test_the_file_is_well_formed():
         else:
             assert set(expect) == {"decision", "reason_code", "controls", "blocks"}, v["name"]
             assert expect["decision"] in d.DECISIONS and isinstance(expect["blocks"], bool), v["name"]
+    for v in VECTORS:
+        for gate, exception in v.get("exceptions", {}).items():
+            # An exception is a documented, pinned difference for one gate -- never a way to skip a vector.
+            assert gate in ("shield",), f"{v['name']}: unknown gate {gate!r}"
+            assert exception["why"].strip() and set(exception["expect"]) == {"decision", "reason_code", "controls", "blocks"}, v["name"]
+    assert sum(len(v.get("exceptions", {})) for v in VECTORS) <= 2, "exceptions are rare; adding one needs a conscious change here"
     result_scope = [v for v in VECTORS if v["scope"] == "result"]
     # Gates run scope=result vectors with a fixed enforce mode and a real pack, so those vectors must not ask for more.
     assert all(v["mode"] == "enforce" and not v.get("no_pack") and not v.get("evaluator_error")
