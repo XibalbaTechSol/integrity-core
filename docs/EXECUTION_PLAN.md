@@ -946,8 +946,8 @@ rule each; Gate B-local's "every rule cites a control" needs re-checking once B1
 
 ## B2. Gates emit receipts (M)
 
-- [ ] BCC and Shield evaluate the same compiled pack and pass shared conformance vectors in CI.
-- [ ] Both support atomic loads, fail-closed reason codes, shadow/enforce modes, and signed chained
+- [x] BCC and Shield evaluate the same compiled pack and pass shared conformance vectors in CI.
+- [x] Both support atomic loads, fail-closed reason codes, shadow/enforce modes, and signed chained
   receipts with checkpoints.
 - [x] Shield's local gate daemon exposes a Unix socket for PreToolUse.
 
@@ -992,6 +992,23 @@ half is a staged migration, because `bcc_middleware` was not on the signed-pack 
 shared writer) and stage 4 (shared rulebook vectors in both CIs) are not started**, so bullets 1 and 2 stay open.
 Findings that outlive the migration: `bcc.rego` fails open on a commitment missing `agent_id` or `intent_type` (not
 reachable through the service's schema), and `PUT /v1/admin/clinical-allowlist` is unauthenticated.
+
+**Closed, 2026-10-11 — three of three boxes ticked.** Evidence, and how each bullet was read:
+
+- *Bullet 1.* "The same compiled pack" is read as the owner decided on 2026-10-10: the two gates keep different packs over
+  different inputs (`packs/bcc` and Shield's per-profile packs), and what they must share is how any policy result is
+  interpreted. `integrity-sdk/tests/conformance/decision_vectors.json` (63 hand-written vectors) is run in the SDK (through
+  `resolve()`), by BCC through `PackPolicy.decide_sync` ([#171](https://github.com/XibalbaTechSol/integrity-core/pull/171)),
+  and by Shield through `PolicyEngine.evaluate_with_basis` (xibalba-shield#51), each in its own CI. Writing the vectors found
+  and closed two fail-opens in Shield's result handling. Two vectors carry a pinned, documented Shield exception.
+- *Bullet 2.* Signed, chained, checkpointed receipts: Shield (#48, strict by default #49, now on the SDK writer #50) and BCC
+  (#169), both verified with `integrity-cli`'s independent verifier. Fail-closed reason codes: the vectors. Shadow/enforce:
+  BCC `BCC_SHADOW_MODE`; Shield `--enforcement-mode observe|enforce` and the gate daemon's observe mode, neither of which
+  ever blocks on a receipt. **"Atomic loads" is read as all-or-nothing, never half-installed**: both gates install through
+  `OpaClient.install`, which verifies the pack, replaces OPA's policies and checks they match exactly, and on any failure
+  leaves no installed pack so every evaluation denies; BCC refuses to start rather than decide with a different policy, and
+  Shield's `install_pack` holds a lock so an evaluation never sees the gap. It is **not** a zero-downtime hot swap: BCC
+  loads its pack at start-up and a new pack is a restart (`[PLANNED]`).
 
 **Operational consequence to carry forward:** the runner fails open, so a `--gate shield` hook with
 no daemon listening enforces *nothing*. That is why `integrity hooks install --gate shield` now
