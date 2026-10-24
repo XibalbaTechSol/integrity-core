@@ -882,3 +882,77 @@ fetch), FIDO Alliance TWG (no draft spec yet), Cloudflare/GoDaddy, Semantica (no
 v0.6.5, 2026-08-11), Trulioo+Worldpay Digital Agent Passport (no update since the 2025-08-14
 partnership), Observer Protocol (no reversal of the 2026-09-15 correction) — all re-swept, no
 updates beyond what's already tracked as of 2026-10-06. No changes to the §3 table this run.
+
+### 2026-10-24 — Ecosystem watch: unverified single-source claim that the ERC-8004 Validation Registry is actually deployed on-chain (just unused); no new competitor; everything else unchanged since 2026-10-11
+
+Automated research sweep (scheduled tracking run, ~13 days after the prior run — wider than the
+usual cadence, so this sweep covers the full gap rather than just the last 7 days; branch
+`audit/harness-loop-2026-07-30` still existed, no recreation needed). Re-swept all nine named §3
+players, both §4/§2 fact-checks, and did a general sweep for a new entrant combining identity +
+staked reputation + compliance gating. One lead on the open ERC-8004 Validation Registry
+fact-check, flagged but explicitly **not** upgraded to resolved given single-sourcing and this
+session's egress restrictions; everything else confirmed unchanged or not material.
+
+1. **§4 fact-check (a): a single secondary source claims the Validation Registry proxy is in fact
+   deployed on-chain (just never called), which would be in tension with every status this doc has
+   recorded since 2026-08-26 ("mainnet pending" / "unshipped upstream" / no published address) —
+   flagging, not resolving, because it could not be independently corroborated this run.** A blog
+   post, "ERC-8004's third registry is live and empty" (LLM4Agents, claims to have cloned the
+   `erc-8004-contracts` repo on 2026-08-17 and queried mainnet directly), reports that all three
+   registries are UUPS proxies deployed via CREATE2 to vanity addresses sharing the ERC-8004 "0x8004"
+   prefix; that the ValidationRegistry proxy (address claimed:
+   `0x8004Cc8439f36fd5F9F049D9fF86523Df6dAAB58`) appeared on Ethereum mainnet at block 24,339,874 —
+   36 seconds after the IdentityRegistry, same deployment transaction batch, 2026-01-29 — and is
+   identically replicated across 25 chains; and that on-chain query counts are 50,082 IdentityRegistry
+   records, 3,215 ReputationRegistry records, and **zero** ValidationRegistry calls ever. The post's
+   own explanation for the discrepancy with this doc's prior findings: the contract is deployed, but
+   the `erc-8004-contracts` README deliberately does not publish its address (unlike Identity/
+   Reputation, which are published for all 50 networks) because the interface is still being revised.
+   **Could not verify independently this run:** re-checked the primary GitHub README directly (as in
+   every prior entry since 2026-08-26) and it still lists no Validation Registry address in its
+   Contract Addresses table — consistent with, not contradicting, prior entries, since the blog's own
+   claim is that the address is deployed-but-unpublished rather than published. Attempted to verify the
+   specific claimed address directly against Etherscan and against the LLM4Agents post itself, but this
+   session's egress proxy blocked both `llm4agents.com` and `etherscan.io` (`getaddrinfo ENOTFOUND` on
+   each, plus `web.archive.org`), and a general web search for the exact address string
+   (`0x8004Cc8439f36fd5F9F049D9fF86523Df6dAAB58`) returned no corroborating block-explorer listing or
+   second source. Net: this is a plausible, specific, falsifiable claim (not vague marketing) that would
+   meaningfully refine — "deployed via the same CREATE2 batch as the other two registries, intentionally
+   unpublished and unused, rather than genuinely unshipped" — but it rests on one source this run could
+   not reach or corroborate, so this doc's status stays at "Validation Registry: no publicly documented
+   mainnet address" rather than being upgraded to "deployed, confirmed dormant." A future run with
+   unrestricted access to `llm4agents.com` or a block explorer should check the claimed address directly
+   before either adopting or discarding this claim.
+   Sources: [LLM4Agents, ERC-8004's third registry is live and empty](https://llm4agents.com/blog/erc-8004-registries-onchain-audit),
+   [erc-8004/erc-8004-contracts](https://github.com/erc-8004/erc-8004-contracts) (re-checked directly,
+   no Validation address published, same TEE-community/follow-up-spec-update caveat as every prior
+   entry).
+
+2. **EU AI Act (§2/§4b): no change.** No new enforcement action beyond the GPAI RFIs already recorded
+   2026-09-22 (Article 91, sent 2026-08-29); no fine, infringement finding, or formal action surfaced
+   this sweep. The "Article 50/Annex III inspection wave" claim (unconfirmed since 2026-09-22, in tension
+   with the Commission's own enforcement-framework page per the 2026-09-25 entry) did not resurface this
+   sweep either way — status unchanged, still no identifiable primary EU source. Annex III (2027-12-02)
+   and Annex I (2028-08-02) deadlines reconfirmed against fresh secondary sources, no change.
+
+3. **General sweep for a new identity + staked-reputation + compliance-gating entrant: nothing added.**
+   Checked several candidates combining identity with on-chain staking: **VoltPass** and an ETHGlobal
+   hackathon project **AgentCred** (Oasis Sapphire, score-based slashing) are explicitly pre-audit/
+   testnet-only per their own repos; a Celo-based **TrustLayer** reputation-oracle project (identity +
+   cUSD-staked collateral + slashing) is a project page, not a shipped/funded product, with no
+   compliance-gating component disclosed; **TRST**'s whitepaper lists "AI agent trust staking" only as a
+   future roadmap item, not a current feature. Same non-qualifying shape as the solo/hackathon/testnet
+   projects already ruled out in the 2026-09-15, 2026-09-24, and 2026-09-25 entries (`selfradiance/
+   agentgate`, `agentstake.dev`, `0xvikram/assay`, "Yelden"/AIAgentRegistry) — none funded, none past
+   testnet, none combining all three elements with compliance-vertical gating specifically. No reversal
+   of the Observer Protocol (2026-09-15) or KYA/`agentecon.ai`/`kya.link` (still open, still blocked)
+   findings.
+
+Not material / considered and not added: all nine named §3 players re-swept with no updates beyond the
+2026-10-11 entry (Injective Agents, ChaosChain/Genesis Studio — no commits found since 2026-02-07;
+KYA `kya.link`/`agentecon.ai` — stake/slash question still open, still no successful primary-source
+fetch; Cloudflare/GoDaddy — no update since the 2026-09-15 default-blocking change; FIDO Alliance TWG —
+no draft spec yet; Semantica, Trulioo+Worldpay — no updates; Visa TAP/Mastercard Agent Pay — no update
+beyond the 2026-10-11 Skyfire/Cloudflare intelligence-layer entry; Observer Protocol — no reversal of
+the 2026-09-15 correction); RSA Agent ID (2026-10-06 entry) and Baselayer (2026-09-24 entry) — no
+updates found since their respective entries. No changes to the §3 table this run.
