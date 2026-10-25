@@ -14,6 +14,7 @@ pub mod derive;
 pub mod erc8004;
 pub mod error;
 pub mod handlers;
+pub mod identity;
 pub mod kyc;
 pub mod merkle;
 pub mod openapi;
