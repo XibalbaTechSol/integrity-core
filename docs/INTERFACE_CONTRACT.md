@@ -80,6 +80,22 @@ against real policies. Don't write code you haven't run.
 | Integrity User API (FastAPI) | 8090 | integrity-userapi |
 | Postgres (userapi) | 5435 | integrity-userapi |
 | Integrity Dashboard (Vite dev) | 5173 | integrity-dashboard |
+| Local TLS front door — Cortex origin | 9443 | `deploy/local` (Caddy) |
+| Local TLS front door — Shield origin | 9444 | `deploy/local` (Caddy) |
+
+The last two are this repo's `deploy/local/Caddyfile`, run by
+`deploy/local/systemd/xibalba-caddy.service`. They are loopback-bound origins that put a console
+and its API on one host so a `Secure` `SameSite` session cookie round-trips. Each **fronts a
+service owned by a sibling repo**, which is why those two are listed here as fronted ports rather
+than as integrity-core services:
+
+| Fronted service | Port | Owning repo |
+|---|---|---|
+| Cortex local API | 8420 | `xibalba-cortex` |
+| Shield backend API | 8435 (default 8765) | `xibalba-shield` |
+
+Shield's backend defaults to **8765** (`shield/backend/api.py`'s `--port`, `SHIELD_BACKEND_PORT`);
+this deployment overrides it to 8435, so the Caddyfile and that env var have to agree.
 
 Not every local endpoint is a port. **Shield's PreToolUse gate daemon listens on a Unix socket**,
 not a TCP port, so that nothing is reachable over loopback and the socket's file mode (`0600`)

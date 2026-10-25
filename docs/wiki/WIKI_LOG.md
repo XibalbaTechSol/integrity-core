@@ -4211,3 +4211,19 @@ writeup: PRODUCTION_GAPS.md §18.
   `caddy fmt` reports the file already canonical.
 - The same two gaps were fixed in the product repos' own (unused-here, container-rooted) Caddyfiles by xibalba-shield#60 and
   xibalba-cortex#49; this is the config the `xibalba-caddy.service` user unit actually runs.
+
+## [2026-10-25] chore | The local front door's unit is tracked, and its ports are in the contract
+
+- `deploy/local/systemd/xibalba-caddy.service` is now version-controlled. The unit that actually runs
+  `deploy/local/Caddyfile` lived only in `~/.config/systemd/user/`, so the config was tracked while the thing that
+  launches it was not — the two could drift with nothing to catch it. The file holds no secrets (a description, an
+  `ExecStart` naming the in-repo Caddyfile, and a restart policy) and matches the style of the `integrity-anvil` and
+  `integrity-policy-opa` units already in that directory.
+- `INTERFACE_CONTRACT.md` §2 gains the two front-door origins (:9443 Cortex, :9444 Shield) and, as a separate
+  "fronted" table, the sibling-repo services behind them: Cortex's local API on 8420 and Shield's backend on 8435.
+  They are split out because the contract scopes itself to integrity-core and those two services are owned elsewhere.
+  Also records that Shield's backend *defaults* to 8765 (`shield/backend/api.py`'s `--port`, `SHIELD_BACKEND_PORT`)
+  and that this deployment overrides it, so the Caddyfile and that env var have to agree — an earlier draft of #178
+  mistook the 8765 in the product repo's own Caddyfile for staleness, and it is the documented default.
+- No package source touched, so the applicable CI job is `docs`: `scripts/check_docs.py` and
+  `scripts/wiki_toc.py --check` both pass.
