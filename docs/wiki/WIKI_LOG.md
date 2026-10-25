@@ -4191,3 +4191,23 @@ writeup: PRODUCTION_GAPS.md §18.
   Shield form landed but Cortex's `viewer/` trace panel and queue/retry of advisory analysis have not.
 - B5's DecisionTrace/Jev negative-test box carries a partial note (the Jev field bounds, #176) and stays unticked.
 - `bcc_middleware/CLAUDE.md`: test count (369), the image `CMD` rule, the dev anchoring overlay and the dedicated-anchor-contract caveat.
+
+## [2026-10-25] fix | The local Caddy front door was swallowing both consoles' non-/api calls
+
+- `deploy/local/Caddyfile` forwarded only `/api/*` on each origin, so every other proxied path fell through to the SPA
+  `try_files` and was answered **200 with the viewer's own HTML**. That is invisible to a `response.ok` check, which is why
+  neither console reported an error: Cortex's Operations page polls `/readyz` and `/metrics` and Settings → Developer probes
+  `/healthz`, so `api.metrics()` parsed HTML as Prometheus text and showed no metrics while `api.readiness()` threw on the JSON
+  parse; Shield's Cortex namespace selector (`fetchCortexNamespaces`) fetches `/cortex-api/api/agents`, and because that call
+  sits inside a `Promise.allSettled` the failure was silent and the selector simply rendered empty.
+- :9443 gains `/readyz`, `/healthz` and `/metrics` → `127.0.0.1:8420`. :9444 gains `handle_path /cortex-api/*` →
+  `127.0.0.1:8420`, which strips the prefix to match the rewrite the Vite dev proxy already does, so one URL works in both.
+  `/metrics` is unauthenticated by design and is only acceptable here because both origins are `bind 127.0.0.1 ::1`; the
+  Caddyfile says so at the directive so the lines are not copied to a public front door.
+- Verified by running this exact config on spare loopback ports against the live backends: `/readyz` and `/healthz` answer
+  `application/json`, `/metrics` answers `text/plain; version=0.0.4` with a body starting `# HELP xibalba_cortex_requests_total`,
+  `/cortex-api/api/agents` answers Cortex's `401 application/json` (cookie-less curl) and `/cortex-api/healthz` its `200`,
+  proving the strip. Negative controls: `/` and an unknown path still return the SPA on both origins, so the fallback is intact.
+  `caddy fmt` reports the file already canonical.
+- The same two gaps were fixed in the product repos' own (unused-here, container-rooted) Caddyfiles by xibalba-shield#60 and
+  xibalba-cortex#49; this is the config the `xibalba-caddy.service` user unit actually runs.
