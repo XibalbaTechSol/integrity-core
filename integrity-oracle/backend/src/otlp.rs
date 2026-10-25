@@ -35,12 +35,12 @@ use opentelemetry_proto::tonic::metrics::v1::{metric::Data as MetricData, number
 use opentelemetry_proto::tonic::common::v1::any_value::Value as AnyValueKind;
 use opentelemetry_proto::tonic::common::v1::KeyValue;
 use opentelemetry_proto::tonic::resource::v1::Resource;
-use opentelemetry_proto::tonic::trace::v1::{span, status, Span};
+use opentelemetry_proto::tonic::trace::v1::{span, status};
 use tonic::{Request, Response, Status as TonicStatus};
 use uuid::Uuid;
 
 use crate::stream::StreamEvent;
-use crate::{db, phi, AppState};
+use crate::{db, identity, phi, AppState};
 
 /// Fixed-window Redis rate limiter for the OTLP receiver — same mechanism and
 /// per-agent/per-minute shape as `handlers::check_telemetry_rate_limit`, but tracked
@@ -289,11 +289,12 @@ fn kv_list_to_json(kvs: &[KeyValue]) -> serde_json::Value {
 
 /// PHI-scannable view of a span: name + attributes, the two free-text-bearing parts —
 /// same scope `crate::phi`'s doc comment says the SDK-side redactor targets.
-fn span_to_json(span: &Span) -> serde_json::Value {
-    serde_json::json!({
-        "name": span.name,
-        "attributes": kv_list_to_json(&span.attributes),
-    })
+///
+/// Takes the attributes the caller is about to persist rather than re-deriving them from the
+/// proto, so the backstop scans post-strip content and the two layers cannot disagree about
+/// what the row holds.
+fn span_to_json(name: &str, attributes: &serde_json::Value) -> serde_json::Value {
+    serde_json::json!({ "name": name, "attributes": attributes })
 }
 
 /// A span/trace ID of all-zero bytes (or empty) means "no parent" per the OTel spec
@@ -343,14 +344,21 @@ impl TraceService for OtlpTraceService {
                     // loudly before this ever touches Postgres, rather than silently
                     // persisting raw PHI/PII/secret material this receiver has no
                     // authenticated-client guarantee wasn't already redacted client-side.
+                    //
+                    // The identity strip runs FIRST, and the backstop then scans what
+                    // survived it -- see `crate::identity`'s module doc for why that order
+                    // is the one that drops a prohibited field instead of rejecting the
+                    // whole export over it.
+                    let mut attributes = kv_list_to_json(&span.attributes);
+                    identity::sanitize_attributes(&mut attributes);
+
                     let mut hits: Vec<&'static str> = Vec::new();
-                    phi::scan_json_value(&span_to_json(span), &mut hits);
+                    phi::scan_json_value(&span_to_json(&span.name, &attributes), &mut hits);
                     let phi_flags = apply_backstop_or_reject(&self.state, hits)?;
 
                     let trace_id = hex::encode(&span.trace_id);
                     let span_id = hex::encode(&span.span_id);
                     let parent_span_id = hex_id_or_none(&span.parent_span_id);
-                    let attributes = kv_list_to_json(&span.attributes);
                     let id = Uuid::new_v4();
 
                     db::insert_otel_span(
@@ -419,7 +427,8 @@ impl MetricsService for OtlpMetricsService {
                     let description = (!metric.description.is_empty()).then(|| metric.description.clone());
                     let unit = (!metric.unit.is_empty()).then(|| metric.unit.clone());
 
-                    for point in metric_points(metric) {
+                    for mut point in metric_points(metric) {
+                        identity::sanitize_attributes(&mut point.attributes);
                         // Same PHI backstop as the trace path: metric attributes are
                         // free-text-bearing (model names, tool names, and whatever an
                         // emitter chooses to tag) and this receiver has no authenticated
@@ -478,7 +487,8 @@ impl LogsService for OtlpLogsService {
 
             for scope_logs in &resource_logs.scope_logs {
                 for record in &scope_logs.log_records {
-                    let attributes = kv_list_to_json(&record.attributes);
+                    let mut attributes = kv_list_to_json(&record.attributes);
+                    identity::sanitize_attributes(&mut attributes);
                     let body = record.body.as_ref().map(any_value_to_json).and_then(|v| match v {
                         serde_json::Value::String(s) => Some(s),
                         serde_json::Value::Null => None,
@@ -538,5 +548,223 @@ impl LogsService for OtlpLogsService {
         }
 
         Ok(Response::new(ExportLogsServiceResponse::default()))
+    }
+}
+
+#[cfg(test)]
+mod identity_strip_tests {
+    //! B5's negative tests, run against the exact pair of calls each handler makes to build
+    //! the row it persists (`kv_list_to_json` then `identity::sanitize_attributes`) rather
+    //! than against a standalone helper, so a handler that stopped calling the strip would
+    //! not keep these green.
+    //!
+    //! Every sentinel value is chosen to match **no** pattern in `crate::phi`. That is the
+    //! point: if a sentinel tripped the backstop, the export would be rejected and "the value
+    //! is not in the row" would pass for entirely the wrong reason, which is precisely the
+    //! vacuous pass this suite exists to rule out.
+
+    use super::*;
+    use opentelemetry_proto::tonic::common::v1::{AnyValue, ArrayValue, KeyValue, KeyValueList};
+
+    fn str_kv(key: &str, value: &str) -> KeyValue {
+        KeyValue {
+            key: key.to_string(),
+            value: Some(AnyValue { value: Some(AnyValueKind::StringValue(value.to_string())) }),
+            ..Default::default()
+        }
+    }
+
+    fn int_kv(key: &str, value: i64) -> KeyValue {
+        KeyValue {
+            key: key.to_string(),
+            value: Some(AnyValue { value: Some(AnyValueKind::IntValue(value)) }),
+            ..Default::default()
+        }
+    }
+
+    /// The row the handlers build, plus the keys the strip took out of it.
+    fn row(kvs: &[KeyValue]) -> (serde_json::Value, Vec<String>) {
+        let mut attributes = kv_list_to_json(kvs);
+        let removed = identity::sanitize_attributes(&mut attributes);
+        (attributes, removed)
+    }
+
+    /// Asserts the three things that together mean "stripped", for one prohibited key.
+    ///
+    /// Checking only that the key is gone would also pass if the value had been moved
+    /// somewhere else in the row, so the serialized row is searched for the sentinel too.
+    /// The survival control is what stops "remove every attribute" from passing: a real
+    /// structural field alongside it must still be there, with its value intact.
+    fn assert_stripped(category: &str, key: &str) {
+        let sentinel = format!("CANARY-{category}-7f3a");
+        let (attributes, removed) = row(&[
+            str_kv(key, &sentinel),
+            str_kv("model", "claude-opus-5"),
+            int_kv("input_tokens", 1234),
+        ]);
+        let serialized = serde_json::to_string(&attributes).unwrap();
+
+        assert!(attributes.get(key).is_none(), "{key} survived the strip");
+        assert!(!serialized.contains(&sentinel), "{key}'s value is still in the row: {serialized}");
+        assert!(removed.iter().any(|k| k == key), "{key} was not reported as stripped: {removed:?}");
+
+        // Survival control.
+        assert_eq!(attributes.get("model").and_then(|v| v.as_str()), Some("claude-opus-5"),
+            "{key}'s case stripped an allowed attribute too");
+        assert_eq!(attributes.get("input_tokens").and_then(|v| v.as_i64()), Some(1234),
+            "{key}'s case stripped an allowed attribute too");
+    }
+
+    #[test]
+    fn strips_prohibited_identity_fields() {
+        for key in ["user.email", "user.full_name", "user.id", "enduser.id", "client.address"] {
+            assert_stripped("identity", key);
+        }
+    }
+
+    #[test]
+    fn strips_prompts_tool_arguments_and_file_contents() {
+        for key in ["gen_ai.prompt", "gen_ai.completion", "prompt", "completion",
+                    "gen_ai.tool.arguments", "tool.arguments", "arguments",
+                    "file.content", "content"] {
+            assert_stripped("content", key);
+        }
+    }
+
+    #[test]
+    fn strips_environment_variables_and_std_streams() {
+        for key in ["process.environment_variable.AWS_SECRET_ACCESS_KEY",
+                    "process.environment_variable.PATH",
+                    "process.stdout", "process.stderr", "stdout", "stderr"] {
+            assert_stripped("env", key);
+        }
+    }
+
+    #[test]
+    fn strips_urls_query_strings_filenames_and_repository_names() {
+        for key in ["url.full", "url.query", "http.url", "http.target",
+                    "file.path", "file.name", "code.filepath", "process.command_line",
+                    "vcs.repository.url.full", "vcs.repository.name", "repository.name"] {
+            assert_stripped("locator", key);
+        }
+    }
+
+    #[test]
+    fn strips_exception_messages_and_stack_traces() {
+        for key in ["exception.message", "exception.stacktrace", "error.message", "error.stack"] {
+            assert_stripped("exception", key);
+        }
+    }
+
+    #[test]
+    fn strips_a_prohibited_key_nested_inside_a_kvlist() {
+        // OTel lets the same attribute arrive either flattened (`user.email`) or as a
+        // KvlistValue that lands here as `{"user": {"email": …}}`. The second form is the one
+        // a path-blind check would miss.
+        let nested = KeyValue {
+            key: "user".to_string(),
+            value: Some(AnyValue {
+                value: Some(AnyValueKind::KvlistValue(KeyValueList {
+                    values: vec![str_kv("email", "CANARY-nested-7f3a"), str_kv("tier", "pro")],
+                })),
+            }),
+            ..Default::default()
+        };
+        let (attributes, removed) = row(&[nested, str_kv("model", "claude-opus-5")]);
+        let serialized = serde_json::to_string(&attributes).unwrap();
+
+        assert!(!serialized.contains("CANARY-nested-7f3a"), "nested value survived: {serialized}");
+        // Both leaves go, by the `user.` prefix rule: the whole namespace is identity, so
+        // `user.tier` is not kept just because nobody listed it. The emptied branch is then
+        // pruned rather than left as `"user": {}`.
+        assert_eq!(removed, vec!["user.email".to_string(), "user.tier".to_string()]);
+        assert!(attributes.get("user").is_none(), "an emptied branch was left behind: {serialized}");
+        assert_eq!(attributes.get("model").and_then(|v| v.as_str()), Some("claude-opus-5"));
+    }
+
+    #[test]
+    fn strips_a_prohibited_key_inside_an_array_of_objects() {
+        let array = KeyValue {
+            key: "participants".to_string(),
+            value: Some(AnyValue {
+                value: Some(AnyValueKind::ArrayValue(ArrayValue {
+                    values: vec![AnyValue {
+                        value: Some(AnyValueKind::KvlistValue(KeyValueList {
+                            values: vec![str_kv("user.email", "CANARY-array-7f3a"), str_kv("role", "reviewer")],
+                        })),
+                    }],
+                })),
+            }),
+            ..Default::default()
+        };
+        let (attributes, _) = row(&[array]);
+        let serialized = serde_json::to_string(&attributes).unwrap();
+
+        assert!(!serialized.contains("CANARY-array-7f3a"), "array value survived: {serialized}");
+        assert!(serialized.contains("reviewer"), "the sibling field went with it: {serialized}");
+    }
+
+    #[test]
+    fn matching_ignores_case() {
+        let (attributes, removed) = row(&[str_kv("User.Email", "CANARY-case-7f3a")]);
+        assert!(attributes.get("User.Email").is_none(), "case-different key survived");
+        assert_eq!(removed, vec!["User.Email".to_string()]);
+    }
+
+    #[test]
+    fn keeps_the_agent_id_and_the_structural_attributes_the_protocol_scores_on() {
+        // The inverse of every test above. `integrity.agent.id` is the receiver's routing
+        // key, and the token/cost attributes are what the protocol actually measures -- if
+        // the strip reached any of these it would be breaking the product, not protecting it.
+        let kept = [
+            str_kv(AGENT_ID_ATTRIBUTE_KEY, "agent-1"),
+            str_kv("type", "cacheRead"),
+            str_kv("model", "claude-opus-5"),
+            str_kv("agent.name", "reviewer"),
+            str_kv("mcp_server.name", "cortex"),
+            str_kv("mcp_tool.name", "memory_recall"),
+            str_kv("event.name", "claude_code.api_request"),
+            int_kv("input_tokens", 1234),
+            int_kv("output_tokens", 56),
+        ];
+        let (attributes, removed) = row(&kept);
+        assert!(removed.is_empty(), "stripped an allowed attribute: {removed:?}");
+        assert_eq!(attributes.as_object().unwrap().len(), kept.len());
+    }
+
+    #[test]
+    fn an_untouched_row_carries_no_stripped_marker() {
+        // Otherwise every row would advertise a strip that never happened, and the marker
+        // would stop meaning anything to a consumer.
+        let (attributes, removed) = row(&[str_kv("model", "claude-opus-5")]);
+        assert!(removed.is_empty());
+        assert!(attributes.get(identity::STRIPPED_KEYS_ATTRIBUTE).is_none());
+    }
+
+    #[test]
+    fn a_stripped_row_names_what_went() {
+        let (attributes, _) = row(&[
+            str_kv("user.email", "CANARY-marker-7f3a"),
+            str_kv("exception.stacktrace", "CANARY-marker-stack"),
+            str_kv("model", "claude-opus-5"),
+        ]);
+        assert_eq!(
+            attributes.get(identity::STRIPPED_KEYS_ATTRIBUTE),
+            Some(&serde_json::json!(["exception.stacktrace", "user.email"])),
+        );
+    }
+
+    #[test]
+    fn no_sentinel_in_this_suite_is_detectable_by_the_value_backstop() {
+        // The guard on every other test here. If a sentinel ever started matching a
+        // `crate::phi` pattern, the export would be rejected rather than stripped, and the
+        // assertions above would pass without the strip doing anything at all.
+        for sentinel in ["CANARY-identity-7f3a", "CANARY-content-7f3a", "CANARY-env-7f3a",
+                         "CANARY-locator-7f3a", "CANARY-exception-7f3a", "CANARY-nested-7f3a",
+                         "CANARY-array-7f3a", "CANARY-case-7f3a", "CANARY-marker-7f3a",
+                         "CANARY-marker-stack"] {
+            assert!(phi::scan_text(sentinel).is_empty(),
+                "{sentinel} trips the PHI backstop: {:?}", phi::scan_text(sentinel));
+        }
     }
 }

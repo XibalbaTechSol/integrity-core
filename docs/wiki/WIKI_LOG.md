@@ -4245,3 +4245,30 @@ writeup: PRODUCTION_GAPS.md §18.
   mistook the 8765 in the product repo's own Caddyfile for staleness, and it is the documented default.
 - No package source touched, so the applicable CI job is `docs`: `scripts/check_docs.py` and
   `scripts/wiki_toc.py --check` both pass.
+
+## [2026-10-25] feat | The OTLP receiver strips prohibited identity and content before it stores anything
+
+- `integrity-oracle/backend/src/identity.rs` is new: a key-based strip that runs on every OTLP span, metric point and
+  log record **before** the PHI backstop scans it and before persistence (`otlp.rs`, all three handlers). It removes
+  identity (`user.email`, `user.full_name`, `user.id`, `enduser.id`, `client.address`, `host.ip`), prompts and
+  completions (`gen_ai.prompt`, `gen_ai.completion` and siblings), tool arguments, file contents and names,
+  stdout/stderr, command lines, URLs and query strings, repository names, exception messages and stack traces, plus
+  anything under the prefixes `process.environment_variable.`, `user.`, `enduser.`. Matching is case-insensitive
+  against both the bare attribute name and the full dotted path.
+- It does not replace `phi.rs`; both run. The two catch different things and neither subsumes the other: a key rule
+  knows `gen_ai.prompt` is a prompt whatever it contains, and a value rule knows an SSN wherever it appears. The
+  prompt body with no recognisable pattern needed the first; the SSN under an innocuous key needed the second.
+- `integrity.agent.id` is in `NEVER_STRIP` — it is the join key the rest of the protocol is keyed on, so stripping it
+  would orphan the row. A branch emptied by stripping is pruned rather than left as `{}`.
+- A sanitized row carries `integrity.telemetry.stripped` listing the removed dotted paths, so stripping is itself
+  evidence rather than a silent edit. `INTERFACE_CONTRACT.md` gains §4.2c for the cross-package consequence: a stored
+  span's attributes do not round-trip what the SDK emitted, and the absence of a prohibited key is not evidence the
+  emitter never sent it.
+- 12 unit tests in `otlp.rs`'s `identity_strip_tests`. Proven able to fail rather than assumed: with
+  `strip_prohibited` disabled, 9 of the 12 fail and the 3 that stay green are exactly the two keep-controls and the
+  sentinel guard. A dedicated test asserts no sentinel used in that suite trips any `phi.rs` pattern, so a row
+  rejected by the PHI backstop can never make "the value is not in the row" pass for the wrong reason.
+- `cargo test --workspace` (the full suite the `oracle` CI job runs, not `--lib`): 194 tests pass, 0 failures. The one
+  `unused doc comment` warning is pre-existing, in `chain.rs:151`, and unrelated.
+- This is a receiver-side backstop, not a licence for emitters. The SDK remains responsible for not sending prohibited
+  attributes in the first place, and that obligation is unchanged.

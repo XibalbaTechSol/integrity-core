@@ -406,6 +406,36 @@ addresses or timestamps. This envelope does not itself assert Oracle
 registration, Shield authorization, Cortex principal authority, or on-chain
 finality.
 
+### 4.2c Receiver-side identity and content strip (OTLP ingestion)
+
+`integrity-oracle/backend/src/identity.rs` removes prohibited attributes from every OTLP
+span, metric point and log record **before** the PHI backstop scans it and before anything
+is persisted (`otlp.rs`). It is a key-based rule, not a value heuristic: the PHI scan still
+runs afterwards and is unchanged.
+
+What is removed, matched case-insensitively against both the bare attribute name and its
+full dotted path:
+
+- identity — `user.email`, `user.full_name`, `user.id`, `enduser.id`, `client.address`,
+  `host.ip`
+- prompts and completions — `gen_ai.prompt`, `gen_ai.completion` and siblings
+- tool arguments, file contents and names, stdout/stderr, command lines, URLs and query
+  strings, repository names, exception messages and stack traces
+- any attribute under the prefixes `process.environment_variable.`, `user.`, `enduser.`
+
+`integrity.agent.id` is never stripped: it is the join key the rest of the protocol is
+keyed on, and losing it would orphan the row. A branch emptied by stripping is pruned
+rather than left as `{}`.
+
+**Cross-package consequence.** A sanitized row carries
+`integrity.telemetry.stripped` (`identity::STRIPPED_KEYS_ATTRIBUTE`), an array of the
+dotted paths that were removed. Consumers reading stored telemetry must treat that key as
+reserved and must not assume a span's attribute set round-trips what the SDK emitted. The
+absence of a prohibited key is not evidence the emitter never sent it.
+
+This is a receiver-side backstop, not a licence for emitters to send prohibited data: the
+SDK is still responsible for not emitting it in the first place.
+
 ### 4.4 Merkle tree convention (must match between integrity-oracle and contracts)
 - Hash function: `keccak256` (not SHA-256) — this tree's root gets verified on-chain in
   `StateAnchor.sol`, and keccak256 is native/cheap in the EVM.

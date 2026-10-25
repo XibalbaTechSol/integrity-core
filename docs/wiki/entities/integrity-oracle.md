@@ -1,7 +1,7 @@
 ---
 title: integrity-oracle
 created: 2026-07-07
-updated: 2026-09-18
+updated: 2026-10-25
 type: entity
 tags: [infrastructure, metrics, layer-2, tokenomics]
 confidence: high
@@ -14,6 +14,7 @@ source_files:
   - integrity-oracle/backend/src/config.rs
   - integrity-oracle/backend/src/db.rs
   - integrity-oracle/backend/src/phi.rs
+  - integrity-oracle/backend/src/identity.rs
   - integrity-oracle/backend/src/vc.rs
   - integrity-oracle/backend/src/verification.rs
   - integrity-oracle/backend/src/attestation.rs
@@ -50,6 +51,7 @@ this is the **only** backend that ever reads on-chain state.
   - [Server-side telemetry-signal re-derivation (derive.rs)](#server-side-telemetry-signal-re-derivation-derive-rs)
   - [Signed telemetry schema v3 (handlers.rs + spanschema.rs)](#signed-telemetry-schema-v3-handlers-rs-spanschema-rs)
   - [The OTLP/gRPC path (otlp.rs) — separate from telemetryevents, unauthenticated](#the-otlp-grpc-path-otlp-rs-separate-from-telemetryevents-unauthenticated)
+  - [Receiver-side identity and content strip (identity.rs)](#receiver-side-identity-and-content-strip-identity-rs)
   - [PHI backstop on POST /v1/telemetry/ingest](#phi-backstop-on-post-v1-telemetry-ingest)
   - [Judge evaluations (storage only — no judge implementation)](#judge-evaluations-storage-only-no-judge-implementation)
 - [On-chain client (chain.rs)](#on-chain-client-chain-rs)
@@ -311,6 +313,36 @@ let anyone move an agent's score. Trace export is fully implemented
 `otel_spans` table, broadcast over SSE); metrics export is accepted (so the
 SDK's metric exporter gets a real gRPC response) but not yet parsed or
 persisted.
+
+### Receiver-side identity and content strip (`identity.rs`)
+
+`src/identity.rs` removes prohibited attributes from every OTLP span, metric point and log
+record **before** the PHI backstop scans it and before anything is persisted. The two are
+complementary and both still run: this one is key-based (it knows `gen_ai.prompt` is a
+prompt whatever it contains), while `phi.rs` is value-based (it knows what a credit card
+number looks like wherever it appears). A key-based rule catches the prompt body that
+contains no recognisable PHI pattern; a value-based one catches the SSN that arrived under
+an innocuous key.
+
+Removed, matched case-insensitively against both the bare attribute name and the full
+dotted path: identity (`user.email`, `user.full_name`, `user.id`, `enduser.id`,
+`client.address`, `host.ip`), prompts and completions (`gen_ai.prompt`, `gen_ai.completion`
+and siblings), tool arguments, file contents and names, stdout/stderr, command lines, URLs
+and query strings, repository names, exception messages and stack traces, and anything under
+the prefixes `process.environment_variable.`, `user.`, `enduser.`.
+
+`integrity.agent.id` is in `NEVER_STRIP`: it is the join key the rest of the protocol is
+keyed on, so stripping it would orphan the row. A branch emptied by stripping is pruned
+rather than left behind as `{}`.
+
+A sanitized row carries `integrity.telemetry.stripped` (`STRIPPED_KEYS_ATTRIBUTE`) listing
+the dotted paths removed, so the fact that stripping happened is itself evidence rather than
+a silent edit. See §4.2c of the interface contract for the consumer-side consequence: a
+stored span's attributes do not round-trip what the SDK emitted, and the absence of a
+prohibited key is not evidence the emitter never sent it.
+
+This is a receiver-side backstop, not a licence for emitters: the SDK remains responsible
+for not sending prohibited attributes in the first place.
 
 ### PHI backstop on `POST /v1/telemetry/ingest`
 
