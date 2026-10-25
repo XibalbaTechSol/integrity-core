@@ -1,5 +1,23 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-10-24] fix | OPA refusals name their cause; shared OPA stops preloading Shield Rego
+
+- `integrity_sdk.core.opa` now puts OPA's response body into `OpaError("OPA_HTTP_ERROR")` --
+  compiler code, message, and one entry per error with file and row -- rather than only
+  `HTTPError.reason`. A Shield sensor had crash-looped on `OPA returned 400: Bad Request` with no
+  way to tell a compile failure from a malformed request; the cause needed a hand-built repro.
+- Root cause of that 400: `deploy/local/systemd/integrity-policy-opa.service` preloaded
+  `shield/policies/rego/smb.rego` from a checkout, putting a second `package shield.policy` module
+  into the shared server outside `OpaClient`'s `integrity-pack/` prefix, where `install` can
+  neither own nor remove it. Every duplicated `default` rule became a `rego_type_error`. The unit
+  no longer preloads it; the signed pack is the only writer of `shield.policy`.
+- Deploy order is now load-bearing and is recorded in the unit: a Shield build older than the
+  pack-install path evaluates against whatever is preloaded, so the preload may only be dropped
+  together with deploying a Shield that installs its own pack.
+- `docs/INTERFACE_CONTRACT.md` §2 states the shared-OPA boundary rule. Two new tests in
+  `integrity-sdk/tests/unit/test_core_opa.py` cover the collision against a real OPA and the
+  body-parsing fallbacks. integrity-sdk: 625 passed, 3 skipped.
+
 ## [2026-09-29] handoff | Gate A complete, Identity closed
 
 - Gate A reached 12/12. The final two legacy Hermes orphan identity slots were quarantined while

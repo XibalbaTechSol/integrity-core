@@ -66,6 +66,7 @@ become a self-sovereign, on-chain, reputation-bearing participant.
 - [Persistent Memory Bridge (memory.py, added 2026-07-30)](#persistent-memory-bridge-memory-py-added-2026-07-30)
 - [evidenceanchor.py, added 2026-10-05 (B4)](#evidenceanchor-py-added-2026-10-05-b4)
 - [hookrunner.py: harness PreToolUse gate client (B3; Shield gate added 2026-10-06, B2)](#hookrunner-py-harness-pretooluse-gate-client-b3-shield-gate-added-2026-10-06-b2)
+- [OPA refusals carry OPA's own compiler errors (2026-10-24)](#opa-refusals-carry-opa-s-own-compiler-errors-2026-10-24)
 - [Shared decision-contract vectors (B2 stage 4, 2026-10-11)](#shared-decision-contract-vectors-b2-stage-4-2026-10-11)
 
 ## Dependency boundary
@@ -509,6 +510,27 @@ of the command, and with the daemon stopped the hook failed open with a stderr l
 
 `[PLANNED]`: signed, chained per-decision receipts, and BCC/Shield conformance over a shared
 compiled pack (the rest of `docs/EXECUTION_PLAN.md` B2).
+
+## OPA refusals carry OPA's own compiler errors (2026-10-24)
+
+`OpaClient.install` raises `OpaError("OPA_HTTP_ERROR", ...)` when OPA answers but refuses. The
+message now includes OPA's **response body** -- its `code`, `message`, and one line per compiler
+error with the offending file and row -- instead of only `HTTPError.reason`, which is just the HTTP
+status phrase.
+
+This was found the hard way: a Shield sensor crash-looped with
+`OPA returned 400: Bad Request`, indistinguishable from a malformed request, and the cause had to
+be reproduced by hand against a scratch OPA server. The body said
+`rego_type_error: multiple default rules data.shield.policy.allow found at <checkout>/smb.rego:5,
+integrity-pack/smb.rego:5` -- a module declaring the pack's package had been preloaded into the
+shared OPA outside this client's `integrity-pack/` prefix, where `install` can neither own nor
+remove it. See §2 of `docs/INTERFACE_CONTRACT.md` for that boundary rule.
+
+`tests/unit/test_core_opa.py::test_a_refusal_carries_opas_own_compiler_errors` reproduces the
+collision against a real OPA server and asserts the conflicting rule and both module ids reach
+the message; a companion test covers the fallbacks (empty body, non-JSON body, a bare JSON
+string, and a body longer than the 2000-character cap). Verified as a positive control: with the
+body-reading call reverted, that test fails with the exact string the operator saw.
 
 ## Shared decision-contract vectors (B2 stage 4, 2026-10-11)
 

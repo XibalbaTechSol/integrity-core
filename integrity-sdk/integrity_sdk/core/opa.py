@@ -40,6 +40,51 @@ from .packs import LoadedPack
 POLICY_ID_PREFIX = "integrity-pack/"
 
 
+#: Cap on how much of OPA's response body reaches an `OpaError` message, which is logged
+#: and surfaced to operators. OPA's compile errors are a few hundred bytes; a runaway body
+#: must not turn one failed install into an unbounded log line.
+_HTTP_ERROR_BODY_LIMIT = 2000
+
+
+def _http_error_detail(exc: urllib.error.HTTPError) -> str:
+    """OPA's own explanation of a refusal, falling back to the HTTP status phrase.
+
+    `HTTPError.reason` is only the status phrase -- "Bad Request" for a 400 -- while the
+    reason OPA refused is in the response body: for a compile failure, one entry per
+    `rego_type_error` with the offending file and row. Without the body, a deploy-blocking
+    refusal reads as "OPA returned 400: Bad Request", which is indistinguishable from a
+    malformed request and has to be reproduced by hand against a scratch server before it
+    says anything at all. That happened: a Shield sensor crash-looped on
+    `OPA returned 400: Bad Request` where the body said `multiple default rules
+    data.shield.policy.allow found at <preloaded>/smb.rego:5, integrity-pack/smb.rego:5`
+    -- a module loaded into the shared OPA outside this client's prefix declaring the same
+    package as the pack (this module's docstring: "The gate should give this client its own
+    OPA instance"). Reading the body names the conflict and both files immediately.
+    """
+    try:
+        raw = exc.read()
+    except (OSError, ValueError):  # body already consumed, or the connection died with it
+        raw = b""
+    if not raw:
+        return str(exc.reason)
+    try:
+        payload = json.loads(raw)
+    except ValueError:
+        # Not JSON (a proxy's error page, say): pass the text through, bounded.
+        return raw.decode("utf-8", "replace").strip()[:_HTTP_ERROR_BODY_LIMIT] or str(exc.reason)
+    if not isinstance(payload, dict):
+        return str(exc.reason)
+    parts = [str(payload[key]) for key in ("code", "message") if payload.get(key)]
+    for entry in payload.get("errors") or []:
+        if not isinstance(entry, dict):
+            continue
+        location = entry.get("location") or {}
+        where = ":".join(str(location[key]) for key in ("file", "row") if location.get(key) is not None)
+        detail = f"{entry.get('code') or 'error'}: {entry.get('message') or ''}"
+        parts.append(f"{detail} at {where}" if where else detail)
+    return "; ".join(part for part in parts if part)[:_HTTP_ERROR_BODY_LIMIT] or str(exc.reason)
+
+
 class OpaError(Exception):
     """OPA could not be driven into the verified state; the gate must not enforce with it."""
 
@@ -107,7 +152,7 @@ class OpaClient:
                 installed = self._owned_policies()
             except urllib.error.HTTPError as exc:
                 # OPA answered but refused, e.g. 400 for Rego that does not compile.
-                raise OpaError("OPA_HTTP_ERROR", f"OPA returned {exc.code}: {exc.reason}") from exc
+                raise OpaError("OPA_HTTP_ERROR", f"OPA returned {exc.code}: {_http_error_detail(exc)}") from exc
             except (urllib.error.URLError, OSError, ValueError) as exc:
                 raise OpaError("OPA_UNAVAILABLE", str(exc)) from exc
             if installed != modules:

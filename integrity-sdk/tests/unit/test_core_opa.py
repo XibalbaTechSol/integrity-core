@@ -7,6 +7,7 @@ anyone noticing. Here a real `opa run --server` evaluates a signed pack.
 
 from __future__ import annotations
 
+import io
 import os
 import shutil
 import socket
@@ -19,7 +20,7 @@ import pytest
 
 from integrity_sdk.core import decision as d
 from integrity_sdk.core import packs
-from integrity_sdk.core.opa import OpaClient, OpaError
+from integrity_sdk.core.opa import POLICY_ID_PREFIX, OpaClient, OpaError
 from integrity_sdk.did import Keypair, public_key_multibase
 
 OPA = shutil.which("opa") or (str(Path.home() / ".local/bin/opa") if (Path.home() / ".local/bin/opa").exists() else None)
@@ -162,3 +163,82 @@ def test_opa_proxy_environment_is_ignored(opa_url, tmp_path, signer, monkeypatch
     client.install(pack)
     assert client.decide(pack, "agent.tool_call", {"touches_phi": True, "baa_active": True}).decision == "permit"
     assert os.environ["HTTP_PROXY"]  # still set: the client ignored it rather than it being absent
+
+
+#: A pack policy whose entrypoint rule has a `default`. OPA accepts the same *conditional*
+#: rule declared in two modules (their bodies may be mutually exclusive), and rejects a
+#: duplicated `default` at compile time -- so only this shape reproduces the collision below.
+DEFAULTED_POLICY = """\
+package integrity.pack
+
+import rego.v1
+
+default decision := {"decision": "log_only", "reason_code": "BASELINE"}
+
+decision := {"decision": "permit", "reason_code": "BAA_ACTIVE"} if {
+    input.touches_phi
+    input.baa_active
+}
+"""
+
+
+def test_a_refusal_carries_opas_own_compiler_errors(opa_url, tmp_path, signer):
+    """A refusal must say what OPA objected to, not just repeat the HTTP status phrase.
+
+    The failure this pins: a module declaring the pack's package was loaded into a shared
+    OPA outside this client's prefix, so `install` neither owns nor removes it, and the
+    duplicated `default` stopped the module set compiling. A Shield sensor crash-looped on
+    `OPA returned 400: Bad Request`, which is indistinguishable from a malformed request;
+    the cause had to be reproduced by hand against a scratch server. The body names the
+    conflicting rule and both files, so it must reach the error message.
+    """
+    foreign_id = "operator-loaded/smb.rego"
+    pack = _signed_pack(tmp_path / "collide", DEFAULTED_POLICY, signer)
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+    def _put_foreign() -> None:
+        request = urllib.request.Request(
+            f"{opa_url}/v1/policies/{foreign_id}", data=DEFAULTED_POLICY.encode("utf-8"), method="PUT",
+        )
+        request.add_header("Content-Type", "text/plain")
+        opener.open(request, timeout=5).close()
+
+    _put_foreign()
+    try:
+        client = OpaClient(opa_url)
+        with pytest.raises(OpaError) as excinfo:
+            client.install(pack)
+        message = str(excinfo.value)
+        assert excinfo.value.code == "OPA_HTTP_ERROR"
+        assert "400" in message
+        # OPA's own words, not `HTTPError.reason`: the compiler code, the conflicting rule,
+        # and both modules -- which is what makes the conflict actionable without a repro.
+        assert "rego_type_error" in message
+        assert "multiple default rules data.integrity.pack.decision" in message
+        assert foreign_id in message
+        assert POLICY_ID_PREFIX + "policy.rego" in message
+        # Still fails closed: a refused install leaves nothing enforceable.
+        assert client.installed_pack_hash is None
+    finally:
+        # The opa_url fixture is module-scoped; leaving a foreign module in the same
+        # package would break every later install in this file.
+        request = urllib.request.Request(f"{opa_url}/v1/policies/{foreign_id}", method="DELETE")
+        opener.open(request, timeout=5).close()
+
+
+def test_a_refusal_without_a_usable_body_still_reports_the_status(tmp_path, signer):
+    """When OPA's body is absent or not JSON, the status phrase is the fallback."""
+    import urllib.error
+
+    from integrity_sdk.core.opa import _http_error_detail
+
+    def _error(body: bytes, headers=None):
+        return urllib.error.HTTPError(
+            "http://127.0.0.1/v1/policies/x", 400, "Bad Request", headers or {}, io.BytesIO(body),
+        )
+
+    assert _http_error_detail(_error(b"")) == "Bad Request"
+    assert _http_error_detail(_error(b"<html>proxy blocked</html>")) == "<html>proxy blocked</html>"
+    assert _http_error_detail(_error(b'"a bare string"')) == "Bad Request"
+    long_body = b'{"message": "' + b"x" * 5000 + b'"}'
+    assert len(_http_error_detail(_error(long_body))) == 2000
