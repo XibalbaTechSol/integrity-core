@@ -1,11 +1,36 @@
 [Unit]
-Description=Integrity policy engine (OPA) — BCC policies + Shield smb.rego, 127.0.0.1:8181
+# OPA for BCC policy evaluation, on loopback only.
+#
+# This deliberately does NOT preload Shield's smb.rego any more. Since Shield moved to
+# signed policy packs, `shield run` installs the pack's Rego itself -- via
+# integrity_sdk.core.opa.OpaClient.install, under the `integrity-pack/` id prefix -- and
+# then reads it back, refusing to enforce unless OPA holds exactly the signed bytes.
+#
+# Preloading shield/policies/rego/smb.rego from a checkout put a second module declaring
+# `package shield.policy` into this shared server, outside that prefix, so install() could
+# neither own nor remove it, and OPA refused the whole module set with one error per
+# duplicated `default` rule:
+#
+#   rego_type_error: multiple default rules data.shield.policy.allow found at
+#     <checkout>/shield/policies/rego/smb.rego:5, integrity-pack/smb.rego:5
+#
+# `shield run` fails closed on that, so the sensor crash-looped (2026-10-24; the operator
+# saw only "OPA returned 400: Bad Request" until integrity_sdk.core.opa started including
+# OPA's response body). The signed pack is now the only thing that may install
+# `shield.policy` here. OpaClient's own module docstring says the gate "should give this
+# client its own OPA instance"; sharing one is tolerable only because nothing else installs
+# into that prefix.
+#
+# DEPLOY ORDER MATTERS: a Shield build older than the pack-install path has no way to put
+# `shield.policy` into OPA and evaluates against whatever is preloaded, so dropping the
+# preload must happen together with deploying a Shield that installs its pack -- not before.
+Description=Integrity policy engine (OPA) — BCC policies, 127.0.0.1:8181
 After=network-online.target
 Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/home/xibalba/Projects/integrity-core/bcc_middleware
-ExecStart=/home/xibalba/.local/bin/opa run --server --addr=127.0.0.1:8181 policies/ /home/xibalba/Projects/xibalba-shield/shield/policies/rego/smb.rego
+ExecStart=/home/xibalba/.local/bin/opa run --server --addr=127.0.0.1:8181 policies/
 Restart=on-failure
 RestartSec=5
 [Install]

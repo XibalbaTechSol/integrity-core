@@ -97,6 +97,19 @@ than as integrity-core services:
 Shield's backend defaults to **8765** (`shield/backend/api.py`'s `--port`, `SHIELD_BACKEND_PORT`);
 this deployment overrides it to 8435, so the Caddyfile and that env var have to agree.
 
+**The OPA server on 8181 is shared, so only a signed pack may install `shield.policy`.**
+`integrity_sdk.core.opa.OpaClient.install` owns exactly the module ids under its
+`integrity-pack/` prefix: it deletes those, installs the pack's verified Rego, and reads the
+policies back, refusing to enforce unless OPA holds precisely the signed bytes. It cannot see or
+remove a module loaded into the same server by any other means. Loading a second module that
+declares `package shield.policy` therefore makes the whole module set fail to compile, one
+`rego_type_error` per duplicated `default` rule, and OPA answers the install with 400. `shield run`
+fails closed on that, so the sensor cannot start at all. This is why
+`deploy/local/systemd/integrity-policy-opa.service` no longer preloads
+`shield/policies/rego/smb.rego` from a checkout. A gate is entitled to its own OPA instance
+(`core/opa.py`'s module docstring); sharing this one is only safe while nothing else writes
+`shield.policy`.
+
 Not every local endpoint is a port. **Shield's PreToolUse gate daemon listens on a Unix socket**,
 not a TCP port, so that nothing is reachable over loopback and the socket's file mode (`0600`)
 is what limits who can ask it. Its path rule and wire format are in §15.5.
