@@ -22,6 +22,20 @@ https://localhost:9443 {
 	# matcher ever sees it. A route block executes in the order written instead.
 	route {
 		reverse_proxy /api/* 127.0.0.1:8420
+
+		# The console reads three paths outside /api, and the /api-only rule above left all
+		# three falling through to try_files, so each answered 200 with the viewer's own HTML:
+		# Operations polls /readyz and /metrics (console/pages/OperationsPage.tsx), and
+		# Settings -> Developer probes /healthz (console/pages/settings/DeveloperSection.tsx).
+		# api.metrics() checks only response.ok, so it parsed that HTML as Prometheus text and
+		# silently showed no metrics; api.readiness() threw on the JSON parse.
+		# /metrics is unauthenticated by design, which is acceptable only because this origin
+		# is loopback-bound above -- do not copy these three lines to a public front door
+		# without adding access control.
+		reverse_proxy /readyz 127.0.0.1:8420
+		reverse_proxy /healthz 127.0.0.1:8420
+		reverse_proxy /metrics 127.0.0.1:8420
+
 		root * /home/xibalba/Projects/xibalba-cortex/viewer/dist
 		try_files {path} /index.html
 		file_server
@@ -39,6 +53,18 @@ https://localhost:9444 {
 	}
 	route {
 		reverse_proxy /api/* 127.0.0.1:8435
+
+		# The console's Cortex namespace selector reads Cortex's agent roster directly
+		# (fetchCortexNamespaces in ui/src/components/Dashboard.jsx). With only the /api rule
+		# above, the request fell through to try_files and was answered with the console's own
+		# HTML; response.ok was true, so the guard passed and the JSON parse threw -- and
+		# because the call sits in a Promise.allSettled, nothing surfaced it and the selector
+		# just rendered empty. handle_path strips the prefix, matching the rewrite the Vite dev
+		# proxy does, so one URL works in both. Cortex's own API is 8420, same as :9443 above.
+		handle_path /cortex-api/* {
+			reverse_proxy 127.0.0.1:8420
+		}
+
 		root * /home/xibalba/Projects/xibalba-shield/ui/dist
 		try_files {path} /index.html
 		file_server
