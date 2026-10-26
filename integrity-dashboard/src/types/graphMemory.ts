@@ -182,6 +182,50 @@ export interface MerkleRoot {
     root_kind: string;
 }
 
+export interface DecisionTraceAdvisory {
+    provider_id: string;
+    status: 'available' | 'unavailable' | 'rejected' | string;
+    risk_category: string | null;
+    transition_probabilities: Record<string, number>;
+    recommended_escalation: boolean;
+    observed_event_hash: string | null;
+    causal_claim: boolean;
+}
+
+export interface DecisionTraceEvent {
+    event_id: string;
+    trace_id: string;
+    tenant_id: string;
+    agent_id: string;
+    session_id: string;
+    sequence_number: number;
+    event_hash: string;
+    parent_event_hash: string;
+    envelope: {
+        event_type: string;
+        timestamp: string;
+        invocation_id: string | null;
+        tool_call_id: string | null;
+        policy_ref: string | null;
+        policy_decision: string | null;
+        metadata: Record<string, unknown>;
+        redaction_status: string;
+        causal_claim: boolean;
+    };
+    advisory: DecisionTraceAdvisory | null;
+    created_at: string;
+}
+
+export interface DecisionTraceProjection {
+    trace_id: string;
+    session_id: string;
+    events: DecisionTraceEvent[];
+    root: string | null;
+    valid: boolean;
+    proofs?: Record<string, string[]>;
+    disclaimer?: string;
+}
+
 // Kernel-first intent-vs-outcome bridge (~/.claude/plans/iridescent-stirring-kettle.md).
 // Mirrors GraphStore.kernel_bridge_intents()'s return shape exactly.
 export interface KernelDecision {

@@ -8,9 +8,10 @@ const json = (route: Route, body: unknown, status = 200) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 
 async function installCortexContract(page: Page) {
-  await page.route('http://localhost:8420/api/**', async route => {
+  await page.route('**/cortex-api/api/**', async route => {
     const request = route.request();
     const url = new URL(request.url());
+    url.pathname = url.pathname.replace(/^\/cortex-api/, '');
 
     if (url.pathname === '/api/extraction-proposals' && request.method() === 'GET') {
       return json(route, [{
@@ -94,8 +95,8 @@ async function installCortexContract(page: Page) {
 
 test.describe('/cortex Operations tab', () => {
   test('keeps sessions visible when an unrelated Cortex endpoint fails', async ({ page }) => {
-    await page.route('http://localhost:8420/api/**', async route => {
-      const path = new URL(route.request().url()).pathname;
+    await page.route('**/cortex-api/api/**', async route => {
+      const path = new URL(route.request().url()).pathname.replace(/^\/cortex-api/, '');
       if (path === '/api/sessions') return json(route, [{ id: 'session-row-1', external_session_id: 'session-visible-during-partial-failure' }]);
       if (path === '/api/stats') return json(route, { memories: 1, entities: 0, relations: 0, embedded_memories: 0, sessions: 1 });
       if (path === '/api/status') return json(route, { schema_version: 1, integrity_check: 'ok' });
@@ -114,7 +115,7 @@ test.describe('/cortex Operations tab', () => {
   });
 
   test('redirects the legacy Memory route into the Cortex workspace', async ({ page }) => {
-    await page.route('http://localhost:8420/api/**', route => route.abort('connectionrefused'));
+    await page.route('**/cortex-api/api/**', route => route.abort('connectionrefused'));
     await page.goto('/memory');
 
     await expect(page).toHaveURL(/\/cortex$/);
@@ -123,7 +124,7 @@ test.describe('/cortex Operations tab', () => {
 
   test('renders an honest partial view when every Cortex operator endpoint is offline', async ({ page }) => {
     const errors = collectPageErrors(page);
-    await page.route('http://localhost:8420/api/**', route => route.abort('connectionrefused'));
+    await page.route('**/cortex-api/api/**', route => route.abort('connectionrefused'));
 
     await page.goto('/cortex');
     await expect(page.getByRole('heading', { name: 'Cortex', exact: true })).toBeVisible();
@@ -137,6 +138,43 @@ test.describe('/cortex Operations tab', () => {
     await expect(page.getByRole('status')).toContainText('projection health');
     await expect(page.getByText('No placeholder records are shown.')).toBeVisible();
     expect(errors).toEqual([]);
+  });
+
+  test('renders populated DecisionTrace Jev advisory and proof state', async ({ page }) => {
+    await page.route('**/cortex-api/api/**', async route => {
+      const path = new URL(route.request().url()).pathname.replace(/^\/cortex-api/, '');
+      if (path === '/api/sessions') return json(route, [{ id: 'session-row-1', external_session_id: 'trace-session-1' }]);
+      if (path === '/api/stats') return json(route, { memories: 4, entities: 1, relations: 1, embedded_memories: 0, sessions: 1 });
+      if (path === '/api/status') return json(route, { schema_version: 16, integrity_check: 'ok' });
+      if (path === '/api/integrity-links') return json(route, { total_memories: 4, linked_records: 4, states: { verified: 4 } });
+      if (path === '/api/inference/manifest') return json(route, { task_types: [] });
+      if (path.includes('/decision-trace')) return json(route, {
+        trace_id: 'trace-session-1', session_id: 'trace-session-1', valid: true,
+        root: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        disclaimer: 'Observational correlation only; probabilities do not prove causality or execution.',
+        events: [{
+          event_id: 'trace-event-1', trace_id: 'trace-session-1', tenant_id: 'tenant-a', agent_id: 'agent-a', session_id: 'trace-session-1',
+          sequence_number: 0, event_hash: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          parent_event_hash: '0x0000000000000000000000000000000000000000000000000000000000000000',
+          envelope: { event_type: 'shield.policy_decision', timestamp: '2026-10-03T12:00:00Z', invocation_id: 'inv-1', tool_call_id: null, policy_ref: 'policy-v1', policy_decision: 'deny', metadata: { risk_hint: 'high' }, redaction_status: 'redacted', causal_claim: false },
+          advisory: { provider_id: 'jev.fixture.v1', status: 'available', risk_category: 'high', transition_probabilities: { continue: 0.35, escalate: 0.65 }, recommended_escalation: true, observed_event_hash: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', causal_claim: false },
+          created_at: '2026-10-03T12:00:00Z',
+        }],
+      });
+      if (path.includes('/exchanges')) return json(route, []);
+      if (path.includes('/merkle-root')) return json(route, { root: '0xroot', valid: true, exchange_count: 0 });
+      return json(route, []);
+    });
+    await page.goto('/cortex');
+    await page.getByRole('button', { name: 'DecisionTrace' }).click();
+    await expect(page.getByRole('heading', { name: 'DecisionTrace', exact: true })).toBeVisible();
+    await expect(page.getByText('Locally verified')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'shield.policy_decision', exact: true })).toBeVisible();
+    await expect(page.getByText('Escalation suggested')).toBeVisible();
+    await expect(page.getByText('Causal claim: false. Jev cannot authorize or override Shield enforcement.')).toBeVisible();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.getByRole('heading', { name: 'DecisionTrace', exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(await page.evaluate(() => document.documentElement.clientWidth));
   });
 
   test('renders deterministic hybrid retrieval evidence from the browser API contract', async ({ page }) => {

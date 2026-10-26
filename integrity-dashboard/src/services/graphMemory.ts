@@ -34,6 +34,7 @@ import type {
     RetrievalTrace,
     EmbeddingModel,
     TraversalResult,
+    DecisionTraceProjection,
 } from '../types/graphMemory';
 
 export type {
@@ -72,6 +73,9 @@ export type {
     EmbeddingModel,
     TraversalEdge,
     TraversalResult,
+    DecisionTraceAdvisory,
+    DecisionTraceEvent,
+    DecisionTraceProjection,
 } from '../types/graphMemory';
 
 
@@ -152,6 +156,7 @@ export const graphMemory = {
     sessionExchanges: (id: string) => getJson<Exchange[]>(`/api/session/${encodeURIComponent(id)}/exchanges`),
     sessionMerkleRoot: (id: string) => getJson<MerkleRoot>(`/api/session/${encodeURIComponent(id)}/merkle-root`),
     sessionKernelIntents: (id: string) => getJson<KernelIntentTriple[]>(`/api/session/${encodeURIComponent(id)}/kernel-intents`),
+    sessionDecisionTrace: (id: string, traceId: string) => getJson<DecisionTraceProjection>(`/api/session/${encodeURIComponent(id)}/decision-trace?trace_id=${encodeURIComponent(traceId)}`),
 
     // Graph & search
     graph: (limit = 500, similarityThreshold = 0.75) =>
