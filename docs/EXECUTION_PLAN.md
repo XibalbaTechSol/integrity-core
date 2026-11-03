@@ -211,8 +211,11 @@ review:
 1. [x] Create integrity-lab and integrity-console. Push access to Shield and Cortex already exists.
    Both repos exist; integrity-lab#1 (cut-path import) and integrity-console#1/#4 (dashboard/userapi/
    demo import, then cut-feature page removal) are merged.
-2. [ ] Approve any testnet broadcast (evidence anchor, genesis). Each is preceded by an Anvil dry run of
-   the identical script.
+2. [x] Owner approved a Base Sepolia `ProtocolEvidenceAnchor` broadcast on 2026-11-03. The identical
+   script passed an Anvil dry run on chain 31337 (852,992 gas; Anvil estimate 0.001705984 ETH at
+   2 gwei). This approval is for the evidence anchor only; a fresh protocol genesis or agent migration
+   requires its own reviewed dry run and authorization. Broadcast is pending a rotated, testnet-only
+   signer installed with owner-only file permissions; no live transaction has been sent.
 
 ## Pre-execution
 
@@ -1080,7 +1083,9 @@ reporting whether a daemon is actually listening — see B2):
   deploy pattern `DeployXns.s.sol` already uses (writes `.singletons.ProtocolEvidenceAnchor`; admin
   is the funder EOA directly, not a `SovereignAgent`, since this is a protocol singleton, not an
   agent-owned primitive). Verified against a real local anvil: deploys cleanly, address confirmed via
-  the script's own broadcast log (2026-10-05).
+  the script's own broadcast log (2026-10-05). On 2026-11-03, the exact script also passed an Anvil
+  dry run (chain 31337; 852,992 gas). Owner approved a Base Sepolia broadcast, but it has not been
+  sent: the current ignored local signer requires credential review and replacement before use.
 - [x] `anchor_batch_per_agent` stops writing receipt roots into agent anchors, whose `latestRoot` is the
   memory root that registration checks. `bcc_middleware/app/anchor.py`: per-agent sub-roots now anchor
   to the one configured `protocol_evidence_anchor_contract_name` address instead of each agent's own
@@ -1189,7 +1194,9 @@ synthetic regulated data and Claude Code hooks.
 Each result is recorded as verified, unverified or blocked; tick an item once it has a recorded
 result. None of these invalidates Gate B-local.
 
-- [ ] Base Sepolia evidence anchor (owner-approved broadcast).
+- [ ] Base Sepolia evidence anchor. Owner approval was recorded 2026-11-03 and the Anvil dry run
+  passed; the live broadcast remains pending a rotated testnet-only signer and post-broadcast
+  address/role verification.
 - [ ] Vanta sandbox run.
 - [ ] External oracle/BCC connectivity.
 
@@ -1263,6 +1270,8 @@ and roots with no provider behind them.
 ## C5. Cutover (M)
 
 - [ ] Run an Anvil regenesis dry run, then broadcast a fresh Base Sepolia genesis with owner approval.
+  The 2026-11-03 approval covers only the incremental `ProtocolEvidenceAnchor`, not a fresh genesis
+  or the subsequent migration of the 15 registered agents.
 - [ ] Migrate the 15 registered agents, from both the `registerPrimitives` and `registerCore` paths,
   preserving DIDs, XNS handles and valid history. Agents without provider-backed memory are reported
   as blocked.

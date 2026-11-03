@@ -1,7 +1,7 @@
 ---
 title: bcc_middleware
 created: 2026-07-07
-updated: 2026-10-10
+updated: 2026-11-03
 type: entity
 tags: [infrastructure, compliance, cryptography, metrics]
 confidence: high
@@ -298,6 +298,9 @@ still makes every individual root independently verifiable via `verifyLeaf`, eve
 though `latestRoot` itself no longer means anything agent-specific on this contract.
 Re-verified against a real local anvil: `tests/test_anchor_per_agent.py` (3/3) and
 `tests/test_chain_baa_anchor.py`'s full real-chain intercept flow (12/12).
+Base Sepolia anchoring is not yet established: the deployment manifest has no
+`ProtocolEvidenceAnchor` address. The owner-approved incremental broadcast is pending
+a rotated testnet-only signer; see [contracts](contracts.md) for the preflight evidence.
 
 Related: [BCC](../concepts/bcc.md),
 [ComplianceGate](../concepts/compliance-gate.md),

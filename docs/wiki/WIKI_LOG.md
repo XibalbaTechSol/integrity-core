@@ -4272,3 +4272,15 @@ writeup: PRODUCTION_GAPS.md §18.
   `unused doc comment` warning is pre-existing, in `chain.rs:151`, and unrelated.
 - This is a receiver-side backstop, not a licence for emitters. The SDK remains responsible for not sending prohibited
   attributes in the first place, and that obligation is unchanged.
+
+## [2026-11-03] docs | Jev DecisionTrace gates closed; Base Sepolia evidence anchor approved, pending signer rotation
+
+- Refreshed `STATUS.md` and `docs/EXECUTION_PLAN.md` after Cortex PR #84 and Shield PR #65 merged;
+  B2a is complete and DecisionTrace/Jev content-boundary coverage is checked in B5.
+- Owner approval covers the incremental Base Sepolia `ProtocolEvidenceAnchor` only. The exact
+  deployment script compiled and passed an Anvil dry run on chain 31337 (852,992 gas; estimated
+  0.001705984 ETH at the local 2 gwei setting). No Base Sepolia broadcast occurred.
+- The ignored local signer requires credential review and rotation before broadcast. The existing
+  deployment manifest has no `singletons.ProtocolEvidenceAnchor` entry; no address was added.
+- Updated the contracts and BCC middleware wiki pages to separate local dry-run proof from live
+  testnet deployment evidence. No wiki page was added or removed; the index remains at 35 pages.
