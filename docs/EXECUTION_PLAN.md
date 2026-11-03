@@ -1019,13 +1019,13 @@ did before the daemon existed.
 
 - [x] Hermes observer hooks feed normalized, redacted events into the shared DecisionTrace gateway;
   the gateway is local-first and records advisory-unavailable status when no provider is available.
-- [ ] Queue/retry advisory analysis for a later provider recovery without delaying local capture.
+- [x] Queue/retry advisory analysis for a later provider recovery without delaying local capture.
   Cortex stores only the redacted envelope in a separate leased SQLite queue and attaches a recovered
   advisory to the original event hash. The retry worker uses the local fixture by default and supports
   a profile-configured HTTPS Jev endpoint (`inference.decision_trace_jev_endpoint`) or
   `XIBALBA_CORTEX_JEV_ENDPOINT`; retries continue if unrelated Cortex inference is disabled.
-  Implementation is in Cortex PR #84; keep this checked only after
-  PR #84 CI passes and the change merges.
+  Implemented and merged in Cortex PR #84 (merge `66d0eeb`); hosted Python and viewer
+  checks passed, including the full Playwright suite.
 - [x] Cortex exposes trace ingest, timeline, event detail, transition-probability and proof endpoints
   scoped by tenant, agent and profile store. It stores commitments and bounded metadata, never raw
   reasoning or unrestricted transcript content.
@@ -1041,8 +1041,10 @@ did before the daemon existed.
   Cortex's trace view documents provider status, probabilities, Merkle evidence, and the distinction
   between declared sequence and proven causality. Shield's "Advisory Inference" tab
   (`ui/src/components/InferenceSettings.jsx`, Shield PR #54) shows the provider controls and fixes
-  execution mode to shadow and redaction to strict. Cortex's native `DecisionTracePanel` (Cortex PR #83)
-  shows provider status, transition probabilities, Merkle evidence and the causality disclaimer.
+  execution mode to shadow and redaction to strict. Shield PR #65 additionally rejects endpoint
+  URLs containing credentials, query parameters or fragments; backend and browser checks passed.
+  Cortex's native `DecisionTracePanel` (Cortex PR #83) shows provider status, transition
+  probabilities, Merkle evidence and the causality disclaimer.
 
 ## B3. Claude Code hooks (S)
 
@@ -1120,12 +1122,13 @@ reporting whether a daemon is actually listening — see B2):
   - [x] environment variables, stdout/stderr;
   - [x] URLs and query strings, filenames, repository names;
   - [x] exception messages and stack traces.
-- [ ] DecisionTrace/Jev negative tests cover raw prompts, completions, chain-of-thought, tool payloads,
+- [x] DecisionTrace/Jev negative tests cover raw prompts, completions, chain-of-thought, tool payloads,
   secrets and provider-returned content; only bounded redacted metadata and commitments are retained.
-  **Partial:** SDK negative coverage rejects prompt, completion, chain-of-thought, tool-argument and secret
-  fields (`integrity-sdk/tests/unit/test_core_decision_trace.py::test_trace_rejects_raw_content_and_causal_claims`).
-  Cortex's HTTP provider test plants free-text canaries in the response and proves they do not reach the
-  stored advisory projection (`xibalba-cortex/tests/test_decision_trace.py::test_http_provider_discards_unbounded_free_text_before_trace_persistence`, PR #84); keep this item open until that CI passes and merges. Receiver-side identity and OTLP field removal remain covered by
+  SDK negative coverage rejects prompt, completion, chain-of-thought, tool-argument and secret fields
+  (`integrity-sdk/tests/unit/test_core_decision_trace.py::test_trace_rejects_raw_content_and_causal_claims`).
+  Cortex PR #84 plants free-text canaries in provider output and confirms they do not reach the stored
+  advisory projection; hosted Python and full viewer checks passed, and the PR merged as `66d0eeb`.
+  Receiver-side identity and OTLP field removal remain covered by
   `integrity-oracle/backend/src/otlp.rs` identity-strip tests.
 
 ## B6. Pilot packaging (M)
