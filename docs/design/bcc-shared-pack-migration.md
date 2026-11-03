@@ -2,7 +2,7 @@
 
 **Status:** stages 1 and 2 of 4 delivered; stages 3-4 are `[PLANNED]`. **Owner decision recorded:** staged
 migration, chosen over "receipts on today's unsigned Rego" and over "conformance vectors first"
-(2026-10-06). Execution authority is `docs/EXECUTION_PLAN.md` B2; this page is the design behind it.
+(2026-10-06). Execution authority is `docs/ecosystem/INTEGRITY_ECOSYSTEM_PLAN.md` B2; this page is the design behind it.
 
 ## Decisions recorded (owner, 2026-10-10)
 
