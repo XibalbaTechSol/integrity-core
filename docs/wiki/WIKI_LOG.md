@@ -4282,5 +4282,6 @@ writeup: PRODUCTION_GAPS.md §18.
   0.001705984 ETH at the local 2 gwei setting). No Base Sepolia broadcast occurred.
 - The ignored local signer requires credential review and rotation before broadcast. The existing
   deployment manifest has no `singletons.ProtocolEvidenceAnchor` entry; no address was added.
-- Updated the contracts and BCC middleware wiki pages to separate local dry-run proof from live
-  testnet deployment evidence. No wiki page was added or removed; the index remains at 35 pages.
+- Updated the contracts and BCC middleware wiki pages and `PRODUCTION_GAPS.md` to separate local
+  dry-run proof from live testnet deployment evidence. No wiki page was added or removed; the index
+  remains at 35 pages.

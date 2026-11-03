@@ -4264,3 +4264,26 @@ rule is unavailable on this account as `merge_queue` is.
 **Still open, not addressed in this pass:** the code-scanning gate is a repository setting and
 remains an owner action. GitHub's exact treatment of `skipped` for a required check was not
 independently verified here; `neutral` resolving to `success` was observed on PRs #164 and #165.
+
+## 74. Base Sepolia protocol evidence anchor: approved, local dry run passed, broadcast pending (2026-11-03)
+
+The owner approved a Base Sepolia broadcast for the incremental `ProtocolEvidenceAnchor`
+(`contracts/script/DeployProtocolEvidenceAnchor.s.sol`) on 2026-11-03. This approval is specific to
+that evidence anchor; it does not authorize a fresh protocol genesis or migration of registered
+agents.
+
+The exact script compiled and completed a local Anvil dry run on chain 31337. Foundry reported
+852,992 gas and 0.001705984 ETH at Anvil's local 2 gwei gas price. That is local simulation evidence,
+not a Base Sepolia cost estimate or deployment. The live Base Sepolia RPC reported chain ID 84532,
+and `deployments.baseSepolia.json` still has no `singletons.ProtocolEvidenceAnchor` entry. No live
+transaction has been sent and no address was written to the deployment manifest.
+
+**Broadcast is blocked on signer hygiene.** The ignored local deployment credential requires review
+and rotation because a prior troubleshooting session may have exposed a credential. The replacement
+must be testnet-only, stored with owner-only permissions, and funded. Do not broadcast using the
+current local credential. After replacement, repeat the exact Anvil dry run, obtain a live gas
+estimate, broadcast the approved anchor script, verify deployed bytecode and roles on Base Sepolia,
+and add the resulting address and transaction evidence to the manifest and deployment record.
+
+The existing Base Sepolia Phase I kernel reference in the manifest is a separate experimental
+artifact and does not mean the shared evidence anchor is deployed.
