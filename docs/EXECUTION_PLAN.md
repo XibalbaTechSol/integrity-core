@@ -1021,7 +1021,10 @@ did before the daemon existed.
   the gateway is local-first and records advisory-unavailable status when no provider is available.
 - [ ] Queue/retry advisory analysis for a later provider recovery without delaying local capture.
   Cortex stores only the redacted envelope in a separate leased SQLite queue and attaches a recovered
-  advisory to the original event hash. Implementation is in Cortex PR #84; keep this checked only after
+  advisory to the original event hash. The retry worker uses the local fixture by default and supports
+  a profile-configured HTTPS Jev endpoint (`inference.decision_trace_jev_endpoint`) or
+  `XIBALBA_CORTEX_JEV_ENDPOINT`; retries continue if unrelated Cortex inference is disabled.
+  Implementation is in Cortex PR #84; keep this checked only after
   PR #84 CI passes and the change merges.
 - [x] Cortex exposes trace ingest, timeline, event detail, transition-probability and proof endpoints
   scoped by tenant, agent and profile store. It stores commitments and bounded metadata, never raw
