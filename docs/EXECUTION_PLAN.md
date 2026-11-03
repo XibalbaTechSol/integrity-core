@@ -1122,10 +1122,11 @@ reporting whether a daemon is actually listening — see B2):
   - [x] exception messages and stack traces.
 - [ ] DecisionTrace/Jev negative tests cover raw prompts, completions, chain-of-thought, tool payloads,
   secrets and provider-returned content; only bounded redacted metadata and commitments are retained.
-  **Partial 2026-10-11 (#176):** `JevAnalysis` now accepts only a closed `risk_category` vocabulary, short identifiers for
-  `provider_id` and transition labels, and a canonical `0x` sha256 for `observed_event_hash`, so provider text cannot reach a
-  retained trace (`test_core_decision_trace.py`). Receiver-side field removal and the listed OTLP cases are
-  covered in `integrity-oracle/backend/src/otlp.rs` identity-strip tests.
+  **Partial:** SDK negative coverage rejects prompt, completion, chain-of-thought, tool-argument and secret
+  fields (`integrity-sdk/tests/unit/test_core_decision_trace.py::test_trace_rejects_raw_content_and_causal_claims`).
+  Cortex's HTTP provider test plants free-text canaries in the response and proves they do not reach the
+  stored advisory projection (`xibalba-cortex/tests/test_decision_trace.py::test_http_provider_discards_unbounded_free_text_before_trace_persistence`, PR #84); keep this item open until that CI passes and merges. Receiver-side identity and OTLP field removal remain covered by
+  `integrity-oracle/backend/src/otlp.rs` identity-strip tests.
 
 ## B6. Pilot packaging (M)
 
@@ -1250,8 +1251,11 @@ and roots with no provider behind them.
 - [ ] Break-glass approvals are signed and expire.
 - [ ] `pack simulate --since 90d` runs before enforcement changes.
 - [ ] Replayed, expired, wrong-action, wrong-pack and wrong-agent approvals are rejected.
-- [ ] Jev may recommend an escalation or approval review, but it cannot create, approve, replay or
-  substitute for an Integrity approval receipt.
+- [x] Jev may recommend an escalation or approval review, but it cannot create, approve, replay or
+  substitute for an Integrity approval receipt. `JevAnalysis` exposes only bounded advisory fields
+  (`integrity-sdk/integrity_sdk/core/decision_trace.py`); Shield invokes analysis after the
+  deterministic decision (`shield/agent_core/router.py` and `tests/test_jev_shadow.py`), and Cortex
+  stores it only as a hash-bound trace projection (`xibalba-cortex/tests/test_decision_trace.py`).
 
 ## C5. Cutover (M)
 
