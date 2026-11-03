@@ -62,8 +62,9 @@ def test_trace_rejects_wrong_parent_and_namespace():
 
 
 def test_trace_rejects_raw_content_and_causal_claims():
-    with pytest.raises(DecisionTraceError, match="raw content"):
-        _event("event-1", prompt="do the thing")
+    for key in ("prompt", "completion", "chain_of_thought", "tool_arguments", "secret"):
+        with pytest.raises(DecisionTraceError, match="raw content"):
+            _event("event-1", **{key: "SENSITIVE-CANARY-do-not-retain"})
     with pytest.raises(DecisionTraceError, match="causal"):
         DecisionEnvelope(
             tenant_id="tenant-a", agent_id="agent-a", trace_id="trace-a", event_id="event-1",
