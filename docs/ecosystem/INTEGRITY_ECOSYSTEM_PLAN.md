@@ -274,9 +274,347 @@ The C5 rename migrates this documentation namespace to integrity-kernel or to an
 
 Owner checkpoints:
 
-1. Approve creation of integrity-lab and integrity-console, and grant push access to Shield and Cortex.
-2. Approve any testnet broadcasts, including Base Sepolia StateAnchor deployment and genesis.
-3. Approve the repository rename during C5.
+All three owner checkpoints were **granted by the owner on 2026-11-03**. An approval authorizes the
+action; it is not evidence the action happened. Each still executes as its own gated step, in its own
+worktree, with its own recorded evidence.
+
+| # | Checkpoint | Owner decision | Execution state |
+|---|---|---|---|
+| 1 | Create integrity-lab and integrity-console; grant push access to Shield and Cortex | Approved 2026-11-03 | **Both repositories already exist** — `XibalbaTechSol/integrity-console` and `XibalbaTechSol/integrity-lab` both resolve. The approval ratifies what is in place; A1's lab mirror is not blocked on repository creation. |
+| 2 | Testnet broadcasts, including Base Sepolia StateAnchor deployment and genesis | Approved 2026-11-03 | **Not executed, and still blocked — see B4 below.** Approval is necessary but not sufficient: a credential rotation must precede any broadcast. Core PR #184, merged 2026-11-03 as `87fd2390`, records this same approval and the same precondition. |
+| 3 | Repository rename during C5 | Approved 2026-11-03 | Not executed; C5 has not started. The approval does **not** authorize renaming integrity-core during the current documentation consolidation, which is explicitly excluded by the 2026-11-03 handoff. |
+
+Recording these approvals closes the owner-decision dependency only. No repository was created, no
+chain transaction was broadcast, and no repository was renamed as part of recording them.
+
+## Inherited state: handoff integration, 2026-11-03
+
+This section discharges the Execution-model precondition above — *"do not begin feature work until the
+worktree map and ownership of each existing change are recorded"* — and folds every handoff found
+across the four active repositories into this plan.
+
+It was produced by auditing `origin/main` and every remote and local ref in all four repositories, not
+by reading the base checkouts. The `xibalba-cortex` base is pinned to `local`, has never been pushed,
+and sits behind `origin/main`, so its working tree is not current truth.
+
+**Evidence rule applied throughout.** Every inherited claim carries one of three states: **verified**
+(a commit, PR, or CI run was checked), **stale** (the claim was true when written and the audit shows it
+has since been superseded), or **unverified** (no runnable evidence was found). Prose that asserts PASS
+is not evidence, and an unticked checkbox is not evidence that work did not happen — both failure modes
+occurred in the inherited documents and are corrected below.
+
+### Handoff register
+
+Every handoff in the four repositories, with what the audit found.
+
+| Handoff | Where it lives | State |
+|---|---|---|
+| `integrity-core/docs/ecosystem/HANDOFF_CLAUDE_2026-11-03.md` | `origin/main` — **PR #183 merged 2026-11-03 as `ad5f0f52`** | **Current.** Establishes this `docs/ecosystem/` namespace as authority, now on `main`. Two of its five next actions are closed — see "Corrections" below. |
+| `xibalba-shield/docs/handoffs/2026-11-03-claude-phase3-gate1-handoff.md` | `origin/test/phase3-gate1-sdk-runtime` | **Current.** Records Phase 3 Gate 1 PASS and defines the Gate 2 objective. Pushed 2026-11-03 at owner request; no longer single-copy. |
+| `xibalba-shield/docs/handoffs/2026-11-03-phase3-gate1-result.md` | `origin/test/phase3-gate1-sdk-runtime` | **Current.** The Gate 1 evidence: Cortex 11 focused tests, Shield 16, identity canary signature verified, key material untouched. Pushed 2026-11-03; no longer single-copy. |
+| `xibalba-shield/docs/handoffs/2026-11-03-shield-ui-visual-audit.md` | `origin/fix/ui-visual-redo-20261103` (no PR open) | **Current.** Console routes audited at 1600/1280/390px; 30 Playwright tests pass against mocked control-plane responses. Explicitly *not* live-backend verification. |
+| `xibalba-cortex/viewer/HANDOFF.md` | `origin/main` | **Current.** Console theme, information architecture, honesty rules, and the §9/§10 open items. Byte-identical across all 15 branch copies — no newer version is hiding on a branch. |
+| `xibalba-cortex/docs/operations/codex-handoff-runtime-plugins.md` | `origin/main` | **Stale in its continuation instruction.** It says to continue on `feat/cortex-runtime-and-plugins`; that branch **does not exist on origin**. Its content landed: the canaries document, the plugin builder, `perplexity_runtime.py` and both test modules are on `main`. Its *outstanding* items remain open — see below. |
+| `xibalba-cortex/docs/PROJECT_STATE.md` | `origin/main` | **Current as a ledger, stale in one pointer.** Carries the G1–G7 gate ledger. Names `docs/EXECUTION_PLAN.md` as cross-product authority, which this namespace supersedes. |
+| `xibalba-cortex/docs/superpowers/plans/2026-11-02-cortex-production-readiness.md` | `origin/main` | **Current plan, stale Resume Brief.** See "Corrections". Its cited evidence is not in git — see "Durable-evidence gap". |
+| `xibalba-shield/docs/handoffs/2026-09-23-shield-hermes-ui.md` | many branches | Historical. |
+| `xibalba-cortex/docs/archive/2026-08/2026-08-13-hybrid-extraction-handoff.md` | `origin/main` archive | Historical. Its phases A–C were complete and live-verified at the time. |
+| `integrity-core/docs/HANDOFF_GATE_A_2026-09-28.md` and the 13 handoffs under `docs/archive/2026-09/` | `origin/main` | Historical. Gate A has since closed 12/12; superseded by `STATUS.md`. |
+
+Under the migration manifest's classification rules these historical handoffs stay in their dated
+archives and remain non-normative. Only the items extracted below are carried into this plan.
+
+**One handoff channel could not be read, and the reason is correct scoping, not a defect.** Cortex's
+ledger contract in `PROJECT_STATE.md` requires every session to store its checkpoint as a `summary`
+memory in Cortex, which makes those memories part of the handoff set. This session cannot read them.
+
+The first reading of this was wrong and is recorded here so it is not repeated. Against the `default`
+store (`memory_status`: schema 16, WAL, FTS5 on, `integrity_check: ok`, **3,202 memories**),
+`memory_hybrid_retrieve` and `memory_recall` return **zero results for every query tried** — including
+the bare term `cortex`, and including a term present in 3,117 rows with that status explicitly
+requested — while reporting `lexical: available`, `vector: available`, `temporal: available`,
+`degraded: []`. That looks like a retrieval defect and was initially written up as one.
+
+A read-only inspection of the store disproves it. The `memories` table carries no agent column;
+scoping is on `sources.agent_id`, and retrieval is agent-scoped and fail-closed by design. The store's
+sources carry seven distinct agent identities. This session binds `XIBALBA_AGENT_ID=claude`, resolving
+to the on-disk identity at `~/.hermes/xibalba-cortex/agent.did.json`, and **that identity owns none of
+them**. A principal with no memories of its own correctly sees nothing. `memory_fts` is fully populated
+(3,202 rows, 52 matching `cortex`), so the index is healthy and the empty result is the scope boundary
+working, exactly as `viewer/HANDOFF.md` §6 describes.
+
+What this does establish:
+
+- **The checkpoint-memory channel is a blocked input, not an absent one.** No checkpoint content is
+  integrated into this section. Any such memories live under other agent identities. This is the
+  standing rule that an empty Cortex read is never evidence of absence.
+- **The ledger contract is not being honoured under this agent's identity.** No agent visible in the
+  store corresponds to this harness, so the required per-session `summary` memory is either not being
+  written or is written under an identity that the writing session cannot itself read back. A contract
+  that mandates a durable checkpoint is not satisfied by one no one can retrieve.
+- **The store is 97% one agent's telemetry.** 3,117 of 3,202 memories are `candidate`-status policy-decision
+  records from a single agent; only 26 memories are `confirmed`. Any claim about recall quality or
+  retrieval evidence measured against this store is measuring machine telemetry, not curated memory.
+
+### Corrections to inherited claims
+
+Each of these was asserted in a handoff and contradicted by the audit.
+
+1. **The core handoff's uncommitted documentation-contract patch is now committed.** It recorded
+   `scripts/check_docs.py` as "patched locally but not yet committed or pushed". On the PR branch that
+   script now reads `docs/ecosystem/INTEGRITY_ECOSYSTEM_PLAN.md` as the execution authority, and the
+   change is committed. Its next-action 2 is closed.
+2. **Core PR #183 is merged.** The handoff recorded CI as rerunning with the documentation contract
+   failing. All ten required checks passed and the PR merged on 2026-11-03 as `ad5f0f52`. Its
+   next-action 3 is closed.
+3. **Cortex PR #89 has regressed to `DIRTY` with no checks reported.** The handoff expected a named
+   workflow run to confirm it. It now needs conflict resolution before it can merge. Its next-action 4
+   is **not** closed, and the state is worse than recorded.
+4. **The Cortex Resume Brief's repository-state section is stale.** It states, verified 2026-11-02, that
+   `origin/main` "does not carry the code work" and that `hostedApi.ts` is absent. As of today
+   `src/xibalba_cortex/managed/ingest.py`, `tests/test_managed_ingest.py` and `viewer/src/hostedApi.ts`
+   **are on `origin/main`**: Phase 5 Task 1 landed. `viewer/src/edition.ts` is still absent.
+5. **Unticked checkboxes in the Cortex plan understate progress.** Every step box in its Phases 1–2 is
+   unticked, yet PR #86 (a zero-agent account opens on connect-an-agent) and PR #87 (the signed,
+   single-use enrollment code) merged on 2026-11-03 — Phase 2 Tasks 1 and 2. Reconcile the boxes against
+   merged PRs before treating any of them as open work.
+6. **The runtime-plugins continuation branch is gone, not pending.** See the register.
+7. **PR #183 archived a stale copy of the superseded plan, silently reverting PR #182's
+   reconciliation.** When #183 moved `docs/EXECUTION_PLAN.md` to
+   `docs/archive/2026-11/EXECUTION_PLAN-superseded.md`, the archived file was an older revision than
+   the one on `main`, so the merge undid #182's reconciliation and the quoted progress count stopped
+   being reproducible from any file in the repository. **Repaired 2026-11-03** on the #184 branch by
+   overwriting the archive with the full `main`-derived version; the archive now regenerates
+   146/232 (62%), matching `STATUS.md`. An archive move is a content change: diff the archived copy
+   against the live file before merging one.
+
+### Worktree and branch ownership map
+
+`xb-wt doctor` reports all four bases clean and on their declared branch, with one expected WARN: the
+`xibalba-cortex` pinned `local` branch has never been pushed to origin.
+
+Three worktrees sit at the worktrees root rather than under `<repo>/<topic>`: `cortex-baseline`,
+`cortex-main-verify` and `cortex-toolcount`. WORKFLOW.md grandfathers these; they are retired by
+`xb-wt finish`, never renamed. `cortex-baseline` is dirty.
+
+Dirty worktrees, preserved and not touched by this audit:
+
+| Worktree | Dirt |
+|---|---|
+| `integrity-core/ecosystem-authority-20261103` | `integrity-sdk/tests/unit/test_core_decision_trace.py` — the core handoff's next-action 1, still open. It is an artifact of constructing merge commit `1d5e70bf` with index plumbing; inspect the diff before staging it. |
+| `xibalba-cortex/bind-selects-agent` | 3 paths |
+| `cortex-baseline` (grandfathered) | 1 path |
+
+**Ownership of every local branch not on origin.** Twenty-eight such branches carry commits. They were
+classified with `git merge-tree --write-tree` against `origin/main`, which is the only reliable test: a
+blob-level comparison falsely flags any branch whose files `main` edited later, and a squash merge
+leaves a branch a non-ancestor of `main` even when its content has fully landed.
+
+*Adds nothing to `main` — content already landed. Safe to sweep with `xb-wt prune` after the per-branch
+PR check Rule 8 requires (9 branches):* `integrity-core` `docs/jev-decisiontrace-status`;
+`xibalba-cortex` `a3/cortex-jcs`, `docs/readme-capability-citations`,
+`feat/decision-trace-advisory-retries`, `feat/enrollment-code`, `fix/hosted-landing-grammar-test`;
+`xibalba-shield` `cron/pr24-ci-repair`, `docs/ecosystem-authority-20261103`,
+`fix/inference-endpoint-url-validation`.
+
+*Real unlanded content — must be pushed or deliberately abandoned (3 branches):*
+
+| Repo | Branch | Carries |
+|---|---|---|
+| `xibalba-shield` | `test/phase3-gate1-sdk-runtime` | Both Phase 3 Gate 1 handoffs. **Resolved: pushed 2026-11-03** to `origin/test/phase3-gate1-sdk-runtime` at `d41c4e76`, verified by `ls-remote`, and open as draft PR #68. Docs-only, +289 lines. |
+| `xibalba-cortex` | `feat/bind-selects-agent` | Phase 2 Task 3: a redeemed code binds an agent the console can open. |
+| `xibalba-cortex` | `feat/inbound-ingest-throttling` | Binds an OTLP ingest credential to its profile on the HTTP transport. |
+
+*Conflicts with `main` — each needs an explicit keep-or-abandon decision (16 branches), most based in
+August and September:* `integrity-core` `a5/mainnet-readiness-adr`, `docs/gate-a-status-update`,
+`docs/reconcile-v1-authority`, `feat/adapter-registry-r1-r5`, `feat/periodic-merkle-anchor`,
+`fix/ci-dependency-resolution-20260818`, `fix/default-ci-contract-compile`,
+`test/policy-hooks-revert-and-access-control`; `xibalba-cortex` `cron/pr6-rebuild-20260829` (26
+commits), `docs/account-registration-design`, `feat/decision-trace-viewer`,
+`fix/report-every-e2e-failure`; `xibalba-shield` `fix/exporter-url-plumbing-and-registration-docs`,
+`fix/honest-live-bcc-gate`, `fix/local-run-profile-validation`,
+`test/policy-engine-combined-conditions`.
+
+WORKFLOW.md Rule 3 already names `cron/pr6-rebuild-20260829`, `a3/cortex-jcs` and
+`docs/reconcile-v1-authority` as the original orphaned-work problem, caused by feature branches
+tracking `origin/main`. They are known orphans, not new findings.
+
+**Remote branches not merged into `origin/main`**, classified the same way. These are pushed, so they
+are not at risk of loss, but each is unlanded work someone must land or retire. Excluding the five open
+PR heads and this integration branch:
+
+| Repo | Adds nothing (prune) | Real content | Conflicts |
+|---|---|---|---|
+| `integrity-core` | — | `audit/harness-loop-2026-07-30` (+10) | `a5/docs-authority-gates`, `docs/rescope-registry-precheck-gas` (+60), `feat/cortex-operations-dashboard` (+6), `fix/sdk-nitro-trust-root-wheel`, `park/policy-packs-2026-09-26` |
+| `xibalba-cortex` | `feat/cortex-brain-logo`, `fix/console-timeline-routes` (+3) | — | `feat/cortex-decision-trace`, `feat/runtime-telemetry-adapters` |
+| `xibalba-shield` | — | `fix/ui-visual-redo-20261103` (the audited UI work, no PR open) | `feat/evidence-chain-ui`, `feat/jev-decision-trace`, `fix/ui-console-chassis-parity` (+10, has a worktree), `park/policy-packs-2026-09-26` |
+| `integrity-console` | `docs/ecosystem-authority-20261103` | — | — |
+
+`docs/rescope-registry-precheck-gas` at +60 commits is the largest single body of unlanded remote work
+in the ecosystem and has no open PR. `park/policy-packs-2026-09-26` exists in both core and Shield and
+is named "park", so confirm it is still a deliberate parking place rather than forgotten work.
+
+Three Antigravity harness worktrees also exist under
+`~/.gemini/antigravity-cli/brain/.../worktrees/` against `integrity-core`. WORKFLOW.md tolerates them
+and `xb-wt prune` sweeps their branches like any other.
+
+### Durable-evidence gap
+
+The Cortex production-readiness plan cites `.superpowers/sdd/.../phase0-task5-report.md` and
+`phase5-task1-report.md` — a 198/198 Playwright baseline and **nine recorded mutation proofs** — as the
+evidence base for its Phases 0 and 5.
+
+Those reports are **untracked and unignored**. They exist only inside the
+`xibalba-cortex/account-registration-design` worktree on `/mnt/storage`. Nothing is in git: `main`
+carries zero `.superpowers` paths. An `xb-wt finish` on that worktree, which Rule 7 permits once its
+branch lands, destroys the entire cited evidence base.
+
+This is the failure class already recorded in project memory, where an audit document carried PASS for
+values no test ever asserted. Closing it is a precondition for trusting any Cortex phase status.
+
+### Numbering crosswalk
+
+Four numbering schemes are in play. This plan's A/B/C phases and gates are the authority; the others are
+repository-local and must not be restated here as parallel roadmaps. Cortex's own ledger contract
+forbids creating a new roadmap for work G1–G7 already covers, so these rows link rather than duplicate.
+
+| Scheme | Where defined | Relation to this plan |
+|---|---|---|
+| A/B/C phases, Gate A, Gate B-local, Gate C | this document | Authority. |
+| Cortex G1–G7 | `xibalba-cortex/docs/PRODUCTION_READINESS_PLAN.md` §6, ledgered in `PROJECT_STATE.md` | Cortex's share of B0 and Gate B-local. G2 is the SDK-layout item below. G5 and G7 are external-pilot gates matching this plan's pilot work. |
+| Cortex Phases 0–5 and readiness levels L0–L3 | `docs/superpowers/plans/2026-11-02-cortex-production-readiness.md` | The implementation sequence for the Cortex SaaS slice of B0. |
+| Shield "Phase 2 approved / Phase 3 Gate 1–2" | **only** the Gate 1 handoff, on `origin/test/phase3-gate1-sdk-runtime` via draft PR #68; not yet on `main` | **Undefined in any repository.** Even once #68 lands, `main` will carry the Gate 1 *result* but still no definition of Shield Phases 1–3. Treat the result as evidence; do not treat the numbering as authoritative until it is defined here or retired in favour of these A/B/C gates. #68 names this as blocked follow-up. |
+
+### Items carried into the plan
+
+- **A2/A3 — one reproducible SDK layout.** Shield and Cortex both declare the editable dependency
+  `../integrity-core/integrity-sdk`. It resolves in the sibling checkout layout but **not** from a fresh
+  `xb-wt` worktree, where `xb-wt setup` fails with a missing-distribution error. This is one defect
+  reported twice: it is Cortex **G2, "BLOCKED EXTERNALLY"**, and Shield **Phase 3 Gate 2**. It is also
+  the recorded reason Cortex end-to-end tests need a sibling `integrity-core`. Acceptance, from the
+  Gate 1 handoff: a clean prescribed worktree resolves the frozen SDK through the declared dependency
+  mechanism; both consumers resolve the same frozen revision; CI reproduces the layout with no
+  developer-only absolute path; `uv lock --check` and the focused SDK tests pass for both consumers; and
+  no installed service, base checkout, identity store, credential, database, queue or outbox changes.
+  No absolute `/home/xibalba/...` path in committed metadata, and no permanent external symlink. This
+  gates A3's "consume the SDK without sibling copies".
+- **A5/A6 — one authority pointer is still stale on `main`; the other is fixed in an open PR.**
+  `integrity-core/STATUS.md` line 4 still records execution authority as `docs/EXECUTION_PLAN.md`, now a
+  compatibility redirect. PR #184 edited that same file without repointing it, and **re-verified on
+  `main` after #184 merged, line 4 is unchanged** — the merge did not fix it. Repoint it. The Cortex
+  side needs no new work: **open PR #89 already** adds an
+  "Ecosystem authority" section to the Cortex README and repoints its cross-product plan links to
+  `docs/ecosystem/INTEGRITY_ECOSYSTEM_PLAN.md`. Land #89 rather than duplicating it.
+  `scripts/check_docs.py` already enforces this namespace.
+- **A5/A6 — the plan progress metric is already broken, verified.** `STATUS.md` reports
+  "**146/232 checkboxes (62%)**, generated by `python3 scripts/plan_progress.py`; it is not
+  hand-maintained" — raised from 134/232 by PR #184, now merged — having previously drifted to a stale
+  hand-edited 88/201. That command still **fails**:
+  the script defaults to `docs/EXECUTION_PLAN.md`, which is a redirect with no task lists, and exits
+  `ValueError: max() iterable argument is empty`. Pointing it at this plan fails identically, because
+  this plan expresses work as prose bullets and contains **zero** checkboxes. The 146/232 figure is
+  reproducible *only* from `docs/archive/2026-11/EXECUTION_PLAN-superseded.md`, a document this
+  namespace marks historical — and reproducible from it at all only because the stale-archive
+  regression in correction 7 was repaired. So the one progress number the project quotes now measures
+  a superseded plan and cannot be regenerated against the authority. Decide one of: make this plan carry
+  checkable items, repoint the script and define what it counts here, or retire the metric and delete
+  the claim from `STATUS.md`. Do not leave `STATUS.md` asserting a generated number that no command
+  reproduces.
+- **B2a — already closed by an open PR; land it, do not redo it.** `STATUS.md` on `main` lists B2a at
+  6/8 with the Cortex viewer trace panel and the advisory retry queue open. Cortex PR #83 (render the
+  DecisionTrace evidence panel) and PR #84 (retry unavailable DecisionTrace advisories) merged on
+  2026-11-03 with exactly those titles, and **core PR #184 marks B2a Complete (8/8)**, citing #84's
+  durable hash-bound retry queue and Shield PR #65's endpoint validation. #184 merged 2026-11-03 as
+  `87fd2390`, so **B2a Complete (8/8) is now on `main`** — verified. Do not tick it separately.
+- **B4 — approved but still blocked on signer hygiene. Do not treat the approval as a green light.**
+  Testnet deployment was held for owner approval, granted 2026-11-03. Core PR #184, merged
+  2026-11-03, records that approval *and* the blocker: the local deployment credential requires review and rotation because a
+  prior troubleshooting session may have exposed it, and shared operator memory independently records
+  exposed Base Sepolia credentials in local env files with "rotate before deployment". The replacement
+  must be testnet-only, stored with owner-only permissions, and funded. **Do not broadcast using the
+  current local credential.** Sequence after rotation: repeat the exact Anvil dry run, take a live gas
+  estimate, broadcast the approved anchor script, verify deployed bytecode and roles on Base Sepolia,
+  then add the address and transaction evidence to the manifest and deployment record. The script has
+  already passed an Anvil dry run; no live transaction has been sent.
+- **B0 — unchanged as the largest unstarted block** (0/19). The Cortex Phases 0–5 plan is its Cortex-side
+  sequence, and that plan's Phase 5 Task 1 has landed on `main`. Its operator-amended running order is
+  **Phase 0 → Phase 5 Tasks 1–2 → Phase 1 → Phase 2 → Phase 3 → Phase 5 Tasks 3–6**, chosen to reach a
+  deployable test build sooner. Phase 0 and Phase 5 Tasks 1–2 are done, and Phase 2 Tasks 1–2 landed
+  early as PRs #86 and #87, so the next item is Phase 1 Task 1.
+- **B0, Cortex — two self-hosted MCP exposures the REST route closed but the MCP path keeps.** Both are
+  recorded in the Phase 5 Task 1 report as live gaps rather than notes, and neither is fixed:
+  1. **Metadata shadowing.** `ingest_turn` strips reserved `metadata` keys, but `ingest_agent_turn`
+     still merges caller metadata *after* its own, so a caller-supplied `metadata.session_id`
+     overwrites the source's real `session_id`. The REST route is protected; the self-hosted MCP path
+     retains the exposure. Provenance that a caller can overwrite is not provenance, so this is a
+     trust-substrate defect, not a cosmetic one.
+  2. **Unrepeated account checks.** Account-state checks (active, verified, approved) and cookie CSRF
+     live in `api.authenticate`, not in `ingest_turn`. The MCP transport must perform equivalent checks
+     before calling it or it will serve unverified accounts.
+  Also from that report: one ingested turn meters as a single `writes` unit while storing two memories
+  plus OTel rows, and the handler is **not transactional** — a quota failure on the second memory
+  leaves the first stored. Decide whether that partial write is acceptable before pilot metering is
+  sold against it.
+- **Cortex runtime-plugin items still open**, from the stale-continuation handoff: live model-host
+  callbacks; native host installation, trust, callback and menu checks on a pilot machine; Perplexity
+  billing and API canaries; and consumer OAuth/HTTPS dispatch. The hosted resource server implements no
+  authorization server, and hosted ChatGPT cannot execute the local stdio package. Official directory
+  submission is a separate action: repository publication makes a package discoverable, not listed.
+  Provider telemetry deletion and export still cover only the GraphStore, not the recorder's local
+  journal.
+- **Cortex console items**, from `viewer/HANDOFF.md` §9–§10: server-side scoping for the older
+  store-wide read routes, with a test per route proving an agent-bound credential cannot reach another
+  agent's data; a worker heartbeat if "is it running?" must be answerable, which needs a schema
+  migration and a spec amendment; a mockup recapture after the typography and ground-colour change; and
+  the password-reset `503`/`200` disclosure, which is a deployment decision, not a UI one.
+- **Shield UI**: the audited visual work on `origin/fix/ui-visual-redo-20261103` has no open PR.
+- **Cortex G3, G5 and G7 remain external**: storage is a local pilot pass, not high-availability or
+  point-in-time-recovery proof; real-data evaluation and burn-in need a real pilot tenant.
+
+### Merge queue, in order
+
+The owner authorized merging on 2026-11-03, and the four non-deploying pull requests were merged in
+the order below, each with `--match-head-commit` at the SHA CI actually ran on, per Rule 6. Core PRs
+#183 and #184 both touched the `docs/EXECUTION_PLAN.md` area, so order mattered: #183 turned that path
+into a redirect, which put #184 into conflict as predicted.
+
+| Order | PR | State | Outcome |
+|---|---|---|---|
+| 1 | `integrity-core` #183 | was `CLEAN`, 10/10 green | **Merged** 2026-11-03 as `ad5f0f52`. Landed this namespace on `main`. Also archived a stale plan copy — see correction 7. |
+| 2 | `integrity-core` #184 | went `DIRTY` after #183, then re-greened | **Merged** 2026-11-03 as `87fd2390`. Resolved by merging `origin/main` into `docs/testnet-jev-rollout` (`640df6f8`), taking `main`'s redirect for `docs/EXECUTION_PLAN.md` and restoring the archive to the `main`-derived version, which also repaired #183's regression. All 10 checks green on `640df6f8`, the SHA passed to `--match-head-commit`. |
+| 3 | `xibalba-shield` #67 | `CLEAN`, green | **Merged** 2026-11-03 as `6093ea92`. |
+| 4 | `xibalba-shield` #68 | was draft, `root-free-tests` green on `d41c4e76` | **Merged** 2026-11-03 as `6e2eea13`. The Phase 3 Gate 1 evidence is now on `main`, no longer single-copy on a branch. |
+
+Two Cortex pull requests remain, and both are deliberately **not** merged:
+
+| PR | State | Why it is held |
+|---|---|---|
+| `xibalba-cortex` #90 | `CLEAN`, 2/2 green | Mergeable, but merging Cortex `main` auto-deploys the managed pilot. That makes it a deploy, which needs its own owner approval separate from the merge approval above. |
+| `xibalba-cortex` #89 | **`DIRTY`, no checks reported** | Needs conflict resolution first, and carries the same deploy consequence. It also holds the Cortex authority-pointer fix, so A5/A6 waits on it. |
+
+Shield PR #66 and Console PR #6 were already merged before this audit.
+
+### Next actions
+
+1. ~~Push `xibalba-shield` `test/phase3-gate1-sdk-runtime`, open a PR, and merge it.~~ **Done
+   2026-11-03**: pushed with `xb-wt push` to `d41c4e76`, verified by `ls-remote`, opened as PR #68
+   (2 files, +289/−0, docs-only) and merged as `6e2eea13` on green CI at `d41c4e76`. The Gate 1
+   evidence is on `main` and no longer single-copy.
+2. Get the `.superpowers/sdd` evidence into git, or into a durable location this plan names, before any
+   `xb-wt finish` touches the `account-registration-design` worktree. **This is now the only remaining
+   single-copy evidence problem**, and the highest-value open item in this section.
+3. ~~Land the merge queue in order, each at its own green head.~~ **Done 2026-11-03** for the four
+   non-deploying pull requests: core #183 and #184, Shield #67 and #68. The two Cortex pull requests
+   are held — merging Cortex `main` is a deploy and needs its own approval. Decide #90, and resolve
+   #89's conflicts.
+4. Resolve the SDK layout item: it blocks A3 and two repository-local gates at once.
+5. Repoint the two stale authority pointers, and reconcile the Cortex checkboxes against merged PRs.
+6. Decide keep-or-abandon on the 16 conflicting local branches and the 11 conflicting remote ones, and
+   sweep the 9 local plus 3 remote branches that add nothing. Open a PR for Shield's audited UI work on
+   `fix/ui-visual-redo-20261103`, and decide the fate of `docs/rescope-registry-precheck-gas` (+60).
+7. Reconcile the Cortex checkpoint-memory contract with agent identity: decide which identity owns
+   session checkpoints, make the writing session able to read its own back, and stop quoting recall
+   quality against a store that is 97% one agent's policy telemetry.
 
 # Phase A: achieve architectural and documentation simplicity
 
