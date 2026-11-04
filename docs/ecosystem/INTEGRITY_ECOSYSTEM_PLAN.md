@@ -464,10 +464,27 @@ The Cortex production-readiness plan cites `.superpowers/sdd/.../phase0-task5-re
 `phase5-task1-report.md` — a 198/198 Playwright baseline and **nine recorded mutation proofs** — as the
 evidence base for its Phases 0 and 5.
 
-Those reports are **untracked and unignored**. They exist only inside the
-`xibalba-cortex/account-registration-design` worktree on `/mnt/storage`. Nothing is in git: `main`
-carries zero `.superpowers` paths. An `xb-wt finish` on that worktree, which Rule 7 permits once its
-branch lands, destroys the entire cited evidence base.
+Those reports exist only inside the `xibalba-cortex/account-registration-design` worktree on
+`/mnt/storage`, and they are **ignored, not merely untracked** — which is worse. `.superpowers/sdd/`
+contains its own untracked `.gitignore` whose entire content is `*`, so the directory ignores itself and
+the ignore rule is itself invisible to git. Verified: `git status --untracked-files=all` in that
+worktree reports **nothing at all**, and `git check-ignore -v` names
+`.superpowers/sdd/.gitignore:1:*` as the rule. Nothing warns anyone, and a plain `git add` cannot stage
+these files — committing them needs `git add -f`, or the self-ignore has to go first.
+
+`main` carries zero `.superpowers/` paths. The three `superpowers` hits on `main` are
+`docs/superpowers/plans/` and `docs/superpowers/specs/` — tracked plans and specs, not the `.superpowers/sdd/`
+evidence reports, which are a different directory.
+
+That worktree is doubly exposed. Its branch `docs/account-registration-design` holds **one commit on no
+remote at all** (a 176-line README rewrite), and its upstream `origin/docs/account-registration-design`
+is **gone** — deleted from the remote. So the branch cannot be restored from `origin`, and `xb-wt prune`
+treats a branch whose upstream has disappeared as a sweep candidate. An `xb-wt finish` or `prune` there
+destroys both the unpushed commit and the entire cited evidence base.
+
+Fix in this order: push the branch so the commit stops being single-copy; then either delete the
+self-ignore and commit the reports, or copy them to a durable location this plan names. Do not run
+`finish` or `prune` on that worktree until one of those is done.
 
 This is the failure class already recorded in project memory, where an audit document carried PASS for
 values no test ever asserted. Closing it is a precondition for trusting any Cortex phase status.
@@ -484,6 +501,37 @@ forbids creating a new roadmap for work G1–G7 already covers, so these rows li
 | Cortex G1–G7 | `xibalba-cortex/docs/PRODUCTION_READINESS_PLAN.md` §6, ledgered in `PROJECT_STATE.md` | Cortex's share of B0 and Gate B-local. G2 is the SDK-layout item below. G5 and G7 are external-pilot gates matching this plan's pilot work. |
 | Cortex Phases 0–5 and readiness levels L0–L3 | `docs/superpowers/plans/2026-11-02-cortex-production-readiness.md` | The implementation sequence for the Cortex SaaS slice of B0. |
 | Shield "Phase 2 approved / Phase 3 Gate 1–2" | **only** the Gate 1 handoff, on `origin/test/phase3-gate1-sdk-runtime` via draft PR #68; not yet on `main` | **Undefined in any repository.** Even once #68 lands, `main` will carry the Gate 1 *result* but still no definition of Shield Phases 1–3. Treat the result as evidence; do not treat the numbering as authoritative until it is defined here or retired in favour of these A/B/C gates. #68 names this as blocked follow-up. |
+
+### Single-copy work, verified 2026-11-03 after the merges
+
+Swept every `xb-wt` worktree after fetching all four repositories, classifying each branch with
+`git merge-tree --write-tree` against the current `origin/main` tree rather than by ancestry, because a
+squash-merged branch is no longer an ancestor yet adds nothing. Branch verdicts are therefore about
+content, not reachability.
+
+**Seven worktrees hold content that exists on no remote.** Losing any one of these worktrees loses the
+work outright.
+
+| Worktree | Branch | Unpushed content |
+|---|---|---|
+| `integrity-core/jev-decisiontrace-status` | `docs/jev-decisiontrace-status` | 1 file, **+1346** — the largest single-copy item in the ecosystem |
+| `xibalba-cortex/bind-selects-agent` | `feat/bind-selects-agent` | 8 files, +560/−8. **A live session was running in this worktree during the sweep** — do not touch it; its owner should push it |
+| `xibalba-cortex/account-registration-design` | `docs/account-registration-design` | 1 file, +176, and the ignored evidence base above. Upstream deleted |
+| `cortex-baseline` | `feat/inbound-ingest-throttling` | 2 files, +104/−13, plus 43 uncommitted lines of red-phase tests |
+| `integrity-core/ecosystem-authority-20261103` | `docs/ecosystem-authority-20261103` | 1 file, +89, plus an uncommitted test regression |
+| `xibalba-cortex/decision-trace-viewer` | `feat/decision-trace-viewer` | 3 files, +23 |
+| `cortex-main-verify` | `fix/report-every-e2e-failure` | 1 file, +9, across 7 commits |
+
+**Nine worktrees add nothing to `main`** and are safe `xb-wt prune` candidates: `integrity-core/testnet-jev-rollout`,
+`xibalba-cortex/decision-trace-advisory-retries`, `enrollment-code`, `hosted-landing-grammar-test`,
+`readme-capability-citations`, `xibalba-shield/ecosystem-authority-20261103`,
+`inference-endpoint-url-validation`, `jev-testnet-status`, and `phase3-gate1-sdk-runtime` — the last now
+merged, with its remote branch already pruned.
+
+**Pushed, adds content, but has no open pull request** — each needs a keep-or-abandon decision:
+`xibalba-shield/ui-console-chassis-parity` (10 commits, 16 files, **+2208/−129** — by far the largest
+orphan), `xibalba-shield/ui-visual-redo-20261103` (+113/−33, the audited UI work),
+`xibalba-cortex/jev-testnet-status`, and `xibalba-cortex/ecosystem-authority-20261103` (9 files, +420/−20).
 
 ### Items carried into the plan
 
@@ -600,15 +648,19 @@ Shield PR #66 and Console PR #6 were already merged before this audit.
    2026-11-03**: pushed with `xb-wt push` to `d41c4e76`, verified by `ls-remote`, opened as PR #68
    (2 files, +289/−0, docs-only) and merged as `6e2eea13` on green CI at `d41c4e76`. The Gate 1
    evidence is on `main` and no longer single-copy.
-2. Get the `.superpowers/sdd` evidence into git, or into a durable location this plan names, before any
-   `xb-wt finish` touches the `account-registration-design` worktree. **This is now the only remaining
-   single-copy evidence problem**, and the highest-value open item in this section.
+2. Make the single-copy work durable — see the inventory above. Seven worktrees hold content on no
+   remote, led by `docs/jev-decisiontrace-status` at +1346 lines. Start by pushing those branches, which
+   is cheap and reversible. Then get the `.superpowers/sdd` evidence into git or into a durable location
+   this plan names, defeating its self-ignore, before any `xb-wt finish` or `prune` touches the
+   `account-registration-design` worktree, whose upstream is already gone. **This is the
+   highest-value open item in this section.**
 3. ~~Land the merge queue in order, each at its own green head.~~ **Done 2026-11-03** for the four
    non-deploying pull requests: core #183 and #184, Shield #67 and #68. The two Cortex pull requests
    are held — merging Cortex `main` is a deploy and needs its own approval. Decide #90, and resolve
    #89's conflicts.
 4. Resolve the SDK layout item: it blocks A3 and two repository-local gates at once.
-5. Repoint the two stale authority pointers, and reconcile the Cortex checkboxes against merged PRs.
+5. Repoint the one authority pointer that is still stale (`integrity-core/STATUS.md` line 4; the
+   Cortex side is already fixed in open PR #89), and reconcile the Cortex checkboxes against merged PRs.
 6. Decide keep-or-abandon on the 16 conflicting local branches and the 11 conflicting remote ones, and
    sweep the 9 local plus 3 remote branches that add nothing. Open a PR for Shield's audited UI work on
    `fix/ui-visual-redo-20261103`, and decide the fate of `docs/rescope-registry-precheck-gas` (+60).
