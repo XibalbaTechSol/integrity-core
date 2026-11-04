@@ -324,6 +324,24 @@ Every handoff in the four repositories, with what the audit found.
 Under the migration manifest's classification rules these historical handoffs stay in their dated
 archives and remain non-normative. Only the items extracted below are carried into this plan.
 
+**One handoff channel could not be read, and the reason is a live defect.** Cortex's own ledger contract
+in `PROJECT_STATE.md` requires that every session store its checkpoint as a `summary` memory in Cortex,
+which makes those memories part of the handoff set. They are currently unreadable. Against the
+`default` profile store (`memory_status`: schema 16, WAL, FTS5 on, `integrity_check: ok`,
+**3,202 memories**), `memory_hybrid_retrieve` returns **zero results for every query tried**, including
+the bare term `cortex`, while reporting `lexical: available`, `vector: available`,
+`temporal: available`, `degraded: []`. `memory_recall` with statuses `active, confirmed, candidate`
+likewise returns `[]`. A store that holds 3,202 memories and reports healthy channels must not return
+nothing for its own product name.
+
+Two consequences. First, no checkpoint-memory content is integrated into this section, and that is a
+**blocked** input, not evidence that no such memories exist — this is the already recorded rule that an
+empty Cortex read must never be read as absence. Second, this is a retrieval defect on the primary
+product surface and outranks most open items: Cortex's value proposition is governed memory with
+retrieval evidence, and the recall path currently returns nothing against a populated store. Diagnose
+before any further Cortex phase is declared complete, and add a test that fails when a populated store
+returns zero results for a term present in it.
+
 ### Corrections to inherited claims
 
 Each of these was asserted in a handoff and contradicted by the audit.
@@ -506,6 +524,9 @@ approval. Shield PR #66 and Console PR #6 are already merged.
 4. Resolve the SDK layout item: it blocks A3 and two repository-local gates at once.
 5. Repoint the two stale authority pointers, and reconcile the Cortex checkboxes against merged PRs.
 6. Decide keep-or-abandon on the 16 conflicting branches, and sweep the 9 that add nothing.
+7. Diagnose the Cortex retrieval defect above: 3,202 memories, healthy channels, zero results for any
+   query. It blocks reading the checkpoint-memory handoff channel and undercuts the product's core
+   claim.
 
 # Phase A: achieve architectural and documentation simplicity
 
