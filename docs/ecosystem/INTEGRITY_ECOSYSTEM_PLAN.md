@@ -461,8 +461,19 @@ and `xb-wt prune` sweeps their branches like any other.
 ### Durable-evidence gap
 
 The Cortex production-readiness plan cites `.superpowers/sdd/.../phase0-task5-report.md` and
-`phase5-task1-report.md` — a 198/198 Playwright baseline and **nine recorded mutation proofs** — as the
-evidence base for its Phases 0 and 5.
+`phase5-task1-report.md` — a 198-test Playwright baseline and **nine recorded mutation proofs** — as the
+evidence base for its Phases 0 and 5. **Both claims are real; the attribution is wrong, and one has a
+hole.** Verified by reading the files:
+
+- The nine mutation proofs are in **`phase1-task5-report.md`**, enumerated `M1` through `M9` — not in
+  `phase0-task5-report.md`. That report records one mutation experiment of its own (3 passed, 2 failed)
+  plus a single follow-up check, not nine.
+- The 198-test baseline *is* in `phase0-task5-report.md`, which states `198 passed`.
+- **`phase1-task5-report.md` ends at line 222 in a literal `FULL_SUITE_PLACEHOLDER`.** The agent was
+  killed by a five-hour limit while running the full Playwright suite, so the whole-suite result was
+  never filled in. Everything else in that report is backed by quoted output, and the run also recorded
+  one claim it could *not* prove able to fail rather than asserting the proof. Treat the baseline and
+  the nine proofs as real; do not quote that report as a clean whole-suite pass.
 
 Those reports exist only inside the `xibalba-cortex/account-registration-design` worktree on
 `/mnt/storage`, and they are **ignored, not merely untracked** — which is worse. `.superpowers/sdd/`
@@ -482,12 +493,22 @@ is **gone** — deleted from the remote. So the branch cannot be restored from `
 treats a branch whose upstream has disappeared as a sweep candidate. An `xb-wt finish` or `prune` there
 destroys both the unpushed commit and the entire cited evidence base.
 
-Fix in this order: push the branch so the commit stops being single-copy; then either delete the
-self-ignore and commit the reports, or copy them to a durable location this plan names. Do not run
-`finish` or `prune` on that worktree until one of those is done.
+**Closed 2026-11-03.** The branch was pushed first, so its commit stopped being single-copy and the
+deleted upstream was restored. The reports were then landed in git by Cortex **PR #93**, under
+`docs/superpowers/sdd/`, matching the already-tracked `docs/superpowers/plans/` and `specs/`
+convention — 34 files, +6341. The `review-*.diff` blobs (~280K) were deliberately left out: each is
+`git diff A..B` between commits that all resolve in that repository, so committing them would duplicate
+git history. Each run directory instead carries a `review-ranges.md` listing every range with its
+regeneration command; all 12 ranges in the p0 run were checked and both endpoints resolve. The two
+corrections above are recorded in a README beside the evidence, so the next reader does not rediscover
+them.
 
-This is the failure class already recorded in project memory, where an audit document carried PASS for
-values no test ever asserted. Closing it is a precondition for trusting any Cortex phase status.
+The SDD tool's own `.superpowers/sdd/` working directory is left untouched. The durable copy lives in
+`docs/`; this plan does not require fighting the tooling's ignore file.
+
+This was the failure class already recorded in project memory, where an audit document carried PASS for
+values no test ever asserted — and it recurred here in miniature, as a citation pointing at the wrong
+report. Evidence has to be read, not cited.
 
 ### Numbering crosswalk
 
@@ -677,13 +698,14 @@ Shield PR #66 and Console PR #6 were already merged before this audit.
    2026-11-03**: pushed with `xb-wt push` to `d41c4e76`, verified by `ls-remote`, opened as PR #68
    (2 files, +289/−0, docs-only) and merged as `6e2eea13` on green CI at `d41c4e76`. The Gate 1
    evidence is on `main` and no longer single-copy.
-2. ~~Make the single-copy work durable.~~ **Done 2026-11-03**: nine branches pushed and verified by
+2. ~~Make the single-copy work durable.~~ **Closed 2026-11-03.** Nine branches pushed and verified by
    `ls-remote`, which also restored `docs/account-registration-design`, whose upstream had been
-   deleted. Only `feat/bind-selects-agent` is still single-copy, deliberately — a live session owned
-   that worktree. **What remains is the `.superpowers/sdd` evidence**: get it into git, defeating its
-   self-ignore, or into a durable location this plan names, before any `xb-wt finish` or `prune`
-   touches the `account-registration-design` worktree. **This is now the
-   highest-value open item in this section.**
+   deleted. The `.superpowers/sdd` evidence was then landed in git by Cortex **PR #93** under
+   `docs/superpowers/sdd/`, defeating the self-ignore by tracking a durable copy — see the
+   durable-evidence gap above, including the two citation corrections found while reading it.
+   `xb-wt finish` and `prune` are now safe on the `account-registration-design` worktree.
+   Only `feat/bind-selects-agent` is still single-copy, deliberately: a live session owned that
+   worktree, and its owner should push it.
 3. ~~Land the merge queue in order, each at its own green head.~~ **Done 2026-11-03** for the four
    non-deploying pull requests: core #183 and #184, Shield #67 and #68. The two Cortex pull requests
    are held — merging Cortex `main` is a deploy and needs its own approval. Decide #90, and resolve
