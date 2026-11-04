@@ -141,4 +141,4 @@ directory. `POST /v1/admin/receipts/anchor` runs one sweep now; `GET /health` ->
 
 ## What is not built
 
-Nothing from the B2 list is outstanding here; see `docs/EXECUTION_PLAN.md` for what is open elsewhere.
+Nothing from the B2 list is outstanding here; see `docs/ecosystem/INTEGRITY_ECOSYSTEM_PLAN.md` for what is open elsewhere.

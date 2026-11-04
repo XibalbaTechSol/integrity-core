@@ -980,7 +980,7 @@ exclusions:
 | `docs/WHITEPAPER.md` | Informative, public |
 | `docs/SPEC.md` | **Normative** |
 | `docs/CONTROLS_MATRIX.md` | Informative mapping |
-| `docs/EXECUTION_PLAN.md` | Informative roadmap. Sequences the work that closes the `[PARTIAL]`/`[PLANNED]`/`[EXPERIMENTAL]` gaps named in this file. It MUST NOT introduce a requirement this file doesn't already state. |
+| `docs/ecosystem/INTEGRITY_ECOSYSTEM_PLAN.md` | Informative roadmap. Sequences the work that closes the `[PARTIAL]`/`[PLANNED]`/`[EXPERIMENTAL]` gaps named in this file. It MUST NOT introduce a requirement this file doesn't already state. |
 | `docs/archive/` | Historical. Do not implement from these. |
 
 When README, wiki, interface contract, and this file disagree, this file wins for protocol meaning; the disagreement MUST be repaired in the same change.

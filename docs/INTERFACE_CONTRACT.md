@@ -389,7 +389,7 @@ timestamp sources, payload/metadata objects, privacy/redaction state, and
 content/payload hashes; optional fields preserve DID, harness, principal,
 device, session, invocation, trace, span, and parent relationships.
 
-`SCHEMA_VERSION` moved 1 → 2 in docs/EXECUTION_PLAN.md A3, when `canonical_bytes`
+`SCHEMA_VERSION` moved 1 → 2 in docs/ecosystem/INTEGRITY_ECOSYSTEM_PLAN.md A3, when `canonical_bytes`
 switched from an ad-hoc `json.dumps(sort_keys=True)` encoding to RFC 8785 (JCS) —
 a v1 `content_hash`/`payload_hash` and a v2 one over the same payload differ.
 `schema/telemetry-envelope-v1.json` stays in the SDK as a historical record, not
@@ -512,7 +512,7 @@ node_id = "0x" + keccak256(canonical(preimage))
 schema  = "integrity.memory.node.v2"
 ```
 
-`schema` moved v1 → v2 in docs/EXECUTION_PLAN.md A3, when `canonical()` switched
+`schema` moved v1 → v2 in docs/ecosystem/INTEGRITY_ECOSYSTEM_PLAN.md A3, when `canonical()` switched
 from an ad-hoc `json.dumps(sort_keys=True, ensure_ascii=True)` encoding (despite
 this section's pre-existing "RFC 8785 JCS" description above, which was the
 intent, not yet the implementation) to the real `integrity_sdk.core.jcs`. A v1
@@ -1632,7 +1632,7 @@ daemon is implemented in `xibalba-shield` as `shield gate-daemon`, in
 `shield gate-daemon`, and until one does, `integrity hooks install --gate shield` correctly reports
 that nothing is listening and the hook fails open.
 
-This is the boundary `docs/EXECUTION_PLAN.md` B2's third bullet names. It exists because a harness
+This is the boundary `docs/ecosystem/INTEGRITY_ECOSYSTEM_PLAN.md` B2's third bullet names. It exists because a harness
 hook is a short-lived process spawned once per tool call and cannot hold a warm policy engine.
 
 **Transport.** `AF_UNIX` stream socket. **One request, one response, then close**; each is a single
