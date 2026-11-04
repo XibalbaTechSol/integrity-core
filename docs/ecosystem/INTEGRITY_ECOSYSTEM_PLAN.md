@@ -280,8 +280,8 @@ worktree, with its own recorded evidence.
 
 | # | Checkpoint | Owner decision | Execution state |
 |---|---|---|---|
-| 1 | Create integrity-lab and integrity-console; grant push access to Shield and Cortex | Approved 2026-11-03 | integrity-console exists and is active. integrity-lab is **not yet created**; A1's lab mirror cannot complete until it is. |
-| 2 | Testnet broadcasts, including Base Sepolia StateAnchor deployment and genesis | Approved 2026-11-03 | **Not executed.** This unblocks the single open B4 item (testnet deployment), which was previously held for exactly this approval. Broadcast remains a deliberate, separately evidenced action. |
+| 1 | Create integrity-lab and integrity-console; grant push access to Shield and Cortex | Approved 2026-11-03 | **Both repositories already exist** — `XibalbaTechSol/integrity-console` and `XibalbaTechSol/integrity-lab` both resolve. The approval ratifies what is in place; A1's lab mirror is not blocked on repository creation. |
+| 2 | Testnet broadcasts, including Base Sepolia StateAnchor deployment and genesis | Approved 2026-11-03 | **Not executed, and still blocked — see B4 below.** Approval is necessary but not sufficient: a credential rotation must precede any broadcast. Open PR #184 already records this same approval and the same precondition. |
 | 3 | Repository rename during C5 | Approved 2026-11-03 | Not executed; C5 has not started. The approval does **not** authorize renaming integrity-core during the current documentation consolidation, which is explicitly excluded by the 2026-11-03 handoff. |
 
 Recording these approvals closes the owner-decision dependency only. No repository was created, no
@@ -324,23 +324,37 @@ Every handoff in the four repositories, with what the audit found.
 Under the migration manifest's classification rules these historical handoffs stay in their dated
 archives and remain non-normative. Only the items extracted below are carried into this plan.
 
-**One handoff channel could not be read, and the reason is a live defect.** Cortex's own ledger contract
-in `PROJECT_STATE.md` requires that every session store its checkpoint as a `summary` memory in Cortex,
-which makes those memories part of the handoff set. They are currently unreadable. Against the
-`default` profile store (`memory_status`: schema 16, WAL, FTS5 on, `integrity_check: ok`,
-**3,202 memories**), `memory_hybrid_retrieve` returns **zero results for every query tried**, including
-the bare term `cortex`, while reporting `lexical: available`, `vector: available`,
-`temporal: available`, `degraded: []`. `memory_recall` with statuses `active, confirmed, candidate`
-likewise returns `[]`. A store that holds 3,202 memories and reports healthy channels must not return
-nothing for its own product name.
+**One handoff channel could not be read, and the reason is correct scoping, not a defect.** Cortex's
+ledger contract in `PROJECT_STATE.md` requires every session to store its checkpoint as a `summary`
+memory in Cortex, which makes those memories part of the handoff set. This session cannot read them.
 
-Two consequences. First, no checkpoint-memory content is integrated into this section, and that is a
-**blocked** input, not evidence that no such memories exist — this is the already recorded rule that an
-empty Cortex read must never be read as absence. Second, this is a retrieval defect on the primary
-product surface and outranks most open items: Cortex's value proposition is governed memory with
-retrieval evidence, and the recall path currently returns nothing against a populated store. Diagnose
-before any further Cortex phase is declared complete, and add a test that fails when a populated store
-returns zero results for a term present in it.
+The first reading of this was wrong and is recorded here so it is not repeated. Against the `default`
+store (`memory_status`: schema 16, WAL, FTS5 on, `integrity_check: ok`, **3,202 memories**),
+`memory_hybrid_retrieve` and `memory_recall` return **zero results for every query tried** — including
+the bare term `cortex`, and including a term present in 3,117 rows with that status explicitly
+requested — while reporting `lexical: available`, `vector: available`, `temporal: available`,
+`degraded: []`. That looks like a retrieval defect and was initially written up as one.
+
+A read-only inspection of the store disproves it. The `memories` table carries no agent column;
+scoping is on `sources.agent_id`, and retrieval is agent-scoped and fail-closed by design. The store's
+sources carry seven distinct agent identities. This session binds `XIBALBA_AGENT_ID=claude`, resolving
+to the on-disk identity at `~/.hermes/xibalba-cortex/agent.did.json`, and **that identity owns none of
+them**. A principal with no memories of its own correctly sees nothing. `memory_fts` is fully populated
+(3,202 rows, 52 matching `cortex`), so the index is healthy and the empty result is the scope boundary
+working, exactly as `viewer/HANDOFF.md` §6 describes.
+
+What this does establish:
+
+- **The checkpoint-memory channel is a blocked input, not an absent one.** No checkpoint content is
+  integrated into this section. Any such memories live under other agent identities. This is the
+  standing rule that an empty Cortex read is never evidence of absence.
+- **The ledger contract is not being honoured under this agent's identity.** No agent visible in the
+  store corresponds to this harness, so the required per-session `summary` memory is either not being
+  written or is written under an identity that the writing session cannot itself read back. A contract
+  that mandates a durable checkpoint is not satisfied by one no one can retrieve.
+- **The store is 97% one agent's telemetry.** 3,117 of 3,202 memories are `candidate`-status policy-decision
+  records from a single agent; only 26 memories are `confirmed`. Any claim about recall quality or
+  retrieval evidence measured against this store is measuring machine telemetry, not curated memory.
 
 ### Corrections to inherited claims
 
@@ -416,6 +430,25 @@ WORKFLOW.md Rule 3 already names `cron/pr6-rebuild-20260829`, `a3/cortex-jcs` an
 `docs/reconcile-v1-authority` as the original orphaned-work problem, caused by feature branches
 tracking `origin/main`. They are known orphans, not new findings.
 
+**Remote branches not merged into `origin/main`**, classified the same way. These are pushed, so they
+are not at risk of loss, but each is unlanded work someone must land or retire. Excluding the five open
+PR heads and this integration branch:
+
+| Repo | Adds nothing (prune) | Real content | Conflicts |
+|---|---|---|---|
+| `integrity-core` | — | `audit/harness-loop-2026-07-30` (+10) | `a5/docs-authority-gates`, `docs/rescope-registry-precheck-gas` (+60), `feat/cortex-operations-dashboard` (+6), `fix/sdk-nitro-trust-root-wheel`, `park/policy-packs-2026-09-26` |
+| `xibalba-cortex` | `feat/cortex-brain-logo`, `fix/console-timeline-routes` (+3) | — | `feat/cortex-decision-trace`, `feat/runtime-telemetry-adapters` |
+| `xibalba-shield` | — | `fix/ui-visual-redo-20261103` (the audited UI work, no PR open) | `feat/evidence-chain-ui`, `feat/jev-decision-trace`, `fix/ui-console-chassis-parity` (+10, has a worktree), `park/policy-packs-2026-09-26` |
+| `integrity-console` | `docs/ecosystem-authority-20261103` | — | — |
+
+`docs/rescope-registry-precheck-gas` at +60 commits is the largest single body of unlanded remote work
+in the ecosystem and has no open PR. `park/policy-packs-2026-09-26` exists in both core and Shield and
+is named "park", so confirm it is still a deliberate parking place rather than forgotten work.
+
+Three Antigravity harness worktrees also exist under
+`~/.gemini/antigravity-cli/brain/.../worktrees/` against `integrity-core`. WORKFLOW.md tolerates them
+and `xb-wt prune` sweeps their branches like any other.
+
 ### Durable-evidence gap
 
 The Cortex production-readiness plan cites `.superpowers/sdd/.../phase0-task5-report.md` and
@@ -456,13 +489,17 @@ forbids creating a new roadmap for work G1–G7 already covers, so these rows li
   no installed service, base checkout, identity store, credential, database, queue or outbox changes.
   No absolute `/home/xibalba/...` path in committed metadata, and no permanent external symlink. This
   gates A3's "consume the SDK without sibling copies".
-- **A5/A6 — two authority pointers still name the superseded plan.** `integrity-core/STATUS.md` records
-  execution authority as `docs/EXECUTION_PLAN.md`, now a compatibility redirect, and Cortex
-  `PROJECT_STATE.md` names the same path as the cross-product authority. `scripts/check_docs.py` already
-  requires this namespace. Repoint both.
+- **A5/A6 — one authority pointer is genuinely stale; the other is already fixed in an open PR.**
+  `integrity-core/STATUS.md` line 4 still records execution authority as `docs/EXECUTION_PLAN.md`, now a
+  compatibility redirect — and open PR #184 edits that same file without repointing it, so merging #184
+  does not fix it. Repoint it. The Cortex side needs no new work: **open PR #89 already** adds an
+  "Ecosystem authority" section to the Cortex README and repoints its cross-product plan links to
+  `docs/ecosystem/INTEGRITY_ECOSYSTEM_PLAN.md`. Land #89 rather than duplicating it.
+  `scripts/check_docs.py` already enforces this namespace.
 - **A5/A6 — the plan progress metric is already broken, verified.** `STATUS.md` reports
   "**134/232 checkboxes (57%)**, generated by `python3 scripts/plan_progress.py`; it is not
-  hand-maintained", having previously drifted to a stale hand-edited 88/201. That command now **fails**:
+  hand-maintained" — open PR #184 raises the same claim to **146/232 (62%)** — having previously
+  drifted to a stale hand-edited 88/201. That command now **fails**:
   the script defaults to `docs/EXECUTION_PLAN.md`, which is a redirect with no task lists, and exits
   `ValueError: max() iterable argument is empty`. Pointing it at this plan fails identically, because
   this plan expresses work as prose bullets and contains **zero** checkboxes. The 134/232 figure is
@@ -472,15 +509,41 @@ forbids creating a new roadmap for work G1–G7 already covers, so these rows li
   checkable items, repoint the script and define what it counts here, or retire the metric and delete
   the claim from `STATUS.md`. Do not leave `STATUS.md` asserting a generated number that no command
   reproduces.
-- **B2a — confirm closure rather than assuming it.** `STATUS.md` lists B2a at 6/8, with the Cortex
-  viewer trace panel and the queue/retry of advisory analysis open. Cortex PR #83 (render the
+- **B2a — already closed by an open PR; land it, do not redo it.** `STATUS.md` on `main` lists B2a at
+  6/8 with the Cortex viewer trace panel and the advisory retry queue open. Cortex PR #83 (render the
   DecisionTrace evidence panel) and PR #84 (retry unavailable DecisionTrace advisories) merged on
-  2026-11-03 with exactly those titles. Verify they close both items, and check whether open PR #90
-  already ticks them, so nothing is ticked twice.
-- **B4 — the single open item is now unblocked.** Testnet deployment was held for owner approval, which
-  was granted on 2026-11-03. It remains a deliberate broadcast carrying its own evidence.
+  2026-11-03 with exactly those titles, and **open core PR #184 already marks B2a Complete (8/8)**,
+  citing #84's durable hash-bound retry queue and Shield PR #65's endpoint validation. The item is
+  therefore done in content and pending only on #184 merging. Do not tick it separately.
+- **B4 — approved but still blocked on signer hygiene. Do not treat the approval as a green light.**
+  Testnet deployment was held for owner approval, granted 2026-11-03. Open PR #184 already records that
+  approval *and* the blocker: the local deployment credential requires review and rotation because a
+  prior troubleshooting session may have exposed it, and shared operator memory independently records
+  exposed Base Sepolia credentials in local env files with "rotate before deployment". The replacement
+  must be testnet-only, stored with owner-only permissions, and funded. **Do not broadcast using the
+  current local credential.** Sequence after rotation: repeat the exact Anvil dry run, take a live gas
+  estimate, broadcast the approved anchor script, verify deployed bytecode and roles on Base Sepolia,
+  then add the address and transaction evidence to the manifest and deployment record. The script has
+  already passed an Anvil dry run; no live transaction has been sent.
 - **B0 — unchanged as the largest unstarted block** (0/19). The Cortex Phases 0–5 plan is its Cortex-side
-  sequence, and that plan's Phase 5 Task 1 has landed on `main`.
+  sequence, and that plan's Phase 5 Task 1 has landed on `main`. Its operator-amended running order is
+  **Phase 0 → Phase 5 Tasks 1–2 → Phase 1 → Phase 2 → Phase 3 → Phase 5 Tasks 3–6**, chosen to reach a
+  deployable test build sooner. Phase 0 and Phase 5 Tasks 1–2 are done, and Phase 2 Tasks 1–2 landed
+  early as PRs #86 and #87, so the next item is Phase 1 Task 1.
+- **B0, Cortex — two self-hosted MCP exposures the REST route closed but the MCP path keeps.** Both are
+  recorded in the Phase 5 Task 1 report as live gaps rather than notes, and neither is fixed:
+  1. **Metadata shadowing.** `ingest_turn` strips reserved `metadata` keys, but `ingest_agent_turn`
+     still merges caller metadata *after* its own, so a caller-supplied `metadata.session_id`
+     overwrites the source's real `session_id`. The REST route is protected; the self-hosted MCP path
+     retains the exposure. Provenance that a caller can overwrite is not provenance, so this is a
+     trust-substrate defect, not a cosmetic one.
+  2. **Unrepeated account checks.** Account-state checks (active, verified, approved) and cookie CSRF
+     live in `api.authenticate`, not in `ingest_turn`. The MCP transport must perform equivalent checks
+     before calling it or it will serve unverified accounts.
+  Also from that report: one ingested turn meters as a single `writes` unit while storing two memories
+  plus OTel rows, and the handler is **not transactional** — a quota failure on the second memory
+  leaves the first stored. Decide whether that partial write is acceptable before pilot metering is
+  sold against it.
 - **Cortex runtime-plugin items still open**, from the stale-continuation handoff: live model-host
   callbacks; native host installation, trust, callback and menu checks on a pilot machine; Perplexity
   billing and API canaries; and consumer OAuth/HTTPS dispatch. The hosted resource server implements no
@@ -523,10 +586,12 @@ approval. Shield PR #66 and Console PR #6 are already merged.
 3. Land the merge queue in order, each at its own green head.
 4. Resolve the SDK layout item: it blocks A3 and two repository-local gates at once.
 5. Repoint the two stale authority pointers, and reconcile the Cortex checkboxes against merged PRs.
-6. Decide keep-or-abandon on the 16 conflicting branches, and sweep the 9 that add nothing.
-7. Diagnose the Cortex retrieval defect above: 3,202 memories, healthy channels, zero results for any
-   query. It blocks reading the checkpoint-memory handoff channel and undercuts the product's core
-   claim.
+6. Decide keep-or-abandon on the 16 conflicting local branches and the 11 conflicting remote ones, and
+   sweep the 9 local plus 3 remote branches that add nothing. Open a PR for Shield's audited UI work on
+   `fix/ui-visual-redo-20261103`, and decide the fate of `docs/rescope-registry-precheck-gas` (+60).
+7. Reconcile the Cortex checkpoint-memory contract with agent identity: decide which identity owns
+   session checkpoints, make the writing session able to read its own back, and stop quoting recall
+   quality against a store that is 97% one agent's policy telemetry.
 
 # Phase A: achieve architectural and documentation simplicity
 
