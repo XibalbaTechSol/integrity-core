@@ -4,10 +4,11 @@
 
 **The guarantee.** Agents deploy their own identity contracts, anchor telemetry roots, and submit commitments signed by their own key — so the chain proves they control what happened. A scored reputation (AIS) gates participation in sensitive domains. A pre-execution policy layer (`bcc_middleware`) refuses risky actions before they commit. Evidence is redacted to protect regulated content (PHI/PII) while preserving enough signal for trust computation.
 
-Three repositories, one closed loop:
-- **Integrity Protocol** (this repo): the trust & scoring primitives (`integrity-core`), operator dashboard (`integrity-dashboard`), and the oracle that computes reputation
+Four active repositories, one bounded loop:
+- **Integrity Protocol** (this repo): the trust & scoring primitives (`integrity-core`) and the oracle that computes authoritative reputation
 - **Xibalba Shield**: endpoint security and enforcement; produces signed evidence for the oracle
 - **Xibalba Cortex**: agent's local memory store; anchors session roots into the protocol
+- **Integrity Console**: independent operator UI and user API; holds no protocol authority
 
 ## Canonical documents
 
@@ -16,7 +17,10 @@ Three repositories, one closed loop:
 | [docs/SPEC.md](docs/SPEC.md) | Implementers (normative protocol grammar, invariants, status tags) |
 | [docs/WHITEPAPER.md](docs/WHITEPAPER.md) | Decision-makers and auditors (narrative, guarantees, architecture) |
 | [docs/CONTROLS_MATRIX.md](docs/CONTROLS_MATRIX.md) | Auditors (evidence map: HIPAA, NIST, OWASP, AIUC-1) |
-| [docs/EXECUTION_PLAN.md](docs/EXECUTION_PLAN.md) | Builders (build order and phase gates) |
+| [docs/ecosystem/INTEGRITY_ECOSYSTEM_PLAN.md](docs/ecosystem/INTEGRITY_ECOSYSTEM_PLAN.md) | Builders (outcomes, build order, and phase gates) |
+| [docs/ecosystem/ECOSYSTEM.md](docs/ecosystem/ECOSYSTEM.md) | Product and authority boundaries |
+| [docs/ecosystem/DATA.md](docs/ecosystem/DATA.md) | Data, retention, purge, and evidence boundary |
+| [docs/ecosystem/STATUS.md](docs/ecosystem/STATUS.md) | Current open gaps only |
 
 **Archived material is not normative.** Files moved to `docs/archive/` reflect the prior design iteration and remain accessible for historical context, but are not the source of truth. See [docs/archive/README.md](docs/archive/README.md).
 
@@ -63,7 +67,7 @@ For the full conceptual derivation, see [docs/SPEC.md](docs/SPEC.md) §4.
 
 ## Policy Architecture (On-chain vs Off-chain)
 
-When writing complex rules or safety guardrails for an agent, developers must choose between evaluating the policy **off-chain** (via the BCC Middleware and Open Policy Agent) or **on-chain** (via Smart Contract Adapters). Both operate on a "fail-closed" (default deny) basis.
+When writing complex rules or safety guardrails for an agent, developers must choose between evaluating the policy off-chain via BCC/OPA or using the bounded on-chain kernel path for value enforcement. Both operate on a fail-closed basis. The v1 architecture does not add an on-chain adapter registry or arbitrary on-chain policy compiler.
 
 ### When to use Off-Chain Rules (BCC / OPA)
 Off-chain rules act as the **"Preventative Brain."** Use them to intercept an agent *before* it affects the real world.
@@ -72,12 +76,11 @@ Off-chain rules act as the **"Preventative Brain."** Use them to intercept an ag
 * **Cost Efficiency:** Off-chain OPA checks take milliseconds and cost nothing. You can have thousands of highly complex rules here without worrying about gas fees.
 * **Example (`TradingGuardrail`):** A `.rego` policy that intercepts an agent's `financial_trade` intent, validating the trade against a dynamic token allowlist.
 
-### When to use On-Chain Rules (Smart Contract Adapters)
-On-chain rules act as the **"Cryptographic Backstop."** Use them for strict, deterministic state enforcement where you cannot trust the off-chain environment.
+### When to use the on-chain kernel path
+The kernel is the **"Cryptographic Backstop."** Use its existing bounded parameters for strict, deterministic value enforcement where the off-chain environment cannot be trusted. New regulation and control logic belongs in signed off-chain packs; v1 does not add Solidity adapter plugins or a generic on-chain policy registry.
 * **Hard Financial Limits:** Rules about money (e.g., "Do not spend more than $50" or "Do not transfer this NFT") belong on-chain. If the off-chain system is compromised, the smart contract physically prevents the funds from moving.
 * **Absolute Protocol State:** Things like transaction frequency (Velocity), Time-locks, or Reputation Floors. The blockchain is the ultimate source of truth for time and state.
-* **Denial of Service Protection (Gas Bounding):** Adapters are evaluated by the `IntegrityKernel` in a `try/catch` with strict gas limits. If a complex rule loops forever or crashes, it runs out of gas, safely catching the failure and rejecting the transaction without crashing the agent.
-* **Example (`VelocityAdapter`):** A Solidity contract implementing `IAdapter.sol` that limits how many transactions an agent can perform within a 1-hour window.
+* **Bounded execution:** Kernel calls remain constrained by the account and kernel invariants; policy-pack evaluation and network-facing integrations remain off-chain.
 
 ---
 

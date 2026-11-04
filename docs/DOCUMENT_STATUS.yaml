@@ -1,6 +1,6 @@
 # Single source for document authority and current-version pointers.
 # Consumers may render this metadata, but must not promote archived documents.
-updated: 2026-09-28
+updated: 2026-11-03
 
 normative:
   path: docs/SPEC.md
@@ -23,22 +23,22 @@ implementation_plan:
   authority: historical
 
 execution_plan:
-  path: docs/EXECUTION_PLAN.md
+  path: docs/ecosystem/INTEGRITY_ECOSYSTEM_PLAN.md
   status: current
   authority: execution
 
 ecosystem:
-  path: ECOSYSTEM.md
+  path: docs/ecosystem/ECOSYSTEM.md
   status: current
   authority: architecture
 
 data:
-  path: DATA.md
+  path: docs/ecosystem/DATA.md
   status: current
   authority: architecture
 
 adr_0001:
-  path: docs/adr/ADR-0001-six-function-test.md
+  path: docs/ecosystem/ADR-0001-six-function-test.md
   status: current
   authority: decision
 
