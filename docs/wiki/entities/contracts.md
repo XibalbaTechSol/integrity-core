@@ -1,7 +1,7 @@
 ---
 title: contracts
 created: 2026-07-07
-updated: 2026-10-05
+updated: 2026-11-03
 type: entity
 tags: [layer-2, identity, tokenomics, compliance]
 confidence: high
@@ -227,6 +227,10 @@ an agent-owned primitive, so no `SovereignAgent.execute` routing is needed). Wri
 file, otherwise logs the address for a reviewed manual edit, exactly like `DeployXns`.
 See [bcc_middleware](bcc_middleware.md)'s "Evidence anchoring now targets a dedicated
 contract" section for why this exists. Verified end to end against a real local anvil.
+The Base Sepolia manifest still has no `ProtocolEvidenceAnchor` entry. The owner approved
+that incremental broadcast on 2026-11-03; the identical script passed an Anvil dry run
+(chain 31337, 852,992 gas). No testnet transaction has been sent. Live use is pending a
+rotated testnet-only signer with owner-only permissions; local evidence is not deployment proof.
 
 Related: [agent primitives](../concepts/agent-primitives.md),
 [ComplianceGate](../concepts/compliance-gate.md),

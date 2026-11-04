@@ -211,8 +211,11 @@ review:
 1. [x] Create integrity-lab and integrity-console. Push access to Shield and Cortex already exists.
    Both repos exist; integrity-lab#1 (cut-path import) and integrity-console#1/#4 (dashboard/userapi/
    demo import, then cut-feature page removal) are merged.
-2. [ ] Approve any testnet broadcast (evidence anchor, genesis). Each is preceded by an Anvil dry run of
-   the identical script.
+2. [x] Owner approved a Base Sepolia `ProtocolEvidenceAnchor` broadcast on 2026-11-03. The identical
+   script passed an Anvil dry run on chain 31337 (852,992 gas; Anvil estimate 0.001705984 ETH at
+   2 gwei). This approval is for the evidence anchor only; a fresh protocol genesis or agent migration
+   requires its own reviewed dry run and authorization. Broadcast is pending a rotated, testnet-only
+   signer installed with owner-only file permissions; no live transaction has been sent.
 
 ## Pre-execution
 
@@ -681,8 +684,7 @@ This is the execution-plan integration point for the decision-correlation archit
 verifies evidence, Shield enforces policy, Cortex stores and renders provenance, Hermes supplies
 observer events, and Jev produces bounded advisory analysis.
 
-**Shared Integrity SDK contracts (C8–C11):** (this repo, `integrity-sdk/integrity_sdk/core/decision_trace.py`,
-branch `feat/sdk-decision-trace`, not yet merged)
+**Shared Integrity SDK contracts (C8–C11):** (this repo, `integrity-sdk/integrity_sdk/core/decision_trace.py`; merged foundation)
 - [x] Add `DecisionEnvelope` and `DecisionTrace` schemas with JCS canonicalization, version fields,
   tenant/agent/session/invocation correlation, policy references, provider metadata, redaction
   status, confidence bounds and explicit `causal_claim: false`.
@@ -691,17 +693,16 @@ branch `feat/sdk-decision-trace`, not yet merged)
   primitives. Do not create a second receipt format or identity system.
 - [x] Add a dependency-light Jev provider interface plus deterministic fixture provider. HTTP/local
   providers are connectors and cannot be imported by the SDK core.
-- [x] Add negative tests for malformed output, provider timeout, replayed parent, tenant mismatch,
-  raw-content leakage, trace truncation and proof/root tampering. `tests/unit/test_core_decision_trace.py`:
-  4 tests cover wrong parent/namespace rejection, raw-content/causal-claim rejection, and receipt-linked
-  evidence tamper detection. Provider-timeout and trace-truncation are not yet covered here; see the open
-  A7 exit-evidence item below.
+- [x] Add negative tests for malformed output, replayed parent, tenant mismatch,
+  raw-content leakage and proof/root tampering. `tests/unit/test_core_decision_trace.py`:
+  tests cover wrong parent/namespace rejection, raw-content/causal-claim rejection, and receipt-linked
+  evidence tamper detection. Provider timeout is covered by Shield failure-mode tests; explicit
+  trace truncation coverage remains open and is not claimed by this SDK test list.
 
-**Hermes/Cortex observer path:** (`xibalba-cortex` PR [#36](https://github.com/XibalbaTechSol/xibalba-cortex/pull/36),
-not yet merged; depends on the SDK branch above)
+**Hermes/Cortex observer path:** (`xibalba-cortex` PR [#36](https://github.com/XibalbaTechSol/xibalba-cortex/pull/36), merged)
 - [x] Extend the existing Hermes observer/bridge correlation IDs into DecisionTrace events at
-  session, LLM, tool, approval and subagent boundaries. `HermesObserverAdapter._record_decision_event`
-  covers session/LLM/subagent boundaries; tool and approval boundaries are not yet wired.
+  session, LLM, tool, approval and subagent boundaries. `HermesObserverAdapter._event` projects each
+  observation through `_record_decision_event`; tool arguments/results are represented by commitments.
 - [x] Persist trace events in Cortex's profile/tenant-scoped provenance store with idempotency,
   retention classification, redacted payload commitments and a read-only trace/proof API.
   `GraphStore.record_decision_trace_event`/`session_decision_trace`, `local_api.py`'s
@@ -710,8 +711,7 @@ not yet merged; depends on the SDK branch above)
   observed event hash; provider failure leaves the trace valid and marks analysis unavailable.
   `jev_gateway.py`; `tests/test_decision_trace.py`.
 
-**Shield shadow path:** (`xibalba-shield` PR [#43](https://github.com/XibalbaTechSol/xibalba-shield/pull/43),
-not yet merged)
+**Shield shadow path:** (`xibalba-shield` PR [#43](https://github.com/XibalbaTechSol/xibalba-shield/pull/43), merged)
 - [x] Add a shadow-only analyzer after local policy evaluation and before export. It may recommend
   risk categories, likely next transitions and escalation; it cannot alter the policy decision,
   BCC result, receipt signer, enforcement mode or break-glass state. `shield/policy_engine/jev_shadow.py`
@@ -722,9 +722,8 @@ not yet merged)
   `shield/policy_engine/inference.py` (`build_inference_provider`); `shield/backend/settings.py`'s
   `inference*` fields (provider, model, endpoint, prompt profile, timeout/tokens/temperature budgets,
   event scope, failure mode, `secret://` reference) are validated server-side.
-  **Not yet done:** the Settings UI itself (`ui/src/components/SettingsView.jsx`) has no corresponding
-  form fields — an operator can configure this today only through the validated settings API, not the
-  console. Moved to B0 as a UI task; not claimed complete here.
+  The dedicated `ui/src/components/InferenceSettings.jsx` form is present and documents the shadow-only
+  boundary; the dedicated Shield UI task is complete (PR #54).
 - [x] Validate inference settings at the backend boundary: shadow mode is the only execution mode,
   redaction is strict, timeout/tokens/temperature are bounded, secret references use `secret://`,
   and non-loopback HTTP endpoints are rejected in favor of HTTPS. `tests/test_settings_control.py`.
@@ -905,11 +904,10 @@ policy is configuration only. HA and Postgres are deferred.
 - [ ] retention, purge, export and provider health;
 - [ ] authenticated ingestion and retrieval;
 - [ ] spot-check API and proof status.
-- [ ] DecisionTrace timeline, event detail, advisory Jev classification and trace-proof views in the
-  Cortex viewer app. **Partial:** a profile/tenant/session-scoped read-only HTML render exists
-  (`xibalba-cortex` PR #36, `.../decision-trace.html`, `decision_trace_view.py`) and remains useful
-  when Jev is unavailable, but there is no `viewer/` panel yet — corrected from an earlier draft that
-  ticked this as the full item.
+- [x] DecisionTrace timeline, event detail, advisory Jev classification and trace-proof views in the
+  Cortex viewer app. The native `DecisionTracePanel` renders the event timeline, hash/root status,
+  Merkle proofs, advisory probabilities, and the observational-correlation disclaimer (Cortex PR #83,
+  merged; viewer CI/browser result tracked separately until its Playwright job completes).
 
 **Monetization:** pilots are sellable without billing code.
 - **Shield:** enforcement, devices, evidence retention and exports.
@@ -1024,7 +1022,13 @@ did before the daemon existed.
 
 - [x] Hermes observer hooks feed normalized, redacted events into the shared DecisionTrace gateway;
   the gateway is local-first and records advisory-unavailable status when no provider is available.
-- [ ] Queue/retry advisory analysis for a later provider recovery without delaying local capture.
+- [x] Queue/retry advisory analysis for a later provider recovery without delaying local capture.
+  Cortex stores only the redacted envelope in a separate leased SQLite queue and attaches a recovered
+  advisory to the original event hash. The retry worker uses the local fixture by default and supports
+  a profile-configured HTTPS Jev endpoint (`inference.decision_trace_jev_endpoint`) or
+  `XIBALBA_CORTEX_JEV_ENDPOINT`; retries continue if unrelated Cortex inference is disabled.
+  Implemented and merged in Cortex PR #84 (merge `66d0eeb`); hosted Python and viewer
+  checks passed, including the full Playwright suite.
 - [x] Cortex exposes trace ingest, timeline, event detail, transition-probability and proof endpoints
   scoped by tenant, agent and profile store. It stores commitments and bounded metadata, never raw
   reasoning or unrestricted transcript content.
@@ -1036,14 +1040,14 @@ did before the daemon existed.
   rejected without modifying the accepted policy receipt.
 - [x] Every advisory projection links to the observed event hash and, where enabled, the existing
   signed receipt/checkpoint. No causal claim is emitted; UI labels all probabilities as observational.
-- [ ] Shield's dedicated Settings surface documents the provider choice and authority boundary in
-  product, while Cortex's trace view documents provider status, probabilities, Merkle evidence, and
-  the distinction between declared sequence and proven causality. **Shield half done 2026-10-11:** the
-  Settings tab "Advisory Inference" (`ui/src/components/InferenceSettings.jsx`,
-  [xibalba-shield#54](https://github.com/XibalbaTechSol/xibalba-shield/pull/54)) documents the shadow-only
-  authority boundary on the form and shows execution mode and redaction as fixed. **Not yet done:** Cortex's
-  read-only HTML render (`decision_trace_view.py`) carries the causality disclaimer, but there is no
-  `viewer/` trace view; that is why this box stays open.
+- [x] Shield's dedicated Settings surface documents provider choice and the authority boundary;
+  Cortex's trace view documents provider status, probabilities, Merkle evidence, and the distinction
+  between declared sequence and proven causality. Shield's "Advisory Inference" tab
+  (`ui/src/components/InferenceSettings.jsx`, Shield PR #54) shows the provider controls and fixes
+  execution mode to shadow and redaction to strict. Shield PR #65 additionally rejects endpoint
+  URLs containing credentials, query parameters or fragments; backend and browser checks passed.
+  Cortex's native `DecisionTracePanel` (Cortex PR #83) shows provider status, transition
+  probabilities, Merkle evidence and the causality disclaimer.
 
 ## B3. Claude Code hooks (S)
 
@@ -1079,7 +1083,9 @@ reporting whether a daemon is actually listening — see B2):
   deploy pattern `DeployXns.s.sol` already uses (writes `.singletons.ProtocolEvidenceAnchor`; admin
   is the funder EOA directly, not a `SovereignAgent`, since this is a protocol singleton, not an
   agent-owned primitive). Verified against a real local anvil: deploys cleanly, address confirmed via
-  the script's own broadcast log (2026-10-05).
+  the script's own broadcast log (2026-10-05). On 2026-11-03, the exact script also passed an Anvil
+  dry run (chain 31337; 852,992 gas). Owner approved a Base Sepolia broadcast, but it has not been
+  sent: the current ignored local signer requires credential review and replacement before use.
 - [x] `anchor_batch_per_agent` stops writing receipt roots into agent anchors, whose `latestRoot` is the
   memory root that registration checks. `bcc_middleware/app/anchor.py`: per-agent sub-roots now anchor
   to the one configured `protocol_evidence_anchor_contract_name` address instead of each agent's own
@@ -1115,18 +1121,20 @@ reporting whether a daemon is actually listening — see B2):
 
 - [ ] `regulated` is the default with `hipaa`: no content leaves the boundary; signals are derived at the
   edge and marked self-reported.
-- [ ] The receiver strips `user.email` and other prohibited identity fields.
-- [ ] Negative tests cover:
-  - [ ] prompts, tool arguments, file contents;
-  - [ ] environment variables, stdout/stderr;
-  - [ ] URLs and query strings, filenames, repository names;
-  - [ ] exception messages and stack traces.
-- [ ] DecisionTrace/Jev negative tests cover raw prompts, completions, chain-of-thought, tool payloads,
+- [x] The receiver strips `user.email` and other prohibited identity fields (`integrity-oracle/backend/src/identity.rs`).
+- [x] Negative tests cover:
+  - [x] prompts, tool arguments, file contents;
+  - [x] environment variables, stdout/stderr;
+  - [x] URLs and query strings, filenames, repository names;
+  - [x] exception messages and stack traces.
+- [x] DecisionTrace/Jev negative tests cover raw prompts, completions, chain-of-thought, tool payloads,
   secrets and provider-returned content; only bounded redacted metadata and commitments are retained.
-  **Partial 2026-10-11 (#176):** `JevAnalysis` now accepts only a closed `risk_category` vocabulary, short identifiers for
-  `provider_id` and transition labels, and a canonical `0x` sha256 for `observed_event_hash`, so provider text cannot reach a
-  retained trace (`test_core_decision_trace.py`, 11 new tests). Still open: the telemetry receiver's field stripping and the
-  prompts/env/stdout/URL/exception negative tests above.
+  SDK negative coverage rejects prompt, completion, chain-of-thought, tool-argument and secret fields
+  (`integrity-sdk/tests/unit/test_core_decision_trace.py::test_trace_rejects_raw_content_and_causal_claims`).
+  Cortex PR #84 plants free-text canaries in provider output and confirms they do not reach the stored
+  advisory projection; hosted Python and full viewer checks passed, and the PR merged as `66d0eeb`.
+  Receiver-side identity and OTLP field removal remain covered by
+  `integrity-oracle/backend/src/otlp.rs` identity-strip tests.
 
 ## B6. Pilot packaging (M)
 
@@ -1186,7 +1194,9 @@ synthetic regulated data and Claude Code hooks.
 Each result is recorded as verified, unverified or blocked; tick an item once it has a recorded
 result. None of these invalidates Gate B-local.
 
-- [ ] Base Sepolia evidence anchor (owner-approved broadcast).
+- [ ] Base Sepolia evidence anchor. Owner approval was recorded 2026-11-03 and the Anvil dry run
+  passed; the live broadcast remains pending a rotated testnet-only signer and post-broadcast
+  address/role verification.
 - [ ] Vanta sandbox run.
 - [ ] External oracle/BCC connectivity.
 
@@ -1251,12 +1261,17 @@ and roots with no provider behind them.
 - [ ] Break-glass approvals are signed and expire.
 - [ ] `pack simulate --since 90d` runs before enforcement changes.
 - [ ] Replayed, expired, wrong-action, wrong-pack and wrong-agent approvals are rejected.
-- [ ] Jev may recommend an escalation or approval review, but it cannot create, approve, replay or
-  substitute for an Integrity approval receipt.
+- [x] Jev may recommend an escalation or approval review, but it cannot create, approve, replay or
+  substitute for an Integrity approval receipt. `JevAnalysis` exposes only bounded advisory fields
+  (`integrity-sdk/integrity_sdk/core/decision_trace.py`); Shield invokes analysis after the
+  deterministic decision (`shield/agent_core/router.py` and `tests/test_jev_shadow.py`), and Cortex
+  stores it only as a hash-bound trace projection (`xibalba-cortex/tests/test_decision_trace.py`).
 
 ## C5. Cutover (M)
 
 - [ ] Run an Anvil regenesis dry run, then broadcast a fresh Base Sepolia genesis with owner approval.
+  The 2026-11-03 approval covers only the incremental `ProtocolEvidenceAnchor`, not a fresh genesis
+  or the subsequent migration of the 15 registered agents.
 - [ ] Migrate the 15 registered agents, from both the `registerPrimitives` and `registerCore` paths,
   preserving DIDs, XNS handles and valid history. Agents without provider-backed memory are reported
   as blocked.
