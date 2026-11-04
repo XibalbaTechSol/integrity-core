@@ -23,7 +23,7 @@ INVENTORY_AUTHORITATIVE_ROOTS = {
     "ECOSYSTEM.md",
     "DATA.md",
     "docs/SPEC.md",
-    "docs/EXECUTION_PLAN.md",
+    "docs/ecosystem/INTEGRITY_ECOSYSTEM_PLAN.md",
 }
 
 
@@ -88,8 +88,8 @@ def check_authority_map(errors: list[str]) -> None:
     for pointer in pointers:
         if not (ROOT / pointer).exists():
             errors.append(f"DOCUMENT_STATUS.yaml points to missing path: {pointer}")
-    if "path: docs/EXECUTION_PLAN.md" not in text or "authority: execution" not in text:
-        errors.append("docs/EXECUTION_PLAN.md is not recorded as the execution authority")
+    if "path: docs/ecosystem/INTEGRITY_ECOSYSTEM_PLAN.md" not in text or "authority: execution" not in text:
+        errors.append("docs/ecosystem/INTEGRITY_ECOSYSTEM_PLAN.md is not recorded as the execution authority")
     if "status: historical" not in text or "path: docs/archive/2026-09/IMPLEMENTATION_PLAN.md" not in text:
         errors.append("historical implementation-plan status is not recorded")
     if text.count("authority: execution") != 1:
