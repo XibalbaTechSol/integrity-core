@@ -412,7 +412,7 @@ PR check Rule 8 requires (9 branches):* `integrity-core` `docs/jev-decisiontrace
 
 | Repo | Branch | Carries |
 |---|---|---|
-| `xibalba-shield` | `test/phase3-gate1-sdk-runtime` | Both Phase 3 Gate 1 handoffs. **Resolved: pushed 2026-11-03** to `origin/test/phase3-gate1-sdk-runtime` at `d41c4e76`, verified by `ls-remote`. Docs-only, +289 lines, no PR open yet. |
+| `xibalba-shield` | `test/phase3-gate1-sdk-runtime` | Both Phase 3 Gate 1 handoffs. **Resolved: pushed 2026-11-03** to `origin/test/phase3-gate1-sdk-runtime` at `d41c4e76`, verified by `ls-remote`, and open as draft PR #68. Docs-only, +289 lines. |
 | `xibalba-cortex` | `feat/bind-selects-agent` | Phase 2 Task 3: a redeemed code binds an agent the console can open. |
 | `xibalba-cortex` | `feat/inbound-ingest-throttling` | Binds an OTLP ingest credential to its profile on the HTTP transport. |
 
@@ -474,7 +474,7 @@ forbids creating a new roadmap for work G1–G7 already covers, so these rows li
 | A/B/C phases, Gate A, Gate B-local, Gate C | this document | Authority. |
 | Cortex G1–G7 | `xibalba-cortex/docs/PRODUCTION_READINESS_PLAN.md` §6, ledgered in `PROJECT_STATE.md` | Cortex's share of B0 and Gate B-local. G2 is the SDK-layout item below. G5 and G7 are external-pilot gates matching this plan's pilot work. |
 | Cortex Phases 0–5 and readiness levels L0–L3 | `docs/superpowers/plans/2026-11-02-cortex-production-readiness.md` | The implementation sequence for the Cortex SaaS slice of B0. |
-| Shield "Phase 2 approved / Phase 3 Gate 1–2" | **only** the Gate 1 handoff, now on `origin/test/phase3-gate1-sdk-runtime` but not on `main` | **Undefined in any repository.** No committed document on `main` defines Shield Phases 1–3. Treat the Gate 1 result as evidence; do not treat the numbering as authoritative until it is defined here or retired. |
+| Shield "Phase 2 approved / Phase 3 Gate 1–2" | **only** the Gate 1 handoff, on `origin/test/phase3-gate1-sdk-runtime` via draft PR #68; not yet on `main` | **Undefined in any repository.** Even once #68 lands, `main` will carry the Gate 1 *result* but still no definition of Shield Phases 1–3. Treat the result as evidence; do not treat the numbering as authoritative until it is defined here or retired in favour of these A/B/C gates. #68 names this as blocked follow-up. |
 
 ### Items carried into the plan
 
@@ -572,17 +572,20 @@ Merging is an owner action, and nothing in this audit was merged. Core PRs #183 
 | 2 | `integrity-core` #184 | `CLEAN`, 10/10 green | Re-verify after #183: its Jev-status content must land beside the redirect, not reinstate the superseded plan. |
 | 3 | `xibalba-cortex` #90 | `CLEAN`, 2/2 green | Check against B2a before ticking anything. |
 | 4 | `xibalba-shield` #67 | `CLEAN`, green | |
-| 5 | `xibalba-cortex` #89 | **`DIRTY`, no checks reported** | Needs conflict resolution first. |
+| 5 | `xibalba-shield` #68 | **Draft**, CI running | The Phase 3 Gate 1 evidence. Docs-only and independent of the others, so it can land whenever it is marked ready and green. |
+| 6 | `xibalba-cortex` #89 | **`DIRTY`, no checks reported** | Needs conflict resolution first. |
 
 Merging Cortex `main` auto-deploys the managed pilot, so a Cortex merge is a deploy and needs its own
 approval. Shield PR #66 and Console PR #6 are already merged.
 
 ### Next actions
 
-1. ~~Push `xibalba-shield` `test/phase3-gate1-sdk-runtime`.~~ **Done 2026-11-03**: pushed with
-   `xb-wt push` to `d41c4e76` and verified by `ls-remote`. The Gate 1 evidence is no longer single-copy.
-   What remains is to open a PR for it, since the Gate 1 result and the Shield phase numbering it
-   defines are still recorded nowhere on `main`.
+1. ~~Push `xibalba-shield` `test/phase3-gate1-sdk-runtime` and open a PR.~~ **Done 2026-11-03**: pushed
+   with `xb-wt push` to `d41c4e76`, verified by `ls-remote`, and opened as **xibalba-shield draft PR
+   #68** (2 files, +289/−0, docs-only). The Gate 1 evidence is no longer single-copy. Remaining: mark
+   #68 ready and merge it on green CI at the SHA CI ran on. `xb-wt finish` on that worktree is
+   correctly refused until then — verified, it reports the branch is not merged into `origin/main` — so
+   the worktree and its evidence stay in place meanwhile.
 2. Get the `.superpowers/sdd` evidence into git, or into a durable location this plan names, before any
    `xb-wt finish` touches the `account-registration-design` worktree.
 3. Land the merge queue in order, each at its own green head.
