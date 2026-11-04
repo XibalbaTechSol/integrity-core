@@ -572,7 +572,7 @@ Merging is an owner action, and nothing in this audit was merged. Core PRs #183 
 | 2 | `integrity-core` #184 | `CLEAN`, 10/10 green | Re-verify after #183: its Jev-status content must land beside the redirect, not reinstate the superseded plan. |
 | 3 | `xibalba-cortex` #90 | `CLEAN`, 2/2 green | Check against B2a before ticking anything. |
 | 4 | `xibalba-shield` #67 | `CLEAN`, green | |
-| 5 | `xibalba-shield` #68 | **Draft**, CI running | The Phase 3 Gate 1 evidence. Docs-only and independent of the others, so it can land whenever it is marked ready and green. |
+| 5 | `xibalba-shield` #68 | **Draft**, `CLEAN`, `root-free-tests` green | The Phase 3 Gate 1 evidence. Docs-only and independent of the others, so it can land as soon as it is marked ready. CI ran on `d41c4e76`, which is the SHA to pass to `--match-head-commit`. |
 | 6 | `xibalba-cortex` #89 | **`DIRTY`, no checks reported** | Needs conflict resolution first. |
 
 Merging Cortex `main` auto-deploys the managed pilot, so a Cortex merge is a deploy and needs its own
