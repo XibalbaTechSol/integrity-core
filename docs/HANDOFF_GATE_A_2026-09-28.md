@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-28 (superseded 2026-09-29 — see status update below)
 **Repository:** `integrity-core`
-**Authority:** [`docs/EXECUTION_PLAN.md`](EXECUTION_PLAN.md)
+**Authority:** [`docs/ecosystem/INTEGRITY_ECOSYSTEM_PLAN.md`](EXECUTION_PLAN.md)
 **Current status:** A6 complete; Gate A not passed. A full validation pass ran against all 10 open
 items this session (superseding the same-day handoff written right after A6 merged). No
 `EXECUTION_PLAN.md` checkboxes were ticked in this pass — nothing in the text below should be read
@@ -28,7 +28,7 @@ below); Shield's six sub-items were re-run fresh against `origin/main` in an iso
 grep sweep of Shield/Cortex/CLI/bcc_middleware/contracts for A1-cut modules, clean); both repos'
 CI was confirmed pinning `integrity-core` to a full SHA as a sibling checkout, green post-merge;
 the console build was re-run clean. **Gate A moved from 2/12 to 10/12** (`integrity-core#132`,
-`STATUS.md` and `docs/EXECUTION_PLAN.md` updated with the evidence), **then to 11/12**
+`STATUS.md` and `docs/ecosystem/INTEGRITY_ECOSYSTEM_PLAN.md` updated with the evidence), **then to 11/12**
 (`integrity-core#134`, this same day) once Docs was closed. **Docs (2026-09-29): closed.** Checked
 Shield's `PRODUCTION_READINESS_PLAN.md` (explicitly disclaims authority over `SPECIFICATION.md` —
 fine), Cortex's `SPECIFICATION.md` / `spec/xibalba-cortex-v1.md` (a deliberate two-tier
@@ -313,7 +313,7 @@ Cross-repo, from each repo's root: `forge test -vvv` (contracts), `cargo test --
 7. Check `gh run list --branch main` results going forward now that Cortex's CI is fixed, and run
    the Shield/Cortex independence CI check the Builds item actually asks for (a passing CI run,
    not just a local suite).
-8. Update `STATUS.md`, `docs/EXECUTION_PLAN.md`, and this handoff only after the above evidence is
+8. Update `STATUS.md`, `docs/ecosystem/INTEGRITY_ECOSYSTEM_PLAN.md`, and this handoff only after the above evidence is
    fresh — nothing in this pass ticked a checkbox. With items 1, 5, and 6 now resolved, Gate A's
    remaining open work is narrower: the CI-vs-local-suite distinction in item 7, the 18 extraneous
    legacy keys (owner choice, item 2), and re-running Cortex fresh (item 4).

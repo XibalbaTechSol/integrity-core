@@ -12,7 +12,7 @@ The detailed consequence-ordered register is preserved at
 [`docs/archive/2026-09/MAINNET_READINESS.md`](../archive/2026-09/MAINNET_READINESS.md).
 
 The normative protocol remains [`docs/SPEC.md`](../SPEC.md), and sequencing remains owned by
-[`docs/EXECUTION_PLAN.md`](../EXECUTION_PLAN.md). `STATUS.md` may summarize these boundaries
+[`docs/ecosystem/INTEGRITY_ECOSYSTEM_PLAN.md`](../ecosystem/INTEGRITY_ECOSYSTEM_PLAN.md). `STATUS.md` may summarize these boundaries
 but does not replace them.
 
 ## Current boundary
@@ -36,5 +36,5 @@ operational boundary and must be reflected in the execution plan and status summ
 - [`STATUS.md`](../../STATUS.md) — bounded current-state summary
 - [`PRODUCTION_GAPS.md`](../../PRODUCTION_GAPS.md) — detailed open gaps
 - [`docs/SPEC.md`](../SPEC.md) — normative protocol authority
-- [`docs/EXECUTION_PLAN.md`](../EXECUTION_PLAN.md) — execution authority
+- [`docs/ecosystem/INTEGRITY_ECOSYSTEM_PLAN.md`](../EXECUTION_PLAN.md) — execution authority
 - [`docs/archive/2026-09/MAINNET_READINESS.md`](../archive/2026-09/MAINNET_READINESS.md) — historical detailed register
