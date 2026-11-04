@@ -310,8 +310,8 @@ Every handoff in the four repositories, with what the audit found.
 | Handoff | Where it lives | State |
 |---|---|---|
 | `integrity-core/docs/ecosystem/HANDOFF_CLAUDE_2026-11-03.md` | PR #183 branch only; **not on `main`** | **Current.** Establishes this `docs/ecosystem/` namespace as authority. Two of its five next actions are now closed — see "Corrections" below. |
-| `xibalba-shield/docs/handoffs/2026-11-03-claude-phase3-gate1-handoff.md` | `test/phase3-gate1-sdk-runtime`, **unpushed** | **Current.** Records Phase 3 Gate 1 PASS and defines the Gate 2 objective. At risk: unpushed. |
-| `xibalba-shield/docs/handoffs/2026-11-03-phase3-gate1-result.md` | `test/phase3-gate1-sdk-runtime`, **unpushed** | **Current.** The Gate 1 evidence: Cortex 11 focused tests, Shield 16, identity canary signature verified, key material untouched. At risk: unpushed. |
+| `xibalba-shield/docs/handoffs/2026-11-03-claude-phase3-gate1-handoff.md` | `origin/test/phase3-gate1-sdk-runtime` | **Current.** Records Phase 3 Gate 1 PASS and defines the Gate 2 objective. Pushed 2026-11-03 at owner request; no longer single-copy. |
+| `xibalba-shield/docs/handoffs/2026-11-03-phase3-gate1-result.md` | `origin/test/phase3-gate1-sdk-runtime` | **Current.** The Gate 1 evidence: Cortex 11 focused tests, Shield 16, identity canary signature verified, key material untouched. Pushed 2026-11-03; no longer single-copy. |
 | `xibalba-shield/docs/handoffs/2026-11-03-shield-ui-visual-audit.md` | `origin/fix/ui-visual-redo-20261103` (no PR open) | **Current.** Console routes audited at 1600/1280/390px; 30 Playwright tests pass against mocked control-plane responses. Explicitly *not* live-backend verification. |
 | `xibalba-cortex/viewer/HANDOFF.md` | `origin/main` | **Current.** Console theme, information architecture, honesty rules, and the §9/§10 open items. Byte-identical across all 15 branch copies — no newer version is hiding on a branch. |
 | `xibalba-cortex/docs/operations/codex-handoff-runtime-plugins.md` | `origin/main` | **Stale in its continuation instruction.** It says to continue on `feat/cortex-runtime-and-plugins`; that branch **does not exist on origin**. Its content landed: the canaries document, the plugin builder, `perplexity_runtime.py` and both test modules are on `main`. Its *outstanding* items remain open — see below. |
@@ -412,7 +412,7 @@ PR check Rule 8 requires (9 branches):* `integrity-core` `docs/jev-decisiontrace
 
 | Repo | Branch | Carries |
 |---|---|---|
-| `xibalba-shield` | `test/phase3-gate1-sdk-runtime` | Both Phase 3 Gate 1 handoffs. The only record of a passing gate, on one disk. |
+| `xibalba-shield` | `test/phase3-gate1-sdk-runtime` | Both Phase 3 Gate 1 handoffs. **Resolved: pushed 2026-11-03** to `origin/test/phase3-gate1-sdk-runtime` at `d41c4e76`, verified by `ls-remote`. Docs-only, +289 lines, no PR open yet. |
 | `xibalba-cortex` | `feat/bind-selects-agent` | Phase 2 Task 3: a redeemed code binds an agent the console can open. |
 | `xibalba-cortex` | `feat/inbound-ingest-throttling` | Binds an OTLP ingest credential to its profile on the HTTP transport. |
 
@@ -474,7 +474,7 @@ forbids creating a new roadmap for work G1–G7 already covers, so these rows li
 | A/B/C phases, Gate A, Gate B-local, Gate C | this document | Authority. |
 | Cortex G1–G7 | `xibalba-cortex/docs/PRODUCTION_READINESS_PLAN.md` §6, ledgered in `PROJECT_STATE.md` | Cortex's share of B0 and Gate B-local. G2 is the SDK-layout item below. G5 and G7 are external-pilot gates matching this plan's pilot work. |
 | Cortex Phases 0–5 and readiness levels L0–L3 | `docs/superpowers/plans/2026-11-02-cortex-production-readiness.md` | The implementation sequence for the Cortex SaaS slice of B0. |
-| Shield "Phase 2 approved / Phase 3 Gate 1–2" | **only** the unpushed Gate 1 handoff | **Undefined in any repository.** No committed document defines Shield Phases 1–3. Treat the Gate 1 result as evidence; do not treat the numbering as authoritative until it is defined here or retired. |
+| Shield "Phase 2 approved / Phase 3 Gate 1–2" | **only** the Gate 1 handoff, now on `origin/test/phase3-gate1-sdk-runtime` but not on `main` | **Undefined in any repository.** No committed document on `main` defines Shield Phases 1–3. Treat the Gate 1 result as evidence; do not treat the numbering as authoritative until it is defined here or retired. |
 
 ### Items carried into the plan
 
@@ -579,8 +579,10 @@ approval. Shield PR #66 and Console PR #6 are already merged.
 
 ### Next actions
 
-1. Push `xibalba-shield` `test/phase3-gate1-sdk-runtime` with `xb-wt push`. It is the only record of a
-   passing gate and it exists on exactly one disk.
+1. ~~Push `xibalba-shield` `test/phase3-gate1-sdk-runtime`.~~ **Done 2026-11-03**: pushed with
+   `xb-wt push` to `d41c4e76` and verified by `ls-remote`. The Gate 1 evidence is no longer single-copy.
+   What remains is to open a PR for it, since the Gate 1 result and the Shield phase numbering it
+   defines are still recorded nowhere on `main`.
 2. Get the `.superpowers/sdd` evidence into git, or into a durable location this plan names, before any
    `xb-wt finish` touches the `account-registration-design` worktree.
 3. Land the merge queue in order, each at its own green head.
