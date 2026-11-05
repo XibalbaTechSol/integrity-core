@@ -1,7 +1,7 @@
 # Integrity Ecosystem Status
 
-**As of:** 2026-11-03
-**Execution authority:** [`docs/EXECUTION_PLAN.md`](docs/EXECUTION_PLAN.md)
+**As of:** 2026-11-05
+**Execution authority:** [`docs/ecosystem/INTEGRITY_ECOSYSTEM_PLAN.md`](docs/ecosystem/INTEGRITY_ECOSYSTEM_PLAN.md)
 **Normative protocol authority:** [`docs/SPEC.md`](docs/SPEC.md), as recorded in
 [`docs/DOCUMENT_STATUS.yaml`](docs/DOCUMENT_STATUS.yaml)
 
