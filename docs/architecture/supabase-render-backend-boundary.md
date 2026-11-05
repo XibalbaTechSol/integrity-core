@@ -27,6 +27,15 @@ means all SaaS state and browser-facing application data uses Supabase. It does
 not mean moving the protocol's long-running authority processes into browser
 JavaScript or pretending that Postgres is the BCC, Oracle, or chain.
 
+The ecosystem is one product family but not one authority or one process. Core,
+Shield, Cortex, and Console share identity, tenant context, deployment
+operations, and evidence correlation; they keep separate service contracts,
+data ownership, failure domains, and authority boundaries.
+
+Supabase is the common data plane. Render is the common managed runtime. This
+keeps Python services in a normal Python process model while avoiding a separate
+database, authentication stack, and ad hoc frontend backend for each product.
+
 ## Target topology
 
 ```text
@@ -95,6 +104,36 @@ Managed endpoint
 7. Protocol services are independently deployable and health-checked. A green
    UI deployment is not evidence that BCC, Oracle, chain anchoring, Shield
    control-plane, or Cortex managed APIs are live.
+8. Each environment has its own Supabase project and Render service group:
+   development, staging, and production are not mixed in one database or one
+   service namespace.
+9. The Console does not become a second backend authority. It calls product
+   APIs or bounded Supabase functions and renders their results; it does not
+   implement Shield policy, Cortex provenance, Oracle scoring, BCC acceptance,
+   or chain truth.
+
+## Supabase project and schema model
+
+Use one Supabase project per environment, with ownership-separated schemas and
+RLS policies rather than one unbounded public schema:
+
+| Schema | Owner | Examples |
+|---|---|---|
+| `identity` | shared account boundary | tenant membership, roles, product entitlements |
+| `shield` | Shield cloud control plane | devices, enrollment, commands, metrics, delivery state |
+| `cortex` | Cortex managed mode | stores, sessions, memories, provenance, retention, exports |
+| `integrity_ops` | Integrity operations | outbox metadata, audit indexes, anchor jobs, service health |
+| `console` | Console presentation | saved views, operator preferences, cross-product read-model references |
+
+The exact schema names may change during migration, but ownership must remain
+explicit. Python services use restricted database roles or server-side service
+credentials. Browser clients use the publishable key and RLS-safe operations.
+The service-role key is never a frontend build variable.
+
+Render services should expose product APIs rather than requiring the browser to
+coordinate direct writes across `shield`, `cortex`, and `integrity_ops`. A
+Supabase Edge Function is appropriate for a small, bounded transaction or
+webhook adapter; it is not the default runtime for protocol workers.
 
 ## Required Render services
 
