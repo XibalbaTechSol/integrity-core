@@ -61,3 +61,15 @@ The normative Shield boundary is defined in
 [`../../spec/xibalba-shield-v1.md`](../../spec/xibalba-shield-v1.md). Cross-package wire shapes
 inside integrity-core remain governed by
 [`../INTERFACE_CONTRACT.md`](../INTERFACE_CONTRACT.md).
+
+## Managed deployment boundary
+
+The managed deployment contract is defined in
+[`supabase-render-backend-boundary.md`](supabase-render-backend-boundary.md).
+Supabase provides shared SaaS persistence, authentication, tenant isolation,
+storage, and bounded application functions. Render hosts the independently
+health-checked UIs and the long-running Integrity Protocol services required by
+the user API, BCC, Oracle/AIS, anchoring, Cortex managed mode, and Shield's
+cloud control plane. This deployment split does not change the ownership rules
+above: local Shield enforcement, Integrity cryptographic/BCC/Oracle/chain
+authority, and Cortex local mode remain distinct authorities.
