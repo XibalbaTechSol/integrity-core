@@ -705,10 +705,10 @@ Shield PR #66 and Console PR #6 were already merged before this audit.
 5. ~~Repoint the one authority pointer that is still stale.~~ **Done 2026-11-05**: `integrity-core/STATUS.md` line 4 repointed to `docs/ecosystem/INTEGRITY_ECOSYSTEM_PLAN.md`. Cortex PR #89 merged.
 6. Decide keep-or-abandon on the conflicting branches and sweep branches that add nothing with `xb-wt prune`.
 7. Reconcile the Cortex checkpoint-memory contract with agent identity: decide which identity owns session checkpoints.
-8. **Ecosystem Supabase & Render cutover execution (2026-11-05)**:
-   - `integrity-userapi`: Phase 0–2 PASS; deployed to Render (`integrity-userapi-test` `dep-dbmeo9rm8hqs73f8jgs0`). Next: retrieve/reset project DB password for `ftspunijfgcbkuybobhf` from Supabase dashboard, verify backup from `integrity-userapi-db` (expiring 2026-12-04), update `DATABASE_URL` to Supabase pooler DSN, and verify read/write paths.
+8. ~~**Ecosystem Supabase & Render cutover execution (2026-11-05)**:~~ **Completed 2026-11-05 (Phases 0–6 PASS):**
+   - `integrity-userapi`: Phase 0–6 PASS. State layer fully cut over to Supabase Postgres 17 project `ftspunijfgcbkuybobhf` via pooler with `statement_cache_size=0`. Render database `integrity-userapi-db` (`dpg-dbld7sqjnfac73flo1p0-a`, expiring 2026-12-04) permanently deleted via Render API; 30-day expiration liability eliminated. Backups verified and stored off-platform at `/home/xibalba/backups/`. Live service `integrity-userapi-test` (`srv-dbldb9gu01pc739t33b0`) healthy; write operations verified post-deletion.
    - `integrity-console`: Deployed live on Render (`integrity-console-test` `dep-dbmeobjm8hqs73f8jnrg`).
-   - `xibalba-cortex`: Code deployed on Render (`cortex-managed-pilot` `dep-dbmelbpdj70s73bvc470`). Set Render service environment variables in Render dashboard (`CORTEX_MANAGED_STORAGE_BACKEND=supabase`, `CORTEX_MANAGED_IDENTITY_BACKEND=supabase_auth`, `CORTEX_MANAGED_DATABASE_URL=<supabase IPv4 pooler DSN>`) to complete the Auth and managed control cutover off local SQLite fallback. GraphStore data-plane migration follows PR #108 design.
+   - `xibalba-cortex`: Cutover completed on Render (`cortex-managed-pilot` `dep-dbmgoie417fc739ohme0`). Environment configured with `CORTEX_MANAGED_STORAGE_BACKEND=supabase`, `CORTEX_MANAGED_IDENTITY_BACKEND=supabase_auth`, and `CORTEX_MANAGED_DATABASE_URL`. Live `/readyz` probe confirms `managed_control: supabase`, `authentication: supabase_auth`, and `managed_database: {ready: true}`. GraphStore data-plane migration follows PR #108 design.
    - `xibalba-shield`: Retains offline deterministic sensor authority; cloud control plane persists to Supabase on a paid tier.
 
 # Phase A: achieve architectural and documentation simplicity
