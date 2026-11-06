@@ -29,8 +29,12 @@ the **unmodified** files minus that one line, after installing the shim function
 Verified 2026-11-06 against a Supabase-image Postgres 17 without Timescale: all 23 checksums
 identical to the local database, identical table set, 3 retention jobs scheduled.
 
-Not verified: the Oracle binary running against the shimmed schema (needs the image, see
-"Boot test"), and `time_bucket` equivalence on week-sized buckets against real Timescale.
+Boot test passed 2026-11-06: the image built from `Dockerfile.render` started against the shimmed
+schema (migrations skipped, Redis + chain client connected, `/healthz` 200 and `/v1/leaderboard`
+200 on `$PORT`). Note the Oracle exits if port 4317 is already taken, so never run two on one host.
+
+Not verified: `time_bucket` equivalence on week-sized buckets against real Timescale, and the
+volume endpoints that call it.
 
 ## Steps (each needs your explicit go; none are run by this branch)
 
