@@ -13,6 +13,9 @@ those modules' docstrings for why they differ).
 from __future__ import annotations
 
 import logging
+import os
+import threading
+import time
 from functools import lru_cache
 
 import httpx
@@ -71,39 +74,80 @@ def resolve_agent_primitives(oracle_url: str, agent_id: str) -> dict:
     return primitives
 
 
+# --- verification-tier cache --------------------------------------------------
+# resolve_verification_tier runs on EVERY commitment, before OPA. Calling the oracle
+# synchronously each time put a WAN hop (and any oracle cold start) on the tool-call
+# path, and a 5 s timeout silently turned into tier 0. So:
+#   * a value younger than _TIER_FRESH_TTL is served with no oracle call;
+#   * on a TRANSIENT failure (timeout, connection error, 5xx) the last-known-good value is
+#     served, but only while it is younger than _TIER_MAX_STALE -- a revoked/lowered tier
+#     must not outlive that bound;
+#   * an authoritative 4xx (agent unknown/gone) evicts the entry and answers tier 0 --
+#     stale data is never used to contradict the oracle when it IS reachable and says no;
+#   * no usable value -> tier 0, exactly as before.
+_TIER_FRESH_TTL = float(os.getenv("BCC_TIER_CACHE_TTL_SECONDS", "60"))
+_TIER_MAX_STALE = float(os.getenv("BCC_TIER_MAX_STALE_SECONDS", "3600"))
+_clock = time.monotonic
+_tier_cache: dict[tuple[str, str], tuple[int, float]] = {}
+_tier_lock = threading.Lock()
+
+
+def clear_tier_cache() -> None:
+    with _tier_lock:
+        _tier_cache.clear()
+
+
 def resolve_verification_tier(agent_id: str, *, oracle_url: str) -> int:
     """
-    Resolve an agent's server-verified `verification_tier` (see
-    `integrity-oracle/backend/src/handlers.rs`'s `SERVER_VERIFIED_TIER` — the oracle
-    computes this itself at registration; it is never client-asserted) from the
-    oracle's `GET /v1/agent/{id}`, for `bcc.rego`'s `min_tier_by_intent_type` gate.
+    Resolve an agent's server-verified `verification_tier` (the oracle computes it at
+    registration; it is never client-asserted) from `GET /v1/agent/{id}`, for
+    `bcc.rego`'s `min_tier_by_intent_type` gate.
 
-    Deliberately NOT `resolve_agent_primitives` (also a `GET /v1/agent/{id}` call):
-    that function's `@lru_cache` treats its result as immutable forever, which is
-    correct for primitive addresses (they can't change post-registration) but would
-    be wrong here — `verification_tier` is agent-mutable state (today it's always 1
-    since no Tier 2/3 verification path exists yet, but this function must not bake
-    in "tier never changes" as an assumption once that path is built). No caching.
+    Not `resolve_agent_primitives` (which caches forever): tier is mutable state, so
+    values expire after `_TIER_FRESH_TTL`, and the last-known-good fallback is bounded by
+    `_TIER_MAX_STALE`. See the cache notes above for the exact failure semantics.
 
-    Fails to tier 0 (the lowest/most-restrictive tier) rather than raising, on any
-    lookup failure — deliberately different from `agent_id_to_address`'s hard-fail
-    behavior. Tier-gated `intent_type`s correctly deny on an unresolvable tier (fail
-    closed for what actually needs it), but this must not take down every other,
-    non-tier-gated commitment on a transient oracle hiccup — see `main.py`, which
-    calls this unconditionally on every commitment before OPA evaluation, not just
-    the subset that ends up being tier-gated.
+    Never raises. Falls to tier 0 (lowest/most-restrictive) when nothing usable is
+    available: tier-gated intent_types then deny, while non-tier-gated commitments are
+    not taken down by a transient oracle hiccup (main.py calls this unconditionally).
     """
+    key = (oracle_url.rstrip("/"), agent_id)
+    now = _clock()
+    with _tier_lock:
+        cached = _tier_cache.get(key)
+    if cached is not None and now - cached[1] < _TIER_FRESH_TTL:
+        return cached[0]
+
     try:
-        resp = httpx.get(f"{oracle_url.rstrip('/')}/v1/agent/{agent_id}", timeout=5.0)
+        resp = httpx.get(f"{key[0]}/v1/agent/{agent_id}", timeout=5.0)
         resp.raise_for_status()
-        data = resp.json()
-        tier = data.get("verification_tier")
-        if not isinstance(tier, int):
-            raise ValueError(f"verification_tier missing or not an int in oracle response: {data!r}")
-        return tier
+        tier = resp.json().get("verification_tier")
+        if not isinstance(tier, int) or isinstance(tier, bool):
+            raise ValueError(f"verification_tier missing or not an int in oracle response: {tier!r}")
+    except httpx.HTTPStatusError as exc:
+        if 400 <= exc.response.status_code < 500:
+            with _tier_lock:
+                _tier_cache.pop(key, None)
+            logger.warning("oracle says agent %s has no tier (HTTP %s); tier 0", agent_id, exc.response.status_code)
+            return 0
+        return _stale_or_zero(key, agent_id, now, cached, exc)
     except (httpx.HTTPError, ValueError) as exc:
-        logger.warning("could not resolve verification_tier for agent %s from oracle %s, defaulting to tier 0: %s", agent_id, oracle_url, exc)
-        return 0
+        return _stale_or_zero(key, agent_id, now, cached, exc)
+
+    with _tier_lock:
+        _tier_cache[key] = (tier, now)
+    return tier
+
+
+def _stale_or_zero(key, agent_id, now, cached, exc) -> int:
+    if cached is not None and now - cached[1] <= _TIER_MAX_STALE:
+        logger.warning(
+            "oracle unavailable resolving tier for %s (%s); serving last-known-good tier %s (%.0fs old)",
+            agent_id, exc, cached[0], now - cached[1],
+        )
+        return cached[0]
+    logger.warning("could not resolve verification_tier for agent %s from oracle %s, defaulting to tier 0: %s", agent_id, key[0], exc)
+    return 0
 
 
 def agent_id_to_address(agent_id: str, *, oracle_url: str) -> str:
