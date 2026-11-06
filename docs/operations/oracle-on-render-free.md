@@ -67,3 +67,16 @@ docker run --rm -e PORT=9090 -e DATABASE_URL=... -e REDIS_URL=... -e RPC_URL=htt
   -e ORACLE_API_KEY=test -p 9090:9090 oracle-render-test
 curl -fsS localhost:9090/healthz
 ```
+
+## Cutover log
+
+- 2026-11-06: Oracle live at https://integrity-oracle.onrender.com (service `srv-dbmpcn8m7kps73c0jfp0`,
+  Key Value `red-dbmpcms9v7es73adj630`). Data snapshot copied (agents, telemetry_events, merkle_roots,
+  identity tables); `audit_log` (~1M rows, 837 MB) deliberately NOT copied (free-tier 500 MB cap);
+  leaderboard/markets caches rebuild from chain. Snapshot lagged local by ~50 telemetry events.
+- 2026-11-06: Console userapi (`integrity-userapi-test`) repointed: `ORACLE_URL` +
+  `ORACLE_TIMEOUT_SECONDS=45` (cold start). Rollback: delete those two env vars and redeploy.
+  Shield, BCC and the SDK still use the local Oracle; before moving them, stop the local Oracle and
+  copy telemetry rows with `nonce > <Render last_nonce>` so nonce order does not gap.
+- Verified in situ: `/v1/agent/<id>`, `/ais`, `/telemetry`, `/telemetry/volume` (exercises the
+  `time_bucket` shim) all 200 on the Render Oracle.
