@@ -1,0 +1,43 @@
+# Integrity Oracle on Render's free plan, backed by Supabase Postgres.
+#
+# Deliberately NOT named render.yaml and not at the repo root: nothing is created until you
+# point a Render Blueprint at this path (Dashboard -> New -> Blueprint -> Blueprint Path).
+# Runbook and rollback: docs/operations/oracle-on-render-free.md
+services:
+  - type: web
+    name: integrity-oracle
+    runtime: docker
+    plan: free
+    region: oregon            # closest to the Supabase project (us-west-1)
+    dockerfilePath: ./integrity-oracle/Dockerfile.render
+    dockerContext: .
+    healthCheckPath: /healthz
+    autoDeploy: false         # promote deliberately; the Oracle is protocol authority
+    envVars:
+      - key: DATABASE_URL     # Supabase SESSION pooler (port 5432), role oracle_app. Set in the dashboard.
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: integrity-oracle-kv
+          property: connectionString
+      - key: RPC_URL
+        value: https://sepolia.base.org
+      - key: CHAIN_ID
+        value: "84532"
+      - key: DEPLOYMENTS_FILE
+        value: /deployments.baseSepolia.json
+      - key: ORACLE_API_KEY   # shared secret for internal endpoints; set in the dashboard.
+        sync: false
+      - key: TELEMETRY_RATE_LIMIT_PER_MINUTE
+        value: "600"
+      - key: PHI_BACKSTOP_MODE
+        value: flag
+      - key: AGENT_DIRECTORY_FINALIZED
+        value: "false"
+keyValues:
+  - name: integrity-oracle-kv
+    plan: free
+    region: oregon
+    maxmemoryPolicy: allkeys-lru   # only a rate-limit counter lives here; eviction is harmless
+    ipAllowList: []                # private network only

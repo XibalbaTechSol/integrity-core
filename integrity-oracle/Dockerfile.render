@@ -1,0 +1,29 @@
+# Render build of the Oracle. Build context is the REPOSITORY ROOT (not ./integrity-oracle):
+# the service reads ../deployments.baseSepolia.json, which sits outside the Oracle directory.
+# Local/compose builds keep using integrity-oracle/Dockerfile unchanged.
+
+# ── BUILD STAGE ─────────────────────────────────────────────────────────────
+FROM rustlang/rust:nightly-bookworm AS builder
+RUN apt-get update && apt-get install -y pkg-config libssl-dev git && rm -rf /var/lib/apt/lists/*
+WORKDIR /usr/src/integrity
+COPY integrity-oracle/Cargo.toml integrity-oracle/Cargo.lock ./
+COPY integrity-oracle/scoring-core/ scoring-core/
+COPY integrity-oracle/backend/ backend/
+RUN cargo build --release --bin oracle-backend
+
+# ── RUNTIME STAGE ───────────────────────────────────────────────────────────
+FROM debian:bookworm-slim
+ARG SOURCE_HASH=unknown
+LABEL source.hash=$SOURCE_HASH
+RUN apt-get update && apt-get install -y ca-certificates libssl3 curl && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY --from=builder /usr/src/integrity/target/release/oracle-backend /app/oracle-backend
+# Baked in so the service does not depend on a bind mount (Render has none).
+COPY deployments.baseSepolia.json /deployments.baseSepolia.json
+
+# Render routes public traffic to $PORT only. The OTLP/gRPC listener (4317) is not reachable
+# from outside Render; SDK clients must use the HTTP telemetry endpoints.
+ENV DEPLOYMENTS_FILE=/deployments.baseSepolia.json \
+    CHAIN_ID=84532
+EXPOSE 8080
+ENTRYPOINT ["/bin/sh", "-c", "BIND_ADDR=0.0.0.0:${PORT:-8080} exec /app/oracle-backend"]
