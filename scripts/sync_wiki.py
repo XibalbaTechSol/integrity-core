@@ -71,10 +71,14 @@ def build_source_map() -> dict[str, str]:
 
 def rewrite_links(content: str, current_docs_relpath: str, basename_registry: set[str]) -> str:
     """Rewrites every relative markdown link in `content` (a file originally
-    at `current_docs_relpath`, relative to docs/) to a flat sibling
-    reference. Links that don't resolve to a known wiki-mirrored file
-    (e.g. an intentional escape to a main-repo path outside docs/) are left
-    untouched -- callers handle those few cases explicitly (see below)."""
+    at `current_docs_relpath`, relative to docs/) to:
+      1. A flat wiki slug (without .md) if it references a wiki-mirrored file.
+         GitHub Wiki's Gollum engine requires links without the .md extension;
+         links with .md trigger a 302 redirect to raw.githubusercontent.com.
+      2. An absolute GitHub main branch URL if it references a real repository
+         file outside the wiki mirror (e.g. docs/SPEC.md, ECOSYSTEM.md).
+      3. Untouched if external or an unresolved reference.
+    """
     current_dir = os.path.dirname(current_docs_relpath)
 
     def repl(m: re.Match) -> str:
@@ -86,9 +90,25 @@ def rewrite_links(content: str, current_docs_relpath: str, basename_registry: se
             return m.group(0)
         resolved = os.path.normpath(os.path.join(current_dir, path_part)).replace(os.sep, "/")
         basename = os.path.basename(resolved)
-        if basename in basename_registry:
-            new_link = basename + (("#" + frag) if frag else "")
+
+        # 1. Wiki-mirrored target -> flat slug without .md
+        if basename in basename_registry or basename == "Home.md":
+            if basename in ("index.md", "Home.md"):
+                slug = "Home"
+            else:
+                slug = basename.removesuffix(".md") if basename.endswith(".md") else basename
+            new_link = slug + (("#" + frag) if frag else "")
             return f"[{text}]({new_link})"
+
+        # 2. Main-repo target outside wiki mirror -> absolute GitHub URL
+        resolved_repo_path = os.path.normpath(os.path.join(REPO_ROOT, "docs", current_dir, path_part))
+        if os.path.isfile(resolved_repo_path):
+            rel_to_repo = os.path.relpath(resolved_repo_path, REPO_ROOT).replace(os.sep, "/")
+            github_url = f"https://github.com/XibalbaTechSol/integrity-core/blob/main/{rel_to_repo}"
+            if frag:
+                github_url += f"#{frag}"
+            return f"[{text}]({github_url})"
+
         return m.group(0)
 
     return re.sub(r"(?<!!)\[([^\]]+)\]\(([^)]+)\)", repl, content)
@@ -148,7 +168,7 @@ def main() -> None:
     content = rewrite_links(content, "wiki/index.md", basename_registry)
     content = content.replace(
         "[entities/](entities/)",
-        "[the Entities section of WIKI_INDEX](WIKI_INDEX.md#entities-built)",
+        "[the Entities section of WIKI_INDEX](WIKI_INDEX#entities-built)",
     )
     with open(os.path.join(dst, "Home.md"), "w", encoding="utf-8") as f:
         f.write(content)
@@ -157,7 +177,7 @@ def main() -> None:
 
     # GitHub-specific chrome is generated from the same canonical page set.
     # It is deliberately not preserved from the destination wiki checkout.
-    sidebar = ["## Master contents", "", "[Home](Home.md)", ""]
+    sidebar = ["## Master contents", "", "[Home](Home)", ""]
     category_labels = {
         "concepts": "Concepts",
         "entities": "Entities",
@@ -169,7 +189,7 @@ def main() -> None:
         if not pages:
             continue
         sidebar.extend((f"### {category_labels[category]}", ""))
-        sidebar.extend(f"- [{title}]({fname})" for title, fname in pages)
+        sidebar.extend(f"- [{title}]({fname.removesuffix('.md')})" for title, fname in pages)
         sidebar.append("")
     with open(os.path.join(dst, "_Sidebar.md"), "w", encoding="utf-8") as f:
         f.write("\n".join(sidebar) + "\n")
