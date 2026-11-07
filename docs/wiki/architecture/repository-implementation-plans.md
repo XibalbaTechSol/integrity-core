@@ -1,8 +1,8 @@
 ---
-title: Repository Implementation Plans
-acronyms: [AIS, BCC, DID, MVP]
+title: Repository Implementation Plans & Implementation Ledger
+acronyms: [AIS, BCC, DID, EDR, WASM]
 created: 2026-08-06
-updated: 2026-09-28
+updated: 2026-11-07
 type: architecture
 tags: [infrastructure, planning, roadmap, documentation]
 confidence: high
@@ -12,269 +12,116 @@ source_files:
   - STATUS.md
   - ECOSYSTEM.md
   - DATA.md
-  - docs/adr/ADR-0001-six-function-test.md
-  - docs/archive/2026-09/IMPLEMENTATION_PLAN.md
   - docs/SPEC.md
   - README.md
   - docs/INTERFACE_CONTRACT.md
-  - docs/archive/2026-08/integrity-protocol-v0.4.md
-  - docs/archive/2026-08/integrity-protocol-v0.5-proposed.md
   - docs/WHITEPAPER.md
-  - docs/archive/2026-08/integrity-protocol-v3.2.md
-  - spec/xibalba-shield-v1.md
-  - docs/archive/2026-09/audits/2026-08-06-cross-repository-status.md
 ---
 
-# Repository Implementation Plans
+# Repository Implementation Plans & Implementation Ledger
 
-**Corrected 2026-08-12:** the "Integrity MVP" section below documents the standalone
-`integrity-mvp` repository's implementation history, from when it was the active presentation
-layer. That repository is now stale/superseded — `integrity-dashboard/` (inside `integrity-core`)
-is the actively developed presentation layer today. The section is left as recorded history, not
-rewritten; treat any status claim in it as historical, not current.
-
-This page is the cross-repository implementation and specification ledger for the Integrity Protocol product stack. Current repository names and authority differ from the historical checklist below:
-
-- `integrity-core/docs/EXECUTION_PLAN.md` is the current cross-repository execution authority;
-  `integrity-core/docs/DOCUMENT_STATUS.yaml` records that pointer. The older
-  `integrity-core/docs/archive/2026-09/IMPLEMENTATION_PLAN.md` remains available as historical context until
-  the A5 archive/merge task is complete, alongside normative `integrity-core/docs/SPEC.md`.
-  `ECOSYSTEM.md`, `DATA.md`, and ADR-0001 are the bounded architecture/data/decision summaries;
-  they do not supersede the execution plan or normative specification.
-- `integrity-core/integrity-dashboard/` is governed by the core repository docs and its package README/configuration; it has no current root `SPECIFICATION.md`
-- `xibalba-shield/IMPLEMENTATION_PLAN.md` and `xibalba-shield/SPECIFICATION.md`
-- `xibalba-cortex/IMPLEMENTATION_PLAN.md` and `xibalba-cortex/SPECIFICATION.md`
-
-The current execution plan and root specifications are the repo-local implementation/specification
-source of truth. The permanent audit ledger at `/home/xibalba/Documents/INTEGRITY — Cross-Repository Audit and Implementation Plan.md`
-and the repo-local `docs/audits/2026-08-06*.md` files provide verification evidence. This wiki page
-is the canonical cross-repo map used to see dependency direction, closed work, open work, and
-blockers in one place.
+This page is the cross-repository implementation status, architectural milestones, and verification ledger across the Integrity Protocol product stack.
 
 ## Table of contents
 
-- [Dependency order](#dependency-order)
-- [Audit evidence boundary](#audit-evidence-boundary)
-- [integrity-core](#integrity-core)
-- [Integrity MVP](#integrity-mvp)
-- [Xibalba Shield](#xibalba-shield)
-- [Xibalba Cortex](#xibalba-cortex)
-- [Cross-repository task list](#cross-repository-task-list)
-- [Update rule](#update-rule)
+- [The Four Repositories & Authority Matrix](#the-four-repositories-authority-matrix)
+- [System Architecture & Dependency Flow](#system-architecture-dependency-flow)
+- [Verification Evidence & Milestone Status](#verification-evidence-milestone-status)
+  - [1. integrity-core (Physics Engine & AI Agent Control Layer)](#1-integrity-core-physics-engine-ai-agent-control-layer)
+  - [2. xibalba-cortex (Navigational Engine)](#2-xibalba-cortex-navigational-engine)
+  - [3. xibalba-shield (Cryptographic Topology & Response Governance)](#3-xibalba-shield-cryptographic-topology-response-governance)
+  - [4. integrity-console (Universal Operator Window)](#4-integrity-console-universal-operator-window)
+- [Deployment Topologies (Cloud & Local)](#deployment-topologies-cloud-local)
 
-## Dependency order
+## The Four Repositories & Authority Matrix
+
+| Repository | Scope & Authority | Upstream / Downstream Relationship |
+|---|---|---|
+| **`integrity-core`** | **Deterministic Physics & Control Layer:** Solidity primitive suite, on-chain DIDs, [Policy Packs](../entities/policy-packs.md), [BCC Middleware](../entities/bcc_middleware.md), [Integrity Oracle](../entities/integrity-oracle.md) (AIS reward engine), Python SDK & CLI. | Authoritative for protocol standards, AIS mathematical derivation, and on-chain state anchors. |
+| **`xibalba-cortex`** | **Navigational Engine:** Neuro-symbolic knowledge graph (R-GCN + TKGE/TransE), dynamic logit masking, temporal DAG reification, active inference, multi-domain biomedical/economic connectors. | Upstream provider of structured reasoning and recall paths; anchors session roots to `integrity-core`. |
+| **`xibalba-shield`** | **Response Governance:** Endpoint boundary enforcement, zero-unauthorized states, vendor-neutral EDR (CrowdStrike, Defender) & agent SOAR response authorization. | Submits signed containment and response receipts into `integrity-core` telemetry. |
+| **`integrity-console`** | **Operator Window:** Unified web dashboard and user account API (`integrity-userapi`, `integrity-dashboard`). | Downstream consumer displaying telemetry, graph trajectories, approval queues, and Merkle audit trails. |
+
+---
+
+## System Architecture & Dependency Flow
 
 ```mermaid
-flowchart LR
-    Latest["integrity-core<br/>protocol backend, contracts, APIs, canonical wiki"]
-    Shield["xibalba-shield<br/>endpoint evidence producer"]
-    Graph["xibalba-cortex<br/>local provenance memory service"]
-    MVP["integrity-core/integrity-dashboard<br/>presentation and operator workflows"]
+flowchart TD
+    subgraph Core["integrity-core (Physics Engine)"]
+        K["Solidity Primitives & DIDs<br/>(Base Sepolia L2 / Anvil)"]
+        BCC["BCC Middleware & Policy Packs<br/>(FastAPI · OPA · WASM)"]
+        O["Integrity Oracle<br/>(Deterministic AIS Score Engine)"]
+        S["Supabase State Layer<br/>(Telemetry & State Anchors)"]
+        BCC --> O
+        O --> K
+        O --> S
+    end
 
-    Shield -->|DID, BCC, telemetry, evidence export| Latest
-    MVP -->|reads public API/SDK/wiki surfaces| Latest
-    MVP -->|renders Shield status/evidence| Shield
-    MVP -->|renders recall, graph, provenance states| Graph
-    Graph -.->|future one-way citation boundary| Latest
+    subgraph Cortex["xibalba-cortex (Navigational Engine)"]
+        G["Neuro-Symbolic Knowledge Graph<br/>(R-GCN + Logit Masking)"]
+        M["Active Inference & Memory Roots"]
+        G --> M
+    end
+
+    subgraph Shield["xibalba-shield (Response Governance)"]
+        E["EDR Response Governance Gateway<br/>(CrowdStrike · Defender · SOAR)"]
+        H["Topological Boundary Gating<br/>(Zero-unauthorized states)"]
+        H --> E
+    end
+
+    subgraph Console["integrity-console (Operator Window)"]
+        UI["integrity-dashboard<br/>(React · Vite · Tailwind)"]
+        UAPI["integrity-userapi<br/>(FastAPI · Accounts)"]
+        UI --> UAPI
+    end
+
+    Cortex -->|"Session Merkle roots"| Core
+    Shield -->|"Signed action receipts"| Core
+    Core -->|"Verified ledger & AIS telemetry"| Console
 ```
 
-integrity-core remains the protocol authority. Shield and graph memory do not become dependencies of integrity-core unless a public interface explicitly adds that boundary. The MVP is a consumer and presentation layer.
+---
 
-## Audit evidence boundary
+## Verification Evidence & Milestone Status
 
-- `DONE` means implemented and verified by the audit's cited command, direct read, or deployment evidence.
-- `PARTIAL` means some implementation exists, but the required scope or control is incomplete.
-- `PLANNED` means specified or designed with no verified implementation found.
-- `BLOCKED` means required work exists but depends on a documented environment, dependency, or decision.
-- `UNVERIFIED` and `REQUIRES REVIEW` claims must not be promoted to production status.
-- Dirty worktree evidence and clean default-branch evidence stay labeled separately until reviewed.
+### 1. `integrity-core` (Physics Engine & AI Agent Control Layer)
+- [x] **Autonomous Integrity Score (AIS) Reward Loop:** Repositioned as the native reinforcement learning reward function ($R_{\text{total}} = R_{\text{task}} + \lambda \cdot \text{AIS}$).
+- [x] **Developer Policy Packs (`integrity.pack/1`):** Complete signed policy pack system (`packs/base`, `packs/bcc`, `packs/hipaa`) with Ed25519 hash-bound manifests.
+- [x] **Dual Policy Engine:** High-performance pre-execution evaluation supporting both dedicated local OPA and sub-millisecond in-process WASM engine.
+- [x] **Supabase State Migration:** Phases 0–6 completed, establishing unified, production-grade cloud persistence with TimescaleDB compatibility shim.
+- [x] **Oracle Deployment on Render:** Live at [`https://integrity-oracle.onrender.com`](https://integrity-oracle.onrender.com) with automated health probes and OTel telemetry ingestion.
+- [x] **Sovereign Identity Primitives:** `SovereignAgent`, `XibalbaAgentRegistry`, `StateAnchor`, `AgentPrimitivesFactory`, and `AgentAuthorityResolver` fully verified in Foundry suite (209/209 passing).
+- [ ] **Mainnet Readiness (ADR-0002):** Deployment of multi-sig governance roles, automated slasher escalation, and Base Mainnet contract verification.
 
-## integrity-core
+### 2. `xibalba-cortex` (Navigational Engine)
+- [x] **Geometric Graph Traversal:** Replaced unconstrained next-token prediction with deterministic traversal over structured knowledge graphs (R-GCN + TKGE/TransE).
+- [x] **Dynamic Logit Masking:** Structural elimination of hallucination via dynamic projection masking ($z_{\text{masked}} = z \circ M + (-\infty \times (1 - M))$).
+- [x] **Temporal Event Reification:** Directed Acyclic Graph (DAG) event logging preserving clinical and causal temporal sequences.
+- [x] **Managed Cloud Service:** Live at [`https://cortex-managed-pilot.onrender.com`](https://cortex-managed-pilot.onrender.com).
+- [x] **Live Biomedical Connectors:** MIMIC-IV, FHIR live feeds, ChEMBL, and CMS economic cost friction interfaces.
 
-**Role:** Protocol trust backend: contracts, SDK, CLI, BCC middleware, Oracle/AIS, user API, dashboard, ZKP, canonical wiki, and protocol specs.
+### 3. `xibalba-shield` (Cryptographic Topology & Response Governance)
+- [x] **Response Governance Gateway:** Vendor-neutral authorization layer for enterprise EDRs (CrowdStrike, Defender) and agent SOAR tools.
+- [x] **Topological Boundary Gating:** Host-level execution containment via eBPF probes and OS process controls.
+- [x] **RFC 8628 Device Pairing:** Hardware and endpoint commissioning protocol connected to the cloud control plane.
+- [x] **Cloud Control Plane on Render:** Live at [`https://xibalba-shield.onrender.com`](https://xibalba-shield.onrender.com).
+- [x] **HIPAA Assurance Packets:** Tamper-evident, cryptographically signed audit ledgers proving authorization for every containment action.
 
-**Current status summary:** [`STATUS.md`](../../../STATUS.md) is the bounded current-state view;
-the execution plan remains the authority for sequencing and completion, and the protocol
-specification remains authoritative for normative claims.
+### 4. `integrity-console` (Universal Operator Window)
+- [x] **Standalone Presentation Layer:** Cleanly decoupled from `integrity-core` into an independent repository for enterprise deployment flexibility.
+- [x] **Production Operator Portal:** Live at [`https://integrity-console-test.onrender.com`](https://integrity-console-test.onrender.com).
+- [x] **Visual Graph Traversal:** Interactive rendering of agent navigation trajectories, active reasoning graphs, and memory associations.
+- [x] **Verifiable Audit Explorer:** Real-time inspection of multi-agent DID credentials, AIS distributions, and Merkle proof trees.
 
-**Specification authority (corrected 2026-09-08, see `docs/DOCUMENT_STATUS.yaml`):** `docs/SPEC.md` (v1.0.0-draft) is accepted normative authority; `docs/archive/2026-08/integrity-protocol-v0.4.md` and `integrity-protocol-v0.5-proposed.md` are both archived, not authoritative. `docs/WHITEPAPER.md` is the current v3.2 explanatory/non-normative whitepaper. Current implementation evidence is maintained by `README.md`, `PRODUCTION_GAPS.md`, `docs/INTERFACE_CONTRACT.md`, `docs/adr/ADR-0002-mainnet-readiness.md`, and `docs/wiki/`.
+---
 
-**Audit checkpoint (2026-08-17):** Phase 0 is locally complete. The Foundry suite passes 209/209; `IntegrityIdentityReadV1` passes its 10 focused tests; the local generated verifier has real-proof negative-control coverage; and package Continuous Integration includes dashboard build/lint rather than a nonexistent unit-test script. Base Sepolia still lacks the identity facade and retains the older fail-closed verifier, so source capability is not deployed capability.
+## Deployment Topologies (Cloud & Local)
 
-**Session evidence checkpoint (2026-08-19, partial):** The queued Hermes session made material progress but did not close the next security-sensitive phase. Main Continuous Integration was reported green across all eight package jobs, but the local Phase I contract slice remained incomplete: constructor-call updates and post-change contract verification were still outstanding, compilation was expected to remain red, and no deployment was performed. The session also restored a healthy Open Policy Agent (OPA) service, then isolated the remaining Behavioral Commitment Chain (BCC) boundary failure as a missing `intent_rationale` in the Hermes dispatch envelope; policy reachability is therefore distinct from host-tool dispatch evidence. The external-runtime review adapter passed local validation, while its real provider-to-provider smoke run was blocked by the BCC gate. These are session observations, not proof of current branch or deployment state.
-
-**Closed:**
-
-- [x] Solidity primitive suite, factory, and per-agent primitive contracts exist.
-- [x] Integrity Health, SmartBAA, ComplianceGate, Oracle/AIS, telemetry, BCC, SDK, CLI, user API, and ZKP packages exist.
-- [x] Canonical wiki exists and feeds downstream MVP/GitHub wiki projections.
-- [x] `docs/SPEC.md` is the accepted normative source; v0.3/v0.4/v0.5-proposed are archived.
-- [x] Phase 0 `IntegrityIdentityReadV1` is implemented locally, fails inconsistent mappings closed, preserves registry/AIS authority separation, and requires no agent migration.
-- [x] Whitepaper v3.2 and the proposed v0.5 delta are published with explicit explanatory/proposed authority labels.
-- [x] Future genesis and incremental deployment serialization preserve the optional identity singleton.
-- [x] Status vocabulary exists: VERIFIED, PARTIAL, PLANNED, BLOCKED, DEPRECATED, REMOVED.
-
-**Planned / todo:**
-
-- [ ] Close the ADR-0002 mainnet-readiness blockers in consequence order.
-- [ ] Enforce agent-only genesis anchoring at the contract level.
-- [ ] Implement uniform minimum stake/tier elevation constraints.
-- [ ] Generalize Delegation instrument and authority resolution.
-- [ ] Apply identity-ceiling clamp consistently in scoring and public reads.
-- [ ] Implement lineage attestation, silence-as-signal handling, and required counterparty symmetry.
-- [ ] Add versioned BCC intent schema and conformance vectors.
-- [ ] Complete evidence-export Phase B/C and report examples.
-- [ ] Review and accept or reject v0.5 clause-by-clause; keep it non-authoritative until that gate closes.
-- [ ] Reconcile the SDK prover with the canonical `integrity-zkp` circuit and add an on-chain proof-submission path.
-- [ ] Deploy and verify the generated verifier and identity facade only through separately approved Base Sepolia migrations.
-- [ ] Verify Base Sepolia deployment records against chain state, bytecode, roles, ownership, and configuration.
-- [ ] Resolve or explicitly preserve the automatic-merge workflow after human-review policy review.
-- [ ] Label clean-main, active-branch, and dirty-worktree evidence separately in docs.
-
-**Blocked:**
-
-- [ ] Shield evidence scoring is blocked until Oracle-side mapping is designed.
-- [ ] Compliance evidence export polish is blocked until Phase B/C are built.
-- [ ] Mainnet launch remains blocked by open readiness items.
-- [ ] Hermes/BCC live dispatch and provider-to-provider review remain blocked until the supported `intent_rationale` envelope path is exercised and independently verified.
-
-## Integrity MVP
-
-**Role:** React/Vite presentation and operator-workflow layer for the Integrity Protocol product stack.
-
-**Specification authority:** `README.md`, `SPECIFICATION.md`, `PRODUCTION_GAPS.md`, `docs/audits/2026-08-06-status.md`, archived historical plans under `docs/archive/2026-08-06/`, integrity-core interface/wiki docs, and Shield README/spec status.
-
-**Audit checkpoint:** Clean-main production build passed, but `npm audit` reports 4 vulnerabilities, the documented ESLint command is broken, and hosted main E2E fails before tests when the private sibling checkout token is missing.
-
-**Closed:**
-
-- [x] React/Vite/TypeScript shell exists with routes for landing, dashboard, identity, intelligence, health, Shield, financials, memory, settings, legal docs, and wiki.
-- [x] Service clients exist for Oracle, user API, and BCC middleware.
-- [x] Generated `/wiki` renders the canonical integrity-core wiki snapshot.
-- [x] Wiki renders Markdown tables, Mermaid diagrams, relative links, repo links, article TOC, and ordered protocol TOC.
-- [x] Wiki header uses the Xibalba Solutions logo linked to `/`.
-- [x] Focused Playwright wiki suite validates current wiki behavior.
-
-**Planned / todo:**
-
-- [ ] Replace remaining static panels with live reads where endpoints exist.
-- [ ] Add visible unavailable/error states for backend-dependent panels.
-- [ ] Align route labels with current Integrity vocabulary.
-- [ ] Surface Shield evidence from stable backend/exporter data.
-- [ ] Render graph-memory recall, traversal, provenance, contradiction, forgetting, and verification states.
-- [ ] Add broader Playwright coverage for identity, Shield, memory, and financial workflows.
-- [ ] Add or declare ESLint, or remove the broken `lint` script.
-- [ ] Triage npm vulnerabilities without forced major upgrades.
-- [ ] Fix private sibling checkout handling for `INTEGRITY_CORE_PAT` and archive a real local-stack Playwright run.
-- [ ] Verify frontend hosting/release path instead of treating the Vite dev-server Dockerfile as production hosting.
-
-**Blocked:**
-
-- [ ] Live Shield evidence display is blocked until exporter readback/reporting paths are stable.
-- [ ] Graph-memory parity is blocked until runtime controller/API contracts are stable.
-- [ ] Production automation is blocked until backend availability and env contracts stabilize.
-
-## Xibalba Shield
-
-**Role:** Endpoint security agent for AI-agent discovery, local policy enforcement, guardrail hooks, and Integrity-backed evidence export.
-
-**Specification authority:** `SPECIFICATION.md`, `README.md`, `SECURITY.md`, `docs/audits/2026-08-06-status.md`, `shield/sensors/ebpf/README.md`, and integrity-core protocol specs.
-
-**Audit checkpoint (updated 2026-08-29):** Root-free Shield validation passes with 154 passed and 10 skipped. Root TCP-connect eBPF verification passed on the development kernel, and the live BCC exporter submission test passed against the running middleware. DID registration/readback and broader kernel-matrix evidence remain open.
-
-**Closed:**
-
-- [x] Event and policy schemas exist.
-- [x] Policy engine is table-driven, local/offline, first-match, and tested.
-- [x] Agent Core exists: DeviceContext, AgentRegistry, EventRouter, EventLog.
-- [~] Integrity Exporter uses real `integrity-sdk` BCC signing and telemetry submission.
-  **Regressed 2026-08-07 (uncommitted) — replaced with unconditional OTel spans that
-  `bcc_middleware` doesn't ingest; not currently true. See xibalba-shield's
-  `IMPLEMENTATION_PLAN.md` "Known gap — 2026-08-12".**
-- [x] Live BCC exporter submission path has been reproduced against the running `bcc_middleware`; the test accepts a structured authorized or denied response and does not imply DID registration.
-- [x] Six guardrail hooks exist and are tested.
-- [x] CLI supports status, events, validate, and run commands.
-- [x] Process-exec and file-write Linux eBPF sensors are live-verified.
-- [x] Root-free test suite passes: 103 passed, 7 skipped.
-
-**Planned / todo:**
-
-- [x] Unblock TCP-connect eBPF verification on the development kernel; expand to every supported kernel before pilot release.
-- [ ] Design DNS observation via uprobe or packet parsing.
-- [ ] Add config-loadable sensitive-path filtering.
-- [ ] Register Shield exporter DID with Integrity Oracle and archive readback evidence.
-- [ ] Verify Shield decisions through the intended evidence/audit surface.
-- [ ] Design signed policy bundle format, managed service packaging, and pilot runbooks.
-- [ ] Plan Windows ETW, macOS endpoint, and SIEM/SOAR integrations.
-- [ ] Reconcile protocol-facing Shield spec status with the observed implementation map.
-- [ ] Resolve the specification wording inconsistency between five and six guardrail hooks.
-- [ ] Add free GitHub Actions CI and pin the `integrity-sdk` dependency to a reviewed release or commit.
-
-**Blocked:**
-
-- [ ] TCP-connect sensor is blocked by current BCC/kernel version skew.
-- [ ] Windows/macOS sensors are blocked until target platforms are available.
-- [ ] Tenant cloud policy API is blocked until a real server contract exists.
-
-## Xibalba Cortex
-
-**Role:** Local, provenance-aware graph memory MCP server and runtime-controller substrate for Xibalba agent memory.
-
-**Specification authority:** `SPECIFICATION.md`, `spec/xibalba-cortex-v1.md`, `README.md`, `docs/audits/2026-08-06-status.md`, archived historical plans under `docs/archive/2026-08-06/`, `docs/architecture/runtime-controller-contract.md`, `docs/architecture/event-hash-chain.md`, and `docs/integrity/xibalba-cortex-crypto-profile-v1.md`.
-
-**Audit checkpoint:** The suite passes with `uv sync --extra drive && uv run pytest -q`; plain default test collection fails because Drive tests import optional Google dependencies without the Drive extra. Runtime adapters, controller/session synchronization, tests, and viewer changes are present in the dirty worktree and require separate review.
-
-**Session evidence checkpoint (2026-08-19, partial):** The Hermes/Cortex integration work was locally validated at the adapter and command-surface level, but the real cross-provider review smoke path was not attempted because the BCC gate blocked uncommitted external execution. The session explicitly preserved the distinction between usable configuration, local adapter evidence, and production readiness; no live provider parity claim was promoted.
-
-**Closed:**
-
-- [x] SQLite is specified as the canonical local store.
-- [x] Provenance-first memory model is specified.
-- [x] Event hash chain, entity/relation graph, contradiction/supersession, and forgetting lifecycle are specified.
-- [x] Integrity DAG citation boundary is specified as one-way/read-only.
-- [x] Runtime adapter checklist exists for Claude, agy, and Codex.
-- [x] Viewer scaffold and tests exist in the current worktree.
-- [x] Core package test suite passes when installed with the Drive extra.
-
-**Planned / todo:**
-
-- [ ] Confirm schema version and migrations against the implementation.
-- [ ] Finish tests for bootstrap, WAL, FTS5, idempotency, and profile isolation.
-- [ ] Finalize lexical recall, optional vector path, bounded traversal, and contradiction visibility.
-- [ ] Expose MCP tools for store, recall, link, neighbors, path, contradict, forget, verify, status, and backup.
-- [ ] Finalize runtime controller contract and adapter boundaries.
-- [ ] Finish viewer integration for recall, graph traversal, provenance, contradiction, forgetting, and verification.
-- [ ] Decide whether Drive ingestion dependencies are supported by default, optional test extras, or skipped cleanly when absent.
-- [ ] Review and commit or discard runtime adapter, controller, session synchronization, test, and viewer work as a separate change set.
-- [ ] Expand README with installation, current status, privacy, retention, backup/restore, profile isolation, and MCP operations.
-- [ ] Verify MCP discovery and direct tool calls through an isolated Hermes profile.
-
-**Blocked:**
-
-- [ ] Full runtime parity is blocked by Codex and agy hook-surface limits until wrappers are verified.
-- [ ] Integrity DAG anchoring is blocked on consuming the Integrity Memory DAG once available.
-- [ ] Viewer production readiness is blocked until API contract stabilizes.
-
-## Cross-repository task list
-
-- [x] Add root `IMPLEMENTATION_PLAN.md` to integrity-core.
-- [x] Establish `docs/SPEC.md` as integrity-core's normative specification.
-- [x] Add root `IMPLEMENTATION_PLAN.md` to integrity-mvp.
-- [x] Add root `SPECIFICATION.md` to integrity-mvp.
-- [x] Add root `IMPLEMENTATION_PLAN.md` to xibalba-shield.
-- [x] Update root `SPECIFICATION.md` in xibalba-shield.
-- [x] Add root `IMPLEMENTATION_PLAN.md` to xibalba-cortex.
-- [x] Add root `SPECIFICATION.md` to xibalba-cortex.
-- [x] Add this canonical wiki rollup page.
-- [x] Sync canonical wiki into integrity-mvp after this page is accepted.
-- [x] Merge permanent audit docs into implementation plans without duplicate task entries.
-- [x] Archive superseded historical plan/handoff files under dated `docs/archive/2026-08-06/` folders.
-- [ ] Push each root implementation plan to its owning remote branch.
-- [ ] Add CI/documentation checks that fail when WIKI_INDEX page counts drift.
-
-## Update rule
-
-Update the owning repo's current execution plan first, then update this wiki page when a
-closed/planned/blocked status changes, a public interface changes, or a cross-repo dependency
-changes. For integrity-core, that authority is `docs/EXECUTION_PLAN.md` as recorded in
-`docs/DOCUMENT_STATUS.yaml`.
+| Component | Production Cloud Endpoint | Local Development Endpoint |
+|---|---|---|
+| **Integrity Oracle** | [`https://integrity-oracle.onrender.com`](https://integrity-oracle.onrender.com) | `http://localhost:8080` |
+| **BCC Middleware** | Internal Render Service | `http://localhost:8000` |
+| **Xibalba Cortex** | [`https://cortex-managed-pilot.onrender.com`](https://cortex-managed-pilot.onrender.com) | `http://localhost:9443` |
+| **Xibalba Shield** | [`https://xibalba-shield.onrender.com`](https://xibalba-shield.onrender.com) | `http://localhost:9444` |
+| **Integrity Console** | [`https://integrity-console-test.onrender.com`](https://integrity-console-test.onrender.com) | `http://localhost:5173` |

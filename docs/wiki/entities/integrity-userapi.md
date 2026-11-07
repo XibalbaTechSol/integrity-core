@@ -1,25 +1,13 @@
 ---
-title: integrity-userapi
+title: integrity-userapi (Console User API)
 created: 2026-07-09
-updated: 2026-09-15
+updated: 2026-11-07
 type: entity
-tags: [infrastructure, identity]
+tags: [infrastructure, identity, console, render]
 confidence: high
 source_files:
-  - integrity-userapi/app/main.py
-  - integrity-userapi/app/db.py
-  - integrity-userapi/app/deps.py
-  - integrity-userapi/app/security.py
-  - integrity-userapi/app/login_limiter.py
-  - integrity-userapi/app/oracle_client.py
-  - integrity-userapi/app/schemas.py
-  - integrity-userapi/app/config.py
-  - integrity-userapi/migrations/0001_init.sql
-  - integrity-userapi/migrations/0002_jwt_revocation.sql
-  - integrity-userapi/migrations/0003_user_wallets.sql
-  - integrity-userapi/tests/conftest.py
-  - integrity-dashboard/demo/src/integrity_demo/userapi_bridge.py
   - docker-compose.yml
+  - docs/INTERFACE_CONTRACT.md
 ---
 
 FastAPI + Postgres service owning **user-facing account data only** —
@@ -27,10 +15,12 @@ accounts, developer API keys, which agent DIDs a human user has claimed as
 theirs, and demo-run request history. It is the strictly non-chain half of
 the backend split (see [Interface Contract](../../INTERFACE_CONTRACT.md)
 §6.10, §13): it never imports `web3`/`alloy`-equivalent tooling and never
-reads a `deployments.*.json` file. `app/oracle_client.py` is the *only*
-place this package talks to another service — a plain `httpx` HTTP client
-fanning out to [integrity-oracle](integrity-oracle.md), never a direct
-chain RPC.
+reads a `deployments.*.json` file.
+
+**Repository Decoupling Notice (2026):**
+`integrity-userapi` is now maintained in the dedicated [`integrity-console`](https://github.com/XibalbaTechSol/integrity-console) repository alongside `integrity-dashboard`.
+
+Deployed on Render as part of the Console operator window at [`https://integrity-console-test.onrender.com`](https://integrity-console-test.onrender.com).
 
 ## Table of contents
 

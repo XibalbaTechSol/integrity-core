@@ -1,9 +1,9 @@
 ---
 title: contracts
 created: 2026-07-07
-updated: 2026-11-03
+updated: 2026-11-07
 type: entity
-tags: [layer-2, identity, tokenomics, compliance]
+tags: [layer-2, identity, tokenomics, compliance, control-layer]
 confidence: high
 source_files:
   - contracts/src/framework/AgentPrimitivesFactory.sol
@@ -13,25 +13,21 @@ source_files:
   - contracts/src/framework/AgentAuthorityResolver.sol
   - contracts/src/kernel/IntegrityIdentityReadV1.sol
   - contracts/src/kernel/IntegrityKernel.sol
-  - contracts/src/registry/AdapterRegistry.sol
   - contracts/src/framework/XibalbaNameService.sol
   - contracts/src/core/SovereignAgent.sol
   - contracts/src/oracle/ReputationRegistry.sol
-  - contracts/src/oracle/CCIPReputationBridge.sol
-  - contracts/src/oracle/IntegrityGovernance.sol
   - contracts/src/health/ComplianceGate.sol
-  - contracts/src/markets/IntegrityMarket.sol
+  - contracts/src/health/SmartBAAFactory.sol
+  - contracts/src/health/SmartBAA.sol
   - contracts/script/Deploy.s.sol
-  - contracts/script/DeployMarkets.s.sol
   - contracts/script/DeployEHRGate.s.sol
 ---
 
-The Solidity/Foundry package (solc 0.8.28): the on-chain heart of the protocol.
+The Solidity/Foundry package (solc 0.8.28): the on-chain substrate of the AI Agent Control Layer.
 It implements the [7 agent primitives](../concepts/agent-primitives.md), the
-factory that deploys them, the shared registries, the `$ITK` token, the
-[Integrity Health](../concepts/compliance-gate.md) HIPAA stack, the
-[market/application layer](../concepts/integrity-market.md), and the
-[ZK verifier](../concepts/zkp.md).
+factory that clones them, the shared registries, the `$ITK` token, the
+[Integrity Health](../concepts/compliance-gate.md) HIPAA vertical, and the
+on-chain reputation settlement contracts on Base L2.
 
 ## Table of contents
 

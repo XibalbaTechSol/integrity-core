@@ -1,9 +1,9 @@
 ---
 title: bcc_middleware
 created: 2026-07-07
-updated: 2026-11-03
+updated: 2026-11-07
 type: entity
-tags: [infrastructure, compliance, cryptography, metrics]
+tags: [infrastructure, compliance, cryptography, metrics, policy-packs, control-layer]
 confidence: high
 source_files:
   - bcc_middleware/app/main.py
@@ -31,13 +31,13 @@ source_files:
   - bcc_middleware/tests/test_policy_engine_switch.py
 ---
 
-The pre-execution policy gate (FastAPI + OPA). An agent signs a
-[BCC commitment](../concepts/bcc.md) to what it's about to do and POSTs it to
-`POST /v1/bcc/intercept`; this service decides allow/deny before the agent acts.
+The pre-execution policy enforcement gateway (FastAPI + OPA / WASM). An autonomous agent signs a
+[BCC commitment](../concepts/bcc.md) to what it is about to execute and POSTs it to
+`POST /v1/bcc/intercept`; this service evaluates the intent against active developer
+[Policy Packs](policy-packs.md) in sub-millisecond latency, producing signed decision receipts.
 It also runs a second, independent responsibility: a periodic background loop
-that pushes each agent's oracle-computed [AIS](../concepts/ais.md) on-chain and
-raises slashing disputes (see "Reconciled this cycle" below) — the only place
-in the monorepo that closes that loop.
+that pushes each agent's oracle-computed [AIS](../concepts/ais.md) on-chain to Base L2 and
+raises slashing disputes when behavioral commitments are broken.
 
 ## Table of contents
 

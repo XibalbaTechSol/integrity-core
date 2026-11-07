@@ -1,15 +1,14 @@
 ---
 title: integrity-zkp
 created: 2026-07-07
-updated: 2026-09-08
+updated: 2026-11-07
 type: entity
-tags: [cryptography]
+tags: [cryptography, zkp]
 confidence: high
 source_files:
-  - integrity-zkp/circuit/src/main.nr
-  - integrity-zkp/README.md
-  - integrity-zkp/Makefile
-  - contracts/src/oracle/UltraPlonkVerifier.sol
+  - contracts/src/oracle/IZkVerifier.sol
+  - contracts/src/oracle/RejectAllZkVerifier.sol
+  - contracts/src/oracle/VerifierRegistry.sol
 ---
 
 ## Table of contents

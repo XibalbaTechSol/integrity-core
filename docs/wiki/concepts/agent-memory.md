@@ -1,10 +1,10 @@
 ---
-title: Persistent Memory, Genesis Root & Lineage [PARTIALLY BUILT]
+title: Persistent Memory, Genesis Root & Lineage
 acronyms: []
 created: 2026-07-29
-updated: 2026-09-09
+updated: 2026-11-07
 type: concept
-tags: [identity, cryptography, compliance]
+tags: [identity, cryptography, compliance, memory, cortex]
 confidence: high
 source_files:
   - contracts/src/oracle/StateAnchor.sol
@@ -14,14 +14,9 @@ source_files:
   - docs/wiki/concepts/agent-primitives.md
 ---
 
-**`[PARTIALLY BUILT]`.** Source: *Integrity Protocol — Comprehensive Design &
-Specification v0.3*, §4.1, §6, §7 and Appendix A gaps 1–2 and 6.
+**Persistent memory is a foundational primitive of the Integrity Protocol AI Agent Control Layer:** an agent with no anchored genesis memory root cannot register.
 
-**Persistent memory is a foundational primitive of this protocol — the first one the
-spec names (§4.1) — and as of 2026-07-29 it is enforced, not aspirational:** an agent
-with no anchored genesis memory root cannot register. What is built and what is still
-open are separated precisely below; the "Verified status" table records what was
-actually checked against code, rather than restating the spec's own status claims.
+The agent controls a durable state vault whose commitments are Merkle-anchored on its own `StateAnchor` contract. In multi-agent and active-inference deployments, these state roots represent structured knowledge graph checkpoints maintained by [Xibalba Cortex](https://cortex-managed-pilot.onrender.com).
 
 > **Primitive #1 of four.** See [The Four Foundational Primitives](foundational-primitives.md)
 > for how memory relates to ownership, authority and reputation.

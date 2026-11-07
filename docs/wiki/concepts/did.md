@@ -2,13 +2,14 @@
 title: Decentralized Identifier (DID)
 acronyms: [DID]
 created: 2026-07-07
-updated: 2026-09-15
+updated: 2026-11-07
 type: concept
-tags: [identity, cryptography]
+tags: [identity, cryptography, did, control-layer]
 confidence: high
 source_files:
   - docs/INTERFACE_CONTRACT.md
   - integrity-cli/integrity_cli/identity.py
+  - integrity-sdk/integrity_sdk/did.py
 ---
 
 ## Table of contents

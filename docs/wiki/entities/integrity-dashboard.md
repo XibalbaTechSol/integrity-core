@@ -1,53 +1,22 @@
 ---
-title: integrity-dashboard
+title: integrity-dashboard (Integrity Console)
 created: 2026-07-07
-updated: 2026-09-15
+updated: 2026-11-07
 type: entity
-tags: [infrastructure, sdk]
+tags: [infrastructure, console, presentation, render]
 confidence: high
 source_files:
-  - integrity-dashboard/src/App.tsx
-  - integrity-dashboard/src/Dashboard.tsx
-  - integrity-dashboard/src/pages/AuthPage.tsx
-  - integrity-dashboard/src/pages/SettingsPage.tsx
-  - integrity-dashboard/src/pages/IdentityPage.tsx
-  - integrity-dashboard/src/pages/IntelligencePage.tsx
-  - integrity-dashboard/src/pages/HealthPage.tsx
-  - integrity-dashboard/src/pages/ShieldPage.tsx
-  - integrity-dashboard/src/components/shield/ShieldFleetOverview.tsx
-  - integrity-dashboard/src/services/shieldBackend.ts
-  - integrity-dashboard/src/pages/FinancialsPage.tsx
-  - integrity-dashboard/src/components/cortex/CortexOperationsTab.tsx
-  - integrity-dashboard/src/pages/DeveloperPage.tsx
-  - integrity-dashboard/src/pages/WikiPage.tsx
-  - integrity-dashboard/src/context/DashboardContext.tsx
-  - integrity-dashboard/src/context/SettingsContext.tsx
-  - integrity-dashboard/src/services/oracle.ts
-  - integrity-dashboard/src/services/userapi.ts
-  - integrity-dashboard/src/services/graphMemory.ts
-  - integrity-dashboard/src/types/graphMemory.ts
-  - integrity-dashboard/src/components/ui/DIDExplorer.tsx
-  - integrity-dashboard/src/components/tabs/ActuarialHub.tsx
-  - integrity-dashboard/src/components/observability/TraceAnalysisPanel.tsx
-  - integrity-dashboard/playwright.config.ts
-  - integrity-dashboard/e2e
-  - integrity-dashboard/demo/src/integrity_demo/seed_audit.py
-  - integrity-dashboard/demo/tests/test_seed_audit_chain_scope.py
-  - integrity-dashboard/Dockerfile
-  - integrity-dashboard/.dockerignore
-  - integrity-userapi/app/config.py
   - docker-compose.yml
+  - docs/ecosystem/ECOSYSTEM.md
+  - README.md
 ---
 
-**This page was rewritten on 2026-08-13.** The prior content described an
-older, structurally different dashboard (`AgentListPage`, `MarketsPage`,
-`WalletPage`, `wagmi`/`viem`, a Notion-style `react-grid-layout` widget
-dashboard) that no longer exists on disk — it predates the 2026-08-12
-"Reconcile integrity-dashboard with integrity-mvp's current state" commit,
-which replaced the tracked snapshot with `integrity-mvp`'s current,
-independently-developed state. None of the file paths the old version of
-this page cited exist anymore. Per this wiki's "no aspirational content"
-rule, the old content is replaced rather than patched.
+The web presentation and operator console for the Integrity Protocol ecosystem (React 18, Vite, TypeScript, TailwindCSS). It visualizes agent identity credentials, real-time [AIS](../concepts/ais.md) score distributions, [Xibalba Cortex](https://cortex-managed-pilot.onrender.com) graph navigation trajectories, and [Xibalba Shield](https://xibalba-shield.onrender.com) response governance queues.
+
+**Repository Decoupling Notice (2026):**
+`integrity-dashboard` has been extracted from `integrity-core` into the dedicated [`integrity-console`](https://github.com/XibalbaTechSol/integrity-console) repository to serve as the unified Universal Verifiable Operator Window.
+
+Hosted in production on Render at [`https://integrity-console-test.onrender.com`](https://integrity-console-test.onrender.com).
 
 ## Table of contents
 

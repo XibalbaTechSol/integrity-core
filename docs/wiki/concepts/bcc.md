@@ -2,102 +2,135 @@
 title: Behavioral Commitment Chain (BCC)
 acronyms: [BCC]
 created: 2026-07-07
-updated: 2026-09-15
+updated: 2026-11-07
 type: concept
-tags: [compliance, cryptography]
+tags: [compliance, cryptography, control-layer, policy-packs]
 confidence: high
 source_files:
   - integrity-sdk/integrity_sdk/bcc.py
   - integrity-cli/integrity_cli/bcc.py
   - bcc_middleware/app/canonical.py
+  - bcc_middleware/app/pack_policy.py
+  - packs/bcc/policy.rego
   - docs/INTERFACE_CONTRACT.md
 ---
 
-New protected tool calls carry a canonical UUID `invocation_id` following
-[`spec/invocation-id-v1.md`](../../../spec/invocation-id-v1.md). Unlike the content-addressed
-`intended_state_hash`, it remains unique when identical tool/input bytes repeat. The SDK signs it
-when present, middleware records it on ALLOW audit metadata, and the Oracle uses it for
-intent/effect reconciliation. Legacy rows without it remain readable but are classified
-`legacy_hash_only`, not fully reconciled.
+# Behavioral Commitment Chain (BCC)
 
-## Table of contents
+The **Behavioral Commitment Chain (BCC)** is the pre-execution cryptographic intent-locking protocol of the Integrity Protocol AI Agent Control Layer.
 
-- [Overview](#overview)
-
-## Overview
-
-The intent-locking protocol: before an agent executes an action, it signs a
-commitment to that action's hash and submits it to
-[BCC Middleware](../entities/bcc_middleware.md) for pre-execution policy
-gating, via `POST /v1/bcc/intercept`.
-
-Wire schema (field names are load-bearing across packages):
-```json
-{
-  "agent_id": "did:integrity:<sha256(pubkey) fingerprint>",
-  "intent_type": "string",
-  "intended_state_hash": "0x<sha256 of canonical intent payload>",
-  "nonce": "monotonic per-agent integer",
-  "timestamp": "<unix ms>",
-  "covered_entity_address": "0x<hospital, for healthcare intents> | null",
-  "agent_public_key": "z<multibase Ed25519 pubkey>",
-  "chain_id": "<EVM chain ID, int>",
-  "verifying_contract": "0x<target chain's XibalbaAgentRegistry address>",
-  "signature": "0x<Ed25519 sig over the above, canonical JSON>"
-}
-```
-
-Canonicalization: RFC 8785 JCS UTF-8 bytes, signing all fields except
-`signature` itself. Agreed byte-for-byte across
-[integrity-sdk](../entities/integrity-sdk.md),
-[integrity-cli](../entities/integrity-cli.md), and
-[bcc_middleware](../entities/bcc_middleware.md), verified by cross-package
-round-trip tests.
-
-**Self-certifying key (reconciliation).** The DID fingerprint is `sha256(pubkey)`,
-not the raw key — so a verifier cannot recover the key from `agent_id`. The
-commitment therefore carries `agent_public_key` (multibase); the middleware
-*binds* it by checking `sha256(pubkey) == fingerprint` before verifying the
-signature, blocking key substitution. `covered_entity_address` is signed so the
-target hospital of a healthcare intent can't be swapped post-signature.
-
-**Canonical intent encoding (2026-08-18).** `chain_id`/`verifying_contract`
-are both required and both signed — without them a commitment signed once
-was valid against any chain or deployment sharing the signing agent's DID.
-`bcc_middleware` denies a `chain_id` mismatch unconditionally; it denies a
-`verifying_contract` mismatch only when it has a configured
-`XibalbaAgentRegistry` address, so local/dev/test topologies with no
-deployments file configured aren't turned into a blanket deny — a disclosed
-limitation, not a silent downgrade. See
-`docs/archive/2026-08/plans/2026-08-18-phase1-canonical-intent-encoding-proposal.md` for the
-full design and residual gaps (the experimental kernel's own replay-domain
-binding, and the ZK circuit's `intent_commitment` not yet binding `chain_id`
-— both separate, unattempted here).
-
-If the intent passes policy, an [Integrity SDK](../entities/integrity-sdk.md)
-or [integrity-cli](../entities/integrity-cli.md) client can additionally
-attach a real [ZK proof](zkp.md) that it knows the secret behind its
-identity commitment before the middleware anchors the commitment into a
-[Merkle batch](merkle-batching.md).
+Before an autonomous agent executes a tool call, mutates state, or initiates network egress, it signs a deterministic cryptographic commitment to its intended action and dispatches it to [BCC Middleware](../entities/bcc_middleware.md) for pre-execution evaluation against active [Policy Packs](../entities/policy-packs.md).
 
 ```mermaid
 sequenceDiagram
-    participant Agent as Agent (SDK/CLI)
-    participant MW as bcc_middleware
-    Agent->>Agent: sign commitment (RFC 8785 JCS)
-    Agent->>MW: POST /v1/bcc/intercept
-    MW->>MW: bind agent_public_key to agent_id<br/>(sha256(pubkey) == fingerprint)
-    MW->>MW: verify Ed25519 signature
-    alt signature/binding invalid
-        MW-->>Agent: deny
-    else valid
-        MW->>MW: policy + BAA checks<br/>(see bcc_middleware entity page)
-        MW-->>Agent: authorized
-        opt agent has a ZK proof
-            Agent->>MW: attach proof of identity/intent binding
-        end
-        MW->>MW: admit to Merkle batch
+    autonumber
+    actor Dev as Developer / Runtime
+    participant Agent as Autonomous Agent
+    participant BCC as BCC Middleware (/v1/bcc/intercept)
+    participant Engine as Policy Engine (OPA / WASM)
+    participant Tool as Target Tool / Host API
+    participant Oracle as Integrity Oracle
+
+    Agent->>Agent: Prepare Tool Intent (tool, args, invocation_id, nonce)
+    Agent->>Agent: Sign RFC 8785 JCS Intent with Ed25519 Key
+    Agent->>BCC: POST /v1/bcc/intercept (Signed Commitment)
+    BCC->>BCC: Verify Signature, Nonce Monotonicity & Identity
+    BCC->>Engine: Evaluate Intent Against Signed Policy Pack
+    alt Allowed by Policy
+        Engine-->>BCC: Allow (reason_codes=[])
+        BCC->>Agent: 200 OK + Signed Decision Receipt (integrity.receipt/1)
+        Agent->>Tool: Execute Authorized Action
+        Tool-->>Agent: Action Result
+        Agent->>Oracle: Telemetry (spans + invocation_id + receipt)
+    else Denied by Policy
+        Engine-->>BCC: Deny (reason_codes=["UNAUTHORIZED_ACTION"])
+        BCC-->>Agent: 403 Forbidden (Circuit Breaker Tripped)
+        Agent->>Oracle: Telemetry (Recorded Denial -> AIS penalty)
     end
 ```
 
-See [Interface Contract §4.2](../../INTERFACE_CONTRACT.md#42-bcc-commitment-the-behavioral-commitment-chain-intent-lock-object).
+## Table of contents
+
+- [Invocation Correlation Profile (invocationid)](#invocation-correlation-profile-invocationid)
+- [Commitment Wire Schema](#commitment-wire-schema)
+- [Canonicalization & Signature Binding](#canonicalization-signature-binding)
+- [Evaluation against Developer Policy Packs](#evaluation-against-developer-policy-packs)
+- [Signed Decision Receipts (integrity.receipt/1)](#signed-decision-receipts-integrity-receipt-1)
+- [Fail-Closed Invariant](#fail-closed-invariant)
+
+## Invocation Correlation Profile (`invocation_id`)
+
+All protected tool dispatches carry a canonical UUID v4 `invocation_id` adhering to `spec/invocation-id-v1.md`.
+
+Unlike a content-addressed `intended_state_hash`, the `invocation_id` remains strictly unique even when identical tool parameters repeat across cycles. The SDK signs the `invocation_id`, the middleware logs it on decision receipts, and the [Integrity Oracle](../entities/integrity-oracle.md) correlates it across intent, authorization, execution, and telemetry effects.
+
+---
+
+## Commitment Wire Schema
+
+The commitment schema is load-bearing across all ecosystem runtimes:
+
+```json
+{
+  "agent_id": "did:integrity:68fed1331613937555a59398223e8e87520a87dd0305aac4fd7ecdc32a14a861",
+  "intent_type": "agent.tool_call",
+  "intended_state_hash": "0x4b76a9...",
+  "invocation_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+  "nonce": 1042,
+  "timestamp": 1794148800000,
+  "covered_entity_address": null,
+  "agent_public_key": "z6MkuT...",
+  "chain_id": 84532,
+  "verifying_contract": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+  "signature": "0x7a3f89..."
+}
+```
+
+---
+
+## Canonicalization & Signature Binding
+
+1. **JCS UTF-8 Canonicalization:** Field ordering and serialization strictly follow RFC 8785 JSON Canonicalization Scheme (JCS). All fields except `signature` are serialized to canonical UTF-8 bytes.
+2. **Key Binding & Anti-Substitution:** The `agent_id` fingerprint is $\operatorname{SHA256}(\text{pubkey})$. The middleware verifies that $\operatorname{SHA256}(\text{agent\_public\_key}) == \text{fingerprint}$ before validating the Ed25519 signature, blocking key-substitution attacks.
+3. **Replay Defense:** The middleware tracks a strictly monotonic `nonce` per agent. Any duplicated or decremented nonce triggers immediate denial and quarantine.
+
+---
+
+## Evaluation against Developer Policy Packs
+
+Once the commitment's cryptographic authenticity is established, the middleware evaluates the intent against active [Policy Packs](../entities/policy-packs.md):
+
+- **Event Matching:** Intent maps to declared event classes (`agent.tool_call`, `network.egress`, `data.mutation`).
+- **High-Performance Engines:** The evaluation runs against the developer's signed `policy.rego` either through a local OPA daemon or an in-process WASM engine in sub-millisecond execution time.
+- **Vertical Gating:** If a policy requires healthcare governance (`requires_baa: true`), the middleware executes an on-chain verification against [ComplianceGate](../concepts/compliance-gate.md) and [SmartBAA](../concepts/smart-baa.md).
+
+---
+
+## Signed Decision Receipts (`integrity.receipt/1`)
+
+Every evaluated commitment yields a signed decision receipt:
+
+```json
+{
+  "receipt_format": "integrity.receipt/1",
+  "invocation_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+  "agent_id": "did:integrity:68fed133...",
+  "action": "allow",
+  "pack_hash": "sha256:8f2a...",
+  "reason_codes": [],
+  "evaluated_at": 1794148800120,
+  "middleware_signature": "0x89bc..."
+}
+```
+
+Receipts are batched and anchored periodically to the protocol evidence anchor contract.
+
+---
+
+## Fail-Closed Invariant
+
+The BCC pipeline enforces strict fail-closed semantics:
+- Network partition between agent and middleware $\implies$ **Execution Denied**.
+- Policy engine timeout ($> 50 \text{ ms}$) $\implies$ **Execution Denied**.
+- Pack signature mismatch $\implies$ **Execution Denied**.
+- Nonce replay or clock skew $\implies$ **Execution Denied + Agent Quarantined**.

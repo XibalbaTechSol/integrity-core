@@ -1,171 +1,104 @@
 ---
-title: The Four Foundational Primitives
+title: The Four Foundational Primitives of the Control Layer
 created: 2026-07-30
-updated: 2026-09-08
+updated: 2026-11-07
 type: concept
-tags: [identity, metrics, compliance]
+tags: [identity, metrics, compliance, primitives, control-layer]
 confidence: high
 source_files:
-  - docs/archive/2026-08/primitive-set-coherence.md
-  - docs/archive/2026-08/three-foundational-primitives.md
-  - docs/archive/2026-08/thesis-extensions-formal.md
   - contracts/src/oracle/StateAnchor.sol
   - contracts/src/oracle/ReputationRegistry.sol
   - contracts/src/health/SmartBAA.sol
+  - contracts/src/core/SovereignAgent.sol
+  - contracts/src/framework/AgentAuthorityResolver.sol
 ---
 
-> **Naming, before anything else.** This repo uses the word *primitive* in three unrelated
-> senses, and conflating them is the main source of confusion:
->
-> - **Foundational primitives** (this page) — the four **concepts** the protocol rests on.
-> - **Agent primitives** ([`agent-primitives.md`](agent-primitives.md)) — the seven
->   **contracts** each agent owns (`PrimitiveSet`, `AgentPrimitivesFactory`).
-> - **Kernel primitives** (spec v3.2 §4.4, `IntegrityKernel.sol`) — the three **invariants**
->   (value conservation, monotone rights depletion, replay-domain monotonicity) the
->   verification kernel supplies so adapter authors don't re-derive them. These are
->   guarantees the kernel's constraint-evaluation layer bakes in, not a concept from this
->   page and not one of the seven agent contracts — `IntegrityKernel`/`IntegrityAccount` are
->   deliberately separate from the `PrimitiveSet`/`XibalbaAgentRegistry` model entirely (see
->   `docs/archive/2026-08/plans/2026-08-24-phase1-testnet-deployment-proposal.md`).
->
-> They are not different views of one list. `ReputationRegistry` is one of the seven agent
-> contracts *and* the storage for one of the four foundational concepts; `StateAnchor`
-> likewise. The kernel invariants touch neither — they're a property of the new kernel/hook
-> architecture, evaluated inside `IntegrityAccount`'s `preCheck`, not stored in any agent's
-> `PrimitiveSet`. The seven are an implementation; the four are the argument; the three
-> kernel invariants are guarantees the kernel enforces on adapters' behalf.
+# The Four Foundational Primitives of the Control Layer
+
+Before an enterprise, human principal, or peer agent delegates real-world actions, capital, or sensitive data to an autonomous AI agent, four fundamental questions must be resolved. 
+
+The Integrity Protocol defines **Four Foundational Primitives** as the mathematical and legal pillars of its AI Agent Control Layer:
+
+| # | Primitive | Foundational Question | Architectural Realization |
+|---|---|---|---|
+| 1 | **Persistent Memory** | *Is this the same agent across time?* | Merkle-anchored state lineage on [`StateAnchor.sol`](agent-memory.md) |
+| 2 | **Agent-Owned Contracts** | *Can it act, and can it bear economic loss?* | Self-sovereign contract ownership via [`SovereignAgent.sol`](agent-primitives.md) |
+| 3 | **Authority** | *May it act, and on whose behalf?* | Cryptographically delegated credentials via [`AgentAuthorityResolver.sol`](did.md) |
+| 4 | **Reputation** | *How has it actually acted in the past?* | Deterministic [AIS](ais.md) settled on [`ReputationRegistry.sol`](../entities/contracts.md) |
+
+```mermaid
+flowchart TD
+    subgraph Primitives["The Four Foundational Primitives"]
+        P1["1. Persistent Memory<br/>Continuity of Identity & State Lineage<br/>(StateAnchor.sol · Genesis Root)"]
+        P2["2. Agent-Owned Contracts<br/>Residual Economic Control & Staking<br/>(SovereignAgent.sol · PrimitiveSet)"]
+        P3["3. Authority<br/>Delegated Scope & Non-Self-Granted Rights<br/>(AgentAuthorityResolver · Policy Packs)"]
+        P4["4. Reputation<br/>Earned Non-Forgeable Standing & AIS<br/>(ReputationRegistry · Integrity Oracle)"]
+    end
+
+    P1 -->|Presupposition of identity| P2
+    P2 -->|Presupposition of agency| P3
+    P3 -->|Presupposition of governance| P4
+```
 
 ## Table of contents
 
-- [The four](#the-four)
-  - [1. Persistent Memory](#1-persistent-memory)
-  - [2. Agent-Owned Contracts](#2-agent-owned-contracts)
-  - [3. Authority](#3-authority)
-  - [4. Reputation](#4-reputation)
-- [AIS is not the fourth primitive](#ais-is-not-the-fourth-primitive)
-- [Why these four, and not others](#why-these-four-and-not-others)
-- [Open, and deliberately so](#open-and-deliberately-so)
-- [Status of this page](#status-of-this-page)
+- [The Distinction: Three Senses of 'Primitive'](#the-distinction-three-senses-of-primitive)
+- [1. Persistent Memory (Continuity)](#1-persistent-memory-continuity)
+- [2. Agent-Owned Contracts (Economic Agency)](#2-agent-owned-contracts-economic-agency)
+- [3. Authority (Delegation & Scope)](#3-authority-delegation-scope)
+- [4. Reputation (Earned Track Record)](#4-reputation-earned-track-record)
+- [Developer Implication](#developer-implication)
 
-## The four
+## The Distinction: Three Senses of 'Primitive'
 
-Each answers one question a counterparty must resolve before delegating anything of value.
-The order is a progression: each presupposes the one above it.
+To avoid architectural confusion when developing on the protocol, distinguish between the three distinct uses of "primitive":
 
-| # | Primitive | Question | Principle |
-|---|---|---|---|
-| 1 | **Persistent Memory** | Is this the same agent over time? | Continuity of the economic agent |
-| 2 | **Agent-Owned Contracts** | Can it act, and can it lose? | Residual control, with consequence |
-| 3 | **Authority** | *May* it act, and for whom? | Delegated permission, non-self-granted |
-| 4 | **Reputation** | *How* has it acted? | Earned, non-forgeable standing |
+1. **Foundational Primitives (This Page):** The four theoretical requirements for economic agency (Memory, Ownership, Authority, Reputation).
+2. **Agent Primitives ([`agent-primitives.md`](agent-primitives.md)):** The 7 per-agent smart contracts cloned during registration via `AgentPrimitivesFactory.sol`.
+3. **Kernel Invariants (`IntegrityKernel.sol`):** The three mathematical constraints enforced on-chain (value conservation, monotone rights depletion, replay-domain monotonicity).
 
-### 1. Persistent Memory
+---
 
-The agent controls a durable Trust Vault whose commitments are Merkle-anchored on its own
-`StateAnchor`. Registration requires a non-zero genesis root, agent-authorized. Without
-continuity there is no subject for anything else to attach to: an agent that cannot carry
-state across sessions is a stateless function invoked repeatedly, and any score describes a
-history it cannot itself produce.
+## 1. Persistent Memory (Continuity)
 
-Detail: [Persistent Memory, Genesis Root & Lineage](agent-memory.md). Status: gate enforced;
-contract-level §7.2 restriction open.
+An AI agent without persistent state is merely an ephemeral mathematical function invoked repeatedly. It cannot be held accountable for past commitments, cannot build trust, and cannot possess a meaningful reputation.
 
-### 2. Agent-Owned Contracts
+- **Genesis Root Requirement:** To register on the protocol, an agent must commit a non-zero cryptographic root representing its genesis memory state to `StateAnchor.sol`.
+- **Cortex Integration:** Memory roots are produced and tracked by [Xibalba Cortex](https://cortex-managed-pilot.onrender.com), enabling verifiable state transitions over session graphs.
 
-The agent's own key deploys `SovereignAgent` and `StateAnchor`; five EIP-1167 clones take the
-`SovereignAgent` as admin. Bonded stake belongs here rather than standing alone — **ownership
-and stake are one primitive seen from two sides.** You can only stake what you own, and
-ownership only means something when losing it hurts. Ownership without stake is control that
-costs nothing to abuse; stake without ownership is a deposit someone else administers.
+---
 
-Detail: [Agent Primitives](agent-primitives.md). Status: ownership built; uniform minimum
-stake at registration `[PARTIAL]`.
+## 2. Agent-Owned Contracts (Economic Agency)
 
-### 3. Authority
+Autonomous agents must possess residual control over their own operational assets. If a human operator holds all keys, the agent is a script; if the agent holds no assets, it cannot suffer loss for malicious actions.
 
-An agent acts under a signed delegation from a principal, within a scope it cannot widen:
+- **Sovereign Execution:** The agent is deployed as a `SovereignAgent` contract instance capable of holding funds, staking capital in escrow, and executing on-chain transactions.
+- **Economic Skin-in-the-Game:** Staked capital is subject to automated slashing via `Slasher.sol` if the agent violates commitments evaluated by active [Policy Packs](../entities/policy-packs.md).
 
-```
-D = (principal, agent_did, scope, not_before, not_after, revocation_ref, sig_P)
-```
+---
 
-The defining property is **A3 — non-authorship**: the agent cannot mint its own delegation.
-Note this is structurally identical to what makes reputation meaningful — *owns the contract,
-cannot author the content* — which is why the two sit together in the progression without
-collapsing into each other.
+## 3. Authority (Delegation & Scope)
 
-Status: **built in one vertical, not yet generalized.** `SmartBAA` is already a delegation
-instrument (principal = covered entity, agent = business associate, `sign()`, `revoke()`,
-dispute/arbitration, posted collateral). Generalizing it is what turns
-`covered_entity_address` from a client claim into a resolution — see
-[`ADR-0002-mainnet-readiness.md`](../../adr/ADR-0002-mainnet-readiness.md) item 8.
+An autonomous agent cannot grant itself authority. Permission to act must originate from a verified principal (human, corporate entity, or parent DAO) and must be mathematically bounded.
 
-Formal invariants A1–A5: [`thesis-extensions-formal.md`](../../archive/2026-08/thesis-extensions-formal.md).
+- **Non-Self-Granted Rights:** Authority is granted via signed delegation credentials resolved by `AgentAuthorityResolver.sol`.
+- **Pre-Execution Gating:** The [Behavioral Commitment Chain (BCC)](bcc.md) verifies that each tool invocation falls strictly within the authorized scope before execution occurs.
 
-### 4. Reputation
+---
 
-The non-forgeable behavioral record: signed commitments *before* acting (BCC) and re-derived
-evidence *after* (observability). A record of only intentions is a promise; a record of only
-outcomes has no counterfactual.
+## 4. Reputation (Earned Track Record)
 
-The agent owns `ReputationRegistry` while only `ORACLE_ROLE` may write to it. **Ownership
-without authorship is the whole trick** — reputation the agent could author would be worth
-nothing.
+Reputation is the historical accumulation of verifiable behavior over time. It cannot be bought or fabricated; it must be derived from non-malleable execution telemetry.
 
-Detail: [BCC](bcc.md), [Telemetry Ingestion](telemetry-ingestion.md).
+- **Autonomous Integrity Score (AIS):** The [Integrity Oracle](../entities/integrity-oracle.md) derives the agent's AIS from raw telemetry, verifiable grounding, and independent compliance receipts.
+- **On-Chain Settlement:** Settled on Base L2 in `ReputationRegistry.sol`, this score determines an agent's access to capital, high-value API tools, and multi-agent contract markets.
 
-## AIS is not the fourth primitive
+---
 
-Spec §2 says *"AIS is downstream of primitives — not a replacement for them."* That remains
-true, and the distinction has to stay explicit or the two readings contradict:
+## Developer Implication
 
-- **Reputation is the primitive** — the record.
-- **AIS is a score** — a weighted composite over that record, computed in exactly one place
-  (`scoring-core`), versioned and replaceable.
-
-Change the formula tomorrow and the record stands. Delete the record and no formula means
-anything.
-
-## Why these four, and not others
-
-The set is not a catalogue of what happens to be built. It is checked against spec §1's
-definition of an Economic Sovereign, which is the closure condition:
-
-| Thesis clause | Entailed by |
-|---|---|
-| ① owns its smart contracts | Agent-Owned Contracts |
-| ② remembers via anchored memory | Persistent Memory |
-| ③ can bind future behavior | Reputation (before-acting) |
-| ④ holds material value at risk | Agent-Owned Contracts (stake) |
-| ⑤ produces checkable evidence | Reputation (after-acting) |
-| ⑥ cannot rewrite after finality | *medium property* (§3.1), not a primitive |
-| ⑦ acts under delegated authority | Authority *(added in v0.4 §1)* |
-
-**Cryptographic self-sovereignty is not on this list**, and its absence is deliberate. Keys
-are the substrate all four are *expressed in* — memory roots are anchored by a
-controller-signed transaction, contracts are owned because a key deployed them, delegations
-are signed by a principal, evidence is attributable because it is signed. A substrate present
-in all four belongs beside attribution as a property of the medium (§3.3), not repeated as a
-peer of the things it enables.
-
-Two of the old six were likewise **not independent** and were absorbed rather than dropped:
-bonded stake into ownership, and BCC + observability into reputation. Full derivation:
-[`primitive-set-coherence.md`](../../archive/2026-08/primitive-set-coherence.md).
-
-## Open, and deliberately so
-
-**Termination** — how an agent's standing *ends* — is formalized (invariants T1–T5) but not
-adopted, because it requires registry mutability, which is the same question the
-[upgradeability decision](../../design/upgradeability-decision.md) faces. Settling them
-separately would risk two incompatible answers to one question. Today an agent can be
-abandoned but not ended.
-
-**Counterparty symmetry** is a generalization rather than a new primitive: BCC's
-`covered_entity_address` becomes `counterparty_did`, giving bilateral evidence for A2A.
-
-## Status of this page
-
-The four-primitive framing remains the conceptual derivation recorded by archived
-v0.4 §4 and `docs/design/`; archived v0.4 is no longer normative. Current implementer
-authority is [`docs/SPEC.md`](../../SPEC.md), whose object/plane model and identity
-profiles supersede any contract-count implication from the older framing.
+When developers build on Integrity Protocol using the [Integrity SDK](../entities/integrity-sdk.md), these four primitives are automatically initialized and bound during the `register_agent()` flow:
+1. DID keypair is generated.
+2. Initial memory root is anchored.
+3. Factory clones the agent's smart contracts.
+4. Active Policy Packs establish authority and initialize the reputation tracking loop.

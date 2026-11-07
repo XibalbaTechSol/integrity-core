@@ -2,9 +2,9 @@
 title: Observability & PHI Safety Pipeline
 acronyms: [VTL]
 created: 2026-07-09
-updated: 2026-09-15
+updated: 2026-11-07
 type: concept
-tags: [sdk, compliance, infrastructure]
+tags: [sdk, compliance, infrastructure, redaction, telemetry]
 confidence: high
 source_files:
   - integrity-sdk/integrity_sdk/security/redactor.py

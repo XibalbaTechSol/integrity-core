@@ -2,9 +2,9 @@
 title: Telemetry Ingestion Pipeline
 acronyms: []
 created: 2026-07-15
-updated: 2026-09-15
+updated: 2026-11-07
 type: concept
-tags: [sdk, metrics, infrastructure, compliance]
+tags: [sdk, metrics, infrastructure, compliance, oracle, telemetry]
 confidence: high
 source_files:
   - integrity-sdk/integrity_sdk/client.py
@@ -27,17 +27,14 @@ source_files:
 ---
 
 This page is the end-to-end reference for how an agent's behavior becomes a
-stored, scored `telemetry_events` row in [integrity-oracle](../entities/integrity-oracle.md)
+stored, scored `telemetry_events` row in the [Integrity Oracle](../entities/integrity-oracle.md)
+(hosted in production on Render at [`https://integrity-oracle.onrender.com`](https://integrity-oracle.onrender.com))
 — from the SDK call that captures one inference, through batching, signing,
 the oracle's ordered request pipeline, to the [AIS](ais.md) formula reading
-the result. It ties together three pages that each own one deep-dive slice
-(don't duplicate their detail here, link to it): [Local Metrology](local-metrology.md)
-(the exact entropy/grounding/sacrifice/compliance formulas),
-[AIS](ais.md) (the scoring formula + the oracle's server-side
-re-derivation trust model), and [Observability & PHI Safety](observability-vtl.md)
-(the `Redactor` categories). This page is the connective tissue: collection
-surfaces, batching, the wire format, and the oracle's request pipeline in
-the exact order it actually runs.
+the result. It ties together three pages that each own one deep-dive slice:
+[Local Metrology](local-metrology.md) (the exact formulas),
+[AIS](ais.md) (the scoring formula + the oracle's server-side re-derivation trust model),
+and [Observability & PHI Safety](observability-vtl.md) (the `Redactor` categories).
 
 **There are two completely separate telemetry paths in this repo — do not
 conflate them:**
