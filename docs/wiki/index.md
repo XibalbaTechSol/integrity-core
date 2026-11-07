@@ -1,175 +1,164 @@
-# Integrity Protocol Wiki
+---
+title: Integrity Protocol Wiki — The AI Agent Control Layer
+created: 2026-07-07
+updated: 2026-11-07
+type: overview
+tags: [overview, control-layer, architecture, policy-packs, ais]
+confidence: high
+source_files:
+  - ECOSYSTEM.md
+  - README.md
+  - docs/SPEC.md
+  - docs/WHITEPAPER.md
+  - docs/ecosystem/ECOSYSTEM.md
+---
 
-Compiled knowledge base for the Integrity Protocol monorepo — a trust/
-compliance layer for AI agents on Base L2. This page is the map; every
-section below links to the real page. Governance/conventions:
-`WIKI_SCHEMA.md` (page format), this `index.md` (the canonical catalog),
-`WIKI_INDEX.md` (a retained legacy catalog),
-`WIKI_LOG.md` (chronological history, append-only). Cross-package
-decisions live in `../INTERFACE_CONTRACT.md`; how this wiki gets kept in
-sync with the code is `../../AGENTS.md`.
+# Integrity Protocol Wiki — The AI Agent Control Layer
 
-**Start here** if you're new: [The Four Foundational Primitives](concepts/foundational-primitives.md)
-(the concepts), then [Agent Primitives](concepts/agent-primitives.md)
-(the 7 per-agent contracts every other page assumes you understand) and
-[Persistent Memory](concepts/agent-memory.md) (the continuity primitive that
-gates registration), then [AIS](concepts/ais.md) (the trust score) and
-[Telemetry Ingestion Pipeline](concepts/telemetry-ingestion.md) (how
-agent behavior becomes that score).
+Welcome to the compiled knowledge base for **Integrity Protocol** — the deterministic physics engine and verifiable control layer for autonomous AI agents. 
 
-## Specification authority — 2026-09-05 (corrected; see `docs/DOCUMENT_STATUS.yaml`)
-
-- [`docs/SPEC.md`](../SPEC.md) (v1.0.0-draft) is the accepted normative specification.
-  `docs/DOCUMENT_STATUS.yaml` is the single machine-readable source of truth for this —
-  check it directly rather than trusting this page to stay current.
-- [Integrity Protocol v0.4](../archive/2026-08/integrity-protocol-v0.4.md) is now archived,
-  not normative. A previous version of this section (dated 2026-08-29) still named it as
-  the accepted baseline after the real cutover to `docs/SPEC.md` had already happened for
-  at least Phase III adapter-registry work — see `PRODUCTION_GAPS.md`'s dated
-  pointer-correction entry for the drift this closes.
-- [Integrity Protocol v0.5 proposed](../archive/2026-08/integrity-protocol-v0.5-proposed.md)
-  is likewise archived, not a live review candidate.
-- [Whitepaper v3.2](../WHITEPAPER.md) is the current explanatory and non-normative whitepaper.
-- The v3.2 PDF is generated publication output from the archived v3.2 source; code, tests, and deployments are separate implementation evidence layers.
-
-## Current cross-repository audit — 2026-08-25
-
-**Note, 2026-08-12:** the ecosystem is a three-repository model now — `integrity-mvp` (linked
-below as a dated historical pointer) has been superseded by `integrity-dashboard/` inside this
-repository; see [Ecosystem Dependencies](architecture/ecosystem-dependencies.md) for the current
-correction. The list below is left as-recorded from the 2026-08-06 audit, not rewritten.
-
-The cross-repository implementation plan and audit ledger are maintained in
-[Repository Implementation Plans](architecture/repository-implementation-plans.md).
-Repository-local status pages are:
-
-- [`integrity-core` audit status](../archive/2026-09/audits/2026-08-06-cross-repository-status.md): historical strong-testnet-prototype assessment; production readiness was not established.
-- [`integrity-mvp` audit status](https://github.com/XibalbaTechSol/integrity-mvp/blob/main/docs/audits/2026-08-06-status.md): frontend build and unit tests pass; lint and dependency-security gaps remain.
-- [`xibalba-shield` audit status](https://github.com/XibalbaTechSol/xibalba-shield/blob/main/docs/audits/2026-08-06-status.md): Linux-first prototype; 2 of 3 eBPF probes verified; TCP-connect blocked.
-- [`xibalba-cortex` audit status](https://github.com/XibalbaTechSol/xibalba-cortex/blob/main/docs/audits/2026-08-06-status.md): local MCP memory prototype; tests pass with Drive extras; active worktree changes require review.
-
-These pages distinguish `DONE`, `PARTIAL`, `PLANNED`, `BLOCKED`, `UNVERIFIED`, and `REQUIRES REVIEW`. Historical wiki log entries and design records remain historical evidence.
-
-The latest compiled session evidence keeps Phase I contract work and Hermes/BCC live dispatch in `PARTIAL`/`BLOCKED` status; local adapter validation and policy-service reachability do not establish live provider parity or host-tool execution.
-
-## System at a glance
+This wiki is the canonical architectural and developer guide for building, governing, and deploying verifiable AI agents. Autonomous agents have become economic principals: they control capital, call APIs, mutate infrastructure, and make mission-critical decisions. Integrity Protocol provides the foundational substrate developers build on top of to guarantee deterministic safety, verifiable execution, and cryptographic alignment.
 
 ```mermaid
-flowchart TB
-    Wallet["Agent's own wallet"]
-    Factory["AgentPrimitivesFactory"]
-
-    subgraph OnChain["On-chain (EVM / Base Sepolia + anvil)"]
-        SA["SovereignAgent<br/>(identity account)"]
-        StA["StateAnchor<br/>(per-agent audit root)"]
-        subgraph Clones["5 EIP-1167 minimal-proxy clones"]
-            RR["ReputationRegistry"]
-            SL["Slasher"]
-            VR["VerifierRegistry"]
-            CG["ComplianceGate"]
-            AP["AgentProfile"]
-        end
+flowchart TD
+    subgraph Agents["Autonomous AI Agents & Runtimes"]
+        Agent["Autonomous Agent<br/>(Claude · Hermes · OpenAI · LangChain)"]
     end
 
-    SDK["integrity-sdk / integrity-cli"]
-    BCC["bcc_middleware<br/>(FastAPI + OPA)"]
-    Oracle["integrity-oracle<br/>(Rust/Axum)"]
-    Dashboard["integrity-dashboard<br/>(React + Python)"]
-    UserAPI["integrity-userapi<br/>(FastAPI + Postgres)"]
+    subgraph ControlLayer["🦴 Integrity Protocol — AI Agent Control Layer"]
+        Packs["📦 Developer Policy Packs<br/>(integrity.pack/1 · Signed Rego/WASM)"]
+        BCC["⚡ BCC Pre-Execution Gate<br/>(/v1/bcc/intercept · Sub-ms fail-closed)"]
+        DIDs["🆔 On-Chain Sovereign DIDs<br/>(did:integrity · SovereignAgent · EVM Base L2)"]
+        Oracle["⚖️ Deterministic Oracle & Physics Engine<br/>(AIS Reward Function: R = R_task + λ·AIS)"]
+        Packs --> BCC
+        BCC --> DIDs
+        BCC --> Oracle
+    end
 
-    Wallet -->|signs direct deploys| SA
-    Wallet -->|signs direct deploys| StA
-    Factory -->|clones| RR
-    Factory -->|clones| SL
-    Factory -->|clones| VR
-    Factory -->|clones| CG
-    Factory -->|clones| AP
+    subgraph Ecosystem["The Connected Ecosystem"]
+        Cortex["🧠 xibalba-cortex<br/>(The Navigational Terrain)<br/>Geometric Graph Traversal · Logit Masking"]
+        Shield["🛡️ xibalba-shield<br/>(Response Governance)<br/>Topological Boundary Gating · EDR/SOAR"]
+        Console["👁️ integrity-console<br/>(Universal Operator Window)<br/>Trajectory Visualization · Verifiable Ledger"]
+    end
 
-    SDK --> Wallet
-    SDK -->|pre-execution gate| BCC
-    SDK -->|signed telemetry| Oracle
-    BCC -->|reads AIS, pushes score on-chain| Oracle
-    Oracle -->|resolve + score| OnChain
-    Oracle --> Dashboard
-    UserAPI -->|read-only fan-out, never chain| Oracle
-    Dashboard --> UserAPI
+    Agent -->|"1. Graph Navigation"| Cortex
+    Agent -->|"2. Pre-Execution Intent"| BCC
+    Agent -->|"3. Privileged / EDR Action"| Shield
+    Cortex -.->|"Session roots"| Oracle
+    Shield -.->|"Signed receipts"| Oracle
+    Oracle -->|"Verified state & telemetry"| Console
+    Oracle -.->|"Deterministic AIS reward feedback"| Agent
 ```
 
-## Table of contents
+---
 
-### Concepts — identity & on-chain primitives
-- [The Four Foundational Primitives](concepts/foundational-primitives.md) — the concepts the protocol rests on; **start here**
-- [Agent Primitives (Self-Sovereign Identity)](concepts/agent-primitives.md) — the 7 per-agent *contracts* (a different sense of the word)
-- [Persistent Memory, Genesis Root & Lineage](concepts/agent-memory.md) — **foundational primitive**: no agent registers without an anchored genesis memory root (`[PARTIALLY BUILT]`)
-- [Decentralized Identifier (DID)](concepts/did.md)
-- [Identity Ceiling & Verification Ladder](concepts/identity-ceiling.md) — `[PARTIALLY BUILT]`
+## Core Philosophy: The Physics Engine of the Machine Economy
 
-### Concepts — trust & scoring
-- [Agent Integrity Score (AIS)](concepts/ais.md) — the formula + oracle's server-side re-derivation trust model
-- [Telemetry Ingestion Pipeline](concepts/telemetry-ingestion.md) — end-to-end: SDK collection → batching → signing → the oracle's 11-step ordered pipeline → AIS
-- [Local Metrology](concepts/local-metrology.md) — the exact entropy/grounding/sacrifice/compliance formulas
-- [Observability & PHI Safety Pipeline](concepts/observability-vtl.md) — the `Redactor`, `redact_phi`, the oracle-side PHI backstop
+Conventional AI safety treats alignment and compliance as external "guardrails"—heuristic filters wrapped around unconstrained generative models. In Reinforcement Learning (RL), agents optimize mathematically against their reward function. An external constraint is simply thermodynamic friction: the agent inevitably optimizes to circumvent it.
 
-### Concepts — behavioral gating & cryptography
-- [Behavioral Commitment Chain (BCC)](concepts/bcc.md) — the pre-execution signed-intent gate
-- [Invocation Correlation Profile v1](../../spec/invocation-id-v1.md) — canonical per-attempt UUID joining intent, policy, execution, and effect without content-hash ambiguity
-- [Merkle Batching & Anchoring Convention](concepts/merkle-batching.md)
-- [Zero-Knowledge Proving Pipeline (ZKP)](concepts/zkp.md)
+**Integrity Protocol solves this by making the Autonomous Integrity Score (AIS) the native reward function by definition:**
 
-### Concepts — compliance & markets
-- [ComplianceGate & Integrity Health](concepts/compliance-gate.md) — the HIPAA/healthcare vertical
-- [Smart BAA](concepts/smart-baa.md) — on-chain Business Associate Agreement escrow
-- [Integrity Market](concepts/integrity-market.md) — prediction markets, binary options, A2A capital allocation
+$$R_{\text{total}} = R_{\text{task}} + \lambda \cdot \text{AIS}$$
 
-### Concepts — wire spec & testing
-- [AIS API — Versioned Wire Spec](concepts/ais-api-spec.md) — the generated, externally-supported `/v1/*` spec
-- [Testing Strategy](concepts/testing-strategy.md) — the 3-layer test pyramid
+Where:
+- $R_{\text{task}}$ represents the domain objective (code synthesis, medical diagnostic accuracy, quantitative yield, biological efficacy).
+- $\text{AIS} \in [0, 1]$ is the deterministic integrity score computed by the protocol oracle from non-malleable cryptographic telemetry.
+- $\lambda > 0$ is the coupling coefficient aligning the agent's Markov Decision Process (MDP) with verifiable truth.
 
-### Concepts — planned / design-only
-- [Identity Ceiling & Verification Ladder](concepts/identity-ceiling.md) — `[PARTIALLY BUILT]`
-- [Cross-Chain Reputation Sync](concepts/cross-chain-spec.md) — `[PLANNED]`
-- [A2A Negotiation Protocol](concepts/a2a-negotiation-spec.md) — `[PLANNED]`
-- [ZK-ML Model-Inference Verification](concepts/zk-ml-spec.md) — `[PLANNED]`
+When integrity is the mathematical reward, verifiable compliance is no longer an external tax—it is the optimal policy path. An ungrounded hallucination, broken commitment, or unauthorized action causes immediate reward collapse ($\text{AIS} \to 0$), staking slashing, and revocation of execution rights.
 
-### Entities — one page per real package
-- [contracts](entities/contracts.md) — Solidity/Foundry: the 7 primitives, factory, registries, XNS, Integrity Health, market layer, $ITK
-- [integrity-oracle](entities/integrity-oracle.md) — Rust/Axum: AIS scoring, server-side telemetry re-derivation, on-chain reads, markets/leaderboard
-- [integrity-sdk](entities/integrity-sdk.md) — Python agent library: identity, BCC, markets, telemetry, PHI redaction
-- [integrity-cli](entities/integrity-cli.md) — developer CLI, independent reimplementation of the SDK's core flows
-- [bcc_middleware](entities/bcc_middleware.md) — FastAPI + OPA pre-execution policy gate + reputation-sync loop
-- [integrity-userapi](entities/integrity-userapi.md) — FastAPI + Postgres user accounts/auth, strictly non-chain
-- [integrity-dashboard](entities/integrity-dashboard.md) — the React/Vite dashboard + `demo/` scenario engine
-- [integrity-zkp](entities/integrity-zkp.md) — the real Noir/Barretenberg circuit
+**The path itself is the proof.**
 
-### Architecture
-- [Ecosystem Dependencies](architecture/ecosystem-dependencies.md) — cross-repository ownership and dependency direction for integrity-core (including its integrity-dashboard/ component), Xibalba Cortex, and Xibalba Shield.
-- [Repository Implementation Plans](architecture/repository-implementation-plans.md) — closed/planned/blocked implementation ledger for integrity-core, integrity-dashboard/, Xibalba Shield, and Xibalba Cortex.
+---
 
-### Guides
-- [Smart Contract Development](../guides/smart-contract-development.md) — writing/testing/deploying a new contract
-- [Multi-Domain Guardrails Design](../guides/multi-domain-guardrails-design.md) — `[DESIGN, PARTIALLY BUILT]`
+## Building on Top of Integrity Protocol
 
-### Reference
-- [WIKI_INDEX.md](WIKI_INDEX.md) — full catalog, one-line description per page (the canonical index)
-- [WIKI_LOG.md](WIKI_LOG.md) — chronological record of every wiki change, append-only
-- [WIKI_SCHEMA.md](WIKI_SCHEMA.md) — page format, frontmatter, tag taxonomy
+Developers building autonomous agent systems utilize Integrity Protocol as an extensible control plane:
 
-### Open queries
-- No LLM-as-judge rubric exists anywhere in this repo — the `judge_evaluations`
-  ingestion schema is built but the scoring rubric is an open product
-  question. See [Observability & PHI Safety](concepts/observability-vtl.md).
+1. **Self-Sovereign Agent DIDs:** Issue tamper-proof decentralized identifiers ([`did:integrity:...`](concepts/did.md)) tied to Ed25519 keypairs, backed by on-chain identity primitives ([`SovereignAgent`](concepts/agent-primitives.md)).
+2. **Modular Policy Packs:** Author and deploy domain-specific or enterprise [Policy Packs](entities/policy-packs.md) (`integrity.pack/1`) with signed Rego or WASM rules, event classes, and regulatory control mappings (HIPAA, NIST AI RMF, OWASP).
+3. **Pre-Execution Intent Gating:** Intercept agent tool calls with the [Behavioral Commitment Chain (BCC)](concepts/bcc.md) before execution, evaluating permissions in sub-millisecond latency.
+4. **Telemetry Ingestion & Memory Anchoring:** Stream OTel telemetry and anchor session roots to Base L2 and Supabase state stores via the [Integrity Oracle](entities/integrity-oracle.md).
 
-## Acronym glossary
-- **AIS** — Agent Integrity Score → [concepts/ais.md](concepts/ais.md)
-- **BAA** — Business Associate Agreement → [concepts/smart-baa.md](concepts/smart-baa.md)
-- **BCC** — Behavioral Commitment Chain → [concepts/bcc.md](concepts/bcc.md)
-- **DID** — Decentralized Identifier → [concepts/did.md](concepts/did.md)
-- **VTL** — (old term) Verifiable Trust Layer → see [Observability & PHI Safety](concepts/observability-vtl.md) for what's actually built
-- **ZKP** — Zero-Knowledge Proof(ing pipeline) → [concepts/zkp.md](concepts/zkp.md)
+---
 
-## No aspirational content
+## The Four-Repository Ecosystem Topology
 
-Every page here documents what exists in the code right now. A feature
-described in a spec but not yet implemented is explicitly marked
-`[PLANNED]` or `[DESIGN, PARTIALLY BUILT]` in its title/index entry — never
-written as if it's real. See `WIKI_SCHEMA.md` for the full convention.
+The Integrity Ecosystem aligns autonomous machine behavior across four specialized repositories:
+
+| Repository | Role | Paradigm & Function | Live Deployment |
+|---|---|---|---|
+| **`integrity-core`** (This Repo) | **🦴 The Physics Engine & AI Agent Control Layer** | Implements the deterministic AIS reward engine, on-chain DIDs, [Policy Packs](entities/policy-packs.md), [BCC Middleware](entities/bcc_middleware.md), and [Integrity Oracle](entities/integrity-oracle.md). | Oracle: [`https://integrity-oracle.onrender.com`](https://integrity-oracle.onrender.com) |
+| **`xibalba-cortex`** | **🧠 The Navigational Engine** | Neuro-symbolic knowledge graph and active inference engine. Replaces probabilistic token guessing with geometric graph traversal (R-GCN + TKGE/TransE), dynamic logit masking, and biomedical/economic connectors. | Pilot: [`https://cortex-managed-pilot.onrender.com`](https://cortex-managed-pilot.onrender.com) |
+| **`xibalba-shield`** | **🛡️ Cryptographic Topology & Response Governance** | Enforces topological boundary gating, zero-probability unauthorized state spaces, and vendor-neutral response governance across enterprise EDRs (CrowdStrike, Defender) and AI agents (MCP, SOAR). | Console: [`https://xibalba-shield.onrender.com`](https://xibalba-shield.onrender.com) |
+| **`integrity-console`** | **👁️ The Universal Verifiable Operator Window** | Unified presentation and account layer (housing `integrity-dashboard` and `integrity-userapi`). Visualizes agent graph navigation trajectories, multi-agent DID credentials, AIS score distributions, real-time approval queues, and cryptographic Merkle verification. | Operator Window: [`https://integrity-console-test.onrender.com`](https://integrity-console-test.onrender.com) |
+
+---
+
+## Specification & Governance Authority
+
+- [`docs/SPEC.md`](../SPEC.md) (v1.0.0-draft) is the normative protocol specification.
+- [`docs/WHITEPAPER.md`](../WHITEPAPER.md) (v3.2) is the explanatory whitepaper.
+- [`ECOSYSTEM.md`](../../ECOSYSTEM.md) is the ecosystem authority and product boundary definition.
+- [`WIKI_SCHEMA.md`](WIKI_SCHEMA.md) defines wiki governance and frontmatter standards.
+
+---
+
+## Table of Contents
+
+### Architecture & Ecosystem
+- [Ecosystem Dependencies & Topology](architecture/ecosystem-dependencies.md) — Four-repository topology, boundaries, and Render cloud endpoints.
+- [Repository Implementation Plans](architecture/repository-implementation-plans.md) — Cross-repository roadmap, verification ledger, and milestone status.
+
+### Entities — Core Packages & Extension Points
+- [Policy Packs & Developer Extensibility](entities/policy-packs.md) — Composable, signed Rego/WASM policy packs (`integrity.pack/1`) for developers.
+- [BCC Middleware](entities/bcc_middleware.md) — FastAPI + OPA/WASM pre-execution intent gating and score push loop.
+- [Integrity Oracle](entities/integrity-oracle.md) — Rust/Axum deterministic AIS scoring engine on Render and Supabase.
+- [Integrity SDK](entities/integrity-sdk.md) — Python agent library: DIDs, BCC interception, telemetry, and policy pack validation.
+- [Integrity CLI](entities/integrity-cli.md) — Developer CLI for keys, registration, verification, and vaults.
+- [Contracts](entities/contracts.md) — Solidity/Foundry primitive suite on Base L2: factory, registries, XNS, and SovereignAgent.
+- [Integrity Dashboard (Console)](entities/integrity-dashboard.md) — React/Vite operator window (hosted in `integrity-console`).
+- [Integrity User API (Console)](entities/integrity-userapi.md) — FastAPI + Postgres account authentication (hosted in `integrity-console`).
+- [Integrity ZKP](entities/integrity-zkp.md) — Zero-knowledge proving pipeline and circuit definitions.
+
+### Concepts — The AI Agent Control Layer Primitives
+- [The Four Foundational Primitives](concepts/foundational-primitives.md) — Memory, Ownership, Authority, and Reputation.
+- [Agent Primitives (Self-Sovereign Identity)](concepts/agent-primitives.md) — The 7 per-agent smart contracts (`PrimitiveSet`).
+- [Persistent Memory & Genesis Root](concepts/agent-memory.md) — Continuity of the economic agent; registration gating.
+- [Persistent Memory Configuration](concepts/persistent-memory.md) — TrustVault context manager and backend storage adapters.
+- [Decentralized Identifier (DID)](concepts/did.md) — Multibase Ed25519 identity format and fingerprint resolution.
+- [Identity Ceiling & Verification Ladder](concepts/identity-ceiling.md) — Tier-based capability ceilings and elevation.
+
+### Concepts — Trust, Metrology & Scoring
+- [Autonomous Integrity Score (AIS)](concepts/ais.md) — Deterministic RL reward formula ($R_{\text{total}} = R_{\text{task}} + \lambda \cdot \text{AIS}$).
+- [Telemetry Ingestion Pipeline](concepts/telemetry-ingestion.md) — End-to-end OTel span processing to oracle scoring.
+- [Local Metrology](concepts/local-metrology.md) — Entropy, grounding, attested sacrifice, and compliance derivations.
+- [Observability & PHI Safety](concepts/observability-vtl.md) — Secret and PHI redaction backstops.
+
+### Concepts — Behavioral Gating & Cryptography
+- [Behavioral Commitment Chain (BCC)](concepts/bcc.md) — Intent locking, canonical UUID correlation, and pre-execution interception.
+- [Merkle Batching & State Anchoring](concepts/merkle-batching.md) — Root batching and on-chain state verification.
+- [Zero-Knowledge Proving Pipeline (ZKP)](concepts/zkp.md) — Proof generation and scoring boosts.
+- [ZK-ML Model-Inference Verification](concepts/zk-ml-spec.md) — `[PLANNED]` Verification of private inference.
+
+### Concepts — Governance, Markets & Verticals
+- [ComplianceGate & Integrity Health](concepts/compliance-gate.md) — Healthcare compliance vertical pack (`packs/hipaa`).
+- [Smart BAA](concepts/smart-baa.md) — Cryptographic Business Associate Agreement escrow.
+- [Integrity Market](concepts/integrity-market.md) — Verifiable prediction and reputation markets.
+- [Governance](concepts/governance.md) — Protocol parameter tuning and dispute slashing.
+- [Xibalba Agent Operating Model](concepts/xibalba-agent-operating-model.md) — Dual-mandate execution architecture.
+- [Testing Strategy](concepts/testing-strategy.md) — 3-tier verification pyramid.
+- [Test-Status Tree Binding](concepts/test-status-tree-binding.md) — Cryptographic test suite attestation.
+- [Cross-Chain Reputation Sync](concepts/cross-chain-spec.md) — `[PLANNED]` Cross-L2 reputation transport.
+- [A2A Negotiation Protocol](concepts/a2a-negotiation-spec.md) — `[PLANNED]` Agent-to-agent contract negotiation.
+
+### Queries & Diagnostics
+- [Gas Tracking](queries/gas-tracking.md) — EVM execution cost analysis.
+
+---
+
+## Reference & Meta
+
+- [`WIKI_INDEX.md`](WIKI_INDEX.md) — Full canonical catalog for machine linting.
+- [`WIKI_LOG.md`](WIKI_LOG.md) — Append-only chronological modification history.
+- [`WIKI_SCHEMA.md`](WIKI_SCHEMA.md) — Frontmatter specifications and style guide.

@@ -1,9 +1,9 @@
 # Integrity Protocol Wiki — Index
 
 > Canonical machine-readable catalog for `docs/wiki/`. The landing page is
-> `index.md` is the landing page; this file lists every article page for linting.
+> `index.md`; this file lists every article page for linting.
 
-Last updated: 2026-11-03 | Total pages: 35
+Last updated: 2026-11-07 | Total pages: 36
 
 ## Concepts
 
@@ -42,6 +42,7 @@ Last updated: 2026-11-03 | Total pages: 35
 - [Integrity SDK](entities/integrity-sdk.md)
 - [Integrity user API](entities/integrity-userapi.md)
 - [Integrity ZKP](entities/integrity-zkp.md)
+- [Policy Packs](entities/policy-packs.md)
 
 ## Queries
 

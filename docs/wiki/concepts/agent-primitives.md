@@ -1,9 +1,9 @@
 ---
 title: Agent Primitives (Self-Sovereign Identity)
 created: 2026-07-07
-updated: 2026-09-15
+updated: 2026-11-07
 type: concept
-tags: [identity, layer-2, tokenomics]
+tags: [identity, layer-2, tokenomics, control-layer]
 confidence: high
 source_files:
   - contracts/src/framework/AgentPrimitivesFactory.sol

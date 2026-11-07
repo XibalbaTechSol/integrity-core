@@ -1,9 +1,9 @@
 ---
 title: integrity-oracle
 created: 2026-07-07
-updated: 2026-10-25
+updated: 2026-11-07
 type: entity
-tags: [infrastructure, metrics, layer-2, tokenomics]
+tags: [infrastructure, metrics, layer-2, oracle, render, supabase]
 confidence: high
 source_files:
   - integrity-oracle/scoring-core/src/lib.rs
@@ -25,14 +25,13 @@ source_files:
   - integrity-oracle/backend/migrations/0002_markets_and_judge.sql
   - integrity-oracle/backend/migrations/0003_agent_did_document.sql
   - integrity-oracle/backend/migrations/0021_otel_retention.sql
+  - deploy/render/oracle.render.yaml
+  - deploy/render/supabase_timescale_shim.sql
 ---
 
-The off-chain brain (Rust, Axum, Postgres, Redis, `alloy`): it ingests agent
-telemetry, computes the [Agent Integrity Score](../concepts/ais.md), and
-independently verifies agents' on-chain state — including, as of this pass, the
-[market/application layer](../concepts/agent-primitives.md) (§6.9) — so nothing
-downstream has to trust an agent's own word. Per §6.10 of the interface contract,
-this is the **only** backend that ever reads on-chain state.
+The deterministic physics engine and scoring oracle of the Integrity Protocol AI Agent Control Layer (Rust, Axum, Postgres/Supabase, Redis, `alloy`). It ingests agent telemetry, recomputes the [Agent Integrity Score (AIS)](../concepts/ais.md) from raw execution evidence, and independently verifies agents' on-chain state on Base L2 — so no downstream system has to trust an agent's self-reported claims.
+
+Hosted in production on Render at [`https://integrity-oracle.onrender.com`](https://integrity-oracle.onrender.com), backed by Supabase PostgreSQL. Per §6.10 of the interface contract, this is the **only** backend that ever reads on-chain state directly.
 
 ## Table of contents
 

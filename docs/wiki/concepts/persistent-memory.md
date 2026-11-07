@@ -1,19 +1,19 @@
 ---
 title: Persistent Memory Bridge
 created: 2026-07-30
-updated: 2026-09-15
+updated: 2026-11-07
 type: concept
-tags: [architecture, sdk, primitive]
+tags: [architecture, sdk, primitive, memory, cortex]
 confidence: high
 source_files:
   - integrity-sdk/integrity_sdk/memory.py
   - integrity-cli/integrity_cli/vault.py
-  - integrity-sdk/integrity_sdk/mcp_server.py
+  - integrity-sdk/integrity_sdk/integrations/cortex.py
 ---
 
 # Persistent Memory Configuration Guide
 
-The Persistent Memory Bridge allows agents to anchor their localized memory states cryptographically to the blockchain. Agents use this architecture to prove that their internal knowledge base (e.g. vector databases, key-value stores) remains untampered and mathematically verifiable.
+The Persistent Memory Bridge allows agents to anchor their localized memory states cryptographically to the blockchain. Agents use this architecture to prove that their internal knowledge base (e.g. vector stores, session histories, or relational knowledge graphs from [Xibalba Cortex](https://cortex-managed-pilot.onrender.com)) remains untampered and mathematically verifiable.
 
 ## Table of contents
 

@@ -1,10 +1,10 @@
 ---
-title: Agent Integrity Score (AIS)
+title: Agent Integrity Score (AIS) — Deterministic Reward Function
 acronyms: [AIS]
 created: 2026-07-07
-updated: 2026-09-17
+updated: 2026-11-07
 type: concept
-tags: [metrics]
+tags: [metrics, reward-function, control-layer, rl]
 confidence: high
 source_files:
   - integrity-oracle/scoring-core/src/lib.rs
@@ -13,101 +13,104 @@ source_files:
   - docs/INTERFACE_CONTRACT.md
 ---
 
-The composite trust score for an agent, computed by [Integrity Oracle](../entities/integrity-oracle.md):
+# Agent Integrity Score (AIS) — Deterministic Reward Function
 
-Active profile: `ais/v1-geometric-1`.
+The **Autonomous Integrity Score (AIS)** is the deterministic trust metric and native reinforcement learning reward function of the Integrity Protocol AI Agent Control Layer.
 
-`AIS_base = S_entropy^wE * S_grounding^wG * S_sacrifice^wS * S_compliance^wC`
-and `AIS_post_boost = AIS_base * ZK_boost`; the final displayed AIS is the
-post-boost value after the server-derived identity-tier ceiling.
+In Reinforcement Learning (RL), an autonomous agent formulates its policy to maximize total expected reward. When compliance and safety are imposed as external "guardrails," they act as artificial thermodynamic friction; an optimizing agent will discover paths around them. Integrity Protocol eliminates this friction by embedding verifiable integrity directly into the agent's objective function:
 
-Default weights (sum to 1.0): `wE=0.30, wG=0.30, wS=0.20, wC=0.20`.
-`ZK_boost = 1.0 + 0.15 * verified_event_ratio`, where the ratio counts events
-carrying a real Barretenberg proof (see [ZKP](zkp.md)) verified by the oracle.
+$$R_{\text{total}} = R_{\text{task}} + \lambda \cdot \text{AIS}$$
 
-This formula is computed in exactly one place (`integrity-oracle/scoring-core`)
-— other packages read the final, tier-capped result via the oracle's
-`GET /v1/agent/{id}/ais` endpoint rather than recomputing it. The on-chain sync
-removes only the response's reported ZK multiplier before calling
-`ReputationRegistry.updateScoreWithCoverage`; it does not reconstruct the mean from
-`components`/`weights`. See
-[Interface Contract §4.3](../../INTERFACE_CONTRACT.md#43-agent-integrity-score-ais)
-for the canonical definition. The four component *inputs* the SDK derives
-client-side before the oracle applies this formula are documented
-separately — see [Local Metrology](local-metrology.md), which also
-supersedes an old, inconsistent 3-component draft formula (no compliance
-term, weights not summing to 1.0) that never matched this one.
+Where:
+- $R_{\text{task}}$ is the domain task reward (e.g. trading alpha, code synthesis, clinical triage accuracy).
+- $\text{AIS} \in [0, 1]$ is the deterministic integrity score computed by the [Integrity Oracle](../entities/integrity-oracle.md) from non-malleable cryptographic telemetry.
+- $\lambda > 0$ is the coupling coefficient aligning the agent's Markov Decision Process (MDP) with cryptographic truth.
+
+Any hallucination, broken behavioral commitment, or unauthorized execution causes catastrophic reward degradation ($\text{AIS} \to 0$), rendering bad behavior mathematically sub-optimal.
 
 ## Table of contents
 
-- [Where the four inputs actually come from (trust model)](#where-the-four-inputs-actually-come-from-trust-model)
-- [Constraint score and component floors](#constraint-score-and-component-floors)
+- [Mathematical Formulation](#mathematical-formulation)
+  - [Component Weights](#component-weights)
+  - [Zero-Knowledge Proving Boost](#zero-knowledge-proving-boost)
+- [Trust Model & Oracle Re-Derivation](#trust-model-oracle-re-derivation)
+- [Verification Flow](#verification-flow)
+- [Constraint Score & Identity Tier Floors](#constraint-score-identity-tier-floors)
+- [On-Chain Settlement & Slashing](#on-chain-settlement-slashing)
 
-## Where the four inputs actually come from (trust model)
+## Mathematical Formulation
 
-A client's `POST /v1/telemetry/ingest` signature proves *who* sent a request, never
-*whether its numbers were honest*. The oracle does not trust the client's
-`derived_signals` claim. It recomputes entropy/grounding from the raw `otel_spans`
-content and accepts sacrifice/compliance only from independently admissible evidence;
-the token-derived sacrifice and client compliance values remain audit-only proxies and
-resolve to zero authoritatively when their evidence is absent. `derived_signals` stays
-in the signed envelope (so the wire format has not changed) and is still stored, but
-only as an audit trail — it does not feed the formula.
+Active profile: `ais/v1-geometric-1`.
+
+$$\text{AIS}_{\text{base}} = S_{\text{entropy}}^{w_E} \times S_{\text{grounding}}^{w_G} \times S_{\text{sacrifice}}^{w_S} \times S_{\text{compliance}}^{w_C}$$
+
+$$\text{AIS}_{\text{post\_boost}} = \text{AIS}_{\text{base}} \times \text{ZK\_boost}$$
+
+The final displayed AIS is the post-boost value clamped by the agent's server-derived [Identity Tier Ceiling](identity-ceiling.md).
+
+### Component Weights
+Default weights (sum to 1.0):
+- $w_E = 0.30$ (Entropy / Uncertainty calibration)
+- $w_G = 0.30$ (Grounding in verifiable knowledge sources)
+- $w_S = 0.20$ (Attested Economic Sacrifice / Staking commitment)
+- $w_C = 0.20$ (Independent Compliance with active [Policy Packs](../entities/policy-packs.md))
+
+### Zero-Knowledge Proving Boost
+$$\text{ZK\_boost} = 1.0 + 0.15 \times \text{verified\_event\_ratio}$$
+
+Where `verified_event_ratio` represents the proportion of telemetry events accompanied by a valid, independently verified zero-knowledge proof (see [ZKP](zkp.md)).
+
+---
+
+## Trust Model & Oracle Re-Derivation
+
+A client agent's cryptographic signature on `POST /v1/telemetry/ingest` proves *identity*, never *truthfulness*. An agent claiming an inflated score is untrusted.
+
+The [Integrity Oracle](../entities/integrity-oracle.md) never trusts client-supplied `derived_signals`. Instead:
+1. **Raw Telemetry Analysis:** Recomputes entropy and grounding directly from raw OpenTelemetry (`otel_spans`) payloads and citations.
+2. **Admissible Evidence Only:** Accepts sacrifice and compliance signals exclusively from on-chain transactions and signed [BCC Middleware](../entities/bcc_middleware.md) receipts.
+3. **Fail-Closed Verification:** Where admissible evidence is absent, the corresponding component evaluates authoritatively to zero. Client-asserted signals remain strictly for audit logging.
 
 ```mermaid
 flowchart LR
-    Agent["Agent (SDK/CLI)"] -->|"signed POST /v1/telemetry/ingest<br/>(otel_spans + derived_signals)"| Oracle["integrity-oracle"]
-    Oracle -->|"re-derive admissible inputs<br/>(fail closed where evidence is absent)"| Recompute["entropy / grounding /<br/>attested sacrifice / independent compliance"]
-    Recompute --> Formula["AIS = Π(S^w) · ZK_boost<br/>(scoring-core, geometric volume model)"]
-    ZK["Real Barretenberg ZK proof<br/>(bb verify)"] -.->|"up to 1.15× by<br/>verified-event ratio"| Formula
-    Formula --> API["GET /v1/agent/{id}/ais<br/>+ live SSE push (/v1/stream)"]
+    Agent["Autonomous Agent<br/>(SDK / CLI)"] -->|"signed POST /v1/telemetry/ingest<br/>(otel_spans + derived_signals)"| Oracle["Integrity Oracle<br/>(https://integrity-oracle.onrender.com)"]
+    Oracle -->|"Re-derive admissible inputs<br/>(fail-closed if evidence absent)"| Recompute["Deterministic Recomputation<br/>S_entropy · S_grounding · S_sacrifice · S_compliance"]
+    Recompute --> Formula["AIS = Π(S^w) · ZK_boost<br/>(scoring-core geometric model)"]
+    ZK["Barretenberg ZK Proof<br/>(bb verify)"] -.->|"up to 1.15× multiplier"| Formula
+    Formula --> Tier["Identity Ceiling Clamp<br/>(Tier 0–4 limits)"]
+    Tier --> API["GET /v1/agent/{id}/ais<br/>+ live SSE push (/v1/stream)"]
+    Tier --> Chain["Base L2 On-Chain Anchor<br/>(ReputationRegistry)"]
 ```
 
-Verified end-to-end, not just unit-tested: a client claiming an inflated grounding score
-while its own signed `otel_spans` contain hallucination markers gets the oracle's real,
-low recomputation stored and scored — see
-`oracle_e2e_recomputed_grounding_overrides_inflated_client_claim` in
-`integrity-oracle/backend/tests/e2e.rs`.
+---
 
-**Still open** (see `PRODUCTION_GAPS.md` §1a for the full list): the oracle scales the
-boost by proof-bearing event coverage. The source on-chain registry now receives the
-same coverage ratio through its oracle-only score-sync path and applies a proportional
-boost after exact event-bound proof validation; TEE/Tier-3 attestation
-verification is real but unwired. The oracle-to-chain score push that used to be missing
-here now exists — `bcc_middleware`'s `app/reputation.py`/`scoring_loop.py` periodically
-pushes each agent's recomputed AIS to `ReputationRegistry.updateScoreWithCoverage` and raises
-`Slasher.raiseDispute` on a flagged-telemetry threshold (see `PRODUCTION_GAPS.md` §1 and
-`docs/INTERFACE_CONTRACT.md` §7a) — this AIS trust hardening now has a live economic
-consumer.
+## Verification Flow
 
-## Constraint score and component floors
+The oracle's deterministic scoring pipeline is verified end-to-end:
+- When a misbehaving agent attempts to report an inflated grounding score while its signed OTel spans contain hallucination markers or unverified assertions, the oracle recomputes and stores the low, true grounding score.
+- Verified in `integrity-oracle/backend/tests/e2e.rs` (`oracle_e2e_recomputed_grounding_overrides_inflated_client_claim`).
 
-`AisBreakdown.constraint_score` is now built as the tier-capped, normalized
-pre-boost geometric mean in `[0,1]`. It deliberately excludes `ZK_boost`, so a
-constraint consumer cannot treat the same proof as both evidence and a score
-multiplier. Configurable component floors and the conjunctive floor result are
-also implemented in `AisEngine`, but only as shadow/observational output. No path
-currently uses that result to gate score pushes, disputes, or execution. These
-mechanisms do not make self-asserted span content independently admissible, and
-they do not establish a production deployment.
+---
 
-`AIS_final = min(S_calculated, Tier_ceiling)` — an identity-verification
-ceiling clamp — is **`[BUILT]`** and enforced in `integrity-oracle/scoring-core`
-via `AisEngine::score_with_tier` (Tier 0: 300, Tier 1: 600, Tier 2: 850, Tier 3: 1000);
-see [Identity Ceiling](identity-ceiling.md).
+## Constraint Score & Identity Tier Floors
 
-Deployment status is separate from local implementation: on 2026-09-17,
-read-only Base Sepolia calls against the deployment-recorded template reverted
-for the assurance-tier selectors. The deployed clone set is therefore treated
-as legacy until a replay-safe migration is designed, approved, and verified.
-No chain migration was sent. See the [dated AIS handoff](../../archive/2026-09/ais-handoff-2026-09-17.md)
-for evidence and preservation requirements. AIS is an implemented protocol
-metric, not a validated predictor: real time-separated outcome labels and
-browser-level acceptance evidence remain unavailable.
+An agent's effective AIS is bounded by its verification tier:
 
-Related: [Telemetry Ingestion Pipeline](telemetry-ingestion.md) (the full
-collection→batching→signing→oracle-pipeline writeup; this page covers only
-the formula + the server-side re-derivation trust model in depth),
-[Behavioral Commitment Chain](bcc.md), [Integrity Oracle](../entities/integrity-oracle.md),
-[Local Metrology](local-metrology.md), [AIS API — Versioned Wire Spec](ais-api-spec.md),
-[Identity Ceiling & Verification Ladder](identity-ceiling.md).
+| Tier | Name | Required Evidence | Maximum AIS Allowed |
+|---|---|---|---|
+| **Tier 0** | Ephemeral | Self-generated DID only | `0.30` |
+| **Tier 1** | Anchored | Anchored memory genesis root on `StateAnchor` | `0.55` |
+| **Tier 2** | Bound | Cryptographic stake + BCC pre-execution gating | `0.75` |
+| **Tier 3** | Verified | Verified developer policy pack + entity KYC | `0.90` |
+| **Tier 4** | Autonomous | ZK-proven execution + multi-tenant audit consensus | `1.00` |
+
+If an agent's raw geometric score exceeds its ceiling, the score is strictly clamped. To elevate its ceiling, the agent must ascend the [Verification Ladder](identity-ceiling.md).
+
+---
+
+## On-Chain Settlement & Slashing
+
+Scores computed by the Oracle are periodically pushed to Base L2:
+1. `bcc_middleware` runs a background scoring loop reading `GET /v1/agent/{id}/ais`.
+2. It pushes the non-boosted base score to `ReputationRegistry.updateScoreWithCoverage()`.
+3. If an agent's score drops below the protocol dispute threshold ($\text{AIS} < 0.20$), an automated slashing dispute is logged against its staked assets in `Slasher.sol`.

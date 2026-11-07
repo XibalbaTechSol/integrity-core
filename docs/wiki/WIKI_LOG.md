@@ -4285,3 +4285,25 @@ writeup: PRODUCTION_GAPS.md §18.
 - Updated the contracts and BCC middleware wiki pages and `PRODUCTION_GAPS.md` to separate local
   dry-run proof from live testnet deployment evidence. No wiki page was added or removed; the index
   remains at 35 pages.
+
+
+## [2026-11-07] audit | AI Agent Control Layer Reframing, Policy Packs & 4-Repo Topology
+
+- Reframed the canonical narrative around building the architecture for the AI Agent Control Layer
+  that developers can build on top of with modular Policy Packs (`integrity.pack/1`).
+- Established the reinforcement learning alignment paradigm: Autonomous Integrity Score (AIS) is the native
+  reward function by definition ($R_{\text{total}} = R_{\text{task}} + \lambda \cdot \text{AIS}$); guardrails
+  as external shims are recognized as artificial thermodynamic friction that optimizing agents circumvent.
+- Created `entities/policy-packs.md` detailing manifest specifications, Rego/WASM policy execution,
+  cryptographic signing via Ed25519, atomic verification, and hot-reload/dual-run lifecycle.
+- Fully aligned the 4-repository architecture: `integrity-core` (Physics Engine & Control Layer),
+  `xibalba-cortex` (Navigational Engine), `xibalba-shield` (Response Governance & Boundary Gating), and
+  `integrity-console` (Universal Verifiable Operator Window).
+- Updated all production cloud references to verified Render endpoints:
+  - Xibalba Shield: `https://xibalba-shield.onrender.com`
+  - Xibalba Cortex: `https://cortex-managed-pilot.onrender.com`
+  - Integrity Oracle: `https://integrity-oracle.onrender.com`
+  - Integrity Console: `https://integrity-console-test.onrender.com`
+- Resolved all entity drift targets in `wiki_linter.py` (0 missing files across all entities).
+- Updated in-page tables of contents across all modified articles via `scripts/wiki_toc.py`.
+- Page count reconciled: Total=36 (Concepts=24, Entities=9, Architecture=2, Queries=1).

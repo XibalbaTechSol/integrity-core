@@ -1,18 +1,20 @@
 ---
 title: integrity-sdk
 created: 2026-07-07
-updated: 2026-10-06
+updated: 2026-11-07
 type: entity
-tags: [sdk, identity, metrics, infrastructure]
+tags: [sdk, identity, metrics, infrastructure, policy-packs, control-layer]
 confidence: high
 source_files:
   - integrity-sdk/integrity_sdk/registration.py
   - integrity-sdk/integrity_sdk/wallet.py
   - integrity-sdk/integrity_sdk/chain.py
   - integrity-sdk/integrity_sdk/bcc.py
-  - integrity-sdk/integrity_sdk/markets.py
   - integrity-sdk/integrity_sdk/client.py
   - integrity-sdk/integrity_sdk/batcher.py
+  - integrity-sdk/integrity_sdk/core/packs.py
+  - integrity-sdk/integrity_sdk/core/pack_distribution.py
+  - integrity-sdk/integrity_sdk/core/decision.py
   - integrity-sdk/integrity_sdk/telemetry/mlflow_tracing.py
   - integrity-sdk/integrity_sdk/telemetry/derive.py
   - integrity-sdk/integrity_sdk/telemetry/tracing.py
@@ -20,9 +22,7 @@ source_files:
   - integrity-sdk/integrity_sdk/telemetry/metrics.py
   - integrity-sdk/integrity_sdk/integrations/openai_integrity.py
   - integrity-sdk/integrity_sdk/integrations/langchain_callback.py
-  - integrity-sdk/integrity_sdk/integrations/auto_hook.py
   - integrity-sdk/integrity_sdk/security/redactor.py
-  - integrity-sdk/integrity_sdk/mcp_server.py
   - integrity-sdk/integrity_sdk/evidence_anchor.py
   - integrity-sdk/tests/test_evidence_anchor.py
   - integrity-sdk/integrity_sdk/hook_runner.py
@@ -42,7 +42,7 @@ source_files:
 ---
 
 
-The agent-facing Python library. It gives an AI agent everything it needs to
+The primary developer SDK for building autonomous agents on top of Integrity Protocol (Python 3.12+). It provides the complete toolkit to give an AI agent a self-sovereign cryptographic identity, compile and load [Policy Packs](policy-packs.md), intercept tool calls via [BCC pre-execution hooks](../concepts/bcc.md), stream privacy-preserving OpenTelemetry, and calculate local metrology.
 become a self-sovereign, on-chain, reputation-bearing participant.
 
 ## Table of contents
