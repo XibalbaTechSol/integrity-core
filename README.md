@@ -1,14 +1,59 @@
 # Integrity Protocol — v1.0.0-draft
 
-**The compliance gap.** Regulatory counterparties and agent principals need cryptographic proof that an autonomous AI agent's behavior matches its claims. No off-chain system can provide this: once the agent is gone, there's no neutral party to ask. Integrity Protocol solves this by anchoring behavior claims on-chain so a regulator can verify them later, independent of the agent's cooperation.
+> **The Physics Engine of the Machine Economy**
 
-**The guarantee.** Agents deploy their own identity contracts, anchor telemetry roots, and submit commitments signed by their own key — so the chain proves they control what happened. A scored reputation (AIS) gates participation in sensitive domains. A pre-execution policy layer (`bcc_middleware`) refuses risky actions before they commit. Evidence is redacted to protect regulated content (PHI/PII) while preserving enough signal for trust computation.
+Autonomous AI agents have become economic principals: they control capital, negotiate contracts, query sensitive records, and execute irreversible real-world actions without a human in the loop. The conventional AI industry treats safety and compliance as external "guardrails"—software shims placed around generative models. 
 
-Four active repositories, one bounded loop:
-- **Integrity Protocol** (this repo): the trust & scoring primitives (`integrity-core`) and the oracle that computes authoritative reputation
-- **Xibalba Shield**: endpoint security and enforcement; produces signed evidence for the oracle
-- **Xibalba Cortex**: agent's local memory store; anchors session roots into the protocol
-- **Integrity Console**: independent operator UI and user API; holds no protocol authority
+From a first-principles physics and control theory standpoint, **guardrails are merely artificial thermodynamic friction**. In any Reinforcement Learning (RL) environment, an agent optimizes its policy to maximize its reward function by finding the lowest-energy path around obstacles. If integrity and compliance are external barriers, an agent will inevitably optimize to circumvent them.
+
+**Integrity Protocol solves this by making the Autonomous Integrity Score (AIS) the native reward function by definition:**
+
+$$R_{\text{total}} = R_{\text{task}} + \lambda \cdot \text{AIS}$$
+
+Where:
+- $R_{\text{task}}$ is the domain objective (biological efficacy, quantitative yield, code synthesis, diagnostic accuracy).
+- $\text{AIS} \in [0, 1]$ is the deterministic integrity score computed by the protocol oracle from non-malleable cryptographic telemetry.
+- $\lambda > 0$ is the coupling coefficient aligning the agent's Markov Decision Process (MDP) with verifiable truth.
+
+When integrity is the mathematical reward, verifiable behavior is no longer an external compliance tax—it is the optimal policy path. An ungrounded hallucination, broken behavioral commitment, or unauthorized action causes immediate reward collapse ($\text{AIS} \to 0$), slashing of staked assets, and on-chain revocation of execution rights.
+
+**The path itself is the proof.**
+
+---
+
+## The Four-Repository Ecosystem Topology
+
+The Integrity Ecosystem aligns autonomous machine behavior with cryptographic and thermodynamic reality across four specialized repositories:
+
+| Repository | Role | Paradigm & Function |
+|---|---|---|
+| **`integrity-core`** (this repo) | **🦴 The Physics Engine of the Machine Economy** | Implements the Autonomous Integrity Score (AIS) as the deterministic reward function ($R_{\text{total}} = R_{\text{task}} + \lambda \cdot \text{AIS}$). Governs on-chain DIDs, Behavioral Commitment Chains (BCC), Merkle state anchors, cryptographic state verification, and the on-chain execution firewall. |
+| **`xibalba-cortex`** | **🧠 The Navigational Engine** | Neuro-symbolic knowledge graph and active inference engine. Replaces probabilistic text generation with geometric graph traversal (R-GCN + TKGE/TransE), dynamic logit masking, temporal event reification, and domain connectors (Biomedical/MIMIC-IV, FHIR live-feeds, ChEMBL, CMS economic cost friction $\lambda C(e)$). |
+| **`xibalba-shield`** | **🛡️ Cryptographic Topology & Response Governance** | Enforces topological boundary gating, zero-probability unauthorized state spaces, and vendor-neutral response governance across enterprise EDRs (CrowdStrike, Defender) and AI agents (MCP, SOAR). *"The EDR detects and acts; Shield proves who authorized it."* Produces tamper-evident audit ledgers and HIPAA assurance packets. |
+| **`integrity-console`** | **👁️ The Universal Verifiable Operator Window** | Unified presentation and account layer. Visualizes agent graph navigation trajectories, multi-agent DID credentials, AIS score distributions, real-time response approval queues, and cryptographic Merkle verification. |
+
+```mermaid
+flowchart LR
+    subgraph Agents["Autonomous AI Agents & Runtimes"]
+        A["Agent / Researcher / LLM"] -->|"1. Geometric Graph Traversal<br/>(R-GCN + dynamic logit masking)"| C["🧠 xibalba-cortex<br/>(The Navigational Terrain)"]
+        A -->|"2. Response Intent<br/>(hash-bound authorization)"| S["🛡️ xibalba-shield<br/>(Boundary Gating)"]
+    end
+    subgraph Data["Knowledge Ingestion & Live Connectors"]
+        D1["Biomedical / Clinical<br/>MIMIC-IV · FHIR live-feeds"] --> C
+        D2["Chemistry & Genetics<br/>ChEMBL · PubChem · ClinVar"] --> C
+        D3["Health Economics<br/>CMS pricing friction"] --> C
+    end
+    subgraph Core["Integrity Protocol (This Repo)"]
+        C -->|"Session Merkle roots &<br/>state verification"| P["🦴 integrity-core<br/>(AIS Reward Engine & Physics)"]
+        S -->|"Signed action receipts &<br/>audit ledgers"| P
+        P -.->|"AIS feedback loop<br/>R = R_task + λ·AIS"| A
+    end
+    subgraph Console["Auditor & Operator Surface"]
+        P -->|"Verified AIS & chain state"| O["👁️ integrity-console<br/>(Graph trajectories & ledger)"]
+    end
+```
+
+---
 
 ## Canonical documents
 
@@ -32,18 +77,16 @@ Four active repositories, one bounded loop:
 
 ## Packages and deliverables
 
-This single repository contains six independently-versioned packages, orchestrated by a root Makefile. See each package's own README for detailed documentation.
+This single repository contains six independently-versioned packages that form the deterministic physics substrate of the ecosystem, orchestrated by a root Makefile. Operator surfaces (`integrity-dashboard` and `integrity-userapi`) are hosted independently in [`integrity-console`](https://github.com/XibalbaTechSol/integrity-console).
 
 | Package | Role | Status |
 |---|---|---|
 | `contracts/` | On-chain primitives: identity, reputation, HIPAA/healthcare vertical, experimental Phase I kernel slice | 250 tests locally; Base Sepolia genesis deployed |
 | `integrity-zkp/` | Real Noir/Barretenberg ZK circuit for intent binding and reputation boost | Real pipeline working locally; Base Sepolia verifier holds placeholder bytecode |
-| `integrity-oracle/` | Telemetry ingestion, AIS computation, on-chain reads, markets/leaderboard/governance APIs | 80 lib + 9 e2e tests locally; single-operator oracle |
+| `integrity-oracle/` | Telemetry ingestion, deterministic AIS computation, on-chain reads, markets/leaderboard/governance APIs | 80 lib + 9 e2e tests locally; single-operator oracle |
 | `integrity-sdk/` | Agent library: identity, wallet, registration, telemetry, BCC, markets | 259 tests locally |
 | `integrity-cli/` | Developer CLI: standalone identity/wallet/registration reimplementation (not a wrapper around SDK) | 57 tests locally |
 | `bcc_middleware/` | Pre-execution policy gate, HIPAA BAA check, Merkle anchoring | 91 pytest + 28 OPA policy tests locally |
-| `integrity-userapi/` | User accounts, API keys, JWT, login rate limiting | 51 tests locally |
-| `integrity-dashboard/` | Operator dashboard and closed-loop demo scenario engine | 9 vitest + 20 Playwright e2e tests locally |
 
 For exact per-component status, see [docs/SPEC.md](docs/SPEC.md) §13.
 
@@ -51,7 +94,7 @@ For exact per-component status, see [docs/SPEC.md](docs/SPEC.md) §13.
 
 The protocol's flagship proof is a healthcare-specific gateway that ensures agents handling PHI (Protected Health Information) are cryptographically compliant: anchored memory, reputation floors, pre-execution policy gates, and HIPAA Business Associate Agreements.
 
-On registration, a healthcare agent must declare compliance and anchor its controllers to a `CoveredEntity` (hospital, clinic, insurer). The dashboard surfaces live BAA status, patient-data audit trails, and escalation workflows for policy violations. This is not a side feature — it's the demonstration that makes the rest of the protocol credible for regulated domains.
+On registration, a healthcare agent must declare compliance and anchor its controllers to a `CoveredEntity` (hospital, clinic, insurer). The operator console surfaces live BAA status, patient-data audit trails, and escalation workflows for policy violations. This is not a side feature — it is the demonstration that makes the rest of the protocol credible for regulated domains.
 
 ## Core concepts
 
@@ -61,7 +104,11 @@ On registration, a healthcare agent must declare compliance and anchor its contr
 
 **Authority (Primitive #3):** In Integrity Health (healthcare), agents must bind their controllers to a `CoveredEntity` and agree to a HIPAA Business Associate Agreement. Pre-execution policy gates refuse risky actions before they commit.
 
-**Reputation (Primitive #4):** The Agent Integrity Score (AIS) is a weighted geometric mean of four component signals: entropy (reasoning diversity), grounding (cite backing), sacrifice (resource commitment), and compliance (rule adherence). Zero in any component means zero overall — aspirational averaging has no place here.
+**Reputation as the Native Reward Function (Primitive #4):** The Autonomous Integrity Score (AIS) is the native reward function of the machine economy:
+$$R_{\text{total}} = R_{\text{task}} + \lambda \cdot \text{AIS}$$
+AIS is computed as a weighted geometric mean of four deterministic component signals: entropy (reasoning diversity), grounding (cite backing), sacrifice (resource commitment), and compliance (rule adherence):
+$$\text{AIS} = \left( S_{\text{entropy}}^{w_e} \cdot S_{\text{grounding}}^{w_g} \cdot S_{\text{sacrifice}}^{w_s} \cdot S_{\text{compliance}}^{w_c} \right)^{\frac{1}{\sum w}}$$
+Zero in any component yields zero overall ($0 \cdot x = 0$) — aspirational averaging has no place here. A score collapse to zero eliminates task rewards, triggers automatic stake slashing, and shuts down execution privileges across all ecosystem gates.
 
 For the full conceptual derivation, see [docs/SPEC.md](docs/SPEC.md) §4.
 
