@@ -1,32 +1,59 @@
 # Xibalba Ecosystem Authority
 
-This document defines the product and authority boundaries for the four active repositories. The execution sequence is defined in `INTEGRITY_ECOSYSTEM_PLAN.md`; current gaps are defined in `STATUS.md`; data handling is defined in `DATA.md`; individual architectural decisions are defined in ADRs.
+**Status:** Current Architecture & Authority Specification  
+**Authority:** Product relationships and operational boundaries across the four active repositories.  
+**Related Documents:**
+- [`INTEGRITY_ECOSYSTEM_PLAN.md`](INTEGRITY_ECOSYSTEM_PLAN.md) — Implementation sequencing and phase gates
+- [`DATA.md`](DATA.md) — Data retention, purge, and evidence boundaries
+- [`STATUS.md`](STATUS.md) — Active implementation gaps
 
-## Products
+---
 
-- **Integrity/kernel:** identity, signed packs, receipts, verification, anchoring, and on-chain value enforcement.
-- **Shield:** on-device policy enforcement, device control, evidence generation, and compliance exports.
-- **Cortex:** tenant-scoped memory/content, provenance, retention, retrieval, and memory proofs.
-- **Console:** operator UI and user-facing API for the products; it does not become an authority over Shield, Cortex, or Integrity.
+## Products & Roles
 
-Shield and Cortex remain independently deployable and monetizable. They depend on Integrity-compatible identity, pack, receipt, and verification contracts, but do not require public-chain or Oracle availability for local enforcement or retrieval.
+1. **`integrity-core` (The Physics Engine of the Machine Economy):**
+   - Implements the Autonomous Integrity Score (AIS) as the native reward function ($R_{\text{total}} = R_{\text{task}} + \lambda \cdot \text{AIS}$).
+   - Governs on-chain DIDs (`did:integrity`), signed BCC packs, receipts, verification, Merkle state anchoring, and execution-firewall enforcement.
+   - Computes authoritative reputation and processes slashing on invariant violations.
 
-## Authority map
+2. **`xibalba-cortex` (The Navigational Engine):**
+   - Governed neuro-symbolic knowledge graph and active inference engine.
+   - Enforces geometric graph traversal (R-GCN + TKGE/TransE) and dynamic logit masking ($z_{\text{masked}} = z \circ M + (-\infty \times (1 - M))$).
+   - Ingests biomedical research, EHR records, and economic indicators; performs temporal event reification.
+   - Traverses verified edges; computes session Merkle roots anchored into `integrity-core`.
+
+3. **`xibalba-shield` (Cryptographic Topology & Response Governance):**
+   - Enforces topological boundary gating, ensuring zero probability of reaching unauthorized states.
+   - Provides vendor-neutral EDR response governance (CrowdStrike, Defender, SentinelOne) and agent execution gating (MCP, SOAR).
+   - *"The EDR detects and acts; Shield proves who authorized it."*
+   - Produces signed, tamper-evident action receipts and HIPAA compliance assurance.
+
+4. **`integrity-console` (The Universal Verifiable Operator Window):**
+   - Independent operator presentation and account layer.
+   - Renders live graph navigation trajectories, multi-agent DID verification tiers, AIS distributions, and real-time response approval queues.
+   - Holds no protocol authority; verifies all state cryptographically against `integrity-core`.
+
+---
+
+## Authority Map
 
 | Claim | Authority |
 |---|---|
-| Whether an action is allowed | Shield/BCC policy receipt |
+| Whether an action is permissible | Shield boundary gate & BCC policy receipt |
+| Whether an EDR remediation is authorized | Shield Response Gateway with signed hash-bound intent |
 | Whether a receipt is authentic and chained | SDK receipt verifier |
-| Whether content was stored | Cortex content/provenance store |
-| Whether memory was available at spot-check time | Cortex retrieval proof |
-| Whether a root was anchored | StateAnchor |
+| Whether content was stored | Cortex content and provenance store |
+| Whether memory/path existed at spot-check time | Cortex retrieval proof and topological edge trace |
+| Whether a root was anchored | `StateAnchor` contract |
 | Authoritative AIS | Oracle/scoring-core; local AIS is self-reported feedback |
-| Optional Jev recommendation | Jev annotation only; never policy authority |
+| Health economic cost friction | Cortex CMS fee schedule weighting |
 
-## Evidence boundary
+---
+
+## Evidence Boundary
 
 Source inspection, build/test evidence, local runtime evidence, live service evidence, Oracle/BCC evidence, public-chain evidence, and production evidence are separate classes. A missing external service is reported as unavailable or unverified, not as zero or absent.
 
 ## Extensibility
 
-Pure pack adapters are deterministic and offline. Network-facing integrations are connectors with separate credentials, egress policy, and redacted records. Neither can override deny, sign enforcement receipts, anchor evidence, or bypass tenant boundaries. There is no on-chain adapter registry in v1.
+Pure pack adapters are deterministic and offline. Network-facing integrations are connectors with separate credentials, egress policy, and redacted records. Neither can override deny, sign enforcement receipts, anchor evidence, or bypass tenant boundaries.
