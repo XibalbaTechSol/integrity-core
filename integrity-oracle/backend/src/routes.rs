@@ -30,6 +30,10 @@ pub fn router(state: AppState) -> Router {
             "/v1/agent/{id}/reconciliation",
             get(handlers::get_intent_outcome_reconciliation),
         )
+        .route(
+            "/v1/agent/{id}/anchoring-coverage",
+            get(handlers::get_agent_anchoring_coverage),
+        )
         // Verification Ladder (rungs 2/3). The challenge endpoint issues a
         // server-generated nonce; the verify endpoint resolves DNS itself over DoH
         // and checks the signature with the pubkey from registration -- nothing in

@@ -4431,6 +4431,21 @@ pub async fn get_intent_outcome_reconciliation(
     ))
 }
 
+/// Anchoring coverage for an agent: of the actions it actually executed, what fraction
+/// carried a prior signed intent. Aggregates the last 500 reconciliation rows. See
+/// `db::agent_anchoring_coverage`. Findings (unanchored/conflicted executions) are capped at 50.
+pub async fn get_agent_anchoring_coverage(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<db::AnchoringCoverage>, AppError> {
+    db::get_agent(&state.pool, &id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(id.clone()))?;
+    Ok(Json(
+        db::agent_anchoring_coverage(&state.pool, &id, 500, 50).await?,
+    ))
+}
+
 #[cfg(test)]
 mod telemetry_version_tests {
     use super::*;
