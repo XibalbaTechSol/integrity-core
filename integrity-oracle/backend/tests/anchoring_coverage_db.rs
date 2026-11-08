@@ -121,7 +121,7 @@ async fn shield_witness_covers_a_full_bypass_agent_with_no_self_reported_rows() 
         window_end: now - Duration::seconds(90),
         executions_witnessed: 5,
         executions_suppressed: 2,
-        attribution_confidence: 0.95,
+        attribution_confidence: 9500,
         tree_fingerprint: "sha256:treefp",
         gate_receipt_ref: None,
         record_hash: &h0,
@@ -188,7 +188,7 @@ async fn shield_witness_sequence_gap_reads_as_incomplete() {
                 window_end: now - Duration::seconds(30),
                 executions_witnessed: 4,
                 executions_suppressed: 0,
-                attribution_confidence: 0.9,
+                attribution_confidence: 9000,
                 tree_fingerprint: "sha256:treefp",
                 gate_receipt_ref: None,
                 record_hash: rhash,
@@ -205,4 +205,93 @@ async fn shield_witness_sequence_gap_reads_as_incomplete() {
     assert_eq!(cov.executions_suppressed, None, "suppressed is only trusted when the witness is complete");
     assert_eq!(cov.coverage_ratio, None, "incomplete witness + nothing self-reported -> None, not a high ratio");
     assert_eq!(cov.coverage_basis, "self_reported", "falls back to (and labels) the self-reported basis");
+}
+
+/// Exercises the leading-edge boundary SQL (`global_min` / predecessor-exists): a dropped PREFIX —
+/// sequences missing between the device's history and the window's first in-window row — is
+/// invisible to interior contiguity and must be caught by the boundary check.
+#[tokio::test]
+async fn shield_witness_leading_edge_boundary_check() {
+    if std::env::var("INVOCATION_DB_TEST").ok().as_deref() != Some("1") {
+        eprintln!("SKIP shield witness DB test (set INVOCATION_DB_TEST=1)");
+        return;
+    }
+    let db_url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL is required");
+    let pool = db::create_pool(&db_url).await.expect("Postgres reachable");
+    db::run_migrations(&pool).await.expect("migrations apply");
+
+    let agent = format!("did:integrity:leading-{}", Uuid::new_v4().simple());
+    let device = format!("did:integrity:shield-dev-{}", Uuid::new_v4().simple());
+    db::register_agent(&pool, &agent, None, Some("0x".to_owned() + &"e".repeat(40)), 1, None)
+        .await
+        .expect("register agent");
+
+    let now = Utc::now();
+    let old = now - Duration::hours(2); // before the 1h lookback -> history, not in the window
+    let fresh = now - Duration::seconds(30);
+
+    // History 0..=4 (old, out of window), fresh in-window 6,7 — sequence 5 initially MISSING.
+    let mut plan: Vec<(i64, chrono::DateTime<chrono::Utc>)> = (0..=4).map(|s| (s, old)).collect();
+    plan.push((6, fresh));
+    plan.push((7, fresh));
+    for (seq, end) in &plan {
+        let rh = format!("0x{seq:064}");
+        db::insert_shield_observation(
+            &pool,
+            &db::ShieldObservationInsert {
+                device_id: &device,
+                sequence: *seq,
+                agent_id: &agent,
+                window_start: *end - Duration::seconds(60),
+                window_end: *end,
+                executions_witnessed: 2,
+                executions_suppressed: 0,
+                attribution_confidence: 9000,
+                tree_fingerprint: "sha256:fp",
+                gate_receipt_ref: None,
+                record_hash: &rh,
+                prev_hash: None,
+                device_signature: "sig-placeholder",
+            },
+        )
+        .await
+        .expect("insert observation");
+    }
+
+    // Case A: the in-window window starts at 6, whose predecessor 5 is absent -> incomplete.
+    let cov = db::agent_anchoring_coverage(&pool, &agent, 500, 50).await.expect("coverage");
+    assert_eq!(
+        cov.witness_complete,
+        Some(false),
+        "a dropped predecessor (seq 5) must make the leading edge incomplete",
+    );
+
+    // Case B: supply the missing predecessor (seq 5, old) -> the boundary now connects to history.
+    let rh5 = format!("0x{:064}", 5);
+    db::insert_shield_observation(
+        &pool,
+        &db::ShieldObservationInsert {
+            device_id: &device,
+            sequence: 5,
+            agent_id: &agent,
+            window_start: old - Duration::seconds(60),
+            window_end: old,
+            executions_witnessed: 2,
+            executions_suppressed: 0,
+            attribution_confidence: 9000,
+            tree_fingerprint: "sha256:fp",
+            gate_receipt_ref: None,
+            record_hash: &rh5,
+            prev_hash: None,
+            device_signature: "sig-placeholder",
+        },
+    )
+    .await
+    .expect("insert predecessor");
+    let cov = db::agent_anchoring_coverage(&pool, &agent, 500, 50).await.expect("coverage");
+    assert_eq!(
+        cov.witness_complete,
+        Some(true),
+        "with the predecessor present, the window connects to history and reads complete",
+    );
 }

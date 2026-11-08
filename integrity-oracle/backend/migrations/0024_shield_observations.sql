@@ -34,9 +34,14 @@ CREATE TABLE IF NOT EXISTS shield_observations (
     executions_witnessed    BIGINT      NOT NULL,
     -- Attributed trees with NO gate receipt -- the full-bypass count, a subset of witnessed.
     executions_suppressed   BIGINT      NOT NULL,
-    -- Device-local process->agent attribution is a heuristic; low confidence is surfaced, never
-    -- auto-counted as a bypass (enforced in the coverage read, carried here for the operator).
-    attribution_confidence  REAL        NOT NULL,
+    -- Device-local process->agent attribution is a heuristic; the confidence is carried here for
+    -- the operator, as integer BASIS POINTS (0..10000 = 0.0..1.0). Integer, not REAL, deliberately:
+    -- this value lives inside the JCS-canonicalized, signed record, and a float is the classic
+    -- cross-language (Python emitter <-> Rust verifier) canonicalization mismatch. [PLANNED]
+    -- threshold-based down-weighting (excluding a low-confidence tree from `executions_suppressed`,
+    -- surfacing it separately) is NOT yet wired into the coverage read -- until it is, this column
+    -- is stored and surfaced but does not yet gate any count.
+    attribution_confidence  INTEGER     NOT NULL,
     tree_fingerprint        TEXT        NOT NULL,
     -- Optional reference to the gate-receipt chain position when the tree's root call was gated.
     gate_receipt_ref        TEXT,
@@ -56,7 +61,7 @@ CREATE TABLE IF NOT EXISTS shield_observations (
     CONSTRAINT shield_observations_suppressed_subset
         CHECK (executions_suppressed <= executions_witnessed),
     CONSTRAINT shield_observations_confidence_unit
-        CHECK (attribution_confidence >= 0.0 AND attribution_confidence <= 1.0),
+        CHECK (attribution_confidence >= 0 AND attribution_confidence <= 10000),
     CONSTRAINT shield_observations_window_order
         CHECK (window_end >= window_start)
 );

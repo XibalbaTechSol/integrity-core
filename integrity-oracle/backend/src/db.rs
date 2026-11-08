@@ -2276,9 +2276,17 @@ async fn shield_witness_summary(
     let now = Utc::now();
     let since = reconciliation::witness_query_since(reconcile_min, now, DEFAULT_WITNESS_LOOKBACK_SECS);
 
+    // Fetch the DEVICE-WIDE in-window chain for every device that witnessed this agent: a device
+    // numbers its sequence across all agents it sees (Claude/Codex/Agy on one host), so contiguity
+    // must span the whole chain. `is_target` marks this agent's own rows, from which the counts and
+    // freshness are taken (see `evaluate_shield_witness`).
     let rows = sqlx::query_as::<_, ShieldObsRecord>(
-        "SELECT device_id, sequence, executions_witnessed, executions_suppressed, window_end \
-         FROM shield_observations WHERE agent_id = $1 AND window_end >= $2 \
+        "SELECT device_id, sequence, executions_witnessed, executions_suppressed, window_end, \
+                (agent_id = $1) AS is_target \
+         FROM shield_observations \
+         WHERE window_end >= $2 \
+           AND device_id IN ( \
+               SELECT device_id FROM shield_observations WHERE agent_id = $1 AND window_end >= $2) \
          ORDER BY device_id, sequence",
     )
     .bind(agent_id)
@@ -2424,7 +2432,8 @@ pub struct ShieldObservationInsert<'a> {
     pub window_end: DateTime<Utc>,
     pub executions_witnessed: i64,
     pub executions_suppressed: i64,
-    pub attribution_confidence: f32,
+    /// Integer basis points (0..10000); see the migration on why this is not a float.
+    pub attribution_confidence: i32,
     pub tree_fingerprint: &'a str,
     pub gate_receipt_ref: Option<&'a str>,
     pub record_hash: &'a str,

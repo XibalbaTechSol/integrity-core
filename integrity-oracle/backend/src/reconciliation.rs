@@ -34,6 +34,11 @@ pub struct ShieldObsRecord {
     pub executions_witnessed: i64,
     pub executions_suppressed: i64,
     pub window_end: DateTime<Utc>,
+    /// True when this record is for the agent coverage is being computed for. A device's sequence
+    /// is numbered PER DEVICE across every agent it witnesses (Claude, Codex, Agy on one host), so
+    /// chain contiguity must be judged over the device's WHOLE in-window chain, while the counts
+    /// and freshness that belong to this agent come only from its own (`is_target`) rows.
+    pub is_target: bool,
 }
 
 /// The reference time from which to query Shield's witness for a coverage window.
@@ -59,33 +64,41 @@ pub fn witness_query_since(
 /// window). Interior contiguity is checked here from `records`; the leading edge cannot be, because
 /// the dropped rows are, by definition, absent from the in-window slice.
 ///
-/// `complete` requires interior contiguity AND `boundary_ok` AND freshness. A missing or stale or
-/// gapped witness reads `complete=false`, never as perfect coverage — the §6.10 guardrail:
-/// witness-unavailable is `None`, never 1.0.
+/// `records` are the device-wide in-window rows (every agent the witnessing devices saw); the
+/// counts and freshness come only from `is_target` rows, while contiguity spans the whole chain.
+/// `complete` requires interior contiguity AND `boundary_ok` AND freshness AND that this agent is
+/// present at all. A missing/stale/gapped witness reads `complete=false`, never as perfect
+/// coverage — the §6.10 guardrail: witness-unavailable is `None`, never 1.0.
 pub fn evaluate_shield_witness(
     records: &[ShieldObsRecord],
     boundary_ok: bool,
     now: DateTime<Utc>,
 ) -> WitnessSummary {
-    if records.is_empty() {
+    let mut witnessed = 0i64;
+    let mut suppressed = 0i64;
+    let mut latest_target: Option<DateTime<Utc>> = None;
+    let mut present = false;
+    let mut per_device: std::collections::HashMap<&str, Vec<i64>> = std::collections::HashMap::new();
+
+    for r in records {
+        // Contiguity is a DEVICE property: every in-window record counts toward the chain, whichever
+        // agent it names, because a dropped record could belong to any of them.
+        per_device.entry(r.device_id.as_str()).or_default().push(r.sequence);
+        if r.is_target {
+            present = true;
+            witnessed += r.executions_witnessed;
+            suppressed += r.executions_suppressed;
+            latest_target = Some(latest_target.map_or(r.window_end, |l| l.max(r.window_end)));
+        }
+    }
+
+    if !present {
         return WitnessSummary {
             present: false,
             complete: false,
             witnessed: 0,
             suppressed: 0,
         };
-    }
-
-    let mut witnessed = 0i64;
-    let mut suppressed = 0i64;
-    let mut latest: Option<DateTime<Utc>> = None;
-    let mut per_device: std::collections::HashMap<String, Vec<i64>> = std::collections::HashMap::new();
-
-    for r in records {
-        witnessed += r.executions_witnessed;
-        suppressed += r.executions_suppressed;
-        latest = Some(latest.map_or(r.window_end, |l| l.max(r.window_end)));
-        per_device.entry(r.device_id.clone()).or_default().push(r.sequence);
     }
 
     // Interior contiguity: within a `window_end >= since` slice the in-window sequences must form a
@@ -99,7 +112,9 @@ pub fn evaluate_shield_witness(
         }
     });
 
-    let fresh = latest.is_some_and(|l| (now - l).num_seconds() <= WITNESS_STALENESS_SECS);
+    // Freshness is this agent's own: an idle agent whose last witnessed window is old is stale even
+    // if the device is still reporting for other agents.
+    let fresh = latest_target.is_some_and(|l| (now - l).num_seconds() <= WITNESS_STALENESS_SECS);
 
     WitnessSummary {
         present: true,
@@ -132,13 +147,38 @@ mod tests {
     use chrono::Duration;
 
     fn rec(device: &str, seq: i64, w: i64, s: i64, end: DateTime<Utc>) -> ShieldObsRecord {
+        rec_tgt(device, seq, w, s, end, true)
+    }
+
+    fn rec_tgt(device: &str, seq: i64, w: i64, s: i64, end: DateTime<Utc>, is_target: bool) -> ShieldObsRecord {
         ShieldObsRecord {
             device_id: device.into(),
             sequence: seq,
             executions_witnessed: w,
             executions_suppressed: s,
             window_end: end,
+            is_target,
         }
+    }
+
+    #[test]
+    fn test_shield_witness_interleaved_agents_on_one_device_stays_complete() {
+        // One device numbers sequences across THREE agents it witnesses. For the target agent the
+        // in-window rows are {0, 3} — which, filtered to the target, would look like a gap — but the
+        // device's full chain {0,1,2,3} is contiguous, so the target agent must still read complete.
+        let now = Utc::now();
+        let records = vec![
+            rec_tgt("dev-1", 0, 4, 1, now - Duration::seconds(80), true),  // target
+            rec_tgt("dev-1", 1, 9, 0, now - Duration::seconds(70), false), // other agent
+            rec_tgt("dev-1", 2, 9, 0, now - Duration::seconds(60), false), // other agent
+            rec_tgt("dev-1", 3, 2, 0, now - Duration::seconds(50), true),  // target
+        ];
+
+        let summary = evaluate_shield_witness(&records, true, now);
+        assert!(summary.present);
+        assert!(summary.complete, "a contiguous DEVICE chain must not read as a gap for one of its agents");
+        assert_eq!(summary.witnessed, 6, "counts come only from the target agent's rows (4 + 2)");
+        assert_eq!(summary.suppressed, 1);
     }
 
     #[test]

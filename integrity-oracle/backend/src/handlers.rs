@@ -2533,6 +2533,27 @@ pub async fn create_shield_policy_token(
 /// an observation or vice versa. The device signs `SHIELD_OBS_DOMAIN || JCS(body)` with its DID key.
 const SHIELD_OBS_DOMAIN: &[u8] = b"integrity.shield.observation.v1\x00";
 
+/// Pure: derive the two cryptographic quantities of an observation from its raw JSON —
+/// `(message_to_verify, recomputed_record_hash)`. `message` = `SHIELD_OBS_DOMAIN || JCS(body)`,
+/// where `body` is the record minus `device_signature` and `record_hash`; the recomputed hash is
+/// `0x` + keccak256(JCS(body + device_signature)). Returns `None` iff `raw` is not a JSON object
+/// carrying a string `device_signature`. Works on the EXACT received bytes (no typed-struct
+/// re-serialization), so there is no float/field JCS drift between signer and verifier.
+fn observation_signing_material(raw: &serde_json::Value) -> Option<(Vec<u8>, String)> {
+    let signature = raw.get("device_signature")?.as_str()?.to_owned();
+    let mut body = raw.clone();
+    let obj = body.as_object_mut()?;
+    obj.remove("device_signature");
+    obj.remove("record_hash");
+    let mut message = SHIELD_OBS_DOMAIN.to_vec();
+    message.extend_from_slice(&crypto::canonical_json_bytes(&body));
+    body.as_object_mut()
+        .expect("checked as an object above")
+        .insert("device_signature".to_string(), serde_json::Value::String(signature));
+    let record_hash = format!("0x{}", hex::encode(Keccak256::digest(crypto::canonical_json_bytes(&body))));
+    Some((message, record_hash))
+}
+
 /// One signed, per-device-sequenced Shield witness record (reconciliation Phase 1).
 ///
 /// WIRE CONTRACT (the Shield emitter — a separate xibalba-shield PR — MUST match this byte-for-byte;
@@ -2556,7 +2577,9 @@ pub struct ShieldObservationRequest {
     pub executions_witnessed: i64,
     /// Attributed trees with no gate receipt — the full-bypass count, a subset of witnessed.
     pub executions_suppressed: i64,
-    pub attribution_confidence: f32,
+    /// Attribution confidence as integer BASIS POINTS (0..=10000). Integer, not float, because it
+    /// is inside the JCS-signed body (a float is the classic Python<->Rust canonicalization trap).
+    pub attribution_confidence: i32,
     pub tree_fingerprint: String,
     #[serde(default)]
     pub gate_receipt_ref: Option<String>,
@@ -2624,8 +2647,8 @@ pub async fn ingest_shield_observation(
     {
         return Err(AppError::BadRequest("executions_suppressed must be within 0..=executions_witnessed".to_string()));
     }
-    if !(0.0..=1.0).contains(&req.attribution_confidence) {
-        return Err(AppError::BadRequest("attribution_confidence must be in [0, 1]".to_string()));
+    if !(0..=10000).contains(&req.attribution_confidence) {
+        return Err(AppError::BadRequest("attribution_confidence must be basis points in 0..=10000".to_string()));
     }
     if req.window_end < req.window_start {
         return Err(AppError::BadRequest("window_end must be >= window_start".to_string()));
@@ -2646,16 +2669,9 @@ pub async fn ingest_shield_observation(
     // Verify over the exact bytes the device serialized: strip the derived/authenticating fields
     // from the raw JSON and JCS the remainder, rather than re-serializing a typed struct (which can
     // subtly change float/field byte representation — the same reason the telemetry path does this).
-    let mut body = raw.clone();
-    {
-        let body_obj = body
-            .as_object_mut()
-            .ok_or_else(|| AppError::BadRequest("observation must be a JSON object".to_string()))?;
-        body_obj.remove("device_signature");
-        body_obj.remove("record_hash");
-    }
-    let mut message = SHIELD_OBS_DOMAIN.to_vec();
-    message.extend_from_slice(&crypto::canonical_json_bytes(&body));
+    let (message, computed_hash) = observation_signing_material(&raw).ok_or_else(|| {
+        AppError::BadRequest("observation must be a JSON object with a device_signature".to_string())
+    })?;
 
     let device = db::get_agent(&state.pool, device_id)
         .await?
@@ -2670,15 +2686,8 @@ pub async fn ingest_shield_observation(
         return Err(AppError::Unauthorized);
     }
 
-    // --- record_hash: keccak256 of the signed record (body + signature), recomputed to bind the
-    //     witnessed/suppressed counts to the signature. `body` already has both fields removed. ---
-    body.as_object_mut()
-        .expect("body was validated as a JSON object above")
-        .insert(
-            "device_signature".to_string(),
-            serde_json::Value::String(req.device_signature.clone()),
-        );
-    let computed_hash = format!("0x{}", hex::encode(Keccak256::digest(crypto::canonical_json_bytes(&body))));
+    // record_hash binds the witnessed/suppressed counts to the signature: the client's claim must
+    // equal the Oracle's own keccak256 of the signed record. A tampered count changes the hash.
     if computed_hash != req.record_hash {
         return Err(AppError::BadRequest("record_hash does not match the signed record".to_string()));
     }
@@ -2733,11 +2742,122 @@ pub async fn ingest_shield_observation(
     )
     .await?;
 
+    // The existence check above can lose a race: a concurrent writer may have inserted this
+    // (device_id, sequence) in between, so `ON CONFLICT DO NOTHING` made this a no-op. Re-read to
+    // tell an idempotent replay (same hash) from an equivocating fork (different hash) — otherwise
+    // the loser of the race would be reported as an accepted replay.
+    if !inserted {
+        if let Some(stored) = db::shield_observation_record_hash(&state.pool, device_id, req.sequence).await? {
+            if stored != req.record_hash {
+                return Err(AppError::WitnessEquivocation {
+                    device_id: device_id.to_string(),
+                    sequence: req.sequence,
+                });
+            }
+        }
+    }
+
     Ok(Json(ShieldObservationResponse {
         accepted: inserted,
         sequence: req.sequence,
         record_hash: req.record_hash,
     }))
+}
+
+#[cfg(test)]
+mod shield_observation_crypto_tests {
+    use super::*;
+    use ed25519_dalek::{Signer, SigningKey};
+    use serde_json::json;
+
+    /// Build a correctly signed observation record and return it with the signer's pubkey hex.
+    fn signed_observation() -> (serde_json::Value, String) {
+        let sk = SigningKey::from_bytes(&[7u8; 32]);
+        let pk_hex = hex::encode(sk.verifying_key().as_bytes());
+        let body = json!({
+            "device_id": "did:integrity:shield-dev-1",
+            "sequence": 0,
+            "agent_id": "did:integrity:observed-agent",
+            "window_start": "2026-11-08T00:00:00Z",
+            "window_end": "2026-11-08T00:05:00Z",
+            "executions_witnessed": 5,
+            "executions_suppressed": 2,
+            "attribution_confidence": 9500,
+            "tree_fingerprint": "sha256:fp",
+            "gate_receipt_ref": null,
+            "prev_hash": null,
+        });
+        let mut message = SHIELD_OBS_DOMAIN.to_vec();
+        message.extend_from_slice(&crypto::canonical_json_bytes(&body));
+        let sig_hex = hex::encode(sk.sign(&message).to_bytes());
+        let mut record = body;
+        let obj = record.as_object_mut().unwrap();
+        obj.insert("device_signature".to_string(), json!(sig_hex));
+        let record_hash = format!("0x{}", hex::encode(Keccak256::digest(crypto::canonical_json_bytes(&record))));
+        record.as_object_mut().unwrap().insert("record_hash".to_string(), json!(record_hash));
+        (record, pk_hex)
+    }
+
+    fn verifies(raw: &serde_json::Value, pk_hex: &str) -> bool {
+        let (message, _) = observation_signing_material(raw).expect("object with signature");
+        let sig = raw["device_signature"].as_str().unwrap();
+        let methods = AgentVerificationMethods { ed25519_pubkey_hex: Some(pk_hex), eth_address_hex: None };
+        crypto::verify_agent_signature(&message, sig, &methods).unwrap()
+    }
+
+    #[test]
+    fn valid_observation_verifies_and_hash_matches() {
+        let (raw, pk_hex) = signed_observation();
+        let (_, computed_hash) = observation_signing_material(&raw).unwrap();
+        assert!(verifies(&raw, &pk_hex), "a correctly signed record verifies");
+        assert_eq!(
+            computed_hash,
+            raw["record_hash"].as_str().unwrap(),
+            "the Oracle recomputes the same record_hash the signer did"
+        );
+    }
+
+    #[test]
+    fn tampered_count_fails_both_signature_and_hash() {
+        let (orig, pk_hex) = signed_observation();
+        let mut raw = orig.clone();
+        // Flip suppressed 2 -> 0 AFTER signing (a bypasser hiding its own suppression).
+        raw.as_object_mut().unwrap().insert("executions_suppressed".to_string(), json!(0));
+        assert!(!verifies(&raw, &pk_hex), "a tampered count must fail signature verification");
+        let (_, computed) = observation_signing_material(&raw).unwrap();
+        assert_ne!(
+            computed,
+            orig["record_hash"].as_str().unwrap(),
+            "a tampered count also changes the recomputed record_hash"
+        );
+    }
+
+    #[test]
+    fn wrong_key_is_rejected() {
+        let (raw, _) = signed_observation();
+        let other = SigningKey::from_bytes(&[9u8; 32]);
+        let other_pk = hex::encode(other.verifying_key().as_bytes());
+        assert!(!verifies(&raw, &other_pk), "a different device's key must not verify the signature");
+    }
+
+    #[test]
+    fn signature_without_the_domain_separator_is_rejected() {
+        // Sign JCS(body) with NO SHIELD_OBS_DOMAIN prefix (e.g. a replayed gate-receipt-style
+        // signature): the Oracle verifies over DOMAIN || JCS(body), so it must not validate.
+        let sk = SigningKey::from_bytes(&[11u8; 32]);
+        let pk_hex = hex::encode(sk.verifying_key().as_bytes());
+        let body = json!({
+            "device_id": "d", "sequence": 0, "agent_id": "a",
+            "executions_witnessed": 1, "executions_suppressed": 0,
+        });
+        let wrong_sig = hex::encode(sk.sign(&crypto::canonical_json_bytes(&body)).to_bytes());
+        let mut record = body;
+        record.as_object_mut().unwrap().insert("device_signature".to_string(), json!(wrong_sig));
+        assert!(
+            !verifies(&record, &pk_hex),
+            "a signature not bound to SHIELD_OBS_DOMAIN must be rejected"
+        );
+    }
 }
 
 // Provenance: an agent's on-chain-anchored history (Class B, docs/design/
