@@ -8,11 +8,20 @@ use utoipa::ToSchema;
 /// sensor outage is the motivating case), so coverage must not trust it as complete.
 pub const WITNESS_STALENESS_SECS: i64 = 15 * 60;
 
+/// When the self-reported reconcile set is EMPTY (no intents and no outcomes — the full-bypass
+/// agent of INTERFACE_CONTRACT.md §6.10, the exact case this witness exists to catch), there is no
+/// reconcile timestamp to anchor the witness window to. Fall back to this fixed lookback so the
+/// witness is still queried: a bypasser with zero self-reported rows must NOT read as "no witness
+/// data" when Shield did in fact witness trees. Heuristic (not derived from the reconcile rows,
+/// which by definition do not exist here); documented as such.
+pub const DEFAULT_WITNESS_LOOKBACK_SECS: i64 = 60 * 60;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, ToSchema)]
 pub struct WitnessSummary {
     /// Any Shield observation covered the window at all.
     pub present: bool,
-    /// Gap-free (per-device contiguous sequences) AND fresh — safe to use as the denominator.
+    /// Gap-free (per-device interior contiguity AND boundary-connected to history) AND fresh —
+    /// safe to use as the denominator.
     pub complete: bool,
     pub witnessed: i64,
     pub suppressed: i64,
@@ -27,10 +36,37 @@ pub struct ShieldObsRecord {
     pub window_end: DateTime<Utc>,
 }
 
+/// The reference time from which to query Shield's witness for a coverage window.
+///
+/// Pure: `reconcile_min` is the earliest timestamp seen among the self-reported reconcile rows
+/// (so "did the witness cover this window" means the same span the self-reported side summarized).
+/// When it is `None` — the full-bypass case with zero reconcile rows — fall back to a fixed
+/// lookback so the witness is still consulted rather than silently skipped.
+pub fn witness_query_since(
+    reconcile_min: Option<DateTime<Utc>>,
+    now: DateTime<Utc>,
+    lookback_secs: i64,
+) -> DateTime<Utc> {
+    reconcile_min.unwrap_or_else(|| now - chrono::Duration::seconds(lookback_secs))
+}
+
 /// Pure evaluation of Shield witness records over a window.
-/// Verifies per-device sequence continuity (missing sequence = suppressed/lost = incomplete)
-/// and freshness against the given reference time.
-pub fn evaluate_shield_witness(records: &[ShieldObsRecord], now: DateTime<Utc>) -> WitnessSummary {
+///
+/// `records` are the in-window observations (`window_end >= since`). `boundary_ok` is a DB-derived
+/// fact the caller supplies: for every device with in-window rows, the earliest in-window sequence
+/// either IS the device's chain start or its immediate predecessor row exists — i.e. the window's
+/// leading edge is connected to history, not a dropped prefix (sequences 5–6 lost, 7 first in
+/// window). Interior contiguity is checked here from `records`; the leading edge cannot be, because
+/// the dropped rows are, by definition, absent from the in-window slice.
+///
+/// `complete` requires interior contiguity AND `boundary_ok` AND freshness. A missing or stale or
+/// gapped witness reads `complete=false`, never as perfect coverage — the §6.10 guardrail:
+/// witness-unavailable is `None`, never 1.0.
+pub fn evaluate_shield_witness(
+    records: &[ShieldObsRecord],
+    boundary_ok: bool,
+    now: DateTime<Utc>,
+) -> WitnessSummary {
     if records.is_empty() {
         return WitnessSummary {
             present: false,
@@ -52,8 +88,8 @@ pub fn evaluate_shield_witness(records: &[ShieldObsRecord], now: DateTime<Utc>) 
         per_device.entry(r.device_id.clone()).or_default().push(r.sequence);
     }
 
-    // Sequences are monotonic with time, so within a `window_end >= since` slice the in-window
-    // sequences must form a contiguous tail; `max - min + 1 == len` means no number is missing.
+    // Interior contiguity: within a `window_end >= since` slice the in-window sequences must form a
+    // contiguous run; `max - min + 1 == len` means no number is missing BETWEEN the ends.
     // (device_id, sequence) is the PK, so duplicates are impossible — a short run is a real gap.
     let contiguous = per_device.values().all(|seqs| {
         let (min, max) = (seqs.iter().min().copied(), seqs.iter().max().copied());
@@ -67,7 +103,7 @@ pub fn evaluate_shield_witness(records: &[ShieldObsRecord], now: DateTime<Utc>) 
 
     WitnessSummary {
         present: true,
-        complete: contiguous && fresh,
+        complete: contiguous && boundary_ok && fresh,
         witnessed,
         suppressed,
     }
@@ -95,9 +131,19 @@ mod tests {
     use super::*;
     use chrono::Duration;
 
+    fn rec(device: &str, seq: i64, w: i64, s: i64, end: DateTime<Utc>) -> ShieldObsRecord {
+        ShieldObsRecord {
+            device_id: device.into(),
+            sequence: seq,
+            executions_witnessed: w,
+            executions_suppressed: s,
+            window_end: end,
+        }
+    }
+
     #[test]
     fn test_shield_witness_empty() {
-        let summary = evaluate_shield_witness(&[], Utc::now());
+        let summary = evaluate_shield_witness(&[], true, Utc::now());
         assert_eq!(
             summary,
             WitnessSummary {
@@ -113,23 +159,11 @@ mod tests {
     fn test_shield_witness_contiguous_and_fresh() {
         let now = Utc::now();
         let records = vec![
-            ShieldObsRecord {
-                device_id: "dev-1".into(),
-                sequence: 1,
-                executions_witnessed: 5,
-                executions_suppressed: 0,
-                window_end: now - Duration::seconds(120),
-            },
-            ShieldObsRecord {
-                device_id: "dev-1".into(),
-                sequence: 2,
-                executions_witnessed: 3,
-                executions_suppressed: 1,
-                window_end: now - Duration::seconds(60),
-            },
+            rec("dev-1", 1, 5, 0, now - Duration::seconds(120)),
+            rec("dev-1", 2, 3, 1, now - Duration::seconds(60)),
         ];
 
-        let summary = evaluate_shield_witness(&records, now);
+        let summary = evaluate_shield_witness(&records, true, now);
         assert!(summary.present);
         assert!(summary.complete);
         assert_eq!(summary.witnessed, 8);
@@ -140,40 +174,48 @@ mod tests {
     fn test_shield_witness_sequence_gap_is_incomplete() {
         let now = Utc::now();
         let records = vec![
-            ShieldObsRecord {
-                device_id: "dev-1".into(),
-                sequence: 1,
-                executions_witnessed: 5,
-                executions_suppressed: 0,
-                window_end: now - Duration::seconds(120),
-            },
-            ShieldObsRecord {
-                device_id: "dev-1".into(),
-                sequence: 3, // Missing sequence 2!
-                executions_witnessed: 3,
-                executions_suppressed: 0,
-                window_end: now - Duration::seconds(60),
-            },
+            rec("dev-1", 1, 5, 0, now - Duration::seconds(120)),
+            rec("dev-1", 3, 3, 0, now - Duration::seconds(60)), // Missing interior sequence 2!
         ];
 
-        let summary = evaluate_shield_witness(&records, now);
+        let summary = evaluate_shield_witness(&records, true, now);
         assert!(summary.present);
-        assert!(!summary.complete, "A missing sequence number must mark the witness incomplete");
+        assert!(!summary.complete, "A missing interior sequence must mark the witness incomplete");
+        assert_eq!(summary.witnessed, 8);
+    }
+
+    #[test]
+    fn test_shield_witness_leading_edge_gap_is_incomplete() {
+        // The in-window rows are themselves contiguous (7,8) and fresh, but the caller determined
+        // the window's first sequence does NOT connect to history (sequences before 7 were dropped
+        // — boundary_ok=false). This must read incomplete; an interior-only check would miss it.
+        let now = Utc::now();
+        let records = vec![
+            rec("dev-1", 7, 5, 0, now - Duration::seconds(120)),
+            rec("dev-1", 8, 3, 0, now - Duration::seconds(60)),
+        ];
+
+        let summary = evaluate_shield_witness(&records, false, now);
+        assert!(summary.present);
+        assert!(
+            !summary.complete,
+            "A dropped prefix (leading-edge gap) must mark the witness incomplete"
+        );
         assert_eq!(summary.witnessed, 8);
     }
 
     #[test]
     fn test_shield_witness_stale_is_incomplete() {
         let now = Utc::now();
-        let records = vec![ShieldObsRecord {
-            device_id: "dev-1".into(),
-            sequence: 1,
-            executions_witnessed: 4,
-            executions_suppressed: 0,
-            window_end: now - Duration::seconds(WITNESS_STALENESS_SECS + 10),
-        }];
+        let records = vec![rec(
+            "dev-1",
+            1,
+            4,
+            0,
+            now - Duration::seconds(WITNESS_STALENESS_SECS + 10),
+        )];
 
-        let summary = evaluate_shield_witness(&records, now);
+        let summary = evaluate_shield_witness(&records, true, now);
         assert!(summary.present);
         assert!(!summary.complete, "Observation older than staleness threshold must be incomplete");
     }
@@ -182,40 +224,34 @@ mod tests {
     fn test_shield_witness_multi_device_tail() {
         let now = Utc::now();
         let records = vec![
-            ShieldObsRecord {
-                device_id: "dev-1".into(),
-                sequence: 10,
-                executions_witnessed: 2,
-                executions_suppressed: 0,
-                window_end: now - Duration::seconds(50),
-            },
-            ShieldObsRecord {
-                device_id: "dev-1".into(),
-                sequence: 11,
-                executions_witnessed: 2,
-                executions_suppressed: 0,
-                window_end: now - Duration::seconds(40),
-            },
-            ShieldObsRecord {
-                device_id: "dev-2".into(),
-                sequence: 5,
-                executions_witnessed: 4,
-                executions_suppressed: 0,
-                window_end: now - Duration::seconds(30),
-            },
-            ShieldObsRecord {
-                device_id: "dev-2".into(),
-                sequence: 6,
-                executions_witnessed: 3,
-                executions_suppressed: 0,
-                window_end: now - Duration::seconds(10),
-            },
+            rec("dev-1", 10, 2, 0, now - Duration::seconds(50)),
+            rec("dev-1", 11, 2, 0, now - Duration::seconds(40)),
+            rec("dev-2", 5, 4, 0, now - Duration::seconds(30)),
+            rec("dev-2", 6, 3, 0, now - Duration::seconds(10)),
         ];
 
-        let summary = evaluate_shield_witness(&records, now);
+        let summary = evaluate_shield_witness(&records, true, now);
         assert!(summary.present);
         assert!(summary.complete);
         assert_eq!(summary.witnessed, 11);
+    }
+
+    #[test]
+    fn test_witness_query_since_uses_reconcile_min_when_present() {
+        let now = Utc::now();
+        let reconcile_min = now - Duration::seconds(300);
+        let since = witness_query_since(Some(reconcile_min), now, DEFAULT_WITNESS_LOOKBACK_SECS);
+        assert_eq!(since, reconcile_min, "a real reconcile min must anchor the witness window");
+    }
+
+    #[test]
+    fn test_witness_query_since_falls_back_to_lookback_on_empty_reconcile() {
+        // The full-bypass case: zero reconcile rows -> None -> a bypasser must still be witnessed,
+        // not skipped. The fallback window is `now - lookback`, strictly before `now`.
+        let now = Utc::now();
+        let since = witness_query_since(None, now, DEFAULT_WITNESS_LOOKBACK_SECS);
+        assert_eq!(since, now - Duration::seconds(DEFAULT_WITNESS_LOOKBACK_SECS));
+        assert!(since < now);
     }
 
     #[test]

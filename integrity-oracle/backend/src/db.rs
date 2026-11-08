@@ -2259,25 +2259,22 @@ pub struct AnchoringCoverage {
     pub findings: Vec<IntentOutcomeRow>,
 }
 
-use crate::reconciliation::{self, ShieldObsRecord, WitnessSummary};
+use crate::reconciliation::{self, ShieldObsRecord, WitnessSummary, DEFAULT_WITNESS_LOOKBACK_SECS};
 
-/// Summarize Shield's independent witness for `agent_id` over `[since, now]`. Verifies per-device
-/// sequence continuity (a missing sequence number is a lost/suppressed observation → not complete)
-/// and freshness. A missing or incomplete witness reads as `present=false`/`complete=false`, never
-/// as perfect coverage — the §6.10 guardrail: witness-unavailable is `None`, never 1.0.
+/// Summarize Shield's independent witness for `agent_id`. The window starts at `reconcile_min` (the
+/// earliest self-reported reconcile timestamp) when there is one, and otherwise at a fixed lookback
+/// — so a FULL-BYPASS agent with zero reconcile rows (the §6.10 case this exists to catch) is still
+/// witnessed, never silently skipped. Verifies per-device interior sequence continuity AND that the
+/// window's leading edge connects to history (no dropped prefix), plus freshness. A missing /
+/// stale / gapped witness reads `complete=false`, never as perfect coverage — the §6.10 guardrail:
+/// witness-unavailable is `None`, never 1.0.
 async fn shield_witness_summary(
     pool: &PgPool,
     agent_id: &str,
-    since: Option<DateTime<Utc>>,
+    reconcile_min: Option<DateTime<Utc>>,
 ) -> Result<WitnessSummary, sqlx::Error> {
-    let Some(since) = since else {
-        return Ok(WitnessSummary {
-            present: false,
-            complete: false,
-            witnessed: 0,
-            suppressed: 0,
-        });
-    };
+    let now = Utc::now();
+    let since = reconciliation::witness_query_since(reconcile_min, now, DEFAULT_WITNESS_LOOKBACK_SECS);
 
     let rows = sqlx::query_as::<_, ShieldObsRecord>(
         "SELECT device_id, sequence, executions_witnessed, executions_suppressed, window_end \
@@ -2289,7 +2286,39 @@ async fn shield_witness_summary(
     .fetch_all(pool)
     .await?;
 
-    Ok(reconciliation::evaluate_shield_witness(&rows, Utc::now()))
+    // Leading-edge check (per device): the earliest in-window sequence must connect to history —
+    // either it IS the device's chain start (its global MIN), or its immediate predecessor row
+    // exists. A dropped prefix (sequences before the first in-window row lost) is otherwise
+    // invisible to the pure interior-contiguity check, since those rows are absent from the slice.
+    let mut device_min: std::collections::HashMap<&str, i64> = std::collections::HashMap::new();
+    for r in &rows {
+        device_min
+            .entry(r.device_id.as_str())
+            .and_modify(|m| {
+                if r.sequence < *m {
+                    *m = r.sequence;
+                }
+            })
+            .or_insert(r.sequence);
+    }
+    let mut boundary_ok = true;
+    for (device, &min_seq) in &device_min {
+        let (global_min, pred_exists): (Option<i64>, bool) = sqlx::query_as(
+            "SELECT (SELECT MIN(sequence) FROM shield_observations WHERE device_id = $1), \
+                    EXISTS(SELECT 1 FROM shield_observations WHERE device_id = $1 AND sequence = $2)",
+        )
+        .bind(*device)
+        .bind(min_seq - 1)
+        .fetch_one(pool)
+        .await?;
+        let is_chain_start = global_min == Some(min_seq);
+        if !(is_chain_start || pred_exists) {
+            boundary_ok = false;
+            break;
+        }
+    }
+
+    Ok(reconciliation::evaluate_shield_witness(&rows, boundary_ok, now))
 }
 
 pub async fn agent_anchoring_coverage(
@@ -2348,12 +2377,14 @@ pub async fn agent_anchoring_coverage(
     }
 
     // Align Shield's witness window to the reconcile rows' own time span (earliest timestamp seen),
-    // so "did the witness cover this window" means the same window the self-reported side summarized.
-    let since = rows
+    // so "did the witness cover this window" means the same window the self-reported side
+    // summarized. `None` (zero reconcile rows = full bypass) makes the witness fall back to a fixed
+    // lookback inside `shield_witness_summary`, rather than skipping the witness entirely.
+    let reconcile_min = rows
         .iter()
         .filter_map(|r| r.outcome_at.or(r.intent_at))
         .min();
-    let witness = shield_witness_summary(pool, agent_id, since).await?;
+    let witness = shield_witness_summary(pool, agent_id, reconcile_min).await?;
 
     // Witnessed count is reported whenever a witness is present (even if incomplete, so an operator
     // sees it); suppressed and the witnessed-denominator ratio are only trusted when COMPLETE.
