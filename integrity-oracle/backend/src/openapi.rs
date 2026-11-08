@@ -66,6 +66,7 @@ use crate::handlers;
         handlers::AisWeightsSchema,
         handlers::AisResponse,
         handlers::AisComponents,
+        handlers::ClosedLoopRewardDto,
         handlers::AisHistoryPoint,
         handlers::VolumeBucket,
         handlers::OtelVolumeBucket,

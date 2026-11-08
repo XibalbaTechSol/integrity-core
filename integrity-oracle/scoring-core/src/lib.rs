@@ -371,6 +371,105 @@ impl AisEngine {
         breakdown.constraint_score = breakdown.constraint_score.min(ceiling / MAX_COMPONENT_SCORE);
         breakdown
     }
+
+    /// Evaluates the closed-loop control zone (`green` / `yellow` / `red` with hysteresis)
+    /// and deterministic AIS reward function (`R_total = R_task + lambda * AIS + shaping - penalty`)
+    /// plus on-chain epoch yield multiplier (`Y_e`).
+    pub fn evaluate_closed_loop_reward(
+        &self,
+        breakdown: &AisBreakdown,
+        prev_ais: f64,
+        prev_zone: Option<&str>,
+        r_task: f64,
+        deny_count: u32,
+        hard_interlock_tripped: bool,
+    ) -> ClosedLoopRewardEvaluation {
+        let score = if breakdown.ais.is_finite() {
+            breakdown.ais.clamp(0.0, MAX_COMPONENT_SCORE)
+        } else {
+            0.0
+        };
+        let prev = if prev_ais.is_finite() {
+            prev_ais.clamp(0.0, MAX_COMPONENT_SCORE)
+        } else {
+            MAX_COMPONENT_SCORE
+        };
+
+        let control_zone = if hard_interlock_tripped || score < 750.0 {
+            "red".to_string()
+        } else if matches!(prev_zone, Some("yellow") | Some("red")) {
+            if score >= 920.0 {
+                "green".to_string()
+            } else {
+                "yellow".to_string()
+            }
+        } else if score >= 900.0 {
+            "green".to_string()
+        } else {
+            "yellow".to_string()
+        };
+
+        let compliance_zero = breakdown.s_compliance <= 0.0 || score <= 0.0;
+        let gated_by_compliance = compliance_zero || deny_count > 0 || hard_interlock_tripped;
+        let r_task_effective = if gated_by_compliance {
+            0.0
+        } else if r_task.is_finite() {
+            r_task
+        } else {
+            0.0
+        };
+
+        let lambda_ais = 0.50_f64;
+        let gamma = 0.99_f64;
+        let shaping_weight = 0.25_f64;
+        let deny_penalty = 1.0_f64;
+
+        let ais_norm = score / MAX_COMPONENT_SCORE;
+        let prev_norm = prev / MAX_COMPONENT_SCORE;
+        let ais_term = lambda_ais * ais_norm;
+
+        let phi_t = ais_norm * ais_norm;
+        let phi_prev = prev_norm * prev_norm;
+        let potential_shaping = shaping_weight * (gamma * phi_t - phi_prev);
+
+        let violation_penalty = (deny_count as f64) * deny_penalty;
+        let r_total = r_task_effective + ais_term + potential_shaping - violation_penalty;
+
+        let ais_min = 750.0_f64;
+        let epoch_yield_multiplier = if gated_by_compliance || score < ais_min {
+            0.0
+        } else {
+            ((score - ais_min) / (MAX_COMPONENT_SCORE - ais_min))
+                .clamp(0.0, 1.0)
+                .powi(2)
+        };
+
+        ClosedLoopRewardEvaluation {
+            control_zone,
+            r_task_effective,
+            ais_term,
+            potential_shaping,
+            violation_penalty,
+            r_total,
+            gated_by_compliance,
+            epoch_yield_multiplier,
+        }
+    }
+}
+
+/// Canonical Closed-Loop AIS Control Zone and Step/Epoch Reward Evaluation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClosedLoopRewardEvaluation {
+    /// Active closed-loop zone: `"green"` (`>= 900`, hysteresis recovery `>= 920`),
+    /// `"yellow"` (`750 <= AIS < 900`), or `"red"` (`< 750` or interlock tripped).
+    pub control_zone: String,
+    pub r_task_effective: f64,
+    pub ais_term: f64,
+    pub potential_shaping: f64,
+    pub violation_penalty: f64,
+    pub r_total: f64,
+    pub gated_by_compliance: bool,
+    pub epoch_yield_multiplier: f64,
 }
 
 #[cfg(test)]
@@ -787,5 +886,39 @@ mod tests {
         let inputs = component_inputs_yielding(50.0, 50.0, 50.0, 50.0, &engine);
         let breakdown = engine.score(&inputs);
         assert!(breakdown.gate_would_pass);
+    }
+
+    #[test]
+    fn closed_loop_reward_evaluation_enforces_hysteresis_and_compliance_gating() {
+        let engine = AisEngine::default();
+        let high = engine.score_with_tier(
+            &component_inputs_yielding(950.0, 950.0, 950.0, 950.0, &engine),
+            3,
+        );
+        let eval_good = engine.evaluate_closed_loop_reward(&high, 900.0, Some("green"), 1.0, 0, false);
+        assert_eq!(eval_good.control_zone, "green");
+        assert!(!eval_good.gated_by_compliance);
+        assert!(eval_good.r_total > 1.40);
+        assert!(eval_good.epoch_yield_multiplier > 0.60);
+
+        // Hysteresis check: 910.0 from yellow stays in yellow (< 920 recovery threshold)
+        let mid_high = engine.score_with_tier(
+            &component_inputs_yielding(910.0, 910.0, 910.0, 910.0, &engine),
+            3,
+        );
+        let eval_hyst = engine.evaluate_closed_loop_reward(&mid_high, 850.0, Some("yellow"), 1.0, 0, false);
+        assert_eq!(eval_hyst.control_zone, "yellow");
+
+        // Compliance zero-annihilation & anti-reward-hacking check
+        let zero_comp = engine.score_with_tier(
+            &component_inputs_yielding(950.0, 950.0, 950.0, 0.0, &engine),
+            3,
+        );
+        let eval_bad = engine.evaluate_closed_loop_reward(&zero_comp, 950.0, Some("green"), 5.0, 1, false);
+        assert_eq!(eval_bad.control_zone, "red");
+        assert!(eval_bad.gated_by_compliance);
+        assert_eq!(eval_bad.r_task_effective, 0.0);
+        assert!(eval_bad.r_total < -1.0);
+        assert_eq!(eval_bad.epoch_yield_multiplier, 0.0);
     }
 }

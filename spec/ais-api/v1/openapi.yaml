@@ -1,7 +1,5 @@
-openapi: 3.1.0
-info:
-  title: Integrity Protocol — AIS API
-  description: Read-side wire protocol for querying an agent's Agent Integrity Score (AIS), on-chain primitive addresses, compliance status, and wallet balances. This is the versioned, externally-supported surface — /v1/* is additive-only for its lifetime; any field rename, type change, or removal requires a /v2/* prefix. See spec/ais-api/v1/README.md for the integration guide and spec/ais-api/CHANGELOG.md for the version history.
+wrote /mnt/storage/xibalba/Projects/worktrees/integrity-core/ais-closed-loop-reward/integrity-oracle/backend/../../spec/ais-api/v1/openapi.yaml
+e (AIS), on-chain primitive addresses, compliance status, and wallet balances. This is the versioned, externally-supported surface — /v1/* is additive-only for its lifetime; any field rename, type change, or removal requires a /v2/* prefix. See spec/ais-api/v1/README.md for the integration guide and spec/ais-api/CHANGELOG.md for the version history.
   license:
     name: ''
   version: 1.0.0
@@ -1207,6 +1205,7 @@ components:
       - anchor_coverage
       - constraint_score
       - shadow_gate
+      - closed_loop_reward
       properties:
         agent_id:
           type: string
@@ -1227,6 +1226,11 @@ components:
             Informational only (see `anchor_coverage.rs`) — never fed into `ais` itself.
         authoritative_input_source:
           type: string
+        closed_loop_reward:
+          $ref: '#/components/schemas/ClosedLoopRewardDto'
+          description: |-
+            Canonical Closed-Loop AIS Control Zone (`green` / `yellow` / `red` with hysteresis)
+            and Step/Epoch Reward Evaluation (`R_total = R_task + lambda * AIS + shaping - penalty`).
         components:
           $ref: '#/components/schemas/AisComponents'
         constraint_score:
@@ -1691,6 +1695,40 @@ components:
             0022's header note: an agent may hold a handle without ever registering on-chain.
         handle:
           type: string
+    ClosedLoopRewardDto:
+      type: object
+      required:
+      - control_zone
+      - r_task_effective
+      - ais_term
+      - potential_shaping
+      - violation_penalty
+      - r_total
+      - gated_by_compliance
+      - epoch_yield_multiplier
+      properties:
+        ais_term:
+          type: number
+          format: double
+        control_zone:
+          type: string
+        epoch_yield_multiplier:
+          type: number
+          format: double
+        gated_by_compliance:
+          type: boolean
+        potential_shaping:
+          type: number
+          format: double
+        r_task_effective:
+          type: number
+          format: double
+        r_total:
+          type: number
+          format: double
+        violation_penalty:
+          type: number
+          format: double
     ComplianceResponse:
       type: object
       required:

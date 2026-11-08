@@ -46,6 +46,25 @@ from .decision_trace import (
 )
 from .break_glass import BreakGlassError, create_approval, verify_approval
 from .adapter_conformance import AdapterConformanceError, run_adapter_conformance
+from .ais_reward import (
+    AIS_FORMULA_VERSION,
+    DEFAULT_AXIS_WEIGHTS,
+    TIER_CEILINGS,
+    AISComponents,
+    AISControlZone,
+    AISInputs,
+    AISRewardFunction,
+    ClosedLoopAISController,
+    ClosedLoopState,
+    EpochSettlementResult,
+    StepRewardBreakdown,
+    compute_compliance_score,
+    compute_contribution_score,
+    compute_entropy_score,
+    compute_grounding_score,
+    compute_zk_boost,
+    evaluate_ais_v1_geometric,
+)
 from .entitlements import CapabilityDenied, EntitlementSet, require_capability
 from .jcs import canonical_bytes, sha256_hex
 from .memory import MEMORY_INTERFACE_VERSION, MemoryProvider
@@ -112,6 +131,11 @@ __all__ = [
     "verify_trace_evidence", "JevAnalysis", "JevProvider", "FixtureJevProvider", "RISK_CATEGORIES",
     "BreakGlassError", "create_approval", "verify_approval",
     "AdapterConformanceError", "run_adapter_conformance",
+    "AIS_FORMULA_VERSION", "DEFAULT_AXIS_WEIGHTS", "TIER_CEILINGS",
+    "AISComponents", "AISControlZone", "AISInputs", "AISRewardFunction",
+    "ClosedLoopAISController", "ClosedLoopState", "EpochSettlementResult", "StepRewardBreakdown",
+    "compute_compliance_score", "compute_contribution_score", "compute_entropy_score",
+    "compute_grounding_score", "compute_zk_boost", "evaluate_ais_v1_geometric",
     "EntitlementSet", "CapabilityDenied", "require_capability",
     "canonical_bytes", "sha256_hex",
     "hash_pair", "keccak256", "leaf_hash", "merkle_proof", "merkle_root", "verify_leaf",
