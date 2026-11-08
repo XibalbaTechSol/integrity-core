@@ -13,14 +13,17 @@ from pathlib import Path
 
 import pytest
 
-from integrity_sdk.core import decision as d
-from integrity_sdk.core import packs
-from integrity_sdk.core.opa import OpaClient, OpaError
-from integrity_sdk.core.wasm_build import WasmBuildError, build_pack_wasm, verify_pack_wasm
-from integrity_sdk.core.wasm_engine import WASM_FILE, WasmPolicyClient, _go_sprintf, _Abort
-from integrity_sdk.did import Keypair, public_key_multibase
-
+# Skip the whole module when the optional `wasm` extra is not installed (CI's integrity-sdk job
+# syncs only connector+mlflow). This MUST precede the wasm_engine/wasm_build imports below, which
+# import wasmtime at module load and would otherwise fail collection before the skip takes effect.
 pytest.importorskip("wasmtime")
+
+from integrity_sdk.core import decision as d  # noqa: E402
+from integrity_sdk.core import packs  # noqa: E402
+from integrity_sdk.core.opa import OpaClient, OpaError  # noqa: E402
+from integrity_sdk.core.wasm_build import WasmBuildError, build_pack_wasm, verify_pack_wasm  # noqa: E402
+from integrity_sdk.core.wasm_engine import WASM_FILE, WasmPolicyClient, _go_sprintf, _Abort  # noqa: E402
+from integrity_sdk.did import Keypair, public_key_multibase  # noqa: E402
 _EQ_PATH = Path(__file__).with_name("test_core_bcc_pack_equivalence.py")
 _spec = importlib.util.spec_from_file_location("_bcc_pack_equivalence", _EQ_PATH)
 eq = importlib.util.module_from_spec(_spec)
