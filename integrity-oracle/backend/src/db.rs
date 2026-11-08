@@ -2206,6 +2206,116 @@ pub struct IntentOutcomeRow {
     pub status: String,
 }
 
+// ---------------------------------------------------------------------------------
+// Anchoring coverage: of the actions an agent actually executed (outcomes observed),
+// what fraction carried a prior SIGNED intent commitment (a reconciled ALLOW)? This is
+// the "are agents anchoring intent?" metric. A gate (BCC) can only prove intent for the
+// calls that go through it; an execution with no matching prior intent is the exact
+// gap this number makes visible, and each such execution is a finding.
+//
+// Built on `reconcile_agent_intent_outcome` (it does the per-invocation matching), so the
+// matching logic lives in exactly one place. `window` bounds how many recent reconciliation
+// rows are aggregated; it is reported back as `considered` so the ratio is never mistaken
+// for an all-time figure.
+// ---------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AnchoringCoverage {
+    pub agent_id: String,
+    /// How many recent reconciliation rows this summary aggregated (the `window` cap).
+    pub considered: i64,
+    /// Actions actually executed and reported (rows with an outcome side present).
+    pub executions_observed: i64,
+    /// Observed executions that carried a matching prior signed intent (status `reconciled`).
+    pub executions_anchored: i64,
+    /// Observed executions with NO prior intent (`outcome_without_intent`): acted without anchoring.
+    pub executions_unanchored: i64,
+    /// Observed executions whose intent hash disagreed with the outcome (`correlation_conflict`).
+    pub executions_conflicted: i64,
+    /// Authorized intents that never produced a reported outcome (`intent_without_outcome`): not
+    /// counted against coverage (the action may simply not have run), but surfaced.
+    pub intents_without_outcome: i64,
+    /// `executions_anchored / executions_observed`; `None` when nothing was observed.
+    pub coverage_ratio: Option<f64>,
+    /// The unanchored and conflicted executions themselves — the actions that ran without a
+    /// clean prior signed intent. Capped at `findings_cap`.
+    pub findings: Vec<IntentOutcomeRow>,
+}
+
+pub async fn agent_anchoring_coverage(
+    pool: &PgPool,
+    agent_id: &str,
+    window: i64,
+    findings_cap: usize,
+) -> Result<AnchoringCoverage, sqlx::Error> {
+    let rows = reconcile_agent_intent_outcome(pool, agent_id, window).await?;
+
+    let mut observed = 0i64;
+    let mut anchored = 0i64;
+    let mut unanchored = 0i64;
+    let mut conflicted = 0i64;
+    let mut intents_without_outcome = 0i64;
+    let mut findings: Vec<IntentOutcomeRow> = Vec::new();
+
+    for row in &rows {
+        // "Observed" = the agent actually did something that was reported (an outcome side).
+        let has_outcome = row.outcome_at.is_some();
+        match row.status.as_str() {
+            "reconciled" => {
+                observed += 1;
+                anchored += 1;
+            }
+            "outcome_without_intent" => {
+                observed += 1;
+                unanchored += 1;
+                if findings.len() < findings_cap {
+                    findings.push(row.clone());
+                }
+            }
+            "correlation_conflict" => {
+                observed += 1;
+                conflicted += 1;
+                if findings.len() < findings_cap {
+                    findings.push(row.clone());
+                }
+            }
+            "intent_without_outcome" => {
+                intents_without_outcome += 1;
+            }
+            // `duplicate_invocation` / `legacy_hash_only` are ambiguous by construction (the
+            // reconcile query documents why); count them as observed only if they carry an
+            // outcome, but never as anchored — they are not unambiguously reconciled.
+            _ => {
+                if has_outcome {
+                    observed += 1;
+                    conflicted += 1;
+                    if findings.len() < findings_cap {
+                        findings.push(row.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    let coverage_ratio = if observed > 0 {
+        Some(anchored as f64 / observed as f64)
+    } else {
+        None
+    };
+
+    Ok(AnchoringCoverage {
+        agent_id: agent_id.to_string(),
+        considered: rows.len() as i64,
+        executions_observed: observed,
+        executions_anchored: anchored,
+        executions_unanchored: unanchored,
+        executions_conflicted: conflicted,
+        intents_without_outcome,
+        coverage_ratio,
+        findings,
+    })
+}
+
 pub async fn reconcile_agent_intent_outcome(
     pool: &PgPool,
     agent_id: &str,
