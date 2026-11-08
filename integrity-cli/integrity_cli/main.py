@@ -36,7 +36,7 @@ from rich.console import Console
 from rich.table import Table
 from web3 import Web3
 
-from . import bcc, chain, config, hooks, identity, vault, verify, wallet
+from . import bcc, chain, config, hooks, identity, pack, vault, verify, wallet
 from .client import ApiError, BccClient, IntegrityClient
 from .config import get_auth_token, load_config, set_config_value
 
@@ -77,6 +77,9 @@ app.add_typer(wallet_app, name="wallet")
 
 hooks_app = typer.Typer(help="Install/uninstall harness PreToolUse and memory hooks (gate: bcc or shield; memory: cortex)")
 app.add_typer(hooks_app, name="hooks")
+
+pack_app = pack.pack_app
+app.add_typer(pack_app, name="pack")
 
 
 @hooks_app.command("install")

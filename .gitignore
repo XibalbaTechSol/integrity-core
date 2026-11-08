@@ -85,3 +85,8 @@ test-results/
 # SDK gas records live in ~/.integrity/gas_usage.jsonl (integrity_sdk.chain.gas_log_path);
 # a copy in the repo is a stray from an old relative-path write.
 gas_usage.jsonl
+
+# A pack's policy.wasm is a BUILD artifact (integrity pack build-wasm), built on a COPY at sign
+# time and never committed -- packs/<name> stays Rego-only source (docs/design/bcc-shared-pack-migration.md).
+# This guard keeps a stray build out of the repo if someone builds in-place instead of in the copy.
+packs/**/policy.wasm
