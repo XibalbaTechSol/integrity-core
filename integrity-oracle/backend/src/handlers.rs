@@ -846,6 +846,21 @@ pub struct AisResponse {
     /// `constraint_score`, does not gate anything, and is not consumed by
     /// `bcc_middleware`'s chain-push or dispute logic.
     pub shadow_gate: ShadowGate,
+    /// Canonical Closed-Loop AIS Control Zone (`green` / `yellow` / `red` with hysteresis)
+    /// and Step/Epoch Reward Evaluation (`R_total = R_task + lambda * AIS + shaping - penalty`).
+    pub closed_loop_reward: ClosedLoopRewardDto,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ClosedLoopRewardDto {
+    pub control_zone: String,
+    pub r_task_effective: f64,
+    pub ais_term: f64,
+    pub potential_shaping: f64,
+    pub violation_penalty: f64,
+    pub r_total: f64,
+    pub gated_by_compliance: bool,
+    pub epoch_yield_multiplier: f64,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -1013,6 +1028,26 @@ pub(crate) async fn compute_ais_for_agent(
             grounding_pass: breakdown.gate_grounding_pass,
             compliance_pass: breakdown.gate_compliance_pass,
             would_pass: breakdown.gate_would_pass,
+        },
+        closed_loop_reward: {
+            let eval = engine.evaluate_closed_loop_reward(
+                &breakdown,
+                breakdown.ais,
+                None,
+                1.0,
+                if aggregate.penalty_ratio > 0.0 { 1 } else { 0 },
+                false,
+            );
+            ClosedLoopRewardDto {
+                control_zone: eval.control_zone,
+                r_task_effective: eval.r_task_effective,
+                ais_term: eval.ais_term,
+                potential_shaping: eval.potential_shaping,
+                violation_penalty: eval.violation_penalty,
+                r_total: eval.r_total,
+                gated_by_compliance: eval.gated_by_compliance,
+                epoch_yield_multiplier: eval.epoch_yield_multiplier,
+            }
         },
     })
 }
