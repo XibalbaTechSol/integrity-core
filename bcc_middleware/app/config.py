@@ -303,10 +303,24 @@ class Settings:
     # deleted. 500k is ~a day of Oracle outage at the 2026-09-26 observed rate.
     spool_max_rows: int = field(default_factory=lambda: int(os.getenv("BCC_SPOOL_MAX_ROWS", "500000")))
 
+    @property
+    def pack_is_decider(self) -> bool:
+        """The signed pack decides (not bcc.rego): engine 'pack' (OPA server) or 'wasm' (in-process)."""
+        return self.policy_engine in ("pack", "wasm")
+
+    @property
+    def uses_opa_server(self) -> bool:
+        """The pack is evaluated by a separate OPA server (pack mode, or rego dual-run beside a pack).
+
+        True for every engine except 'wasm', which is the only in-process evaluator and the only one
+        that needs no BCC_PACK_OPA_URL.
+        """
+        return self.policy_engine != "wasm"
+
     def __post_init__(self) -> None:
         # One __post_init__ only: a second definition in this class would silently replace this one.
-        if self.policy_engine not in ("rego", "pack"):
-            raise ValueError(f"BCC_POLICY_ENGINE must be 'rego' or 'pack', got {self.policy_engine!r}")
+        if self.policy_engine not in ("rego", "pack", "wasm"):
+            raise ValueError(f"BCC_POLICY_ENGINE must be 'rego', 'pack' or 'wasm', got {self.policy_engine!r}")
         if self.admin_token is not None and len(self.admin_token) < MIN_ADMIN_TOKEN_LENGTH:
             raise ValueError(f"BCC_ADMIN_TOKEN must be at least {MIN_ADMIN_TOKEN_LENGTH} characters (try `openssl rand -hex 32`)")
         if self.receipt_dir is not None and not (self.receipt_key_file and self.receipt_hmac_key_file):

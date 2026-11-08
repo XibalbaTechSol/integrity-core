@@ -227,12 +227,12 @@ async def _init_pack_policy(settings: Settings) -> None:
     """
     global pack_policy, pack_policy_error
     pack_policy, pack_policy_error = None, None
-    if settings.policy_engine != "pack" and not settings.policy_pack_dir:
+    if not settings.pack_is_decider and not settings.policy_pack_dir:
         return
     try:
         pack_policy = await asyncio.to_thread(PackPolicy.load, settings)
     except PackPolicyError as exc:
-        if settings.policy_engine == "pack":
+        if settings.pack_is_decider:
             raise
         pack_policy_error = str(exc)
         logger.error("policy pack not loaded, dual-run disabled (bcc.rego still decides): %s", exc)
@@ -362,9 +362,9 @@ async def _policy_outcome(settings: Settings, opa_input: dict, intent_type: str)
       raise -- a failing or disagreeing pack is logged and counted, never acted on.
     """
     policy = pack_policy
-    if settings.policy_engine == "pack":
+    if settings.pack_is_decider:
         if policy is None:
-            raise OPAUnavailableError(f"policy engine 'pack' is selected but no pack is loaded ({pack_policy_error})")
+            raise OPAUnavailableError(f"policy engine {settings.policy_engine!r} is selected but no pack is loaded ({pack_policy_error})")
         try:
             verdict = await policy.decide(opa_input)
         except PackPolicyError as exc:
@@ -989,7 +989,7 @@ async def get_clinical_allowlist() -> ClinicalAllowlistResponse:
     In pack mode (BCC_POLICY_ENGINE=pack) the list is the hot-reloaded file named by
     BCC_CLINICAL_ALLOWLIST_FILE, so this returns what the pack is actually using.
     """
-    if default_settings.policy_engine == "pack" and pack_policy is not None:
+    if default_settings.pack_is_decider and pack_policy is not None:
         return ClinicalAllowlistResponse(agents=pack_policy.allowlist.current())
     url = f"{default_settings.opa_url.rstrip('/')}/v1/data/clinical_allowlist/agents"
     try:
@@ -1022,7 +1022,7 @@ async def set_clinical_allowlist(request: ClinicalAllowlistRequest) -> ClinicalA
     pack. Edit the file instead. During dual-run this still writes bcc.rego's data document, and any
     disagreement with the file shows up as a POLICY DIVERGENCE log line.
     """
-    if default_settings.policy_engine == "pack":
+    if default_settings.pack_is_decider:
         raise HTTPException(
             status_code=409,
             detail="the clinical allowlist is managed by BCC_CLINICAL_ALLOWLIST_FILE while BCC_POLICY_ENGINE=pack",

@@ -23,7 +23,7 @@ dependencies = [
     # uses to encode `publicKeyMultibase`.
     "base58>=2.1.0",
     "jcs>=0.2.1",
-    "integrity-sdk",
+    "integrity-sdk[wasm]",
 ]
 
 [dependency-groups]

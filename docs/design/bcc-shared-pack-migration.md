@@ -189,3 +189,59 @@ no control (`BCC_MALFORMED_COMMITMENT`, `HIPAA_TECHNICAL_SAFEGUARD_FAILURE`, `PO
 reason for each, so a new rule must either cite a control or be added to that list on purpose. The gap itself stays open on
 purpose: `docs/CONTROLS_MATRIX.md` maps only access control and audit controls, and citing a HIPAA sub-control for the others
 would be inventing a compliance claim that the compliance owner has not made.
+
+## Stage 5 (design + SDK delivered): the daemonless in-process engine
+
+**Why this stage exists.** Stages 2-4 removed the policy *fork* (one decision contract, one signed
+pack, one receipt writer) but not the OPA *daemon*. Both gates still evaluate by HTTP to a separate
+`opa` server. That server is the failure point this whole effort keeps hitting: it sleeps or dies
+independently of the gate, it is a shared namespace where one gate's pack can refuse another's
+(the 2026-10-24 live outage was exactly this), and on a free cloud host it adds a cold-start to a
+decision that must answer in milliseconds. "BCC and OPA could be one thing" (owner, 2026-11-06) is
+the decision to remove it.
+
+**Decision recorded (owner, 2026-11-06).**
+
+| Question | Decision | Consequence stated |
+|---|---|---|
+| Engine source | **OPA's own `opa build -t wasm`**, not a Rego reimplementation | `rego-cpp`/`regopy` could not even load `packs/bcc` (`Invalid collection` on `_primary`); `regorus` is not on PyPI; `opa-wasm` needs Wasmer (absent here). OPA-compiled wasm is the only path with OPA fidelity. Proven equivalent, not assumed — see below. |
+| Where the wasm lives | **Inside the signed pack**, as `policy.wasm` | `pack_hash` already covers every file, so the signature covers the wasm with no new mechanism. A device runs verified bytes, never a compile it did itself. This is the cross-repo contract change. |
+| Committed or built | **Built at sign time, never committed** | `build_pack_wasm` runs before `sign_pack` in the signing runbook. The repo's `packs/bcc` stays Rego-only source; the signed, wasm-bearing pack is the build artifact (the same way `pack-config/pack/` already is). `GOLDEN_PACK_HASH` and the committed pack are unchanged. |
+| Rollout | **New engine behind `BCC_POLICY_ENGINE=wasm`**, OPA server modes untouched | `rego` (default), `pack` (OPA server), and now `wasm` (in-process). Rollback is flipping the value back. Dual-run against `bcc.rego` is unchanged and orthogonal. |
+
+**What was built in the SDK (this change).** `integrity_sdk.core.wasm_engine.WasmPolicyClient` mirrors
+`OpaClient`'s surface exactly (`install` / `query` / `decide` / `installed_pack_hash`, raising the same
+`OpaError`), so `app/pack_policy.py` selects one or the other with no other change to the gate's control
+flow or failure handling. `integrity_sdk.core.wasm_build` has `build_pack_wasm` (compile, for the
+signing step) and `verify_pack_wasm` (rebuild from the verified Rego and compare — the audit that
+closes the one gap signing cannot: that the shipped wasm is the compile of the signed Rego; OPA wasm
+output is byte-reproducible for a pinned OPA version). `wasmtime` is an optional extra
+(`integrity-sdk[wasm]`); import hygiene keeps it out of the dependency-light core.
+
+**Failure postures (per the repo rule).**
+
+- Fail closed everywhere: no `policy.wasm`, a module that will not load, a trap, an `opa_abort`, an
+  unsupported builtin, or malformed output all raise `OpaError`, which `decide` turns into the pack's
+  deny. Nothing in this client can allow.
+- Host builtins are an allowlist: only `sprintf`, and only the `%v/%s/%d/%%` subset the policies use,
+  reproduced exactly. A pack that needs any other builtin (`crypto.sha256`, `semver.is_valid`, …) is
+  refused at install (`WASM_UNSUPPORTED_BUILTIN`), never evaluated approximately. `net.cidr_contains`,
+  `strings.reverse`, `json.is_valid` compile natively into the module and need no host support (checked).
+- No shared state between evaluations: each query runs on a fresh instance.
+
+**Equivalence is tested, not claimed.** `tests/unit/test_core_wasm_engine.py` runs `WasmPolicyClient`
+and a real `opa` server over the stage-1 equivalence corpus (the same cases, never a mock of OPA) and
+asserts identical raw results on every case; each safety property above has a mutation that must fail a
+test. In-process evaluation measured well under 1 ms/call versus a network round-trip.
+
+### Stage 5 — what remains (`[PLANNED]`)
+
+- **BCC wiring.** `app/pack_policy.py` / `app/config.py` gain the `wasm` engine option and the signing
+  runbook (`docs/runbooks/bcc-policy-pack.md`) gains the `build_pack_wasm` step. Until then the SDK
+  engine exists and is tested but no gate selects it.
+- **Shield.** Shield can adopt the same engine (its `gate_daemon` keeps a warm `PolicyEngine`); that is
+  a xibalba-shield change, out of scope here. The pack it loads is unaffected by an added `policy.wasm`
+  — `load_pack` hashes whatever files are present — so a wasm-bearing pack is backward-compatible with
+  an OPA-server gate that ignores the file.
+- **OPA version pinning.** Byte-reproducibility holds for a fixed OPA version; `verify_pack_wasm` after
+  an OPA upgrade means "rebuild with the pinned version", and the signing runbook must pin it.
