@@ -49,6 +49,10 @@ SUPPORTED_PACK_FORMATS = frozenset({PACK_FORMAT})
 SUPPORTED_DECISION_CONTRACTS = frozenset({DECISION_CONTRACT})
 MANIFEST_FILE = "pack.yaml"
 SIGNATURE_FILE = "pack.sig.json"
+# The compiled policy a daemonless gate runs (integrity_sdk.core.wasm_engine); built by wasm_build and
+# covered by pack_hash like any other file. Defined here, with the other pack file names, so that
+# building/auditing a pack's wasm does not pull in the wasm_engine's wasmtime dependency.
+WASM_FILE = "policy.wasm"
 SIGNATURE_DOC_VERSION = "integrity.pack-signature/1"
 _PACK_DOMAIN = b"integrity.pack.v1\x00"
 

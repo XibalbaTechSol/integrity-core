@@ -234,14 +234,25 @@ and a real `opa` server over the stage-1 equivalence corpus (the same cases, nev
 asserts identical raw results on every case; each safety property above has a mutation that must fail a
 test. In-process evaluation measured well under 1 ms/call versus a network round-trip.
 
-### Stage 5 — what remains (`[PLANNED]`)
+### Stage 5 — delivered, and what remains
 
-- **BCC wiring.** `app/pack_policy.py` / `app/config.py` gain the `wasm` engine option and the signing
-  runbook (`docs/runbooks/bcc-policy-pack.md`) gains the `build_pack_wasm` step. Until then the SDK
-  engine exists and is tested but no gate selects it.
+**Delivered.**
+
+- **BCC wiring (done).** `app/config.py` validates `BCC_POLICY_ENGINE` as `rego|pack|wasm` and exposes
+  `pack_is_decider` (pack|wasm) and `uses_opa_server` (everything but wasm — dual-run still needs the
+  server); `app/pack_policy.py` selects `WasmPolicyClient` or `OpaClient` with no other change to the
+  gate's control flow. A gate now selects the engine; `wasm` needs no `BCC_PACK_OPA_URL`.
+- **Signing-runbook step + OPA version pin (done).** `integrity pack build-wasm` (compile before sign)
+  and `integrity pack verify-wasm` (reload the signed pack and rebuild from its Rego to compare) are CLI
+  commands, and `docs/runbooks/bcc-policy-pack.md` §1/§4a sequence them. Byte-reproducibility holds only
+  per OPA build, so `wasm_build` refuses any OPA but the pinned `PINNED_OPA_VERSION` (`1.18.2`, the version
+  `scripts/install_toolchain.sh` installs; a test asserts the constant cannot drift from that script).
+  `build_pack_wasm`/`verify_pack_wasm` shell out to `opa` only, so building/auditing a pack needs the pinned
+  opa but **not** the `[wasm]` runtime extra; `WASM_FILE` moved to `core.packs` to keep that decoupling.
+
+**Remaining (`[PLANNED]`).**
+
 - **Shield.** Shield can adopt the same engine (its `gate_daemon` keeps a warm `PolicyEngine`); that is
   a xibalba-shield change, out of scope here. The pack it loads is unaffected by an added `policy.wasm`
   — `load_pack` hashes whatever files are present — so a wasm-bearing pack is backward-compatible with
   an OPA-server gate that ignores the file.
-- **OPA version pinning.** Byte-reproducibility holds for a fixed OPA version; `verify_pack_wasm` after
-  an OPA upgrade means "rebuild with the pinned version", and the signing runbook must pin it.

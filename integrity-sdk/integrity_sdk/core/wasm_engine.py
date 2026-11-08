@@ -45,9 +45,8 @@ except ImportError as exc:  # pragma: no cover - exercised only without the extr
 
 from .decision import ENFORCE, NO_MATCH, Decision, resolve
 from .opa import OpaError, entrypoint_path
-from .packs import LoadedPack
+from .packs import WASM_FILE, LoadedPack  # WASM_FILE re-exported for callers that import it from here
 
-WASM_FILE = "policy.wasm"
 _PAGE = 65536
 # Resource ceilings so a hostile input or policy cannot exhaust the gate.
 _MAX_INPUT_BYTES = 1 << 20

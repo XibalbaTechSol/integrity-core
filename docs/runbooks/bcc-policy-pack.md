@@ -16,10 +16,14 @@ Nothing here is required to run BCC: with no pack configured it decides with `bc
 ## 1. Sign the pack
 
 Signing is `shield sign-pack` with the operator key (it signs the manifest and every file, and prints the
-two values you need):
+two values you need). For the in-process `wasm` engine (section 4a), compile `policy.wasm` into the copy
+**before** signing, so the signature covers it; for `rego`/`pack` mode that step is optional (a
+wasm-bearing pack still loads under an OPA-server gate, which ignores the file):
 
 ```bash
 cp -r packs/bcc /secure/workdir/bcc-pack          # sign a COPY; never write signatures into the repo
+integrity pack build-wasm --pack-dir /secure/workdir/bcc-pack   # wasm engine only; needs the pinned opa
+# OK   built /secure/workdir/bcc-pack/policy.wasm  (opa 1.18.2)
 shield sign-pack --pack-dir /secure/workdir/bcc-pack --key /path/to/operator-pack-key.pem
 # OK   signed pack /secure/workdir/bcc-pack  pack_hash=sha256:...  signer_public_key=z6Mk...
 ```
@@ -28,6 +32,12 @@ shield sign-pack --pack-dir /secure/workdir/bcc-pack --key /path/to/operator-pac
 * `pack_hash` is `BCC_POLICY_PACK_HASH`. Set it: it is what stops "a different pack, signed by the same key".
 * The signed directory goes where BCC can read it read-only (`bcc_middleware/pack-config/pack/` for compose).
 * Any edit to any file after signing (even whitespace) makes the pack fail verification. That is the point.
+* **The wasm is built, never committed.** `integrity pack build-wasm` runs OPA's own `opa build -t wasm`
+  over the pack's Rego. `policy.wasm` is reproducible only per OPA build, so the step **refuses any OPA but
+  the pinned `1.18.2`** (the version `scripts/install_toolchain.sh` installs); install that binary first.
+  It also refuses a pack that is already signed — build on the unsigned copy, then sign. After signing,
+  audit the bytes with `integrity pack verify-wasm --pack-dir … --trusted-signer z6Mk…`, which reloads the
+  signed pack and rebuilds the wasm from its Rego to confirm they match (section 4a).
 
 ## 2. Start a dedicated OPA and the allowlist file
 
@@ -61,6 +71,39 @@ still editing the allowlist in two places (the file and the `PUT` endpoint) is e
   charged. If that OPA restarts and forgets the pack, one request triggers a throttled re-install.
 * `PUT /v1/admin/clinical-allowlist` returns 409 in pack mode; `GET` returns the file's current list.
 * Roll back: `BCC_POLICY_ENGINE=rego`, restart. The pack stays loaded and keeps dual-running.
+
+## 4a. Cut over to the in-process wasm engine (no OPA daemon)
+
+`BCC_POLICY_ENGINE=wasm` runs the pack's `policy.wasm` in-process with wasmtime, removing the OPA server
+from the request path (design: `docs/design/bcc-shared-pack-migration.md` stage 5; engine:
+`integrity_sdk.core.wasm_engine`). It decides identically to `pack` mode against a real OPA server — the
+equivalence is tested, not assumed — at well under 1 ms/call instead of a network round-trip.
+
+Prerequisites beyond section 1:
+
+* The signed pack must carry `policy.wasm` (the `integrity pack build-wasm` step in section 1). A pack
+  without it is **refused** at startup in wasm mode (`WASM_MISSING`); it does not silently fall back.
+* The BCC venv must have `wasmtime`. `bcc_middleware` already depends on `integrity-sdk[wasm]`, so a venv
+  synced after that dependency landed has it; a venv synced before it does not. Re-sync (`uv sync --frozen`)
+  and confirm with `python -c 'import wasmtime'` before cutting over. `rego`/`pack` mode do not use it.
+* **Audit the pack once before trusting it:** `integrity pack verify-wasm --pack-dir … --trusted-signer z6Mk…`
+  reloads the signed pack and rebuilds the wasm from its (verified) Rego with the pinned OPA, confirming the
+  shipped bytes really are the compile of the signed policy — the one thing the signature alone cannot show.
+
+Cut over and back:
+
+* Cut over: set `BCC_POLICY_ENGINE=wasm` and restart. **No `BCC_PACK_OPA_URL` and no dedicated OPA are
+  needed** (the engine is in-process). `BCC_POLICY_PACK_DIR`, `BCC_TRUSTED_PACK_SIGNERS`, `BCC_POLICY_PACK_HASH`
+  and the clinical allowlist file are used exactly as in `pack` mode. The service **refuses to start** if the
+  pack does not verify, carries no `policy.wasm`, or the module will not load — never a silent downgrade.
+  A pack whose policy needs a builtin the engine does not host is refused here too, at install
+  (`WASM_UNSUPPORTED_BUILTIN`), never evaluated approximately.
+* Fail-closed at request time: a trap, an `opa_abort` or malformed output denies that request
+  (`BCC_POLICY_ENGINE_UNAVAILABLE`); nothing in the engine can allow.
+* Roll back: `BCC_POLICY_ENGINE=rego` (or `pack`), restart. Rollback is only the flag; the pack is unchanged.
+* **Dual-run still needs the OPA server.** Section 3's divergence check compares the pack against `bcc.rego`
+  via `BCC_PACK_OPA_URL`, so validate with `BCC_POLICY_ENGINE=rego` + the dedicated OPA first, then cut over
+  to `wasm`. Dual-run and the wasm engine are orthogonal; `wasm` is a cutover target, not a dual-run mode.
 
 ## 5. Signed decision receipts
 
