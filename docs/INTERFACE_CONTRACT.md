@@ -1220,7 +1220,13 @@ contract directly.
     ingest, AIS computation, and live reads of markets, positions,
     allocations, wallet balances, and a derived leaderboard (§6.9). No
     demo-orchestration logic lives here — it is a read/verify layer over
-    real on-chain + telemetry state, nothing else.
+    real on-chain + telemetry state, nothing else. Because this half sees the
+    *outcomes* of actions whose *intent* the BCC half signed, it is also where
+    **anchoring coverage** is measured — `GET /v1/agent/{id}/anchoring-coverage`
+    reconciles the two sides per `invocation_id` and reports what fraction of an
+    agent's observed executions carried a prior signed intent, naming the ones
+    that did not as findings (the bypass this section warns about, made into a
+    number). See `docs/design/anchoring-coverage.md`.
   - These two keep separate codebases/processes (no forced rewrite —
     `bcc_middleware` stays Python, `integrity-oracle` stays Rust) but are
     organizationally one deployment group and one trust boundary: both
