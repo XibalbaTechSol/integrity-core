@@ -147,10 +147,28 @@ class DualRunStats:
                     "pack_errors": self.pack_errors, "last_divergence": self.last_divergence}
 
 
+def _make_client(settings: Settings):
+    """The pack evaluator for the configured engine: an in-process wasm client, or an OPA server client.
+
+    Both expose install/query/installed_pack_hash and raise OpaError, so PackPolicy uses either unchanged.
+    The wasm client runs the pack's verified `policy.wasm` in this process -- no OPA server, so none of the
+    daemon's failure modes (asleep, restarted, another gate's pack installed over this one).
+    """
+    if settings.policy_engine == "wasm":
+        try:
+            from integrity_sdk.core.wasm_engine import WasmPolicyClient
+        except ImportError as exc:  # the optional extra is not installed
+            raise PackPolicyError(
+                "BCC_POLICY_ENGINE=wasm needs the wasm extra: pip install 'integrity-sdk[wasm]'"
+            ) from exc
+        return WasmPolicyClient()
+    return OpaClient(settings.pack_opa_url, timeout_seconds=settings.opa_timeout_seconds)
+
+
 class PackPolicy:
     """One verified, installed pack and the means to evaluate commitments against it."""
 
-    def __init__(self, pack: LoadedPack, client: OpaClient, allowlist: ClinicalAllowlist) -> None:
+    def __init__(self, pack: LoadedPack, client: Any, allowlist: ClinicalAllowlist) -> None:
         self._pack = pack
         self._client = client
         self._allowlist = allowlist
@@ -175,10 +193,11 @@ class PackPolicy:
             raise PackPolicyError("BCC_POLICY_PACK_DIR is not set")
         if not settings.trusted_pack_signers:
             raise PackPolicyError("BCC_TRUSTED_PACK_SIGNERS is required with a policy pack: refusing to trust any signer")
-        if not settings.pack_opa_url:
+        if settings.uses_opa_server and not settings.pack_opa_url:
             raise PackPolicyError(
-                "BCC_PACK_OPA_URL is required with a policy pack. There is no fallback to OPA_URL: two gates' packs "
-                "share a policy id, so a shared OPA would have each overwrite the other's pack"
+                "BCC_PACK_OPA_URL is required with the OPA-server pack engine. There is no fallback to OPA_URL: two "
+                "gates' packs share a policy id, so a shared OPA would have each overwrite the other's pack. "
+                "(BCC_POLICY_ENGINE=wasm needs no OPA server.)"
             )
         try:
             pack = load_pack(
@@ -196,12 +215,13 @@ class PackPolicy:
     def load(cls, settings: Settings, allowlist: Optional[ClinicalAllowlist] = None) -> "PackPolicy":
         """Verify and install the configured pack, or raise `PackPolicyError` saying what is missing."""
         pack = cls._verify(settings, settings.policy_pack_hash)
-        client = OpaClient(settings.pack_opa_url, timeout_seconds=settings.opa_timeout_seconds)
+        client = _make_client(settings)
+        where = "in-process (wasm)" if settings.policy_engine == "wasm" else str(settings.pack_opa_url)
         try:
             client.install(pack)
         except OpaError as exc:
-            raise PackPolicyError(f"could not install the verified pack into {settings.pack_opa_url}: {exc}") from exc
-        logger.info("policy pack %s %s (%s) installed", pack.manifest["name"], pack.manifest["version"], pack.pack_hash)
+            raise PackPolicyError(f"could not install the verified pack ({where}): {exc}") from exc
+        logger.info("policy pack %s %s (%s) installed %s", pack.manifest["name"], pack.manifest["version"], pack.pack_hash, where)
         return cls(pack, client, allowlist or ClinicalAllowlist(settings.clinical_allowlist_file))
 
     def reload(self, settings: Settings, *, expected_pack_hash: str) -> ReloadResult:

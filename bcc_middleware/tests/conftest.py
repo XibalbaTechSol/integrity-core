@@ -273,7 +273,7 @@ def make_signed_pack(tmp_path):
 
     counter = [0]
 
-    def make(*, edit=None, edit_manifest=None, sign: bool = True, tamper_after=None) -> tuple[str, str]:
+    def make(*, edit=None, edit_manifest=None, sign: bool = True, tamper_after=None, build_wasm: bool = False) -> tuple[str, str]:
         import shutil
 
         counter[0] += 1
@@ -285,6 +285,9 @@ def make_signed_pack(tmp_path):
         if edit_manifest is not None:
             manifest = directory / "pack.yaml"
             manifest.write_text(edit_manifest(manifest.read_text()))
+        if build_wasm:
+            from integrity_sdk.core.wasm_build import build_pack_wasm
+            build_pack_wasm(directory)  # policy.wasm must exist BEFORE signing so the signature covers it
         signer = Keypair.generate()
         if sign:
             sign_pack(directory, signer)
