@@ -51,7 +51,8 @@ aggregate over its rows, so the two cannot drift.
   the claim was made, unmodified and fresh, not that it was truthful), and does not prove coverage of
   actions the Oracle never observed at all. An agent host compromised enough to skip the gate can also
   suppress the outcome report; closing that is **Shield's** job (an OS-level sensor the agent does not
-  control sees the execution regardless), and reconciling Shield's observations here is the next step.
+  control sees the execution regardless), and reconciling Shield's observations here is the next step
+  (scoped in `docs/design/shield-observation-reconciliation.md`).
 - **Informational only**, like `anchor_coverage.rs`'s on-chain signal: it is not an AIS input and not a
   `Slasher` trigger. Turning a sustained low coverage into a dispute is a separate, later decision.
 
