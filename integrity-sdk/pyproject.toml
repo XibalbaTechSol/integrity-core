@@ -54,6 +54,12 @@ connector = [
     "web3>=7.4.0",
     "eth-utils>=5.1.0",
 ]
+# In-process policy evaluation (integrity_sdk.core.wasm_engine): a signed pack ships policy.wasm, built by OPA's
+# own compiler, and the gate runs it with wasmtime instead of calling an OPA server. Optional so the base
+# core stays dependency-light; a gate that wants the daemonless engine opts in with `integrity-sdk[wasm]`.
+wasm = [
+    "wasmtime>=25.0.0",
+]
 # Framework-specific MLflow autolog needs the framework itself plus pandas
 # (which mlflow-skinny omits). Kept optional so the base SDK stays light — an
 # agent installs the extra matching whatever LLM stack it actually uses.
