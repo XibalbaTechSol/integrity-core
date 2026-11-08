@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 use sha2::{Digest, Sha256};
+use sha3::{Digest as _, Keccak256};
 
 use crate::AppState;
 use crate::anchor_coverage::{self, AnchorCoverage};
@@ -2525,6 +2526,218 @@ pub async fn create_shield_policy_token(
     let signature = sk.sign(signing_input.as_bytes());
     let token = format!("{}.{}", signing_input, base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(signature.to_bytes()));
     Ok(Json(ShieldPolicyTokenResponse { token, issuer, policy_hash, expires_at }))
+}
+
+/// Domain separator for the Shield observation signature. Distinct from the gate-receipt domain
+/// (`core.receipts` uses `b"integrity.receipt.v1\x00"`), so a gate receipt can never be replayed as
+/// an observation or vice versa. The device signs `SHIELD_OBS_DOMAIN || JCS(body)` with its DID key.
+const SHIELD_OBS_DOMAIN: &[u8] = b"integrity.shield.observation.v1\x00";
+
+/// One signed, per-device-sequenced Shield witness record (reconciliation Phase 1).
+///
+/// WIRE CONTRACT (the Shield emitter — a separate xibalba-shield PR — MUST match this byte-for-byte;
+/// mirrors the `core.receipts` chain discipline with its own domain and fields):
+/// * `body` = every field below EXCEPT `device_signature` and `record_hash`.
+/// * `device_signature` = ed25519( `SHIELD_OBS_DOMAIN` || JCS(`body`) ).hex(), signed with the
+///   DEVICE DID's key (resolved here from `agents.ed25519_pubkey`).
+/// * `record_hash` = `0x` + keccak256( JCS(`body` ∪ {`device_signature`}) ).hex() — the chain link.
+/// * `prev_hash` = the predecessor record's `record_hash`; absent/null at `sequence` 0.
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+pub struct ShieldObservationRequest {
+    /// The witnessing device's DID (the signer; must be allowlisted in `SHIELD_WITNESS_DIDS`).
+    pub device_id: String,
+    /// Monotonic per-device counter (from 0). With `prev_hash` it forms the gap-detectable chain.
+    pub sequence: i64,
+    /// The OBSERVED agent this witness pertains to (never the device itself).
+    pub agent_id: String,
+    pub window_start: DateTime<Utc>,
+    pub window_end: DateTime<Utc>,
+    /// Gate-attributed trees Shield witnessed (instrumentation excluded on-device).
+    pub executions_witnessed: i64,
+    /// Attributed trees with no gate receipt — the full-bypass count, a subset of witnessed.
+    pub executions_suppressed: i64,
+    pub attribution_confidence: f32,
+    pub tree_fingerprint: String,
+    #[serde(default)]
+    pub gate_receipt_ref: Option<String>,
+    #[serde(default)]
+    pub prev_hash: Option<String>,
+    pub record_hash: String,
+    pub device_signature: String,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ShieldObservationResponse {
+    /// true = a new row was stored; false = an idempotent replay of an already-stored record.
+    pub accepted: bool,
+    pub sequence: i64,
+    pub record_hash: String,
+}
+
+/// `POST /v1/shield/observation` — ingest one signed Shield witness record (reconciliation Phase 1).
+///
+/// Fail-closed auth (INTERFACE_CONTRACT.md §6.10 guardrail: an unauthenticated ingest would let
+/// anyone forge suppression against any agent):
+/// 1. The device DID must be explicitly allowlisted (`SHIELD_WITNESS_DIDS`); empty allowlist
+///    rejects every submitter.
+/// 2. A device may not witness ITSELF as the observed agent (`device_id != agent_id`).
+/// 3. The `device_signature` must verify over `SHIELD_OBS_DOMAIN || JCS(body)` with the device
+///    DID's registered `ed25519_pubkey` — so the agent cannot forge "nothing was witnessed".
+/// 4. The claimed `record_hash` must equal the Oracle's own keccak256 of the signed record (binds
+///    the counts to the signature), and `prev_hash` must match the predecessor's `record_hash`
+///    when that row exists (fork detection; out-of-order delivery is allowed — the read-side
+///    contiguity/boundary check handles gaps).
+///
+/// Idempotent on `(device_id, sequence)`: a byte-identical replay returns 200 `accepted=false`;
+/// a same-key record with a DIFFERENT `record_hash` is equivocation → 409.
+#[utoipa::path(
+    post,
+    path = "/v1/shield/observation",
+    request_body = ShieldObservationRequest,
+    responses((status = 200, description = "Observation accepted or idempotent replay", body = ShieldObservationResponse)),
+    tag = "shield",
+)]
+pub async fn ingest_shield_observation(
+    State(state): State<AppState>,
+    Json(raw): Json<serde_json::Value>,
+) -> Result<Json<ShieldObservationResponse>, AppError> {
+    check_internal_api_rate_limit(&state).await?;
+
+    let req: ShieldObservationRequest = serde_json::from_value(raw.clone())
+        .map_err(|e| AppError::BadRequest(format!("malformed shield observation: {e}")))?;
+
+    let device_id = req.device_id.trim();
+    let agent_id = req.agent_id.trim();
+    let tree_fingerprint = req.tree_fingerprint.trim();
+    if device_id.is_empty() || agent_id.is_empty() || tree_fingerprint.is_empty() || req.record_hash.trim().is_empty() {
+        return Err(AppError::BadRequest(
+            "device_id, agent_id, tree_fingerprint, and record_hash are required".to_string(),
+        ));
+    }
+    // Structural guardrails, mirroring the table CHECKs but rejected early with a clear message.
+    if req.sequence < 0 {
+        return Err(AppError::BadRequest("sequence must be >= 0".to_string()));
+    }
+    if req.executions_witnessed < 0
+        || req.executions_suppressed < 0
+        || req.executions_suppressed > req.executions_witnessed
+    {
+        return Err(AppError::BadRequest("executions_suppressed must be within 0..=executions_witnessed".to_string()));
+    }
+    if !(0.0..=1.0).contains(&req.attribution_confidence) {
+        return Err(AppError::BadRequest("attribution_confidence must be in [0, 1]".to_string()));
+    }
+    if req.window_end < req.window_start {
+        return Err(AppError::BadRequest("window_end must be >= window_start".to_string()));
+    }
+
+    // --- Witness authority (a witness cannot forge suppression against an agent) ---
+    if device_id == agent_id {
+        return Err(AppError::BadRequest(
+            "a device may not submit an observation about itself as the observed agent".to_string(),
+        ));
+    }
+    if !state.config.shield_witness_dids.contains(device_id) {
+        // Not an authorized Shield witness (or the allowlist is empty = fail-closed).
+        return Err(AppError::Unauthorized);
+    }
+
+    // --- Signature verification over `SHIELD_OBS_DOMAIN || JCS(body)` ---
+    // Verify over the exact bytes the device serialized: strip the derived/authenticating fields
+    // from the raw JSON and JCS the remainder, rather than re-serializing a typed struct (which can
+    // subtly change float/field byte representation — the same reason the telemetry path does this).
+    let mut body = raw.clone();
+    {
+        let body_obj = body
+            .as_object_mut()
+            .ok_or_else(|| AppError::BadRequest("observation must be a JSON object".to_string()))?;
+        body_obj.remove("device_signature");
+        body_obj.remove("record_hash");
+    }
+    let mut message = SHIELD_OBS_DOMAIN.to_vec();
+    message.extend_from_slice(&crypto::canonical_json_bytes(&body));
+
+    let device = db::get_agent(&state.pool, device_id)
+        .await?
+        .ok_or_else(|| AppError::AgentNotFound(device_id.to_string()))?;
+    let ed25519_hex = device.ed25519_pubkey.as_ref().map(hex::encode);
+    let methods = AgentVerificationMethods {
+        ed25519_pubkey_hex: ed25519_hex.as_deref(),
+        // A device witness authenticates with its DID Ed25519 key only, never an eth address.
+        eth_address_hex: None,
+    };
+    if !crypto::verify_agent_signature(&message, &req.device_signature, &methods)? {
+        return Err(AppError::Unauthorized);
+    }
+
+    // --- record_hash: keccak256 of the signed record (body + signature), recomputed to bind the
+    //     witnessed/suppressed counts to the signature. `body` already has both fields removed. ---
+    body.as_object_mut()
+        .expect("body was validated as a JSON object above")
+        .insert(
+            "device_signature".to_string(),
+            serde_json::Value::String(req.device_signature.clone()),
+        );
+    let computed_hash = format!("0x{}", hex::encode(Keccak256::digest(crypto::canonical_json_bytes(&body))));
+    if computed_hash != req.record_hash {
+        return Err(AppError::BadRequest("record_hash does not match the signed record".to_string()));
+    }
+
+    // --- prev_hash chain (fork detection; out-of-order delivery allowed) ---
+    if req.sequence == 0 {
+        if req.prev_hash.is_some() {
+            return Err(AppError::BadRequest("sequence 0 must not carry a prev_hash".to_string()));
+        }
+    } else if let Some(predecessor) =
+        db::shield_observation_record_hash(&state.pool, device_id, req.sequence - 1).await?
+    {
+        if req.prev_hash.as_deref() != Some(predecessor.as_str()) {
+            return Err(AppError::BadRequest(
+                "prev_hash does not match the predecessor record's record_hash".to_string(),
+            ));
+        }
+    }
+
+    // --- Idempotency / equivocation on (device_id, sequence) ---
+    if let Some(existing) = db::shield_observation_record_hash(&state.pool, device_id, req.sequence).await? {
+        if existing == req.record_hash {
+            return Ok(Json(ShieldObservationResponse {
+                accepted: false,
+                sequence: req.sequence,
+                record_hash: req.record_hash,
+            }));
+        }
+        return Err(AppError::WitnessEquivocation {
+            device_id: device_id.to_string(),
+            sequence: req.sequence,
+        });
+    }
+
+    let inserted = db::insert_shield_observation(
+        &state.pool,
+        &db::ShieldObservationInsert {
+            device_id,
+            sequence: req.sequence,
+            agent_id,
+            window_start: req.window_start,
+            window_end: req.window_end,
+            executions_witnessed: req.executions_witnessed,
+            executions_suppressed: req.executions_suppressed,
+            attribution_confidence: req.attribution_confidence,
+            tree_fingerprint,
+            gate_receipt_ref: req.gate_receipt_ref.as_deref(),
+            record_hash: &req.record_hash,
+            prev_hash: req.prev_hash.as_deref(),
+            device_signature: &req.device_signature,
+        },
+    )
+    .await?;
+
+    Ok(Json(ShieldObservationResponse {
+        accepted: inserted,
+        sequence: req.sequence,
+        record_hash: req.record_hash,
+    }))
 }
 
 // Provenance: an agent's on-chain-anchored history (Class B, docs/design/

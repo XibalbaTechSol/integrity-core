@@ -35,6 +35,11 @@ pub enum AppError {
     },
     #[error("semantic duplicate telemetry content for agent {0}")]
     DuplicateTelemetry(String),
+    /// A Shield observation arrived for a (device_id, sequence) that already exists with a
+    /// DIFFERENT record_hash: the device forked its own per-device chain (equivocation). A resend
+    /// with the SAME record_hash is an idempotent replay (200), not this — this is a 409.
+    #[error("shield observation equivocation at device {device_id} sequence {sequence}")]
+    WitnessEquivocation { device_id: String, sequence: i64 },
     #[error("rate limit exceeded, try again shortly")]
     RateLimited,
     #[error(transparent)]
@@ -81,6 +86,7 @@ impl IntoResponse for AppError {
             AppError::Unauthorized => (StatusCode::UNAUTHORIZED, self.to_string()),
             AppError::NonceReplay { .. } => (StatusCode::CONFLICT, self.to_string()),
             AppError::DuplicateTelemetry(_) => (StatusCode::CONFLICT, self.to_string()),
+            AppError::WitnessEquivocation { .. } => (StatusCode::CONFLICT, self.to_string()),
             AppError::RateLimited => (StatusCode::TOO_MANY_REQUESTS, self.to_string()),
             AppError::Verify(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             AppError::ChainMismatch(_) => (StatusCode::BAD_REQUEST, self.to_string()),

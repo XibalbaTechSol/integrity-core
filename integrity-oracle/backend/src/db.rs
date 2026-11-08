@@ -2414,6 +2414,77 @@ pub async fn agent_anchoring_coverage(
     })
 }
 
+/// Borrowed fields of one verified Shield observation to persist. Counts and ranges are
+/// re-checked by the table CHECK constraints; the handler verifies the signature + chain first.
+pub struct ShieldObservationInsert<'a> {
+    pub device_id: &'a str,
+    pub sequence: i64,
+    pub agent_id: &'a str,
+    pub window_start: DateTime<Utc>,
+    pub window_end: DateTime<Utc>,
+    pub executions_witnessed: i64,
+    pub executions_suppressed: i64,
+    pub attribution_confidence: f32,
+    pub tree_fingerprint: &'a str,
+    pub gate_receipt_ref: Option<&'a str>,
+    pub record_hash: &'a str,
+    pub prev_hash: Option<&'a str>,
+    pub device_signature: &'a str,
+}
+
+/// The stored `record_hash` of the observation at `(device_id, sequence)`, if any. Lets the handler
+/// (a) verify `prev_hash` against the predecessor and (b) tell an idempotent replay (same hash)
+/// from an equivocating fork (same key, different hash) before inserting.
+pub async fn shield_observation_record_hash(
+    pool: &PgPool,
+    device_id: &str,
+    sequence: i64,
+) -> Result<Option<String>, sqlx::Error> {
+    let row: Option<(String,)> = sqlx::query_as(
+        "SELECT record_hash FROM shield_observations WHERE device_id = $1 AND sequence = $2",
+    )
+    .bind(device_id)
+    .bind(sequence)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|r| r.0))
+}
+
+/// Insert one verified Shield observation. Idempotent on the `(device_id, sequence)` PK — a resend
+/// of an already-stored row is a no-op (`ON CONFLICT DO NOTHING`) returning `Ok(false)`; a fresh
+/// insert returns `Ok(true)`. Equivocation (same key, different `record_hash`) is rejected by the
+/// handler via [`shield_observation_record_hash`] BEFORE this is called, so a conflict here is only
+/// ever a byte-identical replay.
+pub async fn insert_shield_observation(
+    pool: &PgPool,
+    obs: &ShieldObservationInsert<'_>,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        "INSERT INTO shield_observations \
+         (device_id, sequence, agent_id, window_start, window_end, executions_witnessed, \
+          executions_suppressed, attribution_confidence, tree_fingerprint, gate_receipt_ref, \
+          record_hash, prev_hash, device_signature) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) \
+         ON CONFLICT (device_id, sequence) DO NOTHING",
+    )
+    .bind(obs.device_id)
+    .bind(obs.sequence)
+    .bind(obs.agent_id)
+    .bind(obs.window_start)
+    .bind(obs.window_end)
+    .bind(obs.executions_witnessed)
+    .bind(obs.executions_suppressed)
+    .bind(obs.attribution_confidence)
+    .bind(obs.tree_fingerprint)
+    .bind(obs.gate_receipt_ref)
+    .bind(obs.record_hash)
+    .bind(obs.prev_hash)
+    .bind(obs.device_signature)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
+}
+
 pub async fn reconcile_agent_intent_outcome(
     pool: &PgPool,
     agent_id: &str,
