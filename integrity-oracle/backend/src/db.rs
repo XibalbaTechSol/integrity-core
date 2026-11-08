@@ -2235,11 +2235,98 @@ pub struct AnchoringCoverage {
     /// Authorized intents that never produced a reported outcome (`intent_without_outcome`): not
     /// counted against coverage (the action may simply not have run), but surfaced.
     pub intents_without_outcome: i64,
-    /// `executions_anchored / executions_observed`; `None` when nothing was observed.
+    /// `executions_anchored / executions_observed` by default; when a trusted, COMPLETE Shield
+    /// witness covers the window it is instead `executions_anchored / executions_witnessed` (the
+    /// denominator a gate-bypasser cannot suppress). `None` when nothing was observed, OR when a
+    /// witness was expected but incomplete — never a falsely-high ratio.
     pub coverage_ratio: Option<f64>,
+    /// Which denominator `coverage_ratio` used: `"self_reported"` (the agent's own outcome count,
+    /// suppressible by a bypasser) or `"shield_witness"` (Shield's independent OS-level count).
+    /// Labelled so a consumer never mistakes a self-reported ratio for a witnessed one.
+    pub coverage_basis: &'static str,
+    /// Gate-ATTRIBUTED process-trees Shield witnessed for this agent over the window — the trusted
+    /// denominator. `None` when no Shield observation covered the window.
+    pub executions_witnessed: Option<i64>,
+    /// Witnessed-and-attributed trees with NO gate receipt — the full-bypass count, computed
+    /// on-device. `None` when the witness is absent or incomplete (never a fabricated 0).
+    pub executions_suppressed: Option<i64>,
+    /// `Some(true)` when a gap-free, fresh Shield witness covers the window; `Some(false)` when a
+    /// witness was present but had a sequence gap or was stale (→ denominator falls back to
+    /// self-reported); `None` when no witness covered the window.
+    pub witness_complete: Option<bool>,
     /// The unanchored and conflicted executions themselves — the actions that ran without a
     /// clean prior signed intent. Capped at `findings_cap`.
     pub findings: Vec<IntentOutcomeRow>,
+}
+
+use crate::reconciliation::{self, ShieldObsRecord, WitnessSummary, DEFAULT_WITNESS_LOOKBACK_SECS};
+
+/// Summarize Shield's independent witness for `agent_id`. The window starts at `reconcile_min` (the
+/// earliest self-reported reconcile timestamp) when there is one, and otherwise at a fixed lookback
+/// — so a FULL-BYPASS agent with zero reconcile rows (the §6.10 case this exists to catch) is still
+/// witnessed, never silently skipped. Verifies per-device interior sequence continuity AND that the
+/// window's leading edge connects to history (no dropped prefix), plus freshness. A missing /
+/// stale / gapped witness reads `complete=false`, never as perfect coverage — the §6.10 guardrail:
+/// witness-unavailable is `None`, never 1.0.
+async fn shield_witness_summary(
+    pool: &PgPool,
+    agent_id: &str,
+    reconcile_min: Option<DateTime<Utc>>,
+) -> Result<WitnessSummary, sqlx::Error> {
+    let now = Utc::now();
+    let since = reconciliation::witness_query_since(reconcile_min, now, DEFAULT_WITNESS_LOOKBACK_SECS);
+
+    // Fetch the DEVICE-WIDE in-window chain for every device that witnessed this agent: a device
+    // numbers its sequence across all agents it sees (Claude/Codex/Agy on one host), so contiguity
+    // must span the whole chain. `is_target` marks this agent's own rows, from which the counts and
+    // freshness are taken (see `evaluate_shield_witness`).
+    let rows = sqlx::query_as::<_, ShieldObsRecord>(
+        "SELECT device_id, sequence, executions_witnessed, executions_suppressed, window_end, \
+                (agent_id = $1) AS is_target \
+         FROM shield_observations \
+         WHERE window_end >= $2 \
+           AND device_id IN ( \
+               SELECT device_id FROM shield_observations WHERE agent_id = $1 AND window_end >= $2) \
+         ORDER BY device_id, sequence",
+    )
+    .bind(agent_id)
+    .bind(since)
+    .fetch_all(pool)
+    .await?;
+
+    // Leading-edge check (per device): the earliest in-window sequence must connect to history —
+    // either it IS the device's chain start (its global MIN), or its immediate predecessor row
+    // exists. A dropped prefix (sequences before the first in-window row lost) is otherwise
+    // invisible to the pure interior-contiguity check, since those rows are absent from the slice.
+    let mut device_min: std::collections::HashMap<&str, i64> = std::collections::HashMap::new();
+    for r in &rows {
+        device_min
+            .entry(r.device_id.as_str())
+            .and_modify(|m| {
+                if r.sequence < *m {
+                    *m = r.sequence;
+                }
+            })
+            .or_insert(r.sequence);
+    }
+    let mut boundary_ok = true;
+    for (device, &min_seq) in &device_min {
+        let (global_min, pred_exists): (Option<i64>, bool) = sqlx::query_as(
+            "SELECT (SELECT MIN(sequence) FROM shield_observations WHERE device_id = $1), \
+                    EXISTS(SELECT 1 FROM shield_observations WHERE device_id = $1 AND sequence = $2)",
+        )
+        .bind(*device)
+        .bind(min_seq - 1)
+        .fetch_one(pool)
+        .await?;
+        let is_chain_start = global_min == Some(min_seq);
+        if !(is_chain_start || pred_exists) {
+            boundary_ok = false;
+            break;
+        }
+    }
+
+    Ok(reconciliation::evaluate_shield_witness(&rows, boundary_ok, now))
 }
 
 pub async fn agent_anchoring_coverage(
@@ -2297,11 +2384,26 @@ pub async fn agent_anchoring_coverage(
         }
     }
 
-    let coverage_ratio = if observed > 0 {
-        Some(anchored as f64 / observed as f64)
-    } else {
-        None
-    };
+    // Align Shield's witness window to the reconcile rows' own time span (earliest timestamp seen),
+    // so "did the witness cover this window" means the same window the self-reported side
+    // summarized. `None` (zero reconcile rows = full bypass) makes the witness fall back to a fixed
+    // lookback inside `shield_witness_summary`, rather than skipping the witness entirely.
+    let reconcile_min = rows
+        .iter()
+        .filter_map(|r| r.outcome_at.or(r.intent_at))
+        .min();
+    let witness = shield_witness_summary(pool, agent_id, reconcile_min).await?;
+
+    // Witnessed count is reported whenever a witness is present (even if incomplete, so an operator
+    // sees it); suppressed and the witnessed-denominator ratio are only trusted when COMPLETE.
+    let executions_witnessed = witness.present.then_some(witness.witnessed);
+    let executions_suppressed = (witness.present && witness.complete).then_some(witness.suppressed);
+    let witness_complete = witness.present.then_some(witness.complete);
+
+    // Denominator switch: a trusted, complete witness replaces the suppressible self-reported count.
+    // Otherwise fall back to self-reported, and SAY SO via `coverage_basis`.
+    let (coverage_ratio, coverage_basis) =
+        reconciliation::compute_coverage_ratio_and_basis(anchored, observed, &witness);
 
     Ok(AnchoringCoverage {
         agent_id: agent_id.to_string(),
@@ -2312,8 +2414,84 @@ pub async fn agent_anchoring_coverage(
         executions_conflicted: conflicted,
         intents_without_outcome,
         coverage_ratio,
+        coverage_basis,
+        executions_witnessed,
+        executions_suppressed,
+        witness_complete,
         findings,
     })
+}
+
+/// Borrowed fields of one verified Shield observation to persist. Counts and ranges are
+/// re-checked by the table CHECK constraints; the handler verifies the signature + chain first.
+pub struct ShieldObservationInsert<'a> {
+    pub device_id: &'a str,
+    pub sequence: i64,
+    pub agent_id: &'a str,
+    pub window_start: DateTime<Utc>,
+    pub window_end: DateTime<Utc>,
+    pub executions_witnessed: i64,
+    pub executions_suppressed: i64,
+    /// Integer basis points (0..10000); see the migration on why this is not a float.
+    pub attribution_confidence: i32,
+    pub tree_fingerprint: &'a str,
+    pub gate_receipt_ref: Option<&'a str>,
+    pub record_hash: &'a str,
+    pub prev_hash: Option<&'a str>,
+    pub device_signature: &'a str,
+}
+
+/// The stored `record_hash` of the observation at `(device_id, sequence)`, if any. Lets the handler
+/// (a) verify `prev_hash` against the predecessor and (b) tell an idempotent replay (same hash)
+/// from an equivocating fork (same key, different hash) before inserting.
+pub async fn shield_observation_record_hash(
+    pool: &PgPool,
+    device_id: &str,
+    sequence: i64,
+) -> Result<Option<String>, sqlx::Error> {
+    let row: Option<(String,)> = sqlx::query_as(
+        "SELECT record_hash FROM shield_observations WHERE device_id = $1 AND sequence = $2",
+    )
+    .bind(device_id)
+    .bind(sequence)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|r| r.0))
+}
+
+/// Insert one verified Shield observation. Idempotent on the `(device_id, sequence)` PK — a resend
+/// of an already-stored row is a no-op (`ON CONFLICT DO NOTHING`) returning `Ok(false)`; a fresh
+/// insert returns `Ok(true)`. Equivocation (same key, different `record_hash`) is rejected by the
+/// handler via [`shield_observation_record_hash`] BEFORE this is called, so a conflict here is only
+/// ever a byte-identical replay.
+pub async fn insert_shield_observation(
+    pool: &PgPool,
+    obs: &ShieldObservationInsert<'_>,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        "INSERT INTO shield_observations \
+         (device_id, sequence, agent_id, window_start, window_end, executions_witnessed, \
+          executions_suppressed, attribution_confidence, tree_fingerprint, gate_receipt_ref, \
+          record_hash, prev_hash, device_signature) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) \
+         ON CONFLICT (device_id, sequence) DO NOTHING",
+    )
+    .bind(obs.device_id)
+    .bind(obs.sequence)
+    .bind(obs.agent_id)
+    .bind(obs.window_start)
+    .bind(obs.window_end)
+    .bind(obs.executions_witnessed)
+    .bind(obs.executions_suppressed)
+    .bind(obs.attribution_confidence)
+    .bind(obs.tree_fingerprint)
+    .bind(obs.gate_receipt_ref)
+    .bind(obs.record_hash)
+    .bind(obs.prev_hash)
+    .bind(obs.device_signature)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
 }
 
 pub async fn reconcile_agent_intent_outcome(

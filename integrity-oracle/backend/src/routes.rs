@@ -78,6 +78,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/memory/profile", post(handlers::register_memory_profile))
         .route("/v1/memory/anchor", get(handlers::get_memory_anchors).post(handlers::create_memory_anchor))
         .route("/v1/shield/policy-token", post(handlers::create_shield_policy_token))
+        .route("/v1/shield/observation", post(handlers::ingest_shield_observation))
         .route("/v1/agent/{id}/provenance", get(handlers::get_provenance))
         .route("/v1/agent/{id}/baas", get(handlers::get_agent_baas))
         .route("/v1/agent/{id}/vc", get(handlers::get_agent_vc))

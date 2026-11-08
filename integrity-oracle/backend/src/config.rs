@@ -80,6 +80,12 @@ pub struct Config {
     /// Operators set this only after the directory refresh has reached the configured
     /// chain-finality policy. It is surfaced in the snapshot envelope; default is false.
     pub agent_directory_finalized: bool,
+
+    /// Device DIDs authorized to submit Shield observation witness records
+    /// (`POST /v1/shield/observation`). Parsed from `SHIELD_WITNESS_DIDS`, comma-separated.
+    /// EMPTY => the ingest is fail-closed (every submitter rejected): an unauthorized witness
+    /// could forge suppression against any agent, so a device must be explicitly allowlisted.
+    pub shield_witness_dids: std::collections::HashSet<String>,
 }
 
 impl Config {
@@ -116,6 +122,12 @@ impl Config {
             .parse()
             .map_err(|_| "TELEMETRY_RATE_LIMIT_PER_MINUTE must be a valid integer".to_string())?;
         let kyc_provider_keys = parse_kyc_provider_keys(&env_or("KYC_PROVIDER_KEYS", ""))?;
+        let shield_witness_dids = env_or("SHIELD_WITNESS_DIDS", "")
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect();
 
         Ok(Self {
             database_url,
@@ -133,6 +145,7 @@ impl Config {
             kyc_provider_keys,
             oracle_api_key: parse_optional_api_key(std::env::var("ORACLE_API_KEY").ok()),
             agent_directory_finalized: env_or("AGENT_DIRECTORY_FINALIZED", "false").parse().map_err(|_| "AGENT_DIRECTORY_FINALIZED must be true or false" )?,
+            shield_witness_dids,
         })
     }
 
@@ -159,6 +172,7 @@ impl Config {
             kyc_provider_keys: HashMap::new(),
             oracle_api_key: None,
             agent_directory_finalized: false,
+            shield_witness_dids: std::collections::HashSet::new(),
         }
     }
 }
