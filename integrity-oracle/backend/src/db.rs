@@ -2235,11 +2235,61 @@ pub struct AnchoringCoverage {
     /// Authorized intents that never produced a reported outcome (`intent_without_outcome`): not
     /// counted against coverage (the action may simply not have run), but surfaced.
     pub intents_without_outcome: i64,
-    /// `executions_anchored / executions_observed`; `None` when nothing was observed.
+    /// `executions_anchored / executions_observed` by default; when a trusted, COMPLETE Shield
+    /// witness covers the window it is instead `executions_anchored / executions_witnessed` (the
+    /// denominator a gate-bypasser cannot suppress). `None` when nothing was observed, OR when a
+    /// witness was expected but incomplete — never a falsely-high ratio.
     pub coverage_ratio: Option<f64>,
+    /// Which denominator `coverage_ratio` used: `"self_reported"` (the agent's own outcome count,
+    /// suppressible by a bypasser) or `"shield_witness"` (Shield's independent OS-level count).
+    /// Labelled so a consumer never mistakes a self-reported ratio for a witnessed one.
+    pub coverage_basis: &'static str,
+    /// Gate-ATTRIBUTED process-trees Shield witnessed for this agent over the window — the trusted
+    /// denominator. `None` when no Shield observation covered the window.
+    pub executions_witnessed: Option<i64>,
+    /// Witnessed-and-attributed trees with NO gate receipt — the full-bypass count, computed
+    /// on-device. `None` when the witness is absent or incomplete (never a fabricated 0).
+    pub executions_suppressed: Option<i64>,
+    /// `Some(true)` when a gap-free, fresh Shield witness covers the window; `Some(false)` when a
+    /// witness was present but had a sequence gap or was stale (→ denominator falls back to
+    /// self-reported); `None` when no witness covered the window.
+    pub witness_complete: Option<bool>,
     /// The unanchored and conflicted executions themselves — the actions that ran without a
     /// clean prior signed intent. Capped at `findings_cap`.
     pub findings: Vec<IntentOutcomeRow>,
+}
+
+use crate::reconciliation::{self, ShieldObsRecord, WitnessSummary};
+
+/// Summarize Shield's independent witness for `agent_id` over `[since, now]`. Verifies per-device
+/// sequence continuity (a missing sequence number is a lost/suppressed observation → not complete)
+/// and freshness. A missing or incomplete witness reads as `present=false`/`complete=false`, never
+/// as perfect coverage — the §6.10 guardrail: witness-unavailable is `None`, never 1.0.
+async fn shield_witness_summary(
+    pool: &PgPool,
+    agent_id: &str,
+    since: Option<DateTime<Utc>>,
+) -> Result<WitnessSummary, sqlx::Error> {
+    let Some(since) = since else {
+        return Ok(WitnessSummary {
+            present: false,
+            complete: false,
+            witnessed: 0,
+            suppressed: 0,
+        });
+    };
+
+    let rows = sqlx::query_as::<_, ShieldObsRecord>(
+        "SELECT device_id, sequence, executions_witnessed, executions_suppressed, window_end \
+         FROM shield_observations WHERE agent_id = $1 AND window_end >= $2 \
+         ORDER BY device_id, sequence",
+    )
+    .bind(agent_id)
+    .bind(since)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(reconciliation::evaluate_shield_witness(&rows, Utc::now()))
 }
 
 pub async fn agent_anchoring_coverage(
@@ -2297,11 +2347,24 @@ pub async fn agent_anchoring_coverage(
         }
     }
 
-    let coverage_ratio = if observed > 0 {
-        Some(anchored as f64 / observed as f64)
-    } else {
-        None
-    };
+    // Align Shield's witness window to the reconcile rows' own time span (earliest timestamp seen),
+    // so "did the witness cover this window" means the same window the self-reported side summarized.
+    let since = rows
+        .iter()
+        .filter_map(|r| r.outcome_at.or(r.intent_at))
+        .min();
+    let witness = shield_witness_summary(pool, agent_id, since).await?;
+
+    // Witnessed count is reported whenever a witness is present (even if incomplete, so an operator
+    // sees it); suppressed and the witnessed-denominator ratio are only trusted when COMPLETE.
+    let executions_witnessed = witness.present.then_some(witness.witnessed);
+    let executions_suppressed = (witness.present && witness.complete).then_some(witness.suppressed);
+    let witness_complete = witness.present.then_some(witness.complete);
+
+    // Denominator switch: a trusted, complete witness replaces the suppressible self-reported count.
+    // Otherwise fall back to self-reported, and SAY SO via `coverage_basis`.
+    let (coverage_ratio, coverage_basis) =
+        reconciliation::compute_coverage_ratio_and_basis(anchored, observed, &witness);
 
     Ok(AnchoringCoverage {
         agent_id: agent_id.to_string(),
@@ -2312,6 +2375,10 @@ pub async fn agent_anchoring_coverage(
         executions_conflicted: conflicted,
         intents_without_outcome,
         coverage_ratio,
+        coverage_basis,
+        executions_witnessed,
+        executions_suppressed,
+        witness_complete,
         findings,
     })
 }

@@ -21,6 +21,7 @@ pub mod openapi;
 pub mod vc;
 pub mod otlp;
 pub mod phi;
+pub mod reconciliation;
 pub mod routes;
 pub mod span_schema;
 pub mod stream;
