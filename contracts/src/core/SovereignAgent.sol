@@ -21,7 +21,7 @@ interface IAgentStakeVault {
 
 interface IAgentPolicyRegistry {
     function graphRootOf(bytes32 domainId) external view returns (bytes32);
-    function domainFloor(bytes32 domainId) external view returns (uint16);
+    function domainFloor(bytes32 domainId) external view returns (uint256);
     function checkCompliance(address agent, bytes32 domainId, address target, bytes calldata data)
         external
         view

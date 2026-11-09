@@ -256,9 +256,21 @@ contract ExecuteGatingTest is Test {
     function test_lock_includesDomainFloor() public {
         _stakeAndWire(PLAIN_DOMAIN);
         vm.prank(admin);
-        registry.setDomainFloor(PLAIN_DOMAIN, 7);
-        _plain(0);
-        assertEq(vault.stakeOf(address(agent)).locked, 7);
+        registry.setDomainFloor(PLAIN_DOMAIN, 1 ether);
+        _plain(10 ether);
+        // absolute floor 1 ether + 20% of 10 ether = 3 ether
+        assertEq(vault.stakeOf(address(agent)).locked, 3 ether);
+    }
+
+    function test_edge_failsClosedWhenNoPolicyRegistry() public {
+        _stakeAndWire(GRAPH_DOMAIN);
+        vm.prank(controller);
+        agent.setPolicyRegistry(address(0));
+        bytes memory d = abi.encodeCall(GateTarget.ping, ());
+        bytes32[] memory p = _proof();
+        vm.prank(controller);
+        vm.expectRevert(SovereignAgent.EdgeNotProven.selector);
+        agent.execute(address(tgt), 0, d, FROM, REL, TO, RISK, p);
     }
 
     function test_lock_discountHalvesAt5000Bps() public {

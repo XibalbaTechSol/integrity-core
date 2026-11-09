@@ -14,12 +14,12 @@ contract PolicyRegistry is AccessControl {
     mapping(bytes32 => IPolicyModule) public moduleOf;
     mapping(address => IPolicyModule) public agentOverrideOf;
     mapping(bytes32 => bytes32) public graphRootOf;
-    mapping(bytes32 => uint16) public domainFloor;
+    mapping(bytes32 => uint256) public domainFloor;
 
     event ModuleSet(bytes32 indexed domainId, address indexed module);
     event AgentOverrideSet(address indexed agent, address indexed module);
     event GraphRootSet(bytes32 indexed domainId, bytes32 root);
-    event DomainFloorSet(bytes32 indexed domainId, uint16 floorBps);
+    event DomainFloorSet(bytes32 indexed domainId, uint256 floorWei);
 
     error NoModuleConfigured();
 
@@ -38,9 +38,9 @@ contract PolicyRegistry is AccessControl {
         emit AgentOverrideSet(agent, module);
     }
 
-    function setDomainFloor(bytes32 domainId, uint16 floorBps) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        domainFloor[domainId] = floorBps;
-        emit DomainFloorSet(domainId, floorBps);
+    function setDomainFloor(bytes32 domainId, uint256 floorWei) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        domainFloor[domainId] = floorWei;
+        emit DomainFloorSet(domainId, floorWei);
     }
 
     function setGraphRoot(bytes32 domainId, bytes32 root) external onlyRole(GRAPH_CURATOR_ROLE) {

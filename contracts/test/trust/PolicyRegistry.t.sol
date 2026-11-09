@@ -108,7 +108,7 @@ contract PolicyRegistryTest is Test {
         vm.expectRevert();
         registry.setDomainFloor(DOMAIN, 1);
         vm.prank(admin);
-        registry.setDomainFloor(DOMAIN, 7);
-        assertEq(registry.domainFloor(DOMAIN), 7);
+        registry.setDomainFloor(DOMAIN, 1 ether);
+        assertEq(registry.domainFloor(DOMAIN), 1 ether);
     }
 }
