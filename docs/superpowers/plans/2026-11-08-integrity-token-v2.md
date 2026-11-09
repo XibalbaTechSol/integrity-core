@@ -150,6 +150,7 @@ contracts/test/PolicyHooks.t.sol        # Modified, Task 8
 
 **Files:** Create `StakeVault.sol`; Test `StakeVault.t.sol`.
 **Produces:** `DISPUTER_ROLE`, `AIS_REGISTRY_ROLE`, `Stake { amount; locked; frozen }`, `freezeThreshold`,
+`stakeOf(address agent) view returns (Stake memory)` (read for the gate's freeze check),
 `stake`, `unstake` (unlocked only), `lockForAction(agent, req)` **`require(msg.sender == agent)`**,
 `releaseLock(agent, amount) onlyRole(AIS_REGISTRY_ROLE)` (decrement by `min(amount, locked)`),
 `onCheckpoint(agent, score) onlyRole(AIS_REGISTRY_ROLE)` **latching** (`if (score < freezeThreshold) frozen = true;`),
@@ -194,16 +195,20 @@ contracts/test/PolicyHooks.t.sol        # Modified, Task 8
 ### Task 8: Gate `SovereignAgent.execute` (call-bound), remove `updateAIS`
 
 **Files:** Modify `SovereignAgent.sol`, `IAccount.sol`, `SovereignAgent.t.sol`, `PolicyHooks.t.sol`; Test `ExecuteGating.t.sol`.
-**Produces:** `execute` keeps its signature + `IExecutionPolicy` hook, and adds an **edge-claim overload** `execute(address target, uint256 value, bytes calldata data, bytes32 fromNode, bytes32 relation, bytes32 toNode, uint16 riskWeightBps, bytes32[] calldata proof)` that, after the existing hook:
-  1. `require(!stakeVault.stakeOf(address(this)).frozen)`;
-  2. for a graph domain, `require(policyRegistry.checkGraphEdge(domainId, fromNode, relation, toNode, bytes4(data), riskWeightBps, proof))`; else `checkCompliance(address(this), domainId, target, data)` revert-on-deny;
-  3. `stakeVault.lockForAction(address(this), domainFloor + value*riskWeightBps/10000 - discount)`;
-  4. the call. Constructor gains `stakeVault`, `policyRegistry`, `domainId`. The plain `execute(target,value,data)` remains for non-graph calls and routes through the generic `checkCompliance` with `riskWeightBps = 0`.
+**Produces:** an **edge-claim overload** `execute(address target, uint256 value, bytes calldata data, bytes32 fromNode, bytes32 relation, bytes32 toNode, uint16 riskWeightBps, bytes32[] calldata proof)` and the kept-signature plain `execute(target,value,data)`. **Both paths** run, in order, after the existing `IExecutionPolicy` hook:
+  1. **freeze check (both):** `require(!stakeVault.stakeOf(address(this)).frozen, Frozen())`;
+  2. **policy:**
+     - edge-claim path: `require(policyRegistry.checkGraphEdge(domainId, fromNode, relation, toNode, bytes4(data), riskWeightBps, proof), EdgeNotProven())`; use this `riskWeightBps`.
+     - plain path: `require(policyRegistry.graphRootOf(domainId) == bytes32(0), EdgeClaimRequired())` — a graph domain MUST use the edge-claim overload, so the plain path can never skip the proof — then `(bool ok, uint16 rw) = policyRegistry.checkCompliance(address(this), domainId, target, data); require(ok, PolicyDenied()); riskWeightBps = rw;`
+  3. **lock:** `required = domainFloor + value*riskWeightBps/10000`; `discounted = required * (10000 - discountBps) / 10000` (no subtraction/underflow); `stakeVault.lockForAction(address(this), discounted)`;
+  4. the call, then nonce bump + event.
+  Constructor gains `stakeVault`, `policyRegistry`, `rewardDiscountModule` (source of `discountBps = rewardDiscountModule.trustDiscountBps(address(this))`), and `domainId`. StakeVault exposes `stakeOf(address) view returns (Stake memory)` (add in Task 5). New errors `Frozen`, `EdgeNotProven`, `EdgeClaimRequired`.
 
-- [ ] **Step 1:** Tests: reverts when frozen (incl. zero-value call); reverts when edge proof invalid; reverts when `bytes4(data)` ≠ committed selector; reverts when stake insufficient; succeeds & locks when compliant+funded.
-- [ ] **Step 2:** FAIL → implement; delete `updateAIS`, `ais`, `AISUpdated` from `SovereignAgent.sol` and `IAccount.sol`.
-- [ ] **Step 3:** Update `SovereignAgent.t.sol`/`PolicyHooks.t.sol` (drop `updateAIS`/`ais` assertions; add new constructor args).
-- [ ] **Step 4:** Full `forge test` green. Commit.
+- [ ] **Step 1:** Tests: reverts `Frozen` when frozen on **both** overloads (incl. zero-value call); edge path reverts when proof invalid and when `bytes4(data)` ≠ committed selector; **plain path reverts `EdgeClaimRequired` when `graphRootOf(domainId) != 0`**; reverts when stake insufficient; `discounted` uses the bps formula (a 5000-bps discount halves the lock, never underflows); succeeds & locks when compliant+funded.
+- [ ] **Step 2:** Before deleting: `grep -rn "updateAIS\|\.ais(" contracts/ integrity-oracle/` — `updateAIS`/`ais` are a cross-package schema surface (SovereignAgent's own comment names `health/EHRGate.sol`, and the Rust oracle may call it; `forge test` won't catch a Rust break). Record every caller.
+- [ ] **Step 3:** FAIL → implement; delete `updateAIS`, `ais`, `AISUpdated` from `SovereignAgent.sol` and `IAccount.sol`, and update each caller found in Step 2.
+- [ ] **Step 4:** Update `SovereignAgent.t.sol`/`PolicyHooks.t.sol` (drop `updateAIS`/`ais` assertions; add new constructor args).
+- [ ] **Step 5:** Update `docs/INTERFACE_CONTRACT.md` in the same PR (AGENTS.md rule 4 — the AIS write path and the new gate signature are cross-package boundaries). Full `forge test` green. Commit.
 
 ---
 

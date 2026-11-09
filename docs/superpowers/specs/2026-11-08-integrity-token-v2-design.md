@@ -256,19 +256,23 @@ choices were confirmed with the owner on 2026-11-08 (see "Settled decisions").
   *prove* are one graph.
 
 ### Reward (settled, and deliberately NOT the research's additive form)
-`R_total = R_task × AIS`, with **AIS ∈ [0,1]** (the geometric integrity score,
-same value `AISRegistry` anchors). A low-integrity path multiplies task progress
-toward zero; it is not an additive penalty a large `R_task` can swamp. Hard
-violations are handled by masking (structurally absent), not by reward shaping.
-This is the owner's already-agreed fix; the research's `R_bio + λ·AIS` /
-`-100` / `[-1,1]` forms are explicitly not used.
+`R_total = (R_step + R_goal) × AIS`, with **AIS ∈ [0,1]** (the geometric integrity
+score, same value `AISRegistry` anchors) and both task terms `≥ 0`. The goal bonus
+is **inside** the multiplication, not added after it — otherwise the additive form
+the spec rejects sneaks back in via `R_goal`. A low-integrity path multiplies task
+progress toward zero; it is not an additive penalty a large `R_task` can swamp.
+Hard violations are handled by masking (structurally absent), not by reward
+shaping. The research's `R_bio + λ·AIS` / `-100` / `[-1,1]` forms are explicitly
+not used.
 
 ### Settled decisions (owner-confirmed 2026-11-08)
-- **`R_task`:** **TransE energy primary, with a terminal goal bonus.** Dense step
-  reward is `−‖h+r−t‖` (negative TransE energy of the chosen edge, rewarding a
-  semantically-grounded hop); the episode adds a terminal bonus for reaching the
-  goal node (shortest-path/goal reach). Embeddings are trained before the policy.
-  Temporal (TTransE) is out of v1.
+- **`R_task` (non-negative, goal-relative):** dense step reward is **embedding
+  progress toward the goal**, `R_step = max(0, ‖e_cur − e_goal‖ − ‖e_next − e_goal‖)`
+  — the drop in TransE-space distance to the goal node from taking the hop (TransE
+  trains the embedding `e`; its energy is near-zero on every true edge, so raw edge
+  energy is *not* the signal). A terminal `R_goal` bonus is added for reaching the
+  goal. Both are `≥ 0`, so `R_total` rises with AIS, never falls. Embeddings are
+  trained before the policy; temporal (TTransE) is out of v1.
 - **RL algorithm:** **REINFORCE first** (`log_prob · return`, logit-masked
   actions); PPO deferred until the masked-policy + reward loop is proven.
 - **First action space — the agent tool-call graph (dogfood), NOT clinical.**
@@ -294,7 +298,11 @@ This is the owner's already-agreed fix; the research's `R_bio + λ·AIS` /
 - a dead-end node (zero valid edges) terminates cleanly — no NaN, no uniform
   softmax over an all-masked row;
 - action-index ↔ edge mapping is stable across steps;
-- **`AIS = 0 ⇒ R_total = 0`** for any `R_task`;
+- **`R_task ≥ 0`** for every hop (no negative dense reward);
+- **`AIS = 0 ⇒ R_total = 0`** for any `R_task`, and with `R_task` fixed `R_total`
+  is **non-decreasing in AIS** (rules out the sign-inverted reward);
+- a **mutation test:** the compliance-preference test below must FAIL when the
+  reward is swapped to the additive `R_task + λ·AIS` form;
 - a permitted tool transition maps to a typed edge
   (`State → MAY_CALL → Tool → TRANSITIONS_TO → State`) and a forbidden one is
   **absent** from the node's edge set (not a negative edge);
