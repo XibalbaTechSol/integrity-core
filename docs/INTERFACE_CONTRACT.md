@@ -540,6 +540,45 @@ change**, and §4.4a's `GENESIS_VAULT_ROOT` sentinel remains valid as the empty 
 Because each node commits to its parents, anchoring one head transitively commits
 its whole reachable history.
 
+### 4.4c Policy action-graph edge leaf (contracts ↔ xibalba-cortex) — `[final-review fix 2026-11-09]`
+
+The per-domain action graph that `PolicyRegistry` commits to (`graphRootOf[domainId]`) and
+that `xibalba-cortex`'s navigation engine reproduces off-chain share ONE canonical leaf. It is
+a different tree from §4.4's memory tree, but uses the same keccak256 + OZ sorted-pair rules.
+
+```
+leaf = keccak256(abi.encode(
+    bytes32 fromNode, bytes32 relation, bytes32 toNode,
+    address target, bytes4 targetSelector, uint16 riskWeightBps))   // 6 fields, 192-byte preimage
+```
+
+- `target` is the specific on-chain callee the edge authorizes (`address(0)` for an
+  off-chain-only edge); `targetSelector` is `bytes4(data)` (`bytes4(keccak256(toolName))` for a
+  tool bound to a call, `0x00000000` off-chain). **`address target` was ADDED in the
+  integrity-token-v2 final-review fix round (Important-1):** binding only the selector let one
+  Merkle proof authorize that selector against any target contract. `SovereignAgent`'s
+  edge-claim `execute` now passes the ACTUAL call target into `checkGraphEdge`. Call arguments
+  are deliberately NOT hashed in — the Cortex action space must express "tool X with any args".
+- **Pinned golden vector** (asserted in both repos):
+  `leafOf(0x..01, 0x..02, 0x..03, 0x00000000000000000000000000000000000000CA, 0xa9059cbb, 500)`
+  `= 0x58febd532cdbee740056933391a0fc3ca82d1d90cef567a211dc4e049ea138d0`
+  (independently reproduced: `cast abi-encode 'x(bytes32,bytes32,bytes32,address,bytes4,uint16)' … | cast keccak`).
+  The Cortex nav-engine plan is not yet executed, so its recorded tuple/value is updated to match.
+
+### 4.4d Protocol-pinned trust references (`XibalbaAgentRegistry.trustConfig`) — `[final-review fix 2026-11-09]`
+
+The trust gate's stake vault / policy registry / reward-discount module and the agent's policy
+domain are **not** controller-set on `SovereignAgent` any more. A registered agent resolves them
+at call time from a governance-owned `TrustConfig` via `factory.registry().trustConfig()` plus its
+registry `resolveAgent(...).domainId`. `AgentPrimitivesFactory.registerCore`/`registerPrimitives`
+require `sa.factory() == address(this)` (`FactoryMismatch`), which binds the pin source. The gate
+is INERT (non-reverting, no stake, no policy) whenever `factory == 0`, the agent is not yet
+registered, or `trustConfig` is unset — which is why the pre-registration onboarding `execute`
+calls (grant `ANCHOR_ROLE`, anchor genesis root) still work even while the trust layer is globally
+active. **SDK impact:** `deploy_sovereign_agent` now passes the real factory address as the
+SovereignAgent `factory_` constructor arg (previously `0x0`), matching §6.1's documented
+`new SovereignAgent(did, controller, oracleSigner, factory)`.
+
 ### 4.5 Trace tree view (`GET /v1/traces/{trace_id}`)
 LangSmith-style nested run-tree reconstruction over the real spans in `otel_spans`
 (`integrity-oracle/backend/src/trace_tree.rs`) — the flat, start-time-ordered rows

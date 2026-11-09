@@ -43,9 +43,15 @@ numpy, `eth-utils`/`eth-abi` (canonical ABI encoding), uv + pytest.
   `R_goal ≥ 0`, `R_total = (R_step + R_goal) × AIS`. The goal bonus is **inside**
   the product. Raw TransE edge energy is **not** the signal (≈0 on true edges).
 - **Canonical edge leaf** = `keccak256(abi.encode(bytes32 fromNode, bytes32 relation,
-  bytes32 toNode, bytes4 targetSelector, uint16 riskWeightBps))`, identical to
-  Solidity `PolicyRegistry.leafOf`. `targetSelector` convention: `bytes4(keccak256(toolName))`
-  for a tool bound to an on-chain call, `0x00000000` for an off-chain-only edge.
+  bytes32 toNode, address target, bytes4 targetSelector, uint16 riskWeightBps))`, identical to
+  Solidity `PolicyRegistry.leafOf` (6 fields, 192-byte preimage — `address target` added in the
+  integrity-token-v2 final-review fix round so one proof cannot authorize a selector against any
+  target; this plan is not yet executed, so just record the new tuple). `target` is the specific
+  on-chain callee the edge authorizes (`address(0)` for an off-chain-only edge). `targetSelector`
+  convention: `bytes4(keccak256(toolName))` for a tool bound to an on-chain call, `0x00000000` for
+  an off-chain-only edge. Pinned golden vector:
+  `leafOf(0x..01, 0x..02, 0x..03, 0x..CA, 0xa9059cbb, 500)` =
+  `0x58febd532cdbee740056933391a0fc3ca82d1d90cef567a211dc4e049ea138d0`.
 - **Masking:** invalid actions → logit `-1e9` before softmax; a forbidden edge has
   probability **exactly 0** and never appears in the action index.
 - **Determinism:** every training/embedding test seeds torch + numpy; no test

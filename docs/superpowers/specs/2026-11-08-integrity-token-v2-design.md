@@ -82,22 +82,29 @@ slot for *which edge* is being exercised, and the plan only ever called the
 generic `checkCompliance`, never the graph check. So an agent could prove the
 cheapest valid edge and then call anything. Fix:
 
-- The graph leaf commits to **what the action does**, at minimum
-  `(fromNode, relation, toNode, targetSelector, riskWeightBps)`, where
-  `targetSelector` is the 4-byte function selector of the call (`bytes4(data)`)
-  and `toNode`/`fromNode`/`relation` are the ontology triple the action asserts.
+- The graph leaf commits to **what the action does**, now
+  `(fromNode, relation, toNode, target, targetSelector, riskWeightBps)`, where
+  `target` is the specific callee contract address, `targetSelector` is the
+  4-byte function selector of the call (`bytes4(data)`), and
+  `toNode`/`fromNode`/`relation` are the ontology triple the action asserts.
+  (REDESIGN fix, final review Important-1: binding only the selector let one
+  proof authorize that selector against **any** target; `target` closes that.
+  Arguments are deliberately NOT hashed in — the Cortex action space must express
+  "tool X with any args".)
 - `execute` gains an **edge-claim path**: a variant / an extra argument carrying
   `(fromNode, relation, toNode, riskWeightBps, proof)`; it calls
-  `PolicyRegistry.checkGraphEdge(...)`, which both verifies the Merkle proof
-  against `graphRootOf[domainId]` **and** checks `bytes4(data) == targetSelector`
-  committed in the leaf. A mismatch fails. "Structurally absent" now means the
-  specific call, not a generic allow.
+  `PolicyRegistry.checkGraphEdge(...)`, passing the ACTUAL `target` of the gated
+  call, which verifies the Merkle proof against `graphRootOf[domainId]` **and**
+  binds both `target` and `bytes4(data) == targetSelector` committed in the leaf.
+  A mismatch fails. "Structurally absent" now means the specific call to the
+  specific contract, not a generic allow.
 
 ### A3. Canonicalization, pinned with golden vectors
 
 Python (Cortex) and Solidity (core) must agree **byte-for-byte**:
 
-- Leaf = `keccak256(abi.encode(bytes32 fromNode, bytes32 relation, bytes32 toNode, bytes4 targetSelector, uint16 riskWeightBps))`.
+- Leaf = `keccak256(abi.encode(bytes32 fromNode, bytes32 relation, bytes32 toNode, address target, bytes4 targetSelector, uint16 riskWeightBps))` (6 fields, 192-byte preimage).
+- **Pinned golden vector:** `leafOf(0x..01, 0x..02, 0x..03, 0x00000000000000000000000000000000000000CA, 0xa9059cbb, 500)` = `0x58febd532cdbee740056933391a0fc3ca82d1d90cef567a211dc4e049ea138d0` (independently reproduced via `cast abi-encode 'x(bytes32,bytes32,bytes32,address,bytes4,uint16)' ... | cast keccak`).
 - Merkle tree uses OpenZeppelin **sorted-pair** hashing (same as today's
   `StateAnchor`).
 - **Ontology IDs → `bytes32`:** a UMLS CUI / MeSH / LOINC code string maps to a

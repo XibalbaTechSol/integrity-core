@@ -45,7 +45,7 @@ def _register_agent(deployed_chain, agent_id: str, agent_account) -> chain.Primi
     did = f"did:integrity:{agent_id}"
     oracle_signer = funder.address  # Deploy.s.sol defaults ORACLE_SIGNER_ADDRESS to the deployer/funder.
 
-    sovereign_agent = chain.deploy_sovereign_agent(w3, agent_account, did, oracle_signer, chain_id)
+    sovereign_agent = chain.deploy_sovereign_agent(w3, agent_account, did, oracle_signer, chain_id, addr["AgentPrimitivesFactory"])
     state_anchor = chain.deploy_state_anchor(w3, agent_account, sovereign_agent, chain_id)
     chain.grant_anchor_role(w3, agent_account, sovereign_agent, state_anchor, oracle_signer, chain_id)
     chain.anchor_genesis_root(w3, agent_account, sovereign_agent, state_anchor, chain_id)

@@ -316,20 +316,27 @@ def approve_erc20(w3: Web3, owner: LocalAccount, token_address: str, spender: st
 
 
 def deploy_sovereign_agent(
-    w3: Web3, agent: LocalAccount, did: str, oracle_signer: str, chain_id: int
+    w3: Web3, agent: LocalAccount, did: str, oracle_signer: str, chain_id: int, factory_address: str
 ) -> str:
     """
     The agent's own wallet directly deploys its SovereignAgent identity
     contract — `controller_` is the agent's own address, so this one wallet
     is simultaneously the deployer (proving self-sovereign creation) and the
     ongoing controller (able to call `execute`/`rotateController` later).
-    Returns the deployed contract's checksummed address.
+
+    `factory_address` is the AgentPrimitivesFactory the agent registers through.
+    It MUST be the real factory: `AgentPrimitivesFactory.registerCore` /
+    `registerPrimitives` revert `FactoryMismatch` unless `sa.factory()` equals the
+    calling factory, because the protocol-pinned trust gate resolves its
+    references through `factory.registry().trustConfig()`. (The interface contract,
+    §6.1, already specifies `new SovereignAgent(did, controller, oracleSigner,
+    factory)`.) Returns the deployed contract's checksummed address.
     """
     factory = _contract(w3, "SovereignAgent")
     receipt, _ = _send_signed(
         w3, agent,
         lambda nonce: factory.constructor(
-            did, agent.address, oracle_signer, "0x0000000000000000000000000000000000000000"
+            did, agent.address, oracle_signer, Web3.to_checksum_address(factory_address)
         ).build_transaction({"from": agent.address, "nonce": nonce, "chainId": chain_id}),
         action="deploy_sovereign_agent",
     )
