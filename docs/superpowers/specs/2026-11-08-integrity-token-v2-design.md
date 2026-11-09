@@ -171,6 +171,46 @@ Module/graph-root resolution defaults to the agent's `domainId` (read from
 `XibalbaAgentRegistry`, reused, not reinvented) with an optional per-agent
 override for custom compliance beyond the domain default.
 
+#### Computational sacrifice: energy cost, not token cost
+
+Clarified by the owner after the first draft of this spec: "unwanted behaviors
+should be expensive" was meant literally as **computational/energy cost**, not
+primarily as staked-token cost. Token stake (Section "`StakeVault`," and the
+lock formula below) is a separate, legitimate lever the owner also explicitly
+wants for token utility/demand — it is not being replaced — but it is not the
+mechanism this phrase was describing.
+
+The actual energy-cost lever already exists in the protocol and needed
+reusing, not inventing: `ais/v1-geometric-1`'s `S_sacrifice` component and its
+`ZK_boost = 1.0 + 0.15 × verified_event_ratio` (a real Barretenberg ZK proof,
+via the existing `UltraPlonkVerifier`/`IZkVerifier`/`submitZkAttestation`
+machinery, is genuinely expensive to *generate* — actual compute, not a fee).
+This spec's two `PolicyRegistry` modes map directly onto that axis:
+
+- **Graph-shaped mode is the cheap, low-energy path.** A Merkle proof against
+  `graphRootOf[domainId]` is O(log n) hashes, because the edge's validity was
+  already established once, off-chain, when the graph was curated. Compliance
+  costs little *because the work was already done*, not because it's free.
+- **The generic fallback path must carry a ZK proof to earn a non-zero
+  `S_sacrifice`.** `checkCompliance`'s caller may attempt an action with no
+  corresponding graph edge, but absent a verified proof attached to the claim,
+  `S_sacrifice` (and therefore the whole multiplicative AIS score, per "AIS as a
+  closed-loop reward function" below) stays low — the attempt isn't blocked,
+  it's just worth nothing once AIS gates `R_task`. Attaching a real ZK proof is
+  the literal energy cost of taking the unverified path: proof generation is
+  actually compute-expensive, which is the mechanism, not a stand-in for one.
+- Token stake answers a different question — *how much risk can this agent take
+  on at all* — and continues to apply on top of this regardless of which mode
+  gated the action.
+
+No new cryptography: `PolicyRegistry`'s generic mode accepts an optional proof
+payload in its `checkCompliance`/`checkGraphEdge` call and forwards it to the
+existing `IZkVerifier`/`UltraPlonkVerifier` the protocol already deploys;
+`AISRegistry`'s checkpoint writer (unchanged off-chain scoring-core math) is
+what actually folds proof-presence into `S_sacrifice` — this spec does not add a
+new score formula, only a new admissible-evidence source feeding the existing
+one.
+
 ### `RewardRegistry` + `IRewardModule` — the positive payoff
 
 ```solidity
@@ -240,6 +280,13 @@ the fix, scoped to what these six modules consume (not a rewrite of
    `RewardRegistry`'s payoff sizing and by `StakeVault`'s freeze threshold, never
    additively combined with a separate task-reward field on-chain. On-chain never
    sees `R_task` at all; that stays off-chain, in whatever system computes it.
+
+Note the owner's distinction between *energy* cost and *token* cost (see
+`PolicyRegistry`'s "Computational sacrifice" subsection, above): `S_sacrifice`
+inside this same formula is where unverified/off-graph actions get priced in
+real compute (a ZK proof), separately from the `StakeVault` lock, which prices
+risk in staked ITK. The two axes compose through the same multiplicative AIS
+score rather than needing separate gating logic.
 
 Separately recommended, outside this spec's scope: fix `docs/wiki/concepts/ais.md`
 and `integrity-oracle/scoring-core` to match this (multiplicative) formula, since
