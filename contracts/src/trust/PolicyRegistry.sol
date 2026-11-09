@@ -62,32 +62,41 @@ contract PolicyRegistry is AccessControl {
     }
 
     /// @notice Canonical graph-edge leaf. Byte-for-byte contract with the Cortex (Python) side.
-    /// @dev `abi.encode` of five fields (5 x 32 bytes = 160 bytes; `bytes4` and `uint16` are each
-    /// padded to a full word). This 160-byte preimage is distinct from an internal Merkle node
-    /// preimage (two concatenated 32-byte hashes = 64 bytes), so a leaf can never be confused with
-    /// an internal node: no second-preimage ambiguity, which is why plain sorted-pair
+    /// @dev `abi.encode` of six fields (6 x 32 bytes = 192 bytes; `address`, `bytes4` and `uint16`
+    /// are each padded to a full word). This 192-byte preimage is distinct from an internal Merkle
+    /// node preimage (two concatenated 32-byte hashes = 64 bytes), so a leaf can never be confused
+    /// with an internal node: no second-preimage ambiguity, which is why plain sorted-pair
     /// `MerkleProof.verify` is safe here.
-    function leafOf(bytes32 fromNode, bytes32 relation, bytes32 toNode, bytes4 targetSelector, uint16 riskWeightBps)
-        public
-        pure
-        returns (bytes32)
-    {
-        return keccak256(abi.encode(fromNode, relation, toNode, targetSelector, riskWeightBps));
+    ///
+    /// `target` binds the edge to the SPECIFIC callee contract (anti-bypass: one proof no longer
+    /// authorizes the same selector against any target). `targetSelector` is kept separate from the
+    /// full calldata deliberately — the Cortex tool-call-graph action space must be able to express
+    /// "tool X with any args", so arguments are NOT hashed in.
+    function leafOf(
+        bytes32 fromNode,
+        bytes32 relation,
+        bytes32 toNode,
+        address target,
+        bytes4 targetSelector,
+        uint16 riskWeightBps
+    ) public pure returns (bytes32) {
+        return keccak256(abi.encode(fromNode, relation, toNode, target, targetSelector, riskWeightBps));
     }
 
-    /// @notice True iff the exact edge, including `targetSelector` and `riskWeightBps`, is
-    /// committed under `graphRootOf[domainId]`. Both fields are inside the leaf, so any mismatch
+    /// @notice True iff the exact edge, including `target`, `targetSelector` and `riskWeightBps`, is
+    /// committed under `graphRootOf[domainId]`. All fields are inside the leaf, so any mismatch
     /// yields a different leaf that is not in the tree.
     function checkGraphEdge(
         bytes32 domainId,
         bytes32 fromNode,
         bytes32 relation,
         bytes32 toNode,
+        address target,
         bytes4 targetSelector,
         uint16 riskWeightBps,
         bytes32[] calldata proof
     ) external view returns (bool) {
-        bytes32 leaf = leafOf(fromNode, relation, toNode, targetSelector, riskWeightBps);
+        bytes32 leaf = leafOf(fromNode, relation, toNode, target, targetSelector, riskWeightBps);
         return MerkleProof.verifyCalldata(proof, graphRootOf[domainId], leaf);
     }
 }

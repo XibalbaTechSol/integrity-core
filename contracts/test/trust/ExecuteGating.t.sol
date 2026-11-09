@@ -8,6 +8,8 @@ import {StakeVault} from "../../src/trust/StakeVault.sol";
 import {PolicyRegistry} from "../../src/trust/PolicyRegistry.sol";
 import {IPolicyModule} from "../../src/trust/IPolicyModule.sol";
 import {DiscountRewardModule} from "../../src/trust/DiscountRewardModule.sol";
+import {TrustConfig} from "../../src/trust/TrustConfig.sol";
+import {XibalbaAgentRegistry} from "../../src/framework/XibalbaAgentRegistry.sol";
 
 /// @dev Test-only fixture; deliberately not in src/.
 contract GateAllowModule is IPolicyModule {
@@ -32,18 +34,38 @@ contract GateTarget {
     function other() external payable {}
 }
 
+/// @dev Minimal stand-in for `AgentPrimitivesFactory`: the gate only reads `factory.registry()`.
+/// The real factory binds `sa.factory() == address(this)` at registration (tested in
+/// ProtocolPinnedGate.t.sol); here we register agents directly via the registrar role.
+contract FactoryStub {
+    address public registry;
+
+    constructor(address r) {
+        registry = r;
+    }
+}
+
+/// @notice Gate behavior under the PROTOCOL-PINNED trust model: the stake vault / policy registry /
+/// reward module / domain are resolved at call time from a governance-owned `TrustConfig` and the
+/// registry record, not from controller-set storage. Wiring = governance pointing the registry at
+/// the `TrustConfig`; there are no per-agent trust setters any more.
 contract ExecuteGatingTest is Test {
     SovereignAgent agent;
     ITK itk;
     StakeVault vault;
-    PolicyRegistry registry;
+    PolicyRegistry policy;
     DiscountRewardModule discount;
+    TrustConfig trustConfig;
+    XibalbaAgentRegistry agentRegistry;
+    FactoryStub factoryStub;
     GateTarget tgt;
     GateAllowModule module;
 
     address admin = makeAddr("admin");
+    address governance = makeAddr("governance");
     address controller = makeAddr("controller");
     address stranger = makeAddr("stranger");
+    address anchor = makeAddr("anchor");
 
     bytes32 constant GRAPH_DOMAIN = keccak256("graph-domain");
     bytes32 constant PLAIN_DOMAIN = keccak256("plain-domain");
@@ -53,12 +75,16 @@ contract ExecuteGatingTest is Test {
     bytes32 constant OTHER_TO = bytes32(uint256(4));
     uint16 constant RISK = 1000; // 10%
     uint256 constant STAKE = 1000 ether;
+    string constant DID = "did:integrity:gate";
 
     bytes32 leafA;
     bytes32 leafB;
 
     function setUp() public {
-        agent = new SovereignAgent("did:integrity:gate", controller, address(0), address(0));
+        // Registry + governance-owned TrustConfig, with the agent's factory pointing at the registry.
+        agentRegistry = new XibalbaAgentRegistry(admin);
+        factoryStub = new FactoryStub(address(agentRegistry));
+        agent = new SovereignAgent(DID, controller, address(0), address(factoryStub));
         tgt = new GateTarget();
         module = new GateAllowModule(2000); // 20%
 
@@ -66,33 +92,49 @@ contract ExecuteGatingTest is Test {
         itk = new ITK(admin, 0);
         vault = new StakeVault(address(itk), admin);
         vault.grantRole(vault.AIS_REGISTRY_ROLE(), admin);
-        registry = new PolicyRegistry(admin);
-        registry.setModule(PLAIN_DOMAIN, address(module));
-        discount = new DiscountRewardModule(admin);
+        policy = new PolicyRegistry(admin);
+        policy.setModule(PLAIN_DOMAIN, address(module));
+        discount = new DiscountRewardModule(governance, 50);
+        trustConfig = new TrustConfig(governance);
         itk.mint(address(agent), 10_000 ether);
+        agentRegistry.grantRole(agentRegistry.REGISTRAR_ROLE(), admin);
         vm.stopPrank();
 
-        leafA = registry.leafOf(FROM, REL, TO, GateTarget.ping.selector, RISK);
-        leafB = registry.leafOf(FROM, REL, OTHER_TO, GateTarget.ping.selector, RISK);
+        // Governance pins the three trust singletons (but does NOT yet point the registry at the
+        // config — that is the "wire" switch in _stakeAndWire).
+        vm.startPrank(governance);
+        trustConfig.setStakeVault(address(vault));
+        trustConfig.setPolicyRegistry(address(policy));
+        trustConfig.setRewardDiscountModule(address(discount));
+        vm.stopPrank();
+
+        // Edge leaves bind the SPECIFIC target contract now.
+        leafA = policy.leafOf(FROM, REL, TO, address(tgt), GateTarget.ping.selector, RISK);
+        leafB = policy.leafOf(FROM, REL, OTHER_TO, address(tgt), GateTarget.ping.selector, RISK);
         bytes32 root =
             leafA < leafB ? keccak256(abi.encodePacked(leafA, leafB)) : keccak256(abi.encodePacked(leafB, leafA));
         vm.prank(admin);
-        registry.setGraphRoot(GRAPH_DOMAIN, root);
+        policy.setGraphRoot(GRAPH_DOMAIN, root);
 
         vm.deal(address(agent), 100 ether);
     }
 
     // ---- helpers
 
-    /// @dev Stakes via the (still unwired) plain execute, then wires the trust modules.
+    /// @dev Registers the agent under `domain`, stakes via the (still inert) plain execute, then
+    /// WIRES the gate by pointing the registry at the governance-owned TrustConfig.
     function _stakeAndWire(bytes32 domain) internal {
+        bytes32 dh = agentRegistry.didHash(DID); // precompute: avoid consuming the prank below
+        vm.prank(admin);
+        agentRegistry.registerCore(dh, address(agent), anchor, controller, domain);
+
         vm.startPrank(controller);
         agent.execute(address(itk), 0, abi.encodeCall(itk.approve, (address(vault), type(uint256).max)));
         agent.execute(address(vault), 0, abi.encodeCall(vault.stake, (STAKE)));
-        agent.setStakeVault(address(vault));
-        agent.setPolicyRegistry(address(registry));
-        agent.setDomainId(domain);
         vm.stopPrank();
+
+        vm.prank(admin);
+        agentRegistry.setTrustConfig(address(trustConfig));
     }
 
     function _freeze() internal {
@@ -117,9 +159,10 @@ contract ExecuteGatingTest is Test {
         agent.execute(address(tgt), value, data, FROM, REL, TO, RISK, proof);
     }
 
-    // ---- backward compat (R1/R2)
+    // ---- backward compat (R1/R2): unregistered / unwired behaves as before
 
-    function test_unwired_plainExecuteBehavesAsBefore() public {
+    function test_unregistered_plainExecuteBehavesAsBefore() public {
+        // Agent is NOT registered -> gate fully inert, no staking, no reverts.
         _plain(1 ether);
         assertEq(tgt.pings(), 1);
         assertEq(agent.executionNonce(), 1);
@@ -133,29 +176,28 @@ contract ExecuteGatingTest is Test {
         assertEq(a.ais(), 42);
     }
 
-    // ---- setters
-
-    function test_setters_controllerOnly() public {
-        vm.startPrank(stranger);
-        vm.expectRevert(SovereignAgent.NotController.selector);
-        agent.setStakeVault(address(vault));
-        vm.expectRevert(SovereignAgent.NotController.selector);
-        agent.setPolicyRegistry(address(registry));
-        vm.expectRevert(SovereignAgent.NotController.selector);
-        agent.setRewardDiscountModule(address(discount));
-        vm.expectRevert(SovereignAgent.NotController.selector);
-        agent.setDomainId(GRAPH_DOMAIN);
-        vm.stopPrank();
+    function test_registeredButNoTrustConfig_gateInert() public {
+        // Registered, but governance has not pointed the registry at a TrustConfig -> inert.
+        bytes32 dh = agentRegistry.didHash(DID);
+        vm.prank(admin);
+        agentRegistry.registerCore(dh, address(agent), anchor, controller, PLAIN_DOMAIN);
+        _plain(1 ether);
+        assertEq(tgt.pings(), 1);
+        assertEq(vault.stakeOf(address(agent)).locked, 0);
     }
 
-    function test_setters_zeroClearsGating() public {
-        _stakeAndWire(PLAIN_DOMAIN);
-        vm.startPrank(controller);
-        agent.setStakeVault(address(0));
-        agent.setPolicyRegistry(address(0));
-        vm.stopPrank();
-        _plain(1 ether);
-        assertEq(vault.stakeOf(address(agent)).locked, 0);
+    // ---- the removed controller setters no longer exist
+
+    function test_trustSettersAreGone() public {
+        (bool okVault,) = address(agent).call(abi.encodeWithSignature("setStakeVault(address)", address(vault)));
+        (bool okPol,) = address(agent).call(abi.encodeWithSignature("setPolicyRegistry(address)", address(policy)));
+        (bool okMod,) =
+            address(agent).call(abi.encodeWithSignature("setRewardDiscountModule(address)", address(discount)));
+        (bool okDom,) = address(agent).call(abi.encodeWithSignature("setDomainId(bytes32)", GRAPH_DOMAIN));
+        assertFalse(okVault, "setStakeVault must not exist");
+        assertFalse(okPol, "setPolicyRegistry must not exist");
+        assertFalse(okMod, "setRewardDiscountModule must not exist");
+        assertFalse(okDom, "setDomainId must not exist");
     }
 
     // ---- freeze
@@ -256,16 +298,17 @@ contract ExecuteGatingTest is Test {
     function test_lock_includesDomainFloor() public {
         _stakeAndWire(PLAIN_DOMAIN);
         vm.prank(admin);
-        registry.setDomainFloor(PLAIN_DOMAIN, 1 ether);
+        policy.setDomainFloor(PLAIN_DOMAIN, 1 ether);
         _plain(10 ether);
         // absolute floor 1 ether + 20% of 10 ether = 3 ether
         assertEq(vault.stakeOf(address(agent)).locked, 3 ether);
     }
 
-    function test_edge_failsClosedWhenNoPolicyRegistry() public {
+    function test_edge_failsClosedWhenPolicyPinCleared() public {
         _stakeAndWire(GRAPH_DOMAIN);
-        vm.prank(controller);
-        agent.setPolicyRegistry(address(0));
+        // Governance clears the policy-registry pin -> edge claim cannot be proven.
+        vm.prank(governance);
+        trustConfig.setPolicyRegistry(address(0));
         bytes memory d = abi.encodeCall(GateTarget.ping, ());
         bytes32[] memory p = _proof();
         vm.prank(controller);
@@ -275,11 +318,10 @@ contract ExecuteGatingTest is Test {
 
     function test_lock_discountHalvesAt5000Bps() public {
         _stakeAndWire(PLAIN_DOMAIN);
-        vm.prank(admin);
-        discount.onPositiveCheckpoint(address(agent), 0, 100, bytes32(0)); // 100*50 = 5000 bps (cap)
+        // Full score swing 0 -> 10000 bps = 100 points * 50 = 5000 bps = cap.
+        vm.prank(governance);
+        discount.onPositiveCheckpoint(address(agent), 0, 10000, bytes32(0));
         assertEq(discount.trustDiscountBps(address(agent)), 5000);
-        vm.prank(controller);
-        agent.setRewardDiscountModule(address(discount));
 
         _plain(10 ether);
         // undiscounted 2 ether -> halved to 1 ether

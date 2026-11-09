@@ -81,6 +81,12 @@ contract AgentPrimitivesFactory {
     error DomainJoinNotApproved();
     error MemoryNotInitialized();
     error NoCapabilitiesRequested();
+    /// @dev The SovereignAgent being registered must be bound to THIS factory (`sa.factory() ==
+    /// address(this)`). Without it the protocol-pinned trust gate is theater: a registered agent
+    /// resolves its gate via `factory.registry().trustConfig()`, so an agent pointing `factory` at
+    /// a fake registry/config could redirect its own gate. Binding `factory` at registration makes
+    /// `factory.registry()` provably the real governance-owned registry.
+    error FactoryMismatch();
 
     constructor(
         address _registry,
@@ -142,6 +148,7 @@ contract AgentPrimitivesFactory {
     {
         SovereignAgent sa = SovereignAgent(payable(sovereignAgent));
         if (!sa.hasRole(sa.DEFAULT_ADMIN_ROLE(), msg.sender)) revert NotAgentController();
+        if (sa.factory() != address(this)) revert FactoryMismatch();
         if (!domainRegistry.canJoin(domainId, msg.sender)) revert DomainJoinNotApproved();
         if (StateAnchor(stateAnchor).latestRoot() == bytes32(0)) revert MemoryNotInitialized();
 
@@ -213,6 +220,7 @@ contract AgentPrimitivesFactory {
     ) external {
         SovereignAgent sa = SovereignAgent(payable(sovereignAgent));
         if (!sa.hasRole(sa.DEFAULT_ADMIN_ROLE(), msg.sender)) revert NotAgentController();
+        if (sa.factory() != address(this)) revert FactoryMismatch();
         if (!domainRegistry.canJoin(domainId, msg.sender)) revert DomainJoinNotApproved();
         if (StateAnchor(stateAnchor).latestRoot() == bytes32(0)) revert MemoryNotInitialized();
 

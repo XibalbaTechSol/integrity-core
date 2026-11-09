@@ -66,6 +66,7 @@ contract StakeVault is AccessControl, ReentrancyGuard {
 
     error ZeroAmount();
     error InsufficientAvailableStake();
+    error StakeFrozen();
     error NotAgent();
     error DisputeNotFound();
     error DisputeAlreadyResolved();
@@ -125,8 +126,13 @@ contract StakeVault is AccessControl, ReentrancyGuard {
     }
 
     /// @notice Withdraws only the unlocked portion (amount - locked - dispute holds).
+    /// @dev Slashing backstop: a frozen agent may not withdraw ANY stake, independent of the
+    /// execute-time gate. Freeze latches collateral in place so it stays slashable until governance
+    /// `unfreeze`s; without this check a frozen agent could drain its available stake before a
+    /// `DISPUTER` holds it, defeating the freeze's purpose.
     function unstake(uint256 amount) external nonReentrant {
         if (amount == 0) revert ZeroAmount();
+        if (_stakes[msg.sender].frozen) revert StakeFrozen();
         if (_available(msg.sender) < amount) revert InsufficientAvailableStake();
         _stakes[msg.sender].amount -= amount;
         itk.safeTransfer(msg.sender, amount);
@@ -189,6 +195,10 @@ contract StakeVault is AccessControl, ReentrancyGuard {
     }
 
     /// @notice Arbiter resolves after the window: burn the held amount, or release it.
+    /// @dev Deliberately does NOT clear `frozen` — the freeze latch is governance-durable and only
+    /// admin `unfreeze` lifts it (R4). Resolving a dispute, even in the agent's favour, leaves any
+    /// score-driven freeze in place; the two controls are orthogonal by design (see commit
+    /// `f3403434` "pin freeze latch across resolveDispute").
     function resolveDispute(uint256 disputeId, bool slash) external onlyRole(DEFAULT_ADMIN_ROLE) nonReentrant {
         Dispute storage d = disputes[disputeId];
         if (d.raisedAt == 0) revert DisputeNotFound();

@@ -50,8 +50,8 @@ contract PolicyRegistryTest is Test {
         registry.setModule(DOMAIN, address(domainModule));
         vm.stopPrank();
 
-        leafA = registry.leafOf(FROM, REL, TO, SEL, RISK);
-        leafB = registry.leafOf(FROM, REL, OTHER_TO, SEL, RISK);
+        leafA = registry.leafOf(FROM, REL, TO, target, SEL, RISK);
+        leafB = registry.leafOf(FROM, REL, OTHER_TO, target, SEL, RISK);
         bytes32 root = leafA < leafB
             ? keccak256(abi.encodePacked(leafA, leafB))
             : keccak256(abi.encodePacked(leafB, leafA));
@@ -84,20 +84,26 @@ contract PolicyRegistryTest is Test {
     }
 
     function test_checkGraphEdge_trueForCommittedEdge() public view {
-        assertTrue(registry.checkGraphEdge(DOMAIN, FROM, REL, TO, SEL, RISK, _proofA()));
+        assertTrue(registry.checkGraphEdge(DOMAIN, FROM, REL, TO, target, SEL, RISK, _proofA()));
     }
 
     function test_checkGraphEdge_falseWhenEdgeAbsent() public view {
         // edge (FROM, REL, bytes32(5)) was never committed
-        assertFalse(registry.checkGraphEdge(DOMAIN, FROM, REL, bytes32(uint256(5)), SEL, RISK, _proofA()));
+        assertFalse(registry.checkGraphEdge(DOMAIN, FROM, REL, bytes32(uint256(5)), target, SEL, RISK, _proofA()));
     }
 
     function test_checkGraphEdge_falseWhenRiskWeightMismatched() public view {
-        assertFalse(registry.checkGraphEdge(DOMAIN, FROM, REL, TO, SEL, RISK + 1, _proofA()));
+        assertFalse(registry.checkGraphEdge(DOMAIN, FROM, REL, TO, target, SEL, RISK + 1, _proofA()));
     }
 
     function test_checkGraphEdge_falseWhenSelectorMismatched() public view {
-        assertFalse(registry.checkGraphEdge(DOMAIN, FROM, REL, TO, OTHER_SEL, RISK, _proofA()));
+        assertFalse(registry.checkGraphEdge(DOMAIN, FROM, REL, TO, target, OTHER_SEL, RISK, _proofA()));
+    }
+
+    function test_checkGraphEdge_falseWhenTargetMismatched() public view {
+        // Same triple/selector/risk, different callee -> different leaf, not in the tree.
+        address otherTarget = address(0xBEEF);
+        assertFalse(registry.checkGraphEdge(DOMAIN, FROM, REL, TO, otherTarget, SEL, RISK, _proofA()));
     }
 
     function test_setters_accessControl() public {

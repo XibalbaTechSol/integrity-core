@@ -102,7 +102,7 @@ contract AgentPrimitivesFactoryTest is Test {
         returns (address sovereignAgent, address stateAnchor)
     {
         vm.prank(agentWallet);
-        SovereignAgent sa = new SovereignAgent(did, agentWallet, oracleSigner, address(0));
+        SovereignAgent sa = new SovereignAgent(did, agentWallet, oracleSigner, address(factory));
         sovereignAgent = address(sa);
 
         vm.prank(agentWallet);
@@ -160,7 +160,7 @@ contract AgentPrimitivesFactoryTest is Test {
 
     function test_coreRegistrationDefersOptionalCapabilities() public {
         vm.prank(agentWallet);
-        SovereignAgent sa = new SovereignAgent("did:integrity:core-flow", agentWallet, oracleSigner, address(0));
+        SovereignAgent sa = new SovereignAgent("did:integrity:core-flow", agentWallet, oracleSigner, address(factory));
         vm.prank(agentWallet);
         StateAnchor anchor = new StateAnchor(address(sa));
         _initializeAgentWithoutBond(sa, anchor, agentWallet, "did:integrity:core-flow");
@@ -246,7 +246,7 @@ contract AgentPrimitivesFactoryTest is Test {
 
     function test_revertsIfCallerDoesNotControlClaimedSovereignAgent() public {
         vm.prank(agentWallet);
-        SovereignAgent sa = new SovereignAgent("did:integrity:mismatch", agentWallet, oracleSigner, address(0));
+        SovereignAgent sa = new SovereignAgent("did:integrity:mismatch", agentWallet, oracleSigner, address(factory));
         vm.prank(agentWallet);
         StateAnchor anchor = new StateAnchor(address(sa));
 
@@ -263,7 +263,7 @@ contract AgentPrimitivesFactoryTest is Test {
         bytes32 gatedDomain = domainRegistry.registerDomain("gated.integrity", DomainRegistry.JoinMode.Permissioned);
 
         vm.startPrank(agentWallet);
-        SovereignAgent sa = new SovereignAgent("did:integrity:gated", agentWallet, oracleSigner, address(0));
+        SovereignAgent sa = new SovereignAgent("did:integrity:gated", agentWallet, oracleSigner, address(factory));
         StateAnchor anchor = new StateAnchor(address(sa));
 
         vm.expectRevert(AgentPrimitivesFactory.DomainJoinNotApproved.selector);
@@ -277,7 +277,7 @@ contract AgentPrimitivesFactoryTest is Test {
         _registerAgent("did:integrity:dupe", ComplianceGate.Vertical.None);
 
         vm.startPrank(agentWallet);
-        SovereignAgent sa2 = new SovereignAgent("did:integrity:dupe", agentWallet, oracleSigner, address(0));
+        SovereignAgent sa2 = new SovereignAgent("did:integrity:dupe", agentWallet, oracleSigner, address(factory));
         StateAnchor anchor2 = new StateAnchor(address(sa2));
         vm.stopPrank();
         _initializeAgent(sa2, anchor2, agentWallet, "did:integrity:dupe");
@@ -298,7 +298,7 @@ contract AgentPrimitivesFactoryTest is Test {
         address agentTwoWallet = vm.addr(agentTwoPk);
         vm.deal(agentTwoWallet, 1 ether);
         vm.startPrank(agentTwoWallet);
-        SovereignAgent sa2 = new SovereignAgent("did:integrity:agent-two", agentTwoWallet, oracleSigner, address(0));
+        SovereignAgent sa2 = new SovereignAgent("did:integrity:agent-two", agentTwoWallet, oracleSigner, address(factory));
         StateAnchor anchor2 = new StateAnchor(address(sa2));
         vm.stopPrank();
         _initializeAgent(sa2, anchor2, agentTwoWallet, "did:integrity:agent-two");

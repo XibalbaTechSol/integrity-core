@@ -177,13 +177,13 @@ contract AISRegistryStakeVaultTest is Test {
 
     function test_positiveDelta_raisesRealDiscount() public {
         _wireVault();
-        DiscountRewardModule mod = new DiscountRewardModule(address(rewards));
+        DiscountRewardModule mod = new DiscountRewardModule(address(rewards), 50);
         _wireReward(address(mod));
 
-        _post(60, 0); // 0 -> 60 points * 50 bps = 3000
-        assertEq(mod.trustDiscountBps(agent), 3000);
-        _post(70, 0); // +10 * 50 = 500
-        assertEq(mod.trustDiscountBps(agent), 3500);
+        _post(60, 0); // 0 -> 60 bps = 60 * 50 / 100 = 30 bps discount
+        assertEq(mod.trustDiscountBps(agent), 30);
+        _post(70, 0); // +10 bps * 50 / 100 = 5 -> 35
+        assertEq(mod.trustDiscountBps(agent), 35);
     }
 
     function test_rewardSkipped_whenAgentRegistryUnset() public {

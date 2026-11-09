@@ -38,7 +38,7 @@ contract RewardRegistryTest is Test {
 
     function setUp() public {
         registry = new RewardRegistry(admin);
-        discountModule = new DiscountRewardModule(address(registry));
+        discountModule = new DiscountRewardModule(address(registry), 50);
         recorder = new RecordingRewardModule();
 
         vm.startPrank(admin);
@@ -106,8 +106,8 @@ contract RewardRegistryTest is Test {
         vm.prank(notifier);
         registry.notifyPositiveCheckpoint(agent, 100, 110, DOMAIN);
 
-        // 10 points * BPS_PER_POINT (50) = 500 bps
-        assertEq(discountModule.trustDiscountBps(agent), 500);
+        // 10 score-bps gain * 50 / 100 (SCORE_BPS_PER_POINT) = 5 bps
+        assertEq(discountModule.trustDiscountBps(agent), 5);
     }
 
     function test_discount_accumulatesAcrossCheckpoints() public {
@@ -119,7 +119,8 @@ contract RewardRegistryTest is Test {
         registry.notifyPositiveCheckpoint(agent, 110, 120, DOMAIN);
         vm.stopPrank();
 
-        assertEq(discountModule.trustDiscountBps(agent), 1000);
+        // two 10-bps gains * 50 / 100 = 5 + 5 = 10 bps (monotonic accumulation)
+        assertEq(discountModule.trustDiscountBps(agent), 10);
     }
 
     function test_discount_capsAtMaxDiscountBps() public {
@@ -128,14 +129,14 @@ contract RewardRegistryTest is Test {
 
         assertEq(discountModule.MAX_DISCOUNT_BPS(), 5000);
 
-        // 1000 points * 50 = 50_000 bps raw, must cap at 5000.
+        // Full score swing 0 -> 10000 bps = 100 points * 50 = 5000 bps, exactly the cap.
         vm.prank(notifier);
-        registry.notifyPositiveCheckpoint(agent, 0, 1000, DOMAIN);
+        registry.notifyPositiveCheckpoint(agent, 0, 10000, DOMAIN);
         assertEq(discountModule.trustDiscountBps(agent), 5000);
 
         // Further gains stay capped.
         vm.prank(notifier);
-        registry.notifyPositiveCheckpoint(agent, 1000, 2000, DOMAIN);
+        registry.notifyPositiveCheckpoint(agent, 0, 10000, DOMAIN);
         assertEq(discountModule.trustDiscountBps(agent), 5000);
     }
 
@@ -145,13 +146,13 @@ contract RewardRegistryTest is Test {
 
         vm.startPrank(notifier);
         registry.notifyPositiveCheckpoint(agent, 100, 110, DOMAIN);
-        assertEq(discountModule.trustDiscountBps(agent), 500);
+        assertEq(discountModule.trustDiscountBps(agent), 5);
 
         registry.notifyPositiveCheckpoint(agent, 110, 110, DOMAIN); // equal
-        assertEq(discountModule.trustDiscountBps(agent), 500);
+        assertEq(discountModule.trustDiscountBps(agent), 5);
 
         registry.notifyPositiveCheckpoint(agent, 110, 50, DOMAIN); // decrease
-        assertEq(discountModule.trustDiscountBps(agent), 500);
+        assertEq(discountModule.trustDiscountBps(agent), 5);
         vm.stopPrank();
     }
 
