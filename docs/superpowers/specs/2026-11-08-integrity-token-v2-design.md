@@ -33,10 +33,10 @@ working, testable software on its own:
    `docs/superpowers/plans/2026-11-08-integrity-token-v2.md` (to be revised to
    match this spec's fixes before execution).
 2. **Off-chain navigational engine** — the graph-reasoning RL agent in
-   `xibalba-cortex`. Design here is **deliberately decision-level, not final**:
-   the engine has not been brainstormed as its own subsystem, so its open choices
-   appear below with recommended defaults marked **[REVIEW]**, to be settled
-   before its plan is written.
+   `xibalba-cortex`. Its design choices (reward signal, RL algorithm, first action
+   space, package home) were **settled with the owner on 2026-11-08** — see Part C
+   "Settled decisions"; the first action space is the agent tool-call graph (the
+   dogfooded thesis), not the clinical domain.
 
 `xibalba-shield` (the OS-level PHI/boundary sensor) is named where it is load-
 bearing but is **not** redesigned here.
@@ -239,8 +239,8 @@ unconditional and in one tx:
 
 # Part C — Off-chain navigational engine (xibalba-cortex) — decisions flagged
 
-Design-level only; the engine is new and unbrainstormed, so these are defaults
-for the owner to confirm before its plan is written.
+Design-level only; the thesis mechanics and reward are settled, and the four open
+choices were confirmed with the owner on 2026-11-08 (see "Settled decisions").
 
 ### The thesis mechanics (settled)
 - **Action space = outgoing edges of the current node**, enforced by **logit
@@ -263,23 +263,31 @@ violations are handled by masking (structurally absent), not by reward shaping.
 This is the owner's already-agreed fix; the research's `R_bio + λ·AIS` /
 `-100` / `[-1,1]` forms are explicitly not used.
 
-### Open decisions — **[REVIEW]** before the Cortex plan
-- **`R_task` (goal-progress signal):** recommend **negative TransE energy toward
-  the goal node** (`−‖h+r−t‖`) or shortest-path-distance decrease per hop.
-  [REVIEW] which, and whether temporal (TTransE) is needed for time-series
-  clinical edges in v1.
-- **RL algorithm:** recommend **REINFORCE first** (simplest correct policy-
-  gradient, matches the research's own `log_prob · return` loop), **PPO later**
-  once a toy graph trains stably. [REVIEW].
-- **Training data:** **Synthea** synthetic FHIR fixtures in-repo/CI first; MIMIC-
-  IV a later out-of-repo credentialed evaluation, never in CI. [REVIEW] scope of
-  the first graph (drug→target→disease repurposing is the research's worked
-  example).
-- **Engine home in the repo:** [REVIEW] — confirm against the real
-  `xibalba-cortex` (the memory/provenance store) where this module lives, or
-  whether it is a new package; do not invent paths until grounded. Note: a Cortex
-  worktree breaks the `integrity-sdk` editable path dep and needs a sibling
-  `integrity-core` checkout — the plan's setup step must handle this.
+### Settled decisions (owner-confirmed 2026-11-08)
+- **`R_task`:** **TransE energy primary, with a terminal goal bonus.** Dense step
+  reward is `−‖h+r−t‖` (negative TransE energy of the chosen edge, rewarding a
+  semantically-grounded hop); the episode adds a terminal bonus for reaching the
+  goal node (shortest-path/goal reach). Embeddings are trained before the policy.
+  Temporal (TTransE) is out of v1.
+- **RL algorithm:** **REINFORCE first** (`log_prob · return`, logit-masked
+  actions); PPO deferred until the masked-policy + reward loop is proven.
+- **First action space — the agent tool-call graph (dogfood), NOT clinical.**
+  Nodes = agent states; **typed edges = permitted tool/action transitions** an
+  agent may take from a state. This is the thesis itself: a hallucinated tool call
+  is a non-edge, structurally absent from the mask and absent from the anchored
+  root. No external data or DUA; the graph is built from the protocol's own
+  permitted-action schema. Clinical FHIR (Synthea → MIMIC-IV) is a **later
+  domain**, swapped in behind the same engine once the loop is proven here.
+- **Engine home:** a **new top-level package** in the real `xibalba-cortex`
+  (grounded 2026-11-08: single `src/xibalba_cortex/` package, `requires-python
+  >=3.12`, `torch 2.13.0` already resolved in `uv.lock` via `sentence-transformers`,
+  and `integrity-sdk` an **editable sibling path** `../integrity-core/integrity-sdk`).
+  The engine becomes a **uv workspace member** (e.g. `cortex-nav/`, package
+  `cortex_nav`) that depends on `xibalba-cortex` + `integrity-sdk`, never the
+  reverse — keeping RL/training code out of the memory service's runtime while
+  reusing torch already in the lock. Execution caveat: a Cortex worktree breaks the
+  editable `../integrity-core/integrity-sdk` path, so the plan's setup step requires
+  a sibling `integrity-core` checkout.
 
 ### Falsifiable tests the Cortex plan must include (so it can fail)
 - masked actions have probability **exactly 0**;
@@ -287,12 +295,14 @@ This is the owner's already-agreed fix; the research's `R_bio + λ·AIS` /
   softmax over an all-masked row;
 - action-index ↔ edge mapping is stable across steps;
 - **`AIS = 0 ⇒ R_total = 0`** for any `R_task`;
-- a Synthea FHIR `Observation` maps to the reified event nodes
-  (`Patient → HAS_OBSERVATION → Event → OF_TYPE → LOINC`);
-- the A3 **golden leaf/root vectors** match the Solidity side byte-for-byte;
-- **one seeded toy-graph test:** a compliant path vs. a higher-`R_task`,
+- a permitted tool transition maps to a typed edge
+  (`State → MAY_CALL → Tool → TRANSITIONS_TO → State`) and a forbidden one is
+  **absent** from the node's edge set (not a negative edge);
+- the A3 **golden leaf/root vectors** match the Solidity side byte-for-byte, with
+  the tool-call edge leaf's `targetSelector` bound to the on-chain call;
+- **one seeded toy-graph test:** a compliant tool-call path vs. a higher-`R_task`,
   low-AIS path, asserting the trained policy prefers compliance — the falsifiable
-  form of the "compliance is physics" claim. No convergence claim on MIMIC.
+  form of the "compliance is physics" claim. No large-scale convergence claim.
 
 ---
 
@@ -304,4 +314,6 @@ This is the owner's already-agreed fix; the research's `R_bio + λ·AIS` /
   of scope ("just the trust/security core").
 - Per-action on-chain lock ledger (vs. the oracle-computed release of Part B) —
   deferred refinement.
-- The real `xibalba-cortex` engine home + MIMIC evaluation harness — **[REVIEW]**.
+- Clinical FHIR domain (Synthea in-repo, MIMIC-IV out-of-repo credentialed
+  evaluation) — a later action space behind the same engine, after the tool-call
+  graph proves the loop.
