@@ -5,6 +5,42 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {IAccount} from "./IAccount.sol";
 import {IExecutionPolicy} from "./IExecutionPolicy.sol";
 
+/// @dev Minimal views of the v2 trust layer, ABI-compatible with `StakeVault` /
+/// `PolicyRegistry` / `DiscountRewardModule` (declared here so SovereignAgent does not
+/// import their implementations).
+interface IAgentStakeVault {
+    struct Stake {
+        uint256 amount;
+        uint256 locked;
+        bool frozen;
+    }
+
+    function stakeOf(address agent) external view returns (Stake memory);
+    function lockForAction(address agent, uint256 req) external;
+}
+
+interface IAgentPolicyRegistry {
+    function graphRootOf(bytes32 domainId) external view returns (bytes32);
+    function domainFloor(bytes32 domainId) external view returns (uint16);
+    function checkCompliance(address agent, bytes32 domainId, address target, bytes calldata data)
+        external
+        view
+        returns (bool allowed, uint16 riskWeightBps);
+    function checkGraphEdge(
+        bytes32 domainId,
+        bytes32 fromNode,
+        bytes32 relation,
+        bytes32 toNode,
+        bytes4 targetSelector,
+        uint16 riskWeightBps,
+        bytes32[] calldata proof
+    ) external view returns (bool);
+}
+
+interface IAgentRewardDiscount {
+    function trustDiscountBps(address agent) external view returns (uint256);
+}
+
 /// @title SovereignAgent
 /// @notice The per-agent on-chain account for a single AI ("Sovereign") agent.
 /// @dev One instance is deployed per agent by `AgentFactory`. It is intentionally a thin
@@ -45,6 +81,20 @@ contract SovereignAgent is AccessControl, IAccount {
     /// @notice Swappable execution policy. address(0) skips the check (testnet default).
     IExecutionPolicy public executionPolicy;
 
+    /// @notice v2 trust layer. Each module is optional: address(0) skips its gate step so an
+    /// agent with nothing wired behaves exactly as before. Wired post-deploy by the controller
+    /// (not via the constructor, since every agent self-deploys with the same ctor ABI).
+    IAgentStakeVault public stakeVault;
+    IAgentPolicyRegistry public policyRegistry;
+    IAgentRewardDiscount public rewardDiscountModule;
+    /// @notice Policy domain this agent is evaluated under.
+    bytes32 public domainId;
+
+    event StakeVaultSet(address indexed stakeVault);
+    event PolicyRegistrySet(address indexed policyRegistry);
+    event RewardDiscountModuleSet(address indexed rewardDiscountModule);
+    event DomainIdSet(bytes32 indexed domainId);
+
     event AISUpdated(uint256 oldScore, uint256 newScore);
     event ControllerRotated(address indexed oldController, address indexed newController);
     event AgentExecuted(address indexed target, uint256 value, bytes data, uint256 nonce);
@@ -52,6 +102,9 @@ contract SovereignAgent is AccessControl, IAccount {
 
     error NotController();
     error PolicyDenied();
+    error Frozen();
+    error EdgeNotProven();
+    error EdgeClaimRequired();
 
     modifier onlyController() {
         if (!hasRole(DEFAULT_ADMIN_ROLE, msg.sender)) revert NotController();
@@ -85,6 +138,26 @@ contract SovereignAgent is AccessControl, IAccount {
         emit ExecutionPolicySet(policy_);
     }
 
+    function setStakeVault(address vault_) external onlyController {
+        stakeVault = IAgentStakeVault(vault_);
+        emit StakeVaultSet(vault_);
+    }
+
+    function setPolicyRegistry(address registry_) external onlyController {
+        policyRegistry = IAgentPolicyRegistry(registry_);
+        emit PolicyRegistrySet(registry_);
+    }
+
+    function setRewardDiscountModule(address module_) external onlyController {
+        rewardDiscountModule = IAgentRewardDiscount(module_);
+        emit RewardDiscountModuleSet(module_);
+    }
+
+    function setDomainId(bytes32 domainId_) external onlyController {
+        domainId = domainId_;
+        emit DomainIdSet(domainId_);
+    }
+
     /// @inheritdoc IAccount
     /// @dev Arbitrary external call gated to the controller only. Bubbles up the revert
     /// reason from the callee verbatim (via the assembly block) so failures are
@@ -99,6 +172,62 @@ contract SovereignAgent is AccessControl, IAccount {
         if (address(executionPolicy) != address(0)) {
             if (!executionPolicy.check(address(this), target, value, data)) revert PolicyDenied();
         }
+        _checkFrozen();
+        uint16 riskWeightBps;
+        if (address(policyRegistry) != address(0)) {
+            // A graph-governed domain must be driven through the edge-claim overload; the plain
+            // path may never skip the proof.
+            if (policyRegistry.graphRootOf(domainId) != bytes32(0)) revert EdgeClaimRequired();
+            bool ok;
+            (ok, riskWeightBps) = policyRegistry.checkCompliance(address(this), domainId, target, data);
+            if (!ok) revert PolicyDenied();
+        }
+        _lockStake(value, riskWeightBps);
+        return _dispatch(target, value, data);
+    }
+
+    /// @notice Edge-claim overload: same gate as `execute(target,value,data)` but the call is
+    /// proven against the domain's committed action graph, bound to `bytes4(data)`.
+    function execute(
+        address target,
+        uint256 value,
+        bytes calldata data,
+        bytes32 fromNode,
+        bytes32 relation,
+        bytes32 toNode,
+        uint16 riskWeightBps,
+        bytes32[] calldata proof
+    ) external onlyController returns (bytes memory) {
+        if (address(executionPolicy) != address(0)) {
+            if (!executionPolicy.check(address(this), target, value, data)) revert PolicyDenied();
+        }
+        _checkFrozen();
+        // An edge claim needs a registry to verify against; with none wired it cannot be proven.
+        if (address(policyRegistry) == address(0)) revert EdgeNotProven();
+        if (!policyRegistry.checkGraphEdge(
+                domainId, fromNode, relation, toNode, bytes4(data), riskWeightBps, proof
+            )) revert EdgeNotProven();
+        _lockStake(value, riskWeightBps);
+        return _dispatch(target, value, data);
+    }
+
+    function _checkFrozen() internal view {
+        if (address(stakeVault) != address(0) && stakeVault.stakeOf(address(this)).frozen) revert Frozen();
+    }
+
+    /// @dev required = floor + value * riskWeightBps / 10000, then scaled by (10000 - discount)
+    /// / 10000. Basis-point multiplication only; no subtraction of stake-sized values.
+    function _lockStake(uint256 value, uint16 riskWeightBps) internal {
+        if (address(stakeVault) == address(0)) return;
+        uint256 floor = address(policyRegistry) == address(0) ? 0 : policyRegistry.domainFloor(domainId);
+        uint256 required = floor + (value * riskWeightBps) / 10000;
+        uint256 discountBps =
+            address(rewardDiscountModule) == address(0) ? 0 : rewardDiscountModule.trustDiscountBps(address(this));
+        if (discountBps > 10000) discountBps = 10000;
+        stakeVault.lockForAction(address(this), (required * (10000 - discountBps)) / 10000);
+    }
+
+    function _dispatch(address target, uint256 value, bytes calldata data) internal returns (bytes memory) {
         uint256 nonce = ++executionNonce;
         (bool success, bytes memory result) = target.call{value: value}(data);
         if (!success) {
