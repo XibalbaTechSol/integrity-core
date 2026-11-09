@@ -51,18 +51,31 @@ contract AISRegistry is AccessControl {
     event RewardNotifyFailed(address indexed agent, bytes reason);
 
     error StakeVaultNotSet();
+    /// @dev A wiring target must be a contract (or zero to unset). A codeless target would make the
+    /// caller-side extcodesize check revert inside `postCheckpoint`, which try/catch cannot absorb.
+    error NotAContract(address target);
 
-    function setStakeVault(address v) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    /// @notice Maximum gas forwarded to each reward-path external call (agent-registry resolve and
+    /// reward-registry notify, including the module it invokes). Bounds what a faulty or malicious
+    /// reward module may consume, so it can never starve the checkpoint + freeze of gas (R5).
+    uint256 public constant REWARD_GAS_CAP = 500_000;
+
+    modifier contractOrZero(address a) {
+        if (a != address(0) && a.code.length == 0) revert NotAContract(a);
+        _;
+    }
+
+    function setStakeVault(address v) external onlyRole(DEFAULT_ADMIN_ROLE) contractOrZero(v) {
         stakeVault = StakeVault(v);
         emit StakeVaultSet(v);
     }
 
-    function setRewardRegistry(address r) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setRewardRegistry(address r) external onlyRole(DEFAULT_ADMIN_ROLE) contractOrZero(r) {
         rewardRegistry = RewardRegistry(r);
         emit RewardRegistrySet(r);
     }
 
-    function setAgentRegistry(address r) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setAgentRegistry(address r) external onlyRole(DEFAULT_ADMIN_ROLE) contractOrZero(r) {
         agentRegistry = XibalbaAgentRegistry(r);
         emit AgentRegistrySet(r);
     }
@@ -97,8 +110,8 @@ contract AISRegistry is AccessControl {
         XibalbaAgentRegistry ar = agentRegistry;
         if (address(rr) == address(0) || address(ar) == address(0)) return;
 
-        try ar.resolveAgent(agent) returns (XibalbaAgentRegistry.AgentRecord memory rec) {
-            try rr.notifyPositiveCheckpoint(agent, oldScore, score, rec.domainId) {}
+        try ar.resolveAgent{gas: REWARD_GAS_CAP}(agent) returns (XibalbaAgentRegistry.AgentRecord memory rec) {
+            try rr.notifyPositiveCheckpoint{gas: REWARD_GAS_CAP}(agent, oldScore, score, rec.domainId) {}
             catch (bytes memory reason) {
                 emit RewardNotifyFailed(agent, reason);
             }

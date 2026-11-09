@@ -25,6 +25,17 @@ contract RecordingModule is IRewardModule {
     }
 }
 
+/// @dev Test-only module that burns all forwarded gas.
+contract GasBurnerModule is IRewardModule {
+    uint256 public sink;
+
+    function onPositiveCheckpoint(address, uint32, uint32, bytes32) external {
+        while (true) {
+            sink++;
+        }
+    }
+}
+
 /// @dev Test-only module that always reverts (controller ruling R5).
 contract RevertingModule is IRewardModule {
     function onPositiveCheckpoint(address, uint32, uint32, bytes32) external pure {
@@ -199,6 +210,63 @@ contract AISRegistryStakeVaultTest is Test {
         assertTrue(vault.stakeOf(agent).frozen, "freeze must still apply");
         (uint32 score,,) = ais.latest(agent);
         assertEq(score, 6000, "score must still be stored");
+    }
+
+    event RewardNotifyFailed(address indexed agent, bytes reason);
+
+    function test_revertingModule_emitsRewardNotifyFailed() public {
+        _wireVault();
+        _wireReward(address(new RevertingModule()));
+        // reason is the bubbled revert data: Error("module boom")
+        bytes memory reason = abi.encodeWithSignature("Error(string)", "module boom");
+        vm.expectEmit(true, false, false, true, address(ais));
+        emit RewardNotifyFailed(agent, reason);
+        _post(6000, 0);
+    }
+
+    function test_settersRejectCodelessTargets() public {
+        address eoa = makeAddr("eoa");
+        bytes memory err = abi.encodeWithSelector(AISRegistry.NotAContract.selector, eoa);
+        vm.startPrank(admin);
+        vm.expectRevert(err);
+        ais.setStakeVault(eoa);
+        vm.expectRevert(err);
+        ais.setRewardRegistry(eoa);
+        vm.expectRevert(err);
+        ais.setAgentRegistry(eoa);
+        // zero still allowed (unset)
+        ais.setRewardRegistry(address(0));
+        vm.stopPrank();
+    }
+
+    function test_gasBurningModule_doesNotBlockCheckpointOrFreeze() public {
+        _wireVault();
+        _wireReward(address(new GasBurnerModule()));
+        vm.prank(admin);
+        vault.setFreezeThreshold(8000);
+
+        vm.prank(scorer);
+        uint256 g0 = gasleft();
+        ais.postCheckpoint{gas: 3_000_000}(agent, 6000, 1, ROOT, 0);
+        assertLt(g0 - gasleft(), 1_000_000, "reward path gas must be capped");
+        assertTrue(vault.stakeOf(agent).frozen, "freeze must survive a gas-burning module");
+        (uint32 score,,) = ais.latest(agent);
+        assertEq(score, 6000);
+    }
+
+    function test_missingVaultRole_revertsAndLeavesScoreUnchanged() public {
+        _wireVault();
+        _post(7000, 0);
+        vm.startPrank(admin);
+        vault.revokeRole(vault.AIS_REGISTRY_ROLE(), address(ais));
+        vm.stopPrank();
+
+        vm.prank(scorer);
+        vm.expectRevert();
+        ais.postCheckpoint(agent, 100, 2, ROOT, 0);
+        (uint32 score,,) = ais.latest(agent);
+        assertEq(score, 7000, "critical-path revert must not be swallowed");
+        assertFalse(vault.stakeOf(agent).frozen);
     }
 
     function test_unregisteredAgent_doesNotBlockCheckpoint() public {
