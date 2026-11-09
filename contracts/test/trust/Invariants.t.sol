@@ -18,8 +18,13 @@ contract TrustHandler is Test {
     address[] public agents;
     uint256[] internal _openDisputes;
 
+    uint256 public constant HARD_CAP = 100_000_000 ether; // hardcoded: independent of itk.MAX_SUPPLY()
+
     uint256 public lastTotalMinted;
     uint256 public calls;
+    /// @dev Ghost flags: set when a guard that must hold was observed broken mid-sequence.
+    bool public totalMintedDecreased;
+    bool public guardBypassed;
 
     constructor(ITK itk_, StakeVault vault_) {
         itk = itk_;
@@ -41,7 +46,9 @@ contract TrustHandler is Test {
     }
 
     function _sync() internal {
-        lastTotalMinted = itk.totalMinted();
+        uint256 t = itk.totalMinted();
+        if (t < lastTotalMinted) totalMintedDecreased = true;
+        lastTotalMinted = t;
         calls++;
     }
 
@@ -55,15 +62,21 @@ contract TrustHandler is Test {
         _sync();
     }
 
-    /// @dev Probes the cap: an over-cap mint must revert and leave totalMinted unchanged.
+    /// @dev Fills the supply to the hardcoded cap so the cap boundary is actually reached.
+    function mintToCap(uint256 seed) external {
+        uint256 t = itk.totalMinted();
+        if (t >= HARD_CAP) return;
+        itk.mint(_agent(seed), HARD_CAP - t);
+        _sync();
+    }
+
+    /// @dev Probes the cap: any mint past the hardcoded cap must revert.
     function mintOverCap(uint256 extra) external {
-        uint256 headroom = itk.MAX_SUPPLY() - itk.totalMinted();
-        extra = bound(extra, 1, 1_000_000 ether);
-        uint256 before = itk.totalMinted();
-        try itk.mint(address(this), headroom + extra) {
-            revert("over-cap mint succeeded");
+        uint256 t = itk.totalMinted();
+        extra = bound(extra, 1, 10 ether);
+        try itk.mint(address(this), (HARD_CAP - t) + extra) {
+            guardBypassed = true;
         } catch {}
-        assertEq(itk.totalMinted(), before);
         _sync();
     }
 
@@ -85,6 +98,36 @@ contract TrustHandler is Test {
         if (amount == 0) return;
         vm.prank(a);
         vault.stake(amount);
+        _sync();
+    }
+
+    // ---- guard attacks: smallest possible over-limit attempts; success = broken guard
+
+    function attackLock(uint256 seed) external {
+        address a = _agent(seed);
+        uint256 over = vault.availableOf(a) + 1; // read BEFORE prank (prank covers only the next call)
+        vm.prank(a);
+        try vault.lockForAction(a, over) {
+            guardBypassed = true;
+        } catch {}
+        _sync();
+    }
+
+    function attackUnstake(uint256 seed) external {
+        address a = _agent(seed);
+        uint256 over = vault.availableOf(a) + 1;
+        vm.prank(a);
+        try vault.unstake(over) {
+            guardBypassed = true;
+        } catch {}
+        _sync();
+    }
+
+    function attackDispute(uint256 seed) external {
+        address a = _agent(seed);
+        try vault.raiseDispute(a, vault.availableOf(a) + 1, "attack") {
+            guardBypassed = true;
+        } catch {}
         _sync();
     }
 
@@ -150,12 +193,13 @@ contract TrustHandler is Test {
     }
 }
 
+/// forge-config: default.invariant.runs = 256
+/// forge-config: default.invariant.depth = 500
+/// forge-config: default.invariant.fail-on-revert = true
 contract InvariantsTest is Test {
     ITK itk;
     StakeVault vault;
     TrustHandler handler;
-
-    uint256 internal _prevTotalMinted;
 
     function setUp() public {
         itk = new ITK(address(this), 0);
@@ -170,13 +214,23 @@ contract InvariantsTest is Test {
         targetContract(address(handler));
     }
 
-    /// Invariant 1: totalMinted never decreases (burns do not reopen headroom) and is capped.
-    function invariant_totalMintedMonotonicAndCapped() public {
-        uint256 t = itk.totalMinted();
-        assertGe(t, _prevTotalMinted, "totalMinted decreased");
-        assertLe(t, itk.MAX_SUPPLY(), "totalMinted exceeds MAX_SUPPLY");
-        assertEq(t, handler.lastTotalMinted(), "totalMinted drifted from ghost");
-        _prevTotalMinted = t;
+    /// Invariant 1: totalMinted never decreased during the sequence (checked in the handler,
+    /// where state persists) and is always within the hardcoded cap.
+    function invariant_totalMintedMonotonicAndCapped() public view {
+        assertFalse(handler.totalMintedDecreased(), "totalMinted decreased (burn reopened headroom)");
+        assertLe(itk.totalMinted(), handler.HARD_CAP(), "totalMinted exceeds hardcoded cap");
+        assertLe(itk.totalMinted(), itk.MAX_SUPPLY(), "totalMinted exceeds MAX_SUPPLY");
+        assertEq(itk.totalMinted(), handler.lastTotalMinted(), "ghost drift");
+    }
+
+    /// Invariant 4: no over-limit lock / unstake / dispute / mint ever succeeded; run was not hollow.
+    function invariant_guardsNeverBypassed() public view {
+        assertFalse(handler.guardBypassed(), "a guard let an over-limit call succeed");
+    }
+
+    /// Guards against a hollow run: the handler must actually have done work.
+    function afterInvariant() public view {
+        assertGt(handler.calls(), 0, "handler made no successful calls");
     }
 
     /// Invariant 2: per-agent stake bookkeeping, and availableOf never reverts.
@@ -202,7 +256,7 @@ contract InvariantsTest is Test {
 }
 
 /// Invariant 3: a frozen SovereignAgent cannot execute through EITHER overload.
-contract FrozenAgentInvariantTest is Test {
+contract FrozenAgentGateTest is Test {
     SovereignAgent agent;
     ITK itk;
     StakeVault vault;
