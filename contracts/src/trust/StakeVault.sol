@@ -79,8 +79,17 @@ contract StakeVault is AccessControl, ReentrancyGuard {
     // ---------------------------------------------------------------- views
 
     /// @notice Stake record for `agent`; the gate reads `frozen` from here.
+    /// @dev `locked` covers per-action locks only, NOT open-dispute holds. Consumers must
+    /// use `availableOf`, never `amount - locked`, to learn free stake.
     function stakeOf(address agent) external view returns (Stake memory) {
         return _stakes[agent];
+    }
+
+    /// @notice True free stake: amount - locked - open-dispute holds.
+    /// @dev Consumers must use this, never `stakeOf().amount - stakeOf().locked`, which
+    /// overstates free stake whenever a dispute is open.
+    function availableOf(address agent) external view returns (uint256) {
+        return _available(agent);
     }
 
     function _available(address agent) internal view returns (uint256) {

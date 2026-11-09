@@ -222,6 +222,38 @@ contract StakeVaultTest is Test {
         assertEq(vault.stakeOf(agent).amount, 600 ether);
     }
 
+    function test_availableOf_dropsOnDisputeWhileLockedUnchanged() public {
+        _stake(STAKE);
+        vm.prank(agent);
+        vault.lockForAction(agent, 100 ether);
+        assertEq(vault.availableOf(agent), 900 ether);
+        vm.prank(disputer);
+        vault.raiseDispute(agent, 400 ether, "bad");
+        assertEq(vault.availableOf(agent), 500 ether);
+        assertEq(vault.stakeOf(agent).locked, 100 ether);
+    }
+
+    function _frozenSurvivesResolve(bool slash) internal {
+        _stake(STAKE);
+        vm.prank(registry);
+        vault.onCheckpoint(agent, 0);
+        assertTrue(vault.stakeOf(agent).frozen);
+        vm.prank(disputer);
+        uint256 id = vault.raiseDispute(agent, 400 ether, "bad");
+        vm.warp(block.timestamp + 3 days);
+        vm.prank(admin);
+        vault.resolveDispute(id, slash);
+        assertTrue(vault.stakeOf(agent).frozen);
+    }
+
+    function test_resolveDispute_slashKeepsFrozen() public {
+        _frozenSurvivesResolve(true);
+    }
+
+    function test_resolveDispute_noSlashKeepsFrozen() public {
+        _frozenSurvivesResolve(false);
+    }
+
     function test_lockedNeverExceedsAmount_singleCase() public {
         _stake(STAKE);
         vm.prank(agent);
