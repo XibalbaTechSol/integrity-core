@@ -3,6 +3,8 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {AISRegistry} from "../../src/trust/AISRegistry.sol";
+import {StakeVault} from "../../src/trust/StakeVault.sol";
+import {ITK} from "../../src/trust/ITK.sol";
 
 contract AISRegistryTest is Test {
     AISRegistry registry;
@@ -21,8 +23,14 @@ contract AISRegistryTest is Test {
         vm.prank(admin);
         registry = new AISRegistry(admin);
 
+        // postCheckpoint requires a wired StakeVault (threshold 0 => never freezes here).
+        ITK itk = new ITK(admin, 0);
+        StakeVault vault = new StakeVault(address(itk), admin);
+
         vm.startPrank(admin);
         registry.grantRole(registry.SCORER_ROLE(), scorer);
+        vault.grantRole(vault.AIS_REGISTRY_ROLE(), address(registry));
+        registry.setStakeVault(address(vault));
         vm.stopPrank();
     }
 
@@ -31,7 +39,7 @@ contract AISRegistryTest is Test {
         emit CheckpointPosted(agent, 7500, 1_700_000_000, ROOT_A);
 
         vm.prank(scorer);
-        registry.postCheckpoint(agent, 7500, 1_700_000_000, ROOT_A);
+        registry.postCheckpoint(agent, 7500, 1_700_000_000, ROOT_A, 0);
 
         (uint32 score, uint64 windowEnd, bytes32 evidenceRoot) = registry.latest(agent);
         assertEq(score, 7500);
@@ -45,19 +53,19 @@ contract AISRegistryTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(bytes4(keccak256("AccessControlUnauthorizedAccount(address,bytes32)")), stranger, role)
         );
-        registry.postCheckpoint(agent, 5000, 1, ROOT_A);
+        registry.postCheckpoint(agent, 5000, 1, ROOT_A, 0);
     }
 
     function test_postCheckpoint_revertsAboveMaxScore() public {
         vm.prank(scorer);
         vm.expectRevert(AISRegistry.ScoreOutOfRange.selector);
-        registry.postCheckpoint(agent, 10001, 1, ROOT_A);
+        registry.postCheckpoint(agent, 10001, 1, ROOT_A, 0);
     }
 
     function test_postCheckpoint_acceptsBoundaryScores() public {
         vm.startPrank(scorer);
-        registry.postCheckpoint(agent, 0, 1, ROOT_A);
-        registry.postCheckpoint(agent, 10000, 2, ROOT_B);
+        registry.postCheckpoint(agent, 0, 1, ROOT_A, 0);
+        registry.postCheckpoint(agent, 10000, 2, ROOT_B, 0);
         vm.stopPrank();
 
         (uint32 score,,) = registry.latest(agent);
@@ -66,8 +74,8 @@ contract AISRegistryTest is Test {
 
     function test_postCheckpoint_laterOverwritesPrior() public {
         vm.startPrank(scorer);
-        registry.postCheckpoint(agent, 6000, 100, ROOT_A);
-        registry.postCheckpoint(agent, 8200, 200, ROOT_B);
+        registry.postCheckpoint(agent, 6000, 100, ROOT_A, 0);
+        registry.postCheckpoint(agent, 8200, 200, ROOT_B, 0);
         vm.stopPrank();
 
         (uint32 score, uint64 windowEnd, bytes32 evidenceRoot) = registry.latest(agent);
@@ -79,8 +87,8 @@ contract AISRegistryTest is Test {
     function test_postCheckpoint_isKeyedPerAgent() public {
         address other = makeAddr("other");
         vm.startPrank(scorer);
-        registry.postCheckpoint(agent, 4000, 100, ROOT_A);
-        registry.postCheckpoint(other, 9000, 100, ROOT_B);
+        registry.postCheckpoint(agent, 4000, 100, ROOT_A, 0);
+        registry.postCheckpoint(other, 9000, 100, ROOT_B, 0);
         vm.stopPrank();
 
         (uint32 scoreAgent,, bytes32 rootAgent) = registry.latest(agent);
