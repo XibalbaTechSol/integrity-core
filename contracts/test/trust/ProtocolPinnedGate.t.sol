@@ -43,6 +43,29 @@ contract DenyModule is IPolicyModule {
 /// onboards — this reproduces the live scenario where every new agent runs its pre-registration
 /// `execute` calls while the trust layer is already globally active. The gate must stay inert for
 /// an unregistered agent (R11) or onboarding bricks.
+/// @dev Arbitrary bytecode that answers the registration probes like a genuine agent
+/// (real `factory()`, caller holds the admin role) but carries its own UNGATED `call`.
+/// Before the codehash pin this registered cleanly and acted while frozen
+/// (final-fix re-review, Important-1).
+contract FakeAgent {
+    address public immutable factory;
+    bytes32 public constant DEFAULT_ADMIN_ROLE = 0x00;
+
+    constructor(address factory_) {
+        factory = factory_;
+    }
+
+    function hasRole(bytes32, address) external pure returns (bool) {
+        return true;
+    }
+
+    function call(address target, bytes calldata data) external returns (bytes memory) {
+        (bool ok, bytes memory ret) = target.call(data);
+        require(ok, "call failed");
+        return ret;
+    }
+}
+
 contract ProtocolPinnedGateTest is Test {
     // Protocol singletons.
     XibalbaAgentRegistry registry;
@@ -208,6 +231,10 @@ contract ProtocolPinnedGateTest is Test {
 
     /// MUTATION: delete `if (sa.factory() != address(this)) revert FactoryMismatch();` in
     /// `registerCore` -> this reverts with MemoryNotInitialized instead, test FAILS.
+    /// NOTE (R15): since the codehash pin, a genuine SovereignAgent built for another factory has
+    /// a different runtime codehash (`factory` is an immutable), so it is rejected by
+    /// `NotCanonicalAgent` before `FactoryMismatch` is reached. `FactoryMismatch` stays in the
+    /// contract as defense in depth; killing 1a/1b now takes deleting BOTH requires.
     function test_1a_registerCore_fakeFactoryReverts() public {
         address wallet = makeAddr("evil1a");
         vm.prank(wallet);
@@ -216,7 +243,7 @@ contract ProtocolPinnedGateTest is Test {
         StateAnchor anchor = new StateAnchor(address(sa));
 
         vm.prank(wallet);
-        vm.expectRevert(AgentPrimitivesFactory.FactoryMismatch.selector);
+        vm.expectRevert(AgentPrimitivesFactory.NotCanonicalAgent.selector);
         factory.registerCore(address(sa), address(anchor), "did:integrity:fake-core", domainId);
     }
 
@@ -230,9 +257,53 @@ contract ProtocolPinnedGateTest is Test {
         StateAnchor anchor = new StateAnchor(address(sa));
 
         vm.prank(wallet);
-        vm.expectRevert(AgentPrimitivesFactory.FactoryMismatch.selector);
+        vm.expectRevert(AgentPrimitivesFactory.NotCanonicalAgent.selector);
         factory.registerPrimitives(
             address(sa), address(anchor), "did:integrity:fake-prim", domainId, ComplianceGate.Vertical.None, ""
+        );
+    }
+
+    // ----------------------------------------------- 1c/1d. codehash pin (R15)
+
+    /// The factory pins the runtime codehash of the one SovereignAgent build it accepts.
+    function test_1c_genuineAgentMatchesPinnedCodehash() public {
+        address wallet = makeAddr("genuine1c");
+        vm.prank(wallet);
+        SovereignAgent sa = new SovereignAgent("did:integrity:genuine", wallet, oracleSigner, address(factory));
+        assertTrue(factory.agentCodehash() != bytes32(0));
+        assertEq(address(sa).codehash, factory.agentCodehash());
+    }
+
+    /// An agent built for a DIFFERENT factory has a different codehash (immutables live in
+    /// runtime code), so the pin is specific to this factory, not merely to the source.
+    function test_1c_agentForOtherFactoryHasDifferentCodehash() public {
+        SovereignAgent sa = new SovereignAgent("did:integrity:other", address(this), oracleSigner, address(0xFACE));
+        assertTrue(address(sa).codehash != factory.agentCodehash());
+    }
+
+    /// MUTATION: delete `if (sovereignAgent.codehash != agentCodehash) revert NotCanonicalAgent();`
+    /// in `registerCore` -> the fake registers (or fails later with another error), test FAILS.
+    function test_1d_registerCore_fakeBytecodeReverts() public {
+        address wallet = makeAddr("evil1d");
+        FakeAgent fake = new FakeAgent(address(factory));
+        StateAnchor anchor = new StateAnchor(address(fake));
+
+        vm.prank(wallet);
+        vm.expectRevert(AgentPrimitivesFactory.NotCanonicalAgent.selector);
+        factory.registerCore(address(fake), address(anchor), "did:integrity:fake-bytecode", domainId);
+        assertFalse(registry.isRegisteredAgent(address(fake)));
+    }
+
+    /// MUTATION: delete the codehash require in `registerPrimitives` -> test FAILS.
+    function test_1e_registerPrimitives_fakeBytecodeReverts() public {
+        address wallet = makeAddr("evil1e");
+        FakeAgent fake = new FakeAgent(address(factory));
+        StateAnchor anchor = new StateAnchor(address(fake));
+
+        vm.prank(wallet);
+        vm.expectRevert(AgentPrimitivesFactory.NotCanonicalAgent.selector);
+        factory.registerPrimitives(
+            address(fake), address(anchor), "did:integrity:fake-bytecode2", domainId, ComplianceGate.Vertical.None, ""
         );
     }
 
