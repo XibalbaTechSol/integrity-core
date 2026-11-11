@@ -119,7 +119,21 @@ contract TrustHandler is Test {
         address a = _agent(seed);
         uint256 over = vault.availableOf(a) + 1;
         vm.prank(a);
-        try vault.unstake(over) {
+        try vault.requestUnstake(over) {
+            guardBypassed = true;
+        } catch {}
+        _sync();
+    }
+
+    /// @dev Unbonding guard: a queued withdrawal must not pay out before its `releaseAt`,
+    /// and never while the agent is frozen.
+    function attackEarlyOrFrozenWithdraw(uint256 seed) external {
+        address a = _agent(seed);
+        (uint256 pending, uint256 releaseAt) = vault.unbondingOf(a);
+        if (pending == 0) return;
+        if (block.timestamp >= releaseAt && !vault.stakeOf(a).frozen) return; // legitimately payable
+        vm.prank(a);
+        try vault.withdraw() {
             guardBypassed = true;
         } catch {}
         _sync();
@@ -127,7 +141,7 @@ contract TrustHandler is Test {
 
     function attackDispute(uint256 seed) external {
         address a = _agent(seed);
-        try vault.raiseDispute(a, vault.availableOf(a) + 1, "attack") {
+        try vault.raiseDispute(a, vault.disputableOf(a) + 1, "attack") {
             guardBypassed = true;
         } catch {}
         _sync();
@@ -139,7 +153,26 @@ contract TrustHandler is Test {
         amount = bound(amount, 0, vault.availableOf(a));
         if (amount == 0) return;
         vm.prank(a);
-        vault.unstake(amount);
+        vault.requestUnstake(amount);
+        _sync();
+    }
+
+    function doWithdraw(uint256 seed) external {
+        address a = _agent(seed);
+        (uint256 pending, uint256 releaseAt) = vault.unbondingOf(a);
+        if (pending == 0 || vault.stakeOf(a).frozen) return;
+        if (block.timestamp < releaseAt) vm.warp(releaseAt);
+        vm.prank(a);
+        vault.withdraw();
+        _sync();
+    }
+
+    function doCancelUnstake(uint256 seed) external {
+        address a = _agent(seed);
+        (uint256 pending,) = vault.unbondingOf(a);
+        if (pending == 0) return;
+        vm.prank(a);
+        vault.cancelUnstake();
         _sync();
     }
 
@@ -160,7 +193,8 @@ contract TrustHandler is Test {
 
     function doRaiseDispute(uint256 seed, uint256 amount) external {
         address a = _agent(seed);
-        amount = bound(amount, 0, vault.availableOf(a));
+        // Bounded by disputableOf, not availableOf, so disputes also claw back queued withdrawals.
+        amount = bound(amount, 0, vault.disputableOf(a));
         if (amount == 0) return;
         _openDisputes.push(vault.raiseDispute(a, amount, "inv"));
         _sync();
@@ -242,8 +276,12 @@ contract InvariantsTest is Test {
         for (uint256 i; i < n; i++) {
             address a = handler.agents(i);
             StakeVault.Stake memory s = vault.stakeOf(a);
-            assertLe(s.locked + vault.disputeLockedOf(a), s.amount, "locked + disputeLockedOf > amount");
-            assertEq(vault.availableOf(a), s.amount - s.locked - vault.disputeLockedOf(a));
+            (uint256 unbonding,) = vault.unbondingOf(a);
+            assertLe(
+                s.locked + vault.disputeLockedOf(a) + unbonding, s.amount, "locked + disputeLockedOf + unbonding > amount"
+            );
+            assertEq(vault.availableOf(a), s.amount - s.locked - vault.disputeLockedOf(a) - unbonding);
+            assertEq(vault.disputableOf(a), s.amount - s.locked - vault.disputeLockedOf(a));
         }
     }
 

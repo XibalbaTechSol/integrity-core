@@ -325,7 +325,8 @@ contract ProtocolPinnedGateTest is Test {
     // ----------------------------------------------- 5. unstake-while-frozen reverts (A5)
 
     /// MUTATION: delete `if (_stakes[msg.sender].frozen) revert StakeFrozen();` in
-    /// `StakeVault.unstake` -> the frozen agent withdraws its collateral, test FAILS.
+    /// `StakeVault.withdraw` -> the frozen agent withdraws its collateral, test FAILS.
+    /// The withdrawal is queued BEFORE the freeze, so only the payout-time check can stop it.
     function test_5_unstakeWhileFrozenReverts() public {
         address staker = makeAddr("staker5");
         vm.prank(protocolAdmin);
@@ -333,13 +334,19 @@ contract ProtocolPinnedGateTest is Test {
         vm.startPrank(staker);
         itk.approve(address(vault), type(uint256).max);
         vault.stake(1000 ether);
+        vault.requestUnstake(1000 ether);
         vm.stopPrank();
 
         _freeze(staker);
+        vm.warp(block.timestamp + vault.unbondingDelay());
 
         vm.prank(staker);
         vm.expectRevert(StakeVault.StakeFrozen.selector);
-        vault.unstake(1000 ether);
+        vault.withdraw();
+
+        vm.prank(staker);
+        vm.expectRevert(StakeVault.StakeFrozen.selector);
+        vault.requestUnstake(1);
     }
 
     // ----------------------------------------------- 6. leaf target-binding (Important-1)

@@ -48,9 +48,12 @@ contract StakeVaultTest is Test {
         vault.lockForAction(agent, 600 ether);
         vm.prank(agent);
         vm.expectRevert(StakeVault.InsufficientAvailableStake.selector);
-        vault.unstake(500 ether);
+        vault.requestUnstake(500 ether);
         vm.prank(agent);
-        vault.unstake(400 ether);
+        vault.requestUnstake(400 ether);
+        vm.warp(block.timestamp + vault.unbondingDelay());
+        vm.prank(agent);
+        vault.withdraw();
         assertEq(vault.stakeOf(agent).amount, 600 ether);
     }
 
@@ -162,7 +165,7 @@ contract StakeVaultTest is Test {
         // Disputed amount cannot be withdrawn
         vm.prank(agent);
         vm.expectRevert(StakeVault.InsufficientAvailableStake.selector);
-        vault.unstake(700 ether);
+        vault.requestUnstake(700 ether);
 
         vm.warp(block.timestamp + 3 days);
         vm.prank(admin);
@@ -186,7 +189,7 @@ contract StakeVaultTest is Test {
         vault.resolveDispute(id, false);
         assertEq(vault.stakeOf(agent).amount, STAKE);
         vm.prank(agent);
-        vault.unstake(STAKE);
+        vault.requestUnstake(STAKE);
     }
 
     function test_resolveDispute_revertsBeforeWindow() public {
@@ -215,7 +218,7 @@ contract StakeVaultTest is Test {
         vault.releaseLock(agent, 400 ether);
         vm.prank(agent);
         vm.expectRevert(StakeVault.InsufficientAvailableStake.selector);
-        vault.unstake(700 ether);
+        vault.requestUnstake(700 ether);
         vm.warp(block.timestamp + 3 days);
         vm.prank(admin);
         vault.resolveDispute(id, true);
