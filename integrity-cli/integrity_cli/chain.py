@@ -160,18 +160,29 @@ def mint_testnet_itk(
 
 
 def deploy_sovereign_agent(
-    w3: Web3, agent: LocalAccount, did: str, oracle_signer: str, chain_id: int, nonce: Optional[int] = None
+    w3: Web3,
+    agent: LocalAccount,
+    did: str,
+    oracle_signer: str,
+    chain_id: int,
+    factory_address: str,
+    nonce: Optional[int] = None,
 ) -> str:
     """
     The agent's own wallet directly deploys its SovereignAgent identity
     contract -- `controller_` is the agent's own address, so this one wallet
     is simultaneously the deployer (proving self-sovereign creation) and the
     ongoing controller (able to call `execute`/`rotateController` later).
+
+    `factory_address` MUST be the AgentPrimitivesFactory the agent registers
+    through: `registerCore`/`registerPrimitives` revert `FactoryMismatch`
+    unless `sa.factory()` equals the calling factory, because the trust gate
+    resolves its modules via `factory.registry().trustConfig()`.
     Returns the deployed contract's checksummed address.
     """
     factory = _contract(w3, "SovereignAgent")
     tx_nonce = nonce if nonce is not None else w3.eth.get_transaction_count(agent.address)
-    tx = factory.constructor(did, agent.address, oracle_signer, "0x0000000000000000000000000000000000000000").build_transaction(
+    tx = factory.constructor(did, agent.address, oracle_signer, Web3.to_checksum_address(factory_address)).build_transaction(
         {
             "from": agent.address,
             "nonce": tx_nonce,
