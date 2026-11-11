@@ -4307,3 +4307,17 @@ writeup: PRODUCTION_GAPS.md §18.
 - Resolved all entity drift targets in `wiki_linter.py` (0 missing files across all entities).
 - Updated in-page tables of contents across all modified articles via `scripts/wiki_toc.py`.
 - Page count reconciled: Total=36 (Concepts=24, Entities=9, Architecture=2, Queries=1).
+
+## [2026-11-11] feat | Integrity Token v2 trust layer documented; gate ships wired
+
+- Added `entities/trust-layer.md` for the six `contracts/src/trust/` singletons, `TrustConfig`,
+  `OpenPolicyModule`, and the gated `SovereignAgent.execute` path.
+- Recorded the three bindings that make the gate un-unwireable: governance-pinned modules,
+  registry-sourced domain, and the factory's `SovereignAgent` codehash pin (`NotCanonicalAgent`).
+- Recorded `StakeVault`'s two-step withdrawal and 7-day governed unbonding delay.
+- Recorded that `Deploy.s.sol` now deploys and wires the layer, and that `ITK` and
+  `IntegrityToken` are distinct contracts.
+- `docs/INTERFACE_CONTRACT.md` gained §4.4e and the codehash-pin note in §4.4d; §6.6 lists the new
+  deployment keys.
+- Page count reconciled: Total=37 (Concepts=24, Entities=10, Architecture=2, Queries=1).
+

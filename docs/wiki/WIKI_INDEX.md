@@ -3,7 +3,7 @@
 > Canonical machine-readable catalog for `docs/wiki/`. The landing page is
 > `index.md`; this file lists every article page for linting.
 
-Last updated: 2026-11-07 | Total pages: 36
+Last updated: 2026-11-11 | Total pages: 37
 
 ## Concepts
 
@@ -43,6 +43,7 @@ Last updated: 2026-11-07 | Total pages: 36
 - [Integrity user API](entities/integrity-userapi.md)
 - [Integrity ZKP](entities/integrity-zkp.md)
 - [Policy Packs](entities/policy-packs.md)
+- [Trust layer](entities/trust-layer.md)
 
 ## Queries
 

@@ -117,6 +117,7 @@ The Integrity Ecosystem aligns autonomous machine behavior across four specializ
 - [Integrity SDK](entities/integrity-sdk.md) — Python agent library: DIDs, BCC interception, telemetry, and policy pack validation.
 - [Integrity CLI](entities/integrity-cli.md) — Developer CLI for keys, registration, verification, and vaults.
 - [Contracts](entities/contracts.md) — Solidity/Foundry primitive suite on Base L2: factory, registries, XNS, and SovereignAgent.
+- [Trust layer](entities/trust-layer.md) — Integrity Token v2: staking, the latching freeze, unbonding, and the gated execute path.
 - [Integrity Dashboard (Console)](entities/integrity-dashboard.md) — React/Vite operator window (hosted in `integrity-console`).
 - [Integrity User API (Console)](entities/integrity-userapi.md) — FastAPI + Postgres account authentication (hosted in `integrity-console`).
 - [Integrity ZKP](entities/integrity-zkp.md) — Zero-knowledge proving pipeline and circuit definitions.

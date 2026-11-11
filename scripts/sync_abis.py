@@ -33,6 +33,7 @@ rather than resurrecting the stale path.
 """
 
 import json
+import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -94,7 +95,54 @@ CONTRACTS = [
 ]
 
 
+def _trimmed(contract_name: str, source_stem: str) -> str:
+    artifact_path = CONTRACTS_OUT / f"{source_stem}.sol" / f"{contract_name}.json"
+    if not artifact_path.exists():
+        raise SystemExit(
+            f"Missing forge artifact: {artifact_path} — run `forge build` in "
+            f"contracts/ first (make sync-abis does this automatically)."
+        )
+    artifact = json.loads(artifact_path.read_text())
+    trimmed = {
+        "contractName": contract_name,
+        "abi": artifact["abi"],
+        "bytecode": artifact["bytecode"]["object"],
+    }
+    return json.dumps(trimmed, indent=2) + "\n"
+
+
+def check() -> None:
+    """Fail if any shipped artifact differs from the current forge build.
+
+    The SDK and CLI DEPLOY agents from the bytecode in these files. A stale file
+    is therefore not a documentation problem: it puts an older contract on-chain.
+    That happened on the integrity-token-v2 branch, where the shipped
+    SovereignAgent.json predated the trust gate, so onboarded agents had no
+    freeze, policy or stake-lock at all. `AgentPrimitivesFactory` now pins the
+    agent codehash, so a stale SovereignAgent.json also fails registration with
+    `NotCanonicalAgent` — this check catches it before a release instead.
+    """
+    stale = []
+    for contract_name, source_stem in CONTRACTS:
+        expected = _trimmed(contract_name, source_stem)
+        for abis_dir in (SDK_ABIS_DIR, CLI_ABIS_DIR):
+            out_path = abis_dir / f"{contract_name}.json"
+            if not out_path.exists() or out_path.read_text() != expected:
+                stale.append(str(out_path.relative_to(REPO_ROOT)))
+    if stale:
+        raise SystemExit(
+            "Shipped contract artifacts are out of date with contracts/out:\n  "
+            + "\n  ".join(stale)
+            + "\nRun `make sync-abis` and commit the result."
+        )
+    print(f"ok: {len(CONTRACTS)} contract artifacts match contracts/out in integrity-sdk and integrity-cli")
+
+
 def main() -> None:
+    if "--check" in sys.argv[1:]:
+        check()
+        return
+
     for abis_dir, package_name in ((SDK_ABIS_DIR, "integrity-sdk"), (CLI_ABIS_DIR, "integrity-cli")):
         abis_dir.mkdir(parents=True, exist_ok=True)
         (abis_dir / "__init__.py").write_text(
@@ -103,24 +151,11 @@ def main() -> None:
         )
 
     for contract_name, source_stem in CONTRACTS:
-        artifact_path = CONTRACTS_OUT / f"{source_stem}.sol" / f"{contract_name}.json"
-        if not artifact_path.exists():
-            raise SystemExit(
-                f"Missing forge artifact: {artifact_path} — run `forge build` in "
-                f"contracts/ first (make sync-abis does this automatically)."
-            )
-        artifact = json.loads(artifact_path.read_text())
-
-        trimmed = {
-            "contractName": contract_name,
-            "abi": artifact["abi"],
-            "bytecode": artifact["bytecode"]["object"],
-        }
-
+        trimmed = _trimmed(contract_name, source_stem)
         for abis_dir in (SDK_ABIS_DIR, CLI_ABIS_DIR):
             out_path = abis_dir / f"{contract_name}.json"
-            out_path.write_text(json.dumps(trimmed, indent=2) + "\n")
-            print(f"wrote {out_path.relative_to(REPO_ROOT)} ({len(trimmed['abi'])} ABI entries)")
+            out_path.write_text(trimmed)
+            print(f"wrote {out_path.relative_to(REPO_ROOT)}")
 
 
 if __name__ == "__main__":

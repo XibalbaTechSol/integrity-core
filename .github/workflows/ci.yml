@@ -60,6 +60,11 @@ jobs:
         working-directory: contracts
       - run: forge test -vvv
         working-directory: contracts
+      # The SDK and CLI deploy agents from the bytecode in their shipped abis/*.json. A stale
+      # file puts an older contract on-chain (a pre-gate SovereignAgent shipped this way once),
+      # so the committed artifacts must equal this build's output.
+      - name: Shipped contract artifacts match the build
+        run: python3 scripts/sync_abis.py --check
 
   oracle:
     name: integrity-oracle (cargo test)

@@ -332,3 +332,32 @@ not used.
 - Clinical FHIR domain (Synthea in-repo, MIMIC-IV out-of-repo credentialed
   evaluation) — a later action space behind the same engine, after the tool-call
   graph proves the loop.
+
+---
+
+## Amendments, 2026-11-11 (owner decisions during implementation)
+
+These supersede the text above where they conflict.
+
+- **Part B is implemented.** Status is no longer "not yet implemented"; see
+  `docs/wiki/entities/trust-layer.md` and `docs/INTERFACE_CONTRACT.md` §4.4c–§4.4e for the as-built
+  contract.
+- **Gate references are protocol-pinned**, not constructor or controller-set: `SovereignAgent`
+  reads them through `factory.registry().trustConfig()`. Its constructor is unchanged.
+- **Registration pins the `SovereignAgent` codehash** (`NotCanonicalAgent`).
+- **`StakeVault` has no `unstake`.** Withdrawal is `requestUnstake` → `withdraw` after a 7-day
+  unbonding delay, governance-settable within 1–30 days. Queued stake stays freezable and slashable.
+- **`resolveDispute` does not clear the freeze.** Only governance `unfreeze` does.
+- **`domainFloor` is absolute ITK wei**, not basis points.
+- **`SovereignAgent.updateAIS` / `ais` are not deleted yet.** Removal waits on repointing
+  `AgentAuthorityResolver` and `ConstraintExecutionPolicy` at `AISRegistry`.
+- **The multiplicative reward is canonical everywhere**, not only in the navigation engine.
+  `integrity_sdk.core.ais_reward`, the Rust `scoring-core` reward evaluation and Cortex's
+  trajectory evaluator shipped the additive form this spec rejects; they are to gain the
+  multiplicative profile as their default, with the additive form kept as a named legacy profile.
+- **Part C is reduced.** The first build of the navigation engine is the cross-language seam (the
+  canonical leaf and graph root), the action mask, the multiplicative reward, and one falsifiable
+  toy-graph test showing the compliant path wins. The R-GCN encoder, TransE embeddings and
+  REINFORCE loop are dropped from this build: production agents are LLMs constrained by the mask at
+  tool-call time, and the reward serves as an evaluation and ranking signal.
+
