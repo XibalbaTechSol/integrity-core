@@ -1,5 +1,5 @@
 """Canonical AIS Mathematical Engine (`ais/v1-geometric-1`), Closed-Loop Controller,
-and Reward Function (`R_total = R_task + lambda * AIS`).
+and Reward Function (`R_total = max(0, R_task - cost) * AIS`, multiplicative).
 
 Strictly domain-agnostic (`integrity_sdk.core` contract): depends only on the
 Python standard library (`math`, `dataclasses`, `enum`, `typing`).
@@ -19,8 +19,13 @@ Implements:
    - Feedback state machine (`GREEN`, `YELLOW`, `RED`) with hysteresis recovery
      (`tau_recover = 920.0`) and external constraint interlocks (`c_j(x_t) <= 0`).
 3. `AISRewardFunction`:
-   - Step-level off-chain RL / GRPO / DPO reward:
-     `R_total(t) = R_task(t) + lambda_ais * (AIS_t / 1000) + (gamma * Phi(AIS_t) - Phi(AIS_{t-1})) - penalty`
+   - Step-level reward, canonical profile `ais-reward/v2-multiplicative-1`:
+     `R_total(t) = max(0, R_task(t) - cost) * clamp(AIS_t, 0, 1000) / 1000`, and `0` for a
+     denied or non-compliant step. Integrity scales the whole payoff, so it cannot be
+     outweighed by a large task reward.
+   - Legacy profile `ais-reward/v1-additive-1` (kept so earlier results reproduce):
+     `R_task + lambda_ais * (AIS_t / 1000) + shaping - penalty`. AIS contributes at most
+     `lambda_ais` there, so a task-reward lead larger than that beats any integrity gap.
    - On-chain epoch settlement and slashing multiplier (`Y_e`).
 """
 
@@ -33,7 +38,35 @@ from typing import Dict, Iterable, Mapping, Optional, Sequence, Set, Tuple
 
 AIS_FORMULA_VERSION = "ais/v1-geometric-1"
 
-DEFAULT_AXIS_WEIGHTS: Tuple[float, float, float, float] = (0.30, 0.25, 0.15, 0.30)
+# (w_E, w_G, w_S, w_C). Must equal `AisWeights::default()` in
+# integrity-oracle/scoring-core, which docs/INTERFACE_CONTRACT.md §4.3 pins: the Oracle is the
+# authoritative evaluator and this module is its Python reference. Asserted against
+# spec/ais-api/v1/reward-vectors.json by both test suites.
+DEFAULT_AXIS_WEIGHTS: Tuple[float, float, float, float] = (0.30, 0.30, 0.20, 0.20)
+
+REWARD_PROFILE_MULTIPLICATIVE = "ais-reward/v2-multiplicative-1"
+REWARD_PROFILE_ADDITIVE_V1 = "ais-reward/v1-additive-1"
+DEFAULT_REWARD_PROFILE = REWARD_PROFILE_MULTIPLICATIVE
+REWARD_PROFILES = (REWARD_PROFILE_MULTIPLICATIVE, REWARD_PROFILE_ADDITIVE_V1)
+
+
+def multiplicative_reward(
+    r_task: float,
+    ais_score: float,
+    *,
+    cost_penalty: float = 0.0,
+    gated: bool = False,
+) -> float:
+    """`max(0, r_task - cost_penalty) * clamp(ais_score, 0, 1000) / 1000`.
+
+    Returns `0.0` when the step is gated or any input is not finite. Both factors are
+    non-negative, so the result is never negative and never decreases as AIS rises: a
+    negative task term would otherwise make LOWER integrity score better.
+    """
+    if gated or not math.isfinite(ais_score) or not math.isfinite(r_task) or not math.isfinite(cost_penalty):
+        return 0.0
+    net_task = max(0.0, r_task - max(0.0, cost_penalty))
+    return net_task * (min(max(ais_score, 0.0), 1000.0) / 1000.0)
 
 TIER_CEILINGS: Mapping[int, float] = {
     0: 300.0,
@@ -349,9 +382,11 @@ class StepRewardBreakdown:
     violation_penalty: float
     r_total: float
     gated_by_compliance: bool
+    reward_profile: str = DEFAULT_REWARD_PROFILE
 
     def to_dict(self) -> Dict[str, object]:
         return {
+            "reward_profile": self.reward_profile,
             "r_task": round(self.r_task, 6),
             "ais_t": round(self.ais_t, 6),
             "ais_prev": round(self.ais_prev, 6),
@@ -391,12 +426,13 @@ class AISRewardFunction:
     """Deterministic AIS Reward Function for both off-chain RL/GRPO/DPO and on-chain settlement.
 
     Implements:
-    1. Canonical linear-plus-shaping step reward:
-       `R_total(t) = r_task_eff + lambda_ais * (AIS_t / 1000) + (gamma * Phi(AIS_t) - Phi(AIS_{t-1})) - penalty`
-       where `Phi(AIS) = (AIS / 1000)^2` is a policy-invariant potential function
-       (Ng et al., 1999) and `r_task_eff` is multiplicatively gated to `0` if
-       `gate_task_on_compliance=True` and `S_C == 0` (preventing reward hacking via
-       policy violations).
+    1. Step reward, selected by `profile`:
+       - `ais-reward/v2-multiplicative-1` (default, canonical): see `multiplicative_reward`.
+         `lambda_ais`, `gamma`, `shaping_weight` and `deny_penalty` are unused.
+       - `ais-reward/v1-additive-1` (legacy):
+         `r_task_eff + lambda_ais * (AIS_t / 1000) + (gamma * Phi(AIS_t) - Phi(AIS_{t-1})) - penalty`
+         with `Phi(AIS) = (AIS / 1000)^2`, and `r_task_eff` gated to `0` when
+         `gate_task_on_compliance=True` and the step is denied or `S_C == 0`.
     2. On-chain epoch settlement (`settle_epoch`):
        Convex superlinear yield multiplier above `ais_min` (`750.0` by default) and
        deterministic slashing on verified fraud/violation proofs.
@@ -411,7 +447,11 @@ class AISRewardFunction:
         gate_task_on_compliance: bool = True,
         ais_min: float = 750.0,
         convex_beta: float = 2.0,
+        profile: str = DEFAULT_REWARD_PROFILE,
     ) -> None:
+        if profile not in REWARD_PROFILES:
+            raise ValueError(f"Unknown reward profile {profile!r}; expected one of {REWARD_PROFILES}")
+        self.profile = profile
         if lambda_ais < 0.0:
             raise ValueError("lambda_ais must be non-negative")
         if not (0.0 <= gamma <= 1.0):
@@ -454,6 +494,23 @@ class AISRewardFunction:
             else (score_t <= 0.0)
         )
 
+        if self.profile == REWARD_PROFILE_MULTIPLICATIVE:
+            # A denied or non-compliant step earns nothing, unconditionally: the multiplicative
+            # profile has no `gate_task_on_compliance` opt-out.
+            gated_mult = bool(compliance_zero or deny_count > 0)
+            r_total_mult = multiplicative_reward(float(r_task), score_t, gated=gated_mult)
+            return StepRewardBreakdown(
+                r_task=0.0 if gated_mult else max(0.0, float(r_task)) if math.isfinite(r_task) else 0.0,
+                ais_t=score_t,
+                ais_prev=score_prev,
+                ais_term=0.0,
+                potential_shaping=0.0,
+                violation_penalty=0.0,
+                r_total=r_total_mult,
+                gated_by_compliance=gated_mult,
+                reward_profile=REWARD_PROFILE_MULTIPLICATIVE,
+            )
+
         gated = bool(self.gate_task_on_compliance and (compliance_zero or deny_count > 0))
         effective_task = 0.0 if gated else float(r_task)
 
@@ -476,6 +533,7 @@ class AISRewardFunction:
             violation_penalty=penalty,
             r_total=r_total,
             gated_by_compliance=gated,
+            reward_profile=REWARD_PROFILE_ADDITIVE_V1,
         )
 
     def settle_epoch(

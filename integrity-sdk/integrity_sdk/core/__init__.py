@@ -49,6 +49,9 @@ from .adapter_conformance import AdapterConformanceError, run_adapter_conformanc
 from .ais_reward import (
     AIS_FORMULA_VERSION,
     DEFAULT_AXIS_WEIGHTS,
+    DEFAULT_REWARD_PROFILE,
+    REWARD_PROFILE_ADDITIVE_V1,
+    REWARD_PROFILE_MULTIPLICATIVE,
     TIER_CEILINGS,
     AISComponents,
     AISControlZone,
@@ -63,6 +66,7 @@ from .ais_reward import (
     compute_entropy_score,
     compute_grounding_score,
     compute_zk_boost,
+    multiplicative_reward,
     evaluate_ais_v1_geometric,
 )
 from .entitlements import CapabilityDenied, EntitlementSet, require_capability
@@ -136,6 +140,8 @@ __all__ = [
     "ClosedLoopAISController", "ClosedLoopState", "EpochSettlementResult", "StepRewardBreakdown",
     "compute_compliance_score", "compute_contribution_score", "compute_entropy_score",
     "compute_grounding_score", "compute_zk_boost", "evaluate_ais_v1_geometric",
+    "multiplicative_reward", "DEFAULT_REWARD_PROFILE", "REWARD_PROFILE_ADDITIVE_V1",
+    "REWARD_PROFILE_MULTIPLICATIVE",
     "EntitlementSet", "CapabilityDenied", "require_capability",
     "canonical_bytes", "sha256_hex",
     "hash_pair", "keccak256", "leaf_hash", "merkle_proof", "merkle_root", "verify_leaf",

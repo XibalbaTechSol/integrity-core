@@ -848,13 +848,16 @@ pub struct AisResponse {
     /// `bcc_middleware`'s chain-push or dispute logic.
     pub shadow_gate: ShadowGate,
     /// Canonical Closed-Loop AIS Control Zone (`green` / `yellow` / `red` with hysteresis)
-    /// and Step/Epoch Reward Evaluation (`R_total = R_task + lambda * AIS + shaping - penalty`).
+    /// and Step/Epoch Reward Evaluation. `r_total` uses the profile named in `reward_profile`;
+    /// the default is multiplicative: `max(0, R_task) * AIS / 1000`, zero when gated.
     pub closed_loop_reward: ClosedLoopRewardDto,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct ClosedLoopRewardDto {
     pub control_zone: String,
+    /// `ais-reward/v2-multiplicative-1` (canonical) or `ais-reward/v1-additive-1` (legacy).
+    pub reward_profile: String,
     pub r_task_effective: f64,
     pub ais_term: f64,
     pub potential_shaping: f64,
@@ -1041,6 +1044,7 @@ pub(crate) async fn compute_ais_for_agent(
             );
             ClosedLoopRewardDto {
                 control_zone: eval.control_zone,
+                reward_profile: eval.reward_profile,
                 r_task_effective: eval.r_task_effective,
                 ais_term: eval.ais_term,
                 potential_shaping: eval.potential_shaping,

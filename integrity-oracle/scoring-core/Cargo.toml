@@ -8,3 +8,8 @@ edition.workspace = true
 # fast to unit-test, per docs/INTERFACE_CONTRACT.md §4.3.
 [dependencies]
 serde = { version = "1", features = ["derive"] }
+
+# Test-only: reads the cross-language golden vectors in spec/ais-api/v1/reward-vectors.json.
+# The crate's runtime dependency set stays serde-only.
+[dev-dependencies]
+serde_json = "1"
