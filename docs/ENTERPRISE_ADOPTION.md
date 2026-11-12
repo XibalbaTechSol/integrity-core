@@ -55,6 +55,11 @@ never trips the circuit breaker:
   `decision="shadow_deny"` (distinct from a real enforced `deny`), via `app/audit.py`.
 - `GET /health` reports `mode: "enforce" | "shadow"`.
 
+The AIS control-zone gate (`BCC_AIS_ZONE_MODE`, off by default) has its own `shadow` value, and the
+two switches compose rather than override: with `BCC_SHADOW_MODE=true` nothing blocks whatever the
+zone mode is, and a zone restriction only blocks when `BCC_SHADOW_MODE=false` **and**
+`BCC_AIS_ZONE_MODE=enforce`. The full matrix is in `bcc_middleware/README.md`.
+
 Observation is also the registration boundary: registering an agent does not grant or
 remove tool access, and the absence of an optional compliance pack is not a denial.
 Set `BCC_SHADOW_MODE=false` only when an operator has explicitly selected a policy pack

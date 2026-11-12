@@ -140,6 +140,10 @@ services:
       ORACLE_URL: http://oracle-backend:8080
       # Observation is the safe local default; operators can explicitly opt into enforcement.
       BCC_SHADOW_MODE: ${BCC_SHADOW_MODE:-true}
+      # AIS control-zone gate, OFF by default (bcc_middleware/README.md "AIS control-zone gate").
+      # Do not set enforce before reading its precondition there: tier 0-1 agents are permanently red.
+      BCC_AIS_ZONE_MODE: ${BCC_AIS_ZONE_MODE:-off}
+      BCC_AIS_ZONE_UNAVAILABLE: ${BCC_AIS_ZONE_UNAVAILABLE:-allow}
       # Bearer token for /v1/admin/*. Empty = the admin API is disabled (503), not open. >= 32 chars.
       BCC_ADMIN_TOKEN: ${BCC_ADMIN_TOKEN:-}
       RPC_URL: ${DOCKER_RPC_URL:-http://host.docker.internal:8545}

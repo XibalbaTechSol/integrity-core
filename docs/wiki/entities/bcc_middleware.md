@@ -1,7 +1,7 @@
 ---
 title: bcc_middleware
 created: 2026-07-07
-updated: 2026-11-07
+updated: 2026-11-11
 type: entity
 tags: [infrastructure, compliance, cryptography, metrics, policy-packs, control-layer]
 confidence: high
@@ -29,6 +29,8 @@ source_files:
   - bcc_middleware/app/clinical_allowlist.py
   - bcc_middleware/tests/test_pack_policy.py
   - bcc_middleware/tests/test_policy_engine_switch.py
+  - bcc_middleware/app/ais_zone.py
+  - bcc_middleware/tests/test_ais_zone_gate.py
 ---
 
 The pre-execution policy enforcement gateway (FastAPI + OPA / WASM). An autonomous agent signs a
@@ -57,6 +59,7 @@ raises slashing disputes when behavioral commitments are broken.
 - [Shared decision vectors (B2 stage 4, 2026-10-11)](#shared-decision-vectors-b2-stage-4-2026-10-11)
 - [Hot reload of the signed pack (B2, 2026-10-11)](#hot-reload-of-the-signed-pack-b2-2026-10-11)
 - [Anchoring closed receipt epochs (B4, 2026-10-11)](#anchoring-closed-receipt-epochs-b4-2026-10-11)
+- [AIS control-zone gate (2026-11-11)](#ais-control-zone-gate-2026-11-11)
 
 ## Pipeline
 
@@ -428,3 +431,24 @@ those as a removed epoch. Found by running the built image against two real cont
 `uv run --no-sync ...`: without `--no-sync`, `uv run` re-synced at every start and tried to download the dev group (pytest) into the
 production image, which fails with no package-index access. `docker-compose.anchor-dev.yml` is a local-stack overlay for receipts
 plus anchoring.
+
+## AIS control-zone gate (2026-11-11)
+
+Off by default (`BCC_AIS_ZONE_MODE=off`). The oracle's [AIS](../concepts/ais.md) control zone
+(`GET /v1/agent/{id}/ais` -> `closed_loop_reward.control_zone`) was computed and read by no enforcement
+point. Step 5a of the pipeline (after policy allows, before the token budget is charged) can now restrict a
+tool call's action class by it: green = read, draft, execute; yellow = read, draft; red = read; escalate
+always. `intent_type` maps to a class by exact match (`app/ais_zone.py`), and anything unmapped is `execute`.
+The zone is only read (`app/chain.py::resolve_control_zone`, 60 s TTL, 5 min last-known-good), never
+recomputed in the middleware.
+
+- `shadow` writes a `shadow_deny` / `AIS_ZONE_RESTRICTED` audit row and the request continues; `enforce`
+  goes through the ordinary deny path, so it blocks only when `BCC_SHADOW_MODE=false` as well.
+- An unreadable zone is permitted (`BCC_AIS_ZONE_UNAVAILABLE=allow`, default) or treated as red (`restrict`).
+- A zone denial does not charge the circuit breaker and gets an ordinary signed receipt (the receipt
+  `reason_code` is an open vocabulary; no schema change).
+- **Not ready for `enforce`:** AIS is capped by registration tier (300 / 600 / 850 / 1000) while red is
+  below 750 and green starts at 900, so tier 0-1 agents are permanently red and tier 2 can never be green.
+
+Matrix and settings: `bcc_middleware/README.md` "AIS control-zone gate". Verified: 103 tests in
+`tests/test_ais_zone_gate.py`, 16 mutations of the implementation each caught by at least one of them.
