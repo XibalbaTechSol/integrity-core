@@ -27,6 +27,10 @@ why each step is where it is):
       PRODUCTION_GAPS.md §5's "nothing reads on-chain dispute state back into
       run_intercept" gap.
   5. OPA policy evaluation -- FAIL CLOSED if OPA is unreachable/erroring.
+  5a. AIS control-zone gate, OFF by default (BCC_AIS_ZONE_MODE) -- restricts
+      the action class by the agent's oracle-computed zone (app/ais_zone.py).
+      Not agent-attributable: never trips the circuit breaker.
+  5b. Token budget check.
   6. On-chain BAA check, only if OPA flagged `requires_baa` -- FAIL CLOSED
      if we can't positively confirm an active BAA.
   7. Merkle batch admission + best-effort anchoring (not a gate -- see
@@ -57,7 +61,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.baa import BAAStatus, check_baa_status
 from app.canonical import SignatureVerificationError, verify_commitment_signature
-from app.chain import resolve_verification_tier
+from app import ais_zone
+from app.chain import resolve_control_zone, resolve_verification_tier
 from app.quarantine import QuarantineStatus, check_quarantine_status, fail_closed_for_intent
 from app.circuit_breaker import AgentCircuitBreaker
 from app.config import Settings, settings as default_settings
@@ -740,6 +745,40 @@ async def _run_intercept_inner(
         resp = _deny(f"OPA_REJECTION: {decision.reasons}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type, commitment=commitment)
         finalize_span("deny", resp.reason)
         return resp
+
+    # --- 5a. AIS control-zone gate (OFF by default; app/ais_zone.py) -----------
+    # The first place the oracle's score restricts an agent: its control zone decides which CLASS of
+    # action it may take. Runs after policy allows (a policy denial is a violation and stays one) and
+    # before the token budget is charged (a call the gate refuses must not spend budget).
+    #   * off: nothing below runs, and the oracle is never asked for the zone.
+    #   * A class every zone permits (read, escalate) cannot be changed by the answer, so the oracle
+    #     is not asked for those either.
+    #   * enforce: through _deny, so the global BCC_SHADOW_MODE still decides whether it blocks.
+    #   * shadow: recorded as a would-deny and the request CONTINUES. It does not use _deny, because
+    #     under global enforcement that would mean returning an allow from here and skipping the
+    #     token budget, the BAA check and the receipt.
+    # Never _record_violation: the agent was demoted, it did not attempt a violation, and an
+    # unreadable zone under the "restrict" posture is our failure. Counting it would also lock a red
+    # agent out of the reads red is meant to leave it.
+    if settings.ais_zone_mode != ais_zone.MODE_OFF:
+        action_class = ais_zone.classify(commitment.intent_type, settings.ais_zone_action_classes)
+        if action_class not in ais_zone.PERMITTED_IN_EVERY_ZONE:
+            zone = await asyncio.to_thread(resolve_control_zone, agent_id, oracle_url=settings.oracle_url)
+            zone_reason = ais_zone.restriction(
+                zone=zone, unavailable=settings.ais_zone_unavailable,
+                intent_type=commitment.intent_type, action_class=action_class,
+            )
+            if zone_reason is not None and settings.ais_zone_mode == ais_zone.MODE_ENFORCE:
+                resp = _deny(zone_reason, agent_id=agent_id, settings=settings, intent_type=commitment.intent_type, commitment=commitment)
+                finalize_span("deny", resp.reason)
+                return resp
+            if zone_reason is not None:
+                code, _, detail = zone_reason.partition(": ")
+                logger.info("AIS zone gate (shadow) would deny %s: %s", agent_id, zone_reason)
+                _report_decision_background(
+                    settings, agent_id=agent_id, decision="shadow_deny", reason_code=code, detail=detail,
+                    intent_type=commitment.intent_type, metadata=_deny_metadata(commitment),
+                )
 
     # --- 5b. Token budget check (Python-layer enforcement) -------------------
     # OPA also has a declarative budget rule (for audit), but this layer is the

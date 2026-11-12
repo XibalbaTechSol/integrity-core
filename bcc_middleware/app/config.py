@@ -18,6 +18,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from app import ais_zone
+
 load_dotenv()  # no-op in prod if no .env file is present; picks it up for local dev
 
 
@@ -38,6 +40,24 @@ def _csv_env(name: str, default: tuple[str, ...]) -> frozenset[str]:
     if value is None:
         return frozenset(default)
     return frozenset(item.strip() for item in value.split(",") if item.strip())
+
+
+def _action_classes_env(name: str) -> dict[str, str]:
+    """The JSON object in `name` (intent_type -> action class), or {} when unset.
+
+    Anything that is not a JSON object raises (the service refuses to start): a typo must not leave a
+    map the operator did not intend deciding what a demoted agent may do. Settings.__post_init__
+    validates the classes and merges the result over the shipped defaults."""
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return {}
+    try:
+        overrides = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{name} is not valid JSON: {exc}") from exc
+    if not isinstance(overrides, dict):
+        raise ValueError(f"{name} must be a JSON object of intent_type -> action class")
+    return overrides
 
 
 @dataclass
@@ -167,6 +187,28 @@ class Settings:
     # missing compliance pack or an unreviewed policy must not stop an agent.
     # Operators opt into blocking explicitly with BCC_SHADOW_MODE=false.
     shadow_mode: bool = field(default_factory=lambda: _bool_env("BCC_SHADOW_MODE", True))
+
+    # --- AIS control-zone gate (app/ais_zone.py, main.py step 5a) -------------
+    # OFF by default. Restricts a tool call by the agent's oracle-computed control zone:
+    # green = read, draft, execute; yellow = read, draft; red = read; escalate always.
+    #   off      no zone lookup, no change to any response (the pipeline is exactly what it was)
+    #   shadow   a restriction is written to the audit trail as decision="shadow_deny"
+    #            (reason_code AIS_ZONE_RESTRICTED) and the request CONTINUES through the remaining
+    #            gates. It does not go through _deny, so it cannot switch off a later enforcing gate.
+    #   enforce  a restriction goes through _deny like every other denial, so the global
+    #            BCC_SHADOW_MODE still decides whether it blocks: with BCC_SHADOW_MODE=true (the
+    #            default) "enforce" here is still only a would-deny.
+    # PRECONDITION for enforce: the oracle caps AIS by registration tier (300 / 600 / 850 / 1000 for
+    # tiers 0-3) while red is < 750 and green is >= 900, so a tier 0-1 agent is permanently red and
+    # a tier 2 agent can never be green. Do not enforce until that is reconciled.
+    ais_zone_mode: str = field(default_factory=lambda: os.getenv("BCC_AIS_ZONE_MODE", ais_zone.MODE_OFF))
+    # What to do when the zone cannot be read (oracle down, 404 unknown agent, malformed body, and no
+    # last-known-good): "allow" = the gate has no opinion; "restrict" = treat as red.
+    ais_zone_unavailable: str = field(default_factory=lambda: os.getenv("BCC_AIS_ZONE_UNAVAILABLE", ais_zone.UNAVAILABLE_ALLOW))
+    # intent_type -> read | draft | execute | escalate, EXACT match. Not in the map = execute.
+    # BCC_AIS_ZONE_ACTION_CLASSES is a JSON object of OVERRIDES; __post_init__ merges it over
+    # ais_zone.DEFAULT_ACTION_CLASSES, so after construction this is the full effective map.
+    ais_zone_action_classes: dict[str, str] = field(default_factory=lambda: _action_classes_env("BCC_AIS_ZONE_ACTION_CLASSES"))
 
     # --- Circuit breaker ---
     circuit_breaker_violation_threshold: int = field(
@@ -321,6 +363,15 @@ class Settings:
         # One __post_init__ only: a second definition in this class would silently replace this one.
         if self.policy_engine not in ("rego", "pack", "wasm"):
             raise ValueError(f"BCC_POLICY_ENGINE must be 'rego', 'pack' or 'wasm', got {self.policy_engine!r}")
+        if self.ais_zone_mode not in ais_zone.MODES:
+            raise ValueError(f"BCC_AIS_ZONE_MODE must be one of {', '.join(ais_zone.MODES)}, got {self.ais_zone_mode!r}")
+        if self.ais_zone_unavailable not in ais_zone.UNAVAILABLE_POSTURES:
+            raise ValueError(f"BCC_AIS_ZONE_UNAVAILABLE must be one of {', '.join(ais_zone.UNAVAILABLE_POSTURES)}, got {self.ais_zone_unavailable!r}")
+        # Overrides are merged over the shipped map, so an operator restates only what they change. To take a
+        # shipped entry away, map it to "execute" (which is also what an absent entry means).
+        self.ais_zone_action_classes = {
+            **ais_zone.DEFAULT_ACTION_CLASSES, **ais_zone.validate_action_classes(self.ais_zone_action_classes),
+        }
         if self.admin_token is not None and len(self.admin_token) < MIN_ADMIN_TOKEN_LENGTH:
             raise ValueError(f"BCC_ADMIN_TOKEN must be at least {MIN_ADMIN_TOKEN_LENGTH} characters (try `openssl rand -hex 32`)")
         if self.receipt_dir is not None and not (self.receipt_key_file and self.receipt_hmac_key_file):

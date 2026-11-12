@@ -150,6 +150,84 @@ def _stale_or_zero(key, agent_id, now, cached, exc) -> int:
     return 0
 
 
+# --- AIS control-zone cache ----------------------------------------------------
+# Same shape as the verification-tier cache above, for the same reason: when the AIS zone gate is on
+# (BCC_AIS_ZONE_MODE, app/ais_zone.py) this runs on the tool-call path. The differences are deliberate:
+#   * there is no safe default to fall to. Tier falls to 0; a zone that cannot be read is reported as
+#     None ("unavailable") and the CALLER applies BCC_AIS_ZONE_UNAVAILABLE. Answering "green" here
+#     would turn an oracle outage into full permission, and answering "red" would turn it into a
+#     lockout the operator did not choose;
+#   * the last-known-good bound is shorter (5 minutes, not an hour): a stale green is an agent that was
+#     demoted and is still executing.
+_ZONE_FRESH_TTL = float(os.getenv("BCC_AIS_ZONE_CACHE_TTL_SECONDS", "60"))
+_ZONE_MAX_STALE = float(os.getenv("BCC_AIS_ZONE_MAX_STALE_SECONDS", "300"))
+_CONTROL_ZONES = frozenset({"green", "yellow", "red"})  # the oracle's exact vocabulary (scoring-core)
+_zone_cache: dict[tuple[str, str], tuple[str, float]] = {}
+_zone_lock = threading.Lock()
+
+
+def clear_zone_cache() -> None:
+    with _zone_lock:
+        _zone_cache.clear()
+
+
+def resolve_control_zone(agent_id: str, *, oracle_url: str) -> str | None:
+    """
+    Resolve an agent's control zone (`"green"`, `"yellow"` or `"red"`) from the oracle's
+    `GET /v1/agent/{id}/ais` -> `closed_loop_reward.control_zone`, or None when it is unavailable.
+
+    Never raises. The zone is read, never computed here: the oracle is the only scorer.
+
+      * a value younger than `_ZONE_FRESH_TTL` is served with no oracle call;
+      * on a TRANSIENT failure (timeout, connection error, 5xx) or a body this function cannot use
+        (not JSON, no `closed_loop_reward.control_zone`, a string outside the vocabulary) the
+        last-known-good zone is served while it is younger than `_ZONE_MAX_STALE`, else None;
+      * an authoritative 4xx (unknown agent) evicts the entry and answers None: stale data never
+        contradicts an oracle that is reachable and says no.
+
+    An unrecognised zone string is never cached and never read as green.
+    """
+    key = (oracle_url.rstrip("/"), agent_id)
+    now = _clock()
+    with _zone_lock:
+        cached = _zone_cache.get(key)
+    if cached is not None and now - cached[1] < _ZONE_FRESH_TTL:
+        return cached[0]
+
+    try:
+        resp = httpx.get(f"{key[0]}/v1/agent/{agent_id}/ais", timeout=5.0)
+        resp.raise_for_status()
+        body = resp.json()
+        reward = body.get("closed_loop_reward") if isinstance(body, dict) else None
+        zone = reward.get("control_zone") if isinstance(reward, dict) else None
+        if not isinstance(zone, str) or zone not in _CONTROL_ZONES:
+            raise ValueError(f"closed_loop_reward.control_zone missing or not one of green/yellow/red in oracle response: {zone!r}")
+    except httpx.HTTPStatusError as exc:
+        if 400 <= exc.response.status_code < 500:
+            with _zone_lock:
+                _zone_cache.pop(key, None)
+            logger.warning("oracle has no control zone for agent %s (HTTP %s); zone unavailable", agent_id, exc.response.status_code)
+            return None
+        return _stale_zone_or_none(key, agent_id, now, cached, exc)
+    except (httpx.HTTPError, ValueError) as exc:
+        return _stale_zone_or_none(key, agent_id, now, cached, exc)
+
+    with _zone_lock:
+        _zone_cache[key] = (zone, now)
+    return zone
+
+
+def _stale_zone_or_none(key, agent_id, now, cached, exc) -> str | None:
+    if cached is not None and now - cached[1] <= _ZONE_MAX_STALE:
+        logger.warning(
+            "oracle unavailable resolving control zone for %s (%s); serving last-known-good zone %s (%.0fs old)",
+            agent_id, exc, cached[0], now - cached[1],
+        )
+        return cached[0]
+    logger.warning("could not resolve control zone for agent %s from oracle %s, zone unavailable: %s", agent_id, key[0], exc)
+    return None
+
+
 def agent_id_to_address(agent_id: str, *, oracle_url: str) -> str:
     """
     Resolve the `businessAssociate` EVM address for the on-chain BAA check
