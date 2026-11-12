@@ -7,7 +7,7 @@ the event loop.
 What gets a receipt
 -------------------
 Every decision made after the commitment's Ed25519 signature verifies: replay, expiry, quarantine, policy
-deny, token budget, BAA, and allow. **Not** the denials before that (open circuit breaker, chain/contract
+deny, AIS zone restriction (`AIS_ZONE_RESTRICTED`, when that gate is on), token budget, BAA, and allow. **Not** the denials before that (open circuit breaker, chain/contract
 mismatch, bad signature): until the signature verifies, `agent_id` is whatever the caller wrote, and a signed
 receipt naming a real agent for a forged request would be evidence the protocol manufactured against the
 wrong party. Those denials still go to the audit trail they always went to.

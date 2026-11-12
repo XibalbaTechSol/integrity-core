@@ -1,5 +1,16 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-11-11] feat | BCC can restrict a tool call by AIS control zone (off by default)
+
+- `bcc_middleware` step 5a reads the oracle's `closed_loop_reward.control_zone` and restricts the action
+  class of a tool call: green = read, draft, execute; yellow = read, draft; red = read; escalate always.
+  `BCC_AIS_ZONE_MODE` = `off` (default, no oracle request, responses unchanged), `shadow`, `enforce`.
+- The global `BCC_SHADOW_MODE` still wins: a zone restriction blocks only with `BCC_SHADOW_MODE=false`
+  and `BCC_AIS_ZONE_MODE=enforce`. Zone denials do not charge the circuit breaker.
+- Known blocker for `enforce`, not fixed here: tier ceilings (300 / 600 / 850 / 1000) sit below the zone
+  thresholds (red < 750, green >= 900), so tier 0-1 agents are permanently red.
+- Updated `entities/bcc_middleware.md`.
+
 ## [2026-10-24] fix | OPA refusals name their cause; shared OPA stops preloading Shield Rego
 
 - `integrity_sdk.core.opa` now puts OPA's response body into `OpaError("OPA_HTTP_ERROR")` --

@@ -74,6 +74,8 @@ cheapest-and-most-certain-first:
 5. policy evaluation (app/main.py::_policy_outcome)   -- FAIL CLOSED if the engine is unreachable.
     Default engine: bcc.rego via app/opa_client.py. Optional: the SIGNED PACK (app/pack_policy.py),
     dual-run beside bcc.rego or, with BCC_POLICY_ENGINE=pack, deciding alone -- see below
+5a. AIS control-zone gate (app/ais_zone.py) -- OFF by default (BCC_AIS_ZONE_MODE). Restricts the action
+    class (read/draft/execute/escalate) by the agent's oracle-computed zone; README "AIS control-zone gate"
 6. on-chain BAA check, only if OPA says requires_baa -- FAIL CLOSED if can't verify
    (app/baa.py, real eth_call via web3.py)
 7. admit to Merkle batch + best-effort on-chain anchor -- NOT a gate (app/merkle.py, app/anchor.py)
@@ -92,12 +94,13 @@ best-effort.**
   *attributable to the agent* (bad signature, replay, an actual OPA denial,
   an inactive BAA). Infra being down (OPA/chain unreachable) denies the
   request but never trips the breaker — otherwise an OPA outage would lock
-  out every well-behaved agent.
+  out every well-behaved agent. An `AIS_ZONE_RESTRICTED` denial never trips
+  it either: a demoted agent did not attempt a violation.
 
 Every deny path encodes its reason as `SOME_CODE: detail` in the response
 `reason` field (`BCC_INVALID_SIGNATURE`, `BCC_NONCE_REPLAY`, `BCC_EXPIRED`,
 `AGENT_QUARANTINED`, `BCC_POLICY_ENGINE_UNAVAILABLE`,
-`OPA_REJECTION`, `BAA_INACTIVE`, `BAA_CANNOT_VERIFY`, `CIRCUIT_BREAKER_OPEN`) so
+`OPA_REJECTION`, `AIS_ZONE_RESTRICTED`, `BAA_INACTIVE`, `BAA_CANNOT_VERIFY`, `CIRCUIT_BREAKER_OPEN`) so
 callers/tests can pattern-match on failure category.
 
 ### Signed policy pack (`app/pack_policy.py`, `app/clinical_allowlist.py`) -- B2 stage 2

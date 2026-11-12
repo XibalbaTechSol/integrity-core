@@ -36,6 +36,7 @@ POST /v1/bcc/intercept
   ├─ 3. nonce replay check (app/nonce_store.py)               -- monotonic per-agent nonce
   ├─ 4. freshness / timestamp window check
   ├─ 5. OPA policy evaluation (app/opa_client.py)             -- FAIL CLOSED if OPA unreachable
+  ├─ 5a. AIS control-zone gate (app/ais_zone.py)             -- OFF by default; see below
   ├─ 6. on-chain BAA check, only if OPA says requires_baa     -- FAIL CLOSED if can't verify
   │     (app/baa.py, real eth_call via web3.py)
   └─ 7. admit to Merkle batch + best-effort on-chain anchor   -- NOT a gate (app/merkle.py, app/anchor.py)
@@ -293,6 +294,64 @@ everywhere in code comments; summarized here:
     file. This is the production path its own PRODUCTION NOTE called for (keep
     the data document in sync with the on-chain `DomainRegistry`/
     `ReputationRegistry` via `integrity-oracle`). 12/12 policy tests still pass.
+
+## AIS control-zone gate (optional, off by default)
+
+The oracle computes an Agent Integrity Score and a control zone from it. With `BCC_AIS_ZONE_MODE` set, the
+middleware restricts the **action class** of a tool call by that zone. It is the first enforcement point that
+reads the score. Code: `app/ais_zone.py` (the two tables), `app/chain.py::resolve_control_zone` (the cached
+read), `app/main.py` step 5a. Tests: `tests/test_ais_zone_gate.py`.
+
+> **Precondition for `enforce`: do not turn it on yet.** The oracle caps AIS by registration tier (ceilings
+> 300 / 600 / 850 / 1000 for tiers 0-3, `scoring-core::ceiling_for_tier`), while red is AIS < 750 and green is
+> AIS >= 900. So in `enforce` every tier 0 and tier 1 agent is **permanently red** (read only), and a tier 2
+> agent can never be green (no `execute`). The thresholds and ceilings have to be reconciled first. This change
+> does neither; that is why the default is `off`.
+
+| Zone | read | draft | execute | escalate |
+|---|---|---|---|---|
+| green | yes | yes | yes | yes |
+| yellow | yes | yes | no | yes |
+| red | yes | no | no | yes |
+
+**Action class.** `intent_type` is looked up by **exact match** in a map; anything not in the map is `execute`,
+never `read`. Shipped map (`ais_zone.DEFAULT_ACTION_CLASSES`): `claude_tool:Read`, `Glob`, `Grep`, `LS`,
+`NotebookRead` = read; `claude_tool:Write`, `Edit`, `MultiEdit`, `NotebookEdit`, `TodoWrite` = draft;
+`claude_tool:Bash` = execute; `claude_tool:AskUserQuestion` = escalate. A label carrying a risk class
+(`claude_tool:Read:credential`) or another runtime's prefix (`hermes_tool:...`) is not in the map and is
+`execute`. `BCC_AIS_ZONE_ACTION_CLASSES` (a JSON object) is merged over the shipped map; invalid JSON or an
+unknown class refuses to start.
+
+**Modes, and how they combine with the global `BCC_SHADOW_MODE`** (rows are what happens to a call the zone
+does not permit; a permitted call is unaffected in every row):
+
+| `BCC_SHADOW_MODE` | `BCC_AIS_ZONE_MODE` | Blocks? | Response | Audit trail | Receipt |
+|---|---|---|---|---|---|
+| any | `off` | no | unchanged; the oracle is never asked for the zone | unchanged | unchanged |
+| `false` | `shadow` | no | the normal allow (`enforced=true`, token), or whatever a later gate decides | `shadow_deny` / `AIS_ZONE_RESTRICTED`, then the request's own row | the request's own receipt only |
+| `true` | `shadow` | no | the normal shadow-mode allow (`enforced=false`) | same as above | same as above |
+| `true` | `enforce` | **no** | `authorized=true, enforced=false, shadow_would_deny=true`, `reason` = `AIS_ZONE_RESTRICTED: ...` | `shadow_deny` / `AIS_ZONE_RESTRICTED` | deny, `mode=shadow` |
+| `false` | `enforce` | **yes** | `authorized=false`, `reason` = `AIS_ZONE_RESTRICTED: ...` | `deny` / `AIS_ZONE_RESTRICTED` | deny, `mode=enforce` |
+
+The global switch is not weakened: `enforce` goes through the same deny path as every other denial, so while
+`BCC_SHADOW_MODE=true` (the default) nothing blocks. Blocking needs **both** `BCC_SHADOW_MODE=false` and
+`BCC_AIS_ZONE_MODE=enforce`. Zone-`shadow` deliberately does *not* use that path: under global enforcement it
+would have to return an allow early and skip the token budget, the BAA check and the receipt. It writes its
+would-deny to the audit trail and lets the request continue. It adds no field to the response.
+
+**Zone unavailable** (oracle down, 404 unknown agent, malformed body, a zone string other than
+`green`/`yellow`/`red`, and no last-known-good): `BCC_AIS_ZONE_UNAVAILABLE=allow` (default) means the gate has
+no opinion; `restrict` treats the agent as red, and the reason says "unavailable". An unrecognised zone is
+never read as green.
+
+**Cache.** A zone younger than `BCC_AIS_ZONE_CACHE_TTL_SECONDS` (60) is served without an oracle call. On a
+transient failure the last value is served until it is `BCC_AIS_ZONE_MAX_STALE_SECONDS` (300) old. An
+authoritative 4xx evicts it. Read and escalate calls never ask the oracle, because every zone permits them.
+
+**What a zone denial does not do.** It does not count toward the circuit breaker: the agent was demoted, it did
+not attempt a violation, and counting it would lock a red agent out of the reads red leaves it. (The token
+budget denial right after it *does* count; that is existing behavior and is unchanged.) It is decided before
+the token budget is charged, so a refused call spends no budget.
 
 ## Signed policy pack (optional, off by default)
 
