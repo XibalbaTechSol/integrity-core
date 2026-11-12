@@ -2,6 +2,12 @@
 src = "src"
 out = "out"
 libs = ["lib", "node_modules"]
+# Remappings are ONLY the explicit list below (plus remappings.txt). Auto-detection derives extra
+# entries from whatever happens to be installed under node_modules, and the remappings list is
+# hashed into each contract's metadata tail, so two machines with different node_modules contents
+# emit different bytecode for identical source. AgentPrimitivesFactory pins the SovereignAgent
+# codehash, so that difference is a registration failure (NotCanonicalAgent), not cosmetics.
+auto_detect_remappings = false
 test = "test"
 script = "script"
 solc_version = "0.8.28"
