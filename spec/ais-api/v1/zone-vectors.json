@@ -1,0 +1,524 @@
+{
+  "description": "Shared golden vectors for the AIS control-zone policy. Read by scoring-core (Rust) and integrity_sdk.core.ais_reward (Python). Expected zones were derived by hand from the thresholds, not from either implementation. Thresholds are [yellow, green, recovery]; per_tier is indexed by tier 0..3; relative values are fractions of the tier ceiling.",
+  "default_mode": "per_tier",
+  "tier_ceilings": [
+    300,
+    600,
+    850,
+    1000
+  ],
+  "policies": {
+    "default": {
+      "mode": "per_tier",
+      "per_tier": [
+        [
+          225,
+          270,
+          276
+        ],
+        [
+          450,
+          540,
+          552
+        ],
+        [
+          637.5,
+          765,
+          782
+        ],
+        [
+          750,
+          900,
+          920
+        ]
+      ],
+      "relative": [
+        0.75,
+        0.9,
+        0.92
+      ],
+      "absolute": [
+        750,
+        900,
+        920
+      ]
+    },
+    "custom": {
+      "mode": "per_tier",
+      "per_tier": [
+        [
+          225,
+          270,
+          276
+        ],
+        [
+          300,
+          400,
+          500
+        ],
+        [
+          637.5,
+          765,
+          782
+        ],
+        [
+          750,
+          900,
+          920
+        ]
+      ],
+      "relative": [
+        0.5,
+        0.8,
+        0.85
+      ],
+      "absolute": [
+        700,
+        880,
+        900
+      ]
+    }
+  },
+  "zone_vectors": [
+    {
+      "name": "tier 0 at its ceiling is green",
+      "policy": "default",
+      "mode": "per_tier",
+      "tier": 0,
+      "score": 300,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "green"
+    },
+    {
+      "name": "tier 0 at the green threshold",
+      "policy": "default",
+      "mode": "per_tier",
+      "tier": 0,
+      "score": 270,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "green"
+    },
+    {
+      "name": "tier 0 just under green",
+      "policy": "default",
+      "mode": "per_tier",
+      "tier": 0,
+      "score": 269.9,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "yellow"
+    },
+    {
+      "name": "tier 0 at the yellow threshold",
+      "policy": "default",
+      "mode": "per_tier",
+      "tier": 0,
+      "score": 225,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "yellow"
+    },
+    {
+      "name": "tier 0 just under yellow",
+      "policy": "default",
+      "mode": "per_tier",
+      "tier": 0,
+      "score": 224.9,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "red"
+    },
+    {
+      "name": "tier 0 recovering, inside the deadband",
+      "policy": "default",
+      "mode": "per_tier",
+      "tier": 0,
+      "score": 272,
+      "prev_zone": "yellow",
+      "interlock": false,
+      "expected": "yellow"
+    },
+    {
+      "name": "tier 0 recovering, at the recovery threshold",
+      "policy": "default",
+      "mode": "per_tier",
+      "tier": 0,
+      "score": 276,
+      "prev_zone": "red",
+      "interlock": false,
+      "expected": "green"
+    },
+    {
+      "name": "tier 1 at its ceiling is green",
+      "policy": "default",
+      "mode": "per_tier",
+      "tier": 1,
+      "score": 600,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "green"
+    },
+    {
+      "name": "tier 1 recovering at green but under recovery",
+      "policy": "default",
+      "mode": "per_tier",
+      "tier": 1,
+      "score": 540,
+      "prev_zone": "yellow",
+      "interlock": false,
+      "expected": "yellow"
+    },
+    {
+      "name": "tier 1 under yellow",
+      "policy": "default",
+      "mode": "per_tier",
+      "tier": 1,
+      "score": 449,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "red"
+    },
+    {
+      "name": "tier 2 at the green threshold",
+      "policy": "default",
+      "mode": "per_tier",
+      "tier": 2,
+      "score": 765,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "green"
+    },
+    {
+      "name": "tier 2 recovering just under recovery",
+      "policy": "default",
+      "mode": "per_tier",
+      "tier": 2,
+      "score": 781,
+      "prev_zone": "yellow",
+      "interlock": false,
+      "expected": "yellow"
+    },
+    {
+      "name": "tier 2 recovering at recovery",
+      "policy": "default",
+      "mode": "per_tier",
+      "tier": 2,
+      "score": 782,
+      "prev_zone": "yellow",
+      "interlock": false,
+      "expected": "green"
+    },
+    {
+      "name": "tier 2 at the yellow threshold",
+      "policy": "default",
+      "mode": "per_tier",
+      "tier": 2,
+      "score": 637.5,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "yellow"
+    },
+    {
+      "name": "tier 2 under yellow",
+      "policy": "default",
+      "mode": "per_tier",
+      "tier": 2,
+      "score": 637,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "red"
+    },
+    {
+      "name": "tier 3 at green",
+      "policy": "default",
+      "mode": "per_tier",
+      "tier": 3,
+      "score": 900,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "green"
+    },
+    {
+      "name": "tier 3 just under green",
+      "policy": "default",
+      "mode": "per_tier",
+      "tier": 3,
+      "score": 899,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "yellow"
+    },
+    {
+      "name": "tier 3 from green, just under green",
+      "policy": "default",
+      "mode": "per_tier",
+      "tier": 3,
+      "score": 899,
+      "prev_zone": "green",
+      "interlock": false,
+      "expected": "yellow"
+    },
+    {
+      "name": "tier 3 at yellow",
+      "policy": "default",
+      "mode": "per_tier",
+      "tier": 3,
+      "score": 750,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "yellow"
+    },
+    {
+      "name": "tier 3 under yellow",
+      "policy": "default",
+      "mode": "per_tier",
+      "tier": 3,
+      "score": 749,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "red"
+    },
+    {
+      "name": "tier 3 recovering inside the deadband",
+      "policy": "default",
+      "mode": "per_tier",
+      "tier": 3,
+      "score": 910,
+      "prev_zone": "yellow",
+      "interlock": false,
+      "expected": "yellow"
+    },
+    {
+      "name": "tier 3 recovering at recovery",
+      "policy": "default",
+      "mode": "per_tier",
+      "tier": 3,
+      "score": 920,
+      "prev_zone": "red",
+      "interlock": false,
+      "expected": "green"
+    },
+    {
+      "name": "an interlock is red at a perfect score",
+      "policy": "default",
+      "mode": "per_tier",
+      "tier": 3,
+      "score": 1000,
+      "prev_zone": null,
+      "interlock": true,
+      "expected": "red"
+    },
+    {
+      "name": "a tier below 0 is tier 0",
+      "policy": "default",
+      "mode": "per_tier",
+      "tier": -1,
+      "score": 300,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "green"
+    },
+    {
+      "name": "a tier above 3 is tier 3",
+      "policy": "default",
+      "mode": "per_tier",
+      "tier": 9,
+      "score": 900,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "green"
+    },
+    {
+      "name": "a tier above 3 is tier 3, so 600 is red",
+      "policy": "default",
+      "mode": "per_tier",
+      "tier": 9,
+      "score": 600,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "red"
+    },
+    {
+      "name": "relative: tier 1 well inside green",
+      "policy": "default",
+      "mode": "relative",
+      "tier": 1,
+      "score": 560,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "green"
+    },
+    {
+      "name": "relative: tier 1 between yellow and green",
+      "policy": "default",
+      "mode": "relative",
+      "tier": 1,
+      "score": 500,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "yellow"
+    },
+    {
+      "name": "relative: tier 2 at the yellow threshold (0.75 * 850)",
+      "policy": "default",
+      "mode": "relative",
+      "tier": 2,
+      "score": 637.5,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "yellow"
+    },
+    {
+      "name": "relative: tier 0 under yellow",
+      "policy": "default",
+      "mode": "relative",
+      "tier": 0,
+      "score": 224,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "red"
+    },
+    {
+      "name": "relative: tier 3 recovering inside the deadband",
+      "policy": "default",
+      "mode": "relative",
+      "tier": 3,
+      "score": 910,
+      "prev_zone": "red",
+      "interlock": false,
+      "expected": "yellow"
+    },
+    {
+      "name": "absolute: tier 0 at its ceiling is still red",
+      "policy": "default",
+      "mode": "absolute",
+      "tier": 0,
+      "score": 300,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "red"
+    },
+    {
+      "name": "absolute: tier 1 at its ceiling is still red",
+      "policy": "default",
+      "mode": "absolute",
+      "tier": 1,
+      "score": 600,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "red"
+    },
+    {
+      "name": "absolute: tier 2 at its ceiling is only yellow",
+      "policy": "default",
+      "mode": "absolute",
+      "tier": 2,
+      "score": 850,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "yellow"
+    },
+    {
+      "name": "absolute: tier 3 at green",
+      "policy": "default",
+      "mode": "absolute",
+      "tier": 3,
+      "score": 900,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "green"
+    },
+    {
+      "name": "custom per_tier: tier 1 uses its own row",
+      "policy": "custom",
+      "mode": "per_tier",
+      "tier": 1,
+      "score": 450,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "green"
+    },
+    {
+      "name": "custom per_tier: tier 1 between its thresholds",
+      "policy": "custom",
+      "mode": "per_tier",
+      "tier": 1,
+      "score": 350,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "yellow"
+    },
+    {
+      "name": "custom per_tier: tier 1 under its yellow",
+      "policy": "custom",
+      "mode": "per_tier",
+      "tier": 1,
+      "score": 299,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "red"
+    },
+    {
+      "name": "custom per_tier: tier 1 recovering under its recovery",
+      "policy": "custom",
+      "mode": "per_tier",
+      "tier": 1,
+      "score": 450,
+      "prev_zone": "yellow",
+      "interlock": false,
+      "expected": "yellow"
+    },
+    {
+      "name": "custom relative: the same score is only yellow (green is 0.8 * 600)",
+      "policy": "custom",
+      "mode": "relative",
+      "tier": 1,
+      "score": 450,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "yellow"
+    },
+    {
+      "name": "custom relative: tier 1 inside green",
+      "policy": "custom",
+      "mode": "relative",
+      "tier": 1,
+      "score": 490,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "green"
+    },
+    {
+      "name": "custom relative: tier 1 under yellow (0.5 * 600)",
+      "policy": "custom",
+      "mode": "relative",
+      "tier": 1,
+      "score": 299,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "red"
+    },
+    {
+      "name": "custom absolute: tier 3 at its green",
+      "policy": "custom",
+      "mode": "absolute",
+      "tier": 3,
+      "score": 880,
+      "prev_zone": null,
+      "interlock": false,
+      "expected": "green"
+    },
+    {
+      "name": "custom absolute: tier 3 recovering under its recovery",
+      "policy": "custom",
+      "mode": "absolute",
+      "tier": 3,
+      "score": 890,
+      "prev_zone": "red",
+      "interlock": false,
+      "expected": "yellow"
+    }
+  ]
+}

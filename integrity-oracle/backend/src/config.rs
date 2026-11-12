@@ -57,6 +57,10 @@ pub struct Config {
     pub deployments_file: PathBuf,
 
     pub ais_weights: AisWeights,
+    /// How an AIS becomes a control zone: `AIS_ZONE_POLICY` (`per_tier`, the default, `relative`
+    /// or `absolute`), with `AIS_ZONE_PER_TIER_THRESHOLDS`, `AIS_ZONE_RELATIVE_FRACTIONS` and
+    /// `AIS_ZONE_ABSOLUTE_THRESHOLDS` overriding the numbers. See `scoring_core::ZonePolicy`.
+    pub ais_zone_policy: scoring_core::ZonePolicy,
     pub reporting_period_days: i64,
     /// Optional post-score penalty for active agents with stale anchor coverage.
     /// Defaults to zero: coverage remains informational until an operator opts in.
@@ -105,6 +109,12 @@ impl Config {
         let deployments_file = PathBuf::from(env_or("DEPLOYMENTS_FILE", "../deployments.local.json"));
 
         let ais_weights = parse_ais_weights(std::env::var("AIS_WEIGHTS").ok())?;
+        let ais_zone_policy = parse_ais_zone_policy(
+            std::env::var("AIS_ZONE_POLICY").ok(),
+            std::env::var("AIS_ZONE_PER_TIER_THRESHOLDS").ok(),
+            std::env::var("AIS_ZONE_RELATIVE_FRACTIONS").ok(),
+            std::env::var("AIS_ZONE_ABSOLUTE_THRESHOLDS").ok(),
+        )?;
         let reporting_period_days: i64 = env_or("AIS_REPORTING_PERIOD_DAYS", "30")
             .parse()
             .map_err(|_| "AIS_REPORTING_PERIOD_DAYS must be a valid integer".to_string())?;
@@ -138,6 +148,7 @@ impl Config {
             otlp_grpc_addr,
             deployments_file,
             ais_weights,
+            ais_zone_policy,
             reporting_period_days,
             anchor_stale_penalty_bps,
             telemetry_rate_limit_per_minute,
@@ -163,6 +174,7 @@ impl Config {
             otlp_grpc_addr: "127.0.0.1:0".to_string(),
             deployments_file: PathBuf::from("../deployments.local.json"),
             ais_weights: AisWeights::default(),
+            ais_zone_policy: scoring_core::ZonePolicy::default(),
             reporting_period_days: 30,
             anchor_stale_penalty_bps: 0,
             telemetry_rate_limit_per_minute: 60,
@@ -249,9 +261,88 @@ fn parse_ais_weights(raw: Option<String>) -> Result<AisWeights, String> {
     Ok(weights)
 }
 
+fn parse_floats(name: &str, raw: &str, expected: usize) -> Result<Vec<f64>, String> {
+    let parsed: Result<Vec<f64>, _> = raw.split(',').map(|p| p.trim().parse::<f64>()).collect();
+    match parsed {
+        Ok(values) if values.len() == expected => Ok(values),
+        _ => Err(format!("{name} must be exactly {expected} comma-separated floats")),
+    }
+}
+
+fn thresholds_from(values: &[f64]) -> scoring_core::ZoneThresholds {
+    scoring_core::ZoneThresholds { yellow: values[0], green: values[1], recovery: values[2] }
+}
+
+/// Builds the zone policy from its four optional settings. Unset means the documented default;
+/// blank counts as unset. Each numeric setting is `yellow,green,recovery`, and the per-tier one is
+/// that triple four times, for tiers 0 to 3. The whole policy is validated, so a threshold a tier
+/// cannot reach stops the oracle starting instead of leaving that tier's agents permanently red.
+fn parse_ais_zone_policy(
+    mode: Option<String>,
+    per_tier: Option<String>,
+    relative: Option<String>,
+    absolute: Option<String>,
+) -> Result<scoring_core::ZonePolicy, String> {
+    let set = |raw: Option<String>| raw.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let mut policy = scoring_core::ZonePolicy::default();
+    if let Some(name) = set(mode) {
+        policy.mode = scoring_core::ZonePolicyMode::parse(&name).map_err(|e| format!("AIS_ZONE_POLICY: {e}"))?;
+    }
+    if let Some(raw) = set(per_tier) {
+        let values = parse_floats("AIS_ZONE_PER_TIER_THRESHOLDS", &raw, 12)?;
+        for tier in 0..4 {
+            policy.per_tier[tier] = thresholds_from(&values[tier * 3..tier * 3 + 3]);
+        }
+    }
+    if let Some(raw) = set(relative) {
+        policy.relative = thresholds_from(&parse_floats("AIS_ZONE_RELATIVE_FRACTIONS", &raw, 3)?);
+    }
+    if let Some(raw) = set(absolute) {
+        policy.absolute = thresholds_from(&parse_floats("AIS_ZONE_ABSOLUTE_THRESHOLDS", &raw, 3)?);
+    }
+    policy.validate().map_err(|e| format!("AIS zone policy is invalid: {e}"))?;
+    Ok(policy)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn zone_policy_defaults_to_per_tier_and_blank_settings_are_unset() {
+        let policy = parse_ais_zone_policy(None, Some("  ".into()), None, Some(String::new())).unwrap();
+        assert_eq!(policy, scoring_core::ZonePolicy::default());
+        assert_eq!(policy.mode, scoring_core::ZonePolicyMode::PerTier);
+    }
+
+    #[test]
+    fn zone_policy_mode_and_numbers_are_operator_settable() {
+        let policy = parse_ais_zone_policy(
+            Some("relative".into()),
+            Some("100,200,250, 300,400,500, 500,700,800, 600,800,900".into()),
+            Some("0.5,0.8,0.85".into()),
+            Some("700,880,900".into()),
+        )
+        .unwrap();
+        assert_eq!(policy.mode, scoring_core::ZonePolicyMode::Relative);
+        assert_eq!(policy.per_tier[1].green, 400.0);
+        assert_eq!(policy.thresholds_for_tier(1).green, 480.0);
+        assert_eq!(policy.absolute.yellow, 700.0);
+    }
+
+    #[test]
+    fn a_zone_policy_that_cannot_work_stops_startup() {
+        let bad = |mode: Option<&str>, per_tier: Option<&str>, relative: Option<&str>| {
+            parse_ais_zone_policy(mode.map(String::from), per_tier.map(String::from), relative.map(String::from), None)
+        };
+        assert!(bad(Some("strict"), None, None).is_err());
+        assert!(bad(None, Some("225,270,276"), None).is_err());
+        assert!(bad(None, None, Some("0.9,0.8,0.95")).is_err());
+        assert!(bad(None, None, Some("0.75,0.9,1.2")).is_err());
+        // Tier 0's ceiling is 300: a green threshold of 400 could never be reached. Refused even
+        // though the selected mode is `relative`, so a later switch to `per_tier` cannot expose it.
+        assert!(bad(Some("relative"), Some("225,400,400, 450,540,552, 637.5,765,782, 750,900,920"), None).is_err());
+    }
 
     #[test]
     fn blank_oracle_api_key_is_treated_as_unset() {

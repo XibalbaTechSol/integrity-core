@@ -1,6 +1,6 @@
 # Integrity Ecosystem Status
 
-**As of:** 2026-11-05
+**As of:** 2026-11-12
 **Execution authority:** [`docs/ecosystem/INTEGRITY_ECOSYSTEM_PLAN.md`](docs/ecosystem/INTEGRITY_ECOSYSTEM_PLAN.md)
 **Normative protocol authority:** [`docs/SPEC.md`](docs/SPEC.md), as recorded in
 [`docs/DOCUMENT_STATUS.yaml`](docs/DOCUMENT_STATUS.yaml)
@@ -44,6 +44,7 @@ drifted to a stale `88/201 (43%)` before the 2026-10-06 refresh.
 | B6 Pilot packaging | Not started (0/6) | Tenant-scoped pilot, retention/purge/export, operator health and teardown still need an end-to-end synthetic-data run. |
 | B7 Revenue-facing exports | Not started (0/3) | Vanta and OCSF exports remain open. |
 | Gate B-local | Partial (4/16) | The four checked items are the two Jev trace criteria and the two pack criteria. Enforcement, evidence, data-boundary, tenancy and resilience criteria are open. |
+| AIS closed loop | Partial | Scoring half: multiplicative reward is canonical in the SDK and Oracle (#205); the control zone is judged against the agent's tier under a selectable zone policy, default `per_tier` (`AIS_ZONE_POLICY`). Enforcement half, both default-off: BCC zone gate (#206) and Shield gate zone mask with a sensor-silence fault (xibalba-shield#92). Open: no deployed gate has a mode switched on; Shield's zone provider is operator-configured, not yet read from the Oracle; Shield observations are not an AIS input. |
 | Phase C | In progress (1/42) | The Jev approval boundary is verified; kernel mediation, accounts/registration, verified memory, testnet cutover and remaining production trust gates are open. |
 
 ## Product boundaries

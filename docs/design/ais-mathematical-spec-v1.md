@@ -60,15 +60,34 @@ controller maps $(\text{AIS}_t, \mathcal{I}_t)$ to a discrete control zone
 $z_t \in \{\text{GREEN}, \text{YELLOW}, \text{RED}\}$ and permitted action set
 $\mathcal{A}_t = G(z_t)$:
 
-- **$\text{RED}$ ($\text{AIS}_t < 750$ or $\mathcal{I}_t \neq \emptyset$):**
-  Autonomous execution halted; only escalation actions permitted.
-- **$\text{YELLOW}$ ($750 \le \text{AIS}_t < 900$):**
+- **$\text{RED}$ ($\text{AIS}_t < \tau_y$ or $\mathcal{I}_t \neq \emptyset$):**
+  Autonomous execution halted; only read and escalation actions permitted.
+- **$\text{YELLOW}$ ($\tau_y \le \text{AIS}_t < \tau_g$):**
   Supervised/degraded mode; read, draft, and escalation permitted; autonomous
   writes blocked.
-- **$\text{GREEN}$ ($\text{AIS}_t \ge 900$, with hysteresis recovery $\tau_{\text{recover}} = 920$):**
+- **$\text{GREEN}$ ($\text{AIS}_t \ge \tau_g$, with hysteresis recovery $\tau_r \ge \tau_g$):**
   Full nominal autonomy. Once degraded into $\text{YELLOW}$ or $\text{RED}$,
-  re-entry into $\text{GREEN}$ requires $\text{AIS}_t \ge 920.0$ to prevent
-  oscillation around the $900.0$ boundary.
+  re-entry into $\text{GREEN}$ requires $\text{AIS}_t \ge \tau_r$ to prevent
+  oscillation around the $\tau_g$ boundary.
+
+**Zone policy.** $\text{AIS}_t$ is capped by verification tier $k$ at ceiling
+$C_k \in \{300, 600, 850, 1000\}$, so the thresholds $(\tau_y, \tau_g, \tau_r)$ depend on the tier.
+A zone policy chooses them, and is an operator setting (`AIS_ZONE_POLICY` on the Oracle,
+`ZonePolicy` in the SDK):
+
+| Policy | Thresholds for tier $k$ | Default values |
+|---|---|---|
+| `per_tier` (default) | a configured row per tier | 225/270/276, 450/540/552, 637.5/765/782, 750/900/920 |
+| `relative` | $(f_y, f_g, f_r) \cdot C_k$ | $f = (0.75, 0.90, 0.92)$ |
+| `absolute` | one row for every tier | 750/900/920 |
+
+The default `per_tier` rows are 75% / 90% / 92% of each ceiling, so the two tier-aware policies
+agree until an operator edits one of them. Under `absolute` a tier 0 or tier 1 agent can never
+leave $\text{RED}$ and a tier 2 agent can never reach $\text{GREEN}$.
+
+Because the cap is applied before the zone is read, degradation that leaves the uncapped score
+above $C_k$ is not visible in the zone of a tier $k < 3$ agent. Shared test vectors:
+`spec/ais-api/v1/zone-vectors.json`.
 
 ### 2. Off-Chain Step Reward Function (`AISRewardFunction.compute_step_reward`)
 

@@ -86,6 +86,173 @@ class AISControlZone(str, Enum):
     RED = "red"
 
 
+ZONE_POLICY_PER_TIER = "per_tier"
+ZONE_POLICY_RELATIVE = "relative"
+ZONE_POLICY_ABSOLUTE = "absolute"
+ZONE_POLICY_MODES = (ZONE_POLICY_PER_TIER, ZONE_POLICY_RELATIVE, ZONE_POLICY_ABSOLUTE)
+DEFAULT_ZONE_POLICY_MODE = ZONE_POLICY_PER_TIER
+
+
+def normalize_tier(did_tier: int) -> int:
+    """Clamp a verification tier to `0..3`, as the Oracle's `ceiling_for_tier` does."""
+    return min(max(int(did_tier), 0), 3)
+
+
+@dataclass(frozen=True)
+class ZoneThresholds:
+    """Zone boundaries on the AIS scale: red below `yellow`, green from `green`, and `recovery`
+    is what an agent that was yellow or red must reach to be green again."""
+
+    yellow: float
+    green: float
+    recovery: float
+
+    def validate(self, maximum: float) -> None:
+        values = (self.yellow, self.green, self.recovery)
+        ordered = all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in values)
+        if not (ordered and 0.0 <= self.yellow < self.green <= self.recovery <= maximum):
+            raise ValueError(
+                f"zone thresholds must satisfy 0 <= yellow < green <= recovery <= {maximum}, "
+                f"got {self.yellow}/{self.green}/{self.recovery}"
+            )
+
+    def control_zone(
+        self,
+        score: float,
+        prev_zone: Optional["AISControlZone"] = None,
+        interlock_tripped: bool = False,
+    ) -> "AISControlZone":
+        """The zone for `score`. A tripped interlock or a score that is not finite is red."""
+        if interlock_tripped or not math.isfinite(score) or score < self.yellow:
+            return AISControlZone.RED
+        if prev_zone in (AISControlZone.YELLOW, AISControlZone.RED):
+            return AISControlZone.GREEN if score >= self.recovery else AISControlZone.YELLOW
+        return AISControlZone.GREEN if score >= self.green else AISControlZone.YELLOW
+
+    def to_list(self) -> list:
+        return [self.yellow, self.green, self.recovery]
+
+
+def _thresholds(value: object) -> ZoneThresholds:
+    if isinstance(value, ZoneThresholds):
+        return value
+    if isinstance(value, Mapping):
+        if set(value) != {"yellow", "green", "recovery"}:
+            raise ValueError(f"zone thresholds need exactly yellow, green and recovery, got {sorted(value)}")
+        return ZoneThresholds(value["yellow"], value["green"], value["recovery"])
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)) and len(value) == 3:
+        return ZoneThresholds(value[0], value[1], value[2])
+    raise ValueError(f"zone thresholds must be [yellow, green, recovery], got {value!r}")
+
+
+# 75% / 90% / 92% of each tier's ceiling; for tier 3 that is the original 750 / 900 / 920.
+DEFAULT_PER_TIER_ZONE_THRESHOLDS: Tuple[ZoneThresholds, ...] = (
+    ZoneThresholds(225.0, 270.0, 276.0),
+    ZoneThresholds(450.0, 540.0, 552.0),
+    ZoneThresholds(637.5, 765.0, 782.0),
+    ZoneThresholds(750.0, 900.0, 920.0),
+)
+DEFAULT_RELATIVE_ZONE_FRACTIONS = ZoneThresholds(0.75, 0.90, 0.92)
+DEFAULT_ABSOLUTE_ZONE_THRESHOLDS = ZoneThresholds(750.0, 900.0, 920.0)
+
+
+@dataclass(frozen=True)
+class ZonePolicy:
+    """How an AIS becomes a control zone.
+
+    AIS is capped by verification tier (`TIER_CEILINGS`), so one absolute threshold set cannot
+    serve every tier: under 750/900/920 a tier 0 or tier 1 agent is red whatever it does.
+
+    - `per_tier` (default): a threshold set per tier, `per_tier[tier]`.
+    - `relative`: one set of fractions, multiplied by the agent's tier ceiling.
+    - `absolute`: one threshold set for every tier (the behaviour before zone policies).
+
+    All three parameter sets are always present and always validated; `mode` selects one. Mirrors
+    `scoring_core::ZonePolicy`; both are checked against `spec/ais-api/v1/zone-vectors.json`.
+    """
+
+    mode: str = DEFAULT_ZONE_POLICY_MODE
+    per_tier: Tuple[ZoneThresholds, ...] = DEFAULT_PER_TIER_ZONE_THRESHOLDS
+    relative: ZoneThresholds = DEFAULT_RELATIVE_ZONE_FRACTIONS
+    absolute: ZoneThresholds = DEFAULT_ABSOLUTE_ZONE_THRESHOLDS
+
+    def __post_init__(self) -> None:
+        if self.mode not in ZONE_POLICY_MODES:
+            raise ValueError(f"zone policy mode must be one of {ZONE_POLICY_MODES}, got {self.mode!r}")
+        if len(self.per_tier) != len(TIER_CEILINGS):
+            raise ValueError(f"per_tier needs one threshold set per tier 0..3, got {len(self.per_tier)}")
+        for tier, thresholds in enumerate(self.per_tier):
+            try:
+                thresholds.validate(TIER_CEILINGS[tier])
+            except ValueError as exc:
+                raise ValueError(f"per_tier tier {tier}: {exc}") from exc
+        try:
+            self.relative.validate(1.0)
+        except ValueError as exc:
+            raise ValueError(f"relative: {exc}") from exc
+        try:
+            self.absolute.validate(1000.0)
+        except ValueError as exc:
+            raise ValueError(f"absolute: {exc}") from exc
+
+    @classmethod
+    def from_mapping(cls, document: Mapping[str, object]) -> "ZonePolicy":
+        """Build from a settings object. Every key is optional; an unknown key is an error."""
+        if not isinstance(document, Mapping):
+            raise ValueError("zone policy must be an object")
+        unknown = set(document) - {"mode", "per_tier", "relative", "absolute"}
+        if unknown:
+            raise ValueError(f"zone policy has unknown field(s): {sorted(unknown)}")
+        kwargs: Dict[str, object] = {}
+        if "mode" in document:
+            kwargs["mode"] = document["mode"]
+        if "per_tier" in document:
+            rows = document["per_tier"]
+            if isinstance(rows, Mapping):
+                if {str(k) for k in rows} != {"0", "1", "2", "3"}:
+                    raise ValueError("per_tier as an object needs exactly the keys 0, 1, 2 and 3")
+                rows = [next(v for k, v in rows.items() if str(k) == str(tier)) for tier in range(4)]
+            if not isinstance(rows, Sequence) or isinstance(rows, (str, bytes)):
+                raise ValueError("per_tier must be a list of four [yellow, green, recovery] sets")
+            kwargs["per_tier"] = tuple(_thresholds(row) for row in rows)
+        for name in ("relative", "absolute"):
+            if name in document:
+                kwargs[name] = _thresholds(document[name])
+        return cls(**kwargs)  # type: ignore[arg-type]
+
+    def to_dict(self) -> Dict[str, object]:
+        return {
+            "mode": self.mode,
+            "per_tier": [t.to_list() for t in self.per_tier],
+            "relative": self.relative.to_list(),
+            "absolute": self.absolute.to_list(),
+        }
+
+    def thresholds_for_tier(self, did_tier: int) -> ZoneThresholds:
+        tier = normalize_tier(did_tier)
+        if self.mode == ZONE_POLICY_PER_TIER:
+            return self.per_tier[tier]
+        if self.mode == ZONE_POLICY_RELATIVE:
+            ceiling = TIER_CEILINGS[tier]
+            return ZoneThresholds(
+                self.relative.yellow * ceiling, self.relative.green * ceiling, self.relative.recovery * ceiling)
+        return self.absolute
+
+
+def evaluate_control_zone(
+    score: float,
+    *,
+    did_tier: int,
+    prev_zone: Optional["AISControlZone"] = None,
+    interlock_tripped: bool = False,
+    policy: Optional[ZonePolicy] = None,
+) -> "AISControlZone":
+    """The control zone for an AIS `score` of an agent at `did_tier`, under `policy` (default
+    per-tier thresholds). Pure: the same inputs give the same zone as the Oracle's scorer."""
+    thresholds = (policy or ZonePolicy()).thresholds_for_tier(did_tier)
+    return thresholds.control_zone(score, prev_zone, interlock_tripped)
+
+
 @dataclass(frozen=True)
 class AISInputs:
     """Raw inputs to the `ais/v1-geometric-1` transfer functions.
@@ -261,28 +428,44 @@ class ClosedLoopState:
 class ClosedLoopAISController:
     """Feedback control loop mapping `AIS_t` and hard interlocks to executable action sets.
 
-    Enforces:
-    - `GREEN` (`AIS >= 900.0`)
-    - `YELLOW` (`750.0 <= AIS < 900.0`)
-    - `RED` (`AIS < 750.0` or any hard interlock tripped)
-    - Hysteresis recovery: once degraded into `YELLOW` or `RED`, recovering to
-      `GREEN` requires `AIS >= recovery_threshold` (`920.0` by default) to
-      prevent chatter around the `900.0` boundary.
+    The thresholds come from a `ZonePolicy` and depend on the agent's tier (`inputs.did_tier`):
+    - `GREEN` (`AIS >= green`)
+    - `YELLOW` (`yellow <= AIS < green`)
+    - `RED` (`AIS < yellow` or any hard interlock tripped)
+    - Hysteresis recovery: once degraded into `YELLOW` or `RED`, recovering to `GREEN` requires
+      `AIS >= recovery`, to prevent chatter around the green boundary.
+
+    With no arguments the policy is the default (`per_tier`), which for a tier 3 agent is
+    750 / 900 / 920. Passing any of `green_threshold`, `yellow_threshold` or `recovery_threshold`
+    selects an `absolute` policy with those numbers for every tier, as before zone policies
+    existed; that and `zone_policy` are mutually exclusive.
     """
 
     def __init__(
         self,
         zone_permissions: Optional[Mapping[AISControlZone, Iterable[str]]] = None,
-        green_threshold: float = 900.0,
-        yellow_threshold: float = 750.0,
-        recovery_threshold: float = 920.0,
+        green_threshold: Optional[float] = None,
+        yellow_threshold: Optional[float] = None,
+        recovery_threshold: Optional[float] = None,
         initial_ais: float = 1000.0,
+        zone_policy: Optional[ZonePolicy] = None,
     ) -> None:
-        if not (0.0 <= yellow_threshold < green_threshold <= recovery_threshold <= 1000.0):
-            raise ValueError("Thresholds must satisfy 0 <= yellow < green <= recovery <= 1000")
-        self.green_threshold = green_threshold
-        self.yellow_threshold = yellow_threshold
-        self.recovery_threshold = recovery_threshold
+        explicit = (green_threshold, yellow_threshold, recovery_threshold)
+        if any(value is not None for value in explicit):
+            if zone_policy is not None:
+                raise ValueError("pass either zone_policy or explicit thresholds, not both")
+            green = 900.0 if green_threshold is None else green_threshold
+            yellow = 750.0 if yellow_threshold is None else yellow_threshold
+            recovery = 920.0 if recovery_threshold is None else recovery_threshold
+            if not (0.0 <= yellow < green <= recovery <= 1000.0):
+                raise ValueError("Thresholds must satisfy 0 <= yellow < green <= recovery <= 1000")
+            zone_policy = ZonePolicy(mode=ZONE_POLICY_ABSOLUTE, absolute=ZoneThresholds(yellow, green, recovery))
+        self.zone_policy = zone_policy or ZonePolicy()
+        # The tier 3 thresholds, kept as attributes for callers that read them.
+        top = self.zone_policy.thresholds_for_tier(3)
+        self.green_threshold = top.green
+        self.yellow_threshold = top.yellow
+        self.recovery_threshold = top.recovery
 
         default_permissions: Dict[AISControlZone, Set[str]] = {
             AISControlZone.GREEN: {"read", "draft", "execute", "escalate"},
@@ -341,19 +524,8 @@ class ClosedLoopAISController:
         )
         interlock_tripped = len(tripped_names) > 0
 
-        if interlock_tripped or score < self.yellow_threshold:
-            next_zone = AISControlZone.RED
-        elif self._current_zone in (AISControlZone.YELLOW, AISControlZone.RED):
-            # Hysteresis deadband: must reach recovery_threshold (920) to re-enter GREEN
-            if score >= self.recovery_threshold:
-                next_zone = AISControlZone.GREEN
-            else:
-                next_zone = AISControlZone.YELLOW
-        else:
-            if score >= self.green_threshold:
-                next_zone = AISControlZone.GREEN
-            else:
-                next_zone = AISControlZone.YELLOW
+        next_zone = self.zone_policy.thresholds_for_tier(inputs.did_tier).control_zone(
+            score, self._current_zone, interlock_tripped)
 
         self._current_ais = score
         self._current_zone = next_zone

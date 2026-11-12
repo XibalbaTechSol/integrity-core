@@ -447,8 +447,10 @@ recomputed in the middleware.
 - An unreadable zone is permitted (`BCC_AIS_ZONE_UNAVAILABLE=allow`, default) or treated as red (`restrict`).
 - A zone denial does not charge the circuit breaker and gets an ordinary signed receipt (the receipt
   `reason_code` is an open vocabulary; no schema change).
-- **Not ready for `enforce`:** AIS is capped by registration tier (300 / 600 / 850 / 1000) while red is
-  below 750 and green starts at 900, so tier 0-1 agents are permanently red and tier 2 can never be green.
+- **Before `enforce`, check the oracle's zone policy.** AIS is capped by registration tier (300 / 600 /
+  850 / 1000). The oracle's default policy, `per_tier`, gives each tier its own reachable thresholds.
+  Under `AIS_ZONE_POLICY=absolute` (750 / 900 / 920 for everyone) tier 0-1 agents are always red and
+  tier 2 can never be green.
 
 Matrix and settings: `bcc_middleware/README.md` "AIS control-zone gate". Verified: 103 tests in
 `tests/test_ais_zone_gate.py`, 16 mutations of the implementation each caught by at least one of them.

@@ -1,5 +1,20 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-11-12] feat | The AIS control zone is judged against the agent's tier (zone policy)
+
+- New `ZonePolicy` in `scoring-core` and `integrity_sdk.core.ais_reward`: `per_tier` (default),
+  `relative` or `absolute`. Operator setting on the oracle: `AIS_ZONE_POLICY`, with
+  `AIS_ZONE_PER_TIER_THRESHOLDS`, `AIS_ZONE_RELATIVE_FRACTIONS`, `AIS_ZONE_ABSOLUTE_THRESHOLDS`.
+- Default per-tier rows are 75% / 90% / 92% of each tier's ceiling, so every tier can reach green.
+  This changes the live `closed_loop_reward.control_zone` for tier 0-2 agents; `absolute` restores
+  the previous 750 / 900 / 920 for everyone.
+- `closed_loop_reward` now reports `zone_policy` and the three thresholds used.
+- Shared vectors: `spec/ais-api/v1/zone-vectors.json`, read by both implementations.
+- Known property, pinned by a test: the tier cap is applied before the zone is read, so degradation
+  that leaves the uncapped score above the ceiling does not show in a low-tier agent's zone.
+- Not changed: the epoch yield multiplier still uses an absolute 750 floor.
+- Updated `entities/bcc_middleware.md`, `docs/design/ais-mathematical-spec-v1.md`.
+
 ## [2026-11-11] feat | BCC can restrict a tool call by AIS control zone (off by default)
 
 - `bcc_middleware` step 5a reads the oracle's `closed_loop_reward.control_zone` and restricts the action

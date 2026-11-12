@@ -302,11 +302,12 @@ middleware restricts the **action class** of a tool call by that zone. It is the
 reads the score. Code: `app/ais_zone.py` (the two tables), `app/chain.py::resolve_control_zone` (the cached
 read), `app/main.py` step 5a. Tests: `tests/test_ais_zone_gate.py`.
 
-> **Precondition for `enforce`: do not turn it on yet.** The oracle caps AIS by registration tier (ceilings
-> 300 / 600 / 850 / 1000 for tiers 0-3, `scoring-core::ceiling_for_tier`), while red is AIS < 750 and green is
-> AIS >= 900. So in `enforce` every tier 0 and tier 1 agent is **permanently red** (read only), and a tier 2
-> agent can never be green (no `execute`). The thresholds and ceilings have to be reconciled first. This change
-> does neither; that is why the default is `off`.
+> **Before `enforce`, check the oracle's zone policy.** The oracle caps AIS by registration tier (ceilings
+> 300 / 600 / 850 / 1000 for tiers 0-3, `scoring-core::ceiling_for_tier`). Its default zone policy, `per_tier`,
+> judges an agent against thresholds for its own tier, so every tier can reach green. If the oracle runs
+> `AIS_ZONE_POLICY=absolute` (750 / 900 / 920 for everyone), every tier 0 and tier 1 agent is **always red**
+> (read only) and a tier 2 agent can never be green. The oracle's answer names the policy and thresholds it
+> used (`closed_loop_reward.zone_policy`, `zone_*_threshold`).
 
 | Zone | read | draft | execute | escalate |
 |---|---|---|---|---|

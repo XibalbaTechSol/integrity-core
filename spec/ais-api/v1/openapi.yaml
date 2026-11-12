@@ -1702,6 +1702,10 @@ components:
       type: object
       required:
       - control_zone
+      - zone_policy
+      - zone_yellow_threshold
+      - zone_green_threshold
+      - zone_recovery_threshold
       - reward_profile
       - r_task_effective
       - ais_term
@@ -1736,6 +1740,21 @@ components:
         violation_penalty:
           type: number
           format: double
+        zone_green_threshold:
+          type: number
+          format: double
+          description: At or above this AIS the agent is green.
+        zone_policy:
+          type: string
+          description: 'Which rule chose the zone thresholds: `per_tier` (default), `relative` or `absolute`.'
+        zone_recovery_threshold:
+          type: number
+          format: double
+          description: The AIS an agent that was yellow or red must reach to become green again.
+        zone_yellow_threshold:
+          type: number
+          format: double
+          description: Below this AIS the agent is red.
     ComplianceResponse:
       type: object
       required:

@@ -31,7 +31,18 @@ Default weights `wE=0.30, wG=0.30, wS=0.20, wC=0.20` (validated to sum to 1.0,
 configurable via `AIS_WEIGHTS`). Each `S_*` is normalized to `[0, 1000]`;
 `ZK_boost = 1.0 + 0.15 * verified_event_ratio`, where the ratio counts only
 events carrying a Barretenberg proof the oracle verified. This is a weighted geometric mean. Tiers 0/1/2 cap the result at
-300/600/850; Tier 3 has no post-boost cap. See
+300/600/850; Tier 3 has no post-boost cap.
+
+The control zone (`closed_loop_reward.control_zone`) is read from that capped score under a zone
+policy, set with `AIS_ZONE_POLICY`:
+
+| Value | Thresholds | Override |
+|---|---|---|
+| `per_tier` (default) | a row per tier; defaults are 75% / 90% / 92% of each tier's ceiling | `AIS_ZONE_PER_TIER_THRESHOLDS`: 12 floats, `yellow,green,recovery` for tiers 0 to 3 |
+| `relative` | fractions of the agent's tier ceiling | `AIS_ZONE_RELATIVE_FRACTIONS`: 3 floats |
+| `absolute` | 750 / 900 / 920 for every tier | `AIS_ZONE_ABSOLUTE_THRESHOLDS`: 3 floats |
+
+An invalid policy stops the oracle starting. The response names the policy and thresholds used. See
 [`../docs/wiki/concepts/ais.md`](../docs/wiki/concepts/ais.md).
 
 The Oracle verifies a submitted telemetry proof off chain with `bb verify` and
