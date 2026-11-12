@@ -78,7 +78,7 @@ def health_scenario(deployed_chain, tmp_path, monkeypatch):
 
     did = f"did:integrity:{agent_wallet_id}"
     oracle_signer = funder.address
-    sovereign_agent = chain.deploy_sovereign_agent(w3, agent_account, did, oracle_signer, chain_id)
+    sovereign_agent = chain.deploy_sovereign_agent(w3, agent_account, did, oracle_signer, chain_id, addr["AgentPrimitivesFactory"])
     state_anchor = chain.deploy_state_anchor(w3, agent_account, sovereign_agent, chain_id)
     chain.mint_testnet_itk(w3, funder, addr["IntegrityToken"], sovereign_agent, Web3.to_wei(10_000, "ether"), chain_id)
     chain.set_execution_policy(w3, agent_account, sovereign_agent, addr["ConstraintExecutionPolicy"], chain_id)

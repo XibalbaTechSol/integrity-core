@@ -936,7 +936,7 @@ def agent_register(
             console.print(f"  [dim]skip[/dim] reusing already-deployed SovereignAgent [cyan]{sovereign_agent}[/cyan] (no new deploy)")
         else:
             with console.status("[bold blue]Deploying SovereignAgent..."):
-                sovereign_agent = chain.deploy_sovereign_agent(w3, evm_account, agent_did, oracle_signer, chain_id, nonce=next_nonce)
+                sovereign_agent = chain.deploy_sovereign_agent(w3, evm_account, agent_did, oracle_signer, chain_id, factory_address, nonce=next_nonce)
             console.print(f"  [green]done[/green] SovereignAgent deployed at [cyan]{sovereign_agent}[/cyan]")
             next_nonce += 1
             time.sleep(5)  # Wait for contract bytecode to propagate

@@ -105,7 +105,7 @@ def test_cli_chain_full_registration(deployed_chain, tmp_path, monkeypatch):
     chain.fund_agent_wallet(w3, funder, agent.address, Web3.to_wei(1, "ether"), chain_id)
 
     did = "did:integrity:cli-test-agent"
-    sovereign_agent = chain.deploy_sovereign_agent(w3, agent, did, oracle_signer, chain_id)
+    sovereign_agent = chain.deploy_sovereign_agent(w3, agent, did, oracle_signer, chain_id, addr["AgentPrimitivesFactory"])
     state_anchor = chain.deploy_state_anchor(w3, agent, sovereign_agent, chain_id)
 
     # Regression coverage for PRODUCTION_GAPS.md Sec3: minted to the SovereignAgent
@@ -183,7 +183,7 @@ def test_cli_chain_xns_register_fails_for_unregistered_agent(deployed_chain, tmp
     stranger = wallet.generate_or_load_evm_wallet("cli-test-stranger")
     chain.fund_agent_wallet(w3, funder, stranger.address, Web3.to_wei(1, "ether"), chain_id)
     unregistered_sovereign_agent = chain.deploy_sovereign_agent(
-        w3, stranger, "did:integrity:cli-test-stranger", oracle_signer, chain_id
+        w3, stranger, "did:integrity:cli-test-stranger", oracle_signer, chain_id, addr["AgentPrimitivesFactory"]
     )
 
     with pytest.raises(Exception):

@@ -23,6 +23,15 @@ import {AgentPrimitivesFactory} from "../src/framework/AgentPrimitivesFactory.so
 import {IntegrityIdentityReadV1} from "../src/kernel/IntegrityIdentityReadV1.sol";
 import {AllowlistAnchorPolicy} from "../src/core/AllowlistAnchorPolicy.sol";
 import {ConstraintExecutionPolicy} from "../src/core/ConstraintExecutionPolicy.sol";
+import {ITK} from "../src/trust/ITK.sol";
+import {TrustConfig} from "../src/trust/TrustConfig.sol";
+import {StakeVault} from "../src/trust/StakeVault.sol";
+import {PolicyRegistry} from "../src/trust/PolicyRegistry.sol";
+import {OpenPolicyModule} from "../src/trust/OpenPolicyModule.sol";
+import {AISRegistry} from "../src/trust/AISRegistry.sol";
+import {RewardRegistry} from "../src/trust/RewardRegistry.sol";
+import {DiscountRewardModule} from "../src/trust/DiscountRewardModule.sol";
+import {ActionAnchor} from "../src/trust/ActionAnchor.sol";
 
 /// @title Deploy
 /// @notice Deploys the full protocol genesis: every global singleton, all 5 EIP-1167
@@ -41,6 +50,15 @@ contract Deploy is Script {
     // TEE-bound institutional trust" framing and test/health/EHRGate.t.sol's own
     // THRESHOLD constant. Mutable post-deploy via EHRGate.setThreshold, not frozen here.
     uint256 constant EHR_GATE_MIN_AIS_THRESHOLD = 800;
+
+    // v2 trust layer. An AISRegistry checkpoint below this score (basis points, 0..10000)
+    // latches the agent's freeze. It must be > 0 or the freeze can never fire, and it sits
+    // below the tier-0 identity ceiling (AIS 300/1000 = 3000 bps) so an honest but unverified
+    // agent is not frozen by its first checkpoint. Override with FREEZE_THRESHOLD_BPS;
+    // mutable post-deploy via StakeVault.setFreezeThreshold.
+    uint256 constant DEFAULT_FREEZE_THRESHOLD_BPS = 1000;
+    // DiscountRewardModule's documented default: the full score range maps to the full 50% cap.
+    uint256 constant DISCOUNT_BPS_PER_POINT = 50;
 
     // Deployed/derived addresses, held as contract-level state purely so
     // `_writeDeploymentsFile` can read them after `run()`'s local variables are gone.
@@ -72,6 +90,16 @@ contract Deploy is Script {
 
     AgentPrimitivesFactory factory;
 
+    ITK itkV2;
+    TrustConfig trustConfig;
+    StakeVault stakeVault;
+    PolicyRegistry policyRegistry;
+    OpenPolicyModule openPolicyModule;
+    AISRegistry aisRegistry;
+    RewardRegistry rewardRegistry;
+    DiscountRewardModule discountRewardModule;
+    ActionAnchor actionAnchor;
+
     bytes32 generalDomainId;
     bytes32 healthcareDomainId;
 
@@ -100,8 +128,11 @@ contract Deploy is Script {
         _deploySingletons();
         _deployCloneImplementations();
         _deployFactory();
+        _deployTrustLayer();
         _wireRoles();
         _bootstrapDomains();
+        _wireTrustDomains();
+        _handOffTrustAdmin();
 
         vm.stopBroadcast();
 
@@ -185,6 +216,83 @@ contract Deploy is Script {
         );
     }
 
+    /// @dev Deploys and wires the v2 trust layer so the SovereignAgent execute gate ships LIVE.
+    /// Without this the registry's `trustConfig` is zero and every agent's gate resolves to
+    /// nothing: no freeze, no policy, no stake lock.
+    ///
+    /// Ordering matters. `registry.setTrustConfig` comes BEFORE the AIS registry is granted
+    /// `AIS_REGISTRY_ROLE`: that role is what lets a checkpoint freeze an agent, and a freeze
+    /// recorded in a vault the gate does not yet read would leave a frozen agent executing.
+    /// This also runs before `_wireRoles`, which hands the registry's admin role to governance.
+    function _deployTrustLayer() internal {
+        // Distinct from `IntegrityToken` above (also displayed "$ITK"): this is the v2 stake
+        // asset. The legacy token and everything importing it are untouched.
+        itkV2 = new ITK(deployer, 0);
+        stakeVault = new StakeVault(address(itkV2), deployer);
+        policyRegistry = new PolicyRegistry(deployer);
+        openPolicyModule = new OpenPolicyModule();
+        rewardRegistry = new RewardRegistry(deployer);
+        discountRewardModule = new DiscountRewardModule(address(rewardRegistry), DISCOUNT_BPS_PER_POINT);
+        aisRegistry = new AISRegistry(deployer);
+        actionAnchor = new ActionAnchor();
+
+        trustConfig = new TrustConfig(deployer);
+        trustConfig.setStakeVault(address(stakeVault));
+        trustConfig.setPolicyRegistry(address(policyRegistry));
+        trustConfig.setRewardDiscountModule(address(discountRewardModule));
+
+        uint256 threshold = vm.envOr("FREEZE_THRESHOLD_BPS", DEFAULT_FREEZE_THRESHOLD_BPS);
+        require(threshold > 0 && threshold <= 10_000, "FREEZE_THRESHOLD_BPS must be in 1..10000");
+        // forge-lint: disable-next-line(unsafe-typecast)
+        stakeVault.setFreezeThreshold(uint32(threshold));
+
+        aisRegistry.setStakeVault(address(stakeVault));
+        aisRegistry.setRewardRegistry(address(rewardRegistry));
+        aisRegistry.setAgentRegistry(address(registry));
+
+        // The gate goes live here; only then may anything be able to freeze.
+        registry.setTrustConfig(address(trustConfig));
+
+        stakeVault.grantRole(stakeVault.AIS_REGISTRY_ROLE(), address(aisRegistry));
+        stakeVault.grantRole(stakeVault.DISPUTER_ROLE(), disputer);
+        rewardRegistry.grantRole(rewardRegistry.NOTIFIER_ROLE(), address(aisRegistry));
+        aisRegistry.grantRole(aisRegistry.SCORER_ROLE(), oracleSigner);
+    }
+
+    /// @dev Gives each bootstrapped domain a policy module and a reward module. A registered
+    /// agent in a domain with no policy module fail-closes on every `execute`.
+    function _wireTrustDomains() internal {
+        bytes32[2] memory domainIds = [generalDomainId, healthcareDomainId];
+        for (uint256 i; i < domainIds.length; i++) {
+            policyRegistry.setModule(domainIds[i], address(openPolicyModule));
+            rewardRegistry.setModule(domainIds[i], address(discountRewardModule));
+        }
+    }
+
+    /// @dev Off local chains the deployer keeps no authority over the trust layer, matching
+    /// `_wireRoles`. Runs last because `_wireTrustDomains` needs the deployer's admin role.
+    function _handOffTrustAdmin() internal {
+        if (block.chainid == 31337) return;
+
+        itkV2.grantRole(itkV2.MINTER_ROLE(), governance);
+        itkV2.revokeRole(itkV2.MINTER_ROLE(), deployer);
+        policyRegistry.grantRole(policyRegistry.GRAPH_CURATOR_ROLE(), governance);
+        policyRegistry.revokeRole(policyRegistry.GRAPH_CURATOR_ROLE(), deployer);
+
+        itkV2.grantRole(itkV2.DEFAULT_ADMIN_ROLE(), governance);
+        itkV2.revokeRole(itkV2.DEFAULT_ADMIN_ROLE(), deployer);
+        trustConfig.grantRole(trustConfig.DEFAULT_ADMIN_ROLE(), governance);
+        trustConfig.revokeRole(trustConfig.DEFAULT_ADMIN_ROLE(), deployer);
+        stakeVault.grantRole(stakeVault.DEFAULT_ADMIN_ROLE(), governance);
+        stakeVault.revokeRole(stakeVault.DEFAULT_ADMIN_ROLE(), deployer);
+        policyRegistry.grantRole(policyRegistry.DEFAULT_ADMIN_ROLE(), governance);
+        policyRegistry.revokeRole(policyRegistry.DEFAULT_ADMIN_ROLE(), deployer);
+        rewardRegistry.grantRole(rewardRegistry.DEFAULT_ADMIN_ROLE(), governance);
+        rewardRegistry.revokeRole(rewardRegistry.DEFAULT_ADMIN_ROLE(), deployer);
+        aisRegistry.grantRole(aisRegistry.DEFAULT_ADMIN_ROLE(), governance);
+        aisRegistry.revokeRole(aisRegistry.DEFAULT_ADMIN_ROLE(), deployer);
+    }
+
     /// @dev Only AgentPrimitivesFactory should ever hold REGISTRAR_ROLE on either
     /// registry — see XibalbaAgentRegistry.sol / DomainRegistry.sol NatSpec for why
     /// that invariant matters (it's what guarantees "an agent exists" implies "it is
@@ -252,6 +360,16 @@ contract Deploy is Script {
         console2.log("ComplianceGateImpl:    ", address(complianceGateImpl));
         console2.log("AgentProfileImpl:      ", address(agentProfileImpl));
         console2.log("AgentPrimitivesFactory:", address(factory));
+        console2.log("--- v2 trust layer ---");
+        console2.log("ITK (v2 stake asset):  ", address(itkV2));
+        console2.log("TrustConfig:           ", address(trustConfig));
+        console2.log("StakeVault:            ", address(stakeVault));
+        console2.log("PolicyRegistry:        ", address(policyRegistry));
+        console2.log("OpenPolicyModule:      ", address(openPolicyModule));
+        console2.log("AISRegistry:           ", address(aisRegistry));
+        console2.log("RewardRegistry:        ", address(rewardRegistry));
+        console2.log("DiscountRewardModule:  ", address(discountRewardModule));
+        console2.log("ActionAnchor:          ", address(actionAnchor));
     }
 
     /// @dev Writes the new nested shape (singletons / cloneTemplates / protocolAddresses)
@@ -273,6 +391,15 @@ contract Deploy is Script {
         vm.serializeAddress(singletons, "CoveredEntityRegistry", address(entityRegistry));
         vm.serializeAddress(singletons, "SmartBAAFactory", address(baaFactory));
         vm.serializeAddress(singletons, "HIPAAGuardrailRegistry", address(guardrailRegistry));
+        vm.serializeAddress(singletons, "ITK", address(itkV2));
+        vm.serializeAddress(singletons, "TrustConfig", address(trustConfig));
+        vm.serializeAddress(singletons, "StakeVault", address(stakeVault));
+        vm.serializeAddress(singletons, "PolicyRegistry", address(policyRegistry));
+        vm.serializeAddress(singletons, "OpenPolicyModule", address(openPolicyModule));
+        vm.serializeAddress(singletons, "AISRegistry", address(aisRegistry));
+        vm.serializeAddress(singletons, "RewardRegistry", address(rewardRegistry));
+        vm.serializeAddress(singletons, "DiscountRewardModule", address(discountRewardModule));
+        vm.serializeAddress(singletons, "ActionAnchor", address(actionAnchor));
         string memory singletonsJson = vm.serializeAddress(singletons, "EHRGate", address(ehrGate));
 
         string memory cloneTemplates = "cloneTemplates";

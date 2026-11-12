@@ -81,6 +81,26 @@ contract AgentPrimitivesFactory {
     error DomainJoinNotApproved();
     error MemoryNotInitialized();
     error NoCapabilitiesRequested();
+    /// @dev The SovereignAgent being registered must be bound to THIS factory (`sa.factory() ==
+    /// address(this)`). Without it the protocol-pinned trust gate is theater: a registered agent
+    /// resolves its gate via `factory.registry().trustConfig()`, so an agent pointing `factory` at
+    /// a fake registry/config could redirect its own gate. Binding `factory` at registration makes
+    /// `factory.registry()` provably the real governance-owned registry.
+    error FactoryMismatch();
+    /// @notice The address being registered does not run the canonical SovereignAgent bytecode.
+    /// `FactoryMismatch` only checks what `factory()` RETURNS, which arbitrary bytecode can fake;
+    /// this checks what the code IS. Without it the registry would attest "registered agent" for
+    /// a contract that has no trust gate at all.
+    error NotCanonicalAgent();
+
+    /// @notice Runtime codehash of the one SovereignAgent build this factory registers.
+    /// @dev `SovereignAgent.factory` is that contract's only immutable and immutables are part of
+    /// runtime code, so every genuine agent constructed with `factory_ == address(this)` shares
+    /// this hash (did/controller/oracle are storage and do not affect it). The factory learns the
+    /// hash by deploying one reference instance in its constructor, so the pin needs no governance
+    /// setter and no deploy-script step: it cannot be left unwired. Accepting a new SovereignAgent
+    /// build means deploying a new factory, which agents are bound to through `factory` anyway.
+    bytes32 public immutable agentCodehash;
 
     constructor(
         address _registry,
@@ -108,6 +128,9 @@ contract AgentPrimitivesFactory {
         governance = _governance;
         itk = _itk;
         initialZkVerifier = _initialZkVerifier;
+        // Reference instance: controlled by this factory, which exposes no way to drive it.
+        agentCodehash =
+            address(new SovereignAgent("did:integrity:reference", address(this), address(0), address(this))).codehash;
     }
 
     /// @notice Clones and registers the remaining 5 primitives for an agent that has
@@ -140,8 +163,11 @@ contract AgentPrimitivesFactory {
             address agentProfile
         )
     {
+        // Checked first, before any call into `sovereignAgent`: it is untrusted code until this passes.
+        if (sovereignAgent.codehash != agentCodehash) revert NotCanonicalAgent();
         SovereignAgent sa = SovereignAgent(payable(sovereignAgent));
         if (!sa.hasRole(sa.DEFAULT_ADMIN_ROLE(), msg.sender)) revert NotAgentController();
+        if (sa.factory() != address(this)) revert FactoryMismatch();
         if (!domainRegistry.canJoin(domainId, msg.sender)) revert DomainJoinNotApproved();
         if (StateAnchor(stateAnchor).latestRoot() == bytes32(0)) revert MemoryNotInitialized();
 
@@ -211,8 +237,11 @@ contract AgentPrimitivesFactory {
         string calldata did,
         bytes32 domainId
     ) external {
+        // Checked first, before any call into `sovereignAgent`: it is untrusted code until this passes.
+        if (sovereignAgent.codehash != agentCodehash) revert NotCanonicalAgent();
         SovereignAgent sa = SovereignAgent(payable(sovereignAgent));
         if (!sa.hasRole(sa.DEFAULT_ADMIN_ROLE(), msg.sender)) revert NotAgentController();
+        if (sa.factory() != address(this)) revert FactoryMismatch();
         if (!domainRegistry.canJoin(domainId, msg.sender)) revert DomainJoinNotApproved();
         if (StateAnchor(stateAnchor).latestRoot() == bytes32(0)) revert MemoryNotInitialized();
 

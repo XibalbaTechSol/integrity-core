@@ -49,10 +49,18 @@ contract XibalbaAgentRegistry is AccessControl {
     mapping(address => bytes32) public didHashOf;
     mapping(address => EnterpriseRecord) public enterpriseRecordOf;
 
+    /// @notice Governance-owned `TrustConfig` the protocol-pinned trust gate resolves at call time.
+    /// @dev A registered `SovereignAgent` reads its gate's stake vault / policy registry / reward
+    /// module from `trustConfig` (via `factory.registry().trustConfig()`) rather than from its own
+    /// controller-set storage, so a frozen/non-compliant agent cannot redirect its own gate. Zero
+    /// until governance sets it; while zero the gate is inert for every agent.
+    address public trustConfig;
+
     event PrimitivesRegistered(bytes32 indexed didHash, PrimitiveSet primitives);
     event CoreRegistered(bytes32 indexed didHash, address indexed sovereignAgent, address indexed controller, address stateAnchor, bytes32 domainId);
     event PrimitivesProvisioned(bytes32 indexed didHash, PrimitiveSet primitives, uint256 capabilityMask);
     event EnterpriseAgentRegistered(address indexed agent, address indexed stateAnchor, address controller, bytes32 domainId);
+    event TrustConfigSet(address indexed trustConfig);
 
     error AlreadyRegistered();
     error UnknownDID();
@@ -64,6 +72,14 @@ contract XibalbaAgentRegistry is AccessControl {
 
     constructor(address admin) {
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
+    }
+
+    /// @notice Points the registry at the governance-owned `TrustConfig` the trust gate resolves.
+    /// @dev Admin-only (`DEFAULT_ADMIN_ROLE`, granted to governance in the constructor). The agent
+    /// controller cannot call this, which is what makes the gate's references unspoofable.
+    function setTrustConfig(address cfg) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        trustConfig = cfg;
+        emit TrustConfigSet(cfg);
     }
 
     /// @notice Registers a sovereign agent with the full 7-primitive set.

@@ -620,7 +620,9 @@ def register_agent(
         logger.info("step 5: reusing already-deployed SovereignAgent %s (no new deploy)", sovereign_agent)
     else:
         try:
-            sovereign_agent = chain.deploy_sovereign_agent(w3, evm_account, agent_did, oracle_signer, chain_id)
+            sovereign_agent = chain.deploy_sovereign_agent(
+                w3, evm_account, agent_did, oracle_signer, chain_id, factory_address
+            )
         except Exception as exc:  # noqa: BLE001
             raise RegistrationError(f"step 5 (deploy_sovereign_agent) failed: {exc}") from exc
         _save_deploy_progress(agent_id, sovereign_agent=sovereign_agent, chain_id=chain_id)
