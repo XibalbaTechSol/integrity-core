@@ -1,5 +1,6 @@
 """Unit tests for canonical AIS (`ais/v1-geometric-1`), ClosedLoopAISController,
-and AISRewardFunction (`R_total = R_task + lambda * AIS`).
+and the LEGACY additive reward profile (`ais-reward/v1-additive-1`). The canonical
+multiplicative profile is covered by test_ais_reward_multiplicative.py.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from integrity_sdk.core import (
     AISControlZone,
     AISInputs,
     AISRewardFunction,
+    REWARD_PROFILE_ADDITIVE_V1,
     ClosedLoopAISController,
     compute_compliance_score,
     compute_contribution_score,
@@ -178,8 +180,9 @@ def test_closed_loop_controller_zones_hysteresis_and_interlocks():
     assert interlock_red.allowed_actions == {"escalate"}
 
 
-def test_ais_reward_function_offchain_and_onchain_validation():
+def test_legacy_additive_reward_profile_and_onchain_settlement():
     reward_fn = AISRewardFunction(
+        profile=REWARD_PROFILE_ADDITIVE_V1,
         lambda_ais=0.50,
         gamma=0.99,
         shaping_weight=0.25,

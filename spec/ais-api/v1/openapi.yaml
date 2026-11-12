@@ -1,5 +1,7 @@
-wrote /mnt/storage/xibalba/Projects/worktrees/integrity-core/ais-closed-loop-reward/integrity-oracle/backend/../../spec/ais-api/v1/openapi.yaml
-e (AIS), on-chain primitive addresses, compliance status, and wallet balances. This is the versioned, externally-supported surface — /v1/* is additive-only for its lifetime; any field rename, type change, or removal requires a /v2/* prefix. See spec/ais-api/v1/README.md for the integration guide and spec/ais-api/CHANGELOG.md for the version history.
+openapi: 3.1.0
+info:
+  title: Integrity Protocol — AIS API
+  description: Read-side wire protocol for querying an agent's Agent Integrity Score (AIS), on-chain primitive addresses, compliance status, and wallet balances. This is the versioned, externally-supported surface — /v1/* is additive-only for its lifetime; any field rename, type change, or removal requires a /v2/* prefix. See spec/ais-api/v1/README.md for the integration guide and spec/ais-api/CHANGELOG.md for the version history.
   license:
     name: ''
   version: 1.0.0
@@ -1230,7 +1232,8 @@ components:
           $ref: '#/components/schemas/ClosedLoopRewardDto'
           description: |-
             Canonical Closed-Loop AIS Control Zone (`green` / `yellow` / `red` with hysteresis)
-            and Step/Epoch Reward Evaluation (`R_total = R_task + lambda * AIS + shaping - penalty`).
+            and Step/Epoch Reward Evaluation. `r_total` uses the profile named in `reward_profile`;
+            the default is multiplicative: `max(0, R_task) * AIS / 1000`, zero when gated.
         components:
           $ref: '#/components/schemas/AisComponents'
         constraint_score:
@@ -1699,6 +1702,7 @@ components:
       type: object
       required:
       - control_zone
+      - reward_profile
       - r_task_effective
       - ais_term
       - potential_shaping
@@ -1726,6 +1730,9 @@ components:
         r_total:
           type: number
           format: double
+        reward_profile:
+          type: string
+          description: '`ais-reward/v2-multiplicative-1` (canonical) or `ais-reward/v1-additive-1` (legacy).'
         violation_penalty:
           type: number
           format: double

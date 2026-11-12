@@ -73,7 +73,29 @@ $\mathcal{A}_t = G(z_t)$:
 ### 2. Off-Chain Step Reward Function (`AISRewardFunction.compute_step_reward`)
 
 For reinforcement learning, GRPO advantage estimation, and DPO preference
-ranking, each step $t$ yields:
+ranking, each step $t$ yields a reward under a named profile. The profile name
+is returned with every evaluation (`reward_profile`), so a stored reward can
+always be recomputed with the form that produced it.
+
+#### Canonical profile: `ais-reward/v2-multiplicative-1` (default)
+
+$$R_{\text{total}}(t) = \begin{cases} 0 & \text{if gated, or any input is not finite} \\ \max\left(0,\; R_{\text{task}}(t) - C(t)\right) \cdot \dfrac{\text{clamp}(\text{AIS}_t, 0, 1000)}{1000} & \text{otherwise} \end{cases}$$
+
+where $C(t) \ge 0$ is the step's cost penalty and a step is *gated* when
+$S_C = 0$, $\text{AIS}_t \le 0$, or $N_{\text{deny}}(t) > 0$. The Rust
+evaluator additionally gates on a tripped hard interlock, which it receives as
+an explicit input; in the Python SDK a tripped interlock reaches the reward only
+through the zone controller, not through this gate. Properties, each asserted by tests in both implementations:
+
+- $R_{\text{total}} \ge 0$ always (both factors are non-negative).
+- $R_{\text{total}}$ is non-decreasing in $\text{AIS}_t$ for fixed task reward.
+- No task reward, however large, compensates for missing integrity: the whole
+  payoff is scaled by $\text{AIS}_t / 1000$, and is $0$ at $\text{AIS}_t = 0$.
+
+The additive-only terms (`ais_term`, `potential_shaping`,
+`violation_penalty`) are reported as $0$ under this profile.
+
+#### Legacy profile: `ais-reward/v1-additive-1`
 
 $$R_{\text{total}}(t) = R_{\text{task}}^{\text{eff}}(t) + \lambda_{\text{ais}} \left(\frac{\text{AIS}_t}{1000}\right) + w_{\Phi}\left(\gamma \Phi(\text{AIS}_t) - \Phi(\text{AIS}_{t-1})\right) - \kappa_{\text{deny}} \cdot N_{\text{deny}}(t)$$
 
@@ -81,8 +103,28 @@ where:
 - $\Phi(\text{AIS}) = (\text{clamp}(\text{AIS}, 0, 1000) / 1000)^2 \in [0, 1]$ is a
   policy-invariant quadratic potential function (Ng et al., 1999).
 - $R_{\text{task}}^{\text{eff}}(t) = 0$ whenever $S_C = 0$, $\text{AIS}_t = 0$,
-  or $N_{\text{deny}}(t) > 0$ (`gate_task_on_compliance=True`), making policy
-  violations strictly suboptimal regardless of raw task reward magnitude.
+  or $N_{\text{deny}}(t) > 0$ (`gate_task_on_compliance=True`).
+
+It was replaced as the default because $\text{AIS}$ contributes at most
+$\lambda_{\text{ais}} = 0.5$ to the sum, so an ungated step with a large task
+reward and a poor score outranks a modest task done with a high score. It
+remains selectable by name so rewards recorded under it stay reproducible.
+
+#### Cross-implementation vectors
+
+`spec/ais-api/v1/reward-vectors.json` is the single set of golden vectors. The
+Python SDK (`tests/unit/test_ais_reward_multiplicative.py`) and the Rust scorer
+(`scoring-core`, `*_matches_shared_golden_vectors`) both read that file and
+must reproduce its AIS and reward values to an absolute tolerance of $10^{-9}$.
+
+#### Known limitation of the Oracle's gate input
+
+`GET /v1/agents/{id}/ais` evaluates a single aggregate over the scoring window
+and passes $N_{\text{deny}} = 1$ whenever the window's penalty ratio is above
+zero. One flagged event anywhere in the window therefore gates the reported
+`closed_loop_reward`, which under the multiplicative profile means
+`r_total = 0`. The gate rule predates this profile and is unchanged by it;
+whether it should become per-step or proportional is an open decision.
 
 ### 3. On-Chain Epoch Settlement & Slashing (`AISRewardFunction.settle_epoch`)
 

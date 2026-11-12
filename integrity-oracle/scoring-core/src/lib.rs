@@ -44,6 +44,43 @@ use serde::{Deserialize, Serialize};
 /// API's `ais_score` field stays intuitive to operators.
 pub const MAX_COMPONENT_SCORE: f64 = 1000.0;
 pub const AIS_PROFILE_VERSION: &str = "ais/v1-geometric-1";
+
+/// Canonical step reward: `max(0, r_task - cost) * clamp(ais, 0, 1000) / 1000`.
+pub const REWARD_PROFILE_MULTIPLICATIVE: &str = "ais-reward/v2-multiplicative-1";
+/// Legacy step reward: `r_task + lambda * ais + shaping - penalty`. Kept so earlier results
+/// reproduce. AIS contributes at most `lambda` here, so a task-reward lead larger than that
+/// beats any integrity gap — the reason it is no longer the default.
+pub const REWARD_PROFILE_ADDITIVE_V1: &str = "ais-reward/v1-additive-1";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RewardProfile {
+    #[default]
+    Multiplicative,
+    AdditiveV1,
+}
+
+impl RewardProfile {
+    pub fn name(self) -> &'static str {
+        match self {
+            RewardProfile::Multiplicative => REWARD_PROFILE_MULTIPLICATIVE,
+            RewardProfile::AdditiveV1 => REWARD_PROFILE_ADDITIVE_V1,
+        }
+    }
+}
+
+/// `max(0, r_task - cost_penalty) * clamp(ais, 0, 1000) / 1000`; `0` when the step is gated
+/// or any input is not finite.
+///
+/// Both factors are non-negative, so the result is never negative and never decreases as AIS
+/// rises. (A negative task term would make LOWER integrity score better.) Pinned across Rust,
+/// Python and Cortex by `spec/ais-api/v1/reward-vectors.json`.
+pub fn multiplicative_reward(r_task: f64, ais: f64, cost_penalty: f64, gated: bool) -> f64 {
+    if gated || !ais.is_finite() || !r_task.is_finite() || !cost_penalty.is_finite() {
+        return 0.0;
+    }
+    let net_task = (r_task - cost_penalty.max(0.0)).max(0.0);
+    net_task * (ais.clamp(0.0, MAX_COMPONENT_SCORE) / MAX_COMPONENT_SCORE)
+}
 pub const DEFAULT_REPORTING_PERIOD_DAYS: i64 = 30;
 
 /// Multiplier applied when the agent has at least one Barretenberg-verified ZK
@@ -372,9 +409,9 @@ impl AisEngine {
         breakdown
     }
 
-    /// Evaluates the closed-loop control zone (`green` / `yellow` / `red` with hysteresis)
-    /// and deterministic AIS reward function (`R_total = R_task + lambda * AIS + shaping - penalty`)
-    /// plus on-chain epoch yield multiplier (`Y_e`).
+    /// Evaluates the closed-loop control zone (`green` / `yellow` / `red` with hysteresis), the
+    /// step reward under the canonical multiplicative profile, and the on-chain epoch yield
+    /// multiplier (`Y_e`).
     pub fn evaluate_closed_loop_reward(
         &self,
         breakdown: &AisBreakdown,
@@ -383,6 +420,30 @@ impl AisEngine {
         r_task: f64,
         deny_count: u32,
         hard_interlock_tripped: bool,
+    ) -> ClosedLoopRewardEvaluation {
+        self.evaluate_closed_loop_reward_with_profile(
+            breakdown,
+            prev_ais,
+            prev_zone,
+            r_task,
+            deny_count,
+            hard_interlock_tripped,
+            RewardProfile::default(),
+        )
+    }
+
+    /// As [`Self::evaluate_closed_loop_reward`], with the reward profile chosen explicitly.
+    /// The control zone and epoch yield multiplier do not depend on the profile.
+    #[allow(clippy::too_many_arguments)]
+    pub fn evaluate_closed_loop_reward_with_profile(
+        &self,
+        breakdown: &AisBreakdown,
+        prev_ais: f64,
+        prev_zone: Option<&str>,
+        r_task: f64,
+        deny_count: u32,
+        hard_interlock_tripped: bool,
+        profile: RewardProfile,
     ) -> ClosedLoopRewardEvaluation {
         let score = if breakdown.ais.is_finite() {
             breakdown.ais.clamp(0.0, MAX_COMPONENT_SCORE)
@@ -433,7 +494,24 @@ impl AisEngine {
         let potential_shaping = shaping_weight * (gamma * phi_t - phi_prev);
 
         let violation_penalty = (deny_count as f64) * deny_penalty;
-        let r_total = r_task_effective + ais_term + potential_shaping - violation_penalty;
+        let (r_task_effective, ais_term, potential_shaping, violation_penalty, r_total) = match profile {
+            RewardProfile::AdditiveV1 => (
+                r_task_effective,
+                ais_term,
+                potential_shaping,
+                violation_penalty,
+                r_task_effective + ais_term + potential_shaping - violation_penalty,
+            ),
+            // No additive AIS, shaping or penalty terms: integrity scales the whole payoff, and
+            // a gated step earns exactly zero.
+            RewardProfile::Multiplicative => (
+                r_task_effective.max(0.0),
+                0.0,
+                0.0,
+                0.0,
+                multiplicative_reward(r_task, score, 0.0, gated_by_compliance),
+            ),
+        };
 
         let ais_min = 750.0_f64;
         let epoch_yield_multiplier = if gated_by_compliance || score < ais_min {
@@ -445,6 +523,7 @@ impl AisEngine {
         };
 
         ClosedLoopRewardEvaluation {
+            reward_profile: profile.name().to_string(),
             control_zone,
             r_task_effective,
             ais_term,
@@ -463,6 +542,9 @@ pub struct ClosedLoopRewardEvaluation {
     /// Active closed-loop zone: `"green"` (`>= 900`, hysteresis recovery `>= 920`),
     /// `"yellow"` (`750 <= AIS < 900`), or `"red"` (`< 750` or interlock tripped).
     pub control_zone: String,
+    /// Which step-reward formula produced `r_total`: [`REWARD_PROFILE_MULTIPLICATIVE`]
+    /// (default) or [`REWARD_PROFILE_ADDITIVE_V1`].
+    pub reward_profile: String,
     pub r_task_effective: f64,
     pub ais_term: f64,
     pub potential_shaping: f64,
@@ -889,13 +971,13 @@ mod tests {
     }
 
     #[test]
-    fn closed_loop_reward_evaluation_enforces_hysteresis_and_compliance_gating() {
+    fn legacy_additive_closed_loop_reward_enforces_hysteresis_and_compliance_gating() {
         let engine = AisEngine::default();
         let high = engine.score_with_tier(
             &component_inputs_yielding(950.0, 950.0, 950.0, 950.0, &engine),
             3,
         );
-        let eval_good = engine.evaluate_closed_loop_reward(&high, 900.0, Some("green"), 1.0, 0, false);
+        let eval_good = engine.evaluate_closed_loop_reward_with_profile(&high, 900.0, Some("green"), 1.0, 0, false, RewardProfile::AdditiveV1);
         assert_eq!(eval_good.control_zone, "green");
         assert!(!eval_good.gated_by_compliance);
         assert!(eval_good.r_total > 1.40);
@@ -914,11 +996,134 @@ mod tests {
             &component_inputs_yielding(950.0, 950.0, 950.0, 0.0, &engine),
             3,
         );
-        let eval_bad = engine.evaluate_closed_loop_reward(&zero_comp, 950.0, Some("green"), 5.0, 1, false);
+        let eval_bad = engine.evaluate_closed_loop_reward_with_profile(&zero_comp, 950.0, Some("green"), 5.0, 1, false, RewardProfile::AdditiveV1);
         assert_eq!(eval_bad.control_zone, "red");
         assert!(eval_bad.gated_by_compliance);
         assert_eq!(eval_bad.r_task_effective, 0.0);
         assert!(eval_bad.r_total < -1.0);
         assert_eq!(eval_bad.epoch_yield_multiplier, 0.0);
     }
+
+    // ---- AIS reward: shared golden vectors (spec/ais-api/v1/reward-vectors.json) ----
+    //
+    // The same file is read by integrity-sdk's Python tests and copied into xibalba-cortex.
+    // Its expected values were computed independently of every implementation.
+
+    const REWARD_VECTORS: &str = include_str!("../../../spec/ais-api/v1/reward-vectors.json");
+    const VECTOR_TOL: f64 = 1e-9;
+
+    fn vectors() -> serde_json::Value {
+        serde_json::from_str(REWARD_VECTORS).expect("reward-vectors.json must parse")
+    }
+
+    fn f(v: &serde_json::Value, key: &str) -> f64 {
+        v[key].as_f64().unwrap_or_else(|| panic!("missing number {key}"))
+    }
+
+    #[test]
+    fn reward_profile_names_and_default_weights_match_the_shared_vector_file() {
+        let v = vectors();
+        assert_eq!(v["reward_profile"], REWARD_PROFILE_MULTIPLICATIVE);
+        assert_eq!(v["legacy_reward_profile"], REWARD_PROFILE_ADDITIVE_V1);
+        assert_eq!(RewardProfile::default(), RewardProfile::Multiplicative);
+        let w = AisWeights::default();
+        assert_eq!(w.w_entropy, f(&v["ais_weights"], "entropy"));
+        assert_eq!(w.w_grounding, f(&v["ais_weights"], "grounding"));
+        assert_eq!(w.w_sacrifice, f(&v["ais_weights"], "sacrifice"));
+        assert_eq!(w.w_compliance, f(&v["ais_weights"], "compliance"));
+    }
+
+    #[test]
+    fn ais_matches_shared_golden_vectors() {
+        let engine = AisEngine::default();
+        for vec in vectors()["ais_vectors"].as_array().unwrap() {
+            let inputs = AisComponentInputs {
+                performance_variance: f(vec, "performance_variance"),
+                hgi_raw: f(vec, "grounding_ratio"),
+                gpu_hours_verified: f(vec, "contribution"),
+                penalty_ratio: f(vec, "penalty_ratio"),
+                zk_verified_event_ratio: f(vec, "zk_coverage_ratio"),
+            };
+            let tier = vec["did_tier"].as_i64().unwrap() as i32;
+            let got = engine.score_with_tier(&inputs, tier).ais;
+            let want = f(vec, "expected_ais");
+            assert!((got - want).abs() < VECTOR_TOL, "ais vector {vec}: got {got}, want {want}");
+        }
+    }
+
+    #[test]
+    fn multiplicative_reward_matches_shared_golden_vectors() {
+        for vec in vectors()["reward_vectors"].as_array().unwrap() {
+            let got = multiplicative_reward(
+                f(vec, "r_task"),
+                f(vec, "ais"),
+                f(vec, "cost_penalty"),
+                vec["gated"].as_bool().unwrap(),
+            );
+            let want = f(vec, "expected_r_total");
+            assert!((got - want).abs() < VECTOR_TOL, "{}: got {got}, want {want}", vec["name"]);
+        }
+    }
+
+    #[test]
+    fn multiplicative_reward_is_non_negative_monotonic_and_zero_without_integrity() {
+        for r_task in [-3.0, 0.0, 0.4, 7.0] {
+            let mut previous = f64::NEG_INFINITY;
+            for step in 0..=20 {
+                let r = multiplicative_reward(r_task, step as f64 * 50.0, 0.0, false);
+                assert!(r >= 0.0);
+                assert!(r >= previous);
+                previous = r;
+            }
+        }
+        for ais in [0.0, -5.0, f64::NAN, f64::NEG_INFINITY] {
+            assert_eq!(multiplicative_reward(1e9, ais, 0.0, false), 0.0);
+        }
+    }
+
+    /// The case the two profiles disagree on, and the reason for the change: under the additive
+    /// form AIS contributes at most `lambda_ais`, so a large enough task reward wins regardless
+    /// of integrity.
+    #[test]
+    fn integrity_cannot_be_swamped_by_task_reward() {
+        let engine = AisEngine::default();
+        let v = vectors();
+        let (a, b) = (&v["ordering_vector"]["a"], &v["ordering_vector"]["b"]);
+        let at = |ais: f64| AisBreakdown { ais, s_compliance: 1000.0, ..engine.score(&component_inputs_yielding(900.0, 900.0, 900.0, 1000.0, &engine)) };
+        let eval = |case: &serde_json::Value, profile| {
+            engine.evaluate_closed_loop_reward_with_profile(&at(f(case, "ais")), 1000.0, None, f(case, "r_task"), 0, false, profile)
+        };
+
+        let (ra, rb) = (eval(a, RewardProfile::Multiplicative), eval(b, RewardProfile::Multiplicative));
+        assert!((ra.r_total - f(a, "v2")).abs() < VECTOR_TOL);
+        assert!((rb.r_total - f(b, "v2")).abs() < VECTOR_TOL);
+        assert!(rb.r_total > ra.r_total, "high-integrity path must win");
+        assert_eq!(ra.reward_profile, REWARD_PROFILE_MULTIPLICATIVE);
+        assert_eq!(ra.ais_term, 0.0);
+        assert_eq!(ra.potential_shaping, 0.0);
+        assert_eq!(ra.violation_penalty, 0.0);
+
+        let (la, lb) = (eval(a, RewardProfile::AdditiveV1), eval(b, RewardProfile::AdditiveV1));
+        assert!((la.r_total - f(a, "v1")).abs() < VECTOR_TOL);
+        assert!((lb.r_total - f(b, "v1")).abs() < VECTOR_TOL);
+        assert!(la.r_total > lb.r_total, "the legacy additive profile is expected to get this case wrong");
+        assert_eq!(la.reward_profile, REWARD_PROFILE_ADDITIVE_V1);
+    }
+
+    #[test]
+    fn default_closed_loop_reward_is_multiplicative_and_zero_when_gated() {
+        let engine = AisEngine::default();
+        let high = engine.score_with_tier(&component_inputs_yielding(950.0, 950.0, 950.0, 950.0, &engine), 3);
+        let good = engine.evaluate_closed_loop_reward(&high, 900.0, Some("green"), 2.0, 0, false);
+        assert_eq!(good.reward_profile, REWARD_PROFILE_MULTIPLICATIVE);
+        assert!((good.r_total - 2.0 * high.ais / 1000.0).abs() < VECTOR_TOL);
+
+        let denied = engine.evaluate_closed_loop_reward(&high, 900.0, Some("green"), 2.0, 1, false);
+        assert!(denied.gated_by_compliance);
+        assert_eq!(denied.r_total, 0.0);
+        let interlocked = engine.evaluate_closed_loop_reward(&high, 900.0, Some("green"), 2.0, 0, true);
+        assert_eq!(interlocked.r_total, 0.0);
+        assert_eq!(interlocked.control_zone, "red");
+    }
+
 }
