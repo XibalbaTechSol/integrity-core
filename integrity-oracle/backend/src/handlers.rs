@@ -856,6 +856,14 @@ pub struct AisResponse {
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct ClosedLoopRewardDto {
     pub control_zone: String,
+    /// Which rule chose the zone thresholds: `per_tier` (default), `relative` or `absolute`.
+    pub zone_policy: String,
+    /// Below this AIS the agent is red.
+    pub zone_yellow_threshold: f64,
+    /// At or above this AIS the agent is green.
+    pub zone_green_threshold: f64,
+    /// The AIS an agent that was yellow or red must reach to become green again.
+    pub zone_recovery_threshold: f64,
     /// `ais-reward/v2-multiplicative-1` (canonical) or `ais-reward/v1-additive-1` (legacy).
     pub reward_profile: String,
     pub r_task_effective: f64,
@@ -913,6 +921,7 @@ pub(crate) async fn compute_ais_for_agent(
         .ok_or_else(|| AppError::AgentNotFound(id.to_string()))?;
 
     let engine = scoring_core::AisEngine::new(state.config.ais_weights)
+        .and_then(|engine| engine.with_zone_policy(state.config.ais_zone_policy))
         .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
     // EFFECTIVE tier, not the registration column: `agents.verification_tier` is only
     // the floor registration can establish (a hardcoded 1). Rungs 2/3 are evidence-backed
@@ -1044,6 +1053,10 @@ pub(crate) async fn compute_ais_for_agent(
             );
             ClosedLoopRewardDto {
                 control_zone: eval.control_zone,
+                zone_policy: eval.zone_policy,
+                zone_yellow_threshold: eval.zone_thresholds.yellow,
+                zone_green_threshold: eval.zone_thresholds.green,
+                zone_recovery_threshold: eval.zone_thresholds.recovery,
                 reward_profile: eval.reward_profile,
                 r_task_effective: eval.r_task_effective,
                 ais_term: eval.ais_term,

@@ -198,9 +198,9 @@ class Settings:
     #   enforce  a restriction goes through _deny like every other denial, so the global
     #            BCC_SHADOW_MODE still decides whether it blocks: with BCC_SHADOW_MODE=true (the
     #            default) "enforce" here is still only a would-deny.
-    # PRECONDITION for enforce: the oracle caps AIS by registration tier (300 / 600 / 850 / 1000 for
-    # tiers 0-3) while red is < 750 and green is >= 900, so a tier 0-1 agent is permanently red and
-    # a tier 2 agent can never be green. Do not enforce until that is reconciled.
+    # Before enforce, check the oracle's zone policy (closed_loop_reward.zone_policy). Its default,
+    # per_tier, gives every tier reachable thresholds. Under `absolute` (750 / 900 / 920 for all) a
+    # tier 0-1 agent is always red and a tier 2 agent can never be green.
     ais_zone_mode: str = field(default_factory=lambda: os.getenv("BCC_AIS_ZONE_MODE", ais_zone.MODE_OFF))
     # What to do when the zone cannot be read (oracle down, 404 unknown agent, malformed body, and no
     # last-known-good): "allow" = the gate has no opinion; "restrict" = treat as red.

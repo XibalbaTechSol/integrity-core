@@ -21,10 +21,12 @@ What this module does NOT do: it does not compute a score or a zone. The SDK's
 `ClosedLoopAISController.step()` recomputes AIS with its own weights; calling it here would give the
 gate a second, different opinion about the same agent. The oracle's zone is the only input.
 
-Precondition for turning the gate on in `enforce` (see README "AIS control-zone gate"): the oracle
-caps AIS by registration tier (ceilings 300 / 600 / 850 / 1000 for tiers 0-3) while red is below 750
-and green starts at 900. A tier 0 or tier 1 agent therefore cannot leave red, and a tier 2 agent
-cannot reach green. That is why the default mode is `off`.
+The zone depends on the oracle's zone policy (`AIS_ZONE_POLICY`, `scoring_core::ZonePolicy`). The
+oracle caps AIS by registration tier (ceilings 300 / 600 / 850 / 1000 for tiers 0-3), and its default
+policy, `per_tier`, judges each agent against thresholds for its own tier. If the oracle is set to
+`absolute` (750 / 900 / 920 for everyone), a tier 0 or tier 1 agent cannot leave red and a tier 2 agent
+cannot reach green; check which policy the oracle runs (`closed_loop_reward.zone_policy`) before
+turning this gate on in `enforce`.
 """
 
 from __future__ import annotations

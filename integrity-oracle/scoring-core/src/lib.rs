@@ -256,6 +256,9 @@ impl AisFloors {
 /// `AisEngine::default()`.
 #[derive(Debug, Clone, Copy)]
 pub struct AisEngine {
+    /// How an AIS becomes a control zone (see [`ZonePolicy`]). Defaulted to per-tier
+    /// thresholds, so an agent is judged against what its verification tier can reach.
+    pub zone_policy: ZonePolicy,
     pub weights: AisWeights,
     /// Shadow-mode-only gate floors (see `AisFloors`'s own doc comment). Defaulted so
     /// every existing caller of `AisEngine::default()`/`new()` gets shadow observation for
@@ -266,6 +269,7 @@ pub struct AisEngine {
 impl Default for AisEngine {
     fn default() -> Self {
         Self {
+            zone_policy: ZonePolicy::default(),
             weights: AisWeights::default(),
             floors: AisFloors::default(),
         }
@@ -278,9 +282,18 @@ impl AisEngine {
         let floors = AisFloors::default();
         floors.validate()?;
         Ok(Self {
+            zone_policy: ZonePolicy::default(),
             weights,
             floors,
         })
+    }
+
+    /// The same engine with an operator-chosen zone policy. Fails on a policy that does not
+    /// validate, so an unreachable or inverted threshold is a startup error, not a silent lockout.
+    pub fn with_zone_policy(mut self, zone_policy: ZonePolicy) -> Result<Self, String> {
+        zone_policy.validate()?;
+        self.zone_policy = zone_policy;
+        Ok(self)
     }
 
     /// Same as `new`, but with explicit (e.g. operator-configured or test-chosen) floors
@@ -288,7 +301,7 @@ impl AisEngine {
     pub fn with_floors(weights: AisWeights, floors: AisFloors) -> Result<Self, String> {
         weights.validate()?;
         floors.validate()?;
-        Ok(Self { weights, floors })
+        Ok(Self { zone_policy: ZonePolicy::default(), weights, floors })
     }
 
     /// S_entropy: rewards *stability*, not any particular performance level. Uses a
@@ -456,19 +469,10 @@ impl AisEngine {
             MAX_COMPONENT_SCORE
         };
 
-        let control_zone = if hard_interlock_tripped || score < 750.0 {
-            "red".to_string()
-        } else if matches!(prev_zone, Some("yellow") | Some("red")) {
-            if score >= 920.0 {
-                "green".to_string()
-            } else {
-                "yellow".to_string()
-            }
-        } else if score >= 900.0 {
-            "green".to_string()
-        } else {
-            "yellow".to_string()
-        };
+        let zone_thresholds = self.zone_policy.thresholds_for_ceiling(breakdown.tier_ceiling);
+        let control_zone = zone_thresholds
+            .control_zone(score, prev_zone, hard_interlock_tripped)
+            .to_string();
 
         let compliance_zero = breakdown.s_compliance <= 0.0 || score <= 0.0;
         let gated_by_compliance = compliance_zero || deny_count > 0 || hard_interlock_tripped;
@@ -525,6 +529,8 @@ impl AisEngine {
         ClosedLoopRewardEvaluation {
             reward_profile: profile.name().to_string(),
             control_zone,
+            zone_policy: self.zone_policy.mode.name().to_string(),
+            zone_thresholds,
             r_task_effective,
             ais_term,
             potential_shaping,
@@ -536,12 +542,186 @@ impl AisEngine {
     }
 }
 
+pub const ZONE_POLICY_PER_TIER: &str = "per_tier";
+pub const ZONE_POLICY_RELATIVE: &str = "relative";
+pub const ZONE_POLICY_ABSOLUTE: &str = "absolute";
+
+/// Where the zone boundaries sit, on the AIS scale `[0, 1000]`.
+///
+/// `yellow` is the red/yellow boundary, `green` the yellow/green boundary, and `recovery` the
+/// score a degraded agent must reach to become green again (the hysteresis deadband).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ZoneThresholds {
+    pub yellow: f64,
+    pub green: f64,
+    pub recovery: f64,
+}
+
+impl ZoneThresholds {
+    /// `0 <= yellow < green <= recovery <= max`, all finite. `max` is the highest score the
+    /// thresholds apply to: a `green` above it could never be reached.
+    pub fn validate(&self, max: f64) -> Result<(), String> {
+        let ordered = self.yellow.is_finite()
+            && self.green.is_finite()
+            && self.recovery.is_finite()
+            && 0.0 <= self.yellow
+            && self.yellow < self.green
+            && self.green <= self.recovery
+            && self.recovery <= max;
+        if ordered {
+            Ok(())
+        } else {
+            Err(format!(
+                "zone thresholds must satisfy 0 <= yellow < green <= recovery <= {max}, got {}/{}/{}",
+                self.yellow, self.green, self.recovery
+            ))
+        }
+    }
+
+    /// The zone for `score`. A tripped interlock or a score that is not finite is red.
+    pub fn control_zone(&self, score: f64, prev_zone: Option<&str>, hard_interlock_tripped: bool) -> &'static str {
+        if hard_interlock_tripped || !score.is_finite() || score < self.yellow {
+            "red"
+        } else if matches!(prev_zone, Some("yellow") | Some("red")) {
+            if score >= self.recovery {
+                "green"
+            } else {
+                "yellow"
+            }
+        } else if score >= self.green {
+            "green"
+        } else {
+            "yellow"
+        }
+    }
+}
+
+/// Which rule turns an AIS into zone thresholds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ZonePolicyMode {
+    /// A threshold set per verification tier (the default).
+    #[default]
+    PerTier,
+    /// One set of fractions, multiplied by the agent's tier ceiling.
+    Relative,
+    /// One threshold set for every tier. With the default 750/900/920 this is the behaviour
+    /// before zone policies existed, under which tiers 0 and 1 can never leave red.
+    Absolute,
+}
+
+impl ZonePolicyMode {
+    pub fn name(self) -> &'static str {
+        match self {
+            ZonePolicyMode::PerTier => ZONE_POLICY_PER_TIER,
+            ZonePolicyMode::Relative => ZONE_POLICY_RELATIVE,
+            ZonePolicyMode::Absolute => ZONE_POLICY_ABSOLUTE,
+        }
+    }
+
+    pub fn parse(name: &str) -> Result<Self, String> {
+        match name {
+            ZONE_POLICY_PER_TIER => Ok(ZonePolicyMode::PerTier),
+            ZONE_POLICY_RELATIVE => Ok(ZonePolicyMode::Relative),
+            ZONE_POLICY_ABSOLUTE => Ok(ZonePolicyMode::Absolute),
+            other => Err(format!(
+                "zone policy must be one of {ZONE_POLICY_PER_TIER}, {ZONE_POLICY_RELATIVE}, {ZONE_POLICY_ABSOLUTE}; got {other:?}"
+            )),
+        }
+    }
+}
+
+/// How an AIS becomes a control zone.
+///
+/// AIS is capped by verification tier (300 / 600 / 850 / 1000), so one absolute threshold set
+/// cannot serve every tier: under 750/900/920 a tier 0 or tier 1 agent is red whatever it does.
+/// `per_tier` and `relative` both judge an agent against what its tier can reach. They differ in
+/// what the operator edits: a table of scores per tier, or one set of fractions.
+///
+/// All three parameter sets are always present; `mode` selects which one is used. The Python
+/// reference is `integrity_sdk.core.ais_reward.ZonePolicy`, and both are checked against
+/// `spec/ais-api/v1/zone-vectors.json`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ZonePolicy {
+    pub mode: ZonePolicyMode,
+    /// Indexed by tier 0..=3.
+    pub per_tier: [ZoneThresholds; 4],
+    /// Fractions of the tier ceiling, each in `[0, 1]`.
+    pub relative: ZoneThresholds,
+    pub absolute: ZoneThresholds,
+}
+
+impl Default for ZonePolicy {
+    /// The per-tier defaults are 75% / 90% / 92% of each tier's ceiling, which for tier 3 is the
+    /// original 750 / 900 / 920.
+    fn default() -> Self {
+        Self {
+            mode: ZonePolicyMode::PerTier,
+            per_tier: [
+                ZoneThresholds { yellow: 225.0, green: 270.0, recovery: 276.0 },
+                ZoneThresholds { yellow: 450.0, green: 540.0, recovery: 552.0 },
+                ZoneThresholds { yellow: 637.5, green: 765.0, recovery: 782.0 },
+                ZoneThresholds { yellow: 750.0, green: 900.0, recovery: 920.0 },
+            ],
+            relative: ZoneThresholds { yellow: 0.75, green: 0.90, recovery: 0.92 },
+            absolute: ZoneThresholds { yellow: 750.0, green: 900.0, recovery: 920.0 },
+        }
+    }
+}
+
+impl ZonePolicy {
+    /// Every parameter set is checked, not only the selected one, so switching `mode` later
+    /// cannot reveal a bad table. A per-tier threshold above its own tier's ceiling is refused.
+    pub fn validate(&self) -> Result<(), String> {
+        for (tier, thresholds) in self.per_tier.iter().enumerate() {
+            thresholds
+                .validate(AisEngine::ceiling_for_tier(tier as i32))
+                .map_err(|e| format!("per_tier tier {tier}: {e}"))?;
+        }
+        self.relative.validate(1.0).map_err(|e| format!("relative: {e}"))?;
+        self.absolute.validate(MAX_COMPONENT_SCORE).map_err(|e| format!("absolute: {e}"))
+    }
+
+    /// The thresholds for an agent of `verification_tier` (clamped to 0..=3, as
+    /// [`AisEngine::ceiling_for_tier`] does).
+    pub fn thresholds_for_tier(&self, verification_tier: i32) -> ZoneThresholds {
+        let tier = verification_tier.clamp(0, 3);
+        match self.mode {
+            ZonePolicyMode::PerTier => self.per_tier[tier as usize],
+            ZonePolicyMode::Relative => {
+                let ceiling = AisEngine::ceiling_for_tier(tier);
+                ZoneThresholds {
+                    yellow: self.relative.yellow * ceiling,
+                    green: self.relative.green * ceiling,
+                    recovery: self.relative.recovery * ceiling,
+                }
+            }
+            ZonePolicyMode::Absolute => self.absolute,
+        }
+    }
+
+    /// As [`Self::thresholds_for_tier`], from the ceiling an [`AisBreakdown`] carries. A ceiling
+    /// that is not one of the four tier ceilings resolves to the highest tier at or below it, and
+    /// to tier 0 when it is below every ceiling or not finite.
+    pub fn thresholds_for_ceiling(&self, tier_ceiling: f64) -> ZoneThresholds {
+        let tier = (0..=3)
+            .rev()
+            .find(|tier| tier_ceiling >= AisEngine::ceiling_for_tier(*tier))
+            .unwrap_or(0);
+        self.thresholds_for_tier(tier)
+    }
+}
+
 /// Canonical Closed-Loop AIS Control Zone and Step/Epoch Reward Evaluation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClosedLoopRewardEvaluation {
-    /// Active closed-loop zone: `"green"` (`>= 900`, hysteresis recovery `>= 920`),
-    /// `"yellow"` (`750 <= AIS < 900`), or `"red"` (`< 750` or interlock tripped).
+    /// Active closed-loop zone: `"green"` (`>= green`, or `>= recovery` when coming back from
+    /// yellow or red), `"yellow"` (`yellow <= AIS < green`), or `"red"` (`< yellow` or interlock
+    /// tripped). The three thresholds are `zone_thresholds`, chosen by `zone_policy`.
     pub control_zone: String,
+    /// Which [`ZonePolicy`] mode chose the thresholds: `per_tier`, `relative` or `absolute`.
+    pub zone_policy: String,
+    /// The thresholds this agent was judged against, on the AIS scale.
+    pub zone_thresholds: ZoneThresholds,
     /// Which step-reward formula produced `r_total`: [`REWARD_PROFILE_MULTIPLICATIVE`]
     /// (default) or [`REWARD_PROFILE_ADDITIVE_V1`].
     pub reward_profile: String,
@@ -1008,6 +1188,108 @@ mod tests {
     //
     // The same file is read by integrity-sdk's Python tests and copied into xibalba-cortex.
     // Its expected values were computed independently of every implementation.
+
+    // ---- AIS control zone: shared golden vectors (spec/ais-api/v1/zone-vectors.json) ----
+
+    const ZONE_VECTORS: &str = include_str!("../../../spec/ais-api/v1/zone-vectors.json");
+
+    fn zone_vectors() -> serde_json::Value {
+        serde_json::from_str(ZONE_VECTORS).expect("zone-vectors.json must parse")
+    }
+
+    fn thresholds_of(v: &serde_json::Value) -> ZoneThresholds {
+        let n = |i: usize| v[i].as_f64().expect("threshold must be a number");
+        ZoneThresholds { yellow: n(0), green: n(1), recovery: n(2) }
+    }
+
+    fn policy_of(v: &serde_json::Value, mode: &str) -> ZonePolicy {
+        let per_tier = v["per_tier"].as_array().unwrap();
+        ZonePolicy {
+            mode: ZonePolicyMode::parse(mode).unwrap(),
+            per_tier: [
+                thresholds_of(&per_tier[0]),
+                thresholds_of(&per_tier[1]),
+                thresholds_of(&per_tier[2]),
+                thresholds_of(&per_tier[3]),
+            ],
+            relative: thresholds_of(&v["relative"]),
+            absolute: thresholds_of(&v["absolute"]),
+        }
+    }
+
+    #[test]
+    fn the_default_zone_policy_matches_the_shared_vector_file() {
+        let v = zone_vectors();
+        let default = ZonePolicy::default();
+        assert_eq!(default.mode.name(), v["default_mode"]);
+        assert_eq!(default, policy_of(&v["policies"]["default"], ZONE_POLICY_PER_TIER));
+        default.validate().unwrap();
+        for (tier, ceiling) in v["tier_ceilings"].as_array().unwrap().iter().enumerate() {
+            assert_eq!(AisEngine::ceiling_for_tier(tier as i32), ceiling.as_f64().unwrap());
+        }
+    }
+
+    #[test]
+    fn control_zone_matches_shared_golden_vectors() {
+        let v = zone_vectors();
+        let cases = v["zone_vectors"].as_array().unwrap();
+        assert!(cases.len() >= 40, "the vector file lost cases: {}", cases.len());
+        for case in cases {
+            let policy = policy_of(&v["policies"][case["policy"].as_str().unwrap()], case["mode"].as_str().unwrap());
+            policy.validate().unwrap();
+            let tier = case["tier"].as_i64().unwrap() as i32;
+            let score = f(case, "score");
+            let prev = case["prev_zone"].as_str();
+            let interlock = case["interlock"].as_bool().unwrap();
+            let want = case["expected"].as_str().unwrap();
+
+            let got = policy.thresholds_for_tier(tier).control_zone(score, prev, interlock);
+            assert_eq!(got, want, "{}", case["name"]);
+
+            // And through the engine, where the tier arrives as the breakdown's ceiling.
+            let engine = AisEngine::default().with_zone_policy(policy).unwrap();
+            let mut breakdown = engine.score(&component_inputs_yielding(900.0, 900.0, 900.0, 900.0, &engine));
+            breakdown.ais = score;
+            breakdown.tier_ceiling = AisEngine::ceiling_for_tier(tier);
+            let eval = engine.evaluate_closed_loop_reward(&breakdown, score, prev, 1.0, 0, interlock);
+            assert_eq!(eval.control_zone, want, "{} (via the engine)", case["name"]);
+            assert_eq!(eval.zone_policy, case["mode"].as_str().unwrap());
+            assert_eq!(eval.zone_thresholds, policy.thresholds_for_tier(tier));
+        }
+    }
+
+    #[test]
+    fn a_non_finite_score_or_ceiling_never_reads_as_green() {
+        let policy = ZonePolicy::default();
+        for score in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert_eq!(policy.thresholds_for_tier(3).control_zone(score, None, false), "red");
+        }
+        // An unusable ceiling resolves to tier 0, the most demanding reading of "which tier".
+        for ceiling in [f64::NAN, -1.0, 0.0, 299.0] {
+            assert_eq!(policy.thresholds_for_ceiling(ceiling), policy.per_tier[0]);
+        }
+        assert_eq!(policy.thresholds_for_ceiling(700.0), policy.per_tier[1]);
+        assert_eq!(policy.thresholds_for_ceiling(f64::INFINITY), policy.per_tier[3]);
+    }
+
+    #[test]
+    fn zone_policy_validation_refuses_inverted_and_unreachable_thresholds() {
+        let ok = ZonePolicy::default();
+        let mut inverted = ok;
+        inverted.absolute = ZoneThresholds { yellow: 900.0, green: 750.0, recovery: 920.0 };
+        assert!(inverted.validate().is_err());
+        let mut unreachable = ok;
+        unreachable.per_tier[0] = ZoneThresholds { yellow: 225.0, green: 301.0, recovery: 301.0 };
+        assert!(unreachable.validate().is_err());
+        let mut over_one = ok;
+        over_one.relative = ZoneThresholds { yellow: 0.75, green: 0.9, recovery: 1.01 };
+        assert!(over_one.validate().is_err());
+        let mut nan = ok;
+        nan.per_tier[2].yellow = f64::NAN;
+        assert!(nan.validate().is_err());
+        assert!(AisEngine::default().with_zone_policy(inverted).is_err());
+        assert!(ZonePolicyMode::parse("strict").is_err());
+    }
 
     const REWARD_VECTORS: &str = include_str!("../../../spec/ais-api/v1/reward-vectors.json");
     const VECTOR_TOL: f64 = 1e-9;
