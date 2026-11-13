@@ -1,5 +1,15 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-11-12] feat | A gate can score its agents from its own receipts (local AIS, L0)
+
+- New `integrity_sdk.core.ais_local`: `LocalReceiptScorer`, `ReceiptLogTail`, `ReceiptLogZoneSource`,
+  profile `ais-local/receipts-compliance-1`. Same formula and zone rule as the Oracle; the only input is
+  the share of pack violations in the agent's recent receipts. Unobservable axes have weight 0.
+- The zone mask's own denials and gate faults are not counted, so red is not self-sustaining; cold start
+  is `unknown`; recovery uses the zone policy's hysteresis; tier is configuration.
+- Closes the AIS loop at L0 once a gate registers it as a zone provider (xibalba-shield `ais` provider).
+- Updated `concepts/ais.md` (new section "Local Score from Receipts (L0)"), `STATUS.md`.
+
 ## [2026-11-12] feat | The AIS control zone is judged against the agent's tier (zone policy)
 
 - New `ZonePolicy` in `scoring-core` and `integrity_sdk.core.ais_reward`: `per_tier` (default),

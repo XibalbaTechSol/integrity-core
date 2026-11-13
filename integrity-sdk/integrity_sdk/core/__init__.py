@@ -76,6 +76,16 @@ from .ais_reward import (
     multiplicative_reward,
     evaluate_ais_v1_geometric,
 )
+from .ais_local import (
+    LOCAL_RECEIPT_PROFILE,
+    LOCAL_RECEIPT_WEIGHTS,
+    LocalReceiptScorer,
+    LocalScore,
+    LocalScorerSettings,
+    ReceiptLogTail,
+    ReceiptLogZoneSource,
+    classify_receipt,
+)
 from .entitlements import CapabilityDenied, EntitlementSet, require_capability
 from .jcs import canonical_bytes, sha256_hex
 from .memory import MEMORY_INTERFACE_VERSION, MemoryProvider
@@ -145,6 +155,8 @@ __all__ = [
     "AIS_FORMULA_VERSION", "DEFAULT_AXIS_WEIGHTS", "TIER_CEILINGS",
     "ZONE_POLICY_ABSOLUTE", "ZONE_POLICY_MODES", "ZONE_POLICY_PER_TIER", "ZONE_POLICY_RELATIVE",
     "ZonePolicy", "ZoneThresholds", "evaluate_control_zone",
+    "LOCAL_RECEIPT_PROFILE", "LOCAL_RECEIPT_WEIGHTS", "LocalReceiptScorer", "LocalScore", "LocalScorerSettings",
+    "ReceiptLogTail", "ReceiptLogZoneSource", "classify_receipt",
     "AISComponents", "AISControlZone", "AISInputs", "AISRewardFunction",
     "ClosedLoopAISController", "ClosedLoopState", "EpochSettlementResult", "StepRewardBreakdown",
     "compute_compliance_score", "compute_contribution_score", "compute_entropy_score",
