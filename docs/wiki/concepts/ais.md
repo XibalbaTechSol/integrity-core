@@ -33,6 +33,7 @@ Any hallucination, broken behavioral commitment, or unauthorized execution cause
 - [Mathematical Formulation](#mathematical-formulation)
   - [Component Weights](#component-weights)
   - [Zero-Knowledge Proving Boost](#zero-knowledge-proving-boost)
+- [Local Score from Receipts (L0)](#local-score-from-receipts-l0)
 - [Trust Model & Oracle Re-Derivation](#trust-model-oracle-re-derivation)
 - [Verification Flow](#verification-flow)
 - [Constraint Score & Identity Tier Floors](#constraint-score-identity-tier-floors)
@@ -59,6 +60,32 @@ Default weights (sum to 1.0):
 $$\text{ZK\_boost} = 1.0 + 0.15 \times \text{verified\_event\_ratio}$$
 
 Where `verified_event_ratio` represents the proportion of telemetry events accompanied by a valid, independently verified zero-knowledge proof (see [ZKP](zkp.md)).
+
+---
+
+## Local Score from Receipts (L0)
+
+A gate can compute an AIS for itself, from the receipts it wrote, with no Oracle, chain or token in the
+path: `integrity_sdk.core.ais_local` (profile `ais-local/receipts-compliance-1`). It is the same
+formula, `evaluate_ais_v1_geometric`, and the same zone rule, `evaluate_control_zone` under a
+`ZonePolicy`. Only the evidence is local.
+
+- **One observable axis.** A receipt records the pack's decision, which measures compliance:
+  $p$ is the share of the agent's last `window_size` counted decisions that were `deny` or `log_only`.
+  Grounding, contribution and entropy are not observable from receipts and have weight 0, so the score
+  is $\min(S_C, \text{tier ceiling})$. It is never reported as an Oracle AIS.
+- **Not counted:** the zone mask's own denials (`AIS_ZONE_RESTRICTED`), which would otherwise keep a red
+  agent red, and gate faults (`INTEGRITY_EVALUATOR_ERROR`, `INTEGRITY_MALFORMED_DECISION`,
+  `INTEGRITY_NO_PACK`). `INTEGRITY_NO_MATCH` counts: an action outside the signed graph is the violation.
+- **Cold start is `unknown`**, never red: fewer than `min_observations` counted decisions gives no score.
+- **Recovery** is through permitted actions pushing violations out of the window, with the policy's
+  `recovery` threshold as hysteresis.
+- **Tier** is operator configuration (`default_tier`, `agent_tiers`); there is no implicit tier 3.
+- **Known limits:** the agent id is caller-supplied (a new id is a cold start); a count window can be
+  diluted by cheap clean calls (`max_age_seconds` bounds it in time).
+
+`ReceiptLogZoneSource` tails a gate's `receipts.jsonl` and answers `agent_id -> zone`; Shield registers
+it as the `ais` zone provider for its gate's zone mask.
 
 ---
 
