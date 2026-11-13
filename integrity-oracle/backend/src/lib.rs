@@ -22,6 +22,7 @@ pub mod vc;
 pub mod otlp;
 pub mod phi;
 pub mod reconciliation;
+pub mod ratelimit;
 pub mod routes;
 pub mod span_schema;
 pub mod stream;
@@ -30,7 +31,6 @@ pub mod verification;
 
 use std::sync::Arc;
 
-use redis::aio::ConnectionManager;
 use sqlx::PgPool;
 use tokio::sync::broadcast;
 
@@ -46,7 +46,7 @@ use crate::stream::StreamEvent;
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
-    pub redis: ConnectionManager,
+    pub rate_limiter: ratelimit::RateLimiter,
     pub chain: ChainClient,
     pub config: Arc<Config>,
     pub telemetry_tx: broadcast::Sender<StreamEvent>,

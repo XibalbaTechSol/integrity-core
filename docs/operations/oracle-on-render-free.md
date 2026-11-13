@@ -10,7 +10,7 @@ Files: `integrity-oracle/Dockerfile.render`, `deploy/render/oracle.render.yaml`,
 |---|---|
 | TimescaleDB hypertables, retention policies | Plain tables + `pg_cron` hourly DELETE (shim). Supabase has no `timescaledb`. |
 | `time_bucket()` from Timescale | Shim over `date_bin` (same default origin) |
-| Redis container | Render Key Value (free), LRU eviction; only a rate-limit counter lives there |
+| Redis container | Render Key Value (free), LRU eviction; only a rate-limit counter lives there. **Optional since 2026-11-12:** if it is suspended or unreachable the Oracle starts anyway (≤10s wait) and counts limits in-process |
 | OTLP gRPC on :4317 | **Not reachable** (Render exposes `$PORT` only). Use the HTTP telemetry endpoints. |
 | Always on | **Free web services sleep after ~15 min idle**; first request cold-starts (~30-60 s). Shared ~750 h/month pool across free services. |
 
@@ -80,3 +80,13 @@ curl -fsS localhost:9090/healthz
   copy telemetry rows with `nonce > <Render last_nonce>` so nonce order does not gap.
 - Verified in situ: `/v1/agent/<id>`, `/ais`, `/telemetry`, `/telemetry/volume` (exercises the
   `time_bucket` shim) all 200 on the Render Oracle.
+
+## Outage 2026-11-07 → 2026-11-12: suspended Key Value
+
+`integrity-oracle-kv` was suspended on 2026-11-07. The Oracle then waited minutes for Redis at
+start-up, failed with `Connection refused`, and restart-looped, so every endpoint timed out.
+`render ea kv resume red-dbmpcms9v7es73adj630` returned HTTP 500 on 2026-11-12. The fix made Redis
+optional (`backend/src/ratelimit.rs`): the limiter falls back to an in-process fixed window, which is
+the same budget on this single-instance deployment. It neither fails open (no limit on the
+unauthenticated OTLP receiver) nor fails closed (500s).
+

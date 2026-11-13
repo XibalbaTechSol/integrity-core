@@ -1267,15 +1267,8 @@ fn check_oracle_api_key(state: &AppState, headers: &axum::http::HeaderMap) -> Re
 }
 
 async fn check_internal_api_rate_limit(state: &AppState) -> Result<(), AppError> {
-    use redis::AsyncCommands;
     let window = Utc::now().timestamp() / 60;
-    let key = format!("ratelimit:internal_api:{window}");
-
-    let mut conn = state.redis.clone();
-    let count: i64 = conn.incr(&key, 1).await?;
-    if count == 1 {
-        let _: () = conn.expire(&key, 60).await?;
-    }
+    let count = state.rate_limiter.hit("ratelimit:internal_api", window).await;
 
     // A simple global limit for internal endpoints, scaled up
     if count > (state.config.telemetry_rate_limit_per_minute as i64 * 10) {
@@ -1285,16 +1278,8 @@ async fn check_internal_api_rate_limit(state: &AppState) -> Result<(), AppError>
 }
 
 async fn check_telemetry_rate_limit(state: &AppState, agent_id: &str) -> Result<(), AppError> {
-    use redis::AsyncCommands;
-
     let window = Utc::now().timestamp() / 60;
-    let key = format!("ratelimit:telemetry:{agent_id}:{window}");
-
-    let mut conn = state.redis.clone();
-    let count: i64 = conn.incr(&key, 1).await?;
-    if count == 1 {
-        let _: () = conn.expire(&key, 60).await?;
-    }
+    let count = state.rate_limiter.hit(&format!("ratelimit:telemetry:{agent_id}"), window).await;
 
     if count > state.config.telemetry_rate_limit_per_minute as i64 {
         return Err(AppError::RateLimited);

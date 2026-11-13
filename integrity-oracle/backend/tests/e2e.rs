@@ -132,6 +132,7 @@ async fn build_state(rpc_url: &str, deployments_file: &PathBuf, db_url: &str, re
 
     let redis_client = redis::Client::open(redis_url).unwrap();
     let redis = redis::aio::ConnectionManager::new(redis_client).await.expect("Redis must be reachable");
+    let rate_limiter = backend::ratelimit::RateLimiter::with_redis(redis);
 
     let chain = ChainClient::connect(rpc_url, deployments_file).await.expect("chain client connects");
 
@@ -139,7 +140,7 @@ async fn build_state(rpc_url: &str, deployments_file: &PathBuf, db_url: &str, re
 
     let (telemetry_tx, _) = tokio::sync::broadcast::channel(backend::stream::CHANNEL_CAPACITY);
 
-    AppState { pool, redis, chain, config: Arc::new(config), telemetry_tx }
+    AppState { pool, rate_limiter, chain, config: Arc::new(config), telemetry_tx }
 }
 
 #[tokio::test]
