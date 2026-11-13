@@ -12,7 +12,7 @@ services:
     dockerfilePath: ./integrity-oracle/Dockerfile.render
     dockerContext: .
     healthCheckPath: /healthz
-    autoDeploy: false         # promote deliberately; the Oracle is protocol authority
+    autoDeploy: true          # operator choice 2026-11-12: every merge to main deploys
     envVars:
       - key: DATABASE_URL     # Supabase SESSION pooler (port 5432), role oracle_app. Set in the dashboard.
         sync: false
