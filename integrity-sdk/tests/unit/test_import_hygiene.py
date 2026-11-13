@@ -32,6 +32,7 @@ CORE_MODULES = (
     "integrity_sdk.bcc",
     "integrity_sdk.crypto.merkle",
     "integrity_sdk.harness_hooks",
+    "integrity_sdk.billing",
 )
 
 # Modules cut in A1 (now in integrity-lab). They must stay gone.
