@@ -51,22 +51,8 @@ use crate::{db, identity, phi, AppState};
 /// + synchronous Postgres insert with zero limiter, unlike every other write path in
 /// this service (PRODUCTION_GAPS.md §2).
 async fn check_otlp_rate_limit(state: &AppState, agent_id: &str) -> Result<(), TonicStatus> {
-    use redis::AsyncCommands;
-
     let window = Utc::now().timestamp() / 60;
-    let key = format!("ratelimit:otlp:{agent_id}:{window}");
-
-    let mut conn = state.redis.clone();
-    let count: i64 = conn
-        .incr(&key, 1)
-        .await
-        .map_err(|e| TonicStatus::internal(format!("rate limiter unavailable: {e}")))?;
-    if count == 1 {
-        let _: () = conn
-            .expire(&key, 60)
-            .await
-            .map_err(|e| TonicStatus::internal(format!("rate limiter unavailable: {e}")))?;
-    }
+    let count = state.rate_limiter.hit(&format!("ratelimit:otlp:{agent_id}"), window).await;
 
     if count > state.config.telemetry_rate_limit_per_minute as i64 {
         return Err(TonicStatus::resource_exhausted(format!(

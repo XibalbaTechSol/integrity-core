@@ -43,7 +43,8 @@ impl PhiBackstopMode {
 #[derive(Debug, Clone)]
 pub struct Config {
     pub database_url: String,
-    pub redis_url: String,
+    /// Optional. Unset or empty: rate limits are counted in-process (see `ratelimit.rs`).
+    pub redis_url: Option<String>,
     pub rpc_url: String,
     pub chain_id: u64,
     pub bind_addr: String,
@@ -95,7 +96,7 @@ pub struct Config {
 impl Config {
     pub fn from_env() -> Result<Self, String> {
         let database_url = require_env("DATABASE_URL")?;
-        let redis_url = require_env("REDIS_URL")?;
+        let redis_url = std::env::var("REDIS_URL").ok().filter(|v| !v.trim().is_empty());
         let rpc_url = env_or("RPC_URL", "http://localhost:8545");
         let chain_id: u64 = env_or("CHAIN_ID", "31337")
             .parse()
@@ -167,7 +168,7 @@ impl Config {
     pub fn from_env_for_test(rpc_url: String, database_url: String, redis_url: String) -> Self {
         Self {
             database_url,
-            redis_url,
+            redis_url: Some(redis_url),
             rpc_url,
             chain_id: 31337,
             bind_addr: "127.0.0.1:0".to_string(),

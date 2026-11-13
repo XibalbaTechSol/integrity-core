@@ -120,7 +120,7 @@ is what limits who can ask it. Its path rule and wire format are in §15.5.
   `timescale/timescaledb` instance, not plain `postgres` — migration 0004 runs
   `CREATE EXTENSION timescaledb` (see `docker-compose.yml`'s `postgres` service and
   §1's OTLP receiver below).
-- `REDIS_URL` — Redis connection string (oracle)
+- `REDIS_URL` — optional Redis connection string (oracle). Shares rate-limit counters across instances; unset or unreachable, the Oracle still starts and counts limits in-process (`integrity-oracle/backend/src/ratelimit.rs`)
 - `OTLP_GRPC_ADDR` — bind address for the oracle's real OTLP/gRPC receiver
   (`integrity-oracle/backend/src/otlp.rs`), defaults to `0.0.0.0:4317` — the standard
   OTLP/gRPC port `integrity-sdk`'s `OTLPSpanExporter`/`OTLPMetricExporter` already

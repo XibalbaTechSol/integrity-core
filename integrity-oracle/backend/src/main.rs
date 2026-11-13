@@ -28,9 +28,21 @@ async fn main() -> anyhow::Result<()> {
     db::run_migrations(&pool).await?;
     tracing::info!("database migrations applied");
 
-    let redis_client = redis::Client::open(config.redis_url.clone())?;
-    let redis = redis::aio::ConnectionManager::new(redis_client).await?;
-    tracing::info!("redis connected");
+    // Redis is optional: it only shares rate-limit counters. Its absence must not keep the
+    // Oracle from serving (the 2026-11-07 outage), so start-up waits at most 10s for it.
+    let rate_limiter = match config.redis_url.as_deref() {
+        Some(url) => match backend::ratelimit::connect_redis(url, std::time::Duration::from_secs(10)).await {
+            Some(manager) => {
+                tracing::info!("redis connected; rate limits are shared");
+                backend::ratelimit::RateLimiter::with_redis(manager)
+            }
+            None => backend::ratelimit::RateLimiter::local_only(),
+        },
+        None => {
+            tracing::warn!("REDIS_URL not set; rate limits are per-process");
+            backend::ratelimit::RateLimiter::local_only()
+        }
+    };
 
     let chain = ChainClient::connect(&config.rpc_url, &config.deployments_file).await?;
     tracing::info!(deployments_file = %config.deployments_file.display(), "chain client connected");
@@ -40,7 +52,7 @@ async fn main() -> anyhow::Result<()> {
     let (telemetry_tx, _) = tokio::sync::broadcast::channel(CHANNEL_CAPACITY);
     let state = AppState {
         pool,
-        redis,
+        rate_limiter,
         chain,
         config: Arc::new(config),
         telemetry_tx,
