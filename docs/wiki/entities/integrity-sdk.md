@@ -1,9 +1,9 @@
 ---
 title: integrity-sdk
 created: 2026-07-07
-updated: 2026-11-07
+updated: 2026-11-14
 type: entity
-tags: [sdk, identity, metrics, infrastructure, policy-packs, control-layer]
+tags: [sdk, identity, metrics, infrastructure, policy-packs, control-layer, billing]
 confidence: high
 source_files:
   - integrity-sdk/integrity_sdk/registration.py
@@ -15,6 +15,10 @@ source_files:
   - integrity-sdk/integrity_sdk/core/packs.py
   - integrity-sdk/integrity_sdk/core/pack_distribution.py
   - integrity-sdk/integrity_sdk/core/decision.py
+  - integrity-sdk/integrity_sdk/core/ais_local.py
+  - integrity-sdk/integrity_sdk/billing/__init__.py
+  - integrity-sdk/integrity_sdk/billing/stripe_gateway.py
+  - integrity-sdk/integrity_sdk/billing/ledger.py
   - integrity-sdk/integrity_sdk/telemetry/mlflow_tracing.py
   - integrity-sdk/integrity_sdk/telemetry/derive.py
   - integrity-sdk/integrity_sdk/telemetry/tracing.py
@@ -58,7 +62,8 @@ become a self-sovereign, on-chain, reputation-bearing participant.
 - [PHI/PII redaction](#phi-pii-redaction)
 - [Markets](#markets)
 - [Also](#also)
-- [MCP server (mcpserver.py, added 2026-07-29)](#mcp-server-mcpserver-py-added-2026-07-29)
+- [Shared Billing Gateway (billing/, added 2026-11-13)](#shared-billing-gateway-billing-added-2026-11-13)
+- [MCP server deprecation (removed in e1bf9ff3)](#mcp-server-deprecation-removed-in-e1bf9ff3)
 - [Harness-neutral runtime (agentruntime.py, added 2026-09-14)](#harness-neutral-runtime-agentruntime-py-added-2026-09-14)
 - [One-line SDK façade and canonical identity registry](#one-line-sdk-fa-ade-and-canonical-identity-registry)
 - [Universal telemetry envelope, transports, and delivery](#universal-telemetry-envelope-transports-and-delivery)
@@ -272,65 +277,23 @@ Related: [Telemetry Ingestion Pipeline](../concepts/telemetry-ingestion.md),
 [BCC](../concepts/bcc.md), [AIS](../concepts/ais.md),
 [integrity-cli](integrity-cli.md), [AIS API — Versioned Wire Spec](../concepts/ais-api-spec.md).
 
-## MCP server (`mcp_server.py`, added 2026-07-29)
+## Shared Billing Gateway (`billing/`, added 2026-11-13)
 
-`integrity_sdk.mcp_server` exposes the SDK's core capabilities as
-[Model Context Protocol](https://modelcontextprotocol.io) tools so any
-MCP-capable agent harness (Claude Desktop, Cursor, Antigravity CLI, custom
-harnesses) can discover and call them over JSON-RPC without a
-framework-specific adapter.
+`integrity_sdk.billing` (`stripe_gateway.py`, `ledger.py`) defines the canonical, cross-ecosystem Stripe integration primitives shared between Xibalba Shield and Xibalba Cortex:
 
-Seven tool definitions exist. Signing/writing tools are hidden from discovery and
-refuse calls unless the operator explicitly opts in; model tool selection alone is
-not authorization for irreversible or signing-class actions.
+- `StripeGateway`: unified wrapper over the Stripe API pinned strictly to API version `2025-06-30.basil`. Standardizes checkout session creation, customer portal URLs, webhook event signature verification (`stripe.Webhook.construct_event`), and customer ID resolution.
+- `MeterEvent` & usage helpers: shared metering structures for reporting usage events and overage calculation against tenant plans.
+- Tenant lifecycle consistency: ensures both products share the same Stripe credentials, webhook secret validation, trial models, and cycle renewal calculation.
 
-| Tool | Description |
-|---|---|
-| `integrity_log_telemetry` | Append one telemetry entry (CoT, tool call, tokens) to the in-memory batch |
-| `integrity_flush_telemetry` | Flush the batch to Oracle `/v1/telemetry/ingest` with Ed25519 signature |
-| `integrity_invoke_intent` | BCC-commit + OPA-gate an intent before execution |
-| `integrity_agent_info` | Read back canonical DID, nonce, keypair status, pending batch size |
-| `integrity_resolve_did` | Look up any DID's on-chain registration record via Oracle |
-| `integrity_register_agent` | **`[PLANNED partial / currently broken]`** signing/writing opt-in handler; its keyword arguments do not match `registration.register_agent`, so use `integrity-cli agent register` until the handler and regression test are repaired |
-| `integrity_commit_memory` | Commit session facts to the TrustVault backend (JSONL by default) and compute/anchor the cryptographic StateRoot |
+## MCP server deprecation (removed in `e1bf9ff3`)
 
-The server loads the agent's Ed25519 keypair from the SDK's canonical identity
-store (`~/.integrity/did/<agent-id>/`, or `$INTEGRITY_DID_HOME/<agent-id>/`) so every flush and intent call is
-correctly signed. If no keypair is found, the server still starts and provides
-logging, but flushes will receive a 401 from the oracle (documented in
-`client.py`'s `flush_telemetry` docstring).
+The experimental standalone `mcp_server.py` was removed in commit `e1bf9ff3`. Exposing cryptographic signing and intent gating through a separate JSON-RPC server process introduced process lifecycle fragility and configuration hazards across local agent harnesses.
 
-Run standalone:
+Current integrations instead use:
+- `IntegrityAgent.open(agent_slug=..., harness=...)` via `agent_runtime.py` for direct in-process SDK binding.
+- Native pre-tool hooks and hook runners (`integrity_sdk.hook_runner`) for sub-millisecond, fail-closed policy enforcement.
 
-```
-uv run --with mcp python -m integrity_sdk.mcp_server \
-    --agent-id xibalba \
-    --oracle-url http://localhost:8080
-```
-
-Or add to any MCP-capable harness config under `mcpServers.integrity`.
-
-For example, to configure the Antigravity CLI (`agy`) harness to run all sessions in the context of the `xibalba.integrity` agent, add the following to `~/.gemini/antigravity-cli/settings.json` (under `"mcpServers"`):
-
-```json
-    "integrity": {
-      "command": "/home/xibalba/.local/bin/uv",
-      "args": [
-        "run",
-        "--directory",
-        "/home/xibalba/Projects/integrity-core/integrity-sdk",
-        "python",
-        "-m",
-        "integrity_sdk.mcp_server",
-        "--agent-id",
-        "xibalba.integrity",
-        "--oracle-url",
-        "http://localhost:8080"
-      ]
-    }
-```
-
-Requires `mcp>=1.0.0` (`pip install integrity-sdk[mcp]` — optional dep).
+Harness configs (`settings.json`, Claude/Codex profiles) must not declare an `integrity` MCP server entry.
 
 ## Harness-neutral runtime (`agent_runtime.py`, added 2026-09-14)
 
