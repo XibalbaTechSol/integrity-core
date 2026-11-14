@@ -1,5 +1,31 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-11-14] incident | Dev-shell BCC gates failed open for seven weeks after a Python upgrade
+
+- **What happened.**
+  - The operator workstation's Claude Code hooks, Hermes `pre_tool_call` gate and Codex `integrity`
+    MCP entry all ran `integrity-sdk/.venv/bin/python`.
+  - That venv was built for Python 3.12, but its `python` symlink points at `/usr/bin/python3`, which
+    became 3.14. A 3.14 interpreter does not see `lib/python3.12/site-packages`, so `integrity_sdk`
+    stopped importing.
+  - The last checked gate decision was 2026-09-28 03:31Z. From then to 2026-11-14, 10,950 Claude tool
+    calls were logged "allowed unchecked", and Hermes calls were ungated too.
+- **Why nobody saw it.** Failing open is the ratified posture for dev-shell gates, and it was logged
+  every time. But nothing watches that log, and the session banner's "SDK identity unavailable" read
+  as routine.
+- **Fixed (operator machine, outside any repo).**
+  - The hooks now run from a frozen venv built from a pinned `origin/main` snapshot of `integrity-sdk`
+    (`~/.local/share/xibalba-hooks`), not from the read-only base checkout.
+  - Each hook pins `INTEGRITY_PROFILE_ROOT`. Without it, Claude's default key path is a dangling
+    legacy symlink, and a working SDK would have minted a new DID. Codex's pinned
+    `INTEGRITY_DID_HOME` was empty for the same reason.
+  - The Codex `integrity` MCP entry was disabled: `integrity_sdk.mcp_server` was removed in e1bf9ff3.
+  - `OTEL_SDK_DISABLED=true` is set while no collector listens on :4317. With it unset, each gated
+    call took about 7.5 s, close to Hermes' 10 s hook timeout, which fails closed.
+  - Verified: `signature+nonce+freshness OK` against the existing DIDs, and no key was minted.
+- **Open.** Added to `docs/ecosystem/STATUS.md`: a fail-open gate needs a health signal that is
+  watched, such as a rate of unchecked allows that alerts.
+
 ## [2026-11-12] feat | A gate can score its agents from its own receipts (local AIS, L0)
 
 - New `integrity_sdk.core.ais_local`: `LocalReceiptScorer`, `ReceiptLogTail`, `ReceiptLogZoneSource`,
