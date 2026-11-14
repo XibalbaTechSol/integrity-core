@@ -259,11 +259,18 @@ gate-receipt-evidence PR that follows Phase 1, not to this design.
 | `SovereignAgent.updateAIS` / `ais` | deferred removal | removed now (nothing reads it after the repoint) |
 | `Deploy.s.sol`, deployments file, `test_trust_wiring.py` | old graph | rewritten for the new graph; fresh Base Sepolia deploy |
 | Oracle `chain.rs` | `resolve_primitives_by_did`, `memory_state` | `resolve(fingerprint)` |
-| Oracle `POST /v1/agent/register` (primitives) | chain re-verification | removed (410 Gone with a pointer); replaced by Part 2 and `POST /v1/agent/{id}/onchain/sync`, which reads the record and stores it in a new `agent_onchain_records` table (actor, guardian, domain, proof kind, block) |
+| Oracle `POST /v1/agent/register` (primitives) | chain re-verification | deleted outright, with its handler, request types, primitives verification and tests (no 410 stub, no compatibility shim); replaced by Part 2 and `POST /v1/agent/{id}/onchain/sync`, which reads the record and stores it in a new `agent_onchain_records` table (actor, guardian, domain, proof kind, block) |
 | Oracle `agent_primitives` table and every read of it (AIS cross-checks, `oracle_compliance`, settlement) | per-agent addresses | dropped; `settlement_eligible` = active record with an actor; on-chain cross-checks that read clone state are removed |
 | `bcc_middleware/app/chain.py` | old registry ABI | `AgentRegistry` |
-| SDK `registration.py`, CLI `agent register` | deploys primitives | `register` = off-chain (default); `register --onchain` = existence record (attestation + one tx from the guardian wallet); `register --onchain --confined --domain ID` = also deploys the `SovereignAgent` and binds it as actor |
+| SDK `registration.py`, CLI `agent register` | deploys primitives (the primitives deploy path, `FUNDER_PRIVATE_KEY` flow and genesis-root anchoring are deleted) | `register` = off-chain (default); `register --onchain` = existence record (attestation + one tx from the guardian wallet); `register --onchain --confined --domain ID` = also deploys the `SovereignAgent` and binds it as actor |
 | Policy packs, `integrity_sdk` | off-chain only | optional on-chain section compiled to the §4.4c root and proofs (Part 4) |
+
+**The old architecture is removed, not deprecated.** Nothing is kept for backward
+compatibility: the contracts, their ABIs and bindings, the Oracle route and table, the SDK and
+CLI paths, their tests, and the docs and wiki pages that describe them are all deleted. The
+only deployments are testnet (and the Anvil chain was already reset without agents), so there
+is nothing live to migrate. Superseded docs get a one-line pointer to this design in git
+history rather than staying in the tree.
 
 The genesis memory root stops being a registration precondition. Agents that keep a memory
 trail anchor it in the v2 `ActionAnchor` singleton, keyed by their actor.
@@ -295,8 +302,11 @@ trail anchor it in the v2 `ActionAnchor` singleton, keyed by their actor.
   while no verifier is set and succeeds with a mock verifier (the door works); guardian
   transfer is two-step; `retire` is irreversible.
 - Phase 3: a confined agent's call to a contract inside its pack's map succeeds and a call
-  outside it reverts, end to end from a compiled pack; `forge test` green; no source file references `XibalbaAgentRegistry`,
-  `AgentPrimitivesFactory` or `PrimitiveSet`; the deploy wiring test passes on a fresh Anvil.
+  outside it reverts, end to end from a compiled pack; `forge test` green; no file in the repo
+  (contracts, Oracle, SDK, CLI, BCC middleware, tests, docs outside `docs/superpowers/` history)
+  references `XibalbaAgentRegistry`, `AgentPrimitivesFactory`, `PrimitiveSet`,
+  `registerPrimitives`, `agent_primitives` or `/v1/agent/register`; the deploy wiring test
+  passes on a fresh Anvil.
 - Phase 4: an agent registered off-chain obtains an attestation, registers on Anvil in one
   transaction with an actor, and `GET /v1/agent/{id}` then shows the on-chain record and
   `settlement_eligible: true`.
@@ -307,6 +317,8 @@ trail anchor it in the v2 `ActionAnchor` singleton, keyed by their actor.
 - Every agent gets a DID/key pair, including off-chain ones.
 - The on-chain record is a record of existence; an acting address is supported, optional.
 - No primitives.
+- The old primitives and registration architecture is removed outright (contracts, Oracle
+  route and table, SDK/CLI paths, tests, docs), with no 410 stub or compatibility shim.
 - Approach A with a door for C.
 - Being on chain means being confined to the contracts in the agent's policy pack; every
   actor is a gated `SovereignAgent`, never a plain wallet.
@@ -323,7 +335,6 @@ trail anchor it in the v2 `ActionAnchor` singleton, keyed by their actor.
 - Tier stays about identity: a proven key is tier 1 everywhere; confinement counts as
   compliance evidence, not as tier.
 - `SovereignAgent.updateAIS` removed now rather than deferred.
-- `POST /v1/agent/register` (primitives) returns 410 rather than silently doing something new.
 
 ## Left to the builder
 
