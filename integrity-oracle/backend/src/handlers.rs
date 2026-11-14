@@ -823,6 +823,10 @@ pub struct AisResponse {
     pub authoritative_input_source: &'static str,
     pub proxy_axes: Vec<&'static str>,
     pub missing_axes: Vec<&'static str>,
+    /// False when the window has events but none carried an evidence-backed compliance
+    /// verdict. `weights` then shows the compliance weight as 0 with the other three
+    /// renormalized, and `components.compliance` does not enter the score.
+    pub compliance_observed: bool,
     /// Present only when a cached on-chain ReputationRegistry address is known for this
     /// agent — a nice-to-have cross-check (per the task's "not required" note) that the
     /// oracle's off-chain `zk_verified_event_ratio` telemetry flag agrees with the
@@ -872,7 +876,13 @@ pub struct ClosedLoopRewardDto {
     pub violation_penalty: f64,
     pub r_total: f64,
     pub gated_by_compliance: bool,
+    /// Meaningful only when `settlement_eligible` is true.
     pub epoch_yield_multiplier: f64,
+    /// Whether this agent can settle on chain at all: it has a registered PrimitiveSet, so
+    /// a v2 `AISRegistry` checkpoint and `StakeVault` stake can exist for it. Off-chain
+    /// agents are scored by this oracle only; their reward is an evaluation and ranking
+    /// signal, never an on-chain payout.
+    pub settlement_eligible: bool,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -920,7 +930,12 @@ pub(crate) async fn compute_ais_for_agent(
         .await?
         .ok_or_else(|| AppError::AgentNotFound(id.to_string()))?;
 
-    let engine = scoring_core::AisEngine::new(state.config.ais_weights)
+    let (weights, compliance_observed) = ais_weights_for_window(
+        state.config.ais_weights,
+        aggregate.event_count,
+        aggregate.compliance_observed_count,
+    );
+    let engine = scoring_core::AisEngine::new(weights)
         .and_then(|engine| engine.with_zone_policy(state.config.ais_zone_policy))
         .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
     // EFFECTIVE tier, not the registration column: `agents.verification_tier` is only
@@ -1021,7 +1036,8 @@ pub(crate) async fn compute_ais_for_agent(
             sacrifice: breakdown.s_sacrifice,
             compliance: breakdown.s_compliance,
         },
-        weights: state.config.ais_weights,
+        weights,
+        compliance_observed,
         zk_boost: breakdown.zk_boost,
         zk_proof_verified: aggregate.zk_verified_event_ratio > 0.0,
         zk_verified_event_ratio: aggregate.zk_verified_event_ratio,
@@ -1031,8 +1047,14 @@ pub(crate) async fn compute_ais_for_agent(
         evidence_tier: "signed_agent",
         data_sufficiency: if aggregate.event_count == 0 { "no_events" } else { "observed_events" },
         authoritative_input_source: "oracle_recomputed_from_signed_telemetry",
-        proxy_axes: vec!["sacrifice", "compliance_proxy"],
-        missing_axes: if aggregate.event_count == 0 { vec!["entropy", "grounding", "sacrifice", "compliance"] } else { Vec::new() },
+        proxy_axes: if compliance_observed { vec!["sacrifice", "compliance_proxy"] } else { vec!["sacrifice"] },
+        missing_axes: if aggregate.event_count == 0 {
+            vec!["entropy", "grounding", "sacrifice", "compliance"]
+        } else if !compliance_observed {
+            vec!["compliance"]
+        } else {
+            Vec::new()
+        },
         onchain_zk_boost_consistent,
         anchor_coverage,
         constraint_score: breakdown.constraint_score,
@@ -1065,6 +1087,7 @@ pub(crate) async fn compute_ais_for_agent(
                 r_total: eval.r_total,
                 gated_by_compliance: eval.gated_by_compliance,
                 epoch_yield_multiplier: eval.epoch_yield_multiplier,
+                settlement_eligible: primitives_row.is_some(),
             }
         },
     })
@@ -1266,6 +1289,25 @@ fn check_oracle_api_key(state: &AppState, headers: &axum::http::HeaderMap) -> Re
     Ok(())
 }
 
+/// The AIS weights to score a window with. When the window has events but none carries an
+/// evidence-backed compliance verdict (migration 0025), the compliance axis is unobserved:
+/// its weight goes to 0 and the rest are renormalized (`AisWeights::without_compliance`).
+/// A profile that cannot be renormalized keeps its configured weights and so fails closed.
+fn ais_weights_for_window(
+    configured: scoring_core::AisWeights,
+    event_count: i64,
+    compliance_observed_count: i64,
+) -> (scoring_core::AisWeights, bool) {
+    let observed = event_count == 0 || compliance_observed_count > 0;
+    if observed {
+        return (configured, true);
+    }
+    match configured.without_compliance() {
+        Ok(w) => (w, false),
+        Err(_) => (configured, true),
+    }
+}
+
 async fn check_internal_api_rate_limit(state: &AppState) -> Result<(), AppError> {
     let window = Utc::now().timestamp() / 60;
     let count = state.rate_limiter.hit("ratelimit:internal_api", window).await;
@@ -1298,7 +1340,14 @@ async fn check_telemetry_rate_limit(state: &AppState, agent_id: &str) -> Result<
 /// unreadable gate also fails closed; and a Healthcare gate earns compliance only from a valid address whose live
 /// CoveredEntityRegistry + SmartBAA lookup succeeds. `EHRGate.sol` remains the actual
 /// PHI-access enforcement boundary.
-async fn oracle_compliance(state: &AppState, req: &TelemetryIngestRequest) -> f64 {
+///
+/// Returns `None` when there is **no independent evidence to judge by**: the agent has no
+/// cached primitives (an off-chain agent) or its gate's vertical has no compliance check.
+/// That is "unobserved", not "violated" (migration 0025): storing it as a violation used to
+/// zero the compliance axis and, through the geometric mean, the whole AIS of every
+/// off-chain and non-healthcare agent. A self-report still never enters AIS. A gate that
+/// exists but cannot be read, or a healthcare check that fails, is `Some(0.0)`: fail closed.
+async fn oracle_compliance(state: &AppState, req: &TelemetryIngestRequest) -> Option<f64> {
     let self_reported = derive::self_reported_compliance(&req.otel_spans);
 
     let Some(primitives) = db::get_agent_primitives_on_chain(
@@ -1311,34 +1360,35 @@ async fn oracle_compliance(state: &AppState, req: &TelemetryIngestRequest) -> f6
         .flatten()
     else {
         // A signed agent claim is identity-authenticated, not independently
-        // evidentiary. Keep it as a shadow signal, but fail the authoritative
-        // compliance axis closed without a readable gate.
-        return 0.0;
+        // evidentiary. Keep it as a shadow signal; with no gate there is no
+        // authoritative verdict at all.
+        return None;
     };
     let Some(gate) = Address::from_str(&primitives.compliance_gate_address).ok() else {
-        return 0.0;
+        return Some(0.0);
     };
 
     match state.chain.compliance_vertical(gate).await {
         Ok(1) => {
             let Some(covered_entity) = derive::entry_covered_entity_address(&req.otel_spans)
             else {
-                return 0.0;
+                return Some(0.0);
             };
             let Ok(entity) = Address::from_str(&covered_entity) else {
-                return 0.0;
+                return Some(0.0);
             };
             match state.chain.is_healthcare_compliant(gate, entity).await {
                 // On-chain wins: a live "not compliant" read overrides a clean self-report
                 // (an agent can't talk its way out of a lapsed BAA), but a live "compliant"
                 // read still can't push the score above what self-reporting already earned.
-                Ok(true) => self_reported.min(1.0),
-                Ok(false) => 0.0,
-                Err(_) => 0.0,
+                Ok(true) => Some(self_reported.min(1.0)),
+                Ok(false) => Some(0.0),
+                Err(_) => Some(0.0),
             }
         }
-        Ok(_) => 0.0,
-        Err(_) => 0.0,
+        // A vertical with no compliance check of its own: nothing independent to judge by.
+        Ok(_) => None,
+        Err(_) => Some(0.0),
     }
 }
 
@@ -1479,7 +1529,8 @@ pub async fn ingest_telemetry(
     // never raise the AIS boost. Old clients that still attach one are not rejected for it.
     let zk_verified = false;
 
-    let compliance = oracle_compliance(&state, &req).await;
+    let compliance_verdict = oracle_compliance(&state, &req).await;
+    let compliance_observed = compliance_verdict.is_some();
     // `compliance` is high-is-good (1.0 = clean, matching derive::self_reported_compliance
     // and oracle_compliance's on-chain `Ok(false) => 0.0` branch) — NOT the same polarity
     // as the old client-submitted DerivedSignals.compliance field this comparator was
@@ -1487,7 +1538,8 @@ pub async fn ingest_telemetry(
     // here inverted the compliance axis of AIS for every agent: a clean batch scored
     // flagged=true (penalized) and an all-violation batch scored flagged=false (not
     // penalized). See PRODUCTION_GAPS.md §2 for the full incident writeup.
-    let flagged = compliance < 0.5;
+    // An unobserved event is never a violation; it is excluded from penalty_ratio instead.
+    let flagged = compliance_verdict.is_some_and(|c| c < 0.5);
 
     let event_id = Uuid::new_v4();
     let payload_json = serde_json::json!({
@@ -1510,7 +1562,7 @@ pub async fn ingest_telemetry(
             "grounding": recomputed.grounding,
             "sacrifice": recomputed.sacrifice,
             "sacrifice_proxy": recomputed.sacrifice_proxy,
-            "compliance": compliance,
+            "compliance": compliance_verdict, // null = unobserved (migration 0025)
             "compliance_proxy": derive::self_reported_compliance(&req.otel_spans),
             "billed_cost": &req.derived_signals.billed_cost,
         },
@@ -1533,6 +1585,7 @@ pub async fn ingest_telemetry(
         // normalization step now, removing the prior double-compression.
         recomputed.sacrifice,
         flagged,
+        compliance_observed,
         zk_verified,
         &leaf_hash,
         &content_hash,
@@ -3574,13 +3627,18 @@ pub async fn get_ais_history(
     let bucket = parse_bucket_interval(query.bucket.as_deref())?;
     let since = query.since.unwrap_or_else(default_history_since);
 
-    let engine = scoring_core::AisEngine::new(state.config.ais_weights)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
-
     let buckets = db::ais_history_buckets(&state.pool, &id, bucket, since).await?;
     let points = buckets
         .into_iter()
         .map(|b| {
+            // Same unobserved-compliance rule as live AIS, decided per bucket.
+            let (weights, _) = ais_weights_for_window(
+                state.config.ais_weights,
+                b.event_count,
+                b.compliance_observed_count,
+            );
+            let engine = scoring_core::AisEngine::new(weights)
+                .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
             let inputs = scoring_core::AisComponentInputs {
                 performance_variance: b.avg_variance,
                 hgi_raw: b.avg_hgi,
@@ -3589,7 +3647,7 @@ pub async fn get_ais_history(
                 zk_verified_event_ratio: b.zk_verified_event_ratio,
             };
             let breakdown = engine.score_with_tier(&inputs, tier);
-            AisHistoryPoint {
+            Ok(AisHistoryPoint {
                 bucket_start: b.bucket_start,
                 ais: breakdown.ais,
                 entropy: breakdown.s_entropy,
@@ -3598,9 +3656,9 @@ pub async fn get_ais_history(
                 compliance: breakdown.s_compliance,
                 zk_boost: breakdown.zk_boost,
                 event_count: b.event_count,
-            }
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, AppError>>()?;
 
     Ok(Json(points))
 }
@@ -4859,5 +4917,31 @@ mod telemetry_version_tests {
     fn unknown_envelope_versions_fail_closed() {
         let result = validate_telemetry_schema_version(&request(Some(99), Some(Utc::now())));
         assert!(matches!(result, Err(AppError::BadRequest(message)) if message.contains("unsupported")));
+    }
+}
+
+#[cfg(test)]
+mod ais_weights_for_window_tests {
+    use super::*;
+    use scoring_core::AisWeights;
+
+    #[test]
+    fn window_with_no_observed_compliance_uses_renormalized_weights() {
+        let (w, observed) = ais_weights_for_window(AisWeights::default(), 10, 0);
+        assert!(!observed);
+        assert_eq!(w, AisWeights::default().without_compliance().unwrap());
+    }
+
+    #[test]
+    fn window_with_any_observed_compliance_keeps_configured_weights() {
+        let (w, observed) = ais_weights_for_window(AisWeights::default(), 10, 1);
+        assert!(observed);
+        assert_eq!(w, AisWeights::default());
+    }
+
+    #[test]
+    fn empty_window_keeps_configured_weights() {
+        let (w, _) = ais_weights_for_window(AisWeights::default(), 0, 0);
+        assert_eq!(w, AisWeights::default());
     }
 }

@@ -21,6 +21,10 @@ pub enum AppError {
     /// already holds a different one (one handle per agent, one agent per handle).
     #[error("xns handle unavailable: {0}")]
     HandleTaken(String),
+    /// The DID is already bound to different identity material (another key, or another
+    /// handle) than this request presents. Never resolved by overwriting.
+    #[error("identity conflict: {0}")]
+    IdentityConflict(String),
     #[error("xns handle not found: {0}")]
     HandleNotFound(String),
     #[error("invalid request: {0}")]
@@ -81,6 +85,7 @@ impl IntoResponse for AppError {
             AppError::TraceNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
             AppError::AgentAlreadyExists(_) => (StatusCode::CONFLICT, self.to_string()),
             AppError::HandleTaken(_) => (StatusCode::CONFLICT, self.to_string()),
+            AppError::IdentityConflict(_) => (StatusCode::CONFLICT, self.to_string()),
             AppError::HandleNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
             AppError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             AppError::Unauthorized => (StatusCode::UNAUTHORIZED, self.to_string()),

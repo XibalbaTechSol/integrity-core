@@ -306,6 +306,7 @@ async fn oracle_e2e_register_verify_ais_compliance() {
         0.8, // hgi_raw
         10.0, // gpu_hours_verified
         false, // flagged
+        true, // compliance_observed
         true, // zk_verified
         &leaf_hash,
         // content_hash / event_time were added to insert_telemetry_event (a91bdc3);
