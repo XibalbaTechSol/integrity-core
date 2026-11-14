@@ -692,7 +692,7 @@ pub async fn aggregate_for_ais(
             -- literals in the CASE expression are Postgres `numeric`, so
             -- `AVG(CASE ...)` returns `numeric`, which sqlx will NOT decode into a Rust
             -- `f64` (it errors with "SQL type NUMERIC is not compatible"). Casting keeps
-            -- every returned column FLOAT8 so the `(f64, f64, f64, f64, bool, i64)` row
+            -- every returned column FLOAT8 so the `(f64, f64, f64, f64, f64, i64, i64)` row
             -- tuple below decodes cleanly regardless of each source column's type.
             COALESCE(AVG(performance_variance), 0.0)::double precision AS avg_variance,
             COALESCE(AVG(hgi_raw), 0.0)::double precision AS avg_hgi,
@@ -1725,7 +1725,8 @@ pub async fn ais_history_buckets(
     bucket_interval: &str,
     since: DateTime<Utc>,
 ) -> Result<Vec<AisBucketAggregate>, sqlx::Error> {
-    let rows: Vec<(DateTime<Utc>, f64, f64, f64, f64, f64, i64, i64)> = sqlx::query_as(
+    type BucketRow = (DateTime<Utc>, f64, f64, f64, f64, f64, i64, i64);
+    let rows: Vec<BucketRow> = sqlx::query_as(
         r#"
         SELECT
             time_bucket($1::interval, event_time) AS bucket_start,

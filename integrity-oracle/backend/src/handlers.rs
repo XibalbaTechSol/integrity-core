@@ -876,13 +876,7 @@ pub struct ClosedLoopRewardDto {
     pub violation_penalty: f64,
     pub r_total: f64,
     pub gated_by_compliance: bool,
-    /// Meaningful only when `settlement_eligible` is true.
     pub epoch_yield_multiplier: f64,
-    /// Whether this agent can settle on chain at all: it has a registered PrimitiveSet, so
-    /// a v2 `AISRegistry` checkpoint and `StakeVault` stake can exist for it. Off-chain
-    /// agents are scored by this oracle only; their reward is an evaluation and ranking
-    /// signal, never an on-chain payout.
-    pub settlement_eligible: bool,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -890,15 +884,50 @@ pub struct AisComponents {
     pub entropy: f64,
     pub grounding: f64,
     pub sacrifice: f64,
-    pub compliance: f64,
+    /// `null` when the window has no evidence-backed compliance verdict
+    /// (`compliance_observed == false`): there is no axis value to report.
+    pub compliance: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct ShadowGate {
     pub entropy_pass: bool,
     pub grounding_pass: bool,
-    pub compliance_pass: bool,
+    /// `null` when compliance is unobserved: it neither passes nor fails the gate.
+    pub compliance_pass: Option<bool>,
+    /// Conjunction over the observed axes only.
     pub would_pass: bool,
+}
+
+/// The compliance-dependent response fields for a window. An unobserved compliance axis
+/// is reported as `null` and excluded from the gate, never as a fabricated perfect score.
+fn compliance_view(
+    compliance_observed: bool,
+    breakdown: &scoring_core::AisBreakdown,
+) -> (Option<f64>, ShadowGate) {
+    let entropy_pass = breakdown.gate_entropy_pass;
+    let grounding_pass = breakdown.gate_grounding_pass;
+    if compliance_observed {
+        (
+            Some(breakdown.s_compliance),
+            ShadowGate {
+                entropy_pass,
+                grounding_pass,
+                compliance_pass: Some(breakdown.gate_compliance_pass),
+                would_pass: breakdown.gate_would_pass,
+            },
+        )
+    } else {
+        (
+            None,
+            ShadowGate {
+                entropy_pass,
+                grounding_pass,
+                compliance_pass: None,
+                would_pass: entropy_pass && grounding_pass,
+            },
+        )
+    }
 }
 
 /// Computes the current AIS breakdown for an agent. The single call site both
@@ -1034,7 +1063,7 @@ pub(crate) async fn compute_ais_for_agent(
             entropy: breakdown.s_entropy,
             grounding: breakdown.s_grounding,
             sacrifice: breakdown.s_sacrifice,
-            compliance: breakdown.s_compliance,
+            compliance: compliance_view(compliance_observed, &breakdown).0,
         },
         weights,
         compliance_observed,
@@ -1058,12 +1087,7 @@ pub(crate) async fn compute_ais_for_agent(
         onchain_zk_boost_consistent,
         anchor_coverage,
         constraint_score: breakdown.constraint_score,
-        shadow_gate: ShadowGate {
-            entropy_pass: breakdown.gate_entropy_pass,
-            grounding_pass: breakdown.gate_grounding_pass,
-            compliance_pass: breakdown.gate_compliance_pass,
-            would_pass: breakdown.gate_would_pass,
-        },
+        shadow_gate: compliance_view(compliance_observed, &breakdown).1,
         closed_loop_reward: {
             let eval = engine.evaluate_closed_loop_reward(
                 &breakdown,
@@ -1087,7 +1111,6 @@ pub(crate) async fn compute_ais_for_agent(
                 r_total: eval.r_total,
                 gated_by_compliance: eval.gated_by_compliance,
                 epoch_yield_multiplier: eval.epoch_yield_multiplier,
-                settlement_eligible: primitives_row.is_some(),
             }
         },
     })
@@ -1304,7 +1327,10 @@ fn ais_weights_for_window(
     }
     match configured.without_compliance() {
         Ok(w) => (w, false),
-        Err(_) => (configured, true),
+        Err(e) => {
+            tracing::warn!(error = %e, "cannot renormalize AIS weights without compliance; keeping configured weights");
+            (configured, true)
+        }
     }
 }
 
@@ -1347,6 +1373,12 @@ async fn check_telemetry_rate_limit(state: &AppState, agent_id: &str) -> Result<
 /// zero the compliance axis and, through the geometric mean, the whole AIS of every
 /// off-chain and non-healthcare agent. A self-report still never enters AIS. A gate that
 /// exists but cannot be read, or a healthcare check that fails, is `Some(0.0)`: fail closed.
+/// Only the healthcare vertical (discriminant 1) has an on-chain compliance check; any other
+/// vertical yields no independent verdict, i.e. "unobserved".
+fn vertical_has_no_compliance_check(vertical: u8) -> bool {
+    vertical != 1
+}
+
 async fn oracle_compliance(state: &AppState, req: &TelemetryIngestRequest) -> Option<f64> {
     let self_reported = derive::self_reported_compliance(&req.otel_spans);
 
@@ -1369,7 +1401,7 @@ async fn oracle_compliance(state: &AppState, req: &TelemetryIngestRequest) -> Op
     };
 
     match state.chain.compliance_vertical(gate).await {
-        Ok(1) => {
+        Ok(v) if !vertical_has_no_compliance_check(v) => {
             let Some(covered_entity) = derive::entry_covered_entity_address(&req.otel_spans)
             else {
                 return Some(0.0);
@@ -1387,7 +1419,10 @@ async fn oracle_compliance(state: &AppState, req: &TelemetryIngestRequest) -> Op
             }
         }
         // A vertical with no compliance check of its own: nothing independent to judge by.
-        Ok(_) => None,
+        Ok(v) => {
+            debug_assert!(vertical_has_no_compliance_check(v));
+            None
+        }
         Err(_) => Some(0.0),
     }
 }
@@ -3593,7 +3628,8 @@ pub struct AisHistoryPoint {
     pub entropy: f64,
     pub grounding: f64,
     pub sacrifice: f64,
-    pub compliance: f64,
+    /// `null` for a bucket with no evidence-backed compliance verdict.
+    pub compliance: Option<f64>,
     pub zk_boost: f64,
     pub event_count: i64,
 }
@@ -3632,7 +3668,7 @@ pub async fn get_ais_history(
         .into_iter()
         .map(|b| {
             // Same unobserved-compliance rule as live AIS, decided per bucket.
-            let (weights, _) = ais_weights_for_window(
+            let (weights, bucket_observed) = ais_weights_for_window(
                 state.config.ais_weights,
                 b.event_count,
                 b.compliance_observed_count,
@@ -3653,7 +3689,7 @@ pub async fn get_ais_history(
                 entropy: breakdown.s_entropy,
                 grounding: breakdown.s_grounding,
                 sacrifice: breakdown.s_sacrifice,
-                compliance: breakdown.s_compliance,
+                compliance: compliance_view(bucket_observed, &breakdown).0,
                 zk_boost: breakdown.zk_boost,
                 event_count: b.event_count,
             })
@@ -4943,5 +4979,63 @@ mod ais_weights_for_window_tests {
     fn empty_window_keeps_configured_weights() {
         let (w, _) = ais_weights_for_window(AisWeights::default(), 0, 0);
         assert_eq!(w, AisWeights::default());
+    }
+}
+
+#[cfg(test)]
+mod unobserved_compliance_response_tests {
+    use super::*;
+    use scoring_core::{AisComponentInputs, AisEngine, AisWeights};
+
+    fn breakdown(entropy_ok: bool, penalty_ratio: f64) -> scoring_core::AisBreakdown {
+        let engine = AisEngine::new(AisWeights::default()).unwrap();
+        // Low variance + high grounding pass their floors; the opposite fails them.
+        let inputs = AisComponentInputs {
+            performance_variance: if entropy_ok { 0.0 } else { 1.0e6 },
+            hgi_raw: 0.9,
+            gpu_hours_verified: 1.0,
+            penalty_ratio,
+            zk_verified_event_ratio: 0.0,
+        };
+        engine.score(&inputs)
+    }
+
+    #[test]
+    fn unobserved_window_reports_null_compliance_and_gates_on_other_axes() {
+        let good = breakdown(true, 0.0);
+        assert!(good.gate_entropy_pass && good.gate_grounding_pass);
+        let (c, gate) = compliance_view(false, &good);
+        assert_eq!(c, None);
+        assert_eq!(gate.compliance_pass, None);
+        assert!(gate.would_pass, "observed axes pass -> gate passes");
+
+        let bad = breakdown(false, 0.0);
+        assert!(!bad.gate_entropy_pass);
+        let (_, gate) = compliance_view(false, &bad);
+        assert!(!gate.would_pass, "a failing observed axis still fails the gate");
+        // Compliance cannot rescue it either way: the fabricated 1000 is not consulted.
+        assert_eq!(gate.compliance_pass, None);
+    }
+
+    #[test]
+    fn observed_window_is_unchanged() {
+        let violating = breakdown(true, 1.0);
+        let (c, gate) = compliance_view(true, &violating);
+        assert_eq!(c, Some(violating.s_compliance));
+        assert_eq!(gate.compliance_pass, Some(violating.gate_compliance_pass));
+        assert_eq!(gate.would_pass, violating.gate_would_pass);
+        assert!(!gate.would_pass, "observed full violation fails the gate");
+        let clean = breakdown(true, 0.0);
+        let (c, gate) = compliance_view(true, &clean);
+        assert_eq!(c, Some(clean.s_compliance));
+        assert_eq!(gate.compliance_pass, Some(true));
+    }
+
+    #[test]
+    fn only_healthcare_vertical_has_a_compliance_check() {
+        assert!(!vertical_has_no_compliance_check(1));
+        for v in [0u8, 2, 3, 255] {
+            assert!(vertical_has_no_compliance_check(v), "vertical {v} must be unobserved");
+        }
     }
 }

@@ -1130,11 +1130,15 @@ components:
       - entropy
       - grounding
       - sacrifice
-      - compliance
       properties:
         compliance:
-          type: number
+          type:
+          - number
+          - 'null'
           format: double
+          description: |-
+            `null` when the window has no evidence-backed compliance verdict
+            (`compliance_observed == false`): there is no axis value to report.
         entropy:
           type: number
           format: double
@@ -1152,7 +1156,6 @@ components:
       - entropy
       - grounding
       - sacrifice
-      - compliance
       - zk_boost
       - event_count
       properties:
@@ -1163,8 +1166,11 @@ components:
           type: string
           format: date-time
         compliance:
-          type: number
+          type:
+          - number
+          - 'null'
           format: double
+          description: '`null` for a bucket with no evidence-backed compliance verdict.'
         entropy:
           type: number
           format: double
@@ -1204,6 +1210,7 @@ components:
       - authoritative_input_source
       - proxy_axes
       - missing_axes
+      - compliance_observed
       - anchor_coverage
       - constraint_score
       - shadow_gate
@@ -1234,6 +1241,12 @@ components:
             Canonical Closed-Loop AIS Control Zone (`green` / `yellow` / `red` with hysteresis)
             and Step/Epoch Reward Evaluation. `r_total` uses the profile named in `reward_profile`;
             the default is multiplicative: `max(0, R_task) * AIS / 1000`, zero when gated.
+        compliance_observed:
+          type: boolean
+          description: |-
+            False when the window has events but none carried an evidence-backed compliance
+            verdict. `weights` then shows the compliance weight as 0 with the other three
+            renormalized, and `components.compliance` does not enter the score.
         components:
           $ref: '#/components/schemas/AisComponents'
         constraint_score:
@@ -2125,17 +2138,20 @@ components:
       required:
       - entropy_pass
       - grounding_pass
-      - compliance_pass
       - would_pass
       properties:
         compliance_pass:
-          type: boolean
+          type:
+          - boolean
+          - 'null'
+          description: '`null` when compliance is unobserved: it neither passes nor fails the gate.'
         entropy_pass:
           type: boolean
         grounding_pass:
           type: boolean
         would_pass:
           type: boolean
+          description: Conjunction over the observed axes only.
     SpanTreeNode:
       type: object
       required:
