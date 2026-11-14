@@ -97,73 +97,90 @@ def test_identity_show_missing_identity_exits_nonzero():
 # agent
 # --------------------------------------------------------------------------
 
-# NOTE on the register tests: `agent register` is no longer a single HTTP POST to the
-# oracle — it now runs the real self-sovereign on-chain sequence (fund wallet -> deploy
-# SovereignAgent + StateAnchor -> clone the other 5 primitives via AgentPrimitivesFactory
-# -> optional oracle POST). The old httpx-mocked "success"/"oracle error" tests no longer
-# describe how the command works, so they're replaced here by tests of the command's real
-# pre-flight error paths (fast, no chain needed); the full happy path is covered against a
-# real anvil chain in tests/test_chain.py, mirroring integrity-sdk's own real-chain test.
+# `agent register` is the gas-free off-chain flow (integrity_sdk.registration_offchain):
+# it proves control of the identity's Ed25519 key to the Oracle and never touches chain
+# state, so it needs no funder key, no RPC and no deployments file. The old on-chain
+# "7 primitives" flow was removed outright; `register_offchain` is stubbed here and its
+# wire behavior is covered by the SDK's own tests.
+
+
+def _stub_register_offchain(monkeypatch, *, result=None, error=None):
+    from integrity_cli import main as cli_main
+    from integrity_sdk.registration_offchain import OffchainRegistration
+
+    calls = []
+
+    def fake(oracle_url, did, keypair, **kwargs):
+        calls.append({"oracle_url": oracle_url, "did": did, "keypair": keypair, **kwargs})
+        if error is not None:
+            raise error
+        return result or OffchainRegistration(
+            agent_id=did, verification_tier=1, outcome="created", handle=kwargs.get("handle")
+        )
+
+    monkeypatch.setattr(cli_main, "register_offchain", fake)
+    return calls
 
 
 def test_agent_register_without_identity_exits_nonzero():
-    result = runner.invoke(app, ["agent", "register", "--alias", "my-bot"])
+    result = runner.invoke(app, ["agent", "register"])
     assert result.exit_code == 1
     assert "No identity named 'default'" in result.stdout
 
 
-def test_agent_register_requires_funder_key(monkeypatch, tmp_path):
-    """The funder is resolved lazily -- only once a funding step is actually needed --
-    so the missing-key error can only surface on a reachable chain where the fresh
-    agent wallet has no funds. Stub exactly the chain reads that come before that
-    first funding step (idempotency, registrar role, domain membership) so the test
-    runs without a live RPC; previously it only passed when something happened to be
-    listening on localhost:8545, and failed in CI."""
-    monkeypatch.delenv("FUNDER_PRIVATE_KEY", raising=False)
-    # The agent wallet keystore is created before any funding step; give it a throwaway
-    # password so the run reaches the funder check (CI has none set).
-    monkeypatch.setenv("INTEGRITY_WALLET_PASSWORD", "test-only-password")
-
-    class _Eth(_FakeEth):
-        def get_balance(self, address) -> int:  # fresh wallet: nothing to spend
-            return 0
-
-    class _W3(_FakeConnectedW3):
-        eth = _Eth()
-
-    monkeypatch.setattr(chain, "get_w3", lambda rpc_url: _W3())
-    monkeypatch.setattr(chain, "resolve_did", lambda *a, **k: None)
-    monkeypatch.setattr(chain, "factory_has_registrar_role", lambda *a, **k: True)
-    monkeypatch.setattr(chain, "domain_exists", lambda *a, **k: True)
-    monkeypatch.setattr(chain, "can_join_domain", lambda *a, **k: True)
-    deployments_file = tmp_path / "deployments.local.json"
-    deployments_file.write_text(json.dumps({
-        "singletons": {
-            name: "0x" + f"{i:02x}" * 20
-            for i, name in enumerate(
-                ["AgentPrimitivesFactory", "IntegrityToken", "XibalbaAgentRegistry", "DomainRegistry"], start=1
-            )
-        },
-        "protocolAddresses": {"oracleSigner": "0x" + "55" * 20},
-    }))
-
+def test_agent_register_is_offchain_and_needs_no_funder(monkeypatch):
+    for var in ("FUNDER_PRIVATE_KEY", "INTEGRITY_WALLET_PASSWORD", "RPC_URL"):
+        monkeypatch.delenv(var, raising=False)
+    calls = _stub_register_offchain(monkeypatch)
     runner.invoke(app, ["identity", "keygen"])
-    result = runner.invoke(app, ["agent", "register", "--alias", "my-bot", "--deployments-file", str(deployments_file)])
-    assert result.exit_code == 1
-    # The funder wallet pays for the agent's on-chain deploys; without it, the command
-    # must stop with a clear message rather than a confusing mid-sequence RPC failure.
-    assert "FUNDER_PRIVATE_KEY" in result.stdout
+    did = identity.did_document("default")["id"]
+    result = runner.invoke(app, ["agent", "register"])
+    assert result.exit_code == 0, result.stdout
+    assert "tier=1" in result.stdout
+    assert f"registered {did}" in result.stdout
+    assert len(calls) == 1
+    assert calls[0]["did"] == did
+    assert calls[0]["oracle_url"] == "http://localhost:8080"
+    assert calls[0]["did_document"]["id"] == did
 
 
-def test_agent_register_requires_reachable_rpc(monkeypatch):
-    monkeypatch.setenv("FUNDER_PRIVATE_KEY", "0x" + "ac" * 32)
-    # Point at a port nothing is listening on so the RPC connectivity pre-check trips
-    # (this comes after the funder-key check but before any real transaction).
-    monkeypatch.setenv("RPC_URL", "http://127.0.0.1:1")
+def test_agent_register_passes_handle(monkeypatch):
+    calls = _stub_register_offchain(monkeypatch)
     runner.invoke(app, ["identity", "keygen"])
-    result = runner.invoke(app, ["agent", "register", "--alias", "my-bot"])
+    result = runner.invoke(
+        app, ["agent", "register", "--handle", "my-bot", "--oracle-url", "https://oracle.example"]
+    )
+    assert result.exit_code == 0, result.stdout
+    assert calls[0]["handle"] == "my-bot"
+    assert calls[0]["oracle_url"] == "https://oracle.example"
+
+
+def test_agent_register_reports_conflict_exit_1(monkeypatch):
+    from integrity_sdk.registration_offchain import OffchainRegistrationError
+
+    _stub_register_offchain(monkeypatch, error=OffchainRegistrationError(409, "handle already taken"))
+    runner.invoke(app, ["identity", "keygen"])
+    result = runner.invoke(app, ["agent", "register", "--handle", "taken"])
     assert result.exit_code == 1
-    assert "RPC" in result.stdout or "connect" in result.stdout
+    assert "409" in result.stdout
+    assert "handle already taken" in result.stdout
+
+
+def test_agent_register_reports_unreachable_oracle_exit_1(monkeypatch):
+    from integrity_sdk.registration_offchain import OffchainRegistrationError
+
+    _stub_register_offchain(monkeypatch, error=OffchainRegistrationError(None, "connection refused"))
+    runner.invoke(app, ["identity", "keygen"])
+    result = runner.invoke(app, ["agent", "register"])
+    assert result.exit_code == 1
+    assert "unreachable" in result.stdout.lower()
+
+
+def test_agent_register_removed_options_are_rejected():
+    runner.invoke(app, ["identity", "keygen"])
+    for flag in ("--alias", "--skip-oracle", "--rpc-url", "--full"):
+        args = ["agent", "register", flag] + ([] if flag in ("--skip-oracle", "--full") else ["x"])
+        assert runner.invoke(app, args).exit_code == 2, flag
 
 
 def test_agent_show(httpx_mock):

@@ -1,9 +1,8 @@
 # integrity-cli
 
 The developer command line for the Integrity Protocol. It does everything an
-agent operator needs from a terminal: manage local identity, **run the real
-self-sovereign on-chain registration** (the agent deploys and comes to own its
-own 7 primitive contracts), look up agents and their Agent Integrity Scores, and
+agent operator needs from a terminal: manage local identity, **register gas-free
+off-chain** (a signed proof of key possession; on-chain listing is separate), look up agents and their Agent Integrity Scores, and
 drive the Behavioral Commitment Chain (BCC) pre-execution policy gate.
 
 > Ground rule (repo-wide): **no silent mocks.** See
@@ -23,28 +22,14 @@ kept byte-for-byte compatible on the wire (DID fingerprints, BCC signatures, the
 registration sequence) — verified by cross-package round-trip tests — but they
 ship independently.
 
-## How agents own their contracts (and what the CLI does about it)
+## How registration works
 
-The protocol's defining choice is that **an agent owns and deploys its own
-contracts.** There is no privileged factory registering agents into shared global
-state. When you run `integrity agent register`, the CLI:
-
-1. Generates (or loads) the identity's **own EVM wallet** — a secp256k1 keypair,
-   separate from the Ed25519 DID key, stored as an encrypted keystore.
-2. Has the protocol funder wallet seed that new wallet with a little test ETH +
-   `$ITK` (a zero-balance wallet can't pay for its own first transaction).
-3. Uses the **agent's own wallet** to deploy `SovereignAgent` and `StateAnchor`
-   directly — those deploy transactions, signed by the agent's key, *are* the
-   proof of self-sovereign control.
-4. Calls `AgentPrimitivesFactory.registerPrimitives`, which clones the other 5
-   primitives (EIP-1167 minimal proxies) and registers all 7 addresses on-chain.
-
-**Implication:** the resulting identity is genuinely the operator's — no central
-party can rotate its controller, mint into its reputation, or deregister it. The
-flip side is real cost and irreversibility: registration spends real (testnet) gas
-across ~6 transactions, and the deployed contracts persist on-chain. This is why
-`register` is a multi-second, multi-transaction command with per-step progress
-output, not an instant HTTP POST.
+`integrity agent register` is **gas-free and off-chain**. It signs a registration
+message with the identity's Ed25519 key (proof of possession) and sends it to the
+Oracle; no chain state is touched and no funder wallet, RPC endpoint or deployments
+file is needed. A proven key is verification tier 1. The on-chain "self-sovereign
+contracts" registration (the old seven-primitives sequence) was removed from this
+command; the `domain` and `xns` commands still use the on-chain helpers.
 
 ## Install
 
@@ -91,22 +76,19 @@ fingerprint is the **full** `sha256(pubkey)` — matching the SDK exactly, and
 required by the reconciled BCC signature scheme (see below). This is a developer
 CLI, not a KMS; don't reuse these keys for anything that matters.
 
-### `integrity agent register` — the self-sovereign on-chain sequence
+### `integrity agent register` — gas-free off-chain registration
 
 ```bash
-integrity agent register \
-  --alias clinical-assistant-01 \
-  --domain healthcare.integrity \
-  --vertical healthcare \
-  [--identity default] [--rpc-url …] [--deployments-file …] [--oracle-url …] [--skip-oracle]
+integrity agent register [--identity default] [--handle my-agent] [--oracle-url …]
 ```
 
-Runs fund → mint ITK → deploy `SovereignAgent` → deploy `StateAnchor` → grant the
-oracle `ANCHOR_ROLE` (via `SovereignAgent.execute`) → `registerPrimitives`, then
-(unless `--skip-oracle`) POSTs the result to the oracle, which independently
-re-verifies the primitives against on-chain state. Requires `FUNDER_PRIVATE_KEY`
-and `INTEGRITY_WALLET_PASSWORD`; fails fast with a clear message if either — or a
-reachable RPC — is missing.
+Signs an RFC 8785 canonical registration message with the identity's Ed25519 key and
+POSTs it to the Oracle's `/v1/agent/register/offchain`. On success it prints
+`registered <did> tier=<n> (<outcome>)` and exits 0; on an Oracle rejection (for
+example a taken handle) or an unreachable Oracle it prints why and exits 1. It never
+needs `FUNDER_PRIVATE_KEY`, `INTEGRITY_WALLET_PASSWORD` or an RPC. `--oracle-url`
+defaults to the configured `ORACLE_URL`. Registering again is safe and never lowers
+an existing tier.
 
 ### `integrity agent show` / `ais`
 
