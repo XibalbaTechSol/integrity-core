@@ -319,6 +319,9 @@ trail anchor it in the v2 `ActionAnchor` singleton, keyed by their actor.
 - No primitives.
 - The old primitives and registration architecture is removed outright (contracts, Oracle
   route and table, SDK/CLI paths, tests, docs), with no 410 stub or compatibility shim.
+- Guardian transfer is two-step (`proposeGuardian` then `acceptGuardian` by the new
+  guardian), because a record can never be re-created: a one-step transfer to a wrong
+  address would strand it permanently.
 - Approach A with a door for C.
 - Being on chain means being confined to the contracts in the agent's policy pack; every
   actor is a gated `SovereignAgent`, never a plain wallet.
@@ -329,7 +332,7 @@ trail anchor it in the v2 `ActionAnchor` singleton, keyed by their actor.
 - Fingerprint, not keccak of the DID string, as the on-chain key.
 - First write wins; records are never deleted, only retired.
 - The Oracle attestation requires a prior off-chain registration with the same key.
-- Two-step guardian transfer; actor consent by `msg.sender`, ECDSA, or EIP-1271.
+- Actor consent by `msg.sender` or EIP-1271 (the actor is always a `SovereignAgent`).
 - Domain membership kept (`canJoin` against the guardian); optional for an existence-only
   record, required for a confined one.
 - Tier stays about identity: a proven key is tier 1 everywhere; confinement counts as
