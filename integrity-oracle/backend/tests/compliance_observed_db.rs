@@ -6,6 +6,15 @@ use backend::db;
 use chrono::{Duration, Utc};
 use uuid::Uuid;
 
+/// Fresh random 32 bytes per call, so no fixture reuses a fixed value where the
+/// schema expects a hash or signature (and CodeQL sees no hard-coded nonce).
+fn random32() -> [u8; 32] {
+    let mut out = [0u8; 32];
+    out[..16].copy_from_slice(Uuid::new_v4().as_bytes());
+    out[16..].copy_from_slice(Uuid::new_v4().as_bytes());
+    out
+}
+
 #[tokio::test]
 async fn aggregates_ignore_unobserved_rows() {
     if std::env::var("COMPLIANCE_DB_TEST").ok().as_deref() != Some("1") {
@@ -46,8 +55,8 @@ async fn aggregates_ignore_unobserved_rows() {
             *flagged,
             *observed,
             false,
-            &[nonce as u8; 32],
-            &[nonce as u8 + 100; 32],
+            &random32(),
+            &random32(),
             now,
             &serde_json::json!({"i": nonce}),
             None,
@@ -82,7 +91,7 @@ async fn aggregates_ignore_unobserved_rows() {
         .unwrap();
     db::insert_telemetry_event(
         &pool, Uuid::new_v4(), &agent2, 1, 0.1, 0.9, 1.0, true, false, false,
-        &[7u8; 32], &[8u8; 32], now, &serde_json::json!({}), None,
+        &random32(), &random32(), now, &serde_json::json!({}), None,
     )
     .await
     .unwrap();
