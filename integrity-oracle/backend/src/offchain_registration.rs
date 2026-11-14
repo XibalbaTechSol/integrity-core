@@ -34,10 +34,9 @@ pub const DID_PREFIX: &str = "did:integrity:";
 /// Accepted clock skew, either direction. Five minutes matches common signed-request
 /// practice and tolerates an unsynchronised laptop clock.
 pub const MAX_SKEW_SECS: i64 = 300;
-/// Off-chain registration grants no verification beyond key possession, which is the
-/// spec's Tier 0 (identity ceiling: AIS cap 300). DNS/GitHub/TEE verification routes
-/// raise the effective tier afterwards, exactly as they do for on-chain agents.
-pub const OFFCHAIN_TIER: i32 = 0;
+/// A proven Ed25519 key is tier 1 everywhere (spec Part 4, "Tier and evidence"): possession
+/// of the key is the tier-1 evidence. DNS/GitHub/TEE verification raises it further.
+pub const OFFCHAIN_TIER: i32 = 1;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ProofError {

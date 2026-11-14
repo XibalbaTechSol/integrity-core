@@ -2607,3 +2607,160 @@ pub async fn reconcile_agent_intent_outcome(
     .fetch_all(pool)
     .await
 }
+
+/// What an off-chain registration call did to the `agents` row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RegistrationOutcome {
+    /// A new row.
+    Created,
+    /// The row already held exactly this key: an idempotent repeat.
+    AlreadyRegistered,
+    /// The row existed without an Ed25519 key, and a proven key was attached.
+    KeyAttached,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum RegistrationConflict {
+    #[error("DID is bound to a different ed25519 key")]
+    KeyMismatch,
+    #[error("agent already holds a different XNS handle")]
+    HandleMismatch,
+    #[error("xns handle already taken")]
+    HandleTaken,
+    #[error(transparent)]
+    Db(#[from] sqlx::Error),
+}
+
+const AGENT_COLUMNS: &str =
+    "id, ed25519_pubkey, eth_address, verification_tier, last_nonce, created_at, did_document";
+
+/// Claim `handle` for `agent_id` inside `tx`, or accept it when the agent already holds it.
+async fn ensure_handle(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    agent_id: &str,
+    handle: &str,
+) -> Result<(), RegistrationConflict> {
+    let held: Option<String> =
+        sqlx::query_scalar("SELECT handle FROM xns_handles WHERE agent_id = $1")
+            .bind(agent_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+    match held {
+        Some(h) if h.eq_ignore_ascii_case(handle) => Ok(()),
+        Some(_) => Err(RegistrationConflict::HandleMismatch),
+        None => sqlx::query("INSERT INTO xns_handles (agent_id, handle) VALUES ($1, $2)")
+            .bind(agent_id)
+            .bind(handle)
+            .execute(&mut **tx)
+            .await
+            .map(|_| ())
+            .map_err(|e| match &e {
+                sqlx::Error::Database(d) if d.code().as_deref() == Some("23505") => {
+                    RegistrationConflict::HandleTaken
+                }
+                _ => RegistrationConflict::Db(e),
+            }),
+    }
+}
+
+/// Insert the agent row if absent (race-safe), then lock and return it with whether this
+/// call created it.
+async fn insert_or_lock_agent(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    id: &str,
+    ed25519_pubkey: Option<&[u8]>,
+    eth_address: Option<&str>,
+    verification_tier: i32,
+    did_document: Option<&serde_json::Value>,
+) -> Result<(AgentRow, bool), sqlx::Error> {
+    let inserted = sqlx::query_as::<_, AgentRow>(&format!(
+        "INSERT INTO agents (id, ed25519_pubkey, eth_address, verification_tier, did_document) \
+         VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO NOTHING RETURNING {AGENT_COLUMNS}"
+    ))
+    .bind(id)
+    .bind(ed25519_pubkey)
+    .bind(eth_address)
+    .bind(verification_tier)
+    .bind(did_document)
+    .fetch_optional(&mut **tx)
+    .await?;
+    if let Some(row) = inserted {
+        return Ok((row, true));
+    }
+    let row = sqlx::query_as::<_, AgentRow>(&format!(
+        "SELECT {AGENT_COLUMNS} FROM agents WHERE id = $1 FOR UPDATE"
+    ))
+    .bind(id)
+    .fetch_one(&mut **tx)
+    .await?;
+    Ok((row, false))
+}
+
+/// Off-chain registration (no gas). The caller has already verified proof of possession of
+/// `ed25519_pubkey` and that the DID is its fingerprint (`offchain_registration`).
+///
+/// - absent: insert at `OFFCHAIN_TIER`.
+/// - same key: idempotent; the tier is raised to `OFFCHAIN_TIER` if lower, never lowered.
+/// - no key on file: attach the proven key and raise the tier likewise.
+/// - another key: `KeyMismatch`, never overwritten.
+///
+/// The handle is claimed before commit, so a handle conflict rolls back the tier raise and
+/// key attach.
+#[allow(dead_code)] // first caller lands with the HTTP handler
+pub async fn register_agent_offchain(
+    pool: &PgPool,
+    id: &str,
+    ed25519_pubkey: &[u8],
+    did_document: Option<&serde_json::Value>,
+    handle: Option<&str>,
+) -> Result<(AgentRow, RegistrationOutcome), RegistrationConflict> {
+    let mut tx = pool.begin().await?;
+    let (row, created) = insert_or_lock_agent(
+        &mut tx,
+        id,
+        Some(ed25519_pubkey),
+        None,
+        crate::offchain_registration::OFFCHAIN_TIER,
+        did_document,
+    )
+    .await?;
+    let (row, outcome) = if created {
+        (row, RegistrationOutcome::Created)
+    } else {
+        match row.ed25519_pubkey.as_deref() {
+            Some(k) if k == ed25519_pubkey => {
+                let row = sqlx::query_as::<_, AgentRow>(&format!(
+                    "UPDATE agents SET verification_tier = GREATEST(verification_tier, $2) \
+                     WHERE id = $1 RETURNING {AGENT_COLUMNS}"
+                ))
+                .bind(id)
+                .bind(crate::offchain_registration::OFFCHAIN_TIER)
+                .fetch_one(&mut *tx)
+                .await?;
+                (row, RegistrationOutcome::AlreadyRegistered)
+            }
+            Some(_) => return Err(RegistrationConflict::KeyMismatch),
+            None => {
+                let row = sqlx::query_as::<_, AgentRow>(&format!(
+                    "UPDATE agents SET ed25519_pubkey = $2, \
+                     verification_tier = GREATEST(verification_tier, $4), \
+                     did_document = COALESCE(did_document, $3) \
+                     WHERE id = $1 RETURNING {AGENT_COLUMNS}"
+                ))
+                .bind(id)
+                .bind(ed25519_pubkey)
+                .bind(did_document)
+                .bind(crate::offchain_registration::OFFCHAIN_TIER)
+                .fetch_one(&mut *tx)
+                .await?;
+                (row, RegistrationOutcome::KeyAttached)
+            }
+        }
+    };
+    if let Some(h) = handle {
+        ensure_handle(&mut tx, id, h).await?;
+    }
+    tx.commit().await?;
+    Ok((row, outcome))
+}
