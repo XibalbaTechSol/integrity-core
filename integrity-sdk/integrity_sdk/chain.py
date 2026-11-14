@@ -166,6 +166,13 @@ def _send_signed(w3: Web3, signer: LocalAccount, build_tx, *, action: str, max_a
     for attempt in range(max_attempts):
         nonce = w3.eth.get_transaction_count(signer.address, "pending")
         tx = build_tx(nonce)
+        # eth_estimateGas is exact (Anvil adds no buffer). A tx whose cost depends on
+        # block state at inclusion — e.g. StateAnchor.anchorRoot's `latestTimestamp =
+        # block.timestamp` SSTORE, a no-op when estimated in the same second as the
+        # prior block but a real write once mined a second later — then runs out of
+        # gas (status=0, gasUsed == gas). 25% headroom; unused gas is refunded.
+        if "gas" in tx:
+            tx["gas"] = int(tx["gas"] * 1.25)
         signed = signer.sign_transaction(tx)
         try:
             tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
