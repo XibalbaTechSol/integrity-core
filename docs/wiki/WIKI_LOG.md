@@ -1,5 +1,12 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-11-14] update | Pruned dead MCP server instructions & documented shared billing gateway
+
+- Removed obsolete `## MCP server` setup instructions in `entities/integrity-sdk.md`: `mcp_server.py` was decommissioned in `e1bf9ff3`. Replaced with explicit deprecation note directing to in-process `agent_runtime.py` and native hook runners.
+- Added `## Shared Billing Gateway (billing/)` documenting canonical cross-ecosystem Stripe primitives (`integrity_sdk.billing.StripeGateway`, `ledger.py`) shared between Shield and Cortex.
+- Added `integrity_sdk/billing/` and `integrity_sdk/core/ais_local.py` to `source_files` manifest.
+- Verified via `scripts/wiki_toc.py --check` and `scripts/wiki_linter.py`. All drift targets pass.
+
 ## [2026-11-14] update | Dev-shell gate health signal on the operator workstation
 
 - The workstation's PreToolUse gate now shows the user a warning when a tool call is allowed unchecked, at most every 10 minutes, instead of only logging it.
