@@ -28,6 +28,41 @@ paths:
           description: Bad request
         '409':
           description: Agent already registered
+  /v1/agent/register/offchain:
+    post:
+      tags:
+      - agents
+      summary: |-
+        Off-chain (gasless) registration: the caller proves possession of the Ed25519 key its
+        DID commits to. No chain access, no funder key; the row lands at tier 1.
+      operationId: register_agent_offchain
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OffchainRegisterRequest'
+        required: true
+      responses:
+        '200':
+          description: Already registered, or a proven key was attached to an existing row
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OffchainRegisterResponse'
+        '201':
+          description: Agent created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OffchainRegisterResponse'
+        '400':
+          description: Malformed DID, key, signature or handle
+        '401':
+          description: DID does not match key, bad signature, or timestamp outside the window
+        '409':
+          description: DID bound to another key or handle, or handle taken
+        '429':
+          description: Global registration rate limit exceeded
   /v1/agent/{id}:
     get:
       tags:
@@ -1963,6 +1998,55 @@ components:
             `docs/wiki/entities/integrity-oracle.md` for the documented follow-up.
         sovereign_agent:
           type: string
+    OffchainRegisterRequest:
+      type: object
+      description: Body of `POST /v1/agent/register/offchain`.
+      required:
+      - did
+      - ed25519_pubkey_hex
+      - timestamp
+      - signature
+      properties:
+        did:
+          type: string
+          description: '`did:integrity:` + `sha256(raw 32-byte Ed25519 pubkey)` as 64 lowercase hex.'
+        did_document: {}
+        ed25519_pubkey_hex:
+          type: string
+          description: The agent's Ed25519 public key, 32 bytes of hex (`0x` prefix and case tolerated).
+        handle:
+          type:
+          - string
+          - 'null'
+          description: Optional XNS handle to claim in the same transaction.
+        signature:
+          type: string
+          description: |-
+            Hex Ed25519 signature over the RFC 8785 canonical JSON of
+            `{did, domain: "integrity.agent.register.offchain.v1", ed25519_pubkey_hex, timestamp}`.
+        timestamp:
+          type: integer
+          format: int64
+          description: Unix seconds the proof was signed; accepted within +/-300 s of server time.
+    OffchainRegisterResponse:
+      type: object
+      required:
+      - agent_id
+      - verification_tier
+      - outcome
+      properties:
+        agent_id:
+          type: string
+        handle:
+          type:
+          - string
+          - 'null'
+          description: The handle claimed by this request, if one was supplied.
+        outcome:
+          $ref: '#/components/schemas/RegistrationOutcome'
+        verification_tier:
+          type: integer
+          format: int32
     OtelVolumeBucket:
       type: object
       required:
@@ -2133,6 +2217,13 @@ components:
         verification_tier:
           type: integer
           format: int32
+    RegistrationOutcome:
+      type: string
+      description: What an off-chain registration call did to the `agents` row.
+      enum:
+      - created
+      - already_registered
+      - key_attached
     ShadowGate:
       type: object
       required:

@@ -15,6 +15,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/stream", get(stream::stream_events))
         .route("/v1/agent/{id}/stream", get(stream::stream_agent))
         .route("/v1/agent/register", post(handlers::register_agent))
+        .route("/v1/agent/register/offchain", post(handlers::register_agent_offchain))
         .route("/v1/agent/{id}", get(handlers::get_agent))
         .route("/v1/agents", get(handlers::list_agents))
         .route("/v1/agents/snapshot", get(handlers::agent_directory_snapshot))

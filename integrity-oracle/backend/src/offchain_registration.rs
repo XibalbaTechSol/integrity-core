@@ -118,6 +118,10 @@ mod tests {
 
     const NOW: i64 = 1_800_000_000;
 
+    /// Ed25519 public key (lowercase hex) of seed `[7u8; 32]`. The Python SDK test pins the
+    /// same bytes, so both languages provably agree on the key and the signed message.
+    const GOLDEN_PUBKEY_SEED7_HEX: &str = "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c";
+
     fn agent(seed: u8) -> (SigningKey, String, String) {
         let sk = SigningKey::from_bytes(&[seed; 32]);
         let pk = sk.verifying_key().to_bytes();
@@ -199,5 +203,16 @@ mod tests {
         assert_eq!(verify_proof(&upper, &pk, NOW, &sig, NOW), Err(ProofError::MalformedDid));
         assert_eq!(verify_proof(&did, "abcd", NOW, &sig, NOW), Err(ProofError::MalformedPubkey));
         assert_eq!(verify_proof(&did, &pk, NOW, "zz", NOW), Err(ProofError::MalformedSignature));
+    }
+
+    #[test]
+    fn signing_message_golden_vector() {
+        let (_, did, pk) = agent(7);
+        let msg = String::from_utf8(signing_message(&did, &format!("0x{}", pk.to_uppercase()), NOW)).unwrap();
+        assert_eq!(msg, format!(
+            r#"{{"did":"{did}","domain":"integrity.agent.register.offchain.v1","ed25519_pubkey_hex":"{pk}","timestamp":1800000000}}"#
+        ));
+        // Pin the concrete key so the Python test can assert the same bytes.
+        assert_eq!(pk, GOLDEN_PUBKEY_SEED7_HEX);
     }
 }

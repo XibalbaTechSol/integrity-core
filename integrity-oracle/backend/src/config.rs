@@ -72,6 +72,10 @@ pub struct Config {
     /// vault — protects Postgres and the ZK verifier subprocess from a
     /// misbehaving/compromised agent hammering the ingestion endpoint.
     pub telemetry_rate_limit_per_minute: u32,
+    /// Off-chain registrations per minute across ALL callers (one global counter, not per
+    /// DID: a flood of fresh keypairs must not be able to mint unlimited agent rows).
+    /// `REGISTRATION_RATE_LIMIT_PER_MINUTE`, default 30.
+    pub registration_rate_limit_per_minute: u32,
     pub phi_backstop_mode: PhiBackstopMode,
 
     /// provider id -> trusted Ed25519 receipt-verification key. A KYC receipt is
@@ -132,6 +136,9 @@ impl Config {
         let telemetry_rate_limit_per_minute: u32 = env_or("TELEMETRY_RATE_LIMIT_PER_MINUTE", "60")
             .parse()
             .map_err(|_| "TELEMETRY_RATE_LIMIT_PER_MINUTE must be a valid integer".to_string())?;
+        let registration_rate_limit_per_minute: u32 = env_or("REGISTRATION_RATE_LIMIT_PER_MINUTE", "30")
+            .parse()
+            .map_err(|_| "REGISTRATION_RATE_LIMIT_PER_MINUTE must be a valid integer".to_string())?;
         let kyc_provider_keys = parse_kyc_provider_keys(&env_or("KYC_PROVIDER_KEYS", ""))?;
         let shield_witness_dids = env_or("SHIELD_WITNESS_DIDS", "")
             .split(',')
@@ -153,6 +160,7 @@ impl Config {
             reporting_period_days,
             anchor_stale_penalty_bps,
             telemetry_rate_limit_per_minute,
+            registration_rate_limit_per_minute,
             phi_backstop_mode,
             kyc_provider_keys,
             oracle_api_key: parse_optional_api_key(std::env::var("ORACLE_API_KEY").ok()),
@@ -179,6 +187,7 @@ impl Config {
             reporting_period_days: 30,
             anchor_stale_penalty_bps: 0,
             telemetry_rate_limit_per_minute: 60,
+            registration_rate_limit_per_minute: 30,
             // Tests get the strict default; a test that needs Flag/Off sets it explicitly, so a
             // relaxed backstop can never be inherited silently.
             phi_backstop_mode: PhiBackstopMode::Reject,

@@ -122,6 +122,129 @@ pub struct RegisterAgentResponse {
     pub domain_id: String,
 }
 
+/// Body of `POST /v1/agent/register/offchain`.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct OffchainRegisterRequest {
+    /// `did:integrity:` + `sha256(raw 32-byte Ed25519 pubkey)` as 64 lowercase hex.
+    pub did: String,
+    /// The agent's Ed25519 public key, 32 bytes of hex (`0x` prefix and case tolerated).
+    pub ed25519_pubkey_hex: String,
+    /// Unix seconds the proof was signed; accepted within +/-300 s of server time.
+    pub timestamp: i64,
+    /// Hex Ed25519 signature over the RFC 8785 canonical JSON of
+    /// `{did, domain: "integrity.agent.register.offchain.v1", ed25519_pubkey_hex, timestamp}`.
+    pub signature: String,
+    pub did_document: Option<serde_json::Value>,
+    /// Optional XNS handle to claim in the same transaction.
+    pub handle: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct OffchainRegisterResponse {
+    pub agent_id: String,
+    pub verification_tier: i32,
+    pub outcome: db::RegistrationOutcome,
+    /// The handle claimed by this request, if one was supplied.
+    pub handle: Option<String>,
+}
+
+/// Every check that runs before the database, in the order that keeps a flood cheap:
+/// the global rate counter, then handle syntax, then the proof. Returns the raw pubkey
+/// bytes to store. `now` is unix seconds; it fixes both the rate window and the
+/// freshness check so a caller (or test) sees one consistent instant.
+async fn precheck_offchain_registration(
+    limiter: &crate::ratelimit::RateLimiter,
+    limit_per_minute: u32,
+    req: &OffchainRegisterRequest,
+    now: i64,
+) -> Result<Vec<u8>, AppError> {
+    use crate::offchain_registration::{verify_proof, ProofError};
+
+    let count = limiter.hit("ratelimit:register:offchain", now / 60).await;
+    if count > limit_per_minute as i64 {
+        return Err(AppError::RateLimited);
+    }
+    if let Some(handle) = &req.handle {
+        validate_xns_handle(handle)?;
+    }
+    verify_proof(&req.did, &req.ed25519_pubkey_hex, req.timestamp, &req.signature, now).map_err(
+        |e| match e {
+            ProofError::MalformedDid | ProofError::MalformedPubkey | ProofError::MalformedSignature => {
+                AppError::BadRequest(e.to_string())
+            }
+            ProofError::DidKeyMismatch | ProofError::BadSignature | ProofError::Stale => {
+                AppError::ProofRejected(e.to_string())
+            }
+        },
+    )
+}
+
+/// Off-chain (gasless) registration: the caller proves possession of the Ed25519 key its
+/// DID commits to. No chain access, no funder key; the row lands at tier 1.
+#[utoipa::path(
+    post,
+    path = "/v1/agent/register/offchain",
+    request_body = OffchainRegisterRequest,
+    responses(
+        (status = 201, description = "Agent created", body = OffchainRegisterResponse),
+        (status = 200, description = "Already registered, or a proven key was attached to an existing row", body = OffchainRegisterResponse),
+        (status = 400, description = "Malformed DID, key, signature or handle"),
+        (status = 401, description = "DID does not match key, bad signature, or timestamp outside the window"),
+        (status = 409, description = "DID bound to another key or handle, or handle taken"),
+        (status = 429, description = "Global registration rate limit exceeded"),
+    ),
+    tag = "agents",
+)]
+pub async fn register_agent_offchain(
+    State(state): State<AppState>,
+    Json(req): Json<OffchainRegisterRequest>,
+) -> Result<(axum::http::StatusCode, Json<OffchainRegisterResponse>), AppError> {
+    use axum::http::StatusCode;
+
+    let pubkey = precheck_offchain_registration(
+        &state.rate_limiter,
+        state.config.registration_rate_limit_per_minute,
+        &req,
+        Utc::now().timestamp(),
+    )
+    .await?;
+
+    let (row, outcome) = db::register_agent_offchain(
+        &state.pool,
+        &req.did,
+        &pubkey,
+        req.did_document.as_ref(),
+        req.handle.as_deref(),
+    )
+    .await
+    .map_err(|e| match e {
+        db::RegistrationConflict::KeyMismatch => {
+            AppError::IdentityConflict("DID is bound to a different ed25519 key".to_string())
+        }
+        db::RegistrationConflict::HandleMismatch => {
+            AppError::IdentityConflict("agent already holds a different XNS handle".to_string())
+        }
+        db::RegistrationConflict::HandleTaken => {
+            AppError::HandleTaken(req.handle.clone().unwrap_or_default())
+        }
+        db::RegistrationConflict::Db(e) => AppError::from(e),
+    })?;
+
+    let status = match outcome {
+        db::RegistrationOutcome::Created => StatusCode::CREATED,
+        db::RegistrationOutcome::AlreadyRegistered | db::RegistrationOutcome::KeyAttached => StatusCode::OK,
+    };
+    Ok((
+        status,
+        Json(OffchainRegisterResponse {
+            agent_id: row.id,
+            verification_tier: row.verification_tier,
+            outcome,
+            handle: req.handle,
+        }),
+    ))
+}
+
 /// The registration floor. Tier 1 ("Sovereign") requires proof-of-possession of a
 /// software key plus an independently confirmed on-chain primitive match. Registration
 /// cannot establish a stronger claim, so DNS/GitHub and Nitro evidence raise the effective
@@ -5037,5 +5160,84 @@ mod unobserved_compliance_response_tests {
         for v in [0u8, 2, 3, 255] {
             assert!(vertical_has_no_compliance_check(v), "vertical {v} must be unobserved");
         }
+    }
+}
+
+#[cfg(test)]
+mod offchain_registration_handler_tests {
+    use super::*;
+    use crate::offchain_registration::{signing_message, DID_PREFIX};
+    use crate::ratelimit::RateLimiter;
+    use axum::response::IntoResponse;
+    use ed25519_dalek::{Signer, SigningKey};
+
+    const NOW: i64 = 1_800_000_000;
+
+    fn request(timestamp: i64) -> OffchainRegisterRequest {
+        let sk = SigningKey::from_bytes(&[7u8; 32]);
+        let pk = hex::encode(sk.verifying_key().to_bytes());
+        let did = format!("{DID_PREFIX}{}", hex::encode(Sha256::digest(sk.verifying_key().to_bytes())));
+        let sig = hex::encode(sk.sign(&signing_message(&did, &pk, timestamp)).to_bytes());
+        OffchainRegisterRequest {
+            did,
+            ed25519_pubkey_hex: pk,
+            timestamp,
+            signature: sig,
+            did_document: None,
+            handle: None,
+        }
+    }
+
+    async fn run(req: &OffchainRegisterRequest, limit: u32) -> Result<Vec<u8>, AppError> {
+        precheck_offchain_registration(&RateLimiter::local_only(), limit, req, NOW).await
+    }
+
+    fn status(e: AppError) -> u16 {
+        e.into_response().status().as_u16()
+    }
+
+    #[tokio::test]
+    async fn offchain_register_accepts_a_valid_proof() {
+        let req = request(NOW);
+        assert_eq!(run(&req, 30).await.unwrap(), hex::decode(&req.ed25519_pubkey_hex).unwrap());
+    }
+
+    #[tokio::test]
+    async fn offchain_register_rejects_stale_timestamp_with_401() {
+        let err = run(&request(NOW - 301), 30).await.unwrap_err();
+        assert!(matches!(&err, AppError::ProofRejected(m) if m.contains("window")), "{err:?}");
+        assert_eq!(status(err), 401);
+    }
+
+    #[tokio::test]
+    async fn offchain_register_rejects_bad_signature_with_401() {
+        let mut req = request(NOW);
+        req.signature = "00".repeat(64);
+        assert_eq!(status(run(&req, 30).await.unwrap_err()), 401);
+    }
+
+    #[tokio::test]
+    async fn offchain_register_rejects_malformed_did_with_400() {
+        let mut req = request(NOW);
+        req.did = "did:web:example.com".to_string();
+        assert_eq!(status(run(&req, 30).await.unwrap_err()), 400);
+    }
+
+    #[tokio::test]
+    async fn offchain_register_rejects_invalid_handle_with_400() {
+        let mut req = request(NOW);
+        req.handle = Some("Not A Handle".to_string());
+        assert_eq!(status(run(&req, 30).await.unwrap_err()), 400);
+    }
+
+    #[tokio::test]
+    async fn offchain_register_rate_limit_returns_429_before_verifying() {
+        let limiter = RateLimiter::local_only();
+        let mut req = request(NOW);
+        req.signature = "00".repeat(64); // would be 401 if verified
+        let first = precheck_offchain_registration(&limiter, 1, &req, NOW).await.unwrap_err();
+        assert_eq!(status(first), 401);
+        let second = precheck_offchain_registration(&limiter, 1, &req, NOW).await.unwrap_err();
+        assert_eq!(status(second), 429, "the flood is rejected before any signature work");
     }
 }

@@ -2609,7 +2609,7 @@ pub async fn reconcile_agent_intent_outcome(
 }
 
 /// What an off-chain registration call did to the `agents` row.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum RegistrationOutcome {
     /// A new row.
@@ -2707,7 +2707,6 @@ async fn insert_or_lock_agent(
 ///
 /// The handle is claimed before commit, so a handle conflict rolls back the tier raise and
 /// key attach.
-#[allow(dead_code)] // first caller lands with the HTTP handler
 pub async fn register_agent_offchain(
     pool: &PgPool,
     id: &str,

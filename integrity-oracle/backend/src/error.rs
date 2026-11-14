@@ -31,6 +31,10 @@ pub enum AppError {
     BadRequest(String),
     #[error("signature verification failed")]
     Unauthorized,
+    /// An off-chain registration proof was refused. The message names the reason
+    /// (wrong key for the DID, bad signature, or clock skew) so the client can fix it.
+    #[error("registration proof rejected: {0}")]
+    ProofRejected(String),
     #[error("nonce {submitted} is not greater than last seen nonce {last_seen} for agent {agent_id} (possible replay)")]
     NonceReplay {
         agent_id: String,
@@ -89,6 +93,7 @@ impl IntoResponse for AppError {
             AppError::HandleNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
             AppError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             AppError::Unauthorized => (StatusCode::UNAUTHORIZED, self.to_string()),
+            AppError::ProofRejected(_) => (StatusCode::UNAUTHORIZED, self.to_string()),
             AppError::NonceReplay { .. } => (StatusCode::CONFLICT, self.to_string()),
             AppError::DuplicateTelemetry(_) => (StatusCode::CONFLICT, self.to_string()),
             AppError::WitnessEquivocation { .. } => (StatusCode::CONFLICT, self.to_string()),
