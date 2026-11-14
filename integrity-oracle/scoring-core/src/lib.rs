@@ -135,6 +135,31 @@ impl AisWeights {
         }
         Ok(())
     }
+
+    /// The same weights with the compliance axis treated as **unobserved**: `w_compliance`
+    /// becomes 0 and the other three are rescaled to sum to 1 again.
+    ///
+    /// Dropping a weight without rescaling would shrink the geometric mean's exponent, so a
+    /// perfect agent would score ~178 instead of 1000. A zero weight, unlike a zero score,
+    /// does not annihilate the mean. This is the rule `integrity_sdk.core.ais_local` uses
+    /// for axes its receipt log cannot observe, and `integrity_sdk.core.ais_reward.
+    /// weights_without_compliance` mirrors it.
+    ///
+    /// Errors when the other three weights are all zero: nothing would remain to score.
+    pub fn without_compliance(&self) -> Result<Self, String> {
+        let rest = self.w_entropy + self.w_grounding + self.w_sacrifice;
+        if !rest.is_finite() || rest <= 0.0 {
+            return Err("no non-compliance AIS weight to renormalize onto".to_string());
+        }
+        let w = Self {
+            w_entropy: self.w_entropy / rest,
+            w_grounding: self.w_grounding / rest,
+            w_sacrifice: self.w_sacrifice / rest,
+            w_compliance: 0.0,
+        };
+        w.validate()?;
+        Ok(w)
+    }
 }
 
 /// Raw, per-agent aggregate inputs the oracle derives from telemetry + ZK verification
@@ -737,6 +762,40 @@ pub struct ClosedLoopRewardEvaluation {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn without_compliance_renormalizes_the_other_three() {
+        let w = AisWeights::default().without_compliance().unwrap();
+        assert_eq!(w.w_compliance, 0.0);
+        assert!((w.w_entropy - 0.375).abs() < 1e-12);
+        assert!((w.w_grounding - 0.375).abs() < 1e-12);
+        assert!((w.w_sacrifice - 0.25).abs() < 1e-12);
+        w.validate().unwrap();
+    }
+
+    #[test]
+    fn unobserved_compliance_does_not_annihilate_or_shrink_a_perfect_score() {
+        // Perfect on the three observed axes, and penalty_ratio = 1.0 (what the oracle used
+        // to store for every event it had no evidence for).
+        let inputs = AisComponentInputs {
+            performance_variance: 0.0,
+            hgi_raw: 1.0,
+            gpu_hours_verified: 999.0,
+            penalty_ratio: 1.0,
+            zk_verified_event_ratio: 0.0,
+        };
+        let observed = AisEngine::new(AisWeights::default()).unwrap().score(&inputs);
+        assert_eq!(observed.ais_base, 0.0, "a zero compliance score annihilates the mean");
+        let engine = AisEngine::new(AisWeights::default().without_compliance().unwrap()).unwrap();
+        let unobserved = engine.score(&inputs);
+        assert!((unobserved.ais_base - 1000.0).abs() < 1e-6, "got {}", unobserved.ais_base);
+    }
+
+    #[test]
+    fn without_compliance_refuses_a_compliance_only_profile() {
+        let w = AisWeights { w_entropy: 0.0, w_grounding: 0.0, w_sacrifice: 0.0, w_compliance: 1.0 };
+        assert!(w.without_compliance().is_err());
+    }
 
     #[test]
     fn default_weights_sum_to_one() {

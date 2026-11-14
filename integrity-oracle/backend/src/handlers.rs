@@ -122,6 +122,129 @@ pub struct RegisterAgentResponse {
     pub domain_id: String,
 }
 
+/// Body of `POST /v1/agent/register/offchain`.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct OffchainRegisterRequest {
+    /// `did:integrity:` + `sha256(raw 32-byte Ed25519 pubkey)` as 64 lowercase hex.
+    pub did: String,
+    /// The agent's Ed25519 public key, 32 bytes of hex (`0x` prefix and case tolerated).
+    pub ed25519_pubkey_hex: String,
+    /// Unix seconds the proof was signed; accepted within +/-300 s of server time.
+    pub timestamp: i64,
+    /// Hex Ed25519 signature over the RFC 8785 canonical JSON of
+    /// `{did, domain: "integrity.agent.register.offchain.v1", ed25519_pubkey_hex, timestamp}`.
+    pub signature: String,
+    pub did_document: Option<serde_json::Value>,
+    /// Optional XNS handle to claim in the same transaction.
+    pub handle: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct OffchainRegisterResponse {
+    pub agent_id: String,
+    pub verification_tier: i32,
+    pub outcome: db::RegistrationOutcome,
+    /// The handle claimed by this request, if one was supplied.
+    pub handle: Option<String>,
+}
+
+/// Every check that runs before the database, in the order that keeps a flood cheap:
+/// the global rate counter, then handle syntax, then the proof. Returns the raw pubkey
+/// bytes to store. `now` is unix seconds; it fixes both the rate window and the
+/// freshness check so a caller (or test) sees one consistent instant.
+async fn precheck_offchain_registration(
+    limiter: &crate::ratelimit::RateLimiter,
+    limit_per_minute: u32,
+    req: &OffchainRegisterRequest,
+    now: i64,
+) -> Result<Vec<u8>, AppError> {
+    use crate::offchain_registration::{verify_proof, ProofError};
+
+    let count = limiter.hit("ratelimit:register:offchain", now / 60).await;
+    if count > limit_per_minute as i64 {
+        return Err(AppError::RateLimited);
+    }
+    if let Some(handle) = &req.handle {
+        validate_xns_handle(handle)?;
+    }
+    verify_proof(&req.did, &req.ed25519_pubkey_hex, req.timestamp, &req.signature, now).map_err(
+        |e| match e {
+            ProofError::MalformedDid | ProofError::MalformedPubkey | ProofError::MalformedSignature => {
+                AppError::BadRequest(e.to_string())
+            }
+            ProofError::DidKeyMismatch | ProofError::BadSignature | ProofError::Stale => {
+                AppError::ProofRejected(e.to_string())
+            }
+        },
+    )
+}
+
+/// Off-chain (gasless) registration: the caller proves possession of the Ed25519 key its
+/// DID commits to. No chain access, no funder key; the row lands at tier 1.
+#[utoipa::path(
+    post,
+    path = "/v1/agent/register/offchain",
+    request_body = OffchainRegisterRequest,
+    responses(
+        (status = 201, description = "Agent created", body = OffchainRegisterResponse),
+        (status = 200, description = "Already registered, or a proven key was attached to an existing row", body = OffchainRegisterResponse),
+        (status = 400, description = "Malformed DID, key, signature or handle"),
+        (status = 401, description = "DID does not match key, bad signature, or timestamp outside the window"),
+        (status = 409, description = "DID bound to another key or handle, or handle taken"),
+        (status = 429, description = "Global registration rate limit exceeded"),
+    ),
+    tag = "agents",
+)]
+pub async fn register_agent_offchain(
+    State(state): State<AppState>,
+    Json(req): Json<OffchainRegisterRequest>,
+) -> Result<(axum::http::StatusCode, Json<OffchainRegisterResponse>), AppError> {
+    use axum::http::StatusCode;
+
+    let pubkey = precheck_offchain_registration(
+        &state.rate_limiter,
+        state.config.registration_rate_limit_per_minute,
+        &req,
+        Utc::now().timestamp(),
+    )
+    .await?;
+
+    let (row, outcome) = db::register_agent_offchain(
+        &state.pool,
+        &req.did,
+        &pubkey,
+        req.did_document.as_ref(),
+        req.handle.as_deref(),
+    )
+    .await
+    .map_err(|e| match e {
+        db::RegistrationConflict::KeyMismatch => {
+            AppError::IdentityConflict("DID is bound to a different ed25519 key".to_string())
+        }
+        db::RegistrationConflict::HandleMismatch => {
+            AppError::IdentityConflict("agent already holds a different XNS handle".to_string())
+        }
+        db::RegistrationConflict::HandleTaken => {
+            AppError::HandleTaken(req.handle.clone().unwrap_or_default())
+        }
+        db::RegistrationConflict::Db(e) => AppError::from(e),
+    })?;
+
+    let status = match outcome {
+        db::RegistrationOutcome::Created => StatusCode::CREATED,
+        db::RegistrationOutcome::AlreadyRegistered | db::RegistrationOutcome::KeyAttached => StatusCode::OK,
+    };
+    Ok((
+        status,
+        Json(OffchainRegisterResponse {
+            agent_id: row.id,
+            verification_tier: row.verification_tier,
+            outcome,
+            handle: req.handle,
+        }),
+    ))
+}
+
 /// The registration floor. Tier 1 ("Sovereign") requires proof-of-possession of a
 /// software key plus an independently confirmed on-chain primitive match. Registration
 /// cannot establish a stronger claim, so DNS/GitHub and Nitro evidence raise the effective
@@ -823,6 +946,10 @@ pub struct AisResponse {
     pub authoritative_input_source: &'static str,
     pub proxy_axes: Vec<&'static str>,
     pub missing_axes: Vec<&'static str>,
+    /// False when the window has events but none carried an evidence-backed compliance
+    /// verdict. `weights` then shows the compliance weight as 0 with the other three
+    /// renormalized, and `components.compliance` does not enter the score.
+    pub compliance_observed: bool,
     /// Present only when a cached on-chain ReputationRegistry address is known for this
     /// agent — a nice-to-have cross-check (per the task's "not required" note) that the
     /// oracle's off-chain `zk_verified_event_ratio` telemetry flag agrees with the
@@ -880,15 +1007,50 @@ pub struct AisComponents {
     pub entropy: f64,
     pub grounding: f64,
     pub sacrifice: f64,
-    pub compliance: f64,
+    /// `null` when the window has no evidence-backed compliance verdict
+    /// (`compliance_observed == false`): there is no axis value to report.
+    pub compliance: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct ShadowGate {
     pub entropy_pass: bool,
     pub grounding_pass: bool,
-    pub compliance_pass: bool,
+    /// `null` when compliance is unobserved: it neither passes nor fails the gate.
+    pub compliance_pass: Option<bool>,
+    /// Conjunction over the observed axes only.
     pub would_pass: bool,
+}
+
+/// The compliance-dependent response fields for a window. An unobserved compliance axis
+/// is reported as `null` and excluded from the gate, never as a fabricated perfect score.
+fn compliance_view(
+    compliance_observed: bool,
+    breakdown: &scoring_core::AisBreakdown,
+) -> (Option<f64>, ShadowGate) {
+    let entropy_pass = breakdown.gate_entropy_pass;
+    let grounding_pass = breakdown.gate_grounding_pass;
+    if compliance_observed {
+        (
+            Some(breakdown.s_compliance),
+            ShadowGate {
+                entropy_pass,
+                grounding_pass,
+                compliance_pass: Some(breakdown.gate_compliance_pass),
+                would_pass: breakdown.gate_would_pass,
+            },
+        )
+    } else {
+        (
+            None,
+            ShadowGate {
+                entropy_pass,
+                grounding_pass,
+                compliance_pass: None,
+                would_pass: entropy_pass && grounding_pass,
+            },
+        )
+    }
 }
 
 /// Computes the current AIS breakdown for an agent. The single call site both
@@ -920,7 +1082,12 @@ pub(crate) async fn compute_ais_for_agent(
         .await?
         .ok_or_else(|| AppError::AgentNotFound(id.to_string()))?;
 
-    let engine = scoring_core::AisEngine::new(state.config.ais_weights)
+    let (weights, compliance_observed) = ais_weights_for_window(
+        state.config.ais_weights,
+        aggregate.event_count,
+        aggregate.compliance_observed_count,
+    );
+    let engine = scoring_core::AisEngine::new(weights)
         .and_then(|engine| engine.with_zone_policy(state.config.ais_zone_policy))
         .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
     // EFFECTIVE tier, not the registration column: `agents.verification_tier` is only
@@ -1019,9 +1186,10 @@ pub(crate) async fn compute_ais_for_agent(
             entropy: breakdown.s_entropy,
             grounding: breakdown.s_grounding,
             sacrifice: breakdown.s_sacrifice,
-            compliance: breakdown.s_compliance,
+            compliance: compliance_view(compliance_observed, &breakdown).0,
         },
-        weights: state.config.ais_weights,
+        weights,
+        compliance_observed,
         zk_boost: breakdown.zk_boost,
         zk_proof_verified: aggregate.zk_verified_event_ratio > 0.0,
         zk_verified_event_ratio: aggregate.zk_verified_event_ratio,
@@ -1031,17 +1199,18 @@ pub(crate) async fn compute_ais_for_agent(
         evidence_tier: "signed_agent",
         data_sufficiency: if aggregate.event_count == 0 { "no_events" } else { "observed_events" },
         authoritative_input_source: "oracle_recomputed_from_signed_telemetry",
-        proxy_axes: vec!["sacrifice", "compliance_proxy"],
-        missing_axes: if aggregate.event_count == 0 { vec!["entropy", "grounding", "sacrifice", "compliance"] } else { Vec::new() },
+        proxy_axes: if compliance_observed { vec!["sacrifice", "compliance_proxy"] } else { vec!["sacrifice"] },
+        missing_axes: if aggregate.event_count == 0 {
+            vec!["entropy", "grounding", "sacrifice", "compliance"]
+        } else if !compliance_observed {
+            vec!["compliance"]
+        } else {
+            Vec::new()
+        },
         onchain_zk_boost_consistent,
         anchor_coverage,
         constraint_score: breakdown.constraint_score,
-        shadow_gate: ShadowGate {
-            entropy_pass: breakdown.gate_entropy_pass,
-            grounding_pass: breakdown.gate_grounding_pass,
-            compliance_pass: breakdown.gate_compliance_pass,
-            would_pass: breakdown.gate_would_pass,
-        },
+        shadow_gate: compliance_view(compliance_observed, &breakdown).1,
         closed_loop_reward: {
             let eval = engine.evaluate_closed_loop_reward(
                 &breakdown,
@@ -1266,6 +1435,28 @@ fn check_oracle_api_key(state: &AppState, headers: &axum::http::HeaderMap) -> Re
     Ok(())
 }
 
+/// The AIS weights to score a window with. When the window has events but none carries an
+/// evidence-backed compliance verdict (migration 0025), the compliance axis is unobserved:
+/// its weight goes to 0 and the rest are renormalized (`AisWeights::without_compliance`).
+/// A profile that cannot be renormalized keeps its configured weights and so fails closed.
+fn ais_weights_for_window(
+    configured: scoring_core::AisWeights,
+    event_count: i64,
+    compliance_observed_count: i64,
+) -> (scoring_core::AisWeights, bool) {
+    let observed = event_count == 0 || compliance_observed_count > 0;
+    if observed {
+        return (configured, true);
+    }
+    match configured.without_compliance() {
+        Ok(w) => (w, false),
+        Err(e) => {
+            tracing::warn!(error = %e, "cannot renormalize AIS weights without compliance; keeping configured weights");
+            (configured, true)
+        }
+    }
+}
+
 async fn check_internal_api_rate_limit(state: &AppState) -> Result<(), AppError> {
     let window = Utc::now().timestamp() / 60;
     let count = state.rate_limiter.hit("ratelimit:internal_api", window).await;
@@ -1298,7 +1489,20 @@ async fn check_telemetry_rate_limit(state: &AppState, agent_id: &str) -> Result<
 /// unreadable gate also fails closed; and a Healthcare gate earns compliance only from a valid address whose live
 /// CoveredEntityRegistry + SmartBAA lookup succeeds. `EHRGate.sol` remains the actual
 /// PHI-access enforcement boundary.
-async fn oracle_compliance(state: &AppState, req: &TelemetryIngestRequest) -> f64 {
+///
+/// Returns `None` when there is **no independent evidence to judge by**: the agent has no
+/// cached primitives (an off-chain agent) or its gate's vertical has no compliance check.
+/// That is "unobserved", not "violated" (migration 0025): storing it as a violation used to
+/// zero the compliance axis and, through the geometric mean, the whole AIS of every
+/// off-chain and non-healthcare agent. A self-report still never enters AIS. A gate that
+/// exists but cannot be read, or a healthcare check that fails, is `Some(0.0)`: fail closed.
+/// Only the healthcare vertical (discriminant 1) has an on-chain compliance check; any other
+/// vertical yields no independent verdict, i.e. "unobserved".
+fn vertical_has_no_compliance_check(vertical: u8) -> bool {
+    vertical != 1
+}
+
+async fn oracle_compliance(state: &AppState, req: &TelemetryIngestRequest) -> Option<f64> {
     let self_reported = derive::self_reported_compliance(&req.otel_spans);
 
     let Some(primitives) = db::get_agent_primitives_on_chain(
@@ -1311,34 +1515,38 @@ async fn oracle_compliance(state: &AppState, req: &TelemetryIngestRequest) -> f6
         .flatten()
     else {
         // A signed agent claim is identity-authenticated, not independently
-        // evidentiary. Keep it as a shadow signal, but fail the authoritative
-        // compliance axis closed without a readable gate.
-        return 0.0;
+        // evidentiary. Keep it as a shadow signal; with no gate there is no
+        // authoritative verdict at all.
+        return None;
     };
     let Some(gate) = Address::from_str(&primitives.compliance_gate_address).ok() else {
-        return 0.0;
+        return Some(0.0);
     };
 
     match state.chain.compliance_vertical(gate).await {
-        Ok(1) => {
+        Ok(v) if !vertical_has_no_compliance_check(v) => {
             let Some(covered_entity) = derive::entry_covered_entity_address(&req.otel_spans)
             else {
-                return 0.0;
+                return Some(0.0);
             };
             let Ok(entity) = Address::from_str(&covered_entity) else {
-                return 0.0;
+                return Some(0.0);
             };
             match state.chain.is_healthcare_compliant(gate, entity).await {
                 // On-chain wins: a live "not compliant" read overrides a clean self-report
                 // (an agent can't talk its way out of a lapsed BAA), but a live "compliant"
                 // read still can't push the score above what self-reporting already earned.
-                Ok(true) => self_reported.min(1.0),
-                Ok(false) => 0.0,
-                Err(_) => 0.0,
+                Ok(true) => Some(self_reported.min(1.0)),
+                Ok(false) => Some(0.0),
+                Err(_) => Some(0.0),
             }
         }
-        Ok(_) => 0.0,
-        Err(_) => 0.0,
+        // A vertical with no compliance check of its own: nothing independent to judge by.
+        Ok(v) => {
+            debug_assert!(vertical_has_no_compliance_check(v));
+            None
+        }
+        Err(_) => Some(0.0),
     }
 }
 
@@ -1479,7 +1687,8 @@ pub async fn ingest_telemetry(
     // never raise the AIS boost. Old clients that still attach one are not rejected for it.
     let zk_verified = false;
 
-    let compliance = oracle_compliance(&state, &req).await;
+    let compliance_verdict = oracle_compliance(&state, &req).await;
+    let compliance_observed = compliance_verdict.is_some();
     // `compliance` is high-is-good (1.0 = clean, matching derive::self_reported_compliance
     // and oracle_compliance's on-chain `Ok(false) => 0.0` branch) — NOT the same polarity
     // as the old client-submitted DerivedSignals.compliance field this comparator was
@@ -1487,7 +1696,8 @@ pub async fn ingest_telemetry(
     // here inverted the compliance axis of AIS for every agent: a clean batch scored
     // flagged=true (penalized) and an all-violation batch scored flagged=false (not
     // penalized). See PRODUCTION_GAPS.md §2 for the full incident writeup.
-    let flagged = compliance < 0.5;
+    // An unobserved event is never a violation; it is excluded from penalty_ratio instead.
+    let flagged = compliance_verdict.is_some_and(|c| c < 0.5);
 
     let event_id = Uuid::new_v4();
     let payload_json = serde_json::json!({
@@ -1510,7 +1720,7 @@ pub async fn ingest_telemetry(
             "grounding": recomputed.grounding,
             "sacrifice": recomputed.sacrifice,
             "sacrifice_proxy": recomputed.sacrifice_proxy,
-            "compliance": compliance,
+            "compliance": compliance_verdict, // null = unobserved (migration 0025)
             "compliance_proxy": derive::self_reported_compliance(&req.otel_spans),
             "billed_cost": &req.derived_signals.billed_cost,
         },
@@ -1533,6 +1743,7 @@ pub async fn ingest_telemetry(
         // normalization step now, removing the prior double-compression.
         recomputed.sacrifice,
         flagged,
+        compliance_observed,
         zk_verified,
         &leaf_hash,
         &content_hash,
@@ -3540,7 +3751,8 @@ pub struct AisHistoryPoint {
     pub entropy: f64,
     pub grounding: f64,
     pub sacrifice: f64,
-    pub compliance: f64,
+    /// `null` for a bucket with no evidence-backed compliance verdict.
+    pub compliance: Option<f64>,
     pub zk_boost: f64,
     pub event_count: i64,
 }
@@ -3574,13 +3786,18 @@ pub async fn get_ais_history(
     let bucket = parse_bucket_interval(query.bucket.as_deref())?;
     let since = query.since.unwrap_or_else(default_history_since);
 
-    let engine = scoring_core::AisEngine::new(state.config.ais_weights)
-        .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
-
     let buckets = db::ais_history_buckets(&state.pool, &id, bucket, since).await?;
     let points = buckets
         .into_iter()
         .map(|b| {
+            // Same unobserved-compliance rule as live AIS, decided per bucket.
+            let (weights, bucket_observed) = ais_weights_for_window(
+                state.config.ais_weights,
+                b.event_count,
+                b.compliance_observed_count,
+            );
+            let engine = scoring_core::AisEngine::new(weights)
+                .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
             let inputs = scoring_core::AisComponentInputs {
                 performance_variance: b.avg_variance,
                 hgi_raw: b.avg_hgi,
@@ -3589,18 +3806,18 @@ pub async fn get_ais_history(
                 zk_verified_event_ratio: b.zk_verified_event_ratio,
             };
             let breakdown = engine.score_with_tier(&inputs, tier);
-            AisHistoryPoint {
+            Ok(AisHistoryPoint {
                 bucket_start: b.bucket_start,
                 ais: breakdown.ais,
                 entropy: breakdown.s_entropy,
                 grounding: breakdown.s_grounding,
                 sacrifice: breakdown.s_sacrifice,
-                compliance: breakdown.s_compliance,
+                compliance: compliance_view(bucket_observed, &breakdown).0,
                 zk_boost: breakdown.zk_boost,
                 event_count: b.event_count,
-            }
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, AppError>>()?;
 
     Ok(Json(points))
 }
@@ -4859,5 +5076,168 @@ mod telemetry_version_tests {
     fn unknown_envelope_versions_fail_closed() {
         let result = validate_telemetry_schema_version(&request(Some(99), Some(Utc::now())));
         assert!(matches!(result, Err(AppError::BadRequest(message)) if message.contains("unsupported")));
+    }
+}
+
+#[cfg(test)]
+mod ais_weights_for_window_tests {
+    use super::*;
+    use scoring_core::AisWeights;
+
+    #[test]
+    fn window_with_no_observed_compliance_uses_renormalized_weights() {
+        let (w, observed) = ais_weights_for_window(AisWeights::default(), 10, 0);
+        assert!(!observed);
+        assert_eq!(w, AisWeights::default().without_compliance().unwrap());
+    }
+
+    #[test]
+    fn window_with_any_observed_compliance_keeps_configured_weights() {
+        let (w, observed) = ais_weights_for_window(AisWeights::default(), 10, 1);
+        assert!(observed);
+        assert_eq!(w, AisWeights::default());
+    }
+
+    #[test]
+    fn empty_window_keeps_configured_weights() {
+        let (w, _) = ais_weights_for_window(AisWeights::default(), 0, 0);
+        assert_eq!(w, AisWeights::default());
+    }
+}
+
+#[cfg(test)]
+mod unobserved_compliance_response_tests {
+    use super::*;
+    use scoring_core::{AisComponentInputs, AisEngine, AisWeights};
+
+    fn breakdown(entropy_ok: bool, penalty_ratio: f64) -> scoring_core::AisBreakdown {
+        let engine = AisEngine::new(AisWeights::default()).unwrap();
+        // Low variance + high grounding pass their floors; the opposite fails them.
+        let inputs = AisComponentInputs {
+            performance_variance: if entropy_ok { 0.0 } else { 1.0e6 },
+            hgi_raw: 0.9,
+            gpu_hours_verified: 1.0,
+            penalty_ratio,
+            zk_verified_event_ratio: 0.0,
+        };
+        engine.score(&inputs)
+    }
+
+    #[test]
+    fn unobserved_window_reports_null_compliance_and_gates_on_other_axes() {
+        let good = breakdown(true, 0.0);
+        assert!(good.gate_entropy_pass && good.gate_grounding_pass);
+        let (c, gate) = compliance_view(false, &good);
+        assert_eq!(c, None);
+        assert_eq!(gate.compliance_pass, None);
+        assert!(gate.would_pass, "observed axes pass -> gate passes");
+
+        let bad = breakdown(false, 0.0);
+        assert!(!bad.gate_entropy_pass);
+        let (_, gate) = compliance_view(false, &bad);
+        assert!(!gate.would_pass, "a failing observed axis still fails the gate");
+        // Compliance cannot rescue it either way: the fabricated 1000 is not consulted.
+        assert_eq!(gate.compliance_pass, None);
+    }
+
+    #[test]
+    fn observed_window_is_unchanged() {
+        let violating = breakdown(true, 1.0);
+        let (c, gate) = compliance_view(true, &violating);
+        assert_eq!(c, Some(violating.s_compliance));
+        assert_eq!(gate.compliance_pass, Some(violating.gate_compliance_pass));
+        assert_eq!(gate.would_pass, violating.gate_would_pass);
+        assert!(!gate.would_pass, "observed full violation fails the gate");
+        let clean = breakdown(true, 0.0);
+        let (c, gate) = compliance_view(true, &clean);
+        assert_eq!(c, Some(clean.s_compliance));
+        assert_eq!(gate.compliance_pass, Some(true));
+    }
+
+    #[test]
+    fn only_healthcare_vertical_has_a_compliance_check() {
+        assert!(!vertical_has_no_compliance_check(1));
+        for v in [0u8, 2, 3, 255] {
+            assert!(vertical_has_no_compliance_check(v), "vertical {v} must be unobserved");
+        }
+    }
+}
+
+#[cfg(test)]
+mod offchain_registration_handler_tests {
+    use super::*;
+    use crate::offchain_registration::{signing_message, DID_PREFIX};
+    use crate::ratelimit::RateLimiter;
+    use axum::response::IntoResponse;
+    use ed25519_dalek::{Signer, SigningKey};
+
+    const NOW: i64 = 1_800_000_000;
+
+    fn request(timestamp: i64) -> OffchainRegisterRequest {
+        let sk = SigningKey::from_bytes(&[7u8; 32]);
+        let pk = hex::encode(sk.verifying_key().to_bytes());
+        let did = format!("{DID_PREFIX}{}", hex::encode(Sha256::digest(sk.verifying_key().to_bytes())));
+        let sig = hex::encode(sk.sign(&signing_message(&did, &pk, timestamp)).to_bytes());
+        OffchainRegisterRequest {
+            did,
+            ed25519_pubkey_hex: pk,
+            timestamp,
+            signature: sig,
+            did_document: None,
+            handle: None,
+        }
+    }
+
+    async fn run(req: &OffchainRegisterRequest, limit: u32) -> Result<Vec<u8>, AppError> {
+        precheck_offchain_registration(&RateLimiter::local_only(), limit, req, NOW).await
+    }
+
+    fn status(e: AppError) -> u16 {
+        e.into_response().status().as_u16()
+    }
+
+    #[tokio::test]
+    async fn offchain_register_accepts_a_valid_proof() {
+        let req = request(NOW);
+        assert_eq!(run(&req, 30).await.unwrap(), hex::decode(&req.ed25519_pubkey_hex).unwrap());
+    }
+
+    #[tokio::test]
+    async fn offchain_register_rejects_stale_timestamp_with_401() {
+        let err = run(&request(NOW - 301), 30).await.unwrap_err();
+        assert!(matches!(&err, AppError::ProofRejected(m) if m.contains("window")), "{err:?}");
+        assert_eq!(status(err), 401);
+    }
+
+    #[tokio::test]
+    async fn offchain_register_rejects_bad_signature_with_401() {
+        let mut req = request(NOW);
+        req.signature = "00".repeat(64);
+        assert_eq!(status(run(&req, 30).await.unwrap_err()), 401);
+    }
+
+    #[tokio::test]
+    async fn offchain_register_rejects_malformed_did_with_400() {
+        let mut req = request(NOW);
+        req.did = "did:web:example.com".to_string();
+        assert_eq!(status(run(&req, 30).await.unwrap_err()), 400);
+    }
+
+    #[tokio::test]
+    async fn offchain_register_rejects_invalid_handle_with_400() {
+        let mut req = request(NOW);
+        req.handle = Some("Not A Handle".to_string());
+        assert_eq!(status(run(&req, 30).await.unwrap_err()), 400);
+    }
+
+    #[tokio::test]
+    async fn offchain_register_rate_limit_returns_429_before_verifying() {
+        let limiter = RateLimiter::local_only();
+        let mut req = request(NOW);
+        req.signature = "00".repeat(64); // would be 401 if verified
+        let first = precheck_offchain_registration(&limiter, 1, &req, NOW).await.unwrap_err();
+        assert_eq!(status(first), 401);
+        let second = precheck_offchain_registration(&limiter, 1, &req, NOW).await.unwrap_err();
+        assert_eq!(status(second), 429, "the flood is rejected before any signature work");
     }
 }

@@ -17,6 +17,7 @@ pub mod handlers;
 pub mod identity;
 pub mod kyc;
 pub mod merkle;
+pub mod offchain_registration;
 pub mod openapi;
 pub mod vc;
 pub mod otlp;

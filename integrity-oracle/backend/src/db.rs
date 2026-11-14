@@ -71,6 +71,9 @@ pub struct AisAggregate {
     pub penalty_ratio: f64,
     pub zk_verified_event_ratio: f64,
     pub event_count: i64,
+    /// Events in the window whose compliance verdict came from independent evidence
+    /// (migration 0025). Zero means the compliance axis is unobserved for this window.
+    pub compliance_observed_count: i64,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -610,6 +613,7 @@ pub async fn insert_telemetry_event(
     hgi_raw: f64,
     gpu_hours_verified: f64,
     flagged: bool,
+    compliance_observed: bool,
     zk_verified: bool,
     leaf_hash: &[u8],
     content_hash: &[u8],
@@ -635,8 +639,8 @@ pub async fn insert_telemetry_event(
     let insert_result = sqlx::query(
         r#"
         INSERT INTO telemetry_events
-            (id, agent_id, nonce, performance_variance, hgi_raw, gpu_hours_verified, flagged, zk_verified, leaf_hash, content_hash, event_time, payload, phi_flags)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            (id, agent_id, nonce, performance_variance, hgi_raw, gpu_hours_verified, flagged, zk_verified, leaf_hash, content_hash, event_time, payload, phi_flags, compliance_observed)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         "#,
     )
     .bind(event_id)
@@ -652,6 +656,7 @@ pub async fn insert_telemetry_event(
     .bind(event_time)
     .bind(payload)
     .bind(phi_flags)
+    .bind(compliance_observed)
     .execute(&mut *tx)
     .await;
     if let Err(sqlx::Error::Database(db_err)) = &insert_result {
@@ -680,21 +685,24 @@ pub async fn aggregate_for_ais(
     agent_id: &str,
     since: DateTime<Utc>,
 ) -> Result<AisAggregate, sqlx::Error> {
-    let row: (f64, f64, f64, f64, f64, i64) = sqlx::query_as(
+    let row: (f64, f64, f64, f64, f64, i64, i64) = sqlx::query_as(
         r#"
         SELECT
             -- Each aggregate is explicitly cast to `double precision`: the `1.0`/`0.0`
             -- literals in the CASE expression are Postgres `numeric`, so
             -- `AVG(CASE ...)` returns `numeric`, which sqlx will NOT decode into a Rust
             -- `f64` (it errors with "SQL type NUMERIC is not compatible"). Casting keeps
-            -- every returned column FLOAT8 so the `(f64, f64, f64, f64, bool, i64)` row
+            -- every returned column FLOAT8 so the `(f64, f64, f64, f64, f64, i64, i64)` row
             -- tuple below decodes cleanly regardless of each source column's type.
             COALESCE(AVG(performance_variance), 0.0)::double precision AS avg_variance,
             COALESCE(AVG(hgi_raw), 0.0)::double precision AS avg_hgi,
             COALESCE(SUM(gpu_hours_verified), 0.0)::double precision AS sum_gpu_hours,
-            COALESCE(AVG(CASE WHEN flagged THEN 1.0 ELSE 0.0 END), 0.0)::double precision AS penalty_ratio,
+            -- Only events with an evidence-backed verdict count (migration 0025); the
+            -- inner CASE yields NULL for unobserved events, which AVG skips.
+            COALESCE(AVG(CASE WHEN compliance_observed THEN (CASE WHEN flagged THEN 1.0 ELSE 0.0 END) END), 0.0)::double precision AS penalty_ratio,
             COALESCE(AVG(CASE WHEN zk_verified THEN 1.0 ELSE 0.0 END), 0.0)::double precision AS zk_verified_event_ratio,
-            COUNT(*) AS event_count
+            COUNT(*) AS event_count,
+            COUNT(*) FILTER (WHERE compliance_observed) AS compliance_observed_count
         FROM telemetry_events
         WHERE agent_id = $1 AND event_time >= $2
         "#,
@@ -711,6 +719,7 @@ pub async fn aggregate_for_ais(
         penalty_ratio: row.3,
         zk_verified_event_ratio: row.4,
         event_count: row.5,
+        compliance_observed_count: row.6,
     })
 }
 
@@ -1698,6 +1707,9 @@ pub struct AisBucketAggregate {
     pub penalty_ratio: f64,
     pub zk_verified_event_ratio: f64,
     pub event_count: i64,
+    /// Events in the window whose compliance verdict came from independent evidence
+    /// (migration 0025). Zero means the compliance axis is unobserved for this window.
+    pub compliance_observed_count: i64,
 }
 
 /// `bucket_interval` must be a Postgres-interval-parseable literal (e.g. `"1 hour"`) —
@@ -1713,16 +1725,20 @@ pub async fn ais_history_buckets(
     bucket_interval: &str,
     since: DateTime<Utc>,
 ) -> Result<Vec<AisBucketAggregate>, sqlx::Error> {
-    let rows: Vec<(DateTime<Utc>, f64, f64, f64, f64, f64, i64)> = sqlx::query_as(
+    type BucketRow = (DateTime<Utc>, f64, f64, f64, f64, f64, i64, i64);
+    let rows: Vec<BucketRow> = sqlx::query_as(
         r#"
         SELECT
             time_bucket($1::interval, event_time) AS bucket_start,
             COALESCE(AVG(performance_variance), 0.0)::double precision AS avg_variance,
             COALESCE(AVG(hgi_raw), 0.0)::double precision AS avg_hgi,
             COALESCE(SUM(gpu_hours_verified), 0.0)::double precision AS sum_gpu_hours,
-            COALESCE(AVG(CASE WHEN flagged THEN 1.0 ELSE 0.0 END), 0.0)::double precision AS penalty_ratio,
+            -- Only events with an evidence-backed verdict count (migration 0025); the
+            -- inner CASE yields NULL for unobserved events, which AVG skips.
+            COALESCE(AVG(CASE WHEN compliance_observed THEN (CASE WHEN flagged THEN 1.0 ELSE 0.0 END) END), 0.0)::double precision AS penalty_ratio,
             COALESCE(AVG(CASE WHEN zk_verified THEN 1.0 ELSE 0.0 END), 0.0)::double precision AS zk_verified_event_ratio,
-            COUNT(*) AS event_count
+            COUNT(*) AS event_count,
+            COUNT(*) FILTER (WHERE compliance_observed) AS compliance_observed_count
         FROM telemetry_events
         WHERE agent_id = $2 AND event_time >= $3
         GROUP BY bucket_start
@@ -1746,6 +1762,7 @@ pub async fn ais_history_buckets(
                 penalty_ratio,
                 zk_verified_event_ratio,
                 event_count,
+                compliance_observed_count,
             )| {
                 AisBucketAggregate {
                     bucket_start,
@@ -1755,6 +1772,7 @@ pub async fn ais_history_buckets(
                     penalty_ratio,
                     zk_verified_event_ratio,
                     event_count,
+                    compliance_observed_count,
                 }
             },
         )
@@ -2588,4 +2606,160 @@ pub async fn reconcile_agent_intent_outcome(
     .bind(limit)
     .fetch_all(pool)
     .await
+}
+
+/// What an off-chain registration call did to the `agents` row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RegistrationOutcome {
+    /// A new row.
+    Created,
+    /// The row already held exactly this key: an idempotent repeat.
+    AlreadyRegistered,
+    /// The row existed without an Ed25519 key, and a proven key was attached.
+    KeyAttached,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum RegistrationConflict {
+    #[error("DID is bound to a different ed25519 key")]
+    KeyMismatch,
+    #[error("agent already holds a different XNS handle")]
+    HandleMismatch,
+    #[error("xns handle already taken")]
+    HandleTaken,
+    #[error(transparent)]
+    Db(#[from] sqlx::Error),
+}
+
+const AGENT_COLUMNS: &str =
+    "id, ed25519_pubkey, eth_address, verification_tier, last_nonce, created_at, did_document";
+
+/// Claim `handle` for `agent_id` inside `tx`, or accept it when the agent already holds it.
+async fn ensure_handle(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    agent_id: &str,
+    handle: &str,
+) -> Result<(), RegistrationConflict> {
+    let held: Option<String> =
+        sqlx::query_scalar("SELECT handle FROM xns_handles WHERE agent_id = $1")
+            .bind(agent_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+    match held {
+        Some(h) if h.eq_ignore_ascii_case(handle) => Ok(()),
+        Some(_) => Err(RegistrationConflict::HandleMismatch),
+        None => sqlx::query("INSERT INTO xns_handles (agent_id, handle) VALUES ($1, $2)")
+            .bind(agent_id)
+            .bind(handle)
+            .execute(&mut **tx)
+            .await
+            .map(|_| ())
+            .map_err(|e| match &e {
+                sqlx::Error::Database(d) if d.code().as_deref() == Some("23505") => {
+                    RegistrationConflict::HandleTaken
+                }
+                _ => RegistrationConflict::Db(e),
+            }),
+    }
+}
+
+/// Insert the agent row if absent (race-safe), then lock and return it with whether this
+/// call created it.
+async fn insert_or_lock_agent(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    id: &str,
+    ed25519_pubkey: Option<&[u8]>,
+    eth_address: Option<&str>,
+    verification_tier: i32,
+    did_document: Option<&serde_json::Value>,
+) -> Result<(AgentRow, bool), sqlx::Error> {
+    let inserted = sqlx::query_as::<_, AgentRow>(&format!(
+        "INSERT INTO agents (id, ed25519_pubkey, eth_address, verification_tier, did_document) \
+         VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO NOTHING RETURNING {AGENT_COLUMNS}"
+    ))
+    .bind(id)
+    .bind(ed25519_pubkey)
+    .bind(eth_address)
+    .bind(verification_tier)
+    .bind(did_document)
+    .fetch_optional(&mut **tx)
+    .await?;
+    if let Some(row) = inserted {
+        return Ok((row, true));
+    }
+    let row = sqlx::query_as::<_, AgentRow>(&format!(
+        "SELECT {AGENT_COLUMNS} FROM agents WHERE id = $1 FOR UPDATE"
+    ))
+    .bind(id)
+    .fetch_one(&mut **tx)
+    .await?;
+    Ok((row, false))
+}
+
+/// Off-chain registration (no gas). The caller has already verified proof of possession of
+/// `ed25519_pubkey` and that the DID is its fingerprint (`offchain_registration`).
+///
+/// - absent: insert at `OFFCHAIN_TIER`.
+/// - same key: idempotent; the tier is raised to `OFFCHAIN_TIER` if lower, never lowered.
+/// - no key on file: attach the proven key and raise the tier likewise.
+/// - another key: `KeyMismatch`, never overwritten.
+///
+/// The handle is claimed before commit, so a handle conflict rolls back the tier raise and
+/// key attach.
+pub async fn register_agent_offchain(
+    pool: &PgPool,
+    id: &str,
+    ed25519_pubkey: &[u8],
+    did_document: Option<&serde_json::Value>,
+    handle: Option<&str>,
+) -> Result<(AgentRow, RegistrationOutcome), RegistrationConflict> {
+    let mut tx = pool.begin().await?;
+    let (row, created) = insert_or_lock_agent(
+        &mut tx,
+        id,
+        Some(ed25519_pubkey),
+        None,
+        crate::offchain_registration::OFFCHAIN_TIER,
+        did_document,
+    )
+    .await?;
+    let (row, outcome) = if created {
+        (row, RegistrationOutcome::Created)
+    } else {
+        match row.ed25519_pubkey.as_deref() {
+            Some(k) if k == ed25519_pubkey => {
+                let row = sqlx::query_as::<_, AgentRow>(&format!(
+                    "UPDATE agents SET verification_tier = GREATEST(verification_tier, $2) \
+                     WHERE id = $1 RETURNING {AGENT_COLUMNS}"
+                ))
+                .bind(id)
+                .bind(crate::offchain_registration::OFFCHAIN_TIER)
+                .fetch_one(&mut *tx)
+                .await?;
+                (row, RegistrationOutcome::AlreadyRegistered)
+            }
+            Some(_) => return Err(RegistrationConflict::KeyMismatch),
+            None => {
+                let row = sqlx::query_as::<_, AgentRow>(&format!(
+                    "UPDATE agents SET ed25519_pubkey = $2, \
+                     verification_tier = GREATEST(verification_tier, $4), \
+                     did_document = COALESCE(did_document, $3) \
+                     WHERE id = $1 RETURNING {AGENT_COLUMNS}"
+                ))
+                .bind(id)
+                .bind(ed25519_pubkey)
+                .bind(did_document)
+                .bind(crate::offchain_registration::OFFCHAIN_TIER)
+                .fetch_one(&mut *tx)
+                .await?;
+                (row, RegistrationOutcome::KeyAttached)
+            }
+        }
+    };
+    if let Some(h) = handle {
+        ensure_handle(&mut tx, id, h).await?;
+    }
+    tx.commit().await?;
+    Ok((row, outcome))
 }

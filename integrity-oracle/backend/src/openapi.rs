@@ -133,6 +133,7 @@ pub struct ApiDocExtra;
         handlers::get_unregistered_agents,
         handlers::request_kyc_challenge,
         handlers::verify_kyc_receipt,
+        handlers::register_agent_offchain,
     ),
     components(schemas(
         handlers::AgentUsageDto,
@@ -143,6 +144,9 @@ pub struct ApiDocExtra;
         handlers::VerificationResponse,
         crate::kyc::KycReceipt,
         crate::kyc::KycChecks,
+        handlers::OffchainRegisterRequest,
+        handlers::OffchainRegisterResponse,
+        crate::db::RegistrationOutcome,
     )),
     tags(
         (name = "verification", description = "Evidence-backed identity verification ladder"),

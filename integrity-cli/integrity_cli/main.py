@@ -23,14 +23,11 @@ from __future__ import annotations
 
 import json
 import os
-import re
-from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Optional
 
 import typer
 from dotenv import load_dotenv
-from eth_account import Account
 from eth_utils import keccak
 from rich.console import Console
 from rich.table import Table
@@ -39,6 +36,8 @@ from web3 import Web3
 from . import bcc, chain, config, hooks, identity, pack, vault, verify, wallet
 from .client import ApiError, BccClient, IntegrityClient
 from .config import get_auth_token, load_config, set_config_value
+from integrity_sdk.did import Keypair
+from integrity_sdk.registration_offchain import OffchainRegistrationError, register_offchain
 
 # Load a local .env (if present) into os.environ *without* overriding
 # variables the shell already set -- env vars set directly in the shell
@@ -66,7 +65,7 @@ app.add_typer(auth_app, name="auth")
 xns_app = typer.Typer(help="XibalbaNameService (XNS): human-readable handles for registered agents")
 app.add_typer(xns_app, name="xns")
 
-domain_app = typer.Typer(help="DomainRegistry: the namespace an agent joins via `agent register --domain`")
+domain_app = typer.Typer(help="DomainRegistry: the namespace an agent joins on-chain")
 app.add_typer(domain_app, name="domain")
 
 vault_app = typer.Typer(help="Trust Vault (Persistent Memory) commands")
@@ -324,9 +323,9 @@ def wallet_import(
     into a chat session during troubleshooting and subsequently lost -- every
     agent identity already got proper keystore protection via
     `generate_or_load_evm_wallet`, but the operator/funder key never did.
-    Run this once for a recovered or freshly rotated operator key, then use
-    `agent register --funder-identity <name>` instead of FUNDER_PRIVATE_KEY
-    from then on. Requires INTEGRITY_WALLET_PASSWORD in the environment
+    Run this once for a recovered or freshly rotated operator key, so on-chain
+    commands can use the encrypted keystore instead of a raw FUNDER_PRIVATE_KEY
+    env var. Requires INTEGRITY_WALLET_PASSWORD in the environment
     (same as every other keystore in this CLI) to encrypt the imported key.
 
     The private key is read from a hidden interactive prompt only -- never
@@ -495,604 +494,47 @@ def identity_show(
 # agent
 # --------------------------------------------------------------------------
 
-# ComplianceGate.Vertical enum values (contracts/src/health/ComplianceGate.sol),
-# same mapping integrity-sdk's registration.py uses.
-_VERTICALS = {"none": 0, "healthcare": 1}
-
-_DEFAULT_AGENT_FUND_WEI = Web3.to_wei(0.01, "ether")
-_DEFAULT_TESTNET_ITK_ALLOCATION_WEI = Web3.to_wei(10_000, "ether")
-
-
-@dataclass
-class AgentRegistration:
-    """Same shape as integrity_sdk.registration.AgentRegistration -- see that
-    module's docstring. Kept as a CLI-local dataclass (not imported) per
-    identity.py's "no sibling dependency on integrity-sdk" philosophy."""
-
-    did: str
-    evm_address: str
-    sovereign_agent: str
-    state_anchor: str
-    reputation_registry: str
-    slasher: str
-    verifier_registry: str
-    compliance_gate: str
-    agent_profile: str
-    domain_id: str
-    oracle_registered: bool
-
-    def to_dict(self) -> dict:
-        return asdict(self)
-
-
-def _registration_progress_path(identity_name: str):
-    """Where a not-yet-fully-registered identity's already-deployed SovereignAgent/
-    StateAnchor addresses are recorded, mirroring `integrity_sdk.registration`'s
-    `registration_progress.json` (PRODUCTION_GAPS.md §28). Separate file from
-    `<name>.primitives.json` (written only on full success) so the two can never be
-    confused -- this file's existence means "incomplete," the other's means "done."
-    """
-    return identity.agent_dir(identity_name) / "registration_progress.json"
-
-
-def _load_registration_progress(identity_name: str) -> Optional[dict]:
-    path = _registration_progress_path(identity_name)
-    if not path.exists():
-        return None
-    try:
-        return json.loads(path.read_text())
-    except (json.JSONDecodeError, OSError):
-        return None
-
-
-def _save_registration_progress(identity_name: str, **fields: str) -> None:
-    path = _registration_progress_path(identity_name)
-    existing = _load_registration_progress(identity_name) or {}
-    existing.update(fields)
-    path.write_text(json.dumps(existing))
-
-
-def _clear_registration_progress(identity_name: str) -> None:
-    path = _registration_progress_path(identity_name)
-    if path.exists():
-        path.unlink()
-
-
-def _validate_xns_handle_format(handle: str) -> Optional[str]:
-    """Mirrors integrity-oracle's `handlers::validate_xns_handle` exactly (backend/src/
-    handlers.rs) -- keep both in sync if either changes. Returns None when valid, else a
-    human-readable reason."""
-    if not (3 <= len(handle) <= 32):
-        return "must be 3-32 characters"
-    if not handle[0].islower() or not handle[0].isalpha():
-        return "must start with a lowercase letter"
-    if not re.fullmatch(r"[a-z0-9._-]+", handle):
-        return "may only contain lowercase letters, digits, '.', '-', '_'"
-    return None
-
-
-def _post_registration_to_oracle(
-    oracle_url: str,
-    agent_did: str,
-    doc: dict,
-    registration: "AgentRegistration",
-    identity_name: str,
-    evm_account,
-    alias: str,
-    description: str,
-    handle: str,
-    *,
-    idempotent: bool,
-) -> None:
-    """POSTs to integrity-oracle's `/v1/agent/register`, mutating `registration.
-    oracle_registered` on success. Payload shape pinned by `RegisterAgentRequest`
-    (handlers.rs) -- see docs/INTERFACE_CONTRACT.md §6.3 and the original inline
-    comment this was factored out of for the three payload-shape gotchas already
-    found and fixed here on 2026-07-09. `idempotent` only changes the console
-    message on success/failure, not the request itself -- the oracle's own
-    `POST /v1/agent/register` handler is itself idempotent for an already-registered
-    DID (re-verifies on-chain state and accepts it again), so there's nothing
-    conditionally different to send.
-    """
-    oracle_client = IntegrityClient(base_url=oracle_url)
-    private_key = identity.load_private_key(identity_name)
-    payload = {
-        "did": agent_did,
-        "did_document": doc,
-        "primitives": {
-            "sovereign_agent": registration.sovereign_agent,
-            "state_anchor": registration.state_anchor,
-            "reputation_registry": registration.reputation_registry,
-            "slasher": registration.slasher,
-            "verifier_registry": registration.verifier_registry,
-            "compliance_gate": registration.compliance_gate,
-            "agent_profile": registration.agent_profile,
-        },
-        "ed25519_pubkey_hex": "0x" + private_key.public_key().public_bytes_raw().hex(),
-        "eth_address_hex": evm_account.address,
-        "alias": alias,
-        "description": description,
-        "handle": handle,
-    }
-    try:
-        with console.status("[bold blue]Registering with Oracle..."):
-            oracle_client.post("/v1/agent/register", json_data=payload)
-        registration.oracle_registered = True
-        console.print("  [green]done[/green] Oracle accepted the registration" + (" (idempotent re-post)" if idempotent else ""))
-    except ApiError as e:
-        console.print(
-            f"[bold red]Error:[/bold red] on-chain registration succeeded (SovereignAgent "
-            f"{registration.sovereign_agent}) but Oracle registration failed: {e}"
-        )
-        raise typer.Exit(1)
-
-
 @agent_app.command("register")
 def agent_register(
     identity_name: str = typer.Option(
         "default", "--identity", help="Local identity to register (see `integrity identity keygen`)"
     ),
-    alias: str = typer.Option(..., "--alias", help="Human-readable alias for the agent"),
-    description: str = typer.Option("", "--desc", help="Short description of the agent"),
-    domain: str = typer.Option(
-        "general.integrity", "--domain", help="Domain name to register under (see DomainRegistry)"
-    ),
-    vertical: str = typer.Option(
-        "none", "--vertical", help="Compliance vertical: 'none' or 'healthcare' (ComplianceGate.Vertical)"
-    ),
-    rpc_url: Optional[str] = typer.Option(
-        None, "--rpc-url", help="EVM RPC endpoint (env RPC_URL, default http://localhost:8545)"
-    ),
-    deployments_file: Optional[str] = typer.Option(
-        None, "--deployments-file", help="Path to deployments.local.json (env DEPLOYMENTS_FILE)"
+    handle: Optional[str] = typer.Option(
+        None, "--handle", help="Optional unique XNS handle to claim for this agent"
     ),
     oracle_url: Optional[str] = typer.Option(
         None, "--oracle-url", help="integrity-oracle base URL (env/config ORACLE_URL)"
     ),
-    skip_oracle: bool = typer.Option(
-        False, "--skip-oracle", help="Run only the on-chain registration sequence; skip the final Oracle POST"
-    ),
-    auto_register_domain: bool = typer.Option(
-        True, "--auto-register-domain/--no-auto-register-domain",
-        help="Self-register --domain in DomainRegistry (Open mode) if it doesn't exist yet -- "
-             "ONLY when --domain is exactly '<identity>.integrity', the personal-domain convention. "
-             "A missing non-personal domain is always a hard error regardless of this flag.",
-    ),
-    funder_identity: Optional[str] = typer.Option(
-        None, "--funder-identity",
-        help="Load the funder from an encrypted keystore (see `integrity wallet import`) instead of "
-             "the raw FUNDER_PRIVATE_KEY env var. Preferred -- see that command's docstring for why.",
-    ),
-    full: bool = typer.Option(
-        False,
-        "--full",
-        help="Provision all seven primitives and the 100 ITK bond. Core identity/memory is the default.",
-    ),
-    handle: Optional[str] = typer.Option(
-        None,
-        "--handle",
-        help="Unique XNS handle for this agent (Oracle-local directory, independent of on-chain "
-             "state -- see integrity-oracle migration 0022). Required by the Oracle's own "
-             "/v1/agent/register; defaults to a lowercased, sanitized form of --alias if omitted. "
-             "Use `integrity xns available <handle>` to check first.",
-    ),
 ):
     """
-    Run the real self-sovereign on-chain registration sequence for a local
-    identity. By default this registers only the core identity and memory
-    surface. Pass --full to also mint ITK, stake the registration bond, and
-    provision all five optional modules. Then (unless --skip-oracle) POST the
-    result to integrity-oracle for independent on-chain re-verification.
+    Register a local identity with the Oracle, gas-free.
 
-    This is a multi-transaction, multi-second flow signed by the identity's
-    own EVM wallet (see wallet.py) -- not a single HTTP POST. Mirrors
-    integrity-sdk's registration.py sequence (see docs/INTERFACE_CONTRACT.md
-    §6.3), reimplemented CLI-locally per wallet.py/chain.py's module
-    docstrings rather than importing integrity_sdk.
-
-    Requires INTEGRITY_WALLET_PASSWORD (gates the EVM keystore, see
-    wallet.py) in the environment either way. The funder wallet that pays to
-    seed the new agent wallet with gas (docs/INTERFACE_CONTRACT.md §3) comes
-    from EITHER --funder-identity (an encrypted keystore, preferred -- see
-    `integrity wallet import`) OR the raw FUNDER_PRIVATE_KEY env var
-    (kept only for scripts/CI that already manage the raw value themselves;
-    for interactive/manual use, `wallet import` once and pass
-    --funder-identity from then on so the raw key never has to be typed or
-    pasted again). Neither takes the raw key as a CLI flag -- that would
-    leak into shell history / a process list.
+    Proves control of the identity's Ed25519 key by signing a registration
+    message; no chain state is touched, so no funder wallet, RPC endpoint or
+    deployments file is needed. A proven key is verification tier 1.
+    Re-running is safe: an already-registered DID is reported, never lowered.
     """
-    if handle is None:
-        handle = re.sub(r"[^a-z0-9._-]", "", alias.lower()).lstrip("._-")[:32] or identity_name.lower()
-        if len(handle) < 3:
-            handle = (handle + identity_name.lower())[:32]
-        console.print(f"  [dim]info[/dim] --handle not given, defaulting to {handle!r} (derived from --alias)")
-    handle_error = _validate_xns_handle_format(handle)
-    if handle_error:
-        console.print(f"[bold red]Error:[/bold red] --handle {handle!r} is invalid: {handle_error}")
-        raise typer.Exit(1)
-
-    if vertical not in _VERTICALS:
-        console.print(
-            f"[bold red]Error:[/bold red] --vertical must be one of {sorted(_VERTICALS)}, got {vertical!r}"
-        )
-        raise typer.Exit(1)
-    if vertical != "none" and not full:
-        console.print(
-            "[bold red]Error:[/bold red] --vertical requires --full because it provisions the optional compliance capability."
-        )
-        raise typer.Exit(1)
-
     try:
         doc = identity.did_document(identity_name)
+        private_key = identity.load_private_key(identity_name)
     except (FileNotFoundError, TypeError) as e:
         console.print(f"[bold red]Error:[/bold red] {e}")
         raise typer.Exit(1)
     agent_did = doc["id"]
-
-    rpc_url = rpc_url or os.getenv("RPC_URL", "http://localhost:8545")
-    deployments_file = deployments_file or os.getenv("DEPLOYMENTS_FILE", "../deployments.local.json")
     oracle_url = oracle_url or config.get_config_value("ORACLE_URL")
 
-    # Resolved LAZILY (only if a fund/mint step below actually turns out to be
-    # necessary) rather than required unconditionally up front: an identity
-    # that already has enough ETH and ITK (e.g. topped up by a transfer from
-    # another agent you control, sidestepping a lost/unavailable funder key
-    # entirely) needs no funder at all. Memoized so two consuming steps in
-    # the same run only prompt/decrypt once.
-    _funder_cache: list["Account"] = []
-
-    def _resolve_funder() -> "Account":
-        if _funder_cache:
-            return _funder_cache[0]
-        if funder_identity:
-            if not wallet.wallet_exists(funder_identity):
-                # Checked BEFORE calling generate_or_load_evm_wallet(), which would
-                # otherwise silently MINT a brand-new, unfunded, un-authorized
-                # wallet under this name -- exactly wrong for a funder identity,
-                # which must already be a real, imported, role-bearing key.
-                console.print(
-                    f"[bold red]Error:[/bold red] no keystore exists for funder identity {funder_identity!r} -- "
-                    f"import the real funder key first with `integrity wallet import --identity {funder_identity}`"
-                )
-                raise typer.Exit(1)
-            try:
-                resolved = wallet.generate_or_load_evm_wallet(funder_identity)
-            except wallet.WalletPasswordNotSet as e:
-                console.print(f"[bold red]Error:[/bold red] {e}")
-                raise typer.Exit(1)
-        else:
-            funder_key = os.getenv("FUNDER_PRIVATE_KEY")
-            if not funder_key:
-                console.print(
-                    "[bold red]Error:[/bold red] neither --funder-identity nor FUNDER_PRIVATE_KEY is set, "
-                    "and this identity doesn't already have enough ETH/ITK to proceed without one. "
-                    "Prefer --funder-identity (see `integrity wallet import --help`)."
-                )
-                raise typer.Exit(1)
-            resolved = Account.from_key(funder_key)
-        _funder_cache.append(resolved)
-        return resolved
-
     try:
-        w3 = chain.get_w3(rpc_url)
-        if not w3.is_connected():
-            console.print(f"[bold red]Error:[/bold red] RPC {rpc_url} is unreachable -- cannot register an agent.")
-            raise typer.Exit(1)
-        chain_id = w3.eth.chain_id
-    except typer.Exit:
-        raise
-    except Exception as e:  # noqa: BLE001 -- surfaced to the user, not swallowed
-        console.print(f"[bold red]Error:[/bold red] could not connect to RPC {rpc_url}: {e}")
-        raise typer.Exit(1)
-
-    try:
-        deployments = chain.load_deployments(deployments_file)
-        factory_address = deployments["singletons"]["AgentPrimitivesFactory"]
-        itk_address = deployments["singletons"]["IntegrityToken"]
-        registry_address = deployments["singletons"]["XibalbaAgentRegistry"]
-        domain_registry_address = deployments["singletons"]["DomainRegistry"]
-        oracle_signer = deployments["protocolAddresses"]["oracleSigner"]
-    except (chain.DeploymentsFileMissing, KeyError) as e:
-        console.print(f"[bold red]Error:[/bold red] {e}")
-        raise typer.Exit(1)
-
-    try:
-        evm_account = wallet.generate_or_load_evm_wallet(identity_name)
-    except wallet.WalletPasswordNotSet as e:
-        console.print(f"[bold red]Error:[/bold red] {e}")
-        raise typer.Exit(1)
-
-    doc = identity.attach_evm_account(doc, evm_account.address, chain_id)
-
-    console.print(f"[bold]Registering[/bold] {agent_did}")
-    console.print(f"  EVM wallet: [cyan]{evm_account.address}[/cyan]  (chain {chain_id} @ {rpc_url})")
-
-    # Idempotency check (PRODUCTION_GAPS.md §28): before spending any gas or testnet ITK,
-    # ask XibalbaAgentRegistry whether this exact DID is already fully registered. This CLI
-    # previously had NO such check at all -- every invocation for an already-registered DID
-    # deployed a second, orphaned SovereignAgent/StateAnchor pair, worse than even the SDK's
-    # pre-fix behavior (which at least had this one check, just not the deploy-resume one
-    # below it).
-    existing = chain.resolve_did(w3, registry_address, agent_did)
-    if existing is not None:
-        console.print(f"  [dim]skip[/dim] {agent_did} is already registered on-chain (SovereignAgent [cyan]{existing.sovereign_agent}[/cyan]) -- returning existing registration, no new on-chain work")
-        registration = AgentRegistration(
-            did=agent_did,
-            evm_address=evm_account.address,
-            sovereign_agent=existing.sovereign_agent,
-            state_anchor=existing.state_anchor,
-            reputation_registry=existing.reputation_registry,
-            slasher=existing.slasher,
-            verifier_registry=existing.verifier_registry,
-            compliance_gate=existing.compliance_gate,
-            agent_profile=existing.agent_profile,
-            domain_id=existing.domain_id,
-            oracle_registered=False,
-        )
-        doc_path = identity.document_path(identity_name)
-        primitives_path = identity.agent_dir(identity_name) / "primitives.json"
-        doc_path.write_text(json.dumps(doc, indent=2) + "\n")
-        primitives_path.write_text(json.dumps(registration.to_dict(), indent=2) + "\n")
-        _clear_registration_progress(identity_name)
-        if not skip_oracle:
-            _post_registration_to_oracle(
-                oracle_url, agent_did, doc, registration, identity_name, evm_account, alias, description, handle, idempotent=True
+        with console.status("[bold blue]Registering with Oracle..."):
+            result = register_offchain(
+                oracle_url, agent_did, Keypair(private_key), handle=handle, did_document=doc
             )
-        console.print(f"\n[bold green]Already registered:[/bold green] {agent_did}")
-        return
-
-    # Precondition checks -- fail fast, before any gas is spent, rather than deep inside
-    # the deploy sequence. Regression guard for the 2026-08-30 incident: a real
-    # SovereignAgent/StateAnchor pair got orphaned on Base Sepolia because
-    # registerPrimitives reverted DomainJoinNotApproved() at the very last step, after
-    # the deploy gas was already spent, and nothing checked DomainRegistry beforehand
-    # (its ABI wasn't even synced to this package until this fix).
-    if not chain.factory_has_registrar_role(w3, registry_address, factory_address):
-        console.print(
-            f"[bold red]Error:[/bold red] AgentPrimitivesFactory {factory_address} does not hold "
-            f"REGISTRAR_ROLE on XibalbaAgentRegistry {registry_address} -- registerPrimitives would "
-            f"revert. This is a protocol-level misconfiguration, not something this command can fix."
-        )
+    except OffchainRegistrationError as e:
+        if e.status is None:
+            console.print(f"[bold red]Error:[/bold red] Oracle unreachable at {oracle_url}: {e.detail}")
+        else:
+            console.print(f"[bold red]Error:[/bold red] Oracle rejected the registration ({e.status}): {e.detail}")
         raise typer.Exit(1)
-
-    personal_domain_name = f"{identity_name}.integrity"
-    domain_id = keccak(text=domain)
-    domain_needs_registration = False
-    if chain.domain_exists(w3, domain_registry_address, domain_id):
-        if not chain.can_join_domain(w3, domain_registry_address, domain_id, evm_account.address):
-            console.print(
-                f"[bold red]Error:[/bold red] domain {domain!r} exists but is Permissioned and "
-                f"{evm_account.address} is not an approved joiner -- ask the domain's owner to call "
-                f"DomainRegistry.approveJoiner, or choose a different --domain."
-            )
-            raise typer.Exit(1)
-    else:
-        if domain == personal_domain_name and auto_register_domain:
-            domain_needs_registration = True  # registered below, once the wallet is funded
-        else:
-            console.print(
-                f"[bold red]Error:[/bold red] domain {domain!r} does not exist in DomainRegistry "
-                f"{domain_registry_address}. "
-                + (f"Pass --auto-register-domain to self-register it (it matches {identity_name}'s own "
-                   f"personal-domain convention)." if domain == personal_domain_name else
-                   f"This is not {identity_name}'s own personal domain ({personal_domain_name!r}), so it "
-                   f"will never be auto-registered -- run `integrity domain register {domain!r}` "
-                   f"explicitly if you intend to claim this name, or use the correct existing shared domain.")
-            )
-            raise typer.Exit(1)
-
-    try:
-        _MIN_OPERATING_BALANCE_WEI = Web3.to_wei(0.001, "ether")
-        current_balance = w3.eth.get_balance(evm_account.address)
-        if current_balance < _MIN_OPERATING_BALANCE_WEI:
-            funder = _resolve_funder()
-            funder_balance = w3.eth.get_balance(funder.address)
-            # Leave 0.001 ETH for funder gas fee
-            fund_amount = min(_DEFAULT_AGENT_FUND_WEI, max(0, funder_balance - Web3.to_wei(0.001, "ether")))
-            if fund_amount < _MIN_OPERATING_BALANCE_WEI:
-                console.print(f"[bold red]Error:[/bold red] Funder wallet has insufficient balance: {Web3.from_wei(funder_balance, 'ether'):.4f} ETH")
-                raise typer.Exit(1)
-            with console.status("[bold blue]Funding agent wallet..."):
-                chain.fund_agent_wallet(w3, funder, evm_account.address, fund_amount, chain_id)
-            console.print(f"  [green]done[/green] funded agent wallet ({Web3.from_wei(fund_amount, 'ether'):.4f} ETH)")
-            import time
-            time.sleep(10)  # Wait for balance to sync across load-balanced nodes
-        else:
-            console.print(
-                f"  [dim]skip[/dim] agent wallet already funded "
-                f"({Web3.from_wei(current_balance, 'ether'):.4f} ETH)"
-            )
-
-        # Self-register the personal domain now that the agent's own wallet is funded and
-        # can pay for (and own) the DomainRegistry.registerDomain transaction itself --
-        # doing this before funding would either fail (empty wallet) or require the
-        # funder to pay and thus become the domain's owner, which is wrong for a domain
-        # meant to be agent-controlled.
-        if domain_needs_registration:
-            with console.status(f"[bold blue]Registering domain {domain!r}..."):
-                chain.register_domain(w3, evm_account, domain_registry_address, domain, chain_id, open_mode=True)
-            console.print(f"  [green]done[/green] self-registered domain {domain!r} (Open), owned by {evm_account.address}")
-
-        next_nonce = w3.eth.get_transaction_count(evm_account.address)
-
-        import time
-
-        # Resume-from-partial-failure (PRODUCTION_GAPS.md §28): before deploying
-        # anything, check whether a prior invocation already got a SovereignAgent/
-        # StateAnchor on-chain for this identity and simply never finished (steps
-        # after this failing, e.g. a missing role grant -- the exact incidents that
-        # motivated this fix). Verify each recorded address genuinely has deployed
-        # bytecode before trusting it -- never trust a locally-recorded address
-        # blindly, the same lesson the phantom-factory incident taught the hard way.
-        progress = _load_registration_progress(identity_name)
-        sovereign_agent = progress.get("sovereign_agent") if progress else None
-        state_anchor = progress.get("state_anchor") if progress else None
-        if sovereign_agent and w3.eth.get_code(Web3.to_checksum_address(sovereign_agent)) in (b"", "0x"):
-            console.print(f"  [yellow]warn[/yellow] recorded SovereignAgent {sovereign_agent} has no bytecode -- discarding stale progress")
-            sovereign_agent = None
-            state_anchor = None
-
-        if sovereign_agent:
-            console.print(f"  [dim]skip[/dim] reusing already-deployed SovereignAgent [cyan]{sovereign_agent}[/cyan] (no new deploy)")
-        else:
-            with console.status("[bold blue]Deploying SovereignAgent..."):
-                sovereign_agent = chain.deploy_sovereign_agent(w3, evm_account, agent_did, oracle_signer, chain_id, factory_address, nonce=next_nonce)
-            console.print(f"  [green]done[/green] SovereignAgent deployed at [cyan]{sovereign_agent}[/cyan]")
-            next_nonce += 1
-            time.sleep(5)  # Wait for contract bytecode to propagate
-            _save_registration_progress(identity_name, sovereign_agent=sovereign_agent)
-
-        if state_anchor and w3.eth.get_code(Web3.to_checksum_address(state_anchor)) in (b"", "0x"):
-            console.print(f"  [yellow]warn[/yellow] recorded StateAnchor {state_anchor} has no bytecode -- discarding stale progress")
-            state_anchor = None
-
-        if state_anchor:
-            console.print(f"  [dim]skip[/dim] reusing already-deployed StateAnchor [cyan]{state_anchor}[/cyan] (no new deploy)")
-        else:
-            with console.status("[bold blue]Deploying StateAnchor..."):
-                state_anchor = chain.deploy_state_anchor(w3, evm_account, sovereign_agent, chain_id, nonce=next_nonce)
-            console.print(f"  [green]done[/green] StateAnchor deployed at [cyan]{state_anchor}[/cyan]")
-            next_nonce += 1
-            time.sleep(5)  # Wait for contract bytecode to propagate
-            _save_registration_progress(identity_name, sovereign_agent=sovereign_agent, state_anchor=state_anchor)
-
-        # Minted to the SovereignAgent CONTRACT, not the wallet, and only after that
-        # contract exists (PRODUCTION_GAPS.md Sec3) -- IntegrityMarket/A2ACapitalPool pull
-        # ITK from msg.sender, which is always the SovereignAgent address when a call is
-        # routed through its own execute(), never the raw EOA wallet. Minting to the
-        # wallet (the previous order here) left testnet ITK stranded on an address that
-        # can never spend it through that call path. Mirrors integrity-sdk's
-        # registration.py, which was already fixed the same way.
-        #
-        # Checked first on a retry, unlike grant_anchor_role below (idempotent by
-        # construction) -- minting again would genuinely double-issue ITK.
-        if not full:
-            console.print("  [dim]skip[/dim] optional ITK allocation (core registration)")
-        elif chain.itk_balance(w3, itk_address, sovereign_agent) >= _DEFAULT_TESTNET_ITK_ALLOCATION_WEI:
-            console.print("  [dim]skip[/dim] SovereignAgent already holds enough testnet ITK -- skipping mint")
-        else:
-            funder = _resolve_funder()
-            with console.status("[bold blue]Minting testnet ITK..."):
-                chain.mint_testnet_itk(
-                    w3, funder, itk_address, sovereign_agent, _DEFAULT_TESTNET_ITK_ALLOCATION_WEI, chain_id
-                )
-            console.print("  [green]done[/green] minted testnet ITK")
-            time.sleep(2)
-
-        # OZ's grantRole no-ops if already held, but checked first anyway to skip the
-        # transaction entirely on a retry rather than pay gas for a no-op.
-        if chain.has_anchor_role(w3, state_anchor, oracle_signer):
-            console.print("  [dim]skip[/dim] StateAnchor already granted ANCHOR_ROLE to oracle signer")
-        else:
-            with console.status("[bold blue]Granting oracle ANCHOR_ROLE..."):
-                chain.grant_anchor_role(w3, evm_account, sovereign_agent, state_anchor, oracle_signer, chain_id, nonce=next_nonce)
-            console.print("  [green]done[/green] granted ANCHOR_ROLE to oracle signer")
-            next_nonce += 1
-            time.sleep(3)
-
-        # Re-anchoring against a StateAnchor that already has a non-zero root is
-        # unverified/likely-unsafe territory (see integrity_sdk.chain.anchor_genesis_root's
-        # docstring) -- checked explicitly rather than assumed safe to retry.
-        if chain.state_anchor_latest_root(w3, state_anchor) != b"\x00" * 32:
-            console.print("  [dim]skip[/dim] StateAnchor already has a non-zero root -- skipping re-anchor")
-        else:
-            with console.status("[bold blue]Anchoring genesis memory root..."):
-                chain.anchor_root(w3, evm_account, sovereign_agent, state_anchor, chain_id, nonce=next_nonce)
-            console.print("  [green]done[/green] anchored genesis memory root")
-            next_nonce += 1
-            time.sleep(3)
-
-        if full:
-            # Approve AgentPrimitivesFactory to pull the registration bond
-            itk_contract = w3.eth.contract(
-                address=w3.to_checksum_address(itk_address),
-                abi=[{"constant": True, "inputs": [{"name": "_owner", "type": "address"}, {"name": "_spender", "type": "address"}], "name": "allowance", "outputs": [{"name": "", "type": "uint256"}], "payable": False, "stateMutability": "view", "type": "function"}],
-            )
-            allowance = itk_contract.functions.allowance(
-                w3.to_checksum_address(sovereign_agent),
-                w3.to_checksum_address(factory_address)
-            ).call()
-            min_bond = 100 * 10**18
-            if allowance < min_bond:
-                with console.status("[bold blue]Approving AgentPrimitivesFactory to pull ITK bond..."):
-                    chain.approve_factory_bond(w3, evm_account, sovereign_agent, itk_address, factory_address, min_bond, chain_id, nonce=next_nonce)
-                console.print("  [green]done[/green] approved ITK registration bond")
-                next_nonce += 1
-                time.sleep(3)
-            else:
-                console.print("  [dim]skip[/dim] AgentPrimitivesFactory already has sufficient ITK allowance -- skipping")
-        else:
-            console.print("  [dim]skip[/dim] registration bond approval (core registration)")
-
-        # domain_id was already computed above, in the precondition-check block that ran
-        # before any gas was spent.
-        with console.status("[bold blue]Registering agent..."):
-            if full:
-                result = chain.register_primitives(
-                    w3,
-                    evm_account,
-                    factory_address,
-                    sovereign_agent,
-                    state_anchor,
-                    agent_did,
-                    domain_id,
-                    _VERTICALS[vertical],
-                    "",
-                    chain_id,
-                    nonce=next_nonce,
-                )
-            else:
-                result = chain.register_core(
-                    w3,
-                    evm_account,
-                    factory_address,
-                    sovereign_agent,
-                    state_anchor,
-                    agent_did,
-                    domain_id,
-                    chain_id,
-                    nonce=next_nonce,
-                )
-        console.print(
-            "  [green]done[/green] " + ("registered all 7 primitives" if full else "registered core identity and memory")
-        )
-    except typer.Exit:
-        raise
-    except Exception as e:  # noqa: BLE001 -- a partially-completed registration must be visible, not swallowed
-        console.print(f"[bold red]Error during on-chain registration:[/bold red] {e}")
-        raise typer.Exit(1)
-
-    registration = AgentRegistration(
-        did=agent_did,
-        evm_address=evm_account.address,
-        sovereign_agent=result.sovereign_agent,
-        state_anchor=result.state_anchor,
-        reputation_registry=result.reputation_registry,
-        slasher=result.slasher,
-        verifier_registry=result.verifier_registry,
-        compliance_gate=result.compliance_gate,
-        agent_profile=result.agent_profile,
-        domain_id=result.domain_id,
-        oracle_registered=False,
-    )
-
-    # Persist in the identity's own directory alongside private_key.pem/keystore.json --
-    # the exact same location and file names integrity-sdk's registration.py uses.
-    doc_path = identity.document_path(identity_name)
-    primitives_path = identity.agent_dir(identity_name) / "primitives.json"
-    doc_path.write_text(json.dumps(doc, indent=2) + "\n")
-    primitives_path.write_text(json.dumps(registration.to_dict(), indent=2) + "\n")
-    # registerPrimitives just succeeded -- resolve_did's idempotency check (top of this
-    # command) now covers this DID going forward, so the progress file has done its job.
-    _clear_registration_progress(identity_name)
-
-    if not skip_oracle:
-        _post_registration_to_oracle(
-            oracle_url, agent_did, doc, registration, identity_name, evm_account, alias, description, handle, idempotent=False
-        )
-
-    console.print(f"[bold green]Registered:[/bold green] {agent_did}")
-    console.print_json(data=registration.to_dict())
+    typer.echo(f"registered {result.agent_id} tier={result.verification_tier} ({result.outcome})")
 
 
 @agent_app.command("show")
@@ -1269,9 +711,8 @@ def domain_status(
     deployments_file: Optional[str] = _DEPLOYMENTS_FILE_OPTION,
 ):
     """Read-only: does `name` exist in DomainRegistry, and can --identity's wallet join it?
-    Run this before `agent register --domain <name>` for any domain you haven't already
-    verified -- see `agent register`'s own precondition checks, which run this same logic
-    automatically but only report a problem after computing everything else."""
+    Run this before joining a domain on-chain for any domain you haven't already
+    verified."""
     w3, domain_registry_address, _chain_id = _domain_setup(rpc_url, deployments_file)
     domain_id = keccak(text=name)
     exists = chain.domain_exists(w3, domain_registry_address, domain_id)
@@ -1302,10 +743,8 @@ def domain_register(
 ):
     """
     Claims `name` in DomainRegistry, owned by --identity's wallet -- permissionless,
-    first-come-first-served, same trust model as ENS second-level names. `agent register`
-    does this automatically (Open mode) for an identity's own '<identity>.integrity'
-    domain when it's missing (see its --auto-register-domain flag, default on) -- use this
-    command directly for any other domain name, or to register --permissioned.
+    first-come-first-served, same trust model as ENS second-level names. Use --permissioned
+    to register the domain in permissioned mode.
     """
     w3, domain_registry_address, chain_id = _domain_setup(rpc_url, deployments_file)
     domain_id = keccak(text=name)
@@ -1374,7 +813,7 @@ def _resolve_own_sovereign_agent(identity_name: str) -> str:
     `SovereignAgent.execute` (see chain.py's `_xns_send_via_agent` docstring
     on why -- `isRegisteredAgent` only recognizes that contract address, not
     the controller EOA). This identity's `SovereignAgent` address isn't
-    persisted locally by `integrity agent register`, so it's resolved the
+    persisted locally (off-chain `integrity agent register` deploys nothing), so it's resolved the
     same way `agent_show`/`agent_ais` already resolve agent state: a
     `GET /v1/agent/{did}` against integrity-oracle, which caches exactly
     this mapping (see `integrity-oracle`'s `primitives.sovereign_agent`).
@@ -1555,7 +994,7 @@ def xns_claim(
 ):
     """Claim a handle in Oracle's local XNS directory for an agent that already has one
     without one, or that was registered before this feature existed. Not needed for a
-    fresh `integrity agent register`, which already requires --handle."""
+    fresh `integrity agent register`."""
     oracle_client = IntegrityClient(base_url=oracle_url or config.get_config_value("ORACLE_URL"))
     try:
         result = oracle_client.post("/v1/xns/claim", json_data={"agent_id": agent_id, "handle": handle})
