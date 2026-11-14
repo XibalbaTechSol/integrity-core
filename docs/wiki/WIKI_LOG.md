@@ -1,5 +1,12 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-11-14] update | Dev-shell gate health signal on the operator workstation
+
+- The workstation's PreToolUse gate now shows the user a warning when a tool call is allowed unchecked, at most every 10 minutes, instead of only logging it.
+- A user systemd timer checks every 15 minutes that the hook interpreter can import the SDK, that no call was allowed unchecked in the last 20 minutes, and that the Shield measurement gate is running. It fails visibly and sends a desktop notification.
+- Both checks were shown to fail on a dead middleware and a broken interpreter before being trusted.
+- Still open (STATUS): the same signal for `integrity_sdk.hook_runner` on customer installs. Separately found: post-tool telemetry has failed since 2026-09-14 because the local Oracle is down and the reset Anvil chain has no registered agents.
+
 ## [2026-11-14] incident | Dev-shell BCC gates failed open for seven weeks after a Python upgrade
 
 - **What happened.**
