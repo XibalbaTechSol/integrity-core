@@ -10,6 +10,7 @@ This is the current-gap register. It is intentionally short; historical plans an
 - Prove Shield/BCC pack-hash and deny-by-default conformance.
 - Prove Cortex authenticated ingestion, provenance binding, and tenant/store isolation.
 - Define signed DID-file rotation and universal Shield/BCC fail-closed fallback.
+- Give fail-open dev-shell gates a watched health signal (an alert on unchecked allows). A 3.12→3.14 interpreter change left the BCC hooks failing open from 2026-09-28 to 2026-11-14 unnoticed; see WIKI_LOG 2026-11-14.
 - Publish pure pack-adapter versus network-connector contracts.
 
 ## Required before Gate B-local
