@@ -92,7 +92,7 @@ def deployed_chain():
         proc.wait(timeout=10)
 
 
-def _bind_v3(w3, chain_id, funder, controller, registry_address, did):
+def _bind_v3(w3, chain_id, funder, controller, registry_address, did, pubkey=None):
     """Deploys a canonical SovereignAgent for the v3 AgentRegistry and binds it as an actor.
 
     The attester is the deployer on anvil (`ATTESTER_ADDRESS` defaults to it locally); the agent
@@ -101,7 +101,7 @@ def _bind_v3(w3, chain_id, funder, controller, registry_address, did):
     zero = "0x0000000000000000000000000000000000000000"
     sovereign_agent = chain.deploy_sovereign_agent(w3, controller, did, zero, chain_id, registry_address)
     registry = chain._contract(w3, "AgentRegistry", address=registry_address)
-    pubkey = os.urandom(32)
+    pubkey = pubkey or os.urandom(32)
     deadline = w3.eth.get_block("latest")["timestamp"] + 3600
     proof = funder.unsafe_sign_hash(
         registry.functions.registerDigest(pubkey, controller.address, sovereign_agent, GENERAL_DOMAIN_ID, "", deadline).call()
@@ -183,3 +183,45 @@ def test_cli_chain_xns_register_fails_for_unregistered_agent(deployed_chain, tmp
         chain.xns_register(
             w3, stranger, unregistered_sovereign_agent, addr["XibalbaNameService"], "squatter.integrity", chain_id
         )
+
+
+def test_cli_status_and_doctor_read_the_real_agent_registry(deployed_chain, tmp_path, monkeypatch):
+    """status/doctor's AgentRegistry reads, proven against the deployed contract (not a fake)."""
+    from typer.testing import CliRunner
+
+    from integrity_cli import status_cmd
+    from integrity_cli.main import app
+
+    monkeypatch.setenv("INTEGRITY_WALLET_HOME", str(tmp_path / "wallets-status"))
+    monkeypatch.setenv("INTEGRITY_WALLET_PASSWORD", "cli-chain-test-pw")
+    w3, chain_id, funder, addr = (deployed_chain[k] for k in ("w3", "chain_id", "funder", "addresses"))
+    rpc_url = deployed_chain["rpc_url"]
+
+    controller = wallet.generate_or_load_evm_wallet("cli-status-agent")
+    chain.fund_agent_wallet(w3, funder, controller.address, Web3.to_wei(1, "ether"), chain_id)
+    pubkey = os.urandom(32)
+    sovereign_agent = _bind_v3(w3, chain_id, funder, controller, addr["AgentRegistry"], "did:integrity:cli-status", pubkey)
+    # The registry is keyed by the pubkey fingerprint, not the string passed to the SovereignAgent.
+    did = "did:integrity:" + hashlib.sha256(pubkey).hexdigest()
+
+    deployments = tmp_path / "deployments.json"
+    deployments.write_text(json.dumps({"chainId": chain_id, "singletons": {
+        k: addr[k] for k in ("AgentRegistry", "XibalbaNameService", "PolicyRegistry")
+    }}))
+
+    rows = status_cmd.onchain_rows(did, rpc_url, str(deployments))
+    assert rows["record"]["status"] == "present", rows
+    assert rows["actor"]["status"] == "bound" and rows["actor"]["actor"] == sovereign_agent
+    unknown = status_cmd.onchain_rows("did:integrity:" + "ab" * 32, rpc_url, str(deployments))
+    assert unknown["record"]["status"] == "absent" and unknown["actor"]["status"] == "none"
+
+    closed_port = f"http://127.0.0.1:{_free_port()}"  # the Oracle check is not under test here
+    result = CliRunner().invoke(app, [
+        "doctor", "--rpc-url", rpc_url, "--deployments-file", str(deployments),
+        "--oracle-url", closed_port, "--attester", funder.address, "--json",
+    ])
+    checks = {c["name"]: c for c in json.loads(result.stdout)["checks"]}
+    for name in ("rpc", "chain_id", "xns", "policy_registry", "agent_registry", "trust_config", "attester"):
+        assert checks[name]["status"] == "pass", (name, checks[name])
+    assert checks["oracle"]["status"] == "unverified" and result.exit_code == 3
+
