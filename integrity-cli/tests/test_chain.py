@@ -1,9 +1,10 @@
 """
-Real, end-to-end test of integrity-cli's OWN chain.py against a live anvil
-running the real `contracts/script/Deploy.s.sol` — no mocked web3, no
-dependency on integrity-sdk (per identity.py's "no sibling dependency"
-philosophy, the CLI carries its own copy of the on-chain logic, so it gets
-its own real-chain proof rather than trusting the SDK's).
+Real, end-to-end test of the chain calls the CLI makes, against a live anvil running the real
+`contracts/script/Deploy.s.sol` -- no mocked web3.
+
+Since registration v3 (decision D4) the CLI's deploy/XNS helpers are re-exports of
+integrity_sdk.chain; this proves the CLI's wiring of them against a v3-bound agent. The old
+seven-primitives `test_cli_chain_full_registration` was deleted with that path in PR 3.4.
 
 Mirrors integrity-sdk/tests/test_chain.py's harness. Opt-in via anvil/forge
 being present; if they're not, the test skips with a note rather than
@@ -91,57 +92,6 @@ def deployed_chain():
         proc.wait(timeout=10)
 
 
-def test_cli_chain_full_registration(deployed_chain, tmp_path, monkeypatch):
-    monkeypatch.setenv("INTEGRITY_WALLET_HOME", str(tmp_path / "wallets"))
-    monkeypatch.setenv("INTEGRITY_WALLET_PASSWORD", "cli-chain-test-pw")
-
-    w3 = deployed_chain["w3"]
-    chain_id = deployed_chain["chain_id"]
-    funder = deployed_chain["funder"]
-    addr = deployed_chain["addresses"]
-
-    agent = wallet.generate_or_load_evm_wallet("cli-test-agent")
-    oracle_signer = funder.address  # Deploy.s.sol defaults oracleSigner to the deployer.
-
-    chain.fund_agent_wallet(w3, funder, agent.address, Web3.to_wei(1, "ether"), chain_id)
-
-    did = "did:integrity:cli-test-agent"
-    sovereign_agent = chain.deploy_sovereign_agent(w3, agent, did, oracle_signer, chain_id, addr["AgentPrimitivesFactory"])
-    state_anchor = chain.deploy_state_anchor(w3, agent, sovereign_agent, chain_id)
-
-    # Regression coverage for PRODUCTION_GAPS.md Sec3: minted to the SovereignAgent
-    # CONTRACT (only deployable once we're past the two lines above), never the raw
-    # EOA wallet -- IntegrityMarket/A2ACapitalPool pull ITK from msg.sender, which is
-    # always the SovereignAgent address when routed through its own execute(), so ITK
-    # minted to the wallet is stranded and unspendable through that path. This test
-    # used to mint to `agent.address` before the SovereignAgent even existed, matching
-    # the bug this reorder fixes, and asserted nothing about where the ITK actually
-    # landed.
-    mint_amount = Web3.to_wei(10_000, "ether")
-    chain.mint_testnet_itk(w3, funder, addr["IntegrityToken"], sovereign_agent, mint_amount, chain_id)
-    itk = chain._contract(w3, "IntegrityToken", address=addr["IntegrityToken"])
-    assert itk.functions.balanceOf(sovereign_agent).call() == mint_amount, "testnet ITK must land on the SovereignAgent contract"
-    assert itk.functions.balanceOf(agent.address).call() == 0, "the raw EOA wallet must NOT receive testnet ITK"
-
-    chain.grant_anchor_role(w3, agent, sovereign_agent, state_anchor, oracle_signer, chain_id)
-    chain.anchor_root(
-        w3, agent, sovereign_agent, state_anchor, chain_id, root=chain.genesis_vault_root()
-    )
-
-    chain.approve_factory_bond(w3, agent, sovereign_agent, addr["IntegrityToken"], addr["AgentPrimitivesFactory"], Web3.to_wei(100, "ether"), chain_id)
-
-    result = chain.register_primitives(
-        w3, agent, addr["AgentPrimitivesFactory"], sovereign_agent, state_anchor,
-        did, GENERAL_DOMAIN_ID, 0, "ipfs://cli-test", chain_id,
-    )
-
-    assert result.sovereign_agent == sovereign_agent
-    assert result.controller == agent.address
-    zero = "0x0000000000000000000000000000000000000000"
-    for a in (result.reputation_registry, result.slasher, result.verifier_registry, result.compliance_gate, result.agent_profile):
-        assert a.lower() != zero
-
-
 def _bind_v3(w3, chain_id, funder, controller, registry_address, did):
     """Deploys a canonical SovereignAgent for the v3 AgentRegistry and binds it as an actor.
 
@@ -216,8 +166,7 @@ def test_cli_chain_xns_register_fails_for_unregistered_agent(deployed_chain, tmp
     # A funded wallet that deploys its OWN SovereignAgent (so it has a real
     # contract to route execute() through -- a bare EOA can't call execute()
     # at all, that's a different failure mode) but never completes
-    # registerPrimitives, so no registry indexes it (and XNS reads the v3 AgentRegistry,
-    # where it is not bound either). XNS's own
+    # an AgentRegistry bind, so XNS (which reads the v3 AgentRegistry) does not see it. XNS's own
     # isRegisteredAgent(msg.sender) check must reject it, mirroring
     # XibalbaNameServiceTest.test_unregisteredCallerCannotClaimAHandle in
     # contracts/test/, but proven here against the real deployed contract
@@ -227,7 +176,7 @@ def test_cli_chain_xns_register_fails_for_unregistered_agent(deployed_chain, tmp
     stranger = wallet.generate_or_load_evm_wallet("cli-test-stranger")
     chain.fund_agent_wallet(w3, funder, stranger.address, Web3.to_wei(1, "ether"), chain_id)
     unregistered_sovereign_agent = chain.deploy_sovereign_agent(
-        w3, stranger, "did:integrity:cli-test-stranger", oracle_signer, chain_id, addr["AgentPrimitivesFactory"]
+        w3, stranger, "did:integrity:cli-test-stranger", oracle_signer, chain_id, addr["AgentRegistry"]
     )
 
     with pytest.raises(Exception):

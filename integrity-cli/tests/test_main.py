@@ -314,14 +314,14 @@ def _write_xns_deployments(tmp_path) -> str:
 
 def test_xns_resolve_requires_reachable_rpc(monkeypatch):
     monkeypatch.setenv("RPC_URL", "http://127.0.0.1:1")
-    result = runner.invoke(app, ["xns", "resolve", "hermes.integrity"])
+    result = runner.invoke(app, ["handle", "resolve", "hermes.integrity"])
     assert result.exit_code == 1
     assert "RPC" in result.stdout or "connect" in result.stdout
 
 
 def test_xns_primary_handle_requires_reachable_rpc(monkeypatch):
     monkeypatch.setenv("RPC_URL", "http://127.0.0.1:1")
-    result = runner.invoke(app, ["xns", "primary-handle", "0x" + "22" * 20])
+    result = runner.invoke(app, ["handle", "primary-handle", "0x" + "22" * 20])
     assert result.exit_code == 1
     assert "RPC" in result.stdout or "connect" in result.stdout
 
@@ -334,7 +334,7 @@ def test_xns_register_without_identity_exits_nonzero(monkeypatch, tmp_path):
     deployments_file = _write_xns_deployments(tmp_path)
     result = runner.invoke(
         app,
-        ["xns", "register", "hermes.integrity", "--deployments-file", deployments_file],
+        ["handle", "register", "hermes.integrity", "--deployments-file", deployments_file],
     )
     assert result.exit_code == 1
     assert "No identity named 'default'" in result.stdout
@@ -359,7 +359,7 @@ def test_xns_register_requires_wallet_password(monkeypatch, tmp_path, httpx_mock
 
     result = runner.invoke(
         app,
-        ["xns", "register", "hermes.integrity", "--deployments-file", deployments_file],
+        ["handle", "register", "hermes.integrity", "--deployments-file", deployments_file],
     )
     assert result.exit_code == 1
     assert "INTEGRITY_WALLET_PASSWORD" in result.stdout
@@ -374,7 +374,7 @@ def test_xns_set_primary_requires_wallet_password(monkeypatch, tmp_path, httpx_m
 
     result = runner.invoke(
         app,
-        ["xns", "set-primary", "hermes.integrity", "--deployments-file", deployments_file],
+        ["handle", "set-primary", "hermes.integrity", "--deployments-file", deployments_file],
     )
     assert result.exit_code == 1
     assert "INTEGRITY_WALLET_PASSWORD" in result.stdout
@@ -389,7 +389,7 @@ def test_xns_release_requires_wallet_password(monkeypatch, tmp_path, httpx_mock)
 
     result = runner.invoke(
         app,
-        ["xns", "release", "hermes.integrity", "--deployments-file", deployments_file],
+        ["handle", "release", "hermes.integrity", "--deployments-file", deployments_file],
     )
     assert result.exit_code == 1
     assert "INTEGRITY_WALLET_PASSWORD" in result.stdout

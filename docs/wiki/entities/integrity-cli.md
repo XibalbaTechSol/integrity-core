@@ -41,13 +41,16 @@ chain logic (no sibling-import) but kept wire-compatible byte-for-byte.
 (was `agent register`; off-chain, gas-free), `status` (folds `agent show`/`agent ais`),
 `doctor`, `identity new/show/list` (was `identity keygen`), `gate check` (was
 `agent intercept`), `receipts verify` (was top-level `verify`; `--json-output` →
-`--json`), and a read-only `policy` group (`compile/map/check/prove/diff`,
+`--json`), `handle` (was `xns`; `handle available` checks both namespaces), and a
+read-only `policy` group (`compile/map/check/prove/diff`,
 `publish --print-tx`, which prints `setGraphRoot` and never signs). Every v3 command
 takes `--json` (one document tagged `integrity.cli.<group>.<cmd>.v1`) and shares one
 exit-code table: 0 ok, 1 no, 2 usage, 3 unverified/unreachable, 4 revert. `--network
 local|base-sepolia` sets RPC/deployments/Oracle together (flag > env > profile > config
 file > default). The CLI's deploy/XNS/domain chain helpers are now re-exports of
-`integrity_sdk.chain` (one chain layer). The sections below are the history and still
+`integrity_sdk.chain` (one chain layer), and PR 3.4 deleted the CLI's seven-primitives
+registration path (`vault sync` keeps `anchor_root`). `status` and `doctor` read the v3
+`AgentRegistry` from `singletons.AgentRegistry`. The sections below are the history and still
 use the old command names.
 
 `integrity agent register` runs the **real self-sovereign on-chain sequence** —

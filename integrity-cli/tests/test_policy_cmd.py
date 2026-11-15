@@ -227,7 +227,7 @@ def test_diff_read_error_is_unverified(pack, tmp_path, monkeypatch):
 
 
 def test_diff_uses_the_network_profile_deployments(pack, tmp_path, monkeypatch):
-    from integrity_cli import config, policy_cmd
+    from integrity_cli import policy_cmd
 
     dep = _deployments(tmp_path)
     monkeypatch.setenv("DEPLOYMENTS_FILE", dep)

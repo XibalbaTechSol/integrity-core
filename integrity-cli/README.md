@@ -29,7 +29,8 @@ message with the identity's Ed25519 key (proof of possession) and sends it to th
 Oracle; no chain state is touched and no funder wallet, RPC endpoint or deployments
 file is needed. A proven key is verification tier 1. The on-chain "self-sovereign
 contracts" registration (the old seven-primitives sequence) was removed from this
-command; the `domain` and `xns` commands still use the on-chain helpers.
+command (registration v3 PR 3.4 deleted that path from the CLI); the `domain` and
+`handle` commands still use the on-chain helpers.
 
 ## Install
 
@@ -122,18 +123,22 @@ integrity status [<agent-did>] [--identity default] [--json]
 
 Folds the old `agent show` and `agent ais`: the Oracle record, verification tier and
 AIS (computed once, centrally, in `integrity-oracle/scoring-core`; never recomputed
-here). Exit 0 registered, 1 not registered, 3 Oracle unreachable. The on-chain
-record/actor/trust rows report `pending` until they are wired to AgentRegistry.
+here). Exit 0 registered, 1 not registered, 3 Oracle unreachable. The on-chain rows read
+the v3 AgentRegistry (`singletons.AgentRegistry`): `record` present/absent/retired, `actor`
+bound/none. An absent record is optional in v3, not a failure; an unreadable one is
+`unverified`; neither changes the exit code. `trust` stays `pending` until Phase 4's
+`trust status`.
 
 ### `integrity doctor` — is this machine's view of the network sane?
 
 ```bash
-integrity [--network base-sepolia] doctor [--pack ./my-pack] [--json]
+integrity [--network base-sepolia] doctor [--pack ./my-pack] [--attester 0x…] [--json]
 ```
 
 Checks the Oracle `/healthz`, the deployments file, RPC reachability, chain id, and that
-XibalbaNameService and PolicyRegistry have code; with `--pack`, that PolicyRegistry holds
-the pack's root. Fails closed: anything unreachable is exit 3, any failed check exit 1.
+XibalbaNameService, PolicyRegistry and AgentRegistry have code, and that AgentRegistry's
+TrustConfig is set and deployed; with `--attester`, that the address holds ATTESTER_ROLE
+(otherwise that check is `skipped`); with `--pack`, that PolicyRegistry holds the pack's root. Fails closed: anything unreachable is exit 3, any failed check exit 1.
 
 ### `integrity policy` — a pack's on-chain map
 
@@ -148,6 +153,18 @@ integrity policy publish ./pack --print-tx                # PRINTS setGraphRoot;
 
 All read-only. `publish` only prints the unsigned governance transaction: a root change
 is signed by the `GRAPH_CURATOR_ROLE` holder, never by this CLI.
+
+### `integrity handle` — agent handles (was `xns`)
+
+```bash
+integrity handle available atlas [--json]   # 0 free, 1 taken/invalid, 3 can't confirm
+integrity handle claim <agent-did> atlas    # Oracle directory claim (no wallet, no gas)
+integrity handle resolve atlas.integrity    # on-chain XibalbaNameService lookup
+integrity handle register|set-primary|release|primary-handle …   # on-chain, via SovereignAgent.execute
+```
+
+`handle available` checks BOTH the Oracle directory and on-chain XibalbaNameService; when the
+on-chain side cannot be read it reports "unverified" (exit 3), never "free".
 
 ### `integrity gate check` — the BCC policy gate
 

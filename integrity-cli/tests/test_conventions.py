@@ -128,6 +128,8 @@ def test_bad_network_in_env_is_a_usage_error(monkeypatch):
         ["agent", "intercept", "-t", "payment"],
         ["identity", "keygen"],
         ["verify", "--receipts", "x.json"],
+        ["xns", "available", "atlas"],
+        ["xns", "resolve", "atlas.integrity"],
     ],
 )
 def test_old_command_names_are_usage_errors(argv):
@@ -137,7 +139,8 @@ def test_old_command_names_are_usage_errors(argv):
 def test_new_command_tree_is_registered():
     for argv in (["register", "--help"], ["gate", "check", "--help"], ["receipts", "verify", "--help"],
                  ["identity", "new", "--help"], ["identity", "list", "--help"], ["status", "--help"],
-                 ["doctor", "--help"], ["policy", "compile", "--help"], ["policy", "publish", "--help"],
+                 ["doctor", "--help"], ["handle", "available", "--help"], ["handle", "claim", "--help"],
+                 ["handle", "resolve", "--help"], ["policy", "compile", "--help"], ["policy", "publish", "--help"],
                  ["vault", "sync", "--help"]):
         assert runner.invoke(app, argv).exit_code == 0, argv
 

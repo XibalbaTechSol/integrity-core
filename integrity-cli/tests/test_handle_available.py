@@ -1,4 +1,4 @@
-"""`integrity xns available`: exit codes keep "unknown" (3) distinct from "taken" (1), "free" (0)
+"""`integrity handle available`: exit codes keep "unknown" (3) distinct from "taken" (1), "free" (0)
 and Click's usage error (2)."""
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ def _invoke(result=None, error=None, *extra):
     target = "integrity_cli.main.check_handle_availability"
     kw = {"side_effect": error} if error else {"return_value": result}
     with mock.patch(target, **kw) as check:
-        out = runner.invoke(app, ["xns", "available", "atlas", "--oracle-url", "http://oracle.test", *extra])
+        out = runner.invoke(app, ["handle", "available", "atlas", "--oracle-url", "http://oracle.test", *extra])
     return out, check
 
 
@@ -68,5 +68,5 @@ def test_json_output():
 
 
 def test_usage_error_is_clicks_two_not_unverified():
-    out = runner.invoke(app, ["xns", "available"])
+    out = runner.invoke(app, ["handle", "available"])
     assert out.exit_code == 2

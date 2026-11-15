@@ -11,7 +11,8 @@ Command tree (registration v3; hard renames, no aliases):
   policy    A pack's on-chain map: compile, map, check, prove, diff, publish --print-tx
   config    ~/.integrity-cli/config.json management
   auth      Auth token management (no insecure default -- see config.py)
-  xns       XibalbaNameService: human-readable handles (`xns available` checks both namespaces)
+  handle    Agent handles (was `xns`): `handle available` checks the Oracle directory AND on-chain
+            XibalbaNameService
             (contracts/src/framework/XibalbaNameService.sol, added 2026-07-11)
 
 Scope note: the old prototype (see old repo's integrity_cli/main.py) also
@@ -96,8 +97,8 @@ app.add_typer(config_app, name="config")
 auth_app = typer.Typer(help="Manage the auth token used for Oracle/BCC middleware calls")
 app.add_typer(auth_app, name="auth")
 
-xns_app = typer.Typer(help="XibalbaNameService (XNS): human-readable handles for registered agents")
-app.add_typer(xns_app, name="xns")
+handle_app = typer.Typer(help="Agent handles: Oracle directory + on-chain XibalbaNameService (XNS) (was `xns`)")
+app.add_typer(handle_app, name="handle")
 
 domain_app = typer.Typer(help="DomainRegistry: the namespace an agent joins on-chain")
 app.add_typer(domain_app, name="domain")
@@ -807,18 +808,18 @@ def domain_register(
 
 
 # --------------------------------------------------------------------------
-# xns
+# handle (was `xns`): Oracle directory + on-chain XibalbaNameService
 # --------------------------------------------------------------------------
 
 
 def _xns_setup(rpc_url: Optional[str], deployments_file: Optional[str]) -> tuple[Web3, str, int]:
     """
-    Shared connect/resolve-address logic for every xns_app command:
+    Shared connect/resolve-address logic for every handle_app command:
     connects to the RPC, loads the deployments file, and pulls
     `singletons.XibalbaNameService`'s address out of it. Factored out since
-    all five xns commands below need exactly this, mirroring how
+    all five on-chain handle commands below need exactly this, mirroring how
     `agent_register` inlines the equivalent connect+load steps for its own
-    single command (xns has five, so it's worth sharing here).
+    single command (handle has five on-chain ones, so it's worth sharing here).
     """
     rpc_url = rpc_url or config.get_config_value("RPC_URL")
     deployments_file = deployments_file or config.get_config_value("DEPLOYMENTS_FILE")
@@ -850,7 +851,7 @@ def _xns_setup(rpc_url: Optional[str], deployments_file: Optional[str]) -> tuple
 def _resolve_own_sovereign_agent(identity_name: str) -> str:
     """
     Every XNS write call must be routed through the caller's own
-    `SovereignAgent.execute` (see chain.py's `_xns_send_via_agent` docstring
+    `SovereignAgent.execute` (see integrity_sdk.chain's XNS section
     on why -- `isRegisteredAgent` only recognizes that contract address, not
     the controller EOA). This identity's `SovereignAgent` address isn't
     persisted locally (off-chain `integrity register` deploys nothing), so it's resolved the
@@ -883,7 +884,7 @@ def _resolve_own_sovereign_agent(identity_name: str) -> str:
     return sovereign_agent
 
 
-@xns_app.command("register")
+@handle_app.command("register")
 def xns_register(
     handle: str = typer.Argument(..., help='Handle to claim, e.g. "hermes.integrity"'),
     identity_name: str = typer.Option("default", "--identity", help="Local identity claiming the handle"),
@@ -915,7 +916,7 @@ def xns_register(
     console.print(f"[dim]tx: {receipt['transactionHash'].hex()}[/dim]")
 
 
-@xns_app.command("available")
+@handle_app.command("available")
 def xns_available(
     handle: str = typer.Argument(..., help="Handle to check"),
     oracle_url: Optional[str] = typer.Option(
@@ -968,7 +969,7 @@ def xns_available(
     raise typer.Exit(3 if result.unverified else 1)
 
 
-@xns_app.command("resolve")
+@handle_app.command("resolve")
 def xns_resolve(
     handle: str = typer.Argument(..., help="Handle to resolve"),
     rpc_url: Optional[str] = _RPC_URL_OPTION,
@@ -983,7 +984,7 @@ def xns_resolve(
     console.print(f"{handle} -> [bold]{result}[/bold]")
 
 
-@xns_app.command("primary-handle")
+@handle_app.command("primary-handle")
 def xns_primary_handle(
     sovereign_agent: str = typer.Argument(..., help="SovereignAgent address to look up"),
     rpc_url: Optional[str] = _RPC_URL_OPTION,
@@ -998,7 +999,7 @@ def xns_primary_handle(
     console.print(f"{sovereign_agent} -> [bold]{handle}[/bold]")
 
 
-@xns_app.command("set-primary")
+@handle_app.command("set-primary")
 def xns_set_primary(
     handle: str = typer.Argument(..., help="Handle (already owned by this identity) to make primary"),
     identity_name: str = typer.Option("default", "--identity", help="Local identity whose primary handle to change"),
@@ -1025,7 +1026,7 @@ def xns_set_primary(
     console.print(f"[dim]tx: {receipt['transactionHash'].hex()}[/dim]")
 
 
-@xns_app.command("release")
+@handle_app.command("release")
 def xns_release(
     handle: str = typer.Argument(..., help="Handle (owned by this identity) to release"),
     identity_name: str = typer.Option("default", "--identity", help="Local identity releasing the handle"),
@@ -1059,9 +1060,9 @@ def xns_release(
 # 0022) -- no wallet, no gas. This is the mandatory, primary handle every agent gets at
 # `integrity register`; on-chain listing is separate and optional. The Oracle refuses a
 # claim the on-chain namespace already holds for another agent (409), and fails closed (503)
-# when it cannot check; `xns available` (above) reports both namespaces.
+# when it cannot check; `handle available` (above) reports both namespaces.
 
-@xns_app.command("claim")
+@handle_app.command("claim")
 def xns_claim(
     agent_id: str = typer.Argument(..., help="Agent DID (or bare agent_id) claiming this handle"),
     handle: str = typer.Argument(..., help="Handle to claim"),
