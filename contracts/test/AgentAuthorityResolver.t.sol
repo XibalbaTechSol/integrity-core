@@ -1,82 +1,56 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Test} from "forge-std/Test.sol";
-import {XibalbaAgentRegistry} from "../src/framework/XibalbaAgentRegistry.sol";
 import {AgentAuthorityResolver} from "../src/framework/AgentAuthorityResolver.sol";
+import {AISRegistry} from "../src/trust/AISRegistry.sol";
+import {StakeVault} from "../src/trust/StakeVault.sol";
+import {ITK} from "../src/trust/ITK.sol";
+import {GateRegistryFixture} from "./trust/GateRegistryFixture.sol";
 
-contract MockReputationRegistry {
-    mapping(address => uint256) public scoreOf;
-
-    function setScore(address agent, uint256 score) external {
-        scoreOf[agent] = score;
-    }
-
-    function effectiveScore(address agent) external view returns (uint256) {
-        return scoreOf[agent];
-    }
-}
-
-contract MockSovereignAgent {
-    uint256 public ais;
-
-    function setAis(uint256 v) external {
-        ais = v;
-    }
-}
-
-contract AgentAuthorityResolverTest is Test {
-    XibalbaAgentRegistry registry;
+/// @notice Registration v3: registered = bound actor in `AgentRegistry`; AIS = latest `AISRegistry`
+/// checkpoint, returned in basis points with no rescaling.
+contract AgentAuthorityResolverTest is GateRegistryFixture {
     AgentAuthorityResolver resolver;
+    AISRegistry ais;
 
     address admin = makeAddr("admin");
-    address registrar = makeAddr("registrar");
-    address controller = makeAddr("controller");
+    address scorer = makeAddr("scorer");
+    bytes32 domainId;
 
     function setUp() public {
-        vm.prank(admin);
-        registry = new XibalbaAgentRegistry(admin);
-        bytes32 registrarRole = registry.REGISTRAR_ROLE();
-        vm.prank(admin);
-        registry.grantRole(registrarRole, registrar);
-        resolver = new AgentAuthorityResolver(address(registry));
+        _deployRegistry(admin);
+        domainId = _wireBindableDomain(admin, "resolver.integrity");
+        // Real checkpoint path: AISRegistry -> StakeVault, with the AgentRegistry wired.
+        vm.startPrank(admin);
+        ais = new AISRegistry(admin);
+        ITK itk = new ITK(admin, 0);
+        StakeVault vault = new StakeVault(address(itk), admin);
+        vault.grantRole(vault.AIS_REGISTRY_ROLE(), address(ais));
+        ais.grantRole(ais.SCORER_ROLE(), scorer);
+        ais.setStakeVault(address(vault));
+        ais.setAgentRegistry(address(agentRegistry));
+        vm.stopPrank();
+        resolver = new AgentAuthorityResolver(address(agentRegistry), address(ais));
     }
 
-    function testSovereignProfileResolvesThroughCloneSet() public {
-        address sovereignAgent = makeAddr("sovereignAgent");
-        address stateAnchor = makeAddr("stateAnchor");
-        MockReputationRegistry reputationRegistry = new MockReputationRegistry();
-        reputationRegistry.setScore(sovereignAgent, 77);
+    /// AIS comes from the AISRegistry checkpoint, in basis points, unchanged.
+    /// MUTATION: return `score / 10` (the old 0..1000 scale) -> 7700 != 770, test FAILS.
+    function testBoundAgentResolvesAisFromCheckpoint() public {
+        address agent = _boundAgent("bound", domainId);
+        assertTrue(resolver.isAuthorityRegistered(agent));
+        assertEq(resolver.getAis(agent), 0, "registered, no checkpoint yet");
 
-        XibalbaAgentRegistry.PrimitiveSet memory primitives = XibalbaAgentRegistry.PrimitiveSet({
-            sovereignAgent: sovereignAgent,
-            stateAnchor: stateAnchor,
-            reputationRegistry: address(reputationRegistry),
-            slasher: address(0),
-            verifierRegistry: address(0),
-            complianceGate: address(0),
-            agentProfile: address(0)
-        });
-
-        vm.prank(registrar);
-        registry.registerPrimitives(keccak256("did:integrity:sovereign"), primitives, controller, bytes32(0));
-
-        assertTrue(resolver.isAuthorityRegistered(sovereignAgent));
-        assertEq(resolver.getAis(sovereignAgent), 77);
-        assertEq(resolver.getStateAnchor(sovereignAgent), stateAnchor);
+        vm.prank(scorer);
+        ais.postCheckpoint(agent, 7700, 1, keccak256("evidence"), 0);
+        assertEq(resolver.getAis(agent), 7700);
     }
 
-    function testEnterpriseProfileResolvesWithoutCloneSet() public {
-        MockSovereignAgent enterpriseAgent = new MockSovereignAgent();
-        enterpriseAgent.setAis(42);
-        address stateAnchor = makeAddr("enterpriseStateAnchor");
-
-        vm.prank(registrar);
-        registry.registerEnterpriseAgent(address(enterpriseAgent), stateAnchor, controller, bytes32(0));
-
-        assertTrue(resolver.isAuthorityRegistered(address(enterpriseAgent)));
-        assertEq(resolver.getAis(address(enterpriseAgent)), 42);
-        assertEq(resolver.getStateAnchor(address(enterpriseAgent)), stateAnchor);
+    function testUnboundCanonicalAgentIsNotRegistered() public {
+        (address ctl,) = makeAddrAndKey("unbound");
+        address agent = address(_newAgent("did:integrity:unbound", ctl));
+        assertFalse(resolver.isAuthorityRegistered(agent));
+        vm.expectRevert(abi.encodeWithSelector(AgentAuthorityResolver.NotRegistered.selector, agent));
+        resolver.getAis(agent);
     }
 
     function testUnregisteredAgentReverts() public {
@@ -86,9 +60,10 @@ contract AgentAuthorityResolverTest is Test {
         resolver.getAis(stranger);
     }
 
-    function testEnterpriseRegistrationRequiresRegistrarRole() public {
-        MockSovereignAgent enterpriseAgent = new MockSovereignAgent();
-        vm.expectRevert();
-        registry.registerEnterpriseAgent(address(enterpriseAgent), makeAddr("anchor"), controller, bytes32(0));
+    function testZeroAddressesRejected() public {
+        vm.expectRevert(bytes("AgentAuthorityResolver: zero registry"));
+        new AgentAuthorityResolver(address(0), address(ais));
+        vm.expectRevert(bytes("AgentAuthorityResolver: zero AIS registry"));
+        new AgentAuthorityResolver(address(agentRegistry), address(0));
     }
 }

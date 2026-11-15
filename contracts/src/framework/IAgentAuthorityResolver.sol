@@ -2,23 +2,16 @@
 pragma solidity ^0.8.28;
 
 /// @title IAgentAuthorityResolver
-/// @notice Profile-agnostic read surface for "is this address a registered agent, what is
-/// its current AIS, and what StateAnchor backs its memory" — SPEC.md §3.4 Enclosed
-/// Enterprise Profile requires this to not assume a full 6-contract clone set.
-/// @dev Implementations MUST support both the sovereign-profile clone-set
-/// (`XibalbaAgentRegistry.resolveAgent`) and an enterprise, anchor-only profile without
-/// requiring callers to know which profile a given agent used at registration.
+/// @notice Read surface for "is this address a registered agent, and what is its current AIS".
+/// @dev Registration v3: "registered" means bound as an actor in `AgentRegistry`
+/// (`isRegisteredAgent`), and AIS is the latest `AISRegistry` checkpoint score.
 interface IAgentAuthorityResolver {
-    /// @return True if `agent` is registered under either profile.
+    /// @return True if `agent` is bound as an actor of an `AgentRegistry` record.
     function isAuthorityRegistered(address agent) external view returns (bool);
 
-    /// @notice Current Agent Integrity Score for `agent`, resolved from whichever profile
-    /// it registered under.
+    /// @notice Current Agent Integrity Score for `agent`, in BASIS POINTS (0..10000), the
+    /// `AISRegistry` scale. A registered agent with no checkpoint yet reads 0.
     /// @dev MUST revert (not return 0) if `agent` is not registered — callers must not be
     /// able to confuse "unregistered" with "registered, score 0".
     function getAis(address agent) external view returns (uint256);
-
-    /// @notice The `StateAnchor` backing `agent`'s memory, for either profile.
-    /// @dev MUST revert if `agent` is not registered.
-    function getStateAnchor(address agent) external view returns (address);
 }

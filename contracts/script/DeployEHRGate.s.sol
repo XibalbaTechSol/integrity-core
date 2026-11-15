@@ -15,20 +15,21 @@ import {AgentAuthorityResolver} from "../src/framework/AgentAuthorityResolver.so
 /// including on live Base Sepolia, despite being real and fully tested in isolation).
 /// Same incremental-deploy convention as `DeployMarkets.s.sol`: reads the existing
 /// `../deployments.<network>.json`, deploys only the new EHRGate contract against the existing
-/// `XibalbaAgentRegistry`/`SmartBAAFactory`/`AgentAuthorityResolver` addresses, and merges the new address into
+/// `AgentRegistry`/`SmartBAAFactory`/`AgentAuthorityResolver` addresses, and merges the new address into
 /// that SAME file rather than overwriting or re-running full genesis (which would
 /// orphan every already-registered agent).
 /// @dev Run against Base Sepolia with:
 ///   forge script script/DeployEHRGate.s.sol --rpc-url base_sepolia --broadcast --verify
 /// Requires `../deployments.<network>.json` to already exist (i.e. `Deploy.s.sol` has
-/// already run once against this network) and to have `XibalbaAgentRegistry`,
+/// already run once against this network) and to have `AgentRegistry`,
 /// `SmartBAAFactory`, and `AgentAuthorityResolver` singleton addresses. Deliberately NOT run automatically as part of
 /// this change -- deploying to a live network is a real, gas-costing, operator-triggered
 /// action, not something a code change should do on its own.
 contract DeployEHRGate is Script {
     // Mirrors Deploy.s.sol's EHR_GATE_MIN_AIS_THRESHOLD -- kept in sync manually since
-    // this script targets an already-live deployment that predates that constant.
-    uint256 constant EHR_GATE_MIN_AIS_THRESHOLD = 800;
+    // this script targets an already-live deployment that predates that constant. Basis points
+    // (AISRegistry's 0..10000 scale; the v2 ReputationRegistry value 800 became 8000 in v3).
+    uint256 constant EHR_GATE_MIN_AIS_THRESHOLD = 8000;
 
     address deployer;
     address registry;
@@ -42,7 +43,7 @@ contract DeployEHRGate is Script {
     string path;
 
     string constant REGISTRY_MIGRATION_REQUIRED =
-        "DeployEHRGate: registry migration required; .singletons.AgentAuthorityResolver is missing";
+        "DeployEHRGate: registry migration required; .singletons.AgentRegistry or .singletons.AgentAuthorityResolver is missing";
 
     function run() external {
         uint256 deployerKey = vm.envUint("FUNDER_PRIVATE_KEY");
@@ -52,7 +53,9 @@ contract DeployEHRGate is Script {
         path = string.concat("../deployments.", network, ".json");
         existingJson = vm.readFile(path);
 
-        registry = vm.parseJsonAddress(existingJson, ".singletons.XibalbaAgentRegistry");
+        // v3: the gate and its resolver read the AgentRegistry, never the held XibalbaAgentRegistry.
+        if (!vm.keyExistsJson(existingJson, ".singletons.AgentRegistry")) revert(REGISTRY_MIGRATION_REQUIRED);
+        registry = vm.parseJsonAddress(existingJson, ".singletons.AgentRegistry");
         baaFactory = vm.parseJsonAddress(existingJson, ".singletons.SmartBAAFactory");
 
         if (!vm.keyExistsJson(existingJson, ".singletons.AgentAuthorityResolver")) {
@@ -94,7 +97,10 @@ contract DeployEHRGate is Script {
         vm.serializeAddress(
             singletons, "UltraPlonkVerifier", vm.parseJsonAddress(existingJson, ".singletons.UltraPlonkVerifier")
         );
-        vm.serializeAddress(singletons, "XibalbaAgentRegistry", registry);
+        vm.serializeAddress(
+            singletons, "XibalbaAgentRegistry", vm.parseJsonAddress(existingJson, ".singletons.XibalbaAgentRegistry")
+        );
+        vm.serializeAddress(singletons, "AgentRegistry", registry);
         vm.serializeAddress(singletons, "AgentAuthorityResolver", address(authorityResolver));
         if (vm.keyExistsJson(existingJson, ".singletons.IntegrityIdentityReadV1")) {
             vm.serializeAddress(

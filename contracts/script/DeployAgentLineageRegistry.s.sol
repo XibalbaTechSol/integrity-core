@@ -11,7 +11,7 @@ contract DeployAgentLineageRegistry is Script {
     function run() external returns (AgentLineageRegistry deployed) {
         uint256 key = vm.envUint("FUNDER_PRIVATE_KEY");
         string memory json = vm.readFile("../deployments.baseSepolia.json");
-        address agentRegistry = vm.parseJsonAddress(json, ".singletons.XibalbaAgentRegistry");
+        address agentRegistry = vm.parseJsonAddress(json, ".singletons.AgentRegistry");
 
         vm.startBroadcast(key);
         deployed = new AgentLineageRegistry(agentRegistry);

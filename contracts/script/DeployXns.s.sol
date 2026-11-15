@@ -37,7 +37,7 @@ contract DeployXns is Script {
         string memory network = block.chainid == 84532 ? "baseSepolia" : "local";
         string memory path = string.concat("../deployments.", network, ".json");
         string memory existingJson = vm.readFile(path);
-        address registry = vm.parseJsonAddress(existingJson, ".singletons.XibalbaAgentRegistry");
+        address registry = vm.parseJsonAddress(existingJson, ".singletons.AgentRegistry");
 
         vm.startBroadcast(deployerKey);
         // Admin = agent (DEFAULT_ADMIN_ROLE + REGISTRAR_ROLE); resolves against the existing registry.

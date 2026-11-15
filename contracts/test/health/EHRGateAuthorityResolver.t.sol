@@ -1,84 +1,87 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Test} from "forge-std/Test.sol";
 import {EHRGate} from "../../src/health/EHRGate.sol";
 import {SmartBAAFactory} from "../../src/health/SmartBAAFactory.sol";
 import {SmartBAA} from "../../src/health/SmartBAA.sol";
 import {CoveredEntityRegistry} from "../../src/health/CoveredEntityRegistry.sol";
 import {IntegrityToken} from "../../src/oracle/IntegrityToken.sol";
-import {XibalbaAgentRegistry} from "../../src/framework/XibalbaAgentRegistry.sol";
 import {AgentAuthorityResolver} from "../../src/framework/AgentAuthorityResolver.sol";
+import {AISRegistry} from "../../src/trust/AISRegistry.sol";
+import {StakeVault} from "../../src/trust/StakeVault.sol";
+import {GateRegistryFixture} from "../trust/GateRegistryFixture.sol";
 
-contract MockSovereignAgentAis {
-    uint256 public ais;
-
-    function setAis(uint256 v) external {
-        ais = v;
-    }
-}
-
-/// @notice Covers the Stream 2 cutover: an enterprise (StateAnchor-only, no
-/// ReputationRegistry clone) agent must be able to pass EHRGate.checkAccess once
-/// registered via XibalbaAgentRegistry.registerEnterpriseAgent, using only its own
-/// cached ais(). This is the case that reverted before this PR (EHRGate previously
-/// called registry.resolveAgent(...).primitives.reputationRegistry directly, which
-/// reverts with UnknownAgent for any agent with no clone-set registration).
-contract EHRGateAuthorityResolverTest is Test {
-    XibalbaAgentRegistry registry;
+/// @notice EHRGate's AIS floor through the registration v3 resolver: a bound `AgentRegistry` actor
+/// passes or fails on its latest `AISRegistry` checkpoint, and the floor is in BASIS POINTS. The v2
+/// suite used threshold 50 / AIS 80 on the 0..1000 ReputationRegistry scale; the same policy is
+/// 500 / 800 here (x10), converted explicitly rather than by rescaling inside the resolver.
+contract EHRGateAuthorityResolverTest is GateRegistryFixture {
     AgentAuthorityResolver resolver;
+    AISRegistry ais;
     CoveredEntityRegistry entityRegistry;
     IntegrityToken itk;
     SmartBAAFactory baaFactory;
     EHRGate gate;
 
     address admin = makeAddr("admin");
-    address registrar = makeAddr("registrar");
-    address controller = makeAddr("controller");
+    address scorer = makeAddr("scorer");
     address arbitrator = makeAddr("arbitrator");
     address patient = makeAddr("patient");
     address coveredEntity = makeAddr("coveredEntity");
     uint256 constant COLLATERAL = 1_000 ether;
+    uint256 constant THRESHOLD_BPS = 500; // v2: 50 on the 0..1000 scale
 
-    MockSovereignAgentAis enterpriseAgent;
+    address agent;
 
     function setUp() public {
-        vm.prank(admin);
-        registry = new XibalbaAgentRegistry(admin);
-        bytes32 registrarRole = registry.REGISTRAR_ROLE();
-        vm.prank(admin);
-        registry.grantRole(registrarRole, registrar);
+        _deployRegistry(admin);
+        bytes32 dom = _wireBindableDomain(admin, "health.integrity");
+        agent = _boundAgent("ehr-agent", dom);
 
-        resolver = new AgentAuthorityResolver(address(registry));
         itk = new IntegrityToken(admin, 1_000_000 ether);
+        vm.startPrank(admin);
+        ais = new AISRegistry(admin);
+        StakeVault vault = new StakeVault(address(itk), admin);
+        vault.grantRole(vault.AIS_REGISTRY_ROLE(), address(ais));
+        ais.grantRole(ais.SCORER_ROLE(), scorer);
+        ais.setStakeVault(address(vault));
+        ais.setAgentRegistry(address(agentRegistry));
+        vm.stopPrank();
+
+        resolver = new AgentAuthorityResolver(address(agentRegistry), address(ais));
         entityRegistry = new CoveredEntityRegistry(admin);
         baaFactory = new SmartBAAFactory(address(entityRegistry), address(itk), arbitrator, admin);
+        gate = new EHRGate(address(agentRegistry), address(baaFactory), address(resolver), THRESHOLD_BPS, admin);
 
-        gate = new EHRGate(address(registry), address(baaFactory), address(resolver), 50, admin);
-
-        enterpriseAgent = new MockSovereignAgentAis();
-        enterpriseAgent.setAis(80);
-
-        vm.prank(registrar);
-        registry.registerEnterpriseAgent(address(enterpriseAgent), makeAddr("stateAnchor"), controller, bytes32(0));
+        _score(agent, 800);
 
         vm.prank(admin);
         entityRegistry.registerEntity(coveredEntity, CoveredEntityRegistry.EntityType.CoveredEntity, "uri");
-        _signBAA(address(enterpriseAgent));
+        _signBAA(agent);
 
         vm.prank(patient);
-        gate.grantAccess(keccak256("record-1"), address(enterpriseAgent), coveredEntity);
+        gate.grantAccess(keccak256("record-1"), agent, coveredEntity);
     }
 
-    function testEnterpriseAgentPassesAisGate() public {
-        vm.prank(address(enterpriseAgent));
+    function _score(address a, uint32 bps) internal {
+        vm.prank(scorer);
+        ais.postCheckpoint(a, bps, uint64(block.timestamp), keccak256("evidence"), 0);
+    }
+
+    function testBoundAgentPassesAisGate() public {
+        vm.prank(agent);
         assertTrue(gate.checkAccess(patient, keccak256("record-1")));
     }
 
-    function testEnterpriseAgentBelowThresholdDenied() public {
-        enterpriseAgent.setAis(10);
-        vm.prank(address(enterpriseAgent));
+    /// MUTATION: have the resolver return `score / 10` (silent rescale) -> 800 reads as 80 < 500 and
+    /// the passing case above FAILS; this case pins the boundary from the other side.
+    function testBoundAgentBelowThresholdDenied() public {
+        _score(agent, 499);
+        vm.prank(agent);
         assertFalse(gate.checkAccess(patient, keccak256("record-1")));
+        _score(agent, 500);
+        vm.prank(agent);
+        assertTrue(gate.checkAccess(patient, keccak256("record-1")));
     }
 
     function testUnregisteredAgentDeniedNotReverted() public {

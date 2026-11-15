@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {StakeVault} from "./StakeVault.sol";
 import {RewardRegistry} from "./RewardRegistry.sol";
-import {XibalbaAgentRegistry} from "../framework/XibalbaAgentRegistry.sol";
+import {AgentRegistry} from "../framework/AgentRegistry.sol";
 
 /// @title AISRegistry
 /// @notice Singleton Agent Integrity Score (AIS) checkpoint registry for the Integrity Protocol
@@ -41,8 +41,10 @@ contract AISRegistry is AccessControl {
     StakeVault public stakeVault;
     /// @notice Optional positive-reward path; skipped when unset.
     RewardRegistry public rewardRegistry;
-    /// @notice Resolves an agent's domain for reward routing; reward skipped when unset.
-    XibalbaAgentRegistry public agentRegistry;
+    /// @notice Registration v3 `AgentRegistry`. When set, checkpoints are accepted only for agents
+    /// bound as an actor (`isRegisteredAgent`) and rewards route to the record's domain. Unset:
+    /// no registration check and no reward routing (bootstrap / tests).
+    AgentRegistry public agentRegistry;
 
     event StakeVaultSet(address indexed stakeVault);
     event RewardRegistrySet(address indexed rewardRegistry);
@@ -51,6 +53,8 @@ contract AISRegistry is AccessControl {
     event RewardNotifyFailed(address indexed agent, bytes reason);
 
     error StakeVaultNotSet();
+    /// @dev AIS checkpoints are only for agents with an actor binding (registration v3 Part 4).
+    error NotRegisteredAgent(address agent);
     /// @dev A wiring target must be a contract (or zero to unset). A codeless target would make the
     /// caller-side extcodesize check revert inside `postCheckpoint`, which try/catch cannot absorb.
     error NotAContract(address target);
@@ -76,7 +80,7 @@ contract AISRegistry is AccessControl {
     }
 
     function setAgentRegistry(address r) external onlyRole(DEFAULT_ADMIN_ROLE) contractOrZero(r) {
-        agentRegistry = XibalbaAgentRegistry(r);
+        agentRegistry = AgentRegistry(r);
         emit AgentRegistrySet(r);
     }
 
@@ -92,6 +96,10 @@ contract AISRegistry is AccessControl {
         onlyRole(SCORER_ROLE)
     {
         if (score > MAX_SCORE) revert ScoreOutOfRange();
+        // Not wrapped: the registry is governance-wired, and an unverifiable agent must not get a
+        // checkpoint (fail closed).
+        AgentRegistry ar = agentRegistry;
+        if (address(ar) != address(0) && !ar.isRegisteredAgent(agent)) revert NotRegisteredAgent(agent);
         StakeVault vault = stakeVault;
         if (address(vault) == address(0)) revert StakeVaultNotSet();
 
@@ -107,10 +115,10 @@ contract AISRegistry is AccessControl {
 
     function _notifyReward(address agent, uint32 oldScore, uint32 score) internal {
         RewardRegistry rr = rewardRegistry;
-        XibalbaAgentRegistry ar = agentRegistry;
+        AgentRegistry ar = agentRegistry;
         if (address(rr) == address(0) || address(ar) == address(0)) return;
 
-        try ar.resolveAgent{gas: REWARD_GAS_CAP}(agent) returns (XibalbaAgentRegistry.AgentRecord memory rec) {
+        try ar.resolveAgent{gas: REWARD_GAS_CAP}(agent) returns (AgentRegistry.AgentRecord memory rec) {
             try rr.notifyPositiveCheckpoint{gas: REWARD_GAS_CAP}(agent, oldScore, score, rec.domainId) {}
             catch (bytes memory reason) {
                 emit RewardNotifyFailed(agent, reason);

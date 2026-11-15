@@ -5,6 +5,8 @@ import {Test} from "forge-std/Test.sol";
 import {AgentRegistry} from "../../src/framework/AgentRegistry.sol";
 import {DomainRegistry} from "../../src/framework/DomainRegistry.sol";
 import {SovereignAgent} from "../../src/core/SovereignAgent.sol";
+import {TrustConfig} from "../../src/trust/TrustConfig.sol";
+import {PolicyRegistry} from "../../src/trust/PolicyRegistry.sol";
 
 /// @dev Shared v3 wiring for the gate suites: a `DomainRegistry` + `AgentRegistry` pair with one
 /// oracle attester, and a helper that binds a `SovereignAgent` as the actor of a fresh record the
@@ -30,6 +32,28 @@ abstract contract GateRegistryFixture is Test {
         id = domainRegistry.domainId(name);
         (,, bool exists,) = domainRegistry.domains(id);
         if (!exists) domainRegistry.registerDomain(name, DomainRegistry.JoinMode.Open);
+    }
+
+    /// @dev For suites that only need SOME bound actor (not the gate): wires a fresh TrustConfig +
+    /// PolicyRegistry (owned by `gov`) giving `name` a placeholder graph root, so binding into it is
+    /// allowed. Returns the domain id.
+    function _wireBindableDomain(address gov, string memory name) internal returns (bytes32 id) {
+        id = _ensureDomain(name);
+        TrustConfig cfg = new TrustConfig(gov);
+        PolicyRegistry policy = new PolicyRegistry(gov);
+        vm.startPrank(gov);
+        policy.setGraphRoot(id, keccak256("placeholder-pack-root"));
+        cfg.setPolicyRegistry(address(policy));
+        agentRegistry.setTrustConfig(address(cfg));
+        vm.stopPrank();
+    }
+
+    /// @dev A fresh canonical agent bound into `domainId`; its controller key is derived from `label`.
+    function _boundAgent(string memory label, bytes32 domainId) internal returns (address) {
+        (address ctl, uint256 pk) = makeAddrAndKey(label);
+        SovereignAgent sa = _newAgent(string.concat("did:integrity:", label), ctl);
+        _bind(sa, pk, domainId, ctl);
+        return address(sa);
     }
 
     /// @dev A canonical agent for this registry: `factory` == the registry, so the codehash pin holds.

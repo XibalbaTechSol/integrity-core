@@ -1,53 +1,26 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Test} from "forge-std/Test.sol";
 import {XibalbaNameService} from "../src/framework/XibalbaNameService.sol";
-import {XibalbaAgentRegistry} from "../src/framework/XibalbaAgentRegistry.sol";
+import {GateRegistryFixture} from "./trust/GateRegistryFixture.sol";
 
-contract XibalbaNameServiceTest is Test {
+contract XibalbaNameServiceTest is GateRegistryFixture {
     XibalbaNameService xns;
-    XibalbaAgentRegistry registry;
 
     address admin = makeAddr("admin");
     address registrar = makeAddr("registrar");
-    address controller = makeAddr("controller");
-    address sovereignAgent = makeAddr("sovereignAgent");
-    address otherSovereignAgent = makeAddr("otherSovereignAgent");
+    address sovereignAgent;
+    address otherSovereignAgent;
     address stranger = makeAddr("stranger");
 
-    string constant DID = "did:integrity:abc123";
-    bytes32 domainId = keccak256("healthcare.integrity");
+    bytes32 domainId;
 
     function setUp() public {
-        registry = new XibalbaAgentRegistry(admin);
-        bytes32 registrarRole = registry.REGISTRAR_ROLE();
-        vm.prank(admin);
-        registry.grantRole(registrarRole, registrar);
-
-        xns = new XibalbaNameService(admin, address(registry));
-
-        // Make `sovereignAgent` a real registered agent per XibalbaAgentRegistry, the
-        // same way AgentPrimitivesFactory would in the real flow — XNS's register()
-        // checks isRegisteredAgent(msg.sender), so tests need a genuinely registered
-        // address, not just any address.
-        XibalbaAgentRegistry.PrimitiveSet memory primitives = XibalbaAgentRegistry.PrimitiveSet({
-            sovereignAgent: sovereignAgent,
-            stateAnchor: makeAddr("stateAnchor"),
-            reputationRegistry: makeAddr("reputationRegistry"),
-            slasher: makeAddr("slasher"),
-            verifierRegistry: makeAddr("verifierRegistry"),
-            complianceGate: makeAddr("complianceGate"),
-            agentProfile: makeAddr("agentProfile")
-        });
-        // registry.didHash(DID) must be evaluated BEFORE vm.prank(registrar) below --
-        // otherwise it consumes the single-shot prank as a staticcall argument
-        // expression, leaving registerPrimitives itself called by the test contract,
-        // not registrar (see XibalbaAgentRegistryTest's own setUp comment for the
-        // identical gotcha).
-        bytes32 did = registry.didHash(DID);
-        vm.prank(registrar);
-        registry.registerPrimitives(did, primitives, controller, domainId);
+        _deployRegistry(admin);
+        domainId = _wireBindableDomain(admin, "healthcare.integrity");
+        xns = new XibalbaNameService(admin, address(agentRegistry));
+        // XNS's register() checks isRegisteredAgent(msg.sender): a genuinely bound actor.
+        sovereignAgent = _boundAgent("sovereignAgent", domainId);
     }
 
     // --- registration -----------------------------------------------------------
@@ -139,19 +112,8 @@ contract XibalbaNameServiceTest is Test {
         xns.release("hermes.integrity");
         vm.stopPrank();
 
-        // Make otherSovereignAgent a real registered agent too, distinct DID.
-        XibalbaAgentRegistry.PrimitiveSet memory primitives2 = XibalbaAgentRegistry.PrimitiveSet({
-            sovereignAgent: otherSovereignAgent,
-            stateAnchor: makeAddr("stateAnchor2"),
-            reputationRegistry: makeAddr("reputationRegistry2"),
-            slasher: makeAddr("slasher2"),
-            verifierRegistry: makeAddr("verifierRegistry2"),
-            complianceGate: makeAddr("complianceGate2"),
-            agentProfile: makeAddr("agentProfile2")
-        });
-        bytes32 did2 = registry.didHash("did:integrity:xyz789");
-        vm.prank(registrar);
-        registry.registerPrimitives(did2, primitives2, controller, domainId);
+        // Make otherSovereignAgent a real bound agent too, distinct record.
+        otherSovereignAgent = _boundAgent("otherSovereignAgent", domainId);
 
         vm.prank(otherSovereignAgent);
         xns.register("hermes.integrity");
