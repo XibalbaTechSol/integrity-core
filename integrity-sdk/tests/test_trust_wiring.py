@@ -18,10 +18,7 @@ moves SDK onboarding over, so this test binds its agent through `AgentRegistry` 
 
 from __future__ import annotations
 
-import hashlib
 import json
-import os
-from pathlib import Path
 
 import pytest
 from eth_utils import keccak
@@ -29,6 +26,7 @@ from eth_account import Account
 from web3 import Web3
 from web3.exceptions import ContractCustomError
 
+import v3_onchain
 from integrity_sdk import chain
 
 ZERO = "0x0000000000000000000000000000000000000000"
@@ -141,58 +139,11 @@ def test_bootstrap_domains_have_a_policy_and_a_reward_module(trust):
         assert trust["RewardRegistry"].functions.moduleOf(domain_id).call() == trust["DiscountRewardModule"].address, name
 
 
-CONTRACTS_OUT = Path(__file__).resolve().parents[2] / "contracts" / "out"
-
-
-def _artifact(name: str) -> dict:
-    return json.loads((CONTRACTS_OUT / f"{name}.sol" / f"{name}.json").read_text())
-
-
-def _send(w3, signer, fn_or_tx, chain_id):
-    tx = fn_or_tx.build_transaction(
-        {"from": signer.address, "nonce": w3.eth.get_transaction_count(signer.address), "chainId": chain_id}
-    )
-    receipt = w3.eth.wait_for_transaction_receipt(
-        w3.eth.send_raw_transaction(signer.sign_transaction(tx).raw_transaction), timeout=30
-    )
-    assert receipt.status == 1
-    return receipt
-
-
 def _bind_v3_agent(w3, chain_id, funder, registry_address, domain_name):
-    """Deploys a canonical SovereignAgent for the AgentRegistry and binds it as a record's actor.
-
-    Mirrors production v3 onboarding: an oracle attester (anvil: the deployer, `ATTESTER_ADDRESS`
-    defaults to it locally) signs the register digest, and the agent consents via EIP-1271 with
-    its controller's signature. Both are raw EIP-712 digests, so `unsafe_sign_hash` is exact.
-    """
     controller = Account.create()
-    fund = {"to": controller.address, "value": w3.to_wei(1, "ether"), "gas": 21000,
-            "gasPrice": w3.eth.gas_price, "nonce": w3.eth.get_transaction_count(funder.address), "chainId": chain_id}
-    w3.eth.wait_for_transaction_receipt(w3.eth.send_raw_transaction(funder.sign_transaction(fund).raw_transaction))
-
-    sa = _artifact("SovereignAgent")
-    factory = w3.eth.contract(abi=sa["abi"], bytecode=sa["bytecode"]["object"])
-    receipt = _send(w3, controller, factory.constructor("did:integrity:freeze-e2e", controller.address, ZERO, registry_address), chain_id)
-    agent = Web3.to_checksum_address(receipt.contractAddress)
-
-    registry = w3.eth.contract(address=registry_address, abi=_artifact("AgentRegistry")["abi"])
-    pubkey = os.urandom(32)
-    domain_id = keccak(text=domain_name)
-    deadline = w3.eth.get_block("latest")["timestamp"] + 3600
-    proof = funder.unsafe_sign_hash(
-        registry.functions.registerDigest(pubkey, controller.address, agent, domain_id, "", deadline).call()
-    ).signature
-    fingerprint = hashlib.sha256(pubkey).digest()
-    consent = controller.unsafe_sign_hash(
-        registry.functions.bindActorDigest(fingerprint, agent, deadline).call()
-    ).signature
-    _send(
-        w3,
-        funder,
-        registry.functions.register(pubkey, controller.address, agent, domain_id, "", deadline, 1, proof, consent),
-        chain_id,
-    )
+    v3_onchain.fund(w3, funder, controller.address, chain_id)
+    agent = v3_onchain.deploy_canonical_agent(w3, chain_id, controller, registry_address, "did:integrity:freeze-e2e")
+    v3_onchain.bind(w3, chain_id, funder, controller, registry_address, agent, domain_name)
     return agent, controller
 
 
@@ -212,7 +163,7 @@ def test_failing_checkpoint_freezes_a_v3_bound_agent(trust, deployed_chain):
     assert trust["StakeVault"].functions.stakeOf(agent).call()[2] is False
 
     # The scorer posts a checkpoint below the freeze threshold.
-    _send(w3, funder, trust["AISRegistry"].functions.postCheckpoint(agent, 0, 1, b"\x11" * 32, 0), chain_id)
+    v3_onchain.post_ais(w3, chain_id, funder, trust["AISRegistry"].address, agent, 0)
     assert trust["StakeVault"].functions.stakeOf(agent).call()[2] is True
 
     frozen_selector = "0x" + keccak(text="Frozen()")[:4].hex()
