@@ -44,8 +44,15 @@ volume endpoints that call it.
    CREATE SCHEMA IF NOT EXISTS oracle AUTHORIZATION oracle_app;
    ALTER ROLE oracle_app SET search_path = oracle, public;
    ```
-   Then `ORACLE_ADMIN_URL=<postgres session-pooler URL> deploy/render/apply_migrations_supabase.sh oracle`
-   and `GRANT ALL ON ALL TABLES IN SCHEMA oracle TO oracle_app;`.
+   Then `ORACLE_ADMIN_URL=<postgres session-pooler URL> deploy/render/apply_migrations_supabase.sh oracle`.
+   The script ends by running `deploy/render/oracle_ownership.sql`, which makes `oracle_app` own the
+   schema and every table in it (and lets `postgres` inherit `oracle_app`). Without this, `postgres`
+   owns the tables and the Oracle's startup migrator fails on the first `ALTER` of an existing table:
+   migration 25 did exactly that on 2026-11-14, and Render silently kept serving the previous build.
+
+   **Existing deployments set up before this change** run it once, as `postgres`:
+   `psql "$ORACLE_ADMIN_URL" -v schema=oracle -f deploy/render/oracle_ownership.sql`.
+   It is idempotent and ends by listing anything not owned by `oracle_app` (expect zero rows).
    The shim functions and cron jobs are created as `postgres` in schema `oracle`; the
    `DELETE` jobs run as the job owner, so retention keeps working.
 2. **Data copy (optional, one-way):** `pg_dump --data-only --exclude-table=_sqlx_migrations
