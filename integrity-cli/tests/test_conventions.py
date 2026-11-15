@@ -107,7 +107,9 @@ def test_unknown_network_is_rejected():
 def test_network_flag_on_the_cli_and_its_usage_error():
     result = runner.invoke(app, ["--network", "base-sepolia", "config", "show"])
     assert result.exit_code == 0, result.output
-    assert "sepolia.base.org" in result.stdout
+    rpc_row = next(line for line in result.stdout.splitlines() if "RPC_URL" in line)
+    rpc_value = [cell.strip() for cell in rpc_row.split("\u2502") if cell.strip()][1]
+    assert rpc_value == "https://sepolia.base.org"
     assert "profile:base-sepolia" in result.stdout
     assert runner.invoke(app, ["--network", "mainnet", "config", "show"]).exit_code == 2
 
