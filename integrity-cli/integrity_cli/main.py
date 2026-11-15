@@ -1,10 +1,14 @@
 """
 Integrity CLI -- Typer entry point.
 
-Command groups:
-  identity  DID/keypair management (local, Ed25519)
-  agent     Registration/lookup against integrity-oracle, and the BCC
-            pre-execution intercept gate against bcc_middleware
+Command tree (registration v3; hard renames, no aliases):
+  register  Off-chain, gas-free registration with integrity-oracle (was `agent register`)
+  status    Registration, tier, AIS; on-chain rows (was `agent show` + `agent ais`)
+  doctor    Oracle / deployments / RPC / chain id / contract-code checks, fail-closed
+  identity  DID/keypair management (local, Ed25519): new, show, list
+  gate      BCC pre-execution policy gate: `gate check` (was `agent intercept`)
+  receipts  Offline receipt verification: `receipts verify` (was top-level `verify`)
+  policy    A pack's on-chain map: compile, map, check, prove, diff, publish --print-tx
   config    ~/.integrity-cli/config.json management
   auth      Auth token management (no insecure default -- see config.py)
   xns       XibalbaNameService: human-readable handles (`xns available` checks both namespaces)
@@ -1053,7 +1057,7 @@ def xns_release(
 # optional "list this handle as an on-chain alias" step. The two below are unrelated:
 # they talk to Oracle's own local `xns_handles` directory (integrity-oracle migration
 # 0022) -- no wallet, no gas. This is the mandatory, primary handle every agent gets at
-# `integrity agent register`; on-chain listing is separate and optional. The Oracle refuses a
+# `integrity register`; on-chain listing is separate and optional. The Oracle refuses a
 # claim the on-chain namespace already holds for another agent (409), and fails closed (503)
 # when it cannot check; `xns available` (above) reports both namespaces.
 
@@ -1067,7 +1071,7 @@ def xns_claim(
 ):
     """Claim a handle in Oracle's local XNS directory for an agent that already has one
     without one, or that was registered before this feature existed. Not needed for a
-    fresh `integrity agent register`."""
+    fresh `integrity register`."""
     oracle_client = IntegrityClient(base_url=oracle_url or config.get_config_value("ORACLE_URL"))
     try:
         result = oracle_client.post("/v1/xns/claim", json_data={"agent_id": agent_id, "handle": handle})

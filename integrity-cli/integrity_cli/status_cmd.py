@@ -14,7 +14,7 @@ import typer
 from . import config, identity, output
 from .client import ApiError, IntegrityClient
 
-PENDING_V3 = "needs AgentRegistry (registration v3 PR 3.2); not checked yet"
+PENDING_V3 = "not wired yet: needs the AgentRegistry read path (registration v3 PR 3.2); CLI follow-up"
 
 
 def status(

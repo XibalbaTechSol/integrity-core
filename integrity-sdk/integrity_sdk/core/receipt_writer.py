@@ -449,7 +449,7 @@ class GateReceiptWriter:
 
     @property
     def signer_key(self) -> str:
-        """The multibase public key a verifier must trust (`integrity verify --trusted-signer`)."""
+        """The multibase public key a verifier must trust (`integrity receipts verify --trusted-signer`)."""
         return self._current.log.signer_key
 
     @property

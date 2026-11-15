@@ -28,7 +28,7 @@ if [[ ! -f "$DEPLOYMENTS_FILE" ]]; then
 fi
 if [[ ! -f "$HOME/.integrity-cli/identity/$IDENTITY_NAME.pem" ]]; then
   echo "ERROR: identity '$IDENTITY_NAME' is missing." >&2
-  echo "Create it with: uv run --project '$CLI_ROOT' integrity identity keygen --name '$IDENTITY_NAME'" >&2
+  echo "Create it with: uv run --project '$CLI_ROOT' integrity identity new --name '$IDENTITY_NAME'" >&2
   exit 1
 fi
 
@@ -85,7 +85,7 @@ fi
 
 export FUNDER_PRIVATE_KEY INTEGRITY_WALLET_PASSWORD RPC_URL ORACLE_URL DEPLOYMENTS_FILE
 cd "$CLI_ROOT"
-uv run integrity agent register \
+uv run integrity register \
   --identity "$IDENTITY_NAME" \
   --alias shield-replacement \
   --domain general.integrity \

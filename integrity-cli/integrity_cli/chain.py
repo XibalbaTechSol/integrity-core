@@ -1,16 +1,12 @@
 """
-Agent-side on-chain client: funding, direct contract deployment, and
+Agent-side on-chain client for the CLI: funding, direct contract deployment, and
 primitive registration against the Integrity Protocol contracts.
 
-CLI-local reimplementation of integrity_sdk.chain -- same real web3.py calls
-against whatever EVM node RPC_URL points at (no mocked transport), same
-ABI/bytecode artifacts, same transaction sequence. Duplicated rather than
-imported per identity.py's "no sibling dependency on integrity-sdk while
-both packages are still in flux" philosophy, scoped down to exactly what
-`integrity agent register` needs: fund/deploy/register. Unlike the SDK's
-chain.py, this module has no telemetry-adjacent surface to trim -- the SDK
-version was already just fund/deploy/register, so this is a straight port,
-not a subset.
+Registration v3 (decision D4): the CLI uses ONE chain layer, integrity_sdk.chain. The
+deploy/XNS/domain helpers at the bottom of this module are re-exports of the SDK's. What is
+still defined here is the legacy primitives registration path (fund/mint/register_primitives),
+kept only for tests/test_chain.py until registration v3 PR 3.4 retires it; `integrity register`
+itself is off-chain and gas-free and calls none of it.
 
 Every function below (except `fund_agent_wallet`/`mint_testnet_itk`, which
 are explicitly the funder wallet's actions) signs as the *agent's own*

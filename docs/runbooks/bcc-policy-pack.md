@@ -119,7 +119,7 @@ Independent of the policy engine: works under `bcc.rego`, dual-run and pack mode
    is denied as `BCC_RECEIPT_UNAVAILABLE` and the agent's breaker is not charged. Recovery needs no repair: a failed
    write never advances the chain. `BCC_LENIENT_RECEIPTS=true` trades that for availability. Shadow mode never blocks.
 4. Verify offline, no BCC needed: put the epoch's `receipts.jsonl` lines and its newest checkpoint into a bundle
-   `{"receipts": [...], "checkpoint": {...}}` and run `integrity verify --receipts bundle.json --trusted-signer <signer_key>`; or
+   `{"receipts": [...], "checkpoint": {...}}` and run `integrity receipts verify --receipts bundle.json --trusted-signer <signer_key>`; or
    `integrity_sdk.core.verify_epoch_directory(dir, base_log_id=..., trusted_signers=[...])` for every epoch.
 5. Watch `GET /health` -> `receipts` (`log_id`, `epoch`, `receipts_in_epoch`, `strict`). Responses carry
    `receipt` (`log_id`, `seq`, `hash`) and `receipt_status` (`recorded` / `failed` / absent).

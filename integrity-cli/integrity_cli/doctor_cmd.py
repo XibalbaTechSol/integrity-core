@@ -17,7 +17,7 @@ from integrity_sdk.policy_registry import graph_root_of  # noqa: F401
 
 from . import config, output, policy_cmd
 
-PENDING = "pending registration v3 PR 3.2 (AgentRegistry not deployed by this CLI's contracts yet)"
+PENDING = "not wired yet: AgentRegistry landed in registration v3 PR 3.2; the CLI check is a follow-up"
 
 
 def _check(checks: list, name: str, status: str, detail: str) -> str:

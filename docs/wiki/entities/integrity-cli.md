@@ -1,7 +1,7 @@
 ---
 title: integrity-cli
 created: 2026-07-07
-updated: 2026-10-05
+updated: 2026-11-15
 type: entity
 tags: [sdk, identity]
 confidence: high
@@ -21,6 +21,10 @@ source_files:
   - integrity-cli/integrity_cli/verify.py
   - integrity-cli/tests/test_verify.py
   - integrity-cli/tests/test_verify_decision_trace.py
+  - integrity-cli/integrity_cli/output.py
+  - integrity-cli/integrity_cli/policy_cmd.py
+  - integrity-cli/integrity_cli/status_cmd.py
+  - integrity-cli/integrity_cli/doctor_cmd.py
 ---
 
 ## Table of contents
@@ -32,6 +36,19 @@ source_files:
 Developer CLI (Python/Typer) — the human-driven counterpart to
 [integrity-sdk](integrity-sdk.md), carrying its own copy of the identity/wallet/
 chain logic (no sibling-import) but kept wire-compatible byte-for-byte.
+
+**Registration v3 command tree (2026-11-15; hard renames, no aliases).** `register`
+(was `agent register`; off-chain, gas-free), `status` (folds `agent show`/`agent ais`),
+`doctor`, `identity new/show/list` (was `identity keygen`), `gate check` (was
+`agent intercept`), `receipts verify` (was top-level `verify`; `--json-output` →
+`--json`), and a read-only `policy` group (`compile/map/check/prove/diff`,
+`publish --print-tx`, which prints `setGraphRoot` and never signs). Every v3 command
+takes `--json` (one document tagged `integrity.cli.<group>.<cmd>.v1`) and shares one
+exit-code table: 0 ok, 1 no, 2 usage, 3 unverified/unreachable, 4 revert. `--network
+local|base-sepolia` sets RPC/deployments/Oracle together (flag > env > profile > config
+file > default). The CLI's deploy/XNS/domain chain helpers are now re-exports of
+`integrity_sdk.chain` (one chain layer). The sections below are the history and still
+use the old command names.
 
 `integrity agent register` runs the **real self-sovereign on-chain sequence** —
 fund the agent's own EVM wallet → mint testnet $ITK → deploy `SovereignAgent` +

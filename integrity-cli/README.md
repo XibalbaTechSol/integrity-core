@@ -24,7 +24,7 @@ ship independently.
 
 ## How registration works
 
-`integrity agent register` is **gas-free and off-chain**. It signs a registration
+`integrity register` is **gas-free and off-chain**. It signs a registration
 message with the identity's Ed25519 key (proof of possession) and sends it to the
 Oracle; no chain state is touched and no funder wallet, RPC endpoint or deployments
 file is needed. A proven key is verification tier 1. The on-chain "self-sovereign
@@ -44,11 +44,34 @@ uv venv .venv && uv pip install -e ".[dev]"
 
 ## Configuration
 
-Layered, highest precedence first: **env vars** (`ORACLE_URL`,
+Layered, highest precedence first: a command's own **flag** → **env vars** (`ORACLE_URL`,
 `BCC_MIDDLEWARE_URL`, `RPC_URL`, `DEPLOYMENTS_FILE`, `AUTH_TOKEN`, `ENVIRONMENT` —
 the names pinned in [`../docs/INTERFACE_CONTRACT.md`](../docs/INTERFACE_CONTRACT.md)
-§3) → a local `.env` → `~/.integrity-cli/config.json` (`integrity config set`) →
-built-in local-docker defaults.
+§3; a local `.env` is loaded into the environment, so it counts as env) → the
+**`--network` profile** → `~/.integrity-cli/config.json` (`integrity config set`) →
+built-in local-docker defaults. `integrity config show` prints each value's source.
+
+`--network local|base-sepolia` (or `$INTEGRITY_NETWORK`, or config `NETWORK`) sets
+`RPC_URL`, `DEPLOYMENTS_FILE` and `ORACLE_URL` together:
+
+```bash
+integrity --network base-sepolia doctor
+```
+
+Because env beats the profile, an `RPC_URL` left in `.env` overrides `--network`.
+
+## Output and exit codes
+
+Every v3 command takes `--json`: exactly one JSON document on stdout, tagged
+`"schema": "integrity.cli.<group>.<cmd>.v1"`; human text goes to stderr in that mode.
+
+| exit | meaning |
+|-----:|---------|
+| 0 | yes / ok |
+| 1 | a definite no: refused, not in the map, roots differ, mismatch |
+| 2 | usage error |
+| 3 | unverified / unreachable: Oracle down or 5xx, RPC unreachable — retry, don't treat as "no" |
+| 4 | the chain refused a write (revert) |
 
 On-chain commands additionally need `FUNDER_PRIVATE_KEY` (the testnet faucet
 wallet that seeds new agent wallets) and `INTEGRITY_WALLET_PASSWORD` (encrypts the
@@ -66,8 +89,9 @@ and refused loudly otherwise.
 ### `integrity identity` — local Ed25519 keys + DID documents
 
 ```bash
-integrity identity keygen [--name alice]   # ~/.integrity-cli/identity/<name>.pem, mode 0600
-integrity identity show  [--name alice]
+integrity identity new  [--name alice]   # ~/.integrity-cli/identity/<name>/, mode 0600
+integrity identity show [--name alice]
+integrity identity list [--json]         # names and DIDs; never prints a key
 ```
 
 Real Ed25519 (via `cryptography`), producing the DID-document shape from
@@ -76,34 +100,59 @@ fingerprint is the **full** `sha256(pubkey)` — matching the SDK exactly, and
 required by the reconciled BCC signature scheme (see below). This is a developer
 CLI, not a KMS; don't reuse these keys for anything that matters.
 
-### `integrity agent register` — gas-free off-chain registration
+### `integrity register` — gas-free off-chain registration
 
 ```bash
-integrity agent register [--identity default] [--handle my-agent] [--oracle-url …]
+integrity register [--identity default] [--handle my-agent] [--oracle-url …] [--json]
 ```
 
 Signs an RFC 8785 canonical registration message with the identity's Ed25519 key and
 POSTs it to the Oracle's `/v1/agent/register/offchain`. On success it prints
-`registered <did> tier=<n> (<outcome>)` and exits 0; on an Oracle rejection (for
-example a taken handle) or an unreachable Oracle it prints why and exits 1. It never
+`registered <did> tier=<n> (<outcome>)` and exits 0; an Oracle rejection (for
+example a taken handle) exits 1, and an unreachable or 5xx Oracle exits 3. It never
 needs `FUNDER_PRIVATE_KEY`, `INTEGRITY_WALLET_PASSWORD` or an RPC. `--oracle-url`
 defaults to the configured `ORACLE_URL`. Registering again is safe and never lowers
 an existing tier.
 
-### `integrity agent show` / `ais`
+### `integrity status` — one view of an agent
 
 ```bash
-integrity agent show <agent-did>   # GET /v1/agent/{id} — record + 7 primitive addresses
-integrity agent ais  <agent-did>   # GET /v1/agent/{id}/ais — the score, computed by the oracle
+integrity status [<agent-did>] [--identity default] [--json]
 ```
 
-The AIS is computed once, centrally, in `integrity-oracle/scoring-core`; this
-command only displays the oracle's answer, never recomputes it.
+Folds the old `agent show` and `agent ais`: the Oracle record, verification tier and
+AIS (computed once, centrally, in `integrity-oracle/scoring-core`; never recomputed
+here). Exit 0 registered, 1 not registered, 3 Oracle unreachable. The on-chain
+record/actor/trust rows report `pending` until they are wired to AgentRegistry.
 
-### `integrity agent intercept` — the BCC policy gate
+### `integrity doctor` — is this machine's view of the network sane?
 
 ```bash
-integrity agent intercept \
+integrity [--network base-sepolia] doctor [--pack ./my-pack] [--json]
+```
+
+Checks the Oracle `/healthz`, the deployments file, RPC reachability, chain id, and that
+XibalbaNameService and PolicyRegistry have code; with `--pack`, that PolicyRegistry holds
+the pack's root. Fails closed: anything unreachable is exit 3, any failed check exit 1.
+
+### `integrity policy` — a pack's on-chain map
+
+```bash
+integrity policy compile ./pack [--out compiled.json]     # the root governance publishes
+integrity policy map     ./pack                           # every target/selector/risk edge
+integrity policy check   ./pack --call 0xTarget:0xa9059cbb[:500]   # 0 in map, 1 not
+integrity policy prove   ./pack --target 0x… --selector 0x… [--risk 500]  # proof + execute() claim
+integrity policy diff    ./pack                           # 0 same root on-chain, 1 differs, 3 unreadable
+integrity policy publish ./pack --print-tx                # PRINTS setGraphRoot; never signs
+```
+
+All read-only. `publish` only prints the unsigned governance transaction: a root change
+is signed by the `GRAPH_CURATOR_ROLE` holder, never by this CLI.
+
+### `integrity gate check` — the BCC policy gate
+
+```bash
+integrity gate check \
   --intent-type EMR_WRITE \
   --payload '{"patient": "P-1002", "action": "append-note"}' \
   --covered-entity 0x…            # the hospital, for healthcare/clinical intents
@@ -111,22 +160,23 @@ integrity agent intercept \
 
 Builds a real, signed BCC commitment and POSTs it (as the bare object, per the
 contract) to `bcc_middleware`'s `POST /v1/bcc/intercept`. Exit code `1` on a
-policy rejection, so it's scriptable: `integrity agent intercept … && do_the_thing`.
+policy rejection, `3` when the middleware is unreachable or answers 5xx, so it's
+scriptable: `integrity gate check … && do_the_thing`.
 
-### `integrity verify` — offline receipt verification
+### `integrity receipts verify` — offline receipt verification
 
 Verify a signed receipt bundle without contacting an Oracle, chain, or hosted
 service. The input is either a JSON array of receipts or an object containing
 `receipts` and an optional signed `checkpoint`.
 
 ```bash
-integrity verify \
+integrity receipts verify \
   --receipts receipt-bundle.json \
   --trusted-signer z<base58btc-ed25519-public-key> \
   [--proof inclusion-proof.json] \
   [--anchor-root 0x<checkpoint-root>] \
   [--anchor-contract 0x<StateAnchor> --rpc-url http://127.0.0.1:8545] \
-  --json-output
+  --json
 ```
 
 The command checks Ed25519 signatures, receipt sequence and hash-chain
