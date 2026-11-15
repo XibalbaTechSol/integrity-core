@@ -327,9 +327,15 @@ never proof the claimed numbers were honest, and this is the layer that closes t
 `derived_signals` is still part of the signed envelope (so old clients don't break) and
 is still stored, but purely as an audit trail (`telemetry_events.payload.derived_signals`
 vs. `payload.oracle_recomputed_signals`) — it does not feed the formula. The
-token-derived `sacrifice_proxy` and self-reported `compliance_proxy` are audit-only;
-without validator/TEE or independent gate evidence respectively, both authoritative
-axes are zero. See
+token-derived `sacrifice_proxy` and self-reported `compliance_proxy` are audit-only.
+An authoritative proxy axis needs evidence: validator/TEE-attested compute for
+sacrifice, an independently readable gate verdict for compliance. A window with events
+but no such evidence leaves that axis **unobserved** (`sacrifice_observed` /
+`compliance_observed` false, migrations 0026 / 0025): its weight is 0 and the remaining
+weights are renormalized (`AisWeights::renormalized`), so a missing proxy axis neither
+annihilates nor shrinks the geometric mean. An observed zero still annihilates. No
+attestation path exists yet, so sacrifice is currently unobserved for every agent.
+`weights` in the response is always the set actually applied. See
 [`docs/wiki/concepts/ais.md`](wiki/concepts/ais.md) for the full data-flow diagram and
 `PRODUCTION_GAPS.md` §1a for what's still open (ZK-boost is a period-wide, not per-event,
 binding). The oracle-to-chain score push is implemented by `bcc_middleware` §7a.

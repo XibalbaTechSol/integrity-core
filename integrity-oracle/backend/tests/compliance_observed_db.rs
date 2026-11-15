@@ -54,6 +54,7 @@ async fn aggregates_ignore_unobserved_rows() {
             1.0,
             *flagged,
             *observed,
+            false, // sacrifice_observed
             false,
             &random32(),
             &random32(),
@@ -92,7 +93,7 @@ async fn aggregates_ignore_unobserved_rows() {
     // Fresh agent, so any positive nonce is valid; derive it at runtime rather than a literal.
     let nonce2 = (Uuid::new_v4().as_u128() % 1_000_000) as i64 + 1;
     db::insert_telemetry_event(
-        &pool, Uuid::new_v4(), &agent2, nonce2, 0.1, 0.9, 1.0, true, false, false,
+        &pool, Uuid::new_v4(), &agent2, nonce2, 0.1, 0.9, 1.0, true, false, false, false,
         &random32(), &random32(), now, &serde_json::json!({}), None,
     )
     .await

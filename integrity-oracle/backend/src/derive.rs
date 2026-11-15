@@ -262,6 +262,10 @@ pub struct RecomputedSignals {
     pub sacrifice: f64,
     /// Audit-only shadow metric retained to quantify the proxy gap.
     pub sacrifice_proxy: f64,
+    /// Whether `sacrifice` is attested evidence (migration 0026). Always false until a
+    /// validator/TEE attestation path exists; an unobserved axis is renormalized away
+    /// instead of being scored as an observed zero.
+    pub sacrifice_observed: bool,
 }
 
 pub fn recompute(batch: &[Value]) -> RecomputedSignals {
@@ -270,6 +274,7 @@ pub fn recompute(batch: &[Value]) -> RecomputedSignals {
         grounding: derive_grounding(batch),
         sacrifice: 0.0,
         sacrifice_proxy: derive_sacrifice(batch),
+        sacrifice_observed: false,
     }
 }
 
@@ -416,6 +421,9 @@ mod tests {
         })]);
         assert_eq!(signals.sacrifice, 0.0);
         assert_eq!(signals.sacrifice_proxy, 1.0);
+        // Token counts are not attestation, so the axis stays unobserved and is
+        // renormalized away rather than scored as an observed zero.
+        assert!(!signals.sacrifice_observed);
     }
 
     // --- batch defaults / adversarial robustness ---
