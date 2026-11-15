@@ -4,7 +4,8 @@
 # Usage: ORACLE_ADMIN_URL=postgresql://postgres...  deploy/render/apply_migrations_supabase.sh [schema]
 #
 # Writes _sqlx_migrations rows with the checksums sqlx itself computes (sha384 of the file),
-# so the Oracle's startup `sqlx::migrate!().run()` sees all 23 as applied and does nothing.
+# so the Oracle's startup `sqlx::migrate!().run()` sees them as applied and does nothing. Finally
+# hands ownership to oracle_app (oracle_ownership.sql) so later migrations can run at startup.
 set -euo pipefail
 SCHEMA=${1:-oracle}
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -28,3 +29,8 @@ for f in "$MIG"/*.sql; do
         VALUES ($v,'${d//\'/}',true,decode('$sum','hex'),0) ON CONFLICT DO NOTHING"
   echo "applied $b"
 done
+
+# Hand every relation to oracle_app: the Oracle's own startup migrator must be able to ALTER
+# the tables created above (migration 25 failed on 2026-11-14 because postgres owned them).
+P -v schema="$SCHEMA" -f "$HERE/oracle_ownership.sql"
+echo "ownership -> oracle_app"
