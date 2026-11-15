@@ -44,12 +44,12 @@ The SDK's `registration.py` primitives path is Python only, and the kernel doesn
 
 ## PR 3.1 — pack on-chain section compiler
 
-- `integrity_sdk/policy/onchain.py`:
+- `integrity_sdk/core/pack_onchain.py` (beside `core/merkle.py` and `core/packs.py`); the section is the pack file `onchain.json`, so `pack_hash` covers it:
   - the `onchain` pack section `{domain, edges: [{from_node, relation, to_node, target, selector, risk_weight_bps}]}`;
   - `compile_onchain(section) -> OnchainPolicy(leaves, root)`, where leaves follow `PolicyRegistry.leafOf` (§4.4c) and the tree is the sorted-pair OZ `MerkleProof` tree;
   - `proof_for(policy, edge) -> list[bytes32]`.
 - Naming for plain contract calls (left to the builder): `from_node = "agent"`, `relation = "calls"`, `to_node = "<target hex>:<selector hex>"`. Each is hashed the way the §4.4c golden vector hashes node names.
-- The root is bound to the pack's signed digest: `OnchainPolicy.pack_digest` is carried alongside, so a reader can check that the published root is the pack's root.
+- The root is bound to the pack's signed digest: `onchain_policy_of(pack)` carries `pack_hash` alongside, so a reader can check that the published root is the pack's root.
 - Tests:
   - the §4.4c golden vector (spec/ and `GoldenVectors.t.sol`) reproduces byte for byte;
   - leaf order doesn't change the root;
