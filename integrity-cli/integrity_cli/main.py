@@ -7,7 +7,7 @@ Command groups:
             pre-execution intercept gate against bcc_middleware
   config    ~/.integrity-cli/config.json management
   auth      Auth token management (no insecure default -- see config.py)
-  xns       XibalbaNameService: human-readable handles for registered agents
+  xns       XibalbaNameService: human-readable handles (`xns available` checks both namespaces)
             (contracts/src/framework/XibalbaNameService.sol, added 2026-07-11)
 
 Scope note: the old prototype (see old repo's integrity_cli/main.py) also
@@ -38,6 +38,7 @@ from .client import ApiError, BccClient, IntegrityClient
 from .config import get_auth_token, load_config, set_config_value
 from integrity_sdk.did import Keypair
 from integrity_sdk.registration_offchain import OffchainRegistrationError, register_offchain
+from integrity_sdk.xns import XnsAvailabilityError, check_handle_availability
 
 # Load a local .env (if present) into os.environ *without* overriding
 # variables the shell already set -- env vars set directly in the shell
@@ -875,6 +876,59 @@ def xns_register(
     console.print(f"[dim]tx: {receipt['transactionHash'].hex()}[/dim]")
 
 
+@xns_app.command("available")
+def xns_available(
+    handle: str = typer.Argument(..., help="Handle to check"),
+    oracle_url: Optional[str] = typer.Option(
+        None, "--oracle-url", help="integrity-oracle base URL (env/config ORACLE_URL)"
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Print the Oracle's answer as JSON"),
+):
+    """
+    Check whether a handle is free, in BOTH the Oracle directory and on-chain XNS.
+
+    Exit status: 0 available, 1 taken or malformed, 3 could not be verified
+    (on-chain XNS or the Oracle unreachable) -- so scripts never read
+    "unknown" as "taken" or as "free". (2 stays Click's usage-error code.)
+    """
+    oracle_url = oracle_url or config.get_config_value("ORACLE_URL")
+    try:
+        result = check_handle_availability(oracle_url, handle)
+    except XnsAvailabilityError as e:
+        where = "unreachable" if e.status is None else f"returned {e.status}"
+        console.print(f"[bold red]Error:[/bold red] Oracle {where} at {oracle_url}: {e.detail}")
+        raise typer.Exit(3)
+
+    if as_json:
+        typer.echo(json.dumps({
+            "handle": result.handle,
+            "available": result.available,
+            "valid": result.valid,
+            "directory_available": result.directory_available,
+            "onchain": result.onchain,
+            "suggestions": list(result.suggestions),
+        }))
+    elif result.available:
+        note = " (on-chain XNS not deployed)" if result.onchain == "not_deployed" else ""
+        console.print(f"[bold green]Available:[/bold green] '{handle}'{note}")
+    elif not result.valid:
+        console.print(
+            f"[bold red]Invalid:[/bold red] '{handle}' -- 3-32 chars, start with a lowercase letter, "
+            "then lowercase letters, digits, '.', '-', '_'"
+        )
+    elif result.unverified:
+        console.print(f"[bold yellow]Unverified:[/bold yellow] could not check '{handle}' against on-chain XNS; retry shortly")
+    else:
+        where = {"directory": "the Oracle directory", "onchain": "on-chain XNS", "both": "the Oracle directory and on-chain XNS"}
+        console.print(f"[bold red]Taken:[/bold red] '{handle}' is held in {where.get(result.taken_by, 'a namespace')}")
+        if result.suggestions:
+            console.print("Try: " + ", ".join(result.suggestions))
+
+    if result.available:
+        return
+    raise typer.Exit(3 if result.unverified else 1)
+
+
 @xns_app.command("resolve")
 def xns_resolve(
     handle: str = typer.Argument(..., help="Handle to resolve"),
@@ -963,26 +1017,10 @@ def xns_release(
 # on-chain, wallet-signed calls against the deployed XibalbaNameService contract -- an
 # optional "list this handle as an on-chain alias" step. The two below are unrelated:
 # they talk to Oracle's own local `xns_handles` directory (integrity-oracle migration
-# 0022) -- no wallet, no gas, no chain at all. This is the mandatory, primary handle
-# every agent gets at `integrity agent register`; on-chain listing is separate and optional.
-
-@xns_app.command("available")
-def xns_available(
-    handle: str = typer.Argument(..., help="Candidate handle to check"),
-    oracle_url: Optional[str] = typer.Option(
-        None, "--oracle-url", help="integrity-oracle base URL (env/config ORACLE_URL)"
-    ),
-):
-    """Check whether a handle is free in Oracle's local XNS directory (no chain, no wallet)."""
-    oracle_client = IntegrityClient(base_url=oracle_url or config.get_config_value("ORACLE_URL"))
-    result = oracle_client.get(f"/v1/xns/available/{handle}")
-    if result.get("available"):
-        console.print(f"[bold green]Available:[/bold green] '{handle}'")
-    else:
-        console.print(f"[yellow]Taken:[/yellow] '{handle}'")
-        for s in result.get("suggestions", []):
-            console.print(f"  suggestion: {s}")
-
+# 0022) -- no wallet, no gas. This is the mandatory, primary handle every agent gets at
+# `integrity agent register`; on-chain listing is separate and optional. The Oracle refuses a
+# claim the on-chain namespace already holds for another agent (409), and fails closed (503)
+# when it cannot check; `xns available` (above) reports both namespaces.
 
 @xns_app.command("claim")
 def xns_claim(

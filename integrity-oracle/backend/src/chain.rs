@@ -500,6 +500,13 @@ impl ChainClient {
         self.xibalba_name_service_address
     }
 
+    /// Whether `handle` is claimed in the on-chain XibalbaNameService. The contract hashes the
+    /// raw bytes (`keccak256(handle)`, case-sensitive); callers pass the Oracle-normalized handle.
+    pub async fn handle_exists(&self, xns: Address, handle: &str) -> Result<bool, ChainError> {
+        let c = IXibalbaNameService::new(xns, self.provider.clone());
+        Ok(c.handleExists(handle.to_string()).call().await?)
+    }
+
     /// Resolve an XNS handle to the SovereignAgent it points at (address(0) if unregistered).
     /// `resolve()` reverts on an unclaimed handle, so gate on `handleExists` first and return
     /// the zero address for "not registered" — a resolvable, non-error outcome for callers.

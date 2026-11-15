@@ -60,6 +60,7 @@ use crate::handlers;
         handlers::AgentSummary,
         handlers::AgentDirectorySnapshot,
         handlers::XnsAvailabilityDto,
+        handlers::OnchainHandleStatus,
         handlers::XnsHandleResolveDto,
         handlers::ClaimXnsHandleRequest,
         handlers::XnsHandleDto,
