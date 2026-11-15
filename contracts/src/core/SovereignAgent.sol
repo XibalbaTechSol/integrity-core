@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {IAccount} from "./IAccount.sol";
 import {IExecutionPolicy} from "./IExecutionPolicy.sol";
 import {XibalbaAgentRegistry} from "../framework/XibalbaAgentRegistry.sol";
@@ -331,6 +332,15 @@ contract SovereignAgent is AccessControl, IAccount {
         _revokeRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(DEFAULT_ADMIN_ROLE, newController);
         emit ControllerRotated(msg.sender, newController);
+    }
+
+    /// @notice EIP-1271: the agent signs through its controller. Used by `AgentRegistry` for actor
+    /// consent (`BindActor`). Valid when an ECDSA signature over `hash` recovers to an address holding
+    /// the controller role. Contract-wallet controllers are not supported yet (an ECDSA signer only).
+    function isValidSignature(bytes32 hash, bytes calldata signature) external view returns (bytes4) {
+        (address signer, ECDSA.RecoverError err,) = ECDSA.tryRecover(hash, signature);
+        if (err == ECDSA.RecoverError.NoError && hasRole(DEFAULT_ADMIN_ROLE, signer)) return 0x1626ba7e;
+        return 0xffffffff;
     }
 
     /// @notice Lets the account receive native value (e.g. refunds from `execute` calls).
