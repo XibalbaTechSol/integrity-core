@@ -7,8 +7,8 @@ participant:
 - **Decentralized identity** — a real Ed25519 DID (`did:integrity:<sha256-fingerprint>`).
 - **An EVM wallet** — a separate secp256k1 keypair the agent uses to deploy and
   control its own on-chain contracts.
-- **Self-sovereign registration** — one call deploys the agent's 2 direct
-  primitives + 5 clones and registers them on-chain, signed by the agent's own key.
+- **Gasless registration** — one signed call registers the agent's DID with the
+  Integrity Oracle (registration v3); no funder key, RPC or on-chain deploy.
 - **Behavioral Commitment Chain (BCC)** — signed pre-execution intent commitments.
 - **Telemetry** — OpenTelemetry + MLflow tracing, with AIS-signal derivation.
 - **Zero-knowledge proving** — real `nargo`/`bb` proof generation for attestations.
@@ -49,40 +49,28 @@ The DID document binds them: `attach_evm_account()` adds a CAIP-10
 `blockchainAccountId` verification method, so anyone resolving the DID learns the
 agent's on-chain address.
 
-## Self-sovereign registration
+## Registration (v3: off-chain, gasless)
 
 ```python
-from integrity_sdk import registration
+from integrity_sdk.did import load_or_create_did
+from integrity_sdk.registration_offchain import register_offchain
+from integrity_sdk.xns import check_handle_availability
 
-reg = registration.register_agent(
-    "clinical-assistant-01",
-    domain_name="healthcare.integrity",
-    compliance_vertical="healthcare",   # "none" | "healthcare"
-    profile_uri="ipfs://…",
-)
+did, keypair, _ = load_or_create_did("clinical-assistant-01")
+if check_handle_availability(oracle_url, "clinical.assistant").available:
+    reg = register_offchain(oracle_url, did, keypair, handle="clinical.assistant")
+print(reg.agent_id, reg.verification_tier, reg.outcome)
 ```
 
-This runs the full dependency-ordered on-chain sequence, each step signed by the
-agent's own wallet (except the initial ETH/ITK funding, which comes from the
-protocol's faucet wallet — a wallet with zero balance can't pay for the
-transaction that funds it):
+The agent signs `(did, pubkey, timestamp)` with its own Ed25519 key, and the Oracle
+records it at verification tier 1. Nothing touches the chain. A handle is checked
+in both namespaces: the Oracle directory and the on-chain `XibalbaNameService`.
 
-1. Load/create the Ed25519 DID and the secp256k1 EVM wallet; bind them.
-2. Fund the agent wallet with ETH from `FUNDER_PRIVATE_KEY`.
-3. Mint a testnet `$ITK` allocation to the agent (stake-ready collateral).
-4. Deploy `SovereignAgent` (direct).
-5. Deploy `StateAnchor` (direct), admin = the SovereignAgent contract.
-6. Grant the oracle `ANCHOR_ROLE` on the StateAnchor, via `SovereignAgent.execute`.
-7. Call `AgentPrimitivesFactory.registerPrimitives` — clones the other 5 and
-   registers all 7 in `XibalbaAgentRegistry`.
-8. Persist the addresses next to `document.json`; POST to the oracle, which
-   independently re-verifies the claimed primitives against on-chain state.
-
-Returns an `AgentRegistration` with `.did`, `.evm_address`, and all 7 addresses.
-
-**Required env:** `FUNDER_PRIVATE_KEY` (0x-prefixed testnet faucet key),
-`INTEGRITY_WALLET_PASSWORD`. Optional: `RPC_URL`, `DEPLOYMENTS_FILE`,
-`ORACLE_URL`, `TESTNET_AGENT_ITK_ALLOCATION`.
+The on-chain path is optional, and it is not in this SDK yet. It adds an
+`AgentRegistry` existence record and a confined `SovereignAgent` actor, and arrives
+in Phase 4 of the registration v3 spec. The v2 primitives flow
+(`registration.register_agent`: `AgentPrimitivesFactory`, genesis `StateAnchor`,
+funder key) was removed in registration v3 PR 3.4.
 
 ## BCC commitments
 
@@ -239,12 +227,10 @@ Unit tests (`tests/unit/`) cover wallet, DID, derivation, client, PII/PHI
 redaction (`test_redactor.py`), intent hashing/deviation (`test_intent.py`),
 and both tracing surfaces — MLflow autolog (`test_mlflow_tracing.py`) and the
 run-tree `trace_run`/`traceable` API (`test_tracing.py`). Integration tests
-(`tests/test_chain.py`, `tests/test_registration.py`, `tests/test_health.py`)
-run the **real** registration and Integrity Health sequences against a live anvil
-chain running the real `contracts/script/Deploy.s.sol` — no mocked web3.
-`tests/test_registration_oracle_e2e.py` is opt-in (`ORACLE_E2E=1`, needs
-Docker + cargo on `PATH`) and re-verifies registration against a real
-`integrity-oracle` binary rather than the SDK's own chain reads.
+(`tests/test_chain.py`, `tests/test_health.py`, `tests/test_trust_wiring.py`)
+run real on-chain sequences against a live anvil chain running the real
+`contracts/script/Deploy.s.sol`, with no mocked web3. Agents are bound through
+`AgentRegistry` via `tests/v3_onchain.py`.
 
 ## Layout
 
@@ -253,7 +239,8 @@ integrity_sdk/
   did.py            Ed25519 DID + CAIP-10 EVM binding
   wallet.py         encrypted secp256k1 EVM keystore
   chain.py          fund / deploy / register on-chain (web3.py)
-  registration.py   the full self-sovereign registration orchestrator
+  registration_offchain.py  gasless Oracle registration (v3 default)
+  xns.py            handle availability across both namespaces
   bcc.py            signed BCC commitment construction
   client.py         telemetry client → oracle
   core/             JCS, Merkle, signed packs, decision contract, receipts, OPA client
