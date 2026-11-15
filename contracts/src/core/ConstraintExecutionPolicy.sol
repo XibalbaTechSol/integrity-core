@@ -10,6 +10,10 @@ interface IAisReader {
 
 /// @title ConstraintExecutionPolicy
 /// @notice Reference IExecutionPolicy: AIS floor, native-value cap, target allowlist, ERC-20/721 caps (M1).
+/// @dev Known limitation (registration v3, Phase 3): the AIS floor reads `SovereignAgent.ais()`, the
+/// v2 oracle-pushed cache. A v3 agent is built with `oracle == 0`, so its cache stays 0 and any
+/// `minAis > 0` denies it. Genesis deploys `minAis = 0`, so nothing is affected today. The floor moves
+/// to `AISRegistry.latest(agent)` (basis points, 0..10000) in the deletion PR that removes `updateAIS`.
 contract ConstraintExecutionPolicy is AccessControl, IExecutionPolicy {
     bytes4 private constant SEL_TRANSFER = 0xa9059cbb;
     bytes4 private constant SEL_APPROVE = 0x095ea7b3;

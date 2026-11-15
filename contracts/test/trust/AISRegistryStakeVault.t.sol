@@ -8,7 +8,11 @@ import {ITK} from "../../src/trust/ITK.sol";
 import {RewardRegistry} from "../../src/trust/RewardRegistry.sol";
 import {IRewardModule} from "../../src/trust/IRewardModule.sol";
 import {DiscountRewardModule} from "../../src/trust/DiscountRewardModule.sol";
-import {XibalbaAgentRegistry} from "../../src/framework/XibalbaAgentRegistry.sol";
+import {AgentRegistry} from "../../src/framework/AgentRegistry.sol";
+import {SovereignAgent} from "../../src/core/SovereignAgent.sol";
+import {TrustConfig} from "../../src/trust/TrustConfig.sol";
+import {PolicyRegistry} from "../../src/trust/PolicyRegistry.sol";
+import {GateRegistryFixture} from "./GateRegistryFixture.sol";
 
 /// @dev Test-only recording fixture.
 contract RecordingModule is IRewardModule {
@@ -43,16 +47,16 @@ contract RevertingModule is IRewardModule {
     }
 }
 
-contract AISRegistryStakeVaultTest is Test {
+contract AISRegistryStakeVaultTest is GateRegistryFixture {
     AISRegistry ais;
     StakeVault vault;
     ITK itk;
     RewardRegistry rewards;
-    XibalbaAgentRegistry agents;
+    AgentRegistry agents;
 
     address admin = makeAddr("admin");
     address scorer = makeAddr("scorer");
-    address agent = makeAddr("agent");
+    address agent;
 
     bytes32 constant DOMAIN = keccak256("domain-A");
     bytes32 constant ROOT = keccak256("evidence");
@@ -64,7 +68,26 @@ contract AISRegistryStakeVaultTest is Test {
         itk = new ITK(admin, 0);
         vault = new StakeVault(address(itk), admin);
         rewards = new RewardRegistry(admin);
-        agents = new XibalbaAgentRegistry(admin);
+        vm.stopPrank();
+
+        // v3: the agent is a canonical SovereignAgent bound as the actor of a record in DOMAIN
+        // (binding needs the domain to have a live policy, so a minimal TrustConfig is wired).
+        _deployRegistry(admin);
+        agents = agentRegistry;
+        _ensureDomain("domain-A");
+        TrustConfig cfg = new TrustConfig(admin);
+        PolicyRegistry policy = new PolicyRegistry(admin);
+        (address ctl, uint256 ctlPk) = makeAddrAndKey("controller");
+        SovereignAgent sa = _newAgent("did:agent", ctl);
+        agent = address(sa);
+        vm.startPrank(admin);
+        policy.setGraphRoot(DOMAIN, keccak256("pack-root"));
+        cfg.setPolicyRegistry(address(policy));
+        agents.setTrustConfig(address(cfg));
+        vm.stopPrank();
+        _bind(sa, ctlPk, DOMAIN, ctl);
+
+        vm.startPrank(admin);
 
         ais.grantRole(ais.SCORER_ROLE(), scorer);
         vault.grantRole(vault.AIS_REGISTRY_ROLE(), address(ais));
@@ -72,11 +95,6 @@ contract AISRegistryStakeVaultTest is Test {
         vault.setFreezeThreshold(5000);
         itk.mint(agent, 10_000 ether);
 
-        agents.grantRole(agents.REGISTRAR_ROLE(), admin);
-        XibalbaAgentRegistry.PrimitiveSet memory ps;
-        ps.sovereignAgent = agent;
-        ps.stateAnchor = makeAddr("anchor");
-        agents.registerPrimitives(keccak256("did:agent"), ps, makeAddr("controller"), DOMAIN);
         vm.stopPrank();
 
         vm.prank(agent);
@@ -269,9 +287,24 @@ contract AISRegistryStakeVaultTest is Test {
         assertFalse(vault.stakeOf(agent).frozen);
     }
 
-    function test_unregisteredAgent_doesNotBlockCheckpoint() public {
+    /// Registration v3: with an AgentRegistry wired, an address that is not a bound actor gets
+    /// no checkpoint (AIS checkpoints are only for agents with an actor).
+    /// MUTATION: delete the `isRegisteredAgent` check in `postCheckpoint` -> the ghost is scored,
+    /// test FAILS.
+    function test_unregisteredAgent_rejectedWhenRegistryWired() public {
         _wireVault();
         _wireReward(address(new RecordingModule()));
+        address ghost = makeAddr("ghost");
+        vm.prank(scorer);
+        vm.expectRevert(abi.encodeWithSelector(AISRegistry.NotRegisteredAgent.selector, ghost));
+        ais.postCheckpoint(ghost, 6000, 1, ROOT, 0);
+        (uint32 score,,) = ais.latest(ghost);
+        assertEq(score, 0);
+    }
+
+    /// Without a registry wired (bootstrap), checkpoints are not registration-checked.
+    function test_unregisteredAgent_acceptedWhenRegistryUnset() public {
+        _wireVault();
         address ghost = makeAddr("ghost");
         vm.prank(scorer);
         ais.postCheckpoint(ghost, 6000, 1, ROOT, 0);

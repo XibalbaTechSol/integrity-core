@@ -71,7 +71,11 @@ The SDK's `registration.py` primitives path is Python only, and the kernel doesn
   - `DomainRegistry`, `AgentRegistry` (granted `REGISTRAR_ROLE`), `TrustConfig`, `PolicyRegistry`, `StakeVault`, `AISRegistry`, `ActionAnchor`, `ITK`, `RewardRegistry` and its modules, XNS, Lineage, and the health set;
   - the attester comes from `ATTESTER_ADDRESS`, distinct from the scorer.
 
-  The held graph is no longer deployed by `Deploy.s.sol`. `DeployKernelReference` still deploys its own copy. The deployments file gains `AgentRegistry`.
+  The deployments file gains `AgentRegistry` and `protocolAddresses.attester`.
+
+  **Amended during 3.2:** `Deploy.s.sol` still deploys the held graph alongside v3, **unwired**: the held registry gets no `trustConfig`, so agents built by the held factory resolve an inert gate (pinned by `ProtocolPinnedGate.test_3_heldFactoryAgentResolvesInertGate`). The SDK conftest (`tests/conftest.py` runs this script on Anvil) and the Oracle `e2e.rs` still register agents through the held factory, so removing it here would break CI before their replacements land. PR 3.4 removes it from `Deploy.s.sol`. The standalone `DeployXns`, `DeployAgentLineageRegistry` and `DeployEHRGate` scripts read `.singletons.AgentRegistry`.
+- **Scale conversion (done in 3.2):** `AgentAuthorityResolver.getAis` returns `AISRegistry` basis points unchanged. `EHRGate.minAisThreshold` is now basis points: Deploy's 800 became 8000 and the test thresholds were multiplied by 10.
+- **`ConstraintExecutionPolicy` (known limitation):** its AIS floor reads `SovereignAgent.ais()`, the oracle-pushed cache, which stays 0 for v3 agents (`oracle == 0`). Genesis uses `minAis = 0`, so nothing changes today. It is documented in the contract's NatSpec and repointed to `AISRegistry` in the deletion PR.
 - **Tests:**
   - rewrite the gate tests (`ExecuteGating`, `Invariants`, `ProtocolPinnedGate`, `PolicyHooks`, `MediationM1`, `SovereignAgent`) to bind actors through `AgentRegistry`;
   - add `test/trust/ConfinedAgentE2E.t.sol`: take PR 3.1's vector pack, `setGraphRoot`, deploy a `SovereignAgent`, register it as actor; a call inside the map succeeds and a call outside it reverts `EdgeNotProven`;

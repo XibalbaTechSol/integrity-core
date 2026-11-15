@@ -191,6 +191,7 @@ async fn precheck_offchain_registration(
         (status = 400, description = "Malformed DID, key, signature or handle"),
         (status = 401, description = "DID does not match key, bad signature, or timestamp outside the window"),
         (status = 409, description = "DID bound to another key or handle, or handle taken"),
+        (status = 503, description = "A handle was requested and on-chain XNS could not be checked"),
         (status = 429, description = "Global registration rate limit exceeded"),
     ),
     tag = "agents",
@@ -208,6 +209,11 @@ pub async fn register_agent_offchain(
         Utc::now().timestamp(),
     )
     .await?;
+
+    if let Some(handle) = &req.handle {
+        // The only chain access on the gasless path, and only when a handle is requested.
+        ensure_onchain_handle_claimable(&state, handle, &req.did, None).await?;
+    }
 
     let (row, outcome) = db::register_agent_offchain(
         &state.pool,
@@ -339,6 +345,9 @@ pub async fn register_agent(
             req.did, record.primitives.state_anchor, latest_epoch
         )));
     }
+
+    ensure_onchain_handle_claimable(&state, &req.handle, &req.did, Some(record.primitives.sovereign_agent))
+        .await?;
 
     let ed25519_pubkey = req
         .ed25519_pubkey_hex
@@ -740,10 +749,121 @@ async fn resolve_primary_handles(
 // GET /v1/xns/resolve/{handle}, POST /v1/xns/claim
 // ---------------------------------------------------------------------------------
 
+/// A handle's state in the on-chain XibalbaNameService, as the availability check and the
+/// claim gate see it. The Oracle directory (`xns_handles`) and on-chain XNS are separate
+/// namespaces; a handle is only offered when BOTH are verified free.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum OnchainHandleStatus {
+    /// Checked: nobody holds it on-chain.
+    Free,
+    /// Checked: an agent holds it on-chain.
+    Taken,
+    /// No XNS singleton in the deployments file: the on-chain namespace is genuinely empty.
+    NotDeployed,
+    /// The on-chain read failed or timed out. Never reported as free, never as taken.
+    Unverified,
+}
+
+impl OnchainHandleStatus {
+    /// Free in the on-chain namespace (checked, or there is no on-chain namespace).
+    pub fn is_claimable(self) -> bool {
+        matches!(self, Self::Free | Self::NotDeployed)
+    }
+}
+
+/// Upper bound on one on-chain XNS read. The availability endpoint backs as-you-type UI, so a
+/// slow RPC must degrade to `Unverified`, not hang the request.
+const XNS_ONCHAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Pure mapping from "is XNS deployed" + the (timed) read result to a status.
+fn classify_onchain(
+    read: Option<Result<Result<bool, crate::chain::ChainError>, tokio::time::error::Elapsed>>,
+) -> OnchainHandleStatus {
+    match read {
+        None => OnchainHandleStatus::NotDeployed,
+        Some(Ok(Ok(true))) => OnchainHandleStatus::Taken,
+        Some(Ok(Ok(false))) => OnchainHandleStatus::Free,
+        Some(_) => OnchainHandleStatus::Unverified,
+    }
+}
+
+async fn onchain_handle_status(state: &AppState, handle: &str) -> OnchainHandleStatus {
+    let Some(xns) = state.chain.xibalba_name_service() else {
+        return classify_onchain(None);
+    };
+    let read = tokio::time::timeout(XNS_ONCHAIN_TIMEOUT, state.chain.handle_exists(xns, handle)).await;
+    match &read {
+        Ok(Err(e)) => tracing::warn!(handle, error = %e, "xns on-chain handle check failed"),
+        Err(_) => tracing::warn!(handle, "xns on-chain handle check timed out"),
+        Ok(Ok(_)) => {}
+    }
+    classify_onchain(Some(read))
+}
+
+/// The claim gate: a durable off-chain claim must never shadow an on-chain holder, and must
+/// fail CLOSED when the on-chain namespace cannot be checked.
+fn onchain_permits_claim(handle: &str, status: OnchainHandleStatus) -> Result<(), AppError> {
+    match status {
+        OnchainHandleStatus::Free | OnchainHandleStatus::NotDeployed => Ok(()),
+        OnchainHandleStatus::Taken => Err(AppError::HandleTaken(format!(
+            "{handle} (held on-chain in XibalbaNameService)"
+        ))),
+        OnchainHandleStatus::Unverified => Err(AppError::ServiceUnavailable(
+            "could not verify the handle against on-chain XNS; retry shortly".to_string(),
+        )),
+    }
+}
+
+/// Gate for every path that writes an Oracle-directory handle. Permits a handle the on-chain
+/// namespace holds only when the on-chain holder IS this agent: matched by its SovereignAgent
+/// address when the caller already verified it (`own_sovereign_agent`), else through the
+/// Oracle's DID <-> SovereignAgent mapping.
+async fn ensure_onchain_handle_claimable(
+    state: &AppState,
+    handle: &str,
+    agent_did: &str,
+    own_sovereign_agent: Option<Address>,
+) -> Result<(), AppError> {
+    let status = onchain_handle_status(state, handle).await;
+    if status == OnchainHandleStatus::Taken {
+        if let Some(xns) = state.chain.xibalba_name_service() {
+            if let Ok(Ok(holder)) =
+                tokio::time::timeout(XNS_ONCHAIN_TIMEOUT, state.chain.resolve_handle(xns, handle)).await
+            {
+                if !holder.is_zero() {
+                    if own_sovereign_agent == Some(holder) {
+                        return Ok(());
+                    }
+                    let holder_did = db::did_by_sovereign_agent_on_chain(
+                        &state.pool,
+                        &format!("{holder:#x}"),
+                        state.chain.chain_id() as i64,
+                    )
+                    .await?;
+                    if holder_did.as_deref() == Some(agent_did) {
+                        return Ok(());
+                    }
+                }
+            }
+        }
+    }
+    onchain_permits_claim(handle, status)
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct XnsAvailabilityDto {
     pub handle: String,
+    /// True only when the handle is well-formed AND free in the Oracle directory AND free
+    /// on-chain (or XNS is not deployed). `onchain: unverified` always yields false.
     pub available: bool,
+    /// Whether the handle passes the grammar (3-32 chars, lowercase letter first, then
+    /// lowercase letters, digits, `.`, `-`, `_`).
+    pub valid: bool,
+    /// Free in the Oracle-local `xns_handles` directory. Null when the handle is malformed.
+    pub directory_available: Option<bool>,
+    /// On-chain XNS status. Null when the handle is malformed (nothing was checked).
+    pub onchain: Option<OnchainHandleStatus>,
     /// Populated only when `available` is false: a handful of close, currently-free
     /// variations on the requested handle, so a search UI can offer them immediately
     /// instead of making the user guess-and-check one at a time.
@@ -755,7 +875,7 @@ pub struct XnsAvailabilityDto {
 /// variants. Checked against the DB in order and stops at `limit` available hits, so a
 /// popular base handle doesn't fan out into dozens of wasted queries.
 async fn suggest_xns_handles(
-    pool: &sqlx::PgPool,
+    state: &AppState,
     base: &str,
     limit: usize,
 ) -> Result<Vec<String>, sqlx::Error> {
@@ -770,16 +890,31 @@ async fn suggest_xns_handles(
     candidates.push(format!("{base}.agent"));
     candidates.push(format!("{base}_"));
 
-    let mut suggestions = Vec::with_capacity(limit);
+    // Only ever offer well-formed suggestions -- a generated candidate that fails
+    // validate_xns_handle (e.g. exceeds the 32-char cap) is silently skipped, not
+    // surfaced as a broken option the user can't actually claim.
+    let mut directory_free = Vec::new();
     for candidate in candidates {
+        if validate_xns_handle(&candidate).is_ok() && db::xns_handle_available(&state.pool, &candidate).await? {
+            directory_free.push(candidate);
+        }
+    }
+
+    // Then confirm on-chain, `limit` candidates at a time (concurrently, each under the
+    // timeout), stopping as soon as `limit` are confirmed: the common case is one batch, so a
+    // taken handle costs ~`limit` RPC reads, not one per candidate. An unverified candidate is
+    // dropped, never offered.
+    let mut suggestions = Vec::with_capacity(limit);
+    for batch in directory_free.chunks(limit.max(1)) {
+        let statuses =
+            futures::future::join_all(batch.iter().map(|c| onchain_handle_status(state, c))).await;
+        for (candidate, status) in batch.iter().zip(statuses) {
+            if suggestions.len() < limit && status.is_claimable() {
+                suggestions.push(candidate.clone());
+            }
+        }
         if suggestions.len() >= limit {
             break;
-        }
-        // Only ever offer well-formed suggestions -- a generated candidate that fails
-        // validate_xns_handle (e.g. exceeds the 32-char cap) is silently skipped, not
-        // surfaced as a broken option the user can't actually claim.
-        if validate_xns_handle(&candidate).is_ok() && db::xns_handle_available(pool, &candidate).await? {
-            suggestions.push(candidate);
         }
     }
     Ok(suggestions)
@@ -800,17 +935,34 @@ pub async fn xns_available(
     // this endpoint backs live-as-you-type search/registration UI, where "not a valid
     // handle" and "already taken" both just mean "pick something else".
     let valid = validate_xns_handle(&handle).is_ok();
-    let available = valid && db::xns_handle_available(&state.pool, &handle).await?;
-    let suggestions = if available {
+    if !valid {
+        return Ok(Json(XnsAvailabilityDto {
+            handle,
+            available: false,
+            valid,
+            directory_available: None,
+            onchain: None,
+            suggestions: Vec::new(),
+        }));
+    }
+    // Both namespaces are always checked for a valid handle, so the response says exactly
+    // which one holds it.
+    let directory_available = db::xns_handle_available(&state.pool, &handle).await?;
+    let onchain = onchain_handle_status(&state, &handle).await;
+    let available = directory_available && onchain.is_claimable();
+    // Suggestions are offered when the handle is taken; when the on-chain read could not be
+    // verified, the network is the problem, so suggesting alternatives would mislead.
+    let suggestions = if available || onchain == OnchainHandleStatus::Unverified {
         Vec::new()
-    } else if valid {
-        suggest_xns_handles(&state.pool, &handle, 5).await?
     } else {
-        Vec::new()
+        suggest_xns_handles(&state, &handle, 5).await?
     };
     Ok(Json(XnsAvailabilityDto {
         handle,
         available,
+        valid,
+        directory_available: Some(directory_available),
+        onchain: Some(onchain),
         suggestions,
     }))
 }
@@ -859,7 +1011,8 @@ pub struct ClaimXnsHandleRequest {
     responses(
         (status = 200, description = "Handle claimed", body = XnsHandleDto),
         (status = 400, description = "Malformed handle"),
-        (status = 409, description = "Handle taken, or this agent already holds a different one"),
+        (status = 409, description = "Handle taken (in the Oracle directory or on-chain XNS), or this agent already holds a different one"),
+        (status = 503, description = "On-chain XNS could not be checked; the claim fails closed"),
     ),
     tag = "identity",
 )]
@@ -868,6 +1021,11 @@ pub async fn xns_claim(
     Json(req): Json<ClaimXnsHandleRequest>,
 ) -> Result<Json<XnsHandleDto>, AppError> {
     validate_xns_handle(&req.handle)?;
+    // One namespace of handles: never claim off-chain what an agent holds on-chain, and fail
+    // closed (503) when that cannot be checked. A concurrent on-chain register between this read
+    // and the insert is not prevented (XNS cannot consult this directory); availability reports
+    // such a handle as taken from then on.
+    ensure_onchain_handle_claimable(&state, &req.handle, &req.agent_id, None).await?;
     let row = db::claim_xns_handle(&state.pool, &req.agent_id, &req.handle)
         .await
         .map_err(|e| match e {
@@ -5289,5 +5447,60 @@ mod offchain_registration_handler_tests {
         assert_eq!(status(first), 401);
         let second = precheck_offchain_registration(&limiter, 1, &req, NOW).await.unwrap_err();
         assert_eq!(status(second), 429, "the flood is rejected before any signature work");
+    }
+}
+
+#[cfg(test)]
+mod xns_availability_tests {
+    use super::*;
+    use crate::chain::ChainError;
+
+    async fn elapsed() -> tokio::time::error::Elapsed {
+        tokio::time::timeout(std::time::Duration::from_millis(1), std::future::pending::<()>())
+            .await
+            .unwrap_err()
+    }
+
+    #[tokio::test]
+    async fn classify_covers_every_read_outcome() {
+        assert_eq!(classify_onchain(None), OnchainHandleStatus::NotDeployed);
+        assert_eq!(classify_onchain(Some(Ok(Ok(true)))), OnchainHandleStatus::Taken);
+        assert_eq!(classify_onchain(Some(Ok(Ok(false)))), OnchainHandleStatus::Free);
+        assert_eq!(
+            classify_onchain(Some(Ok(Err(ChainError::MissingSingleton("XibalbaNameService"))))),
+            OnchainHandleStatus::Unverified,
+            "a failed read is never free and never taken"
+        );
+        assert_eq!(classify_onchain(Some(Err(elapsed().await))), OnchainHandleStatus::Unverified);
+    }
+
+    #[test]
+    fn only_free_or_undeployed_is_claimable() {
+        assert!(OnchainHandleStatus::Free.is_claimable());
+        assert!(OnchainHandleStatus::NotDeployed.is_claimable());
+        assert!(!OnchainHandleStatus::Taken.is_claimable());
+        assert!(!OnchainHandleStatus::Unverified.is_claimable());
+    }
+
+    #[test]
+    fn claim_gate_fails_closed() {
+        assert!(onchain_permits_claim("atlas", OnchainHandleStatus::Free).is_ok());
+        assert!(onchain_permits_claim("atlas", OnchainHandleStatus::NotDeployed).is_ok());
+        assert!(matches!(
+            onchain_permits_claim("atlas", OnchainHandleStatus::Taken),
+            Err(AppError::HandleTaken(m)) if m.contains("on-chain")
+        ));
+        let unverified = onchain_permits_claim("atlas", OnchainHandleStatus::Unverified).unwrap_err();
+        assert!(matches!(unverified, AppError::ServiceUnavailable(_)));
+        assert_eq!(
+            axum::response::IntoResponse::into_response(unverified).status(),
+            axum::http::StatusCode::SERVICE_UNAVAILABLE
+        );
+    }
+
+    #[test]
+    fn status_serializes_snake_case_for_clients() {
+        assert_eq!(serde_json::to_string(&OnchainHandleStatus::NotDeployed).unwrap(), "\"not_deployed\"");
+        assert_eq!(serde_json::to_string(&OnchainHandleStatus::Unverified).unwrap(), "\"unverified\"");
     }
 }

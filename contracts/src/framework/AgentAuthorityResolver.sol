@@ -2,57 +2,35 @@
 pragma solidity ^0.8.28;
 
 import {IAgentAuthorityResolver} from "./IAgentAuthorityResolver.sol";
-import {XibalbaAgentRegistry} from "./XibalbaAgentRegistry.sol";
-
-interface IReputationRegistryRead {
-    function effectiveScore(address agent) external view returns (uint256);
-}
-
-interface ISovereignAgentAis {
-    function ais() external view returns (uint256);
-}
+import {AgentRegistry} from "./AgentRegistry.sol";
+import {AISRegistry} from "../trust/AISRegistry.sol";
 
 /// @title AgentAuthorityResolver
-/// @notice Additive parallel resolution path (docs/EXECUTION_PLAN.md Stream 2 / §5.2a).
-/// @dev Resolution order for a given agent address:
-///   1. Sovereign profile: `XibalbaAgentRegistry.isRegisteredAgent` — read AIS from that
-///      agent's own `ReputationRegistry` clone (source of truth for that profile).
-///   2. Enterprise profile: `XibalbaAgentRegistry.isEnterpriseAgent` — read AIS directly
-///      from the `SovereignAgent`-shaped account's cached `ais()` (oracle-signed, no
-///      `ReputationRegistry` clone required).
-/// Neither existing profile's storage or write paths are touched by this contract; it is
-/// a pure read-side adapter, so it cannot introduce a new way to *set* AIS.
+/// @notice Pure read-side adapter: registration from `AgentRegistry`, AIS from `AISRegistry`.
+/// @dev Registration v3 replaced the per-agent `ReputationRegistry` clone (0..1000 scale) and the
+/// enterprise profile with one registry and one AIS checkpoint store. `getAis` returns the
+/// `AISRegistry` basis-point score (0..10000) unchanged: thresholds that consume it (e.g.
+/// `EHRGate.minAisThreshold`) are configured in basis points. It cannot set AIS.
 contract AgentAuthorityResolver is IAgentAuthorityResolver {
-    XibalbaAgentRegistry public immutable registry;
+    AgentRegistry public immutable registry;
+    AISRegistry public immutable aisRegistry;
 
     error NotRegistered(address agent);
 
-    constructor(address registry_) {
+    constructor(address registry_, address aisRegistry_) {
         require(registry_ != address(0), "AgentAuthorityResolver: zero registry");
-        registry = XibalbaAgentRegistry(registry_);
+        require(aisRegistry_ != address(0), "AgentAuthorityResolver: zero AIS registry");
+        registry = AgentRegistry(registry_);
+        aisRegistry = AISRegistry(aisRegistry_);
     }
 
     function isAuthorityRegistered(address agent) public view returns (bool) {
-        return registry.isRegisteredAgent(agent) || registry.isEnterpriseAgent(agent);
+        return registry.isRegisteredAgent(agent);
     }
 
     function getAis(address agent) external view returns (uint256) {
-        if (registry.isRegisteredAgent(agent)) {
-            address reputationRegistry = registry.resolveAgent(agent).primitives.reputationRegistry;
-            return IReputationRegistryRead(reputationRegistry).effectiveScore(agent);
-        }
-        if (registry.isEnterpriseAgent(agent)) {
-            return ISovereignAgentAis(agent).ais();
-        }
-        revert NotRegistered(agent);
-    }
-
-    function getStateAnchor(address agent) external view returns (address) {
-        if (registry.isRegisteredAgent(agent)) {
-            return registry.resolveAgent(agent).primitives.stateAnchor;
-        }
-        (address stateAnchor,,, bool exists) = registry.enterpriseRecordOf(agent);
-        if (!exists) revert NotRegistered(agent);
-        return stateAnchor;
+        if (!registry.isRegisteredAgent(agent)) revert NotRegistered(agent);
+        (uint32 score,,) = aisRegistry.latest(agent);
+        return score;
     }
 }

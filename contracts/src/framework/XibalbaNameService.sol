@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
-import {XibalbaAgentRegistry} from "./XibalbaAgentRegistry.sol";
+import {AgentRegistry} from "./AgentRegistry.sol";
 
 /// @title XibalbaNameService (XNS)
 /// @notice Maps human-readable handles (e.g. "hermes.integrity") to a registered agent's
@@ -23,13 +23,13 @@ import {XibalbaAgentRegistry} from "./XibalbaAgentRegistry.sol";
 contract XibalbaNameService is AccessControl {
     bytes32 public constant REGISTRAR_ROLE = keccak256("REGISTRAR_ROLE");
 
-    /// @dev Immutable: the canonical `XibalbaAgentRegistry` singleton this deployment of
+    /// @dev Immutable: the canonical `AgentRegistry` (registration v3) singleton this deployment of
     /// XNS checks handle-registration eligibility against. A handle can only ever be
     /// claimed by an address `isRegisteredAgent` — i.e. a real `SovereignAgent` contract
     /// that completed the full self-sovereign registration flow (§6.1/§6.2 of
     /// docs/INTERFACE_CONTRACT.md) — not an arbitrary EOA or contract squatting names
     /// unrelated to any real agent.
-    XibalbaAgentRegistry public immutable agentRegistry;
+    AgentRegistry public immutable agentRegistry;
 
     struct HandleRecord {
         address sovereignAgent;
@@ -59,7 +59,7 @@ contract XibalbaNameService is AccessControl {
 
     constructor(address admin, address agentRegistry_) {
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
-        agentRegistry = XibalbaAgentRegistry(agentRegistry_);
+        agentRegistry = AgentRegistry(agentRegistry_);
     }
 
     function handleId(string memory handle) public pure returns (bytes32) {
@@ -68,7 +68,7 @@ contract XibalbaNameService is AccessControl {
 
     /// @notice Self-service handle registration. `msg.sender` must itself be a
     /// registered agent's `SovereignAgent` address (verified live against
-    /// `XibalbaAgentRegistry`, not merely asserted) — matching how every other
+    /// `AgentRegistry` (a bound actor), not merely asserted) — matching how every other
     /// agent-facing contract in this codebase (`ComplianceGate`, `EHRGate`) treats the
     /// calling `SovereignAgent` contract as the acting agent's identity. First unclaimed
     /// handle wins, same trust model as `DomainRegistry.registerDomain`/ENS

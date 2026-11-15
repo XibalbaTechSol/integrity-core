@@ -7,6 +7,7 @@ import {console2} from "forge-std/console2.sol";
 import {IntegrityToken} from "../src/oracle/IntegrityToken.sol";
 import {RejectAllZkVerifier} from "../src/oracle/RejectAllZkVerifier.sol";
 import {XibalbaAgentRegistry} from "../src/framework/XibalbaAgentRegistry.sol";
+import {AgentRegistry} from "../src/framework/AgentRegistry.sol";
 import {AgentAuthorityResolver} from "../src/framework/AgentAuthorityResolver.sol";
 import {XibalbaNameService} from "../src/framework/XibalbaNameService.sol";
 import {DomainRegistry} from "../src/framework/DomainRegistry.sol";
@@ -34,10 +35,14 @@ import {DiscountRewardModule} from "../src/trust/DiscountRewardModule.sol";
 import {ActionAnchor} from "../src/trust/ActionAnchor.sol";
 
 /// @title Deploy
-/// @notice Deploys the full protocol genesis: every global singleton, all 5 EIP-1167
-/// clone-implementation contracts, and `AgentPrimitivesFactory` — then wires
-/// REGISTRAR_ROLE and bootstraps two open domains so agents can register immediately
-/// after this script finishes. Writes every address to `../deployments.<network>.json`
+/// @notice Deploys the full protocol genesis. Registration v3 (Phase 3): the live graph is
+/// `AgentRegistry` (+ `DomainRegistry`) feeding the trust layer (TrustConfig, StakeVault,
+/// PolicyRegistry, AISRegistry, rewards, ActionAnchor), XNS, and the health set (EHRGate through
+/// `AgentAuthorityResolver`). The v2 primitives graph (`XibalbaAgentRegistry`,
+/// `AgentPrimitivesFactory` + 5 clone templates, `IntegrityIdentityReadV1`) is STILL deployed
+/// alongside it, unwired from the trust layer, because the SDK/CLI/Oracle registration paths
+/// that read it move in Phase 3 PR 3.4; the owner's IntegrityKernel review holds its deletion.
+/// An agent onboarded through the v2 factory resolves an inert execute gate. Writes every address to `../deployments.<network>.json`
 /// (see docs/INTERFACE_CONTRACT.md §6 for the exact shape).
 /// @dev Run against Base Sepolia with:
 ///   forge script script/Deploy.s.sol --rpc-url base_sepolia --broadcast --verify
@@ -49,7 +54,9 @@ contract Deploy is Script {
     // mirrors the README's verification-ladder "700+ institutional credit / 850+
     // TEE-bound institutional trust" framing and test/health/EHRGate.t.sol's own
     // THRESHOLD constant. Mutable post-deploy via EHRGate.setThreshold, not frozen here.
-    uint256 constant EHR_GATE_MIN_AIS_THRESHOLD = 800;
+    /// Basis points (0..10000): the `AISRegistry` scale `AgentAuthorityResolver.getAis` returns.
+    /// The v2 value was 800 on the 0..1000 ReputationRegistry scale; same policy, converted x10.
+    uint256 constant EHR_GATE_MIN_AIS_THRESHOLD = 8000;
 
     // v2 trust layer. An AISRegistry checkpoint below this score (basis points, 0..10000)
     // latches the agent's freeze. It must be > 0 or the freeze can never fire, and it sits
@@ -67,10 +74,12 @@ contract Deploy is Script {
     address disputer;
     address governance;
     address arbitrator;
+    address attester;
 
     IntegrityToken itk;
     RejectAllZkVerifier verifier;
-    XibalbaAgentRegistry registry;
+    XibalbaAgentRegistry registry; // held v2 graph (see contract NatSpec)
+    AgentRegistry agentRegistry; // registration v3: the live registry
     AgentAuthorityResolver authorityResolver;
     IntegrityIdentityReadV1 identityRead;
     AllowlistAnchorPolicy defaultAnchorPolicy;
@@ -114,6 +123,9 @@ contract Deploy is Script {
         disputer = vm.envOr("DISPUTER_ADDRESS", deployer);
         governance = vm.envOr("GOVERNANCE_ADDRESS", deployer);
         arbitrator = vm.envOr("ARBITRATOR_ADDRESS", deployer);
+        // AgentRegistry's oracle attester (proof kind 1). Signs registrations, never scores:
+        // distinct from the AIS scorer (`oracleSigner`) off local chains.
+        attester = vm.envOr("ATTESTER_ADDRESS", deployer);
 
         if (block.chainid != 31337) {
             require(oracleSigner != deployer, "P0: oracleSigner cannot be deployer");
@@ -121,6 +133,8 @@ contract Deploy is Script {
             require(governance != deployer, "P0: governance cannot be deployer");
             require(arbitrator != deployer, "P0: arbitrator cannot be deployer");
             require(oracleSigner != disputer, "P0: Oracle must be isolated");
+            require(attester != deployer, "P0: attester cannot be deployer");
+            require(attester != oracleSigner, "P0: attester must differ from the AIS scorer");
         }
 
         vm.startBroadcast(deployerKey);
@@ -129,6 +143,7 @@ contract Deploy is Script {
         _deployCloneImplementations();
         _deployFactory();
         _deployTrustLayer();
+        _deployHealthGate();
         _wireRoles();
         _bootstrapDomains();
         _wireTrustDomains();
@@ -150,7 +165,9 @@ contract Deploy is Script {
         // ZK boost is unreachable by construction. See RejectAllZkVerifier.sol.
         verifier = new RejectAllZkVerifier();
         registry = new XibalbaAgentRegistry(deployer);
-        authorityResolver = new AgentAuthorityResolver(address(registry));
+        domainRegistry = new DomainRegistry(deployer);
+        agentRegistry = new AgentRegistry(deployer, address(domainRegistry));
+        agentRegistry.addAttester(attester);
 
         address[] memory oracleCallers = new address[](1);
         oracleCallers[0] = oracleSigner;
@@ -160,7 +177,7 @@ contract Deploy is Script {
         // Read-only Integrity identity discovery facade. It intentionally exposes no
         // ERC-721 or native ERC-8004 ownership/transfer surface; see its NatSpec and
         // docs/INTERFACE_CONTRACT.md before integrating it.
-        identityRead = new IntegrityIdentityReadV1(address(registry));
+        identityRead = new IntegrityIdentityReadV1(address(registry)); // held: reads the v2 registry
         // Deployed right after `registry` since XNS's register() checks
         // registry.isRegisteredAgent(msg.sender) — nothing else in this script depends
         // on XNS, so it has no other ordering constraint. XNS's own REGISTRAR_ROLE
@@ -169,22 +186,10 @@ contract Deploy is Script {
         // granting dispute-resolution power isn't a genesis-time decision this script
         // should make silently; grant it to `governance` in a later transaction if and
         // when that capability is actually wanted.
-        xns = new XibalbaNameService(deployer, address(registry));
-        domainRegistry = new DomainRegistry(deployer);
+        xns = new XibalbaNameService(deployer, address(agentRegistry));
         entityRegistry = new CoveredEntityRegistry(deployer);
         baaFactory = new SmartBAAFactory(address(entityRegistry), address(itk), arbitrator, deployer);
         guardrailRegistry = new HIPAAGuardrailRegistry(deployer, oracleSigner);
-        // Was previously deployed nowhere (PRODUCTION_GAPS.md §4) despite being the
-        // actual PHI-access enforcement contract ComplianceGate's own NatSpec says it
-        // does NOT replace — the three-way consent+BAA+AIS gate the Integrity Health vertical's
-        // docs describe had no reachable contract to call on-chain until this line.
-        ehrGate = new EHRGate(
-            address(registry),
-            address(baaFactory),
-            address(authorityResolver),
-            EHR_GATE_MIN_AIS_THRESHOLD,
-            block.chainid != 31337 ? governance : deployer
-        );
     }
 
     /// @dev Each clone-implementation contract's own constructor calls
@@ -248,15 +253,33 @@ contract Deploy is Script {
 
         aisRegistry.setStakeVault(address(stakeVault));
         aisRegistry.setRewardRegistry(address(rewardRegistry));
-        aisRegistry.setAgentRegistry(address(registry));
+        aisRegistry.setAgentRegistry(address(agentRegistry));
 
-        // The gate goes live here; only then may anything be able to freeze.
-        registry.setTrustConfig(address(trustConfig));
+        // The gate goes live here; only then may anything be able to freeze. Only the v3
+        // registry is wired: v2-factory agents resolve an inert gate regardless.
+        agentRegistry.setTrustConfig(address(trustConfig));
 
         stakeVault.grantRole(stakeVault.AIS_REGISTRY_ROLE(), address(aisRegistry));
         stakeVault.grantRole(stakeVault.DISPUTER_ROLE(), disputer);
         rewardRegistry.grantRole(rewardRegistry.NOTIFIER_ROLE(), address(aisRegistry));
         aisRegistry.grantRole(aisRegistry.SCORER_ROLE(), oracleSigner);
+    }
+
+    /// @dev The PHI-access gate (consent + BAA + AIS). Runs after the trust layer because the
+    /// resolver reads AIS from `AISRegistry` (basis points) and registration from `AgentRegistry`.
+    function _deployHealthGate() internal {
+        authorityResolver = new AgentAuthorityResolver(address(agentRegistry), address(aisRegistry));
+        // Was previously deployed nowhere (PRODUCTION_GAPS.md §4) despite being the
+        // actual PHI-access enforcement contract ComplianceGate's own NatSpec says it
+        // does NOT replace — the three-way consent+BAA+AIS gate the Integrity Health vertical's
+        // docs describe had no reachable contract to call on-chain until this line.
+        ehrGate = new EHRGate(
+            address(agentRegistry),
+            address(baaFactory),
+            address(authorityResolver),
+            EHR_GATE_MIN_AIS_THRESHOLD,
+            block.chainid != 31337 ? governance : deployer
+        );
     }
 
     /// @dev Gives each bootstrapped domain a policy module and a reward module. A registered
@@ -300,6 +323,8 @@ contract Deploy is Script {
     function _wireRoles() internal {
         registry.grantRole(registry.REGISTRAR_ROLE(), address(factory));
         domainRegistry.grantRole(domainRegistry.REGISTRAR_ROLE(), address(factory));
+        // AgentRegistry records domain joins when it binds an actor.
+        domainRegistry.grantRole(domainRegistry.REGISTRAR_ROLE(), address(agentRegistry));
 
         if (block.chainid != 31337) {
             // Mainnet Readiness P0 #1: transfer ITK minting to governance to separate it from
@@ -312,6 +337,8 @@ contract Deploy is Script {
             // Transfer all singleton admin roles to governance
             registry.grantRole(registry.DEFAULT_ADMIN_ROLE(), governance);
             registry.revokeRole(registry.DEFAULT_ADMIN_ROLE(), deployer);
+            agentRegistry.grantRole(agentRegistry.DEFAULT_ADMIN_ROLE(), governance);
+            agentRegistry.revokeRole(agentRegistry.DEFAULT_ADMIN_ROLE(), deployer);
             domainRegistry.grantRole(domainRegistry.DEFAULT_ADMIN_ROLE(), governance);
             domainRegistry.revokeRole(domainRegistry.DEFAULT_ADMIN_ROLE(), deployer);
             entityRegistry.grantRole(entityRegistry.DEFAULT_ADMIN_ROLE(), governance);
@@ -343,6 +370,8 @@ contract Deploy is Script {
         console2.log("IntegrityToken:        ", address(itk));
         console2.log("ZkVerifier (reject-all):", address(verifier));
         console2.log("governance (admin):    ", governance);
+        console2.log("AgentRegistry (v3):    ", address(agentRegistry));
+        console2.log("attester:              ", attester);
         console2.log("XibalbaAgentRegistry:  ", address(registry));
         console2.log("AgentAuthorityResolver:", address(authorityResolver));
         console2.log("AllowlistAnchorPolicy: ", address(defaultAnchorPolicy));
@@ -380,6 +409,7 @@ contract Deploy is Script {
         string memory singletons = "singletons";
         vm.serializeAddress(singletons, "IntegrityToken", address(itk));
         vm.serializeAddress(singletons, "ZkVerifier", address(verifier));
+        vm.serializeAddress(singletons, "AgentRegistry", address(agentRegistry));
         vm.serializeAddress(singletons, "XibalbaAgentRegistry", address(registry));
         vm.serializeAddress(singletons, "AgentAuthorityResolver", address(authorityResolver));
         vm.serializeAddress(singletons, "AllowlistAnchorPolicy", address(defaultAnchorPolicy));
@@ -414,6 +444,7 @@ contract Deploy is Script {
         vm.serializeAddress(protocolAddresses, "disputer", disputer);
         vm.serializeAddress(protocolAddresses, "governance", governance);
         vm.serializeAddress(protocolAddresses, "arbitrator", arbitrator);
+        vm.serializeAddress(protocolAddresses, "attester", attester);
         string memory protocolAddressesJson = vm.serializeAddress(protocolAddresses, "funderWallet", deployer);
 
         string memory domains = "domains";

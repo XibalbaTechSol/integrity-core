@@ -7,8 +7,8 @@ import {ITK} from "../../src/trust/ITK.sol";
 import {StakeVault} from "../../src/trust/StakeVault.sol";
 import {PolicyRegistry} from "../../src/trust/PolicyRegistry.sol";
 import {TrustConfig} from "../../src/trust/TrustConfig.sol";
-import {XibalbaAgentRegistry} from "../../src/framework/XibalbaAgentRegistry.sol";
-import {GateAllowModule, GateTarget, FactoryStub} from "./ExecuteGating.t.sol";
+import {GateAllowModule, GateTarget} from "./ExecuteGating.t.sol";
+import {GateRegistryFixture} from "./GateRegistryFixture.sol";
 
 /// @dev Drives the REAL ITK and StakeVault with bounded actions. The handler holds the
 /// MINTER / AIS_REGISTRY / DISPUTER / admin roles; a fixed set of agents acts through
@@ -298,21 +298,19 @@ contract InvariantsTest is Test {
 
 /// Invariant 3: a frozen SovereignAgent cannot execute through EITHER overload, and under the
 /// protocol-pinned model has no controller setter to escape through.
-contract FrozenAgentGateTest is Test {
+contract FrozenAgentGateTest is GateRegistryFixture {
     SovereignAgent agentPlain;
     SovereignAgent agentGraph;
     ITK itk;
     StakeVault vault;
     PolicyRegistry policy;
     TrustConfig trustConfig;
-    XibalbaAgentRegistry registry;
-    FactoryStub factoryStub;
     GateTarget tgt;
 
     address admin = makeAddr("admin");
     address governance = makeAddr("governance");
-    address controller = makeAddr("controller");
-    address anchor = makeAddr("anchor");
+    address controller;
+    uint256 controllerPk;
 
     bytes32 constant GRAPH_DOMAIN = keccak256("graph-domain");
     bytes32 constant PLAIN_DOMAIN = keccak256("plain-domain");
@@ -325,10 +323,12 @@ contract FrozenAgentGateTest is Test {
     bytes32 leafB;
 
     function setUp() public {
-        registry = new XibalbaAgentRegistry(admin);
-        factoryStub = new FactoryStub(address(registry));
-        agentPlain = new SovereignAgent("did:integrity:inv-plain", controller, address(0), address(factoryStub));
-        agentGraph = new SovereignAgent("did:integrity:inv-graph", controller, address(0), address(factoryStub));
+        (controller, controllerPk) = makeAddrAndKey("controller");
+        _deployRegistry(admin);
+        _ensureDomain("graph-domain");
+        _ensureDomain("plain-domain");
+        agentPlain = _newAgent("did:integrity:inv-plain", controller);
+        agentGraph = _newAgent("did:integrity:inv-graph", controller);
         tgt = new GateTarget();
         GateAllowModule module = new GateAllowModule(2000);
 
@@ -340,7 +340,6 @@ contract FrozenAgentGateTest is Test {
         policy.setModule(PLAIN_DOMAIN, address(module));
         itk.mint(address(agentPlain), 10_000 ether);
         itk.mint(address(agentGraph), 10_000 ether);
-        registry.grantRole(registry.REGISTRAR_ROLE(), admin);
         vm.stopPrank();
 
         trustConfig = new TrustConfig(governance);
@@ -358,16 +357,8 @@ contract FrozenAgentGateTest is Test {
         vm.deal(address(agentPlain), 100 ether);
         vm.deal(address(agentGraph), 100 ether);
 
-        // Register both agents, stake while the gate is inert, then WIRE by pointing the registry
-        // at the governance-owned TrustConfig.
-        vm.startPrank(admin);
-        registry.registerCore(
-            registry.didHash("did:integrity:inv-plain"), address(agentPlain), anchor, controller, PLAIN_DOMAIN
-        );
-        registry.registerCore(
-            registry.didHash("did:integrity:inv-graph"), address(agentGraph), anchor, controller, GRAPH_DOMAIN
-        );
-        vm.stopPrank();
+        // Stake while the gate is inert (unbound), WIRE by pointing the registry at the
+        // governance-owned TrustConfig, then bind both agents (binding needs a live domain policy).
 
         vm.startPrank(controller);
         agentPlain.execute(address(itk), 0, abi.encodeCall(itk.approve, (address(vault), type(uint256).max)));
@@ -377,7 +368,9 @@ contract FrozenAgentGateTest is Test {
         vm.stopPrank();
 
         vm.prank(admin);
-        registry.setTrustConfig(address(trustConfig));
+        agentRegistry.setTrustConfig(address(trustConfig));
+        _bind(agentPlain, controllerPk, PLAIN_DOMAIN, controller);
+        _bind(agentGraph, controllerPk, GRAPH_DOMAIN, controller);
     }
 
     /// Any score < threshold latches the freeze; both overloads then revert Frozen. The latch

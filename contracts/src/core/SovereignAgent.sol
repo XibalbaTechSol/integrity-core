@@ -5,7 +5,7 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {IAccount} from "./IAccount.sol";
 import {IExecutionPolicy} from "./IExecutionPolicy.sol";
-import {XibalbaAgentRegistry} from "../framework/XibalbaAgentRegistry.sol";
+import {AgentRegistry} from "../framework/AgentRegistry.sol";
 
 /// @dev Minimal views of the v2 trust layer, ABI-compatible with `StakeVault` /
 /// `PolicyRegistry` / `DiscountRewardModule` (declared here so SovereignAgent does not
@@ -42,14 +42,6 @@ interface IAgentPolicyRegistry {
 
 interface IAgentRewardDiscount {
     function trustDiscountBps(address agent) external view returns (uint256);
-}
-
-/// @dev The deploying factory, read only for its `registry()` pointer. The factory binds this
-/// agent to itself at registration (`AgentPrimitivesFactory` reverts `FactoryMismatch` unless
-/// `sa.factory() == address(this)`), so for a registered agent `factory.registry()` is provably
-/// the real governance-owned registry — the root of the unspoofable pin.
-interface IFactoryLike {
-    function registry() external view returns (address);
 }
 
 /// @dev The governance-owned pins the gate resolves at call time.
@@ -93,7 +85,8 @@ contract SovereignAgent is AccessControl, IAccount {
     /// BCC commitments (`nonce` field, §4.2) an agent submitted off-chain.
     uint256 public executionNonce;
 
-    /// @notice The factory that deployed this agent (informational / for indexers).
+    /// @notice The `AgentRegistry` this agent was built for (the gate's pin). Named `factory` until
+    /// the held v2 graph is deleted (owner kernel review); renamed `registry` then.
     address public immutable factory;
 
     /// @notice Swappable execution policy. address(0) skips the check (testnet default).
@@ -102,7 +95,7 @@ contract SovereignAgent is AccessControl, IAccount {
     /// @notice v2 trust layer: the stake vault, policy registry, reward-discount module, and the
     /// domain this agent is evaluated under are NOT stored here and NOT controller-settable. They
     /// are PINNED to a governance-owned source and resolved at call time via
-    /// `factory.registry().trustConfig()` (modules) and `registry.resolveAgent()` (domain). This
+    /// `AgentRegistry(factory).trustConfig()` (modules) and `.resolveAgent()` (domain). This
     /// is the redesign that closes the Critical: a self-deployed agent is its own controller, so
     /// any gate reference it could set, it could also swap for a benign fake to escape the freeze.
     /// See `_resolveGate`.
@@ -238,9 +231,10 @@ contract SovereignAgent is AccessControl, IAccount {
     /// preserves "an unwired/unregistered agent behaves exactly as before" and keeps the
     /// registration onboarding sequence (which routes `execute` BEFORE the agent is registered)
     /// working:
-    ///   - `factory == 0` or factory is codeless (a never-registered test/standalone agent);
-    ///   - `factory.registry()` reverts or is zero/codeless;
-    ///   - the agent is NOT yet registered (`isRegisteredAgent == false`) — critically, this guard
+    ///   - `factory == 0` or codeless (a never-registered test/standalone agent);
+    ///   - `factory` is not an `AgentRegistry` (`isRegisteredAgent` reverts), e.g. an agent built
+    ///     for the held v2 `AgentPrimitivesFactory`;
+    ///   - the agent is NOT yet bound as an actor (`isRegisteredAgent == false`) — critically, this guard
     ///     is applied to the WHOLE gate, not just the domain: once governance sets a global
     ///     `trustConfig` with a live `policyRegistry`, a pre-registration `execute` would resolve
     ///     `domainId == 0`, and `checkCompliance` for an unconfigured domain reverts
@@ -256,36 +250,30 @@ contract SovereignAgent is AccessControl, IAccount {
         view
         returns (address stakeVault_, address policyRegistry_, address rewardDiscountModule_, bytes32 domainId_)
     {
-        address f = factory;
-        if (f == address(0) || f.code.length == 0) return (address(0), address(0), address(0), bytes32(0));
-
-        address r;
-        try IFactoryLike(f).registry() returns (address r_) {
-            r = r_;
-        } catch {
-            return (address(0), address(0), address(0), bytes32(0));
-        }
+        // `factory` holds the `AgentRegistry` this agent was built for. The registry's codehash pin
+        // covers this immutable (immutables live in runtime code), so an agent bound as an actor
+        // provably points at the registry that bound it. An agent built for anything else (the held
+        // v2 `AgentPrimitivesFactory`, a fake, nothing) fails the wrapped calls below: inert gate.
+        address r = factory;
         if (r == address(0) || r.code.length == 0) return (address(0), address(0), address(0), bytes32(0));
 
-        // Registration guard: the whole gate is inert until the agent is registered.
-        try XibalbaAgentRegistry(r).isRegisteredAgent(address(this)) returns (bool ok) {
+        // Registration guard: the whole gate is inert until the agent is bound as an actor.
+        try AgentRegistry(r).isRegisteredAgent(address(this)) returns (bool ok) {
             if (!ok) return (address(0), address(0), address(0), bytes32(0));
         } catch {
             return (address(0), address(0), address(0), bytes32(0));
         }
 
         // Domain is sourced from the registry record (NOT self-set). `resolveAgent` reverts for an
-        // unregistered agent, but the guard above already returned; still wrapped defensively.
-        try XibalbaAgentRegistry(r).resolveAgent(address(this)) returns (
-            XibalbaAgentRegistry.AgentRecord memory rec
-        ) {
+        // unbound actor, but the guard above already returned; still wrapped defensively.
+        try AgentRegistry(r).resolveAgent(address(this)) returns (AgentRegistry.AgentRecord memory rec) {
             domainId_ = rec.domainId;
         } catch {
             return (address(0), address(0), address(0), bytes32(0));
         }
 
         address cfg;
-        try XibalbaAgentRegistry(r).trustConfig() returns (address c) {
+        try AgentRegistry(r).trustConfig() returns (address c) {
             cfg = c;
         } catch {
             return (address(0), address(0), address(0), bytes32(0));
