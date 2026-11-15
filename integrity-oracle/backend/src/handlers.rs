@@ -950,6 +950,11 @@ pub struct AisResponse {
     /// verdict. `weights` then shows the compliance weight as 0 with the other three
     /// renormalized, and `components.compliance` does not enter the score.
     pub compliance_observed: bool,
+    /// False when the window has events but none carried attested compute (validator or
+    /// TEE). `weights` then shows the sacrifice weight as 0 with the others renormalized,
+    /// and `components.sacrifice` does not enter the score. No attestation path exists
+    /// yet, so this is false for every agent with events.
+    pub sacrifice_observed: bool,
     /// Present only when a cached on-chain ReputationRegistry address is known for this
     /// agent — a nice-to-have cross-check (per the task's "not required" note) that the
     /// oracle's off-chain `zk_verified_event_ratio` telemetry flag agrees with the
@@ -1082,10 +1087,11 @@ pub(crate) async fn compute_ais_for_agent(
         .await?
         .ok_or_else(|| AppError::AgentNotFound(id.to_string()))?;
 
-    let (weights, compliance_observed) = ais_weights_for_window(
+    let WindowAxes { weights, compliance_observed, sacrifice_observed } = ais_weights_for_window(
         state.config.ais_weights,
         aggregate.event_count,
         aggregate.compliance_observed_count,
+        aggregate.sacrifice_observed_count,
     );
     let engine = scoring_core::AisEngine::new(weights)
         .and_then(|engine| engine.with_zone_policy(state.config.ais_zone_policy))
@@ -1190,6 +1196,7 @@ pub(crate) async fn compute_ais_for_agent(
         },
         weights,
         compliance_observed,
+        sacrifice_observed,
         zk_boost: breakdown.zk_boost,
         zk_proof_verified: aggregate.zk_verified_event_ratio > 0.0,
         zk_verified_event_ratio: aggregate.zk_verified_event_ratio,
@@ -1202,10 +1209,15 @@ pub(crate) async fn compute_ais_for_agent(
         proxy_axes: if compliance_observed { vec!["sacrifice", "compliance_proxy"] } else { vec!["sacrifice"] },
         missing_axes: if aggregate.event_count == 0 {
             vec!["entropy", "grounding", "sacrifice", "compliance"]
-        } else if !compliance_observed {
-            vec!["compliance"]
         } else {
-            Vec::new()
+            let mut missing = Vec::new();
+            if !sacrifice_observed {
+                missing.push("sacrifice");
+            }
+            if !compliance_observed {
+                missing.push("compliance");
+            }
+            missing
         },
         onchain_zk_boost_consistent,
         anchor_coverage,
@@ -1435,24 +1447,40 @@ fn check_oracle_api_key(state: &AppState, headers: &axum::http::HeaderMap) -> Re
     Ok(())
 }
 
-/// The AIS weights to score a window with. When the window has events but none carries an
-/// evidence-backed compliance verdict (migration 0025), the compliance axis is unobserved:
-/// its weight goes to 0 and the rest are renormalized (`AisWeights::without_compliance`).
-/// A profile that cannot be renormalized keeps its configured weights and so fails closed.
+/// The weights a window is scored with, and which proxy axes it observed.
+#[derive(Debug, Clone, Copy)]
+struct WindowAxes {
+    weights: scoring_core::AisWeights,
+    compliance_observed: bool,
+    sacrifice_observed: bool,
+}
+
+/// The AIS weights to score a window with. A window with events observes an axis only
+/// when at least one event carries evidence for it:
+/// - compliance: an evidence-backed verdict (migration 0025);
+/// - sacrifice: attested compute (migration 0026).
+///
+/// An unobserved axis gets weight 0 and the rest are renormalized
+/// (`AisWeights::renormalized`), so it neither annihilates nor shrinks the score. An empty
+/// window, or a profile that cannot be renormalized, keeps its configured weights and so
+/// fails closed.
 fn ais_weights_for_window(
     configured: scoring_core::AisWeights,
     event_count: i64,
     compliance_observed_count: i64,
-) -> (scoring_core::AisWeights, bool) {
-    let observed = event_count == 0 || compliance_observed_count > 0;
-    if observed {
-        return (configured, true);
+    sacrifice_observed_count: i64,
+) -> WindowAxes {
+    let fail_closed = WindowAxes { weights: configured, compliance_observed: true, sacrifice_observed: true };
+    if event_count == 0 {
+        return fail_closed;
     }
-    match configured.without_compliance() {
-        Ok(w) => (w, false),
+    let compliance_observed = compliance_observed_count > 0;
+    let sacrifice_observed = sacrifice_observed_count > 0;
+    match configured.renormalized(compliance_observed, sacrifice_observed) {
+        Ok(weights) => WindowAxes { weights, compliance_observed, sacrifice_observed },
         Err(e) => {
-            tracing::warn!(error = %e, "cannot renormalize AIS weights without compliance; keeping configured weights");
-            (configured, true)
+            tracing::warn!(error = %e, "cannot renormalize AIS weights over the observed axes; keeping configured weights");
+            fail_closed
         }
     }
 }
@@ -1744,6 +1772,7 @@ pub async fn ingest_telemetry(
         recomputed.sacrifice,
         flagged,
         compliance_observed,
+        recomputed.sacrifice_observed,
         zk_verified,
         &leaf_hash,
         &content_hash,
@@ -3790,11 +3819,12 @@ pub async fn get_ais_history(
     let points = buckets
         .into_iter()
         .map(|b| {
-            // Same unobserved-compliance rule as live AIS, decided per bucket.
-            let (weights, bucket_observed) = ais_weights_for_window(
+            // Same unobserved-axis rule as live AIS, decided per bucket.
+            let WindowAxes { weights, compliance_observed: bucket_observed, .. } = ais_weights_for_window(
                 state.config.ais_weights,
                 b.event_count,
                 b.compliance_observed_count,
+                b.sacrifice_observed_count,
             );
             let engine = scoring_core::AisEngine::new(weights)
                 .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
@@ -5086,22 +5116,42 @@ mod ais_weights_for_window_tests {
 
     #[test]
     fn window_with_no_observed_compliance_uses_renormalized_weights() {
-        let (w, observed) = ais_weights_for_window(AisWeights::default(), 10, 0);
-        assert!(!observed);
-        assert_eq!(w, AisWeights::default().without_compliance().unwrap());
+        let axes = ais_weights_for_window(AisWeights::default(), 10, 0, 10);
+        assert!(!axes.compliance_observed);
+        assert!(axes.sacrifice_observed);
+        assert_eq!(axes.weights, AisWeights::default().without_compliance().unwrap());
     }
 
     #[test]
-    fn window_with_any_observed_compliance_keeps_configured_weights() {
-        let (w, observed) = ais_weights_for_window(AisWeights::default(), 10, 1);
-        assert!(observed);
-        assert_eq!(w, AisWeights::default());
+    fn window_with_every_axis_observed_keeps_configured_weights() {
+        let axes = ais_weights_for_window(AisWeights::default(), 10, 1, 1);
+        assert!(axes.compliance_observed && axes.sacrifice_observed);
+        assert_eq!(axes.weights, AisWeights::default());
+    }
+
+    #[test]
+    fn window_with_no_attested_sacrifice_drops_the_sacrifice_weight() {
+        // Every off-chain agent today: signed events, no compliance evidence, no attested
+        // compute. Configured weights scored them exactly 0.0 through the zero sacrifice axis.
+        let axes = ais_weights_for_window(AisWeights::default(), 132, 0, 0);
+        assert!(!axes.compliance_observed && !axes.sacrifice_observed);
+        assert_eq!(axes.weights, AisWeights::default().renormalized(false, false).unwrap());
+        assert_eq!(axes.weights.w_sacrifice, 0.0);
     }
 
     #[test]
     fn empty_window_keeps_configured_weights() {
-        let (w, _) = ais_weights_for_window(AisWeights::default(), 0, 0);
-        assert_eq!(w, AisWeights::default());
+        let axes = ais_weights_for_window(AisWeights::default(), 0, 0, 0);
+        assert_eq!(axes.weights, AisWeights::default());
+        assert!(axes.compliance_observed && axes.sacrifice_observed);
+    }
+
+    #[test]
+    fn unrenormalizable_profile_fails_closed_to_configured_weights() {
+        let only_proxies = AisWeights { w_entropy: 0.0, w_grounding: 0.0, w_sacrifice: 0.5, w_compliance: 0.5 };
+        let axes = ais_weights_for_window(only_proxies, 10, 0, 0);
+        assert_eq!(axes.weights, only_proxies);
+        assert!(axes.compliance_observed && axes.sacrifice_observed);
     }
 }
 

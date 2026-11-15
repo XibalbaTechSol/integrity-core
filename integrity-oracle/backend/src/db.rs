@@ -74,6 +74,9 @@ pub struct AisAggregate {
     /// Events in the window whose compliance verdict came from independent evidence
     /// (migration 0025). Zero means the compliance axis is unobserved for this window.
     pub compliance_observed_count: i64,
+    /// Events in the window whose sacrifice is attested (migration 0026). Zero means the
+    /// sacrifice axis is unobserved for this window.
+    pub sacrifice_observed_count: i64,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -614,6 +617,7 @@ pub async fn insert_telemetry_event(
     gpu_hours_verified: f64,
     flagged: bool,
     compliance_observed: bool,
+    sacrifice_observed: bool,
     zk_verified: bool,
     leaf_hash: &[u8],
     content_hash: &[u8],
@@ -639,8 +643,8 @@ pub async fn insert_telemetry_event(
     let insert_result = sqlx::query(
         r#"
         INSERT INTO telemetry_events
-            (id, agent_id, nonce, performance_variance, hgi_raw, gpu_hours_verified, flagged, zk_verified, leaf_hash, content_hash, event_time, payload, phi_flags, compliance_observed)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            (id, agent_id, nonce, performance_variance, hgi_raw, gpu_hours_verified, flagged, zk_verified, leaf_hash, content_hash, event_time, payload, phi_flags, compliance_observed, sacrifice_observed)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         "#,
     )
     .bind(event_id)
@@ -657,6 +661,7 @@ pub async fn insert_telemetry_event(
     .bind(payload)
     .bind(phi_flags)
     .bind(compliance_observed)
+    .bind(sacrifice_observed)
     .execute(&mut *tx)
     .await;
     if let Err(sqlx::Error::Database(db_err)) = &insert_result {
@@ -685,24 +690,27 @@ pub async fn aggregate_for_ais(
     agent_id: &str,
     since: DateTime<Utc>,
 ) -> Result<AisAggregate, sqlx::Error> {
-    let row: (f64, f64, f64, f64, f64, i64, i64) = sqlx::query_as(
+    let row: (f64, f64, f64, f64, f64, i64, i64, i64) = sqlx::query_as(
         r#"
         SELECT
             -- Each aggregate is explicitly cast to `double precision`: the `1.0`/`0.0`
             -- literals in the CASE expression are Postgres `numeric`, so
             -- `AVG(CASE ...)` returns `numeric`, which sqlx will NOT decode into a Rust
             -- `f64` (it errors with "SQL type NUMERIC is not compatible"). Casting keeps
-            -- every returned column FLOAT8 so the `(f64, f64, f64, f64, f64, i64, i64)` row
+            -- every returned column FLOAT8 so the `(f64, f64, f64, f64, f64, i64, i64, i64)` row
             -- tuple below decodes cleanly regardless of each source column's type.
             COALESCE(AVG(performance_variance), 0.0)::double precision AS avg_variance,
             COALESCE(AVG(hgi_raw), 0.0)::double precision AS avg_hgi,
-            COALESCE(SUM(gpu_hours_verified), 0.0)::double precision AS sum_gpu_hours,
+            -- Only attested compute counts (migration 0026); unobserved rows hold legacy
+            -- self-reported token proxies, which the inner CASE turns into NULL.
+            COALESCE(SUM(CASE WHEN sacrifice_observed THEN gpu_hours_verified END), 0.0)::double precision AS sum_gpu_hours,
             -- Only events with an evidence-backed verdict count (migration 0025); the
             -- inner CASE yields NULL for unobserved events, which AVG skips.
             COALESCE(AVG(CASE WHEN compliance_observed THEN (CASE WHEN flagged THEN 1.0 ELSE 0.0 END) END), 0.0)::double precision AS penalty_ratio,
             COALESCE(AVG(CASE WHEN zk_verified THEN 1.0 ELSE 0.0 END), 0.0)::double precision AS zk_verified_event_ratio,
             COUNT(*) AS event_count,
-            COUNT(*) FILTER (WHERE compliance_observed) AS compliance_observed_count
+            COUNT(*) FILTER (WHERE compliance_observed) AS compliance_observed_count,
+            COUNT(*) FILTER (WHERE sacrifice_observed) AS sacrifice_observed_count
         FROM telemetry_events
         WHERE agent_id = $1 AND event_time >= $2
         "#,
@@ -720,6 +728,7 @@ pub async fn aggregate_for_ais(
         zk_verified_event_ratio: row.4,
         event_count: row.5,
         compliance_observed_count: row.6,
+        sacrifice_observed_count: row.7,
     })
 }
 
@@ -1710,6 +1719,9 @@ pub struct AisBucketAggregate {
     /// Events in the window whose compliance verdict came from independent evidence
     /// (migration 0025). Zero means the compliance axis is unobserved for this window.
     pub compliance_observed_count: i64,
+    /// Events in the window whose sacrifice is attested (migration 0026). Zero means the
+    /// sacrifice axis is unobserved for this window.
+    pub sacrifice_observed_count: i64,
 }
 
 /// `bucket_interval` must be a Postgres-interval-parseable literal (e.g. `"1 hour"`) —
@@ -1725,20 +1737,23 @@ pub async fn ais_history_buckets(
     bucket_interval: &str,
     since: DateTime<Utc>,
 ) -> Result<Vec<AisBucketAggregate>, sqlx::Error> {
-    type BucketRow = (DateTime<Utc>, f64, f64, f64, f64, f64, i64, i64);
+    type BucketRow = (DateTime<Utc>, f64, f64, f64, f64, f64, i64, i64, i64);
     let rows: Vec<BucketRow> = sqlx::query_as(
         r#"
         SELECT
             time_bucket($1::interval, event_time) AS bucket_start,
             COALESCE(AVG(performance_variance), 0.0)::double precision AS avg_variance,
             COALESCE(AVG(hgi_raw), 0.0)::double precision AS avg_hgi,
-            COALESCE(SUM(gpu_hours_verified), 0.0)::double precision AS sum_gpu_hours,
+            -- Only attested compute counts (migration 0026); unobserved rows hold legacy
+            -- self-reported token proxies, which the inner CASE turns into NULL.
+            COALESCE(SUM(CASE WHEN sacrifice_observed THEN gpu_hours_verified END), 0.0)::double precision AS sum_gpu_hours,
             -- Only events with an evidence-backed verdict count (migration 0025); the
             -- inner CASE yields NULL for unobserved events, which AVG skips.
             COALESCE(AVG(CASE WHEN compliance_observed THEN (CASE WHEN flagged THEN 1.0 ELSE 0.0 END) END), 0.0)::double precision AS penalty_ratio,
             COALESCE(AVG(CASE WHEN zk_verified THEN 1.0 ELSE 0.0 END), 0.0)::double precision AS zk_verified_event_ratio,
             COUNT(*) AS event_count,
-            COUNT(*) FILTER (WHERE compliance_observed) AS compliance_observed_count
+            COUNT(*) FILTER (WHERE compliance_observed) AS compliance_observed_count,
+            COUNT(*) FILTER (WHERE sacrifice_observed) AS sacrifice_observed_count
         FROM telemetry_events
         WHERE agent_id = $2 AND event_time >= $3
         GROUP BY bucket_start
@@ -1763,6 +1778,7 @@ pub async fn ais_history_buckets(
                 zk_verified_event_ratio,
                 event_count,
                 compliance_observed_count,
+                sacrifice_observed_count,
             )| {
                 AisBucketAggregate {
                     bucket_start,
@@ -1773,6 +1789,7 @@ pub async fn ais_history_buckets(
                     zk_verified_event_ratio,
                     event_count,
                     compliance_observed_count,
+                    sacrifice_observed_count,
                 }
             },
         )

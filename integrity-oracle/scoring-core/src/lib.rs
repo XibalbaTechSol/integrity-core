@@ -43,7 +43,10 @@ use serde::{Deserialize, Serialize};
 /// the old prototype's convention (a human-readable "out of 1000" score) so the
 /// API's `ais_score` field stays intuitive to operators.
 pub const MAX_COMPONENT_SCORE: f64 = 1000.0;
-pub const AIS_PROFILE_VERSION: &str = "ais/v1-geometric-1";
+/// `-2` (2026-11-15): an axis with no independent evidence (compliance, sacrifice) is
+/// unobserved and renormalized out instead of scored as an annihilating zero. The
+/// geometric formula itself is unchanged from `-1`; see docs/SPEC.md (AIS section).
+pub const AIS_PROFILE_VERSION: &str = "ais/v1-geometric-2";
 
 /// Canonical step reward: `max(0, r_task - cost) * clamp(ais, 0, 1000) / 1000`.
 pub const REWARD_PROFILE_MULTIPLICATIVE: &str = "ais-reward/v2-multiplicative-1";
@@ -136,29 +139,46 @@ impl AisWeights {
         Ok(())
     }
 
-    /// The same weights with the compliance axis treated as **unobserved**: `w_compliance`
-    /// becomes 0 and the other three are rescaled to sum to 1 again.
+    /// The same weights with each **unobserved** proxy axis set to weight 0 and the remaining
+    /// weights rescaled to sum to 1 again.
+    ///
+    /// Only the two proxy axes can be unobserved. Entropy and grounding are recomputed by the
+    /// oracle from every signed event, so a window with events always observes them.
+    /// - Compliance is observed when at least one event carries an evidence-backed verdict
+    ///   (migration 0025).
+    /// - Sacrifice is observed when at least one event carries validator/TEE-attested
+    ///   compute (migration 0026). No ingest path writes attested compute yet; token counts
+    ///   are an audit-only proxy (`backend::derive`).
     ///
     /// Dropping a weight without rescaling would shrink the geometric mean's exponent, so a
-    /// perfect agent would score ~178 instead of 1000. A zero weight, unlike a zero score,
-    /// does not annihilate the mean. This is the rule `integrity_sdk.core.ais_local` uses
-    /// for axes its receipt log cannot observe, and `integrity_sdk.core.ais_reward.
-    /// weights_without_compliance` mirrors it.
+    /// perfect agent would score far below 1000. A zero weight, unlike a zero score, does not
+    /// annihilate the mean. An **observed** zero still annihilates, which is the property the
+    /// geometric mean exists for (`any_single_zero_component_annihilates_ais`). This is the
+    /// rule `integrity_sdk.core.ais_local` uses for axes its receipt log cannot observe.
     ///
-    /// Errors when the other three weights are all zero: nothing would remain to score.
-    pub fn without_compliance(&self) -> Result<Self, String> {
-        let rest = self.w_entropy + self.w_grounding + self.w_sacrifice;
+    /// Errors when no observed axis carries weight: nothing would remain to score.
+    pub fn renormalized(&self, compliance_observed: bool, sacrifice_observed: bool) -> Result<Self, String> {
+        let w_sacrifice = if sacrifice_observed { self.w_sacrifice } else { 0.0 };
+        let w_compliance = if compliance_observed { self.w_compliance } else { 0.0 };
+        let rest = self.w_entropy + self.w_grounding + w_sacrifice + w_compliance;
         if !rest.is_finite() || rest <= 0.0 {
-            return Err("no non-compliance AIS weight to renormalize onto".to_string());
+            return Err("no observed AIS weight to renormalize onto".to_string());
         }
         let w = Self {
             w_entropy: self.w_entropy / rest,
             w_grounding: self.w_grounding / rest,
-            w_sacrifice: self.w_sacrifice / rest,
-            w_compliance: 0.0,
+            w_sacrifice: w_sacrifice / rest,
+            w_compliance: w_compliance / rest,
         };
         w.validate()?;
         Ok(w)
+    }
+
+    /// [`Self::renormalized`] with compliance unobserved and sacrifice observed.
+    ///
+    /// Errors when the other three weights are all zero: nothing would remain to score.
+    pub fn without_compliance(&self) -> Result<Self, String> {
+        self.renormalized(false, true)
     }
 }
 
@@ -789,6 +809,57 @@ mod tests {
         let engine = AisEngine::new(AisWeights::default().without_compliance().unwrap()).unwrap();
         let unobserved = engine.score(&inputs);
         assert!((unobserved.ais_base - 1000.0).abs() < 1e-6, "got {}", unobserved.ais_base);
+    }
+
+    #[test]
+    fn renormalized_drops_unobserved_sacrifice_and_compliance() {
+        // Default 0.30/0.30/0.20/0.20 with both proxy axes unobserved leaves entropy and
+        // grounding at 0.5 each: the off-chain agent case until attestation exists.
+        let w = AisWeights::default().renormalized(false, false).unwrap();
+        assert_eq!(w.w_sacrifice, 0.0);
+        assert_eq!(w.w_compliance, 0.0);
+        assert!((w.w_entropy - 0.5).abs() < 1e-12);
+        assert!((w.w_grounding - 0.5).abs() < 1e-12);
+        w.validate().unwrap();
+    }
+
+    #[test]
+    fn renormalized_with_everything_observed_is_the_configured_profile() {
+        assert_eq!(AisWeights::default().renormalized(true, true).unwrap(), AisWeights::default());
+    }
+
+    #[test]
+    fn without_compliance_is_renormalized_with_sacrifice_observed() {
+        assert_eq!(
+            AisWeights::default().without_compliance().unwrap(),
+            AisWeights::default().renormalized(false, true).unwrap()
+        );
+    }
+
+    #[test]
+    fn unobserved_sacrifice_does_not_annihilate_ais() {
+        // Strong entropy/grounding, nothing attested for sacrifice (0 hours) and no
+        // compliance evidence: the live state of every off-chain agent on 2026-11-15,
+        // which scored exactly 0.0 under the configured weights.
+        let inputs = AisComponentInputs {
+            performance_variance: 0.0,
+            hgi_raw: 1.0,
+            gpu_hours_verified: 0.0,
+            penalty_ratio: 0.0,
+            zk_verified_event_ratio: 0.0,
+        };
+        let configured = AisEngine::new(AisWeights::default()).unwrap().score(&inputs);
+        assert_eq!(configured.ais_base, 0.0, "precondition: an observed zero annihilates");
+        let engine = AisEngine::new(AisWeights::default().renormalized(false, false).unwrap()).unwrap();
+        let unobserved = engine.score(&inputs);
+        assert!((unobserved.ais_base - 1000.0).abs() < 1e-6, "got {}", unobserved.ais_base);
+    }
+
+    #[test]
+    fn renormalized_refuses_when_only_unobserved_axes_carry_weight() {
+        let w = AisWeights { w_entropy: 0.0, w_grounding: 0.0, w_sacrifice: 0.5, w_compliance: 0.5 };
+        assert!(w.renormalized(false, false).is_err());
+        assert!(w.renormalized(true, false).is_ok());
     }
 
     #[test]

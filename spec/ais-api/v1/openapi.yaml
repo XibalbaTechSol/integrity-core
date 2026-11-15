@@ -1246,6 +1246,7 @@ components:
       - proxy_axes
       - missing_axes
       - compliance_observed
+      - sacrifice_observed
       - anchor_coverage
       - constraint_score
       - shadow_gate
@@ -1349,6 +1350,13 @@ components:
           type: array
           items:
             type: string
+        sacrifice_observed:
+          type: boolean
+          description: |-
+            False when the window has events but none carried attested compute (validator or
+            TEE). `weights` then shows the sacrifice weight as 0 with the others renormalized,
+            and `components.sacrifice` does not enter the score. No attestation path exists
+            yet, so this is false for every agent with events.
         scoring_profile:
           type: string
         shadow_gate:

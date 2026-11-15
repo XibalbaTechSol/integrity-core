@@ -41,7 +41,7 @@ Any hallucination, broken behavioral commitment, or unauthorized execution cause
 
 ## Mathematical Formulation
 
-Active profile: `ais/v1-geometric-1`.
+Active profile: `ais/v1-geometric-2`. Compliance or sacrifice with no independent evidence is *unobserved*: its weight drops to 0, the other weights are renormalized, and it appears in `missing_axes`. An observed zero still annihilates.
 
 $$\text{AIS}_{\text{base}} = S_{\text{entropy}}^{w_E} \times S_{\text{grounding}}^{w_G} \times S_{\text{sacrifice}}^{w_S} \times S_{\text{compliance}}^{w_C}$$
 
