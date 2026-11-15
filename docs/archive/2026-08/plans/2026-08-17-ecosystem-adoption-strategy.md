@@ -1029,3 +1029,99 @@ Trulioo+Worldpay — no update since the original 2025-08-14 partnership; Observ
 of the 2026-09-15 correction that it lacks a staking/slashing mechanism); RSA Agent ID and Baselayer —
 no updates found since their respective 2026-10-06 and 2026-09-24 entries. No changes to the §3 table
 this run.
+
+### 2026-11-15 — Ecosystem watch: EU AI Act enforcement-procedure implementing act (Art. 75c/75d) consultation; Zetrix AI/CAICT "Know Your Agent" launch (no stake/slash); everything else unchanged since 2026-11-14
+
+Automated research sweep (scheduled tracking run, ~1 day after the prior run — narrower than usual
+because the prior run itself used a wide catch-up window; branch `audit/harness-loop-2026-07-30` still
+existed, no recreation needed). Re-swept all nine named §3 players, both §4/§2 fact-checks, and did a
+general sweep for a new entrant combining identity + staked reputation + compliance gating. Two findings
+judged material enough to log; everything else confirmed unchanged or not material.
+
+1. **EU AI Act enforcement (§2/§4b): a new, more concrete procedural layer — the Commission opened and
+   closed a consultation on the actual rules a fine would run through.** The European Commission
+   published a draft Implementing Regulation under **Articles 75c and 75d** of the AI Act for public
+   consultation from **2026-10-12 to 2026-11-09** (closed six days before this sweep), setting out
+   practical/specific arrangements for Commission-conducted enforcement proceedings against providers
+   under its direct supervision (GPAI and other AI-system providers in scope of Article 75(1)): an
+   access-to-file right once preliminary findings are notified, and detailed rules on the five-year
+   limitation period for imposing and enforcing fines/periodic penalty payments, including when that
+   period is interrupted or suspended (one secondary source describes a ten-year outer limit on top of
+   the five-year period — flagging the discrepancy rather than resolving it, since the official text
+   itself has not been checked directly). This is distinct from, and more concrete than, the
+   evidence-gathering RFIs already recorded in the 2026-09-22 and 2026-11-14 entries — those are the AI
+   Office asking questions, this is the Commission building the actual procedural machinery a
+   subsequent fine would be litigated through. The draft remains unadopted/unapproved as of this
+   writing, so this is still "procedure being built," not "procedure in force." Does **not** change the
+   confirmed Annex III (2027-12-02) / Annex I (2028-08-02) deadlines, and does **not** resolve the still-
+   open "Article 50/Annex III inspection wave" claim (unconfirmed since 2026-09-25) — that claim did not
+   resurface this sweep either way. Worth flagging for a future GTM/compliance claim specifically because
+   it's evidence the enforcement pathway is maturing procedurally, independent of whether any specific
+   sector-inspection claim holds up.
+   Sources: [LexisNexis, Commission consults on AI Act implementing rules for enforcement proceedings, penalties](https://www.lexisnexis.co.uk/legal/news/commission-consults-on-ai-act-implementing-rules-for-enforcement-proceedings-penalties),
+   [CMS Law, European Commission proposes implementing regulation for AI Act enforcement proceedings](https://cms.law/en/gbr/publication/european-commission-proposes-implementing-regulation-for-ai-act-enforcement-proceedings),
+   [PPC Land, EU draft reveals how Brussels will probe and fine AI model providers](https://ppc.land/eu-draft-reveals-how-brussels-will-probe-and-fine-ai-model-providers/),
+   [dig.watch, European Commission consultation closes on draft AI Act procedure rules](https://dig.watch/updates/european-commission-ai-act-draft-consultation).
+
+2. **New named entrant flagged, not added to §3 (no stake/slash — same convention as RSA Agent ID,
+   Baselayer, KYA Lab before it): Zetrix AI Berhad and China's CAICT (via its Astron unit) launched a
+   "Know Your Agent" identity service on 2026-11-05**, announced jointly at the World Internet
+   Conference (Wuzhen) and the ICT Development Forum (Dubai). Mechanism per consistent coverage: W3C
+   Verifiable-Credential-based agent identity tied to an authenticated person/organization, with capped
+   delegation (an agent delegating to a sub-agent cannot grant authority beyond what it was itself
+   assigned) and revocable permissions. Two things make this worth flagging despite not matching this
+   doc's specific combination: (a) a planned cross-border recognition pilot spanning China, ASEAN, the
+   Middle East, and Africa, with a stated intent to submit findings to the **ITU-T's Study Group 17
+   Focus Group on Trust and Identity for Humans and Agentic AI (FG-TIDA)** — i.e., explicitly aiming at
+   leverage through a UN-specialized-agency standards body, a different category of institutional
+   backing than the enterprise-vendor and startup entries logged so far, closer in kind to this doc's
+   FIDO Alliance TWG row than to Baselayer/RSA; (b) CAICT itself is a Chinese government-affiliated ICT
+   standards institute, not a private vendor. **No staking, bonding, or slashing mechanism disclosed
+   anywhere in coverage**, and no compliance-vertical gating beyond generic identity/accountability
+   framing, so it does not meet this doc's specific identity+staked-reputation+compliance-gating
+   competitor bar — same non-matching shape as every other entry in this bucket. Caveats: this is a
+   follow-up to an existing April 2026 Zetrix/CAICT blockchain-trust-layer announcement, not a first
+   launch, and coverage of the announcement itself notes Zetrix AI is under financial/legal strain (a
+   sharp share-price decline and a forced sale of founder-pledged shares) — context worth keeping in
+   mind before treating this as a well-capitalized, stable entrant. **New naming-collision note for
+   future runs:** coverage states two unrelated vendors (Shufti, LexisNexis Risk Solutions) reportedly
+   launched their own, separate "Know Your Agent" products the same week — do not conflate either with
+   this entry or with the half-dozen-plus other unrelated "KYA"-named efforts already flagged since
+   2026-09-01.
+   Sources: [New Straits Times, Zetrix, China's CAICT launch AI agent ID service](https://www.nst.com.my/amp/business/corporate/2026/11/1571471/zetrix-chinas-caict-launch-ai-agent-id-service),
+   [The Edge Malaysia (2026-11-05)](https://theedgemalaysia.com/node/824669),
+   [ID Tech Wire, New Developments Show Growing Agreement on What to Verify About AI Agents, if Not How](https://idtechwire.com/new-developments-show-growing-agreement-on-what-to-verify-about-ai-agents-if-not-how/),
+   [Kyodo News PR Wire, press release](https://kyodonewsprwire.jp/release/202611059562).
+
+3. **§4 fact-check (a), ERC-8004 Validation Registry: no change, evidence remains contradictory.** This
+   sweep surfaced the same kind of unresolved, mutually-inconsistent secondary signal as the 2026-10-24
+   and 2026-11-14 entries — one skills-directory listing shows a Validation Registry address
+   (`0x8004Cb1BF31DAf7788923b405b754f57acEB4272`) under what appears to be a testnet-chain table (truncated,
+   not confirmed), ChaosChain's own docs list a different, non-"0x8004"-prefixed Validation Registry
+   address on Base Sepolia, and QuickNode's documentation continues to describe Validation as
+   mainnet-pending. No change found in the primary `erc-8004-contracts` README. Status stays "no publicly
+   documented mainnet address," unresolved since 2026-08-26; the 2026-10-24 entry's flagged (not
+   resolved) LLM4Agents deployed-but-unpublished-address claim was again neither corroborated nor
+   contradicted this run.
+
+4. **General sweep for a new identity + staked-reputation + compliance-gating entrant: nothing added
+   beyond item 2 above.** Checked the Decentralized Identity Foundation's formalization of Vouched's
+   donated "MCP-I" framework into **"KYA-OS"** (DIF's Trusted AI Agents Working Group, protocol spec
+   v1.0.0 published 2026-07-29) — predates this doc's 2026-08-17 tracking window, and like the original
+   Vouched ruling (2026-08-28 entry) its three pillars (identity/delegation/signed-proof-of-action) carry
+   no staking, bonding, or slashing mechanism and no compliance-vertical gating; not treated as new.
+   Okta's "Okta for AI Agents – Core" GA for regulated (HIPAA/FedRAMP) environments and Imprivata's
+   Agentic Identity Management (HIMSS, March 2026) are enterprise-IAM-for-regulated-industries plays,
+   same non-matching bucket as Oasis Security/SecureAuth/Offroad/RSA Agent ID — no staking disclosed,
+   not new this sweep regardless.
+
+Not material / considered and not added: all nine named §3 players re-swept with no updates beyond their
+respective last-tracked entries (Injective Agents, ChaosChain/Genesis Studio; KYA `kya.link`/
+`agentecon.ai` — stake/slash question still open, still no successful primary-source fetch; Cloudflare/
+GoDaddy; FIDO Alliance TWG — still no draft spec; Semantica — no update since the 2026-08-11 security
+release; Trulioo+Worldpay; Visa Trusted Agent Protocol/Mastercard Agent Pay — no update beyond the
+2026-10-11 Skyfire/Cloudflare entry; Anthropic/MCP — no update since the 2026-08-24 EMA GA); RSA Agent
+ID's Discover/Secure modules reach their already-scheduled GA the day after this sweep (2026-11-16) per
+the 2026-10-06 entry — not logged as a new fact since it's the already-known schedule arriving on time,
+not new information, and no post-launch confirmation exists yet as of this run. No changes to the §3
+table this run.
