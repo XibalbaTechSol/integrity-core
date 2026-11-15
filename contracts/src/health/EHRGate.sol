@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {SmartBAAFactory} from "./SmartBAAFactory.sol";
-import {XibalbaAgentRegistry} from "../framework/XibalbaAgentRegistry.sol";
+import {AgentRegistry} from "../framework/AgentRegistry.sol";
 import {IAgentAuthorityResolver} from "../framework/IAgentAuthorityResolver.sol";
 
 /// @title EHRGate
@@ -11,10 +11,8 @@ import {IAgentAuthorityResolver} from "../framework/IAgentAuthorityResolver.sol"
 /// agent may only actually read it if three independent checks all pass: the patient's
 /// grant is still unlocked, the covered entity has an active BAA with that agent, and the
 /// agent's current AIS clears the configured floor.
-/// @dev AIS is resolved through IAgentAuthorityResolver (Stream 2 / SPEC.md §3.4) rather
-/// than reading registry.resolveAgent(...).primitives.reputationRegistry directly, so this
-/// gate serves both sovereign clone-set agents and enterprise (StateAnchor-only) agents
-/// without EHRGate needing to know which profile a given agent used at registration.
+/// @dev AIS is resolved through IAgentAuthorityResolver (registration v3: `AgentRegistry`
+/// actor binding + `AISRegistry` checkpoint), so EHRGate never reads score storage directly.
 contract EHRGate {
     struct Gate {
         address coveredEntity;
@@ -22,11 +20,13 @@ contract EHRGate {
         uint256 grantedAt;
     }
 
-    XibalbaAgentRegistry public immutable registry;
+    AgentRegistry public immutable registry;
     SmartBAAFactory public immutable baaFactory;
     IAgentAuthorityResolver public immutable resolver;
 
-    /// @notice Minimum effective AIS (post ZK-boost) an agent must hold to access PHI.
+    /// @notice Minimum AIS an agent must hold to access PHI, in BASIS POINTS (0..10000), the
+    /// `AISRegistry` scale the resolver returns. (Pre-v3 it was the 0..1000 ReputationRegistry
+    /// scale: a v2 threshold of N is 10*N here.)
     /// Mutable (not immutable) because the AIS scale/formula weights are configurable
     /// per §4.3 and this threshold should move with them, not be frozen at deploy time.
     uint256 public minAisThreshold;
@@ -49,7 +49,7 @@ contract EHRGate {
     }
 
     constructor(address _registry, address _baaFactory, address _resolver, uint256 _minAisThreshold, address _admin) {
-        registry = XibalbaAgentRegistry(_registry);
+        registry = AgentRegistry(_registry);
         baaFactory = SmartBAAFactory(_baaFactory);
         resolver = IAgentAuthorityResolver(_resolver);
         minAisThreshold = _minAisThreshold;

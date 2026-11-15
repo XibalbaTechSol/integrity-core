@@ -9,7 +9,7 @@ import {PolicyRegistry} from "../../src/trust/PolicyRegistry.sol";
 import {IPolicyModule} from "../../src/trust/IPolicyModule.sol";
 import {DiscountRewardModule} from "../../src/trust/DiscountRewardModule.sol";
 import {TrustConfig} from "../../src/trust/TrustConfig.sol";
-import {XibalbaAgentRegistry} from "../../src/framework/XibalbaAgentRegistry.sol";
+import {GateRegistryFixture} from "./GateRegistryFixture.sol";
 
 /// @dev Test-only fixture; deliberately not in src/.
 contract GateAllowModule is IPolicyModule {
@@ -34,38 +34,25 @@ contract GateTarget {
     function other() external payable {}
 }
 
-/// @dev Minimal stand-in for `AgentPrimitivesFactory`: the gate only reads `factory.registry()`.
-/// The real factory binds `sa.factory() == address(this)` at registration (tested in
-/// ProtocolPinnedGate.t.sol); here we register agents directly via the registrar role.
-contract FactoryStub {
-    address public registry;
-
-    constructor(address r) {
-        registry = r;
-    }
-}
-
 /// @notice Gate behavior under the PROTOCOL-PINNED trust model: the stake vault / policy registry /
 /// reward module / domain are resolved at call time from a governance-owned `TrustConfig` and the
 /// registry record, not from controller-set storage. Wiring = governance pointing the registry at
 /// the `TrustConfig`; there are no per-agent trust setters any more.
-contract ExecuteGatingTest is Test {
+contract ExecuteGatingTest is GateRegistryFixture {
     SovereignAgent agent;
     ITK itk;
     StakeVault vault;
     PolicyRegistry policy;
     DiscountRewardModule discount;
     TrustConfig trustConfig;
-    XibalbaAgentRegistry agentRegistry;
-    FactoryStub factoryStub;
     GateTarget tgt;
     GateAllowModule module;
 
     address admin = makeAddr("admin");
     address governance = makeAddr("governance");
-    address controller = makeAddr("controller");
+    address controller;
+    uint256 controllerPk;
     address stranger = makeAddr("stranger");
-    address anchor = makeAddr("anchor");
 
     bytes32 constant GRAPH_DOMAIN = keccak256("graph-domain");
     bytes32 constant PLAIN_DOMAIN = keccak256("plain-domain");
@@ -81,10 +68,12 @@ contract ExecuteGatingTest is Test {
     bytes32 leafB;
 
     function setUp() public {
-        // Registry + governance-owned TrustConfig, with the agent's factory pointing at the registry.
-        agentRegistry = new XibalbaAgentRegistry(admin);
-        factoryStub = new FactoryStub(address(agentRegistry));
-        agent = new SovereignAgent(DID, controller, address(0), address(factoryStub));
+        // v3 AgentRegistry + governance-owned TrustConfig; the agent is built for the registry.
+        (controller, controllerPk) = makeAddrAndKey("controller");
+        _deployRegistry(admin);
+        _ensureDomain("graph-domain");
+        _ensureDomain("plain-domain");
+        agent = _newAgent(DID, controller);
         tgt = new GateTarget();
         module = new GateAllowModule(2000); // 20%
 
@@ -97,7 +86,6 @@ contract ExecuteGatingTest is Test {
         discount = new DiscountRewardModule(governance, 50);
         trustConfig = new TrustConfig(governance);
         itk.mint(address(agent), 10_000 ether);
-        agentRegistry.grantRole(agentRegistry.REGISTRAR_ROLE(), admin);
         vm.stopPrank();
 
         // Governance pins the three trust singletons (but does NOT yet point the registry at the
@@ -121,13 +109,11 @@ contract ExecuteGatingTest is Test {
 
     // ---- helpers
 
-    /// @dev Registers the agent under `domain`, stakes via the (still inert) plain execute, then
-    /// WIRES the gate by pointing the registry at the governance-owned TrustConfig.
+    /// @dev Stakes via the (still inert: unbound) plain execute, WIRES the trust layer by pointing
+    /// the registry at the governance-owned TrustConfig, then binds the agent as the actor of a
+    /// record in `domain`. v3 order: binding requires the domain to have a live policy, so it can
+    /// only happen once the TrustConfig is wired.
     function _stakeAndWire(bytes32 domain) internal {
-        bytes32 dh = agentRegistry.didHash(DID); // precompute: avoid consuming the prank below
-        vm.prank(admin);
-        agentRegistry.registerCore(dh, address(agent), anchor, controller, domain);
-
         vm.startPrank(controller);
         agent.execute(address(itk), 0, abi.encodeCall(itk.approve, (address(vault), type(uint256).max)));
         agent.execute(address(vault), 0, abi.encodeCall(vault.stake, (STAKE)));
@@ -135,6 +121,7 @@ contract ExecuteGatingTest is Test {
 
         vm.prank(admin);
         agentRegistry.setTrustConfig(address(trustConfig));
+        _bind(agent, controllerPk, domain, controller);
     }
 
     function _freeze() internal {
@@ -177,10 +164,13 @@ contract ExecuteGatingTest is Test {
     }
 
     function test_registeredButNoTrustConfig_gateInert() public {
-        // Registered, but governance has not pointed the registry at a TrustConfig -> inert.
-        bytes32 dh = agentRegistry.didHash(DID);
+        // Bound, then governance clears the registry's TrustConfig -> inert. (v3 cannot bind
+        // without a wired TrustConfig: the domain must have a live policy at bind time.)
         vm.prank(admin);
-        agentRegistry.registerCore(dh, address(agent), anchor, controller, PLAIN_DOMAIN);
+        agentRegistry.setTrustConfig(address(trustConfig));
+        _bind(agent, controllerPk, PLAIN_DOMAIN, controller);
+        vm.prank(admin);
+        agentRegistry.setTrustConfig(address(0));
         _plain(1 ether);
         assertEq(tgt.pings(), 1);
         assertEq(vault.stakeOf(address(agent)).locked, 0);

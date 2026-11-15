@@ -92,6 +92,11 @@ CONTRACTS = [
     # deploy that then failed at the last step. See registration.py's
     # preflight_register_agent()/register_domain().
     ("DomainRegistry", "DomainRegistry"),
+    # AgentRegistry (registration v3, added 2026-11-15): the pubkey-keyed registry the
+    # execute gate, AISRegistry, XNS, lineage and EHRGate read from Phase 3 on. The SDK/CLI
+    # need register/registerDigest/bindActorDigest/resolveAgent for v3 onboarding (PR 3.4)
+    # and isRegisteredAgent for the XNS handle-availability check.
+    ("AgentRegistry", "AgentRegistry"),
 ]
 
 

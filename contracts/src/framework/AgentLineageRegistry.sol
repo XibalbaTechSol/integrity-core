@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {XibalbaAgentRegistry} from "./XibalbaAgentRegistry.sol";
+import {AgentRegistry} from "./AgentRegistry.sol";
 
 interface ILineageControllerBoundAgent {
     function DEFAULT_ADMIN_ROLE() external view returns (bytes32);
@@ -23,7 +23,7 @@ contract AgentLineageRegistry {
         uint256 recordedAt;
     }
 
-    XibalbaAgentRegistry public immutable agentRegistry;
+    AgentRegistry public immutable agentRegistry;
     mapping(address => Lineage) public lineageOf;
 
     event LineageRecorded(
@@ -44,7 +44,7 @@ contract AgentLineageRegistry {
 
     constructor(address registry_) {
         require(registry_ != address(0), "zero registry");
-        agentRegistry = XibalbaAgentRegistry(registry_);
+        agentRegistry = AgentRegistry(registry_);
     }
 
     /// @notice Records one immutable predecessor edge for `successor`.

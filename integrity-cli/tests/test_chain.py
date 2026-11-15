@@ -12,6 +12,7 @@ failing a bare `pytest` run.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -140,7 +141,48 @@ def test_cli_chain_full_registration(deployed_chain, tmp_path, monkeypatch):
     for a in (result.reputation_registry, result.slasher, result.verifier_registry, result.compliance_gate, result.agent_profile):
         assert a.lower() != zero
 
-    # --- XNS, real end-to-end against the now-registered agent above ---
+
+def _bind_v3(w3, chain_id, funder, controller, registry_address, did):
+    """Deploys a canonical SovereignAgent for the v3 AgentRegistry and binds it as an actor.
+
+    The attester is the deployer on anvil (`ATTESTER_ADDRESS` defaults to it locally); the agent
+    consents via EIP-1271 with its controller's signature. Both sign raw EIP-712 digests.
+    """
+    zero = "0x0000000000000000000000000000000000000000"
+    sovereign_agent = chain.deploy_sovereign_agent(w3, controller, did, zero, chain_id, registry_address)
+    registry = chain._contract(w3, "AgentRegistry", address=registry_address)
+    pubkey = os.urandom(32)
+    deadline = w3.eth.get_block("latest")["timestamp"] + 3600
+    proof = funder.unsafe_sign_hash(
+        registry.functions.registerDigest(pubkey, controller.address, sovereign_agent, GENERAL_DOMAIN_ID, "", deadline).call()
+    ).signature
+    consent = controller.unsafe_sign_hash(
+        registry.functions.bindActorDigest(hashlib.sha256(pubkey).digest(), sovereign_agent, deadline).call()
+    ).signature
+    tx = registry.functions.register(
+        pubkey, controller.address, sovereign_agent, GENERAL_DOMAIN_ID, "", deadline, 1, proof, consent
+    ).build_transaction({"from": funder.address, "nonce": w3.eth.get_transaction_count(funder.address), "chainId": chain_id})
+    receipt = w3.eth.wait_for_transaction_receipt(w3.eth.send_raw_transaction(funder.sign_transaction(tx).raw_transaction))
+    assert receipt.status == 1
+    assert registry.functions.isRegisteredAgent(sovereign_agent).call()
+    return sovereign_agent
+
+
+def test_cli_chain_xns_lifecycle_for_a_v3_bound_agent(deployed_chain, tmp_path, monkeypatch):
+    """XNS reads the v3 AgentRegistry (registration v3 Phase 3): only a bound actor may hold handles."""
+    monkeypatch.setenv("INTEGRITY_WALLET_HOME", str(tmp_path / "wallets-v3"))
+    monkeypatch.setenv("INTEGRITY_WALLET_PASSWORD", "cli-chain-test-pw")
+
+    w3 = deployed_chain["w3"]
+    chain_id = deployed_chain["chain_id"]
+    funder = deployed_chain["funder"]
+    addr = deployed_chain["addresses"]
+
+    agent = wallet.generate_or_load_evm_wallet("cli-test-agent")
+    chain.fund_agent_wallet(w3, funder, agent.address, Web3.to_wei(1, "ether"), chain_id)
+    sovereign_agent = _bind_v3(w3, chain_id, funder, agent, addr["AgentRegistry"], "did:integrity:cli-test-agent")
+
+    # --- XNS, real end-to-end against the bound agent above ---
     # All three writes route through SovereignAgent.execute, signed by the
     # controller `agent` EOA -- NOT a direct call to XNS with the EOA as
     # signer, which is what an earlier version of this test (and of
@@ -161,6 +203,7 @@ def test_cli_chain_full_registration(deployed_chain, tmp_path, monkeypatch):
     assert chain.xns_resolve(w3, xns_address, "cli-test-agent-alt.integrity") is None
 
 
+
 def test_cli_chain_xns_register_fails_for_unregistered_agent(deployed_chain, tmp_path, monkeypatch):
     monkeypatch.setenv("INTEGRITY_WALLET_HOME", str(tmp_path / "wallets-unregistered"))
     monkeypatch.setenv("INTEGRITY_WALLET_PASSWORD", "cli-chain-test-pw")
@@ -173,7 +216,8 @@ def test_cli_chain_xns_register_fails_for_unregistered_agent(deployed_chain, tmp
     # A funded wallet that deploys its OWN SovereignAgent (so it has a real
     # contract to route execute() through -- a bare EOA can't call execute()
     # at all, that's a different failure mode) but never completes
-    # registerPrimitives, so XibalbaAgentRegistry never indexes it. XNS's own
+    # registerPrimitives, so no registry indexes it (and XNS reads the v3 AgentRegistry,
+    # where it is not bound either). XNS's own
     # isRegisteredAgent(msg.sender) check must reject it, mirroring
     # XibalbaNameServiceTest.test_unregisteredCallerCannotClaimAHandle in
     # contracts/test/, but proven here against the real deployed contract
