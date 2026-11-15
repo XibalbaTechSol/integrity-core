@@ -159,42 +159,6 @@ def mint_testnet_itk(
     return tx_hash.hex()
 
 
-def deploy_sovereign_agent(
-    w3: Web3,
-    agent: LocalAccount,
-    did: str,
-    oracle_signer: str,
-    chain_id: int,
-    factory_address: str,
-    nonce: Optional[int] = None,
-) -> str:
-    """
-    The agent's own wallet directly deploys its SovereignAgent identity
-    contract -- `controller_` is the agent's own address, so this one wallet
-    is simultaneously the deployer (proving self-sovereign creation) and the
-    ongoing controller (able to call `execute`/`rotateController` later).
-
-    `factory_address` MUST be the AgentPrimitivesFactory the agent registers
-    through: `registerCore`/`registerPrimitives` revert `FactoryMismatch`
-    unless `sa.factory()` equals the calling factory, because the trust gate
-    resolves its modules via `factory.registry().trustConfig()`.
-    Returns the deployed contract's checksummed address.
-    """
-    factory = _contract(w3, "SovereignAgent")
-    tx_nonce = nonce if nonce is not None else w3.eth.get_transaction_count(agent.address)
-    tx = factory.constructor(did, agent.address, oracle_signer, Web3.to_checksum_address(factory_address)).build_transaction(
-        {
-            "from": agent.address,
-            "nonce": tx_nonce,
-            "chainId": chain_id,
-        }
-    )
-    signed = agent.sign_transaction(tx)
-    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-    receipt = _wait(w3, tx_hash, action="deploy_sovereign_agent")
-    return receipt.contractAddress
-
-
 def deploy_state_anchor(w3: Web3, agent: LocalAccount, sovereign_agent_address: str, chain_id: int, nonce: Optional[int] = None) -> str:
     """
     The agent's own wallet directly deploys its StateAnchor instance, with
@@ -541,97 +505,6 @@ def register_core(
 # --- XibalbaNameService (XNS, added 2026-07-11) -----------------------------------
 
 
-def _xns_send_via_agent(
-    w3: Web3,
-    agent: LocalAccount,
-    sovereign_agent_address: str,
-    xns_address: str,
-    chain_id: int,
-    calldata: bytes,
-) -> dict:
-    """
-    Shared build/sign/send/wait for the three XNS state-changing calls below
-    (`register`/`set_primary_handle`/`release`), routed through
-    `SovereignAgent.execute` -- same pattern `grant_anchor_role` above already
-    establishes (see that function's docstring): `XibalbaNameService.register`
-    checks `XibalbaAgentRegistry.isRegisteredAgent(msg.sender)`, and the
-    registry only knows about `SovereignAgent` *contract* addresses, not
-    controller EOAs. Calling XNS directly with the EOA as signer (an earlier,
-    wrong version of this function did exactly that) makes `msg.sender` the
-    EOA, which is never a registered agent -- caught by the real end-to-end
-    test in tests/test_chain.py, which is what this fix is responding to, not
-    a hypothetical.
-    """
-    sovereign_agent = _contract(w3, "SovereignAgent", address=sovereign_agent_address)
-    tx = sovereign_agent.functions.execute(Web3.to_checksum_address(xns_address), 0, calldata).build_transaction(
-        {
-            "from": agent.address,
-            "nonce": w3.eth.get_transaction_count(agent.address),
-            "chainId": chain_id,
-        }
-    )
-    signed = agent.sign_transaction(tx)
-    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-    return _wait(w3, tx_hash, action="xns")
-
-
-def xns_register(
-    w3: Web3, agent: LocalAccount, sovereign_agent_address: str, xns_address: str, handle: str, chain_id: int
-) -> dict:
-    """
-    Calls `XibalbaNameService.register(handle)` via the agent's own
-    `SovereignAgent.execute`, signed by the controller wallet. Reverts
-    on-chain (surfaced to the caller as a normal web3 ContractLogicError) if
-    `sovereign_agent_address` isn't `isRegisteredAgent` per
-    `XibalbaAgentRegistry`, or if `handle` is already claimed -- this
-    function does not pre-check either condition client-side, since the
-    contract is the authoritative check (see XibalbaNameService.sol's
-    NatSpec on why registration is self-service with no privileged
-    registrar in the critical path).
-    """
-    xns = _contract(w3, "XibalbaNameService", address=xns_address)
-    calldata = xns.functions.register(handle).build_transaction({"gas": 0})["data"]
-    return _xns_send_via_agent(w3, agent, sovereign_agent_address, xns_address, chain_id, calldata)
-
-
-def xns_set_primary_handle(
-    w3: Web3, agent: LocalAccount, sovereign_agent_address: str, xns_address: str, handle: str, chain_id: int
-) -> dict:
-    xns = _contract(w3, "XibalbaNameService", address=xns_address)
-    calldata = xns.functions.setPrimaryHandle(handle).build_transaction({"gas": 0})["data"]
-    return _xns_send_via_agent(w3, agent, sovereign_agent_address, xns_address, chain_id, calldata)
-
-
-def xns_release(
-    w3: Web3, agent: LocalAccount, sovereign_agent_address: str, xns_address: str, handle: str, chain_id: int
-) -> dict:
-    xns = _contract(w3, "XibalbaNameService", address=xns_address)
-    calldata = xns.functions.release(handle).build_transaction({"gas": 0})["data"]
-    return _xns_send_via_agent(w3, agent, sovereign_agent_address, xns_address, chain_id, calldata)
-
-
-def xns_resolve(w3: Web3, xns_address: str, handle: str) -> Optional[str]:
-    """
-    Read-only: resolves a handle to its owning `SovereignAgent` address.
-    Unlike the write functions above, this needs no signer -- `resolve` is a
-    `view` function. Returns `None` (rather than letting the contract's
-    `HandleNotFound` revert propagate as a raw web3 error) for the common
-    "handle doesn't exist" case, since callers displaying this to a human
-    want a clean not-found result, not an ABI-decoded custom-error message.
-    """
-    xns = _contract(w3, "XibalbaNameService", address=xns_address)
-    try:
-        return xns.functions.resolve(handle).call()
-    except Exception:  # noqa: BLE001 -- any revert (HandleNotFound) means "not found"
-        return None
-
-
-def xns_primary_handle(w3: Web3, xns_address: str, sovereign_agent: str) -> str:
-    """Read-only: the agent's primary handle, or "" if it has none registered."""
-    xns = _contract(w3, "XibalbaNameService", address=xns_address)
-    return xns.functions.primaryHandle(Web3.to_checksum_address(sovereign_agent)).call()
-
-
 def factory_has_registrar_role(w3: Web3, registry_address: str, factory_address: str) -> bool:
     """Read-only check for whether `factory_address` holds `REGISTRAR_ROLE` on
     `XibalbaAgentRegistry` -- a fixed precondition `AgentPrimitivesFactory.
@@ -644,43 +517,23 @@ def factory_has_registrar_role(w3: Web3, registry_address: str, factory_address:
     return registry.functions.hasRole(registrar_role, Web3.to_checksum_address(factory_address)).call()
 
 
-def domain_exists(w3: Web3, domain_registry_address: str, domain_id: bytes) -> bool:
-    """Read-only check for whether `domain_id` has ever been claimed via
-    `DomainRegistry.registerDomain` -- the third element of the `domains` struct
-    getter's tuple (owner, mode, exists, memberCount)."""
-    registry = _contract(w3, "DomainRegistry", address=domain_registry_address)
-    _owner, _mode, exists, _member_count = registry.functions.domains(domain_id).call()
-    return exists
-
-
-def can_join_domain(w3: Web3, domain_registry_address: str, domain_id: bytes, caller: str) -> bool:
-    """Read-only mirror of the exact check `AgentPrimitivesFactory.registerPrimitives`
-    makes before deploying anything -- `False` here is what reverts as
-    `DomainJoinNotApproved()` deep in a real registration attempt, after gas for the
-    SovereignAgent/StateAnchor deploy has already been spent. Always check this BEFORE
-    signing anything -- see main.py's `agent_register`."""
-    registry = _contract(w3, "DomainRegistry", address=domain_registry_address)
-    return registry.functions.canJoin(domain_id, Web3.to_checksum_address(caller)).call()
-
-
-def register_domain(w3: Web3, signer: LocalAccount, domain_registry_address: str, name: str, chain_id: int, *, open_mode: bool = True) -> str:
-    """
-    Claims domain `name` in `DomainRegistry`, owned by `signer` -- permissionless,
-    first-come-first-served, same trust model as ENS second-level names (see
-    `DomainRegistry.sol`'s own NatSpec). `open_mode=True` sets `JoinMode.Open`, so
-    `canJoin` returns `True` for any caller afterward -- appropriate for a personal,
-    self-owned per-agent domain. Reverts `DomainAlreadyExists()` if the name is already
-    claimed; callers should check `domain_exists` first rather than relying on the
-    revert for control flow.
-    """
-    registry = _contract(w3, "DomainRegistry", address=domain_registry_address)
-    mode = 0 if open_mode else 1  # DomainRegistry.JoinMode: Open=0, Permissioned=1
-    tx = registry.functions.registerDomain(name, mode).build_transaction({
-        "from": signer.address,
-        "nonce": w3.eth.get_transaction_count(signer.address),
-        "chainId": chain_id,
-    })
-    signed = signer.sign_transaction(tx)
-    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-    _wait(w3, tx_hash, action="register_domain")
-    return tx_hash.hex()
+# --------------------------------------------------------------------------
+# One chain layer (registration v3 CLI redesign, decision D4)
+# --------------------------------------------------------------------------
+# These used to be byte-for-byte duplicates of integrity_sdk.chain (same ABIs, same calls), and
+# had already drifted: the SDK retries reads and nonce races, this copy did not. The CLI now
+# calls the SDK's versions; the names are re-exported so `chain.xns_register(...)` etc. keep
+# working for main.py and tests/test_chain.py. The primitives-path helpers above stay here
+# until registration v3 PR 3.4 retires that path.
+from integrity_sdk.chain import (  # noqa: E402,F401
+    can_join_domain,
+    deploy_sovereign_agent,
+    domain_exists,
+    execute_via_agent,
+    register_domain,
+    xns_primary_handle,
+    xns_register,
+    xns_release,
+    xns_resolve,
+    xns_set_primary_handle,
+)

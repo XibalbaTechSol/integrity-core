@@ -32,8 +32,13 @@ def isolated_home(tmp_path, monkeypatch):
     # redirect it explicitly so tests don't touch a real ~/.integrity/wallet.
     monkeypatch.setattr(wallet, "WALLET_DIR", config_dir / "wallet")
 
-    for env_var in ("ORACLE_URL", "BCC_MIDDLEWARE_URL", "AUTH_TOKEN", "ENVIRONMENT"):
+    for env_var in (
+        "ORACLE_URL", "BCC_MIDDLEWARE_URL", "AUTH_TOKEN", "ENVIRONMENT",
+        "RPC_URL", "DEPLOYMENTS_FILE", config.NETWORK_ENV,
+    ):
         monkeypatch.delenv(env_var, raising=False)
+    # The root `--network` flag sets a process-wide profile; never let one test's leak into the next.
+    monkeypatch.setattr(config, "_network", None)
 
     # main.py's `console` is constructed at import time, so it captured a
     # force-terminal setting before this fixture runs — setting NO_COLOR in the

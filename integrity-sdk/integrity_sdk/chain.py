@@ -916,3 +916,56 @@ def factory_has_registrar_role(w3: Web3, registry_address: str, factory_address:
     return _call_with_retry(
         lambda: registry.functions.hasRole(registrar_role, Web3.to_checksum_address(factory_address)).call()
     )
+
+
+# --- XibalbaNameService (XNS) --------------------------------------------------------------
+# Moved here from integrity-cli's own chain.py (registration v3 CLI redesign, decision D4: one
+# chain layer). Every write is routed through the caller's own `SovereignAgent.execute`:
+# XNS gates on `isRegisteredAgent(msg.sender)`, and only the SovereignAgent CONTRACT is a
+# registered agent. Signed by the controller EOA, a direct call would always revert.
+
+
+def _xns_calldata(w3: Web3, xns_address: str, fn: str, handle: str) -> bytes:
+    xns = _contract(w3, "XibalbaNameService", address=xns_address)
+    return bytes.fromhex(xns.encode_abi(fn, args=[handle])[2:])
+
+
+def xns_register(
+    w3: Web3, agent: LocalAccount, sovereign_agent_address: str, xns_address: str, handle: str, chain_id: int
+) -> dict:
+    """`XibalbaNameService.register(handle)` via the agent's `SovereignAgent.execute`.
+
+    Not pre-checked client-side: the contract is the authority, and reverts
+    (`NotRegisteredAgent`, `HandleAlreadyRegistered`) surface as web3 errors.
+    """
+    calldata = _xns_calldata(w3, xns_address, "register", handle)
+    return execute_via_agent(w3, agent, sovereign_agent_address, xns_address, calldata, chain_id)
+
+
+def xns_set_primary_handle(
+    w3: Web3, agent: LocalAccount, sovereign_agent_address: str, xns_address: str, handle: str, chain_id: int
+) -> dict:
+    calldata = _xns_calldata(w3, xns_address, "setPrimaryHandle", handle)
+    return execute_via_agent(w3, agent, sovereign_agent_address, xns_address, calldata, chain_id)
+
+
+def xns_release(
+    w3: Web3, agent: LocalAccount, sovereign_agent_address: str, xns_address: str, handle: str, chain_id: int
+) -> dict:
+    calldata = _xns_calldata(w3, xns_address, "release", handle)
+    return execute_via_agent(w3, agent, sovereign_agent_address, xns_address, calldata, chain_id)
+
+
+def xns_resolve(w3: Web3, xns_address: str, handle: str) -> Optional[str]:
+    """Read-only: the SovereignAgent owning `handle`, or None (`HandleNotFound` reverts)."""
+    xns = _contract(w3, "XibalbaNameService", address=xns_address)
+    try:
+        return xns.functions.resolve(handle).call()
+    except Exception:  # noqa: BLE001 -- any revert (HandleNotFound) means "not found"
+        return None
+
+
+def xns_primary_handle(w3: Web3, xns_address: str, sovereign_agent: str) -> str:
+    """Read-only: the agent's primary handle, or "" if it has none."""
+    xns = _contract(w3, "XibalbaNameService", address=xns_address)
+    return xns.functions.primaryHandle(Web3.to_checksum_address(sovereign_agent)).call()

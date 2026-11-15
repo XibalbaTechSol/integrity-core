@@ -14,7 +14,7 @@ import json
 import os
 import stat
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 CONFIG_DIR = Path.home() / ".integrity-cli"
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -34,7 +34,41 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Anything else (e.g. "staging", "prod") is treated as a real environment
     # where an obviously-fake token must not silently work.
     "ENVIRONMENT": "local",
+    # On-chain endpoints. Read through get_config_value like everything else, so a
+    # --network profile can move them together with ORACLE_URL.
+    "RPC_URL": "http://localhost:8545",
+    "DEPLOYMENTS_FILE": "../deployments.local.json",
 }
+
+# --network profiles. A profile fixes the RPC, the deployments file and the Oracle as one unit,
+# so a command can never read Base Sepolia's deployments through a local RPC (or the reverse).
+# Precedence: an explicit flag > env var > active profile > config file > DEFAULT_CONFIG.
+# A profile sets ENVIRONMENT to something other than "local" for real networks, which keeps
+# get_auth_token() refusing placeholder tokens there.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+NETWORK_PROFILES: dict[str, dict[str, str]] = {
+    "local": {
+        "ORACLE_URL": "http://localhost:8080",
+        "BCC_MIDDLEWARE_URL": "http://localhost:8000",
+        "RPC_URL": "http://localhost:8545",
+        "DEPLOYMENTS_FILE": "../deployments.local.json",
+        "ENVIRONMENT": "local",
+    },
+    "base-sepolia": {
+        "ORACLE_URL": "https://integrity-oracle.onrender.com",
+        # Public read-only endpoint. For writes or heavier reads, override RPC_URL (env or flag)
+        # with a keyed provider; never put that key in this file.
+        "RPC_URL": "https://sepolia.base.org",
+        # Resolved from the source checkout; set DEPLOYMENTS_FILE when the CLI is installed elsewhere.
+        "DEPLOYMENTS_FILE": str(_REPO_ROOT / "deployments.baseSepolia.json"),
+        "ENVIRONMENT": "base-sepolia",
+    },
+}
+NETWORK_ENV = "INTEGRITY_NETWORK"
+
+# Set by the root `--network` flag for this process; wins over INTEGRITY_NETWORK and the
+# config file's NETWORK key.
+_network: Optional[str] = None
 
 # If someone sets one of these as AUTH_TOKEN while ENVIRONMENT != "local",
 # we fail loudly instead of quietly authenticating with a demo value.
@@ -66,13 +100,61 @@ def save_config(config: dict[str, Any]) -> None:
     os.chmod(CONFIG_FILE, stat.S_IRUSR | stat.S_IWUSR)
 
 
-def get_config_value(key: str) -> Any:
-    """Read a single config value. Environment variables always win over the
-    config file (INTERFACE_CONTRACT.md section 3), so docker-compose/CI can
-    override endpoints without touching the developer's on-disk config."""
+def _check_network(name: str) -> str:
+    if name not in NETWORK_PROFILES:
+        raise ValueError(f"unknown network {name!r}; choose one of {', '.join(NETWORK_PROFILES)}")
+    return name
+
+
+def set_network(name: Optional[str]) -> None:
+    """Select a --network profile for this process (None clears the flag)."""
+    global _network
+    _network = _check_network(name) if name is not None else None
+
+
+def active_network() -> Optional[str]:
+    """The profile in force: the --network flag, else $INTEGRITY_NETWORK, else config NETWORK.
+
+    Raises ValueError for an unknown name from any of those sources, so a typo fails loudly
+    instead of silently falling back to localhost.
+    """
+    if _network is not None:
+        return _network
+    name = os.environ.get(NETWORK_ENV) or _file_config().get("NETWORK")
+    return _check_network(name) if name else None
+
+
+def _file_config() -> dict[str, Any]:
+    if not CONFIG_FILE.exists():
+        return {}
+    try:
+        data = json.loads(CONFIG_FILE.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def value_with_source(key: str) -> tuple[Any, str]:
+    """(value, source), source being "env", "profile:<name>", "config file" or "default".
+
+    Environment variables win over everything on disk (INTERFACE_CONTRACT.md section 3), so
+    docker-compose/CI can override endpoints without touching a developer's config. A command's
+    own flag beats all of these; callers apply it as `flag or get_config_value(key)`.
+    """
     if key in os.environ:
-        return os.environ[key]
-    return load_config().get(key, DEFAULT_CONFIG.get(key))
+        return os.environ[key], "env"
+    network = active_network()
+    if network is not None and key in NETWORK_PROFILES[network]:
+        return NETWORK_PROFILES[network][key], f"profile:{network}"
+    on_disk = _file_config()
+    if key in on_disk:
+        return on_disk[key], "config file"
+    return DEFAULT_CONFIG.get(key), "default"
+
+
+def get_config_value(key: str) -> Any:
+    """Read a single config value; see value_with_source for the precedence."""
+    return value_with_source(key)[0]
 
 
 def set_config_value(key: str, value: str) -> None:

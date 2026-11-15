@@ -201,6 +201,20 @@ def proof_for(policy: OnchainPolicy, edge: OnchainEdge) -> List[bytes]:
     return merkle_proof(list(policy.leaves), index)
 
 
+def edges_for_call(policy: OnchainPolicy, target: str, selector: str) -> Tuple[OnchainEdge, ...]:
+    """Every edge in the map that permits calling `selector` on `target` (empty: not in the map).
+
+    More than one edge can match: the same call may be mapped under different node names or risk
+    weights, and the caller picks the one whose weight it is claiming.
+    """
+    if not isinstance(target, str) or not _ADDRESS.match(target):
+        raise OnchainSectionError("BAD_TARGET", "target must be a 20-byte 0x address")
+    if not isinstance(selector, str) or not _SELECTOR.match(selector):
+        raise OnchainSectionError("BAD_SELECTOR", "selector must be 0x + 8 hex")
+    target, selector = target.lower(), selector.lower()
+    return tuple(e for e in policy.edges if e.target == target and e.selector == selector)
+
+
 __all__: Sequence[str] = (
     "ONCHAIN_FILE",
     "OnchainEdge",
@@ -209,6 +223,7 @@ __all__: Sequence[str] = (
     "compile_onchain",
     "domain_id",
     "edge_leaf",
+    "edges_for_call",
     "node_id",
     "onchain_policy_of",
     "proof_for",

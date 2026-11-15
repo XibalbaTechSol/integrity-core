@@ -69,9 +69,9 @@ def test_verify_decision_trace_passes_with_linked_receipt(tmp_path):
     bundle_path = _receipt_bundle_path(tmp_path, receipt, signer_key)
 
     result = runner.invoke(app, [
-        "verify", "--receipts", str(bundle_path), "--trusted-signer", signer_key,
+        "receipts", "verify", "--receipts", str(bundle_path), "--trusted-signer", signer_key,
         "--decision-trace", str(events_path), "--trace-evidence", str(evidence_path),
-        "--json-output",
+        "--json",
     ])
     assert result.exit_code == 0, result.stdout
     document = json.loads(result.stdout)
@@ -87,9 +87,9 @@ def test_verify_decision_trace_reports_unavailable_advisory_without_failing(tmp_
     bundle_path = _receipt_bundle_path(tmp_path, receipt, signer_key)
 
     result = runner.invoke(app, [
-        "verify", "--receipts", str(bundle_path), "--trusted-signer", signer_key,
+        "receipts", "verify", "--receipts", str(bundle_path), "--trusted-signer", signer_key,
         "--decision-trace", str(events_path), "--trace-evidence", str(evidence_path),
-        "--json-output",
+        "--json",
     ])
     assert result.exit_code == 0, result.stdout
     document = json.loads(result.stdout)
@@ -103,9 +103,9 @@ def test_verify_decision_trace_without_advisory_reports_not_present(tmp_path):
     bundle_path = _receipt_bundle_path(tmp_path, receipt, signer_key)
 
     result = runner.invoke(app, [
-        "verify", "--receipts", str(bundle_path), "--trusted-signer", signer_key,
+        "receipts", "verify", "--receipts", str(bundle_path), "--trusted-signer", signer_key,
         "--decision-trace", str(events_path), "--trace-evidence", str(evidence_path),
-        "--json-output",
+        "--json",
     ])
     assert result.exit_code == 0, result.stdout
     document = json.loads(result.stdout)
@@ -122,9 +122,9 @@ def test_verify_decision_trace_fails_on_tampered_event(tmp_path):
     events_path.write_text(json.dumps(events))
 
     result = runner.invoke(app, [
-        "verify", "--receipts", str(bundle_path), "--trusted-signer", signer_key,
+        "receipts", "verify", "--receipts", str(bundle_path), "--trusted-signer", signer_key,
         "--decision-trace", str(events_path), "--trace-evidence", str(evidence_path),
-        "--json-output",
+        "--json",
     ])
     assert result.exit_code == 1
     document = json.loads(result.stdout)
@@ -138,8 +138,8 @@ def test_verify_decision_trace_requires_both_flags_together(tmp_path):
     # for --receipts, so point it at the events file -- its contents are never reached,
     # the flag-pairing check raises first.
     result = runner.invoke(app, [
-        "verify", "--receipts", str(events_path), "--trusted-signer", "ztest",
-        "--decision-trace", str(events_path), "--json-output",
+        "receipts", "verify", "--receipts", str(events_path), "--trusted-signer", "ztest",
+        "--decision-trace", str(events_path), "--json",
     ])
     assert result.exit_code == 1
     document = json.loads(result.stdout)

@@ -18,7 +18,23 @@ from .config import get_auth_token, get_config_value
 class ApiError(Exception):
     """Raised for both HTTP-level errors (4xx/5xx) and transport failures
     (connection refused, timeout, DNS), so CLI commands can catch one
-    exception type regardless of what went wrong underneath."""
+    exception type regardless of what went wrong underneath.
+
+    `status` is the HTTP status, or None for a transport failure (see ApiUnreachable).
+    `unverified` is True when the service could not give an answer -- unreachable or 5xx --
+    which the v3 exit-code table reports as 3, never as a definite "no" (1)."""
+
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(message)
+        self.status = status
+
+    @property
+    def unverified(self) -> bool:
+        return self.status is None or self.status >= 500
+
+
+class ApiUnreachable(ApiError):
+    """Transport failure: connection refused, timeout, DNS. No HTTP status."""
 
 
 class IntegrityClient:
@@ -44,7 +60,7 @@ class IntegrityClient:
                 method, url, headers=self._headers(), timeout=self.timeout, **kwargs
             )
         except httpx.HTTPError as e:
-            raise ApiError(f"Connection error calling {url}: {e}") from e
+            raise ApiUnreachable(f"Connection error calling {url}: {e}") from e
         return self._handle_response(response)
 
     def _handle_response(self, response: httpx.Response) -> Any:
@@ -56,7 +72,7 @@ class IntegrityClient:
                     detail = body["detail"]
             except ValueError:
                 pass
-            raise ApiError(f"{response.status_code} {response.reason_phrase}: {detail}")
+            raise ApiError(f"{response.status_code} {response.reason_phrase}: {detail}", status=response.status_code)
         if not response.content:
             return {}
         return response.json()

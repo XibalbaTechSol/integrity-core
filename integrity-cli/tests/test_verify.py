@@ -72,8 +72,8 @@ def _bundle(tmp_path):
 def test_verify_receipt_bundle_checkpoint_proof_and_anchor(tmp_path):
     bundle, proof, signer, root = _bundle(tmp_path)
     result = runner.invoke(app, [
-        "verify", "--receipts", str(bundle), "--trusted-signer", signer,
-        "--proof", str(proof), "--anchor-root", root, "--json-output",
+        "receipts", "verify", "--receipts", str(bundle), "--trusted-signer", signer,
+        "--proof", str(proof), "--anchor-root", root, "--json",
     ])
     assert result.exit_code == 0, result.stdout
     document = json.loads(result.stdout)
@@ -91,7 +91,7 @@ def test_verify_rejects_tampered_receipt(tmp_path):
     document["receipts"][0]["decision"] = "deny"
     bundle.write_text(json.dumps(document))
     result = runner.invoke(app, [
-        "verify", "--receipts", str(bundle), "--trusted-signer", signer, "--json-output",
+        "receipts", "verify", "--receipts", str(bundle), "--trusted-signer", signer, "--json",
     ])
     assert result.exit_code == 1
     output = json.loads(result.stdout)
@@ -129,9 +129,9 @@ def test_verify_reads_local_state_anchor(tmp_path, monkeypatch):
     monkeypatch.setattr(main_module.chain, "get_w3", lambda _url: _W3())
     monkeypatch.setattr(main_module.chain, "_contract", lambda *_args, **_kwargs: _Anchor())
     result = runner.invoke(app, [
-        "verify", "--receipts", str(bundle), "--trusted-signer", signer,
+        "receipts", "verify", "--receipts", str(bundle), "--trusted-signer", signer,
         "--proof", str(proof), "--anchor-contract", "0x" + "11" * 20,
-        "--json-output",
+        "--json",
     ])
     assert result.exit_code == 0, result.stdout
     document = json.loads(result.stdout)
