@@ -181,16 +181,17 @@ Toolchain pinned in [docs/INTERFACE_CONTRACT.md](docs/INTERFACE_CONTRACT.md) §1
 ### Registering an agent
 
 ```python
-from integrity_sdk import registration
+from integrity_sdk.did import load_or_create_did
+from integrity_sdk.registration_offchain import register_offchain
 
-reg = registration.register_agent(
-    "my-agent",
-    domain_name="integrity",
-    compliance_vertical=None,  # or "healthcare" for Integrity Health
-)
+did, keypair, _ = load_or_create_did("my-agent")
+reg = register_offchain("https://integrity-oracle.onrender.com", did, keypair, handle="my.agent")
 ```
 
-Requires `FUNDER_PRIVATE_KEY` (testnet faucet) and `INTEGRITY_WALLET_PASSWORD`. See [integrity-sdk/README.md](integrity-sdk/README.md).
+Registration v3 is gasless and off-chain by default: the agent signs with its own Ed25519
+key, and no funder key or RPC is needed. Check a handle in both namespaces (the Oracle
+directory and on-chain XNS) with `integrity xns available <handle>`. See
+[integrity-sdk/README.md](integrity-sdk/README.md).
 
 ---
 
