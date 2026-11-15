@@ -6,6 +6,10 @@ integrator would actually observe, not one per commit.
 
 ## Unreleased
 
+- **Behavior:** `scoring_profile` is now `ais/v1-geometric-2`. Sacrifice with no
+  validator/TEE evidence is unobserved (weight 0, renormalized, listed in `missing_axes`)
+  instead of an annihilating zero, matching the earlier compliance rule. New response field
+  `sacrifice_observed`. Scores for the same telemetry change (previously 0 for every agent).
 - **Removed (exception to the v1 additive-only policy):** `GET /v1/markets`,
   `GET /v1/markets/{id}`, `GET /v1/stats`, `GET /v1/governance/proposals`,
   `GET /v1/agent/{id}/stake`, `GET /v1/agent/{id}/credit` and `GET /v1/agent/{id}/contracts`.

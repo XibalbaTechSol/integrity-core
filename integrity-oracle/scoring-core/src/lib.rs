@@ -43,7 +43,10 @@ use serde::{Deserialize, Serialize};
 /// the old prototype's convention (a human-readable "out of 1000" score) so the
 /// API's `ais_score` field stays intuitive to operators.
 pub const MAX_COMPONENT_SCORE: f64 = 1000.0;
-pub const AIS_PROFILE_VERSION: &str = "ais/v1-geometric-1";
+/// `-2` (2026-11-15): an axis with no independent evidence (compliance, sacrifice) is
+/// unobserved and renormalized out instead of scored as an annihilating zero. The
+/// geometric formula itself is unchanged from `-1`; see docs/SPEC.md (AIS section).
+pub const AIS_PROFILE_VERSION: &str = "ais/v1-geometric-2";
 
 /// Canonical step reward: `max(0, r_task - cost) * clamp(ais, 0, 1000) / 1000`.
 pub const REWARD_PROFILE_MULTIPLICATIVE: &str = "ais-reward/v2-multiplicative-1";

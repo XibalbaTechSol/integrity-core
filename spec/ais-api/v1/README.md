@@ -16,7 +16,9 @@ change means a `/v2/*` prefix, not a change to `/v1/*`'s existing shape.
 
 ## AIS scoring profile
 
-The current response identifies `scoring_profile: "ais/v1-geometric-1"`.
+The current response identifies `scoring_profile: "ais/v1-geometric-2"`. It uses the
+`ais/v1-geometric-1` formula, except that an axis with no independent evidence (listed in
+`missing_axes`) gets weight 0 and the remaining weights are renormalized.
 `ais_base` is the weighted geometric mean before assurance boost;
 `ais_post_boost` applies `1 + 0.15 * verified_event_ratio`; and `ais` is the
 post-boost value capped by the server-derived identity tier. The authoritative

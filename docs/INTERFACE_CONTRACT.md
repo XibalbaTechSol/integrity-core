@@ -302,7 +302,7 @@ the exact reporting window carrying a proof verified by the oracle. This
 formula lives in `integrity-oracle/scoring-core` and is the only place it's computed —
 other packages call the oracle's `/v1/agent/{id}/ais` endpoint rather than recompute it.
 
-The active scoring profile is `ais/v1-geometric-1`. The Oracle response exposes
+The active scoring profile is `ais/v1-geometric-2` (the `-1` weighted geometric mean, with unobserved compliance/sacrifice renormalized out rather than scored as zero). The Oracle response exposes
 the pre-boost geometric `ais_base`, post-boost uncapped `ais_post_boost`, final
 tier-capped `ais`, and `tier_ceiling` separately. Consumers that need a
 reputation-parameterised bound use the tier-capped pre-boost `constraint_score`;
