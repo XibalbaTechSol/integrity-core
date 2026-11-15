@@ -53,11 +53,12 @@ registration path (`vault sync` keeps `anchor_root`). `status` and `doctor` read
 `AgentRegistry` from `singletons.AgentRegistry`. The sections below are the history and still
 use the old command names.
 
-`integrity agent register` runs the **real self-sovereign on-chain sequence** —
+Before v3, `integrity agent register` ran the **real self-sovereign on-chain sequence** —
 fund the agent's own EVM wallet → mint testnet $ITK → deploy `SovereignAgent` +
 `StateAnchor` → grant anchor role via `execute` →
 `AgentPrimitivesFactory.registerPrimitives` → POST to the oracle. It is a
-multi-transaction, multi-second command, not a single HTTP POST. See
+multi-transaction, multi-second command, not a single HTTP POST (removed in registration v3
+PR 3.4; `register` is now a single gasless Oracle call). See
 [agent primitives](../concepts/agent-primitives.md).
 
 Other commands: `identity keygen/show` (Ed25519 [DID](../concepts/did.md), full
