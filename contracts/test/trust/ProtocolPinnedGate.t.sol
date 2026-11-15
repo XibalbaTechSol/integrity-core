@@ -35,8 +35,9 @@ contract DenyModule is IPolicyModule {
     }
 }
 
-/// @notice Mutation-checked regressions for the protocol-pinned trust gate (Critical fix) plus the
-/// leaf target-binding and the frozen-unstake backstop. The full real registration stack is wired
+/// @notice Mutation-checked regressions for the HELD v2 registration graph's pins (factory mismatch,
+/// codehash) plus the leaf target-binding and the frozen-unstake backstop. Since registration v3 the
+/// gate itself resolves through `AgentRegistry`; its live-gating tests are AgentRegistryGate.t.sol. The full real registration stack is wired
 /// here (mirroring AgentPrimitivesFactory.t.sol) so the gate is exercised exactly as production.
 ///
 /// The governance-owned `TrustConfig` is wired into the registry in `setUp`, BEFORE any agent
@@ -330,69 +331,6 @@ contract ProtocolPinnedGateTest is Test {
         assertEq(vault.stakeOf(address(sa)).locked, 0);
     }
 
-    // ----------------------------------------------- 3. registered + frozen cannot execute either overload
-
-    /// MUTATION: make `_checkFrozen` a no-op (early `return`) -> both overloads stop reverting
-    /// `Frozen`, test FAILS.
-    function test_3_registeredFrozenCannotExecuteEitherOverload() public {
-        (SovereignAgent saPlain, address wPlain) = _onboard("did:integrity:frz-plain", 0x3A, domainId);
-        (SovereignAgent saGraph, address wGraph) = _onboard("did:integrity:frz-graph", 0x3B, graphDomainId);
-        _stake(saPlain, 1000 ether);
-        _stake(saGraph, 1000 ether);
-        _freeze(address(saPlain));
-        _freeze(address(saGraph));
-
-        // plain overload
-        vm.prank(wPlain);
-        vm.expectRevert(SovereignAgent.Frozen.selector);
-        saPlain.execute(address(tgt), 0, abi.encodeCall(GateTarget.ping, ()));
-
-        // edge overload
-        bytes memory d = abi.encodeCall(GateTarget.ping, ());
-        vm.prank(wGraph);
-        vm.expectRevert(SovereignAgent.Frozen.selector);
-        saGraph.execute(address(tgt), 0, d, FROM, REL, TO, RISK, _proof());
-
-        // The controller has NO setter to swap the vault/registry/domain and escape.
-        (bool g1,) = address(saPlain).call(abi.encodeWithSignature("setStakeVault(address)", address(0)));
-        (bool g2,) = address(saPlain).call(abi.encodeWithSignature("setDomainId(bytes32)", bytes32(0)));
-        assertFalse(g1, "setStakeVault must not exist");
-        assertFalse(g2, "setDomainId must not exist");
-    }
-
-    // ----------------------------------------------- 4. pin is unspoofable + reads live governance source
-
-    /// The gate reads the governance TrustConfig at CALL time, and the controller cannot redirect
-    /// it. Governance repoints the policy pin to a DENY registry mid-life and the agent's next call
-    /// is denied — proving the source is the live governance config, not agent storage.
-    /// MUTATION: in `_resolveGate`, drop the `policyRegistry_ = p;` assignment (leave it zero) ->
-    /// the policy gate is skipped, the repointed DENY registry is never consulted, test FAILS.
-    function test_4_pinIsUnspoofableAndLive() public {
-        (SovereignAgent sa, address wallet) = _onboard("did:integrity:pin4", 0x40, domainId);
-        _stake(sa, 1000 ether);
-
-        // Baseline: the allow-module lets a compliant call through.
-        vm.prank(wallet);
-        sa.execute(address(tgt), 0, abi.encodeCall(GateTarget.ping, ()));
-        assertEq(tgt.pings(), 1);
-
-        // No controller setter exists to redirect the gate.
-        (bool gone,) = address(sa).call(abi.encodeWithSignature("setPolicyRegistry(address)", address(0)));
-        assertFalse(gone, "setPolicyRegistry must not exist");
-
-        // Governance repoints the policy registry to one whose module DENIES. The gate follows.
-        PolicyRegistry denyPolicy = new PolicyRegistry(protocolAdmin);
-        DenyModule denyModule = new DenyModule();
-        vm.prank(protocolAdmin);
-        denyPolicy.setModule(domainId, address(denyModule));
-        vm.prank(governance);
-        trustConfig.setPolicyRegistry(address(denyPolicy));
-
-        vm.prank(wallet);
-        vm.expectRevert(SovereignAgent.PolicyDenied.selector);
-        sa.execute(address(tgt), 0, abi.encodeCall(GateTarget.ping, ()));
-    }
-
     // ----------------------------------------------- 5. unstake-while-frozen reverts (A5)
 
     /// MUTATION: delete `if (_stakes[msg.sender].frozen) revert StakeFrozen();` in
@@ -431,30 +369,24 @@ contract ProtocolPinnedGateTest is Test {
         assertFalse(policy.checkGraphEdge(graphDomainId, FROM, REL, TO, address(0xBEEF), GateTarget.ping.selector, RISK, _proof()));
     }
 
-    // ----------------------------------------------- 7. end-to-end onboarding through the new gate (R11)
+    // ----------------------------------------------- 3. held-graph agents are inert under v3
 
-    /// The full registration sequence completes with the trust layer globally active: the
-    /// pre-registration execute calls stay inert, registration succeeds, and the now-registered
-    /// agent is gated.
-    /// MUTATION: in `_resolveGate`, change the `resolveAgent` catch from `return (0,0,0,0)` to
-    /// `catch {}` (swallow) -> an unregistered agent resolves the live pins with domainId 0, the
-    /// pre-registration execute hits `checkCompliance` for domain 0 -> `NoModuleConfigured`,
-    /// onboarding bricks, test FAILS.
-    function test_7_endToEndOnboardingThroughGate() public {
-        (SovereignAgent sa,) = _onboard("did:integrity:e2e7", 0x70, domainId);
-
-        // Registration completed.
-        XibalbaAgentRegistry.AgentRecord memory rec = registry.resolveAgent(address(sa));
-        assertEq(rec.primitives.sovereignAgent, address(sa));
-        assertEq(rec.domainId, domainId);
-
-        // And the now-registered agent is gated: a compliant staked call locks stake.
+    /// Registration v3 repointed `SovereignAgent._resolveGate` onto `AgentRegistry`. An agent built
+    /// for the held v2 `AgentPrimitivesFactory` and registered through it now resolves an INERT gate
+    /// (the factory has no `isRegisteredAgent`; the wrapped call reverts): it executes even while
+    /// frozen. That graph is kept only for the owner's kernel review; no v3 actor is ever bound to it.
+    /// The live gate behaviors (frozen, live pin, onboarding) moved to AgentRegistryGate.t.sol.
+    /// MUTATION: drop the try/catch around `isRegisteredAgent` in `_resolveGate` -> the call into
+    /// the factory reverts and execute bricks, test FAILS.
+    function test_3_heldFactoryAgentResolvesInertGate() public {
+        (SovereignAgent sa, address wallet) = _onboard("did:integrity:held3", 0x3A, domainId);
+        assertTrue(registry.isRegisteredAgent(address(sa)), "registered in the held graph");
         _stake(sa, 1000 ether);
-        vm.deal(address(sa), 10 ether);
-        address wallet = rec.controller;
+        _freeze(address(sa));
+
         vm.prank(wallet);
-        sa.execute(address(tgt), 10 ether, abi.encodeCall(GateTarget.ping, ()));
-        // allow-module weight 1000 bps of 10 ether = 1 ether locked.
-        assertEq(vault.stakeOf(address(sa)).locked, 1 ether);
+        sa.execute(address(tgt), 0, abi.encodeCall(GateTarget.ping, ()));
+        assertEq(tgt.pings(), 1);
+        assertEq(vault.stakeOf(address(sa)).locked, 0);
     }
 }
