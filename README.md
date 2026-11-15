@@ -190,7 +190,7 @@ reg = register_offchain("https://integrity-oracle.onrender.com", did, keypair, h
 
 Registration v3 is gasless and off-chain by default: the agent signs with its own Ed25519
 key, and no funder key or RPC is needed. Check a handle in both namespaces (the Oracle
-directory and on-chain XNS) with `integrity xns available <handle>`. See
+directory and on-chain XNS) with `integrity handle available <handle>`. See
 [integrity-sdk/README.md](integrity-sdk/README.md).
 
 ---

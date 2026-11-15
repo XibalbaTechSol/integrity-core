@@ -1,13 +1,18 @@
 """
 Integrity CLI -- Typer entry point.
 
-Command groups:
-  identity  DID/keypair management (local, Ed25519)
-  agent     Registration/lookup against integrity-oracle, and the BCC
-            pre-execution intercept gate against bcc_middleware
+Command tree (registration v3; hard renames, no aliases):
+  register  Off-chain, gas-free registration with integrity-oracle (was `agent register`)
+  status    Registration, tier, AIS; on-chain rows (was `agent show` + `agent ais`)
+  doctor    Oracle / deployments / RPC / chain id / contract-code checks, fail-closed
+  identity  DID/keypair management (local, Ed25519): new, show, list
+  gate      BCC pre-execution policy gate: `gate check` (was `agent intercept`)
+  receipts  Offline receipt verification: `receipts verify` (was top-level `verify`)
+  policy    A pack's on-chain map: compile, map, check, prove, diff, publish --print-tx
   config    ~/.integrity-cli/config.json management
   auth      Auth token management (no insecure default -- see config.py)
-  xns       XibalbaNameService: human-readable handles (`xns available` checks both namespaces)
+  handle    Agent handles (was `xns`): `handle available` checks the Oracle directory AND on-chain
+            XibalbaNameService
             (contracts/src/framework/XibalbaNameService.sol, added 2026-07-11)
 
 Scope note: the old prototype (see old repo's integrity_cli/main.py) also
@@ -48,14 +53,43 @@ from integrity_sdk.xns import XnsAvailabilityError, check_handle_availability
 # (INTERFACE_CONTRACT.md section 3), without requiring `export` in every shell.
 load_dotenv()
 
+# v3 CLI (registration v3): shared output contract, --network profiles, and the command groups
+# that live in their own modules. Imported here, not in the block above, on purpose.
+from . import doctor_cmd, output, policy_cmd, status_cmd  # noqa: E402
+from .client import ApiUnreachable  # noqa: E402,F401  (re-exported for callers/tests)
+
 app = typer.Typer(help="Integrity Protocol developer CLI")
 console = Console()
+
+
+@app.callback()
+def _root(
+    network: Optional[str] = typer.Option(
+        None, "--network",
+        help=f"Network profile ({' | '.join(config.NETWORK_PROFILES)}): sets RPC_URL, DEPLOYMENTS_FILE "
+             "and ORACLE_URL together. Precedence: flag > env > profile > config file > default. "
+             f"Also ${config.NETWORK_ENV} or config NETWORK.",
+    ),
+) -> None:
+    """Integrity Protocol developer CLI.
+
+    Exit codes for query commands: 0 ok/yes, 1 definite no, 2 usage error,
+    3 unverified/unreachable, 4 the chain refused a write.
+    """
+    try:
+        config.set_network(network)
+        config.active_network()  # validates $INTEGRITY_NETWORK / config NETWORK too
+    except ValueError as e:
+        raise typer.BadParameter(str(e), param_hint="--network")
 
 identity_app = typer.Typer(help="Local agent identity: Ed25519 keypairs and DID documents")
 app.add_typer(identity_app, name="identity")
 
-agent_app = typer.Typer(help="Agent registration/lookup (integrity-oracle) and BCC intercept")
-app.add_typer(agent_app, name="agent")
+receipts_app = typer.Typer(help="Offline receipt verification (signatures, chain, checkpoint, inclusion)")
+app.add_typer(receipts_app, name="receipts")
+
+gate_app = typer.Typer(help="BCC pre-execution policy gate (bcc_middleware)")
+app.add_typer(gate_app, name="gate")
 
 config_app = typer.Typer(help="Manage CLI configuration")
 app.add_typer(config_app, name="config")
@@ -63,8 +97,8 @@ app.add_typer(config_app, name="config")
 auth_app = typer.Typer(help="Manage the auth token used for Oracle/BCC middleware calls")
 app.add_typer(auth_app, name="auth")
 
-xns_app = typer.Typer(help="XibalbaNameService (XNS): human-readable handles for registered agents")
-app.add_typer(xns_app, name="xns")
+handle_app = typer.Typer(help="Agent handles: Oracle directory + on-chain XibalbaNameService (XNS) (was `xns`)")
+app.add_typer(handle_app, name="handle")
 
 domain_app = typer.Typer(help="DomainRegistry: the namespace an agent joins on-chain")
 app.add_typer(domain_app, name="domain")
@@ -80,6 +114,10 @@ app.add_typer(hooks_app, name="hooks")
 
 pack_app = pack.pack_app
 app.add_typer(pack_app, name="pack")
+
+app.add_typer(policy_cmd.policy_app, name="policy")
+app.command("status")(status_cmd.status)
+app.command("doctor")(doctor_cmd.doctor)
 
 
 @hooks_app.command("install")
@@ -141,7 +179,7 @@ def hooks_uninstall(
     console.print_json(data=result)
 
 
-@app.command("verify")
+@receipts_app.command("verify")
 def verify_command(
     receipts: Path = typer.Option(..., "--receipts", exists=True, readable=True, help="Receipt bundle JSON file or JSON array"),
     trusted_signer: list[str] = typer.Option([], "--trusted-signer", help="Trusted z-prefixed Ed25519 public key; repeatable"),
@@ -152,7 +190,7 @@ def verify_command(
     rpc_url: Optional[str] = typer.Option(None, "--rpc-url", help="RPC URL used with --anchor-contract (defaults to RPC_URL or localhost)"),
     decision_trace: Optional[Path] = typer.Option(None, "--decision-trace", exists=True, readable=True, help="DecisionTrace events JSON file (array of DecisionEnvelope-shaped objects, each optionally carrying an 'advisory' field)"),
     trace_evidence: Optional[Path] = typer.Option(None, "--trace-evidence", exists=True, readable=True, help="DecisionTraceEvidence JSON file (trace_id, root, event_count, receipt_hash?, checkpoint_root?)"),
-    json_output: bool = typer.Option(False, "--json-output", help="Emit machine-readable JSON"),
+    json_output: bool = typer.Option(False, "--json", help=output.JSON_OPTION_HELP),
 ) -> None:
     """Verify receipt signatures, chain, checkpoint, and optional inclusion proof offline.
 
@@ -207,7 +245,7 @@ def verify_command(
             if not isinstance(proof_doc.get("receipt"), dict):
                 raise verify.VerifyError("MALFORMED", "proof receipt must be a JSON object")
             try:
-                w3 = chain.get_w3(rpc_url or os.getenv("RPC_URL", "http://localhost:8545"))
+                w3 = chain.get_w3(rpc_url or config.get_config_value("RPC_URL"))
                 if not w3.is_connected():
                     raise RuntimeError("RPC is not reachable")
                 state_anchor = chain._contract(w3, "StateAnchor", address=anchor_contract)
@@ -298,12 +336,14 @@ def verify_command(
     if json_output:
         # Rich wraps long strings to terminal width; machine-readable output
         # must remain one valid JSON document even for verbose error details.
-        typer.echo(json.dumps(result, sort_keys=True, separators=(",", ":")))
+        typer.echo(output.dumps({"schema": output.schema_id("receipts", "verify"), **result}))
     else:
         console.print("[green]PASS[/green] local receipt verification" if result["valid"] else f"[red]FAIL[/red] {result.get('error', {}).get('code', 'verification failed')}")
         console.print(json.dumps(result, indent=2, sort_keys=True))
     if not result["valid"]:
-        raise typer.Exit(1)
+        # An anchor that could not be READ is "unverified", not evidence of tampering.
+        unverified = result.get("error", {}).get("code") == "ANCHOR_UNAVAILABLE"
+        raise typer.Exit(output.EXIT_UNVERIFIED if unverified else output.EXIT_NO)
 
 
 # --------------------------------------------------------------------------
@@ -389,25 +429,16 @@ def config_show():
     came from an environment variable, the on-disk config file, or is just
     the built-in default (helps debug "why isn't my ORACLE_URL override
     taking effect" style questions)."""
-    effective = load_config()
-    on_disk: dict = {}
-    if config.CONFIG_FILE.exists():
-        try:
-            on_disk = json.loads(config.CONFIG_FILE.read_text())
-        except (json.JSONDecodeError, OSError):
-            on_disk = {}
+    network = config.active_network()
+    keys = set(load_config()) | (set(config.NETWORK_PROFILES[network]) if network else set())
 
-    table = Table(title="Integrity CLI Configuration")
+    table = Table(title="Integrity CLI Configuration" + (f" (network: {network})" if network else ""))
     table.add_column("Key", style="cyan")
     table.add_column("Value", style="magenta")
     table.add_column("Source", style="dim")
-    for key in sorted(effective):
-        if key in os.environ:
-            value, source = os.environ[key], "env"
-        elif key in on_disk:
-            value, source = on_disk[key], "config file"
-        else:
-            value, source = effective[key], "default"
+    for key in sorted(keys):
+        # Same precedence every command uses: env > --network profile > config file > default.
+        value, source = config.value_with_source(key)
         if key == "AUTH_TOKEN" and value:
             # Never print a real token to the terminal/scrollback in full.
             value = f"{value[:4]}…(masked)"
@@ -455,8 +486,8 @@ def auth_show():
 # identity
 # --------------------------------------------------------------------------
 
-@identity_app.command("keygen")
-def identity_keygen(
+@identity_app.command("new")
+def identity_new(
     name: str = typer.Option("default", "--name", help="Local identity name (for managing multiple keys)"),
     force: bool = typer.Option(False, "--force", help="Overwrite an existing identity with this name"),
 ):
@@ -491,14 +522,36 @@ def identity_show(
     console.print_json(data=doc)
 
 
+@identity_app.command("list")
+def identity_list(
+    json_output: bool = typer.Option(False, "--json", help=output.JSON_OPTION_HELP),
+):
+    """List local identities (name and DID). Never reads or prints a private key."""
+    rep = output.Reporter("identity", "list", json_mode=json_output)
+    found = []
+    root = identity.IDENTITY_DIR
+    if root.is_dir():
+        for child in sorted(root.iterdir()):
+            if child.is_dir() and identity.identity_exists(child.name):
+                try:
+                    found.append({"name": child.name, "did": identity.did_document(child.name)["id"]})
+                except (FileNotFoundError, TypeError, ValueError):
+                    continue  # a half-written or foreign directory is not an identity
+    if not found:
+        rep.info("[yellow]no local identities[/yellow] -- create one with `integrity identity new`")
+    for item in found:
+        rep.info(f"{item['name']}\t{item['did']}")
+    rep.result({"identities": found})
+
+
 # --------------------------------------------------------------------------
-# agent
+# register (off-chain, gas-free; the v3 default)
 # --------------------------------------------------------------------------
 
-@agent_app.command("register")
-def agent_register(
+@app.command("register")
+def register(
     identity_name: str = typer.Option(
-        "default", "--identity", help="Local identity to register (see `integrity identity keygen`)"
+        "default", "--identity", help="Local identity to register (see `integrity identity new`)"
     ),
     handle: Optional[str] = typer.Option(
         None, "--handle", help="Optional unique XNS handle to claim for this agent"
@@ -506,6 +559,7 @@ def agent_register(
     oracle_url: Optional[str] = typer.Option(
         None, "--oracle-url", help="integrity-oracle base URL (env/config ORACLE_URL)"
     ),
+    json_output: bool = typer.Option(False, "--json", help=output.JSON_OPTION_HELP),
 ):
     """
     Register a local identity with the Oracle, gas-free.
@@ -514,65 +568,50 @@ def agent_register(
     message; no chain state is touched, so no funder wallet, RPC endpoint or
     deployments file is needed. A proven key is verification tier 1.
     Re-running is safe: an already-registered DID is reported, never lowered.
+
+    Exit: 0 registered, 1 refused (e.g. 409 handle taken), 3 Oracle unreachable or 5xx.
     """
+    rep = output.Reporter("register", json_mode=json_output)
+    if not json_output:
+        rep.console = console
     try:
         doc = identity.did_document(identity_name)
         private_key = identity.load_private_key(identity_name)
     except (FileNotFoundError, TypeError) as e:
-        console.print(f"[bold red]Error:[/bold red] {e}")
-        raise typer.Exit(1)
+        rep.fail(output.EXIT_NO, str(e), code="NO_IDENTITY")
     agent_did = doc["id"]
     oracle_url = oracle_url or config.get_config_value("ORACLE_URL")
 
     try:
-        with console.status("[bold blue]Registering with Oracle..."):
+        with rep.console.status("[bold blue]Registering with Oracle..."):
             result = register_offchain(
                 oracle_url, agent_did, Keypair(private_key), handle=handle, did_document=doc
             )
     except OffchainRegistrationError as e:
         if e.status is None:
-            console.print(f"[bold red]Error:[/bold red] Oracle unreachable at {oracle_url}: {e.detail}")
-        else:
-            console.print(f"[bold red]Error:[/bold red] Oracle rejected the registration ({e.status}): {e.detail}")
-        raise typer.Exit(1)
-    typer.echo(f"registered {result.agent_id} tier={result.verification_tier} ({result.outcome})")
+            rep.fail(output.EXIT_UNVERIFIED, f"Oracle unreachable at {oracle_url}: {e.detail}", code="UNREACHABLE")
+        unverified = e.status >= 500
+        rep.fail(
+            output.EXIT_UNVERIFIED if unverified else output.EXIT_NO,
+            f"Oracle rejected the registration ({e.status}): {e.detail}",
+            code=f"HTTP_{e.status}",
+        )
+    if json_output:
+        rep.result({
+            "agent_id": result.agent_id, "verification_tier": result.verification_tier,
+            "outcome": result.outcome, "handle": result.handle, "oracle_url": oracle_url,
+        })
+    else:
+        typer.echo(f"registered {result.agent_id} tier={result.verification_tier} ({result.outcome})")
 
 
-@agent_app.command("show")
-def agent_show(agent_id: str = typer.Argument(..., help="Agent DID, e.g. did:integrity:...")):
-    """Look up an agent's record from integrity-oracle."""
-    client = IntegrityClient()
-    try:
-        with console.status(f"[bold blue]Fetching {agent_id}..."):
-            result = client.get(f"/v1/agent/{agent_id}")
-    except ApiError as e:
-        console.print(f"[bold red]Error:[/bold red] {e}")
-        raise typer.Exit(1)
-    console.print_json(data=result)
 
+# --------------------------------------------------------------------------
+# gate check (was `agent intercept`)
+# --------------------------------------------------------------------------
 
-@agent_app.command("ais")
-def agent_ais(agent_id: str = typer.Argument(..., help="Agent DID")):
-    """
-    Fetch the Agent Integrity Score for an agent from integrity-oracle.
-
-    AIS is computed once, centrally, in integrity-oracle/scoring-core
-    (INTERFACE_CONTRACT.md section 4.3) -- this command intentionally does
-    not recompute the formula locally, it only displays the oracle's
-    answer, since the oracle is the single source of truth for the score.
-    """
-    client = IntegrityClient()
-    try:
-        with console.status(f"[bold blue]Fetching AIS for {agent_id}..."):
-            result = client.get(f"/v1/agent/{agent_id}/ais")
-    except ApiError as e:
-        console.print(f"[bold red]Error:[/bold red] {e}")
-        raise typer.Exit(1)
-    console.print_json(data=result)
-
-
-@agent_app.command("intercept")
-def agent_intercept(
+@gate_app.command("check")
+def gate_check(
     identity_name: str = typer.Option(
         "default", "--identity", help="Local identity signing this commitment"
     ),
@@ -620,7 +659,7 @@ def agent_intercept(
     # opening an RPC connection -- this command otherwise never touches the
     # chain, and adding a live RPC dependency here would be a bigger change
     # than this command needs.
-    deployments_file = deployments_file or os.getenv("DEPLOYMENTS_FILE", "../deployments.local.json")
+    deployments_file = deployments_file or config.get_config_value("DEPLOYMENTS_FILE")
     try:
         deployments = chain.load_deployments(deployments_file)
         target_chain_id = deployments["chainId"]
@@ -649,7 +688,8 @@ def agent_intercept(
             result = client.post("/v1/bcc/intercept", json_data=commitment)
     except ApiError as e:
         console.print(f"[bold red]Error querying BCC middleware:[/bold red] {e}")
-        raise typer.Exit(1)
+        # Unreachable / 5xx: the gate gave no decision (3). A 4xx is a definite refusal (1).
+        raise typer.Exit(output.EXIT_UNVERIFIED if e.unverified else output.EXIT_NO)
 
     authorized = bool(result.get("authorized", False))
     reason = result.get("reason", "n/a")
@@ -677,8 +717,8 @@ _DEPLOYMENTS_FILE_OPTION = typer.Option(
 
 def _domain_setup(rpc_url: Optional[str], deployments_file: Optional[str]) -> tuple[Web3, str, int]:
     """Shared connect/resolve-address logic for domain_app commands, mirroring _xns_setup below."""
-    rpc_url = rpc_url or os.getenv("RPC_URL", "http://localhost:8545")
-    deployments_file = deployments_file or os.getenv("DEPLOYMENTS_FILE", "../deployments.local.json")
+    rpc_url = rpc_url or config.get_config_value("RPC_URL")
+    deployments_file = deployments_file or config.get_config_value("DEPLOYMENTS_FILE")
 
     try:
         w3 = chain.get_w3(rpc_url)
@@ -768,21 +808,21 @@ def domain_register(
 
 
 # --------------------------------------------------------------------------
-# xns
+# handle (was `xns`): Oracle directory + on-chain XibalbaNameService
 # --------------------------------------------------------------------------
 
 
 def _xns_setup(rpc_url: Optional[str], deployments_file: Optional[str]) -> tuple[Web3, str, int]:
     """
-    Shared connect/resolve-address logic for every xns_app command:
+    Shared connect/resolve-address logic for every handle_app command:
     connects to the RPC, loads the deployments file, and pulls
     `singletons.XibalbaNameService`'s address out of it. Factored out since
-    all five xns commands below need exactly this, mirroring how
+    all five on-chain handle commands below need exactly this, mirroring how
     `agent_register` inlines the equivalent connect+load steps for its own
-    single command (xns has five, so it's worth sharing here).
+    single command (handle has five on-chain ones, so it's worth sharing here).
     """
-    rpc_url = rpc_url or os.getenv("RPC_URL", "http://localhost:8545")
-    deployments_file = deployments_file or os.getenv("DEPLOYMENTS_FILE", "../deployments.local.json")
+    rpc_url = rpc_url or config.get_config_value("RPC_URL")
+    deployments_file = deployments_file or config.get_config_value("DEPLOYMENTS_FILE")
 
     try:
         w3 = chain.get_w3(rpc_url)
@@ -811,11 +851,11 @@ def _xns_setup(rpc_url: Optional[str], deployments_file: Optional[str]) -> tuple
 def _resolve_own_sovereign_agent(identity_name: str) -> str:
     """
     Every XNS write call must be routed through the caller's own
-    `SovereignAgent.execute` (see chain.py's `_xns_send_via_agent` docstring
+    `SovereignAgent.execute` (see integrity_sdk.chain's XNS section
     on why -- `isRegisteredAgent` only recognizes that contract address, not
     the controller EOA). This identity's `SovereignAgent` address isn't
-    persisted locally (off-chain `integrity agent register` deploys nothing), so it's resolved the
-    same way `agent_show`/`agent_ais` already resolve agent state: a
+    persisted locally (off-chain `integrity register` deploys nothing), so it's resolved the
+    same way `integrity status` resolves agent state: a
     `GET /v1/agent/{did}` against integrity-oracle, which caches exactly
     this mapping (see `integrity-oracle`'s `primitives.sovereign_agent`).
     """
@@ -838,13 +878,13 @@ def _resolve_own_sovereign_agent(identity_name: str) -> str:
     if not sovereign_agent:
         console.print(
             f"[bold red]Error:[/bold red] integrity-oracle has no SovereignAgent address for {did} -- "
-            "register this identity first with `integrity agent register`."
+            "register this identity first with `integrity register`."
         )
         raise typer.Exit(1)
     return sovereign_agent
 
 
-@xns_app.command("register")
+@handle_app.command("register")
 def xns_register(
     handle: str = typer.Argument(..., help='Handle to claim, e.g. "hermes.integrity"'),
     identity_name: str = typer.Option("default", "--identity", help="Local identity claiming the handle"),
@@ -854,7 +894,7 @@ def xns_register(
     """
     Self-service claim a handle for a local identity's already-registered
     agent. Reverts on-chain (surfaced below) if this identity isn't a real
-    registered agent yet (`integrity agent register` it first) or if the
+    registered agent yet (`integrity register` it first) or if the
     handle is already taken -- see XibalbaNameService.sol's NatSpec.
     """
     w3, xns_address, chain_id = _xns_setup(rpc_url, deployments_file)
@@ -876,7 +916,7 @@ def xns_register(
     console.print(f"[dim]tx: {receipt['transactionHash'].hex()}[/dim]")
 
 
-@xns_app.command("available")
+@handle_app.command("available")
 def xns_available(
     handle: str = typer.Argument(..., help="Handle to check"),
     oracle_url: Optional[str] = typer.Option(
@@ -929,7 +969,7 @@ def xns_available(
     raise typer.Exit(3 if result.unverified else 1)
 
 
-@xns_app.command("resolve")
+@handle_app.command("resolve")
 def xns_resolve(
     handle: str = typer.Argument(..., help="Handle to resolve"),
     rpc_url: Optional[str] = _RPC_URL_OPTION,
@@ -944,7 +984,7 @@ def xns_resolve(
     console.print(f"{handle} -> [bold]{result}[/bold]")
 
 
-@xns_app.command("primary-handle")
+@handle_app.command("primary-handle")
 def xns_primary_handle(
     sovereign_agent: str = typer.Argument(..., help="SovereignAgent address to look up"),
     rpc_url: Optional[str] = _RPC_URL_OPTION,
@@ -959,7 +999,7 @@ def xns_primary_handle(
     console.print(f"{sovereign_agent} -> [bold]{handle}[/bold]")
 
 
-@xns_app.command("set-primary")
+@handle_app.command("set-primary")
 def xns_set_primary(
     handle: str = typer.Argument(..., help="Handle (already owned by this identity) to make primary"),
     identity_name: str = typer.Option("default", "--identity", help="Local identity whose primary handle to change"),
@@ -986,7 +1026,7 @@ def xns_set_primary(
     console.print(f"[dim]tx: {receipt['transactionHash'].hex()}[/dim]")
 
 
-@xns_app.command("release")
+@handle_app.command("release")
 def xns_release(
     handle: str = typer.Argument(..., help="Handle (owned by this identity) to release"),
     identity_name: str = typer.Option("default", "--identity", help="Local identity releasing the handle"),
@@ -1018,11 +1058,11 @@ def xns_release(
 # optional "list this handle as an on-chain alias" step. The two below are unrelated:
 # they talk to Oracle's own local `xns_handles` directory (integrity-oracle migration
 # 0022) -- no wallet, no gas. This is the mandatory, primary handle every agent gets at
-# `integrity agent register`; on-chain listing is separate and optional. The Oracle refuses a
+# `integrity register`; on-chain listing is separate and optional. The Oracle refuses a
 # claim the on-chain namespace already holds for another agent (409), and fails closed (503)
-# when it cannot check; `xns available` (above) reports both namespaces.
+# when it cannot check; `handle available` (above) reports both namespaces.
 
-@xns_app.command("claim")
+@handle_app.command("claim")
 def xns_claim(
     agent_id: str = typer.Argument(..., help="Agent DID (or bare agent_id) claiming this handle"),
     handle: str = typer.Argument(..., help="Handle to claim"),
@@ -1032,7 +1072,7 @@ def xns_claim(
 ):
     """Claim a handle in Oracle's local XNS directory for an agent that already has one
     without one, or that was registered before this feature existed. Not needed for a
-    fresh `integrity agent register`."""
+    fresh `integrity register`."""
     oracle_client = IntegrityClient(base_url=oracle_url or config.get_config_value("ORACLE_URL"))
     try:
         result = oracle_client.post("/v1/xns/claim", json_data={"agent_id": agent_id, "handle": handle})

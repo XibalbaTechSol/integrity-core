@@ -1,7 +1,7 @@
 ---
 title: integrity-cli
 created: 2026-07-07
-updated: 2026-10-05
+updated: 2026-11-15
 type: entity
 tags: [sdk, identity]
 confidence: high
@@ -21,6 +21,10 @@ source_files:
   - integrity-cli/integrity_cli/verify.py
   - integrity-cli/tests/test_verify.py
   - integrity-cli/tests/test_verify_decision_trace.py
+  - integrity-cli/integrity_cli/output.py
+  - integrity-cli/integrity_cli/policy_cmd.py
+  - integrity-cli/integrity_cli/status_cmd.py
+  - integrity-cli/integrity_cli/doctor_cmd.py
 ---
 
 ## Table of contents
@@ -33,11 +37,28 @@ Developer CLI (Python/Typer) — the human-driven counterpart to
 [integrity-sdk](integrity-sdk.md), carrying its own copy of the identity/wallet/
 chain logic (no sibling-import) but kept wire-compatible byte-for-byte.
 
-`integrity agent register` runs the **real self-sovereign on-chain sequence** —
+**Registration v3 command tree (2026-11-15; hard renames, no aliases).** `register`
+(was `agent register`; off-chain, gas-free), `status` (folds `agent show`/`agent ais`),
+`doctor`, `identity new/show/list` (was `identity keygen`), `gate check` (was
+`agent intercept`), `receipts verify` (was top-level `verify`; `--json-output` →
+`--json`), `handle` (was `xns`; `handle available` checks both namespaces), and a
+read-only `policy` group (`compile/map/check/prove/diff`,
+`publish --print-tx`, which prints `setGraphRoot` and never signs). Every v3 command
+takes `--json` (one document tagged `integrity.cli.<group>.<cmd>.v1`) and shares one
+exit-code table: 0 ok, 1 no, 2 usage, 3 unverified/unreachable, 4 revert. `--network
+local|base-sepolia` sets RPC/deployments/Oracle together (flag > env > profile > config
+file > default). The CLI's deploy/XNS/domain chain helpers are now re-exports of
+`integrity_sdk.chain` (one chain layer), and PR 3.4 deleted the CLI's seven-primitives
+registration path (`vault sync` keeps `anchor_root`). `status` and `doctor` read the v3
+`AgentRegistry` from `singletons.AgentRegistry`. The sections below are the history and still
+use the old command names.
+
+Before v3, `integrity agent register` ran the **real self-sovereign on-chain sequence** —
 fund the agent's own EVM wallet → mint testnet $ITK → deploy `SovereignAgent` +
 `StateAnchor` → grant anchor role via `execute` →
 `AgentPrimitivesFactory.registerPrimitives` → POST to the oracle. It is a
-multi-transaction, multi-second command, not a single HTTP POST. See
+multi-transaction, multi-second command, not a single HTTP POST (removed in registration v3
+PR 3.4; `register` is now a single gasless Oracle call). See
 [agent primitives](../concepts/agent-primitives.md).
 
 Other commands: `identity keygen/show` (Ed25519 [DID](../concepts/did.md), full

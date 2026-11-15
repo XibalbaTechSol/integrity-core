@@ -100,6 +100,15 @@ CONTRACTS = [
 ]
 
 
+# Contracts the CLI no longer loads (registration v3 PR 3.4 deleted its primitives registration
+# path). They stay synced for the SDK; the CLI ships without them.
+CLI_SKIP = frozenset({"AgentPrimitivesFactory", "XibalbaAgentRegistry"})
+
+
+def _targets(contract_name: str) -> tuple[Path, ...]:
+    return (SDK_ABIS_DIR,) if contract_name in CLI_SKIP else (SDK_ABIS_DIR, CLI_ABIS_DIR)
+
+
 def _trimmed(contract_name: str, source_stem: str) -> str:
     artifact_path = CONTRACTS_OUT / f"{source_stem}.sol" / f"{contract_name}.json"
     if not artifact_path.exists():
@@ -130,7 +139,7 @@ def check() -> None:
     stale = []
     for contract_name, source_stem in CONTRACTS:
         expected = _trimmed(contract_name, source_stem)
-        for abis_dir in (SDK_ABIS_DIR, CLI_ABIS_DIR):
+        for abis_dir in _targets(contract_name):
             out_path = abis_dir / f"{contract_name}.json"
             if not out_path.exists() or out_path.read_text() != expected:
                 stale.append(str(out_path.relative_to(REPO_ROOT)))
@@ -157,7 +166,7 @@ def main() -> None:
 
     for contract_name, source_stem in CONTRACTS:
         trimmed = _trimmed(contract_name, source_stem)
-        for abis_dir in (SDK_ABIS_DIR, CLI_ABIS_DIR):
+        for abis_dir in _targets(contract_name):
             out_path = abis_dir / f"{contract_name}.json"
             out_path.write_text(trimmed)
             print(f"wrote {out_path.relative_to(REPO_ROOT)}")

@@ -159,7 +159,7 @@ def load_private_key(name: str = "default") -> Ed25519PrivateKey:
     if not path.exists():
         raise FileNotFoundError(
             f"No identity named '{name}' found at {path}. "
-            "Run `integrity identity keygen` first."
+            "Run `integrity identity new` first."
         )
     pem = path.read_bytes()
     key = serialization.load_pem_private_key(pem, password=None)

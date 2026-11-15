@@ -130,3 +130,37 @@ def test_policy_is_bound_to_the_pack_hash():
 def test_pack_without_onchain_section_has_no_policy():
     pack = CompiledPack(manifest={}, files={"policy.rego": b"package x"}, pack_hash="sha256:ab")
     assert onchain_policy_of(pack) is None
+
+
+# --- edges_for_call: "is this call in the map?" (the CLI's `policy check`) ---------------------
+
+def test_edges_for_call_matches_target_and_selector_case_insensitively():
+    from integrity_sdk.core.pack_onchain import edges_for_call
+
+    policy = compile_onchain(_section())
+    hits = edges_for_call(policy, TOKEN.lower(), "0xA9059CBB")
+    assert [e.risk_weight_bps for e in hits] == [500]
+
+
+def test_edges_for_call_returns_every_mapped_risk_weight():
+    from integrity_sdk.core.pack_onchain import edges_for_call
+
+    policy = compile_onchain(_section(edges=[
+        {"target": TOKEN, "selector": "0xa9059cbb", "risk_weight_bps": 500},
+        {"target": TOKEN, "selector": "0xa9059cbb", "risk_weight_bps": 900, "to_node": "big-transfer"},
+    ]))
+    assert sorted(e.risk_weight_bps for e in edges_for_call(policy, TOKEN, "0xa9059cbb")) == [500, 900]
+
+
+def test_edges_for_call_is_empty_for_an_unmapped_call_and_rejects_malformed_input():
+    from integrity_sdk.core.pack_onchain import edges_for_call
+
+    policy = compile_onchain(_section())
+    assert edges_for_call(policy, TOKEN, "0x095ea7b3") == ()
+    assert edges_for_call(policy, "0x" + "11" * 20, "0xa9059cbb") == ()
+    with pytest.raises(OnchainSectionError) as e:
+        edges_for_call(policy, "not-an-address", "0xa9059cbb")
+    assert e.value.code == "BAD_TARGET"
+    with pytest.raises(OnchainSectionError) as e:
+        edges_for_call(policy, TOKEN, "0xa9059c")
+    assert e.value.code == "BAD_SELECTOR"
