@@ -81,7 +81,7 @@ This single repository contains six independently-versioned packages that form t
 
 | Package | Role | Status |
 |---|---|---|
-| `contracts/` | On-chain primitives: identity, registration (`AgentRegistry`), trust and reputation, HIPAA/healthcare vertical | 250 tests locally; Base Sepolia genesis deployed |
+| `contracts/` | On-chain primitives: identity, registration (`AgentRegistry`), trust and reputation, HIPAA/healthcare vertical | 381 tests (CI run 43868689021, `afe3da79`); Base Sepolia genesis deployed |
 | `integrity-zkp/` | Real Noir/Barretenberg ZK circuit for intent binding and reputation boost | Real pipeline working locally; Base Sepolia verifier holds placeholder bytecode |
 | `integrity-oracle/` | Telemetry ingestion, deterministic AIS computation, on-chain reads, markets/leaderboard/governance APIs | 80 lib + 9 e2e tests locally; single-operator oracle |
 | `integrity-sdk/` | Agent library: identity, wallet, registration, telemetry, BCC, markets | 259 tests locally |
