@@ -137,3 +137,30 @@ def test_verify_reads_local_state_anchor(tmp_path, monkeypatch):
     document = json.loads(result.stdout)
     assert document["anchor"] == "pass"
     assert document["anchor_scope"] == "local_rpc"
+
+
+def test_verify_rejects_an_empty_receipt_array(tmp_path):
+    # Zero receipts is not evidence of anything; "valid" must never be the answer.
+    _bundle_path, _proof, signer, _root = _bundle(tmp_path)
+    empty = tmp_path / "empty.json"
+    empty.write_text("[]")
+    result = runner.invoke(app, [
+        "receipts", "verify", "--receipts", str(empty), "--trusted-signer", signer, "--json",
+    ])
+    assert result.exit_code == 1, result.stdout
+    output = json.loads(result.stdout)
+    assert output["valid"] is False
+    assert output["error"]["code"] == "EMPTY_BUNDLE"
+
+
+def test_verify_rejects_an_empty_bundle_object(tmp_path):
+    _bundle_path, _proof, signer, _root = _bundle(tmp_path)
+    empty = tmp_path / "empty.json"
+    empty.write_text(json.dumps({"receipts": []}))
+    result = runner.invoke(app, [
+        "receipts", "verify", "--receipts", str(empty), "--trusted-signer", signer, "--json",
+    ])
+    assert result.exit_code == 1, result.stdout
+    output = json.loads(result.stdout)
+    assert output["valid"] is False
+    assert output["error"]["code"] == "EMPTY_BUNDLE"
