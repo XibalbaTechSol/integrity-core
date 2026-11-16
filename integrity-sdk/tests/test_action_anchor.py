@@ -11,6 +11,9 @@ transaction: its vault stays local and verifiable off-chain.
 
 from __future__ import annotations
 
+import hashlib
+import os
+
 import pytest
 from eth_account import Account
 from web3 import Web3
@@ -20,7 +23,18 @@ from integrity_sdk import chain
 from integrity_sdk.core import merkle
 
 
-def _bound_agent(deployed_chain, did):
+def _did(label: str) -> str:
+    """A well-formed DID (`did:integrity:` + 64 hex): `AgentRegistry.fingerprintOfDID` reverts
+    `InvalidDid()` on anything else, so a readable label is hashed into the fingerprint."""
+    return "did:integrity:" + Web3.keccak(text=label).hex().removeprefix("0x")
+
+
+def _bound_agent(deployed_chain):
+    """A fresh agent bound on-chain with a `SovereignAgent` actor. The DID is derived from the
+    registered pubkey (`did:integrity:` + sha256(pubkey)): that is the fingerprint
+    `AgentRegistry.resolveDID` looks up, so an invented DID would never resolve to this record."""
+    pubkey = os.urandom(32)
+    did = "did:integrity:" + hashlib.sha256(pubkey).hexdigest()
     w3 = deployed_chain["w3"]
     chain_id = deployed_chain["chain_id"]
     funder = deployed_chain["funder"]
@@ -28,8 +42,8 @@ def _bound_agent(deployed_chain, did):
     controller = Account.create()
     v3_onchain.fund(w3, funder, controller.address, chain_id)
     actor = v3_onchain.deploy_canonical_agent(w3, chain_id, controller, registry, did)
-    v3_onchain.bind(w3, chain_id, funder, controller, registry, actor)
-    return actor, controller
+    v3_onchain.bind(w3, chain_id, funder, controller, registry, actor, pubkey=pubkey)
+    return actor, controller, did
 
 
 def _deployments(deployed_chain) -> dict:
@@ -42,17 +56,15 @@ def _action_anchor(deployed_chain):
 
 
 def test_resolve_actor_reads_agent_registry(deployed_chain):
-    did = "did:integrity:d1-resolve"
-    actor, _ = _bound_agent(deployed_chain, did)
+    actor, _, did = _bound_agent(deployed_chain)
     registry = deployed_chain["addresses"]["AgentRegistry"]
     assert chain.resolve_actor(deployed_chain["w3"], registry, did) == actor
-    assert chain.resolve_actor(deployed_chain["w3"], registry, "did:integrity:d1-nobody") is None
+    assert chain.resolve_actor(deployed_chain["w3"], registry, _did("d1-nobody")) is None
 
 
 def test_vault_root_is_anchored_under_the_actor_and_verifies(deployed_chain):
     w3 = deployed_chain["w3"]
-    did = "did:integrity:d1-anchor"
-    actor, controller = _bound_agent(deployed_chain, did)
+    actor, controller, did = _bound_agent(deployed_chain)
 
     leaves = [Web3.keccak(text=f"vault-entry-{i}") for i in range(3)]
     root = merkle.merkle_root(leaves)
@@ -78,7 +90,7 @@ def test_vault_root_is_anchored_under_the_actor_and_verifies(deployed_chain):
 
 def test_genesis_root_defaults_to_the_empty_vault_sentinel(deployed_chain):
     w3 = deployed_chain["w3"]
-    actor, controller = _bound_agent(deployed_chain, "did:integrity:d1-genesis")
+    actor, controller, did = _bound_agent(deployed_chain)
     chain.anchor_genesis_root(
         w3, controller, actor, deployed_chain["addresses"]["ActionAnchor"], deployed_chain["chain_id"]
     )
@@ -104,7 +116,7 @@ def test_agent_without_an_actor_gets_no_actor_and_sends_nothing(deployed_chain, 
 
     controller = Account.create()
     result = chain.anchor_vault_root_for_did(
-        w3, controller, "did:integrity:d1-off-chain-only", _deployments(deployed_chain),
+        w3, controller, _did("d1-off-chain-only"), _deployments(deployed_chain),
         deployed_chain["chain_id"], Web3.keccak(text="local-only-root"),
     )
 
