@@ -1,6 +1,6 @@
 """Merkle trees in the protocol's one convention (OpenZeppelin semantics).
 
-This is the convention `StateAnchor.verifyLeaf` checks on-chain, pinned by the
+This is the convention `ActionAnchor.verifyLeaf` checks on-chain, pinned by the
 cross-implementation vectors in `spec/vault-merkle/vectors.json` and specified
 in `docs/design/merkle-standardization.md` §2:
 
@@ -64,7 +64,7 @@ def merkle_root(leaves: Sequence[bytes]) -> bytes:
 
 
 def merkle_proof(leaves: Sequence[bytes], index: int) -> List[bytes]:
-    """Sibling path for `leaves[index]`, verifiable by `verify_leaf` and `StateAnchor.verifyLeaf`."""
+    """Sibling path for `leaves[index]`, verifiable by `verify_leaf` and `ActionAnchor.verifyLeaf`."""
     if not 0 <= index < len(leaves):
         raise IndexError(f"leaf index {index} out of range for {len(leaves)} leaves")
     proof: List[bytes] = []
@@ -86,7 +86,7 @@ def merkle_proof(leaves: Sequence[bytes], index: int) -> List[bytes]:
 
 
 def verify_leaf(root: bytes, leaf: bytes, proof: Sequence[bytes]) -> bool:
-    """Local mirror of `StateAnchor.verifyLeaf` / OpenZeppelin `MerkleProof.verify`."""
+    """Local mirror of `ActionAnchor.verifyLeaf` / OpenZeppelin `MerkleProof.verify`."""
     computed = leaf
     for sibling in proof:
         computed = hash_pair(computed, sibling)

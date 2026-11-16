@@ -97,6 +97,10 @@ CONTRACTS = [
     # need register/registerDigest/bindActorDigest/resolveAgent for v3 onboarding (PR 3.4)
     # and isRegisteredAgent for the XNS handle-availability check.
     ("AgentRegistry", "AgentRegistry"),
+    # ActionAnchor (v2 graph deletion slice D1, added 2026-11-16): the shared, actor-keyed
+    # anchor that replaces the per-agent StateAnchor for vault, memory-DAG and receipt
+    # evidence roots.
+    ("ActionAnchor", "ActionAnchor"),
 ]
 
 

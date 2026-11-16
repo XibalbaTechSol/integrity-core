@@ -493,41 +493,6 @@ def set_anchor_policy(w3: Web3, agent: LocalAccount, sovereign_agent_address: st
     return tx_hash.hex()
 
 
-def set_zk_identity_commitment(
-    w3: Web3,
-    agent: LocalAccount,
-    sovereign_agent_address: str,
-    reputation_registry_address: str,
-    identity_commitment: bytes,
-    chain_id: int,
-) -> str:
-    """Pins the Noir identity commitment on the agent's ReputationRegistry.
-
-    The registry's admin is the SovereignAgent contract, so the controller EOA
-    must route this one-time operation through ``SovereignAgent.execute``.
-    Subsequent ZK attestations are rejected unless their first public input
-    matches this pinned value.
-    """
-    if len(identity_commitment) != 32 or not any(identity_commitment):
-        raise ValueError("identity_commitment must be a non-zero 32-byte value")
-
-    reputation_registry = _contract(w3, "ReputationRegistry", address=reputation_registry_address)
-    set_calldata = reputation_registry.functions.setZkIdentityCommitment(identity_commitment).build_transaction(
-        {"gas": 0}
-    )["data"]
-
-    sovereign_agent = _contract(w3, "SovereignAgent", address=sovereign_agent_address)
-    _, tx_hash = _send_signed(
-        w3,
-        agent,
-        lambda nonce: sovereign_agent.functions.execute(
-            Web3.to_checksum_address(reputation_registry_address), 0, set_calldata
-        ).build_transaction({"from": agent.address, "nonce": nonce, "chainId": chain_id}),
-        action="set_zk_identity_commitment",
-    )
-    return tx_hash.hex()
-
-
 def has_anchor_role(w3: Web3, state_anchor_address: str, oracle_signer: str) -> bool:
     """Read-only check for whether `grant_anchor_role` has already succeeded for this
     StateAnchor — lets a registration retry skip a redundant (if harmless, since OZ's
@@ -571,30 +536,75 @@ def genesis_vault_root() -> bytes:
     return keccak(text=GENESIS_VAULT_SEED)
 
 
+#: Typed result for an agent with no bound actor: nothing to anchor under, so no transaction
+#: is sent and the vault stays local and verifiable off-chain (v2 graph deletion, owner
+#: question 8b).
+NO_ACTOR = "NO_ACTOR"
+
+_ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
+
+
+class AnchorConfigError(RuntimeError):
+    """The deployments file lacks an address the anchoring path needs."""
+
+
+@dataclass
+class AnchorResult:
+    status: str  # "anchored" | NO_ACTOR
+    actor: Optional[str]
+    tx_hash: Optional[str]
+    root: bytes
+
+
+def _singleton(deployments: dict, name: str) -> str:
+    address = (deployments.get("singletons") or {}).get(name)
+    if not address:
+        raise AnchorConfigError(f"no singletons.{name} in the deployments file")
+    return Web3.to_checksum_address(address)
+
+
+def resolve_actor(w3: Web3, agent_registry_address: str, did: str) -> Optional[str]:
+    """The `SovereignAgent` acting for `did`: `AgentRegistry.resolveDID(did).actor`, or None when
+    no actor is bound (an off-chain-only agent, or a DID the registry has never seen)."""
+    registry = _contract(w3, "AgentRegistry", address=agent_registry_address)
+    record = _call_with_retry(registry.functions.resolveDID(did).call)
+    actor = record[2]
+    if not actor or actor.lower() == _ZERO_ADDRESS:
+        return None
+    return Web3.to_checksum_address(actor)
+
+
+def actor_latest_root(w3: Web3, action_anchor_address: str, actor: str) -> bytes:
+    """`ActionAnchor.latestRoot(actor)`: the actor's most recent anchored root, zero if none."""
+    anchor = _contract(w3, "ActionAnchor", address=action_anchor_address)
+    return _call_with_retry(anchor.functions.latestRoot(Web3.to_checksum_address(actor)).call)
+
+
 def anchor_vault_root(
     w3: Web3,
     agent: LocalAccount,
-    sovereign_agent_address: str,
-    state_anchor_address: str,
+    actor_address: str,
+    action_anchor_address: str,
     chain_id: int,
     root: bytes,
 ) -> str:
     """
-    Anchors an arbitrary Trust Vault root, routed through `SovereignAgent.execute`.
+    Anchors a Trust Vault root on the shared `ActionAnchor`, routed through the actor's
+    `SovereignAgent.execute`.
 
-    The general form of `anchor_genesis_root` below: same call path and same reason for it
-    (StateAnchor's admin is the SovereignAgent contract, so a raw EOA calling `anchorRoot`
-    reverts), but for the per-session roots that follow genesis. See `integrity_sdk.vault`
-    for how those roots are computed.
+    `ActionAnchor` keys every root on `msg.sender`, so the route is what puts the root under the
+    actor: called straight from the controller EOA, the root would land under the controller's
+    address instead (spec v3 Part 5, "keyed by their actor"). `agent` is the actor's controller.
+    See `integrity_sdk.vault` for how roots are computed.
     """
-    state_anchor = _contract(w3, "StateAnchor", address=state_anchor_address)
-    anchor_calldata = state_anchor.functions.anchorRoot(root).build_transaction({"gas": 0})["data"]
+    action_anchor = _contract(w3, "ActionAnchor", address=action_anchor_address)
+    anchor_calldata = action_anchor.functions.anchorRoot(root).build_transaction({"gas": 0})["data"]
 
-    sovereign_agent = _contract(w3, "SovereignAgent", address=sovereign_agent_address)
+    sovereign_agent = _contract(w3, "SovereignAgent", address=actor_address)
     _, tx_hash = _send_signed(
         w3, agent,
         lambda nonce: sovereign_agent.functions.execute(
-            Web3.to_checksum_address(state_anchor_address), 0, anchor_calldata
+            Web3.to_checksum_address(action_anchor_address), 0, anchor_calldata
         ).build_transaction({"from": agent.address, "nonce": nonce, "chainId": chain_id}),
         action="anchor_vault_root",
     )
@@ -604,28 +614,44 @@ def anchor_vault_root(
 def anchor_genesis_root(
     w3: Web3,
     agent: LocalAccount,
-    sovereign_agent_address: str,
-    state_anchor_address: str,
+    actor_address: str,
+    action_anchor_address: str,
     chain_id: int,
     root: Optional[bytes] = None,
 ) -> str:
     """
-    Anchors the agent's genesis memory root (epoch 0 -> 1) on its own StateAnchor.
+    Anchors the agent's genesis vault root under its actor (epoch 0 -> 1 on `ActionAnchor`).
 
-    Spec v0.3 §7.2: the genesis root MUST be agent-authorized -- the controller, or
-    `SovereignAgent.execute`. This routes through `execute` for exactly the same reason
-    `grant_anchor_role` does: StateAnchor's admin is the SovereignAgent *contract*, which
-    the constructor also grants ANCHOR_ROLE, so the raw EOA calling `anchorRoot` directly
-    would revert. No Solidity change is needed to satisfy §7.2 -- what is still
-    [PLANNED] (Appendix A gap 2) is *enforcement* that the protocol's ANCHOR_ROLE signer
-    cannot anchor epoch 1 instead.
+    Spec v0.3 §7.2: the genesis root MUST be agent-authorized. Routing through the actor's
+    `SovereignAgent.execute`, signed by its controller, is exactly that.
 
     Defaults to the empty-vault sentinel; pass `root` to anchor a real vault root when the
     agent already has entries at birth.
     """
     return anchor_vault_root(
-        w3, agent, sovereign_agent_address, state_anchor_address, chain_id, root or genesis_vault_root()
+        w3, agent, actor_address, action_anchor_address, chain_id, root or genesis_vault_root()
     )
+
+
+def anchor_vault_root_for_did(
+    w3: Web3,
+    agent: LocalAccount,
+    did: str,
+    deployments: dict,
+    chain_id: int,
+    root: bytes,
+) -> AnchorResult:
+    """Resolves `did`'s actor from `AgentRegistry`, then anchors `root` under it.
+
+    No bound actor -> `AnchorResult(status=NO_ACTOR)` and no transaction at all.
+    """
+    registry_address = _singleton(deployments, "AgentRegistry")
+    action_anchor_address = _singleton(deployments, "ActionAnchor")
+    actor = resolve_actor(w3, registry_address, did)
+    if actor is None:
+        return AnchorResult(status=NO_ACTOR, actor=None, tx_hash=None, root=root)
+    tx_hash = anchor_vault_root(w3, agent, actor, action_anchor_address, chain_id, root)
+    return AnchorResult(status="anchored", actor=actor, tx_hash=tx_hash, root=root)
 
 
 @dataclass

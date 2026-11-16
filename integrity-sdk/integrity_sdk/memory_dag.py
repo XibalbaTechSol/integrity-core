@@ -331,7 +331,7 @@ def verify_ancestry(chain: Sequence[Dict[str, Any]]) -> bool:
 
 
 def root_of_heads(head_ids: Iterable[str]) -> bytes:
-    """Single 32-byte commitment over all current refs, for `StateAnchor.anchorRoot`.
+    """Single 32-byte commitment over all current refs, for `ActionAnchor.anchorRoot`.
 
     Reuses `vault.py`'s tree — sorted-pair position-erasure is harmless here because
     each head already commits to its own structure transitively. Anchoring one head

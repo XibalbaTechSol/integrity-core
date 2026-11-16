@@ -5,24 +5,22 @@ Anchor the memory DAG's current root-of-heads on-chain.
 Companion to `import_memory_dag.py`, and step 5 of `docs/design/memory-dag.md`:
 "Root-of-heads + `anchorRoot` of the head" -> `latestRoot != 0`, gate passes.
 
-Deliberately NOT the same code path as `anchor_vault.py` (~/.claude/xibalba/), even
-though both end in a `StateAnchor.anchorRoot` call: that script is hardcoded to
-`TrustVault.session_root()`, the vault's own root. This script anchors
+Deliberately NOT the same root as `anchor_vault.py` (~/.claude/xibalba/): that script is
+hardcoded to `TrustVault.session_root()`, the vault's own root. This script anchors
 `memory_dag.root_of_heads(graph.refs().values())` instead -- a different tree over a
-different structure. They anchor independently and do not supersede each other; the
-vault records "this leaf happened", the DAG records "this is the current head set".
+different structure. Both land under the same actor on `ActionAnchor`, which keeps only the
+latest root per actor; each anchor stays provable from its `RootAnchored` event.
 
-Uses the SAME controller-signed path as anchor_vault.py (`SovereignAgent.execute` ->
-`StateAnchor.anchorRoot`), because `StateAnchor`'s admin is the `SovereignAgent`
-contract, not any EOA -- a raw `ANCHOR_ROLE` key calling `anchorRoot` directly
-reverts unless it holds that role explicitly (as bcc-middleware's oracle signer
-does for vault-batch anchoring; this script does not assume that role exists).
+Anchors through the actor's `SovereignAgent.execute` -> `ActionAnchor.anchorRoot`, signed
+by the controller (v2 graph deletion slice D1): `ActionAnchor` keys roots on `msg.sender`,
+so this route is what puts the root under the actor. The actor is
+`AgentRegistry.resolveDID(did).actor`; a DID with no bound actor exits with `NO_ACTOR` and
+sends nothing.
 
-    integrity-sdk/.venv/bin/python scripts/anchor_memory_dag.py --dry-run
-    integrity-sdk/.venv/bin/python scripts/anchor_memory_dag.py
+    integrity-sdk/.venv/bin/python scripts/anchor_memory_dag.py --deployments deployments.baseSepolia.json --dry-run
+    integrity-sdk/.venv/bin/python scripts/anchor_memory_dag.py --deployments deployments.baseSepolia.json
 
-Idempotent by construction: checks `isAnchoredRoot` before submitting, so a
-re-run against an unchanged DAG costs zero gas rather than a redundant tx.
+Idempotent: skips the transaction when the actor's latest root already equals this root.
 """
 
 from __future__ import annotations
@@ -45,6 +43,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--agent", default=DEFAULT_AGENT)
     ap.add_argument("--did", default=DEFAULT_DID)
+    ap.add_argument("--deployments", default=str(REPO / "deployments.baseSepolia.json"))
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -64,25 +63,28 @@ def main() -> int:
 
     print(f"{len(graph.all_nodes())} nodes, {len(heads)} head(s), root_of_heads = 0x{root.hex()}")
 
-    primitives_path = Path.home() / ".integrity" / "did" / args.agent / "primitives.json"
     password_path = Path.home() / ".integrity" / f"{args.agent}.wallet-password"
     keystore_path = Path.home() / ".integrity" / "wallet" / args.agent / "keystore.json"
-    for label, p in (("primitives.json", primitives_path),
-                      ("wallet password", password_path),
-                      ("keystore", keystore_path)):
+    for label, p in (("wallet password", password_path), ("keystore", keystore_path)):
         if not p.exists():
             print(f"missing {label} at {p} — cannot anchor")
             return 1
-
-    primitives = json.loads(primitives_path.read_text())
 
     from integrity_sdk import chain
 
     rpc = os.environ.get("INTEGRITY_RPC_URL", DEFAULT_RPC)
     w3 = chain.get_w3(rpc)
+    singletons = chain.load_deployments(args.deployments).get("singletons") or {}
+    if not singletons.get("AgentRegistry") or not singletons.get("ActionAnchor"):
+        print(f"{args.deployments} lacks singletons.AgentRegistry / singletons.ActionAnchor")
+        return 1
 
-    state_anchor = chain._contract(w3, "StateAnchor", address=primitives["state_anchor"])
-    if state_anchor.functions.isAnchoredRoot(root).call():
+    actor = chain.resolve_actor(w3, singletons["AgentRegistry"], args.did)
+    if actor is None:
+        print(f"{chain.NO_ACTOR}: {args.did} has no bound actor — the DAG stays local")
+        return 0
+
+    if bytes(chain.actor_latest_root(w3, singletons["ActionAnchor"], actor)) == root:
         print("already anchored — nothing to do")
         return 0
 
@@ -95,14 +97,7 @@ def main() -> int:
     controller = Account.from_key(
         Account.decrypt(json.loads(keystore_path.read_text()), password_path.read_text().strip())
     )
-    tx = chain.anchor_vault_root(
-        w3,
-        controller,
-        primitives["sovereign_agent"],
-        primitives["state_anchor"],
-        w3.eth.chain_id,
-        root,
-    )
+    tx = chain.anchor_vault_root(w3, controller, actor, singletons["ActionAnchor"], w3.eth.chain_id, root)
     print(f"anchored 0x{root.hex()} tx {tx}")
     return 0
 

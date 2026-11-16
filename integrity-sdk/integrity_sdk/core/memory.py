@@ -6,7 +6,7 @@ fixes the *shape* every provider exposes, so the registrar, the oracle and the
 gates depend on the interface, not on Cortex:
 
 - ``genesis``: create the store and return its first root, bound to the
-  agent's DID. This is the root the agent anchors on its StateAnchor.
+  agent's DID. This is the root the agent anchors under its actor on `ActionAnchor`.
 - ``append``: add one record. Content stays in the provider; the caller gets
   back a *content commitment* and the new root, which may be recorded in
   provenance and receipts.

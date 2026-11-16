@@ -2,8 +2,8 @@
 Trust Vault — the agent's own append-only memory, and the Merkle machinery that makes it
 provable without revealing it.
 
-Spec v0.4 §4.1/§7: the agent controls a durable vault whose *commitments* are anchored on its
-own `StateAnchor`. Content stays local and agent-controlled; only roots go on-chain. Anchoring
+Spec v0.4 §4.1/§7: the agent controls a durable vault whose *commitments* are anchored under its
+actor on the shared `ActionAnchor` (keyed by actor; slice D1). Content stays local and agent-controlled; only roots go on-chain. Anchoring
 every leaf would be prohibitively expensive, so leaves accumulate locally and are anchored as a
 batch — which is why this module exists rather than the SDK calling `anchorRoot` directly.
 
@@ -12,7 +12,7 @@ session subtree; the subtree root is anchored once per session. That keeps commi
 provability — any single commit can be proven to have been in an anchored root — while
 anchoring at session cadence rather than per commit.
 
-**Merkle convention must match `StateAnchor` bit-for-bit** (docs/INTERFACE_CONTRACT.md §4.4):
+**Merkle convention must match `ActionAnchor` bit-for-bit** (docs/INTERFACE_CONTRACT.md §4.4):
 `keccak256` leaves, and parents hashed with the pair sorted ascending, so OpenZeppelin's
 `MerkleProof.verify` accepts a proof produced here. A mismatch would produce roots that anchor
 fine and then fail every verification — silent and expensive to discover.
@@ -35,7 +35,7 @@ def _vault_home() -> Path:
 
 
 # hash_pair / merkle_root / merkle_proof / verify_leaf live in `integrity_sdk.core.merkle`, the
-# single implementation of the StateAnchor convention; re-exported here for existing callers.
+# single implementation of the ActionAnchor (OpenZeppelin `MerkleProof`) convention; re-exported here for existing callers.
 
 
 @dataclass(frozen=True)
@@ -153,7 +153,7 @@ class TrustVault:
         """Proof that `leaf` is under one of this vault's anchored roots.
 
         Searches the anchored batches rather than the whole leaf log, because a proof is only
-        meaningful against a root `StateAnchor` actually anchored. Returns None for a leaf that
+        meaningful against a root `ActionAnchor` actually anchored. Returns None for a leaf that
         is still pending — honest, rather than returning a proof against a root nobody has seen.
         """
         leaves = self.all_leaves()

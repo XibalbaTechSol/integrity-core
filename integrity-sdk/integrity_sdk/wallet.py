@@ -7,7 +7,7 @@ off-chain BCC commitments and telemetry signatures (§4.1/§4.2); the EVM key
 proves "which wallet deployed/controls this agent's on-chain primitives" —
 per docs/INTERFACE_CONTRACT.md's "Agent Primitives" section, the whole point
 of self-sovereign registration is that the agent's OWN wallet signs the
-SovereignAgent/StateAnchor deployment transactions, so that deployment-time
+SovereignAgent deployment transaction, so that deployment-time
 signature is real, independently-verifiable proof of control. Mixing the two
 key types (e.g. reusing the Ed25519 seed as an EVM private key) would also be
 cryptographically wrong: EVM/secp256k1 keys and Ed25519 keys are different

@@ -47,6 +47,13 @@ def is_hex32(value: Any) -> bool:
     return isinstance(value, str) and _HEX32.fullmatch(value) is not None
 
 
+_ADDRESS = re.compile(r"0x[0-9a-fA-F]{40}")
+
+
+def is_address(value: Any) -> bool:
+    return isinstance(value, str) and _ADDRESS.fullmatch(value) is not None
+
+
 def _canonical(value: Any) -> bytes:
     return jcs.canonicalize(value)
 
@@ -112,7 +119,7 @@ def _leaf(receipt: Mapping[str, Any]) -> bytes:
 
 
 def receipt_leaf(receipt: Mapping[str, Any]) -> bytes:
-    """Return the bytes32 Merkle leaf used by StateAnchor.verifyLeaf."""
+    """Return the bytes32 Merkle leaf used by ActionAnchor.verifyLeaf."""
     return _leaf(receipt)
 
 

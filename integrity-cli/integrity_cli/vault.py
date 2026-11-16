@@ -21,7 +21,6 @@ from typing import Dict, Any, List, Iterator
 from eth_utils import keccak
 from web3 import Web3
 from . import chain, identity, wallet
-from .client import IntegrityClient
 
 
 VAULT_DIR = Path.home() / ".integrity-cli" / "vault"
@@ -119,53 +118,34 @@ class TrustVault:
         
     def verify_preflight(self, chain_rpc_url: str = "http://localhost:8545", deployments_file: str = "../deployments.local.json") -> bool:
         """
-        Validates the local state_root against the on-chain StateAnchor.
-        Throws a ValueError if tampered or out of sync.
+        Validates the local state_root against the actor's latest root on `ActionAnchor`.
+
+        The actor is `AgentRegistry.resolveDID(agent_did).actor`. With no bound actor there is
+        nothing on-chain to compare (`chain.NO_ACTOR`): returns False, the vault stays local.
+        Raises ValueError if the roots differ.
         """
         local_root = self.backend.compute_state_root()
-        
-        # 1. Resolve StateAnchor from oracle
-        client = IntegrityClient()
-        result_oracle = client.get(f"/v1/agent/{self.agent_did}")
-        primitives = result_oracle.get("primitives", {})
-        state_anchor = primitives.get("state_anchor")
-        
-        if not state_anchor:
-            raise ValueError(f"No StateAnchor found for agent {self.agent_did}")
-            
-        # 2. Query on-chain root
-        w3 = Web3(Web3.HTTPProvider(chain_rpc_url))
-        
+
+        w3 = chain.get_w3(chain_rpc_url)
         if not w3.is_connected():
             raise ConnectionError(f"Cannot connect to RPC at {chain_rpc_url}")
-            
-        with open(deployments_file, "r") as f:
-            deployments = json.load(f)
-            
-        abi = [{
-            "inputs": [],
-            "name": "currentRoot",
-            "outputs": [{"internalType": "bytes32", "name": "", "type": "bytes32"}],
-            "stateMutability": "view",
-            "type": "function"
-        }]
-        state_anchor_contract = w3.eth.contract(address=w3.to_checksum_address(state_anchor), abi=abi)
-        
-        onchain_root = state_anchor_contract.functions.currentRoot().call()
-        onchain_root_hex = "0x" + onchain_root.hex() if isinstance(onchain_root, bytes) else onchain_root
-        
-        if local_root != onchain_root_hex and local_root != onchain_root_hex.replace("0x", ""):
-            local_norm = local_root if local_root.startswith("0x") else f"0x{local_root}"
-            onchain_norm = onchain_root_hex if onchain_root_hex.startswith("0x") else f"0x{onchain_root_hex}"
-            
-            if local_norm != onchain_norm:
-                raise ValueError(
-                    f"Memory integrity compromised or out-of-sync! "
-                    f"Local root: {local_norm}, On-chain root: {onchain_norm}"
-                )
-                
+        singletons = chain.load_deployments(deployments_file).get("singletons") or {}
+        if not singletons.get("AgentRegistry") or not singletons.get("ActionAnchor"):
+            raise ValueError(f"{deployments_file} lacks singletons.AgentRegistry / singletons.ActionAnchor")
+
+        actor = chain.resolve_actor(w3, singletons["AgentRegistry"], self.agent_did)
+        if actor is None:
+            return False
+        action_anchor = chain._contract(w3, "ActionAnchor", address=singletons["ActionAnchor"])
+        onchain_norm = "0x" + bytes(action_anchor.functions.latestRoot(actor).call()).hex()
+        local_norm = local_root if local_root.startswith("0x") else f"0x{local_root}"
+        if local_norm != onchain_norm:
+            raise ValueError(
+                f"Memory integrity compromised or out-of-sync! "
+                f"Local root: {local_norm}, On-chain root: {onchain_norm}"
+            )
         return True
-        
+
     @contextmanager
     def session(self, platform: str) -> Iterator["ActiveSession"]:
         """
@@ -254,37 +234,30 @@ def sync_vault(
     new_root = backend.compute_state_root()
     state_file.write_text(json.dumps({"state_root": new_root}, indent=2) + "\\n")
     
-    anchored = False
+    anchor_status = "failed"
     try:
         w3 = chain.get_w3(rpc_url)
-        deployments = chain.load_deployments(deployments_file)
-        
-        client = IntegrityClient()
-        result_oracle = client.get(f"/v1/agent/{did}")
-        primitives = result_oracle.get("primitives", {})
-        
-        sovereign_agent = primitives.get("sovereign_agent")
-        state_anchor = primitives.get("state_anchor")
-        
-        if sovereign_agent and state_anchor:
+        singletons = chain.load_deployments(deployments_file).get("singletons") or {}
+        registry, action_anchor = singletons.get("AgentRegistry"), singletons.get("ActionAnchor")
+        if not registry or not action_anchor:
+            raise ValueError(f"{deployments_file} lacks singletons.AgentRegistry / singletons.ActionAnchor")
+
+        actor = chain.resolve_actor(w3, registry, did)
+        if actor is None:
+            # No bound actor: nothing to anchor under. No wallet load, no transaction.
+            anchor_status = chain.NO_ACTOR
+        else:
             evm_account = wallet.generate_or_load_evm_wallet(agent_name)
             root_bytes = binascii.unhexlify(new_root.replace("0x", ""))
-            
-            chain.anchor_root(
-                w3,
-                evm_account,
-                sovereign_agent,
-                state_anchor,
-                w3.eth.chain_id,
-                root=root_bytes
-            )
-            anchored = True
+            chain.anchor_root(w3, evm_account, actor, action_anchor, w3.eth.chain_id, root=root_bytes)
+            anchor_status = "anchored"
     except Exception as e:
         print(f"Warning: Failed to anchor root on-chain: {e}")
-        
+
     return {
         "memory_file": str(memory_file),
         "state_root": new_root,
         "records_added": len(facts[-5:]),
-        "anchored_on_chain": anchored
+        "anchored_on_chain": anchor_status == "anchored",
+        "anchor_status": anchor_status,
     }

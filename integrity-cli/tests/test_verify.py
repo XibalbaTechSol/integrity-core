@@ -99,44 +99,106 @@ def test_verify_rejects_tampered_receipt(tmp_path):
     assert output["error"]["code"] == "BAD_SIGNATURE"
 
 
-def test_verify_reads_local_state_anchor(tmp_path, monkeypatch):
+_ANCHORER = "0x" + "aa" * 20
+
+
+class _W3:
+    def is_connected(self):
+        return True
+
+
+def _anchor_cli(bundle, proof, signer, *extra):
+    return runner.invoke(app, [
+        "receipts", "verify", "--receipts", str(bundle), "--trusted-signer", signer,
+        "--proof", str(proof), "--anchor-contract", "0x" + "11" * 20, *extra, "--json",
+    ])
+
+
+def test_verify_reads_the_action_anchor_for_the_anchorer(tmp_path, monkeypatch):
     bundle, proof, signer, root = _bundle(tmp_path)
+    seen = {}
 
-    class _Call:
-        def __init__(self, value):
-            self.value = value
-
-        def call(self):
-            return self.value
-
-    class _Functions:
-        def latestRoot(self):
-            return _Call(bytes.fromhex(root[2:]))
-
-        def verifyLeaf(self, supplied_root, leaf, proof_nodes):
-            assert supplied_root == bytes.fromhex(root[2:])
-            assert len(leaf) == 32
-            assert proof_nodes == []
-            return _Call(True)
-
-    class _Anchor:
-        functions = _Functions()
-
-    class _W3:
-        def is_connected(self):
-            return True
+    def fake_root_was_anchored(_w3, contract, anchorer, supplied_root):
+        seen.update(contract=contract, anchorer=anchorer, root=supplied_root)
+        return True
 
     monkeypatch.setattr(main_module.chain, "get_w3", lambda _url: _W3())
-    monkeypatch.setattr(main_module.chain, "_contract", lambda *_args, **_kwargs: _Anchor())
-    result = runner.invoke(app, [
-        "receipts", "verify", "--receipts", str(bundle), "--trusted-signer", signer,
-        "--proof", str(proof), "--anchor-contract", "0x" + "11" * 20,
-        "--json",
-    ])
+    monkeypatch.setattr(main_module.chain, "root_was_anchored", fake_root_was_anchored)
+    result = _anchor_cli(bundle, proof, signer, "--anchorer", _ANCHORER)
     assert result.exit_code == 0, result.stdout
     document = json.loads(result.stdout)
     assert document["anchor"] == "pass"
     assert document["anchor_scope"] == "local_rpc"
+    assert seen == {"contract": "0x" + "11" * 20, "anchorer": _ANCHORER, "root": bytes.fromhex(root[2:])}
+
+
+def test_verify_fails_when_the_anchorer_never_anchored_the_root(tmp_path, monkeypatch):
+    bundle, proof, signer, _root = _bundle(tmp_path)
+    monkeypatch.setattr(main_module.chain, "get_w3", lambda _url: _W3())
+    monkeypatch.setattr(main_module.chain, "root_was_anchored", lambda *_a: False)
+    result = _anchor_cli(bundle, proof, signer, "--anchorer", _ANCHORER)
+    assert result.exit_code == 1, result.stdout
+    assert json.loads(result.stdout)["error"]["code"] == "NOT_ANCHORED"
+
+
+def test_anchor_contract_requires_the_anchorer(tmp_path, monkeypatch):
+    """ActionAnchor keys roots by anchorer: without one there is no slot to read."""
+    bundle, proof, signer, _root = _bundle(tmp_path)
+    monkeypatch.setattr(main_module.chain, "get_w3", lambda _url: _W3())
+    result = _anchor_cli(bundle, proof, signer)
+    assert result.exit_code == 1, result.stdout
+    assert json.loads(result.stdout)["error"]["code"] == "MALFORMED"
+
+
+class _Call:
+    def __init__(self, value):
+        self.value = value
+
+    def call(self):
+        return self.value
+
+
+class _RootAnchored:
+    def __init__(self, logs):
+        self.logs = logs
+        self.filters = []
+
+    def get_logs(self, from_block, argument_filters):
+        self.filters.append(argument_filters)
+        return [e for e in self.logs if e["args"]["agent"] == argument_filters["agent"]]
+
+
+class _FakeActionAnchor:
+    def __init__(self, latest, logs):
+        self._latest = latest
+        self.events = type("E", (), {"RootAnchored": _RootAnchored(logs)})()
+        anchor = self
+
+        class _F:
+            def latestRoot(self, who):
+                return _Call(anchor._latest.get(who, b"\0" * 32))
+
+        self.functions = _F()
+
+
+def test_root_was_anchored_accepts_latest_or_any_past_epoch_of_that_anchorer(monkeypatch):
+    from integrity_cli import chain
+
+    me = "0x" + "aa" * 20
+    other = "0x" + "bb" * 20
+    old, latest, foreign = b"\x01" * 32, b"\x02" * 32, b"\x03" * 32
+    fake = _FakeActionAnchor(
+        {chain.Web3.to_checksum_address(me): latest},
+        [
+            {"args": {"agent": chain.Web3.to_checksum_address(me), "root": old}},
+            {"args": {"agent": chain.Web3.to_checksum_address(me), "root": latest}},
+            {"args": {"agent": chain.Web3.to_checksum_address(other), "root": foreign}},
+        ],
+    )
+    monkeypatch.setattr(chain, "_contract", lambda *_a, **_k: fake)
+    assert chain.root_was_anchored(None, "0x" + "11" * 20, me, latest)
+    assert chain.root_was_anchored(None, "0x" + "11" * 20, me, old)
+    assert not chain.root_was_anchored(None, "0x" + "11" * 20, me, foreign)
 
 
 def test_verify_rejects_an_empty_receipt_array(tmp_path):

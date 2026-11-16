@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 
 from eth_utils import keccak
-from integrity_sdk.client import IntegrityClient
 
 
 class MemoryBackend(abc.ABC):
@@ -102,57 +101,38 @@ class TrustVault:
         
     def verify_preflight(self, chain_rpc_url: str = "http://localhost:8545", deployments_file: str = "../deployments.local.json") -> bool:
         """
-        Validates the local state_root against the on-chain StateAnchor.
-        Throws a ValueError if tampered or out of sync.
+        Validates the local state_root against the actor's latest root on `ActionAnchor`.
+
+        The actor is `AgentRegistry.resolveDID(agent_did).actor`. An agent with no bound actor
+        has nothing on-chain to compare against (`chain.NO_ACTOR`): returns False and the vault
+        stays local and verifiable off-chain. Raises ValueError if the roots differ.
         """
+        from integrity_sdk import chain
+
         local_root = self.backend.compute_state_root()
-        
-        # 1. Resolve StateAnchor from oracle
-        client = IntegrityClient()
-        result_oracle = client.get(f"/v1/agent/{self.agent_did}")
-        primitives = result_oracle.get("primitives", {})
-        state_anchor = primitives.get("state_anchor")
-        
-        if not state_anchor:
-            raise ValueError(f"No StateAnchor found for agent {self.agent_did}")
-            
-        # 2. Query on-chain root
-        from web3 import Web3
-        w3 = Web3(Web3.HTTPProvider(chain_rpc_url))
-        
-        # Standard fallback if not connected
+
+        w3 = chain.get_w3(chain_rpc_url)
         if not w3.is_connected():
             raise ConnectionError(f"Cannot connect to RPC at {chain_rpc_url}")
-            
-        import json
-        with open(deployments_file, "r") as f:
-            deployments = json.load(f)
-            
-        # For simplicity, we just use a minimal ABI to call currentRoot
-        abi = [{
-            "inputs": [],
-            "name": "currentRoot",
-            "outputs": [{"internalType": "bytes32", "name": "", "type": "bytes32"}],
-            "stateMutability": "view",
-            "type": "function"
-        }]
-        state_anchor_contract = w3.eth.contract(address=w3.to_checksum_address(state_anchor), abi=abi)
-        
-        onchain_root = state_anchor_contract.functions.currentRoot().call()
-        onchain_root_hex = "0x" + onchain_root.hex() if isinstance(onchain_root, bytes) else onchain_root
-        
-        if local_root != onchain_root_hex and local_root != onchain_root_hex.replace("0x", ""):
-            local_norm = local_root if local_root.startswith("0x") else f"0x{local_root}"
-            onchain_norm = onchain_root_hex if onchain_root_hex.startswith("0x") else f"0x{onchain_root_hex}"
-            
-            if local_norm != onchain_norm:
-                raise ValueError(
-                    f"Memory integrity compromised or out-of-sync! "
-                    f"Local root: {local_norm}, On-chain root: {onchain_norm}"
-                )
-                
+        deployments = chain.load_deployments(deployments_file)
+        singletons = deployments.get("singletons") or {}
+        if not singletons.get("AgentRegistry") or not singletons.get("ActionAnchor"):
+            raise ValueError(f"{deployments_file} lacks singletons.AgentRegistry / singletons.ActionAnchor")
+
+        actor = chain.resolve_actor(w3, singletons["AgentRegistry"], self.agent_did)
+        if actor is None:
+            return False
+
+        onchain_root = chain.actor_latest_root(w3, singletons["ActionAnchor"], actor)
+        onchain_norm = "0x" + bytes(onchain_root).hex()
+        local_norm = local_root if local_root.startswith("0x") else f"0x{local_root}"
+        if local_norm != onchain_norm:
+            raise ValueError(
+                f"Memory integrity compromised or out-of-sync! "
+                f"Local root: {local_norm}, On-chain root: {onchain_norm}"
+            )
         return True
-        
+
     @contextmanager
     def session(self, platform: str) -> Iterator["ActiveSession"]:
         """
@@ -204,4 +184,4 @@ class ActiveSession:
         # In this implementation, anchoring occurs outside the context manager or using a callback
         # since it requires private key access, but it's part of the primitive lifecycle
         print(f"[TrustVault] Session committed. New state root: {new_root}")
-        print(f"[TrustVault] Reminder: anchorRoot must be executed to sync with StateAnchor.")
+        print(f"[TrustVault] Reminder: anchor the new root (chain.anchor_vault_root_for_did) to sync with ActionAnchor.")
