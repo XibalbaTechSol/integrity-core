@@ -145,6 +145,15 @@ from .tenancy import (
     TenantPolicy,
     TenantRoleAssignment,
 )
+from .tenant_export import (
+    SUPPORTED_EXPORT_FORMATS,
+    TenantArchive,
+    TenantExportError,
+    backup_tenant,
+    delete_tenant,
+    export_tenant,
+    restore_tenant,
+)
 
 __all__ = [
     "ANCHORS_FILENAME", "CHECKPOINTS_FILENAME", "DEFAULT_CHECKPOINT_EVERY", "EpochClosure", "RECEIPTS_FILENAME", "EpochAudit", "GateReceiptWriter",
@@ -180,6 +189,8 @@ __all__ = [
     "MEMORY_INTERFACE_VERSION", "MemoryProvider", "OpaClient", "OpaError", "sign_body", "verify_body",
     "TenantIdentity", "AgentRegistration", "DeviceRegistration", "LocalRegistry", "RegistryError",
     "ROLES", "TenantRoleAssignment", "TenantPolicy", "TenantAuditEvent",
+    "TenantArchive", "TenantExportError", "export_tenant", "backup_tenant", "restore_tenant", "delete_tenant",
+    "SUPPORTED_EXPORT_FORMATS",
     "StoreIdentity", "StoreIdentityError",
     "RedactedUsageMeter", "UsageMetricError", "UsageSummary",
 ]
