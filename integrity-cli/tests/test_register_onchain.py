@@ -86,6 +86,76 @@ def test_onchain_with_an_unreachable_oracle_exits_3(tmp_path):
     assert json.loads(result.stdout)["error"]["code"] == "UNREACHABLE"
 
 
+def _offchain_only_oracle():
+    """An Oracle that accepts off-chain registration and answers every on-chain step 503, as the
+    live Oracle does while it has no AgentRegistry in its deployments file."""
+
+    class _H(BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            n = int(self.headers.get("content-length") or 0)
+            body = json.loads(self.rfile.read(n) or b"{}")
+            if self.path == "/v1/agent/register/offchain":
+                status, payload = 201, {"agent_id": body["did"], "verification_tier": 1, "outcome": "created"}
+            else:
+                status, payload = 503, {"error": "AgentRegistry is not in this Oracle's deployments file"}
+            raw = json.dumps(payload).encode()
+            self.send_response(status)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+        def log_message(self, *_a):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _H)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def test_onchain_with_an_unreachable_rpc_exits_3(tmp_path, monkeypatch):
+    """The Oracle is up, the RPC is not: on-chain state can't be read, so it's "can't tell" (3)."""
+    assert runner.invoke(app, ["identity", "new"]).exit_code == 0
+    monkeypatch.setenv("INTEGRITY_WALLET_HOME", str(tmp_path / "wallets"))
+    monkeypatch.setenv("INTEGRITY_WALLET_PASSWORD", "register-onchain-test-pw")
+    deployments = tmp_path / "d.json"
+    deployments.write_text(json.dumps({"singletons": {"AgentRegistry": "0x" + "22" * 20}}))
+    server = _offchain_only_oracle()
+    try:
+        result = runner.invoke(app, [
+            "register", "--onchain", "--oracle-url", f"http://127.0.0.1:{server.server_address[1]}",
+            "--rpc-url", f"http://127.0.0.1:{_free_port()}", "--deployments-file", str(deployments), "--json"])
+    finally:
+        server.shutdown()
+    assert result.exit_code == 3, result.output
+    assert json.loads(result.stdout)["error"]["code"] == "UNREACHABLE"
+
+
+def test_onchain_oracle_without_agent_registry_exits_3(tmp_path, monkeypatch):
+    """The live Oracle's state today: off-chain works, on-chain steps 503. That is "can't tell
+    right now" (3), not a refusal (1)."""
+    assert runner.invoke(app, ["identity", "new"]).exit_code == 0
+    monkeypatch.setenv("INTEGRITY_WALLET_HOME", str(tmp_path / "wallets"))
+    monkeypatch.setenv("INTEGRITY_WALLET_PASSWORD", "register-onchain-test-pw")
+    deployments = tmp_path / "d.json"
+    deployments.write_text(json.dumps({"singletons": {"AgentRegistry": "0x" + "22" * 20}}))
+
+    def oracle_503(*_a, **_k):
+        raise main_module.registration_onchain.OnchainRegistrationError(
+            "attestation", 503, "AgentRegistry is not in this Oracle's deployments file")
+
+    monkeypatch.setattr(main_module.registration_onchain, "register_onchain", oracle_503)
+    server = _offchain_only_oracle()
+    try:
+        result = runner.invoke(app, ["register", "--onchain", "--oracle-url", f"http://127.0.0.1:{server.server_address[1]}",
+                                     "--deployments-file", str(deployments), "--json"])
+    finally:
+        server.shutdown()
+    assert result.exit_code == 3, result.output
+    err = json.loads(result.stdout)["error"]
+    assert err["code"] == "HTTP_503" and "AgentRegistry" in err["detail"]
+
+
 def test_onchain_without_an_agent_registry_is_a_definite_no(tmp_path):
     assert runner.invoke(app, ["identity", "new"]).exit_code == 0
     deployments = tmp_path / "d.json"
