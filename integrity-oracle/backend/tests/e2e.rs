@@ -66,6 +66,13 @@ fn start_anvil(port: u16) -> AnvilGuard {
 }
 
 fn run_deploy(rpc_url: &str) {
+    // Foundry's `fs_permissions` check canonicalizes the path, so `vm.writeJson` refuses a
+    // deployments file that does not exist yet (a fresh checkout or worktree). Same fix as
+    // integrity-cli/tests/test_chain.py.
+    let deployments = repo_root().join("deployments.local.json");
+    if !deployments.exists() {
+        std::fs::write(&deployments, "").unwrap();
+    }
     let status = Command::new("forge")
         .current_dir(repo_root().join("contracts"))
         .args(["script", "script/Deploy.s.sol", "--rpc-url", rpc_url, "--broadcast"])

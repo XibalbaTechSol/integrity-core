@@ -135,6 +135,8 @@ pub struct ApiDocExtra;
         handlers::request_kyc_challenge,
         handlers::verify_kyc_receipt,
         handlers::register_agent_offchain,
+        handlers::onchain_attestation,
+        handlers::onchain_sync,
     ),
     components(schemas(
         handlers::AgentUsageDto,
@@ -147,6 +149,9 @@ pub struct ApiDocExtra;
         crate::kyc::KycChecks,
         handlers::OffchainRegisterRequest,
         handlers::OffchainRegisterResponse,
+        handlers::OnchainAttestationRequest,
+        handlers::OnchainAttestationResponse,
+        handlers::OnchainRecordDto,
         crate::db::RegistrationOutcome,
     )),
     tags(

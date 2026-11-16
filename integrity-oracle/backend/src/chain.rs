@@ -58,6 +58,27 @@ sol! {
 }
 
 sol! {
+    /// Registration v3 `AgentRegistry` (contracts/src/framework/AgentRegistry.sol), read side
+    /// only. `resolve` returns an all-zero record (`registeredAt == 0`) for an unknown
+    /// fingerprint rather than reverting.
+    #[sol(rpc)]
+    interface IAgentRegistry {
+        struct AgentRecord {
+            bytes32 pubkey;
+            address guardian;
+            address actor;
+            bytes32 domainId;
+            string uri;
+            uint64 registeredAt;
+            uint64 retiredAt;
+            uint8 proofKind;
+        }
+
+        function resolve(bytes32 fingerprint) external view returns (AgentRecord memory);
+    }
+}
+
+sol! {
     #[sol(rpc)]
     interface IReputationRegistry {
         function effectiveScore(address agent) external view returns (uint256);
@@ -248,6 +269,10 @@ struct Singletons {
     /// it cleanly if missing.
     #[serde(rename = "XibalbaNameService", default)]
     xibalba_name_service: Option<Address>,
+    /// `Option` — registration v3 `AgentRegistry`. Absent on deployments that predate it; the
+    /// on-chain attestation/sync routes report 503 when missing.
+    #[serde(rename = "AgentRegistry", default)]
+    agent_registry: Option<Address>,
 }
 
 /// Read-only on-chain client. Holds a connected `alloy` provider and the resolved
@@ -280,6 +305,7 @@ pub struct ChainClient {
     integrity_token_address: Option<Address>,
     smart_baa_factory_address: Option<Address>,
     xibalba_name_service_address: Option<Address>,
+    agent_registry_address: Option<Address>,
 }
 
 /// True iff a failed contract `.call()` reverted with `UnknownDID()`
@@ -326,6 +352,7 @@ impl ChainClient {
             integrity_token_address: parsed.singletons.integrity_token,
             smart_baa_factory_address: parsed.singletons.smart_baa_factory,
             xibalba_name_service_address: parsed.singletons.xibalba_name_service,
+            agent_registry_address: parsed.singletons.agent_registry,
         })
     }
 
@@ -344,7 +371,29 @@ impl ChainClient {
             integrity_token_address: None,
             smart_baa_factory_address: None,
             xibalba_name_service_address: None,
+            agent_registry_address: None,
         })
+    }
+
+    /// The registration v3 `AgentRegistry`, if this deployment has one.
+    pub fn agent_registry_address(&self) -> Option<Address> {
+        self.agent_registry_address
+    }
+
+    /// Reads `AgentRegistry.resolve(fingerprint)` pinned to the current head, and returns that
+    /// block number with the record so a stored copy can say which block it reflects.
+    pub async fn resolve_agent_record(
+        &self,
+        fingerprint: B256,
+    ) -> Result<(u64, IAgentRegistry::AgentRecord), ChainError> {
+        let address = self.agent_registry_address.ok_or(ChainError::MissingSingleton("AgentRegistry"))?;
+        let block = self.latest_block_number().await?;
+        let record = IAgentRegistry::new(address, self.provider.clone())
+            .resolve(fingerprint)
+            .block(alloy::eips::BlockId::number(block))
+            .call()
+            .await?;
+        Ok((block, record))
     }
 
     /// The EVM chain id this client is connected to (E11) — an `agent_primitives` cache

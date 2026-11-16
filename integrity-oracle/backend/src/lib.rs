@@ -18,6 +18,7 @@ pub mod identity;
 pub mod kyc;
 pub mod merkle;
 pub mod offchain_registration;
+pub mod onchain_registration;
 pub mod openapi;
 pub mod vc;
 pub mod otlp;

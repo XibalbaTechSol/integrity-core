@@ -442,6 +442,12 @@ pub struct AgentResponse {
     /// This agent's Oracle-local XNS handle, if any -- see migration 0022. Independent
     /// of `oracle_registered`/on-chain state: a chain-only agent can still hold one.
     pub handle: Option<String>,
+    /// Registration v3: this agent's `AgentRegistry` record as last synced by
+    /// `POST /v1/agent/{id}/onchain/sync`, on this Oracle's chain only. `null` until synced.
+    /// Read from the cache only: a GET never triggers a chain read for it.
+    pub onchain: Option<OnchainRecordDto>,
+    /// True when the synced on-chain record is active and has a bound actor.
+    pub settlement_eligible: bool,
 }
 
 #[utoipa::path(
@@ -471,6 +477,10 @@ pub async fn get_agent(
     // never served as-is — so an oracle repointed to a different network can't keep
     // handing out addresses that belong to the old one.
     let current_chain_id = state.chain.chain_id() as i64;
+    let onchain: Option<OnchainRecordDto> = db::get_agent_onchain_record(&state.pool, &id, current_chain_id)
+        .await?
+        .map(Into::into);
+    let settlement_eligible = onchain.as_ref().is_some_and(|r| r.settlement_eligible);
     let cached =
         db::get_agent_primitives_on_chain(&state.pool, &id, current_chain_id).await?;
     let (primitives, source) = match cached {
@@ -495,7 +505,8 @@ pub async fn get_agent(
                 (Some(record.primitives.into()), "chain-backfill")
             }
             // No agents row AND nothing on-chain either: genuinely unknown DID.
-            Err(_) if agent_row.is_none() => return Err(AppError::AgentNotFound(id)),
+            // (A synced v3 record also counts as known, with or without v2 primitives.)
+            Err(_) if agent_row.is_none() && onchain.is_none() => return Err(AppError::AgentNotFound(id)),
             // Chain lookup failed but we do have a local row — still return what we know
             // rather than failing the whole request over an on-chain read hiccup. Note
             // this deliberately does NOT fall back to a stale-chain cache row (if one
@@ -526,6 +537,8 @@ pub async fn get_agent(
                 primitives_source: source,
                 did_document: None,
                 handle,
+                onchain,
+                settlement_eligible,
             }));
         }
     };
@@ -555,6 +568,8 @@ pub async fn get_agent(
         primitives_source: source,
         did_document: agent_row.did_document,
         handle,
+        onchain,
+        settlement_eligible,
     }))
 }
 
@@ -5503,4 +5518,284 @@ mod xns_availability_tests {
         assert_eq!(serde_json::to_string(&OnchainHandleStatus::NotDeployed).unwrap(), "\"not_deployed\"");
         assert_eq!(serde_json::to_string(&OnchainHandleStatus::Unverified).unwrap(), "\"unverified\"");
     }
+}
+
+// ── Registration v3: on-chain path (spec Part 3 proof kind 1, plan PR 4.3) ──────────────────
+
+/// Body of `POST /v1/agent/{id}/onchain/attestation`: the typed `RegisterAgent` fields (minus
+/// `pubkey`, which is the key this Oracle already holds for the DID) and the agent's Ed25519
+/// signature over the EIP-712 digest of exactly these fields.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct OnchainAttestationRequest {
+    /// The address that will control the record (and submits `register`).
+    pub guardian: String,
+    /// Optional `SovereignAgent` to bind as actor. Omitted or zero = existence-only record.
+    #[serde(default)]
+    pub actor: Option<String>,
+    /// `bytes32` domain id, required by the contract when `actor` is set. Omitted = zero.
+    #[serde(default)]
+    pub domain_id: Option<String>,
+    /// Optional metadata URI; the digest commits to `keccak256(bytes(uri))`.
+    #[serde(default)]
+    pub uri: String,
+    /// Unix seconds; must be in the future and at most 24 h ahead.
+    pub deadline: u64,
+    /// Hex Ed25519 signature (64 bytes) over the raw 32-byte EIP-712 `RegisterAgent` digest.
+    pub signature: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct OnchainAttestationResponse {
+    pub agent_id: String,
+    /// The EIP-712 digest the Oracle computed and signed (equals `AgentRegistry.registerDigest`).
+    pub digest: String,
+    /// 65-byte `r || s || v` ECDSA signature over `digest`: the `proof` argument of `register`.
+    pub attestation: String,
+    pub attester: String,
+    /// Always 1 (oracle attestation): the `proofKind` argument of `register`.
+    pub proof_kind: u8,
+    pub chain_id: u64,
+    pub agent_registry: String,
+    /// The `pubkey` argument of `register`: the Ed25519 key registered off-chain.
+    pub pubkey: String,
+    pub guardian: String,
+    pub actor: String,
+    pub domain_id: String,
+    pub uri: String,
+    pub deadline: u64,
+}
+
+/// An agent's `AgentRegistry` record as last synced (`agent_onchain_records`).
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct OnchainRecordDto {
+    pub agent_id: String,
+    pub chain_id: i64,
+    pub agent_registry: String,
+    pub pubkey: String,
+    pub guardian: String,
+    /// The bound `SovereignAgent`, or `null` for an existence-only record.
+    pub actor: Option<String>,
+    pub domain_id: String,
+    pub uri: String,
+    /// Unix seconds.
+    pub registered_at: i64,
+    /// Unix seconds; `null` while active.
+    pub retired_at: Option<i64>,
+    /// 1 = oracle attestation, 2 = ed25519.
+    pub proof_kind: i16,
+    pub active: bool,
+    /// An active record with a bound actor.
+    pub settlement_eligible: bool,
+    /// The block the record was read at.
+    pub synced_block: i64,
+    pub synced_at: chrono::DateTime<Utc>,
+}
+
+impl From<db::AgentOnchainRecordRow> for OnchainRecordDto {
+    fn from(row: db::AgentOnchainRecordRow) -> Self {
+        let settlement_eligible =
+            crate::onchain_registration::settlement_eligible(row.retired_at, row.actor.as_deref());
+        Self {
+            agent_id: row.agent_id,
+            chain_id: row.chain_id,
+            agent_registry: row.registry_address,
+            pubkey: format!("0x{}", hex::encode(&row.pubkey)),
+            guardian: row.guardian,
+            active: row.retired_at.is_none(),
+            actor: row.actor,
+            domain_id: row.domain_id,
+            uri: row.uri,
+            registered_at: row.registered_at,
+            retired_at: row.retired_at,
+            proof_kind: row.proof_kind,
+            settlement_eligible,
+            synced_block: row.synced_block,
+            synced_at: row.synced_at,
+        }
+    }
+}
+
+/// How far ahead an attestation's deadline may be. The contract enforces the deadline; this
+/// bounds how long a leaked (agent signature, attestation) pair stays usable.
+const MAX_ATTESTATION_DEADLINE_SECS: u64 = 24 * 60 * 60;
+
+fn parse_address_field(name: &str, value: &str) -> Result<Address, AppError> {
+    Address::from_str(value).map_err(|_| AppError::BadRequest(format!("{name} must be a 20-byte hex address")))
+}
+
+/// Per-DID, per-route counter on the registration budget. Both routes cost an RPC read or a
+/// signature, so neither is unmetered.
+async fn onchain_rate_limit_check(state: &AppState, kind: &str, id: &str) -> Result<(), AppError> {
+    let window = Utc::now().timestamp() / 60;
+    let count = state.rate_limiter.hit(&format!("ratelimit:onchain:{kind}:{id}"), window).await;
+    if count > state.config.registration_rate_limit_per_minute as i64 {
+        return Err(AppError::RateLimited);
+    }
+    Ok(())
+}
+
+/// Oracle attestation for `AgentRegistry.register` (proof kind 1). Requires an existing
+/// off-chain registration whose Ed25519 key is the one that signed the digest; the Oracle
+/// computes the digest itself and returns its attester signature over that same digest.
+#[utoipa::path(
+    post,
+    path = "/v1/agent/{id}/onchain/attestation",
+    params(("id" = String, Path, description = "Agent DID (did:integrity:<64 hex>)")),
+    request_body = OnchainAttestationRequest,
+    responses(
+        (status = 200, description = "Attestation issued", body = OnchainAttestationResponse),
+        (status = 400, description = "Malformed DID, address, domain id, signature, or deadline out of range"),
+        (status = 401, description = "Signature is not by the DID's registered key over these fields"),
+        (status = 404, description = "No off-chain registration for this DID"),
+        (status = 409, description = "The off-chain row holds no Ed25519 key, or a key that does not match the DID"),
+        (status = 429, description = "Per-DID rate limit exceeded"),
+        (status = 503, description = "This Oracle has no attester key or no AgentRegistry deployment"),
+    ),
+    tag = "agents",
+)]
+pub async fn onchain_attestation(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<OnchainAttestationRequest>,
+) -> Result<Json<OnchainAttestationResponse>, AppError> {
+    use crate::onchain_registration::{self as v3, AttestError, RegisterFields};
+
+    let fingerprint = v3::fingerprint_of_did(&id)
+        .ok_or_else(|| AppError::BadRequest("did must be 'did:integrity:' followed by 64 lowercase hex".into()))?;
+    onchain_rate_limit_check(&state, "attestation", &id).await?;
+    let attester = state
+        .config
+        .attester
+        .as_ref()
+        .ok_or_else(|| AppError::ServiceUnavailable("attester key is not configured on this Oracle".into()))?;
+    let registry = state
+        .chain
+        .agent_registry_address()
+        .ok_or_else(|| AppError::ServiceUnavailable("AgentRegistry is not in this Oracle's deployments file".into()))?;
+
+    let guardian = parse_address_field("guardian", &req.guardian)?;
+    if guardian.is_zero() {
+        return Err(AppError::BadRequest("guardian must not be the zero address".into()));
+    }
+    let actor = match req.actor.as_deref() {
+        Some(a) => parse_address_field("actor", a)?,
+        None => Address::ZERO,
+    };
+    let domain_id = match req.domain_id.as_deref() {
+        Some(d) => alloy::primitives::B256::from_str(d)
+            .map_err(|_| AppError::BadRequest("domain_id must be 32 bytes of hex".into()))?,
+        None => alloy::primitives::B256::ZERO,
+    };
+    let now = Utc::now().timestamp().max(0) as u64;
+    if req.deadline <= now || req.deadline > now + MAX_ATTESTATION_DEADLINE_SECS {
+        return Err(AppError::BadRequest(format!(
+            "deadline must be in the future and at most {MAX_ATTESTATION_DEADLINE_SECS} s ahead"
+        )));
+    }
+
+    // The key is the one this Oracle already holds for the DID, never one from the request.
+    let row = db::get_agent(&state.pool, &id).await?.ok_or_else(|| {
+        AppError::AgentNotFound(format!(
+            "{id} has no off-chain registration (POST /v1/agent/register/offchain first)"
+        ))
+    })?;
+    let pubkey = row
+        .ed25519_pubkey
+        .ok_or_else(|| AppError::IdentityConflict("the off-chain row holds no ed25519 key".into()))?;
+    if pubkey.len() != 32 || !v3::pubkey_matches_fingerprint(&pubkey, &fingerprint) {
+        return Err(AppError::IdentityConflict("the off-chain ed25519 key does not match the DID".into()));
+    }
+
+    let chain_id = state.chain.chain_id();
+    let fields = RegisterFields {
+        pubkey: alloy::primitives::B256::from_slice(&pubkey),
+        guardian,
+        actor,
+        domain_id,
+        uri: req.uri.clone(),
+        deadline: req.deadline,
+    };
+    let digest = v3::register_digest(chain_id, registry, &fields);
+    v3::verify_agent_signature(&pubkey, &digest, &req.signature).map_err(|e| match e {
+        AttestError::MalformedSignature => AppError::BadRequest(e.to_string()),
+        AttestError::BadSignature => AppError::ProofRejected(e.to_string()),
+    })?;
+    let attestation = v3::attest(attester, &digest).map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+
+    Ok(Json(OnchainAttestationResponse {
+        agent_id: id,
+        digest: format!("{digest:#x}"),
+        attestation: format!("0x{}", hex::encode(attestation)),
+        attester: format!("{:#x}", attester.address()),
+        proof_kind: v3::PROOF_KIND_ATTESTATION,
+        chain_id,
+        agent_registry: format!("{registry:#x}"),
+        pubkey: format!("0x{}", hex::encode(&pubkey)),
+        guardian: format!("{guardian:#x}"),
+        actor: format!("{actor:#x}"),
+        domain_id: format!("{domain_id:#x}"),
+        uri: req.uri,
+        deadline: req.deadline,
+    }))
+}
+
+/// Reads the agent's record from `AgentRegistry` and upserts `agent_onchain_records`. The
+/// chain is the only source: the request body is never read, so a forged actor or guardian
+/// in it has no effect. A fingerprint with no on-chain record writes nothing (404).
+#[utoipa::path(
+    post,
+    path = "/v1/agent/{id}/onchain/sync",
+    params(("id" = String, Path, description = "Agent DID (did:integrity:<64 hex>)")),
+    responses(
+        (status = 200, description = "Record synced (idempotent)", body = OnchainRecordDto),
+        (status = 400, description = "Malformed DID"),
+        (status = 404, description = "The fingerprint is not registered on-chain; nothing written"),
+        (status = 429, description = "Per-DID rate limit exceeded"),
+        (status = 502, description = "AgentRegistry could not be read"),
+        (status = 503, description = "This Oracle has no AgentRegistry deployment"),
+    ),
+    tag = "agents",
+)]
+pub async fn onchain_sync(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<OnchainRecordDto>, AppError> {
+    use crate::onchain_registration as v3;
+
+    let fingerprint = v3::fingerprint_of_did(&id)
+        .ok_or_else(|| AppError::BadRequest("did must be 'did:integrity:' followed by 64 lowercase hex".into()))?;
+    onchain_rate_limit_check(&state, "sync", &id).await?;
+    let registry = state
+        .chain
+        .agent_registry_address()
+        .ok_or_else(|| AppError::ServiceUnavailable("AgentRegistry is not in this Oracle's deployments file".into()))?;
+
+    let (block, record) = state.chain.resolve_agent_record(fingerprint).await?;
+    if record.registeredAt == 0 {
+        return Err(AppError::AgentNotFound(format!("{id} is not registered on-chain")));
+    }
+    if !v3::pubkey_matches_fingerprint(record.pubkey.as_slice(), &fingerprint) {
+        // The contract guarantees this; a mismatch means the binding or the registry is wrong.
+        return Err(AppError::Internal(anyhow::anyhow!("AgentRegistry returned a record whose pubkey does not hash to {id}")));
+    }
+
+    let row = db::upsert_agent_onchain_record(
+        &state.pool,
+        &db::NewAgentOnchainRecord {
+            agent_id: id,
+            chain_id: state.chain.chain_id() as i64,
+            registry_address: format!("{registry:#x}"),
+            pubkey: record.pubkey.to_vec(),
+            guardian: format!("{:#x}", record.guardian),
+            actor: (!record.actor.is_zero()).then(|| format!("{:#x}", record.actor)),
+            domain_id: format!("{:#x}", record.domainId),
+            uri: record.uri.clone(),
+            registered_at: record.registeredAt as i64,
+            retired_at: (record.retiredAt != 0).then_some(record.retiredAt as i64),
+            proof_kind: record.proofKind as i16,
+            synced_block: block as i64,
+        },
+    )
+    .await?;
+    Ok(Json(row.into()))
 }

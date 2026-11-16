@@ -17,6 +17,9 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/agent/register", post(handlers::register_agent))
         .route("/v1/agent/register/offchain", post(handlers::register_agent_offchain))
         .route("/v1/agent/{id}", get(handlers::get_agent))
+        // Registration v3 on-chain path (PR 4.3). Additive: the legacy /v1/agent/register stays.
+        .route("/v1/agent/{id}/onchain/attestation", post(handlers::onchain_attestation))
+        .route("/v1/agent/{id}/onchain/sync", post(handlers::onchain_sync))
         .route("/v1/agents", get(handlers::list_agents))
         .route("/v1/agents/snapshot", get(handlers::agent_directory_snapshot))
         .route("/v1/xns/available/{handle}", get(handlers::xns_available))
