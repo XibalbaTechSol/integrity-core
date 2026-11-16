@@ -112,28 +112,59 @@ def fund_agent_wallet(w3: Web3, funder: LocalAccount, agent_address: str, amount
     return tx_hash.hex()
 
 
+#: An agent with no bound actor: nothing to anchor under, so no transaction is sent and the
+#: vault stays local (v2 graph deletion slice D1, owner question 8b).
+NO_ACTOR = "NO_ACTOR"
+
+_ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
+
+
+def resolve_actor(w3: Web3, agent_registry_address: str, did: str) -> Optional[str]:
+    """`AgentRegistry.resolveDID(did).actor`, or None when no actor is bound."""
+    registry = _contract(w3, "AgentRegistry", address=agent_registry_address)
+    actor = registry.functions.resolveDID(did).call()[2]
+    if not actor or actor.lower() == _ZERO_ADDRESS:
+        return None
+    return Web3.to_checksum_address(actor)
+
+
+def root_was_anchored(w3: Web3, action_anchor_address: str, anchorer: str, root: bytes) -> bool:
+    """True when `anchorer` anchored `root` on this `ActionAnchor` at any epoch.
+
+    `ActionAnchor` stores only each anchorer's latest root, so an older one is proved by its own
+    `RootAnchored(agent indexed, epoch, root)` log.
+    """
+    contract = _contract(w3, "ActionAnchor", address=action_anchor_address)
+    who = Web3.to_checksum_address(anchorer)
+    if bytes(contract.functions.latestRoot(who).call()) == bytes(root):
+        return True
+    logs = contract.events.RootAnchored.get_logs(from_block=0, argument_filters={"agent": who})
+    return any(bytes(e["args"]["root"]) == bytes(root) for e in logs)
+
+
 def anchor_root(
     w3: Web3,
     agent: LocalAccount,
-    sovereign_agent_address: str,
-    state_anchor_address: str,
+    actor_address: str,
+    action_anchor_address: str,
     chain_id: int,
     root: bytes,
     nonce: Optional[int] = None,
 ) -> str:
     """
-    Anchors the agent's memory root on its own StateAnchor, through its SovereignAgent.
+    Anchors the agent's memory root under its actor on the shared `ActionAnchor`.
 
-    Kept for `integrity vault sync` (decision D3) after the primitives registration path that
-    used to share it was deleted (registration v3 PR 3.4).
+    Routed through the actor's `SovereignAgent.execute`, signed by its controller: `ActionAnchor`
+    keys roots on `msg.sender`, so this is what puts the root under the actor rather than under
+    the controller EOA. Used by `integrity vault sync`.
     """
-    state_anchor = _contract(w3, "StateAnchor", address=state_anchor_address)
-    anchor_calldata = state_anchor.functions.anchorRoot(root).build_transaction({"gas": 0})["data"]
+    action_anchor = _contract(w3, "ActionAnchor", address=action_anchor_address)
+    anchor_calldata = action_anchor.functions.anchorRoot(root).build_transaction({"gas": 0})["data"]
 
-    sovereign_agent = _contract(w3, "SovereignAgent", address=sovereign_agent_address)
+    sovereign_agent = _contract(w3, "SovereignAgent", address=actor_address)
     tx_nonce = nonce if nonce is not None else w3.eth.get_transaction_count(agent.address)
     tx = sovereign_agent.functions.execute(
-        Web3.to_checksum_address(state_anchor_address), 0, anchor_calldata
+        Web3.to_checksum_address(action_anchor_address), 0, anchor_calldata
     ).build_transaction(
         {
             "from": agent.address,

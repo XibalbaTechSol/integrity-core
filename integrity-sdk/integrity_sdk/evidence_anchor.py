@@ -1,23 +1,31 @@
-"""Anchors ReceiptQueue checkpoints to the dedicated protocol evidence `StateAnchor`
-(docs/EXECUTION_PLAN.md B4; `contracts/script/DeployProtocolEvidenceAnchor.s.sol`).
+"""Anchors ReceiptQueue checkpoints to the shared `ActionAnchor` singleton
+(docs/EXECUTION_PLAN.md B4; v2 graph deletion slice D1, owner question 8a).
 
 Connector-only module (`web3`/`eth_account`, same as `chain.py`): never imported from
 `integrity_sdk.core` or any core-safe module.
 
-This contract's admin is a raw EOA (the protocol operator), not a `SovereignAgent`
-contract, unlike a per-agent memory `StateAnchor` -- so anchoring here is a direct
-signed call, never routed through `SovereignAgent.execute` the way `chain.py`'s
-`anchor_vault_root`/`anchor_genesis_root` are. Anchoring is best-effort evidence, not
-an authorization gate, mirroring `bcc_middleware/app/anchor.py`'s documented posture:
-a failed submission is raised to the caller (so `core.receipt_queue.ReceiptQueue.submit`
-leaves the batch pending for the next retry) but never corrupts queue state or blocks
-whatever already-decided action the receipt records.
+`ActionAnchor` keys every root on `msg.sender`, so evidence anchors under the address of the
+signer that submits it: one slot per anchoring service, with per-agent sub-roots as leaves.
+Anchoring is a direct signed call from that EOA -- unlike an agent's vault root, which
+`chain.anchor_vault_root` routes through the actor's `SovereignAgent.execute` so it lands
+under the actor.
+
+`ActionAnchor` stores only the latest root per anchorer. An older checkpoint is proved
+anchored by its `RootAnchored(anchorer, epoch, root)` event; its leaf by the local Merkle
+check (`core.merkle.verify_leaf`, the same sorted-pair convention `ActionAnchor.verifyLeaf`
+uses on-chain).
+
+Anchoring is best-effort evidence, not an authorization gate, mirroring
+`bcc_middleware/app/anchor.py`'s documented posture: a failed submission is raised to the
+caller (so `core.receipt_queue.ReceiptQueue.submit` leaves the batch pending for the next
+retry) but never corrupts queue state or blocks whatever already-decided action the receipt
+records.
 """
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Mapping, Sequence
 
-from .chain import _contract, _send_signed  # intra-package reuse; see module docstring
+from .chain import _call_with_retry, _contract, _send_signed  # intra-package reuse; see module docstring
 
 if TYPE_CHECKING:
     from eth_account.signers.local import LocalAccount
@@ -45,7 +53,7 @@ def anchor_checkpoint_root(
     """
     from web3.exceptions import Web3Exception
 
-    contract = _contract(w3, "StateAnchor", address=contract_address)
+    contract = _contract(w3, "ActionAnchor", address=contract_address)
     try:
         receipt, tx_hash = _send_signed(
             w3, account,
@@ -61,17 +69,35 @@ def anchor_checkpoint_root(
     return tx_hash.hex()
 
 
+def root_was_anchored(w3: "Web3", contract_address: str, anchorer: str, root: bytes) -> bool:
+    """True when `anchorer` anchored `root` on this `ActionAnchor` at any epoch, read from the
+    contract's own `RootAnchored(agent indexed, epoch, root)` log."""
+    from web3 import Web3
+
+    contract = _contract(w3, "ActionAnchor", address=contract_address)
+    if bytes(_call_with_retry(contract.functions.latestRoot(Web3.to_checksum_address(anchorer)).call)) == bytes(root):
+        return True
+    events = contract.events.RootAnchored.get_logs(
+        from_block=0, argument_filters={"agent": Web3.to_checksum_address(anchorer)}
+    )
+    return any(bytes(e["args"]["root"]) == bytes(root) for e in events)
+
+
 def verify_root_anchored(
     w3: "Web3",
     contract_address: str,
+    anchorer: str,
     root: bytes,
     leaf: bytes,
     proof: Sequence[bytes],
 ) -> bool:
-    """Read-only `StateAnchor.verifyLeaf(root, leaf, proof)` -- true only if `root`
-    was genuinely anchored by this contract AND `leaf` is included under it."""
-    contract = _contract(w3, "StateAnchor", address=contract_address)
-    return bool(contract.functions.verifyLeaf(root, leaf, list(proof)).call())
+    """True only if `anchorer` genuinely anchored `root` on this contract AND `leaf` is
+    included under it."""
+    from .core.merkle import verify_leaf
+
+    if not verify_leaf(root, leaf, list(proof)):
+        return False
+    return root_was_anchored(w3, contract_address, anchorer, root)
 
 
 def anchor_pending_receipts(

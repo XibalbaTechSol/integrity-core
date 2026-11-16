@@ -7,8 +7,8 @@ module's docstring, which this file's logic mirrors): the DID key proves
 "which agent said this" for off-chain DID documents; the EVM key proves
 "which wallet deployed/controls this agent's on-chain primitives" -- per
 docs/INTERFACE_CONTRACT.md's "Agent Primitives" section, self-sovereign
-registration means the agent's OWN wallet signs the SovereignAgent/
-StateAnchor deployment transactions, so that signature is real,
+registration means the agent's OWN wallet signs the SovereignAgent
+deployment transaction, so that signature is real,
 independently-verifiable proof of control. EVM/secp256k1 and Ed25519 are
 different curves with different scalar validity ranges -- there is no safe
 bit-for-bit reuse between the two key types.

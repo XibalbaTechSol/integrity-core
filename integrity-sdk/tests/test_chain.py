@@ -30,6 +30,15 @@ def agent_account(tmp_path, monkeypatch):
     return wallet.generate_or_load_evm_wallet("test-agent")
 
 
+def _legacy_genesis_anchor(w3, agent_account, sovereign_agent, state_anchor, chain_id):
+    """The v2 graph's genesis anchor on the agent's own per-agent StateAnchor, which
+    `registerPrimitives` requires. Test-local since slice D1 moved `chain.anchor_genesis_root`
+    onto `ActionAnchor`; this whole v2 registration test goes with the v2 graph in slice D5."""
+    anchor = chain._contract(w3, "StateAnchor", address=state_anchor)
+    calldata = anchor.functions.anchorRoot(chain.genesis_vault_root()).build_transaction({"gas": 0})["data"]
+    chain.execute_via_agent(w3, agent_account, sovereign_agent, state_anchor, calldata, chain_id)
+
+
 def _register_agent(deployed_chain, agent_id: str, agent_account) -> chain.PrimitivesRegistered:
     """The real 6-transaction self-sovereign registration sequence, exactly
     as integrity-sdk's registration.py will perform it: fund -> mint ITK ->
@@ -48,7 +57,7 @@ def _register_agent(deployed_chain, agent_id: str, agent_account) -> chain.Primi
     sovereign_agent = chain.deploy_sovereign_agent(w3, agent_account, did, oracle_signer, chain_id, addr["AgentPrimitivesFactory"])
     state_anchor = chain.deploy_state_anchor(w3, agent_account, sovereign_agent, chain_id)
     chain.grant_anchor_role(w3, agent_account, sovereign_agent, state_anchor, oracle_signer, chain_id)
-    chain.anchor_genesis_root(w3, agent_account, sovereign_agent, state_anchor, chain_id)
+    _legacy_genesis_anchor(w3, agent_account, sovereign_agent, state_anchor, chain_id)
 
     chain.mint_testnet_itk(
         w3, funder, addr["IntegrityToken"], sovereign_agent, Web3.to_wei(10_000, "ether"), chain_id
@@ -93,38 +102,6 @@ def test_full_registration_sequence(deployed_chain, agent_account):
     itk_artifact = chain._load_artifact("IntegrityToken")
     itk = w3.eth.contract(address=addr["IntegrityToken"], abi=itk_artifact["abi"])
     assert itk.functions.balanceOf(result.sovereign_agent).call() == Web3.to_wei(9_900, "ether")
-
-
-def test_controller_pins_zk_identity_via_sovereign_agent(deployed_chain, agent_account):
-    result = _register_agent(deployed_chain, "test-zk-identity", agent_account)
-    commitment = bytes.fromhex("12" * 32)
-
-    chain.set_zk_identity_commitment(
-        deployed_chain["w3"],
-        agent_account,
-        result.sovereign_agent,
-        result.reputation_registry,
-        commitment,
-        deployed_chain["chain_id"],
-    )
-
-    registry = chain._contract(
-        deployed_chain["w3"], "ReputationRegistry", address=result.reputation_registry
-    )
-    assert registry.functions.zkIdentityCommitment().call() == commitment
-
-
-@pytest.mark.parametrize("commitment", [b"", bytes(32), bytes(31)])
-def test_zk_identity_commitment_rejects_invalid_bytes(deployed_chain, agent_account, commitment):
-    with pytest.raises(ValueError, match="non-zero 32-byte"):
-        chain.set_zk_identity_commitment(
-            deployed_chain["w3"],
-            agent_account,
-            Web3.to_checksum_address("0x" + "11" * 20),
-            Web3.to_checksum_address("0x" + "22" * 20),
-            commitment,
-            deployed_chain["chain_id"],
-        )
 
 
 def test_two_agents_get_independent_primitives(deployed_chain, tmp_path, monkeypatch):

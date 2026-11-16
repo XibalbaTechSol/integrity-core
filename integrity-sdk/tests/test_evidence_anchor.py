@@ -1,65 +1,70 @@
-"""Real on-chain tests for evidence_anchor.py (B4), against a real local anvil
-with `contracts/script/DeployProtocolEvidenceAnchor.s.sol` actually run against it
-(not a mock) -- same "prove the eth_call/eth_sendTransaction path for real" bar
-`deployed_chain`'s own fixture docstring sets for the rest of this test module.
+"""Real on-chain tests for evidence_anchor.py (B4), against a real local anvil running the
+real `Deploy.s.sol` (not a mock).
+
+v2 graph deletion, slice D1 (owner question 8a): evidence roots anchor on the shared
+`ActionAnchor` singleton, keyed by the signer that submits them -- one slot per anchoring
+service. `ActionAnchor` keeps only the latest root in storage, so an older checkpoint is proved
+anchored by its `RootAnchored(anchorer, epoch, root)` event, and its leaf by the local Merkle
+check against that root.
 """
 from __future__ import annotations
-
-import json
-import subprocess
-from pathlib import Path
 
 import pytest
 from eth_account import Account
 from web3 import Web3
 
 from integrity_sdk import evidence_anchor
+from integrity_sdk.core import merkle
 from integrity_sdk.core.receipt_queue import ReceiptQueue
 from integrity_sdk.did import Keypair
 
-from conftest import ANVIL_DEV_PRIVATE_KEY, CONTRACTS_DIR
+import v3_onchain
 
 
 @pytest.fixture(scope="session")
 def evidence_anchor_address(deployed_chain) -> str:
-    result = subprocess.run(
-        ["forge", "script", "script/DeployProtocolEvidenceAnchor.s.sol", "--rpc-url", deployed_chain["rpc_url"], "--broadcast"],
-        cwd=CONTRACTS_DIR,
-        capture_output=True,
-        text=True,
-        env=__import__("os").environ | {"FUNDER_PRIVATE_KEY": ANVIL_DEV_PRIVATE_KEY},
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"DeployProtocolEvidenceAnchor.s.sol failed:\n{result.stdout}\n{result.stderr}")
-    broadcast_path = CONTRACTS_DIR / "broadcast" / "DeployProtocolEvidenceAnchor.s.sol" / str(deployed_chain["chain_id"]) / "run-latest.json"
-    broadcast = json.loads(broadcast_path.read_text())
-    (address,) = (
-        Web3.to_checksum_address(tx["contractAddress"])
-        for tx in broadcast["transactions"]
-        if tx.get("transactionType") == "CREATE" and tx.get("contractName") == "StateAnchor"
-    )
-    return address
+    return deployed_chain["addresses"]["ActionAnchor"]
 
 
 def test_anchor_checkpoint_root_and_verify_round_trip(deployed_chain, evidence_anchor_address):
     w3 = deployed_chain["w3"]
     account = deployed_chain["funder"]
-    root = Web3.keccak(text="evidence-anchor-smoke-test")
+    leaves = [Web3.keccak(text=f"evidence-{i}") for i in range(4)]
+    first_root = merkle.merkle_root(leaves)
 
-    tx_hash = evidence_anchor.anchor_checkpoint_root(w3, account, evidence_anchor_address, deployed_chain["chain_id"], root)
+    tx_hash = evidence_anchor.anchor_checkpoint_root(w3, account, evidence_anchor_address, deployed_chain["chain_id"], first_root)
     assert tx_hash
 
-    leaf = Web3.keccak(text="single-leaf-tree")
-    # A single-leaf tree's own leaf is its own root, under this protocol's
-    # sorted-pair convention with no siblings -- anchor that leaf AS a root,
-    # then verify it with an empty proof.
-    tx_hash_2 = evidence_anchor.anchor_checkpoint_root(w3, account, evidence_anchor_address, deployed_chain["chain_id"], leaf)
+    # A later checkpoint replaces the latest root; the earlier one must stay verifiable.
+    later = Web3.keccak(text="single-leaf-tree")
+    tx_hash_2 = evidence_anchor.anchor_checkpoint_root(w3, account, evidence_anchor_address, deployed_chain["chain_id"], later)
     assert tx_hash_2 != tx_hash
-    assert evidence_anchor.verify_root_anchored(w3, evidence_anchor_address, leaf, leaf, [])
-    # A root that was never anchored must not verify, even with a technically
-    # valid (empty) proof for a matching leaf==root shape.
+
+    proof = merkle.merkle_proof(leaves, 2)
+    assert evidence_anchor.verify_root_anchored(w3, evidence_anchor_address, account.address, first_root, leaves[2], proof)
+    assert evidence_anchor.verify_root_anchored(w3, evidence_anchor_address, account.address, later, later, [])
+    # A leaf not in the tree fails the Merkle half, even under a genuinely anchored root.
+    assert not evidence_anchor.verify_root_anchored(
+        w3, evidence_anchor_address, account.address, first_root, Web3.keccak(text="outsider"), proof
+    )
+    # A root that was never anchored must not verify, even with a matching leaf==root shape.
     never_anchored = Web3.keccak(text="never-anchored")
-    assert not evidence_anchor.verify_root_anchored(w3, evidence_anchor_address, never_anchored, never_anchored, [])
+    assert not evidence_anchor.verify_root_anchored(w3, evidence_anchor_address, account.address, never_anchored, never_anchored, [])
+
+
+def test_a_root_anchored_by_another_signer_does_not_verify(deployed_chain, evidence_anchor_address):
+    """The anchorer IS the namespace: someone else's root is not this service's evidence."""
+    w3 = deployed_chain["w3"]
+    chain_id = deployed_chain["chain_id"]
+    stranger = Account.create()
+    v3_onchain.fund(w3, deployed_chain["funder"], stranger.address, chain_id)
+    root = Web3.keccak(text="stranger-root")
+    evidence_anchor.anchor_checkpoint_root(w3, stranger, evidence_anchor_address, chain_id, root)
+
+    assert evidence_anchor.verify_root_anchored(w3, evidence_anchor_address, stranger.address, root, root, [])
+    assert not evidence_anchor.verify_root_anchored(
+        w3, evidence_anchor_address, deployed_chain["funder"].address, root, root, []
+    )
 
 
 def test_anchor_pending_receipts_checkpoints_and_acknowledges(deployed_chain, evidence_anchor_address, tmp_path):

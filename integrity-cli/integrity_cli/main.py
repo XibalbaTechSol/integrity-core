@@ -187,7 +187,8 @@ def verify_command(
     checkpoint: Optional[Path] = typer.Option(None, "--checkpoint", exists=True, readable=True, help="Checkpoint JSON file"),
     proof: Optional[Path] = typer.Option(None, "--proof", exists=True, readable=True, help="Inclusion proof JSON file"),
     anchor_root: Optional[str] = typer.Option(None, "--anchor-root", help="Read-back anchor root for local comparison (0x + 32 bytes)"),
-    anchor_contract: Optional[str] = typer.Option(None, "--anchor-contract", help="StateAnchor address for local Anvil read-back"),
+    anchor_contract: Optional[str] = typer.Option(None, "--anchor-contract", help="ActionAnchor address for local Anvil read-back"),
+    anchorer: Optional[str] = typer.Option(None, "--anchorer", help="Address that anchored the checkpoint on --anchor-contract (ActionAnchor keys roots by anchorer)"),
     rpc_url: Optional[str] = typer.Option(None, "--rpc-url", help="RPC URL used with --anchor-contract (defaults to RPC_URL or localhost)"),
     decision_trace: Optional[Path] = typer.Option(None, "--decision-trace", exists=True, readable=True, help="DecisionTrace events JSON file (array of DecisionEnvelope-shaped objects, each optionally carrying an 'advisory' field)"),
     trace_evidence: Optional[Path] = typer.Option(None, "--trace-evidence", exists=True, readable=True, help="DecisionTraceEvidence JSON file (trace_id, root, event_count, receipt_hash?, checkpoint_root?)"),
@@ -245,25 +246,21 @@ def verify_command(
                 raise verify.VerifyError("MALFORMED", "--anchor-contract requires a checkpoint and --proof")
             if not isinstance(proof_doc.get("receipt"), dict):
                 raise verify.VerifyError("MALFORMED", "proof receipt must be a JSON object")
+            if not anchorer or not verify.is_address(anchorer):
+                raise verify.VerifyError("MALFORMED", "--anchor-contract requires --anchorer (0x + 20-byte address)")
             try:
                 w3 = chain.get_w3(rpc_url or config.get_config_value("RPC_URL"))
                 if not w3.is_connected():
                     raise RuntimeError("RPC is not reachable")
-                state_anchor = chain._contract(w3, "StateAnchor", address=anchor_contract)
-                # Not `latestRoot() == checkpoint.root`: B4's dedicated protocol evidence
-                # anchor is shared across every agent/gate, so a checkpoint anchored a
-                # moment before a different one is no less valid -- StateAnchor.sol keeps
-                # every root it has ever anchored individually verifiable
-                # (`isAnchoredRoot`), and `verifyLeaf` already checks exactly that. Requiring
-                # "latest" here would make this command spuriously fail for any checkpoint
-                # that wasn't the single most recent one anchored to a shared contract.
-                proof_nodes = [bytes.fromhex(node.removeprefix("0x")) for node in proof_doc["proof"]]
-                if not state_anchor.functions.verifyLeaf(
-                    bytes.fromhex(selected_checkpoint["root"][2:]),
-                    verify.receipt_leaf(proof_doc["receipt"]),
-                    proof_nodes,
-                ).call():
-                    raise verify.VerifyError("NOT_INCLUDED", "StateAnchor did not anchor this root, or rejected the inclusion proof")
+                # ActionAnchor keys roots by anchorer and keeps only the latest in storage. A
+                # checkpoint anchored before a later one is no less valid, so this reads the
+                # anchorer's latest root OR its RootAnchored history (`chain.root_was_anchored`).
+                # The leaf half was already checked locally against this same root
+                # (`verify.verify_inclusion` above).
+                if not chain.root_was_anchored(
+                    w3, anchor_contract, anchorer, bytes.fromhex(selected_checkpoint["root"][2:])
+                ):
+                    raise verify.VerifyError("NOT_ANCHORED", f"{anchorer} never anchored this checkpoint root on {anchor_contract}")
                 result["anchor"] = "pass"
                 result["anchor_scope"] = "local_rpc"
             except verify.VerifyError:
@@ -1162,6 +1159,9 @@ def vault_sync(
     console.print(f"Memory file: [cyan]{result['memory_file']}[/cyan]")
     console.print(f"New state root: [cyan]{result['state_root']}[/cyan]")
     console.print(f"Anchored on-chain: [cyan]{result.get('anchored_on_chain', False)}[/cyan]")
+    if result.get("anchor_status") == chain.NO_ACTOR:
+        console.print("[yellow]NO_ACTOR[/yellow]: no SovereignAgent is bound to this DID, so the root "
+                      "stays local (verifiable off-chain). Bind one with `integrity register --onchain`.")
 
 
 if __name__ == "__main__":

@@ -54,10 +54,11 @@ def deploy_canonical_agent(w3, chain_id, controller, registry_address, did):
     return Web3.to_checksum_address(receipt.contractAddress)
 
 
-def bind(w3, chain_id, attester, controller, registry_address, agent, domain_name="general.integrity"):
-    """Creates a record with a fresh pubkey and binds `agent` as its actor in `domain_name`."""
+def bind(w3, chain_id, attester, controller, registry_address, agent, domain_name="general.integrity", pubkey=None):
+    """Creates a record for `pubkey` (fresh if omitted) and binds `agent` as its actor in `domain_name`.
+    The record's DID is `did:integrity:` + sha256(pubkey), so pass `pubkey` to resolve it afterwards."""
     registry = w3.eth.contract(address=registry_address, abi=artifact("AgentRegistry")["abi"])
-    pubkey = os.urandom(32)
+    pubkey = pubkey if pubkey is not None else os.urandom(32)
     domain_id = keccak(text=domain_name)
     deadline = w3.eth.get_block("latest")["timestamp"] + 3600
     proof = attester.unsafe_sign_hash(

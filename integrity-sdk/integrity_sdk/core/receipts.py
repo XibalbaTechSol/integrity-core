@@ -21,7 +21,7 @@ decision into an append-only log it owns:
 
 Merkle leaves are ``leaf_hash("receipt", receipt_hash)`` in the protocol's one
 Merkle convention (`core.merkle`), so a checkpoint root can be anchored on
-`StateAnchor` and inclusion checked with its `verifyLeaf`.
+`ActionAnchor` and inclusion checked with its `verifyLeaf`.
 
 Verification raises `ReceiptError` with a stable ``code``: MALFORMED,
 UNSUPPORTED_VERSION, BAD_SIGNATURE, UNTRUSTED_SIGNER, LOG_MISMATCH, SEQ_GAP,
