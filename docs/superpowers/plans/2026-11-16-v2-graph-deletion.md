@@ -289,7 +289,9 @@ Each slice is its own PR, merged on green CI with `--match-head-commit`. The cro
 - An agent with no actor gets a typed `NO_ACTOR` result and no transaction (owner question 8b).
 
 **Acceptance:**
-- `git grep -nE 'StateAnchor|state_anchor' -- integrity-sdk/integrity_sdk integrity-cli/integrity_cli scripts/anchor_memory_dag.py` is empty.
+- `git grep -nE 'StateAnchor|state_anchor' -- integrity-cli/integrity_cli scripts/anchor_memory_dag.py ':!*abis/*'` is empty.
+- In `integrity-sdk/integrity_sdk` (excluding `abis/`), the only remaining hits are the v2 registration path this plan's inventory gives to D5: `chain.py`'s `deploy_state_anchor`, `grant_anchor_role`, `set_anchor_policy`, `has_anchor_role`, `state_anchor_latest_root`, `PrimitivesRegistered` / `resolve_did` / `register_primitives`, and `readiness.py:125-134`. No anchoring path references `StateAnchor`. *(Amended in the D1 PR: the original line asked for an empty grep over the whole SDK, which contradicts the inventory rows that keep these for D5 and would break the legacy-route Oracle test support until 4.6.)*
+- `receipts verify --anchor-contract` takes `--anchorer` (the address whose `ActionAnchor` slot holds the checkpoint) and accepts the anchorer's latest root or any past `RootAnchored` root.
 
 **Tests that can fail:**
 - On Anvil: anchor a root as a bound actor, then `ActionAnchor.latestRoot(actor) == root` and `verifyLeaf` is true for a member leaf and false for a non-member.
