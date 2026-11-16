@@ -68,7 +68,8 @@ def test_register_without_onchain_never_touches_the_rpc_or_wallet(monkeypatch):
 
 
 @pytest.mark.parametrize("args", [["--confined", "--domain", "general.integrity"], ["--onchain", "--confined"],
-                                  ["--domain", "general.integrity"]])
+                                  ["--domain", "general.integrity"], ["--rpc-url", "http://x"],
+                                  ["--deployments-file", "d.json"]])
 def test_confined_and_domain_need_onchain_and_each_other(args):
     assert runner.invoke(app, ["identity", "new"]).exit_code == 0
     result = runner.invoke(app, ["register", *args])

@@ -597,6 +597,9 @@ def register(
         rep.console = console
     if (confined or domain is not None) and not onchain:
         rep.fail(output.EXIT_USAGE, "--confined/--domain need --onchain", code="USAGE")
+    if (rpc_url is not None or deployments_file is not None) and not onchain:
+        # Plain `register` is off-chain and never reads an RPC (v2's `register --rpc-url` is gone).
+        rep.fail(output.EXIT_USAGE, "--rpc-url/--deployments-file need --onchain", code="USAGE")
     if confined != (domain is not None):
         rep.fail(output.EXIT_USAGE, "--confined and --domain go together: a bound actor needs a domain "
                  "policy, and a domain is only meaningful for a confined agent", code="USAGE")
