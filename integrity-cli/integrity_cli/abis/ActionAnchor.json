@@ -1,0 +1,122 @@
+{
+  "contractName": "ActionAnchor",
+  "abi": [
+    {
+      "type": "function",
+      "name": "anchorRoot",
+      "inputs": [
+        {
+          "name": "root",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "newEpoch",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "epoch",
+      "inputs": [
+        {
+          "name": "agent",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "latestRoot",
+      "inputs": [
+        {
+          "name": "agent",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "verifyLeaf",
+      "inputs": [
+        {
+          "name": "agent",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "leaf",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        },
+        {
+          "name": "proof",
+          "type": "bytes32[]",
+          "internalType": "bytes32[]"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "",
+          "type": "bool",
+          "internalType": "bool"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "event",
+      "name": "RootAnchored",
+      "inputs": [
+        {
+          "name": "agent",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "epoch",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "root",
+          "type": "bytes32",
+          "indexed": false,
+          "internalType": "bytes32"
+        }
+      ],
+      "anonymous": false
+    },
+    {
+      "type": "error",
+      "name": "EmptyRoot",
+      "inputs": []
+    }
+  ],
+  "bytecode": "0x6080806040523460155761030c908161001a8239f35b5f80fdfe60806040526004361015610011575f80fd5b5f3560e01c80635f07c20e1461015a5780638b810c36146101225780639d71cbca146100eb5763c50b037b14610045575f80fd5b346100e75760203660031901126100e75760043580156100d857335f52600160205260405f208054915f1983146100c457600160209301809255335f525f83528060405f205560405190828252838201527f369cb04f270a138e7a509eafadb2ab9155d87be70cc8a673fca40890bdf9800660403392a2604051908152f35b634e487b7160e01b5f52601160045260245ffd5b6329e7276760e11b5f5260045ffd5b5f80fd5b346100e75760203660031901126100e7576001600160a01b0361010c6101d1565b165f525f602052602060405f2054604051908152f35b346100e75760203660031901126100e7576001600160a01b036101436101d1565b165f526001602052602060405f2054604051908152f35b346100e75760603660031901126100e7576101736101d1565b60443567ffffffffffffffff81116100e757366023820112156100e757806004013567ffffffffffffffff81116100e7573660248260051b840101116100e75760209260246101c7930190602435906101e7565b6040519015158152f35b600435906001600160a01b03821682036100e757565b6001600160a01b03165f9081526020819052604090205492939183156102cd5767ffffffffffffffff85116102b9578460051b60405195601f19603f830116870187811067ffffffffffffffff8211176102b957604052865260208601908201913683116100e757905b8282106102a957505050905f915b84518310156102a15760208360051b86010151908181105f14610290575f52602052600160405f205b92019161025f565b905f52602052600160405f20610288565b915092501490565b8135815260209182019101610251565b634e487b7160e01b5f52604160045260245ffd5b50509150505f9056fea2646970667358221220605b0c17861e66790d6110a4c64066d2b8984f14eb7411d9c1282a5af5a39f8864736f6c634300081c0033"
+}
