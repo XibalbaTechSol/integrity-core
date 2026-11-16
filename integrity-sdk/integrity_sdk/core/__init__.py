@@ -139,7 +139,11 @@ from .tenancy import (
     DeviceRegistration,
     LocalRegistry,
     RegistryError,
+    ROLES,
+    TenantAuditEvent,
     TenantIdentity,
+    TenantPolicy,
+    TenantRoleAssignment,
 )
 
 __all__ = [
@@ -175,6 +179,7 @@ __all__ = [
     "ReceiptQueue", "ReceiptQueueError",
     "MEMORY_INTERFACE_VERSION", "MemoryProvider", "OpaClient", "OpaError", "sign_body", "verify_body",
     "TenantIdentity", "AgentRegistration", "DeviceRegistration", "LocalRegistry", "RegistryError",
+    "ROLES", "TenantRoleAssignment", "TenantPolicy", "TenantAuditEvent",
     "StoreIdentity", "StoreIdentityError",
     "RedactedUsageMeter", "UsageMetricError", "UsageSummary",
 ]
