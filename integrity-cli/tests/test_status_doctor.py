@@ -70,19 +70,66 @@ def _no_real_chain_for_status(monkeypatch):
     monkeypatch.setattr(status_cmd, "get_w3", lambda url: _W3(connected=False))
 
 
+VAULT = "0x00000000000000000000000000000000000000af"
+
+
+class _TrustConfig:
+    def __init__(self, vault):
+        self.functions = self
+        self._vault = vault
+
+    def stakeVault(self):
+        return _Call(self._vault)
+
+
+class _Vault:
+    """StakeVault stand-in: `stakeOf(actor)` -> (amount, locked, frozen); `availableOf(actor)`."""
+
+    def __init__(self, stake, available=None):
+        self.functions = self
+        self._stake, self._available = stake, available
+        self.asked: list[str] = []
+
+    def stakeOf(self, agent):
+        self.asked.append(agent)
+        return _Call(self._stake)
+
+    def availableOf(self, agent):
+        return _Call(self._available)
+
+
 @pytest.fixture
 def status_chain(monkeypatch, tmp_path):
-    """Point status at a fake connected chain whose AgentRegistry returns `record`."""
+    """Point status at a fake connected chain whose AgentRegistry returns `record`.
+
+    `stake` is StakeVault.stakeOf's answer (or an exception it raises); `vault` is what
+    TrustConfig.stakeVault() returns; `trust_config` is what AgentRegistry.trustConfig() returns.
+    """
     from integrity_cli import status_cmd
 
-    def install(record):
+    def install(record, *, stake=(0, 0, False), available=0, vault=VAULT, trust_config=TRUST):
         dep = tmp_path / "status-deployments.json"
         dep.write_text(json.dumps({"chainId": 31337, "singletons": {"AgentRegistry": REGISTRY}}))
         monkeypatch.setenv("DEPLOYMENTS_FILE", str(dep))
         monkeypatch.setattr(status_cmd, "get_w3", lambda url: _W3())
-        monkeypatch.setattr(status_cmd, "agent_registry_contract", lambda w3, a: _Registry(record=record))
+        monkeypatch.setattr(
+            status_cmd, "agent_registry_contract",
+            lambda w3, a: _Registry(record=record, trust_config=trust_config),
+        )
+        monkeypatch.setattr(status_cmd, "trust_config_contract", lambda w3, a: _TrustConfig(vault), raising=False)
+        v = _Vault(stake, available)
+        monkeypatch.setattr(status_cmd, "stake_vault_contract", lambda w3, a: v, raising=False)
+        return v
 
     return install
+
+
+def _trust(httpx_mock):
+    httpx_mock.add_response(url=f"{ORACLE}/v1/agent/{DID}", json=AGENT)
+    httpx_mock.add_response(url=f"{ORACLE}/v1/agent/{DID}/ais", json={"ais": 1.0})
+    result = runner.invoke(app, ["status", DID, "--json"])
+    assert result.exit_code == 0, result.output  # trust is optional evidence, never the exit code
+    return json.loads(result.stdout)["onchain"]["trust"]
 
 
 # --- status ----------------------------------------------------------------------------------
@@ -97,11 +144,11 @@ def test_status_for_an_explicit_did(httpx_mock):
     assert doc["agent_id"] == DID and doc["registered"] is True and doc["verification_tier"] == 1
     assert doc["ais"]["ais"] == 87.5
     assert doc["record"] == AGENT
-    # RPC unreachable (autouse fixture): on-chain rows are "unverified", never guessed; per-agent
-    # trust is Phase 4. The Oracle answer still decides the exit code.
+    # RPC unreachable (autouse fixture): every on-chain row is "unverified", never guessed.
+    # The Oracle answer still decides the exit code.
     assert doc["onchain"]["record"]["status"] == "unverified"
     assert doc["onchain"]["actor"]["status"] == "unverified"
-    assert doc["onchain"]["trust"]["status"] == "pending"
+    assert doc["onchain"]["trust"]["status"] == "unverified"
     human = runner.invoke(app, ["status", DID])
     assert "87.5" in human.stdout and "tier 1" in human.stdout and "unverified" in human.stdout
 
@@ -134,6 +181,48 @@ def test_status_registry_read_error_is_unverified(httpx_mock, status_chain):
     httpx_mock.add_response(url=f"{ORACLE}/v1/agent/{DID}/ais", json={"ais": 1.0})
     onchain = json.loads(runner.invoke(app, ["status", DID, "--json"]).stdout)["onchain"]
     assert onchain["record"]["status"] == "unverified" and "read failed" in onchain["record"]["detail"]
+
+
+# --- trust row (registration v3 Phase 4, PR 4.2) ---------------------------------------------
+
+def test_status_trust_row_frozen(httpx_mock, status_chain):
+    vault = status_chain(_record(), stake=(500, 100, True), available=400)
+    trust = _trust(httpx_mock)
+    assert trust["status"] == "frozen"
+    assert (trust["amount"], trust["locked"], trust["frozen"]) == (500, 100, True)
+    assert vault.asked == [ACTOR]  # keyed by the bound actor, as the gate reads it
+
+
+def test_status_trust_row_staked(httpx_mock, status_chain):
+    status_chain(_record(), stake=(500, 100, False), available=350)
+    trust = _trust(httpx_mock)
+    assert trust["status"] == "staked"
+    assert (trust["amount"], trust["locked"], trust["frozen"], trust["available"]) == (500, 100, False, 350)
+
+
+def test_status_trust_row_unstaked(httpx_mock, status_chain):
+    status_chain(_record(), stake=(0, 0, False))
+    assert _trust(httpx_mock)["status"] == "unstaked"
+
+
+@pytest.mark.parametrize("record", [_record(actor=ZERO), _record(pubkey=ZERO32, actor=ZERO, registered_at=0)])
+def test_status_trust_row_no_actor_is_na(httpx_mock, status_chain, record):
+    vault = status_chain(record, stake=RuntimeError("must not be read"))
+    trust = _trust(httpx_mock)
+    assert trust["status"] == "n/a" and "bound actor" in trust["detail"]
+    assert vault.asked == []
+
+
+def test_status_trust_vault_read_error_is_unverified(httpx_mock, status_chain):
+    status_chain(_record(), stake=RuntimeError("execution reverted"))
+    trust = _trust(httpx_mock)
+    assert trust["status"] == "unverified"  # a failed read is "can't tell", never "unstaked"
+
+
+@pytest.mark.parametrize("kw", [{"trust_config": ZERO}, {"vault": ZERO}])
+def test_status_trust_unwired_is_unverified(httpx_mock, status_chain, kw):
+    status_chain(_record(), stake=(0, 0, False), **kw)
+    assert _trust(httpx_mock)["status"] == "unverified"
 
 
 def test_status_defaults_to_the_local_identity(httpx_mock):

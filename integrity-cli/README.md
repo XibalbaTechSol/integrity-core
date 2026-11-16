@@ -126,8 +126,11 @@ AIS (computed once, centrally, in `integrity-oracle/scoring-core`; never recompu
 here). Exit 0 registered, 1 not registered, 3 Oracle unreachable. The on-chain rows read
 the v3 AgentRegistry (`singletons.AgentRegistry`): `record` present/absent/retired, `actor`
 bound/none. An absent record is optional in v3, not a failure; an unreadable one is
-`unverified`; neither changes the exit code. `trust` stays `pending` until Phase 4's
-`trust status`.
+`unverified`; neither changes the exit code. `trust` is the bound actor's stake as the
+execute gate reads it (`AgentRegistry.trustConfig()` → `TrustConfig.stakeVault()` →
+`StakeVault.stakeOf(actor)`): `frozen`, `staked` or `unstaked`, with `amount`, `locked`,
+`frozen` and `available` in the JSON; `n/a` with no bound actor; `unverified` when the trust
+layer is unwired or a read fails (never reported as `unstaked`).
 
 ### `integrity doctor` — is this machine's view of the network sane?
 
