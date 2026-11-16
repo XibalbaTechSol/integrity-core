@@ -66,6 +66,13 @@ fn start_anvil(port: u16) -> AnvilGuard {
 }
 
 fn run_deploy(rpc_url: &str) {
+    // Foundry's `fs_permissions` check canonicalizes the path, so `vm.writeJson` refuses a
+    // deployments file that does not exist yet (a fresh checkout or worktree). Same fix as
+    // integrity-cli/tests/test_chain.py.
+    let deployments = repo_root().join("deployments.local.json");
+    if !deployments.exists() {
+        std::fs::write(&deployments, "").unwrap();
+    }
     let status = Command::new("forge")
         .current_dir(repo_root().join("contracts"))
         .args(["script", "script/Deploy.s.sol", "--rpc-url", rpc_url, "--broadcast"])
@@ -86,7 +93,7 @@ async fn build_state(rpc_url: &str, deployments_file: &PathBuf, db_url: &str, re
         // behind while `_sqlx_migrations` is dropped, so the next test's re-migrate fails
         // with "relation already exists" — which shows up as the whole suite failing after
         // the first test while each test still passes in isolation.
-        "DROP TABLE IF EXISTS telemetry_events, agent_primitives, merkle_roots, agents, markets_cache, markets_index_sync, judge_evaluations, otel_spans, otel_metrics, otel_logs, _sqlx_migrations CASCADE",
+        "DROP TABLE IF EXISTS telemetry_events, agent_onchain_records, agent_primitives, merkle_roots, agents, markets_cache, markets_index_sync, judge_evaluations, otel_spans, otel_metrics, otel_logs, _sqlx_migrations CASCADE",
     )
     .execute(&pool)
     .await
@@ -1454,4 +1461,392 @@ async fn oracle_e2e_telemetry_schema_version_is_signed_and_backward_compatible()
         resp.status(), 401,
         "injecting schema_version into a signed envelope must fail verification, not be ignored"
     );
+}
+
+// ── Registration v3, PR 4.3: Oracle on-chain path ───────────────────────────────────────────
+//
+// Spec Part 3 proof kind 1 and the phase 4 acceptance criterion, end to end on Anvil: an agent
+// registered off-chain obtains an attestation, registers in one transaction with an actor, and
+// after `sync` `GET /v1/agent/{id}` shows the on-chain record and `settlement_eligible: true`.
+// The refusal paths run against the same deployment.
+//
+// Everything on-chain here goes through the real `AgentRegistry` ABI, so the digest the Oracle
+// signs is cross-checked against the contract's own `registerDigest`, not against a Rust copy.
+
+mod v3 {
+    alloy::sol! {
+        #[sol(rpc)]
+        interface AgentRegistry {
+            struct AgentRecord {
+                bytes32 pubkey;
+                address guardian;
+                address actor;
+                bytes32 domainId;
+                string uri;
+                uint64 registeredAt;
+                uint64 retiredAt;
+                uint8 proofKind;
+            }
+            function registerDigest(bytes32 pubkey, address guardian, address actor, bytes32 domainId, string uri, uint256 deadline) external view returns (bytes32);
+            function bindActorDigest(bytes32 fingerprint, address actor, uint256 deadline) external view returns (bytes32);
+            function register(bytes32 pubkey, address guardian, address actor, bytes32 domainId, string uri, uint256 deadline, uint8 proofKind, bytes proof, bytes actorConsent) external returns (bytes32);
+            function resolve(bytes32 fingerprint) external view returns (AgentRecord memory);
+        }
+    }
+}
+
+/// Anvil dev account #1. Controls the test agent's `SovereignAgent` (signs the actor consent).
+const ANVIL_KEY_1: &str = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
+
+struct V3Agent {
+    signing_key: ed25519_dalek::SigningKey,
+    did: String,
+}
+
+impl V3Agent {
+    fn new() -> Self {
+        let mut seed = [0u8; 32];
+        seed[..16].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
+        seed[16..].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&seed);
+        let did = format!(
+            "did:integrity:{}",
+            hex::encode(<sha2::Sha256 as sha2::Digest>::digest(signing_key.verifying_key().as_bytes()))
+        );
+        Self { signing_key, did }
+    }
+
+    fn pubkey(&self) -> alloy::primitives::B256 {
+        alloy::primitives::B256::from(*self.signing_key.verifying_key().as_bytes())
+    }
+
+    fn fingerprint(&self) -> alloy::primitives::B256 {
+        self.did.trim_start_matches("did:integrity:").parse().unwrap()
+    }
+
+    fn sign_hex(&self, message: &[u8]) -> String {
+        use ed25519_dalek::Signer;
+        hex::encode(self.signing_key.sign(message).to_bytes())
+    }
+
+    async fn register_offchain(&self, http: &reqwest::Client, base: &str) {
+        let pubkey_hex = hex::encode(self.signing_key.verifying_key().as_bytes());
+        let ts = chrono::Utc::now().timestamp();
+        let message = backend::offchain_registration::signing_message(&self.did, &pubkey_hex, ts);
+        let resp = http
+            .post(format!("{base}/v1/agent/register/offchain"))
+            .json(&serde_json::json!({
+                "did": self.did,
+                "ed25519_pubkey_hex": pubkey_hex,
+                "timestamp": ts,
+                "signature": self.sign_hex(&message),
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 201, "off-chain registration: {}", resp.text().await.unwrap());
+    }
+}
+
+/// Deploys a canonical `SovereignAgent` (forge artifact, built by `run_deploy`) whose `factory`
+/// is the `AgentRegistry`, so its runtime codehash matches the registry's `agentCodehash` pin.
+async fn deploy_sovereign_agent(
+    provider: &impl alloy::providers::Provider,
+    did: &str,
+    controller: alloy::primitives::Address,
+    registry: alloy::primitives::Address,
+) -> alloy::primitives::Address {
+    use alloy::network::TransactionBuilder;
+    use alloy::sol_types::SolValue;
+    let artifact: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(repo_root().join("contracts/out/SovereignAgent.sol/SovereignAgent.json")).unwrap(),
+    )
+    .unwrap();
+    let mut code = hex::decode(artifact["bytecode"]["object"].as_str().unwrap().trim_start_matches("0x")).unwrap();
+    code.extend((did.to_string(), controller, alloy::primitives::Address::ZERO, registry).abi_encode_params());
+    let tx = alloy::rpc::types::TransactionRequest::default().with_deploy_code(code);
+    let receipt = provider.send_transaction(tx).await.unwrap().get_receipt().await.unwrap();
+    assert!(receipt.status(), "SovereignAgent deploy reverted");
+    receipt.contract_address.expect("deploy receipt carries the contract address")
+}
+
+async fn onchain_row_count(pool: &sqlx::PgPool, did: &str) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM agent_onchain_records WHERE agent_id = $1")
+        .bind(did)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn oracle_e2e_onchain_attestation_register_sync() {
+    if std::env::var("ORACLE_E2E").ok().as_deref() != Some("1") {
+        eprintln!("SKIP oracle_e2e_onchain_attestation_register_sync (set ORACLE_E2E=1 with Postgres+Redis+anvil+forge to run)");
+        return;
+    }
+    use alloy::primitives::{Address, B256, U256};
+    use alloy::providers::{Provider, ProviderBuilder};
+    use alloy::signers::local::PrivateKeySigner;
+    use alloy::signers::SignerSync;
+
+    let _ = tracing_subscriber::fmt().with_max_level(tracing::Level::ERROR).try_init();
+    let db_url = std::env::var("TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://integrity:integrity_dev_only@127.0.0.1:5434/integrity".to_string());
+    let redis_url = std::env::var("TEST_REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+    let anvil_port = free_port();
+    let rpc_url = format!("http://127.0.0.1:{anvil_port}");
+    let _anvil = start_anvil(anvil_port);
+    run_deploy(&rpc_url);
+    let deployments_file = repo_root().join("deployments.local.json");
+    let deployments: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&deployments_file).unwrap()).unwrap();
+    let registry_address: Address = deployments["singletons"]["AgentRegistry"].as_str().unwrap().parse().unwrap();
+    let general_domain: B256 = deployments["domains"]["general.integrity"].as_str().unwrap().parse().unwrap();
+
+    // Locally the deployer is the attester (`ATTESTER_ADDRESS` defaults to it on Anvil).
+    let funder: PrivateKeySigner = ANVIL_KEY.parse().unwrap();
+    let controller: PrivateKeySigner = ANVIL_KEY_1.parse().unwrap();
+    let provider = ProviderBuilder::new()
+        .wallet(alloy::network::EthereumWallet::from(funder.clone()))
+        .connect_http(rpc_url.parse().unwrap());
+    let registry = v3::AgentRegistry::new(registry_address, provider.clone());
+
+    let mut state = build_state(&rpc_url, &deployments_file, &db_url, &redis_url).await;
+    let pool = state.pool.clone();
+
+    // Two servers over one database: one without an attester key (the production default until
+    // the key is provisioned), one with the deployer's key as the attester.
+    let unconfigured_port = free_port();
+    {
+        let app = backend::build_router(state.clone());
+        let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{unconfigured_port}")).await.unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    }
+    let mut config = (*state.config).clone();
+    config.attester = Some(funder.clone());
+    state.config = Arc::new(config);
+    let server_port = free_port();
+    {
+        let app = backend::build_router(state.clone());
+        let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{server_port}")).await.unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    }
+    let base = format!("http://127.0.0.1:{server_port}");
+    let unconfigured = format!("http://127.0.0.1:{unconfigured_port}");
+    let http = reqwest::Client::new();
+
+    let agent = V3Agent::new();
+    let sovereign_agent = deploy_sovereign_agent(&provider, &agent.did, controller.address(), registry_address).await;
+    let latest = provider.get_block_by_number(alloy::eips::BlockNumberOrTag::Latest).await.unwrap().unwrap();
+    let deadline = U256::from(latest.header.timestamp + 3600);
+    let digest = registry
+        .registerDigest(agent.pubkey(), funder.address(), sovereign_agent, general_domain, String::new(), deadline)
+        .call()
+        .await
+        .unwrap();
+    let attestation_body = |signature: String| {
+        serde_json::json!({
+            "guardian": funder.address(),
+            "actor": sovereign_agent,
+            "domain_id": general_domain,
+            "uri": "",
+            "deadline": deadline.to::<u64>(),
+            "signature": signature,
+        })
+    };
+    let good_signature = agent.sign_hex(digest.as_slice());
+
+    // Refusal: no off-chain row for this DID yet. The attester only vouches for a key the Oracle
+    // already holds, so a valid-looking signature from an unknown DID is still refused.
+    let resp = http
+        .post(format!("{base}/v1/agent/{}/onchain/attestation", agent.did))
+        .json(&attestation_body(good_signature.clone()))
+        .send()
+        .await
+        .unwrap();
+    let status = resp.status();
+    let body = resp.text().await.unwrap();
+    assert_eq!(status, 404, "attestation without an off-chain row: {body}");
+    assert!(body.contains("off-chain"), "the 404 must name the missing off-chain registration, got: {body}");
+
+    agent.register_offchain(&http, &base).await;
+
+    // Refusal: attester key not configured. Fails closed before any signature work.
+    let resp = http
+        .post(format!("{unconfigured}/v1/agent/{}/onchain/attestation", agent.did))
+        .json(&attestation_body(good_signature.clone()))
+        .send()
+        .await
+        .unwrap();
+    let status = resp.status();
+    let body = resp.text().await.unwrap();
+    assert_eq!(status, 503, "attestation with no attester key: {body}");
+    assert!(body.contains("attester"), "the 503 must say the attester is not configured, got: {body}");
+
+    // Refusal: a valid Ed25519 signature over the right digest, but by a different key.
+    let impostor = V3Agent::new();
+    let resp = http
+        .post(format!("{base}/v1/agent/{}/onchain/attestation", agent.did))
+        .json(&attestation_body(impostor.sign_hex(digest.as_slice())))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401, "a signature by a different key: {}", resp.text().await.unwrap());
+
+    // Refusal: the agent's own key, but over different typed fields than the request carries
+    // (it signed for a zero actor; the request asks for the SovereignAgent).
+    let other_digest = registry
+        .registerDigest(agent.pubkey(), funder.address(), Address::ZERO, general_domain, String::new(), deadline)
+        .call()
+        .await
+        .unwrap();
+    let resp = http
+        .post(format!("{base}/v1/agent/{}/onchain/attestation", agent.did))
+        .json(&attestation_body(agent.sign_hex(other_digest.as_slice())))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401, "a signature over other fields: {}", resp.text().await.unwrap());
+
+    // Sync before the on-chain registration: unregistered fingerprint, nothing written.
+    let resp = http
+        .post(format!("{base}/v1/agent/{}/onchain/sync", agent.did))
+        .send()
+        .await
+        .unwrap();
+    let status = resp.status();
+    let body = resp.text().await.unwrap();
+    assert_eq!(status, 404, "sync of an unregistered fingerprint: {body}");
+    assert!(body.contains("not registered on-chain"), "got: {body}");
+    assert_eq!(onchain_row_count(&pool, &agent.did).await, 0, "an unregistered sync must write nothing");
+
+    let resp = http.get(format!("{base}/v1/agent/{}", agent.did)).send().await.unwrap();
+    assert_eq!(resp.status(), 200);
+    let before: serde_json::Value = resp.json().await.unwrap();
+    assert!(before["onchain"].is_null(), "no synced record yet: {before}");
+    assert_eq!(before["settlement_eligible"], false, "{before}");
+
+    // Happy path: obtain the attestation.
+    let resp = http
+        .post(format!("{base}/v1/agent/{}/onchain/attestation", agent.did))
+        .json(&attestation_body(good_signature))
+        .send()
+        .await
+        .unwrap();
+    let status = resp.status();
+    let attestation: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(status, 200, "attestation: {attestation}");
+    let returned_digest: B256 = attestation["digest"].as_str().unwrap().parse().unwrap();
+    assert_eq!(returned_digest, digest, "the Oracle must sign the contract's own registerDigest");
+    assert_eq!(attestation["proof_kind"], 1);
+    assert_eq!(attestation["attester"].as_str().unwrap().parse::<Address>().unwrap(), funder.address());
+    let proof = hex::decode(attestation["attestation"].as_str().unwrap().trim_start_matches("0x")).unwrap();
+    assert_eq!(proof.len(), 65);
+
+    // Register in one transaction with an actor; the guardian submits and pays.
+    let consent_digest = registry
+        .bindActorDigest(agent.fingerprint(), sovereign_agent, deadline)
+        .call()
+        .await
+        .unwrap();
+    let consent = controller.sign_hash_sync(&consent_digest).unwrap().as_bytes().to_vec();
+    let receipt = registry
+        .register(
+            agent.pubkey(),
+            funder.address(),
+            sovereign_agent,
+            general_domain,
+            String::new(),
+            deadline,
+            1,
+            proof.into(),
+            consent.into(),
+        )
+        .send()
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
+    assert!(receipt.status(), "AgentRegistry.register with the Oracle's attestation reverted");
+
+    // Sync ignores a forged actor/guardian in the body: the chain is the only source.
+    let forged: Address = "0x000000000000000000000000000000000000dEaD".parse().unwrap();
+    let resp = http
+        .post(format!("{base}/v1/agent/{}/onchain/sync", agent.did))
+        .json(&serde_json::json!({"actor": forged, "guardian": forged, "proof_kind": 2}))
+        .send()
+        .await
+        .unwrap();
+    let status = resp.status();
+    let synced: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(status, 200, "sync: {synced}");
+    assert_eq!(synced["actor"].as_str().unwrap().parse::<Address>().unwrap(), sovereign_agent, "{synced}");
+    assert_eq!(synced["guardian"].as_str().unwrap().parse::<Address>().unwrap(), funder.address(), "{synced}");
+    assert_eq!(synced["proof_kind"], 1);
+    let stored_actor: Option<String> =
+        sqlx::query_scalar("SELECT actor FROM agent_onchain_records WHERE agent_id = $1")
+            .bind(&agent.did)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(stored_actor.unwrap().parse::<Address>().unwrap(), sovereign_agent);
+
+    // Idempotent: a second sync is the same row, not a second one.
+    let resp = http
+        .post(format!("{base}/v1/agent/{}/onchain/sync", agent.did))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let resynced: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(resynced["actor"], synced["actor"]);
+    assert_eq!(resynced["registered_at"], synced["registered_at"]);
+    assert_eq!(onchain_row_count(&pool, &agent.did).await, 1, "sync must upsert, not append");
+
+    let resp = http.get(format!("{base}/v1/agent/{}", agent.did)).send().await.unwrap();
+    assert_eq!(resp.status(), 200);
+    let after: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(after["settlement_eligible"], true, "{after}");
+    assert_eq!(after["onchain"]["actor"].as_str().unwrap().parse::<Address>().unwrap(), sovereign_agent);
+    assert_eq!(after["onchain"]["active"], true);
+    assert!(after.get("primitives").is_some(), "primitives stays on the response until PR 4.6: {after}");
+
+    // An existence-only record (no actor) syncs but is not settlement-eligible.
+    let bare = V3Agent::new();
+    bare.register_offchain(&http, &base).await;
+    let bare_digest = registry
+        .registerDigest(bare.pubkey(), funder.address(), Address::ZERO, B256::ZERO, String::new(), deadline)
+        .call()
+        .await
+        .unwrap();
+    let resp = http
+        .post(format!("{base}/v1/agent/{}/onchain/attestation", bare.did))
+        .json(&serde_json::json!({
+            "guardian": funder.address(),
+            "deadline": deadline.to::<u64>(),
+            "signature": bare.sign_hex(bare_digest.as_slice()),
+        }))
+        .send()
+        .await
+        .unwrap();
+    let status = resp.status();
+    let bare_attestation: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(status, 200, "existence-only attestation (actor/domain/uri default to zero/empty): {bare_attestation}");
+    let bare_proof = hex::decode(bare_attestation["attestation"].as_str().unwrap().trim_start_matches("0x")).unwrap();
+    let receipt = registry
+        .register(bare.pubkey(), funder.address(), Address::ZERO, B256::ZERO, String::new(), deadline, 1, bare_proof.into(), Default::default())
+        .send()
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
+    assert!(receipt.status());
+    let resp = http.post(format!("{base}/v1/agent/{}/onchain/sync", bare.did)).send().await.unwrap();
+    assert_eq!(resp.status(), 200);
+    let bare_after: serde_json::Value =
+        http.get(format!("{base}/v1/agent/{}", bare.did)).send().await.unwrap().json().await.unwrap();
+    assert!(bare_after["onchain"]["actor"].is_null(), "{bare_after}");
+    assert_eq!(bare_after["settlement_eligible"], false, "{bare_after}");
 }

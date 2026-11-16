@@ -60,7 +60,10 @@ doesn't hardcode a hosted URL since none is guaranteed stable yet).
 | Method | Path | Purpose |
 |---|---|---|
 | `POST` | `/v1/agent/register` | Register an agent, independently re-verified against `XibalbaAgentRegistry` on-chain |
-| `GET` | `/v1/agent/{id}` | Fetch an agent's identity, primitives, and DID document |
+| `POST` | `/v1/agent/register/offchain` | Gasless registration: proof of possession of the DID's Ed25519 key (tier 1) |
+| `GET` | `/v1/agent/{id}` | Fetch an agent's identity, primitives, DID document, synced `onchain` record and `settlement_eligible` |
+| `POST` | `/v1/agent/{id}/onchain/attestation` | Registration v3 proof kind 1: the Oracle's attester signature over the agent-signed EIP-712 `RegisterAgent` digest (requires a prior off-chain registration with the same key) |
+| `POST` | `/v1/agent/{id}/onchain/sync` | Read the agent's `AgentRegistry` record from chain and cache it (the request body is ignored) |
 | `GET` | `/v1/agents` | List all registered agents |
 | `GET` | `/v1/agent/{id}/ais` | Current AIS score breakdown |
 | `POST` | `/v1/telemetry/ingest` | Submit a signed telemetry event (feeds the next AIS computation) |

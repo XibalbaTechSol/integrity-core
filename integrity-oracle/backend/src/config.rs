@@ -95,6 +95,16 @@ pub struct Config {
     /// EMPTY => the ingest is fail-closed (every submitter rejected): an unauthorized witness
     /// could forge suppression against any agent, so a device must be explicitly allowlisted.
     pub shield_witness_dids: std::collections::HashSet<String>,
+
+    /// Registration v3 attester key (spec Part 3, proof kind 1), from `ATTESTER_PRIVATE_KEY`.
+    /// Signs `AgentRegistry` `RegisterAgent` digests for agents already registered off-chain,
+    /// and nothing else: it holds `ATTESTER_ROLE` only and has no power over an existing record.
+    /// It must be a dedicated key, distinct from the AIS scorer (`SCORER_ROLE`) and the
+    /// deployer (Deploy.s.sol enforces both on non-local chains).
+    /// `None` => `POST /v1/agent/{id}/onchain/attestation` fails closed with 503.
+    /// `PrivateKeySigner`'s `Debug` prints only the address, so `Config`'s derived `Debug`
+    /// never prints the key.
+    pub attester: Option<alloy::signers::local::PrivateKeySigner>,
 }
 
 impl Config {
@@ -166,6 +176,7 @@ impl Config {
             oracle_api_key: parse_optional_api_key(std::env::var("ORACLE_API_KEY").ok()),
             agent_directory_finalized: env_or("AGENT_DIRECTORY_FINALIZED", "false").parse().map_err(|_| "AGENT_DIRECTORY_FINALIZED must be true or false" )?,
             shield_witness_dids,
+            attester: parse_attester_key(std::env::var("ATTESTER_PRIVATE_KEY").ok())?,
         })
     }
 
@@ -195,7 +206,22 @@ impl Config {
             oracle_api_key: None,
             agent_directory_finalized: false,
             shield_witness_dids: std::collections::HashSet::new(),
+            attester: None,
         }
+    }
+}
+
+/// Unset or blank => no attester (the attestation route fails closed). A set but malformed
+/// value is a startup error, never a silent `None`: an operator who provisioned the key must
+/// not get a running Oracle that quietly refuses every attestation. The error never echoes
+/// the value.
+fn parse_attester_key(raw: Option<String>) -> Result<Option<alloy::signers::local::PrivateKeySigner>, String> {
+    match raw.as_deref().map(str::trim) {
+        None | Some("") => Ok(None),
+        Some(key) => key
+            .parse()
+            .map(Some)
+            .map_err(|_| "ATTESTER_PRIVATE_KEY must be a 32-byte hex secp256k1 private key".to_string()),
     }
 }
 

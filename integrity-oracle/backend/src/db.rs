@@ -2780,3 +2780,112 @@ pub async fn register_agent_offchain(
     tx.commit().await?;
     Ok((row, outcome))
 }
+
+// ── Registration v3: `agent_onchain_records` (migration 0027, plan PR 4.3) ──────────────────
+
+/// One agent's `AgentRegistry` record as last read from the chain by
+/// `POST /v1/agent/{id}/onchain/sync`. Addresses are lowercase `0x` hex; `actor` is `None`
+/// for an existence-only record (never the zero address).
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct AgentOnchainRecordRow {
+    pub agent_id: String,
+    pub chain_id: i64,
+    pub registry_address: String,
+    pub pubkey: Vec<u8>,
+    pub guardian: String,
+    pub actor: Option<String>,
+    pub domain_id: String,
+    pub uri: String,
+    pub registered_at: i64,
+    pub retired_at: Option<i64>,
+    pub proof_kind: i16,
+    pub synced_block: i64,
+    pub synced_at: DateTime<Utc>,
+}
+
+/// The fields a sync writes. `synced_at` is the database's clock, not the caller's.
+#[derive(Debug, Clone)]
+pub struct NewAgentOnchainRecord {
+    pub agent_id: String,
+    pub chain_id: i64,
+    pub registry_address: String,
+    pub pubkey: Vec<u8>,
+    pub guardian: String,
+    pub actor: Option<String>,
+    pub domain_id: String,
+    pub uri: String,
+    pub registered_at: i64,
+    pub retired_at: Option<i64>,
+    pub proof_kind: i16,
+    pub synced_block: i64,
+}
+
+const ONCHAIN_RECORD_COLUMNS: &str = "agent_id, chain_id, registry_address, pubkey, guardian, actor, \
+     domain_id, uri, registered_at, retired_at, proof_kind, synced_block, synced_at";
+
+/// Idempotent upsert keyed by `(agent_id, chain_id)`. A read taken at an OLDER block than the
+/// stored row never overwrites it (two concurrent syncs cannot regress a retirement), and in
+/// that case the stored row is returned unchanged.
+pub async fn upsert_agent_onchain_record(
+    pool: &PgPool,
+    rec: &NewAgentOnchainRecord,
+) -> Result<AgentOnchainRecordRow, sqlx::Error> {
+    let written = sqlx::query_as::<_, AgentOnchainRecordRow>(&format!(
+        r#"
+        INSERT INTO agent_onchain_records
+            (agent_id, chain_id, registry_address, pubkey, guardian, actor, domain_id, uri,
+             registered_at, retired_at, proof_kind, synced_block)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        ON CONFLICT (agent_id, chain_id) DO UPDATE SET
+            registry_address = EXCLUDED.registry_address,
+            pubkey = EXCLUDED.pubkey,
+            guardian = EXCLUDED.guardian,
+            actor = EXCLUDED.actor,
+            domain_id = EXCLUDED.domain_id,
+            uri = EXCLUDED.uri,
+            registered_at = EXCLUDED.registered_at,
+            retired_at = EXCLUDED.retired_at,
+            proof_kind = EXCLUDED.proof_kind,
+            synced_block = EXCLUDED.synced_block,
+            synced_at = now()
+        WHERE agent_onchain_records.synced_block <= EXCLUDED.synced_block
+        RETURNING {ONCHAIN_RECORD_COLUMNS}
+        "#
+    ))
+    .bind(&rec.agent_id)
+    .bind(rec.chain_id)
+    .bind(&rec.registry_address)
+    .bind(&rec.pubkey)
+    .bind(&rec.guardian)
+    .bind(&rec.actor)
+    .bind(&rec.domain_id)
+    .bind(&rec.uri)
+    .bind(rec.registered_at)
+    .bind(rec.retired_at)
+    .bind(rec.proof_kind)
+    .bind(rec.synced_block)
+    .fetch_optional(pool)
+    .await?;
+    match written {
+        Some(row) => Ok(row),
+        None => get_agent_onchain_record(pool, &rec.agent_id, rec.chain_id)
+            .await?
+            .ok_or(sqlx::Error::RowNotFound),
+    }
+}
+
+/// The synced record for `agent_id` on `chain_id` only (same chain-scoping rule as
+/// `get_agent_primitives_on_chain`): a row read from another network is never served.
+pub async fn get_agent_onchain_record(
+    pool: &PgPool,
+    agent_id: &str,
+    chain_id: i64,
+) -> Result<Option<AgentOnchainRecordRow>, sqlx::Error> {
+    sqlx::query_as::<_, AgentOnchainRecordRow>(&format!(
+        "SELECT {ONCHAIN_RECORD_COLUMNS} FROM agent_onchain_records WHERE agent_id = $1 AND chain_id = $2"
+    ))
+    .bind(agent_id)
+    .bind(chain_id)
+    .fetch_optional(pool)
+    .await
+}
