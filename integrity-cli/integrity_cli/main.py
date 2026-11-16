@@ -42,6 +42,7 @@ from . import bcc, chain, config, hooks, identity, pack, vault, verify, wallet
 from .client import ApiError, BccClient, IntegrityClient
 from .config import get_auth_token, load_config, set_config_value
 from integrity_sdk.did import Keypair
+from integrity_sdk import registration_onchain
 from integrity_sdk.registration_offchain import OffchainRegistrationError, register_offchain
 from integrity_sdk.xns import XnsAvailabilityError, check_handle_availability
 
@@ -557,6 +558,22 @@ def register(
     oracle_url: Optional[str] = typer.Option(
         None, "--oracle-url", help="integrity-oracle base URL (env/config ORACLE_URL)"
     ),
+    onchain: bool = typer.Option(
+        False, "--onchain",
+        help="Also write the AgentRegistry record: Oracle attestation, one register tx from this "
+        "identity's guardian wallet, then Oracle sync",
+    ),
+    confined: bool = typer.Option(
+        False, "--confined",
+        help="With --onchain: deploy a SovereignAgent and bind it as the actor (needs --domain)",
+    ),
+    domain: Optional[str] = typer.Option(
+        None, "--domain", help="With --onchain --confined: domain name (keccak-hashed) or 0x bytes32 id"
+    ),
+    rpc_url: Optional[str] = typer.Option(None, "--rpc-url", help="With --onchain: EVM RPC endpoint (env/config RPC_URL)"),
+    deployments_file: Optional[str] = typer.Option(
+        None, "--deployments-file", help="With --onchain: deployments JSON (env/config DEPLOYMENTS_FILE)"
+    ),
     json_output: bool = typer.Option(False, "--json", help=output.JSON_OPTION_HELP),
 ):
     """
@@ -567,11 +584,39 @@ def register(
     deployments file is needed. A proven key is verification tier 1.
     Re-running is safe: an already-registered DID is reported, never lowered.
 
-    Exit: 0 registered, 1 refused (e.g. 409 handle taken), 3 Oracle unreachable or 5xx.
+    With --onchain the record is also written to AgentRegistry (pubkey-keyed, existence-only
+    unless --confined binds a SovereignAgent actor, which consents by calling register through
+    its own execute). Re-running --onchain on a registered DID sends nothing and just syncs.
+
+    Exit: 0 registered (and, with --onchain, written and synced), 1 refused (e.g. 409 handle
+    taken, no AgentRegistry deployed), 2 bad flags, 3 Oracle or RPC unreachable or 5xx,
+    4 contract revert (decoded name shown).
     """
     rep = output.Reporter("register", json_mode=json_output)
     if not json_output:
         rep.console = console
+    if (confined or domain is not None) and not onchain:
+        rep.fail(output.EXIT_USAGE, "--confined/--domain need --onchain", code="USAGE")
+    if confined != (domain is not None):
+        rep.fail(output.EXIT_USAGE, "--confined and --domain go together: a bound actor needs a domain "
+                 "policy, and a domain is only meaningful for a confined agent", code="USAGE")
+    domain_id: Optional[bytes] = None
+    if domain is not None:
+        try:
+            domain_id = registration_onchain.domain_id(domain)
+        except ValueError as e:
+            rep.fail(output.EXIT_USAGE, f"--domain {domain!r}: {e}", code="USAGE")
+    registry_address: Optional[str] = None
+    if onchain:
+        rpc_url = rpc_url or config.get_config_value("RPC_URL")
+        deployments_file = deployments_file or config.get_config_value("DEPLOYMENTS_FILE")
+        try:
+            registry_address = chain.load_deployments(deployments_file).get("singletons", {}).get("AgentRegistry")
+        except (chain.DeploymentsFileMissing, OSError, ValueError) as e:
+            rep.fail(output.EXIT_NO, f"cannot read deployments file {deployments_file}: {e}", code="NO_DEPLOYMENTS")
+        if not registry_address:
+            rep.fail(output.EXIT_NO, f"no AgentRegistry in {deployments_file}: registration v3 is not "
+                     "deployed on this chain", code="NO_AGENT_REGISTRY")
     try:
         doc = identity.did_document(identity_name)
         private_key = identity.load_private_key(identity_name)
@@ -594,13 +639,70 @@ def register(
             f"Oracle rejected the registration ({e.status}): {e.detail}",
             code=f"HTTP_{e.status}",
         )
+    onchain_doc = None
+    if onchain:
+        onchain_doc = _register_onchain(
+            rep, identity_name, agent_did, Keypair(private_key), doc, oracle_url, rpc_url,
+            registry_address, confined, domain_id,
+        )
     if json_output:
         rep.result({
             "agent_id": result.agent_id, "verification_tier": result.verification_tier,
             "outcome": result.outcome, "handle": result.handle, "oracle_url": oracle_url,
+            **({"onchain": onchain_doc} if onchain else {}),
         })
     else:
         typer.echo(f"registered {result.agent_id} tier={result.verification_tier} ({result.outcome})")
+        if onchain_doc is not None:
+            actor = onchain_doc["actor"] or "none (existence-only)"
+            typer.echo(f"on-chain: {onchain_doc['outcome']} actor={actor} tx={onchain_doc['tx'] or '-'}")
+
+
+def _register_onchain(
+    rep: output.Reporter,
+    identity_name: str,
+    agent_did: str,
+    keypair: Keypair,
+    did_document: dict,
+    oracle_url: str,
+    rpc_url: str,
+    registry_address: str,
+    confined: bool,
+    domain_id: Optional[bytes],
+) -> dict[str, Any]:
+    """`register --onchain`: attestation, one AgentRegistry.register from the guardian wallet, sync."""
+    try:
+        guardian = wallet.generate_or_load_evm_wallet(identity_name)
+    except wallet.WalletPasswordNotSet as e:
+        rep.fail(output.EXIT_NO, str(e), code="WALLET_PASSWORD")
+    w3 = chain.get_w3(rpc_url)
+    try:
+        with rep.console.status("[bold blue]Registering on-chain..."):
+            reg = registration_onchain.register_onchain(
+                w3, oracle_url, agent_did, keypair, guardian, registry_address,
+                confined=confined, domain=domain_id, did_document=did_document,
+            )
+    except OffchainRegistrationError as e:
+        code = output.EXIT_UNVERIFIED if e.status is None or e.status >= 500 else output.EXIT_NO
+        rep.fail(code, f"Oracle off-chain step failed at {oracle_url}: {e.detail}",
+                 code="UNREACHABLE" if e.status is None else f"HTTP_{e.status}")
+    except registration_onchain.OnchainRegistrationError as e:
+        if e.unreachable:
+            rep.fail(output.EXIT_UNVERIFIED, f"Oracle {e.stage} unavailable at {oracle_url}: {e.detail}",
+                     code="UNREACHABLE" if e.status is None else f"HTTP_{e.status}")
+        rep.fail(output.EXIT_NO, f"Oracle refused the {e.stage}: {e.detail}",
+                 code=f"HTTP_{e.status}" if e.status is not None else "ATTESTATION_MISMATCH")
+    except Exception as e:  # noqa: BLE001 -- reverts, RPC outages; classified below
+        exit_code = output.exit_code_for_chain_error(e)
+        if exit_code == output.EXIT_REVERT:
+            name = registration_onchain.revert_name(e) or "unknown error"
+            rep.fail(exit_code, f"AgentRegistry.register reverted: {name} ({e})", code="REVERT")
+        rep.fail(exit_code, f"on-chain registration failed via {rpc_url}: {e}",
+                 code="UNREACHABLE" if exit_code == output.EXIT_UNVERIFIED else "CHAIN")
+    return {
+        "outcome": reg.outcome, "guardian": reg.guardian, "actor": reg.actor,
+        "domain_id": reg.domain_id, "tx": reg.tx, "agent_registry": registry_address, "record": reg.record,
+    }
 
 
 
