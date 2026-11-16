@@ -6,6 +6,14 @@ integrator would actually observe, not one per commit.
 
 ## Unreleased
 
+- **Added (registration v3, PR 4.3):** `POST /v1/agent/{id}/onchain/attestation` and
+  `POST /v1/agent/{id}/onchain/sync`. The attestation route requires an existing off-chain
+  registration whose Ed25519 key signed the EIP-712 `RegisterAgent` digest (computed by the
+  Oracle from the typed fields, never taken from the client) and returns the attester's
+  ECDSA signature over the same digest; 503 when the Oracle has no attester key. Sync reads
+  `AgentRegistry` and caches the record; the chain is the only source. `GET /v1/agent/{id}`
+  gains `onchain` (the synced record, or `null`) and `settlement_eligible` (active record
+  with a bound actor). `primitives` and `POST /v1/agent/register` are unchanged.
 - **Behavior:** `scoring_profile` is now `ais/v1-geometric-2`. Sacrifice with no
   validator/TEE evidence is unobserved (weight 0, renormalized, listed in `missing_axes`)
   instead of an annihilating zero, matching the earlier compliance rule. New response field
