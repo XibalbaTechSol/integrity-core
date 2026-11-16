@@ -55,7 +55,7 @@ load_dotenv()
 
 # v3 CLI (registration v3): shared output contract, --network profiles, and the command groups
 # that live in their own modules. Imported here, not in the block above, on purpose.
-from . import doctor_cmd, output, policy_cmd, status_cmd  # noqa: E402
+from . import doctor_cmd, output, policy_cmd, status_cmd, tenant_cmd  # noqa: E402
 from .client import ApiUnreachable  # noqa: E402,F401  (re-exported for callers/tests)
 
 app = typer.Typer(help="Integrity Protocol developer CLI")
@@ -116,6 +116,7 @@ pack_app = pack.pack_app
 app.add_typer(pack_app, name="pack")
 
 app.add_typer(policy_cmd.policy_app, name="policy")
+app.add_typer(tenant_cmd.tenant_app, name="tenant")
 app.command("status")(status_cmd.status)
 app.command("doctor")(doctor_cmd.doctor)
 
