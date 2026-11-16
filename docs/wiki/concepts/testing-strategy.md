@@ -1,7 +1,7 @@
 ---
 title: Testing Strategy
 created: 2026-07-09
-updated: 2026-09-08
+updated: 2026-11-16
 type: concept
 tags: [infrastructure]
 confidence: high
@@ -55,10 +55,9 @@ flowchart TB
    Continuous Integration runs Noir with `--workspace`, runs the real Open Policy
    Agent (OPA) policy suite, and adds the dashboard demo's Python regression suite.
 
-`make verify-kernel` is the separate pinned Halmos 0.3.3 symbolic pass. It builds
-Foundry artifacts with AST output and covers the governance-swap harness plus the
-registry-disabled and registry-enabled kernel property suites; it is not evidence
-of deployment, gas cost, or independent audit.
+There is no symbolic (Halmos) pass on `main` any more: `make verify-kernel` and the eight
+kernel properties were archived with the kernel on 2026-11-16 ([archive record](../../archive/2026-11/kernel-phase1/README.md)).
+Reviving the kernel includes adding that pass to CI.
 
 ## Dashboard boundary
 

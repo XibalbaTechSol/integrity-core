@@ -81,7 +81,7 @@ This single repository contains six independently-versioned packages that form t
 
 | Package | Role | Status |
 |---|---|---|
-| `contracts/` | On-chain primitives: identity, reputation, HIPAA/healthcare vertical, experimental Phase I kernel slice | 250 tests locally; Base Sepolia genesis deployed |
+| `contracts/` | On-chain primitives: identity, registration (`AgentRegistry`), trust and reputation, HIPAA/healthcare vertical | 250 tests locally; Base Sepolia genesis deployed |
 | `integrity-zkp/` | Real Noir/Barretenberg ZK circuit for intent binding and reputation boost | Real pipeline working locally; Base Sepolia verifier holds placeholder bytecode |
 | `integrity-oracle/` | Telemetry ingestion, deterministic AIS computation, on-chain reads, markets/leaderboard/governance APIs | 80 lib + 9 e2e tests locally; single-operator oracle |
 | `integrity-sdk/` | Agent library: identity, wallet, registration, telemetry, BCC, markets | 259 tests locally |
@@ -114,7 +114,7 @@ For the full conceptual derivation, see [docs/SPEC.md](docs/SPEC.md) §4.
 
 ## Policy Architecture (On-chain vs Off-chain)
 
-When writing complex rules or safety guardrails for an agent, developers must choose between evaluating the policy off-chain via BCC/OPA or using the bounded on-chain kernel path for value enforcement. Both operate on a fail-closed basis. The v1 architecture does not add an on-chain adapter registry or arbitrary on-chain policy compiler.
+When writing complex rules or safety guardrails for an agent, developers must choose between evaluating the policy off-chain via BCC/OPA or using the bounded on-chain execution policy for value enforcement. Both operate on a fail-closed basis. The v1 architecture does not add an on-chain adapter registry or arbitrary on-chain policy compiler.
 
 ### When to use Off-Chain Rules (BCC / OPA)
 Off-chain rules act as the **"Preventative Brain."** Use them to intercept an agent *before* it affects the real world.
@@ -123,11 +123,11 @@ Off-chain rules act as the **"Preventative Brain."** Use them to intercept an ag
 * **Cost Efficiency:** Off-chain OPA checks take milliseconds and cost nothing. You can have thousands of highly complex rules here without worrying about gas fees.
 * **Example (`TradingGuardrail`):** A `.rego` policy that intercepts an agent's `financial_trade` intent, validating the trade against a dynamic token allowlist.
 
-### When to use the on-chain kernel path
-The kernel is the **"Cryptographic Backstop."** Use its existing bounded parameters for strict, deterministic value enforcement where the off-chain environment cannot be trusted. New regulation and control logic belongs in signed off-chain packs; v1 does not add Solidity adapter plugins or a generic on-chain policy registry.
+### When to use the on-chain execution policy
+The agent's on-chain execution policy is the **"Cryptographic Backstop."** `SovereignAgent.execute()` consults a swappable, fail-closed `IExecutionPolicy`; `ConstraintExecutionPolicy` enforces an AIS floor, a native-value cap, a target allowlist and ERC-20/721 caps ([SPEC §5.3](docs/SPEC.md)). Use its bounded parameters for strict, deterministic value enforcement where the off-chain environment cannot be trusted. (The fuller ERC-7579 kernel hook of SPEC §5.2 had an experimental implementation that was archived on 2026-11-16; see [docs/archive/2026-11/kernel-phase1/README.md](docs/archive/2026-11/kernel-phase1/README.md).) New regulation and control logic belongs in signed off-chain packs; v1 does not add Solidity adapter plugins or a generic on-chain policy registry.
 * **Hard Financial Limits:** Rules about money (e.g., "Do not spend more than $50" or "Do not transfer this NFT") belong on-chain. If the off-chain system is compromised, the smart contract physically prevents the funds from moving.
 * **Absolute Protocol State:** Things like transaction frequency (Velocity), Time-locks, or Reputation Floors. The blockchain is the ultimate source of truth for time and state.
-* **Bounded execution:** Kernel calls remain constrained by the account and kernel invariants; policy-pack evaluation and network-facing integrations remain off-chain.
+* **Bounded execution:** Agent calls remain constrained by the execution policy's invariants; policy-pack evaluation and network-facing integrations remain off-chain.
 
 ---
 

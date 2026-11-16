@@ -6,7 +6,7 @@ type: entity
 tags: [sdk, identity, metrics, infrastructure, policy-packs, control-layer, billing]
 confidence: high
 source_files:
-  - integrity-sdk/integrity_sdk/registration.py
+  - integrity-sdk/integrity_sdk/registration_offchain.py
   - integrity-sdk/integrity_sdk/wallet.py
   - integrity-sdk/integrity_sdk/chain.py
   - integrity-sdk/integrity_sdk/bcc.py

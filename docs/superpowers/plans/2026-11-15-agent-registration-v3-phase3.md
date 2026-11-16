@@ -7,7 +7,7 @@
 
 ## Owner decisions, 2026-11-15 (these override Part 5 where they conflict)
 
-1. **IntegrityKernel hold.** The owner is reviewing the kernel ("I need to review Kernal dont delete").
+1. **IntegrityKernel hold.** The owner is reviewing the kernel ("I need to review Kernal dont delete"). **Resolved 2026-11-16:** the review chose to archive the kernel (`IntegrityKernel`, `IntegrityAccount`, their tests, Halmos files and `DeployKernel*` scripts are gone from `main`; `docs/archive/2026-11/kernel-phase1/README.md`). The rest of the held graph below still waits for the deletion PR, which needs the owner's go-ahead.
 2. **Defer deletions.** The owner chose this when the hold collided with Part 5's deletions:
    - `ReputationRegistry` imports `StateAnchor`.
    - `DeployKernelReference.s.sol` deploys the whole primitives graph and reads `IntegrityIdentityReadV1`'s primitive fields.
@@ -18,8 +18,8 @@
 **Kept unchanged until the post-review deletion PR:**
 - `XibalbaAgentRegistry`, `AgentPrimitivesFactory`, `AgentProfile`, `StateAnchor`, `ReputationRegistry`, `Slasher`, `VerifierRegistry`, `health/ComplianceGate`;
 - `IZkVerifier`, `RejectAllZkVerifier`, `IAnchorPolicy`, `AllowlistAnchorPolicy`;
-- `IntegrityKernel`, `IntegrityAccount`, `IntegrityIdentityReadV1`, `IntegrityERC8004Registry`;
-- the `DeployKernel*` scripts, their tests, and the Halmos files.
+- `IntegrityIdentityReadV1`, `IntegrityERC8004Registry`;
+- (`IntegrityKernel`, `IntegrityAccount`, the `DeployKernel*` scripts, their tests and the Halmos files were archived 2026-11-16.)
 
 **Compile consequence for `SovereignAgent`.** The held factory constructs `SovereignAgent(did, controller, oracle, factory_)` and calls `sa.factory()`. Until deletion, `SovereignAgent` therefore keeps:
 - its 4-argument constructor;
@@ -38,7 +38,7 @@ Only `_resolveGate`'s internals move. The renames and the `updateAIS` removal ar
 | 3.2 | Contract repoint, new `Deploy.s.sol`, wiring test, confined e2e | 3.1 (golden vector) |
 | 3.3 | Shield `register_with_oracle.py` moves to off-chain registration (Phase 1 Task 10, never landed); integrity-console demo `main.py` too | — (other repos) |
 | 3.4 | SDK/CLI primitives registration path removed; bcc_middleware moved to `AgentRegistry` | 3.2, 3.3 |
-| deletion PR | Delete the held graph, rename `factory` to `registry`, remove `updateAIS` | the owner's kernel review |
+| deletion PR | Delete the held graph, rename `factory` to `registry`, remove `updateAIS` | kernel review done (archived 2026-11-16); owner go-ahead |
 
 The SDK's `registration.py` primitives path is Python only, and the kernel doesn't use it. It still waits for 3.3, because Shield and integrity-console import it. Cortex and Shield read the base checkouts through editable path deps, so deleting it first would break them.
 
@@ -104,4 +104,4 @@ The SDK's `registration.py` primitives path is Python only, and the kernel doesn
 ## Out of scope / owner steps
 
 - The **Base Sepolia deploy** is run by the owner after the exposed Base Sepolia credentials are rotated (`Deploy.s.sol --broadcast`).
-- **Kernel review**, then the deletion PR.
+- **Kernel review** — done 2026-11-16 (archived). The deletion PR is next, on the owner's go-ahead.

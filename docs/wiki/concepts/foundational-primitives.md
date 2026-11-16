@@ -1,7 +1,7 @@
 ---
 title: The Four Foundational Primitives of the Control Layer
 created: 2026-07-30
-updated: 2026-11-07
+updated: 2026-11-16
 type: concept
 tags: [identity, metrics, compliance, primitives, control-layer]
 confidence: high
@@ -55,7 +55,7 @@ To avoid architectural confusion when developing on the protocol, distinguish be
 
 1. **Foundational Primitives (This Page):** The four theoretical requirements for economic agency (Memory, Ownership, Authority, Reputation).
 2. **Agent Primitives ([`agent-primitives.md`](agent-primitives.md)):** The 7 per-agent smart contracts cloned during registration via `AgentPrimitivesFactory.sol`.
-3. **Kernel Invariants (`IntegrityKernel.sol`):** The three mathematical constraints enforced on-chain (value conservation, monotone rights depletion, replay-domain monotonicity).
+3. **Kernel Invariants:** The three mathematical constraints a kernel enforces on-chain (value conservation, monotone rights depletion, replay-domain monotonicity). The experimental `IntegrityKernel.sol` that implemented them was archived on 2026-11-16 ([archive record](../../archive/2026-11/kernel-phase1/README.md)).
 
 ---
 

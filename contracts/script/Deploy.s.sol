@@ -41,7 +41,8 @@ import {ActionAnchor} from "../src/trust/ActionAnchor.sol";
 /// `AgentAuthorityResolver`). The v2 primitives graph (`XibalbaAgentRegistry`,
 /// `AgentPrimitivesFactory` + 5 clone templates, `IntegrityIdentityReadV1`) is STILL deployed
 /// alongside it, unwired from the trust layer, because the SDK/CLI/Oracle registration paths
-/// that read it move in Phase 3 PR 3.4; the owner's IntegrityKernel review holds its deletion.
+/// that read it move in Phase 3 PR 3.4; its deletion is a separate PR (the Phase I kernel that also
+/// read it was archived 2026-11-16, docs/archive/2026-11/kernel-phase1/README.md).
 /// An agent onboarded through the v2 factory resolves an inert execute gate. Writes every address to `../deployments.<network>.json`
 /// (see docs/INTERFACE_CONTRACT.md §6 for the exact shape).
 /// @dev Run against Base Sepolia with:

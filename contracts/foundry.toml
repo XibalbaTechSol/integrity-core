@@ -24,7 +24,6 @@ optimizer_runs = 200
 via_ir = true
 fs_permissions = [
   { access = "read-write", path = "../deployments.local.json" },
-  { access = "read-write", path = "../deployments.local.kernel-bridge.json" },
   { access = "read-write", path = "/home/runner/work/integrity-core/integrity-core/deployments.local.json" },
   { access = "read-write", path = "../deployments.baseSepolia.json" },
   { access = "read", path = "./" },

@@ -4287,3 +4287,16 @@ and add the resulting address and transaction evidence to the manifest and deplo
 
 The existing Base Sepolia Phase I kernel reference in the manifest is a separate experimental
 artifact and does not mean the shared evidence anchor is deployed.
+
+## 75. Phase I kernel archived — `IntegrityKernel` / `IntegrityAccount` removed from `main` (2026-11-16)
+
+**Decision.** The owner's kernel review (held since registration v3 Phase 3) chose to archive the kernel now and refactor it later, on a real product trigger. Record, revival trigger and port steps: [`docs/archive/2026-11/kernel-phase1/README.md`](docs/archive/2026-11/kernel-phase1/README.md). Tag `kernel-phase1-archive` marks the last commit containing it (`5668854c`).
+
+**Why, with evidence (read 2026-11-15):**
+- Nothing connected it to v3: it read per-agent `ReputationRegistry` clones, whose only writer is BCC's scoring loop through the Oracle `primitives` record, which v3 agents do not have. v3 scores live in `AISRegistry`.
+- The Base Sepolia reference (§44, §46) was dormant: snapshot ~84 days old against a 3-day epoch, so every `execute()` reverted `SnapshotStale`; balance 0, nothing ever spent; score 800 unchanged since 2026-08-24; built from pre-A4 source.
+- The Halmos properties (§42, §43) ran only through a manual `make verify-kernel`; `forge test` skips `check_` functions, and git shows no run after A4 rewrote the kernel.
+
+**What this closes and supersedes.** Every open kernel/account item in this file (§42–§46, §55 and the registry gaps already removed by A4, and the kernel rows of `docs/PRODUCTION_READINESS_PLAN.md` gate B) is closed as *archived*, not as *fixed*. None of them should be read as resolved security work if the kernel is revived; the archive README lists what a revival must redo, starting with rerunning Halmos and adding it to CI.
+
+**What it does not change.** `ReputationRegistry`, `IZkVerifier`, `RejectAllZkVerifier`, `IntegrityIdentityReadV1` and `IntegrityERC8004Registry` stay: BCC's scoring loop, `SovereignAgent`, the held factory, `EHRGate` and the identity read surfaces still use them. Deleting the held v2 graph is a separate PR. `SPEC.md` keeps the kernel's normative requirements; only the status tags that relied on this slice moved from `[EXPERIMENTAL]` to `[PLANNED]`. Pack `kernel_range` fields now map to no on-chain enforcement; the pack schema is unchanged.
