@@ -3,8 +3,10 @@
 Off-chain state comes from the Oracle. The on-chain rows read the v3 AgentRegistry
 (`singletons.AgentRegistry`): `record` is present / absent / retired, `actor` is the bound
 SovereignAgent or none. An on-chain record is optional in v3, so "absent" is not a failure; a
-read that cannot be made is "unverified", never guessed. `trust` (stake, freeze) is the Phase 4
-`trust status` and stays "pending".
+read that cannot be made is "unverified", never guessed. `trust` is the bound actor's stake as
+the execute gate sees it: `AgentRegistry.trustConfig()` -> `TrustConfig.stakeVault()` ->
+`StakeVault.stakeOf(actor)`, reported as frozen / staked / unstaked, "n/a" when no actor is
+bound, and "unverified" when any link in that chain is unwired or unreadable.
 
 Exit: 0 registered with the Oracle, 1 not registered / no identity, 3 Oracle unreachable or 5xx.
 The on-chain rows do not change the exit code: they are optional evidence, reported as such.
@@ -14,6 +16,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 import typer
+from web3 import Web3
 
 from integrity_sdk.chain import get_w3  # noqa: F401  (module-level so tests can patch it)
 
@@ -21,7 +24,25 @@ from . import chain, config, identity, output, policy_cmd
 from .client import ApiError, IntegrityClient
 
 _ZERO_ADDR = "0x" + "00" * 20
-TRUST_PENDING = "per-agent trust (stake, freeze) is `trust status`, registration v3 Phase 4"
+
+# View-only fragments: status never deploys these, so it carries just the reads it makes
+# instead of shipping full {abi, bytecode} artifacts (same pattern as integrity_sdk.policy_registry).
+_TRUST_CONFIG_ABI = [
+    {"type": "function", "name": "stakeVault", "stateMutability": "view",
+     "inputs": [], "outputs": [{"name": "", "type": "address"}]},
+]
+_STAKE_VAULT_ABI = [
+    {"type": "function", "name": "stakeOf", "stateMutability": "view",
+     "inputs": [{"name": "agent", "type": "address"}],
+     "outputs": [{"name": "", "type": "tuple", "components": [
+         {"name": "amount", "type": "uint256"},
+         {"name": "locked", "type": "uint256"},
+         {"name": "frozen", "type": "bool"},
+     ]}]},
+    {"type": "function", "name": "availableOf", "stateMutability": "view",
+     "inputs": [{"name": "agent", "type": "address"}],
+     "outputs": [{"name": "", "type": "uint256"}]},
+]
 
 
 def agent_registry_contract(w3, address: str):
@@ -29,13 +50,54 @@ def agent_registry_contract(w3, address: str):
     return chain._contract(w3, "AgentRegistry", address=address)
 
 
+def trust_config_contract(w3, address: str):
+    """Module-level so tests can substitute a fake TrustConfig."""
+    return w3.eth.contract(address=Web3.to_checksum_address(address), abi=_TRUST_CONFIG_ABI)
+
+
+def stake_vault_contract(w3, address: str):
+    """Module-level so tests can substitute a fake StakeVault."""
+    return w3.eth.contract(address=Web3.to_checksum_address(address), abi=_STAKE_VAULT_ABI)
+
+
+def _is_zero(address: Optional[str]) -> bool:
+    return not address or address.lower() == _ZERO_ADDR
+
+
+def trust_row(w3, registry, actor: str) -> dict[str, Any]:
+    """The bound actor's stake, read along the same path the execute gate uses.
+
+    Any unwired link (zero TrustConfig / StakeVault) or failed read is "unverified": a missing
+    answer is never reported as "unstaked".
+    """
+    try:
+        tc = registry.functions.trustConfig().call()
+        if _is_zero(tc):
+            return {"status": "unverified", "detail": "AgentRegistry has no TrustConfig set"}
+        vault_addr = trust_config_contract(w3, tc).functions.stakeVault().call()
+        if _is_zero(vault_addr):
+            return {"status": "unverified", "detail": f"TrustConfig {tc} has no StakeVault set"}
+        vault = stake_vault_contract(w3, vault_addr)
+        actor = Web3.to_checksum_address(actor)
+        amount, locked, frozen = vault.functions.stakeOf(actor).call()
+        available = vault.functions.availableOf(actor).call() if amount else 0
+    except Exception as e:  # noqa: BLE001 -- a failed read is "can't tell", never "unstaked"
+        return {"status": "unverified", "detail": f"stake read failed: {e}"}
+    stake = {"amount": amount, "locked": locked, "frozen": bool(frozen), "available": available,
+             "stake_vault": vault_addr}
+    if frozen:
+        return {"status": "frozen", "detail": "frozen: the gate refuses this actor until an admin unfreezes it", **stake}
+    if amount > 0:
+        return {"status": "staked", "detail": f"{amount} staked, {locked} locked, {available} available", **stake}
+    return {"status": "unstaked", "detail": "no stake", **stake}
+
+
 def onchain_rows(did: str, rpc_url: str, deployments_file: str) -> dict[str, dict[str, Any]]:
     """record/actor/trust rows from AgentRegistry.resolveDID; any read failure -> unverified."""
-    trust = {"status": "pending", "detail": TRUST_PENDING}
 
     def unverified(detail: str) -> dict[str, dict[str, Any]]:
         row = {"status": "unverified", "detail": detail}
-        return {"record": row, "actor": dict(row), "trust": trust}
+        return {"record": row, "actor": dict(row), "trust": dict(row)}
 
     try:
         deployments = policy_cmd.read_deployments(deployments_file)
@@ -48,7 +110,8 @@ def onchain_rows(did: str, rpc_url: str, deployments_file: str) -> dict[str, dic
         w3 = get_w3(rpc_url)
         if not w3.is_connected():
             return unverified(f"RPC unreachable at {rpc_url}")
-        rec = agent_registry_contract(w3, address).functions.resolveDID(did).call()
+        registry = agent_registry_contract(w3, address)
+        rec = registry.functions.resolveDID(did).call()
     except Exception as e:  # noqa: BLE001 -- a failed read is "can't tell", never "absent"
         return unverified(f"AgentRegistry read failed: {e}")
     pubkey, _guardian, actor, _domain, _uri, registered_at, retired_at, _proof = rec
@@ -60,8 +123,10 @@ def onchain_rows(did: str, rpc_url: str, deployments_file: str) -> dict[str, dic
         record = {"status": "present", "detail": f"registered at {registered_at}", "registered_at": registered_at}
     if actor and actor.lower() != _ZERO_ADDR:
         actor_row = {"status": "bound", "detail": actor, "actor": actor}
+        trust = trust_row(w3, registry, actor)
     else:
         actor_row = {"status": "none", "detail": "no SovereignAgent bound"}
+        trust = {"status": "n/a", "detail": "trust applies to a bound actor"}
     return {"record": record, "actor": actor_row, "trust": trust}
 
 
