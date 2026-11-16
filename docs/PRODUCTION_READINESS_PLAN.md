@@ -33,8 +33,9 @@ line-item-cited source of record; this document is the gate-level index over it.
 
 Two honest facts anchor this plan: (1) the promoted production kernel
 (`IntegrityKernel.sol`/`IntegrityAccount.sol`, renamed from `...V1Experimental` on
-2026-08-24) has **never been deployed anywhere, audited, or run past 6 machine-checked
-Halmos properties on a subset of its configuration space**; (2) `integrity-sdk` is
+2026-08-24) was **never deployed as a production kernel, audited, or run past 6 machine-checked
+Halmos properties on a subset of its configuration space**, and was **archived on 2026-11-16**
+(`archive/2026-11/kernel-phase1/README.md`) — gate B below is closed as archived, not as built; (2) `integrity-sdk` is
 version `0.1.0`, `Development Status :: 3 - Alpha`, and has never been published — every
 current consumer, including `xibalba-cortex`, depends on it via a local filesystem path
 to a sibling checkout.
@@ -189,6 +190,10 @@ clamp pinned by 8 Foundry ladder tests; deployed-vs-source drift detection.
   (not urgent at current single-instance scale, but real).
 
 ### B. Kernel and account contracts (Phase I: `IntegrityKernel`/`IntegrityAccount`)
+
+> **Archived 2026-11-16.** The kernel and account were removed from `main` after the owner's
+> kernel review (tag `kernel-phase1-archive`; `archive/2026-11/kernel-phase1/README.md`). The
+> record below is kept as history; nothing in this section is open work until a revival trigger.
 
 **Closed:** value-conservation budget, module-governance timelocked kernel-swap,
 guardian M-of-N execution quorum and unanimous emergency propose/cancel, guardian-set

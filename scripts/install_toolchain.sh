@@ -5,8 +5,7 @@
 # containers start without forge/anvil/opa, and some egress policies block
 # binaries.soliditylang.org, which forge normally uses to fetch solc. Every
 # binary here comes from a GitHub release instead, at the versions pinned in
-# docs/INTERFACE_CONTRACT.md. Halmos is not installed here: `make verify-kernel`
-# already installs its pinned version into contracts/.venv-halmos.
+# docs/INTERFACE_CONTRACT.md.
 #
 # Idempotent: a tool already at the pinned version is left alone.
 # Usage: scripts/install_toolchain.sh            (installs into ~/.foundry/bin, ~/.svm, ~/.local/bin)

@@ -9,7 +9,7 @@ confidence: high
 source_files:
   - contracts/src/oracle/StateAnchor.sol
   - contracts/src/framework/AgentLineageRegistry.sol
-  - integrity-sdk/integrity_sdk/registration.py
+  - integrity-sdk/integrity_sdk/registration_offchain.py
   - integrity-oracle/backend/src/handlers.rs
   - docs/wiki/concepts/agent-primitives.md
 ---

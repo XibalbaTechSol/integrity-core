@@ -60,7 +60,6 @@ and in that package's README — don't fake the check silently.
 | `opa` | 1.18.2 | bcc_middleware, integrity-sdk |
 | `node` / `npm` | 22.x / 10.x | integrity-dashboard, contracts (npm-based deps) |
 | `python` / `uv` | 3.12 / 0.11 | integrity-sdk, integrity-cli, bcc_middleware |
-| `halmos` | 0.3.3 | contracts (`make verify-kernel`, Phase I kernel symbolic verification, isolated in `contracts/.venv-halmos`) |
 
 All of these are on `PATH` (added to `~/.bashrc`). Use them for real — compile
 the circuits, run `bb prove`/`bb verify`, run `forge test`, run `opa eval`
@@ -278,7 +277,8 @@ included in the signed payload, so neither can be swapped post-signature:
   `bcc_middleware/app/main.py`'s deployment-binding check — a disclosed
   limitation so a local/dev/test topology with no deployments file
   configured isn't turned into a blanket deny). This does **not** close the
-  experimental kernel's own hook-frame replay-domain binding (a separate,
+  experimental kernel's own hook-frame replay-domain binding (archived with the kernel
+  on 2026-11-16, `../archive/2026-11/kernel-phase1/README.md`; a separate,
   contract-side concern — see `docs/archive/2026-09/CLAUDE_HANDOFF_2026-08-17.md` §9). As of
   2026-08-18/19, `chain_id`/`verifying_contract` ARE also bound into the ZK
   circuit's `intent_commitment` (`integrity-zkp/circuit/src/main.nr` — see

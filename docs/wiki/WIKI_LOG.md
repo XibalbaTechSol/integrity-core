@@ -1,5 +1,12 @@
 # Integrity Protocol Wiki — Log
 
+## [2026-11-16] update | Phase I kernel archived
+
+- The owner's kernel review chose to archive `IntegrityKernel` and `IntegrityAccount`. Their source, tests, Halmos proofs, `DeployKernel*` scripts and `make verify-kernel` are gone from `main`; tag `kernel-phase1-archive` marks the last commit with them. Record: `docs/archive/2026-11/kernel-phase1/README.md`.
+- Pages changed: `entities/contracts.md` (kernel bullet replaced by an archive note; the spend-event section removed; source manifest drops `IntegrityKernel.sol`), `concepts/agent-primitives.md`, `concepts/foundational-primitives.md`, `concepts/testing-strategy.md` (no Halmos pass on `main`).
+- Outside the wiki: `SPEC.md` status tags that relied on the slice moved `[EXPERIMENTAL]` → `[PLANNED]` with no MUST/SHOULD change; README now points on-chain value enforcement at `ConstraintExecutionPolicy` (SPEC §5.3); `PRODUCTION_GAPS.md` §75.
+- `ReputationRegistry`, `IntegrityIdentityReadV1` and `IntegrityERC8004Registry` are unchanged; they wait for the held-graph deletion PR.
+
 ## [2026-11-14] update | Pruned dead MCP server instructions & documented shared billing gateway
 
 - Removed obsolete `## MCP server` setup instructions in `entities/integrity-sdk.md`: `mcp_server.py` was decommissioned in `e1bf9ff3`. Replaced with explicit deprecation note directing to in-process `agent_runtime.py` and native hook runners.

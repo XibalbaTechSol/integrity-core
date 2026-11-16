@@ -211,8 +211,8 @@ Encoding MUST be length-prefixed. Concatenation of raw strings is non-conformant
 
 Live BCC commitments bind `chain_id` and `verifying_contract`. The ZK circuit
 also binds its intent commitment to the chain, receiving ReputationRegistry
-clone, and exact anchored BCC leaf. `[PARTIAL]`: the experimental kernel's
-replay-domain binding remains separate.
+clone, and exact anchored BCC leaf. `[PLANNED]`: a kernel hook-frame
+replay-domain binding (the experimental slice's was archived 2026-11-16).
 
 **Canonical JSON `[BUILT]`:** all signed BCC/telemetry payloads use RFC 8785
 JCS: Python consumers use `jcs` and the Rust oracle uses `serde_jcs`. This is
@@ -240,7 +240,7 @@ S_C = \{\, x \in X \mid g_i(x) \le 0 \text{ for all } i = 1,\ldots,m \,\}.
 
 The margin of a state is \(\min_i (-g_i(x))\). The hook SHOULD expose per-\(g_i\) margin to the console.
 
-### 4.2 Abstract syntax `[PARTIAL]` / `[EXPERIMENTAL]`
+### 4.2 Abstract syntax `[PARTIAL]`
 
 ```text
 C            = g ("," g)*
@@ -269,7 +269,7 @@ call         = "sum_out" "(" window "," destset ")"
 
 `pre` is \(x_k\). `post` is \(T(x_k, a)\). A constraint that reads only `pre` and ignores `post` for a quantity the action can change is non-conformant for that quantity.
 
-The experimental kernel slice (`IntegrityKernelV1Experimental`) implements a **reduced** grammar: native-value spend budget, a reputation-floor precondition, and a ZK-assurance-tier precondition. It is not this grammar. Status: `[EXPERIMENTAL]`. It MUST NOT write storage in `preCheck`. Projected checks belong in `preCheck`; conservation of realized post-state belongs in `postCheck`.
+The experimental kernel slice (`IntegrityKernel`, formerly `IntegrityKernelV1Experimental`) implemented a **reduced** grammar: native-value spend budget, a reputation-floor precondition, and a ZK-assurance-tier precondition. It was not this grammar. It was archived on 2026-11-16 and has no implementation on `main` (`docs/archive/2026-11/kernel-phase1/README.md`). Status: `[PLANNED]`. It MUST NOT write storage in `preCheck`. Projected checks belong in `preCheck`; conservation of realized post-state belongs in `postCheck`.
 
 ### 4.3 Concrete YAML (pack surface)
 
@@ -395,11 +395,11 @@ Proposition 1 does not say \(S_C\) is a good box. A catastrophe that \(C\) permi
 
 Independent audit plus a machine-checked argument is the named gate for non-draft v1.0.0.
 
-### 5.2 Placement `[EXPERIMENTAL]`
+### 5.2 Placement `[PLANNED]`
 
 The kernel MUST be an ERC-7579 type-4 hook. `preCheck` / `postCheck` MUST run on every execution path named in §6, including `executeFromExecutor` and module install/remove.
 
-Live production `SovereignAgent.execute()` does **not** dispatch through this full ERC-7579 hook. A disclosed, non-production reference instance exists at `contracts/src/kernel/` and is deployed to Base Sepolia (`deployments.baseSepolia.json` → `experimentalPhase1Reference`, `PRODUCTION_GAPS.md` §44) for its own research purposes (Halmos-verified invariants). It MUST NOT be wired to any real registered agent, and MUST NOT be referenced by *production* deployment tooling. §5.3 describes the narrower mechanism actually live in production accounts today.
+Live production `SovereignAgent.execute()` does **not** dispatch through this full ERC-7579 hook. A disclosed, non-production reference instance (`IntegrityKernel` + `IntegrityAccount`, Halmos-checked) was archived on 2026-11-16; its source is no longer on `main`, and its Base Sepolia contracts (`deployments.baseSepolia.json` → `experimentalPhase1Reference`) remain deployed but unused (`docs/archive/2026-11/kernel-phase1/README.md`). A reference instance MUST NOT be wired to any real registered agent, and MUST NOT be referenced by *production* deployment tooling. §5.3 describes the narrower mechanism actually live in production accounts today.
 
 A companion type-1 validator MAY enforce session keys. Rich policy that reads foreign account state MUST NOT be placed only in the ERC-4337 validation phase.
 
@@ -413,7 +413,7 @@ This is real and already live in `SovereignAgent.sol` / `StateAnchor.sol`'s depl
 
 ---
 
-## 6. Complete mediation `[PLANNED]` (auditor) / `[EXPERIMENTAL]` (slice)
+## 6. Complete mediation `[PLANNED]`
 
 Let \(E\) be the set of paths that can change \(A\)'s state. The hook MUST be invoked on every path in \(E\).
 
@@ -429,7 +429,7 @@ A deployment is **mediated** only if all of the following hold:
 
 Implementations SHOULD expose a `mediation_ok` boolean from a published audit checklist. Console SHOULD refuse "enclosed" labeling when `mediation_ok` is false.
 
-The experimental slice covers `execute()` against three reference conditions and a **single-signer** kernel swap. That is a disclosed reduction of M4, not a silent one.
+The archived experimental slice covered `execute()` against three reference conditions and a **single-signer** kernel swap, a disclosed reduction of M4. No implementation exists on `main` since 2026-11-16.
 
 Re-enable of a killed account is `Escalate` class `reenable`: two humans, or one human plus delay. The agent MUST NOT clear its own kill.
 
@@ -564,11 +564,11 @@ compile(pack_dir, param_values) -> Result
 
 | Family | Meaning | Status |
 |---|---|---|
-| `native_value_budget` | per-op + cumulative wei | `[EXPERIMENTAL]` kernel |
+| `native_value_budget` | per-op + cumulative wei | `[PLANNED]` (experimental kernel archived 2026-11-16) |
 | `token_out_cap` | ERC-20/721 out, allowlist dest | `[PLANNED]` |
 | `meter` | monotone remaining units | `[PLANNED]` |
-| `reputation_floor` | snapshot score ≥ min | `[EXPERIMENTAL]` kernel |
-| `assurance_tier` | ZK-boost / tier required | `[EXPERIMENTAL]` kernel |
+| `reputation_floor` | snapshot score ≥ min | `[PLANNED]` (experimental kernel archived 2026-11-16) |
+| `assurance_tier` | ZK-boost / tier required | `[PLANNED]` (experimental kernel archived 2026-11-16) |
 | `module_installed` | kernel cannot self-uninstall | `[PLANNED]` |
 | `delegation_active` | principal→agent grant in scope | `[PARTIAL]` — SmartBAA body `[BUILT]`; kernel view `[PLANNED]` |
 
@@ -887,13 +887,13 @@ Grounded against `XibalbaTechSol/integrity-core` `main` as of 2026-08-20, plus `
 | Oracle → ReputationRegistry score push | `[BUILT]` |
 | StateAnchor + Merkle batch | `[PARTIAL]` |
 | Cortex evidence / memory plane | `[BUILT]` as product; protocol pin is this file |
-| ERC-7579 hook + post-state \(V\) | `[EXPERIMENTAL]` |
+| ERC-7579 hook + post-state \(V\) | `[PLANNED]` — experimental slice archived 2026-11-16 |
 | Constraint grammar §4 | `[PARTIAL]` — freeze this text as the language |
 | M1–M5 mediation checklist | `[PLANNED]` as a shipped auditor |
-| M4 multi-party kernel swap | `[EXPERIMENTAL]` single-signer reduction |
+| M4 multi-party kernel swap | `[PLANNED]` — single-signer slice archived 2026-11-16 |
 | Identity keyed \(C\) | `[PARTIAL]` |
 | Pack schema §7.1 + compiler §7.5 | `[PLANNED]` as the only extension API |
-| Closed constraint families §7.5 | `[PARTIAL]` — three families in experimental kernel; `delegation_active` view `[PLANNED]` |
+| Closed constraint families §7.5 | `[PLANNED]` — the three families implemented by the experimental kernel were archived 2026-11-16; `delegation_active` view `[PLANNED]` |
 | Integrity Health pack in this schema | `[PARTIAL]` (BAA/ComplianceGate/PHI scan exist; not this folder form) |
 | `ip-license` pack | `[PLANNED]` — same `delegation_active` family as Health |
 | `markets` pack | `[PLANNED]` as pack form; `IntegrityMarket.sol` / `A2ACapitalPool.sol` `[BUILT]`, out of spine |
@@ -915,7 +915,7 @@ Grounded against `XibalbaTechSol/integrity-core` `main` as of 2026-08-20, plus `
 
 1. SDK emits a signed span + Merkle leaf. `[BUILT]`
 2. Cortex stores; oracle verifies and anchors a root. `[PARTIAL]` / `[BUILT]`
-3. Hook enforces a constraint file from the active pack (stub acceptable). `[EXPERIMENTAL]`
+3. Hook enforces a constraint file from the active pack (stub acceptable). `[PLANNED]` (experimental kernel archived 2026-11-16)
 4. Policy engine can allow / deny / escalate. `[PARTIAL]`
 5. Console shows replay + pending escalations. `[PARTIAL]`
 

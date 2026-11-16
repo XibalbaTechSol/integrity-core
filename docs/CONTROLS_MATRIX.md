@@ -42,7 +42,7 @@ flowchart LR
 | Agent identity | `AgentId` (`did:integrity:sha256(pubkey)`) | `[BUILT]` | Binding identity to a real person/team |
 | Least privilege | Constraint grammar caps + destination allowlists | `[PARTIAL]` (grammar exists; per-org tuning is a pack) | Setting the caps correctly |
 | Human oversight on consequential actions | Escalate + deny-on-timeout | `[PARTIAL]` | Defining "consequential" per pack |
-| Sandboxing / containment | Post-state hook on the enclosed account | `[EXPERIMENTAL]` (kernel slice) | — |
+| Sandboxing / containment | Post-state hook on the enclosed account | `[PLANNED]` — experimental kernel slice archived 2026-11-16 (`docs/archive/2026-11/kernel-phase1/README.md`) | — |
 | Audit trail | Oracle package + Merkle anchor | `[PARTIAL]` | — |
 | Continuous risk management loop (Govern/Map/Measure/Manage) | Console + escalation classes as inputs to a review cadence | `[PLANNED]` as a named artifact | The review process itself is organizational, not protocol |
 

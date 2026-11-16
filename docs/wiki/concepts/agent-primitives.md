@@ -1,7 +1,7 @@
 ---
 title: Agent Primitives (Self-Sovereign Identity)
 created: 2026-07-07
-updated: 2026-11-07
+updated: 2026-11-16
 type: concept
 tags: [identity, layer-2, tokenomics, control-layer]
 confidence: high
@@ -19,8 +19,8 @@ source_files:
 > This page is one of them (#2, Agent-Owned Contracts) expressed in Solidity; the other
 > three are not contracts at all. A third, unrelated sense also exists: the **kernel
 > primitives** (spec v3.2 §4.4) — value conservation, metered-rights depletion, and
-> replay-domain monotonicity — are invariants `IntegrityKernel` enforces for adapters, live
-> in `contracts/src/kernel/`, and are not part of this page's `PrimitiveSet` at all (see the
+> replay-domain monotonicity — were invariants the experimental `IntegrityKernel` enforced, archived
+> on 2026-11-16 ([archive record](../../archive/2026-11/kernel-phase1/README.md)), and are not part of this page's `PrimitiveSet` at all (see the
 > naming box in [The Four Foundational Primitives](foundational-primitives.md)).
 
 The defining architecture of the Integrity Protocol: **an agent owns and

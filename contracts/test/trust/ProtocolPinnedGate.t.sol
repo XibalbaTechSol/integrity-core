@@ -374,7 +374,7 @@ contract ProtocolPinnedGateTest is Test {
     /// Registration v3 repointed `SovereignAgent._resolveGate` onto `AgentRegistry`. An agent built
     /// for the held v2 `AgentPrimitivesFactory` and registered through it now resolves an INERT gate
     /// (the factory has no `isRegisteredAgent`; the wrapped call reverts): it executes even while
-    /// frozen. That graph is kept only for the owner's kernel review; no v3 actor is ever bound to it.
+    /// frozen. That graph awaits its own deletion PR; no v3 actor is ever bound to it.
     /// The live gate behaviors (frozen, live pin, onboarding) moved to AgentRegistryGate.t.sol.
     /// MUTATION: drop the try/catch around `isRegisteredAgent` in `_resolveGate` -> the call into
     /// the factory reverts and execute bricks, test FAILS.

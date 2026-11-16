@@ -1,7 +1,7 @@
 ---
 title: contracts
 created: 2026-07-07
-updated: 2026-11-07
+updated: 2026-11-16
 type: entity
 tags: [layer-2, identity, tokenomics, compliance, control-layer]
 confidence: high
@@ -12,7 +12,6 @@ source_files:
   - contracts/script/DeployProtocolEvidenceAnchor.s.sol
   - contracts/src/framework/AgentAuthorityResolver.sol
   - contracts/src/kernel/IntegrityIdentityReadV1.sol
-  - contracts/src/kernel/IntegrityKernel.sol
   - contracts/src/framework/XibalbaNameService.sol
   - contracts/src/core/SovereignAgent.sol
   - contracts/src/oracle/ReputationRegistry.sol
@@ -34,7 +33,6 @@ on-chain reputation settlement contracts on Base L2.
 - [Dependency-resolution evidence](#dependency-resolution-evidence)
 - [Contents](#contents)
 - [Key invariants](#key-invariants)
-  - [IntegrityKernel spend accounting event](#integritykernel-spend-accounting-event)
 - [State](#state)
 - [Honest gaps](#honest-gaps)
 
@@ -111,16 +109,13 @@ even though the ordinary contract unit tests can pass.
   require this resolver to already be serialized in `deployments.<network>.json`;
   they do not deploy it against legacy registry bytecode as a side effect.
 
-- **IntegrityKernel gates (after EXECUTION_PLAN.md A4, 2026-09-28):** native (and optional
-  tracked-token) per-op/cumulative budgets, a cached reputation floor with fail-closed
-  staleness, and an assurance-tier gate that is now switchable at deployment
-  (`requireAssuranceTier`, immutable; `false` removes only that gate). The on-chain
-  adapter-registry hook (`AdapterRegistry`/`IAdapter`, the former 10th/11th constructor
-  arguments) was removed: adapters are compile-time pack transducers, and the hook forwarded
-  the outer `execute()` `msg.value` (0 for a self-spend), so a spend adapter could never deny.
-  Its 49,290-gas cold-path exception and its unpinned-adapter deployment blockers went with
-  it. The Base Sepolia `experimentalPhase1Reference` kernel predates this and is marked legacy
-  in `deployments.baseSepolia.json`.
+- **IntegrityKernel / IntegrityAccount — archived 2026-11-16.** The Phase I ERC-7579 kernel
+  (spend budgets, a cached reputation floor, an optional assurance tier) and its guardian-governed
+  account were removed from `main` after the owner's kernel review: nothing connected them to
+  registration v3 (they read per-agent `ReputationRegistry` clones v3 agents never get), and no
+  product used them. Source, tests, Halmos proofs and deploy scripts are recoverable from tag
+  `kernel-phase1-archive`; the Base Sepolia `experimentalPhase1Reference` contracts remain deployed
+  and unused. See the [archive record](../../archive/2026-11/kernel-phase1/README.md) for the revival trigger and port steps.
 
 ## Key invariants
 
@@ -132,15 +127,6 @@ even though the ordinary contract unit tests can pass.
   `initialize` instead (`Slasher.disputeWindow`, `ReputationRegistry.reportingPeriod`).
 - **`via_ir = true`** — `registerPrimitives` clones+inits 5 contracts in one
   function and hits "stack too deep" under legacy codegen.
-
-### IntegrityKernel spend accounting event
-
-`IntegrityKernel` emits `SpendChecked` on every successful spend-check path,
-including the zero-value allow case. The event records the bound account,
-native amount, cumulative native amount, tracked-token amount, and cumulative
-tracked-token amount. This is an observability receipt for the kernel's
-budget decision; it does not replace the contract's state checks or authorize
-an otherwise rejected operation.
 
 ## State
 

@@ -15,7 +15,6 @@ source_files:
   - integrity-cli/integrity_cli/vault.py
   - integrity-cli/integrity_cli/hooks.py
   - integrity-sdk/integrity_sdk/hook_runner.py
-  - integrity-cli/tests/test_register_oracle_e2e.py
   - integrity-cli/tests/test_chain.py
   - integrity-cli/tests/test_hooks.py
   - integrity-cli/integrity_cli/verify.py
