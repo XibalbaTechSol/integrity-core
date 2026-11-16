@@ -1100,8 +1100,9 @@ def vault_sync(
         console.print(f"[bold red]Error:[/bold red] Transcript not found at {transcript}")
         raise typer.Exit(1)
         
-    rpc_url = rpc_url or os.getenv("RPC_URL", "http://localhost:8545")
-    deployments_file = deployments_file or os.getenv("DEPLOYMENTS_FILE", "../deployments.local.json")
+    # Same precedence as every v3 command: flag > env > --network profile > config file > default.
+    rpc_url = rpc_url or config.get_config_value("RPC_URL")
+    deployments_file = deployments_file or config.get_config_value("DEPLOYMENTS_FILE")
     
     with console.status(f"[bold blue]Syncing vault for {agent_name}..."):
         try:

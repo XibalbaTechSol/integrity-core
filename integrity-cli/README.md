@@ -197,7 +197,9 @@ integrity receipts verify \
 ```
 
 The command checks Ed25519 signatures, receipt sequence and hash-chain
-continuity, checkpoint roots, and optional Merkle inclusion proofs. An
+continuity, checkpoint roots, and optional Merkle inclusion proofs. A bundle
+with no receipts fails with `EMPTY_BUNDLE` (exit 1): zero receipts are not
+evidence of anything. An
 `--anchor-root` value is only compared locally with the verified checkpoint;
 it does not claim public-chain anchoring or finality. With
 `--anchor-contract`, the CLI performs a read-only `latestRoot` and

@@ -180,7 +180,11 @@ def verify_bundle(receipts: Sequence[Mapping[str, Any]], trusted: Sequence[str],
     """Return structured local verification results; raise on the first failure."""
     if not isinstance(receipts, Sequence) or isinstance(receipts, (str, bytes)):
         raise VerifyError("MALFORMED", "receipts must be a JSON array")
-    log_id = receipts[0].get("log_id") if receipts else None
+    # Zero receipts verify nothing: an empty bundle passing would let a caller that
+    # dropped every receipt (or never wrote one) present "valid" as evidence.
+    if not receipts:
+        raise VerifyError("EMPTY_BUNDLE", "receipt bundle contains no receipts")
+    log_id = receipts[0].get("log_id")
     previous = GENESIS_PREV_HASH
     for position, receipt in enumerate(receipts):
         _verify_receipt(receipt, trusted)
