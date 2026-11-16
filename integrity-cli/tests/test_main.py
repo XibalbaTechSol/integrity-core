@@ -307,7 +307,7 @@ def _write_xns_deployments(tmp_path) -> str:
     reads (`singletons.XibalbaNameService`)."""
     deployments_file = tmp_path / "deployments.local.json"
     deployments_file.write_text(
-        json.dumps({"singletons": {"XibalbaNameService": "0x" + "11" * 20}})
+        json.dumps({"singletons": {"XibalbaNameService": "0x" + "11" * 20, "AgentRegistry": "0x" + "22" * 20}})
     )
     return str(deployments_file)
 
@@ -334,20 +334,32 @@ def test_xns_register_without_identity_exits_nonzero(monkeypatch, tmp_path):
     deployments_file = _write_xns_deployments(tmp_path)
     result = runner.invoke(
         app,
-        ["handle", "register", "hermes.integrity", "--deployments-file", deployments_file],
+        ["handle", "register", "hermes.integrity", "--onchain", "--deployments-file", deployments_file],
     )
     assert result.exit_code == 1
     assert "No identity named 'default'" in result.stdout
 
 
-def _register_identity_and_mock_sovereign_agent(httpx_mock, sovereign_agent: str) -> None:
+def _register_identity_and_mock_sovereign_agent(monkeypatch, sovereign_agent: str) -> None:
+    """A local identity whose DID the v3 AgentRegistry binds to `sovereign_agent` (PR 4.1:
+    the on-chain actor comes from `AgentRegistry.resolveDID`, not the Oracle)."""
+    from integrity_cli import status_cmd
+
     runner.invoke(app, ["identity", "new"])
-    did = identity.did_document("default")["id"]
-    httpx_mock.add_response(
-        method="GET",
-        url=f"http://localhost:8080/v1/agent/{did}",
-        json={"primitives": {"sovereign_agent": sovereign_agent}},
-    )
+    record = (b"\x01" * 32, "0x" + "00" * 20, sovereign_agent, 1, "", 1700000000, 0, b"")
+
+    class _Call:
+        def call(self):
+            return record
+
+    class _Registry:
+        class functions:  # noqa: N801 -- mirrors web3's contract.functions
+            @staticmethod
+            def resolveDID(did):  # noqa: N802
+                return _Call()
+
+    monkeypatch.setattr(status_cmd, "get_w3", lambda rpc_url: _FakeConnectedW3())
+    monkeypatch.setattr(status_cmd, "agent_registry_contract", lambda w3, address: _Registry())
 
 
 def test_xns_register_requires_wallet_password(monkeypatch, tmp_path, httpx_mock):
@@ -355,11 +367,11 @@ def test_xns_register_requires_wallet_password(monkeypatch, tmp_path, httpx_mock
     monkeypatch.setattr(chain, "get_w3", lambda rpc_url: _FakeConnectedW3())
     deployments_file = _write_xns_deployments(tmp_path)
     sovereign_agent = "0x" + "33" * 20
-    _register_identity_and_mock_sovereign_agent(httpx_mock, sovereign_agent)
+    _register_identity_and_mock_sovereign_agent(monkeypatch, sovereign_agent)
 
     result = runner.invoke(
         app,
-        ["handle", "register", "hermes.integrity", "--deployments-file", deployments_file],
+        ["handle", "register", "hermes.integrity", "--onchain", "--deployments-file", deployments_file],
     )
     assert result.exit_code == 1
     assert "INTEGRITY_WALLET_PASSWORD" in result.stdout
@@ -370,11 +382,11 @@ def test_xns_set_primary_requires_wallet_password(monkeypatch, tmp_path, httpx_m
     monkeypatch.setattr(chain, "get_w3", lambda rpc_url: _FakeConnectedW3())
     deployments_file = _write_xns_deployments(tmp_path)
     sovereign_agent = "0x" + "44" * 20
-    _register_identity_and_mock_sovereign_agent(httpx_mock, sovereign_agent)
+    _register_identity_and_mock_sovereign_agent(monkeypatch, sovereign_agent)
 
     result = runner.invoke(
         app,
-        ["handle", "set-primary", "hermes.integrity", "--deployments-file", deployments_file],
+        ["handle", "set-primary", "hermes.integrity", "--onchain", "--deployments-file", deployments_file],
     )
     assert result.exit_code == 1
     assert "INTEGRITY_WALLET_PASSWORD" in result.stdout
@@ -385,11 +397,11 @@ def test_xns_release_requires_wallet_password(monkeypatch, tmp_path, httpx_mock)
     monkeypatch.setattr(chain, "get_w3", lambda rpc_url: _FakeConnectedW3())
     deployments_file = _write_xns_deployments(tmp_path)
     sovereign_agent = "0x" + "55" * 20
-    _register_identity_and_mock_sovereign_agent(httpx_mock, sovereign_agent)
+    _register_identity_and_mock_sovereign_agent(monkeypatch, sovereign_agent)
 
     result = runner.invoke(
         app,
-        ["handle", "release", "hermes.integrity", "--deployments-file", deployments_file],
+        ["handle", "release", "hermes.integrity", "--onchain", "--deployments-file", deployments_file],
     )
     assert result.exit_code == 1
     assert "INTEGRITY_WALLET_PASSWORD" in result.stdout
