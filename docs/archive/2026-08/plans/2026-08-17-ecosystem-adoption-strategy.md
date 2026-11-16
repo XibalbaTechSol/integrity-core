@@ -1125,3 +1125,65 @@ ID's Discover/Secure modules reach their already-scheduled GA the day after this
 the 2026-10-06 entry — not logged as a new fact since it's the already-known schedule arriving on time,
 not new information, and no post-launch confirmation exists yet as of this run. No changes to the §3
 table this run.
+
+### 2026-11-16 — Ecosystem watch: Beltic's missed $7.3M KYA seed round (Sept 2026, no stake/slash) backfilled; everything else unchanged since 2026-11-15
+
+Automated research sweep (scheduled tracking run, ~1 day after the prior run; branch
+`audit/harness-loop-2026-07-30` still existed, no recreation needed). Re-swept all nine named §3
+players, both §4/§2 fact-checks, and did a general sweep for a new entrant combining identity +
+staked reputation + compliance gating. One backfilled funding-round finding (a genuinely new named
+player that slipped past the five sweeps between its announcement and today); everything else
+confirmed unchanged or not material.
+
+1. **Backfill: Beltic emerged from stealth with a $7.3M seed round (led by Norwest, announced
+   2026-09-30) for "Know Your Agent" infrastructure — not previously logged in this doc despite
+   falling inside the tracking window and five subsequent sweeps (2026-10-06, 10-11, 10-24, 11-14,
+   11-15) having run since.** Mechanism per consistent coverage: real-time verification of the
+   agent, the entity behind it, and whether a given action is authorized, operating on both sides of
+   agent-to-agent transactions (including recursive delegation chains) and flagging/forcing
+   reconfirmation on anomalous behavior. **No staking, bonding, or slashing mechanism found in any
+   source checked this run** — same non-qualifying shape as Baselayer, RSA Agent ID, and KYA Lab
+   before it (identity/compliance-adjacent, not the full identity+staked-reputation+compliance-gating
+   combination this doc watches for as a direct competitor). Logged per this doc's own bar that a
+   funding round for a newly-capitalized, named KYA player is material on its own even without
+   matching the full combination (same reasoning as the 2026-09-24 Baselayer entry) — flagging here
+   explicitly as a backfill/gap-catch so future runs know this was a missed-then-recovered item, not
+   a new announcement as of today. Not added as a new §3 table row this run, consistent with this
+   doc's established convention of flagging non-qualifying new finds in the Changelog rather than
+   having an automated sweep edit the table.
+   Sources: [dealroom.co, Beltic raises $7.3m seed to police what AI agents can do](https://dealroom.co/news/157963-beltic-raises-7-3m-seed-to-police-what-ai-agents-can-do/),
+   [Webull, Beltic Emerges from Stealth to Secure Autonomous Agent Transactions at Scale](https://www.webull.com/news/15667682877244416),
+   [StartupResearcher, Beltic Raises $7.3 Million in Seed Funding](https://www.startupresearcher.com/news/beltic-raises-usd7-3-million-in-seed-funding).
+
+2. **§4 fact-check (a), ERC-8004 Validation Registry: no change, evidence remains contradictory.**
+   Same unresolved state as the 2026-10-24/11-14/11-15 entries — Identity/Reputation registries
+   remain live and widely replicated (40+ EVM networks since 2026-01-29); the primary
+   `erc-8004-contracts` repo README still lists no Validation Registry address in its Contract
+   Addresses table, same TEE-community/follow-up-spec-update caveat as every entry since 2026-08-26.
+   The same candidate address flagged 2026-11-15
+   (`0x8004Cb1BF31DAf7788923b405b754f57acEB4272`, appearing in a third-party skills-directory listing
+   under an unconfirmed chain) resurfaced in a different third-party listing this run, again without
+   a network label clear enough to confirm or contradict the prior flag. Status stays "no publicly
+   documented mainnet address," unresolved since 2026-08-26.
+
+3. **EU AI Act (§2/§4b): no change.** The Article 75c/75d implementing-regulation consultation
+   recorded 2026-11-15 as closed (2026-10-12 to 2026-11-09) remains the latest procedural
+   development; no adoption, fine, or new enforcement action surfaced this sweep. Annex III
+   (2027-12-02) and Annex I (2028-08-02) deadlines reconfirmed against fresh sources, no change.
+
+4. **General sweep for a new identity + staked-reputation + compliance-gating entrant: nothing
+   added beyond item 1 above.** No reversal of the Observer Protocol (2026-09-15) or KYA
+   (`kya.link`/`agentecon.ai`, still open/blocked) findings.
+
+Not material / considered and not added: all nine named §3 players re-swept with no updates beyond
+their respective last-tracked entries (Injective Agents — identity page shows an undated "v1.2"
+label, no October/November changelog entry found; ChaosChain/Genesis Studio; KYA
+`kya.link`/`agentecon.ai` — stake/slash question still open, still no successful primary-source
+fetch; Cloudflare/GoDaddy; FIDO Alliance TWG — still no draft spec published; Semantica — no update
+since the 2026-08-11 security release, a third-party review (2026-08-14) reiterates it is not a
+compliance certificate on its own; Trulioo+Worldpay; Visa Trusted Agent Protocol/Mastercard Agent
+Pay — no update beyond the 2026-10-11 entry; Anthropic/MCP — no update since the 2026-08-24 EMA GA).
+RSA Agent ID's Discover/Secure GA is scheduled for today (2026-11-16) per the 2026-10-06 entry, but
+every source found this run is still a pre-launch announcement — no post-launch confirmation exists
+yet, so not logged as a new fact this run either; a future run should check for GA confirmation. No
+changes to the §3 table this run.
