@@ -158,10 +158,18 @@ is signed by the `GRAPH_CURATOR_ROLE` holder, never by this CLI.
 
 ```bash
 integrity handle available atlas [--json]   # 0 free, 1 taken/invalid, 3 can't confirm
-integrity handle claim <agent-did> atlas    # Oracle directory claim (no wallet, no gas)
+integrity handle register atlas [--json]    # Oracle directory claim for your identity (no wallet, no gas)
+integrity handle register atlas --onchain   # on-chain XibalbaNameService, via your bound SovereignAgent
+integrity handle set-primary|release atlas --onchain   # on-chain only; refused (exit 1) without --onchain
+integrity handle claim <agent-did> atlas    # operator form: directory claim for ANY agent DID
 integrity handle resolve atlas.integrity    # on-chain XibalbaNameService lookup
-integrity handle register|set-primary|release|primary-handle …   # on-chain, via SovereignAgent.execute
+integrity handle primary-handle 0x…         # on-chain primary handle of a SovereignAgent
 ```
+
+The on-chain writes act through the SovereignAgent that the v3 `AgentRegistry` binds to your
+DID (`resolveDID(did).actor`) — the same read `integrity status` shows as `onchain actor`.
+Only confined agents have one: no bound actor (or a retired record) exits 1 before any wallet
+is loaded; an unreadable registry exits 3; an on-chain revert exits 4.
 
 `handle available` checks BOTH the Oracle directory and on-chain XibalbaNameService; when the
 on-chain side cannot be read it reports "unverified" (exit 3), never "free".

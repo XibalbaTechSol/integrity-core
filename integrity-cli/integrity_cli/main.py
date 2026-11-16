@@ -812,108 +812,174 @@ def domain_register(
 # --------------------------------------------------------------------------
 
 
-def _xns_setup(rpc_url: Optional[str], deployments_file: Optional[str]) -> tuple[Web3, str, int]:
+def _handle_reporter(cmd: str, json_output: bool) -> output.Reporter:
+    rep = output.Reporter("handle", cmd, json_mode=json_output)
+    if not json_output:
+        rep.console = console
+    return rep
+
+
+def _xns_setup(
+    rpc_url: Optional[str], deployments_file: Optional[str], rep: Optional[output.Reporter] = None
+) -> tuple[Web3, str, int]:
     """
-    Shared connect/resolve-address logic for every handle_app command:
+    Shared connect/resolve-address logic for the on-chain handle commands:
     connects to the RPC, loads the deployments file, and pulls
-    `singletons.XibalbaNameService`'s address out of it. Factored out since
-    all five on-chain handle commands below need exactly this, mirroring how
-    `agent_register` inlines the equivalent connect+load steps for its own
-    single command (handle has five on-chain ones, so it's worth sharing here).
+    `singletons.XibalbaNameService`'s address out of it.
     """
+    rep = rep or _handle_reporter("xns", False)
     rpc_url = rpc_url or config.get_config_value("RPC_URL")
     deployments_file = deployments_file or config.get_config_value("DEPLOYMENTS_FILE")
 
     try:
         w3 = chain.get_w3(rpc_url)
         if not w3.is_connected():
-            console.print(f"[bold red]Error:[/bold red] RPC {rpc_url} is unreachable.")
-            raise typer.Exit(1)
+            rep.fail(output.EXIT_NO, f"RPC {rpc_url} is unreachable.", code="UNREACHABLE")
         chain_id = w3.eth.chain_id
     except typer.Exit:
         raise
     except Exception as e:  # noqa: BLE001 -- surfaced to the user, not swallowed
-        console.print(f"[bold red]Error:[/bold red] could not connect to RPC {rpc_url}: {e}")
-        raise typer.Exit(1)
+        rep.fail(output.EXIT_NO, f"could not connect to RPC {rpc_url}: {e}", code="UNREACHABLE")
 
     try:
         deployments = chain.load_deployments(deployments_file)
         xns_address = deployments["singletons"]["XibalbaNameService"]
     except (chain.DeploymentsFileMissing, KeyError) as e:
-        console.print(f"[bold red]Error:[/bold red] {e}")
-        raise typer.Exit(1)
+        rep.fail(output.EXIT_NO, str(e), code="NO_DEPLOYMENT")
 
     return w3, xns_address, chain_id
 
 
-
-
-def _resolve_own_sovereign_agent(identity_name: str) -> str:
-    """
-    Every XNS write call must be routed through the caller's own
-    `SovereignAgent.execute` (see integrity_sdk.chain's XNS section
-    on why -- `isRegisteredAgent` only recognizes that contract address, not
-    the controller EOA). This identity's `SovereignAgent` address isn't
-    persisted locally (off-chain `integrity register` deploys nothing), so it's resolved the
-    same way `integrity status` resolves agent state: a
-    `GET /v1/agent/{did}` against integrity-oracle, which caches exactly
-    this mapping (see `integrity-oracle`'s `primitives.sovereign_agent`).
-    """
+def _identity_did(rep: output.Reporter, identity_name: str) -> str:
     try:
-        doc = identity.did_document(identity_name)
+        return identity.did_document(identity_name)["id"]
     except (FileNotFoundError, TypeError) as e:
-        console.print(f"[bold red]Error:[/bold red] {e}")
-        raise typer.Exit(1)
-    did = doc["id"]
+        rep.fail(output.EXIT_NO, str(e), code="NO_IDENTITY")
 
-    client = IntegrityClient()
+
+NO_BOUND_ACTOR = (
+    "no bound actor: on-chain handles need a confined agent (`integrity register --onchain --confined`)"
+)
+ONCHAIN_ONLY = "on-chain only; pass --onchain"
+
+
+def _resolve_own_sovereign_agent(
+    rep: output.Reporter, did: str, rpc_url: str, deployments_file: str
+) -> str:
+    """
+    The SovereignAgent that acts for `did` on-chain: `AgentRegistry.resolveDID(did).actor`, read
+    the same way `integrity status` reads it (`status_cmd.onchain_rows`).
+
+    XNS writes go through that contract's `execute` because `XibalbaNameService` only accepts
+    `agentRegistry.isRegisteredAgent(msg.sender)`. The registry is the v3 source of truth; the
+    Oracle's legacy agent cache is written only by the legacy `/v1/agent/register` route, so a
+    v3 agent never has it.
+
+    Exit 1 when there is no live record or no bound actor, 3 when the registry cannot be read.
+    """
+    rows = status_cmd.onchain_rows(did, rpc_url, deployments_file)
+    record, actor = rows["record"], rows["actor"]
+    if record["status"] == "unverified":
+        rep.fail(output.EXIT_UNVERIFIED, f"cannot read the on-chain actor for {did}: {record['detail']}",
+                 code="UNVERIFIED")
+    if record["status"] == "retired":
+        rep.fail(output.EXIT_NO, f"{did}'s on-chain record is retired ({record['detail']})", code="RETIRED")
+    if actor["status"] != "bound":
+        rep.fail(output.EXIT_NO, NO_BOUND_ACTOR, code="NO_BOUND_ACTOR")
+    return actor["actor"]
+
+
+def _onchain_handle_write(
+    rep: output.Reporter,
+    identity_name: str,
+    rpc_url: Optional[str],
+    deployments_file: Optional[str],
+    handle: str,
+    write,
+    doing: str,
+) -> dict[str, Any]:
+    """Resolve the actor, then connect, load the wallet and send one XNS write through it."""
+    did = _identity_did(rep, identity_name)
+    rpc_url = rpc_url or config.get_config_value("RPC_URL")
+    deployments_file = deployments_file or config.get_config_value("DEPLOYMENTS_FILE")
+    sovereign_agent = _resolve_own_sovereign_agent(rep, did, rpc_url, deployments_file)
+    w3, xns_address, chain_id = _xns_setup(rpc_url, deployments_file, rep)
     try:
-        result = client.get(f"/v1/agent/{did}")
-    except ApiError as e:
-        console.print(f"[bold red]Error:[/bold red] could not resolve {did} from integrity-oracle: {e}")
-        raise typer.Exit(1)
+        evm_account = wallet.generate_or_load_evm_wallet(identity_name)
+    except wallet.WalletPasswordNotSet as e:
+        rep.fail(output.EXIT_NO, str(e), code="WALLET_PASSWORD")
 
-    primitives = result.get("primitives") or {}
-    sovereign_agent = primitives.get("sovereign_agent")
-    if not sovereign_agent:
-        console.print(
-            f"[bold red]Error:[/bold red] integrity-oracle has no SovereignAgent address for {did} -- "
-            "register this identity first with `integrity register`."
+    try:
+        with rep.console.status(f"[bold blue]{doing} '{handle}'..."):
+            receipt = write(w3, evm_account, sovereign_agent, xns_address, handle, chain_id)
+    except Exception as e:  # noqa: BLE001 -- includes on-chain reverts (NotRegisteredAgent, HandleAlreadyRegistered, ...)
+        rep.fail(output.exit_code_for_chain_error(e), str(e), code="CHAIN")
+    return {
+        "agent_id": did, "handle": handle, "namespace": "onchain",
+        "actor": sovereign_agent, "tx": receipt["transactionHash"].hex(),
+    }
+
+
+def _directory_claim(
+    rep: output.Reporter, agent_id: str, handle: str, oracle_url: Optional[str]
+) -> dict[str, Any]:
+    """`POST /v1/xns/claim`: Oracle's own handle directory. No wallet, no gas, no RPC."""
+    oracle_url = oracle_url or config.get_config_value("ORACLE_URL")
+    try:
+        result = IntegrityClient(base_url=oracle_url).post(
+            "/v1/xns/claim", json_data={"agent_id": agent_id, "handle": handle}
         )
-        raise typer.Exit(1)
-    return sovereign_agent
+    except ApiError as e:
+        rep.fail(
+            output.EXIT_UNVERIFIED if e.unverified else output.EXIT_NO,
+            f"Oracle directory claim failed at {oracle_url}: {e}",
+            code="UNREACHABLE" if e.status is None else f"HTTP_{e.status}",
+        )
+    return {
+        "agent_id": result["agent_id"], "handle": result["handle"],
+        "namespace": "directory", "oracle_url": oracle_url,
+    }
+
+
+_ONCHAIN_OPTION = typer.Option(
+    False, "--onchain", help="Write to on-chain XibalbaNameService (needs a wallet, RPC and a bound actor)"
+)
+_ORACLE_URL_OPTION = typer.Option(None, "--oracle-url", help="integrity-oracle base URL (env/config ORACLE_URL)")
 
 
 @handle_app.command("register")
 def xns_register(
-    handle: str = typer.Argument(..., help='Handle to claim, e.g. "hermes.integrity"'),
+    handle: str = typer.Argument(..., help='Handle to claim, e.g. "hermes"'),
     identity_name: str = typer.Option("default", "--identity", help="Local identity claiming the handle"),
+    onchain: bool = _ONCHAIN_OPTION,
+    oracle_url: Optional[str] = _ORACLE_URL_OPTION,
     rpc_url: Optional[str] = _RPC_URL_OPTION,
     deployments_file: Optional[str] = _DEPLOYMENTS_FILE_OPTION,
+    json_output: bool = typer.Option(False, "--json", help=output.JSON_OPTION_HELP),
 ):
     """
-    Self-service claim a handle for a local identity's already-registered
-    agent. Reverts on-chain (surfaced below) if this identity isn't a real
-    registered agent yet (`integrity register` it first) or if the
-    handle is already taken -- see XibalbaNameService.sol's NatSpec.
+    Claim a handle for a local identity.
+
+    Default: the Oracle handle directory, every agent's primary handle. Gas-free; no wallet or RPC.
+
+    --onchain: list it in on-chain XibalbaNameService instead, through the SovereignAgent that
+    AgentRegistry binds to this identity's DID. Only confined agents have one.
+
+    Exit: 0 claimed, 1 refused (taken, no identity, no bound actor), 3 unverified (Oracle or
+    chain unreachable), 4 reverted on-chain.
     """
-    w3, xns_address, chain_id = _xns_setup(rpc_url, deployments_file)
-    sovereign_agent = _resolve_own_sovereign_agent(identity_name)
-    try:
-        evm_account = wallet.generate_or_load_evm_wallet(identity_name)
-    except wallet.WalletPasswordNotSet as e:
-        console.print(f"[bold red]Error:[/bold red] {e}")
-        raise typer.Exit(1)
-
-    try:
-        with console.status(f"[bold blue]Registering handle '{handle}'..."):
-            receipt = chain.xns_register(w3, evm_account, sovereign_agent, xns_address, handle, chain_id)
-    except Exception as e:  # noqa: BLE001 -- includes on-chain reverts (NotRegisteredAgent, HandleAlreadyRegistered)
-        console.print(f"[bold red]Error:[/bold red] {e}")
-        raise typer.Exit(1)
-
-    console.print(f"[bold green]Registered[/bold green] '{handle}' -> {sovereign_agent}")
-    console.print(f"[dim]tx: {receipt['transactionHash'].hex()}[/dim]")
+    rep = _handle_reporter("register", json_output)
+    if onchain:
+        doc = _onchain_handle_write(
+            rep, identity_name, rpc_url, deployments_file, handle, chain.xns_register, "Registering handle"
+        )
+        rep.info(f"[bold green]Registered[/bold green] '{handle}' -> {doc['actor']} (on-chain)")
+        rep.info(f"[dim]tx: {doc['tx']}[/dim]")
+    else:
+        did = _identity_did(rep, identity_name)
+        doc = _directory_claim(rep, did, handle, oracle_url)
+        rep.info(f"[bold green]Claimed[/bold green] '{doc['handle']}' for {doc['agent_id']} (Oracle directory)")
+    rep.result(doc)
 
 
 @handle_app.command("available")
@@ -1003,83 +1069,63 @@ def xns_primary_handle(
 def xns_set_primary(
     handle: str = typer.Argument(..., help="Handle (already owned by this identity) to make primary"),
     identity_name: str = typer.Option("default", "--identity", help="Local identity whose primary handle to change"),
+    onchain: bool = _ONCHAIN_OPTION,
     rpc_url: Optional[str] = _RPC_URL_OPTION,
     deployments_file: Optional[str] = _DEPLOYMENTS_FILE_OPTION,
+    json_output: bool = typer.Option(False, "--json", help=output.JSON_OPTION_HELP),
 ):
-    """Change which of an agent's owned handles `primary-handle` returns for it."""
-    w3, xns_address, chain_id = _xns_setup(rpc_url, deployments_file)
-    sovereign_agent = _resolve_own_sovereign_agent(identity_name)
-    try:
-        evm_account = wallet.generate_or_load_evm_wallet(identity_name)
-    except wallet.WalletPasswordNotSet as e:
-        console.print(f"[bold red]Error:[/bold red] {e}")
-        raise typer.Exit(1)
-
-    try:
-        with console.status(f"[bold blue]Setting primary handle to '{handle}'..."):
-            receipt = chain.xns_set_primary_handle(w3, evm_account, sovereign_agent, xns_address, handle, chain_id)
-    except Exception as e:  # noqa: BLE001 -- includes on-chain reverts (HandleNotFound, NotHandleOwner)
-        console.print(f"[bold red]Error:[/bold red] {e}")
-        raise typer.Exit(1)
-
-    console.print(f"[bold green]Primary handle set[/bold green] to '{handle}' for {sovereign_agent}")
-    console.print(f"[dim]tx: {receipt['transactionHash'].hex()}[/dim]")
+    """Change which owned on-chain handle `primary-handle` returns (on-chain only: pass --onchain)."""
+    rep = _handle_reporter("set-primary", json_output)
+    if not onchain:
+        rep.fail(output.EXIT_NO, ONCHAIN_ONLY, code="ONCHAIN_ONLY")
+    doc = _onchain_handle_write(
+        rep, identity_name, rpc_url, deployments_file, handle, chain.xns_set_primary_handle, "Setting primary handle to"
+    )
+    rep.info(f"[bold green]Primary handle set[/bold green] to '{handle}' for {doc['actor']}")
+    rep.info(f"[dim]tx: {doc['tx']}[/dim]")
+    rep.result(doc)
 
 
 @handle_app.command("release")
 def xns_release(
     handle: str = typer.Argument(..., help="Handle (owned by this identity) to release"),
     identity_name: str = typer.Option("default", "--identity", help="Local identity releasing the handle"),
+    onchain: bool = _ONCHAIN_OPTION,
     rpc_url: Optional[str] = _RPC_URL_OPTION,
     deployments_file: Optional[str] = _DEPLOYMENTS_FILE_OPTION,
+    json_output: bool = typer.Option(False, "--json", help=output.JSON_OPTION_HELP),
 ):
-    """Voluntarily release a handle this identity's agent owns, freeing it for anyone to claim."""
-    w3, xns_address, chain_id = _xns_setup(rpc_url, deployments_file)
-    sovereign_agent = _resolve_own_sovereign_agent(identity_name)
-    try:
-        evm_account = wallet.generate_or_load_evm_wallet(identity_name)
-    except wallet.WalletPasswordNotSet as e:
-        console.print(f"[bold red]Error:[/bold red] {e}")
-        raise typer.Exit(1)
-
-    try:
-        with console.status(f"[bold blue]Releasing handle '{handle}'..."):
-            receipt = chain.xns_release(w3, evm_account, sovereign_agent, xns_address, handle, chain_id)
-    except Exception as e:  # noqa: BLE001 -- includes on-chain reverts (HandleNotFound, NotHandleOwner)
-        console.print(f"[bold red]Error:[/bold red] {e}")
-        raise typer.Exit(1)
-
-    console.print(f"[bold green]Released[/bold green] '{handle}'")
-    console.print(f"[dim]tx: {receipt['transactionHash'].hex()}[/dim]")
+    """Release an on-chain handle this identity's agent owns (on-chain only: pass --onchain)."""
+    rep = _handle_reporter("release", json_output)
+    if not onchain:
+        rep.fail(output.EXIT_NO, ONCHAIN_ONLY, code="ONCHAIN_ONLY")
+    doc = _onchain_handle_write(
+        rep, identity_name, rpc_url, deployments_file, handle, chain.xns_release, "Releasing handle"
+    )
+    rep.info(f"[bold green]Released[/bold green] '{handle}'")
+    rep.info(f"[dim]tx: {doc['tx']}[/dim]")
+    rep.result(doc)
 
 
-# The commands above (register/resolve/primary-handle/set-primary/release) are all
-# on-chain, wallet-signed calls against the deployed XibalbaNameService contract -- an
-# optional "list this handle as an on-chain alias" step. The two below are unrelated:
-# they talk to Oracle's own local `xns_handles` directory (integrity-oracle migration
-# 0022) -- no wallet, no gas. This is the mandatory, primary handle every agent gets at
-# `integrity register`; on-chain listing is separate and optional. The Oracle refuses a
-# claim the on-chain namespace already holds for another agent (409), and fails closed (503)
-# when it cannot check; `handle available` (above) reports both namespaces.
+# `handle register` (default) and `handle claim` write Oracle's own `xns_handles` directory
+# (integrity-oracle migration 0022): no wallet, no gas. That is the mandatory, primary handle
+# every agent gets; on-chain listing (`--onchain`) is separate and optional. The Oracle refuses
+# a claim the on-chain namespace already holds for another agent (409), and fails closed (503)
+# when it cannot check; `handle available` reports both namespaces.
 
 @handle_app.command("claim")
 def xns_claim(
     agent_id: str = typer.Argument(..., help="Agent DID (or bare agent_id) claiming this handle"),
     handle: str = typer.Argument(..., help="Handle to claim"),
-    oracle_url: Optional[str] = typer.Option(
-        None, "--oracle-url", help="integrity-oracle base URL (env/config ORACLE_URL)"
-    ),
+    oracle_url: Optional[str] = _ORACLE_URL_OPTION,
+    json_output: bool = typer.Option(False, "--json", help=output.JSON_OPTION_HELP),
 ):
-    """Claim a handle in Oracle's local XNS directory for an agent that already has one
-    without one, or that was registered before this feature existed. Not needed for a
-    fresh `integrity register`."""
-    oracle_client = IntegrityClient(base_url=oracle_url or config.get_config_value("ORACLE_URL"))
-    try:
-        result = oracle_client.post("/v1/xns/claim", json_data={"agent_id": agent_id, "handle": handle})
-    except ApiError as e:
-        console.print(f"[bold red]Error:[/bold red] {e}")
-        raise typer.Exit(1)
-    console.print(f"[bold green]Claimed[/bold green] '{result['handle']}' for {result['agent_id']}")
+    """Operator form of `handle register`: claim a directory handle for ANY agent DID, e.g. one
+    registered before handles existed. For your own identity, use `handle register`."""
+    rep = _handle_reporter("claim", json_output)
+    doc = _directory_claim(rep, agent_id, handle, oracle_url)
+    rep.info(f"[bold green]Claimed[/bold green] '{doc['handle']}' for {doc['agent_id']}")
+    rep.result(doc)
 
 
 # --------------------------------------------------------------------------
