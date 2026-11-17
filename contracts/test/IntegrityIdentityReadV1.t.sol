@@ -37,7 +37,7 @@ contract IntegrityIdentityReadV1Test is Test {
 
     function setUp() public {
         registry = new XibalbaAgentRegistry(admin);
-        sovereignAgent = new SovereignAgent(DID, controller, oracle, makeAddr("factory"));
+        sovereignAgent = new SovereignAgent(DID, controller, makeAddr("factory"));
         profile = new ProfileURIStub(PROFILE_URI);
         identityRead = new IntegrityIdentityReadV1(address(registry));
 
@@ -128,7 +128,7 @@ contract IntegrityIdentityReadV1Test is Test {
 
     function test_registryDIDMustMatchSovereignAgentsDeclaredDID() public {
         SovereignAgent mismatchedAgent =
-            new SovereignAgent("did:integrity:declared", controller, oracle, makeAddr("secondFactory"));
+            new SovereignAgent("did:integrity:declared", controller, makeAddr("secondFactory"));
         ProfileURIStub secondProfile = new ProfileURIStub("");
         XibalbaAgentRegistry.PrimitiveSet memory mismatchedPrimitives =
             _primitives(address(mismatchedAgent), address(secondProfile));
@@ -155,7 +155,7 @@ contract IntegrityIdentityReadV1Test is Test {
 
     function test_profileFailureDoesNotBlockFixedIdentityResolution() public {
         string memory did = "did:integrity:broken-profile";
-        SovereignAgent agent = new SovereignAgent(did, controller, oracle, makeAddr("profileFailureFactory"));
+        SovereignAgent agent = new SovereignAgent(did, controller, makeAddr("profileFailureFactory"));
         address nonContractProfile = makeAddr("nonContractProfile");
         _register(did, _primitives(address(agent), nonContractProfile), controller);
 

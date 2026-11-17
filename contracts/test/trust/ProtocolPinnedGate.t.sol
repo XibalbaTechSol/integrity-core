@@ -190,7 +190,7 @@ contract ProtocolPinnedGateTest is Test {
         vm.deal(wallet, 1 ether);
 
         vm.prank(wallet);
-        sa = new SovereignAgent(did, wallet, oracleSigner, address(factory));
+        sa = new SovereignAgent(did, wallet, address(factory));
         vm.prank(wallet);
         StateAnchor anchor = new StateAnchor(address(sa));
 
@@ -239,7 +239,7 @@ contract ProtocolPinnedGateTest is Test {
     function test_1a_registerCore_fakeFactoryReverts() public {
         address wallet = makeAddr("evil1a");
         vm.prank(wallet);
-        SovereignAgent sa = new SovereignAgent("did:integrity:fake-core", wallet, oracleSigner, address(0xFACE));
+        SovereignAgent sa = new SovereignAgent("did:integrity:fake-core", wallet, address(0xFACE));
         vm.prank(wallet);
         StateAnchor anchor = new StateAnchor(address(sa));
 
@@ -253,7 +253,7 @@ contract ProtocolPinnedGateTest is Test {
     function test_1b_registerPrimitives_fakeFactoryReverts() public {
         address wallet = makeAddr("evil1b");
         vm.prank(wallet);
-        SovereignAgent sa = new SovereignAgent("did:integrity:fake-prim", wallet, oracleSigner, address(0xFACE));
+        SovereignAgent sa = new SovereignAgent("did:integrity:fake-prim", wallet, address(0xFACE));
         vm.prank(wallet);
         StateAnchor anchor = new StateAnchor(address(sa));
 
@@ -270,7 +270,7 @@ contract ProtocolPinnedGateTest is Test {
     function test_1c_genuineAgentMatchesPinnedCodehash() public {
         address wallet = makeAddr("genuine1c");
         vm.prank(wallet);
-        SovereignAgent sa = new SovereignAgent("did:integrity:genuine", wallet, oracleSigner, address(factory));
+        SovereignAgent sa = new SovereignAgent("did:integrity:genuine", wallet, address(factory));
         assertTrue(factory.agentCodehash() != bytes32(0));
         assertEq(address(sa).codehash, factory.agentCodehash());
     }
@@ -278,7 +278,7 @@ contract ProtocolPinnedGateTest is Test {
     /// An agent built for a DIFFERENT factory has a different codehash (immutables live in
     /// runtime code), so the pin is specific to this factory, not merely to the source.
     function test_1c_agentForOtherFactoryHasDifferentCodehash() public {
-        SovereignAgent sa = new SovereignAgent("did:integrity:other", address(this), oracleSigner, address(0xFACE));
+        SovereignAgent sa = new SovereignAgent("did:integrity:other", address(this), address(0xFACE));
         assertTrue(address(sa).codehash != factory.agentCodehash());
     }
 
@@ -319,7 +319,7 @@ contract ProtocolPinnedGateTest is Test {
     function test_2_unregisteredAgentExecutesInert() public {
         address wallet = makeAddr("unreg2");
         vm.prank(wallet);
-        SovereignAgent sa = new SovereignAgent("did:integrity:unreg", wallet, oracleSigner, address(factory));
+        SovereignAgent sa = new SovereignAgent("did:integrity:unreg", wallet, address(factory));
 
         assertFalse(registry.isRegisteredAgent(address(sa)));
 

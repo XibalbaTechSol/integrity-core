@@ -58,7 +58,7 @@ abstract contract GateRegistryFixture is Test {
 
     /// @dev A canonical agent for this registry: `registry` == the registry, so the codehash pin holds.
     function _newAgent(string memory did, address controller) internal returns (SovereignAgent) {
-        return new SovereignAgent(did, controller, address(0), address(agentRegistry));
+        return new SovereignAgent(did, controller, address(agentRegistry));
     }
 
     /// @dev Creates a record with a fresh (test-only) pubkey and binds `agent` as its actor in

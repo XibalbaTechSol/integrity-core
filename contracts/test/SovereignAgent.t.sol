@@ -21,11 +21,10 @@ contract SovereignAgentTest is Test {
     Target target;
 
     address controller = makeAddr("controller");
-    address oracle = makeAddr("oracle");
     address stranger = makeAddr("stranger");
 
     function setUp() public {
-        agent = new SovereignAgent("did:integrity:abc123", controller, oracle, address(this));
+        agent = new SovereignAgent("did:integrity:abc123", controller, address(this));
         target = new Target();
     }
 
@@ -33,7 +32,6 @@ contract SovereignAgentTest is Test {
         assertEq(agent.agentDID(), "did:integrity:abc123");
         assertEq(agent.registry(), address(this));
         assertTrue(agent.hasRole(agent.DEFAULT_ADMIN_ROLE(), controller));
-        assertTrue(agent.hasRole(agent.ORACLE_ROLE(), oracle));
     }
 
     function test_controllerCanExecute() public {

@@ -63,11 +63,6 @@ interface ITrustConfigLike {
 /// SPEC.md §5.3: `execute` MUST consult `IExecutionPolicy` when a policy is installed.
 /// address(0) is the disclosed testnet skip path so existing agents keep working.
 contract SovereignAgent is AccessControl, IAccount {
-    /// @dev Granted to `oracle_` at construction. No function is gated on it: the agent no longer
-    /// caches a score (the AIS lives in `AISRegistry`). Kept so the constructor ABI is unchanged;
-    /// canonical agents pass `oracle_ == 0` and so have no ORACLE_ROLE member.
-    bytes32 public constant ORACLE_ROLE = keccak256("ORACLE_ROLE");
-
     /// @dev Off-chain DID string this account is bound to, e.g.
     /// `did:integrity:9f1c...`. Set once at construction; `AgentRegistry` binds a DID to at most
     /// one actor (see `AgentRegistry.bindActor`).
@@ -109,15 +104,12 @@ contract SovereignAgent is AccessControl, IAccount {
         _;
     }
 
-    constructor(string memory did_, address controller_, address oracle_, address registry_) {
+    constructor(string memory did_, address controller_, address registry_) {
         require(controller_ != address(0), "SovereignAgent: zero controller");
         _agentDID = did_;
         registry = registry_;
 
         _grantRole(DEFAULT_ADMIN_ROLE, controller_);
-        if (oracle_ != address(0)) {
-            _grantRole(ORACLE_ROLE, oracle_);
-        }
     }
 
     /// @inheritdoc IAccount

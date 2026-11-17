@@ -18,7 +18,6 @@ from pathlib import Path
 from eth_utils import keccak
 from web3 import Web3
 
-ZERO = "0x0000000000000000000000000000000000000000"
 CONTRACTS_OUT = Path(__file__).resolve().parents[2] / "contracts" / "out"
 
 
@@ -46,11 +45,11 @@ def fund(w3, funder, to, chain_id, wei=10**18):
 
 
 def deploy_canonical_agent(w3, chain_id, controller, registry_address, did):
-    """A SovereignAgent built for `registry_address` (registry pin = registry, oracle = 0): the only
+    """A SovereignAgent built for `registry_address` (registry pin = registry): the only
     shape the registry's codehash pin accepts as an actor. `controller` must hold gas."""
     sa = artifact("SovereignAgent")
     factory = w3.eth.contract(abi=sa["abi"], bytecode=sa["bytecode"]["object"])
-    receipt = send(w3, controller, factory.constructor(did, controller.address, ZERO, registry_address), chain_id)
+    receipt = send(w3, controller, factory.constructor(did, controller.address, registry_address), chain_id)
     return Web3.to_checksum_address(receipt.contractAddress)
 
 

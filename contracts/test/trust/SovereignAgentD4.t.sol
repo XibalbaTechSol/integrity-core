@@ -68,7 +68,7 @@ contract SovereignAgentD4Test is GateRegistryFixture {
     /// The floor gates `SovereignAgent.execute` end to end, and a later checkpoint lifts it.
     function test_floor_gates_execute_through_agent() public {
         (address ctl,) = makeAddrAndKey("exec");
-        SovereignAgent sa = new SovereignAgent("did:integrity:exec", ctl, address(0), address(0));
+        SovereignAgent sa = new SovereignAgent("did:integrity:exec", ctl, address(0));
         Sink sink = new Sink();
         ConstraintExecutionPolicy p = _policy(5000);
         vm.prank(ctl);

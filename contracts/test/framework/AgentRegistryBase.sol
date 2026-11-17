@@ -65,7 +65,7 @@ abstract contract AgentRegistryBase is Test {
     }
 
     function _newActor() internal returns (SovereignAgent) {
-        return new SovereignAgent(DID, controller, address(0), address(registry));
+        return new SovereignAgent(DID, controller, address(registry));
     }
 
     function _attest(bytes32 pubkey, address g, address actor, bytes32 dom, string memory uri, uint256 deadline)

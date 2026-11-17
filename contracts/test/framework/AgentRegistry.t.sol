@@ -173,7 +173,7 @@ contract AgentRegistryTest is AgentRegistryBase {
 
     function test_binding_a_non_canonical_contract_as_actor_reverts() public {
         // A SovereignAgent bound to another registry has a different codehash (immutable differs).
-        SovereignAgent foreign = new SovereignAgent(DID, controller, address(0), makeAddr("otherRegistry"));
+        SovereignAgent foreign = new SovereignAgent(DID, controller, makeAddr("otherRegistry"));
         uint256 dl = block.timestamp + 1 hours;
         bytes memory proof = _attest(PUBKEY, guardian, address(foreign), domainId, "", dl);
         bytes memory fc = _consent(FINGERPRINT, address(foreign), dl);

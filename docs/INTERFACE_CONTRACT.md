@@ -873,7 +873,8 @@ exactly by `contracts/test/AgentPrimitivesFactory.t.sol`, and the sequence
 `integrity-sdk` will implement against real Base Sepolia transactions) is:
 
 1. The agent's own wallet deploys `SovereignAgent` directly:
-   `new SovereignAgent(did, controller, oracleSigner, factory)`.
+   `new SovereignAgent(did, controller, registry)`. (Until 2026-11-17 the constructor also took
+   an `oracle_` signer granted an `ORACLE_ROLE` that gated nothing after D4; both were removed.)
 2. The same wallet deploys `StateAnchor` directly, passing the just-deployed
    `SovereignAgent` address as `admin`:
    `new StateAnchor(address(sovereignAgent))`.

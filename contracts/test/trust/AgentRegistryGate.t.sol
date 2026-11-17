@@ -219,7 +219,7 @@ contract AgentRegistryGateTest is GateRegistryFixture {
     function test_agentBuiltForAnotherRegistryCannotBeBound() public {
         AgentRegistry other = new AgentRegistry(protocolAdmin, address(domainRegistry));
         address wallet = vm.addr(0x50);
-        SovereignAgent foreign = new SovereignAgent("did:integrity:foreign", wallet, address(0), address(other));
+        SovereignAgent foreign = new SovereignAgent("did:integrity:foreign", wallet, address(other));
         assertTrue(address(foreign).codehash != agentRegistry.agentCodehash());
         assertFalse(agentRegistry.isGatedAccount(address(foreign)));
 

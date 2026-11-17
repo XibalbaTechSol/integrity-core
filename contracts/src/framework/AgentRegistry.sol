@@ -114,7 +114,7 @@ contract AgentRegistry is AccessControl, EIP712 {
         domainRegistry = DomainRegistry(domainRegistry_);
         // Reference instance: controlled by this registry, which exposes no way to drive it.
         agentCodehash =
-            address(new SovereignAgent("did:integrity:reference", address(this), address(0), address(this))).codehash;
+            address(new SovereignAgent("did:integrity:reference", address(this), address(this))).codehash;
     }
 
     // ── Governance ───────────────────────────────────────────────────────────
