@@ -4,10 +4,10 @@ Real on-chain tests for app/baa.py (isBAAActive eth_call) and app/anchor.py
 with the minimal fixture contracts in tests/fixtures/foundry/src/ actually
 deployed to it (see the `anvil_chain` fixture in conftest.py).
 
-This is the "prove the eth_call/eth_sendTransaction code path for real
-before contracts/ exists" requirement: once `contracts/` deploys the real
-SmartBAA / StateAnchor, only the address changes -- this exact code is what
-runs against them.
+The BAA's `businessAssociate` is the agent's v3 actor, read from the fixture
+`AgentRegistry` (`resolveDID(did).actor`); tests bind it with
+tests/helpers.py::bind_actor. Anchoring targets the fixture `ActionAnchor`, under the
+signer's address.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from app.baa import BAAStatus, check_baa_status
 from app.anchor import anchor_root
 from app.chain import agent_id_to_address, resolve_verification_tier
 from app.config import Settings
-from tests.helpers import mock_oracle_agent_resolution, new_agent
+from tests.helpers import bind_actor, chain_settings, fixture_contract, mock_oracle_agent, new_agent
 
 _ORACLE_URL = "http://oracle.test"
 
@@ -36,7 +36,7 @@ _ORACLE_URL = "http://oracle.test"
 def test_resolve_verification_tier_returns_oracle_value():
     with respx.mock(assert_all_called=False, assert_all_mocked=False) as mock:
         agent_id, _ = new_agent()
-        mock_oracle_agent_resolution(mock, _ORACLE_URL, agent_id, Account.create().address, verification_tier=1)
+        mock_oracle_agent(mock, _ORACLE_URL, agent_id, verification_tier=1)
 
         assert resolve_verification_tier(agent_id, oracle_url=_ORACLE_URL) == 1
 
@@ -75,9 +75,9 @@ def _dummy_covered_entity() -> str:
 
 def test_baa_inactive_by_default(anvil_chain):
     with respx.mock(assert_all_called=False, assert_all_mocked=False) as mock:
-        settings = Settings(rpc_url=anvil_chain["rpc_url"], oracle_url=_ORACLE_URL)
+        settings = chain_settings(anvil_chain, oracle_url=_ORACLE_URL)
         agent_id, _ = new_agent()
-        mock_oracle_agent_resolution(mock, _ORACLE_URL, agent_id, Account.create().address)
+        bind_actor(anvil_chain, agent_id, Account.create().address)
         covered_entity = _dummy_covered_entity()
 
         status, detail = check_baa_status(settings, agent_id, covered_entity, contract_address=anvil_chain["baa_address"])
@@ -102,7 +102,7 @@ def test_baa_active_after_setActive_transaction(anvil_chain):
         w3 = anvil_chain["w3"]
         agent_id, private_key = new_agent()
         agent_address = Account.create().address
-        mock_oracle_agent_resolution(mock, _ORACLE_URL, agent_id, agent_address)
+        bind_actor(anvil_chain, agent_id, agent_address)
         covered_entity = _dummy_covered_entity()
         other_covered_entity = _dummy_covered_entity()
 
@@ -116,7 +116,7 @@ def test_baa_active_after_setActive_transaction(anvil_chain):
         receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=15)
         assert receipt.status == 1
 
-        settings = Settings(rpc_url=anvil_chain["rpc_url"], oracle_url=_ORACLE_URL)
+        settings = chain_settings(anvil_chain, oracle_url=_ORACLE_URL)
         status, detail = check_baa_status(settings, agent_id, covered_entity, contract_address=anvil_chain["baa_address"])
         assert status is BAAStatus.ACTIVE
 
@@ -174,26 +174,26 @@ def test_baa_cannot_verify_when_covered_entity_address_missing(anvil_chain):
 def test_anchor_root_submits_a_real_transaction(anvil_chain):
     settings = Settings(rpc_url=anvil_chain["rpc_url"], anchor_signer_private_key=anvil_chain["signer_private_key"])
     fake_root = b"\x11" * 32
+    signer = Account.from_key(anvil_chain["signer_private_key"]).address
 
     result = anchor_root(settings, fake_root, contract_address=anvil_chain["anchor_address"])
 
     assert result.submitted is True
     assert result.tx_hash is not None
+    assert result.batch_root == fake_root
+    assert result.anchorer == signer
 
-    # Confirm the transaction actually changed on-chain state, not just that
-    # send_raw_transaction didn't throw.
-    w3 = anvil_chain["w3"]
-    root_bytes = w3.eth.call(
-        {
-            "to": anvil_chain["anchor_address"],
-            "data": w3.keccak(text="lastRoot()")[:4],
-        }
+    # Confirm the transaction changed on-chain state, and under the SIGNER's slot: ActionAnchor
+    # keys roots on msg.sender (owner question 8a).
+    assert fixture_contract(anvil_chain, "action_anchor").functions.latestRoot(signer).call() == fake_root
+
+
+def test_anchor_root_is_best_effort_when_contract_not_configured(anvil_chain, tmp_path):
+    settings = Settings(
+        rpc_url=anvil_chain["rpc_url"],
+        anchor_signer_private_key=anvil_chain["signer_private_key"],
+        deployments_file=str(tmp_path / "missing.json"),
     )
-    assert root_bytes == fake_root
-
-
-def test_anchor_root_is_best_effort_when_contract_not_configured(anvil_chain):
-    settings = Settings(rpc_url=anvil_chain["rpc_url"], anchor_signer_private_key=anvil_chain["signer_private_key"])
 
     result = anchor_root(settings, b"\x22" * 32, contract_address=None)
 
@@ -227,21 +227,18 @@ async def test_full_intercept_flow_gates_on_real_on_chain_baa_status(
     anchors on-chain immediately.
     """
     import app.main as main_module
-    from app.merkle import MerkleBatcher, merkle_root, leaf_hash
-    from tests.helpers import make_commitment_model, mock_oracle_agent_resolution, sign_commitment
+    from app.merkle import MerkleBatcher, leaf_hash, merkle_root
+    from tests.helpers import make_commitment_model, sign_commitment
 
+    singletons = json.loads(open(anvil_chain["deployments_file"]).read())["singletons"]
     deployments_file = tmp_path / "deployments.local.json"
     deployments_file.write_text(
         json.dumps(
             {
                 "chainId": anvil_chain["chain_id"],
-                "singletons": {
-                    "SmartBAAFactory": anvil_chain["baa_address"],
-                    # B4: the dedicated evidence anchor step 7's real anchoring below
-                    # targets, instead of resolving a per-agent memory StateAnchor
-                    # via the (stubbed) oracle.
-                    "ProtocolEvidenceAnchor": anvil_chain["anchor_address"],
-                },
+                # The v3 singletons (AgentRegistry for the actor, StakeVault for quarantine,
+                # ActionAnchor for step 7's real anchoring) plus the BAA registry.
+                "singletons": {**singletons, "SmartBAAFactory": anvil_chain["baa_address"]},
             }
         )
     )
@@ -254,90 +251,47 @@ async def test_full_intercept_flow_gates_on_real_on_chain_baa_status(
         anchor_signer_private_key=anvil_chain["signer_private_key"],
         merkle_batch_size=1,
     )
-    # `batcher` is a process-wide singleton whose batch_size is fixed at
-    # startup (see app/main.py) -- `settings.merkle_batch_size` above only
-    # documents intent for this test, it doesn't retroactively resize the
-    # shared batcher. Swap in a fresh batch_size=1 instance so this test's
-    # single approved commitment actually triggers an immediate flush, and
-    # so we're not reading batch state left over from other tests sharing
-    # the (session-scoped) anvil_chain fixture.
+    # `batcher` is a process-wide singleton whose batch_size is fixed at startup (see
+    # app/main.py). Swap in a fresh batch_size=1 instance so this test's single approved
+    # commitment triggers an immediate flush, with no batch state left over from other tests.
     monkeypatch.setattr(main_module, "batcher", MerkleBatcher(batch_size=1))
 
     w3 = anvil_chain["w3"]
-
-    def _read_anchor_state():
-        last_root = w3.eth.call({"to": anvil_chain["anchor_address"], "data": w3.keccak(text="lastRoot()")[:4]})
-        root_count = w3.eth.call({"to": anvil_chain["anchor_address"], "data": w3.keccak(text="rootCount()")[:4]})
-        return last_root, int.from_bytes(root_count, "big")
-
-    _, root_count_before = _read_anchor_state()
+    anchor = fixture_contract(anvil_chain, "action_anchor")
+    signer = Account.from_key(anvil_chain["signer_private_key"]).address
+    epoch_before = anchor.functions.epoch(signer).call()
 
     agent_id, private_key = new_agent()
     agent_address = Account.create().address
     covered_entity = Account.create().address
 
-    # This test exercises a REAL OPA server over real HTTP (see
-    # always_allow_requires_baa_opa_server) in the same code path as the
-    # oracle's agent-resolution lookup, so wrapping both in one respx.mock()
-    # context is fragile -- respx intercepting/passing-through the OPA
-    # traffic alongside a mocked oracle route proved to make the real OPA
-    # call come back with an empty, non-JSON body. Since the only thing this
-    # test needs from the oracle is a canned primitive-address lookup (it
-    # isn't testing the oracle boundary itself -- that's
-    # mock_oracle_agent_resolution's job in the other tests in this file),
-    # monkeypatch resolve_agent_primitives directly instead. It's imported by
-    # value into app.chain (via check_baa_status -> agent_id_to_address), so
-    # that binding must be patched. app.anchor no longer resolves agent
-    # primitives at all (B4: it anchors to the one dedicated evidence
-    # contract configured in the deployments file above), so there is
-    # nothing left to patch there.
-    primitives = {
-        "sovereign_agent": agent_address,
-        "state_anchor": anvil_chain["anchor_address"],
-        "slasher": anvil_chain["slasher_address"],
-    }
-
-    def _fake_resolve(oracle_url: str, agent_id_: str) -> dict:
-        return primitives
-
-    # Patch every module-local binding: these modules intentionally import the
-    # resolver by value, so patching app.chain alone does not replace already
-    # bound references in the BAA and quarantine checks.
-    monkeypatch.setattr("app.chain.resolve_agent_primitives", _fake_resolve)
+    # The actor comes from the real fixture AgentRegistry, so nothing about agent resolution is
+    # stubbed. Only the oracle's verification-tier lookup is (this test runs a real OPA server
+    # over HTTP, and wrapping that in respx alongside a mocked oracle route proved fragile).
+    bind_actor(anvil_chain, agent_id, agent_address)
     monkeypatch.setattr("app.chain.resolve_verification_tier", lambda *_args, **_kwargs: 0)
     monkeypatch.setattr("app.main.resolve_verification_tier", lambda *_args, **_kwargs: 0)
-    monkeypatch.setattr("app.baa.agent_id_to_address", lambda *_args, **_kwargs: agent_address)
-    monkeypatch.setattr("app.quarantine.resolve_agent_primitives", _fake_resolve)
 
-    # 1. BAA inactive -> denied. `covered_entity_address` is set (a real
-    #    healthcare-vertical commitment always carries it -- see
-    #    schemas.py), so this exercises "contract reachable, pair just
-    #    isn't active yet", not the separate CANNOT_VERIFY-missing-field
-    #    path covered by test_baa_cannot_verify_when_covered_entity_address_missing.
+    # 1. BAA inactive -> denied. `covered_entity_address` is set (a real healthcare-vertical
+    #    commitment always carries it), so this exercises "contract reachable, pair just isn't
+    #    active yet", not the CANNOT_VERIFY-missing-field path.
     payload = sign_commitment(
         private_key, agent_id=agent_id, intent_type="EMR_WRITE", nonce=1, covered_entity_address=covered_entity
     )
-    commitment = make_commitment_model(**payload)
-    denied = await main_module.run_intercept(commitment, settings)
+    denied = await main_module.run_intercept(make_commitment_model(**payload), settings)
     assert denied.authorized is False
     assert "BAA_INACTIVE" in denied.reason
 
-    # 2. Activate BAA on-chain for real, for this exact (coveredEntity,
-    #    businessAssociate) pair -- the real SmartBAAFactory.isBAAActive
-    #    signature (see app/baa.py) takes both. `agent_address` here is the
-    #    exact address the stubbed resolver maps `agent_id` to (see above),
-    #    matching what `check_baa_status` inside `run_intercept` will query.
+    # 2. Activate the BAA on-chain for this exact (coveredEntity, businessAssociate=actor) pair.
     account = Account.from_key(anvil_chain["signer_private_key"])
     contract = w3.eth.contract(address=anvil_chain["baa_address"], abi=anvil_chain["baa_abi"])
     tx = contract.functions.setActive(covered_entity, agent_address, True).build_transaction(
         {"from": account.address, "nonce": w3.eth.get_transaction_count(account.address), "chainId": anvil_chain["chain_id"]}
     )
-    signed = account.sign_transaction(tx)
-    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-    w3.eth.wait_for_transaction_receipt(tx_hash, timeout=15)
+    w3.eth.wait_for_transaction_receipt(w3.eth.send_raw_transaction(account.sign_transaction(tx).raw_transaction), timeout=15)
 
-    # 3. Same agent + covered entity, fresh nonce -> now authorized, and the
-    #    batch (size 1) should flush + anchor immediately.
+    # 3. Same agent + covered entity, fresh nonce -> authorized, and the size-1 batch flushes and
+    #    anchors immediately.
     payload2 = sign_commitment(
         private_key, agent_id=agent_id, intent_type="EMR_WRITE", nonce=2, covered_entity_address=covered_entity
     )
@@ -347,12 +301,8 @@ async def test_full_intercept_flow_gates_on_real_on_chain_baa_status(
     assert approved.authorized is True
     assert approved.verification_token
 
-    # Precise checks, not just "root is non-zero" -- the anchor contract is
-    # shared (session-scoped anvil_chain) with other tests in this file, so
-    # a weak non-zero check could pass even if THIS test's anchor call never
-    # happened. Confirm rootCount advanced by exactly one and the anchored
-    # root matches the exact single-leaf root we expect for commitment2.
-    expected_root = merkle_root([leaf_hash(commitment2)])
-    last_root, root_count_after = _read_anchor_state()
-    assert root_count_after == root_count_before + 1
-    assert last_root == expected_root
+    # Precise checks: the signer's ActionAnchor epoch advanced by exactly one, and its latest root
+    # is the batch root over this one agent's one-leaf sub-tree.
+    expected_root = merkle_root([merkle_root([leaf_hash(commitment2)])])
+    assert anchor.functions.epoch(signer).call() == epoch_before + 1
+    assert anchor.functions.latestRoot(signer).call() == expected_root

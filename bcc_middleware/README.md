@@ -15,7 +15,7 @@ still needs to be reconciled with sibling packages built in parallel.
 
 The protocol's defining choice is that **agents own and deploy their own
 on-chain contracts** (identity, reputation, a per-agent HIPAA `ComplianceGate`,
-a per-agent `StateAnchor`). This middleware is the agent's *pre-execution
+and a shared, actor-keyed `ActionAnchor`). This middleware is the agent's *pre-execution
 conscience*: before an agent acts, it commits to what it's about to do, signs
 that commitment with the same DID key that controls its on-chain identity, and
 this service decides allow/deny — checking real OPA policy and, for healthcare
@@ -78,7 +78,7 @@ opa run --server --addr=127.0.0.1:8181 policies/
 ```bash
 anvil --port 8545
 ```
-Until `contracts/` has deployed `SmartBAA` / `StateAnchor` and written
+Until `contracts/` has deployed `SmartBAA` / `ActionAnchor` and written
 `deployments.local.json` (§6), the BAA check will return `CANNOT_VERIFY`
 (and therefore deny any healthcare-vertical intent) and anchoring will be
 skipped (logged, not blocking) — this is the correct, documented fail-safe
@@ -137,7 +137,7 @@ Matches the root `docker-compose.yml`'s `bcc-middleware` service: port 8000,
   (see `tests/test_baa_health_integration.py`).
 - **Merkle anchoring**: a real `eth_sendTransaction` via `web3.py`
   (`app/anchor.py`) calling `anchorRoot(bytes32)`, signed and submitted
-  against the same local anvil + a `MockStateAnchor.sol` fixture, with the
+  against the same local anvil + a `MockActionAnchor` fixture (in `MockV3Singletons.sol`), with the
   transaction receipt checked and the contract's resulting on-chain state
   read back and asserted against the exact expected Merkle root. A FastAPI
   lifespan task also flushes non-empty partial batches on a bounded interval;
@@ -183,9 +183,9 @@ everywhere in code comments; summarized here:
 3. **DID → Ethereum address** (for the *agent/businessAssociate* side of the
    BAA on-chain check only). **Resolved.** `isBAAActive(coveredEntity,
    businessAssociate)` needs an address for `businessAssociate`; that address
-   is the agent's **`SovereignAgent` contract address**, resolved via the
-   oracle's `GET /v1/agent/{id}` in `app/chain.py::resolve_agent_primitives`
-   and `agent_id_to_address` — not the EOA/wallet, and not a derivation from
+   is the agent's **v3 actor** (its `SovereignAgent` contract address, bound in
+   `AgentRegistry`), read on chain from `AgentRegistry.resolveDID(did).actor` in
+   `app/chain.py::resolve_agent_actor` and `agent_id_to_address` — not the EOA/wallet, and not a derivation from
    the DID pubkey. This is deliberate and load-bearing: `SmartBAAFactory`
    and downstream Integrity Health contracts (`EHRGate.checkAccess`, `ComplianceGate`)
    all treat the `SovereignAgent` contract as the acting agent (it's their
@@ -206,8 +206,8 @@ everywhere in code comments; summarized here:
    ```solidity
    // contracts/src/health/SmartBAAFactory.sol (confirmed real signature)
    function isBAAActive(address coveredEntity, address businessAssociate) external view returns (bool);
-   // contracts/... StateAnchor (still an assumed/unconfirmed signature)
-   function anchorRoot(bytes32 root) external;
+   // contracts/src/trust/ActionAnchor.sol (keys the root on msg.sender)
+   function anchorRoot(bytes32 root) external returns (uint256 epoch);
    ```
    `isBAAActive` originally shipped here as a wrong, one-argument
    `isBAAActive(address agent)` — invented before `contracts/` existed to
@@ -218,8 +218,8 @@ everywhere in code comments; summarized here:
    signed over in `app/canonical.py` so it can't be swapped post-signature)
    — see `app/baa.py`'s module docstring for the full account of the bug.
    Contract addresses are read from `deployments.local.json` (§6) under keys
-   `SmartBAA` and `StateAnchor` (configurable via `BAA_CONTRACT_NAME` /
-   `STATE_ANCHOR_CONTRACT_NAME`); `BAA_CONTRACT_NAME` must point at the
+   `SmartBAA` and `ActionAnchor` (configurable via `BAA_CONTRACT_NAME` /
+   `PROTOCOL_EVIDENCE_ANCHOR_CONTRACT_NAME`); `BAA_CONTRACT_NAME` must point at the
    deployed `SmartBAAFactory` address specifically — the per-pair `SmartBAA`
    escrow instances it creates don't implement `isBAAActive` themselves.
    **Note `SmartBAA`/`SmartBAAFactory` is still not listed in §6's example
@@ -241,7 +241,7 @@ everywhere in code comments; summarized here:
    it with itself) rather than promoting it unchanged — see
    `app/merkle.py` module docstring. This is the OpenZeppelin-standard
    convention and matches `integrity-oracle`'s `merkle.rs` and
-   `contracts`' `StateAnchor.sol` bit-for-bit.
+   `contracts`' `ActionAnchor.sol` bit-for-bit.
 
 7. **`requires_baa` / clinical intent-type convention.** The §4.2 schema has
    no "vertical" or "domain" field to signal "this is a healthcare action,"
@@ -293,7 +293,7 @@ everywhere in code comments; summarized here:
     (`opa run --server policies/ <data.json>`) — no hand-editing the policy
     file. This is the production path its own PRODUCTION NOTE called for (keep
     the data document in sync with the on-chain `DomainRegistry`/
-    `ReputationRegistry` via `integrity-oracle`). 12/12 policy tests still pass.
+    `AgentRegistry` via `integrity-oracle`). 12/12 policy tests still pass.
 
 ## AIS control-zone gate (optional, off by default)
 

@@ -21,8 +21,10 @@ from integrity_sdk.core import ReceiptSetupError, ReceiptWriteError, verify_epoc
 from integrity_sdk.did import Keypair
 
 HMAC_KEY = bytes(range(32))
+# ActionAnchor's event: roots are keyed on the anchoring address (this service's signer).
 ANCHOR_EVENT_ABI = [{"anonymous": False, "type": "event", "name": "RootAnchored",
-                     "inputs": [{"indexed": True, "name": "root", "type": "bytes32"}, {"indexed": True, "name": "index", "type": "uint256"}]}]
+                     "inputs": [{"indexed": True, "name": "agent", "type": "address"}, {"indexed": False, "name": "epoch", "type": "uint256"},
+                                {"indexed": False, "name": "root", "type": "bytes32"}]}]
 TOKEN = "t" * 40
 
 
@@ -34,7 +36,7 @@ class World:
         hmac.write_bytes(HMAC_KEY)
         pem.chmod(0o600), hmac.chmod(0o600)
         deployments = tmp_path / "deployments.json"
-        deployments.write_text(json.dumps({"singletons": {"ProtocolEvidenceAnchor": anvil_chain["anchor_address"]}}))
+        deployments.write_text(json.dumps({"singletons": {"ActionAnchor": anvil_chain["anchor_address"]}}))
         self.dir = tmp_path / "receipts"
         values = dict(
             receipt_dir=str(self.dir), receipt_key_file=str(pem), receipt_hmac_key_file=str(hmac), receipt_checkpoint_every=1,
@@ -151,8 +153,8 @@ async def test_epoch_roots_go_to_the_configured_contract_not_the_shared_evidence
     await world.record(3)
     real = world.chain["anchor_address"]
     deployments = tmp_path / "split.json"
-    # ProtocolEvidenceAnchor points at an address with no contract: if the sweep used it, the transaction would not land.
-    deployments.write_text(json.dumps({"singletons": {"ProtocolEvidenceAnchor": "0x000000000000000000000000000000000000dEaD",
+    # ActionAnchor points at an address with no contract: if the sweep used it, the transaction would not land.
+    deployments.write_text(json.dumps({"singletons": {"ActionAnchor": "0x000000000000000000000000000000000000dEaD",
                                                        "ReceiptEpochAnchor": real}}))
     split = Settings(**{**world.settings.__dict__, "deployments_file": str(deployments), "receipt_anchor_contract_name": "ReceiptEpochAnchor"})
     assert split.receipt_anchor_target == "ReceiptEpochAnchor"

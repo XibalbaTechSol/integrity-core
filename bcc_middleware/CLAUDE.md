@@ -39,9 +39,11 @@ uv run pytest tests/test_merkle.py::test_name    # single test
 
 The pytest suite is self-contained: `tests/conftest.py`'s `anvil_chain`
 fixture starts its own throwaway `anvil` subprocess per session and deploys
-fixture contracts (`tests/fixtures/foundry/src/Mock{BAARegistry,StateAnchor,
-ReputationRegistry,Slasher}.sol`, compiled via a real `forge build`) against
-it; `real_opa_server` / `always_allow_requires_baa_opa_server` fixtures start
+fixture contracts (`tests/fixtures/foundry/src/MockBAARegistry.sol` and
+`MockV3Singletons.sol`, mocks of the v3 `AgentRegistry`, `TrustConfig`,
+`StakeVault`, `AISRegistry` and `ActionAnchor`, compiled via a real `forge build`)
+against it, wired as the real singletons are, with a session deployments file
+naming them; `real_opa_server` / `always_allow_requires_baa_opa_server` fixtures start
 real `opa run --server` subprocesses loaded with either the actual
 `policies/*.rego` or a trivial throwaway policy. You do **not** need OPA or
 anvil already running to run `pytest` — only to run the service itself.
@@ -145,26 +147,27 @@ receipt (SDK `GateReceiptWriter`; format = `integrity_sdk.core.receipts`). Rules
   (also in dual-run, where the pack is advisory).
 - An unusable log or key refuses start (`_init_receipts`). Runbook: `docs/runbooks/bcc-policy-pack.md` section 5.
 
-### Reputation sync loop (`app/reputation.py`, `app/scoring_loop.py`)
+### Score checkpoint loop (`app/reputation.py`, `app/scoring_loop.py`)
 
 A background asyncio task (started in `app/main.py`'s lifespan, interval
 `SCORE_SYNC_INTERVAL_SECONDS`) that lists every agent from the oracle
-(`GET /v1/agents`), and for each: pushes its oracle-computed AIS base score
-to that agent's `ReputationRegistry` clone via a real signed
-`updateScoreWithCoverage(agent, baseScore, verifiedEventRatioBps)` tx, and — if the oracle's flagged-telemetry
-ratio for that agent crosses `DISPUTE_FLAGGED_RATIO_THRESHOLD` over the
-lookback bucket — raises a `Slasher.raiseDispute(...)` tx (subject to a
-per-agent cooldown). `POST /v1/reputation/sync` triggers one cycle manually
+(`GET /v1/agents`), resolves each one's actor from `AgentRegistry.resolveDID(did).actor`
+(no actor = skipped with `NO_ACTOR`, no transaction), and posts its oracle-computed
+AIS to `AISRegistry.postCheckpoint(actor, scoreBps, windowEnd, evidenceRoot, releasable)`
+(signer holds `SCORER_ROLE`; AIS 0..1000 is posted as basis points, 850 -> 8500). A post
+calls `StakeVault.onCheckpoint`, which can latch a freeze. If the oracle's flagged-telemetry
+ratio crosses `DISPUTE_FLAGGED_RATIO_THRESHOLD` over the lookback bucket it raises
+`StakeVault.raiseDispute(actor, ...)` (`DISPUTER_ROLE`, subject to a per-agent cooldown). `POST /v1/reputation/sync` triggers one cycle manually
 (ops/test hook). This lives in `bcc_middleware` rather than a new service
 because on today's single-operator testnet deployment, the oracle-signer,
 disputer, and this service's existing `ANCHOR_SIGNER_PRIVATE_KEY` are the
 same key — see `app/reputation.py`'s module docstring for the full
 reasoning, including why automated dispute-raising is safe (raising only
-*locks* stake; a separate arbiter role is required to actually resolve/burn).
-`base_score` pushed must be the Oracle-authoritative, tier-capped AIS with only
-the response's reported ZK multiplier divided out. Never reconstruct it from
-`components`/`weights`: `integrity-oracle/scoring-core` is the sole geometric
-formula implementation — see `scoring_loop.py::_base_score_from_ais_response`.
+*holds* stake; an admin-gated `resolveDispute` decides any burn).
+The score posted must be the Oracle-authoritative, tier-capped AIS scaled to basis
+points. Never reconstruct it from `components`/`weights`: `integrity-oracle/scoring-core`
+is the sole geometric formula implementation — see
+`scoring_loop.py::_score_bps_from_ais_response`.
 
 ### Config (`app/config.py`)
 
@@ -173,11 +176,10 @@ Single `Settings` dataclass, entirely env-var driven (`.env` via
 defaults. `Settings.contract_address(name)` resolves a deployed address from
 `DEPLOYMENTS_FILE` (default `../deployments.local.json`), checking
 `singletons` → `cloneTemplates` → legacy flat `contracts` in that order.
-Per-agent primitive instances (a given agent's own `ReputationRegistry`,
-`StateAnchor`, `Slasher` clones) are deliberately **not** in that file —
-they're resolved live via the oracle (`app/chain.py::resolve_agent_primitives`),
-since the protocol's clone-per-agent model means there's no single static
-address for these.
+Everything on chain is a singleton in that file: `AgentRegistry` (actor resolution,
+`app/chain.py::resolve_agent_actor`), `AISRegistry`, `ActionAnchor`, and the `StakeVault`
+read through `AgentRegistry.trustConfig()`. Nothing is resolved through the oracle's
+`primitives` any more (v2 graph deletion slice D2).
 
 **Admin authentication.** Every `/v1/admin/*` route depends on `app/main.py::require_admin`: a bearer token from
 `BCC_ADMIN_TOKEN`, compared in constant time. **Unset means disabled (503), not open**, and a token under 32
@@ -213,7 +215,7 @@ dev/demo topology; a multi-replica deployment should move this to Redis
 - **Merkle leaf encoding**: `keccak256(abi.encodePacked(agent_id,
   intent_type, intended_state_hash, nonce, timestamp))`, sorted-pair parent
   hashing with odd-node duplication (OpenZeppelin convention) — must match
-  `integrity-oracle`'s `merkle.rs` and `contracts`' `StateAnchor.sol`
+  `integrity-oracle`'s `merkle.rs` and `contracts`' `ActionAnchor.sol`
   bit-for-bit (`app/merkle.py`).
 - **Healthcare-vertical intent types** (`EMR_WRITE`, `DISPENSE_MEDICATION`,
   `BILLING_SUBMISSION`, `SECURE_EMR_WRITE`, `CLINICAL_DATA_ACCESS`) are what

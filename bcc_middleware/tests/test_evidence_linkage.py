@@ -110,9 +110,12 @@ def test_batch_filling_leaf_is_anchor_linked(client, real_opa_server, monkeypatc
     main_module.nonce_store.reset()
 
     def fake_anchor(_settings, leaves):
-        # One successful per-agent result, mirroring anchor_batch_per_agent's shape.
+        # One successful per-agent result, mirroring anchor_batch_per_agent's shape: the
+        # agent's sub-root differs from the batch root the one ActionAnchor tx carried.
         return {
-            leaf.commitment.agent_id: AnchorResult(submitted=True, detail="anchored", tx_hash="0xdead", root=b"\x11" * 32)
+            leaf.commitment.agent_id: AnchorResult(
+                submitted=True, detail="anchored", tx_hash="0xdead", root=b"\x11" * 32, batch_root=b"\x22" * 32
+            )
             for leaf in leaves
         }
 
@@ -130,7 +133,11 @@ def test_batch_filling_leaf_is_anchor_linked(client, real_opa_server, monkeypatc
     assert len(anchored) == 1
     report = anchored[0]
     assert report["agent_id"] == agent_id
-    assert report["root"] == "0x" + (b"\x11" * 32).hex()
+    # The reported root is the BATCH root RootAnchored carries, never the agent's sub-root:
+    # (leaf, root, tx) must be checkable against that transaction's event.
+    assert report["root"] == "0x" + (b"\x22" * 32).hex()
+    assert report["sub_root"] == "0x" + (b"\x11" * 32).hex()
+    assert report["proof"] == []
     assert report["tx_hash"] == "0xdead"
     # All three leaves reported -- crucially including the batch-FILLING 3rd leaf.
     assert set(report["leaves"]) == {_leaf_hex(p) for p in payloads}
@@ -138,7 +145,7 @@ def test_batch_filling_leaf_is_anchor_linked(client, real_opa_server, monkeypatc
 
 
 def test_no_anchor_report_when_anchoring_did_not_land(client, real_opa_server, monkeypatch):
-    """If the on-chain anchor didn't actually submit (e.g. StateAnchor unresolved,
+    """If the on-chain anchor didn't actually submit (e.g. ActionAnchor unresolved,
     tx failed), no anchor event is reported -- we never claim a decision is
     anchored when it isn't."""
     settings = Settings(opa_url=real_opa_server, merkle_batch_size=2)

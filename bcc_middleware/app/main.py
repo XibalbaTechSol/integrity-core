@@ -20,8 +20,8 @@ why each step is where it is):
      `agent_id`, nothing downstream matters.
   3. Nonce replay check.
   4. Freshness (timestamp) check.
-  4b. Active quarantine check -- denies only if the agent has stake POSITIVELY
-      CONFIRMED locked under an unresolved Slasher dispute; fails OPEN (allows,
+  4b. Active quarantine check -- denies only if the agent's actor has stake POSITIVELY
+      CONFIRMED held under an unresolved StakeVault dispute; fails OPEN (allows,
       logs a warning) if that can't be checked, since unlike step 6 this runs
       unconditionally for every request (app/quarantine.py). Closes
       PRODUCTION_GAPS.md §5's "nothing reads on-chain dispute state back into
@@ -480,7 +480,10 @@ def _report_anchor_events(settings: Settings, leaves: list, results: dict) -> No
     """
     After a batch anchors, report each agent's committed leaves + its on-chain
     (root, tx_hash) to the oracle so anchored ALLOW decisions can be JOINed to
-    their StateAnchor transaction at export time (evidence export, Lever 4).
+    their ActionAnchor transaction at export time (evidence export, Lever 4).
+
+    The reported root is the BATCH root that transaction's `RootAnchored` event carries, not
+    the agent's sub-root, so (leaf, root, tx) is a fact a verifier can check on chain.
 
     Groups the flushed leaves by agent the same way anchor_batch_per_agent does,
     and reports only agents whose anchor actually landed on-chain
@@ -494,14 +497,16 @@ def _report_anchor_events(settings: Settings, leaves: list, results: dict) -> No
         by_agent.setdefault(leaf.commitment.agent_id, []).append(leaf)
     for agent_id, agent_leaves in by_agent.items():
         result = results.get(agent_id)
-        if result is None or not result.submitted or result.root is None or not result.tx_hash:
+        if result is None or not result.submitted or result.batch_root is None or not result.tx_hash:
             continue
         audit_module.report_anchor_events(
             settings,
             agent_id=agent_id,
             leaves=[f"0x{leaf.leaf_hash.hex()}" for leaf in agent_leaves],
-            root=f"0x{result.root.hex()}",
+            root=f"0x{result.batch_root.hex()}",
             tx_hash=result.tx_hash,
+            sub_root=f"0x{result.root.hex()}" if result.root is not None else None,
+            proof=[f"0x{p.hex()}" for p in result.proof],
         )
 
 
@@ -523,8 +528,8 @@ def _flush_and_anchor(
         if flushed is None:
             return None
         _root, leaves = flushed
-        # Per-agent sub-roots, all anchored to the one dedicated protocol evidence
-        # StateAnchor (docs/EXECUTION_PLAN.md B4 — see anchor.anchor_batch_per_agent).
+        # Per-agent sub-roots become the leaves of one batch root, anchored on ActionAnchor
+        # under this service's signer (see anchor.anchor_batch_per_agent).
         results = anchor_module.anchor_batch_per_agent(settings, leaves)
         # Link the anchored leaves back to their decisions (evidence export).
         _report_anchor_events(settings, leaves, results)
@@ -676,9 +681,9 @@ async def _run_intercept_inner(
         return resp
 
     # --- 4b. Active quarantine check (fail-OPEN on CANNOT_VERIFY) -------------
-    # An agent with stake locked under an unresolved Slasher dispute must not keep
+    # An agent with stake held under an unresolved StakeVault dispute must not keep
     # transacting as if nothing happened — see app/quarantine.py's module docstring
-    # for why this reads Slasher.lockedStakeOf, and why (unlike the BAA check below)
+    # for why this reads StakeVault.disputeLockedOf, and why (unlike the BAA check below)
     # it fails OPEN rather than closed: this runs unconditionally for every request,
     # so failing closed on an unverifiable check would let one infra hiccup deny all
     # traffic from every agent. Only a positively confirmed QUARANTINED denies.
@@ -688,7 +693,9 @@ async def _run_intercept_inner(
         resp = _deny(f"AGENT_QUARANTINED: {quarantine_detail}", agent_id=agent_id, settings=settings, intent_type=commitment.intent_type, commitment=commitment)
         finalize_span("deny", resp.reason)
         return resp
-    elif quarantine_status is QuarantineStatus.CANNOT_VERIFY:
+    elif quarantine_status in (QuarantineStatus.CANNOT_VERIFY, QuarantineStatus.NO_ACTOR):
+        # NO_ACTOR (no actor bound in AgentRegistry) is handled exactly like CANNOT_VERIFY: the
+        # posture for off-chain agents does not change in this PR (v2 deletion slice D2).
         if fail_closed_for_intent(settings, commitment.intent_type):
             _record_violation(agent_id, settings)
             resp = _deny(
@@ -992,11 +999,11 @@ async def force_flush() -> dict:
     if flushed is None:
         return {"flushed": False, "detail": "no pending commitments"}
     leaves, results = flushed
-    # Per-agent anchoring: one StateAnchor tx per distinct agent in the batch.
-    # NOTE: no single "root" field here anymore -- anchoring is per-agent
-    # (see anchor.py), so the full-batch root computed by MerkleBatcher matches
-    # nothing that was actually submitted on-chain. Each agent's OWN sub-root
-    # is under `agents[agent_id].root` instead (PRODUCTION_GAPS.md §5).
+    # One ActionAnchor tx per flush, under this service's signer: per-agent sub-roots are
+    # the leaves of the anchored batch root (see anchor.py). The MerkleBatcher's own
+    # full-batch root (over raw leaves) matches nothing on-chain, so it is not returned.
+    # Each agent's sub-root is `agents[agent_id].root`; `batch_root` is what was anchored,
+    # and `proof` is the sub-root's path up to it.
     return {
         "flushed": True,
         "leaf_count": len(leaves),
@@ -1006,6 +1013,9 @@ async def force_flush() -> dict:
                 "detail": r.detail,
                 "tx_hash": r.tx_hash,
                 "root": f"0x{r.root.hex()}" if r.root is not None else None,
+                "batch_root": f"0x{r.batch_root.hex()}" if r.batch_root is not None else None,
+                "proof": [f"0x{p.hex()}" for p in r.proof],
+                "anchorer": r.anchorer,
             }
             for agent_id, r in results.items()
         },

@@ -1,34 +1,29 @@
 """
-Pushes AIS scores to each agent's ReputationRegistry clone and raises
-Slasher disputes on detected misbehavior -- closes the loop nothing else
-in this monorepo does: integrity-oracle computes AIS and flags misbehavior
-but, deliberately (see its own chain.rs docstring: "this service never
-signs or submits transactions"), never pushes anything on-chain. Nothing
-else did either, until this module. See app/scoring_loop.py for the
-periodic orchestration that calls these primitives, and
-PRODUCTION_GAPS.md for this gap's history.
+Posts AIS checkpoints to the v3 `AISRegistry` and raises `StakeVault` disputes on detected
+misbehavior. integrity-oracle computes AIS and flags misbehavior but, deliberately (see its own
+chain.rs docstring: "this service never signs or submits transactions"), never writes anything
+on-chain. This module is the writer (owner question 3 of the v2 graph deletion plan: the BCC
+scoring loop writes `AISRegistry`, holding `SCORER_ROLE` granted at deploy). See
+app/scoring_loop.py for the periodic orchestration that calls these primitives.
 
-bcc_middleware is the chosen home for this signer, not a new dedicated
-service: on today's single-operator testnet deployment
-(deployments.baseSepolia.json's protocolAddresses), oracleSigner,
-disputer, and this service's existing ANCHOR_SIGNER_PRIVATE_KEY /
-ANCHOR_ROLE key are the same address, so reusing it avoids standing up a
-new service and a new key custody boundary for a role the operator
-already holds.
+Every write is keyed by the agent's v3 actor (`AgentRegistry.resolveDID(did).actor`), the
+address both `AISRegistry` and `StakeVault` key on.
 
-*** Score pushes are best-effort, like anchoring -- NOT a security gate ***
-A failed or delayed push leaves an agent's on-chain score stale, not
-wrong-but-trusted: nothing downstream treats "no update yet" as "verified
-good". Same posture as app/anchor.py; see that module's docstring.
+bcc_middleware is the chosen home for this signer, not a new dedicated service: on the
+single-operator testnet deployment the scorer, the disputer and this service's existing
+ANCHOR_SIGNER_PRIVATE_KEY are the same address, so reusing it avoids a new key custody
+boundary for roles the operator already holds.
 
-*** Disputes are automated but not dangerous -- raising one only LOCKS
-stake, it never moves funds ***. See contracts/src/oracle/Slasher.sol's
-own NatSpec: `resolveDispute` needs a separate arbiter role (never the
-same key as DISPUTER_ROLE) and a full challenge window before anything is
-actually burned. A false-positive automated dispute is recoverable by
-that arbiter, not catastrophic -- which is what makes it safe for
-app/scoring_loop.py's periodic polling to raise them without a human in
-the loop at raise-time.
+*** Checkpoints are best-effort, like anchoring -- NOT a security gate here ***
+A failed or delayed post leaves an agent's on-chain score stale, not wrong-but-trusted. Note
+what a post DOES do on chain: `AISRegistry.postCheckpoint` calls `StakeVault.onCheckpoint`,
+which latches a freeze when the score falls below the vault's `freezeThreshold`. So this loop
+can freeze an agent; only governance `unfreeze` lifts it.
+
+*** Disputes are automated but not dangerous -- raising one only HOLDS stake, it never moves
+funds ***. `StakeVault.resolveDispute` is admin-gated (never `DISPUTER_ROLE`) and decides
+whether anything is burned, so a false-positive automated dispute is recoverable by that
+arbiter. That is what makes it safe for the periodic loop to raise them unattended.
 """
 
 from __future__ import annotations
@@ -39,74 +34,15 @@ from dataclasses import dataclass
 from eth_account import Account
 from web3.exceptions import Web3Exception
 
-from app.chain import get_w3
+from app.chain import AgentResolutionError, get_w3, registry_contract
 from app.config import Settings
 from app.nonce_lock import send_with_managed_nonce, signer_lock
 
 logger = logging.getLogger("bcc_middleware.reputation")
 
-_REPUTATION_REGISTRY_ABI = [
-    {
-        "inputs": [
-            {"internalType": "address", "name": "agent", "type": "address"},
-            {"internalType": "uint256", "name": "baseScore", "type": "uint256"},
-        ],
-        "name": "updateScore",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function",
-    },
-    {
-        "inputs": [
-            {"internalType": "address", "name": "agent", "type": "address"},
-            {"internalType": "uint256", "name": "baseScore", "type": "uint256"},
-            {"internalType": "uint256", "name": "verifiedEventRatioBps", "type": "uint256"},
-        ],
-        "name": "updateScoreWithCoverage",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function",
-    },
-]
-
-_SLASHER_ABI = [
-    {
-        "inputs": [
-            {"internalType": "address", "name": "agent", "type": "address"},
-            {"internalType": "uint256", "name": "amount", "type": "uint256"},
-            {"internalType": "string", "name": "reason", "type": "string"},
-        ],
-        "name": "raiseDispute",
-        "outputs": [{"internalType": "uint256", "name": "disputeId", "type": "uint256"}],
-        "stateMutability": "nonpayable",
-        "type": "function",
-    },
-    {
-        "inputs": [{"internalType": "address", "name": "", "type": "address"}],
-        "name": "stakeOf",
-        "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
-        "stateMutability": "view",
-        "type": "function",
-    },
-    {
-        "inputs": [{"internalType": "address", "name": "", "type": "address"}],
-        "name": "lockedStakeOf",
-        "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
-        "stateMutability": "view",
-        "type": "function",
-    },
-    {
-        "anonymous": False,
-        "inputs": [
-            {"indexed": True, "internalType": "uint256", "name": "disputeId", "type": "uint256"},
-            {"indexed": True, "internalType": "address", "name": "agent", "type": "address"},
-            {"indexed": False, "internalType": "uint256", "name": "amount", "type": "uint256"},
-            {"indexed": False, "internalType": "string", "name": "reason", "type": "string"},
-        ],
-        "name": "DisputeRaised",
-        "type": "event",
-    },
-]
+# AISRegistry.MAX_SCORE: checkpoint scores are basis points, 0..10000.
+MAX_SCORE_BPS = 10_000
+ZERO_ROOT = b"\x00" * 32
 
 
 @dataclass
@@ -128,26 +64,27 @@ def _signer_key(settings: Settings) -> str | None:
     return settings.reputation_signer_private_key or settings.anchor_signer_private_key
 
 
-def push_score(
+def post_checkpoint(
     settings: Settings,
-    reputation_registry_address: str,
-    agent_address: str,
-    base_score: int,
-    verified_event_ratio_bps: int | None = None,
+    ais_registry_address: str,
+    actor: str,
+    score_bps: int,
+    window_end: int,
+    *,
+    evidence_root: bytes = ZERO_ROOT,
+    releasable: int = 0,
 ) -> ScorePushResult:
     """
-    Signs and submits `updateScore(agent, baseScore)` against one agent's
-    ReputationRegistry clone.
+    Signs and submits `AISRegistry.postCheckpoint(actor, score_bps, window_end, evidence_root,
+    releasable)`.
 
-    `base_score` MUST be the PRE-boost oracle-authoritative AIS (see
-    ReputationRegistry.sol's own NatSpec: "oracle pushes baseScore... this
-    contract independently earns the right to apply the 1.15x multiplier").
-    Callers must not pass the oracle's already-ZK-boosted `ais` field here;
-    `app/scoring_loop.py::_base_score_from_ais_response` divides out only the
-    reported boost and never reimplements the geometric formula or tier cap.
+    `score_bps` is basis points (0..10000), not the Oracle's 0..1000 AIS; the caller converts.
+    `releasable` defaults to 0: releasing an agent's per-action locks for a compliant window is
+    a policy decision this loop does not make (v2 deletion slice D2). `evidence_root` defaults
+    to zero (no root is attested with the score yet).
     """
-    if verified_event_ratio_bps is not None and not 0 <= verified_event_ratio_bps <= 10_000:
-        return ScorePushResult(submitted=False, detail="verified event ratio must be between 0 and 10000 bps")
+    if not 0 <= score_bps <= MAX_SCORE_BPS:
+        return ScorePushResult(submitted=False, detail=f"score {score_bps} bps is outside 0..{MAX_SCORE_BPS}")
 
     signer_key = _signer_key(settings)
     if not signer_key:
@@ -159,60 +96,52 @@ def push_score(
 
     try:
         account = Account.from_key(signer_key)
-        contract = w3.eth.contract(address=w3.to_checksum_address(reputation_registry_address), abi=_REPUTATION_REGISTRY_ABI)
-        # See app/nonce_lock.py's module docstring: held for the full
-        # read-nonce -> sign -> broadcast -> mine sequence, since this key
-        # can be the same one app/anchor.py signs with.
+        contract = registry_contract(settings, "AISRegistry", ais_registry_address)
+        agent = w3.to_checksum_address(actor)
+        # See app/nonce_lock.py's module docstring: held for the full read-nonce -> sign ->
+        # broadcast -> mine sequence, since this key can be the same one app/anchor.py signs with.
         with signer_lock(account.address):
             tx_hash, receipt = send_with_managed_nonce(
                 w3,
                 account,
-                lambda nonce: (
-                    contract.functions.updateScoreWithCoverage(
-                        w3.to_checksum_address(agent_address), base_score, verified_event_ratio_bps
-                    )
-                    if verified_event_ratio_bps is not None
-                    else contract.functions.updateScore(w3.to_checksum_address(agent_address), base_score)
+                lambda nonce: contract.functions.postCheckpoint(
+                    agent, score_bps, window_end, evidence_root, releasable
                 ).build_transaction({"from": account.address, "nonce": nonce, "chainId": settings.chain_id}),
             )
-    except (Web3Exception, ValueError) as exc:
-        logger.warning("updateScore(%s, %d) submission failed: %s", agent_address, base_score, exc)
+    except (AgentResolutionError, Web3Exception, ValueError) as exc:
+        # Includes the pre-flight revert for an actor AgentRegistry does not list as registered
+        # (`NotRegisteredAgent`) and for a signer without SCORER_ROLE.
+        logger.warning("postCheckpoint(%s, %d) submission failed: %s", actor, score_bps, exc)
         return ScorePushResult(submitted=False, detail=f"transaction submission failed: {exc}")
 
     if receipt.status != 1:
         return ScorePushResult(submitted=False, detail=f"transaction reverted (status={receipt.status})", tx_hash=tx_hash.hex())
 
-    return ScorePushResult(submitted=True, detail="score pushed", tx_hash=tx_hash.hex())
+    return ScorePushResult(submitted=True, detail="checkpoint posted", tx_hash=tx_hash.hex())
 
 
-def get_available_stake(settings: Settings, slasher_address: str, agent_address: str) -> int | None:
+def get_available_stake(settings: Settings, stake_vault_address: str, actor: str) -> int | None:
     """
-    Reads `stakeOf - lockedStakeOf` for an agent, so callers can size a
-    dispute without guessing. Returns None (distinct from 0) on any read
-    failure, so callers can tell "agent genuinely has zero available
-    stake" apart from "couldn't check" -- raising a dispute against a chain
-    state we can't even read would be reckless.
+    `StakeVault.availableOf(actor)`: free stake net of action locks, open-dispute holds and
+    queued withdrawals (never `stakeOf().amount - stakeOf().locked`, which overstates it). Returns
+    None (distinct from 0) on any read failure, so callers can tell "genuinely zero" apart from
+    "couldn't check"; raising a dispute against chain state we can't read would be reckless.
     """
     w3 = get_w3(settings.rpc_url)
     if not w3.is_connected():
         return None
     try:
-        contract = w3.eth.contract(address=w3.to_checksum_address(slasher_address), abi=_SLASHER_ABI)
-        agent = w3.to_checksum_address(agent_address)
-        stake = contract.functions.stakeOf(agent).call()
-        locked = contract.functions.lockedStakeOf(agent).call()
-        return max(0, stake - locked)
-    except (Web3Exception, ValueError) as exc:
-        logger.warning("could not read available stake for %s from %s: %s", agent_address, slasher_address, exc)
+        contract = registry_contract(settings, "StakeVault", stake_vault_address)
+        return contract.functions.availableOf(w3.to_checksum_address(actor)).call()
+    except (AgentResolutionError, Web3Exception, ValueError) as exc:
+        logger.warning("could not read available stake for %s from %s: %s", actor, stake_vault_address, exc)
         return None
 
 
-def raise_dispute(settings: Settings, slasher_address: str, agent_address: str, amount: int, reason: str) -> DisputeResult:
+def raise_dispute(settings: Settings, stake_vault_address: str, actor: str, amount: int, reason: str) -> DisputeResult:
     """
-    Signs and submits `raiseDispute(agent, amount, reason)`. Only LOCKS
-    `amount` of the agent's stake -- see this module's own docstring and
-    Slasher.sol's NatSpec for why that asymmetry (automated raise,
-    human-gated resolve) is what makes this safe to call automatically.
+    Signs and submits `StakeVault.raiseDispute(actor, amount, reason)` (the signer needs
+    `DISPUTER_ROLE`). Only HOLDS `amount` of the actor's stake; see this module's docstring.
     """
     signer_key = _signer_key(settings)
     if not signer_key:
@@ -224,18 +153,19 @@ def raise_dispute(settings: Settings, slasher_address: str, agent_address: str, 
 
     try:
         account = Account.from_key(signer_key)
-        contract = w3.eth.contract(address=w3.to_checksum_address(slasher_address), abi=_SLASHER_ABI)
+        contract = registry_contract(settings, "StakeVault", stake_vault_address)
+        agent = w3.to_checksum_address(actor)
         # See app/nonce_lock.py's module docstring.
         with signer_lock(account.address):
             tx_hash, receipt = send_with_managed_nonce(
                 w3,
                 account,
-                lambda nonce: contract.functions.raiseDispute(
-                    w3.to_checksum_address(agent_address), amount, reason
-                ).build_transaction({"from": account.address, "nonce": nonce, "chainId": settings.chain_id}),
+                lambda nonce: contract.functions.raiseDispute(agent, amount, reason).build_transaction(
+                    {"from": account.address, "nonce": nonce, "chainId": settings.chain_id}
+                ),
             )
-    except (Web3Exception, ValueError) as exc:
-        logger.warning("raiseDispute(%s, %d, %r) submission failed: %s", agent_address, amount, reason, exc)
+    except (AgentResolutionError, Web3Exception, ValueError) as exc:
+        logger.warning("raiseDispute(%s, %d, %r) submission failed: %s", actor, amount, reason, exc)
         return DisputeResult(submitted=False, detail=f"transaction submission failed: {exc}")
 
     if receipt.status != 1:
@@ -243,7 +173,6 @@ def raise_dispute(settings: Settings, slasher_address: str, agent_address: str, 
 
     dispute_id = None
     try:
-        contract = w3.eth.contract(address=w3.to_checksum_address(slasher_address), abi=_SLASHER_ABI)
         logs = contract.events.DisputeRaised().process_receipt(receipt)
         if logs:
             dispute_id = logs[0]["args"]["disputeId"]

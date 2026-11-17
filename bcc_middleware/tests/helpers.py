@@ -19,7 +19,7 @@ import respx
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from httpx import Response
 
-from app.chain import resolve_agent_primitives
+from app.chain import clear_actor_cache
 from app.config import settings as default_settings
 from app.schemas import BCCCommitment
 
@@ -133,52 +133,67 @@ def make_commitment_model(**kwargs) -> BCCCommitment:
     return BCCCommitment(**kwargs)
 
 
-def mock_oracle_agent_resolution(
+def mock_oracle_agent(
     respx_mock: respx.MockRouter,
     oracle_url: str,
     agent_id: str,
-    sovereign_agent_address: str,
     *,
-    state_anchor_address: str | None = None,
-    slasher_address: str | None = None,
     verification_tier: int = 1,
 ) -> None:
     """
-    Stubs the oracle's `GET /v1/agent/{id}` response that
-    `app.chain.resolve_agent_primitives` (used by both the BAA check's
-    businessAssociate resolution and per-agent anchoring) calls. Tests in this
-    suite exercise real on-chain eth_call/eth_sendTransaction logic against a
-    real anvil — a real integrity-oracle isn't part of that fixture set, so its
-    one HTTP dependency is stubbed here rather than standing up the whole Rust
-    service just to answer "what is this agent's SovereignAgent address" for a
-    test that isn't about the oracle itself (see test_baa_health_integration.py
-    for the equivalent real-Integrity-Health-contracts integration, mirrored here for the
-    oracle boundary).
-
-    `resolve_agent_primitives` is `lru_cache`d per (oracle_url, agent_id); since
-    every test uses a freshly generated `agent_id`, cache entries never collide
-    across tests.
-
-    Also includes `verification_tier` (default 1, matching what every real
-    registered agent gets — see `integrity-oracle`'s `SERVER_VERIFIED_TIER`) in
-    the mocked response, since `app.chain.resolve_verification_tier` reads the
-    same `GET /v1/agent/{id}` endpoint this helper stubs.
+    Stubs the oracle's `GET /v1/agent/{id}` in the shape registration v3 PR 4.6 leaves it: an
+    id and a server-verified `verification_tier` (default 1, what every registered agent gets;
+    see `integrity-oracle`'s `SERVER_VERIFIED_TIER`), and NO `primitives` object. Nothing in the
+    middleware resolves on-chain addresses through the oracle any more; that is `bind_actor`.
     """
-    primitives = {
-        "sovereign_agent": sovereign_agent_address,
-        "state_anchor": state_anchor_address or sovereign_agent_address,
-    }
-    if slasher_address is not None:
-        primitives["slasher"] = slasher_address
-
     respx_mock.get(f"{oracle_url.rstrip('/')}/v1/agent/{agent_id}").mock(
-        return_value=Response(
-            200,
-            json={
-                "id": agent_id,
-                "verification_tier": verification_tier,
-                "primitives": primitives,
-            },
-        )
+        return_value=Response(200, json={"id": agent_id, "verification_tier": verification_tier})
     )
-    resolve_agent_primitives.cache_clear()
+
+
+def send_tx(anvil_chain: dict, fn) -> dict:
+    """Signs and mines `fn` (a bound contract call) from the anvil dev signer; asserts success."""
+    from eth_account import Account
+
+    w3 = anvil_chain["w3"]
+    account = Account.from_key(anvil_chain["signer_private_key"])
+    tx = fn.build_transaction(
+        {"from": account.address, "nonce": w3.eth.get_transaction_count(account.address), "chainId": anvil_chain["chain_id"]}
+    )
+    receipt = w3.eth.wait_for_transaction_receipt(
+        w3.eth.send_raw_transaction(account.sign_transaction(tx).raw_transaction), timeout=15
+    )
+    assert receipt.status == 1
+    return receipt
+
+
+def fixture_contract(anvil_chain: dict, name: str):
+    """A fixture mock (`agent_registry`, `stake_vault`, `ais_registry`, `action_anchor`) with
+    its own mock ABI, which includes the test-only setters the canonical ABI lacks."""
+    return anvil_chain["w3"].eth.contract(address=anvil_chain[f"{name}_address"], abi=anvil_chain[f"{name}_abi"])
+
+
+def bind_actor(anvil_chain: dict, agent_id: str, actor: str | None, *, retired: bool = False) -> None:
+    """
+    Records `agent_id` in the fixture `AgentRegistry` with `actor` bound (None = registered with
+    no actor), the v3 resolution path the middleware reads (`resolveDID(did).actor`). `agent_id`
+    must be a real `did:integrity:<64 hex>` DID (use `new_agent()`): the mock parses it exactly
+    as the real registry does and reverts `InvalidDid` otherwise. Clears the middleware's actor
+    cache so the next read sees the new record.
+    """
+    zero = "0x0000000000000000000000000000000000000000"
+    registry = fixture_contract(anvil_chain, "agent_registry")
+    send_tx(anvil_chain, registry.functions.setRecord(agent_id, actor or zero, retired))
+    clear_actor_cache()
+
+
+def chain_settings(anvil_chain: dict, **overrides):
+    """`Settings` pointed at the fixture chain and its v3 deployments file."""
+    from app.config import Settings
+
+    base = {
+        "rpc_url": anvil_chain["rpc_url"],
+        "chain_id": anvil_chain["chain_id"],
+        "deployments_file": anvil_chain["deployments_file"],
+    }
+    return Settings(**{**base, **overrides})

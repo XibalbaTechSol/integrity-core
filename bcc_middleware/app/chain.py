@@ -42,36 +42,91 @@ def get_w3(rpc_url: str) -> Web3:
     return Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 5}))
 
 
-@lru_cache(maxsize=1024)
-def resolve_agent_primitives(oracle_url: str, agent_id: str) -> dict:
-    """
-    Resolve an agent's 7 on-chain primitive addresses from the oracle's
-    `GET /v1/agent/{id}` (the `primitives` object — snake_case keys
-    `sovereign_agent`, `state_anchor`, `reputation_registry`, …). Cached per
-    (oracle_url, agent_id): a registered agent's primitive addresses are
-    immutable, so this hot-path lookup only hits the oracle once per agent.
+# --- v3 actor resolution (AgentRegistry) -------------------------------------
+# The agent's on-chain actor is read from the v3 `AgentRegistry` singleton
+# (`resolveDID(did).actor`), never from the Oracle's legacy `primitives` object, which
+# registration v3 PR 4.6 removes. The actor is MUTABLE state in v3 (`setActor`,
+# `clearActor`, `retire`), so unlike the old per-agent primitives (immutable, cached forever)
+# a resolution is cached for `_ACTOR_TTL` seconds only, and only when it succeeded.
+_ACTOR_TTL = float(os.getenv("BCC_ACTOR_CACHE_TTL_SECONDS", "60"))
+_actor_cache: dict[tuple[str, str, str], tuple[str | None, float]] = {}
+_actor_lock = threading.Lock()
+_ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
 
-    The oracle is the right resolver here (not a direct chain read) because it
-    already caches the on-chain `XibalbaAgentRegistry` mapping in Postgres and
-    exposes it over HTTP — bcc_middleware doesn't need its own RPC round-trip
-    or contract ABI just to turn a DID into addresses. Raises
-    `AgentResolutionError` on any failure (agent unknown, oracle down,
-    malformed response) so gated callers fail closed.
+
+class NoActorError(AgentResolutionError):
+    """The agent has no actor bound in `AgentRegistry` (an off-chain-only agent, or a DID the
+    registry has never seen). Distinct from a failed lookup: the registry answered, and the
+    answer is "nothing on chain acts for this DID" (owner question 8b: `NO_ACTOR`)."""
+
+
+def clear_actor_cache() -> None:
+    with _actor_lock:
+        _actor_cache.clear()
+
+
+def registry_contract(settings, name: str, address: str | None = None):
+    """A v3 singleton bound to the canonical ABI synced into `integrity_sdk/abis/` (so a fixture
+    mock with a wrong selector or tuple shape fails), at `address` or its deployments-file
+    `singletons` entry. Raises `AgentResolutionError` when the deployments file names none."""
+    from integrity_sdk.chain import _contract
+
+    address = address or settings.contract_address(name)
+    if not address:
+        raise AgentResolutionError(f"no '{name}' address in {settings.deployments_file}")
+    return _contract(get_w3(settings.rpc_url), name, address=address)
+
+
+def resolve_agent_actor(settings, agent_id: str) -> str | None:
     """
+    The checksummed actor (`SovereignAgent`) `AgentRegistry.resolveDID(agent_id)` binds, or
+    None when no actor is bound (owner question 8b). Raises `AgentResolutionError` when the
+    registry can't answer: no `AgentRegistry` in the deployments file, RPC down, a malformed
+    DID (the registry reverts `InvalidDid`), or a retired record (its actor no longer acts for
+    the agent). Callers that gate on the actor fail closed on that error.
+    """
+    from web3.exceptions import Web3Exception
+
+    registry_address = settings.contract_address("AgentRegistry")
+    if not registry_address:
+        raise AgentResolutionError(f"no 'AgentRegistry' address in {settings.deployments_file}")
+    key = (settings.rpc_url, registry_address.lower(), agent_id)
+    now = _clock()
+    with _actor_lock:
+        cached = _actor_cache.get(key)
+    if cached is not None and now - cached[1] < _ACTOR_TTL:
+        return cached[0]
+
     try:
-        resp = httpx.get(f"{oracle_url.rstrip('/')}/v1/agent/{agent_id}", timeout=5.0)
-        resp.raise_for_status()
-        data = resp.json()
-    except (httpx.HTTPError, ValueError) as exc:
-        raise AgentResolutionError(f"could not resolve agent {agent_id} from oracle {oracle_url}: {exc}") from exc
+        registry = registry_contract(settings, "AgentRegistry", registry_address)
+        record = registry.functions.resolveDID(agent_id).call()
+    except (Web3Exception, ValueError, OSError) as exc:
+        raise AgentResolutionError(f"AgentRegistry.resolveDID({agent_id}) failed: {exc}") from exc
 
-    primitives = data.get("primitives")
-    if not isinstance(primitives, dict) or not primitives.get("sovereign_agent"):
-        raise AgentResolutionError(
-            f"oracle returned no primitives for agent {agent_id} "
-            "(agent may be registered on-chain but not yet indexed by the oracle)"
-        )
-    return primitives
+    actor, registered_at, retired_at = record[2], record[5], record[6]
+    if registered_at and retired_at:
+        raise AgentResolutionError(f"agent {agent_id} is retired in AgentRegistry")
+    resolved = None if not actor or actor.lower() == _ZERO_ADDRESS else to_checksum_address(actor)
+    with _actor_lock:
+        _actor_cache[key] = (resolved, now)
+    return resolved
+
+
+def stake_vault_address(settings) -> str:
+    """`AgentRegistry.trustConfig()` -> `TrustConfig.stakeVault()`, resolved at call time the
+    way the gated contracts do. Raises `AgentResolutionError` when either link is unset."""
+    from web3.exceptions import Web3Exception
+
+    try:
+        cfg = registry_contract(settings, "AgentRegistry").functions.trustConfig().call()
+        if not cfg or cfg.lower() == _ZERO_ADDRESS:
+            raise AgentResolutionError("AgentRegistry.trustConfig() is unset")
+        vault = registry_contract(settings, "TrustConfig", cfg).functions.stakeVault().call()
+    except (Web3Exception, ValueError, OSError) as exc:
+        raise AgentResolutionError(f"could not resolve the StakeVault: {exc}") from exc
+    if not vault or vault.lower() == _ZERO_ADDRESS:
+        raise AgentResolutionError("TrustConfig.stakeVault() is unset")
+    return to_checksum_address(vault)
 
 
 # --- verification-tier cache --------------------------------------------------
@@ -103,7 +158,7 @@ def resolve_verification_tier(agent_id: str, *, oracle_url: str) -> int:
     registration; it is never client-asserted) from `GET /v1/agent/{id}`, for
     `bcc.rego`'s `min_tier_by_intent_type` gate.
 
-    Not `resolve_agent_primitives` (which caches forever): tier is mutable state, so
+    Tier is mutable state, so
     values expire after `_TIER_FRESH_TTL`, and the last-known-good fallback is bounded by
     `_TIER_MAX_STALE`. See the cache notes above for the exact failure semantics.
 
@@ -228,25 +283,22 @@ def _stale_zone_or_none(key, agent_id, now, cached, exc) -> str | None:
     return None
 
 
-def agent_id_to_address(agent_id: str, *, oracle_url: str) -> str:
+def agent_id_to_address(settings, agent_id: str) -> str:
     """
-    Resolve the `businessAssociate` EVM address for the on-chain BAA check
-    (app/baa.py) from a `did:integrity:<fingerprint>` DID.
+    Resolve the `businessAssociate` EVM address for the on-chain BAA check (app/baa.py) from a
+    `did:integrity:<fingerprint>` DID: the agent's v3 actor, `AgentRegistry.resolveDID(did).actor`.
 
-    The businessAssociate is the agent's **SovereignAgent contract address** —
-    NOT its EOA/wallet, and not a derivation from the DID pubkey. That's
-    deliberate and load-bearing: `SmartBAAFactory.createBAA` records the
-    business associate by the address that will actually request access, and
-    downstream Integrity Health contracts (`EHRGate.checkAccess`, `ComplianceGate`) all
-    treat the SovereignAgent *contract* as the acting agent (it's their
-    `msg.sender`). So a BAA is "active for" the SovereignAgent address, and
-    that is the only address `isBAAActive(coveredEntity, businessAssociate)`
-    will find a match for.
+    The businessAssociate is the agent's **SovereignAgent contract address**, not its EOA and not
+    a derivation from the DID pubkey. `SmartBAAFactory.createBAA` records the business associate
+    by the address that will actually request access, and the Integrity Health contracts
+    (`EHRGate.checkAccess`) treat the SovereignAgent *contract* as the acting agent (it is their
+    `msg.sender`). `coveredEntity` does NOT come through here; it is the commitment's
+    `covered_entity_address` field (covered entities have no DID).
 
-    Replaces the old `keccak256(pubkey)[-20:]` placeholder, which produced an
-    address matching nothing on-chain. `coveredEntity` still does NOT come
-    through here — it's the commitment's `covered_entity_address` field
-    (covered entities have no DID).
+    Raises `NoActorError` when no actor is bound, and `AgentResolutionError` on any lookup
+    failure; the BAA check fails closed on both.
     """
-    primitives = resolve_agent_primitives(oracle_url, agent_id)
-    return to_checksum_address(primitives["sovereign_agent"])
+    actor = resolve_agent_actor(settings, agent_id)
+    if actor is None:
+        raise NoActorError(f"NO_ACTOR: AgentRegistry binds no actor to agent {agent_id}")
+    return actor
