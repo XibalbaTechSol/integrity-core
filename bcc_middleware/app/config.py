@@ -129,16 +129,17 @@ class Settings:
     # A log is closed and a new epoch (new log_id, fresh chain) opened at whichever bound is hit first. 0 disables a bound.
     receipt_epoch_max_receipts: int = field(default_factory=lambda: int(os.getenv("BCC_RECEIPT_EPOCH_MAX_RECEIPTS", "50000")))
     receipt_epoch_max_age_seconds: float = field(default_factory=lambda: float(os.getenv("BCC_RECEIPT_EPOCH_MAX_AGE_SECONDS", "86400")))
-    # Anchor each CLOSED receipt epoch's signed final checkpoint root on-chain (B4's evidence StateAnchor, via the
+    # Anchor each CLOSED receipt epoch's signed final checkpoint root on-chain (the evidence ActionAnchor, via the
     # existing anchor signer), so deleting the newest closed epoch becomes detectable. Needs epochs (the epoch bounds
     # above): without rotation nothing ever closes. Best-effort: a failed anchor stays pending and is retried; it never
     # blocks recording or a decision. OFF by default because it sends chain transactions.
     receipt_anchor_enabled: bool = field(default_factory=lambda: _bool_env("BCC_RECEIPT_ANCHOR_ENABLED", False))
     receipt_anchor_interval_seconds: int = field(default_factory=lambda: int(os.getenv("BCC_RECEIPT_ANCHOR_INTERVAL_SECONDS", "300")))
-    # Which deployments-file entry receives the epoch roots. Empty means the protocol evidence anchor, which ALSO receives
-    # this service's per-agent Merkle sub-roots; a verifier handed every root on that contract then sees roots that are no
-    # epoch's and reports them as a removed epoch. Pointing this at a dedicated StateAnchor deployment keeps the contract's
-    # roots exactly this gate's epochs, which is what verify_epoch_directory(anchored_roots=...) expects.
+    # Which deployments-file entry receives the epoch roots. Empty means the evidence ActionAnchor, where they share
+    # this service's signer slot with its per-flush batch roots; a verifier handed every RootAnchored root from that slot
+    # then sees roots that are no epoch's and reports them as a removed epoch. Keeping the two apart needs a separate
+    # ActionAnchor deployment named here (or a distinct signer), so the slot holds exactly this gate's epochs, which is
+    # what verify_epoch_directory(anchored_roots=...) expects.
     receipt_anchor_contract_name: str = field(default_factory=lambda: os.getenv("BCC_RECEIPT_ANCHOR_CONTRACT_NAME", ""))
     # STRICT is the default: in enforce mode an allow whose receipt cannot be written is denied. Lenient lets it
     # through (receipt_status "failed" on the response, CRITICAL log). Shadow mode never blocks either way.
@@ -256,22 +257,12 @@ class Settings:
     )
 
     # --- Merkle anchoring ---
-    # Historical note: StateAnchor is a PER-AGENT primitive for memory roots, with no single
-    # deployments-file key — this setting is retained only as a legacy/override escape hatch
-    # for code that still resolves a per-agent clone directly.
-    state_anchor_contract_name: str = field(
-        default_factory=lambda: os.getenv("STATE_ANCHOR_CONTRACT_NAME", "StateAnchor")
-    )
-    # The dedicated, protocol-wide evidence anchor (docs/EXECUTION_PLAN.md B4;
-    # contracts/script/DeployProtocolEvidenceAnchor.s.sol) that BCC batch roots anchor into.
-    # A single `singletons` entry, resolved the same way every other singleton is
-    # (Settings.contract_address) -- unlike a per-agent memory StateAnchor, this one is never
-    # resolved via the oracle: `anchor_batch_per_agent` previously anchored BCC receipt roots
-    # into each agent's OWN memory StateAnchor, the same contract C2 registration reads
-    # `latestRoot()` from as the memory root, so a flushed batch and a memory-root anchor
-    # silently raced for the same on-chain slot. This setting is that fix's target.
+    # The deployments-file `singletons` entry BCC batch roots anchor into: the v3 `ActionAnchor`
+    # (owner question 8a of the v2 graph deletion plan). ActionAnchor keys roots on msg.sender,
+    # so every root this service anchors lands in ONE slot, its signer address; per-agent
+    # sub-roots are the leaves of each anchored batch root (see app/anchor.py).
     protocol_evidence_anchor_contract_name: str = field(
-        default_factory=lambda: os.getenv("PROTOCOL_EVIDENCE_ANCHOR_CONTRACT_NAME", "ProtocolEvidenceAnchor")
+        default_factory=lambda: os.getenv("PROTOCOL_EVIDENCE_ANCHOR_CONTRACT_NAME", "ActionAnchor")
     )
     merkle_batch_size: int = field(default_factory=lambda: int(os.getenv("BCC_MERKLE_BATCH_SIZE", "8")))
     # Maximum time a low-traffic approved commitment may wait for a flush.
@@ -286,10 +277,10 @@ class Settings:
         default_factory=lambda: os.getenv("ANCHOR_SIGNER_PRIVATE_KEY")
     )
 
-    # --- Reputation sync / slashing (app/reputation.py, app/scoring_loop.py) ---
-    # Closes the loop nothing else in the monorepo does: pushes each agent's
-    # oracle-computed AIS to its ReputationRegistry clone, and raises a
-    # Slasher dispute when the oracle's own flagged-telemetry ratio crosses a
+    # --- Score checkpoints / disputes (app/reputation.py, app/scoring_loop.py) ---
+    # Closes the loop nothing else in the monorepo does: posts each agent's
+    # oracle-computed AIS to AISRegistry as a checkpoint (SCORER_ROLE), and raises a
+    # StakeVault dispute (DISPUTER_ROLE) when the oracle's own flagged-telemetry ratio crosses a
     # threshold. See app/reputation.py's module docstring for why this lives
     # in bcc_middleware rather than a new service or integrity-oracle itself.
     #
@@ -314,7 +305,7 @@ class Settings:
     dispute_lookback_bucket: str = field(default_factory=lambda: os.getenv("DISPUTE_LOOKBACK_BUCKET", "1h"))
     # Basis points of an agent's currently-AVAILABLE (unlocked) stake to lock
     # per raised dispute, not the whole stake -- raising only locks funds
-    # (see Slasher.sol's own NatSpec), so this is deliberately conservative;
+    # (see StakeVault.raiseDispute's NatSpec), so this is deliberately conservative;
     # an arbiter decides the actual slash amount at resolveDispute time.
     dispute_stake_bps: int = field(default_factory=lambda: int(os.getenv("DISPUTE_STAKE_BPS", "1000")))
     # Per-agent cooldown between automated disputes, so one ongoing

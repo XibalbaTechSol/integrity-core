@@ -2,8 +2,8 @@
 Merkle batch construction, per docs/INTERFACE_CONTRACT.md §4.4.
 
 This MUST match `integrity-oracle` and `contracts` bit-for-bit, since the
-root computed here gets verified on-chain against whatever `contracts`'
-`StateAnchor.sol` + OpenZeppelin `MerkleProof.verify` expect. The two rules
+root computed here gets verified on-chain by `contracts`' `ActionAnchor.sol`
+(`verifyLeaf`, which uses OpenZeppelin `MerkleProof.verify`). The two rules
 from §4.4 this module implements exactly:
 
   1. Hash function: keccak256 (not sha256 -- it's cheap/native in the EVM,
@@ -19,7 +19,7 @@ from §4.4 this module implements exactly:
 *payload* -- what fields get packed into each leaf before hashing is a
 cross-package agreement between bcc_middleware (which produces leaves),
 integrity-oracle (which likely also builds/verifies batches for scoring),
-and contracts (whose `StateAnchor.sol` treats the root as opaque, but
+and contracts (whose `ActionAnchor.sol` treats the root as opaque, but
 whoever submits a MerkleProof against a leaf needs to reconstruct it
 identically). This module's leaf encoding is documented immediately below
 `leaf_hash()` -- confirm it during integration before anyone relies on
@@ -29,8 +29,8 @@ proofs generated against these leaves.
 When a level has an odd number of nodes, this implementation duplicates the
 last, unpaired node (i.e. it hashes it with itself) rather than promoting it
 unchanged. This is the OpenZeppelin-standard convention: it matches
-`integrity-oracle`'s `merkle.rs` and `contracts`' `StateAnchor.sol`
-bit-for-bit, and it keeps every level a keccak256 output, so a proof step is
+`integrity-oracle`'s `merkle.rs` and the sorted-pair rule `contracts`'
+`ActionAnchor.sol` verifies with, bit-for-bit, and it keeps every level a keccak256 output, so a proof step is
 always a `_hash_pair` call with no special-casing for odd levels.
 """
 
@@ -95,11 +95,43 @@ def merkle_root(leaves: list[bytes]) -> bytes:
         if len(level) % 2 == 1:
             # Odd one out: duplicate it (hash it with itself) rather than
             # promoting it unhashed, matching the OpenZeppelin-standard
-            # convention used by `integrity-oracle`'s `merkle.rs` and
-            # `contracts`' `StateAnchor.sol` -- see module docstring.
+            # convention used by `integrity-oracle`'s `merkle.rs` and the
+            # sorted-pair proofs `contracts`' `ActionAnchor.sol` verifies -- see module docstring.
             next_level.append(_hash_pair(level[-1], level[-1]))
         level = next_level
     return level[0]
+
+
+def merkle_proof(leaves: list[bytes], index: int) -> list[bytes]:
+    """
+    The sibling path from `leaves[index]` to `merkle_root(leaves)`, in the order
+    `ActionAnchor.verifyLeaf` / OZ `MerkleProof.verify` folds it. Uses the same odd-node
+    duplication as `merkle_root`, so `verify(proof, merkle_root(leaves), leaves[index])` holds.
+
+    Because every pair is sorted before hashing, proofs compose: a leaf's proof up to a sub-root,
+    followed by that sub-root's proof up to a batch root, is a valid proof of the leaf under the
+    batch root. That is how a per-agent sub-tree leaf verifies against the one batch root the
+    BCC anchors per flush (see app/anchor.py).
+    """
+    if not 0 <= index < len(leaves):
+        raise IndexError(f"leaf index {index} out of range for {len(leaves)} leaves")
+    level = list(leaves)
+    proof: list[bytes] = []
+    while len(level) > 1:
+        if len(level) % 2 == 1:
+            level.append(level[-1])
+        proof.append(level[index ^ 1])
+        level = [_hash_pair(level[i], level[i + 1]) for i in range(0, len(level), 2)]
+        index //= 2
+    return proof
+
+
+def verify_proof(proof: list[bytes], root: bytes, leaf: bytes) -> bool:
+    """Python mirror of OZ `MerkleProof.verify` (sorted pairs)."""
+    node = leaf
+    for sibling in proof:
+        node = _hash_pair(node, sibling)
+    return node == root
 
 
 class MerkleBatcher:

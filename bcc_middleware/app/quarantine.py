@@ -1,28 +1,31 @@
 """
-Active Quarantine Enforcement — closes the loop `scoring_loop.py` left open.
+Active Quarantine Enforcement — reads open disputes back into `run_intercept`'s decision.
 
-`scoring_loop.py` can *raise* a `Slasher.raiseDispute` against an agent (locking part of its
-stake) when the oracle's flagged-telemetry ratio crosses a threshold, but until this module
-nothing ever read that state back into `run_intercept`'s authorization decision — OPA and the
-circuit breaker were driven purely by this service's own request history, so an agent already
-under active dispute could keep transacting exactly as before. PRODUCTION_GAPS.md §5 names
-this as the confirmed-open gap this closes.
+`scoring_loop.py` can *raise* a `StakeVault.raiseDispute` against an agent's actor (holding
+part of its stake) when the oracle's flagged-telemetry ratio crosses a threshold. This module
+reads that state back, so an agent under active dispute cannot keep transacting as before
+(PRODUCTION_GAPS.md §5).
 
-The on-chain signal is `Slasher.lockedStakeOf(agent) > 0`. `raiseDispute` locks stake
-immediately and `resolveDispute` always decrements it back — whether the dispute resolves as
-slashed or released — so this is a live gate with no separate un-quarantine step to build:
-quarantine clears itself the moment governance resolves the dispute (see
-`contracts/src/oracle/Slasher.sol`'s `resolveDispute`).
+The on-chain signal is `StakeVault.disputeLockedOf(actor) > 0`, with the vault resolved through
+`AgentRegistry.trustConfig()` -> `TrustConfig.stakeVault()` and the actor through
+`AgentRegistry.resolveDID(did).actor`. It is deliberately NOT `stakeOf(actor).locked`: that
+field covers per-action locks only (`StakeVault.sol`), so an agent with an open dispute and no
+action locks would read as clear. `raiseDispute` raises the hold immediately and
+`resolveDispute` always lowers it again, slashed or released, so quarantine clears itself the
+moment governance resolves the dispute.
 
-Fail-open on CANNOT_VERIFY, deliberately DIFFERENT from `app/baa.py`'s fail-closed posture —
-and the difference is scope, not inconsistency. The BAA check only runs for the narrow set of
-healthcare-vertical intents OPA flags `requires_baa`, so failing closed there blocks one
-legally-sensitive action class when unverifiable. This quarantine check runs unconditionally
-for every single request (step 4b in main.py, ahead of OPA), so failing closed on
-CANNOT_VERIFY would mean any oracle hiccup or RPC blip denies *all* traffic from *every*
-agent — a defense-in-depth secondary control taking down the primary path is a worse failure
-mode than the one it exists to catch. Only a POSITIVELY CONFIRMED `lockedStakeOf > 0` denies;
-main.py logs CANNOT_VERIFY and lets the request continue to OPA.
+An agent with no bound actor gets `NO_ACTOR` (owner question 8b): no actor, no stake, and so no
+on-chain dispute to read. `main.py` treats it exactly as it treats `CANNOT_VERIFY`, which keeps
+today's posture for off-chain agents (the Oracle's `primitives` was absent for them too).
+
+Fail-open on CANNOT_VERIFY / NO_ACTOR, deliberately DIFFERENT from `app/baa.py`'s fail-closed
+posture, and the difference is scope, not inconsistency. The BAA check only runs for the narrow
+set of healthcare-vertical intents OPA flags `requires_baa`, so failing closed there blocks one
+legally-sensitive action class when unverifiable. This quarantine check runs unconditionally for
+every request (step 4b in main.py, ahead of OPA), so failing closed would mean any RPC blip
+denies *all* traffic from *every* agent. Only a POSITIVELY CONFIRMED `disputeLockedOf > 0`
+denies; for the high-risk intents in `quarantine_fail_closed_intents`, main.py also denies on
+an unverifiable read.
 """
 
 from __future__ import annotations
@@ -32,30 +35,17 @@ import logging
 
 from web3.exceptions import BadFunctionCallOutput, Web3Exception
 
-from app.chain import AgentResolutionError, agent_id_to_address, get_w3, resolve_agent_primitives
+from app.chain import AgentResolutionError, get_w3, registry_contract, resolve_agent_actor, stake_vault_address
 from app.config import Settings
 
 logger = logging.getLogger("bcc_middleware.quarantine")
-
-# Same ABI fragment app/reputation.py's get_available_stake reads — kept local rather than
-# imported cross-module so this gate has no dependency on the reputation-sync loop being
-# configured at all (it must work even with DISPUTE_ENABLED=false, since a dispute could have
-# been raised in a prior session or by a different operator key).
-_SLASHER_ABI = [
-    {
-        "inputs": [{"internalType": "address", "name": "", "type": "address"}],
-        "name": "lockedStakeOf",
-        "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
-        "stateMutability": "view",
-        "type": "function",
-    }
-]
 
 
 class QuarantineStatus(enum.Enum):
     CLEAR = "clear"
     QUARANTINED = "quarantined"
     CANNOT_VERIFY = "cannot_verify"
+    NO_ACTOR = "no_actor"
 
 
 def fail_closed_for_intent(settings: Settings, intent_type: str) -> bool:
@@ -74,36 +64,27 @@ def fail_closed_for_intent(settings: Settings, intent_type: str) -> bool:
 
 def check_quarantine_status(settings: Settings, agent_id: str) -> tuple[QuarantineStatus, str]:
     """
-    Returns (status, detail). QUARANTINED means `lockedStakeOf(agent) > 0` on the agent's own
-    Slasher clone — an unresolved dispute has locked part of its stake. CANNOT_VERIFY covers
-    every failure path (RPC down, agent unresolvable, no slasher primitive yet) and is treated
-    identically to QUARANTINED by the caller.
+    Returns (status, detail). QUARANTINED means `StakeVault.disputeLockedOf(actor) > 0`: an
+    unresolved dispute holds part of the actor's stake. NO_ACTOR means AgentRegistry binds no
+    actor to this DID. CANNOT_VERIFY covers every failure path (RPC down, no AgentRegistry in
+    the deployments file, malformed or retired DID, unset trust config).
     """
-    try:
-        primitives = resolve_agent_primitives(settings.oracle_url, agent_id)
-    except AgentResolutionError as exc:
-        logger.warning("quarantine check could not resolve primitives for %s: %s", agent_id, exc)
-        return QuarantineStatus.CANNOT_VERIFY, f"could not resolve agent's primitives: {exc}"
-
-    slasher_address = primitives.get("slasher")
-    if not slasher_address:
-        return QuarantineStatus.CANNOT_VERIFY, f"agent {agent_id} has no slasher primitive on record"
-
     w3 = get_w3(settings.rpc_url)
-    if not w3.is_connected():
-        return QuarantineStatus.CANNOT_VERIFY, f"RPC {settings.rpc_url} is unreachable"
-
     try:
-        agent_address = agent_id_to_address(agent_id, oracle_url=settings.oracle_url)
-        contract = w3.eth.contract(address=w3.to_checksum_address(slasher_address), abi=_SLASHER_ABI)
-        locked = contract.functions.lockedStakeOf(agent_address).call()
+        if not w3.is_connected():
+            return QuarantineStatus.CANNOT_VERIFY, f"RPC {settings.rpc_url} is unreachable"
+        actor = resolve_agent_actor(settings, agent_id)
+        if actor is None:
+            return QuarantineStatus.NO_ACTOR, f"NO_ACTOR: AgentRegistry binds no actor to agent {agent_id}"
+        vault = stake_vault_address(settings)
+        held = registry_contract(settings, "StakeVault", vault).functions.disputeLockedOf(actor).call()
     except AgentResolutionError as exc:
-        logger.warning("quarantine check could not resolve agent address for %s: %s", agent_id, exc)
-        return QuarantineStatus.CANNOT_VERIFY, f"could not resolve agent's on-chain address: {exc}"
-    except (BadFunctionCallOutput, Web3Exception, ValueError) as exc:
-        logger.warning("lockedStakeOf eth_call failed for agent=%s at %s: %s", agent_id, slasher_address, exc)
-        return QuarantineStatus.CANNOT_VERIFY, f"eth_call to lockedStakeOf reverted or failed: {exc}"
+        logger.warning("quarantine check could not resolve agent %s on chain: %s", agent_id, exc)
+        return QuarantineStatus.CANNOT_VERIFY, f"could not resolve agent's actor or stake vault: {exc}"
+    except (BadFunctionCallOutput, Web3Exception, ValueError, OSError) as exc:
+        logger.warning("disputeLockedOf eth_call failed for agent=%s: %s", agent_id, exc)
+        return QuarantineStatus.CANNOT_VERIFY, f"eth_call to disputeLockedOf reverted or failed: {exc}"
 
-    if locked > 0:
-        return QuarantineStatus.QUARANTINED, f"lockedStakeOf({agent_address}) == {locked} (active dispute)"
-    return QuarantineStatus.CLEAR, f"lockedStakeOf({agent_address}) == 0"
+    if held > 0:
+        return QuarantineStatus.QUARANTINED, f"disputeLockedOf({actor}) == {held} (active dispute)"
+    return QuarantineStatus.CLEAR, f"disputeLockedOf({actor}) == 0"

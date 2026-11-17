@@ -101,6 +101,14 @@ CONTRACTS = [
     # anchor that replaces the per-agent StateAnchor for vault, memory-DAG and receipt
     # evidence roots.
     ("ActionAnchor", "ActionAnchor"),
+    # TrustConfig, StakeVault, AISRegistry (v2 graph deletion slice D2, added 2026-11-17):
+    # bcc_middleware's quarantine gate reads StakeVault.disputeLockedOf through
+    # AgentRegistry.trustConfig() -> TrustConfig.stakeVault(), and its scoring loop posts
+    # AISRegistry.postCheckpoint and raises StakeVault.raiseDispute. It calls them through these
+    # canonical ABIs, so its test mocks must match the real selectors and tuple shapes.
+    ("TrustConfig", "TrustConfig"),
+    ("StakeVault", "StakeVault"),
+    ("AISRegistry", "AISRegistry"),
 ]
 
 

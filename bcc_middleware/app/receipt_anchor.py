@@ -10,7 +10,7 @@ root on-chain gives a verifier an external fact to check the files against:
 What gets anchored
 ------------------
 Only roots of CLOSED epochs, taken from each epoch's own SIGNED final checkpoint (`GateReceiptWriter.pending_anchors`),
-sent through the same signer path and dedicated evidence `StateAnchor` that the Merkle-leaf anchoring uses
+sent through the same signer path and evidence `ActionAnchor` that the Merkle-leaf anchoring uses
 (`app/anchor.py::anchor_root`, which serializes on the signer lock). The open epoch is not anchored until it closes, so
 deleting only the open epoch is undetectable for up to one epoch: stated, not hidden.
 

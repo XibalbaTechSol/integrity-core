@@ -91,7 +91,7 @@ def report_anchor_events(
 ) -> None:
     """Fire-and-forget POST to the oracle's anchor-event endpoint after an agent's
     Merkle sub-tree is anchored on-chain, so each anchored ALLOW decision can be
-    JOINed to its StateAnchor transaction at export time (evidence export, Lever
+    JOINed to its ActionAnchor transaction at export time (evidence export, Lever
     4). Written to `anchor_events` independently of the decision row -- see
     migration 0007 for the write-ordering race that motivates the JOIN over a
     back-fill. Best-effort/never-raises, same posture as report_decision and

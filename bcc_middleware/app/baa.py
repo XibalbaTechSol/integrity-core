@@ -127,13 +127,13 @@ def check_baa_status(
         return BAAStatus.CANNOT_VERIFY, f"RPC {settings.rpc_url} is unreachable"
 
     try:
-        agent_address = agent_id_to_address(agent_id, oracle_url=settings.oracle_url)
+        agent_address = agent_id_to_address(settings, agent_id)
         covered_entity_checksum = w3.to_checksum_address(covered_entity_address)
         contract = w3.eth.contract(address=w3.to_checksum_address(address), abi=_BAA_ABI)
         active = contract.functions.isBAAActive(covered_entity_checksum, agent_address).call()
     except AgentResolutionError as exc:
-        # Can't turn the agent's DID into its real SovereignAgent address (agent
-        # unknown to the oracle, oracle down, etc). Fail closed: we cannot verify
+        # Can't turn the agent's DID into its real SovereignAgent address (no actor
+        # bound in AgentRegistry, registry unconfigured or unreachable, etc). Fail closed: we cannot verify
         # a BAA for an agent whose on-chain identity we can't resolve.
         logger.warning("BAA check could not resolve agent %s: %s", agent_id, exc)
         return BAAStatus.CANNOT_VERIFY, f"could not resolve agent's on-chain address: {exc}"

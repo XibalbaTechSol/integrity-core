@@ -2,13 +2,13 @@
 Shared pytest fixtures.
 
 `anvil_chain` spins up a REAL local anvil instance (foundry) and deploys the
-two minimal fixture contracts under tests/fixtures/foundry/src/ so
-app/baa.py and app/anchor.py's on-chain code paths (eth_call,
-eth_sendTransaction) get exercised against a real EVM, not a web3 mock.
-This is the proof-before-contracts/-exists that the task calls for: once
-`contracts/` lands its real SmartBAA / StateAnchor, only the address in
-deployments.local.json changes -- the eth_call/eth_sendTransaction code in
-app/baa.py and app/anchor.py doesn't.
+fixture contracts under tests/fixtures/foundry/src/ (a BAA registry plus mocks of
+the v3 singletons `AgentRegistry`, `TrustConfig`, `StakeVault`, `AISRegistry` and
+`ActionAnchor`), so app/baa.py, app/quarantine.py, app/reputation.py and
+app/anchor.py's on-chain code paths (eth_call, eth_sendTransaction) get exercised
+against a real EVM, not a web3 mock. The middleware calls the v3 mocks through the
+canonical ABIs in integrity_sdk/abis/, so a mock that drifts from the real
+selector or tuple shape fails here.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ import json
 import os
 import socket
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -76,10 +77,13 @@ def _load_artifact(contract_file: str, contract_name: str) -> dict:
 @pytest.fixture(scope="session")
 def anvil_chain():
     """
-    Starts a real `anvil` subprocess for the test session, deploys
-    MockBAARegistry and MockStateAnchor to it via web3.py using their
-    forge-compiled bytecode, and yields connection info + deployed
-    addresses. Torn down (anvil killed) at the end of the session.
+    Starts a real `anvil` subprocess for the test session, deploys the
+    fixture contracts to it via web3.py using their forge-compiled bytecode,
+    wires the v3 mocks the way Deploy.s.sol wires the real singletons
+    (AgentRegistry -> TrustConfig -> StakeVault; AISRegistry -> AgentRegistry;
+    the signer holds the scorer and disputer roles), writes a deployments file
+    naming them, and yields connection info + deployed addresses. Torn down
+    (anvil killed) at the end of the session.
     """
     _build_fixture_contracts()
 
@@ -112,12 +116,24 @@ def anvil_chain():
         # for the wrong chain against a real anvil that rejects them.
         os.environ["CHAIN_ID"] = str(w3.eth.chain_id)
 
-        def _deploy(contract_file: str, contract_name: str) -> str:
+        def _send(fn) -> None:
+            tx = fn.build_transaction(
+                {
+                    "from": account.address,
+                    "nonce": w3.eth.get_transaction_count(account.address),
+                    "chainId": w3.eth.chain_id,
+                }
+            )
+            signed = account.sign_transaction(tx)
+            receipt = w3.eth.wait_for_transaction_receipt(w3.eth.send_raw_transaction(signed.raw_transaction), timeout=30)
+            assert receipt.status == 1, "fixture wiring transaction reverted"
+
+        def _deploy(contract_file: str, contract_name: str, *args) -> str:
             artifact = _load_artifact(contract_file, contract_name)
             abi = artifact["abi"]
             bytecode = artifact["bytecode"]["object"]
             contract = w3.eth.contract(abi=abi, bytecode=bytecode)
-            tx = contract.constructor().build_transaction(
+            tx = contract.constructor(*args).build_transaction(
                 {
                     "from": account.address,
                     "nonce": w3.eth.get_transaction_count(account.address),
@@ -130,10 +146,40 @@ def anvil_chain():
             assert receipt.status == 1, f"{contract_name} deployment reverted"
             return receipt.contractAddress
 
+        def _abi(contract_name: str) -> list:
+            return _load_artifact("MockV3Singletons.sol", contract_name)["abi"]
+
         baa_address = _deploy("MockBAARegistry.sol", "MockBAARegistry")
-        anchor_address = _deploy("MockStateAnchor.sol", "MockStateAnchor")
-        reputation_registry_address = _deploy("MockReputationRegistry.sol", "MockReputationRegistry")
-        slasher_address = _deploy("MockSlasher.sol", "MockSlasher")
+        v3 = "MockV3Singletons.sol"
+        agent_registry_address = _deploy(v3, "MockAgentRegistry")
+        trust_config_address = _deploy(v3, "MockTrustConfig")
+        stake_vault_address = _deploy(v3, "MockStakeVault")
+        ais_registry_address = _deploy(v3, "MockAISRegistry", agent_registry_address)
+        action_anchor_address = _deploy(v3, "MockActionAnchor")
+
+        registry = w3.eth.contract(address=agent_registry_address, abi=_abi("MockAgentRegistry"))
+        trust_config = w3.eth.contract(address=trust_config_address, abi=_abi("MockTrustConfig"))
+        stake_vault = w3.eth.contract(address=stake_vault_address, abi=_abi("MockStakeVault"))
+        ais_registry = w3.eth.contract(address=ais_registry_address, abi=_abi("MockAISRegistry"))
+        _send(registry.functions.setTrustConfig(trust_config_address))
+        _send(trust_config.functions.setStakeVault(stake_vault_address))
+        _send(stake_vault.functions.grantDisputer(account.address))
+        _send(ais_registry.functions.grantScorer(account.address))
+
+        v3_deployments = Path(tempfile.mkdtemp(prefix="bcc-v3-")) / "deployments.json"
+        v3_deployments.write_text(
+            json.dumps(
+                {
+                    "singletons": {
+                        "AgentRegistry": agent_registry_address,
+                        "TrustConfig": trust_config_address,
+                        "StakeVault": stake_vault_address,
+                        "AISRegistry": ais_registry_address,
+                        "ActionAnchor": action_anchor_address,
+                    }
+                }
+            )
+        )
 
         yield {
             "rpc_url": rpc_url,
@@ -141,12 +187,21 @@ def anvil_chain():
             "w3": w3,
             "signer_private_key": ANVIL_DEV_PRIVATE_KEY,
             "baa_address": baa_address,
-            "anchor_address": anchor_address,
             "baa_abi": _load_artifact("MockBAARegistry.sol", "MockBAARegistry")["abi"],
-            "reputation_registry_address": reputation_registry_address,
-            "reputation_registry_abi": _load_artifact("MockReputationRegistry.sol", "MockReputationRegistry")["abi"],
-            "slasher_address": slasher_address,
-            "slasher_abi": _load_artifact("MockSlasher.sol", "MockSlasher")["abi"],
+            # A deployments file naming the v3 singletons below (and nothing else, so the
+            # XibalbaAgentRegistry deployment-binding check stays off).
+            "deployments_file": str(v3_deployments),
+            "agent_registry_address": agent_registry_address,
+            "agent_registry_abi": _abi("MockAgentRegistry"),
+            "trust_config_address": trust_config_address,
+            "stake_vault_address": stake_vault_address,
+            "stake_vault_abi": _abi("MockStakeVault"),
+            "ais_registry_address": ais_registry_address,
+            "ais_registry_abi": _abi("MockAISRegistry"),
+            "action_anchor_address": action_anchor_address,
+            "action_anchor_abi": _abi("MockActionAnchor"),
+            # Kept for the anchoring tests: the evidence anchor is the ActionAnchor.
+            "anchor_address": action_anchor_address,
         }
     finally:
         proc.terminate()

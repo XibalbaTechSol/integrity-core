@@ -41,7 +41,7 @@ allow if {
 #
 # PRODUCTION NOTE: this allowlist is hardcoded for the demo/local-dev scope
 # of this rewrite. In production it should be an OPA `data` document kept in
-# sync with the on-chain DomainRegistry/ReputationRegistry contracts (via
+# sync with the on-chain DomainRegistry/AgentRegistry/AISRegistry contracts (via
 # integrity-oracle), not maintained by hand in this file -- flagged in the
 # package README.
 clinical_intent_types := {
@@ -57,7 +57,7 @@ clinical_intent_types := {
 # (`data.integrity.bcc.authorized_clinical_agents`) so a real agent with a
 # real Ed25519-derived DID — e.g. integrity-demo's clinical agent, or in
 # production the set integrity-oracle keeps in sync with the on-chain
-# DomainRegistry/ReputationRegistry — can be authorized WITHOUT editing this
+# DomainRegistry/AgentRegistry/AISRegistry — can be authorized WITHOUT editing this
 # file by hand. This is the exact "should be an OPA data document" fix the
 # PRODUCTION NOTE above calls for; the static set below is now just the
 # built-in fallback, not the only source.

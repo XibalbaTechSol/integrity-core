@@ -1,14 +1,16 @@
 """
-Periodically syncs each known agent's oracle-computed AIS to its on-chain
-ReputationRegistry, and raises a Slasher dispute when the oracle's own
-already-real flagged-telemetry signal crosses a threshold.
+Periodically posts each known agent's oracle-computed AIS to the v3 `AISRegistry` as a
+checkpoint keyed by the agent's actor, and raises a `StakeVault` dispute when the oracle's own
+flagged-telemetry signal crosses a threshold (owner question 3 of the v2 graph deletion plan).
 
-This is the orchestration layer over app/reputation.py's chain-write
-primitives -- pure Python, no FastAPI/asyncio here, so `run_sync_cycle` is
-a single, independently-testable pass over every agent the oracle knows
-about. app/main.py wraps it in a periodic asyncio loop at startup (see
-Settings.score_sync_interval_seconds) and also exposes a manual
-POST /v1/reputation/sync trigger for ops/tests.
+An agent with no actor bound in `AgentRegistry` is skipped with `NO_ACTOR` and no transaction
+(owner question 8b): both singletons key on the actor, so there is nothing to write.
+
+This is the orchestration layer over app/reputation.py's chain-write primitives -- pure Python,
+no FastAPI/asyncio here, so `run_sync_cycle` is a single, independently-testable pass over every
+agent the oracle knows about. app/main.py wraps it in a periodic asyncio loop at startup (see
+Settings.score_sync_interval_seconds) and also exposes a manual POST /v1/reputation/sync trigger
+for ops/tests.
 """
 
 from __future__ import annotations
@@ -19,9 +21,9 @@ from dataclasses import dataclass, field
 
 import httpx
 
-from app.chain import AgentResolutionError, resolve_agent_primitives
+from app.chain import AgentResolutionError, resolve_agent_actor, stake_vault_address
 from app.config import Settings
-from app.reputation import get_available_stake, push_score, raise_dispute
+from app.reputation import MAX_SCORE_BPS, get_available_stake, post_checkpoint, raise_dispute
 
 logger = logging.getLogger("bcc_middleware.scoring_loop")
 
@@ -32,15 +34,12 @@ logger = logging.getLogger("bcc_middleware.scoring_loop")
 # app/nonce_store.py / app/circuit_breaker.py.
 _last_disputed_at: dict[str, float] = {}
 
-# In-memory per-agent last-successfully-pushed base score. PRODUCTION_GAPS.md
-# §5: without this, `push_score` submitted a real (gas-costing) transaction
-# every single cycle for every agent forever, even ones whose score hasn't
-# moved between cycles -- pure waste for an idle agent. Same process-local
-# scope-limitation posture as the dispute cooldown above (a restart just
-# means one extra redundant push, not a correctness problem: ReputationRegistry.
-# updateScore is idempotent for an unchanged value).
-_last_pushed_score: dict[str, int] = {}
-_last_pushed_coverage: dict[str, int] = {}
+# In-memory per-agent last successfully posted (actor, score_bps). PRODUCTION_GAPS.md §5:
+# without this, every cycle posted a real (gas-costing) transaction for every agent forever, even
+# when the score had not moved. Keyed with the actor because a v3 actor can change (`setActor`):
+# a rebound agent gets a fresh checkpoint under its new actor. A restart just means one extra
+# redundant post, not a correctness problem.
+_last_pushed: dict[str, tuple[str, int]] = {}
 
 
 @dataclass
@@ -59,48 +58,27 @@ class SyncCycleResult:
     errors: list[str] = field(default_factory=list)
 
 
-def _base_score_from_ais_response(ais: dict) -> int | None:
+def _score_bps_from_ais_response(ais: dict) -> int | None:
     """
-    Convert the oracle's authoritative final AIS into the PRE-boost base
-    `ReputationRegistry.updateScore` expects.
+    Convert the oracle's authoritative final AIS (0..1000) into the basis points (0..10000)
+    `AISRegistry.postCheckpoint` stores: 850 -> 8500.
 
-    Do not recompute the formula from `components`/`weights` here. The Rust
-    oracle is the sole AIS implementation: its `ais` field has already used
-    the weighted geometric mean and applied the effective identity-tier
-    ceiling. Recomputing in Python previously used an arithmetic mean and
-    also discarded that ceiling. Dividing out only the reported ZK multiplier
-    preserves both oracle decisions while leaving the contract to apply a
-    separately earned on-chain ZK boost.
+    Do not recompute the formula from `components`/`weights` here. The Rust oracle is the sole AIS
+    implementation: its `ais` field has already used the weighted geometric mean and applied the
+    identity-tier ceiling. Nothing is divided out any more: the v2 ZK boost is dropped (owner
+    question 2; the verifier was `RejectAllZkVerifier`, so the boost was always 1), and the
+    v2-only `onchain_base_score` / `onchain_assurance_consistent` fields described the per-agent
+    v2 score clone this no longer writes.
     """
-    # The Oracle provides this after all of its own post-score adjustments. It
-    # is the only exact value suitable for ReputationRegistry.baseScore; the
-    # legacy fallback is retained for older Oracle deployments.
-    # New factory clones enforce the assurance tier in the contract itself. A
-    # modern response must explicitly prove that the Oracle and contract agree;
-    # `null` means a legacy/unreadable clone and is therefore not safe for an
-    # authoritative push. Only responses from genuinely older Oracles that omit
-    # this field retain the compatibility fallback.
-    if "onchain_assurance_consistent" in ais and ais.get("onchain_assurance_consistent") is not True:
-        return None
-    if "onchain_base_score" in ais:
-        try:
-            base = float(ais["onchain_base_score"])
-        except (TypeError, ValueError):
-            return None
-        return round(base) if math.isfinite(base) and base >= 0.0 else None
-
     try:
         final_ais = float(ais["ais"])
-        zk_boost = float(ais["zk_boost"])
     except (KeyError, TypeError, ValueError):
         return None
     if not math.isfinite(final_ais) or final_ais < 0.0:
         return None
-    if not math.isfinite(zk_boost) or zk_boost <= 0.0:
-        return None
-    # Defense in depth for the Oracle's identity ceiling. The middleware still
-    # consumes the authoritative score and never rebuilds the geometric formula,
-    # but a malformed/new response must not let a low-tier value reach chain.
+    # Defense in depth for the Oracle's identity ceiling. The middleware still consumes the
+    # authoritative score and never rebuilds the geometric formula, but a malformed/new response
+    # must not let a low-tier value reach chain.
     if "tier_ceiling" in ais:
         try:
             ceiling = float(ais["tier_ceiling"])
@@ -108,7 +86,8 @@ def _base_score_from_ais_response(ais: dict) -> int | None:
             return None
         if not math.isfinite(ceiling) or ceiling < 0.0 or final_ais > ceiling + 1e-9:
             return None
-    return round(final_ais / zk_boost)
+    score_bps = round(final_ais * 10)
+    return score_bps if score_bps <= MAX_SCORE_BPS else None
 
 
 def _flagged_ratio(volume: list[dict]) -> tuple[int, int]:
@@ -119,18 +98,20 @@ def _flagged_ratio(volume: list[dict]) -> tuple[int, int]:
 
 def sync_one_agent(settings: Settings, agent_id: str, *, now: float) -> AgentSyncResult:
     try:
-        primitives = resolve_agent_primitives(settings.oracle_url, agent_id)
+        actor = resolve_agent_actor(settings, agent_id)
     except AgentResolutionError as exc:
         return AgentSyncResult(agent_id=agent_id, score_pushed=False, score_detail=str(exc))
-
-    reputation_registry = primitives.get("reputation_registry")
-    sovereign_agent = primitives.get("sovereign_agent")
-    slasher = primitives.get("slasher")
-    if not reputation_registry or not sovereign_agent:
+    if actor is None:
         return AgentSyncResult(
             agent_id=agent_id,
             score_pushed=False,
-            score_detail="oracle returned no reputation_registry/sovereign_agent for agent",
+            score_detail="NO_ACTOR: AgentRegistry binds no actor to this agent; skipped, no transaction",
+        )
+
+    ais_registry = settings.contract_address("AISRegistry")
+    if not ais_registry:
+        return AgentSyncResult(
+            agent_id=agent_id, score_pushed=False, score_detail=f"no 'AISRegistry' address in {settings.deployments_file}"
         )
 
     try:
@@ -140,33 +121,23 @@ def sync_one_agent(settings: Settings, agent_id: str, *, now: float) -> AgentSyn
     except (httpx.HTTPError, ValueError) as exc:
         return AgentSyncResult(agent_id=agent_id, score_pushed=False, score_detail=f"could not fetch AIS: {exc}")
 
-    base_score = _base_score_from_ais_response(ais)
-    if base_score is None:
-        return AgentSyncResult(agent_id=agent_id, score_pushed=False, score_detail="AIS response missing valid ais/zk_boost")
+    score_bps = _score_bps_from_ais_response(ais)
+    if score_bps is None:
+        return AgentSyncResult(agent_id=agent_id, score_pushed=False, score_detail="AIS response missing a valid ais")
 
-    try:
-        ratio = float(ais.get("zk_verified_event_ratio", 0.0))
-        if not math.isfinite(ratio) or not 0.0 <= ratio <= 1.0:
-            raise ValueError
-        ratio_bps = round(ratio * 10_000)
-    except (AttributeError, TypeError, ValueError):
-        return AgentSyncResult(agent_id=agent_id, score_pushed=False, score_detail="AIS response has invalid zk event ratio")
-
-    if _last_pushed_score.get(agent_id) == base_score and _last_pushed_coverage.get(agent_id) == ratio_bps:
+    if _last_pushed.get(agent_id) == (actor, score_bps):
         result = AgentSyncResult(
-            agent_id=agent_id, score_pushed=False, score_detail=f"unchanged (base_score={base_score}), skipped"
+            agent_id=agent_id, score_pushed=False, score_detail=f"unchanged (score={score_bps} bps), skipped"
         )
     else:
-        push_result = push_score(settings, reputation_registry, sovereign_agent, base_score, ratio_bps)
+        push_result = post_checkpoint(settings, ais_registry, actor, score_bps, int(now))
         result = AgentSyncResult(agent_id=agent_id, score_pushed=push_result.submitted, score_detail=push_result.detail)
         if push_result.submitted:
-            # Only cache on a CONFIRMED submission -- a failed push must not
-            # be remembered as "unchanged", or a real pending update would be
-            # skipped forever on every subsequent cycle.
-            _last_pushed_score[agent_id] = base_score
-            _last_pushed_coverage[agent_id] = ratio_bps
+            # Only cache on a CONFIRMED submission -- a failed post must not be remembered as
+            # "unchanged", or a real pending update would be skipped forever.
+            _last_pushed[agent_id] = (actor, score_bps)
 
-    if not slasher or not settings.dispute_enabled:
+    if not settings.dispute_enabled:
         return result
 
     if now - _last_disputed_at.get(agent_id, 0.0) < settings.dispute_cooldown_seconds:
@@ -191,7 +162,13 @@ def sync_one_agent(settings: Settings, agent_id: str, *, now: float) -> AgentSyn
     if ratio < settings.dispute_flagged_ratio_threshold:
         return result
 
-    available = get_available_stake(settings, slasher, sovereign_agent)
+    try:
+        vault = stake_vault_address(settings)
+    except AgentResolutionError as exc:
+        logger.warning("dispute threshold crossed for %s but the StakeVault is unresolvable: %s", agent_id, exc)
+        return result
+
+    available = get_available_stake(settings, vault, actor)
     if not available:
         return result
     amount = available * settings.dispute_stake_bps // 10_000
@@ -199,7 +176,7 @@ def sync_one_agent(settings: Settings, agent_id: str, *, now: float) -> AgentSyn
         return result
 
     reason = f"oracle-flagged telemetry ratio {flagged}/{total} ({ratio:.0%}) over last {settings.dispute_lookback_bucket} bucket window"
-    dispute_result = raise_dispute(settings, slasher, sovereign_agent, amount, reason)
+    dispute_result = raise_dispute(settings, vault, actor, amount, reason)
     result.dispute_raised = dispute_result.submitted
     result.dispute_detail = dispute_result.detail
     if dispute_result.submitted:
