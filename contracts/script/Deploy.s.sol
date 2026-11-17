@@ -255,6 +255,9 @@ contract Deploy is Script {
         aisRegistry.setStakeVault(address(stakeVault));
         aisRegistry.setRewardRegistry(address(rewardRegistry));
         aisRegistry.setAgentRegistry(address(agentRegistry));
+        // The default policy's AIS floor reads AISRegistry checkpoints (bps). minAis is 0 at genesis,
+        // so this pin is inert until governance raises the floor.
+        defaultExecutionPolicy.setAisRegistry(address(aisRegistry));
 
         // The gate goes live here; only then may anything be able to freeze. Only the v3
         // registry is wired: v2-factory agents resolve an inert gate regardless.

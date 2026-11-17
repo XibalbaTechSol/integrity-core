@@ -63,31 +63,23 @@ interface ITrustConfigLike {
 /// SPEC.md §5.3: `execute` MUST consult `IExecutionPolicy` when a policy is installed.
 /// address(0) is the disclosed testnet skip path so existing agents keep working.
 contract SovereignAgent is AccessControl, IAccount {
-    /// @dev Granted to the integrity-oracle backend's signer so it can push AIS cache
-    /// updates. Deliberately *not* the same key as DEFAULT_ADMIN_ROLE (the controller):
-    /// the oracle should never be able to rotate control of the agent or execute calls
-    /// on its behalf, only report a score.
+    /// @dev Granted to `oracle_` at construction. No function is gated on it: the agent no longer
+    /// caches a score (the AIS lives in `AISRegistry`). Kept so the constructor ABI is unchanged;
+    /// canonical agents pass `oracle_ == 0` and so have no ORACLE_ROLE member.
     bytes32 public constant ORACLE_ROLE = keccak256("ORACLE_ROLE");
 
     /// @dev Off-chain DID string this account is bound to, e.g.
-    /// `did:integrity:9f1c...`. Set once at construction; the AgentFactory is
-    /// responsible for ensuring DID uniqueness registry-wide (see AgentFactory.sol).
+    /// `did:integrity:9f1c...`. Set once at construction; `AgentRegistry` binds a DID to at most
+    /// one actor (see `AgentRegistry.bindActor`).
     string private _agentDID;
-
-    /// @notice Cached Agent Integrity Score last reported by the oracle. This is a cache
-    /// of `ReputationRegistry`'s value for cheap on-chain reads (e.g. by other
-    /// contracts gating access on "this agent's score"); ReputationRegistry remains the
-    /// canonical, cross-agent source of truth.
-    uint256 public ais;
 
     /// @notice Monotonic nonce, bumped on every `execute`. Lets off-chain indexers
     /// (integrity-oracle, integrity-dashboard) correlate on-chain actions with the
     /// BCC commitments (`nonce` field, §4.2) an agent submitted off-chain.
     uint256 public executionNonce;
 
-    /// @notice The `AgentRegistry` this agent was built for (the gate's pin). Named `factory` until
-    /// the held v2 graph is deleted (owner kernel review); renamed `registry` then.
-    address public immutable factory;
+    /// @notice The `AgentRegistry` this agent was built for (the gate's pin).
+    address public immutable registry;
 
     /// @notice Swappable execution policy. address(0) skips the check (testnet default).
     IExecutionPolicy public executionPolicy;
@@ -95,12 +87,11 @@ contract SovereignAgent is AccessControl, IAccount {
     /// @notice v2 trust layer: the stake vault, policy registry, reward-discount module, and the
     /// domain this agent is evaluated under are NOT stored here and NOT controller-settable. They
     /// are PINNED to a governance-owned source and resolved at call time via
-    /// `AgentRegistry(factory).trustConfig()` (modules) and `.resolveAgent()` (domain). This
+    /// `AgentRegistry(registry).trustConfig()` (modules) and `.resolveAgent()` (domain). This
     /// is the redesign that closes the Critical: a self-deployed agent is its own controller, so
     /// any gate reference it could set, it could also swap for a benign fake to escape the freeze.
     /// See `_resolveGate`.
 
-    event AISUpdated(uint256 oldScore, uint256 newScore);
     event ControllerRotated(address indexed oldController, address indexed newController);
     event AgentExecuted(address indexed target, uint256 value, bytes data, uint256 nonce);
     event ExecutionPolicySet(address indexed policy);
@@ -118,20 +109,15 @@ contract SovereignAgent is AccessControl, IAccount {
         _;
     }
 
-    constructor(string memory did_, address controller_, address oracle_, address factory_) {
+    constructor(string memory did_, address controller_, address oracle_, address registry_) {
         require(controller_ != address(0), "SovereignAgent: zero controller");
         _agentDID = did_;
-        factory = factory_;
+        registry = registry_;
 
         _grantRole(DEFAULT_ADMIN_ROLE, controller_);
         if (oracle_ != address(0)) {
             _grantRole(ORACLE_ROLE, oracle_);
         }
-        // Baseline score before the oracle has ever reported one. 0 rather than an
-        // arbitrary "starting reputation" — a nonzero default would let a freshly
-        // created, never-scored agent masquerade as one with an established track
-        // record in any downstream threshold check (e.g. health/EHRGate.sol).
-        ais = 0;
     }
 
     /// @inheritdoc IAccount
@@ -231,9 +217,8 @@ contract SovereignAgent is AccessControl, IAccount {
     /// preserves "an unwired/unregistered agent behaves exactly as before" and keeps the
     /// registration onboarding sequence (which routes `execute` BEFORE the agent is registered)
     /// working:
-    ///   - `factory == 0` or codeless (a never-registered test/standalone agent);
-    ///   - `factory` is not an `AgentRegistry` (`isRegisteredAgent` reverts), e.g. an agent built
-    ///     for the held v2 `AgentPrimitivesFactory`;
+    ///   - `registry == 0` or codeless (a never-registered test/standalone agent);
+    ///   - `registry` is not an `AgentRegistry` (`isRegisteredAgent` reverts);
     ///   - the agent is NOT yet bound as an actor (`isRegisteredAgent == false`) — critically, this guard
     ///     is applied to the WHOLE gate, not just the domain: once governance sets a global
     ///     `trustConfig` with a live `policyRegistry`, a pre-registration `execute` would resolve
@@ -250,11 +235,11 @@ contract SovereignAgent is AccessControl, IAccount {
         view
         returns (address stakeVault_, address policyRegistry_, address rewardDiscountModule_, bytes32 domainId_)
     {
-        // `factory` holds the `AgentRegistry` this agent was built for. The registry's codehash pin
+        // `registry` holds the `AgentRegistry` this agent was built for. The registry's codehash pin
         // covers this immutable (immutables live in runtime code), so an agent bound as an actor
-        // provably points at the registry that bound it. An agent built for anything else (the held
-        // v2 `AgentPrimitivesFactory`, a fake, nothing) fails the wrapped calls below: inert gate.
-        address r = factory;
+        // provably points at the registry that bound it. An agent built for anything else (a fake,
+        // nothing) fails the wrapped calls below: inert gate.
+        address r = registry;
         if (r == address(0) || r.code.length == 0) return (address(0), address(0), address(0), bytes32(0));
 
         // Registration guard: the whole gate is inert until the agent is bound as an actor.
@@ -301,13 +286,6 @@ contract SovereignAgent is AccessControl, IAccount {
         }
         emit AgentExecuted(target, value, data, nonce);
         return result;
-    }
-
-    /// @inheritdoc IAccount
-    function updateAIS(uint256 newScore) external onlyRole(ORACLE_ROLE) {
-        uint256 old = ais;
-        ais = newScore;
-        emit AISUpdated(old, newScore);
     }
 
     /// @notice Rotates control of the agent to a new address.

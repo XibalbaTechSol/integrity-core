@@ -333,7 +333,7 @@ def deploy_sovereign_agent(
 
     `factory_address` is the AgentPrimitivesFactory the agent registers through.
     It MUST be the real factory: `AgentPrimitivesFactory.registerCore` /
-    `registerPrimitives` revert `FactoryMismatch` unless `sa.factory()` equals the
+    `registerPrimitives` revert `FactoryMismatch` unless `sa.registry()` equals the
     calling factory, because the protocol-pinned trust gate resolves its
     references through `factory.registry().trustConfig()`. (The interface contract,
     §6.1, already specifies `new SovereignAgent(did, controller, oracleSigner,
