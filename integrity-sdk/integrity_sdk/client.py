@@ -21,11 +21,15 @@ bcc_middleware's own fail-closed-vs-best-effort split.
 from __future__ import annotations
 
 import atexit
+import contextlib
+import fcntl
+import hashlib
 import logging
 import os
 import threading
 import time
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, Iterator, List, Optional
 from urllib.parse import urlparse
 
 import requests
@@ -52,6 +56,40 @@ TELEMETRY_SCHEMA_VERSION = 2
 
 logger = logging.getLogger("integrity_sdk.client")
 
+# How long a flush waits for another process sharing this agent's telemetry nonce before
+# sending unlocked (best-effort; a 409 is then handled by the re-sync + retry in
+# `flush_telemetry`). The holder's critical section is bounded by the GET/POST timeouts.
+_NONCE_LOCK_WAIT_SEC = 30.0
+
+
+def telemetry_nonce_lock_path(oracle_url: str, agent_id: str) -> Path:
+    """Per-(oracle, agent) lock + last-sent-nonce file shared by every process on this host.
+
+    ``INTEGRITY_NONCE_LOCK_DIR`` overrides the directory (default ``~/.integrity/locks``). The
+    oracle URL is part of the key: a local and a hosted Oracle keep independent sequences.
+    """
+    base = os.getenv("INTEGRITY_NONCE_LOCK_DIR") or str(Path.home() / ".integrity" / "locks")
+    digest = hashlib.sha256(f"{oracle_url.rstrip('/')}\n{agent_id}".encode()).hexdigest()[:32]
+    return Path(base) / f"telemetry-{digest}.nonce"
+
+
+def _read_nonce(path: Path) -> int:
+    """Last nonce the Oracle accepted from this host for this agent; 0 if none/unreadable."""
+    try:
+        value = int(path.read_text().strip() or 0)
+    except (OSError, ValueError):
+        return 0
+    return value if value > 0 else 0
+
+
+def _write_nonce(path: Path, nonce: int) -> None:
+    """Atomically record an accepted nonce (caller holds the lock). Failure is logged only."""
+    try:
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(f"{nonce}\n")
+        os.replace(tmp, path)
+    except OSError as exc:
+        logger.warning("could not record telemetry nonce %d in %s: %s", nonce, path, exc)
 
 class IntegrityClient:
     """
@@ -511,7 +549,6 @@ class IntegrityClient:
                 self._batcher.add_telemetry(entry)
             return False
 
-        self._nonce += 1
         derived = derive.derive_ais_signals(
             batch,
             compliance_gate_address=compliance_gate_address,
@@ -526,54 +563,107 @@ class IntegrityClient:
             + ([{"kind": "custom_metrics", "metrics": custom_metrics}] if custom_metrics else [])
         )
 
-        signable = {
-            "schema_version": TELEMETRY_SCHEMA_VERSION,
-            "evidence_tier": "signed_agent",
-            "agent_id": self.agent_id,
-            "nonce": self._nonce,
-            "observed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "otel_spans": otel_spans,
-            "derived_signals": derived,
-            "zk_proof": zk_proof,
-        }
-        if self._keypair is not None:
-            payload = sign_body(self._keypair, signable)
-        else:
-            # Deserializes fine; the oracle will 401 it (see docstring point 2).
-            payload = {**signable, "signature": ""}
+        # The Oracle accepts a nonce only if it is strictly greater than the agent's
+        # last_nonce. Every process sharing this agent (Claude Code runs each hook in a
+        # fresh one, in parallel for parallel tool calls) must therefore allocate AND send
+        # under one cross-process lock: unique nonces alone still 409 when a higher one
+        # lands first. The lock file also records the last nonce the Oracle accepted from
+        # this host, so a process whose sync predates another's send starts above it.
+        with self._cross_process_nonce_lock() as shared:
+            if shared is not None:
+                self._nonce = max(self._nonce, _read_nonce(shared))
+            for attempt in (1, 2):
+                self._nonce += 1
+                signable = {
+                    "schema_version": TELEMETRY_SCHEMA_VERSION,
+                    "evidence_tier": "signed_agent",
+                    "agent_id": self.agent_id,
+                    "nonce": self._nonce,
+                    "observed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    "otel_spans": otel_spans,
+                    "derived_signals": derived,
+                    "zk_proof": zk_proof,
+                }
+                if self._keypair is not None:
+                    payload = sign_body(self._keypair, signable)
+                else:
+                    # Deserializes fine; the oracle will 401 it (see docstring point 2).
+                    payload = {**signable, "signature": ""}
 
+                try:
+                    resp = requests.post(f"{self.oracle_url}/v1/telemetry/ingest", json=payload, timeout=10)
+                    resp.raise_for_status()
+                    if shared is not None:
+                        _write_nonce(shared, self._nonce)
+                    try:
+                        body = resp.json()
+                        self._last_receipt = body if isinstance(body, dict) else {"response": body}
+                    except ValueError:
+                        self._last_receipt = {"http_status": resp.status_code}
+                    return True
+                except requests.RequestException as exc:
+                    is_409 = (
+                        isinstance(exc, requests.HTTPError)
+                        and exc.response is not None
+                        and exc.response.status_code == 409
+                    )
+                    if is_409:
+                        # A 409 PROVES this nonce was already consumed — by a sender outside
+                        # this host's lock (another machine or runtime on the same DID), or a
+                        # stale local record. Rolling back would repeat it forever
+                        # (PRODUCTION_GAPS.md Sec3); re-sync the Oracle's real last_nonce and
+                        # retry once, still under the lock, so a short-lived hook process
+                        # doesn't exit holding a re-queued batch nobody will flush.
+                        logger.warning(
+                            "telemetry flush to %s got 409 (nonce %d already used) — re-syncing last_nonce from oracle%s",
+                            self.oracle_url, self._nonce,
+                            ", retrying once" if attempt == 1 else f", re-queued {len(batch)} entries",
+                        )
+                        self._nonce_synced = False
+                        self._sync_nonce_from_oracle()
+                        if attempt == 1:
+                            continue
+                    else:
+                        self._nonce -= 1  # roll back so the retry reuses this nonce
+                        logger.warning("telemetry flush to %s failed, re-queued %d entries: %s", self.oracle_url, len(batch), exc)
+                    # Re-queue the drained batch so a later flush retries it — a transient
+                    # oracle outage shouldn't silently drop telemetry. (Trace runs and custom
+                    # metrics are best-effort-only and not re-queued; they're observability
+                    # sugar, not the signal-bearing payload.)
+                    for entry in batch:
+                        self._batcher.add_telemetry(entry)
+                    return False
+        return False  # unreachable: the loop always returns
+
+    @contextlib.contextmanager
+    def _cross_process_nonce_lock(self) -> Iterator[Optional[Path]]:
+        """Hold this agent's host-wide telemetry nonce lock; yields the shared nonce file.
+
+        Yields ``None`` (send unlocked, as before this lock existed) when the lock directory
+        can't be created or another process holds the lock past ``_NONCE_LOCK_WAIT_SEC``:
+        telemetry is best-effort and must never wedge a hook.
+        """
+        path = telemetry_nonce_lock_path(self.oracle_url, self.agent_id)
         try:
-            resp = requests.post(f"{self.oracle_url}/v1/telemetry/ingest", json=payload, timeout=10)
-            resp.raise_for_status()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            lock_file = open(path.with_name(path.name + ".lock"), "a+")
+        except OSError as exc:
+            logger.warning("telemetry nonce lock unavailable (%s); sending unlocked", exc)
+            yield None
+            return
+        with lock_file:
+            deadline = time.monotonic() + _NONCE_LOCK_WAIT_SEC
+            while True:
+                try:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        logger.warning("telemetry nonce lock %s busy for %.0fs; sending unlocked", path, _NONCE_LOCK_WAIT_SEC)
+                        yield None
+                        return
+                    time.sleep(0.02)
             try:
-                body = resp.json()
-                self._last_receipt = body if isinstance(body, dict) else {"response": body}
-            except ValueError:
-                self._last_receipt = {"http_status": resp.status_code}
-            return True
-        except requests.RequestException as exc:
-            # Re-queue the drained batch so a later flush retries it — a
-            # transient oracle outage shouldn't silently drop telemetry.
-            # (Trace runs and custom metrics are best-effort-only and not
-            # re-queued; they're observability sugar, not the signal-bearing
-            # payload.)
-            for entry in batch:
-                self._batcher.add_telemetry(entry)
-
-            if isinstance(exc, requests.HTTPError) and exc.response is not None and exc.response.status_code == 409:
-                # A 409 PROVES this nonce was already consumed by the oracle —
-                # rolling back to reuse it (the old behavior) would just repeat
-                # the same 409 forever (PRODUCTION_GAPS.md Sec3: this is exactly
-                # how a fresh client instance got permanently stuck after a
-                # restart). Re-sync the real last_nonce instead, so the retry
-                # this method's caller triggers next actually advances past it.
-                logger.warning(
-                    "telemetry flush to %s got 409 (nonce %d already used) — re-syncing last_nonce from oracle, re-queued %d entries",
-                    self.oracle_url, self._nonce, len(batch),
-                )
-                self._nonce_synced = False
-                self._sync_nonce_from_oracle()
-            else:
-                self._nonce -= 1  # roll back so the retry reuses this nonce
-                logger.warning("telemetry flush to %s failed, re-queued %d entries: %s", self.oracle_url, len(batch), exc)
-            return False
+                yield path
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)

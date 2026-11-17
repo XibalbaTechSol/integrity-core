@@ -160,3 +160,11 @@ def set_assurance_tier(deployed_chain):
         w3.eth.wait_for_transaction_receipt(w3.eth.send_raw_transaction(signed.raw_transaction), timeout=30)
 
     return _set
+
+
+@pytest.fixture(autouse=True)
+def _isolated_telemetry_nonce_lock_dir(tmp_path, monkeypatch):
+    """`IntegrityClient.flush_telemetry` keeps a host-wide per-agent nonce lock + last-sent
+    file (default ~/.integrity/locks). Point it at the test's tmp dir so tests never share
+    nonce state with each other or with a developer's real agents."""
+    monkeypatch.setenv("INTEGRITY_NONCE_LOCK_DIR", str(tmp_path / "integrity-nonce-locks"))
