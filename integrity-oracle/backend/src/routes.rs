@@ -14,7 +14,12 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/v1/stream", get(stream::stream_events))
         .route("/v1/agent/{id}/stream", get(stream::stream_agent))
-        .route("/v1/agent/register", post(handlers::register_agent))
+        // Scheduled for removal (registration v3 PR 4.6). Every hit is logged at WARN under
+        // `legacy_route` so the owner's caller-window check has evidence; see legacy_access.rs.
+        .route(
+            "/v1/agent/register",
+            post(handlers::register_agent).layer(axum::middleware::from_fn(crate::legacy_access::log_legacy_hit)),
+        )
         .route("/v1/agent/register/offchain", post(handlers::register_agent_offchain))
         .route("/v1/agent/{id}", get(handlers::get_agent))
         // Registration v3 on-chain path (PR 4.3). Additive: the legacy /v1/agent/register stays.

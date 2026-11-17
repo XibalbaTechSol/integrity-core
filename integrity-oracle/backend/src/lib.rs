@@ -16,6 +16,7 @@ pub mod error;
 pub mod handlers;
 pub mod identity;
 pub mod kyc;
+pub mod legacy_access;
 pub mod merkle;
 pub mod offchain_registration;
 pub mod onchain_registration;

@@ -306,6 +306,9 @@ pub async fn register_agent(
     State(state): State<AppState>,
     Json(req): Json<RegisterAgentRequest>,
 ) -> Result<Json<RegisterAgentResponse>, AppError> {
+    // Identity half of the legacy-route evidence (the middleware logs the request half
+    // even when the body never parses). Logged before validation: a rejected caller counts.
+    tracing::warn!(target: crate::legacy_access::TARGET, did = %req.did, handle = %req.handle, "legacy register caller");
     validate_xns_handle(&req.handle)?;
     if req.ed25519_pubkey_hex.is_none() && req.eth_address_hex.is_none() {
         return Err(AppError::BadRequest(
