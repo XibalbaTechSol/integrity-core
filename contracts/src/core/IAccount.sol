@@ -17,11 +17,6 @@ interface IAccount {
     /// current controller (see SovereignAgent.onlyController).
     function execute(address target, uint256 value, bytes calldata data) external returns (bytes memory);
 
-    /// @notice Oracle-role-gated cache update of the agent's current Agent Integrity Score.
-    /// @dev The score itself is computed by integrity-oracle (see §4.3 of the interface
-    /// contract) — this is a local, cheap-to-read cache, not a recomputation.
-    function updateAIS(uint256 newScore) external;
-
     /// @notice The off-chain DID string (`did:integrity:<fingerprint>`) this account is
     /// linked to. Returned as a string rather than reconstructed on-chain because DID
     /// fingerprints are derived from an Ed25519 public key (see §4.1), and Ed25519 point

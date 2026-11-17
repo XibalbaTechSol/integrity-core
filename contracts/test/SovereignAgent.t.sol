@@ -31,7 +31,7 @@ contract SovereignAgentTest is Test {
 
     function test_initialState() public view {
         assertEq(agent.agentDID(), "did:integrity:abc123");
-        assertEq(agent.ais(), 0);
+        assertEq(agent.registry(), address(this));
         assertTrue(agent.hasRole(agent.DEFAULT_ADMIN_ROLE(), controller));
         assertTrue(agent.hasRole(agent.ORACLE_ROLE(), oracle));
     }
@@ -56,20 +56,6 @@ contract SovereignAgentTest is Test {
         vm.prank(controller);
         vm.expectRevert("Target: nope");
         agent.execute(address(target), 0, abi.encodeCall(Target.alwaysReverts, ()));
-    }
-
-    function test_oracleCanUpdateAIS() public {
-        vm.prank(oracle);
-        vm.expectEmit(true, true, true, true);
-        emit SovereignAgent.AISUpdated(0, 777);
-        agent.updateAIS(777);
-        assertEq(agent.ais(), 777);
-    }
-
-    function test_nonOracleCannotUpdateAIS() public {
-        vm.prank(stranger);
-        vm.expectRevert();
-        agent.updateAIS(999);
     }
 
     function test_rotateController() public {
