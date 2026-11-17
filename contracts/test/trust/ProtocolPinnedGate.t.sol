@@ -45,15 +45,15 @@ contract DenyModule is IPolicyModule {
 /// `execute` calls while the trust layer is already globally active. The gate must stay inert for
 /// an unregistered agent (R11) or onboarding bricks.
 /// @dev Arbitrary bytecode that answers the registration probes like a genuine agent
-/// (real `factory()`, caller holds the admin role) but carries its own UNGATED `call`.
+/// (real `registry()`, caller holds the admin role) but carries its own UNGATED `call`.
 /// Before the codehash pin this registered cleanly and acted while frozen
 /// (final-fix re-review, Important-1).
 contract FakeAgent {
-    address public immutable factory;
+    address public immutable registry;
     bytes32 public constant DEFAULT_ADMIN_ROLE = 0x00;
 
     constructor(address factory_) {
-        factory = factory_;
+        registry = factory_;
     }
 
     function hasRole(bytes32, address) external pure returns (bool) {
@@ -230,7 +230,7 @@ contract ProtocolPinnedGateTest is Test {
 
     // ----------------------------------------------- 1. fake-factory registration reverts (R10)
 
-    /// MUTATION: delete `if (sa.factory() != address(this)) revert FactoryMismatch();` in
+    /// MUTATION: delete `if (sa.registry() != address(this)) revert FactoryMismatch();` in
     /// `registerCore` -> this reverts with MemoryNotInitialized instead, test FAILS.
     /// NOTE (R15): since the codehash pin, a genuine SovereignAgent built for another factory has
     /// a different runtime codehash (`factory` is an immutable), so it is rejected by

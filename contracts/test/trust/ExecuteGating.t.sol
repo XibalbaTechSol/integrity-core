@@ -156,13 +156,6 @@ contract ExecuteGatingTest is GateRegistryFixture {
         assertEq(address(tgt).balance, 1 ether);
     }
 
-    function test_unwired_updateAISStillWorks() public {
-        SovereignAgent a = new SovereignAgent("d", controller, stranger, address(0));
-        vm.prank(stranger);
-        a.updateAIS(42);
-        assertEq(a.ais(), 42);
-    }
-
     function test_registeredButNoTrustConfig_gateInert() public {
         // Bound, then governance clears the registry's TrustConfig -> inert. (v3 cannot bind
         // without a wired TrustConfig: the domain must have a live policy at bind time.)

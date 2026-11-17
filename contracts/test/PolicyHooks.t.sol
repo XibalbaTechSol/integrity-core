@@ -78,18 +78,8 @@ contract PolicyHooksTest is Test {
         assertEq(agent.executionNonce(), 0);
     }
 
-    function testExecuteAllowsWhenAisMeetsFloor() public {
-        ConstraintExecutionPolicy policy = new ConstraintExecutionPolicy(controller, 10, 0, false);
-        vm.prank(controller);
-        agent.setExecutionPolicy(address(policy));
-
-        vm.prank(oracle);
-        agent.updateAIS(10);
-
-        vm.prank(controller);
-        agent.execute(address(sink), 0, "");
-        assertEq(sink.hits(), 1);
-    }
+    // The AIS-floor allow path (a checkpoint at the floor) lives in trust/SovereignAgentD4.t.sol,
+    // against a real AISRegistry.
 
     function testExecuteEnforcesValueCapAndAllowlist() public {
         ConstraintExecutionPolicy policy = new ConstraintExecutionPolicy(controller, 0, 1 ether, true);

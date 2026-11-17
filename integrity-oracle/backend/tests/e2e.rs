@@ -1548,7 +1548,7 @@ impl V3Agent {
     }
 }
 
-/// Deploys a canonical `SovereignAgent` (forge artifact, built by `run_deploy`) whose `factory`
+/// Deploys a canonical `SovereignAgent` (forge artifact, built by `run_deploy`) whose `registry`
 /// is the `AgentRegistry`, so its runtime codehash matches the registry's `agentCodehash` pin.
 async fn deploy_sovereign_agent(
     provider: &impl alloy::providers::Provider,
