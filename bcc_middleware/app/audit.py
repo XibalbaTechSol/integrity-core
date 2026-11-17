@@ -88,6 +88,8 @@ def report_anchor_events(
     leaves: list[str],
     root: str,
     tx_hash: str,
+    sub_root: str | None = None,
+    proof: list[str] | None = None,
 ) -> None:
     """Fire-and-forget POST to the oracle's anchor-event endpoint after an agent's
     Merkle sub-tree is anchored on-chain, so each anchored ALLOW decision can be
@@ -96,10 +98,19 @@ def report_anchor_events(
     migration 0007 for the write-ordering race that motivates the JOIN over a
     back-fill. Best-effort/never-raises, same posture as report_decision and
     on-chain anchoring itself: a missed anchor report only means that decision is
-    un-linked in the audit trail until re-reported, never a gate on anything."""
+    un-linked in the audit trail until re-reported, never a gate on anything.
+
+    `root` is the root the ActionAnchor transaction's `RootAnchored` event carries: the BATCH
+    root over every agent's sub-root in that flush. `sub_root` (the root over `leaves`) and
+    `proof` (its sorted-pair path up to `root`) are sent alongside so a leaf can be verified
+    against `root` from this record alone; an Oracle that does not store them yet ignores them."""
     if not leaves:
         return
     payload = {"agent_id": agent_id, "leaves": leaves, "root": root, "tx_hash": tx_hash}
+    if sub_root is not None:
+        payload["sub_root"] = sub_root
+    if proof is not None:
+        payload["proof"] = proof
     endpoint_path = "/v1/audit/anchor"
     try:
         resp = httpx.post(

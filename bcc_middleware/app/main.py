@@ -505,6 +505,8 @@ def _report_anchor_events(settings: Settings, leaves: list, results: dict) -> No
             leaves=[f"0x{leaf.leaf_hash.hex()}" for leaf in agent_leaves],
             root=f"0x{result.batch_root.hex()}",
             tx_hash=result.tx_hash,
+            sub_root=f"0x{result.root.hex()}" if result.root is not None else None,
+            proof=[f"0x{p.hex()}" for p in result.proof],
         )
 
 

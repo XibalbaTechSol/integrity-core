@@ -136,6 +136,8 @@ def test_batch_filling_leaf_is_anchor_linked(client, real_opa_server, monkeypatc
     # The reported root is the BATCH root RootAnchored carries, never the agent's sub-root:
     # (leaf, root, tx) must be checkable against that transaction's event.
     assert report["root"] == "0x" + (b"\x22" * 32).hex()
+    assert report["sub_root"] == "0x" + (b"\x11" * 32).hex()
+    assert report["proof"] == []
     assert report["tx_hash"] == "0xdead"
     # All three leaves reported -- crucially including the batch-FILLING 3rd leaf.
     assert set(report["leaves"]) == {_leaf_hex(p) for p in payloads}
