@@ -309,9 +309,34 @@ def test_409_response_resyncs_nonce_instead_of_rolling_back(monkeypatch):
     client.log_telemetry({"text_output": "hi"})
 
     assert client.flush_telemetry() is False
-    assert len(get_calls) == 1  # the 409 handler explicitly re-synced
-    assert client._nonce == 15  # not rolled back to 10, which would just 409 again
+    assert len(get_calls) == 2  # each 409 (first try + one retry) explicitly re-synced
+    # 11 -> 409 -> synced to 15 -> retry 16 -> 409. Never rolled back toward 10, which would
+    # just 409 again; the next flush starts above everything already tried.
+    assert client._nonce == 16
     assert client._nonce_synced is True
+
+
+def test_409_then_retry_with_resynced_nonce_succeeds_in_the_same_flush(monkeypatch):
+    """A short-lived hook process exits right after one flush, so a re-queued batch would be
+    lost. After a 409 the flush re-syncs and retries once with last_nonce + 1."""
+    responses = iter([_FakeResponse(status_ok=False, status_code=409), _FakeResponse(True)])
+    sent = []
+    monkeypatch.setattr(
+        "integrity_sdk.client.requests.post",
+        lambda url, json=None, timeout=None: sent.append(json["nonce"]) or next(responses),
+    )
+    monkeypatch.setattr(
+        "integrity_sdk.client.requests.get",
+        lambda *a, **k: _FakeResponse(payload={"last_nonce": 15, "oracle_registered": True}),
+    )
+
+    client = IntegrityClient("agent-a", auto_flush=False)
+    client._nonce = 10
+    client._nonce_synced = True
+    client.log_telemetry({"text_output": "hi"})
+
+    assert client.flush_telemetry() is True
+    assert sent == [11, 16]
 
 
 def test_non_409_failure_still_rolls_back_nonce_for_retry(monkeypatch):
