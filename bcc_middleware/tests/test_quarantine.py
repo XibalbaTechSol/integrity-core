@@ -81,7 +81,7 @@ def test_definite_status_when_the_oracle_returns_no_primitives(anvil_chain):
     """
     Ordering guard (D2 must merge before 4.6): with the oracle answering in 4.6's shape (no
     `primitives` object), quarantine still returns a definite status. On the pre-D2 code, which
-    resolved the Slasher through the oracle's `primitives`, this returned CANNOT_VERIFY.
+    resolved the v2 dispute contract through the oracle's `primitives`, this returned CANNOT_VERIFY.
     """
     agent_id, _ = _bound_agent(anvil_chain)
     with respx.mock(assert_all_called=False, assert_all_mocked=False) as mock:

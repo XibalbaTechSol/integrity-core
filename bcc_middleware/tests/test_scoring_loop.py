@@ -1,55 +1,48 @@
 """
-Tests for app/scoring_loop.py -- the orchestration layer that lists agents
-from the oracle, pushes AIS scores to a real ReputationRegistry, and
-raises real Slasher disputes on a flagged-telemetry threshold.
+Tests for app/scoring_loop.py: list agents from the oracle, post each one's AIS to the real fixture
+`AISRegistry` as a checkpoint, and raise real `StakeVault` disputes on a flagged-telemetry threshold.
 
-The oracle's HTTP surface is mocked with respx (there is no real
-integrity-oracle in this test suite's fixture set -- same boundary
-test_chain_baa_anchor.py and test_reputation.py mock via
-mock_oracle_agent_resolution). The actual chain writes this module
-triggers are REAL eth_sendTransaction calls against the same anvil_chain
-fixture (MockReputationRegistry / MockSlasher) test_reputation.py uses --
-only the oracle HTTP boundary is faked, not the on-chain behavior.
+The oracle's HTTP surface is mocked with respx (there is no real integrity-oracle in this suite).
+Actor resolution and every chain write are REAL calls against the session anvil fixtures: the
+agent's actor comes from the fixture `AgentRegistry` (`bind_actor`), not from the oracle.
 """
 
 from __future__ import annotations
 
 import math
 
+import pytest
 import respx
 from eth_account import Account
 from httpx import Response
 
-from app.chain import resolve_agent_primitives
 from app.config import Settings
 from app.reputation import get_available_stake
-from app.scoring_loop import _base_score_from_ais_response, _last_disputed_at, _last_pushed_score, run_sync_cycle, sync_one_agent
-from tests.helpers import new_agent
+from app.scoring_loop import _last_disputed_at, _last_pushed, _score_bps_from_ais_response, run_sync_cycle, sync_one_agent
+from tests.helpers import bind_actor, chain_settings, fixture_contract, new_agent, send_tx
 
 _ORACLE_URL = "http://oracle.test"
 
 
-def _ais_response(
-    *,
-    entropy=800.0,
-    grounding=700.0,
-    sacrifice=600.0,
-    compliance=1000.0,
-    zk_boost=1.0,
-    final_ais: float | None = None,
-) -> dict:
-    geometric = entropy**0.30 * grounding**0.30 * sacrifice**0.20 * compliance**0.20
+@pytest.fixture(autouse=True)
+def _reset_loop_state():
+    _last_pushed.clear()
+    _last_disputed_at.clear()
+    yield
+    _last_pushed.clear()
+    _last_disputed_at.clear()
+
+
+def _ais_response(ais: float = 700.0, **extra) -> dict:
     return {
         "agent_id": "unused",
-        "ais": geometric * zk_boost if final_ais is None else final_ais,
-        "components": {"entropy": entropy, "grounding": grounding, "sacrifice": sacrifice, "compliance": compliance},
+        "ais": ais,
+        "components": {"entropy": 800.0, "grounding": 700.0, "sacrifice": 600.0, "compliance": 1000.0},
         "weights": {"entropy": 0.30, "grounding": 0.30, "sacrifice": 0.20, "compliance": 0.20},
-        "zk_boost": zk_boost,
-        "zk_proof_verified": zk_boost != 1.0,
         "period_start": "2026-01-01T00:00:00Z",
         "period_end": "2026-01-02T00:00:00Z",
         "event_count": 10,
-        "onchain_zk_boost_consistent": None,
+        **extra,
     }
 
 
@@ -59,266 +52,238 @@ def _volume(total: int, flagged: int) -> list[dict]:
     return [{"bucket_start": "2026-01-01T00:00:00Z", "count": total, "flagged_count": flagged}]
 
 
-def _mock_agent(
-    respx_mock: respx.MockRouter,
-    agent_id: str,
-    *,
-    sovereign_agent: str,
-    reputation_registry: str | None,
-    slasher: str | None = None,
-    ais: dict | None = None,
-    volume: list[dict] | None = None,
-) -> None:
-    primitives = {"sovereign_agent": sovereign_agent}
-    if reputation_registry:
-        primitives["reputation_registry"] = reputation_registry
-    if slasher:
-        primitives["slasher"] = slasher
-    respx_mock.get(f"{_ORACLE_URL}/v1/agent/{agent_id}").mock(
-        return_value=Response(200, json={"id": agent_id, "verification_tier": 1, "primitives": primitives})
-    )
-    resolve_agent_primitives.cache_clear()
+def _mock_oracle(respx_mock: respx.MockRouter, agent_id: str, *, ais: dict | None = None, volume: list[dict] | None = None) -> None:
+    """Stubs the oracle's AIS and telemetry-volume routes (no volume = no events, so no dispute)."""
     if ais is not None:
         respx_mock.get(f"{_ORACLE_URL}/v1/agent/{agent_id}/ais").mock(return_value=Response(200, json=ais))
-    if volume is not None:
-        respx_mock.get(f"{_ORACLE_URL}/v1/agent/{agent_id}/telemetry/volume").mock(return_value=Response(200, json=volume))
+    respx_mock.get(f"{_ORACLE_URL}/v1/agent/{agent_id}/telemetry/volume").mock(return_value=Response(200, json=volume or []))
+
+
+def _agent(anvil_chain) -> tuple[str, str]:
+    agent_id, _ = new_agent()
+    actor = Account.create().address
+    bind_actor(anvil_chain, agent_id, actor)
+    return agent_id, actor
 
 
 def _settings(anvil_chain, **overrides) -> Settings:
-    return Settings(
-        rpc_url=anvil_chain["rpc_url"],
-        oracle_url=_ORACLE_URL,
-        anchor_signer_private_key=anvil_chain["signer_private_key"],
-        dispute_min_events=5,
-        dispute_flagged_ratio_threshold=0.5,
-        dispute_stake_bps=1000,
-        dispute_cooldown_seconds=3600,
-        **overrides,
-    )
+    base = {
+        "oracle_url": _ORACLE_URL,
+        "anchor_signer_private_key": anvil_chain["signer_private_key"],
+        "dispute_min_events": 5,
+        "dispute_flagged_ratio_threshold": 0.5,
+        "dispute_stake_bps": 1000,
+        "dispute_cooldown_seconds": 3600,
+    }
+    return chain_settings(anvil_chain, **{**base, **overrides})
 
 
-# --- _base_score_from_ais_response ------------------------------------------------
+def _checkpoint(anvil_chain, actor: str) -> tuple[int, int, bytes]:
+    return tuple(fixture_contract(anvil_chain, "ais_registry").functions.latest(actor).call())
 
 
-def test_base_score_preserves_oracle_geometric_mean_for_unequal_components():
-    ais = _ais_response(entropy=800.0, grounding=600.0, sacrifice=400.0, compliance=900.0)
-    geometric = 800.0**0.30 * 600.0**0.30 * 400.0**0.20 * 900.0**0.20
-    arithmetic = 800.0 * 0.30 + 600.0 * 0.30 + 400.0 * 0.20 + 900.0 * 0.20
-
-    assert abs(geometric - arithmetic) > 5.0
-    assert _base_score_from_ais_response(ais) == round(geometric)
+def _seed_stake(anvil_chain, actor: str, amount: int) -> None:
+    send_tx(anvil_chain, fixture_contract(anvil_chain, "stake_vault").functions.seedStake(actor, amount))
 
 
-def test_base_score_removes_only_oracle_zk_boost():
-    ais = _ais_response(entropy=800.0, grounding=600.0, sacrifice=400.0, compliance=900.0, zk_boost=1.15)
-    geometric = 800.0**0.30 * 600.0**0.30 * 400.0**0.20 * 900.0**0.20
-
-    assert _base_score_from_ais_response(ais) == round(geometric)
+# --- _score_bps_from_ais_response ------------------------------------------------
 
 
-def test_base_score_preserves_oracle_tier_ceiling():
-    # The Oracle clamps after applying its 1.15 ZK boost. Dividing out only
-    # that boost produces the base which reaches the same capped value if the
-    # contract independently verifies and activates its own boost.
-    ais = _ais_response(zk_boost=1.15, final_ais=600.0)
-    assert _base_score_from_ais_response(ais) == round(600.0 / 1.15)
+def test_score_bps_scales_oracle_ais_to_basis_points():
+    assert _score_bps_from_ais_response({"ais": 850.0}) == 8500
+    assert _score_bps_from_ais_response({"ais": 0.0}) == 0
+    assert _score_bps_from_ais_response({"ais": 1000.0}) == 10_000
+    assert _score_bps_from_ais_response({"ais": 612.34}) == 6123
 
 
-def test_base_score_rejects_missing_or_invalid_authoritative_fields():
-    assert _base_score_from_ais_response({"zk_boost": 1.0}) is None
-    assert _base_score_from_ais_response({"ais": 500.0}) is None
-    assert _base_score_from_ais_response({"ais": 500.0, "zk_boost": 0.0}) is None
-    assert _base_score_from_ais_response({"ais": math.nan, "zk_boost": 1.0}) is None
+def test_score_bps_ignores_the_dropped_zk_boost():
+    """Owner question 2: the boost is gone, so `zk_boost` no longer divides anything out."""
+    assert _score_bps_from_ais_response({"ais": 690.0, "zk_boost": 1.15}) == 6900
 
 
-def test_base_score_prefers_oracle_onchain_base_after_post_adjustments():
-    assert _base_score_from_ais_response(
-        {"ais": 575.0, "zk_boost": 1.15, "onchain_base_score": 500.0}
-    ) == 500
+def test_score_bps_preserves_oracle_tier_ceiling():
+    assert _score_bps_from_ais_response({"ais": 600.0, "tier_ceiling": 600.0}) == 6000
+    assert _score_bps_from_ais_response({"ais": 601.0, "tier_ceiling": 600.0}) is None
 
 
-def test_base_score_fails_closed_on_onchain_assurance_mismatch():
-    assert _base_score_from_ais_response(
-        {
-            "ais": 500.0,
-            "zk_boost": 1.0,
-            "onchain_base_score": 500.0,
-            "onchain_assurance_consistent": False,
-        }
-    ) is None
+def test_score_bps_rejects_missing_invalid_or_out_of_range_values():
+    assert _score_bps_from_ais_response({}) is None
+    assert _score_bps_from_ais_response({"ais": "x"}) is None
+    assert _score_bps_from_ais_response({"ais": math.nan}) is None
+    assert _score_bps_from_ais_response({"ais": -1.0}) is None
+    assert _score_bps_from_ais_response({"ais": 1000.1}) is None
 
 
-def test_base_score_fails_closed_when_modern_response_cannot_read_onchain_cap():
-    assert _base_score_from_ais_response(
-        {
-            "ais": 500.0,
-            "zk_boost": 1.0,
-            "onchain_base_score": 500.0,
-            "onchain_assurance_consistent": None,
-        }
-    ) is None
+# --- sync_one_agent: checkpoint post ----------------------------------------------
 
 
-# --- sync_one_agent: score push ----------------------------------------------------
+def test_sync_one_agent_posts_ais_850_as_8500_bps(anvil_chain):
+    """
+    The plan's score test: an Oracle AIS of 850 (0..1000) lands on AISRegistry as 8500 bps.
 
-
-def test_sync_one_agent_pushes_real_base_score(anvil_chain):
-    agent_id, _ = new_agent()
-    sovereign_agent = Account.create().address
-    settings = _settings(anvil_chain)
+    Mutation proof: posting the raw 850 stores 850, so the readback assertion fails.
+    """
+    agent_id, actor = _agent(anvil_chain)
 
     with respx.mock as respx_mock:
-        _mock_agent(
-            respx_mock,
-            agent_id,
-            sovereign_agent=sovereign_agent,
-            reputation_registry=anvil_chain["reputation_registry_address"],
-            ais=_ais_response(entropy=900.0, grounding=900.0, sacrifice=900.0, compliance=900.0),
-        )
-        result = sync_one_agent(settings, agent_id, now=1_000_000.0)
+        _mock_oracle(respx_mock, agent_id, ais=_ais_response(850.0))
+        result = sync_one_agent(_settings(anvil_chain), agent_id, now=1_000_000.0)
 
     assert result.score_pushed, result.score_detail
-    w3 = anvil_chain["w3"]
-    contract = w3.eth.contract(address=anvil_chain["reputation_registry_address"], abi=anvil_chain["reputation_registry_abi"])
-    assert contract.functions.baseScoreOf(sovereign_agent).call() == 900
+    score, window_end, evidence_root = _checkpoint(anvil_chain, actor)
+    assert score == 8500
+    assert window_end == 1_000_000
+    assert evidence_root == b"\x00" * 32
 
 
-def test_sync_one_agent_skips_push_when_primitives_missing_reputation_registry(anvil_chain):
+def test_sync_one_agent_skips_an_agent_with_no_actor_without_any_transaction(anvil_chain):
+    """
+    Owner question 8b: an agent the registry binds no actor to is skipped with NO_ACTOR, and no
+    transaction leaves the signer (its nonce is unchanged) and no checkpoint is written. The oracle
+    is not even asked for the AIS: respx has no route for it and would raise if it were called.
+    """
     agent_id, _ = new_agent()
-    settings = _settings(anvil_chain)
+    bind_actor(anvil_chain, agent_id, None)
+    w3 = anvil_chain["w3"]
+    signer = Account.from_key(anvil_chain["signer_private_key"]).address
+    nonce_before = w3.eth.get_transaction_count(signer)
+    count_before = fixture_contract(anvil_chain, "ais_registry").functions.checkpointCount().call()
 
-    with respx.mock as respx_mock:
-        _mock_agent(respx_mock, agent_id, sovereign_agent=Account.create().address, reputation_registry=None)
-        result = sync_one_agent(settings, agent_id, now=1_000_000.0)
+    with respx.mock:
+        result = sync_one_agent(_settings(anvil_chain), agent_id, now=1_000_000.0)
 
     assert not result.score_pushed
-    assert "reputation_registry" in result.score_detail
+    assert result.score_detail.startswith("NO_ACTOR")
+    assert w3.eth.get_transaction_count(signer) == nonce_before
+    assert fixture_contract(anvil_chain, "ais_registry").functions.checkpointCount().call() == count_before
 
 
-def test_sync_one_agent_fails_gracefully_when_agent_unknown_to_oracle(anvil_chain):
-    settings = _settings(anvil_chain)
-    with respx.mock as respx_mock:
-        respx_mock.get(f"{_ORACLE_URL}/v1/agent/did:integrity:unknown").mock(return_value=Response(404))
-        resolve_agent_primitives.cache_clear()
-        result = sync_one_agent(settings, "did:integrity:unknown", now=1_000_000.0)
+def test_sync_one_agent_skips_when_no_ais_registry_is_deployed(anvil_chain, tmp_path):
+    import json
+
+    agent_id, _ = _agent(anvil_chain)
+    partial = tmp_path / "deployments.json"
+    singletons = json.loads(open(anvil_chain["deployments_file"]).read())["singletons"]
+    singletons.pop("AISRegistry")
+    partial.write_text(json.dumps({"singletons": singletons}))
+
+    result = sync_one_agent(_settings(anvil_chain, deployments_file=str(partial)), agent_id, now=1_000_000.0)
+
+    assert not result.score_pushed
+    assert "AISRegistry" in result.score_detail
+
+
+def test_sync_one_agent_fails_gracefully_for_a_malformed_did(anvil_chain):
+    with respx.mock:
+        result = sync_one_agent(_settings(anvil_chain), "did:integrity:unknown", now=1_000_000.0)
 
     assert not result.score_pushed
     assert not result.dispute_raised
+
+
+def test_sync_one_agent_skips_the_post_when_the_score_is_unchanged(anvil_chain):
+    """A second cycle with the identical score must NOT send a second transaction."""
+    agent_id, actor = _agent(anvil_chain)
+    ais = fixture_contract(anvil_chain, "ais_registry")
+
+    with respx.mock as respx_mock:
+        _mock_oracle(respx_mock, agent_id, ais=_ais_response(700.0))
+        first = sync_one_agent(_settings(anvil_chain), agent_id, now=1_000_000.0)
+        count_after_first = ais.functions.checkpointCount().call()
+        second = sync_one_agent(_settings(anvil_chain), agent_id, now=1_000_100.0)
+
+    assert first.score_pushed
+    assert not second.score_pushed
+    assert "unchanged" in second.score_detail
+    assert ais.functions.checkpointCount().call() == count_after_first
+    assert _checkpoint(anvil_chain, actor)[1] == 1_000_000  # the window end of the FIRST post
+
+
+def test_sync_one_agent_posts_again_when_the_score_changes(anvil_chain):
+    agent_id, actor = _agent(anvil_chain)
+
+    with respx.mock as respx_mock:
+        _mock_oracle(respx_mock, agent_id, ais=_ais_response(700.0))
+        first = sync_one_agent(_settings(anvil_chain), agent_id, now=1_000_000.0)
+    with respx.mock as respx_mock:
+        _mock_oracle(respx_mock, agent_id, ais=_ais_response(420.0))
+        second = sync_one_agent(_settings(anvil_chain), agent_id, now=1_000_100.0)
+
+    assert first.score_pushed and second.score_pushed
+    assert _checkpoint(anvil_chain, actor)[:2] == (4200, 1_000_100)
+
+
+def test_sync_one_agent_posts_again_after_the_actor_is_rebound(anvil_chain):
+    """The dedupe key includes the actor: a rebound agent gets a checkpoint under its new actor."""
+    agent_id, first_actor = _agent(anvil_chain)
+
+    with respx.mock as respx_mock:
+        _mock_oracle(respx_mock, agent_id, ais=_ais_response(700.0))
+        assert sync_one_agent(_settings(anvil_chain), agent_id, now=1_000_000.0).score_pushed
+        second_actor = Account.create().address
+        bind_actor(anvil_chain, agent_id, second_actor)
+        assert sync_one_agent(_settings(anvil_chain), agent_id, now=1_000_100.0).score_pushed
+
+    assert _checkpoint(anvil_chain, second_actor)[0] == 7000
+    assert _checkpoint(anvil_chain, first_actor)[0] == 7000
 
 
 # --- sync_one_agent: dispute logic --------------------------------------------------
 
 
 def test_sync_one_agent_does_not_dispute_below_min_events(anvil_chain):
-    agent_id, _ = new_agent()
-    sovereign_agent = Account.create().address
-    settings = _settings(anvil_chain)
-
+    agent_id, _ = _agent(anvil_chain)
     with respx.mock as respx_mock:
-        _mock_agent(
-            respx_mock, agent_id, sovereign_agent=sovereign_agent,
-            reputation_registry=anvil_chain["reputation_registry_address"],
-            slasher=anvil_chain["slasher_address"],
-            ais=_ais_response(),
-            volume=_volume(total=3, flagged=3),  # 100% flagged, but below dispute_min_events=5
-        )
-        result = sync_one_agent(settings, agent_id, now=1_000_000.0)
+        _mock_oracle(respx_mock, agent_id, ais=_ais_response(), volume=_volume(total=3, flagged=3))
+        result = sync_one_agent(_settings(anvil_chain), agent_id, now=1_000_000.0)
 
     assert not result.dispute_raised
 
 
 def test_sync_one_agent_does_not_dispute_below_ratio_threshold(anvil_chain):
-    agent_id, _ = new_agent()
-    sovereign_agent = Account.create().address
-    settings = _settings(anvil_chain)
-
+    agent_id, _ = _agent(anvil_chain)
     with respx.mock as respx_mock:
-        _mock_agent(
-            respx_mock, agent_id, sovereign_agent=sovereign_agent,
-            reputation_registry=anvil_chain["reputation_registry_address"],
-            slasher=anvil_chain["slasher_address"],
-            ais=_ais_response(),
-            volume=_volume(total=10, flagged=2),  # 20% flagged, below 0.5 threshold
-        )
-        result = sync_one_agent(settings, agent_id, now=1_000_000.0)
+        _mock_oracle(respx_mock, agent_id, ais=_ais_response(), volume=_volume(total=10, flagged=2))
+        result = sync_one_agent(_settings(anvil_chain), agent_id, now=1_000_000.0)
 
     assert not result.dispute_raised
 
 
 def test_sync_one_agent_raises_real_dispute_above_threshold_with_stake(anvil_chain):
-    agent_id, _ = new_agent()
-    sovereign_agent = Account.create().address
+    agent_id, actor = _agent(anvil_chain)
+    _seed_stake(anvil_chain, actor, 1_000)
     settings = _settings(anvil_chain)
 
-    w3 = anvil_chain["w3"]
-    slasher = w3.eth.contract(address=anvil_chain["slasher_address"], abi=anvil_chain["slasher_abi"])
-    account = Account.from_key(anvil_chain["signer_private_key"])
-    tx = slasher.functions.seedStake(sovereign_agent, 1_000).build_transaction(
-        {"from": account.address, "nonce": w3.eth.get_transaction_count(account.address), "chainId": anvil_chain["chain_id"]}
-    )
-    signed = account.sign_transaction(tx)
-    w3.eth.wait_for_transaction_receipt(w3.eth.send_raw_transaction(signed.raw_transaction), timeout=30)
-
     with respx.mock as respx_mock:
-        _mock_agent(
-            respx_mock, agent_id, sovereign_agent=sovereign_agent,
-            reputation_registry=anvil_chain["reputation_registry_address"],
-            slasher=anvil_chain["slasher_address"],
-            ais=_ais_response(),
-            volume=_volume(total=10, flagged=6),  # 60% flagged, at/above 0.5 threshold
-        )
+        _mock_oracle(respx_mock, agent_id, ais=_ais_response(), volume=_volume(total=10, flagged=6))
         result = sync_one_agent(settings, agent_id, now=1_000_000.0)
 
     assert result.dispute_raised, result.dispute_detail
-    # dispute_stake_bps=1000 (10%) of 1000 available stake = 100 locked.
-    assert get_available_stake(settings, anvil_chain["slasher_address"], sovereign_agent) == 900
+    # dispute_stake_bps=1000 (10%) of 1000 available = 100 held, on the ACTOR.
+    assert fixture_contract(anvil_chain, "stake_vault").functions.disputeLockedOf(actor).call() == 100
+    assert get_available_stake(settings, anvil_chain["stake_vault_address"], actor) == 900
 
 
 def test_sync_one_agent_respects_dispute_cooldown(anvil_chain):
-    agent_id, _ = new_agent()
-    sovereign_agent = Account.create().address
-    settings = _settings(anvil_chain)
-    _last_disputed_at.pop(agent_id, None)
-
-    w3 = anvil_chain["w3"]
-    slasher = w3.eth.contract(address=anvil_chain["slasher_address"], abi=anvil_chain["slasher_abi"])
-    account = Account.from_key(anvil_chain["signer_private_key"])
-    tx = slasher.functions.seedStake(sovereign_agent, 1_000).build_transaction(
-        {"from": account.address, "nonce": w3.eth.get_transaction_count(account.address), "chainId": anvil_chain["chain_id"]}
-    )
-    signed = account.sign_transaction(tx)
-    w3.eth.wait_for_transaction_receipt(w3.eth.send_raw_transaction(signed.raw_transaction), timeout=30)
+    agent_id, actor = _agent(anvil_chain)
+    _seed_stake(anvil_chain, actor, 1_000)
 
     with respx.mock as respx_mock:
-        _mock_agent(
-            respx_mock, agent_id, sovereign_agent=sovereign_agent,
-            reputation_registry=anvil_chain["reputation_registry_address"],
-            slasher=anvil_chain["slasher_address"],
-            ais=_ais_response(),
-            volume=_volume(total=10, flagged=6),
-        )
-        first = sync_one_agent(settings, agent_id, now=1_000_000.0)
-        second = sync_one_agent(settings, agent_id, now=1_000_100.0)  # 100s later, well inside the 1h cooldown
+        _mock_oracle(respx_mock, agent_id, ais=_ais_response(), volume=_volume(total=10, flagged=6))
+        first = sync_one_agent(_settings(anvil_chain), agent_id, now=1_000_000.0)
+        second = sync_one_agent(_settings(anvil_chain), agent_id, now=1_000_100.0)
 
     assert first.dispute_raised
     assert not second.dispute_raised
-    _last_disputed_at.pop(agent_id, None)
 
 
 def test_sync_one_agent_never_disputes_when_disabled(anvil_chain):
-    agent_id, _ = new_agent()
-    sovereign_agent = Account.create().address
-    settings = _settings(anvil_chain, dispute_enabled=False)
+    agent_id, actor = _agent(anvil_chain)
+    _seed_stake(anvil_chain, actor, 1_000)
 
     with respx.mock as respx_mock:
-        _mock_agent(
-            respx_mock, agent_id, sovereign_agent=sovereign_agent,
-            reputation_registry=anvil_chain["reputation_registry_address"],
-            slasher=anvil_chain["slasher_address"],
-            ais=_ais_response(),
-            volume=_volume(total=10, flagged=10),
-        )
-        result = sync_one_agent(settings, agent_id, now=1_000_000.0)
+        _mock_oracle(respx_mock, agent_id, ais=_ais_response(), volume=_volume(total=10, flagged=10))
+        result = sync_one_agent(_settings(anvil_chain, dispute_enabled=False), agent_id, now=1_000_000.0)
 
     assert result.score_pushed
     assert not result.dispute_raised
@@ -328,21 +293,15 @@ def test_sync_one_agent_never_disputes_when_disabled(anvil_chain):
 
 
 def test_run_sync_cycle_aggregates_across_agents(anvil_chain):
-    agent_a, _ = new_agent()
-    agent_b, _ = new_agent()
-    settings = _settings(anvil_chain)
+    (agent_a, _), (agent_b, _) = _agent(anvil_chain), _agent(anvil_chain)
 
     with respx.mock as respx_mock:
         respx_mock.get(f"{_ORACLE_URL}/v1/agents").mock(
             return_value=Response(200, json=[{"id": agent_a, "verification_tier": 1}, {"id": agent_b, "verification_tier": 1}])
         )
         for agent_id in (agent_a, agent_b):
-            _mock_agent(
-                respx_mock, agent_id, sovereign_agent=Account.create().address,
-                reputation_registry=anvil_chain["reputation_registry_address"],
-                ais=_ais_response(),
-            )
-        result = run_sync_cycle(settings, now=1_000_000.0)
+            _mock_oracle(respx_mock, agent_id, ais=_ais_response())
+        result = run_sync_cycle(_settings(anvil_chain), now=1_000_000.0)
 
     assert result.agents_seen == 2
     assert len(result.results) == 2
@@ -354,66 +313,3 @@ def test_run_sync_cycle_records_error_when_oracle_unreachable():
     result = run_sync_cycle(settings, now=1_000_000.0)
     assert result.agents_seen == 0
     assert result.errors
-
-
-# --- unchanged-score push skipping (PRODUCTION_GAPS.md §5) ---------------------------
-
-
-def test_sync_one_agent_skips_the_real_push_when_score_is_unchanged(anvil_chain):
-    """Real regression test: a second cycle with the identical base_score
-    must NOT submit a second on-chain transaction -- confirmed by reading
-    back the ReputationRegistry's own tx-count-independent state (the
-    `score_pushed` flag plus a distinguishable 'unchanged' detail), not just
-    by asserting on in-memory bookkeeping."""
-    agent_id, _ = new_agent()
-    sovereign_agent = Account.create().address
-    settings = _settings(anvil_chain)
-    _last_pushed_score.pop(agent_id, None)
-
-    with respx.mock as respx_mock:
-        _mock_agent(
-            respx_mock, agent_id, sovereign_agent=sovereign_agent,
-            reputation_registry=anvil_chain["reputation_registry_address"],
-            ais=_ais_response(),
-        )
-        first = sync_one_agent(settings, agent_id, now=1_000_000.0)
-        second = sync_one_agent(settings, agent_id, now=1_000_100.0)
-
-    assert first.score_pushed
-    assert not second.score_pushed
-    assert "unchanged" in second.score_detail
-    _last_pushed_score.pop(agent_id, None)
-
-
-def test_sync_one_agent_pushes_again_when_score_changes(anvil_chain):
-    agent_id, _ = new_agent()
-    sovereign_agent = Account.create().address
-    settings = _settings(anvil_chain)
-    _last_pushed_score.pop(agent_id, None)
-
-    with respx.mock as respx_mock:
-        _mock_agent(
-            respx_mock, agent_id, sovereign_agent=sovereign_agent,
-            reputation_registry=anvil_chain["reputation_registry_address"],
-            ais=_ais_response(entropy=800.0),
-        )
-        first = sync_one_agent(settings, agent_id, now=1_000_000.0)
-
-    with respx.mock as respx_mock:
-        _mock_agent(
-            respx_mock, agent_id, sovereign_agent=sovereign_agent,
-            reputation_registry=anvil_chain["reputation_registry_address"],
-            ais=_ais_response(entropy=200.0),  # genuinely different base_score
-        )
-        second = sync_one_agent(settings, agent_id, now=1_000_100.0)
-
-    assert first.score_pushed
-    assert second.score_pushed
-    assert "unchanged" not in second.score_detail
-
-    w3 = anvil_chain["w3"]
-    contract = w3.eth.contract(address=anvil_chain["reputation_registry_address"], abi=anvil_chain["reputation_registry_abi"])
-    on_chain_score = contract.functions.baseScoreOf(sovereign_agent).call()
-    expected_geometric = 200.0**0.30 * 700.0**0.30 * 600.0**0.20 * 1000.0**0.20
-    assert on_chain_score == round(expected_geometric)
-    _last_pushed_score.pop(agent_id, None)

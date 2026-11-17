@@ -18,26 +18,16 @@ chain, drives the real registration/creation/signing lifecycle, and proves
 `isBAAActive(coveredEntity, businessAssociate)`.
 
 *** Why the agent side of these transactions uses anvil impersonation ***
-`app/chain.py::agent_id_to_address` now resolves an agent's real
-`SovereignAgent` contract address from integrity-oracle's
-`GET /v1/agent/{id}` (see that module and tests/helpers.py's
-`mock_oracle_agent_resolution` -- a real oracle isn't part of this file's
-fixture set, so its one HTTP call is stubbed, returning a fresh
-`Account.create()` address that stands in for "the agent's real on-chain
-SovereignAgent address" for these tests' purposes). Either way -- whether a
-real oracle resolved it or a freshly generated EVM account stands in for one
--- this test doesn't hold that address's private key, so nothing can locally
-sign a transaction FROM it. To drive a real on-chain `SmartBAA.sign()` call as
-that exact address (the same address `check_baa_status` independently
-re-resolves and queries), this test uses anvil's
-`anvil_impersonateAccount`/`anvil_setBalance` cheat RPC methods -- the
-JSON-RPC equivalent of Foundry's `vm.prank`, which
-`contracts/test/health/SmartBAA.t.sol` already uses for the identical
-purpose. This is a standard local-test-chain technique for driving a
-contract call as an address you don't hold a key for; it is not a mock of
-anything this test is actually verifying (the deployed contracts, the
-`isBAAActive` ABI/call, and `check_baa_status`'s interpretation of the
-result are all real).
+`app/chain.py::agent_id_to_address` resolves an agent's `businessAssociate` address as its v3
+actor, `AgentRegistry.resolveDID(did).actor`, read from the fixture `AgentRegistry` that
+tests/helpers.py::bind_actor records a fresh `Account.create()` address in. This test doesn't hold
+that address's private key, so nothing can locally sign a transaction FROM it. To drive a real
+on-chain `SmartBAA.sign()` call as that exact address (the same address `check_baa_status`
+independently re-resolves and queries), this test uses anvil's
+`anvil_impersonateAccount`/`anvil_setBalance` cheat RPC methods -- the JSON-RPC equivalent of
+Foundry's `vm.prank`, which `contracts/test/health/SmartBAA.t.sol` already uses for the identical
+purpose. It is not a mock of anything this test verifies (the deployed contracts, the
+`isBAAActive` ABI/call, and `check_baa_status`'s interpretation of the result are all real).
 """
 
 from __future__ import annotations
@@ -46,28 +36,22 @@ import json
 from pathlib import Path
 
 import pytest
-import respx
 from eth_account import Account
 from web3 import Web3
 
 from app.baa import BAAStatus, check_baa_status
-from app.chain import agent_id_to_address
 from app.config import Settings
-from tests.helpers import mock_oracle_agent_resolution, new_agent
+from tests.helpers import bind_actor, chain_settings, new_agent
 
 _ORACLE_URL = "http://oracle.test"
 
 
-def _new_agent_with_resolved_address(respx_mock: respx.MockRouter) -> tuple[str, str]:
-    """Generates a fresh agent DID and a fresh, real EVM address to stand in
-    for its SovereignAgent contract, and stubs the oracle to resolve one to
-    the other -- see tests/helpers.py::mock_oracle_agent_resolution for why
-    the oracle (not a pure function of the DID) is the real resolution path
-    now that `businessAssociate` must be the agent's actual on-chain
-    SovereignAgent address, not a derivation from its Ed25519 pubkey."""
+def _new_agent_with_resolved_address(anvil_chain) -> tuple[str, str]:
+    """A fresh agent DID with a fresh, real EVM address bound as its v3 actor in the fixture
+    `AgentRegistry`: the address `check_baa_status` resolves as the BAA's businessAssociate."""
     agent_id, _ = new_agent()
     agent_address = Account.create().address
-    mock_oracle_agent_resolution(respx_mock, _ORACLE_URL, agent_id, agent_address)
+    bind_actor(anvil_chain, agent_id, agent_address)
     return agent_id, agent_address
 
 # Monorepo layout per docs/INTERFACE_CONTRACT.md §9: bcc_middleware/ and
@@ -144,6 +128,7 @@ def real_baa_stack(anvil_chain):
         "itk": itk,
         "registry": registry,
         "factory": factory,
+        "anvil_chain": anvil_chain,
     }
 
 
@@ -186,15 +171,14 @@ def _register_covered_entity(w3: Web3, admin, registry, address: str) -> None:
 
 def test_isBAAActive_false_before_any_baa_exists(real_baa_stack):
     """Real contract, real (never-created) pair -> a real `false`, not a revert or a guess."""
-    with respx.mock(assert_all_called=False, assert_all_mocked=False) as mock:
-        settings = Settings(rpc_url=real_baa_stack["rpc_url"], oracle_url=_ORACLE_URL)
-        agent_id, _ = _new_agent_with_resolved_address(mock)
-        covered_entity = Account.create().address
+    settings = chain_settings(real_baa_stack["anvil_chain"], oracle_url=_ORACLE_URL)
+    agent_id, _ = _new_agent_with_resolved_address(real_baa_stack["anvil_chain"])
+    covered_entity = Account.create().address
 
-        status, detail = check_baa_status(settings, agent_id, covered_entity, contract_address=real_baa_stack["factory"].address)
+    status, detail = check_baa_status(settings, agent_id, covered_entity, contract_address=real_baa_stack["factory"].address)
 
-        assert status is BAAStatus.INACTIVE
-        assert "isBAAActive" in detail
+    assert status is BAAStatus.INACTIVE
+    assert "isBAAActive" in detail
 
 
 def test_isBAAActive_false_when_baa_created_but_not_signed(real_baa_stack):
@@ -211,14 +195,13 @@ def test_isBAAActive_false_when_baa_created_but_not_signed(real_baa_stack):
     w3.provider.make_request("anvil_setBalance", [hospital.address, hex(Web3.to_wei(10, "ether"))])
     _register_covered_entity(w3, admin, registry, hospital.address)
 
-    with respx.mock(assert_all_called=False, assert_all_mocked=False) as mock:
-        agent_id, agent_address = _new_agent_with_resolved_address(mock)
+    agent_id, agent_address = _new_agent_with_resolved_address(real_baa_stack["anvil_chain"])
 
-        _send(w3, hospital, factory.functions.createBAA(agent_address, Web3.keccak(text="doc-not-signed"), 0))
+    _send(w3, hospital, factory.functions.createBAA(agent_address, Web3.keccak(text="doc-not-signed"), 0))
 
-        settings = Settings(rpc_url=real_baa_stack["rpc_url"], oracle_url=_ORACLE_URL)
-        status, _ = check_baa_status(settings, agent_id, hospital.address, contract_address=factory.address)
-        assert status is BAAStatus.INACTIVE
+    settings = chain_settings(real_baa_stack["anvil_chain"], oracle_url=_ORACLE_URL)
+    status, _ = check_baa_status(settings, agent_id, hospital.address, contract_address=factory.address)
+    assert status is BAAStatus.INACTIVE
 
 
 def test_isBAAActive_true_after_real_baa_created_and_signed(real_baa_stack):
@@ -242,26 +225,25 @@ def test_isBAAActive_true_after_real_baa_created_and_signed(real_baa_stack):
     w3.provider.make_request("anvil_setBalance", [hospital.address, hex(Web3.to_wei(10, "ether"))])
     _register_covered_entity(w3, admin, registry, hospital.address)
 
-    with respx.mock(assert_all_called=False, assert_all_mocked=False) as mock:
-        agent_id, agent_address = _new_agent_with_resolved_address(mock)
+    agent_id, agent_address = _new_agent_with_resolved_address(real_baa_stack["anvil_chain"])
 
-        _send(w3, hospital, factory.functions.createBAA(agent_address, Web3.keccak(text="doc-v1"), 0))
-        # createBAA returns the deployed SmartBAA address as its return value,
-        # not directly readable from a mined receipt -- re-derive it the same
-        # way check_baa_status/isBAAActive do, via the factory's own baaOf view.
-        baa_address = factory.functions.baaOf(hospital.address, agent_address).call()
-        assert baa_address != "0x0000000000000000000000000000000000000000", "createBAA did not register in baaOf"
-        baa = w3.eth.contract(address=baa_address, abi=_load_artifact("SmartBAA.sol", "SmartBAA")["abi"])
+    _send(w3, hospital, factory.functions.createBAA(agent_address, Web3.keccak(text="doc-v1"), 0))
+    # createBAA returns the deployed SmartBAA address as its return value,
+    # not directly readable from a mined receipt -- re-derive it the same
+    # way check_baa_status/isBAAActive do, via the factory's own baaOf view.
+    baa_address = factory.functions.baaOf(hospital.address, agent_address).call()
+    assert baa_address != "0x0000000000000000000000000000000000000000", "createBAA did not register in baaOf"
+    baa = w3.eth.contract(address=baa_address, abi=_load_artifact("SmartBAA.sol", "SmartBAA")["abi"])
 
-        settings = Settings(rpc_url=real_baa_stack["rpc_url"], oracle_url=_ORACLE_URL)
-        status_before, _ = check_baa_status(settings, agent_id, hospital.address, contract_address=factory.address)
-        assert status_before is BAAStatus.INACTIVE  # created but not yet signed
+    settings = chain_settings(real_baa_stack["anvil_chain"], oracle_url=_ORACLE_URL)
+    status_before, _ = check_baa_status(settings, agent_id, hospital.address, contract_address=factory.address)
+    assert status_before is BAAStatus.INACTIVE  # created but not yet signed
 
-        _send_impersonated(w3, agent_address, baa.functions.sign())
+    _send_impersonated(w3, agent_address, baa.functions.sign())
 
-        status_after, detail = check_baa_status(settings, agent_id, hospital.address, contract_address=factory.address)
-        assert status_after is BAAStatus.ACTIVE
-        assert f"isBAAActive({Web3.to_checksum_address(hospital.address)}, {agent_address}) == True" == detail
+    status_after, detail = check_baa_status(settings, agent_id, hospital.address, contract_address=factory.address)
+    assert status_after is BAAStatus.ACTIVE
+    assert f"isBAAActive({Web3.to_checksum_address(hospital.address)}, {agent_address}) == True" == detail
 
 
 def test_isBAAActive_false_again_after_revoke(real_baa_stack):
@@ -275,20 +257,19 @@ def test_isBAAActive_false_again_after_revoke(real_baa_stack):
     w3.provider.make_request("anvil_setBalance", [hospital.address, hex(Web3.to_wei(10, "ether"))])
     _register_covered_entity(w3, admin, registry, hospital.address)
 
-    with respx.mock(assert_all_called=False, assert_all_mocked=False) as mock:
-        agent_id, agent_address = _new_agent_with_resolved_address(mock)
+    agent_id, agent_address = _new_agent_with_resolved_address(real_baa_stack["anvil_chain"])
 
-        _send(w3, hospital, factory.functions.createBAA(agent_address, Web3.keccak(text="doc-revoke"), 0))
-        baa_address = factory.functions.baaOf(hospital.address, agent_address).call()
-        baa = w3.eth.contract(address=baa_address, abi=_load_artifact("SmartBAA.sol", "SmartBAA")["abi"])
+    _send(w3, hospital, factory.functions.createBAA(agent_address, Web3.keccak(text="doc-revoke"), 0))
+    baa_address = factory.functions.baaOf(hospital.address, agent_address).call()
+    baa = w3.eth.contract(address=baa_address, abi=_load_artifact("SmartBAA.sol", "SmartBAA")["abi"])
 
-        _send_impersonated(w3, agent_address, baa.functions.sign())
+    _send_impersonated(w3, agent_address, baa.functions.sign())
 
-        settings = Settings(rpc_url=real_baa_stack["rpc_url"], oracle_url=_ORACLE_URL)
-        status_active, _ = check_baa_status(settings, agent_id, hospital.address, contract_address=factory.address)
-        assert status_active is BAAStatus.ACTIVE
+    settings = chain_settings(real_baa_stack["anvil_chain"], oracle_url=_ORACLE_URL)
+    status_active, _ = check_baa_status(settings, agent_id, hospital.address, contract_address=factory.address)
+    assert status_active is BAAStatus.ACTIVE
 
-        _send(w3, hospital, baa.functions.revoke())
+    _send(w3, hospital, baa.functions.revoke())
 
-        status_revoked, _ = check_baa_status(settings, agent_id, hospital.address, contract_address=factory.address)
-        assert status_revoked is BAAStatus.INACTIVE
+    status_revoked, _ = check_baa_status(settings, agent_id, hospital.address, contract_address=factory.address)
+    assert status_revoked is BAAStatus.INACTIVE

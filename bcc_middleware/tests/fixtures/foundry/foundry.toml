@@ -5,4 +5,4 @@ libs = []
 # No optimizer/via-ir needed -- these are trivial fixture contracts used only
 # to exercise bcc_middleware's real eth_call/eth_sendTransaction code paths
 # against a local anvil instance before contracts/ has deployed the real
-# SmartBAA / StateAnchor contracts.
+# SmartBAA and the v3 trust singletons.

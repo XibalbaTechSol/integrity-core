@@ -41,7 +41,7 @@ def test_merkle_root_with_odd_leaf_count_duplicates_last_node():
     # level 1: [hash(a,b), hash(c,c)]  (c has no pair, duplicated rather
     # than promoted unhashed -- the OpenZeppelin-standard convention that
     # matches `integrity-oracle`'s `merkle.rs` and `contracts`'
-    # `StateAnchor.sol` bit-for-bit.)
+    # `ActionAnchor.sol` bit-for-bit.)
     # level 0 (root): hash(hash(a,b), hash(c,c))
     expected = _hash_pair(_hash_pair(a, b), _hash_pair(c, c))
     assert merkle_root([a, b, c]) == expected

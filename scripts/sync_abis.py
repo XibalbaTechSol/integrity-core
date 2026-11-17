@@ -113,8 +113,9 @@ CONTRACTS = [
 
 
 # Contracts the CLI no longer loads (registration v3 PR 3.4 deleted its primitives registration
-# path). They stay synced for the SDK; the CLI ships without them.
-CLI_SKIP = frozenset({"AgentPrimitivesFactory", "XibalbaAgentRegistry"})
+# path), and the D2 trust singletons only bcc_middleware calls. They stay synced for the SDK; the CLI ships
+# without them.
+CLI_SKIP = frozenset({"AgentPrimitivesFactory", "XibalbaAgentRegistry", "TrustConfig", "StakeVault", "AISRegistry"})
 
 
 def _targets(contract_name: str) -> tuple[Path, ...]:
