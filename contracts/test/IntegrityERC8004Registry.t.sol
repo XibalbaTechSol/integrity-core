@@ -21,7 +21,7 @@ contract IntegrityERC8004RegistryTest is Test {
 
     function setUp() public {
         registry      = new XibalbaAgentRegistry(admin);
-        sovereignAgent = new SovereignAgent(DID, controller, oracle, makeAddr("factory"));
+        sovereignAgent = new SovereignAgent(DID, controller, makeAddr("factory"));
         erc8004       = new IntegrityERC8004Registry(address(registry), admin);
 
         vm.startPrank(admin);

@@ -130,7 +130,7 @@ contract AgentPrimitivesFactory {
         initialZkVerifier = _initialZkVerifier;
         // Reference instance: controlled by this factory, which exposes no way to drive it.
         agentCodehash =
-            address(new SovereignAgent("did:integrity:reference", address(this), address(0), address(this))).codehash;
+            address(new SovereignAgent("did:integrity:reference", address(this), address(this))).codehash;
     }
 
     /// @notice Clones and registers the remaining 5 primitives for an agent that has

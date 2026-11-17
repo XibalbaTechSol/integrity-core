@@ -22,7 +22,7 @@ contract MediationM1Test is Test {
     MockErc20 token;
 
     function setUp() public {
-        agent = new SovereignAgent("did:integrity:m1", controller, oracle, address(this));
+        agent = new SovereignAgent("did:integrity:m1", controller, address(this));
         policy = new ConstraintExecutionPolicy(controller, 0, 0, false);
         token = new MockErc20();
         vm.prank(controller);

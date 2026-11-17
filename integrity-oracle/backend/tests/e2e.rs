@@ -1563,7 +1563,7 @@ async fn deploy_sovereign_agent(
     )
     .unwrap();
     let mut code = hex::decode(artifact["bytecode"]["object"].as_str().unwrap().trim_start_matches("0x")).unwrap();
-    code.extend((did.to_string(), controller, alloy::primitives::Address::ZERO, registry).abi_encode_params());
+    code.extend((did.to_string(), controller, registry).abi_encode_params());
     let tx = alloy::rpc::types::TransactionRequest::default().with_deploy_code(code);
     let receipt = provider.send_transaction(tx).await.unwrap().get_receipt().await.unwrap();
     assert!(receipt.status(), "SovereignAgent deploy reverted");

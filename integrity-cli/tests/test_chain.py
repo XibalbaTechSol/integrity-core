@@ -98,8 +98,7 @@ def _bind_v3(w3, chain_id, funder, controller, registry_address, did, pubkey=Non
     The attester is the deployer on anvil (`ATTESTER_ADDRESS` defaults to it locally); the agent
     consents via EIP-1271 with its controller's signature. Both sign raw EIP-712 digests.
     """
-    zero = "0x0000000000000000000000000000000000000000"
-    sovereign_agent = chain.deploy_sovereign_agent(w3, controller, did, zero, chain_id, registry_address)
+    sovereign_agent = chain.deploy_sovereign_agent(w3, controller, did, chain_id, registry_address)
     registry = chain._contract(w3, "AgentRegistry", address=registry_address)
     pubkey = pubkey or os.urandom(32)
     deadline = w3.eth.get_block("latest")["timestamp"] + 3600
@@ -172,11 +171,10 @@ def test_cli_chain_xns_register_fails_for_unregistered_agent(deployed_chain, tmp
     # contracts/test/, but proven here against the real deployed contract
     # rather than a Foundry unit-test fixture, and specifically isolating
     # "not indexed in the registry" from "has no SovereignAgent at all".
-    oracle_signer = funder.address
     stranger = wallet.generate_or_load_evm_wallet("cli-test-stranger")
     chain.fund_agent_wallet(w3, funder, stranger.address, Web3.to_wei(1, "ether"), chain_id)
     unregistered_sovereign_agent = chain.deploy_sovereign_agent(
-        w3, stranger, "did:integrity:cli-test-stranger", oracle_signer, chain_id, addr["AgentRegistry"]
+        w3, stranger, "did:integrity:cli-test-stranger", chain_id, addr["AgentRegistry"]
     )
 
     with pytest.raises(Exception):

@@ -284,7 +284,7 @@ def register_onchain(
     chain_id = w3.eth.chain_id
     actor = ZERO_ADDRESS
     if confined:
-        actor = chain.deploy_sovereign_agent(w3, guardian, did, ZERO_ADDRESS, chain_id, agent_registry)
+        actor = chain.deploy_sovereign_agent(w3, guardian, did, chain_id, agent_registry)
     dom = domain if domain is not None else ZERO_BYTES32
     deadline = int(time.time()) + deadline_secs
     att = request_attestation(oracle_url, did, keypair, chain_id=chain_id, agent_registry=agent_registry,

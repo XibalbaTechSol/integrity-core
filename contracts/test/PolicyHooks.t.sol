@@ -47,7 +47,7 @@ contract PolicyHooksTest is Test {
     Sink sink;
 
     function setUp() public {
-        agent = new SovereignAgent("did:integrity:test", controller, oracle, address(this));
+        agent = new SovereignAgent("did:integrity:test", controller, address(this));
         anchor = new StateAnchor(controller);
         sink = new Sink();
         vm.deal(address(agent), 10 ether);

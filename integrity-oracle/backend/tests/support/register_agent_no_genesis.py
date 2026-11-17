@@ -44,7 +44,7 @@ def main() -> None:
     oracle_signer = funder.address
 
     chain.fund_agent_wallet(w3, funder, evm_account.address, FUND_WEI, chain_id)
-    sovereign_agent = chain.deploy_sovereign_agent(w3, evm_account, agent_did, oracle_signer, chain_id)
+    sovereign_agent = chain.deploy_sovereign_agent(w3, evm_account, agent_did, chain_id)
     state_anchor = chain.deploy_state_anchor(w3, evm_account, sovereign_agent, chain_id)
     # NO chain.anchor_genesis_root(...) here — that omission is the point of this script.
     chain.grant_anchor_role(w3, evm_account, sovereign_agent, state_anchor, oracle_signer, chain_id)
