@@ -46,7 +46,7 @@ def fund(w3, funder, to, chain_id, wei=10**18):
 
 
 def deploy_canonical_agent(w3, chain_id, controller, registry_address, did):
-    """A SovereignAgent built for `registry_address` (factory = registry, oracle = 0): the only
+    """A SovereignAgent built for `registry_address` (registry pin = registry, oracle = 0): the only
     shape the registry's codehash pin accepts as an actor. `controller` must hold gas."""
     sa = artifact("SovereignAgent")
     factory = w3.eth.contract(abi=sa["abi"], bytecode=sa["bytecode"]["object"])
