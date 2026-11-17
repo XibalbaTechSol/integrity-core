@@ -115,6 +115,37 @@ needs `FUNDER_PRIVATE_KEY`, `INTEGRITY_WALLET_PASSWORD` or an RPC. `--oracle-url
 defaults to the configured `ORACLE_URL`. Registering again is safe and never lowers
 an existing tier.
 
+#### `--onchain [--confined --domain ID]` — the AgentRegistry record
+
+```bash
+integrity register --onchain [--rpc-url …] [--deployments-file …] [--json]
+integrity register --onchain --confined --domain general.integrity
+```
+
+Without `--onchain`, `register` never touches an RPC or a wallet. With it, after the
+off-chain step it:
+
+1. asks the Oracle for an attestation (`/v1/agent/{id}/onchain/attestation`): the agent
+   signs the EIP-712 `RegisterAgent` digest with its Ed25519 key, and the CLI refuses
+   an attestation over any digest other than the one this chain's `AgentRegistry`
+   computes, before spending gas;
+2. sends one `AgentRegistry.register(...)` from the identity's guardian wallet
+   (`INTEGRITY_WALLET_PASSWORD`; fund it first);
+3. asks the Oracle to sync the record (`/v1/agent/{id}/onchain/sync`).
+
+`--confined --domain` also deploys a `SovereignAgent` controlled by the guardian and binds
+it as the actor. The agent consents by calling `register` through its own `execute`
+(`msg.sender == actor`). `--domain` is a domain name (keccak-hashed, as
+`integrity domain register` creates it) or a `0x` bytes32 id. `--confined` and
+`--domain` go together and need `--onchain`. Without `--confined` the record is
+existence-only (no actor, so not settlement-eligible). Re-running on a registered DID
+sends nothing and just syncs (`"outcome": "already_registered"`).
+
+Exit 0 written and synced; 1 refused (Oracle 4xx, no `AgentRegistry` in the deployments
+file); 2 bad flags; 3 Oracle or RPC unreachable, or an Oracle 5xx (including an Oracle
+with no `AgentRegistry` configured); 4 contract revert, with the decoded error name
+(for example `DomainJoinNotAllowed`).
+
 ### `integrity status` — one view of an agent
 
 ```bash
