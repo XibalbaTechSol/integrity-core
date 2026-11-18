@@ -57,4 +57,4 @@ Each commercial vertical maintains strict architectural boundaries:
 - `integrity-core` never takes runtime dependencies on external cloud services.
 - `super-cortex` provides local-first graph memory independently of cloud providers.
 - `xibalba-shield` executes deterministic host-level enforcement with zero cloud dependency.
-- All communications, enterprise pilot inquiries, and partnership requests are handled directly through executive leadership at [jacob@xibalbasolutions.com](mailto:jacob@xibalbasolutions.com) or [+1 (262) 864-1589](tel:+12628641589).
+- All communications, enterprise pilot inquiries, and partnership requests are handled directly through executive leadership at [jacob@xibalbasolutions.com](mailto:jacob@xibalbasolutions.com) or telephone +1 (262) 864-1589.
