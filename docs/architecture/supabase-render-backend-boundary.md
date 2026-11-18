@@ -2,7 +2,7 @@
 
 **Status:** Architecture contract for implementation planning  
 **Date:** 2026-11-05  
-**Scope:** integrity-core, xibalba-shield, xibalba-cortex, integrity-console
+**Scope:** integrity-core, xibalba-shield, super-cortex, integrity-console
 
 ## Decision
 

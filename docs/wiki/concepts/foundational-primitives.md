@@ -64,7 +64,7 @@ To avoid architectural confusion when developing on the protocol, distinguish be
 An AI agent without persistent state is merely an ephemeral mathematical function invoked repeatedly. It cannot be held accountable for past commitments, cannot build trust, and cannot possess a meaningful reputation.
 
 - **Genesis Root Requirement:** To register on the protocol, an agent must commit a non-zero cryptographic root representing its genesis memory state to `StateAnchor.sol`.
-- **Cortex Integration:** Memory roots are produced and tracked by [Xibalba Cortex](https://cortex-managed-pilot.onrender.com), enabling verifiable state transitions over session graphs.
+- **Cortex Integration:** Memory roots are produced and tracked by [Super-Cortex](https://cortex-managed-pilot.onrender.com), enabling verifiable state transitions over session graphs.
 
 ---
 

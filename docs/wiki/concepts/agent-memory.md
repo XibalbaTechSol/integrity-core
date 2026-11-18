@@ -16,7 +16,7 @@ source_files:
 
 **Persistent memory is a foundational primitive of the Integrity Protocol AI Agent Control Layer:** an agent with no anchored genesis memory root cannot register.
 
-The agent controls a durable state vault whose commitments are Merkle-anchored on its own `StateAnchor` contract. In multi-agent and active-inference deployments, these state roots represent structured knowledge graph checkpoints maintained by [Xibalba Cortex](https://cortex-managed-pilot.onrender.com).
+The agent controls a durable state vault whose commitments are Merkle-anchored on its own `StateAnchor` contract. In multi-agent and active-inference deployments, these state roots represent structured knowledge graph checkpoints maintained by [Super-Cortex](https://cortex-managed-pilot.onrender.com).
 
 > **Primitive #1 of four.** See [The Four Foundational Primitives](foundational-primitives.md)
 > for how memory relates to ownership, authority and reputation.
@@ -124,7 +124,7 @@ uncommitted.
 
 ## Hermes native provider boundary (verified 2026-08-19)
 
-Hermes now selects `xibalba_cortex_memory_provider` as its external memory
+Hermes now selects `super_cortex_memory_provider` as its external memory
 provider. The adapter runs in Hermes' environment and reaches Cortex through an
 explicit bounded local request/response bridge; it does not import Cortex's
 GraphStore into Hermes and does not expose the bridge as a model-visible tool.

@@ -97,4 +97,4 @@ When an agent tool call attempts to access Protected Health Information (PHI):
 ## Integration with Xibalba Shield & Cortex
 
 - **Xibalba Shield:** Enforces local boundary gating on clinical workstations, ensuring that agents running locally cannot exfiltrate unredacted clinical data. Deployed at [`https://xibalba-shield.onrender.com`](https://xibalba-shield.onrender.com).
-- **Xibalba Cortex:** Ingests structured clinical ontologies (FHIR, MIMIC-IV) and maintains HIPAA-compliant temporal DAG memory traces. Deployed at [`https://cortex-managed-pilot.onrender.com`](https://cortex-managed-pilot.onrender.com).
+- **Super-Cortex:** Ingests structured clinical ontologies (FHIR, MIMIC-IV) and maintains HIPAA-compliant temporal DAG memory traces. Deployed at [`https://cortex-managed-pilot.onrender.com`](https://cortex-managed-pilot.onrender.com).

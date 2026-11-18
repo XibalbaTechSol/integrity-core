@@ -234,7 +234,7 @@
 
 - Merged xibalba-shield#39: labeled/HMAC-protected Hermes exports, separate device-auth keys,
   SDK JCS for Shield hash/signature inputs, and v2 signed-artifact metadata with regression tests.
-- Merged xibalba-cortex#32: profile-DID-first identity resolution and SDK JCS for Cortex store and
+- Merged super-cortex#32: profile-DID-first identity resolution and SDK JCS for Cortex store and
   Oracle receipt hash inputs; `XIBALBA_AGENT_ID` remains an explicit override.
 - Reconciled the A3 checkboxes in `docs/EXECUTION_PLAN.md`; remaining work is in later A5/A6 and
   Phase B/C gates rather than the completed A3 sibling migrations.
@@ -318,7 +318,7 @@
   the same function.
 - Evidence: SDK unit suite 262 passed, 8 skipped; the 10 new layout tests fail
   against the previous code.
-- Boundary: xibalba-shield/xibalba-cortex callers of the SDK were not checked
+- Boundary: xibalba-shield/super-cortex callers of the SDK were not checked
   in this change; any that read `.integrity/identity.json` directly need the
   DID file instead.
 
@@ -414,7 +414,7 @@
 - Dated, historical section citations elsewhere in `docs/INTERFACE_CONTRACT.md` (§15, §16 — tied
   to a specific past date and clause range) were deliberately left unedited, matching this
   document's own append-only convention for dated entries.
-- Separately corrected a factually wrong disclosure made in `xibalba-cortex`'s own Gate 6 work
+- Separately corrected a factually wrong disclosure made in `super-cortex`'s own Gate 6 work
   the same day: that repo's `memory_export_provenance` MCP tool was reported as having no
   scope/authorization check, but its transport-level `BearerTokenAuth` wrapper (checked against
   only after the fact) already enforces a `memory:read` baseline on every tool call in the real
@@ -474,7 +474,7 @@
 
 - Added `docs/audits/2026-08-06-cross-repository-status.md` as the current Integrity Protocol repository audit pointer.
 - Linked the consolidated four-repository implementation plan and status vocabulary from the wiki index.
-- Recorded verified default-branch test evidence and open findings for `integrity-core`, `integrity-mvp`, `xibalba-shield`, and `xibalba-cortex`.
+- Recorded verified default-branch test evidence and open findings for `integrity-core`, `integrity-mvp`, `xibalba-shield`, and `super-cortex`.
 - Preserved historical wiki entries and marked the audit as `AUDIT IN PROGRESS`; no production-readiness claim was promoted.
 
 ## [2026-08-06] update | Scoped Devil's Advocate and Red-Team Reviews
@@ -3424,7 +3424,7 @@ writeup: PRODUCTION_GAPS.md §18.
 
 ## [2026-08-06] docs | Cross-repository implementation plans
 
-- Added root `IMPLEMENTATION_PLAN.md` files to integrity-core, integrity-mvp, xibalba-shield, and xibalba-cortex.
+- Added root `IMPLEMENTATION_PLAN.md` files to integrity-core, integrity-mvp, xibalba-shield, and super-cortex.
 - Added `docs/wiki/architecture/repository-implementation-plans.md` as the canonical wiki rollup for closed/planned/blocked work across the four repositories.
 - Updated the wiki home page and WIKI_INDEX architecture section from one to two architecture pages.
 
@@ -3436,20 +3436,20 @@ writeup: PRODUCTION_GAPS.md §18.
 
 ## [2026-08-06] docs | Root specifications and archive cleanup
 
-- Added detailed root `SPECIFICATION.md` files for integrity-core, integrity-mvp, and xibalba-cortex, and updated xibalba-shield `SPECIFICATION.md` with the current audit boundary.
-- Archived superseded historical planning/handoff files into dated `docs/archive/2026-08-06/` folders in integrity-mvp, xibalba-shield, and xibalba-cortex.
+- Added detailed root `SPECIFICATION.md` files for integrity-core, integrity-mvp, and super-cortex, and updated xibalba-shield `SPECIFICATION.md` with the current audit boundary.
+- Archived superseded historical planning/handoff files into dated `docs/archive/2026-08-06/` folders in integrity-mvp, xibalba-shield, and super-cortex.
 - Updated `docs/wiki/architecture/repository-implementation-plans.md` so specifications, implementation plans, audit evidence, and archived historical records are represented without duplicate task entries.
 
 ## [2026-08-06] cleanup | Repository generated-artifact cleanup
 
-- Removed reproducible generated artifacts and caches from integrity-core, integrity-mvp, xibalba-shield, and xibalba-cortex.
+- Removed reproducible generated artifacts and caches from integrity-core, integrity-mvp, xibalba-shield, and super-cortex.
 - Kept source files, audits, docs, `.env`, `.venv`, `node_modules`, local deployment state, and active worktree changes intact.
 - Archived superseded historical plan/handoff documents under dated `docs/archive/2026-08-06/` folders rather than deleting them.
 
 ## [2026-08-13] update | integrity-dashboard full-site Playwright audit
 
 - Rewrote `entities/integrity-dashboard.md` from scratch — the prior content described a structurally different, pre-2026-08-12-reconciliation dashboard (`AgentListPage`/`MarketsPage`/`WalletPage`, `wagmi`/`viem`, a `react-grid-layout` widget dashboard) whose files no longer exist on disk.
-- Documented the current 16-route dashboard, its per-page backend wiring (oracle/userapi/direct-chain-to-Base-Sepolia/xibalba-cortex local_api), and the `/shield` page's identity as a self-contained attack-simulation demo (confirmed via `git log` that its real-backend integration code, `services/shieldBackend.ts` + `components/ShieldEvidenceGraph.tsx`, is orphaned, never imported by any page).
+- Documented the current 16-route dashboard, its per-page backend wiring (oracle/userapi/direct-chain-to-Base-Sepolia/super-cortex local_api), and the `/shield` page's identity as a self-contained attack-simulation demo (confirmed via `git log` that its real-backend integration code, `services/shieldBackend.ts` + `components/ShieldEvidenceGraph.tsx`, is orphaned, never imported by any page).
 - Recorded a full-site Playwright audit (16 specs, 140 tests, one spec per route, real backend stack, no mocking, screenshot-verified per page) that found and fixed 7 real bugs: `WikiPage.tsx` bold-markdown regex, `DIDExplorer.tsx` grid-collapse layout bug, `integrity-userapi` CORS missing the e2e origin, `AuthPage.tsx`/`DashboardContext.tsx` false-success wallet-auth navigation, `IntelligencePage.tsx` formula-box double-edge clipping, `Dashboard.tsx` radar-chart NaN from a 0-1 vs 0-1000 scaling mismatch, `TraceAnalysisPanel.tsx` stuck-loading state, and `ActuarialHub.tsx` Invalid-Date/resolve-gating bug from parsing an ISO string as a Unix-seconds number.
 - Updated `WIKI_INDEX.md`'s `integrity-dashboard` entry and `docs/TESTING.md`'s Layer 2 section (the previously-documented `e2e/global-setup.ts`/`global-teardown.ts` do not exist in this repo; corrected to the actual manual-stack-then-`npx playwright test` workflow).
 - Corrected `CLAUDE.md`'s stale "Known gaps" claims that `integrity-dashboard/e2e/` doesn't exist and that `package.json` defines a `vitest`-backed `"test"` script (it doesn't — no vitest dependency, no unit-test layer, Playwright e2e is the only test surface).
@@ -3933,7 +3933,7 @@ writeup: PRODUCTION_GAPS.md §18.
 ## [2026-09-12] ops | bounded protocol CI watch
 
 - Audited the remaining local scheduler loops and live GitHub state for `integrity-core`,
-  `xibalba-cortex`, and `xibalba-shield`.
+  `super-cortex`, and `xibalba-shield`.
 - Confirmed the current default branches had no open pull requests and recent runs were green;
   historical Shield failures were localized to missing `uv` in the runner, a missing `cortex_url`
   CLI namespace field, and stale wiki table-of-contents metadata.
@@ -3947,10 +3947,10 @@ writeup: PRODUCTION_GAPS.md §18.
 
 ## [2026-09-12] ops | Cortex inference queue recovery wired into cron preflight
 
-- Updated `/home/xibalba/.hermes/scripts/xibalba-cortex-queue-preflight.py` to invoke the canonical
+- Updated `/home/xibalba/.hermes/scripts/super-cortex-queue-preflight.py` to invoke the canonical
   `GraphStore` recovery methods before reporting readiness: legacy claimed-row reconciliation and
   bounded expired-lease requeue/dead-letter handling.
-- Updated the `xibalba-cortex-inference-worker` cron prompt to treat recovery as a completed
+- Updated the `super-cortex-inference-worker` cron prompt to treat recovery as a completed
   deterministic stage, preserve proposal-only inference, and use only the active restricted
   Model Context Protocol tool manifest for evidence retrieval.
 - Verification: the live default Cortex queue recovery executed successfully; legacy dead-lettered,
@@ -4306,12 +4306,12 @@ writeup: PRODUCTION_GAPS.md §18.
   `/metrics` is unauthenticated by design and is only acceptable here because both origins are `bind 127.0.0.1 ::1`; the
   Caddyfile says so at the directive so the lines are not copied to a public front door.
 - Verified by running this exact config on spare loopback ports against the live backends: `/readyz` and `/healthz` answer
-  `application/json`, `/metrics` answers `text/plain; version=0.0.4` with a body starting `# HELP xibalba_cortex_requests_total`,
+  `application/json`, `/metrics` answers `text/plain; version=0.0.4` with a body starting `# HELP super_cortex_requests_total`,
   `/cortex-api/api/agents` answers Cortex's `401 application/json` (cookie-less curl) and `/cortex-api/healthz` its `200`,
   proving the strip. Negative controls: `/` and an unknown path still return the SPA on both origins, so the fallback is intact.
   `caddy fmt` reports the file already canonical.
 - The same two gaps were fixed in the product repos' own (unused-here, container-rooted) Caddyfiles by xibalba-shield#60 and
-  xibalba-cortex#49; this is the config the `xibalba-caddy.service` user unit actually runs.
+  super-cortex#49; this is the config the `xibalba-caddy.service` user unit actually runs.
 
 ## [2026-10-25] chore | The local front door's unit is tracked, and its ports are in the contract
 
@@ -4380,11 +4380,11 @@ writeup: PRODUCTION_GAPS.md §18.
 - Created `entities/policy-packs.md` detailing manifest specifications, Rego/WASM policy execution,
   cryptographic signing via Ed25519, atomic verification, and hot-reload/dual-run lifecycle.
 - Fully aligned the 4-repository architecture: `integrity-core` (Physics Engine & Control Layer),
-  `xibalba-cortex` (Navigational Engine), `xibalba-shield` (Response Governance & Boundary Gating), and
+  `super-cortex` (Navigational Engine), `xibalba-shield` (Response Governance & Boundary Gating), and
   `integrity-console` (Universal Verifiable Operator Window).
 - Updated all production cloud references to verified Render endpoints:
   - Xibalba Shield: `https://xibalba-shield.onrender.com`
-  - Xibalba Cortex: `https://cortex-managed-pilot.onrender.com`
+  - Super-Cortex: `https://cortex-managed-pilot.onrender.com`
   - Integrity Oracle: `https://integrity-oracle.onrender.com`
   - Integrity Console: `https://integrity-console-test.onrender.com`
 - Resolved all entity drift targets in `wiki_linter.py` (0 missing files across all entities).

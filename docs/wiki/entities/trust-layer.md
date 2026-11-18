@@ -107,7 +107,7 @@ keccak256(abi.encode(fromNode, relation, toNode, target, targetSelector, riskWei
 The leaf binds the callee address and the function selector, so a proof for one call cannot
 authorize another. Arguments are left out on purpose, so an edge can mean "tool X with any
 arguments". The risk weight is inside the leaf and cannot be under-reported. The same leaf is
-computed off-chain by the navigation engine in `xibalba-cortex`; a pinned golden vector in both
+computed off-chain by the navigation engine in `super-cortex`; a pinned golden vector in both
 repositories keeps the two byte-identical. See `docs/INTERFACE_CONTRACT.md` §4.4c.
 
 ## Genesis deployment

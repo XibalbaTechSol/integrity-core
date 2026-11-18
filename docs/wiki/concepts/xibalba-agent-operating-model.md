@@ -56,7 +56,7 @@ A result is significant when it changes architecture, policy, identity, protocol
 
 ### Runtime development boundary
 
-The observed Hermes runtime uses the `xibalba_cortex_memory_provider` provider and routes its pre-tool calls through `/home/xibalba/.claude/xibalba/hermes_gate.py`, as configured in `/home/xibalba/.hermes/config.yaml`. This is runtime configuration evidence, not repository-source evidence, and must be rechecked before being treated as current deployment state.
+The observed Hermes runtime uses the `super_cortex_memory_provider` provider and routes its pre-tool calls through `/home/xibalba/.claude/xibalba/hermes_gate.py`, as configured in `/home/xibalba/.hermes/config.yaml`. This is runtime configuration evidence, not repository-source evidence, and must be rechecked before being treated as current deployment state.
 
 An operator-selected `XIBALBA_INTEGRITY_MODE=development` activates a deterministic local fallback only when the normal policy dependency is unavailable. The observed fallback in `/home/xibalba/.claude/xibalba/dev_mode.py` allows bounded local reversible work inside approved repository roots, denies network writes, credentials, deployments, blockchain, financial, identity, destructive, and control-plane actions, and labels decisions `not_opa_verified`. Signing-class actions remain fail-closed. This is a development escape hatch, not production authorization or evidence that Open Policy Agent (OPA) approved an action.
 
