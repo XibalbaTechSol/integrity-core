@@ -1,6 +1,7 @@
 # Agent wallet and key custody — design
 
-Status: **proposed (non-authoritative)**. Date: 2026-11-18. Revision 2 (supersedes the
+Status: **proposed (non-authoritative)**. Date: 2026-11-18. Revision 3 (rev 2 plus owner answers
+and two builder checks; supersedes the
 `SovereignAgent` v2 patch design in revision 1, commit `4bed6847`).
 Review provenance: the Devil's Advocate engine is not entitled (`ENGINE_NOT_IN_PLAN`). This design
 was red-teamed with the advisor model and self-review, then put through a fresh-builder check. That
@@ -178,19 +179,31 @@ spike passes. The spike must answer these questions, each of which can change th
 **One deployment for all agents.** Configuration is keyed by `account`
 (`mapping(address account => Config)`), and is installed with `onInstall(initConfig)`.
 
-**`preCheck`** runs on every execution. It enforces, in order:
+**Operation classes.** `preCheck` sorts every execution into one of two classes:
+- **Admin**: calls to the account itself or to its modules, such as installing or uninstalling a
+  module, enabling or revoking a session key, rotating the owner, or writing hook config. These
+  are **always allowed for the owner**, whatever the freeze, AIS or registration state, so an
+  owner is never trapped.
+- **Value-moving**: everything else. Only value-moving operations go through the checks below.
+
+**`preCheck`** enforces, in order, on value-moving operations:
 1. **Not frozen.** `StakeVault.stakeOf(account).frozen == false`.
 2. **Registered.** `AgentRegistry.agentOf(account) != 0` and the record is not retired.
 3. **AIS floor.**
    - `AISRegistry.latest(account).score >= max(protocolFloor, account.ownerFloor)`.
-   - A checkpoint older than `maxCheckpointAge` (governance-set) is denied with `AisStale`.
+   - A checkpoint whose `postedAt` (a new field; `AISRegistry` is a fresh deploy, §7) is older
+     than `maxCheckpointAge` (governance-set) is denied with `AisStale`.
    - The console shows a fix (request a checkpoint). The rule is documented so it cannot fail
      silently the way the kernel did.
-   - **Bootstrap.** A new wallet has no checkpoint. Registration writes an **initial checkpoint**
-     at the protocol floor (by the attester/scorer role, during the same flow), so a new agent can
-     spend at once. `protocolFloor` stays 0 until the scoring pipeline is verified checkpointing
-     live (§7 precondition). Without both rules, every new agent and the canary would be denied on
-     day one.
+   - **Bootstrap.** A new wallet has no checkpoint, and the owner's setup batch cannot post one:
+     `postCheckpoint` needs `SCORER_ROLE` and a bound agent. So the setup batch contains only
+     admin operations, which keeps it free of the checks and avoids deadlock. After the Oracle sees
+     the registration, it posts an **initial checkpoint** at `bootstrapScore` (governance-set,
+     **at or above `StakeVault.freezeThreshold`**, so a new agent is never frozen at birth).
+     Until that checkpoint lands, value-moving operations revert `AwaitingFirstCheckpoint`, and
+     the console shows "activating".
+   - `protocolFloor` stays 0 until the scoring pipeline is verified checkpointing live. Without
+     these rules every new agent would be denied or frozen on day one.
 4. **Target allowlist.** Default on, owner-set.
 5. **Token amount.** It decodes `transfer`, `transferFrom`, `approve`, `safeTransferFrom`, `burn`
    and `burnFrom`. An unknown selector on a known token is denied (fail closed).
@@ -201,7 +214,12 @@ spike passes. The spike must answer these questions, each of which can change th
    - Owner-approve threshold: anything above X needs owner validation.
 
 **`postCheck`** updates the window counter from the **measured balance delta** (the kernel's
-method, so non-decoded movement still counts) and calls the stake lock (§6.6).
+method, so non-decoded movement still counts).
+
+**Not in this version (owner decision D-L):** domain policy (`PolicyRegistry.checkCompliance`,
+graph-edge proofs) and stake collateral (`lockForAction`). Spending is governed by limits, modes
+and AIS only. The hook keeps a reserved config slot so a later version can add stake collateral
+without migrating accounts.
 
 **Config writers.**
 - **The owner**, through the wallet: limits, allowlist, modes, and an owner floor at or above the
@@ -210,8 +228,9 @@ method, so non-decoded movement still counts) and calls the stake lock (§6.6).
 - **The maintenance key** (§6.7): tighten-only setters and pause. The hook rejects any write from
   it that loosens a value.
 
-**Owner override.** An owner operation skips the limits and mode gates but still passes checks
-1–3, because frozen, retired and below-floor apply to everyone. It counts toward the window. This
+**Owner override.** A value-moving owner operation skips the limits and mode gates but still
+passes checks 1–3, because frozen, retired and below-floor apply to everyone. Admin operations
+are never blocked. It counts toward the window. This
 holds only on execution paths the hook or `IntegrityGuard` sees (§6.1 spike).
 
 ### 6.3 Session-key permissions
@@ -234,7 +253,8 @@ useless outside Integrity targets even if the hook were misconfigured.
   console form.
 - An NFT transfer clears `agentWallet` (live registry behaviour). The console therefore treats
   "move passport" as a two-step re-point, and the Oracle flags `unset`.
-- Existing passports minted by CLI keys: re-mint from the wallet as part of migration (§7).
+- Existing passports minted by CLI keys: re-minted from the wallet when the system agents
+  register on the future Base Sepolia deploy (§7 runbook).
 
 ### 6.5 `AgentRegistry` v3 (redeploy)
 
@@ -245,6 +265,10 @@ useless outside Integrity targets even if the hook were misconfigured.
 - **Guardian is the wallet owner** (I3). Guardian powers (`setActor`, `clearActor`, `setDomain`,
   `retire`) stay, but registration requires `guardian == owner of actor`, read from the owner
   validator. `rotateOwner` in the console moves both, in one flow.
+- **Owner is a single EOA in this version** (D-M). Multisig owners are a later item; the
+  `guardian == owner` check and the console's signing flow assume one key.
+- **Domain policy is optional.** Because the hook no longer applies domain policy (D-L), v3
+  registration drops `_requirePolicy` for ITK-capable agents. `domainId` stays as a label.
 - **Hook removal is detected.** If the owner uninstalls the hook, `preCheck` no longer runs. The
   registry exposes `isGoverned(actor)` (hook installed), and the Oracle marks the agent
   `ungoverned`. AIS and stake consumers must treat ungoverned agents as non-transacting. Removal
@@ -252,18 +276,16 @@ useless outside Integrity targets even if the hook were misconfigured.
 
 ### 6.6 StakeVault
 
-`lockForAction` requires `msg.sender == agent`, but a hook calls as itself. Add `LOCKER_ROLE`,
-granted to `IntegrityHook`, with `lockForAction(agent, req)` allowed when
-`hasRole(LOCKER_ROLE, msg.sender)` and `agent.isModuleInstalled(MODULE_TYPE_HOOK, msg.sender, "")`
-is true. StakeVault asks the account itself, never the hook's own report. `stake` stays
-`msg.sender`-credited; the wallet stakes through a normal UserOperation.
+No changes in this version. Stake collateral is out (D-L), and the hook only reads the `frozen`
+flag. `StakeVault.onCheckpoint`'s freeze latch is why `bootstrapScore` must be at or above
+`freezeThreshold`.
 
 ### 6.7 Self-run agents (no human online at runtime)
 
 Owner decision 2026-11-18: allowed **if a human sets the limits in advance**. Revision 2's first
 mechanism put an owner key on the host. That fails: on Safe, an owner can execute directly and
 skip the hook (§6.1), so the "limits set in advance" would not hold. **Corrected mechanism,
-awaiting owner confirmation (D-E):**
+confirmed by the owner (D-E):**
 
 - **At creation** the human signs once with their own wallet, as owner. They set the limits and
   then go offline. The agent runs on its own with no human present.
@@ -273,9 +295,7 @@ awaiting owner confirmation (D-E):**
     the session key or pause the agent
 - **No owner key ever sits on the host.** Compromising the host gets the attacker spending within
   the human's limits, and nothing more.
-- **If there truly is no human wallet,** the only sound alternative is a **renounced owner**: the
-  limits are fixed forever, with no recovery and no raising, and changing anything means a new
-  agent. Offered as option (b) in D-E.
+- A renounced-owner variant (limits fixed forever) was considered and **not chosen**.
 
 The console and Oracle label these agents **self-run**, with the limits and the owner (or
 "renounced") shown.
@@ -296,8 +316,7 @@ The console and Oracle label these agents **self-run**, with the limits and the 
   - **human-owned** and **self-run**: both produce the DID attestation and the session-key address
     (plus the maintenance-key address for self-run), then hand off to the console, where the human
     signs (§6.9)
-  - **renounced** (if D-E(b) is chosen): the CLI builds the full setup and the human signs it once
-    from a wallet; the owner is then renounced
+
 - `erc8004.py`:
   - drop the `agentWallet` metadata entry
   - mint through the wallet
@@ -308,9 +327,16 @@ The console and Oracle label these agents **self-run**, with the limits and the 
 ### 6.9 Console (integrity-console, in this plan)
 
 - **Registration handoff.**
-  - The agent host runs `integrity register --onchain`. That registers off-chain, gets the Oracle
-    attestation, and writes a **pending on-chain registration** to the Oracle. The pending record
-    holds the DID, the session-key address and the attestation, never any secret.
+  - The agent host runs `integrity register --onchain --owner <human EOA>`. The owner address is
+    required, and it binds the pending record to one human.
+  - With the owner known, the host computes the counterfactual wallet address. That address is
+    deterministic from the owner, the factory and the salt. The host then signs the `RegisterAgent`
+    digest with its DID key, gets the Oracle attestation (deadline ≤ 24h, the Oracle's limit), and
+    writes a **pending on-chain registration**. The record holds the DID, owner, wallet address,
+    session-key (and maintenance-key) address and attestation, never any secret.
+  - Only the named owner's wallet can finish it: the Oracle serves the record only to a session
+    authenticated as that address, and the attestation names that guardian. If the deadline
+    passes, the host re-runs the command.
   - The console shows "finish setup". The human's wallet then, in one batched flow:
     - deploys the wallet
     - installs the hook and the session key with limits
@@ -338,35 +364,41 @@ The console and Oracle label these agents **self-run**, with the limits and the 
 - `controller` in API responses is replaced by `owner`, `session_key` and `wallet`.
   `IntegrityIdentityReadV1.isController` reports the owner.
 
-## 7. Migration and live rollout (Base Sepolia; the plan runs it)
+## 7. Rollout (local chain only in this plan)
 
-Owner decision: **the plan performs the rollout**, not just scripts. Render autoDeploy is on, so
-merging Oracle changes deploys them. The ordering guards against a half-cutover.
+Owner decision 2026-11-18 (D-D, revised): **local chain only**. A builder check found that the
+v3 trust layer (`AgentRegistry`, `StakeVault`, `AISRegistry`, `ActionAnchor`, v2 `ITK`) has
+**never been deployed to Base Sepolia**. `deployments.baseSepolia.json` has only the legacy
+`IntegrityToken` and `XibalbaAgentRegistry`, and the v2-graph-deletion plan (`:348`) says the same.
+So there is no v1 to migrate. The Base Sepolia deploy is a later, separate step, gated on the
+owner's credential rotation.
 
-**Preconditions (each with a readback check):**
-- **(P1) Consumer inventory.** Grep all four repos for the v1 `AgentRegistry`, `StakeVault`,
-  `AISRegistry` and `ActionAnchor` addresses and ABIs. Known consumers: the Oracle; `bcc_middleware`
-  (moved onto these contracts in #239); Shield; the console; the cortex agent0 tools. List each with
-  its cutover step. Any consumer missing from the list blocks step 1.
-- **(P2) Scoring is live.** The AIS scorer is writing checkpoints (memory 2026-11-17:
-  `bcc_middleware` points at a dead Oracle `:8080` and its spool has been full since Nov 11). Until
-  a fresh checkpoint is read back, `protocolFloor` stays 0.
-- **(P3) DID keys untouched.** Re-registration reuses the existing DID keys. Run `ps aux` before
-  touching any agent's identity, because a live process can mint a fresh DID.
-
-1. Deploy `IntegrityHook`, `AgentRegistry` v3 and the `StakeVault` upgrade or redeploy. Re-grant
-   `DomainRegistry` `REGISTRAR_ROLE`, the attester role and the hook's `LOCKER_ROLE`, verifying
-   each with `eth_getCode` and `hasRole` before writing `deployments.baseSepolia.json`.
-2. Ship the Oracle change, which **reads both registries** (v3 is authoritative, v1 is read-only
-   legacy), and merge it. Verify `/healthz` and a v1 agent still resolving.
-3. Re-register the system agents (Claude, Codex, agy, Hermes) on v3:
-   - human-owned by the owner's wallet: one console "finish setup" each, owner present
-   - their v1 records are retired by their v1 guardians
-4. v1 stake (if any) is unstaked and restaked from the new wallet. **v1 AIS history is not
-   carried over** (testnet, recorded so it is not repeated on mainnet).
-5. Remove v1 reads from the Oracle in a follow-up PR once every live agent resolves on v3.
-
-Each step has a readback check and a stop condition. The step-3 signatures need the owner present.
+This plan delivers:
+1. The full stack on **Anvil**, deployed by script: the chosen wallet stack (its factory,
+   validators and Smart Sessions), EntryPoint, `IntegrityHook`, `AgentRegistry` v3, `AISRegistry`
+   (with `postedAt`), `StakeVault`, v2 `ITK` (the hook's known token) and `ActionAnchor`.
+2. An end-to-end test on Anvil:
+   - CLI pending registration
+   - console finish-setup (Playwright against a local Oracle)
+   - Oracle initial checkpoint
+   - a session-key spend within limits, then over limits, then owner-approved
+   - a self-run agent spend
+   - the maintenance key tightening limits
+3. **Read-only fork tests** against Base Sepolia for what already exists there: EntryPoint v0.7, the
+   wallet stack's deployments (if present), and the live agent0 registry (a wallet-minted passport
+   gets `agentWallet == wallet`).
+4. Deploy scripts and a **runbook** for the future Base Sepolia deploy, with its preconditions:
+   - **(P1) Consumer inventory.** Every consumer of trust-layer addresses across the four repos
+     (Oracle, `bcc_middleware` per #239, Shield, console, cortex agent0 tools), with its cutover
+     step.
+   - **(P2) Scoring is live.** The AIS scorer is posting checkpoints. As of 2026-11-17,
+     `bcc_middleware` points at a dead Oracle `:8080` and its spool is full.
+   - **(P3) DID keys untouched.** The system agents (Claude, Codex, agy, Hermes) keep their DID keys;
+     run `ps aux` before any identity operation.
+   - **(P4) Credential rotation done.**
+   - **(P5) The daily live canary is enabled** right after the deploy (§9).
+   - The legacy graph (`IntegrityToken`, `XibalbaAgentRegistry`) stays live and untouched; its
+     removal stays with the v2-graph-deletion plan.
 
 ## 8. Out of scope (follow-ups)
 
@@ -397,7 +429,8 @@ Each step has a readback check and a stop condition. The step-3 signatures need 
   - hook removal makes the agent ungoverned
 - **Fork tests** against Base Sepolia: the chosen wallet stack, EntryPoint v0.7, and the live agent0
   registry (`register` from the wallet sets `agentWallet == wallet`).
-- **Live canary:** a scheduled daily UserOperation from a canary agent on Base Sepolia, which
+- **Live canary** (built in this plan, enabled at the future Base Sepolia deploy, P5): a scheduled
+  daily UserOperation from a canary agent, which
   alerts on failure, so enforcement cannot go dormant unnoticed.
 
 ## 10. Decisions record
@@ -407,13 +440,17 @@ Each step has a readback check and a stop condition. The step-3 signatures need 
 | D-A | Standard ERC-4337/7579 wallet + Integrity modules (approach 1) | Owner, 2026-11-18 |
 | D-B | One human key = wallet owner = registry guardian = passport holder | Owner, 2026-11-18 |
 | D-C | Protocol AIS floor; owners may only raise | Owner, 2026-11-18 |
-| D-D | Plan runs the Base Sepolia rollout | Owner, 2026-11-18 |
-| D-E | Self-run agents allowed if a human sets the limits in advance. Mechanism (§6.7): (a) the human owns and goes offline, and the host holds only session + maintenance keys; or (b) a renounced owner with fixed limits | Owner, 2026-11-18; **mechanism awaiting owner confirmation** |
+| D-D | Local chain only in this plan; Base Sepolia deploy is a later step via runbook (v3 was never deployed there) | Owner, 2026-11-18 (revised) |
+| D-E | Self-run agents allowed if a human sets the limits in advance: the human owns and goes offline, and the host holds only session + maintenance keys | Owner, 2026-11-18 (mechanism confirmed) |
 | D-F | Owner-signed operations override limits but not freeze/registration/floor | Designer's call |
 | D-G | Approvals are owner-signed UserOperations, not an on-chain queue | Designer's call |
 | D-H | Console registration handoff through the Oracle pending record; console work is in this plan | Designer's call |
 | D-I | Wallet stack: Safe + Safe7579 + Smart Sessions (with an `IntegrityGuard` for owner paths) or a hook-everything 7579 account; settled by the §6.1 spike | Designer's call |
-| D-K | AIS bootstrap: an initial checkpoint at registration; `protocolFloor` = 0 until scoring is verified live | Designer's call |
+| D-K | AIS bootstrap: Oracle posts an initial checkpoint at `bootstrapScore` ≥ `freezeThreshold` after registration; value moves wait for it; `protocolFloor` = 0 until scoring is verified live | Designer's call |
+| D-L | No domain policy or stake collateral in the hook this version (limits + modes + AIS only); a reserved slot is kept | Owner, 2026-11-18 |
+| D-M | Owner is a single EOA this version | Designer's call |
+| D-N | Admin operations are never blocked for the owner; checks apply to value-moving operations only | Designer's call |
+| D-O | The CLI requires `--owner`; the pending record is bound to it; the host fetches the attestation | Designer's call |
 | D-J | Shield co-signer implementation deferred | Designer's call |
 
 ## 11. Left to the builder
