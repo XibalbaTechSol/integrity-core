@@ -1,230 +1,385 @@
 # Agent wallet and key custody — design
 
-Status: **proposed (non-authoritative)**. Date: 2026-11-18. Owner decision: approach A (below).
-Review provenance: Devil's Advocate engine is not entitled (`ENGINE_NOT_IN_PLAN`); this design was
-red-teamed via the advisor model plus self-review, then a fresh-builder check. It amends SPEC §5.3
-only as a *proposal* (see §6.4) until reviewed, implemented, tested and accepted.
+Status: **proposed (non-authoritative)**. Date: 2026-11-18. Revision 2 (supersedes the
+`SovereignAgent` v2 patch design in revision 1, commit `4bed6847`).
+Review provenance: the Devil's Advocate engine is not entitled (`ENGINE_NOT_IN_PLAN`). This design
+was red-teamed with the advisor model and self-review, then put through a fresh-builder check. That
+builder check covered revision 1; its questions that still apply are answered in §10. Any SPEC
+change here (§7.5) is a *proposed amendment*, not authoritative, until it has been reviewed,
+implemented, tested and accepted.
 
 ## 1. The question this answers
 
-> "When an agent transacts ITK, which wallet does it use, and how is the key saved?"
+> "When an agent moves ITK, which wallet does it use, and how is the key saved?"
 
-**Answer.** Every agent that moves Integrity tokens has exactly one on-chain address: its
-`SovereignAgent` smart account. That one address is simultaneously
+**Answer.** Every agent that can move Integrity tokens has exactly one on-chain address: a
+**standard, audited ERC-4337 / ERC-7579 smart wallet**. Integrity does not build the wallet. It
+ships **modules** that install into it. That one address is all of the following at once:
 
-- the agent0 / ERC-8004 passport's `agentWallet`,
-- the `AgentRegistry` record's `actor`,
-- the `StakeVault` / `AISRegistry` key, and
-- the address that holds the agent's ITK and the one the console displays.
+- the agent0 / ERC-8004 passport's `agentWallet` (the wallet mints its own passport, §6.4)
+- the `AgentRegistry` record's `actor`
+- the `StakeVault` / `AISRegistry` key
+- the holder of the agent's ITK, and the address the console displays
 
-No single key controls that address. Control is split into roles inside the contract, and what the
-agent itself holds is a bounded **operator** key. What the operator may do is set by its human
-**owner** in the console and enforced on-chain.
+Control is split between keys. The **owner** is a human wallet. The agent holds only a **session
+key**, whose limits are set by a human and enforced on-chain.
 
 ### 1.1 Key table
 
-| Key | Curve | Where it is saved | What it can do on the `SovereignAgent` | If it leaks | Rotation |
-|---|---|---|---|---|---|
-| **Owner** (human) | secp256k1 | The human's own wallet (MetaMask/Coinbase/hardware) via the console's browser-wallet path (`agent0.ts` `registerAgent0WithWallet` already does this). **Never on the agent host.** | All admin: set/replace policy, set limits, approve queued spends, add/remove operator and co-signer, rotate owner, sign EIP-1271 (incl. `setAgentWallet` consent). | Full control of the agent's funds. Same blast radius as any self-custody wallet. | `rotateOwner(new)` signed by current owner. Optional recovery delegate is a later item (§9). |
-| **Operator** (the agent) | secp256k1 | `integrity_sdk/wallet.py` V3 encrypted keystore at `wallet_dir(agent_id)/keystore.json`, 0600, password from `INTEGRITY_WALLET_PASSWORD`. Unchanged format; **role changes**: it is no longer the controller. | `execute` / `propose` only, always through the policy. Cannot change policy, roles or 1271. | Attacker can spend **up to the owner's configured limits** until the owner revokes it. Cannot raise limits, cannot drain past caps, cannot sign permits. | Owner calls `setOperator(new)`; SDK mints a new keystore. Address of the account does not change. |
-| **Shield co-signer** (optional) | secp256k1 | Shield's device key store on the endpoint (separate from Shield's device identity key; TPM/OS keychain where available, 0600 file otherwise). | Countersigns an operator call when the owner selected "Shield must approve". Cannot initiate anything. | Alone: nothing (needs operator too). With a stolen operator key: spends within limits, same as "no co-signer". | Owner calls `setCoSigner(new)`. |
-| **Guardian / deployer** | secp256k1 | Whoever sends the deploy + `AgentRegistry.register` tx. | **None after deploy.** The constructor takes `owner` as an argument; the deployer gets no role. | Nothing on the account. | n/a |
-| **DID key** | Ed25519 | `did.py` PEM under the profile key home (unchanged). | Not a wallet. Signs BCC commitments, telemetry, and the off-chain registration attestation. | Agent impersonation off-chain; no funds. | Unchanged (out of scope). |
-
-Two deliberate consequences:
-
-1. The existing operator keystore is acceptable to keep hot on the agent host **only because** its
-   power is now bounded on-chain. Without the role split (today's contract) it is not.
-2. Guardian ≠ owner by construction. CLI registrations where no human wallet is present pass the
-   CLI's own EVM keystore as `owner` and print a warning that the agent is self-owned (see §8, D2).
+| Key | Where it is saved | What it can do | If it leaks | Rotation |
+|---|---|---|---|---|
+| **Owner** (human) | The human's own wallet (browser or hardware), signing through the console. Never on the agent host. | Everything: install or remove modules, set limits, approve or override spends, rotate the session key, rotate the owner. Also holds the registry guardian role and the passport (§5, I3). | Full control: the same blast radius as any self-custody wallet. | The owner rotates itself through the wallet's owner-management call, and the registry guardian moves in the same flow (§6.5). |
+| **Session key** (the agent) | `integrity_sdk/wallet.py` V3 encrypted keystore, `wallet_dir(agent_id)/keystore.json`, mode 0600, password in `INTEGRITY_WALLET_PASSWORD`. Format unchanged; the **role** changes. | Submit UserOperations that pass the session-key module's permissions **and** the Integrity hook. Cannot install or remove modules, change limits, or sign EIP-1271. | Spends up to the human-set limits until the owner revokes it. | The owner revokes and enables a new session key; the SDK creates a new keystore. **The address does not change.** |
+| **Host owner key** (only for a self-run agent, §6.7) | A second keystore on the host, separate file, separate password, never the session key. | Can only **tighten** the limits a human fixed at creation, revoke or rotate the session key, and register the agent. Cannot raise any limit or remove the Integrity hook. | The attacker can only lower limits or freeze the agent (a DoS), never spend more. | A human claims the agent (§6.7), which replaces it. |
+| **Shield co-signer** (optional) | Shield's device key store, separate from Shield's identity key. | Countersigns a session-key operation when the owner turned on "Shield must approve". Cannot start one. | On its own: nothing. | The owner changes the co-signer address. |
+| **DID key** | `did.py` PEM file (unchanged). | Not a wallet. Signs BCC commitments, telemetry, and the registration attestation. | Off-chain impersonation; no access to funds. | Unchanged. |
 
 ## 2. Intent and why
 
-- One address per agent for every ITK interaction, so reputation (AIS), stake and payments accrue
-  to the same identity the passport advertises.
-- Spending authority is **configurable per agent in the console**: no one / spending limits /
-  Shield must approve / owner must approve (combinable).
-- A console setting is a promise the chain keeps. The product sells verifiable control evidence,
-  so an advisory setting the agent can route around would be a failure even if it "works".
+- One address per agent for every ITK interaction, so AIS, stake and payments build up on the same
+  identity the passport advertises.
+- Spend authority is **configurable per agent in the console**: limits / Shield must approve /
+  owner must approve, in any combination. A console setting is a promise the chain keeps.
+- **Integrity ships rules, not wallets.** Any ERC-7579 wallet that installs the Integrity modules
+  is an Integrity agent. This widens adoption and leaves wallet security to audited code.
 
-**Goals.** Single-address invariant; on-chain-enforced spend authority with the four modes; the agent
-holds only a bounded key; owner configures from the console with their own wallet; agent0 passport
-`agentWallet` actually set on the live registry.
+**Goals.** The single-address invariant. On-chain enforcement of the console settings. The agent
+holds only a bounded session key. The live agent0 `agentWallet` is set correctly. The archived
+kernel's problems are fixed (§3.2).
 
-**Non-goals (this design).** Off-chain signer/KMS custody (approach B) and hybrid soft rules (C) —
-the signer interface leaves room for them. ERC-4337 bundlers/paymasters. Gas sponsorship. Mainnet.
-Social recovery.
+**Non-goals.** Writing our own account or session-key validator. Mainnet. Social recovery. An
+off-chain signing service (approach B), which stays possible through the SDK `Signer` seam.
+Shield-side co-signer implementation (§8).
 
-**Anti-goals.** Any path where a key on the agent host can raise its own limits or replace its
-policy. Any second "agent wallet" address that diverges from `actor`. Console showing an owner's
-personal wallet as the agent's.
+**Anti-goals.**
+- Any key on the agent host can raise its own limits or remove the hook.
+- A second "agent wallet" address that drifts away from `actor`.
+- The console shows an owner's personal wallet as if it were the agent's.
+- Enforcement code that ships without a live, scheduled check (the archived kernel sat dormant
+  for 84 days).
 
-## 3. Current state (verified 2026-11-18, `origin/main` c4a20aeb)
+## 3. Current state and history (verified 2026-11-18, `origin/main` c4a20aeb)
 
-- `SovereignAgent.sol`: a single `DEFAULT_ADMIN_ROLE` "controller" gates `execute` (both overloads),
-  `setExecutionPolicy`, `rotateController`, and EIP-1271 `isValidSignature` (`:298`). The operator
-  key and the admin key are therefore the same key, and it can remove its own policy.
-- `ConstraintExecutionPolicy.sol`: one admin, **global** (not per-agent) `maxValue`,
-  `allowedTarget`, `tokenOutCap`, `minAis`. Caps are **per call**; `check` is `view` (SPEC §5.3).
-  `_tokenAmount` decodes `transfer`, `approve`, `transferFrom`, `safeTransferFrom` only.
-- `ITK.sol` / `IntegrityToken.sol`: `ERC20 + ERC20Burnable + AccessControl`, no permit/3009.
-  `burn`/`burnFrom` are not decoded by the policy.
-- `AgentRegistry.sol`: actor must match the pinned runtime codehash of the canonical
-  `SovereignAgent` (`:58-61`); an actor is bound forever to the fingerprint that first bound it
-  (`actorClaimedBy`). `StakeVault.stake` credits `msg.sender`.
-- **Live agent0 registry** `0x8004A818…BD9e` (Base Sepolia, impl `0x7274e874…9c02`): has
-  `setAgentWallet(uint256,address,uint256,bytes)` and `unsetAgentWallet(uint256)`. A
-  `register(uri, [("agentWallet", …)])` call **reverts `reserved key`** (eth_call, 2026-11-18).
-  Therefore `erc8004.py:286` (confined path) and `agent0.ts:176` (console field) cannot succeed
-  against the live registry; on the default path `agentWallet` falls back to the minter, and the
-  console displays `agentWallet || owner` (`agent0.ts:276`).
-- SDK `wallet.py`: per-agent V3 keystore, password from env, documented as "the agent's own wallet
-  signs the SovereignAgent deployment" — that wallet is today's controller.
+### 3.1 Today
+
+- **`SovereignAgent` is a bespoke account.** `IAccount.sol` says it is "deliberately NOT an ERC-4337"
+  account. One `DEFAULT_ADMIN_ROLE` controller gates `execute`, `setExecutionPolicy`,
+  `rotateController` and EIP-1271, so the agent's key can remove its own policy.
+- **`ConstraintExecutionPolicy`** stores its rules globally rather than per agent, caps each call
+  only, has a `view` `check`, and does not decode `burn`/`burnFrom`.
+- **`AgentRegistry`**:
+  - It pins the actor's runtime codehash to the `SovereignAgent` build (`:62`, `:116`, `:310`).
+  - Its guardian keeps `setActor`, `clearActor`, `setDomain`, `proposeGuardian` and `retire`.
+  - `register_onchain` passes the agent's own keystore as the guardian.
+- **`StakeVault.lockForAction(agent, req)`** requires `msg.sender == agent` (`:213`). `stake`
+  credits `msg.sender`.
+- **The live agent0 registry** `0x8004A818…BD9e` is `IdentityRegistryUpgradeable`, impl
+  `0x7274e874…9c02`, with verified source (read 2026-11-18). It behaves like this:
+  - **Reserved key.** `register(uri, [("agentWallet", …)])` reverts `reserved key`, so the
+    `erc8004.py:286` and `agent0.ts:176` paths cannot succeed.
+  - **Default wallet.** On register, `agentWallet = msg.sender`.
+  - **Changing it.** `setAgentWallet(agentId, newWallet, deadline, sig)` checks `sig` through ECDSA
+    or **EIP-1271** (`IERC1271.isValidSignature`), and `deadline` may be at most 5 minutes ahead.
+  - **Transfer.** Transferring the NFT clears `agentWallet`.
+- **EntryPoint v0.7** `0x0000000071727De22E5E9d8BAf0edAc6f37da032` and **v0.8**
+  `0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108` both have code on Base Sepolia (read 2026-11-18).
+
+### 3.2 The archived kernel, and why this differs
+
+Phase I (tag `kernel-phase1-archive`, `docs/archive/2026-11/kernel-phase1/README.md`) had two parts:
+- **`IntegrityAccount`**: our own 983-line wallet on OpenZeppelin's draft account library, with
+  `installModule`/`uninstallModule` disabled.
+- **`IntegrityKernel`**: an ERC-7579 hook bound to one account, with constructor-fixed budgets,
+  ETH plus one token, and no calldata decoding.
+
+It was archived 2026-11-16 for four reasons. This design answers each one:
+
+| Archive reason | Answer here |
+|---|---|
+| Disconnected from registration v3 (it read `ReputationRegistry`) | The hook reads `AISRegistry` and binds through `AgentRegistry` from day one. |
+| No product consumer | Console-configured ITK spending is the consumer. |
+| Deployed reference went dormant (stale snapshot, every `execute` reverted) | The floor reads the AIS checkpoint with a defined staleness rule (§6.2). A scheduled live canary on Base Sepolia runs one operation daily and alerts on failure (§9). |
+| Halmos proofs not run continuously | The proofs are ported to the new hook and run in CI (§9). |
 
 ## 4. Approaches considered
 
-| | A. On-chain smart account (**chosen**) | B. Off-chain signer holds the key | C. Hybrid |
+| | **1. Standard wallet + Integrity modules (chosen)** | 2. Patch `SovereignAgent` (rev. 1) | 3. Any address, off-chain enforcement |
 |---|---|---|---|
-| Where rules are enforced | `SovereignAgent` + policy, on-chain | Shield on device or hosted KMS signer | Hard caps on-chain, soft rules off-chain |
-| Agent holds | Bounded operator key | Nothing | Bounded operator key |
-| Console change | Owner-signed tx (gas) | API write, instant | Both |
-| Trust | Chain | Our signer | Chain for caps, signer for prompts |
-| Cost now | Contract revision, registry redeploy | Signer service, no contract work | Both |
+| Wallet code we own | None | All of it | None |
+| Enforcement | On-chain hook + session-key permissions | On-chain policy | Shield / signer service |
+| Registry binding | "Integrity hook installed" | Codehash pin | Anything |
+| Pre-deployment address | Yes (counterfactual) | No | Yes |
+| Gas sponsorship | Paymaster available | No | n/a |
 
-Owner chose **A** (2026-11-18): it is the only option where "configurable in console" is enforced
-independent of where the agent runs, and most of the machinery (`execute` policy hook,
-`ConstraintExecutionPolicy`) already exists. The SDK signer interface (§6.6) keeps C open.
+The owner chose **1** on 2026-11-18. Approach 2 keeps a bespoke wallet, the codehash pin, and
+deploy-before-ITK. Approach 3 gives up chain enforcement of console settings.
 
 ## 5. Invariants
 
-- **I1 — one address.** For any agent that can move ITK:
-  `passport.agentWallet == AgentRegistry.records[fp].actor == SovereignAgent address`, and the
-  stake/AIS key is that address. Checked by the Oracle on sync (§6.7) and by the SDK before any
-  value-bearing call.
-- **I2 — the address never changes.** Key rotation happens through roles inside the account. A new
-  address would orphan stake, AIS history and `actorClaimedBy`.
-- **I3 — no admin power on the agent host.** No key the SDK stores on the agent host holds the
-  owner role (except an explicitly self-owned CLI agent, which is flagged everywhere it is shown).
-- **I4 — no policy bypass.** Every way the account can move value or authorize a spend goes through
-  the policy, or is owner-only.
+- **I1. One address.** For any ITK-capable agent:
+  `passport.agentWallet == AgentRegistry.actor(fp) == the smart wallet == StakeVault/AISRegistry key`.
+  The Oracle checks this on sync, and the SDK checks it before any value-bearing call.
+- **I2. The address never changes.** Keys rotate inside the wallet. A new address would orphan
+  stake, AIS and `actorClaimedBy`.
+- **I3. One human owner.**
+  - The same human key is the wallet owner, the `AgentRegistry` guardian, and the passport's NFT
+    holder through the wallet (§6.4).
+  - The SDK and Oracle refuse any registration where these differ. Exception: a self-run agent
+    (§6.7), whose host owner key is limited by I5.
+- **I4. No bypass.** Every way the wallet can move value or authorize a spend passes through the
+  Integrity hook, or is owner-only:
+  - EIP-1271 is validated by the owner validator only.
+  - Session keys cannot sign 1271.
+  - Removing the hook is owner-only.
+- **I5. Agent-host keys can only tighten.** No key stored on the agent host can raise a limit,
+  lower the AIS floor, or remove the hook.
+- **I6. Protocol AIS floor.** Governance sets a network-wide minimum AIS for spending. Owners may
+  set a higher per-agent floor, never a lower one.
 
 ## 6. Design
 
-### 6.1 `SovereignAgent` v2 roles
+### 6.1 The wallet (we pick it, we do not write it)
 
-- `OWNER_ROLE` (exactly one holder; replaces `DEFAULT_ADMIN_ROLE` as controller). Constructor:
-  `(did, owner, operator, registry)`; the deployer receives nothing.
-- `OPERATOR_ROLE` (one holder; the SDK keystore).
-- `coSigner` (optional address, zero = none).
+**Selection criteria:**
+- an ERC-7579 account with open module install
+- an audited ERC-7579 session-key validator with per-key permission policies (target, selector,
+  value, usage or spend limits)
+- live deployments on Base Sepolia (`eth_getCode` verified before use)
+- counterfactual address through a factory
+- EIP-1271 through the owner validator only
 
-| Function | Who |
-|---|---|
-| `execute(...)` both overloads | operator **or** owner; always through policy + mode checks |
-| `propose(target,value,data)` / `approve(id)` / `cancel(id)` | operator proposes; owner approves (executes) or cancels; proposals expire |
-| `setExecutionPolicy`, `setOperator`, `setCoSigner`, `setMode`, `rotateOwner` | owner only |
-| `isValidSignature` (EIP-1271) | **owner signatures only** (I4: an operator-valid 1271 would let a leaked operator key authorize off-policy approvals on any permit-style token or registry) |
+**My pick, to confirm in plan step 1:**
+- **Safe + the Safe7579 adapter + Rhinestone Smart Sessions.** Safe is the most audited account.
+- Fallback: Biconomy Nexus or ZeroDev Kernel v3 with the same Smart Sessions.
 
-`rotateController` is removed (replaced by `rotateOwner`/`setOperator`).
+The plan's first task is a **spike** that deploys one on Base Sepolia, installs a stub hook, and
+sends one session-key UserOperation through EntryPoint v0.7. The pick is final only after that
+spike passes.
 
-### 6.2 Spend authority modes (what the console configures)
+### 6.2 `IntegrityHook` (ERC-7579 hook, ours)
 
-Stored on the account, owner-set, combinable:
+**One deployment for all agents.** Configuration is keyed by `account`
+(`mapping(address account => Config)`), and is installed with `onInstall(initConfig)`.
 
-- **Limits** — per token: max per call, max per rolling window (window length owner-set, e.g. 24h);
-  native value cap; target allowlist (on by default, I4).
-- **Shield must approve** — `execute` additionally requires an EIP-712 signature from `coSigner`
-  over `(account, target, value, keccak(data), nonce, deadline)`.
-- **Owner must approve above X** — calls whose decoded token amount exceeds threshold X (or all
-  calls, X = 0) revert on `execute`; the operator uses `propose`, the owner `approve`s from the
-  console.
-- **No one** — none of the above set; policy still applies its allowlist and AIS floor if configured.
+**`preCheck`** runs on every execution. It enforces, in order:
+1. **Not frozen.** `StakeVault.stakeOf(account).frozen == false`.
+2. **Registered.** `AgentRegistry.agentOf(account) != 0` and the record is not retired.
+3. **AIS floor.**
+   - `AISRegistry.latest(account).score >= max(protocolFloor, account.ownerFloor)`.
+   - A checkpoint older than `maxCheckpointAge` (governance-set) is denied with `AisStale`.
+   - The console shows a fix (request a checkpoint). The rule is documented so it cannot fail
+     silently the way the kernel did.
+4. **Target allowlist.** Default on, owner-set.
+5. **Token amount.** It decodes `transfer`, `transferFrom`, `approve`, `safeTransferFrom`, `burn`
+   and `burnFrom`. An unknown selector on a known token is denied (fail closed).
+6. **Limits.** Per-call cap and rolling-window cap per token, plus a native value cap.
+7. **Mode gates.**
+   - Shield co-signature (EIP-712 over account, target, value, `keccak(data)`, nonce and deadline,
+     carried in the UserOperation signature extension).
+   - Owner-approve threshold: anything above X needs owner validation.
 
-### 6.3 Per-agent policy
+**`postCheck`** updates the window counter from the **measured balance delta** (the kernel's
+method, so non-decoded movement still counts) and calls the stake lock (§6.6).
 
-Make constraint storage keyed by `agent` (`mapping(address agent => Constraints)`) with the agent's
-owner (read from the account) as the only writer, so one deployed policy serves every agent and the
-console writes one tx per change. (Builder may choose per-agent instances instead if it simplifies
-auditing; I1–I4 must hold either way.)
+**Config writers.**
+- **The owner**, through the wallet: limits, allowlist, modes, and an owner floor at or above the
+  protocol floor.
+- **Governance role**: `protocolFloor` and `maxCheckpointAge`.
+- **The host owner key** (§6.7): tighten only. The hook rejects any write that loosens a value
+  fixed at creation.
 
-Decoder additions: `burn(uint256)`, `burnFrom(address,uint256)`; unknown selectors on a
-`tokenKnown` target are denied (fail closed) rather than passed.
+**Owner override.** An operation validated by the owner validator skips the limits and mode gates
+but still passes checks 1–3, because frozen, retired and below-floor apply to everyone. It counts
+toward the window.
 
-### 6.4 Window limits without changing `check` to non-view
+### 6.3 Session-key permissions
 
-The rolling-window counter lives **in the account**, updated in `execute` after a successful
-dispatch; the policy reads `spentInWindow(token)` from the account inside its `view` `check`.
-This keeps the `IExecutionPolicy.check` signature unchanged. It is still a behavioural addition to
-SPEC §5.3 (the host now carries metering state), so it is filed as a **proposed amendment**, not
-authoritative until review + implementation evidence + tests + acceptance.
+The agent's session key is enabled through the session-key validator with these policies:
+- only targets on the Integrity allowlist
+- spend and usage limits that mirror the hook's caps
+- an expiry
 
-### 6.5 Registry and passport binding
+This is defence in depth. The hook is the authority. The session-key policies make a leaked key
+useless outside Integrity targets even if the hook were misconfigured.
 
-- **`AgentRegistry` codehash pin.** v2 changes the runtime codehash, so v1-pinned registries reject
-  v2 actors. Redeploy `AgentRegistry` with the v2 reference instance (testnet). Do not add a mutable
-  pin (it would be a governance key that can swap every agent's account logic).
-- **agent0 `agentWallet`.** Mint the passport **without** an `agentWallet` metadata entry (the live
-  registry reverts on it). Then call `setAgentWallet(agentId, account, deadline, sig)` where `sig`
-  is the owner's signature validated through the account's EIP-1271 (§6.1). Keep the
-  `sovereignActor` / `integrityDid` metadata entries. Remove the `agentWallet` field from the
-  console registration form; show the result instead.
-- Passport **owner** (ERC-721 holder) = the human owner. The passport's owner and the account's
-  owner should be the same key; the console sets both in one flow.
+### 6.4 agent0 passport: the wallet mints it
 
-### 6.6 SDK
+- The smart wallet calls `register(uri, [("integrityDid", …), ("sovereignActor", …)])` itself.
+- Because `agentWallet` defaults to `msg.sender`, the passport's wallet is the smart wallet, with
+  no 5-minute signature dance.
+- The NFT is held by the wallet, so the human controls it through the owner key (I3).
+- **No `agentWallet` metadata entry.** Remove that path from `erc8004.py` and the field from the
+  console form.
+- An NFT transfer clears `agentWallet` (live registry behaviour). The console therefore treats
+  "move passport" as a two-step re-point, and the Oracle flags `unset`.
+- Existing passports minted by CLI keys: re-mint from the wallet as part of migration (§7).
 
-- New `integrity_sdk/account.py`: `AgentAccount` (resolve address from passport/registry; enforce I1;
-  read mode/limits/spent; `execute`, `propose`; decode `PolicyDenied`/`CoSignerRequired`/
-  `ApprovalRequired` into typed errors with the console URL to resolve them).
-- `wallet.py` keeps the keystore; it is renamed in docs/API to "operator key". Add a `Signer`
-  protocol (`address`, `sign_tx`, `sign_typed_data`) with `KeystoreSigner` as the only
-  implementation now — the seam for approach C/B later (Shield-held or KMS signer).
-- `registration_onchain.register_onchain(confined=True)` becomes the path for any ITK-capable agent:
-  deploy v2 account with `owner` (required argument; CLI falls back to its keystore and flags
-  self-owned), `operator` = operator keystore address; register; mint passport; `setAgentWallet`.
-- `erc8004.py`: drop the `agentWallet` metadata entry; add `set_agent_wallet` using the owner signer.
-- Readiness (`readiness.py`): add `account_invariant` check (I1) and `operator_is_not_owner` (I3).
+### 6.5 `AgentRegistry` v3 (redeploy)
 
-### 6.7 Oracle
+- **Replace the codehash pin with a module check.** The actor must be a contract with
+  `isModuleInstalled(MODULE_TYPE_HOOK, IntegrityHook, "")` true, and the hook must hold a config
+  for it. Consent: `msg.sender == actor` (a UserOperation from the wallet) or EIP-1271 from the
+  owner.
+- **Guardian is the wallet owner** (I3). Guardian powers (`setActor`, `clearActor`, `setDomain`,
+  `retire`) stay, but registration requires `guardian == owner of actor`, read from the owner
+  validator. `rotateOwner` in the console moves both, in one flow.
+- **Hook removal is detected.** If the owner uninstalls the hook, `preCheck` no longer runs. The
+  registry exposes `isGoverned(actor)` (hook installed), and the Oracle marks the agent
+  `ungoverned`. AIS and stake consumers must treat ungoverned agents as non-transacting. Removal
+  stays possible so owners are never trapped, but it is visible.
 
-Extend `POST /v1/agent/{did}/erc8004` and `/onchain/sync` to read `getAgentWallet`/`actor` and
-record `wallet_invariant: ok | mismatch | unset`. Expose it so the console and Shield can refuse to
-show/transact on a mismatch.
+### 6.6 StakeVault
 
-### 6.8 Console
+`lockForAction` requires `msg.sender == agent`, but a hook calls as itself. Add `LOCKER_ROLE`,
+granted to `IntegrityHook`, with `lockForAction(agent, req)` allowed when
+`hasRole(LOCKER_ROLE, msg.sender)` and the hook reports `agent` as installed. `stake` stays
+`msg.sender`-credited; the wallet stakes through a normal UserOperation.
 
-- Agent page shows the one account address, its ITK balance, stake, AIS, and mode; "agent wallet not
-  set" instead of the owner fallback; a self-owned badge when owner == operator's host key.
-- "Spending" settings panel: limits per token and window, allowlist, Shield-approve toggle,
-  owner-approve threshold. Each save = one owner-signed tx from the browser wallet; panel shows the
-  on-chain value read back, not the form value.
-- Approvals inbox: pending proposals with approve/cancel.
+### 6.7 Self-run agents (no human wallet at runtime)
 
-### 6.9 Shield
+Owner decision 2026-11-18: allowed **if a human sets the limits in advance**.
 
-Out of scope to implement here beyond: a co-signer key store and an endpoint that countersigns an
-operator request after its local policy decision. Tracked as a follow-up in xibalba-shield.
+- **At creation** a human enters the limits in the CLI and confirms them interactively, for example
+  via `integrity register --onchain --limits <file>` with an explicit confirmation prompt. They
+  become the **ceiling**, stored in the hook as `creationCeiling`.
+- **The host owner key** (separate keystore from the session key) is the wallet owner. The hook
+  enforces I5: it can lower limits, revoke or rotate the session key and retire the agent, but
+  writes above the ceiling and hook removal are refused.
+  - The wallet's owner validator alone cannot stop the owner uninstalling the hook. The plan
+    must pick one mechanism:
+    - (a) the hook marks a self-run account as `locked`, and `AgentRegistry` plus the Oracle treat
+      it as ungoverned the moment the hook is removed (§6.5); or
+    - (b) a wallet whose uninstall is guardable by a hook.
+  - (a) is my default.
+- **Claiming.** A human later claims the agent from the console. The host owner key signs a
+  rotation to the human wallet, after which normal owner rules apply.
+- Console and Oracle label these agents **self-run** with the creation ceiling shown.
 
-## 7. Migration
+### 6.8 SDK
 
-Base Sepolia only. Existing v1 actors are **not** migrated in place (I2 forbids moving the address,
-and v1 cannot gain roles). Decision: redeploy registry + v2 accounts and re-register; v1 stake is
-unstaked and restaked to the new account; v1 AIS history is **not** carried over. Acceptable on
-testnet; recorded explicitly so it is not repeated on mainnet.
+- `integrity_sdk/account.py`, an `AgentAccount` that:
+  - computes the counterfactual address
+  - resolves I1
+  - builds, signs and sends UserOperations to a bundler URL (config)
+  - reads config, window and floors
+  - maps hook reverts (`LimitExceeded`, `AisBelowFloor`, `AisStale`, `CoSignerRequired`,
+    `OwnerApprovalRequired`, `Frozen`) to typed errors carrying the console URL that resolves them
+- `wallet.py`: unchanged storage; documented as the **session key**. Add a `Signer` protocol with
+  `KeystoreSigner` as its only implementation now. It is the seam for a Shield- or KMS-held signer
+  later.
+- `registration_onchain.register_onchain` supports two paths:
+  - **human-owned**: produce the DID attestation and session-key address, then hand off to the
+    console (§6.9)
+  - **self-run**: §6.7
+- `erc8004.py`:
+  - drop the `agentWallet` metadata entry
+  - mint through the wallet
+  - add `set_agent_wallet` for re-pointing (owner EIP-1271, deadline ≤ 5 min)
+- `readiness.py`: add `wallet_invariant` (I1), `session_key_not_owner` (I3/I5) and `hook_installed`.
+- Retire `SovereignAgent` paths and the `confined` flag (replaced by "ITK-capable").
 
-## 8. Decisions for the owner (open)
+### 6.9 Console (integrity-console, in this plan)
 
-- **D1 — ITK requires an account.** Under A, an agent on the default existence-only registration
-  path has no account and therefore cannot hold, stake or pay ITK. This partly reverses
-  "primitives too constricting". Options: (a) accept — existence-only agents are identity-only;
-  (b) lazily deploy the account the first time an agent needs ITK (deterministic CREATE2 address
-  so it can be advertised earlier).
-- **D2 — self-owned CLI agents.** Allow agents whose owner is the CLI keystore on the same host
-  (convenient, violates the spirit of I3), or require a human owner wallet for any ITK-capable agent.
+- **Registration handoff.**
+  - The agent host runs `integrity register --onchain`. That registers off-chain, gets the Oracle
+    attestation, and writes a **pending on-chain registration** to the Oracle. The pending record
+    holds the DID, the session-key address and the attestation, never any secret.
+  - The console shows "finish setup". The human's wallet then, in one batched flow:
+    - deploys the wallet
+    - installs the hook and the session key with limits
+    - registers in `AgentRegistry`
+    - mints the passport
+- **Agent page.** Shows:
+  - the single address, ITK balance, stake and AIS
+  - mode and limits, **read back from chain**
+  - "not governed" or "wallet not set" states (never the owner fallback)
+  - a self-run badge
+- **Spending panel.** Limits per token and window, allowlist, Shield-approve toggle, owner-approve
+  threshold, owner AIS floor (at or above the protocol floor). Each save is one owner-signed
+  operation.
+- **Approvals.** Above-threshold operations are prepared by the agent and stored in the Oracle as
+  unsigned UserOperations. The owner signs them in the console, which is the override in §6.2.
+  There is no on-chain queue.
 
-## 9. Left to the builder
+### 6.10 Oracle
 
-Exact storage layout, event names, proposal expiry default, window implementation (fixed bucket vs
-rolling), CREATE2 salt scheme if D1(b), error names, test matrix (must include: operator cannot
-call any owner function; leaked-operator spend stops at limits; 1271 rejects operator sigs; unknown
-selector on known token denied; `burn` capped; I1 mismatch detected by Oracle; live-registry
-`setAgentWallet` round-trip on Base Sepolia). Recovery delegate is a later item.
+- Pending-registration store (above).
+- `/onchain/sync` and `/erc8004` record:
+  - `wallet_invariant: ok | mismatch | unset`
+  - `governed: bool`
+  - `ownership: human | self-run`
+- `controller` in API responses is replaced by `owner`, `session_key` and `wallet`.
+  `IntegrityIdentityReadV1.isController` reports the owner.
+
+## 7. Migration and live rollout (Base Sepolia; the plan runs it)
+
+Owner decision: **the plan performs the rollout**, not just scripts. Render autoDeploy is on, so
+merging Oracle changes deploys them. The ordering guards against a half-cutover:
+
+1. Deploy `IntegrityHook`, `AgentRegistry` v3 and the `StakeVault` upgrade or redeploy. Re-grant
+   `DomainRegistry` `REGISTRAR_ROLE`, the attester role and the hook's `LOCKER_ROLE`, verifying
+   each with `eth_getCode` and `hasRole` before writing `deployments.baseSepolia.json`.
+2. Ship the Oracle change, which **reads both registries** (v3 is authoritative, v1 is read-only
+   legacy), and merge it. Verify `/healthz` and a v1 agent still resolving.
+3. Re-register the system agents (Claude, Codex, agy, Hermes) on v3:
+   - human-owned by the owner's wallet: one console "finish setup" each, owner present
+   - their v1 records are retired by their v1 guardians
+4. v1 stake (if any) is unstaked and restaked from the new wallet. **v1 AIS history is not
+   carried over** (testnet, recorded so it is not repeated on mainnet).
+5. Remove v1 reads from the Oracle in a follow-up PR once every live agent resolves on v3.
+
+Each step has a readback check and a stop condition. The step-3 signatures need the owner present.
+
+## 8. Out of scope (follow-ups)
+
+- Shield co-signer key store and countersign endpoint (xibalba-shield). "Shield must approve"
+  ships in the hook and console but cannot be end-to-end tested until that lands; the plan tests
+  it with a test co-signer key.
+- Paymaster sponsorship (designed for, not built).
+- Mainnet, social recovery, ERC-6492 pre-deploy signatures.
+
+## 9. Verification the plan must include
+
+- **Halmos proofs** of the archived kernel ported to `IntegrityHook` and run in CI:
+  - budget containment per call and across calls
+  - token plus native conjunction
+  - AIS gating
+  - reentrancy
+- **Forge tests:**
+  - a session key cannot call any owner function or install or uninstall modules
+  - a leaked session key's spending stops at the limits
+  - 1271 rejects session-key signatures
+  - an unknown selector on a known token is denied
+  - `burn` is capped
+  - the host owner key cannot exceed the ceiling
+  - the owner override skips limits but not freeze or floor
+  - a stale AIS checkpoint is denied with `AisStale`
+  - hook removal makes the agent ungoverned
+- **Fork tests** against Base Sepolia: the chosen wallet stack, EntryPoint v0.7, and the live agent0
+  registry (`register` from the wallet sets `agentWallet == wallet`).
+- **Live canary:** a scheduled daily UserOperation from a canary agent on Base Sepolia, which
+  alerts on failure, so enforcement cannot go dormant unnoticed.
+
+## 10. Decisions record
+
+| # | Decision | Source |
+|---|---|---|
+| D-A | Standard ERC-4337/7579 wallet + Integrity modules (approach 1) | Owner, 2026-11-18 |
+| D-B | One human key = wallet owner = registry guardian = passport holder | Owner, 2026-11-18 |
+| D-C | Protocol AIS floor; owners may only raise | Owner, 2026-11-18 |
+| D-D | Plan runs the Base Sepolia rollout | Owner, 2026-11-18 |
+| D-E | Self-run agents allowed if a human sets the limits in advance (creation ceiling, tighten-only host key) | Owner, 2026-11-18; the mechanism in §6.7 is the designer's interpretation |
+| D-F | Owner-signed operations override limits but not freeze/registration/floor | Designer's call |
+| D-G | Approvals are owner-signed UserOperations, not an on-chain queue | Designer's call |
+| D-H | Console registration handoff through the Oracle pending record; console work is in this plan | Designer's call |
+| D-I | Wallet stack: Safe + Safe7579 + Smart Sessions, confirmed by spike | Designer's call |
+| D-J | Shield co-signer implementation deferred | Designer's call |
+
+## 11. Left to the builder
+
+- storage layout, event and error names, and the window algorithm (fixed buckets or rolling)
+- the governance role holder for `protocolFloor`
+- the exact UserOperation signature encoding for the co-signer
+- bundler choice for tests
+- the shape of the Oracle pending-record API
+- whether `StakeVault` is upgraded or redeployed (driven by whether it holds live stake)
