@@ -3,7 +3,7 @@
 > Canonical machine-readable catalog for `docs/wiki/`. The landing page is
 > `index.md`; this file lists every article page for linting.
 
-Last updated: 2026-11-11 | Total pages: 37
+Last updated: 2026-11-18 | Total pages: 38
 
 ## Concepts
 
@@ -29,6 +29,7 @@ Last updated: 2026-11-11 | Total pages: 37
 - [Test-status tree binding](concepts/test-status-tree-binding.md)
 - [Testing strategy](concepts/testing-strategy.md)
 - [Xibalba Agent Operating Model](concepts/xibalba-agent-operating-model.md)
+- [Xibalba Solutions Enterprise](concepts/xibalba-solutions-enterprise.md)
 - [ZK-ML specification](concepts/zk-ml-spec.md)
 - [ZKP](concepts/zkp.md)
 

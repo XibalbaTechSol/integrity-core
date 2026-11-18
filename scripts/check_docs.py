@@ -103,7 +103,7 @@ def check_markdown_links(errors: list[str]) -> None:
         text = source.read_text(encoding="utf-8")
         for raw_target in LINK_RE.findall(text):
             target = raw_target.strip().split()[0].strip("<>")
-            if not target or target.startswith(("#", "/", "http://", "https://", "mailto:", "app://")):
+            if not target or target.startswith(("#", "/", "http://", "https://", "mailto:", "tel:", "app://")):
                 continue
             if target in {"relative/path.md", "string,", "x", "y", "NaN"}:
                 continue
