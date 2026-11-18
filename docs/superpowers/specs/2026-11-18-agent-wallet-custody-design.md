@@ -30,7 +30,7 @@ key**, whose limits are set by a human and enforced on-chain.
 |---|---|---|---|---|
 | **Owner** (human) | The human's own wallet (browser or hardware), signing through the console. Never on the agent host. | Everything: install or remove modules, set limits, approve or override spends, rotate the session key, rotate the owner. Also holds the registry guardian role and the passport (§5, I3). | Full control: the same blast radius as any self-custody wallet. | The owner rotates itself through the wallet's owner-management call, and the registry guardian moves in the same flow (§6.5). |
 | **Session key** (the agent) | `integrity_sdk/wallet.py` V3 encrypted keystore, `wallet_dir(agent_id)/keystore.json`, mode 0600, password in `INTEGRITY_WALLET_PASSWORD`. Format unchanged; the **role** changes. | Submit UserOperations that pass the session-key module's permissions **and** the Integrity hook. Cannot install or remove modules, change limits, or sign EIP-1271. | Spends up to the human-set limits until the owner revokes it. | The owner revokes and enables a new session key; the SDK creates a new keystore. **The address does not change.** |
-| **Host owner key** (only for a self-run agent, §6.7) | A second keystore on the host, separate file, separate password, never the session key. | Can only **tighten** the limits a human fixed at creation, revoke or rotate the session key, and register the agent. Cannot raise any limit or remove the Integrity hook. | The attacker can only lower limits or freeze the agent (a DoS), never spend more. | A human claims the agent (§6.7), which replaces it. |
+| **Maintenance key** (self-run agents only, §6.7) | A second keystore on the host, as a separate file with a separate password. It is a *restricted session key*, **not** an owner. | Only the hook's tighten-only setters and session-key revocation. | The attacker can lower limits or freeze the agent (a DoS), but cannot spend. | The owner re-issues it. |
 | **Shield co-signer** (optional) | Shield's device key store, separate from Shield's identity key. | Countersigns a session-key operation when the owner turned on "Shield must approve". Cannot start one. | On its own: nothing. | The owner changes the co-signer address. |
 | **DID key** | `did.py` PEM file (unchanged). | Not a wallet. Signs BCC commitments, telemetry, and the registration attestation. | Off-chain impersonation; no access to funds. | Unchanged. |
 
@@ -124,8 +124,8 @@ deploy-before-ITK. Approach 3 gives up chain enforcement of console settings.
 - **I3. One human owner.**
   - The same human key is the wallet owner, the `AgentRegistry` guardian, and the passport's NFT
     holder through the wallet (§6.4).
-  - The SDK and Oracle refuse any registration where these differ. Exception: a self-run agent
-    (§6.7), whose host owner key is limited by I5.
+  - The SDK and Oracle refuse any registration where these differ. This includes self-run agents
+    (§6.7), whose owner is still a human (or renounced).
 - **I4. No bypass.** Every way the wallet can move value or authorize a spend passes through the
   Integrity hook, or is owner-only:
   - EIP-1271 is validated by the owner validator only.
@@ -154,7 +154,24 @@ deploy-before-ITK. Approach 3 gives up chain enforcement of console settings.
 
 The plan's first task is a **spike** that deploys one on Base Sepolia, installs a stub hook, and
 sends one session-key UserOperation through EntryPoint v0.7. The pick is final only after that
-spike passes.
+spike passes. The spike must answer these questions, each of which can change the pick:
+
+- **Execution paths the hook sees.** On Safe + Safe7579 a 7579 hook runs only on the 7579
+  execution path. A Safe owner calling `execTransaction`, or another enabled Safe module, skips it.
+  So on Safe, the hook's checks for owner operations (freeze, registered, floor, window counting,
+  per §6.2) need an `IntegrityGuard` (a Safe Guard that runs the same checks), and removing the
+  guard must count as "ungoverned" (§6.5). A wallet that routes *all* execution through 7579 hooks
+  (for example Nexus or Kernel v3) removes that need. The spike picks the wallet that makes
+  "every execution path is checked" true with the least extra code.
+- **Owner vs session key.** A 7579 hook is not told which validator approved the operation. The
+  spike settles how the hook tells owner operations from session-key operations: the validator
+  writes transient context, the Smart Sessions policy enforces the same limits, or the owner path
+  runs through the guard.
+- **Session-key 1271.** Smart Sessions can validate EIP-1271 for session keys unless its 1271
+  policy forbids it. I4 requires that it is forbidden by configuration, and a test must prove it.
+  This matters for USDC/x402 EIP-3009 authorizations even though ITK has no permit.
+- **Passport mint receiver.** The live registry's mint must succeed into the wallet: its
+  `onERC721Received` must work through Safe's fallback handler or the account's equivalent.
 
 ### 6.2 `IntegrityHook` (ERC-7579 hook, ours)
 
@@ -169,6 +186,11 @@ spike passes.
    - A checkpoint older than `maxCheckpointAge` (governance-set) is denied with `AisStale`.
    - The console shows a fix (request a checkpoint). The rule is documented so it cannot fail
      silently the way the kernel did.
+   - **Bootstrap.** A new wallet has no checkpoint. Registration writes an **initial checkpoint**
+     at the protocol floor (by the attester/scorer role, during the same flow), so a new agent can
+     spend at once. `protocolFloor` stays 0 until the scoring pipeline is verified checkpointing
+     live (§7 precondition). Without both rules, every new agent and the canary would be denied on
+     day one.
 4. **Target allowlist.** Default on, owner-set.
 5. **Token amount.** It decodes `transfer`, `transferFrom`, `approve`, `safeTransferFrom`, `burn`
    and `burnFrom`. An unknown selector on a known token is denied (fail closed).
@@ -185,12 +207,12 @@ method, so non-decoded movement still counts) and calls the stake lock (§6.6).
 - **The owner**, through the wallet: limits, allowlist, modes, and an owner floor at or above the
   protocol floor.
 - **Governance role**: `protocolFloor` and `maxCheckpointAge`.
-- **The host owner key** (§6.7): tighten only. The hook rejects any write that loosens a value
-  fixed at creation.
+- **The maintenance key** (§6.7): tighten-only setters and pause. The hook rejects any write from
+  it that loosens a value.
 
-**Owner override.** An operation validated by the owner validator skips the limits and mode gates
-but still passes checks 1–3, because frozen, retired and below-floor apply to everyone. It counts
-toward the window.
+**Owner override.** An owner operation skips the limits and mode gates but still passes checks
+1–3, because frozen, retired and below-floor apply to everyone. It counts toward the window. This
+holds only on execution paths the hook or `IntegrityGuard` sees (§6.1 spike).
 
 ### 6.3 Session-key permissions
 
@@ -232,28 +254,31 @@ useless outside Integrity targets even if the hook were misconfigured.
 
 `lockForAction` requires `msg.sender == agent`, but a hook calls as itself. Add `LOCKER_ROLE`,
 granted to `IntegrityHook`, with `lockForAction(agent, req)` allowed when
-`hasRole(LOCKER_ROLE, msg.sender)` and the hook reports `agent` as installed. `stake` stays
+`hasRole(LOCKER_ROLE, msg.sender)` and `agent.isModuleInstalled(MODULE_TYPE_HOOK, msg.sender, "")`
+is true. StakeVault asks the account itself, never the hook's own report. `stake` stays
 `msg.sender`-credited; the wallet stakes through a normal UserOperation.
 
-### 6.7 Self-run agents (no human wallet at runtime)
+### 6.7 Self-run agents (no human online at runtime)
 
-Owner decision 2026-11-18: allowed **if a human sets the limits in advance**.
+Owner decision 2026-11-18: allowed **if a human sets the limits in advance**. Revision 2's first
+mechanism put an owner key on the host. That fails: on Safe, an owner can execute directly and
+skip the hook (§6.1), so the "limits set in advance" would not hold. **Corrected mechanism,
+awaiting owner confirmation (D-E):**
 
-- **At creation** a human enters the limits in the CLI and confirms them interactively, for example
-  via `integrity register --onchain --limits <file>` with an explicit confirmation prompt. They
-  become the **ceiling**, stored in the hook as `creationCeiling`.
-- **The host owner key** (separate keystore from the session key) is the wallet owner. The hook
-  enforces I5: it can lower limits, revoke or rotate the session key and retire the agent, but
-  writes above the ceiling and hook removal are refused.
-  - The wallet's owner validator alone cannot stop the owner uninstalling the hook. The plan
-    must pick one mechanism:
-    - (a) the hook marks a self-run account as `locked`, and `AgentRegistry` plus the Oracle treat
-      it as ungoverned the moment the hook is removed (§6.5); or
-    - (b) a wallet whose uninstall is guardable by a hook.
-  - (a) is my default.
-- **Claiming.** A human later claims the agent from the console. The host owner key signs a
-  rotation to the human wallet, after which normal owner rules apply.
-- Console and Oracle label these agents **self-run** with the creation ceiling shown.
+- **At creation** the human signs once with their own wallet, as owner. They set the limits and
+  then go offline. The agent runs on its own with no human present.
+- **The host holds only keys that can't spend outside the limits:**
+  - the session key (spends within the limits)
+  - the **maintenance key** (§1.1): a restricted session key that can only tighten limits, revoke
+    the session key or pause the agent
+- **No owner key ever sits on the host.** Compromising the host gets the attacker spending within
+  the human's limits, and nothing more.
+- **If there truly is no human wallet,** the only sound alternative is a **renounced owner**: the
+  limits are fixed forever, with no recovery and no raising, and changing anything means a new
+  agent. Offered as option (b) in D-E.
+
+The console and Oracle label these agents **self-run**, with the limits and the owner (or
+"renounced") shown.
 
 ### 6.8 SDK
 
@@ -268,9 +293,11 @@ Owner decision 2026-11-18: allowed **if a human sets the limits in advance**.
   `KeystoreSigner` as its only implementation now. It is the seam for a Shield- or KMS-held signer
   later.
 - `registration_onchain.register_onchain` supports two paths:
-  - **human-owned**: produce the DID attestation and session-key address, then hand off to the
-    console (§6.9)
-  - **self-run**: §6.7
+  - **human-owned** and **self-run**: both produce the DID attestation and the session-key address
+    (plus the maintenance-key address for self-run), then hand off to the console, where the human
+    signs (§6.9)
+  - **renounced** (if D-E(b) is chosen): the CLI builds the full setup and the human signs it once
+    from a wallet; the owner is then renounced
 - `erc8004.py`:
   - drop the `agentWallet` metadata entry
   - mint through the wallet
@@ -314,7 +341,18 @@ Owner decision 2026-11-18: allowed **if a human sets the limits in advance**.
 ## 7. Migration and live rollout (Base Sepolia; the plan runs it)
 
 Owner decision: **the plan performs the rollout**, not just scripts. Render autoDeploy is on, so
-merging Oracle changes deploys them. The ordering guards against a half-cutover:
+merging Oracle changes deploys them. The ordering guards against a half-cutover.
+
+**Preconditions (each with a readback check):**
+- **(P1) Consumer inventory.** Grep all four repos for the v1 `AgentRegistry`, `StakeVault`,
+  `AISRegistry` and `ActionAnchor` addresses and ABIs. Known consumers: the Oracle; `bcc_middleware`
+  (moved onto these contracts in #239); Shield; the console; the cortex agent0 tools. List each with
+  its cutover step. Any consumer missing from the list blocks step 1.
+- **(P2) Scoring is live.** The AIS scorer is writing checkpoints (memory 2026-11-17:
+  `bcc_middleware` points at a dead Oracle `:8080` and its spool has been full since Nov 11). Until
+  a fresh checkpoint is read back, `protocolFloor` stays 0.
+- **(P3) DID keys untouched.** Re-registration reuses the existing DID keys. Run `ps aux` before
+  touching any agent's identity, because a live process can mint a fresh DID.
 
 1. Deploy `IntegrityHook`, `AgentRegistry` v3 and the `StakeVault` upgrade or redeploy. Re-grant
    `DomainRegistry` `REGISTRAR_ROLE`, the attester role and the hook's `LOCKER_ROLE`, verifying
@@ -351,7 +389,9 @@ Each step has a readback check and a stop condition. The step-3 signatures need 
   - 1271 rejects session-key signatures
   - an unknown selector on a known token is denied
   - `burn` is capped
-  - the host owner key cannot exceed the ceiling
+  - the maintenance key can only tighten or pause, and cannot spend
+  - an owner operation through Safe `execTransaction` (or any non-7579 path) still runs the
+    freeze/registered/floor checks
   - the owner override skips limits but not freeze or floor
   - a stale AIS checkpoint is denied with `AisStale`
   - hook removal makes the agent ungoverned
@@ -368,11 +408,12 @@ Each step has a readback check and a stop condition. The step-3 signatures need 
 | D-B | One human key = wallet owner = registry guardian = passport holder | Owner, 2026-11-18 |
 | D-C | Protocol AIS floor; owners may only raise | Owner, 2026-11-18 |
 | D-D | Plan runs the Base Sepolia rollout | Owner, 2026-11-18 |
-| D-E | Self-run agents allowed if a human sets the limits in advance (creation ceiling, tighten-only host key) | Owner, 2026-11-18; the mechanism in §6.7 is the designer's interpretation |
+| D-E | Self-run agents allowed if a human sets the limits in advance. Mechanism (§6.7): (a) the human owns and goes offline, and the host holds only session + maintenance keys; or (b) a renounced owner with fixed limits | Owner, 2026-11-18; **mechanism awaiting owner confirmation** |
 | D-F | Owner-signed operations override limits but not freeze/registration/floor | Designer's call |
 | D-G | Approvals are owner-signed UserOperations, not an on-chain queue | Designer's call |
 | D-H | Console registration handoff through the Oracle pending record; console work is in this plan | Designer's call |
-| D-I | Wallet stack: Safe + Safe7579 + Smart Sessions, confirmed by spike | Designer's call |
+| D-I | Wallet stack: Safe + Safe7579 + Smart Sessions (with an `IntegrityGuard` for owner paths) or a hook-everything 7579 account; settled by the §6.1 spike | Designer's call |
+| D-K | AIS bootstrap: an initial checkpoint at registration; `protocolFloor` = 0 until scoring is verified live | Designer's call |
 | D-J | Shield co-signer implementation deferred | Designer's call |
 
 ## 11. Left to the builder
