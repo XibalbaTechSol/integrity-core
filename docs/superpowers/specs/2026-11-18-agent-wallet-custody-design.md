@@ -1,6 +1,6 @@
 # Agent wallet and key custody — design
 
-Status: **proposed (non-authoritative)**. Date: 2026-11-18. Revision 3 (rev 2 plus owner answers
+Status: **approved design (owner, 2026-11-18); SPEC changes remain proposed amendments**. Date: 2026-11-18. Revision 3 (rev 2 plus owner answers
 and two builder checks; supersedes the
 `SovereignAgent` v2 patch design in revision 1, commit `4bed6847`).
 Review provenance: the Devil's Advocate engine is not entitled (`ENGINE_NOT_IN_PLAN`). This design
