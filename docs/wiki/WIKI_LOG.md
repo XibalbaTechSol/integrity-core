@@ -4404,3 +4404,15 @@ writeup: PRODUCTION_GAPS.md §18.
   deployment keys.
 - Page count reconciled: Total=37 (Concepts=24, Entities=10, Architecture=2, Queries=1).
 
+## [2026-11-18] feat | Corporate authority, executive contacts, and ecosystem portals documented
+
+- Added `concepts/xibalba-solutions-enterprise.md` documenting parent entity Xibalba Solutions LLC,
+  executive contact channels (jacob@xibalbasolutions.com, +1 (262) 864-1589, Wisconsin, USA),
+  corporate portal (https://xibalbasolutions.com), and the 3 commercial software pillars.
+- Synchronized `README.md`, `docs/ecosystem/ECOSYSTEM.md`, `docs/wiki/index.md`, and
+  `docs/wiki/architecture/ecosystem-dependencies.md` with corporate authority, leadership contacts,
+  and canonical repository namings.
+- Page count reconciled in `WIKI_INDEX.md`: Total=38 (Concepts=25, Entities=10, Architecture=2, Queries=1).
+- Ran `scripts/wiki_toc.py`, `scripts/wiki_linter.py`, and `scripts/check_docs.py` (0 errors, 0 orphans, 0 dead links).
+
+

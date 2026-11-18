@@ -219,6 +219,20 @@ directory and on-chain XNS) with `integrity handle available <handle>`. See
 - **[docs/archive/](docs/archive/)** — historical specifications and design iterations (not normative)
 - **[spec/ais-api/](spec/ais-api/)** — read-side wire specification (v1, frozen)
 
+## Organization & Executive Inquiries
+
+**Xibalba Solutions LLC**
+- **Corporate Portal:** [https://xibalbasolutions.com](https://xibalbasolutions.com)
+- **Executive Contact:** [jacob@xibalbasolutions.com](mailto:jacob@xibalbasolutions.com)
+- **Direct Telephone:** `+1 (262) 864-1589`
+- **Headquarters:** Wisconsin, United States
+- **Commercial Verticals:**
+  - **Integrity Protocol:** On-chain agent control layer, verifiable DIDs, and deterministic AIS feedback.
+  - **Super-Cortex:** Local-first 3D graph memory, Merkle-attested provenance, and agent trajectory planning.
+  - **Xibalba Shield:** Deterministic response governance, boundary gating, and host containment.
+
+---
+
 ## License
 
 MIT.

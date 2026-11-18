@@ -16,7 +16,7 @@
    - Governs on-chain DIDs (`did:integrity`), signed BCC packs, receipts, verification, Merkle state anchoring, and execution-firewall enforcement.
    - Computes authoritative reputation and processes slashing on invariant violations.
 
-2. **`xibalba-cortex` (The Navigational Engine):**
+2. **`super-cortex` (The Navigational Engine):**
    - Governed neuro-symbolic knowledge graph and active inference engine.
    - Enforces geometric graph traversal (R-GCN + TKGE/TransE) and dynamic logit masking ($z_{\text{masked}} = z \circ M + (-\infty \times (1 - M))$).
    - Ingests biomedical research, EHR records, and economic indicators; performs temporal event reification.
@@ -32,6 +32,16 @@
    - Independent operator presentation and account layer.
    - Renders live graph navigation trajectories, multi-agent DID verification tiers, AIS distributions, and real-time response approval queues.
    - Holds no protocol authority; verifies all state cryptographically against `integrity-core`.
+
+---
+
+## Organization & Leadership Authority
+
+**Xibalba Solutions LLC**
+- **Corporate Portal:** [https://xibalbasolutions.com](https://xibalbasolutions.com)
+- **Executive Leadership & Inquiries:** [jacob@xibalbasolutions.com](mailto:jacob@xibalbasolutions.com)
+- **Direct Telephone:** `+1 (262) 864-1589`
+- **Headquarters:** Wisconsin, United States
 
 ---
 

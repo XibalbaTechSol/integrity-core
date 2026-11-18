@@ -24,6 +24,7 @@ This page is the canonical cross-repository dependency and authority map for the
 - [Ownership & Runtime Boundaries](#ownership-runtime-boundaries)
 - [Dependency Direction & Non-Negotiable Invariants](#dependency-direction-non-negotiable-invariants)
 - [Production Cloud Deployments (Render & Supabase)](#production-cloud-deployments-render-supabase)
+- [Enterprise Authority & Direct Communications](#enterprise-authority-direct-communications)
 - [Local-First Operating Invariant](#local-first-operating-invariant)
 
 ## The Four-Repository Architecture
@@ -117,6 +118,18 @@ All four ecosystem components have dedicated production deployments on Render ba
 - **Integrity Console:**
   - Production URL: [`https://integrity-console-test.onrender.com`](https://integrity-console-test.onrender.com)
   - Function: Single-pane operator portal, interactive wiki browser, and multi-agent credentials management.
+
+---
+
+## Enterprise Authority & Direct Communications
+
+All commercial contracts, pilot deployments, and infrastructure inquiries are managed directly by corporate leadership:
+
+- **Entity:** Xibalba Solutions LLC
+- **Corporate Portal:** [https://xibalbasolutions.com](https://xibalbasolutions.com)
+- **Executive Leadership & Inquiries:** [jacob@xibalbasolutions.com](mailto:jacob@xibalbasolutions.com)
+- **Direct Telephone:** `+1 (262) 864-1589`
+- **Headquarters:** Wisconsin, United States
 
 ---
 

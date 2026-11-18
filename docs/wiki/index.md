@@ -143,6 +143,7 @@ The Integrity Ecosystem aligns autonomous machine behavior across four specializ
 - [ZK-ML Model-Inference Verification](concepts/zk-ml-spec.md) — `[PLANNED]` Verification of private inference.
 
 ### Concepts — Governance, Markets & Verticals
+- [Xibalba Solutions Enterprise](concepts/xibalba-solutions-enterprise.md) — Parent organization, executive leadership, and commercial pillar coordination.
 - [ComplianceGate & Integrity Health](concepts/compliance-gate.md) — Healthcare compliance vertical pack (`packs/hipaa`).
 - [Smart BAA](concepts/smart-baa.md) — Cryptographic Business Associate Agreement escrow.
 - [Integrity Market](concepts/integrity-market.md) — Verifiable prediction and reputation markets.
@@ -155,6 +156,19 @@ The Integrity Ecosystem aligns autonomous machine behavior across four specializ
 
 ### Queries & Diagnostics
 - [Gas Tracking](queries/gas-tracking.md) — EVM execution cost analysis.
+
+---
+
+## Corporate & Commercial Operations
+
+- **Parent Organization:** [Xibalba Solutions LLC](https://xibalbasolutions.com)
+- **Executive Contact:** [jacob@xibalbasolutions.com](mailto:jacob@xibalbasolutions.com)
+- **Direct Telephone:** `+1 (262) 864-1589`
+- **Headquarters:** Wisconsin, United States
+- **Commercial Verticals:**
+  - **Integrity Protocol:** On-chain agent control layer, verifiable DIDs, and deterministic AIS feedback.
+  - **Super-Cortex:** Local-first 3D graph memory, Merkle-attested provenance, and agent trajectory planning.
+  - **Xibalba Shield:** Deterministic response governance, boundary gating, and host containment.
 
 ---
 
