@@ -5037,6 +5037,8 @@ pub struct Erc8004BindingResponse {
     pub registration_sha256: String,
     pub nft_owner_address: String,
     pub agent_wallet_address: Option<String>,
+    pub sovereign_actor_address: Option<String>,
+    pub wallet_confined: bool,
     pub binding_status: String,
     pub name: String,
     pub description: String,
@@ -5160,6 +5162,16 @@ pub async fn link_erc8004_identity(
     let owner_str = format!("{:#x}", onchain.owner);
     let wallet_str = onchain.wallet.map(|w| format!("{w:#x}"));
 
+    let onchain_record = db::get_agent_onchain_record(&state.pool, &id, current_chain_id).await?;
+    let sovereign_actor = onchain_record
+        .as_ref()
+        .filter(|rec| rec.retired_at.is_none())
+        .and_then(|rec| rec.actor.clone());
+    let wallet_confined = match (&wallet_str, &sovereign_actor) {
+        (Some(w), Some(actor)) => w.eq_ignore_ascii_case(actor),
+        _ => false,
+    };
+
     db::upsert_erc8004_binding(
         &state.pool,
         &id,
@@ -5174,8 +5186,13 @@ pub async fn link_erc8004_identity(
     )
     .await?;
 
-    tracing::info!(agent_id = %id, chain_id = current_chain_id, agent_token_id = %req.agent_token_id,
-                   "ERC-8004 identity binding verified and recorded");
+    tracing::info!(
+        agent_id = %id,
+        chain_id = current_chain_id,
+        agent_token_id = %req.agent_token_id,
+        wallet_confined = wallet_confined,
+        "ERC-8004 identity binding verified and recorded"
+    );
 
     Ok(Json(Erc8004BindingResponse {
         agent_id: id,
@@ -5186,6 +5203,8 @@ pub async fn link_erc8004_identity(
         registration_sha256: sha256,
         nft_owner_address: owner_str,
         agent_wallet_address: wallet_str,
+        sovereign_actor_address: sovereign_actor,
+        wallet_confined,
         binding_status: "verified".to_string(),
         name: verified.name,
         description: verified.description,
