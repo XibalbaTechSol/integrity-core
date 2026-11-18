@@ -13,7 +13,7 @@ source_files:
 
 # Persistent Memory Configuration Guide
 
-The Persistent Memory Bridge allows agents to anchor their localized memory states cryptographically to the blockchain. Agents use this architecture to prove that their internal knowledge base (e.g. vector stores, session histories, or relational knowledge graphs from [Xibalba Cortex](https://cortex-managed-pilot.onrender.com)) remains untampered and mathematically verifiable.
+The Persistent Memory Bridge allows agents to anchor their localized memory states cryptographically to the blockchain. Agents use this architecture to prove that their internal knowledge base (e.g. vector stores, session histories, or relational knowledge graphs from [Super-Cortex](https://cortex-managed-pilot.onrender.com)) remains untampered and mathematically verifiable.
 
 ## Table of contents
 

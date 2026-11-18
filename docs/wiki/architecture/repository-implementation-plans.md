@@ -28,7 +28,7 @@ This page is the cross-repository implementation status, architectural milestone
 - [System Architecture & Dependency Flow](#system-architecture-dependency-flow)
 - [Verification Evidence & Milestone Status](#verification-evidence-milestone-status)
   - [1. integrity-core (Physics Engine & AI Agent Control Layer)](#1-integrity-core-physics-engine-ai-agent-control-layer)
-  - [2. xibalba-cortex (Navigational Engine)](#2-xibalba-cortex-navigational-engine)
+  - [2. super-cortex (Navigational Engine)](#2-super-cortex-navigational-engine)
   - [3. xibalba-shield (Cryptographic Topology & Response Governance)](#3-xibalba-shield-cryptographic-topology-response-governance)
   - [4. integrity-console (Universal Operator Window)](#4-integrity-console-universal-operator-window)
 - [Deployment Topologies (Cloud & Local)](#deployment-topologies-cloud-local)
@@ -38,7 +38,7 @@ This page is the cross-repository implementation status, architectural milestone
 | Repository | Scope & Authority | Upstream / Downstream Relationship |
 |---|---|---|
 | **`integrity-core`** | **Deterministic Physics & Control Layer:** Solidity primitive suite, on-chain DIDs, [Policy Packs](../entities/policy-packs.md), [BCC Middleware](../entities/bcc_middleware.md), [Integrity Oracle](../entities/integrity-oracle.md) (AIS reward engine), Python SDK & CLI. | Authoritative for protocol standards, AIS mathematical derivation, and on-chain state anchors. |
-| **`xibalba-cortex`** | **Navigational Engine:** Neuro-symbolic knowledge graph (R-GCN + TKGE/TransE), dynamic logit masking, temporal DAG reification, active inference, multi-domain biomedical/economic connectors. | Upstream provider of structured reasoning and recall paths; anchors session roots to `integrity-core`. |
+| **`super-cortex`** | **Navigational Engine:** Neuro-symbolic knowledge graph (R-GCN + TKGE/TransE), dynamic logit masking, temporal DAG reification, active inference, multi-domain biomedical/economic connectors. | Upstream provider of structured reasoning and recall paths; anchors session roots to `integrity-core`. |
 | **`xibalba-shield`** | **Response Governance:** Endpoint boundary enforcement, zero-unauthorized states, vendor-neutral EDR (CrowdStrike, Defender) & agent SOAR response authorization. | Submits signed containment and response receipts into `integrity-core` telemetry. |
 | **`integrity-console`** | **Operator Window:** Unified web dashboard and user account API (`integrity-userapi`, `integrity-dashboard`). | Downstream consumer displaying telemetry, graph trajectories, approval queues, and Merkle audit trails. |
 
@@ -58,7 +58,7 @@ flowchart TD
         O --> S
     end
 
-    subgraph Cortex["xibalba-cortex (Navigational Engine)"]
+    subgraph Cortex["super-cortex (Navigational Engine)"]
         G["Neuro-Symbolic Knowledge Graph<br/>(R-GCN + Logit Masking)"]
         M["Active Inference & Memory Roots"]
         G --> M
@@ -94,7 +94,7 @@ flowchart TD
 - [x] **Sovereign Identity Primitives:** `SovereignAgent`, `XibalbaAgentRegistry`, `StateAnchor`, `AgentPrimitivesFactory`, and `AgentAuthorityResolver` fully verified in Foundry suite (209/209 passing).
 - [ ] **Mainnet Readiness (ADR-0002):** Deployment of multi-sig governance roles, automated slasher escalation, and Base Mainnet contract verification.
 
-### 2. `xibalba-cortex` (Navigational Engine)
+### 2. `super-cortex` (Navigational Engine)
 - [x] **Geometric Graph Traversal:** Replaced unconstrained next-token prediction with deterministic traversal over structured knowledge graphs (R-GCN + TKGE/TransE).
 - [x] **Dynamic Logit Masking:** Structural elimination of hallucination via dynamic projection masking ($z_{\text{masked}} = z \circ M + (-\infty \times (1 - M))$).
 - [x] **Temporal Event Reification:** Directed Acyclic Graph (DAG) event logging preserving clinical and causal temporal sequences.
@@ -122,6 +122,6 @@ flowchart TD
 |---|---|---|
 | **Integrity Oracle** | [`https://integrity-oracle.onrender.com`](https://integrity-oracle.onrender.com) | `http://localhost:8080` |
 | **BCC Middleware** | Internal Render Service | `http://localhost:8000` |
-| **Xibalba Cortex** | [`https://cortex-managed-pilot.onrender.com`](https://cortex-managed-pilot.onrender.com) | `http://localhost:9443` |
+| **Super-Cortex** | [`https://cortex-managed-pilot.onrender.com`](https://cortex-managed-pilot.onrender.com) | `http://localhost:9443` |
 | **Xibalba Shield** | [`https://xibalba-shield.onrender.com`](https://xibalba-shield.onrender.com) | `http://localhost:9444` |
 | **Integrity Console** | [`https://integrity-console-test.onrender.com`](https://integrity-console-test.onrender.com) | `http://localhost:5173` |

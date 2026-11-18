@@ -279,7 +279,7 @@ Related: [Telemetry Ingestion Pipeline](../concepts/telemetry-ingestion.md),
 
 ## Shared Billing Gateway (`billing/`, added 2026-11-13)
 
-`integrity_sdk.billing` (`stripe_gateway.py`, `ledger.py`) defines the canonical, cross-ecosystem Stripe integration primitives shared between Xibalba Shield and Xibalba Cortex:
+`integrity_sdk.billing` (`stripe_gateway.py`, `ledger.py`) defines the canonical, cross-ecosystem Stripe integration primitives shared between Xibalba Shield and Super-Cortex:
 
 - `StripeGateway`: unified wrapper over the Stripe API pinned strictly to API version `2025-06-30.basil`. Standardizes checkout session creation, customer portal URLs, webhook event signature verification (`stripe.Webhook.construct_event`), and customer ID resolution.
 - `MeterEvent` & usage helpers: shared metering structures for reporting usage events and overage calculation against tenant plans.

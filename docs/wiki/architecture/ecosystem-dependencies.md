@@ -15,7 +15,7 @@ source_files:
 
 # Ecosystem Dependencies & Four-Repository Topology
 
-This page is the canonical cross-repository dependency and authority map for the four active repositories comprising the Integrity Ecosystem. It reflects the unified architecture established across `integrity-core`, `xibalba-cortex`, `xibalba-shield`, and `integrity-console`.
+This page is the canonical cross-repository dependency and authority map for the four active repositories comprising the Integrity Ecosystem. It reflects the unified architecture established across `integrity-core`, `super-cortex`, `xibalba-shield`, and `integrity-console`.
 
 ## Table of contents
 
@@ -33,7 +33,7 @@ The machine economy requires that autonomous AI agents operate under determinist
 | Repository | Role | Paradigm & Function | Production Deployment |
 |---|---|---|---|
 | **`integrity-core`** | **🦴 The Physics Engine & AI Agent Control Layer** | Implements the Autonomous Integrity Score (AIS) as the deterministic reinforcement learning reward function ($R_{\text{total}} = R_{\text{task}} + \lambda \cdot \text{AIS}$). Governs on-chain DIDs, [Policy Packs](../entities/policy-packs.md), Behavioral Commitment Chains ([BCC](../concepts/bcc.md)), Merkle state anchoring, and the [Integrity Oracle](../entities/integrity-oracle.md). | Oracle: [`https://integrity-oracle.onrender.com`](https://integrity-oracle.onrender.com) |
-| **`xibalba-cortex`** | **🧠 The Navigational Engine** | Neuro-symbolic knowledge graph and active inference engine. Replaces probabilistic next-token generation with geometric graph traversal (R-GCN + TKGE/TransE), dynamic logit masking, temporal event reification, and domain connectors (Biomedical/MIMIC-IV, FHIR live-feeds, ChEMBL, CMS cost friction). | Managed Pilot: [`https://cortex-managed-pilot.onrender.com`](https://cortex-managed-pilot.onrender.com) |
+| **`super-cortex`** | **🧠 The Navigational Engine** | Neuro-symbolic knowledge graph and active inference engine. Replaces probabilistic next-token generation with geometric graph traversal (R-GCN + TKGE/TransE), dynamic logit masking, temporal event reification, and domain connectors (Biomedical/MIMIC-IV, FHIR live-feeds, ChEMBL, CMS cost friction). | Managed Pilot: [`https://cortex-managed-pilot.onrender.com`](https://cortex-managed-pilot.onrender.com) |
 | **`xibalba-shield`** | **🛡️ Cryptographic Topology & Response Governance** | Enforces topological boundary gating, zero-probability unauthorized state spaces, and vendor-neutral response governance across enterprise EDRs (CrowdStrike, Microsoft Defender) and AI agents (MCP, SOAR). *"The EDR detects and acts; Shield proves who authorized it."* Produces signed action receipts and tamper-evident audit ledgers. | Cloud Console: [`https://xibalba-shield.onrender.com`](https://xibalba-shield.onrender.com) |
 | **`integrity-console`** | **👁️ The Universal Verifiable Operator Window** | Unified presentation and account layer (housing `integrity-dashboard` and `integrity-userapi`). Visualizes agent graph navigation trajectories, multi-agent DID credentials, AIS score distributions, real-time response approval queues, and cryptographic Merkle verification proofs. | Operator Window: [`https://integrity-console-test.onrender.com`](https://integrity-console-test.onrender.com) |
 
@@ -48,7 +48,7 @@ flowchart LR
     end
 
     subgraph Nav["Navigational Terrain"]
-        C["🧠 xibalba-cortex<br/>Geometric Graph Traversal<br/>R-GCN + dynamic logit masking"]
+        C["🧠 super-cortex<br/>Geometric Graph Traversal<br/>R-GCN + dynamic logit masking"]
     end
 
     subgraph Gate["Response Governance"]
@@ -79,7 +79,7 @@ flowchart LR
 | Surface | Core Responsibility | Authority Boundary (Must NOT become) |
 |---|---|---|
 | **Integrity Core** | Deterministic AIS reward engine, on-chain DIDs, state anchoring, BCC middleware, policy packs, receipt verification | A runtime bottleneck or execution blocker during external network outages |
-| **Xibalba Cortex** | Governed knowledge graph, active inference, geometric traversal, temporal event reification, multi-domain connectors | The authoritative AIS computation or financial settlement engine |
+| **Super-Cortex** | Governed knowledge graph, active inference, geometric traversal, temporal event reification, multi-domain connectors | The authoritative AIS computation or financial settlement engine |
 | **Xibalba Shield** | Topological boundary enforcement, zero-unauthorized states, EDR response governance gateway, signed evidence generation | The long-term knowledge repository or memory authority |
 | **Integrity Console** | Visualizing graph trajectories, DID credentials, approval queues, and cryptographic audit proofs | A protocol authority or execution gatekeeper |
 
@@ -88,11 +88,11 @@ flowchart LR
 ## Dependency Direction & Non-Negotiable Invariants
 
 1. **One-Way Dependency Flow:**
-   $$\text{integrity-console} \longrightarrow \{\text{integrity-core}, \text{xibalba-cortex}, \text{xibalba-shield}\}$$
-   $$\{\text{xibalba-cortex}, \text{xibalba-shield}\} \longrightarrow \text{integrity-core (Public APIs only)}$$
+   $$\text{integrity-console} \longrightarrow \{\text{integrity-core}, \text{super-cortex}, \text{xibalba-shield}\}$$
+   $$\{\text{super-cortex}, \text{xibalba-shield}\} \longrightarrow \text{integrity-core (Public APIs only)}$$
    `integrity-core` protocol packages **never** import, call, or depend upon Cortex, Shield, or Console.
 2. **Local Operational Independence:**
-   A failure, network partition, or downtime in `integrity-console`, `xibalba-cortex`, or `xibalba-shield` must **never** prevent `integrity-core` from evaluating local policy packs, enforcing BCC commitments, or validating cryptographic signatures.
+   A failure, network partition, or downtime in `integrity-console`, `super-cortex`, or `xibalba-shield` must **never** prevent `integrity-core` from evaluating local policy packs, enforcing BCC commitments, or validating cryptographic signatures.
 3. **Receipt & Evidence Coupling:**
    External events produce self-contained, signed cryptographic receipts (`integrity.receipt/1`) that are submitted into `integrity-core`'s telemetry ingestion pipeline via public endpoints.
 
@@ -106,7 +106,7 @@ All four ecosystem components have dedicated production deployments on Render ba
   - Production URL: [`https://xibalba-shield.onrender.com`](https://xibalba-shield.onrender.com)
   - Health Endpoint: `/api/shield/health`
   - Function: Device commissioning (RFC 8628), fleet policy distribution, and EDR response governance.
-- **Xibalba Cortex:**
+- **Super-Cortex:**
   - Production URL: [`https://cortex-managed-pilot.onrender.com`](https://cortex-managed-pilot.onrender.com)
   - Health Endpoint: `/healthz`
   - Function: Multi-tenant managed knowledge graph, active inference API, and structured data imports.

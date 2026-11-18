@@ -11,7 +11,7 @@ source_files:
   - README.md
 ---
 
-The web presentation and operator console for the Integrity Protocol ecosystem (React 18, Vite, TypeScript, TailwindCSS). It visualizes agent identity credentials, real-time [AIS](../concepts/ais.md) score distributions, [Xibalba Cortex](https://cortex-managed-pilot.onrender.com) graph navigation trajectories, and [Xibalba Shield](https://xibalba-shield.onrender.com) response governance queues.
+The web presentation and operator console for the Integrity Protocol ecosystem (React 18, Vite, TypeScript, TailwindCSS). It visualizes agent identity credentials, real-time [AIS](../concepts/ais.md) score distributions, [Super-Cortex](https://cortex-managed-pilot.onrender.com) graph navigation trajectories, and [Xibalba Shield](https://xibalba-shield.onrender.com) response governance queues.
 
 **Repository Decoupling Notice (2026):**
 `integrity-dashboard` has been extracted from `integrity-core` into the dedicated [`integrity-console`](https://github.com/XibalbaTechSol/integrity-console) repository to serve as the unified Universal Verifiable Operator Window.
@@ -89,7 +89,7 @@ evidence, not evidence that a persistent or remote dashboard deployment was repl
 | `/prediction-markets` | `components/tabs/ActuarialHub.tsx` (`mode="markets"`) | `oracle.listMarkets()` + chain writes via `SovereignAgent.execute` |
 | `/health` | `pages/HealthPage.tsx` | `oracle` (NHI governance) + chain (BAAs/EHR gates/quarantine, real Base Sepolia) |
 | `/shield` | `pages/ShieldPage.tsx` | `ShieldFleetOverview` reads the real Shield backend; `Live Attack Demo` is a separate synthetic/local simulator tab |
-| `/cortex` | `pages/CortexPage.tsx` | Unified Cortex workspace: timeline, graph, recall, inference, integrity, and operations tabs backed by `xibalba-cortex`'s `local_api.py`, `VITE_GRAPH_MEMORY_URL`, default `:8420` |
+| `/cortex` | `pages/CortexPage.tsx` | Unified Cortex workspace: timeline, graph, recall, inference, integrity, and operations tabs backed by `super-cortex`'s `local_api.py`, `VITE_GRAPH_MEMORY_URL`, default `:8420` |
 | `/memory` | compatibility redirect | Redirects to the canonical `/cortex` workspace so existing bookmarks remain valid |
 | `/developer` | `pages/DeveloperPage.tsx` | `oracle` + chain (IDE/contracts tab), `oracle` (Trace Analysis tab) |
 | `/settings` | `pages/SettingsPage.tsx` | `userapi` (API keys), `DashboardContext` (theme/layout), chain (`PrivacyPanel`) |
@@ -132,7 +132,7 @@ records remain unchanged and are not silently reassigned.
 ## Cortex Operations tab boundary
 
 The `/cortex` workspace's **Operations** tab is a focused operator surface over the separate
-`xibalba-cortex` local API. It does not move canonical memory ownership into
+`super-cortex` local API. It does not move canonical memory ownership into
 `integrity-core`: Cortex's profile-scoped SQLite store remains authoritative
 for Cortex memory, while Integrity protocol packages remain independent of
 that external repository.
@@ -314,8 +314,8 @@ docker compose up --build postgres redis opa oracle-backend bcc-middleware usera
 cd integrity-dashboard && npx playwright test
 ```
 
-For `/cortex`, separately run `xibalba-cortex`'s `local_api.py` (a different
-repo): `uv run python -m xibalba_cortex.local_api --home <profile-dir>
+For `/cortex`, separately run `super-cortex`'s `local_api.py` (a different
+repo): `uv run python -m super_cortex.local_api --home <profile-dir>
 --allowed-origin http://127.0.0.1:5189`. Point it at a fresh, empty
 `--home` directory for testing rather than a real profile — its own
 background session-capture means even a fresh store won't reliably stay at

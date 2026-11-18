@@ -36,7 +36,7 @@ flowchart TD
     end
 
     subgraph Ecosystem["The Connected Ecosystem"]
-        Cortex["🧠 xibalba-cortex<br/>(The Navigational Terrain)<br/>Geometric Graph Traversal · Logit Masking"]
+        Cortex["🧠 super-cortex<br/>(The Navigational Terrain)<br/>Geometric Graph Traversal · Logit Masking"]
         Shield["🛡️ xibalba-shield<br/>(Response Governance)<br/>Topological Boundary Gating · EDR/SOAR"]
         Console["👁️ integrity-console<br/>(Universal Operator Window)<br/>Trajectory Visualization · Verifiable Ledger"]
     end
@@ -89,7 +89,7 @@ The Integrity Ecosystem aligns autonomous machine behavior across four specializ
 | Repository | Role | Paradigm & Function | Live Deployment |
 |---|---|---|---|
 | **`integrity-core`** (This Repo) | **🦴 The Physics Engine & AI Agent Control Layer** | Implements the deterministic AIS reward engine, on-chain DIDs, [Policy Packs](entities/policy-packs.md), [BCC Middleware](entities/bcc_middleware.md), and [Integrity Oracle](entities/integrity-oracle.md). | Oracle: [`https://integrity-oracle.onrender.com`](https://integrity-oracle.onrender.com) |
-| **`xibalba-cortex`** | **🧠 The Navigational Engine** | Neuro-symbolic knowledge graph and active inference engine. Replaces probabilistic token guessing with geometric graph traversal (R-GCN + TKGE/TransE), dynamic logit masking, and biomedical/economic connectors. | Pilot: [`https://cortex-managed-pilot.onrender.com`](https://cortex-managed-pilot.onrender.com) |
+| **`super-cortex`** | **🧠 The Navigational Engine** | Neuro-symbolic knowledge graph and active inference engine. Replaces probabilistic token guessing with geometric graph traversal (R-GCN + TKGE/TransE), dynamic logit masking, and biomedical/economic connectors. | Pilot: [`https://cortex-managed-pilot.onrender.com`](https://cortex-managed-pilot.onrender.com) |
 | **`xibalba-shield`** | **🛡️ Cryptographic Topology & Response Governance** | Enforces topological boundary gating, zero-probability unauthorized state spaces, and vendor-neutral response governance across enterprise EDRs (CrowdStrike, Defender) and AI agents (MCP, SOAR). | Console: [`https://xibalba-shield.onrender.com`](https://xibalba-shield.onrender.com) |
 | **`integrity-console`** | **👁️ The Universal Verifiable Operator Window** | Unified presentation and account layer (housing `integrity-dashboard` and `integrity-userapi`). Visualizes agent graph navigation trajectories, multi-agent DID credentials, AIS score distributions, real-time approval queues, and cryptographic Merkle verification. | Operator Window: [`https://integrity-console-test.onrender.com`](https://integrity-console-test.onrender.com) |
 
