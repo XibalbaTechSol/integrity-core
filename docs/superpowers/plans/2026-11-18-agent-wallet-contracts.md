@@ -170,6 +170,9 @@ contract IntegrityHook /* is IHook (ERC-7579) */ {
   - the selector is `installModule` / `uninstallModule`
   - an `execute` whose every target is the account itself or an installed module (including the hook)
   - any selector on the account other than `execute` / `executeFromExecutor`
+  - an owner `execute` whose every target is a governance-set **protocol target** (`ActionAnchor`,
+    XNS) with zero native value (spec §6.2 amendment, S-J). Add the governance setter
+    `setProtocolTarget(address, bool)` in Task 6
 - Admin requires `roleOf == Owner`, or `Maintenance` calling only the hook (tighten-only, enforced in Task 6). Otherwise it reverts `NotOwner()`. Admin skips checks 1–7.
 - **Value-moving** is everything else. Delegatecall mode reverts `DelegatecallDenied()` unless `roleOf == Owner`.
 
@@ -185,6 +188,8 @@ contract IntegrityHook /* is IHook (ERC-7579) */ {
 ```solidity
 function test_admin_always_allowed_for_owner_even_when_frozen_and_unscored() public; // frozen + no checkpoint; owner installModule succeeds
 function test_admin_by_session_reverts_NotOwner() public;
+function test_owner_anchor_is_admin_even_when_frozen() public;     // protocol target, owner, frozen + unscored → succeeds
+function test_session_call_to_protocol_target_NotOwner() public;
 function test_value_reverts_Frozen() public;
 function test_value_reverts_NotRegistered_and_after_retire() public;
 function test_value_reverts_AwaitingFirstCheckpoint() public;      // fresh account, no checkpoint

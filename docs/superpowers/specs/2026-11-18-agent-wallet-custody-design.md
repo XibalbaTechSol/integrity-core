@@ -185,6 +185,11 @@ spike passes. The spike must answer these questions, each of which can change th
   are **always allowed for the owner**, whatever the freeze, AIS or registration state, so an
   owner is never trapped.
 - **Value-moving**: everything else. Only value-moving operations go through the checks below.
+- **Amendment (2026-11-18, SDK/CLI decision S-J):** evidence anchors (`ActionAnchor`) and XNS
+  handle writes are owner-signed in the console, never sent by the agent. An owner call to those
+  two governance-set targets, carrying no native value, is classed **admin**. Otherwise a frozen
+  or not-yet-scored agent's owner could not record evidence. A session-key call to them is
+  denied, like any admin operation.
 
 **`preCheck`** enforces, in order, on value-moving operations:
 1. **Not frozen.** `StakeVault.stakeOf(account).frozen == false`.
