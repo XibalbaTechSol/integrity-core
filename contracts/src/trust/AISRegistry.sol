@@ -28,6 +28,10 @@ contract AISRegistry is AccessControl {
     /// @notice The most recent checkpoint posted for each agent.
     mapping(address agent => Checkpoint) public latest;
 
+    /// @notice `block.timestamp` at which each agent's latest checkpoint was posted. Kept separate
+    /// from `Checkpoint` so the `latest()` ABI is unchanged. Used by spend guards for staleness.
+    mapping(address agent => uint64) public postedAt;
+
     event CheckpointPosted(address indexed agent, uint32 score, uint64 windowEnd, bytes32 evidenceRoot);
 
     error ScoreOutOfRange();
@@ -105,6 +109,7 @@ contract AISRegistry is AccessControl {
 
         uint32 oldScore = latest[agent].score;
         latest[agent] = Checkpoint({score: score, windowEnd: windowEnd, evidenceRoot: evidenceRoot});
+        postedAt[agent] = uint64(block.timestamp);
         emit CheckpointPosted(agent, score, windowEnd, evidenceRoot);
 
         vault.onCheckpoint(agent, score);
