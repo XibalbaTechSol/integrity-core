@@ -2,6 +2,7 @@
 pragma solidity 0.8.28;
 
 import { AccessControl } from "@openzeppelin/contracts/access/AccessControl.sol";
+import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import { IOperationContext } from "./IOperationContext.sol";
 
 interface IAgentRegistryView {
@@ -61,6 +62,7 @@ contract IntegrityHook is AccessControl {
     error AisStale(uint64 postedAt);
     error CoSignerRequired();
     error OwnerApprovalRequired();
+    error Paused();
     error Frozen();
     error AwaitingFirstCheckpoint();
     error NotOwner();
@@ -108,6 +110,12 @@ contract IntegrityHook is AccessControl {
     mapping(address => bool) public isKnownToken;
     address[] public knownTokens;
     mapping(address => uint256) internal _knownTokenIndex;
+
+    // Mode gates (Task 5)
+    mapping(address => address) public coSigners;
+    mapping(address => mapping(address => uint128)) public ownerApproveAbove;
+    mapping(address => bool) public isPaused;
+    mapping(address => uint256) public coSignNonce;
 
     modifier onlyAccountOwner() {
         if (ctx.roleOf(msg.sender) != IOperationContext.Role.Owner) revert NotOwner();
@@ -186,6 +194,22 @@ contract IntegrityHook is AccessControl {
         allowlistDisabled[msg.sender] = !enabled;
     }
 
+    function setCoSigner(address coSigner) external onlyAccountOwner {
+        coSigners[msg.sender] = coSigner;
+    }
+
+    function setOwnerApproveAbove(address token, uint128 threshold) external onlyAccountOwner {
+        ownerApproveAbove[msg.sender][token] = threshold;
+    }
+
+    function pause() external onlyAccountOwner {
+        isPaused[msg.sender] = true;
+    }
+
+    function unpause() external onlyAccountOwner {
+        isPaused[msg.sender] = false;
+    }
+
     // ── Governance Setters (GOVERNANCE_ROLE) ───────────────────────────────
 
     function setKnownToken(address token, bool known) external onlyRole(GOVERNANCE_ROLE) {
@@ -230,6 +254,37 @@ contract IntegrityHook is AccessControl {
             return 0;
         }
         return w.spent;
+    }
+
+    function coSignDigest(
+        address account,
+        address target,
+        uint256 value,
+        bytes32 dataHash,
+        uint256 nonce,
+        uint256 deadline
+    ) public view returns (bytes32) {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                keccak256("CoSign(address account,address target,uint256 value,bytes32 dataHash,uint256 nonce,uint256 deadline)"),
+                account,
+                target,
+                value,
+                dataHash,
+                nonce,
+                deadline
+            )
+        );
+        bytes32 domainSeparator = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256("IntegrityHook"),
+                keccak256("1"),
+                block.chainid,
+                address(this)
+            )
+        );
+        return keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
     }
 
     // ── ERC-7579 Hook Entrypoints ──────────────────────────────────────────
@@ -337,7 +392,13 @@ contract IntegrityHook is AccessControl {
             revert AisBelowFloor(score, floor);
         }
 
-        // ── Value-Moving Operations: Checks 4–6 (Allowlist, Decoding, Limits)
+        // ── Value-Moving Operations: Mode Gates & Checks 4–6 ───────────────
+
+        // Pause check
+        if (enforceLimits && isPaused[account]) {
+            revert Paused();
+        }
+
         if (msgData.length >= 4) {
             bytes4 sel = bytes4(msgData[:4]);
             if (sel == EXECUTE_SELECTOR || sel == EXECUTE_FROM_EXECUTOR_SELECTOR) {
@@ -351,9 +412,21 @@ contract IntegrityHook is AccessControl {
                     address callTarget = address(bytes20(executionCalldata[:20]));
                     uint256 callVal = uint256(bytes32(executionCalldata[20:52]));
                     bytes calldata callPayload = executionCalldata[52:];
+
+                    // Co-signer check for single call
+                    if (enforceLimits && coSigners[account] != address(0)) {
+                        _verifySingleCoSignature(account, callTarget, callVal, callPayload);
+                    }
+
                     _checkExecution(account, callTarget, callVal, callPayload, enforceLimits);
                 } else if (callType == 0x01) {
                     Execution[] memory execs = abi.decode(executionCalldata, (Execution[]));
+
+                    // Co-signer check for batch call
+                    if (enforceLimits && coSigners[account] != address(0)) {
+                        _verifyBatchCoSignature(account, execs);
+                    }
+
                     for (uint256 i = 0; i < execs.length; i++) {
                         _checkExecution(account, execs[i].target, execs[i].value, execs[i].callData, enforceLimits);
                     }
@@ -406,6 +479,55 @@ contract IntegrityHook is AccessControl {
 
     // ── Internal Helpers ───────────────────────────────────────────────────
 
+    function _verifySingleCoSignature(
+        address account,
+        address target,
+        uint256 value,
+        bytes memory data
+    ) internal {
+        bytes memory coSigData = ctx.coSignatureOf(account);
+        if (coSigData.length == 0) revert CoSignerRequired();
+
+        (bytes memory sig, uint256 deadline) = abi.decode(coSigData, (bytes, uint256));
+        if (deadline < block.timestamp) revert CoSignerRequired();
+
+        uint256 currentNonce = coSignNonce[account];
+        bytes32 digest = coSignDigest(account, target, value, keccak256(data), currentNonce, deadline);
+
+        (address signer, ECDSA.RecoverError err,) = ECDSA.tryRecover(digest, sig);
+        if (err != ECDSA.RecoverError.NoError || signer != coSigners[account]) {
+            revert CoSignerRequired();
+        }
+
+        coSignNonce[account] = currentNonce + 1;
+    }
+
+    function _verifyBatchCoSignature(
+        address account,
+        Execution[] memory execs
+    ) internal {
+        bytes memory coSigData = ctx.coSignatureOf(account);
+        if (coSigData.length == 0) revert CoSignerRequired();
+
+        bytes[] memory sigPayloads = abi.decode(coSigData, (bytes[]));
+        if (sigPayloads.length != execs.length) revert CoSignerRequired();
+
+        for (uint256 i = 0; i < execs.length; i++) {
+            (bytes memory sig, uint256 deadline) = abi.decode(sigPayloads[i], (bytes, uint256));
+            if (deadline < block.timestamp) revert CoSignerRequired();
+
+            uint256 currentNonce = coSignNonce[account];
+            bytes32 digest = coSignDigest(account, execs[i].target, execs[i].value, keccak256(execs[i].callData), currentNonce, deadline);
+
+            (address signer, ECDSA.RecoverError err,) = ECDSA.tryRecover(digest, sig);
+            if (err != ECDSA.RecoverError.NoError || signer != coSigners[account]) {
+                revert CoSignerRequired();
+            }
+
+            coSignNonce[account] = currentNonce + 1;
+        }
+    }
+
     function _checkExecution(
         address account,
         address callTarget,
@@ -453,6 +575,7 @@ contract IntegrityHook is AccessControl {
             uint256 amount = uint256(_loadWord(data, 36));
             if (enforceLimits) {
                 if (!allowlistDisabled[account] && !isAllowlisted[account][to]) revert NotAllowlisted(to);
+                _checkOwnerApprove(account, token, amount);
                 uint256 perCallCap = tokenLimits[account][token].perCall;
                 if (perCallCap == 0 || amount > perCallCap) revert LimitExceeded(token, amount, perCallCap);
             }
@@ -464,6 +587,7 @@ contract IntegrityHook is AccessControl {
             uint256 amount = uint256(_loadWord(data, 68));
             if (from == account && enforceLimits) {
                 if (!allowlistDisabled[account] && !isAllowlisted[account][to]) revert NotAllowlisted(to);
+                _checkOwnerApprove(account, token, amount);
                 uint256 perCallCap = tokenLimits[account][token].perCall;
                 if (perCallCap == 0 || amount > perCallCap) revert LimitExceeded(token, amount, perCallCap);
             }
@@ -474,6 +598,7 @@ contract IntegrityHook is AccessControl {
             uint256 amount = uint256(_loadWord(data, 36));
             if (enforceLimits) {
                 if (!allowlistDisabled[account] && !isAllowlisted[account][spender]) revert NotAllowlisted(spender);
+                _checkOwnerApprove(account, token, amount);
             }
             // approve amounts are added to the window at preCheck time
             _recordSpend(account, token, amount, enforceLimits);
@@ -485,6 +610,7 @@ contract IntegrityHook is AccessControl {
             uint256 amount = uint256(_loadWord(data, 68));
             if (from == account && enforceLimits) {
                 if (!allowlistDisabled[account] && !isAllowlisted[account][to]) revert NotAllowlisted(to);
+                _checkOwnerApprove(account, token, amount);
                 uint256 perCallCap = tokenLimits[account][token].perCall;
                 if (perCallCap == 0 || amount > perCallCap) revert LimitExceeded(token, amount, perCallCap);
             }
@@ -493,6 +619,7 @@ contract IntegrityHook is AccessControl {
             if (data.length < 36) revert UnknownSelector(token, sel);
             uint256 amount = uint256(_loadWord(data, 4));
             if (enforceLimits) {
+                _checkOwnerApprove(account, token, amount);
                 uint256 perCallCap = tokenLimits[account][token].perCall;
                 if (perCallCap == 0 || amount > perCallCap) revert LimitExceeded(token, amount, perCallCap);
             }
@@ -502,11 +629,19 @@ contract IntegrityHook is AccessControl {
             address from = address(uint160(uint256(_loadWord(data, 4))));
             uint256 amount = uint256(_loadWord(data, 36));
             if (from == account && enforceLimits) {
+                _checkOwnerApprove(account, token, amount);
                 uint256 perCallCap = tokenLimits[account][token].perCall;
                 if (perCallCap == 0 || amount > perCallCap) revert LimitExceeded(token, amount, perCallCap);
             }
         } else {
             revert UnknownSelector(token, sel);
+        }
+    }
+
+    function _checkOwnerApprove(address account, address token, uint256 amount) internal view {
+        uint128 threshold = ownerApproveAbove[account][token];
+        if (threshold > 0 && amount > threshold) {
+            revert OwnerApprovalRequired();
         }
     }
 
