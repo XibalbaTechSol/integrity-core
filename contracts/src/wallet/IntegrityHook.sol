@@ -122,6 +122,14 @@ contract IntegrityHook is AccessControl {
         _;
     }
 
+    modifier onlyAccountOwnerOrMaintenance() {
+        IOperationContext.Role role = ctx.roleOf(msg.sender);
+        if (role != IOperationContext.Role.Owner && role != IOperationContext.Role.Maintenance) {
+            revert NotOwner();
+        }
+        _;
+    }
+
     constructor(
         address governance,
         IAgentRegistryView _registry,
@@ -172,37 +180,89 @@ contract IntegrityHook is AccessControl {
         return config[account].initialized;
     }
 
-    // ── Account Setters (Owner only) ───────────────────────────────────────
+    // ── Account Setters (Owner or Maintenance tighten-only) ───────────────
 
-    function setTokenLimit(address token, uint128 perCall, uint128 perWindow) external onlyAccountOwner {
+    function setTokenLimit(address token, uint128 perCall, uint128 perWindow) external onlyAccountOwnerOrMaintenance {
+        if (ctx.roleOf(msg.sender) == IOperationContext.Role.Maintenance) {
+            TokenLimit memory current = tokenLimits[msg.sender][token];
+            if (perCall > current.perCall || perWindow > current.perWindow) {
+                revert LoosenNotAllowed();
+            }
+        }
         tokenLimits[msg.sender][token] = TokenLimit({ perCall: perCall, perWindow: perWindow });
     }
 
-    function setNativeLimit(uint128 perCall, uint128 perWindow) external onlyAccountOwner {
+    function setNativeLimit(uint128 perCall, uint128 perWindow) external onlyAccountOwnerOrMaintenance {
+        if (ctx.roleOf(msg.sender) == IOperationContext.Role.Maintenance) {
+            TokenLimit memory current = tokenLimits[msg.sender][address(0)];
+            if (perCall > current.perCall || perWindow > current.perWindow) {
+                revert LoosenNotAllowed();
+            }
+        }
         tokenLimits[msg.sender][address(0)] = TokenLimit({ perCall: perCall, perWindow: perWindow });
     }
 
-    function setWindow(uint32 windowSeconds) external onlyAccountOwner {
+    function setWindow(uint32 windowSeconds) external onlyAccountOwnerOrMaintenance {
+        if (ctx.roleOf(msg.sender) == IOperationContext.Role.Maintenance) {
+            uint32 current = config[msg.sender].windowSeconds;
+            if (windowSeconds > current) {
+                revert LoosenNotAllowed();
+            }
+        }
         config[msg.sender].windowSeconds = windowSeconds;
     }
 
-    function setAllowlisted(address target, bool allowed) external onlyAccountOwner {
+    function setAllowlisted(address target, bool allowed) external onlyAccountOwnerOrMaintenance {
+        if (ctx.roleOf(msg.sender) == IOperationContext.Role.Maintenance) {
+            if (allowed) {
+                revert LoosenNotAllowed();
+            }
+        }
         isAllowlisted[msg.sender][target] = allowed;
     }
 
-    function setAllowlistEnabled(bool enabled) external onlyAccountOwner {
+    function setAllowlistEnabled(bool enabled) external onlyAccountOwnerOrMaintenance {
+        if (ctx.roleOf(msg.sender) == IOperationContext.Role.Maintenance) {
+            if (!enabled) {
+                revert LoosenNotAllowed();
+            }
+        }
         allowlistDisabled[msg.sender] = !enabled;
     }
 
-    function setCoSigner(address coSigner) external onlyAccountOwner {
+    function setCoSigner(address coSigner) external onlyAccountOwnerOrMaintenance {
+        if (ctx.roleOf(msg.sender) == IOperationContext.Role.Maintenance) {
+            if (coSigners[msg.sender] != address(0) || coSigner == address(0)) {
+                revert LoosenNotAllowed();
+            }
+        }
         coSigners[msg.sender] = coSigner;
     }
 
-    function setOwnerApproveAbove(address token, uint128 threshold) external onlyAccountOwner {
+    function setOwnerApproveAbove(address token, uint128 threshold) external onlyAccountOwnerOrMaintenance {
+        if (ctx.roleOf(msg.sender) == IOperationContext.Role.Maintenance) {
+            uint128 current = ownerApproveAbove[msg.sender][token];
+            if (threshold == 0 || (current > 0 && threshold >= current)) {
+                revert LoosenNotAllowed();
+            }
+        }
         ownerApproveAbove[msg.sender][token] = threshold;
     }
 
-    function pause() external onlyAccountOwner {
+    function setOwnerFloor(uint32 floor) external onlyAccountOwnerOrMaintenance {
+        if (floor < protocolFloor) {
+            revert FloorBelowProtocol(floor, protocolFloor);
+        }
+        if (ctx.roleOf(msg.sender) == IOperationContext.Role.Maintenance) {
+            uint32 current = config[msg.sender].ownerFloor;
+            if (floor <= current) {
+                revert LoosenNotAllowed();
+            }
+        }
+        config[msg.sender].ownerFloor = floor;
+    }
+
+    function pause() external onlyAccountOwnerOrMaintenance {
         isPaused[msg.sender] = true;
     }
 
@@ -366,6 +426,10 @@ contract IntegrityHook is AccessControl {
         }
 
         // ── Value-Moving Operations: Checks 1–3 (In Strict Order) ──────────
+
+        if (role == IOperationContext.Role.Maintenance) {
+            revert NotOwner();
+        }
 
         // Check 1: StakeVault freeze check
         if (vault.stakeOf(account).frozen) {
