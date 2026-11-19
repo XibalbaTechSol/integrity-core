@@ -411,3 +411,50 @@ def test_main_logs_to_stderr_when_the_bcc_gate_is_unreachable_too(profile_root, 
     assert completed.returncode == 0
     assert completed.stdout == ""
     assert "bcc gate UNCHECKED" in completed.stderr
+
+
+def test_query_cortex_step_reward(monkeypatch):
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"event_id": "evt_1", "reward": 0.94, "gated_by_compliance": False}
+
+    import requests
+
+    monkeypatch.setattr(requests, "post", lambda url, json, timeout: FakeResponse())
+    res = hook_runner.query_cortex_step_reward(event_id="evt_1", ais_score_1000=940.0)
+    assert res == {"event_id": "evt_1", "reward": 0.94, "gated_by_compliance": False}
+
+    # Verify graceful degradation on network exception
+    monkeypatch.setattr(requests, "post", lambda url, json, timeout: (_ for _ in ()).throw(RuntimeError("cortex down")))
+    assert hook_runner.query_cortex_step_reward(event_id="evt_1") is None
+
+
+def test_main_emits_remediation_and_ais_reward_on_deny(profile_root, tmp_path, gate_socket):
+    reply = _verdict(decision="deny", action="deny", reason="AIS_ZONE_RESTRICTED: base checkouts are read-only")
+    with _StandInShieldGate(gate_socket, lambda _line: reply):
+        completed = _run_pre_tool_use(
+            profile_root, tmp_path, "shield", {"tool_name": "Bash", "tool_input": {"command": "rm -rf /"}},
+            XIBALBA_SHIELD_GATE_SOCKET=str(gate_socket),
+        )
+    assert completed.returncode == 0
+    output = json.loads(completed.stdout)["hookSpecificOutput"]
+    assert output["permissionDecision"] == "deny"
+    assert "Remediation: Use `xb-wt start" in output["permissionDecisionReason"]
+    assert "[AIS Reward:" in output["permissionDecisionReason"]
+
+
+def test_main_emits_additional_context_on_allow_when_enabled(profile_root, tmp_path, gate_socket, monkeypatch):
+    reply = _verdict(decision="allow", action="allow", reason="ok", receipt={"hash": "0x1234567890abcdef"})
+    with _StandInShieldGate(gate_socket, lambda _line: reply):
+        completed = _run_pre_tool_use(
+            profile_root, tmp_path, "shield", {"tool_name": "Read", "tool_input": {"file": "a.txt"}},
+            XIBALBA_SHIELD_GATE_SOCKET=str(gate_socket),
+            INTEGRITY_HOOK_INLINE_FEEDBACK="1",
+        )
+    assert completed.returncode == 0
+    output = json.loads(completed.stdout)["hookSpecificOutput"]
+    assert output["permissionDecision"] == "allow"
+    assert "[AIS Step Reward:" in output["additionalContext"]
+

@@ -58,6 +58,45 @@ MAX_SHIELD_RESPONSE_BYTES = 64 * 1024
 #: rejects). An input that cannot be hashed must not turn into a failed tool call.
 UNCANONICALIZABLE_DIGEST = "uncanonicalizable"
 
+DEFAULT_CORTEX_URL = "http://127.0.0.1:4174"
+
+
+def query_cortex_step_reward(
+    *,
+    event_id: str,
+    r_task: float = 1.0,
+    ais_score_1000: float = 1000.0,
+    bcc_passed: bool = True,
+    policy_denied: bool = False,
+    cortex_url: str | None = None,
+    timeout: float = 0.5,
+) -> dict[str, Any] | None:
+    """Query Super-Cortex fast local step-reward evaluator for in-band feedback.
+
+    Fails silently (returns None) on timeout or connection error -- step reward is
+    observability/feedback and must never block or crash the hook runner.
+    """
+    import requests  # connector-only; never at module scope
+
+    url = (cortex_url or os.getenv("XIBALBA_CORTEX_URL", DEFAULT_CORTEX_URL)).rstrip("/")
+    try:
+        resp = requests.post(
+            f"{url}/api/managed/discovery/reward-step",
+            json={
+                "event_id": event_id,
+                "r_task": float(r_task),
+                "ais_score_1000": float(ais_score_1000),
+                "bcc_passed": bool(bcc_passed),
+                "policy_denied": bool(policy_denied),
+            },
+            timeout=timeout,
+        )
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
 
 class HookRunnerError(RuntimeError):
     """A gate/memory target this runner does not (yet) support, or a malformed call."""
@@ -174,9 +213,27 @@ def _evaluate_shield(
     }
     # Carried through so the caller can record WHICH policy ruled, and what an observe-mode
     # daemon would have enforced.
-    for key in ("rule_id", "policy_hash", "action", "enforced"):
+    for key in ("rule_id", "policy_hash", "action", "enforced", "receipt", "zone_mask", "invocation_id"):
         if key in response:
             result[key] = response[key]
+
+    event_id = str(response.get("invocation_id") or "pre_tool_call")
+    zone_mask = response.get("zone_mask") or {}
+    restricted = bool(zone_mask.get("restricted", False))
+    policy_denied = result["decision"] == "deny"
+    ais_score = 950.0 if not restricted else 600.0
+
+    step_eval = query_cortex_step_reward(
+        event_id=event_id,
+        r_task=1.0,
+        ais_score_1000=ais_score,
+        bcc_passed=not restricted and not policy_denied,
+        policy_denied=policy_denied or restricted,
+    )
+    if step_eval is not None:
+        result["ais_reward"] = float(step_eval.get("reward", 0.0))
+        result["gated_by_compliance"] = bool(step_eval.get("gated_by_compliance", False))
+
     return result
 
 
@@ -295,12 +352,27 @@ def _read_stdin_json() -> dict[str, Any]:
         return {}
 
 
-def _emit_deny(reason: str) -> None:
+def _emit_deny(reason: str, reward: float | None = None, remediation: str | None = None) -> None:
+    msg = reason
+    if reward is not None:
+        msg += f"\n[AIS Reward: {reward:.2f} (Zero-Gated)]"
+    if remediation:
+        msg += f"\n[Remediation: {remediation}]"
     print(json.dumps({
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
             "permissionDecision": "deny",
-            "permissionDecisionReason": reason,
+            "permissionDecisionReason": msg,
+        }
+    }))
+
+
+def _emit_allow(context: str) -> None:
+    print(json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+            "additionalContext": context,
         }
     }))
 
@@ -320,7 +392,17 @@ def main(argv: list[str] | None = None) -> int:
             result = evaluate_pre_tool_use(payload, gate=args.gate, profile_root=Path(args.profile_root), agent_id=args.agent_id)
             if result["decision"] == "deny":
                 reason = result["reason"] if result["checked"] else f"policy unavailable; {result['reason']}"
-                _emit_deny(f"Integrity {args.gate} gate denied this {payload.get('tool_name', 'tool')} action: {reason}")
+                reward = result.get("ais_reward")
+                remediation = None
+                if "base checkouts are read-only" in reason or "read-only base" in reason.lower():
+                    remediation = "Use `xb-wt start <repo> <type>/<topic>` to create an isolated feature worktree."
+                elif "AIS_ZONE_RESTRICTED" in reason:
+                    remediation = "Restricted execution zone. Request human approval or use read/draft operations."
+                _emit_deny(
+                    f"Integrity {args.gate} gate denied this {payload.get('tool_name', 'tool')} action: {reason}",
+                    reward=reward,
+                    remediation=remediation,
+                )
             elif not result["checked"]:
                 # This module's docstring promises a fail-open allow is "always logged to
                 # stderr, never silently swallowed", but until now only exceptions were. An
@@ -330,10 +412,14 @@ def main(argv: list[str] | None = None) -> int:
                     f"integrity hook_runner: {args.gate} gate UNCHECKED, allowing "
                     f"{payload.get('tool_name', 'tool')}: {result['reason']}\n"
                 )
+            elif result.get("ais_reward") is not None and os.getenv("INTEGRITY_HOOK_INLINE_FEEDBACK") == "1":
+                receipt_hash = (result.get("receipt") or {}).get("hash", "")
+                short_hash = f" | Receipt: {receipt_hash[:10]}..." if receipt_hash else ""
+                _emit_allow(f"[AIS Step Reward: {result['ais_reward']:.2f}{short_hash}]")
         elif args.event == "post_tool_use" and args.memory:
             token = os.getenv("XIBALBA_CORTEX_TOKEN", "")
             if token:
-                cortex_url = os.getenv("XIBALBA_CORTEX_URL", "http://127.0.0.1:8420")
+                cortex_url = os.getenv("XIBALBA_CORTEX_URL", DEFAULT_CORTEX_URL)
                 try:
                     record_memory_event(payload, memory=args.memory, cortex_url=cortex_url, token=token, event_name="integrity_hook.post_tool_use")
                 except Exception as exc:  # noqa: BLE001 -- memory recording never blocks the session
