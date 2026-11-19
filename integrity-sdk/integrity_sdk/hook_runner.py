@@ -233,6 +233,14 @@ def _evaluate_shield(
     if step_eval is not None:
         result["ais_reward"] = float(step_eval.get("reward", 0.0))
         result["gated_by_compliance"] = bool(step_eval.get("gated_by_compliance", False))
+    else:
+        # Deterministic local fallback when Cortex discovery API is offline
+        if policy_denied or restricted:
+            result["ais_reward"] = 0.0
+            result["gated_by_compliance"] = True
+        else:
+            result["ais_reward"] = round(1.0 * (ais_score / 1000.0), 6)
+            result["gated_by_compliance"] = False
 
     return result
 
@@ -392,7 +400,7 @@ def main(argv: list[str] | None = None) -> int:
             result = evaluate_pre_tool_use(payload, gate=args.gate, profile_root=Path(args.profile_root), agent_id=args.agent_id)
             if result["decision"] == "deny":
                 reason = result["reason"] if result["checked"] else f"policy unavailable; {result['reason']}"
-                reward = result.get("ais_reward")
+                reward = result.get("ais_reward", 0.0)
                 remediation = None
                 if "base checkouts are read-only" in reason or "read-only base" in reason.lower():
                     remediation = "Use `xb-wt start <repo> <type>/<topic>` to create an isolated feature worktree."
