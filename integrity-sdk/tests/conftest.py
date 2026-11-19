@@ -110,6 +110,8 @@ def deployed_chain():
             for tx in broadcast["transactions"]
             if tx.get("transactionType") == "CREATE"
         }
+        if "ITK" in addresses and "IntegrityToken" not in addresses:
+            addresses["IntegrityToken"] = addresses["ITK"]
 
         w3 = Web3(Web3.HTTPProvider(rpc_url))
         funder = Account.from_key(ANVIL_DEV_PRIVATE_KEY)
