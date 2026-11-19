@@ -1,6 +1,6 @@
 # Integrity SDK and CLI — architecture redesign
 
-Status: **proposed (revised after builder check)**. Date: 2026-11-18.
+Status: **approved (owner, 2026-11-18)**. Date: 2026-11-18.
 Companion to `2026-11-18-agent-wallet-custody-design.md` (approved, branch
 `docs/agent-wallet-custody`). That design's §6.8 (SDK) and the CLI flows it names are built
 **inside** the layout defined here.
