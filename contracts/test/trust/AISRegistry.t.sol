@@ -84,6 +84,21 @@ contract AISRegistryTest is Test {
         assertEq(evidenceRoot, ROOT_B);
     }
 
+    function test_postCheckpoint_records_postedAt() public {
+        vm.warp(1_700_000_000);
+        vm.prank(scorer);
+        registry.postCheckpoint(agent, 8000, 100, ROOT_A, 0);
+        assertEq(registry.postedAt(agent), 1_700_000_000);
+
+        vm.warp(1_700_000_500);
+        vm.prank(scorer);
+        registry.postCheckpoint(agent, 8100, 200, ROOT_B, 0);
+        assertEq(registry.postedAt(agent), 1_700_000_500);
+
+        (uint32 score,,) = registry.latest(agent); // ABI unchanged
+        assertEq(score, 8100);
+    }
+
     function test_postCheckpoint_isKeyedPerAgent() public {
         address other = makeAddr("other");
         vm.startPrank(scorer);
