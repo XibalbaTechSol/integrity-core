@@ -33,6 +33,10 @@ import {AISRegistry} from "../src/trust/AISRegistry.sol";
 import {RewardRegistry} from "../src/trust/RewardRegistry.sol";
 import {DiscountRewardModule} from "../src/trust/DiscountRewardModule.sol";
 import {ActionAnchor} from "../src/trust/ActionAnchor.sol";
+import {IntegrityHook, IAgentRegistryView, IAISRegistryView, IStakeVaultView} from "../src/wallet/IntegrityHook.sol";
+import {IOperationContext} from "../src/wallet/IOperationContext.sol";
+import {IAccountVerifier} from "../src/wallet/IAccountVerifier.sol";
+import {FailClosedOperationContext, FailClosedAccountVerifier} from "../src/wallet/FailClosedAdapters.sol";
 
 /// @title Deploy
 /// @notice Deploys the full protocol genesis. Registration v3 (Phase 3): the live graph is
@@ -80,7 +84,7 @@ contract Deploy is Script {
     IntegrityToken itk;
     RejectAllZkVerifier verifier;
     XibalbaAgentRegistry registry; // held v2 graph (see contract NatSpec)
-    AgentRegistry agentRegistry; // registration v3: the live registry
+    AgentRegistry public agentRegistry; // registration v3: the live registry
     AgentAuthorityResolver authorityResolver;
     IntegrityIdentityReadV1 identityRead;
     AllowlistAnchorPolicy defaultAnchorPolicy;
@@ -91,6 +95,10 @@ contract Deploy is Script {
     SmartBAAFactory baaFactory;
     HIPAAGuardrailRegistry guardrailRegistry;
     EHRGate ehrGate;
+
+    IntegrityHook public integrityHook;
+    IOperationContext public operationContext;
+    IAccountVerifier public accountVerifier;
 
     ReputationRegistry reputationRegistryImpl;
     Slasher slasherImpl;
@@ -267,6 +275,23 @@ contract Deploy is Script {
         stakeVault.grantRole(stakeVault.DISPUTER_ROLE(), disputer);
         rewardRegistry.grantRole(rewardRegistry.NOTIFIER_ROLE(), address(aisRegistry));
         aisRegistry.grantRole(aisRegistry.SCORER_ROLE(), oracleSigner);
+
+        // Fail-closed adapters for IntegrityHook and AgentRegistry v3
+        operationContext = new FailClosedOperationContext();
+        accountVerifier = new FailClosedAccountVerifier();
+
+        integrityHook = new IntegrityHook(
+            deployer,
+            IAgentRegistryView(address(agentRegistry)),
+            IAISRegistryView(address(aisRegistry)),
+            IStakeVaultView(address(stakeVault)),
+            operationContext,
+            0,
+            7 days
+        );
+
+        agentRegistry.setIntegrityHook(address(integrityHook));
+        agentRegistry.setAccountVerifier(accountVerifier);
     }
 
     /// @dev The PHI-access gate (consent + BAA + AIS). Runs after the trust layer because the
@@ -318,6 +343,8 @@ contract Deploy is Script {
         rewardRegistry.revokeRole(rewardRegistry.DEFAULT_ADMIN_ROLE(), deployer);
         aisRegistry.grantRole(aisRegistry.DEFAULT_ADMIN_ROLE(), governance);
         aisRegistry.revokeRole(aisRegistry.DEFAULT_ADMIN_ROLE(), deployer);
+        integrityHook.grantRole(integrityHook.DEFAULT_ADMIN_ROLE(), governance);
+        integrityHook.revokeRole(integrityHook.DEFAULT_ADMIN_ROLE(), deployer);
     }
 
     /// @dev Only AgentPrimitivesFactory should ever hold REGISTRAR_ROLE on either
@@ -403,6 +430,9 @@ contract Deploy is Script {
         console2.log("RewardRegistry:        ", address(rewardRegistry));
         console2.log("DiscountRewardModule:  ", address(discountRewardModule));
         console2.log("ActionAnchor:          ", address(actionAnchor));
+        console2.log("IntegrityHook:         ", address(integrityHook));
+        console2.log("OperationContext:      ", address(operationContext));
+        console2.log("AccountVerifier:       ", address(accountVerifier));
     }
 
     /// @dev Writes the new nested shape (singletons / cloneTemplates / protocolAddresses)
@@ -434,6 +464,12 @@ contract Deploy is Script {
         vm.serializeAddress(singletons, "RewardRegistry", address(rewardRegistry));
         vm.serializeAddress(singletons, "DiscountRewardModule", address(discountRewardModule));
         vm.serializeAddress(singletons, "ActionAnchor", address(actionAnchor));
+        vm.serializeAddress(singletons, "IntegrityHook", address(integrityHook));
+        vm.serializeAddress(singletons, "integrityHook", address(integrityHook));
+        vm.serializeAddress(singletons, "OperationContext", address(operationContext));
+        vm.serializeAddress(singletons, "operationContext", address(operationContext));
+        vm.serializeAddress(singletons, "AccountVerifier", address(accountVerifier));
+        vm.serializeAddress(singletons, "accountVerifier", address(accountVerifier));
         string memory singletonsJson = vm.serializeAddress(singletons, "EHRGate", address(ehrGate));
 
         string memory cloneTemplates = "cloneTemplates";
