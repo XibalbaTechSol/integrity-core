@@ -63,8 +63,16 @@ contract AgentLineageRegistry {
         bool agentCall = msg.sender == successor;
         bool controllerCall = false;
         if (!agentCall) {
-            bytes32 adminRole = ILineageControllerBoundAgent(successor).DEFAULT_ADMIN_ROLE();
-            controllerCall = ILineageControllerBoundAgent(successor).hasRole(adminRole, msg.sender);
+            try ILineageControllerBoundAgent(successor).DEFAULT_ADMIN_ROLE() returns (bytes32 adminRole) {
+                try ILineageControllerBoundAgent(successor).hasRole(adminRole, msg.sender) returns (bool has) {
+                    controllerCall = has;
+                } catch {}
+            } catch {}
+            if (!controllerCall) {
+                try agentRegistry.resolveAgent(successor) returns (AgentRegistry.AgentRecord memory rec) {
+                    controllerCall = (rec.guardian == msg.sender);
+                } catch {}
+            }
         }
         if (!agentCall && !controllerCall) revert NotCurrentController();
 

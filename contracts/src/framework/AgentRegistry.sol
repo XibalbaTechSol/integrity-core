@@ -5,9 +5,10 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
-import {SovereignAgent} from "../core/SovereignAgent.sol";
 import {DomainRegistry} from "./DomainRegistry.sol";
 import {IEd25519Verifier} from "./IEd25519Verifier.sol";
+import {IAccountVerifier} from "../wallet/IAccountVerifier.sol";
+import {IntegrityHook, IERC7579Account} from "../wallet/IntegrityHook.sol";
 
 interface IAgentRegistryTrustConfig {
     function policyRegistry() external view returns (address);
@@ -55,11 +56,8 @@ contract AgentRegistry is AccessControl, EIP712 {
     }
 
     DomainRegistry public immutable domainRegistry;
-    /// @notice Runtime codehash of the canonical `SovereignAgent` build bound as actor. Learned by
-    /// deploying one reference instance in the constructor (same technique as the old factory):
-    /// `SovereignAgent.factory` is its only immutable, so every agent constructed with
-    /// `factory_ == address(this)` shares this hash, and nothing can leave the pin unwired.
-    bytes32 public immutable agentCodehash;
+    address public integrityHook;
+    IAccountVerifier public accountVerifier;
 
     /// @notice Governance-set source of the trust singletons (moves here from XibalbaAgentRegistry).
     address public trustConfig;
@@ -108,13 +106,23 @@ contract AgentRegistry is AccessControl, EIP712 {
     error Retired(bytes32 fingerprint);
     error NoActor();
     error InvalidDid();
+    error GovernanceNotWired();
+    error NotGoverned(address actor);
+    error GuardianNotOwner(address guardian, address owner);
+    error HookAlreadySet();
 
     constructor(address admin, address domainRegistry_) EIP712("IntegrityAgentRegistry", "1") {
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         domainRegistry = DomainRegistry(domainRegistry_);
-        // Reference instance: controlled by this registry, which exposes no way to drive it.
-        agentCodehash =
-            address(new SovereignAgent("did:integrity:reference", address(this), address(this))).codehash;
+    }
+
+    function setIntegrityHook(address hook) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (integrityHook != address(0)) revert HookAlreadySet();
+        integrityHook = hook;
+    }
+
+    function setAccountVerifier(IAccountVerifier v) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        accountVerifier = v;
     }
 
     // ── Governance ───────────────────────────────────────────────────────────
@@ -230,8 +238,7 @@ contract AgentRegistry is AccessControl, EIP712 {
         if (domainId != bytes32(0) && !domainRegistry.canJoin(domainId, r.guardian)) {
             revert DomainJoinNotAllowed(domainId);
         }
-        if (r.actor != address(0)) {
-            _requirePolicy(domainId);
+        if (r.actor != address(0) && domainId != bytes32(0)) {
             domainRegistry.recordJoin(domainId, r.guardian, r.actor);
         }
         r.domainId = domainId;
@@ -305,9 +312,30 @@ contract AgentRegistry is AccessControl, EIP712 {
         fp = bytes32(v);
     }
 
-    /// @notice True when `a` runs the canonical SovereignAgent build bound to this registry.
-    function isGatedAccount(address a) public view returns (bool) {
-        return a.code.length != 0 && a.codehash == agentCodehash;
+    /// @notice True when `actor` is a genuine smart account with the IntegrityHook installed and configured.
+    function isGoverned(address actor) public view returns (bool) {
+        if (actor.code.length == 0) return false;
+        if (integrityHook == address(0) || address(accountVerifier) == address(0)) return false;
+
+        try accountVerifier.verify(actor) returns (bool genuine, address) {
+            if (!genuine) return false;
+        } catch {
+            return false;
+        }
+
+        try IERC7579Account(actor).isModuleInstalled(4, integrityHook, "") returns (bool installed) {
+            if (!installed) return false;
+        } catch {
+            return false;
+        }
+
+        try IntegrityHook(integrityHook).isConfigured(actor) returns (bool configured) {
+            if (!configured) return false;
+        } catch {
+            return false;
+        }
+
+        return true;
     }
 
     // ── Internal ─────────────────────────────────────────────────────────────
@@ -339,8 +367,16 @@ contract AgentRegistry is AccessControl, EIP712 {
         uint256 deadline,
         bytes calldata consent
     ) internal {
-        // Codehash first: until it passes, `actor` is untrusted code and is never called.
-        if (!isGatedAccount(actor)) revert NotGatedAccount(actor);
+        if (integrityHook == address(0) || address(accountVerifier) == address(0)) {
+            revert GovernanceNotWired();
+        }
+        if (!isGoverned(actor)) {
+            revert NotGoverned(actor);
+        }
+        (, address owner) = accountVerifier.verify(actor);
+        if (r.guardian != owner) {
+            revert GuardianNotOwner(r.guardian, owner);
+        }
         if (agentOf[actor] != bytes32(0)) revert ActorAlreadyBound(actor);
         bytes32 claimedBy = actorClaimedBy[actor];
         if (claimedBy != bytes32(0) && claimedBy != fingerprint) revert ActorAlreadyBound(actor);
@@ -348,13 +384,13 @@ contract AgentRegistry is AccessControl, EIP712 {
             msg.sender != actor
                 && !SignatureChecker.isValidSignatureNow(actor, bindActorDigest(fingerprint, actor, deadline), consent)
         ) revert ActorConsentMissing(actor);
-        if (r.domainId == bytes32(0)) revert ActorRequiresDomain();
-        _requirePolicy(r.domainId);
 
         r.actor = actor;
         agentOf[actor] = fingerprint;
         actorClaimedBy[actor] = fingerprint;
-        domainRegistry.recordJoin(r.domainId, r.guardian, actor);
+        if (r.domainId != bytes32(0)) {
+            domainRegistry.recordJoin(r.domainId, r.guardian, actor);
+        }
         emit ActorBound(fingerprint, actor);
     }
 
@@ -363,18 +399,5 @@ contract AgentRegistry is AccessControl, EIP712 {
         delete agentOf[actor];
         r.actor = address(0);
         emit ActorCleared(fingerprint, actor);
-    }
-
-    /// @dev Fails closed: an actor with no policy would be an agent with no map.
-    function _requirePolicy(bytes32 domainId) internal view {
-        if (domainId == bytes32(0)) revert ActorRequiresDomain();
-        address cfg = trustConfig;
-        if (cfg == address(0)) revert DomainHasNoPolicy(domainId);
-        address pr = IAgentRegistryTrustConfig(cfg).policyRegistry();
-        if (pr == address(0)) revert DomainHasNoPolicy(domainId);
-        if (
-            IAgentRegistryPolicy(pr).moduleOf(domainId) == address(0)
-                && IAgentRegistryPolicy(pr).graphRootOf(domainId) == bytes32(0)
-        ) revert DomainHasNoPolicy(domainId);
     }
 }
