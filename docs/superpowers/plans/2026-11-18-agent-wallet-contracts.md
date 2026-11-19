@@ -320,6 +320,7 @@ function unpause() external;                              // Owner only
 function setProtocolFloor(uint32 floor) external;
 function setMaxCheckpointAge(uint64 age) external;        // > 0
 function setKnownToken(address token, bool known) external;
+function setProtocolTarget(address target, bool isProtocol) external; // ActionAnchor, XNS (S-J)
 function setOperationContext(IOperationContext ctx) external;
 ```
 - Errors: `LoosenNotAllowed()`, `FloorBelowProtocol(uint32 floor, uint32 protocolFloor)`.
