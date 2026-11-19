@@ -66,6 +66,31 @@ jobs:
       - name: Shipped contract artifacts match the build
         run: python3 scripts/sync_abis.py --check
 
+  halmos:
+    name: contracts (halmos formal verification)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: ${{ env.UV_VERSION }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+      - run: npm install || (npm cache clean --force && npm install) || (npm cache clean --force && npm install)
+        working-directory: contracts
+      - run: uv tool install halmos==0.3.3
+      - run: halmos --contract IntegrityHookProperties
+        working-directory: contracts
+
   oracle:
     name: integrity-oracle (cargo test)
     runs-on: ubuntu-latest

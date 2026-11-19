@@ -71,6 +71,8 @@ contract IntegrityHook is AccessControl {
     error ZeroMaxCheckpointAge();
     error FloorBelowProtocol(uint32 floor, uint32 protocolFloor);
     error LoosenNotAllowed();
+    error AlreadyArmed();
+    error NotArmed();
 
     struct AccountConfig {
         uint32 windowSeconds;
@@ -116,6 +118,7 @@ contract IntegrityHook is AccessControl {
     mapping(address => mapping(address => uint128)) public ownerApproveAbove;
     mapping(address => bool) public isPaused;
     mapping(address => uint256) public coSignNonce;
+    mapping(address => bool) public armed;
 
     modifier onlyAccountOwner() {
         if (ctx.roleOf(msg.sender) != IOperationContext.Role.Owner) revert NotOwner();
@@ -509,6 +512,9 @@ contract IntegrityHook is AccessControl {
             preBalances[i] = IERC20Minimal(t).balanceOf(account);
         }
 
+        if (armed[account]) revert AlreadyArmed();
+        armed[account] = true;
+
         return abi.encode(account, isOwner, account.balance, activeTokens, preBalances);
     }
 
@@ -522,6 +528,9 @@ contract IntegrityHook is AccessControl {
             address[] memory tokens,
             uint256[] memory preBals
         ) = abi.decode(hookData, (address, bool, uint256, address[], uint256[]));
+
+        if (!armed[account]) revert NotArmed();
+        armed[account] = false;
 
         bool enforceLimits = !isOwner;
 
