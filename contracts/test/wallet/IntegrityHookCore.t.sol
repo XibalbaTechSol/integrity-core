@@ -22,6 +22,11 @@ contract IntegrityHookCoreTest is IntegrityHookBase {
 
         vm.prank(governance);
         hook.setProtocolTarget(protocolTarget, true);
+
+        ctx.setRole(address(account), IOperationContext.Role.Owner);
+        vm.prank(address(account));
+        hook.setAllowlisted(target, true);
+        ctx.setRole(address(account), IOperationContext.Role.None);
     }
 
     function test_admin_always_allowed_for_owner_even_when_frozen_and_unscored() public {
@@ -110,6 +115,8 @@ contract IntegrityHookCoreTest is IntegrityHookBase {
 
         ctx.setRole(address(fresh), IOperationContext.Role.Owner);
         fresh.installModule(4, address(hook), abi.encode(uint32(1 days), uint32(0)));
+        vm.prank(address(fresh));
+        hook.setAllowlisted(target, true);
 
         ctx.setRole(address(fresh), IOperationContext.Role.Session);
         bytes memory execCalldata = _singleCall(target, 0, hex"aabb");
@@ -151,6 +158,8 @@ contract IntegrityHookCoreTest is IntegrityHookBase {
             address(hook),
             abi.encode(uint32(1 days), uint32(9000))
         );
+        vm.prank(address(accWithHighFloor));
+        hook.setAllowlisted(target, true);
 
         ctx.setRole(address(accWithHighFloor), IOperationContext.Role.Session);
         bytes memory execCalldata = _singleCall(target, 0, hex"aabb");
