@@ -9,7 +9,7 @@ import {RewardRegistry} from "../../src/trust/RewardRegistry.sol";
 import {IRewardModule} from "../../src/trust/IRewardModule.sol";
 import {DiscountRewardModule} from "../../src/trust/DiscountRewardModule.sol";
 import {AgentRegistry} from "../../src/framework/AgentRegistry.sol";
-import {SovereignAgent} from "../../src/core/SovereignAgent.sol";
+import {MockGovernedAccount} from "../wallet/mocks/MockGovernedAccount.sol";
 import {TrustConfig} from "../../src/trust/TrustConfig.sol";
 import {PolicyRegistry} from "../../src/trust/PolicyRegistry.sol";
 import {GateRegistryFixture} from "./GateRegistryFixture.sol";
@@ -78,7 +78,7 @@ contract AISRegistryStakeVaultTest is GateRegistryFixture {
         TrustConfig cfg = new TrustConfig(admin);
         PolicyRegistry policy = new PolicyRegistry(admin);
         (address ctl, uint256 ctlPk) = makeAddrAndKey("controller");
-        SovereignAgent sa = _newAgent("did:agent", ctl);
+        MockGovernedAccount sa = _newAgent("did:agent", ctl);
         agent = address(sa);
         vm.startPrank(admin);
         policy.setGraphRoot(DOMAIN, keccak256("pack-root"));

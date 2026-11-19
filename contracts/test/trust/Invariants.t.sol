@@ -2,13 +2,8 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {SovereignAgent} from "../../src/core/SovereignAgent.sol";
 import {ITK} from "../../src/trust/ITK.sol";
 import {StakeVault} from "../../src/trust/StakeVault.sol";
-import {PolicyRegistry} from "../../src/trust/PolicyRegistry.sol";
-import {TrustConfig} from "../../src/trust/TrustConfig.sol";
-import {GateAllowModule, GateTarget} from "./ExecuteGating.t.sol";
-import {GateRegistryFixture} from "./GateRegistryFixture.sol";
 
 /// @dev Drives the REAL ITK and StakeVault with bounded actions. The handler holds the
 /// MINTER / AIS_REGISTRY / DISPUTER / admin roles; a fixed set of agents acts through
@@ -293,127 +288,5 @@ contract InvariantsTest is Test {
             sum += vault.stakeOf(handler.agents(i)).amount;
         }
         assertEq(itk.balanceOf(address(vault)), sum, "vault balance != sum of stakes");
-    }
-}
-
-/// Invariant 3: a frozen SovereignAgent cannot execute through EITHER overload, and under the
-/// protocol-pinned model has no controller setter to escape through.
-contract FrozenAgentGateTest is GateRegistryFixture {
-    SovereignAgent agentPlain;
-    SovereignAgent agentGraph;
-    ITK itk;
-    StakeVault vault;
-    PolicyRegistry policy;
-    TrustConfig trustConfig;
-    GateTarget tgt;
-
-    address admin = makeAddr("admin");
-    address governance = makeAddr("governance");
-    address controller;
-    uint256 controllerPk;
-
-    bytes32 constant GRAPH_DOMAIN = keccak256("graph-domain");
-    bytes32 constant PLAIN_DOMAIN = keccak256("plain-domain");
-    bytes32 constant FROM = bytes32(uint256(1));
-    bytes32 constant REL = bytes32(uint256(2));
-    bytes32 constant TO = bytes32(uint256(3));
-    bytes32 constant OTHER_TO = bytes32(uint256(4));
-    uint16 constant RISK = 1000;
-
-    bytes32 leafB;
-
-    function setUp() public {
-        (controller, controllerPk) = makeAddrAndKey("controller");
-        _deployRegistry(admin);
-        _ensureDomain("graph-domain");
-        _ensureDomain("plain-domain");
-        agentPlain = _newAgent("did:integrity:inv-plain", controller);
-        agentGraph = _newAgent("did:integrity:inv-graph", controller);
-        tgt = new GateTarget();
-        GateAllowModule module = new GateAllowModule(2000);
-
-        vm.startPrank(admin);
-        itk = new ITK(admin, 0);
-        vault = new StakeVault(address(itk), admin);
-        vault.grantRole(vault.AIS_REGISTRY_ROLE(), admin);
-        policy = new PolicyRegistry(admin);
-        policy.setModule(PLAIN_DOMAIN, address(module));
-        itk.mint(address(agentPlain), 10_000 ether);
-        itk.mint(address(agentGraph), 10_000 ether);
-        vm.stopPrank();
-
-        trustConfig = new TrustConfig(governance);
-        vm.startPrank(governance);
-        trustConfig.setStakeVault(address(vault));
-        trustConfig.setPolicyRegistry(address(policy));
-        vm.stopPrank();
-
-        bytes32 leafA = policy.leafOf(FROM, REL, TO, address(tgt), GateTarget.ping.selector, RISK);
-        leafB = policy.leafOf(FROM, REL, OTHER_TO, address(tgt), GateTarget.ping.selector, RISK);
-        bytes32 root =
-            leafA < leafB ? keccak256(abi.encodePacked(leafA, leafB)) : keccak256(abi.encodePacked(leafB, leafA));
-        vm.prank(admin);
-        policy.setGraphRoot(GRAPH_DOMAIN, root);
-        vm.deal(address(agentPlain), 100 ether);
-        vm.deal(address(agentGraph), 100 ether);
-
-        // Stake while the gate is inert (unbound), WIRE by pointing the registry at the
-        // governance-owned TrustConfig, then bind both agents (binding needs a live domain policy).
-
-        vm.startPrank(controller);
-        agentPlain.execute(address(itk), 0, abi.encodeCall(itk.approve, (address(vault), type(uint256).max)));
-        agentPlain.execute(address(vault), 0, abi.encodeCall(vault.stake, (1000 ether)));
-        agentGraph.execute(address(itk), 0, abi.encodeCall(itk.approve, (address(vault), type(uint256).max)));
-        agentGraph.execute(address(vault), 0, abi.encodeCall(vault.stake, (1000 ether)));
-        vm.stopPrank();
-
-        vm.prank(admin);
-        agentRegistry.setTrustConfig(address(trustConfig));
-        _bind(agentPlain, controllerPk, PLAIN_DOMAIN, controller);
-        _bind(agentGraph, controllerPk, GRAPH_DOMAIN, controller);
-    }
-
-    /// Any score < threshold latches the freeze; both overloads then revert Frozen. The latch
-    /// survives a healthy later checkpoint — only admin unfreeze clears it.
-    function testFuzz_frozenAgentCannotExecute(uint32 threshold, uint32 score, uint256 value) public {
-        threshold = uint32(bound(threshold, 1, type(uint32).max));
-        score = uint32(bound(score, 0, threshold - 1));
-        value = bound(value, 0, 10 ether);
-
-        vm.startPrank(admin);
-        vault.setFreezeThreshold(threshold);
-        vault.onCheckpoint(address(agentPlain), score);
-        vault.onCheckpoint(address(agentGraph), score);
-        vm.stopPrank();
-        assertTrue(vault.stakeOf(address(agentPlain)).frozen);
-        assertTrue(vault.stakeOf(address(agentGraph)).frozen);
-
-        bytes memory d = abi.encodeCall(GateTarget.ping, ());
-        bytes32[] memory p = new bytes32[](1);
-        p[0] = leafB;
-
-        // plain overload (plain-domain agent)
-        vm.prank(controller);
-        vm.expectRevert(SovereignAgent.Frozen.selector);
-        agentPlain.execute(address(tgt), value, d);
-
-        // edge overload (graph-domain agent)
-        vm.prank(controller);
-        vm.expectRevert(SovereignAgent.Frozen.selector);
-        agentGraph.execute(address(tgt), value, d, FROM, REL, TO, RISK, p);
-
-        // latch survives a healthy later checkpoint; only admin unfreeze clears it
-        vm.prank(admin);
-        vault.onCheckpoint(address(agentGraph), type(uint32).max);
-        assertTrue(vault.stakeOf(address(agentGraph)).frozen);
-        vm.prank(controller);
-        vm.expectRevert(SovereignAgent.Frozen.selector);
-        agentGraph.execute(address(tgt), value, d, FROM, REL, TO, RISK, p);
-
-        vm.prank(admin);
-        vault.unfreeze(address(agentGraph));
-        vm.prank(controller);
-        agentGraph.execute(address(tgt), 0, d, FROM, REL, TO, RISK, p);
-        assertEq(tgt.pings(), 1);
     }
 }

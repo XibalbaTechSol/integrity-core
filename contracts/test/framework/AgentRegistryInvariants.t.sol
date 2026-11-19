@@ -3,8 +3,8 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {AgentRegistry} from "../../src/framework/AgentRegistry.sol";
-import {SovereignAgent} from "../../src/core/SovereignAgent.sol";
 import {AgentRegistryBase} from "./AgentRegistryBase.sol";
+import {MockGovernedAccount} from "../wallet/mocks/MockGovernedAccount.sol";
 
 /// Drives every write path with a small pool of keys, actors and guardians, recording ghost state
 /// the invariants compare against.
@@ -119,8 +119,11 @@ contract AgentRegistryInvariants is AgentRegistryBase {
 
     function setUp() public override {
         super.setUp();
-        for (uint256 i = 0; i < 3; i++) {
-            actorPool.push(address(_newActor()));
+        for (uint256 i = 0; i < 4; i++) {
+            address g = makeAddr(string(abi.encode("g", i)));
+            MockGovernedAccount a = _newActor();
+            verifier.setAccount(address(a), true, g);
+            actorPool.push(address(a));
         }
         handler = new AgentRegistryHandler(registry, domainId, attesterPk, controllerPk, actorPool);
         targetContract(address(handler));
@@ -173,11 +176,13 @@ contract AgentRegistryInvariants is AgentRegistryBase {
         }
     }
 
-    /// A bound actor always sits in a domain with a policy (no agent without a map).
-    function invariant_bound_actor_has_a_policy_domain() public view {
+    /// A bound actor sits in domainId or 0 (domain is optional in v3).
+    function invariant_bound_actor_has_valid_domain() public view {
         for (uint256 i = 0; i < handler.fpCount(); i++) {
             AgentRegistry.AgentRecord memory r = registry.resolve(handler.fpAt(i));
-            if (r.actor != address(0)) assertEq(r.domainId, domainId);
+            if (r.actor != address(0)) {
+                assertTrue(r.domainId == domainId || r.domainId == bytes32(0));
+            }
         }
     }
 }

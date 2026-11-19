@@ -3,7 +3,8 @@ pragma solidity ^0.8.28;
 
 import {AgentRegistry} from "../../src/framework/AgentRegistry.sol";
 import {DomainRegistry} from "../../src/framework/DomainRegistry.sol";
-import {SovereignAgent} from "../../src/core/SovereignAgent.sol";
+import {MockGovernedAccount} from "../wallet/mocks/MockGovernedAccount.sol";
+import {IOperationContext} from "../../src/wallet/IOperationContext.sol";
 import {AgentRegistryBase, MockEd25519Verifier} from "./AgentRegistryBase.sol";
 
 /// Spec acceptance (docs/superpowers/specs/2026-11-14-agent-registration-v3-design.md, Phase 2),
@@ -129,7 +130,7 @@ contract AgentRegistryTest is AgentRegistryBase {
     // ── acceptance: actor binding ────────────────────────────────────────────
 
     function test_confined_record_binds_actor_and_joins_domain() public {
-        SovereignAgent a = _newActor();
+        MockGovernedAccount a = _newActor();
         _registerConfined(address(a));
         assertTrue(registry.isRegisteredAgent(address(a)));
         assertEq(registry.agentOf(address(a)), FINGERPRINT);
@@ -138,19 +139,20 @@ contract AgentRegistryTest is AgentRegistryBase {
     }
 
     function test_actor_consent_by_msg_sender_through_execute() public {
-        SovereignAgent a = _newActor();
+        MockGovernedAccount a = _newActor();
         uint256 dl = block.timestamp + 1 hours;
         bytes memory proof = _attest(PUBKEY, guardian, address(a), domainId, "", dl);
         bytes memory call = abi.encodeCall(
             AgentRegistry.register, (PUBKEY, guardian, address(a), domainId, "", dl, uint8(1), proof, bytes(""))
         );
-        vm.prank(controller);
-        a.execute(address(registry), 0, call);
+        ctx.setRole(address(a), IOperationContext.Role.Owner);
+        bytes memory singleCall = abi.encodePacked(address(registry), uint256(0), call);
+        a.execute(bytes32(0), singleCall);
         assertTrue(registry.isRegisteredAgent(address(a)));
     }
 
     function test_binding_actor_without_consent_reverts() public {
-        SovereignAgent a = _newActor();
+        MockGovernedAccount a = _newActor();
         uint256 dl = block.timestamp + 1 hours;
         bytes memory proof = _attest(PUBKEY, guardian, address(a), domainId, "", dl);
         vm.expectRevert(abi.encodeWithSelector(AgentRegistry.ActorConsentMissing.selector, address(a)));
@@ -167,63 +169,41 @@ contract AgentRegistryTest is AgentRegistryBase {
         uint256 dl = block.timestamp + 1 hours;
         bytes memory proof = _attest(PUBKEY, guardian, eoa, domainId, "", dl);
         vm.prank(eoa); // even with msg.sender consent
-        vm.expectRevert(abi.encodeWithSelector(AgentRegistry.NotGatedAccount.selector, eoa));
+        vm.expectRevert(abi.encodeWithSelector(AgentRegistry.NotGoverned.selector, eoa));
         registry.register(PUBKEY, guardian, eoa, domainId, "", dl, 1, proof, "");
     }
 
     function test_binding_a_non_canonical_contract_as_actor_reverts() public {
-        // A SovereignAgent bound to another registry has a different codehash (immutable differs).
-        SovereignAgent foreign = new SovereignAgent(DID, controller, makeAddr("otherRegistry"));
-        uint256 dl = block.timestamp + 1 hours;
-        bytes memory proof = _attest(PUBKEY, guardian, address(foreign), domainId, "", dl);
-        bytes memory fc = _consent(FINGERPRINT, address(foreign), dl);
-        vm.expectRevert(abi.encodeWithSelector(AgentRegistry.NotGatedAccount.selector, address(foreign)));
-        registry.register(PUBKEY, guardian, address(foreign), domainId, "", dl, 1, proof, fc);
-        // And an arbitrary contract.
+        // An arbitrary contract without hook or verification.
         address junk = address(new MockEd25519Verifier());
-        proof = _attest(PUBKEY, guardian, junk, domainId, "", dl);
-        vm.expectRevert(abi.encodeWithSelector(AgentRegistry.NotGatedAccount.selector, junk));
+        uint256 dl = block.timestamp + 1 hours;
+        bytes memory proof = _attest(PUBKEY, guardian, junk, domainId, "", dl);
+        vm.expectRevert(abi.encodeWithSelector(AgentRegistry.NotGoverned.selector, junk));
         registry.register(PUBKEY, guardian, junk, domainId, "", dl, 1, proof, "");
     }
 
-    function test_binding_actor_with_no_domain_reverts() public {
-        SovereignAgent a = _newActor();
+    function test_binding_actor_with_no_domain_succeeds() public {
+        MockGovernedAccount a = _newActor();
         uint256 dl = block.timestamp + 1 hours;
         bytes memory proof = _attest(PUBKEY, guardian, address(a), bytes32(0), "", dl);
         bytes memory c = _consent(FINGERPRINT, address(a), dl);
-        vm.expectRevert(AgentRegistry.ActorRequiresDomain.selector);
         registry.register(PUBKEY, guardian, address(a), bytes32(0), "", dl, 1, proof, c);
+        assertTrue(registry.isRegisteredAgent(address(a)));
+        assertEq(registry.resolveAgent(address(a)).domainId, bytes32(0));
     }
 
-    function test_binding_actor_in_a_domain_with_no_policy_reverts() public {
-        SovereignAgent a = _newActor();
+    function test_binding_actor_in_a_domain_with_no_policy_succeeds() public {
+        MockGovernedAccount a = _newActor();
         uint256 dl = block.timestamp + 1 hours;
         bytes memory proof = _attest(PUBKEY, guardian, address(a), bareDomainId, "", dl);
         bytes memory consent = _consent(FINGERPRINT, address(a), dl);
-        vm.expectRevert(abi.encodeWithSelector(AgentRegistry.DomainHasNoPolicy.selector, bareDomainId));
-        registry.register(PUBKEY, guardian, address(a), bareDomainId, "", dl, 1, proof, consent);
-
-        // A module (instead of a graph root) counts as a policy.
-        address module = address(new MockEd25519Verifier());
-        vm.prank(admin);
-        policy.setModule(bareDomainId, module);
         registry.register(PUBKEY, guardian, address(a), bareDomainId, "", dl, 1, proof, consent);
         assertTrue(registry.isRegisteredAgent(address(a)));
-    }
-
-    function test_policy_check_fails_closed_without_trust_config() public {
-        vm.prank(admin);
-        registry.setTrustConfig(address(0));
-        SovereignAgent a = _newActor();
-        uint256 dl = block.timestamp + 1 hours;
-        bytes memory proof = _attest(PUBKEY, guardian, address(a), domainId, "", dl);
-        bytes memory c = _consent(FINGERPRINT, address(a), dl);
-        vm.expectRevert(abi.encodeWithSelector(AgentRegistry.DomainHasNoPolicy.selector, domainId));
-        registry.register(PUBKEY, guardian, address(a), domainId, "", dl, 1, proof, c);
+        assertEq(registry.resolveAgent(address(a)).domainId, bareDomainId);
     }
 
     function test_actor_cannot_be_bound_to_two_agents() public {
-        SovereignAgent a = _newActor();
+        MockGovernedAccount a = _newActor();
         _registerConfined(address(a));
 
         bytes32 pk2 = keccak256("second agent key");
@@ -274,7 +254,7 @@ contract AgentRegistryTest is AgentRegistryBase {
     }
 
     function test_retire_is_irreversible() public {
-        SovereignAgent a = _newActor();
+        MockGovernedAccount a = _newActor();
         _registerConfined(address(a));
         vm.prank(guardian);
         registry.retire(FINGERPRINT);
@@ -313,32 +293,28 @@ contract AgentRegistryTest is AgentRegistryBase {
 
     function test_guardian_binds_actor_later_with_eip1271_consent() public {
         _registerExistence();
-        SovereignAgent a = _newActor();
+        MockGovernedAccount a = _newActor();
         uint256 dl = block.timestamp + 1 hours;
         bytes memory c = _consent(FINGERPRINT, address(a), dl);
         vm.startPrank(guardian);
-        vm.expectRevert(AgentRegistry.ActorRequiresDomain.selector);
-        registry.setActor(FINGERPRINT, address(a), dl, c);
-        registry.setDomain(FINGERPRINT, domainId);
         registry.setActor(FINGERPRINT, address(a), dl, c);
         vm.stopPrank();
         assertTrue(registry.isRegisteredAgent(address(a)));
-        assertTrue(domains.isMember(domainId, address(a)));
     }
 
-    function test_setDomain_with_actor_requires_policy_and_nonzero() public {
-        SovereignAgent a = _newActor();
+    function test_setDomain_with_actor_allows_bare_domain_and_zero() public {
+        MockGovernedAccount a = _newActor();
         _registerConfined(address(a));
         vm.startPrank(guardian);
-        vm.expectRevert(abi.encodeWithSelector(AgentRegistry.DomainHasNoPolicy.selector, bareDomainId));
         registry.setDomain(FINGERPRINT, bareDomainId);
-        vm.expectRevert(AgentRegistry.ActorRequiresDomain.selector);
+        assertEq(registry.resolve(FINGERPRINT).domainId, bareDomainId);
         registry.setDomain(FINGERPRINT, bytes32(0));
+        assertEq(registry.resolve(FINGERPRINT).domainId, bytes32(0));
         vm.stopPrank();
     }
 
     function test_clear_then_rebind_same_actor_is_allowed() public {
-        SovereignAgent a = _newActor();
+        MockGovernedAccount a = _newActor();
         _registerConfined(address(a));
         uint256 dl = block.timestamp + 1 hours;
         bytes memory c = _consent(FINGERPRINT, address(a), dl);
@@ -368,8 +344,8 @@ contract AgentRegistryTest is AgentRegistryBase {
         vm.stopPrank();
     }
 
-    function test_sovereign_agent_eip1271() public {
-        SovereignAgent a = _newActor();
+    function test_mock_governed_account_eip1271() public {
+        MockGovernedAccount a = _newActor();
         bytes32 h = keccak256("msg");
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, h);
         assertEq(a.isValidSignature(h, abi.encodePacked(r, s, v)), bytes4(0x1626ba7e));

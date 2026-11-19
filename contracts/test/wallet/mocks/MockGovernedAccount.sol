@@ -74,12 +74,39 @@ contract MockGovernedAccount {
         }
     }
 
+    address public signer1271;
+
+    function setSigner1271(address s) external {
+        signer1271 = s;
+    }
+
     function isModuleInstalled(uint256 moduleType, address module, bytes calldata /*context*/)
         external
         view
         returns (bool)
     {
         return installedModules[moduleType][module];
+    }
+
+    function isValidSignature(bytes32 hash, bytes calldata sig) external view returns (bytes4) {
+        if (signer1271 != address(0)) {
+            if (sig.length == 65) {
+                bytes32 r;
+                bytes32 s;
+                uint8 v;
+                assembly {
+                    r := calldataload(sig.offset)
+                    s := calldataload(add(sig.offset, 32))
+                    v := byte(0, calldataload(add(sig.offset, 64)))
+                }
+                if (ecrecover(hash, v, r, s) == signer1271) {
+                    return 0x1626ba7e;
+                }
+            }
+            return 0xffffffff;
+        }
+        if (sig.length > 0) return 0x1626ba7e;
+        return 0xffffffff;
     }
 
     function execute(bytes32 mode, bytes calldata executionCalldata) external payable returns (bytes memory) {

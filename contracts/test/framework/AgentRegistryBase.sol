@@ -5,7 +5,13 @@ import {Test} from "forge-std/Test.sol";
 import {AgentRegistry} from "../../src/framework/AgentRegistry.sol";
 import {IEd25519Verifier} from "../../src/framework/IEd25519Verifier.sol";
 import {DomainRegistry} from "../../src/framework/DomainRegistry.sol";
-import {SovereignAgent} from "../../src/core/SovereignAgent.sol";
+import {MockGovernedAccount} from "../wallet/mocks/MockGovernedAccount.sol";
+import {MockAccountVerifier} from "../wallet/mocks/MockAccountVerifier.sol";
+import {MockOperationContext} from "../wallet/mocks/MockOperationContext.sol";
+import {MockAISRegistry, MockStakeVault} from "../wallet/mocks/MockTrustLayer.sol";
+import {IntegrityHook, IAgentRegistryView, IAISRegistryView, IStakeVaultView} from "../../src/wallet/IntegrityHook.sol";
+import {IOperationContext} from "../../src/wallet/IOperationContext.sol";
+import {IAccountVerifier} from "../../src/wallet/IAccountVerifier.sol";
 import {TrustConfig} from "../../src/trust/TrustConfig.sol";
 import {PolicyRegistry} from "../../src/trust/PolicyRegistry.sol";
 
@@ -40,6 +46,11 @@ abstract contract AgentRegistryBase is Test {
     DomainRegistry internal domains;
     TrustConfig internal cfg;
     PolicyRegistry internal policy;
+    IntegrityHook internal hook;
+    MockAccountVerifier internal verifier;
+    MockOperationContext internal ctx;
+    MockAISRegistry internal ais;
+    MockStakeVault internal vault;
     bytes32 internal domainId;
     bytes32 internal bareDomainId; // exists, no policy
 
@@ -53,19 +64,41 @@ abstract contract AgentRegistryBase is Test {
         cfg = new TrustConfig(admin);
         policy = new PolicyRegistry(admin);
 
+        ctx = new MockOperationContext();
+        verifier = new MockAccountVerifier();
+        ais = new MockAISRegistry();
+        vault = new MockStakeVault();
+
+        hook = new IntegrityHook(
+            admin,
+            IAgentRegistryView(address(registry)),
+            IAISRegistryView(address(ais)),
+            IStakeVaultView(address(vault)),
+            IOperationContext(address(ctx)),
+            0,
+            1 days
+        );
+
         vm.startPrank(admin);
         domains.grantRole(domains.REGISTRAR_ROLE(), address(registry));
         cfg.setPolicyRegistry(address(policy));
         registry.setTrustConfig(address(cfg));
         registry.addAttester(attester);
+        registry.setIntegrityHook(address(hook));
+        registry.setAccountVerifier(IAccountVerifier(address(verifier)));
         domainId = domains.registerDomain("health", DomainRegistry.JoinMode.Open);
         bareDomainId = domains.registerDomain("bare", DomainRegistry.JoinMode.Open);
         policy.setGraphRoot(domainId, keccak256("pack-root"));
+        hook.setProtocolTarget(address(registry), true);
         vm.stopPrank();
     }
 
-    function _newActor() internal returns (SovereignAgent) {
-        return new SovereignAgent(DID, controller, address(registry));
+    function _newActor() internal returns (MockGovernedAccount) {
+        MockGovernedAccount a = new MockGovernedAccount();
+        verifier.setAccount(address(a), true, guardian);
+        a.installModule(4, address(hook), abi.encode(uint32(1 days), uint32(0)));
+        a.setSigner1271(controller);
+        return a;
     }
 
     function _attest(bytes32 pubkey, address g, address actor, bytes32 dom, string memory uri, uint256 deadline)
