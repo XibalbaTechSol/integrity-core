@@ -164,3 +164,114 @@ def test_link_erc8004_maps_unreachable_and_refused(monkeypatch):
     assert exc_info2.value.status == 400
     assert exc_info2.value.unreachable is False
     assert "matching Integrity DID" in exc_info2.value.detail
+
+
+def test_caip10_account_validation():
+    assert (
+        erc8004.caip10_account(84532, "0xE7251742c6f4F8849600d44c6aed62e07DaA7Ea1")
+        == "eip155:84532:0xe7251742c6f4f8849600d44c6aed62e07daa7ea1"
+    )
+    with pytest.raises(ValueError, match="chain_id"):
+        erc8004.caip10_account(0, "0xE7251742c6f4F8849600d44c6aed62e07DaA7Ea1")
+    with pytest.raises(ValueError, match="invalid address"):
+        erc8004.caip10_account(84532, "invalid-addr")
+
+
+def test_build_ais_feedback_document_and_encode():
+    client_addr = "0xE7251742c6f4F8849600d44c6aed62e07DaA7Ea1"
+    doc = erc8004.build_ais_feedback_document(
+        agent_id=1,
+        client_address=client_addr,
+        chain_id=84532,
+        identity_registry_address=erc8004.BASE_SEPOLIA_ERC8004_REGISTRY,
+        ais_score_bps=9850,
+        evidence_root="0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+        window_end=1795147200,
+        factors={"executionIntegrity": 0.99, "economicSafety": 0.98},
+        grpo_advantage=0.45,
+        dpo_preference="positive",
+        created_at="2026-11-20T04:20:00Z",
+        endpoint="https://oracle.integrity.xibalba.io",
+        tag1="ais",
+        tag2="oracle",
+        mcp_tool="execute_trade",
+        a2a_context_id="ctx-001",
+        a2a_task_id="task-001",
+        proof_of_payment={
+            "fromAddress": client_addr,
+            "toAddress": "0x21fdEd74C901129977B8e28C2588595163E1e235",
+            "chainId": "84532",
+            "txHash": "0xabcdef1234567890",
+        },
+    )
+
+    assert "type" not in doc
+    assert doc["ais"]["schema"] == erc8004.AIS_FEEDBACK_EXTENSION
+    assert doc["agentRegistry"] == "eip155:84532:0x8004a818bfb912233c491871b3d84c89a494bd9e"
+    assert doc["agentId"] == 1
+    assert doc["clientAddress"] == "eip155:84532:0xe7251742c6f4f8849600d44c6aed62e07daa7ea1"
+    assert doc["value"] == 9850
+    assert doc["valueDecimals"] == 2
+    assert doc["tag1"] == "ais"
+    assert doc["tag2"] == "oracle"
+    assert doc["ais"]["scoreBps"] == 9850
+    assert doc["ais"]["scorePercent"] == 98.5
+    assert doc["ais"]["grpoAdvantage"] == 0.45
+    assert doc["ais"]["dpoPreference"] == "positive"
+    assert doc["mcp"]["tool"] == "execute_trade"
+    assert doc["a2a"]["contextId"] == "ctx-001"
+    assert doc["proofOfPayment"]["chainId"] == "84532"
+
+    uri, f_hash = erc8004.encode_feedback_data_uri(doc)
+    assert uri.startswith("data:application/json;base64,")
+    assert len(f_hash) == 32
+
+    # Roundtrip decoding
+    b64_payload = uri.split("data:application/json;base64,")[1]
+    decoded = json.loads(base64.b64decode(b64_payload).decode("utf-8"))
+    assert decoded["agentId"] == 1
+    assert decoded["ais"]["scoreBps"] == 9850
+
+
+def test_build_ais_feedback_document_validations():
+    client_addr = "0xE7251742c6f4F8849600d44c6aed62e07DaA7Ea1"
+    with pytest.raises(ValueError, match="ais_score_bps"):
+        erc8004.build_ais_feedback_document(
+            agent_id=1,
+            client_address=client_addr,
+            ais_score_bps=10001,
+        )
+    with pytest.raises(ValueError, match="ais_score_bps"):
+        erc8004.build_ais_feedback_document(
+            agent_id=1,
+            client_address=client_addr,
+            ais_score_bps=-1,
+        )
+    with pytest.raises(ValueError, match="agent_id"):
+        erc8004.build_ais_feedback_document(
+            agent_id=0,
+            client_address=client_addr,
+            ais_score_bps=9500,
+        )
+
+
+def test_ais_score_from_reputation_filters_tag_scorer_and_revocation():
+    scorer = "0xE7251742c6f4F8849600d44c6aed62e07DaA7Ea1"
+    other = "0xb0d39280Abd48F605459675142dc6243eb353270"
+    F = erc8004.Erc8004FeedbackItem
+    summary = erc8004.Erc8004ReputationSummary(
+        agent_id=1, count=5, summary_value=0, summary_value_decimals=0,
+        clients=[scorer, other],
+        feedbacks=[
+            F(scorer, 1, 9100, 2, "ais", "oracle", False),
+            F(scorer, 2, 9850, 2, "ais", "oracle", False),
+            F(scorer, 3, 1000, 2, "ais", "oracle", True),         # revoked
+            F(other, 9, 10000, 2, "ais", "oracle", False),        # untrusted
+            F(scorer, 4, 150000, 2, "glicko2-mu", "ipd", False),  # wrong tag
+        ],
+    )
+    assert erc8004.ais_score_from_reputation(summary, [scorer]) == 9850
+    assert erc8004.ais_score_from_reputation(summary, [other.lower()]) == 10000
+    assert erc8004.ais_score_from_reputation(summary, ["0x21fdEd74C901129977B8e28C2588595163E1e235"]) is None
+    with pytest.raises(ValueError, match="trusted_scorers"):
+        erc8004.ais_score_from_reputation(summary, [])
