@@ -61,6 +61,10 @@ def erc8004_card(
     mcp_endpoint: Optional[str] = typer.Option(None, "--mcp", help="Optional public MCP service endpoint"),
     a2a_endpoint: Optional[str] = typer.Option(None, "--a2a", help="Optional public A2A service endpoint"),
     a2a_version: str = typer.Option("0.3.0", "--a2a-version", help="A2A protocol version"),
+    skills: Optional[List[str]] = typer.Option(None, "--skill", help="OASF skill capability (repeatable)"),
+    domains: Optional[List[str]] = typer.Option(None, "--domain", help="OASF domain capability (repeatable)"),
+    ens: Optional[str] = typer.Option(None, "--ens", help="ENS domain (e.g. agent.eth)"),
+    web_endpoint: Optional[str] = typer.Option(None, "--web", help="Web service URL"),
     x402_support: bool = typer.Option(False, "--x402", help="Advertise HTTP x402 payment support"),
     json_output: bool = typer.Option(False, "--json", help=output.JSON_OPTION_HELP),
 ) -> None:
@@ -79,6 +83,10 @@ def erc8004_card(
             mcp_endpoint=mcp_endpoint,
             a2a_endpoint=a2a_endpoint,
             a2a_version=a2a_version,
+            oasf_skills=skills,
+            oasf_domains=domains,
+            ens=ens,
+            web_endpoint=web_endpoint,
             x402_support=x402_support,
         )
         data_uri, sha256_hex = erc8004.encode_registration_data_uri(doc)
@@ -200,6 +208,10 @@ def erc8004_publish(
     mcp_endpoint: Optional[str] = typer.Option(None, "--mcp", help="Optional public MCP service endpoint"),
     a2a_endpoint: Optional[str] = typer.Option(None, "--a2a", help="Optional public A2A service endpoint"),
     a2a_version: str = typer.Option("0.3.0", "--a2a-version", help="A2A protocol version"),
+    skills: Optional[List[str]] = typer.Option(None, "--skill", help="OASF skill capability (repeatable)"),
+    domains: Optional[List[str]] = typer.Option(None, "--domain", help="OASF domain capability (repeatable)"),
+    ens: Optional[str] = typer.Option(None, "--ens", help="ENS domain (e.g. agent.eth)"),
+    web_endpoint: Optional[str] = typer.Option(None, "--web", help="Web service URL"),
     x402_support: bool = typer.Option(False, "--x402", help="Advertise HTTP x402 payment support"),
     oracle_url: Optional[str] = typer.Option(None, "--oracle-url", help="Integrity Oracle base URL"),
     rpc_url: Optional[str] = typer.Option(None, "--rpc-url", help="EVM RPC endpoint"),
@@ -239,6 +251,10 @@ def erc8004_publish(
             mcp_endpoint=mcp_endpoint,
             a2a_endpoint=a2a_endpoint,
             a2a_version=a2a_version,
+            oasf_skills=skills,
+            oasf_domains=domains,
+            ens=ens,
+            web_endpoint=web_endpoint,
             x402_support=x402_support,
         )
     except erc8004.Erc8004BridgeError as exc:

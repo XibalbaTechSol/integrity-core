@@ -40,6 +40,10 @@ def test_build_registration_document_matches_oracle_erc8004_schema():
         mcp_endpoint="https://mcp.xibalba.solutions/v1",
         a2a_endpoint="https://agent.xibalba.solutions/.well-known/agent-card.json",
         a2a_version="0.3.0",
+        oasf_skills=["trading", "risk-control"],
+        oasf_domains=["defi"],
+        ens="sentinel.xibalba.eth",
+        web_endpoint="https://sentinel.xibalba.solutions",
         x402_support=True,
     )
     assert doc["type"] == "https://eips.ethereum.org/EIPS/eip-8004#registration-v1"
@@ -61,6 +65,13 @@ def test_build_registration_document_matches_oracle_erc8004_schema():
         "endpoint": "https://agent.xibalba.solutions/.well-known/agent-card.json",
         "version": "0.3.0",
     }
+    oasf_svc = next(s for s in doc["services"] if s["name"] == "OASF")
+    assert oasf_svc["skills"] == ["trading", "risk-control"]
+    assert oasf_svc["domains"] == ["defi"]
+    ens_svc = next(s for s in doc["services"] if s["name"] == "ENS")
+    assert ens_svc["endpoint"] == "sentinel.xibalba.eth"
+    web_svc = next(s for s in doc["services"] if s["name"] == "web")
+    assert web_svc["endpoint"] == "https://sentinel.xibalba.solutions"
 
     data_uri, sha256_hex = erc8004.encode_registration_data_uri(doc)
     assert data_uri.startswith("data:application/json;base64,")

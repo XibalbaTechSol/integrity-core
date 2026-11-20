@@ -325,6 +325,10 @@ def build_registration_document(
     mcp_endpoint: Optional[str] = None,
     a2a_endpoint: Optional[str] = None,
     a2a_version: Optional[str] = "0.3.0",
+    oasf_skills: Optional[list[str]] = None,
+    oasf_domains: Optional[list[str]] = None,
+    ens: Optional[str] = None,
+    web_endpoint: Optional[str] = None,
     x402_support: bool = False,
     active: bool = True,
     supported_trust: Optional[list[str]] = None,
@@ -343,6 +347,19 @@ def build_registration_document(
         if a2a_version and a2a_version.strip():
             a2a_entry["version"] = a2a_version.strip()
         services.append(a2a_entry)
+    if oasf_skills or oasf_domains:
+        oasf_entry: dict[str, Any] = {
+            "name": "OASF",
+            "endpoint": "https://oasf.agntcy.org",
+            "version": "0.8",
+            "skills": [s.strip() for s in oasf_skills if s.strip()] if oasf_skills else [],
+            "domains": [d.strip() for d in oasf_domains if d.strip()] if oasf_domains else [],
+        }
+        services.append(oasf_entry)
+    if ens and ens.strip():
+        services.append({"name": "ENS", "endpoint": ens.strip(), "version": "v1"})
+    if web_endpoint and web_endpoint.strip():
+        services.append({"name": "web", "endpoint": web_endpoint.strip()})
 
     caip10 = caip10_registry(chain_id, registry_address)
     tok = int(token_id) if isinstance(token_id, int) or (isinstance(token_id, str) and token_id.isdigit()) else str(token_id)
@@ -418,6 +435,10 @@ def register_and_link_erc8004(
     mcp_endpoint: Optional[str] = None,
     a2a_endpoint: Optional[str] = None,
     a2a_version: Optional[str] = "0.3.0",
+    oasf_skills: Optional[list[str]] = None,
+    oasf_domains: Optional[list[str]] = None,
+    ens: Optional[str] = None,
+    web_endpoint: Optional[str] = None,
     x402_support: bool = False,
     active: bool = True,
     supported_trust: Optional[list[str]] = None,
@@ -462,6 +483,10 @@ def register_and_link_erc8004(
         mcp_endpoint=mcp_endpoint,
         a2a_endpoint=a2a_endpoint,
         a2a_version=a2a_version,
+        oasf_skills=oasf_skills,
+        oasf_domains=oasf_domains,
+        ens=ens,
+        web_endpoint=web_endpoint,
         x402_support=x402_support,
         active=active,
         supported_trust=supported_trust,
@@ -491,6 +516,10 @@ def register_and_link_erc8004(
             mcp_endpoint=mcp_endpoint,
             a2a_endpoint=a2a_endpoint,
             a2a_version=a2a_version,
+            oasf_skills=oasf_skills,
+            oasf_domains=oasf_domains,
+            ens=ens,
+            web_endpoint=web_endpoint,
             x402_support=x402_support,
             active=active,
             supported_trust=supported_trust,

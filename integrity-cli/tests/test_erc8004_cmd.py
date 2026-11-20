@@ -31,6 +31,14 @@ def test_erc8004_card_generates_two_way_did_backlink_and_caip10():
             "https://mcp.xibalba.solutions/sse",
             "--a2a",
             "https://agent.xibalba.solutions/.well-known/agent-card.json",
+            "--skill",
+            "trading",
+            "--domain",
+            "defi",
+            "--ens",
+            "xibalba.eth",
+            "--web",
+            "https://xibalba.solutions",
             "--x402",
             "--json",
         ],
@@ -44,6 +52,11 @@ def test_erc8004_card_generates_two_way_did_backlink_and_caip10():
     assert card["type"] == "https://eips.ethereum.org/EIPS/eip-8004#registration-v1"
     assert card["x402Support"] is True
     assert {"name": "DID", "endpoint": did} in card["services"]
+    oasf = next(s for s in card["services"] if s["name"] == "OASF")
+    assert oasf["skills"] == ["trading"]
+    assert oasf["domains"] == ["defi"]
+    assert {"name": "ENS", "endpoint": "xibalba.eth", "version": "v1"} in card["services"]
+    assert {"name": "web", "endpoint": "https://xibalba.solutions"} in card["services"]
     assert card["registrations"] == [
         {
             "agentId": 42,
