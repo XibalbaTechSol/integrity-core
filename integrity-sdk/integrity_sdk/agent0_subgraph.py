@@ -55,6 +55,13 @@ _FEEDBACK_FIELDS = """
   feedbackURI feedbackURIType feedbackHash isRevoked createdAt
 """
 
+_AGENT_WITH_FEEDBACK_FIELDS = f"""
+  {_AGENT_FIELDS}
+  feedback(where: {{ isRevoked: false, tag1: "ais" }}, orderBy: createdAt, orderDirection: desc, first: 10) {{
+    {_FEEDBACK_FIELDS}
+  }}
+"""
+
 
 class Agent0SubgraphError(RuntimeError):
     """Raised on transport, auth, or GraphQL errors from the subgraph."""
@@ -94,6 +101,7 @@ class Agent0Agent:
     active: Optional[bool] = None
     supported_trust: list[str] = field(default_factory=list)
     oasf_skills: list[str] = field(default_factory=list)
+    oasf_domains: list[str] = field(default_factory=list)
 
     @property
     def integrity_did(self) -> Optional[str]:
@@ -110,6 +118,16 @@ class AisFeedbackRecord:
     created_at: int
     document: Optional[dict[str, Any]]  # decoded off-chain AIS doc, if present + verified
     hash_verified: bool
+
+
+@dataclass(frozen=True)
+class AgentSearchResult:
+    """Search result pairing an indexed ERC-8004 agent with verified AIS reputation."""
+    agent: Agent0Agent
+    ais_score_bps: Optional[int]
+    ais_score_percent: Optional[float]
+    verified_scorer: Optional[str]
+    recent_feedbacks: list[AisFeedbackRecord] = field(default_factory=list)
 
 
 def _post(url: str, query: str, variables: dict[str, Any], timeout: float) -> dict[str, Any]:
@@ -145,6 +163,7 @@ def _parse_agent(row: dict[str, Any]) -> Agent0Agent:
         active=reg.get("active"),
         supported_trust=list(reg.get("supportedTrusts") or []),
         oasf_skills=list(reg.get("oasfSkills") or []),
+        oasf_domains=list(reg.get("oasfDomains") or []),
     )
 
 
@@ -226,28 +245,32 @@ def ais_feedback_history(
 
     out: list[AisFeedbackRecord] = []
     for row in data.get("feedbacks", []):
-        bps = _score_bps(row.get("value"))
-        if bps is None:
-            continue
-        doc, ok = decode_feedback_data_uri(row.get("feedbackURI"), row.get("feedbackHash"))
-        if doc is not None and ok:
-            ais = doc.get("ais") if isinstance(doc.get("ais"), dict) else {}
-            # Off-chain doc must agree with the on-chain value, else ignore the document.
-            if ais.get("scoreBps") != bps or int(doc.get("agentId", -1)) != int(agent_id):
-                doc, ok = None, False
-        out.append(
-            AisFeedbackRecord(
-                feedback_id=row["id"],
-                client_address=Web3.to_checksum_address(row["clientAddress"]),
-                feedback_index=int(row["feedbackIndex"]),
-                score_bps=bps,
-                tag2=row.get("tag2"),
-                created_at=int(row["createdAt"]),
-                document=doc if ok else None,
-                hash_verified=ok,
-            )
-        )
+        rec = _parse_ais_feedback_row(row, agent_id)
+        if rec is not None:
+            out.append(rec)
     return out
+
+
+def _parse_ais_feedback_row(row: dict[str, Any], agent_id: int) -> Optional[AisFeedbackRecord]:
+    bps = _score_bps(row.get("value"))
+    if bps is None:
+        return None
+    doc, ok = decode_feedback_data_uri(row.get("feedbackURI"), row.get("feedbackHash"))
+    if doc is not None and ok:
+        ais = doc.get("ais") if isinstance(doc.get("ais"), dict) else {}
+        # Off-chain doc must agree with the on-chain value, else ignore the document.
+        if ais.get("scoreBps") != bps or int(doc.get("agentId", -1)) != int(agent_id):
+            doc, ok = None, False
+    return AisFeedbackRecord(
+        feedback_id=row["id"],
+        client_address=Web3.to_checksum_address(row["clientAddress"]),
+        feedback_index=int(row["feedbackIndex"]),
+        score_bps=bps,
+        tag2=row.get("tag2"),
+        created_at=int(row["createdAt"]),
+        document=doc if ok else None,
+        hash_verified=ok,
+    )
 
 
 def latest_ais_score(chain_id: int, agent_id: int, trusted_scorers: list[str], **kw: Any) -> Optional[int]:
@@ -255,15 +278,152 @@ def latest_ais_score(chain_id: int, agent_id: int, trusted_scorers: list[str], *
     return hist[0].score_bps if hist else None
 
 
+def search_agents(
+    chain_id: int = 84532,
+    *,
+    query_text: Optional[str] = None,
+    skill: Optional[str] = None,
+    domain: Optional[str] = None,
+    min_ais_bps: Optional[int] = None,
+    trusted_scorers: Optional[list[str]] = None,
+    mcp_required: bool = False,
+    a2a_required: bool = False,
+    x402_required: bool = False,
+    confined_wallet_only: bool = False,
+    integrity_only: bool = False,
+    active_only: bool = False,
+    min_feedback: int = 0,
+    order_by: str = "ais",
+    first: int = 20,
+    skip: int = 0,
+    url: Optional[str] = None,
+    timeout: float = 20.0,
+) -> list[AgentSearchResult]:
+    """Search ERC-8004 agents by AIS reputation, OASF skills/domains, protocol endpoints, and Integrity binding."""
+    if min_ais_bps is not None and not (0 <= min_ais_bps <= 10000):
+        raise ValueError(f"min_ais_bps must be in 0..10000, got {min_ais_bps}")
+
+    reg_filters: list[str] = []
+    if integrity_only:
+        reg_filters.append('did_starts_with: "did:integrity:"')
+    if active_only:
+        reg_filters.append("active: true")
+    if x402_required:
+        reg_filters.append("x402Support: true")
+
+    where_parts: list[str] = []
+    if reg_filters:
+        where_parts.append("registrationFile_: {" + ", ".join(reg_filters) + "}")
+    if min_feedback > 0:
+        where_parts.append(f"totalFeedback_gte: {int(min_feedback)}")
+    where_clause = "{" + ", ".join(where_parts) + "}" if where_parts else "{}"
+
+    # Fetch a wider window when client-side filtering/sorting is active so `first` is well-populated.
+    fetch_limit = min(max(first * 5, 100), 1000)
+    gql_order = "totalFeedback" if order_by == "totalFeedback" else "lastActivity"
+    query = (
+        f"query($first:Int!,$skip:Int!){{ agents(first:$first, skip:$skip, where:{where_clause}, "
+        f"orderBy: {gql_order}, orderDirection: desc) {{ {_AGENT_WITH_FEEDBACK_FIELDS} }} }}"
+    )
+    data = _post(url or subgraph_url(chain_id), query, {"first": fetch_limit, "skip": 0}, timeout)
+
+    trusted_set = {Web3.to_checksum_address(a) for a in trusted_scorers} if trusted_scorers else None
+    q_norm = query_text.lower().strip() if query_text else None
+    skill_norm = skill.lower().strip() if skill else None
+    domain_norm = domain.lower().strip() if domain else None
+
+    results: list[tuple[int, AgentSearchResult]] = []
+    for row in data.get("agents", []):
+        agent = _parse_agent(row)
+
+        if integrity_only and not agent.integrity_did:
+            continue
+        if confined_wallet_only and not agent.agent_wallet:
+            continue
+        if mcp_required and not agent.mcp_endpoint:
+            continue
+        if a2a_required and not agent.a2a_endpoint:
+            continue
+        if x402_required and not agent.x402_support:
+            continue
+        if active_only and agent.active is not True:
+            continue
+        if agent.total_feedback < min_feedback:
+            continue
+
+        if q_norm:
+            haystack = " ".join(
+                filter(None, [agent.name, agent.description, agent.did, " ".join(agent.oasf_skills)])
+            ).lower()
+            if q_norm not in haystack:
+                continue
+
+        if skill_norm and not any(skill_norm in s.lower() for s in agent.oasf_skills):
+            continue
+        if domain_norm and not any(domain_norm in d.lower() for d in agent.oasf_domains):
+            continue
+
+        feedback_rows = row.get("feedback") or []
+        parsed_feedbacks: list[AisFeedbackRecord] = []
+        for f_row in feedback_rows:
+            if f_row.get("isRevoked"):
+                continue
+            rec = _parse_ais_feedback_row(f_row, agent.agent_id)
+            if rec is None:
+                continue
+            if trusted_set is not None and rec.client_address not in trusted_set:
+                continue
+            parsed_feedbacks.append(rec)
+
+        parsed_feedbacks.sort(key=lambda r: (r.created_at, r.feedback_index), reverse=True)
+        latest = parsed_feedbacks[0] if parsed_feedbacks else None
+        ais_bps = latest.score_bps if latest else None
+
+        if min_ais_bps is not None and (ais_bps is None or ais_bps < min_ais_bps):
+            continue
+
+        last_act = int(row.get("lastActivity") or 0)
+        results.append(
+            (
+                last_act,
+                AgentSearchResult(
+                    agent=agent,
+                    ais_score_bps=ais_bps,
+                    ais_score_percent=round(ais_bps / 100.0, 2) if ais_bps is not None else None,
+                    verified_scorer=latest.client_address if latest else None,
+                    recent_feedbacks=parsed_feedbacks,
+                ),
+            )
+        )
+
+    if order_by == "ais":
+        results.sort(
+            key=lambda item: (
+                item[1].ais_score_bps if item[1].ais_score_bps is not None else -1,
+                item[1].agent.total_feedback,
+                item[0],
+            ),
+            reverse=True,
+        )
+    elif order_by == "totalFeedback":
+        results.sort(key=lambda item: (item[1].agent.total_feedback, item[0]), reverse=True)
+    else:
+        results.sort(key=lambda item: item[0], reverse=True)
+
+    return [item[1] for item in results[skip : skip + first]]
+
+
 __all__ = [
     "AGENT0_SUBGRAPH_IDS",
     "Agent0Agent",
     "Agent0SubgraphError",
+    "AgentSearchResult",
     "AisFeedbackRecord",
     "ais_feedback_history",
     "decode_feedback_data_uri",
     "get_agent",
     "latest_ais_score",
     "list_agents",
+    "search_agents",
     "subgraph_url",
 ]
